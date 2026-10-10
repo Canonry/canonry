@@ -3,8 +3,8 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { AlertTriangle, ArrowLeft, Ban, Clock, Info } from 'lucide-react'
-import { formatPercent, MeasurementEvidenceShapes, UNATTRIBUTED_MENTION_REASON } from '@ainyc/canonry-contracts'
+import { AlertTriangle, ArrowLeft, Clock, Info } from 'lucide-react'
+import { formatPercent, MeasurementEvidenceShapes } from '@ainyc/canonry-contracts'
 import type {
   MeasurementOverviewResponse,
   MeasurementPlanResponse,
@@ -74,14 +74,15 @@ interface UnavailableReason { label: string; detail?: string }
  * Why a number is missing, in the reader's language. A metric with no evidence
  * renders one of these and never a percentage — "0%" is a measured result and
  * saying it here would invent one. A reason that takes a sentence keeps it as
- * `detail`, shown behind the help icon beside the label.
+ * `detail`, which the label opens (`ReasonLabel`). The sentence is this page's
+ * own: the shared one still says property.
  */
 const UNAVAILABLE_REASONS: Record<string, UnavailableReason> = {
   plan_v1: { label: 'Setup update required' },
   no_completed_run: { label: NO_COMPLETED_SWEEP },
   no_population: { label: 'No queries tracked' },
   evidence_incomplete: { label: 'Evidence incomplete' },
-  identity_ambiguous: { label: 'Unclear answers', detail: UNATTRIBUTED_MENTION_REASON },
+  identity_ambiguous: { label: 'Unclear answers', detail: 'No answer could be tied to one location.' },
   not_applicable: { label: 'Not applicable' },
 }
 
@@ -142,7 +143,7 @@ function MentionSignal({ row }: { row: AnswerRow }) {
     return (
       <span className="inline-flex items-center whitespace-nowrap">
         <ToneBadge tone="neutral">Not measured</ToneBadge>
-        <InfoTooltip text="No mention signal for this location." />
+        <InfoTooltip placement="bottom" text="No mention signal for this location." />
       </span>
     )
   }
@@ -151,6 +152,13 @@ function MentionSignal({ row }: { row: AnswerRow }) {
 
 /** An answer whose source list was not fully captured. Shown where its source count would be. */
 const SOURCES_PARTIAL = { label: 'Sources partial', detail: 'Sources were not fully captured for this answer.' } as const
+/** The same gap with nothing captured at all, so the row and its opened detail say one thing. */
+const SOURCES_NOT_SAVED = { label: 'Sources not saved', detail: 'The sources for this answer were not fully captured, so none can be shown.' } as const
+
+/** Why an answer with an unread citation has no source count: some sources were captured, or none. */
+function sourcesGap(row: AnswerRow) {
+  return row.sources.length === 0 ? SOURCES_NOT_SAVED : SOURCES_PARTIAL
+}
 
 /**
  * Citation is three states for the same reason mention is. Null means the
@@ -165,10 +173,10 @@ function CitationSignal({ row }: { row: AnswerRow }) {
 
 function AnswerSources({ row }: { row: AnswerRow }) {
   if (row.cited === null && row.sources.length === 0) {
-    return <div className="py-2"><StatusNote icon={AlertTriangle} tone="caution" label="Sources not saved" detail="The sources for this answer were not fully captured, so none can be shown." /></div>
+    return <div className="py-2"><StatusNote icon={AlertTriangle} tone="caution" label={SOURCES_NOT_SAVED.label} detail={SOURCES_NOT_SAVED.detail} /></div>
   }
   if (row.sources.length === 0) {
-    return <div className="py-2"><StatusNote icon={Ban} label="No sources" detail="This answer returned no source URLs at all." /></div>
+    return <div className="py-2"><StatusNote icon={Info} label="No sources" detail="This answer returned no source URLs at all." /></div>
   }
   return (
     <details className="mt-2" data-answer-sources>
@@ -248,9 +256,9 @@ function reasonOf(metric: Extract<MetricValue, { state: 'unavailable' }>): Unava
   return UNAVAILABLE_REASONS[metric.reason] ?? { label: 'Not measured' }
 }
 
-/** A reason's label, with its sentence behind the help icon when it has one. */
+/** A reason's label. One with a sentence behind it is a note, so the sentence is a full-size tap away on a phone. */
 function ReasonLabel({ reason }: { reason: UnavailableReason }) {
-  return <>{reason.label}{reason.detail ? <InfoTooltip text={reason.detail} /> : null}</>
+  return reason.detail ? <StatusNote icon={Info} label={reason.label} detail={reason.detail} /> : <>{reason.label}</>
 }
 
 /**
@@ -328,7 +336,7 @@ function PropertyProvenance({
    * response has not been read at all, in which case the line says nothing
    * rather than guessing which of the two it is.
    */
-  unmeasuredReason?: string
+  unmeasuredReason?: UnavailableReason
   queryClass: QueryClass
 }) {
   const when = measuredAt === undefined
@@ -337,10 +345,13 @@ function PropertyProvenance({
       ? NO_COMPLETED_SWEEP
       : `Measured ${formatObservedInstantLabel(observedInstant(measuredAt))}`
   if (when === null && unmeasuredReason === undefined) return null
+  // A location never swept gets the same words from both sides: say them once.
+  const reason = unmeasuredReason?.label === when ? undefined : unmeasuredReason
   return (
     <p className="supporting-copy">
-      {/* A location never swept gets the same words from both sides: say them once. */}
-      {[...new Set([when, unmeasuredReason].filter(Boolean))].join(' · ')}
+      {when}
+      {when !== null && reason ? ' · ' : ''}
+      {reason ? <ReasonLabel reason={reason} /> : null}
       {when !== null && unmeasuredReason === undefined
         ? ` · ${CLASS_LABELS[queryClass]} only`
         : ''}
@@ -374,10 +385,10 @@ function MarketLink({
       <div className="section-head section-head-inline flex-wrap">
         <div className="flex items-center gap-1">
           <h2 id="property-market" className="text-base font-semibold text-heading">Competitors by market</h2>
-          <InfoTooltip text="Competitors are attached to a market rather than to a single location, because one location has nobody to be compared against. Share of voice and competitor pressure are reported for the market this location sits in." />
+          <InfoTooltip placement="bottom" text="Competitors are attached to a market rather than to a single location, because one location has nobody to be compared against. Share of voice and competitor pressure are reported for the market this location sits in." />
         </div>
         <Button asChild type="button" size="sm" variant="outline">
-          <Link to="/projects/$projectName" params={{ projectName: project }} search={previous => patchVisibilitySelection(carryVisibilitySearch(previous), { measurementScope: 'project' })}>Open measurement overview</Link>
+          <Link to="/projects/$projectName" params={{ projectName: project }} search={previous => patchVisibilitySelection(carryVisibilitySearch(previous), { measurementScope: 'project' })}>Open AI Visibility</Link>
         </Button>
       </div>
       <ul className="flex flex-wrap gap-2">
@@ -536,7 +547,7 @@ function BrandContrast({
       <div className="section-head section-head-inline">
         <div className="flex items-center gap-1">
           <h2 id="property-brand-contrast" className="text-base font-semibold text-heading">By type</h2>
-          <InfoTooltip text="Branded queries already contain your name, so an answer engine has an easy path back to you. Non-brand queries describe the need instead, and that is the demand you have to earn. Each row is measured only over this location's queries of that type. A type with no query reads Not measured rather than 0%." />
+          <InfoTooltip placement="bottom" text="Branded queries already contain your name, so an answer engine has an easy path back to you. Non-brand queries describe the need instead, and that is the demand you have to earn. Each row is measured only over this location's queries of that type. A type with no query reads Not measured rather than 0%." />
         </div>
       </div>
       <div className="overflow-x-auto rounded-md border border-default">
@@ -559,6 +570,9 @@ function BrandContrast({
                       <span role="status"><StatusNote icon={AlertTriangle} tone="caution" label="Refresh failed" detail="The latest numbers did not load. These are the last ones read." /></span>
                       <RetryButton name={classQueries(queryClass)} onClick={() => onRetry(queryClass)} />
                     </span>
+                  ) : isError ? (
+                    // Under the type's name: on a phone the two figure columns start past the edge of the table's frame.
+                    <div className="mt-2"><ClassLoadFailed queryClass={queryClass} onRetry={() => onRetry(queryClass)} announce /></div>
                   ) : null}
                 </td>
                 {row ? (
@@ -567,7 +581,7 @@ function BrandContrast({
                     <td><MetricCell metric={row.citationCoverage} signal="cited" emphasis /></td>
                   </>
                 ) : isError ? (
-                  <td colSpan={2}><ClassLoadFailed queryClass={queryClass} onRetry={() => onRetry(queryClass)} announce /></td>
+                  <td colSpan={2}><span className="text-sm text-secondary">Unavailable</span></td>
                 ) : (
                   <>
                     <td><span className="text-sm text-secondary">Loading…</span></td>
@@ -589,7 +603,7 @@ function ProviderBreakdown({ row, queryClass, isError, onRetry }: { row: Propert
       <div className="section-head section-head-inline">
         <div className="flex items-center gap-1">
           <h2 id="property-providers" className="text-base font-semibold text-heading">By engine</h2>
-          <InfoTooltip text="Each row is measured over the queries that engine actually answered for this location, so the rows are a split of the same population rather than parts that add up to the location total. An engine that answered nothing for this location is absent instead of shown at 0%." />
+          <InfoTooltip placement="bottom" text="Each row is measured over the queries that engine actually answered for this location, so the rows are a split of the same population rather than parts that add up to the location total. An engine that answered nothing for this location is absent instead of shown at 0%." />
         </div>
       </div>
       {row === undefined && isError ? (
@@ -600,7 +614,7 @@ function ProviderBreakdown({ row, queryClass, isError, onRetry }: { row: Propert
         <StatusNote
           icon={Clock}
           label="Not measured"
-          detail={`No answer engine has measured ${classQueries(queryClass)} for this location.${row.mentionCoverage.state === 'unavailable' ? ` ${reasonOf(row.mentionCoverage).label}.` : ''}`}
+          detail={`No answer engine has measured ${classQueries(queryClass)} for this location.${row.mentionCoverage.state === 'unavailable' ? ` ${reasonOf(row.mentionCoverage).detail ?? `${reasonOf(row.mentionCoverage).label}.`}` : ''}`}
         />
       ) : (
         <div className="overflow-x-auto rounded-md border border-default">
@@ -666,7 +680,8 @@ function NamedInstead({ project, targetKey, queryClass }: { project: string; tar
 
   // Nothing to say yet, and a heading over a spinner is noise on a page that
   // already has four sections. The section appears when it has something.
-  if (query.isPending || query.isError) return null
+  if (query.isPending) return null
+  const failed = query.isError && query.data === undefined
   const competitors = query.data?.competitors ?? []
   const basis = query.data?.basis
 
@@ -675,12 +690,17 @@ function NamedInstead({ project, targetKey, queryClass }: { project: string; tar
       <div className="section-head section-head-inline">
         <div className="flex items-center gap-1">
           <h2 id="property-named-instead" className="text-base font-semibold text-heading">Named instead</h2>
-          <InfoTooltip text="Counted from the answers that did not name this location, so a name here is one an engine recommended in its place. Occurrences count answers, not positions: an engine naming the same rival in two answers counts twice, and one naming it twice in a single answer counts once." />
+          <InfoTooltip placement="bottom" text="Counted from the answers that did not name this location, so a name here is one an engine recommended in its place. Occurrences count answers, not positions: an engine naming the same rival in two answers counts twice, and one naming it twice in a single answer counts once." />
         </div>
         {competitors.length > 0 ? <p className="supporting-copy">{query.data?.total ?? competitors.length} named</p> : null}
       </div>
-      {competitors.length === 0 ? (
-        <StatusNote icon={Ban} label="None named" detail="No rival was named in the answers this location missed." />
+      {failed ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label="Load failed" detail="The names given instead did not load." /></span>
+          <RetryButton name="named instead" onClick={() => { void query.refetch() }} />
+        </div>
+      ) : competitors.length === 0 ? (
+        <StatusNote icon={Info} label="None named" detail="No rival was named in the answers this location missed." />
       ) : (
         <>
           <div className="overflow-x-auto rounded-md border border-default">
@@ -706,7 +726,7 @@ function NamedInstead({ project, targetKey, queryClass }: { project: string; tar
                     <td className="text-right">
                       <span className="inline-flex items-center justify-end gap-1">
                         <span className="tabular-nums text-secondary">{row.questionTotal}</span>
-                        <InfoTooltip text={competitorQueriesTooltipText(row)} />
+                        <InfoTooltip placement="bottom" text={competitorQueriesTooltipText(row)} />
                       </span>
                     </td>
                   </tr>
@@ -718,9 +738,10 @@ function NamedInstead({ project, targetKey, queryClass }: { project: string; tar
             <div className="mt-2 flex items-center text-sm">
               <dl className="flex gap-2">
                 <dt className="text-secondary">Missed answers</dt>
-                <dd className="tabular-nums text-heading">{basis.targetMissResults} of {basis.answeredResults}</dd>
+                {/* The type travels with the figure, as it does on the count under Cited on other queries. */}
+                <dd className="tabular-nums text-heading">{basis.targetMissResults} of {basis.answeredResults} <span className="text-secondary">&middot; {CLASS_LABELS[queryClass]}</span></dd>
               </dl>
-              <InfoTooltip text={`Answers to ${classQueries(queryClass)} that did not name this location.`} />
+              <InfoTooltip placement="bottom" text={`Answers to ${classQueries(queryClass)} that did not name this location.`} />
             </div>
           ) : null}
         </>
@@ -743,7 +764,7 @@ function AssignedQuestions({ questions, queryClass, action, notice }: { question
       </div>
       {notice}
       {questions.length === 0 ? (
-        <StatusNote icon={Ban} label={`No ${classQueries(queryClass)}`} />
+        <StatusNote icon={Info} label={`No ${classQueries(queryClass)}`} />
       ) : (
         <div className="overflow-x-auto rounded-md border border-default">
           <table className="evidence-table min-w-[420px]">
@@ -757,18 +778,18 @@ function AssignedQuestions({ questions, queryClass, action, notice }: { question
   )
 }
 
-function PropertyUrls({ urls }: { urls: readonly string[] }) {
+function PropertyUrls({ urls, emptyAction }: { urls: readonly string[]; emptyAction?: ReactNode }) {
   return (
     <section aria-labelledby="property-urls" className="page-section-divider">
       <div className="section-head section-head-inline">
         <div className="flex items-center gap-1">
           <h2 id="property-urls" className="text-base font-semibold text-heading">Site pages we match</h2>
-          <InfoTooltip text="A cited source URL is credited to this location when it matches one of these. The most specific match wins, so a URL covered by two locations at the same specificity is flagged for review instead of being credited to either." />
+          <InfoTooltip placement="bottom" text="A cited source URL is credited to this location when it matches one of these. The most specific match wins, so a URL covered by two locations at the same specificity is flagged for review instead of being credited to either." />
         </div>
-        <p className="supporting-copy">{urls.length} configured</p>
+        <p className="supporting-copy">{urls.length} {urls.length === 1 ? 'page' : 'pages'}</p>
       </div>
       {urls.length === 0 ? (
-        <StatusNote icon={Ban} label="No site pages" />
+        <StatusNote icon={Info} label="No site pages" action={emptyAction} />
       ) : (
         <div className="overflow-x-auto rounded-md border border-default">
           <table className="evidence-table min-w-[420px]">
@@ -849,12 +870,13 @@ function CitedOnOtherQueries({
       <div className="section-head section-head-inline flex-wrap">
         <div className="flex items-center gap-1">
           <h2 id="property-other-queries" className="text-base font-semibold text-heading">{OTHER_QUERIES_COPY.heading}</h2>
-          <InfoTooltip text={OTHER_QUERIES_COPY.help} />
+          <InfoTooltip placement="bottom" text={OTHER_QUERIES_COPY.help} />
         </div>
         {query.data ? (
           <div className="flex flex-wrap items-center gap-x-3">
             <p className="supporting-copy">{total} {total === 1 ? 'answer' : 'answers'} &middot; {CLASS_LABELS[queryClass]}</p>
-            <StatusNote icon={Info} label={OTHER_QUERIES_COPY.notCounted} detail={OTHER_QUERIES_COPY.notCountedHelp} />
+            {/* With no row there is nothing for the note to qualify. */}
+            {rows.length > 0 ? <StatusNote icon={Info} label={OTHER_QUERIES_COPY.notCounted} detail={OTHER_QUERIES_COPY.notCountedHelp} /> : null}
           </div>
         ) : null}
       </div>
@@ -866,7 +888,7 @@ function CitedOnOtherQueries({
           <RetryButton name="other queries" onClick={() => { void query.refetch() }} />
         </div>
       ) : rows.length === 0 ? (
-        <StatusNote icon={Ban} label={OTHER_QUERIES_COPY.empty} detail={OTHER_QUERIES_COPY.emptyHelp} />
+        <StatusNote icon={Info} label={OTHER_QUERIES_COPY.empty} detail={OTHER_QUERIES_COPY.emptyHelp} />
       ) : (
         <>
           {/* Positioned, so the screen-reader-only header cell is clipped with the table instead of widening the page. */}
@@ -1042,7 +1064,7 @@ export function MeasurementPropertyPage() {
   // three that made the facts grid repeat its own page. What survives is the
   // reason a class has no numbers at all, which nothing else says once.
   const engineUnmeasuredReason = selectedRow?.mentionCoverage.state === 'unavailable'
-    ? reasonOf(selectedRow.mentionCoverage).label
+    ? reasonOf(selectedRow.mentionCoverage)
     : undefined
   // Undefined while the response is unread, so a pending or failed fetch never
   // asserts this Property has never been swept.
@@ -1167,7 +1189,12 @@ export function MeasurementPropertyPage() {
   )
 
   if (!hasRouteParams) {
-    return <div className="page-container"><StatusNote icon={AlertTriangle} label="Location not found" /></div>
+    return (
+      <div className="page-container space-y-3">
+        {project ? backLink : null}
+        <StatusNote icon={AlertTriangle} label="Location not found" />
+      </div>
+    )
   }
 
   // A child route the subnav never renders, so a direct link is the only way in.
@@ -1218,6 +1245,12 @@ export function MeasurementPropertyPage() {
     )
   }
 
+  const setupLink = (label: string) => (
+    <Button asChild type="button" variant="outline" className="h-11 px-4 text-sm md:h-11">
+      <Link to="/projects/$projectName/portfolio" params={{ projectName: project }}>{label}</Link>
+    </Button>
+  )
+
   if (!planV2 || !target) {
     return (
       <div className="page-container space-y-3">
@@ -1233,11 +1266,7 @@ export function MeasurementPropertyPage() {
                 : 'A location page needs a published advanced measurement setup.'}
             />
           </span>
-          <Button asChild type="button" variant="outline" className="h-11 px-4 text-sm md:h-11">
-            <Link to="/projects/$projectName/portfolio" params={{ projectName: project }}>
-              {canWrite ? (legacyPlan ? 'Republish setup' : 'Open measurement setup') : 'View measurement setup'}
-            </Link>
-          </Button>
+          {setupLink(canWrite ? (legacyPlan ? 'Republish setup' : 'Open measurement setup') : 'View measurement setup')}
         </div>
       </div>
     )
@@ -1254,7 +1283,7 @@ export function MeasurementPropertyPage() {
             {filterHelp ? (
               <>
                 {' · Filters not applied '}
-                <InfoTooltip text={filterHelp} />
+                <InfoTooltip placement="bottom" text={filterHelp} />
               </>
             ) : null}
           </p>
@@ -1266,7 +1295,10 @@ export function MeasurementPropertyPage() {
             </ToneBadge>
           ) : null}
           {selectedRow && selectedRow.flags > 0 ? (
-            <ToneBadge tone="caution">{selectedRow.flags} {selectedRow.flags === 1 ? 'unclear link' : 'unclear links'}</ToneBadge>
+            <span className="inline-flex items-center whitespace-nowrap">
+              <ToneBadge tone="caution">{selectedRow.flags} {selectedRow.flags === 1 ? 'unclear link' : 'unclear links'}</ToneBadge>
+              <InfoTooltip variant="caution" text="Cited links that match more than one location. They are marked Several locations under Answers." />
+            </span>
           ) : null}
         </div>
       </div>
@@ -1292,7 +1324,7 @@ export function MeasurementPropertyPage() {
             icon={Clock}
             label="Awaiting next sweep"
             detail={isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : canWrite
-              ? `Run a measurement from the project overview to collect this location’s coverage and source evidence.${hasLastResults ? ' AI Visibility still shows the last results.' : ''}`
+              ? `Run a sweep from AI Visibility to collect this location’s coverage and source evidence.${hasLastResults ? ' AI Visibility still shows the last results.' : ''}`
               : 'This location needs a new measurement before coverage and source evidence are available.'}
           />
           <Button asChild type="button" className="h-11 px-4 text-sm md:h-11">
@@ -1370,14 +1402,14 @@ export function MeasurementPropertyPage() {
         activeRevision={activePlan!.revision}
         publishedBrandNames={planV2.identities.projectBrand.names}
       />
-      <PropertyUrls urls={urls} />
+      <PropertyUrls urls={urls} emptyAction={canWrite ? setupLink('Open measurement setup') : undefined} />
       <MarketLink project={project} groups={memberGroups} />
 
       <section aria-labelledby="property-evidence" className="page-section-divider">
         <div className="section-head section-head-inline">
           <div className="flex items-center gap-1">
             <h2 id="property-evidence" className="text-base font-semibold text-heading">Answers</h2>
-            <InfoTooltip text="One row per answer an engine gave for this location's queries in the displayed measurement. Mentioned and cited are independent: an answer can name this location without linking it, or link it without naming it. Where the answer text was not stored the mention reads Not measured, never a zero. Open a row to read what the engine actually said, followed by the source URLs it returned, this location's own first." />
+            <InfoTooltip placement="bottom" text="One row per answer an engine gave for this location's queries in the displayed measurement. Mentioned and cited are independent: an answer can name this location without linking it, or link it without naming it. Where the answer text was not stored the mention reads Not measured, never a zero. Open a row to read what the engine actually said, followed by the source URLs it returned, this location's own first." />
           </div>
           {evidenceRows.length > 0 ? <p className="supporting-copy">{evidenceRows.length} of {evidenceTotal}</p> : null}
         </div>
@@ -1393,13 +1425,22 @@ export function MeasurementPropertyPage() {
         ) : evidenceState === 'not_measured' ? (
           // Not measured is not "no evidence". Saying "none" here would report
           // an absent measurement as a measured result.
-          <StatusNote icon={Clock} label="Not measured" detail={isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Run a measurement to collect the answers for this location.'} />
+          <StatusNote
+            icon={Clock}
+            label="Not measured"
+            detail={isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : canWrite
+              ? 'Run a measurement to collect the answers for this location.'
+              : 'This location needs a new measurement before its answers are available.'}
+          />
         ) : evidenceShapeMismatch ? (
-          <span role="alert">
-            <StatusNote icon={AlertTriangle} tone="caution" label="Answers unavailable" detail="This measurement was returned in an older format, so the answers cannot be shown here. The numbers above are unaffected." />
-          </span>
+          <div className="flex flex-wrap items-center gap-3">
+            <span role="alert">
+              <StatusNote icon={AlertTriangle} tone="caution" label="Answers unavailable" detail="This measurement was returned in an older format, so the answers cannot be shown here. The numbers above are unaffected." />
+            </span>
+            <RetryButton name="answers" onClick={() => { void evidenceQuery.refetch() }} />
+          </div>
         ) : evidenceRows.length === 0 ? (
-          <StatusNote icon={Ban} label="No answers" detail="No answers matched this location in the displayed measurement." />
+          <StatusNote icon={Info} label="No answers" detail="No answers matched this location in the displayed measurement." />
         ) : (
           <>
             <div className="property-answer-table-container overflow-x-auto rounded-md border border-default">
@@ -1433,7 +1474,7 @@ export function MeasurementPropertyPage() {
                           </td>
                           <td className="whitespace-nowrap"><span className="property-evidence-mobile-label" aria-hidden="true">Mentioned</span><MentionSignal row={item} /></td>
                           <td className="whitespace-nowrap"><span className="property-evidence-mobile-label" aria-hidden="true">Cited</span><CitationSignal row={item} /></td>
-                          <td className="whitespace-nowrap tabular-nums text-secondary"><span className="property-evidence-mobile-label" aria-hidden="true">{ANSWER_SOURCES_LABEL}</span>{item.cited === null ? <StatusNote icon={AlertTriangle} tone="caution" label={SOURCES_PARTIAL.label} detail={SOURCES_PARTIAL.detail} /> : item.sources.length}</td>
+                          <td className="whitespace-nowrap tabular-nums text-secondary"><span className="property-evidence-mobile-label" aria-hidden="true">{ANSWER_SOURCES_LABEL}</span>{item.cited === null ? <StatusNote icon={AlertTriangle} tone="caution" label={sourcesGap(item).label} detail={sourcesGap(item).detail} /> : item.sources.length}</td>
                           <td className="text-right">
                             <Button
                               type="button"

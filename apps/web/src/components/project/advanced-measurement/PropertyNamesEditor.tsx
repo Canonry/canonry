@@ -40,17 +40,16 @@ export const PROPERTY_NAMES_COPY = {
   save: 'Save to draft',
   saving: 'Saving…',
   cancel: 'Cancel',
-  namesHint: 'One name per line.',
-  qualifiedHint: 'One per line. Each must include one of the names above plus more words, such as a street or city.',
-  qualifiedNote: 'Limits plain names',
-  qualifiedNoteDetail: 'With qualified names set, an answer that uses only a plain name counts as a mention only when it also cites this location’s own page. Otherwise it is left out as not tied to one location.',
-  draftOnly: 'Saves to draft',
+  perLine: 'One per line',
+  qualifiedHint: 'Each must include one of the names above plus more words, such as a street or city. With qualified names set, an answer that uses only a plain name counts as a mention only when it also cites this location’s own page. Otherwise it is left out as not tied to one location.',
+  draftOnly: 'Publish to apply',
   draftOnlyDetail: 'Saving changes the draft only. Nothing is measured differently until the setup is published.',
   saved: 'Saved to draft',
   savedDetail: 'Publish the setup to start using these names.',
   pending: 'Unpublished changes',
   pendingDetail: 'Name changes are saved in the draft and not published yet.',
   review: 'Review and publish',
+  openSetup: 'Open measurement setup',
   noChanges: 'No changes',
   staleDraft: 'Draft out of date',
   staleDraftDetail: 'The draft is based on an older published setup. Restart it in measurement setup before editing names.',
@@ -62,11 +61,28 @@ export const PROPERTY_NAMES_COPY = {
   failedDetail: 'These names were not saved.',
 } as const
 
-/** What is wrong with a name, in a few words. The shared sentence for it is the note's help. */
+/** What is wrong with a name, in a few words. The sentence for it is the note's help. */
 const ISSUE_LABELS: Record<MeasurementTargetNameIssue['code'], string> = {
   [MeasurementTargetNameIssueCodes.short]: 'Too short',
   [MeasurementTargetNameIssueCodes.withoutBrand]: 'No brand name',
   [MeasurementTargetNameIssueCodes.qualifiedWithoutName]: 'Must include a name',
+}
+
+/**
+ * The sentence behind a name warning. The shared sentences for two of the
+ * three say "property" (`measurementTargetNameIssueMessage`, also printed by
+ * the draft API and the CLI), and this page says "location", so those two are
+ * worded here. The check that raises them is still the shared one.
+ */
+export function nameIssueDetail(issue: MeasurementTargetNameIssue): string {
+  switch (issue.code) {
+    case MeasurementTargetNameIssueCodes.short:
+      return measurementTargetNameIssueMessage(issue)
+    case MeasurementTargetNameIssueCodes.withoutBrand:
+      return `"${issue.value.trim()}" does not include your brand name, so answers about other places with this name can count for this location.`
+    case MeasurementTargetNameIssueCodes.qualifiedWithoutName:
+      return `"${issue.value.trim()}" must include one of this location’s names plus more words, such as a street or city. Publishing is refused until it does.`
+  }
 }
 
 type DraftTarget = MeasurementDraftTarget
@@ -117,7 +133,7 @@ function IssueList({ id, issues }: { id: string; issues: readonly MeasurementTar
     <ul id={id} className="mt-2 flex flex-wrap gap-x-5 gap-y-1" aria-label="Name warnings">
       {issues.map(issue => (
         <li key={`${issue.field}:${issue.index}`}>
-          <StatusNote icon={AlertTriangle} tone="caution" label={`${ISSUE_LABELS[issue.code]}: ${issue.value.trim()}`} detail={measurementTargetNameIssueMessage(issue)} />
+          <StatusNote icon={AlertTriangle} tone="caution" label={`${ISSUE_LABELS[issue.code]}: ${issue.value.trim()}`} detail={nameIssueDetail(issue)} />
         </li>
       ))}
     </ul>
@@ -130,10 +146,10 @@ function IssueList({ id, issues }: { id: string; issues: readonly MeasurementTar
  *
  * Saving is `upsert-target` on the draft and never a publish: the published
  * revision keeps matching the old names until someone reviews and publishes the
- * draft. Warnings come from the same contracts helper the draft API attaches to
- * its response, checked against the same brand names (the project's current
+ * draft. Warnings come from the same contracts check the draft API attaches to
+ * its response, run against the same brand names (the project's current
  * ones, which the next publish freezes), so this editor and
- * `canonry measurement-plan advanced` say the same thing about the same name.
+ * `canonry measurement-plan advanced` warn about the same names.
  */
 export function PropertyNamesSection({
   projectName,
@@ -184,7 +200,8 @@ export function PropertyNamesSection({
   // The names the editor opened on. A save compares the draft against these,
   // so a change made elsewhere while the editor was open is never overwritten.
   const [base, setBase] = useState<TargetNames>(published)
-  const [notice, setNotice] = useState<{ tone: 'positive' | 'negative'; label: string; detail?: string; review: boolean } | null>(null)
+  // `link` is the one action beside the notice: publish what was saved, or open setup to repair the draft.
+  const [notice, setNotice] = useState<{ tone: 'positive' | 'negative'; label: string; detail?: string; link?: 'review' | 'setup' } | null>(null)
   // The editor holds one Property's unsaved text. The page reuses this
   // component when it moves to another Property or project, so drop that
   // text then: otherwise a save would write the last Property's names onto
@@ -233,7 +250,7 @@ export function PropertyNamesSection({
 
   function showConflict(latest: TargetNames | null) {
     if (latest) loadNames(latest)
-    setNotice({ tone: 'negative', label: PROPERTY_NAMES_COPY.conflict, detail: PROPERTY_NAMES_COPY.conflictDetail, review: false })
+    setNotice({ tone: 'negative', label: PROPERTY_NAMES_COPY.conflict, detail: PROPERTY_NAMES_COPY.conflictDetail })
   }
 
   const save = useMutation({
@@ -268,17 +285,17 @@ export function PropertyNamesSection({
       switch (result.outcome) {
         case 'saved':
           setEditing(false)
-          setNotice({ tone: 'positive', label: PROPERTY_NAMES_COPY.saved, detail: PROPERTY_NAMES_COPY.savedDetail, review: true })
+          setNotice({ tone: 'positive', label: PROPERTY_NAMES_COPY.saved, detail: PROPERTY_NAMES_COPY.savedDetail, link: 'review' })
           return
         case 'unchanged':
           setEditing(false)
-          setNotice({ tone: 'positive', label: PROPERTY_NAMES_COPY.noChanges, review: false })
+          setNotice({ tone: 'positive', label: PROPERTY_NAMES_COPY.noChanges })
           return
         case 'stale':
-          setNotice({ tone: 'negative', label: PROPERTY_NAMES_COPY.staleDraft, detail: PROPERTY_NAMES_COPY.staleDraftDetail, review: true })
+          setNotice({ tone: 'negative', label: PROPERTY_NAMES_COPY.staleDraft, detail: PROPERTY_NAMES_COPY.staleDraftDetail, link: 'setup' })
           return
         case 'missing':
-          setNotice({ tone: 'negative', label: PROPERTY_NAMES_COPY.missingFromDraft, detail: PROPERTY_NAMES_COPY.missingFromDraftDetail, review: true })
+          setNotice({ tone: 'negative', label: PROPERTY_NAMES_COPY.missingFromDraft, detail: PROPERTY_NAMES_COPY.missingFromDraftDetail, link: 'setup' })
           return
         case 'conflict':
           showConflict(result.latest)
@@ -295,15 +312,17 @@ export function PropertyNamesSection({
         })
         return
       }
-      setNotice({ tone: 'negative', label: PROPERTY_NAMES_COPY.failed, detail: PROPERTY_NAMES_COPY.failedDetail, review: false })
+      setNotice({ tone: 'negative', label: PROPERTY_NAMES_COPY.failed, detail: PROPERTY_NAMES_COPY.failedDetail })
     },
   })
 
-  const reviewLink = (
+  // Both go to measurement setup. A draft that must be restarted or reviewed there cannot be published from here, so its link does not say publish.
+  const setupLink = (label: string) => (
     <Link to="/projects/$projectName/portfolio" params={{ projectName }} className="inline-flex items-center text-[13px] font-medium text-link underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 pointer-coarse:min-h-11 max-md:min-h-11">
-      {PROPERTY_NAMES_COPY.review}
+      {label}
     </Link>
   )
+  const reviewLink = setupLink(PROPERTY_NAMES_COPY.review)
   const nameCount = published.aliases.length + publishedQualified.length
 
   return (
@@ -311,7 +330,7 @@ export function PropertyNamesSection({
       <div className="section-head section-head-inline">
         <div className="flex items-center gap-1">
           <h2 id="property-names" className="text-base font-semibold text-heading">{PROPERTY_NAMES_COPY.heading}</h2>
-          <InfoTooltip text={PROPERTY_NAMES_COPY.help} />
+          <InfoTooltip placement="bottom" text={PROPERTY_NAMES_COPY.help} />
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <p className="supporting-copy">{nameCount} {nameCount === 1 ? 'name' : 'names'}</p>
@@ -325,7 +344,7 @@ export function PropertyNamesSection({
 
       {notice ? (
         <div role={notice.tone === 'negative' ? 'alert' : 'status'} className="mb-3">
-          <StatusNote icon={notice.tone === 'negative' ? AlertTriangle : Check} tone={notice.tone} label={notice.label} detail={notice.detail} action={notice.review ? reviewLink : undefined} />
+          <StatusNote icon={notice.tone === 'negative' ? AlertTriangle : Check} tone={notice.tone} label={notice.label} detail={notice.detail} action={notice.link === 'review' ? reviewLink : notice.link === 'setup' ? setupLink(PROPERTY_NAMES_COPY.openSetup) : undefined} />
         </div>
       ) : pending && !editing ? (
         <div role="status" className="mb-3">
@@ -344,10 +363,10 @@ export function PropertyNamesSection({
           }}
         >
           <div>
-            {/* The help is a sibling of the label, so its text stays out of the field's name; the field is described by it. */}
-            <div className="flex items-center">
+            {/* The hint is a sibling of the label, so its text stays out of the field's name; the field is described by it. */}
+            <div className="flex flex-wrap items-center gap-x-3">
               <label htmlFor={`${fieldId}-names`} className="block text-sm font-medium text-heading">{PROPERTY_NAMES_COPY.names}</label>
-              <span id={`${fieldId}-names-hint`}><InfoTooltip text={PROPERTY_NAMES_COPY.namesHint} /></span>
+              <span id={`${fieldId}-names-hint`}><StatusNote icon={Info} label={PROPERTY_NAMES_COPY.perLine} /></span>
             </div>
             <textarea
               id={`${fieldId}-names`}
@@ -360,19 +379,18 @@ export function PropertyNamesSection({
             {names.length === 0 ? <div className="mt-2"><StatusNote icon={AlertTriangle} tone="caution" label={PROPERTY_NAMES_COPY.noNames} detail={PROPERTY_NAMES_COPY.noNamesDetail} /></div> : null}
           </div>
           <div>
-            <div className="flex items-center">
+            <div className="flex flex-wrap items-center gap-x-3">
               <label htmlFor={`${fieldId}-qualified`} className="block text-sm font-medium text-heading">{PROPERTY_NAMES_COPY.qualifiedNames}</label>
-              <span id={`${fieldId}-qualified-hint`}><InfoTooltip text={PROPERTY_NAMES_COPY.qualifiedHint} /></span>
+              <span id={`${fieldId}-qualified-hint`}><StatusNote icon={Info} label={PROPERTY_NAMES_COPY.perLine} detail={PROPERTY_NAMES_COPY.qualifiedHint} /></span>
             </div>
             <textarea
               id={`${fieldId}-qualified`}
               className="mt-1 min-h-20 w-full rounded-md border border-strong bg-transparent px-3 py-2 text-sm text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
-              aria-describedby={`${fieldId}-qualified-hint ${fieldId}-qualified-note${qualifiedIssues.length ? ` ${fieldId}-qualified-issues` : ''}`}
+              aria-describedby={`${fieldId}-qualified-hint${qualifiedIssues.length ? ` ${fieldId}-qualified-issues` : ''}`}
               value={qualifiedText}
               onChange={event => setQualifiedText(event.target.value)}
             />
             <IssueList id={`${fieldId}-qualified-issues`} issues={qualifiedIssues} />
-            <div id={`${fieldId}-qualified-note`} className="mt-2"><StatusNote icon={Info} label={PROPERTY_NAMES_COPY.qualifiedNote} detail={PROPERTY_NAMES_COPY.qualifiedNoteDetail} /></div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <WriteButton type="submit" className="h-11 px-4 text-sm md:h-11" disabled={save.isPending}>

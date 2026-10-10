@@ -9,12 +9,10 @@ import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { heyClient } from '../src/api.js'
 import { EVIDENCE_LABELS, OTHER_QUERIES_COPY } from '../src/pages/MeasurementPropertyPage.js'
-import { PROPERTY_NAMES_COPY, PropertyNamesSection } from '../src/components/project/advanced-measurement/PropertyNamesEditor.js'
+import { nameIssueDetail, PROPERTY_NAMES_COPY, PropertyNamesSection } from '../src/components/project/advanced-measurement/PropertyNamesEditor.js'
 import { AccountProvider, type SignedInAccount } from '../src/contexts/account-context.js'
 import {
   answerProseForMentions,
-  UNATTRIBUTED_MENTION_REASON,
-  measurementTargetNameIssueMessage,
   MeasurementTargetNameIssueCodes,
   queryTrackingCommitResponseSchema,
   queryTrackingPreviewRequestSchema,
@@ -24,6 +22,8 @@ import {
 import { createQueryClient } from '../src/queries/query-client.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { ANSWER_SOURCES_LABEL } from '../src/components/shared/AnswerMarkdown.js'
+import { formatObservedInstantLabel, observedInstant } from '../src/components/shared/ChartPrimitives.js'
+import { MANAGED_SWEEPS_COPY } from '../src/components/project/ManagedSweepStatus.js'
 import {
   getApiV1ProjectsByNameMeasurementOverviewQueryKey,
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
@@ -32,9 +32,15 @@ import {
 import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 import { expectCautionNote, expectCautionNoteOnOneLine, visibleText } from './caution-note.js'
+import { compileAppStyles, compiledElementProperty, parseCompiledCss } from './compiled-app-css.js'
 
 const TARGET_KEY = 'harbor-house'
 const RUN_ID = 'run-synthetic'
+/** When every overview fixture's sweep completed, and the line the page prints for it in the reader's own timezone. */
+const COMPLETED_AT = '2026-08-02T12:05:00.000Z'
+const MEASURED_LINE = `Measured ${formatObservedInstantLabel(observedInstant(COMPLETED_AT))}`
+/** The help behind "Unclear answers", in this page's words. */
+const UNCLEAR_ANSWERS = 'Unclear answers. No answer could be tied to one location.'
 const OWN_URL = 'https://locations.example/harbor-house'
 const NEARBY_QUESTION = 'boutique hotels near the harbor'
 /** The panel now reads one row per ANSWER, so every request carries the shape. */
@@ -180,7 +186,7 @@ function overviewResponse(queryClass: 'branded' | 'non-brand', row: {
       displayedRunId: RUN_ID,
       completed: 2,
       expected: 2,
-      completedAt: '2026-08-02T12:05:00.000Z',
+      completedAt: COMPLETED_AT,
     },
     nextAction: { kind: options.nextAction ?? 'none' },
     metrics: {
@@ -551,6 +557,10 @@ describe('Property page', () => {
     // One failed read is one alert: a short label, with what failed in its help.
     expect(screen.getByRole('alert').textContent).toBe('Load failed')
     expect(within(screen.getByRole('alert')).getByRole('button', { name: 'Load failed. Branded queries did not load.' })).toBeTruthy()
+    // It sits with its Retry under the type's name, in the first column, which a phone shows whole.
+    const [type, figures] = [...within(contrast).getByText('Branded').closest('tr')!.querySelectorAll('td')]
+    expect(visibleText(type!)).toBe('BrandedLoad failedRetry')
+    expect(figures!.textContent).toBe('Unavailable')
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry branded queries' }))
     await waitFor(() => expect(within(contrast).getAllByText('100%')).toHaveLength(2))
@@ -692,7 +702,7 @@ describe('Property page', () => {
   })
 
   /** A Property this page must measure, beside AI Visibility's report for it. Settles every read before returning. */
-  async function renderNeedsMeasurement(report: ReturnType<typeof lastResultsReport>, search = '') {
+  async function renderNeedsMeasurement(report: ReturnType<typeof lastResultsReport>, search = '', account: SignedInAccount | null = null) {
     const reports: URL[] = []
     const blank = { mentionCoverage: unavailable('no_completed_run'), citationCoverage: unavailable('no_completed_run') }
     const { queryClient } = await renderPropertyPageFromApi(url => {
@@ -700,11 +710,14 @@ describe('Property page', () => {
         reports.push(new URL(url))
         return jsonResponse(report)
       }
+      if (pathOf(url).includes('/measurement-property-evidence') && new URL(url).searchParams.get('shape') === 'answers') {
+        return jsonResponse({ ...evidenceResponse([]), measurement: { state: 'not_measured' as const, displayedRunId: RUN_ID } })
+      }
       return propertyPageResponses({
         branded: overviewResponse('branded', blank),
         nonBrand: overviewResponse('non-brand', blank, { measurementState: 'not_measured', nextAction: 'run_measurement' }),
       })(url)
-    }, { search })
+    }, { search, account })
     await waitFor(() => expect(reports).toHaveLength(1))
     await waitFor(() => expect(queryClient.isFetching()).toBe(0))
     return reports
@@ -727,8 +740,40 @@ describe('Property page', () => {
     const next = screen.getByRole('region', { name: 'Measurement next step' })
     expect(visibleText(next)).toBe(`Awaiting next sweep${name}`)
     const instruction = within(next).getByRole('button', { name: /^Awaiting next sweep\. / }).getAttribute('aria-label')!
-    expect(instruction).toContain('Run a measurement from the project overview to collect this location’s coverage and source evidence.')
+    expect(instruction).toContain('Run a sweep from AI Visibility to collect this location’s coverage and source evidence.')
     expect(instruction.includes('AI Visibility still shows the last results.')).toBe(scoped)
+  })
+
+  it('tells a viewer the location awaits a sweep, with no instruction to run one and no write control', async () => {
+    await renderNeedsMeasurement(lastResultsReport(null), '', VIEWER)
+
+    const next = screen.getByRole('region', { name: 'Measurement next step' })
+    expect(visibleText(next)).toBe('Awaiting next sweepView AI Visibility')
+    expect(within(next).getByRole('button', { name: 'Awaiting next sweep. This location needs a new measurement before coverage and source evidence are available.' })).toBeTruthy()
+    const answers = screen.getByRole('region', { name: 'Answers' })
+    expect(await within(answers).findByRole('button', { name: 'Not measured. This location needs a new measurement before its answers are available.' })).toBeTruthy()
+    const page = document.querySelector<HTMLElement>('.page-container')!
+    expect([...page.querySelectorAll('[aria-label]')].map(element => element.getAttribute('aria-label')!).filter(name => /\brun a\b/i.test(name))).toEqual([])
+    expect(within(page).queryByRole('button', { name: 'Add query about this location' })).toBeNull()
+    expect(within(page).queryByRole('button', { name: PROPERTY_NAMES_COPY.edit })).toBeNull()
+  })
+
+  it('names who runs sweeps on a managed deployment, and never tells the reader to run one', async () => {
+    const previousConfig = window.__CANONRY_CONFIG__
+    window.__CANONRY_CONFIG__ = { ...previousConfig, dashboard: { managedSweeps: true } }
+    onTestFinished(() => {
+      if (previousConfig === undefined) delete window.__CANONRY_CONFIG__
+      else window.__CANONRY_CONFIG__ = previousConfig
+    })
+    await renderNeedsMeasurement(lastResultsReport(null), '', ADMIN)
+
+    const next = screen.getByRole('region', { name: 'Measurement next step' })
+    expect(within(next).getByRole('button', { name: `Awaiting next sweep. ${MANAGED_SWEEPS_COPY}` })).toBeTruthy()
+    const answers = screen.getByRole('region', { name: 'Answers' })
+    expect(await within(answers).findByRole('button', { name: `Not measured. ${MANAGED_SWEEPS_COPY}` })).toBeTruthy()
+    const page = document.querySelector<HTMLElement>('.page-container')!
+    expect([...page.querySelectorAll('[aria-label]')].map(element => element.getAttribute('aria-label')!).filter(name => /\brun a\b/i.test(name))).toEqual([])
+    expect(page.textContent).not.toMatch(/\brun a\b/i)
   })
 
   it('opens the latest last results, not the sweep, revision or end date the page was reached with', async () => {
@@ -863,10 +908,10 @@ describe('Property page', () => {
     await expectCautionNoteOnOneLine(expectCautionNote(mentioned!, line, '1 of 1'))
     expect(cited!.querySelector('.info-tooltip-trigger-caution')).toBeNull()
     // Every answer ambiguous: the reason is named instead of a bare "Not measured",
-    // as a short label with the shared sentence behind the help icon beside it.
+    // as a short label that opens its sentence.
     const branded = within(contrast).getByText('Branded').closest('tr')!
     expect(within(branded).getByText('Unclear answers')).toBeTruthy()
-    expect(within(branded).getByRole('button', { name: UNATTRIBUTED_MENTION_REASON })).toBeTruthy()
+    expect(within(branded).getByRole('button', { name: UNCLEAR_ANSWERS })).toBeTruthy()
 
     const providers = screen.getByRole('table', { name: 'Per-engine mention and citation coverage' })
     const gemini = within(providers).getByText('Gemini').closest('tr')!
@@ -874,7 +919,7 @@ describe('Property page', () => {
     expectCautionNote(gemini.querySelectorAll('td')[1]!, '4 of 5 answers could not be tied to one property', '1 of 1')
     const openai = within(providers).getByText('OpenAI').closest('tr')!
     expect(within(openai).getByText('Unclear answers')).toBeTruthy()
-    expect(within(openai).getByRole('button', { name: UNATTRIBUTED_MENTION_REASON })).toBeTruthy()
+    expect(within(openai).getByRole('button', { name: UNCLEAR_ANSWERS })).toBeTruthy()
   })
 
   it('discloses the answers a citation rate could not check wherever that rate is shown, and never under Mentioned', async () => {
@@ -1060,15 +1105,28 @@ describe('Property answer evidence', () => {
     // no URLs when we simply never saw them.
     const evidence = await renderAnswers([
       answerRow({ slot: 'a', queryText: 'where to stay by the water', cited: null, sources: [] }),
+      answerRow({ slot: 'b', queryText: 'best small hotels in the old port', cited: null, sources: [externalSource('https://guide.example/harbour-stays')] }),
     ])
     const unknown = answerFor(evidence, 'where to stay by the water')
 
     expect(within(unknown).queryByText('Not cited')).toBeNull()
     expect(within(unknown).getAllByText('Not measured').length).toBeGreaterThan(0)
-    // Where the count would be, a short note says why there is none.
+    // Where the count would be, a short note says why there is none: nothing was captured here.
     const [, , , sources] = [...unknown.querySelectorAll('td')]
-    expect(sources!.textContent).toBe(`${ANSWER_SOURCES_LABEL}Sources partial`)
-    expect(within(sources!).getByRole('button', { name: 'Sources partial. Sources were not fully captured for this answer.' })).toBeTruthy()
+    expect(sources!.textContent).toBe(`${ANSWER_SOURCES_LABEL}Sources not saved`)
+    const notSaved = 'Sources not saved. The sources for this answer were not fully captured, so none can be shown.'
+    expect(within(sources!).getByRole('button', { name: notSaved })).toBeTruthy()
+    // The opened row says the same thing, in the same words.
+    fireEvent.click(within(unknown).getByRole('button', { name: 'Read the answer for where to stay by the water' }))
+    expect(within(evidence).getAllByRole('button', { name: notSaved })).toHaveLength(2)
+
+    // Some sources were captured: partial, and the ones captured are listed when the row is opened.
+    const partial = answerFor(evidence, 'best small hotels in the old port')
+    expect(partial.querySelectorAll('td')[3]!.textContent).toBe(`${ANSWER_SOURCES_LABEL}Sources partial`)
+    expect(within(partial).getByRole('button', { name: 'Sources partial. Sources were not fully captured for this answer.' })).toBeTruthy()
+    fireEvent.click(within(partial).getByRole('button', { name: 'Read the answer for best small hotels in the old port' }))
+    expect(within(evidence).getByText(`${ANSWER_SOURCES_LABEL} (1)`, { selector: 'summary' })).toBeTruthy()
+    expect(within(evidence).getAllByRole('button', { name: notSaved })).toHaveLength(2)
   })
 
   // Was: 'puts losses above wins by default', asserting a client-side re-sort.
@@ -1253,7 +1311,7 @@ describe('Property facts and market link', () => {
     expect(document.querySelectorAll('.metric-card')).toHaveLength(0)
 
     // Provenance is the one fact no section states, so it survives as a line.
-    expect(screen.getByText(/Measured Aug 2, 2026/)).toBeTruthy()
+    expect(screen.getByText(`${MEASURED_LINE} · Non-brand only`)).toBeTruthy()
     expect(screen.queryByText(/No completed sweep yet/)).toBeNull()
   })
 
@@ -1309,7 +1367,7 @@ describe('Property facts and market link', () => {
     // same unscoped URL, so the market a reader picked was silently dropped.
     const links = within(market).getAllByRole('link')
     expect(links).toHaveLength(1)
-    expect(links[0]!.textContent).toBe('Open measurement overview')
+    expect(links[0]!.textContent).toBe('Open AI Visibility')
   })
 
   it('does not claim the Property was never swept while a class is failing', async () => {
@@ -1449,8 +1507,8 @@ describe('Named instead of this Property', () => {
     expect(within(section).getByText('Harborline Homes')).toBeTruthy()
     expect(within(section).getByText('The Sutton')).toBeTruthy()
     expect(within(section).getByText('OpenAI, Gemini')).toBeTruthy()
-    // The basis is a labelled figure: the server's two counts, with what they count in the help beside them.
-    expect(within(section).getByText('Missed answers').nextElementSibling!.textContent).toBe('3 of 4')
+    // The basis is a labelled figure: the server's two counts and their type, with what they count in the help beside them.
+    expect(within(section).getByText('Missed answers').nextElementSibling!.textContent).toBe('3 of 4 · Non-brand')
     expect(within(section).getByRole('button', { name: 'Answers to non-brand queries that did not name this location.' })).toBeTruthy()
   })
 
@@ -1530,6 +1588,27 @@ describe('Named instead of this Property', () => {
     expect(visibleText(section)).toBe('Named insteadNone named')
     expect(within(section).getByRole('button', { name: 'None named. No rival was named in the answers this location missed.' })).toBeTruthy()
     expect(section.querySelector('table')).toBeNull()
+  })
+
+  it('keeps the section when its read fails, and reads it again on Retry', async () => {
+    let attempts = 0
+    await renderPropertyPageFromApi(url => {
+      if (pathOf(url).includes('/measurement-property-competitors')) {
+        attempts += 1
+        if (attempts === 1) return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'temporary failure' } }, 500)
+      }
+      return propertyPageResponses()(url)
+    })
+
+    const section = await screen.findByRole('region', { name: 'Named instead' })
+    expect(visibleText(section)).toBe('Named insteadLoad failedRetry')
+    expect(within(section).getByRole('alert').textContent).toBe('Load failed')
+    expect(within(section).getByRole('button', { name: 'Load failed. The names given instead did not load.' })).toBeTruthy()
+    fireEvent.click(within(section).getByRole('button', { name: 'Retry named instead' }))
+
+    expect(await within(section).findByText('Harborline Homes')).toBeTruthy()
+    expect(attempts).toBe(2)
+    expect(within(section).queryByRole('alert')).toBeNull()
   })
 })
 
@@ -1658,9 +1737,9 @@ function saveNames(section: HTMLElement) {
   fireEvent.click(within(section).getByRole('button', { name: PROPERTY_NAMES_COPY.save }))
 }
 
-const withoutBrand = (index: number, value: string) => measurementTargetNameIssueMessage({ code: MeasurementTargetNameIssueCodes.withoutBrand, field: 'aliases', index, value })
+const withoutBrand = (index: number, value: string) => nameIssueDetail({ code: MeasurementTargetNameIssueCodes.withoutBrand, field: 'aliases', index, value })
 
-/** A name warning: a short label naming the value, with the shared sentence for it as the note's help. */
+/** A name warning: a short label naming the value, with the sentence for it as the note's help. */
 function nameWarning(section: HTMLElement, label: string, message: string): HTMLElement | null {
   return within(section).queryByRole('button', { name: `${label}. ${message}` })
 }
@@ -1708,6 +1787,7 @@ describe('Names that count as this Property', () => {
     expect(qualified.value).toBe('')
     // The project's brand name is "Locations", which "Harbor House" lacks.
     const brandless = withoutBrand(0, 'Harbor House')
+    expect(brandless).toBe('"Harbor House" does not include your brand name, so answers about other places with this name can count for this location.')
     expect(nameWarning(section, 'No brand name: Harbor House', brandless)).toBeTruthy()
     // The warning describes the field it is under, sentence included.
     expect(document.getElementById(names.getAttribute('aria-describedby')!.split(' ')[1]!)!.contains(nameWarning(section, 'No brand name: Harbor House', brandless))).toBe(true)
@@ -1715,21 +1795,28 @@ describe('Names that count as this Property', () => {
     fireEvent.change(names, { target: { value: 'Locations Harbor House\nHH\n' } })
     fireEvent.change(qualified, { target: { value: 'Harbor District' } })
     expect(nameWarning(section, 'No brand name: Harbor House', brandless)).toBeNull()
-    expect(nameWarning(section, 'Too short: HH', measurementTargetNameIssueMessage({ code: MeasurementTargetNameIssueCodes.short, field: 'aliases', index: 1, value: 'HH' }))).toBeTruthy()
-    expect(nameWarning(section, 'Must include a name: Harbor District', measurementTargetNameIssueMessage({ code: MeasurementTargetNameIssueCodes.qualifiedWithoutName, field: 'identityAliases', index: 0, value: 'Harbor District' }))).toBeTruthy()
-    // Every helper is a label with its sentence one step away, and the fields are still described by theirs.
+    expect(nameWarning(section, 'Too short: HH', nameIssueDetail({ code: MeasurementTargetNameIssueCodes.short, field: 'aliases', index: 1, value: 'HH' }))).toBeTruthy()
+    const unqualified = nameIssueDetail({ code: MeasurementTargetNameIssueCodes.qualifiedWithoutName, field: 'identityAliases', index: 0, value: 'Harbor District' })
+    expect(unqualified).toBe('"Harbor District" must include one of this location’s names plus more words, such as a street or city. Publishing is refused until it does.')
+    expect(nameWarning(section, 'Must include a name: Harbor District', unqualified)).toBeTruthy()
+    // Every helper is a label with its sentence one step away, and each field is described by its one hint.
     const help = (text: string) => within(section).getByRole('button', { name: text })
-    expect(document.getElementById(names.getAttribute('aria-describedby')!.split(' ')[0]!)!.contains(help(PROPERTY_NAMES_COPY.namesHint))).toBe(true)
-    const [qualifiedHint, qualifiedNote] = qualified.getAttribute('aria-describedby')!.split(' ').map(id => document.getElementById(id)!)
-    expect(qualifiedHint!.contains(help(PROPERTY_NAMES_COPY.qualifiedHint))).toBe(true)
-    expect(qualifiedNote!.contains(help(`${PROPERTY_NAMES_COPY.qualifiedNote}. ${PROPERTY_NAMES_COPY.qualifiedNoteDetail}`))).toBe(true)
+    expect(document.getElementById(names.getAttribute('aria-describedby')!.split(' ')[0]!)!.textContent).toBe(PROPERTY_NAMES_COPY.perLine)
+    const [qualifiedHint, qualifiedIssues, ...more] = qualified.getAttribute('aria-describedby')!.split(' ').map(id => document.getElementById(id)!)
+    expect(qualifiedHint!.contains(help(`${PROPERTY_NAMES_COPY.perLine}. ${PROPERTY_NAMES_COPY.qualifiedHint}`))).toBe(true)
+    expect(PROPERTY_NAMES_COPY.qualifiedHint).toContain('With qualified names set, an answer that uses only a plain name counts as a mention only when it also cites this location’s own page.')
+    expect(qualifiedIssues!.contains(nameWarning(section, 'Must include a name: Harbor District', unqualified))).toBe(true)
+    expect(more).toEqual([])
     expect(help(`${PROPERTY_NAMES_COPY.draftOnly}. ${PROPERTY_NAMES_COPY.draftOnlyDetail}`)).toBeTruthy()
+    // No name in a warning's help or anywhere else in the open editor says property.
+    expect([...section.querySelectorAll('[aria-label]')].map(element => element.getAttribute('aria-label')!).filter(name => /propert/i.test(name))).toEqual([])
     // What a sighted reader sees in the open editor around the two fields: labels only, and the values in the warnings.
     const shown = section.cloneNode(true) as HTMLElement
     for (const field of shown.querySelectorAll('textarea')) field.remove()
     expect(visibleText(shown)).toBe([
-      PROPERTY_NAMES_COPY.heading, '1 name', PROPERTY_NAMES_COPY.names, 'Too short: HH', PROPERTY_NAMES_COPY.qualifiedNames, 'Must include a name: Harbor District',
-      PROPERTY_NAMES_COPY.qualifiedNote, PROPERTY_NAMES_COPY.save, PROPERTY_NAMES_COPY.cancel, PROPERTY_NAMES_COPY.draftOnly,
+      PROPERTY_NAMES_COPY.heading, '1 name', PROPERTY_NAMES_COPY.names, PROPERTY_NAMES_COPY.perLine, 'Too short: HH',
+      PROPERTY_NAMES_COPY.qualifiedNames, PROPERTY_NAMES_COPY.perLine, 'Must include a name: Harbor District',
+      PROPERTY_NAMES_COPY.save, PROPERTY_NAMES_COPY.cancel, PROPERTY_NAMES_COPY.draftOnly,
     ].join(''))
 
     fireEvent.change(qualified, { target: { value: 'Locations Harbor House Bayfront' } })
@@ -1929,8 +2016,11 @@ describe('Names that count as this Property', () => {
     fireEvent.change(namesBox(section), { target: { value: 'Locations Harbor House' } })
     saveNames(section)
 
-    expect((await within(section).findByRole('alert')).textContent).toBe(`${PROPERTY_NAMES_COPY.staleDraft}${PROPERTY_NAMES_COPY.review}`)
+    // The draft must be restarted in setup first, so the link beside the note opens setup and does not say publish.
+    expect((await within(section).findByRole('alert')).textContent).toBe(`${PROPERTY_NAMES_COPY.staleDraft}${PROPERTY_NAMES_COPY.openSetup}`)
     expect(within(section).getByRole('button', { name: `${PROPERTY_NAMES_COPY.staleDraft}. ${PROPERTY_NAMES_COPY.staleDraftDetail}` })).toBeTruthy()
+    expect(within(section).getByRole('link', { name: PROPERTY_NAMES_COPY.openSetup }).getAttribute('href')).toMatch(/\/portfolio$/)
+    expect(within(section).queryByRole('link', { name: PROPERTY_NAMES_COPY.review })).toBeNull()
     expect(server.writes).toEqual([])
   })
 })
@@ -2007,7 +2097,13 @@ describe('Cited on other queries', () => {
 
     const table = within(section).getByRole('table')
     expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Query', 'Location', 'Pages cited', 'Answer'])
+    // The frame is positioned, so the screen-reader-only header cell is clipped with the table and cannot widen a phone page.
+    const frame = table.parentElement!
+    const frameRules = parseCompiledCss(await compileAppStyles([...frame.classList]))
+    expect([compiledElementProperty(frameRules, frame, 'position'), compiledElementProperty(frameRules, frame, 'overflow-x')]).toEqual(['relative', 'auto'])
     const quiet = within(table).getByText('quiet stays by the marina').closest('tr')!
+    // The engine reads by its display name, never the wire value.
+    expect(quiet.querySelector('td')!.textContent).toBe('quiet stays by the marinaGemini')
     // Who the query was asked for links to that Property's own page, on the same class.
     expect(within(quiet).getByRole('link', { name: 'Marina Point' }).getAttribute('href'))
       .toBe(`/projects/${encodeURIComponent(projectName)}/properties/${OTHER_KEY}?queryClass=non-brand`)
@@ -2041,7 +2137,35 @@ describe('Cited on other queries', () => {
     const section = await screen.findByRole('region', { name: OTHER_QUERIES_COPY.heading })
     expect(await within(section).findByRole('button', { name: `${OTHER_QUERIES_COPY.empty}. ${OTHER_QUERIES_COPY.emptyHelp}` })).toBeTruthy()
     expect(within(section).getByText('0 answers · Branded')).toBeTruthy()
+    // With no row there is nothing for "Not in rates" to qualify.
+    expect(visibleText(section)).toBe(`${OTHER_QUERIES_COPY.heading}0 answers · Branded${OTHER_QUERIES_COPY.empty}`)
     expect(classes).toEqual(['branded'])
+  })
+
+  it('says the read failed in one alert and reads it again on Retry', async () => {
+    let attempts = 0
+    await renderPropertyPageFromApi(url => {
+      const path = pathOf(url)
+      if (path.endsWith('/measurement-plan')) return jsonResponse(planWithMarina())
+      if (path.includes('/measurement-property-evidence') && new URL(url).searchParams.get('shape') === 'other-queries') {
+        attempts += 1
+        return attempts === 1
+          ? jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'temporary failure' } }, 500)
+          : jsonResponse(otherQueriesResponse([otherRow({ queryText: 'quiet stays by the marina' })]))
+      }
+      return propertyPageResponses()(url)
+    })
+
+    const section = await screen.findByRole('region', { name: OTHER_QUERIES_COPY.heading })
+    expect((await within(section).findByRole('alert')).textContent).toBe(OTHER_QUERIES_COPY.loadError)
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(within(section).getByRole('button', { name: `${OTHER_QUERIES_COPY.loadError}. ${OTHER_QUERIES_COPY.loadErrorHelp}` })).toBeTruthy()
+    expect(visibleText(section)).toBe(`${OTHER_QUERIES_COPY.heading}${OTHER_QUERIES_COPY.loadError}Retry`)
+    fireEvent.click(within(section).getByRole('button', { name: 'Retry other queries' }))
+
+    expect(within(await within(section).findByRole('table')).getByText('quiet stays by the marina')).toBeTruthy()
+    expect(attempts).toBe(2)
+    expect(within(section).queryByRole('alert')).toBeNull()
   })
 })
 
@@ -2085,21 +2209,168 @@ describe('Location page copy', () => {
     return document.querySelector<HTMLElement>('.page-container')!
   }
 
-  it.each([{ role: 'a writer', account: ADMIN }, { role: 'a viewer', account: VIEWER }])('says Location and shows $role no sentence on a measured page', async ({ account }) => {
-    const page = await renderMeasured(account)
-
+  /** The page says Location: no banned word on screen or in a tooltip or accessible name, and no visible sentence. */
+  function expectLocationCopy(page: HTMLElement) {
     expect(within(page).getByText(/^Location in /)).toBeTruthy()
-    expect(within(page).getByText('2 unclear links')).toBeTruthy()
     expect(page.textContent).not.toMatch(BANNED)
     expect([...page.querySelectorAll('[aria-label]')].map(element => element.getAttribute('aria-label')!).filter(name => BANNED.test(name))).toEqual([])
     // A visible sentence ends in a full stop or carries one mid-line. Every explanation is a tooltip now.
     expect(visibleRuns(page).filter(run => /[.!?](?:\s|$)/.test(run))).toEqual([])
+  }
+
+  /** A location with nothing set and nothing measured for the type: no queries, names or site pages, and no market. */
+  async function renderEmpty(account: SignedInAccount, search = '') {
+    const plan = planResponse()
+    plan.active.plan.targets[0] = { ...plan.active.plan.targets[0]!, aliases: [], urlMatchers: [] }
+    plan.active.plan.groups = []
+    plan.active.plan.assignments = []
+    await renderPropertyPageFromApi(url => {
+      const path = pathOf(url)
+      if (path.endsWith('/measurement-plan')) return jsonResponse(plan)
+      if (path.includes('/measurement-property-evidence') && new URL(url).searchParams.get('shape') === 'answers') return jsonResponse(evidenceResponse([]))
+      if (path.includes('/measurement-property-competitors')) return jsonResponse({ ...competitorsResponse([]), basis: { state: 'unavailable', reason: 'no_population' } })
+      return propertyPageResponses({
+        nonBrand: overviewResponse('non-brand', { mentionCoverage: unavailable('no_population'), citationCoverage: unavailable('no_population') }),
+        branded: overviewResponse('branded', { mentionCoverage: unavailable('identity_ambiguous'), citationCoverage: unavailable('evidence_incomplete') }),
+      })(url)
+    }, { account, search })
+    await within(await screen.findByRole('region', { name: 'Answers' })).findByText('No answers')
+    await within(await screen.findByRole('region', { name: OTHER_QUERIES_COPY.heading })).findByText(OTHER_QUERIES_COPY.empty)
+    await screen.findByRole('region', { name: 'Named instead' })
+    return document.querySelector<HTMLElement>('.page-container')!
+  }
+
+  it.each([{ role: 'a writer', account: ADMIN }, { role: 'a viewer', account: VIEWER }])('says Location and shows $role no sentence on a measured page', async ({ account }) => {
+    const page = await renderMeasured(account)
+
+    expectLocationCopy(page)
+    expect(within(page).getByText('2 unclear links')).toBeTruthy()
+    // What the badge counts is one step away, and it names the label those links carry under Answers.
+    expect(within(page).getByRole('button', { name: `Cited links that match more than one location. They are marked ${EVIDENCE_LABELS.ambiguous.label} under Answers.` }).classList.contains('info-tooltip-trigger-caution')).toBe(true)
+    // Each table's columns, in one or two words.
+    const headers = (name: string) => within(within(page).getByRole('table', { name })).getAllByRole('columnheader').map(header => header.textContent)
+    expect(headers('Mention and citation coverage for this location, by query type')).toEqual(['Type', 'Mentioned', 'Cited'])
+    expect(headers('Per-engine mention and citation coverage')).toEqual(['Engine', 'Mentioned', 'Cited'])
+    expect(headers('Answers measured for this location')).toEqual(['Query', 'Mentioned', 'Cited', 'Sources', 'Sources detail'])
+    // Engines read by their display names, in the answer rows and the rows cited on other queries.
+    expect(answerFor(within(page).getByRole('table', { name: 'Answers measured for this location' }), NEARBY_QUESTION).querySelector('td')!.textContent).toBe(`${NEARBY_QUESTION}OpenAI`)
+    expect(within(within(page).getByRole('region', { name: OTHER_QUERIES_COPY.heading })).getByText('quiet stays by the marina').closest('td')!.textContent).toBe('quiet stays by the marinaGemini')
+    // When it was measured, and for which type.
+    expect(within(page).getByText(`${MEASURED_LINE} · Non-brand only`)).toBeTruthy()
+    expect(within(page).getByText('1 page')).toBeTruthy()
     // Section headings are one to four words.
     expect(within(page).getAllByRole('heading', { level: 2 }).map(heading => heading.textContent)).toEqual([
       'Coverage for this location', 'By type', 'By engine', 'Named instead', 'Non-brand queries', PROPERTY_NAMES_COPY.heading, 'Site pages we match', 'Competitors by market', 'Answers', OTHER_QUERIES_COPY.heading,
     ])
     expect(within(page).queryByRole('button', { name: 'Add query about this location' }) !== null).toBe(account === ADMIN)
     expect(within(page).queryByRole('button', { name: PROPERTY_NAMES_COPY.edit }) !== null).toBe(account === ADMIN)
+  })
+
+  it('shows a writer short labels, one action and no sentence on a location with nothing set', async () => {
+    const page = await renderEmpty(ADMIN)
+
+    expectLocationCopy(page)
+    const queries = within(page).getByRole('region', { name: 'Non-brand queries' })
+    expect(visibleText(queries)).toBe('Non-brand queries0 trackedAdd query about this locationNo non-brand queries')
+    const names = within(page).getByRole('region', { name: PROPERTY_NAMES_COPY.heading })
+    expect(visibleText(names)).toBe(`${PROPERTY_NAMES_COPY.heading}0 names${PROPERTY_NAMES_COPY.edit}${PROPERTY_NAMES_COPY.noNames}`)
+    expect(within(names).getByRole('button', { name: `${PROPERTY_NAMES_COPY.noNames}. ${PROPERTY_NAMES_COPY.noNamesDetail}` })).toBeTruthy()
+    // The one action beside an empty list of site pages is the setup that holds them.
+    const pages = within(page).getByRole('region', { name: 'Site pages we match' })
+    expect(visibleText(pages)).toBe('Site pages we match0 pagesNo site pagesOpen measurement setup')
+    expect(within(pages).getByRole('link', { name: 'Open measurement setup' }).getAttribute('href')).toMatch(/\/portfolio$/)
+    // A location in no market has no competitor section, and the rest say what is missing in a label.
+    expect(within(page).queryByRole('region', { name: 'Competitors by market' })).toBeNull()
+    expect(visibleText(within(page).getByRole('region', { name: 'By engine' }))).toBe('By engineNot measured')
+    expect(visibleText(within(page).getByRole('region', { name: 'Named instead' }))).toBe('Named insteadNone named')
+    expect(visibleText(within(page).getByRole('region', { name: 'Answers' }))).toBe('AnswersNo answers')
+    // The reason a type has no number is a label too, with its sentence in this page's words.
+    const branded = within(within(page).getByRole('table', { name: 'Mention and citation coverage for this location, by query type' })).getByText('Branded').closest('tr')!
+    expect([...branded.querySelectorAll('td')].map(cell => cell.textContent)).toEqual(['Branded', 'Not measuredUnclear answers', 'Not measuredEvidence incomplete'])
+    expect(within(branded).getByRole('button', { name: UNCLEAR_ANSWERS })).toBeTruthy()
+
+    // The open editor says the same about a location with no names, under the empty field.
+    await openNamesEditor(names)
+    const form = within(names).getByRole('form', { name: 'Edit names' })
+    expect(namesBox(names).value).toBe('')
+    expect(within(form).getByRole('button', { name: `${PROPERTY_NAMES_COPY.noNames}. ${PROPERTY_NAMES_COPY.noNamesDetail}` })).toBeTruthy()
+    const shown = form.cloneNode(true) as HTMLElement
+    for (const field of shown.querySelectorAll('textarea')) field.remove()
+    expect(visibleText(shown)).toBe([
+      PROPERTY_NAMES_COPY.names, PROPERTY_NAMES_COPY.perLine, PROPERTY_NAMES_COPY.noNames, PROPERTY_NAMES_COPY.qualifiedNames, PROPERTY_NAMES_COPY.perLine,
+      PROPERTY_NAMES_COPY.save, PROPERTY_NAMES_COPY.cancel, PROPERTY_NAMES_COPY.draftOnly,
+    ].join(''))
+    expectLocationCopy(page)
+  })
+
+  it('shows a viewer the same empty labels with no action it cannot take', async () => {
+    const page = await renderEmpty(VIEWER)
+
+    expectLocationCopy(page)
+    expect(visibleText(within(page).getByRole('region', { name: 'Non-brand queries' }))).toBe('Non-brand queries0 trackedNo non-brand queries')
+    expect(visibleText(within(page).getByRole('region', { name: PROPERTY_NAMES_COPY.heading }))).toBe(`${PROPERTY_NAMES_COPY.heading}0 names${PROPERTY_NAMES_COPY.noNames}`)
+    expect(visibleText(within(page).getByRole('region', { name: 'Site pages we match' }))).toBe('Site pages we match0 pagesNo site pages')
+    expect(within(page).queryByRole('link', { name: 'Open measurement setup' })).toBeNull()
+  })
+
+  it('keeps the reason a type has no number one step away, beside the type control and under By engine', async () => {
+    const page = await renderEmpty(VIEWER, '?queryClass=branded')
+
+    const strip = within(page).getByLabelText('Query type').closest<HTMLElement>('.border-y')!
+    expect(visibleText(strip)).toBe(`TypeNon-brandBranded${MEASURED_LINE} · Unclear answers`)
+    expect(within(strip).getByRole('button', { name: UNCLEAR_ANSWERS })).toBeTruthy()
+    expect(within(within(page).getByRole('region', { name: 'By engine' })).getByRole('button', {
+      name: 'Not measured. No answer engine has measured branded queries for this location. No answer could be tied to one location.',
+    })).toBeTruthy()
+    expectLocationCopy(page)
+  })
+
+  it.each([{ role: 'a writer', account: ADMIN }, { role: 'a viewer', account: VIEWER }])('says Location and shows $role no sentence on a location no sweep has measured', async ({ account }) => {
+    const blank = { mentionCoverage: unavailable('no_completed_run'), citationCoverage: unavailable('no_completed_run') }
+    const { queryClient } = await renderPropertyPageFromApi(url => {
+      const path = pathOf(url)
+      if (path.includes('/visibility-report')) return jsonResponse(lastResultsReport(null))
+      if (path.includes('/measurement-property-evidence')) {
+        const state = { state: 'not_measured' as const, displayedRunId: RUN_ID }
+        return jsonResponse(new URL(url).searchParams.get('shape') === 'answers' ? { ...evidenceResponse([]), measurement: state } : { ...otherQueriesResponse([]), measurement: state })
+      }
+      if (path.includes('/measurement-property-competitors')) return jsonResponse({ ...competitorsResponse([]), basis: { state: 'unavailable', reason: 'no_completed_run' } })
+      return propertyPageResponses({
+        branded: overviewResponse('branded', blank, { measurementState: 'not_measured', nextAction: 'run_measurement' }),
+        nonBrand: overviewResponse('non-brand', blank, { measurementState: 'not_measured', nextAction: 'run_measurement' }),
+      })(url)
+    }, { account })
+    await screen.findByRole('region', { name: 'Measurement next step' })
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0))
+    const page = document.querySelector<HTMLElement>('.page-container')!
+
+    expectLocationCopy(page)
+    expect(visibleText(within(page).getByRole('region', { name: 'Measurement next step' }))).toBe(`Awaiting next sweep${account === ADMIN ? 'Go to' : 'View'} AI Visibility`)
+    expect(visibleText(within(page).getByRole('region', { name: 'Answers' }))).toBe('AnswersNot measured')
+    // Nothing was measured, so there are no citations on other queries to list.
+    expect(within(page).queryByRole('region', { name: OTHER_QUERIES_COPY.heading })).toBeNull()
+  })
+
+  it('opens every help bubble inside a 390px screen, however close its icon is to the left edge', async () => {
+    const width = window.innerWidth
+    const setWidth = (value: number) => Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value })
+    setWidth(390)
+    onTestFinished(() => { setWidth(width) })
+    const page = await renderMeasured(ADMIN)
+    await openNamesEditor(within(page).getByRole('region', { name: PROPERTY_NAMES_COPY.heading }))
+
+    // jsdom lays nothing out, so every trigger sits at x = 0: the worst case for a bubble centred on its icon.
+    const triggers = [...page.querySelectorAll<HTMLButtonElement>('button[aria-expanded][aria-label]')].filter(button => button.classList.contains('info-tooltip-trigger') || button.classList.contains('cursor-help'))
+    expect(triggers.length).toBeGreaterThan(12)
+    const leftEdges = triggers.map(trigger => {
+      act(() => trigger.focus())
+      const bubble = [...document.body.querySelectorAll<HTMLElement>('span[aria-hidden="true"]')].find(candidate => candidate.style.position === 'fixed')!
+      // The bubble is 224px wide and drawn centred on `left`.
+      const edge = parseFloat(bubble.style.left) - 112
+      act(() => trigger.blur())
+      return edge
+    })
+    expect(leftEdges.filter(edge => edge < 0)).toEqual([])
   })
 
   it('prints every figure the reads return, in the order the page had them before its copy was shortened', async () => {
@@ -2113,7 +2384,7 @@ describe('Location page copy', () => {
       '50.0', '1', '2', '50.0', '1', '2', // Branded
       '50.0%', '1', '2', '50.0%', '1', '2', // By type: Branded
       '75.0%', '3', '4', '50.0%', '2', '4', // By type: Non-brand
-      '2', '2026', // Measured Aug 2, 2026
+      ...MEASURED_LINE.match(/\d+/g)!, // Measured Aug 2, 2026, as the reader's own timezone dates it
       '50.0%', '1', '2', '0%', '0', '2', // Gemini
       '100%', '2', '2', '100%', '2', '2', // OpenAI
       '2', // named
@@ -2121,7 +2392,7 @@ describe('Location page copy', () => {
       '3', '4', // Missed answers
       '1', // tracked
       '1', // name
-      '1', // configured
+      '1', // page
       '2', // competitors
       '1', '1', // answers shown of total
       '1', // sources
@@ -2182,15 +2453,20 @@ describe('Location page copy', () => {
     expect([...reads].sort()).toEqual(['branded', 'non-brand', 'plan'])
   })
 
-  it.each([
-    { state: 'has no published advanced setup', plan: legacyPlanResponse, label: 'Setup not published', detail: 'A location page needs a published advanced measurement setup.', link: 'Republish setup' },
+  const notPublished = 'A location page needs a published advanced measurement setup.'
+  it.each<{ state: string; plan: () => unknown; label: string; detail: string; link: string; account?: SignedInAccount }>([
+    { state: 'has an older published setup', plan: legacyPlanResponse, label: 'Setup not published', detail: notPublished, link: 'Republish setup' },
+    { state: 'has no published setup', plan: () => ({ active: null }), label: 'Setup not published', detail: notPublished, link: 'Open measurement setup' },
+    { state: 'has no published setup, for a viewer', plan: () => ({ active: null }), label: 'Setup not published', detail: notPublished, link: 'View measurement setup', account: VIEWER },
     { state: 'is not in the published setup', plan: () => { const plan = planResponse(); plan.active.plan.targets = []; return plan }, label: 'Location not found', detail: 'This location is not in the published setup. It may have been renamed or removed.', link: 'Open measurement setup' },
-  ])('says so in a label with one link to setup when the location $state', async ({ plan, label, detail, link }) => {
-    const { projectName } = await renderPropertyPageFromApi(url => pathOf(url).endsWith('/measurement-plan') ? jsonResponse(plan()) : propertyPageResponses()(url), { account: ADMIN })
+  ])('says so in a label with one link to setup when the location $state', async ({ plan, label, detail, link, account = ADMIN }) => {
+    const { projectName } = await renderPropertyPageFromApi(url => pathOf(url).endsWith('/measurement-plan') ? jsonResponse(plan()) : propertyPageResponses()(url), { account })
 
     expect(await screen.findByRole('button', { name: `${label}. ${detail}` })).toBeTruthy()
     expect(screen.getByRole('status').textContent).toBe(label)
     expect(screen.getByRole('link', { name: link }).getAttribute('href')).toBe(`/projects/${encodeURIComponent(projectName)}/portfolio`)
+    // One action beside the label, and the way back above it.
+    expect(within(document.querySelector<HTMLElement>('.page-container')!).getAllByRole('link').map(each => each.textContent)).toEqual(['Back to AI Visibility', link])
   })
 
   it('offers the type retry in every section that reads the failed type, and announces the failure once', async () => {
@@ -2230,16 +2506,25 @@ describe('Location page copy', () => {
     },
     { state: 'empty', label: 'No answers', detail: 'No answers matched this location in the displayed measurement.', alert: false, evidence: () => evidenceResponse([]) },
   ])('shows a label, not a sentence, when the answers are $state', async ({ label, detail, alert, evidence }) => {
+    let reads = 0
     await renderPropertyPageFromApi(url => {
-      if (pathOf(url).includes('/measurement-property-evidence') && new URL(url).searchParams.get('shape') === 'answers') return jsonResponse(evidence())
+      if (pathOf(url).includes('/measurement-property-evidence') && new URL(url).searchParams.get('shape') === 'answers') {
+        reads += 1
+        return jsonResponse(reads === 1 ? evidence() : evidenceResponse())
+      }
       return propertyPageResponses()(url)
     })
 
     const answers = await screen.findByRole('region', { name: 'Answers' })
     expect(await within(answers).findByRole('button', { name: `${label}. ${detail}` })).toBeTruthy()
-    expect(visibleText(answers)).toBe(`Answers${label}`)
+    // Only the failure has something to do about it: read the answers again.
+    expect(visibleText(answers)).toBe(`Answers${label}${alert ? 'Retry' : ''}`)
     expect(within(answers).queryAllByRole('alert')).toHaveLength(alert ? 1 : 0)
     expect(within(answers).queryByRole('table')).toBeNull()
+    if (!alert) return
+    fireEvent.click(within(answers).getByRole('button', { name: 'Retry answers' }))
+    expect(within(await answersTable()).getByText(NEARBY_QUESTION)).toBeTruthy()
+    expect(reads).toBe(2)
   })
 
   it('says the answers did not load and reads them again on Retry', async () => {
@@ -2288,7 +2573,8 @@ describe('Location page copy', () => {
     const evidence = await answersTable()
     fireEvent.click(within(evidence).getByRole('button', { name: `Read the answer for ${NEARBY_QUESTION}` }))
     expect(await within(evidence).findByRole('button', { name: 'Text not saved. This answer was measured, but its text was not stored.' })).toBeTruthy()
-    expect(within(evidence).getByRole('button', { name: 'Sources not saved. The sources for this answer were not fully captured, so none can be shown.' })).toBeTruthy()
+    // The row says it where its source count would be, and the opened detail says it again in the same words.
+    expect(within(evidence).getAllByRole('button', { name: 'Sources not saved. The sources for this answer were not fully captured, so none can be shown.' })).toHaveLength(2)
     expect(visibleText(evidence.querySelector<HTMLElement>('.property-answer-detail')!)).toBe('Text not savedSources not saved')
   })
 })
