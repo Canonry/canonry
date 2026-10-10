@@ -12,6 +12,7 @@ cnry stop                                      # stop daemon
 cnry serve                                     # foreground mode
 cnry serve --host 0.0.0.0 --port 4100
 cnry serve --embed --embed-allow-origin https://app.example.com   # read-only embed mode (#716)
+cnry dashboard reset-password                  # clear a forgotten dashboard password (edits local config.yaml)
 cnry --version
 ```
 
@@ -40,6 +41,19 @@ URL, or `not-matching` when the server on that URL belongs to another install
 install's server, or restart it, to apply the saved providers. Any other
 rejected reload reports `failed` and exits nonzero; the saved config remains
 available. Bootstrap never reloads a remote server automatically.
+
+`cnry dashboard reset-password` clears a forgotten dashboard password. It edits
+`config.yaml` under `$CANONRY_CONFIG_DIR` on this machine and never calls the
+server, so run it where the server's config lives. A missing file is a
+`CONFIG_REQUIRED` error, not "nothing to reset". Restart the server afterward:
+until then it still accepts the old password. The dashboard then asks for a new
+password under the first-run rules, so stop any port forwarder first and set it
+right away. `--format json` returns
+`{ reset, configPath, restartRequired, namedAccounts, nextSteps[] }`; `reset` is
+`false` when no password was set. On an install with named accounts
+(`namedAccounts: true`) the shared password is not used, so clearing it changes
+nothing: restore an account with `cnry user delete <name>` and `cnry user
+create`. The command has no API route and no MCP tool.
 
 ### Read-only embed mode (#716)
 
