@@ -3406,7 +3406,7 @@ test.each([
   expect(router.state.location.search.researchMode).toBe(inUrl)
 })
 
-test('the Tracked filter keys survive a reload and reach the Queries section, apart from the query type AI Visibility is set to', async () => {
+test('the Tracked filter keys survive a reload and reach the Queries section, and the Type filter ignores the shared queryClass key', async () => {
   vi.mocked(QueriesSection).mockClear()
   const opened = { trackedSubject: 'market', trackedType: 'non-brand', trackedStatus: 'not-asked', trackedSource: 'manual', trackedResult: 'not-cited', trackedView: 'thin-markets' }
   expect(Object.keys(opened)).toEqual([...Object.values(TRACKED_FILTER_KEYS), 'trackedView'])
@@ -3432,7 +3432,8 @@ test('the Tracked filter keys survive a reload and reach the Queries section, ap
   const held = untyped.state.matches.at(-1)!.search as Record<string, unknown>
   expect(Object.keys(opened).filter(key => held[key] !== undefined)).toEqual([])
 
-  // With no key of its own, the Tracked Type is All whatever AI Visibility is filtered to.
+  // With no key of its own, the Type filter is All whatever AI Visibility is filtered to. Only the new filter: the
+  // selection handed beside it still carries the shared key, which the page's older Query type control reads.
   vi.mocked(QueriesSection).mockClear()
   const shared = await renderScopeRoute('/projects/project_citypoint/queries?queryClass=branded', trackingRoute())
   expect(queriesSectionProps().trackedFilters).toEqual({ subject: 'any', type: 'all', status: 'asked', source: 'any', result: 'any' })
@@ -3491,6 +3492,28 @@ test.each([
     const { trackingChangedAt, nextSweepDate } = queriesSectionProps()
     expect({ trackingChangedAt, nextSweepDate }).toEqual(dates)
   })
+})
+
+test('a viewer who opens Queries first is handed the next sweep and no tracking-change date', async () => {
+  vi.mocked(QueriesSection).mockClear()
+  const tracking = trackingRoute()
+  const { observed, queryClient } = await renderScopeRoute(
+    '/projects/project_citypoint/queries',
+    url => url.pathname.endsWith('/schedules') ? jsonResponse([schedule()]) : tracking(url),
+    {
+      accountRole: 'viewer',
+      configureFixture(dashboard) {
+        const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+        project.recentRuns = project.recentRuns.filter(run => run.status !== 'queued' && run.status !== 'running')
+      },
+    },
+  )
+  await waitFor(() => expect(observed.some(url => url.pathname.endsWith('/schedules'))).toBe(true))
+  await waitFor(() => expect(queryClient.isFetching()).toBe(0))
+  await waitFor(() => expect(queriesSectionProps().nextSweepDate).toBe('Aug 7'))
+  // The plan holds the tracking change, and a viewer reads no plan on Queries: the page's note goes undated.
+  expect(observed.some(url => url.pathname.endsWith('/measurement-plan'))).toBe(false)
+  expect(queriesSectionProps().trackingChangedAt).toBeUndefined()
 })
 
 test('the tracked Queries row picker floats over the table, closes on Escape or outside interaction, and keeps focus after a search selection', async () => {

@@ -50,18 +50,25 @@ export function invalidateQueryTrackingPublication(
   queryClient: Pick<QueryClient, 'invalidateQueries'>,
   projectName: string,
 ): Promise<void> {
+  // A publish has already started the results refetch through the write refresh. It is the
+  // page's largest read, so it joins that request instead of cancelling it and sending another.
+  const results = queryClient.invalidateQueries({
+    predicate: query => {
+      const head = query.queryKey[0] as { _id?: string; path?: { name?: string } } | undefined
+      return head?.path?.name === projectName && head._id === PROJECT_QUERY_DOMAINS.queryTrackingResults
+    },
+  }, { cancelRefetch: false })
   return queryClient.invalidateQueries({
     predicate: query => {
       const head = query.queryKey[0] as { _id?: string; path?: { name?: string } } | undefined
       if (head?.path?.name !== projectName || typeof head._id !== 'string') return false
       return head._id.startsWith('getApiV1ProjectsByNameMeasurement')
         || head._id === PROJECT_QUERY_DOMAINS.queryTracking
-        || head._id === PROJECT_QUERY_DOMAINS.queryTrackingResults
         || head._id === PROJECT_QUERY_DOMAINS.visibilityReport
         || head._id === 'getApiV1ProjectsByNameQueries'
         || head._id === 'getApiV1ProjectsByName'
     },
-  })
+  }).then(() => results)
 }
 
 

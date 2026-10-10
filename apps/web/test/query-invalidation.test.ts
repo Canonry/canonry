@@ -8,6 +8,7 @@ import {
   invalidateProjectQueryDomain,
   invalidateQueryTrackingPublication,
   PROJECT_QUERY_DOMAINS,
+  refreshQueriesAfterWrite,
 } from '../src/queries/query-invalidation.js'
 import { invalidateQueriesForRunKind } from '../src/queries/run-invalidations.js'
 
@@ -51,6 +52,26 @@ test('a tracking publish refreshes the results read of every place in that proje
 
   expect(published.map(key => queryClient.getQueryState(key)?.isInvalidated)).toEqual([true, true, true])
   expect(untouched.map(key => queryClient.getQueryState(key)?.isInvalidated)).toEqual([false, false])
+})
+
+test('a publish refetches a mounted results read once, and a refused publish still refetches it', async () => {
+  const queryClient = new QueryClient()
+  const key = readKey(RESULTS_READ, 'demo')
+  const read = vi.fn(async () => ({ rows: [] }))
+  const unsubscribe = new QueryObserver(queryClient, { queryKey: key, queryFn: read, staleTime: Infinity }).subscribe(() => {})
+  await vi.waitFor(() => expect(queryClient.getQueryData(key)).toEqual({ rows: [] }))
+  expect(read).toHaveBeenCalledTimes(1)
+
+  // The order a commit runs them in: the write refresh on its response, then the publish hook.
+  refreshQueriesAfterWrite(queryClient, new Request('http://localhost/api/v1/projects/demo/query-tracking/commit', { method: 'POST' }), {})
+  await invalidateQueryTrackingPublication(queryClient, 'demo')
+  expect(read).toHaveBeenCalledTimes(2)
+
+  // A refused commit has no write refresh: the publish hook's own call is the refetch.
+  await invalidateQueryTrackingPublication(queryClient, 'demo')
+  expect(read).toHaveBeenCalledTimes(3)
+  unsubscribe()
+  queryClient.clear()
 })
 
 test('a finished sweep refetches a mounted results read once', async () => {

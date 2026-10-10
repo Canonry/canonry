@@ -66,7 +66,7 @@ export interface QueriesSectionProps {
 export type TrackedPageHostProps = Pick<QueriesSectionProps, 'trackingChangedAt' | 'nextSweepDate'> & {
   trackedFilters: TrackedFilters
   onTrackedFiltersChange: (patch: Partial<TrackedFilters>) => void
-  /** The element at the right of the Tracked | Research row. The page portals its actions into it; null until the row has mounted. */
+  /** Where the page portals its actions: the right of the Tracked | Research row, or the line under it in a narrow frame. Null until the row has mounted. */
   actionsSlot: HTMLElement | null
 }
 
@@ -135,15 +135,17 @@ export function QueriesSection({
   }
 
   return (
-    <section className="page-section-divider" aria-labelledby="queries-heading">
+    <section aria-labelledby="queries-heading">
       <h2 id="queries-heading" className="sr-only">Queries</h2>
-      {/* The wrap is reversed: in a row too narrow for both, the actions take the line above and the tabs stay on the border. */}
-      <div className="flex flex-wrap-reverse items-start justify-between gap-x-3 border-b border-default">
-        <div className="flex" role="tablist" aria-label="Query workspace">
-          <WorkspaceTab active={queryWorkspace === 'tracked'} label="Tracked" onClick={() => selectWorkspace('tracked')} />
-          {showResearchWorkspace ? <WorkspaceTab active={queryWorkspace === 'research'} label="Research" onClick={() => selectWorkspace('research')} /> : null}
+      {/* The tab row keeps one height with or without actions, so the tabs never move. In a row too narrow for both, the actions take the first line under the rule. */}
+      <div className="@container">
+        <div className="grid @xl:grid-cols-[1fr_auto]">
+          <div className="flex min-h-12 items-end border-b border-default" role="tablist" aria-label="Query workspace">
+            <WorkspaceTab active={queryWorkspace === 'tracked'} label="Tracked" onClick={() => selectWorkspace('tracked')} />
+            {showResearchWorkspace ? <WorkspaceTab active={queryWorkspace === 'research'} label="Research" onClick={() => selectWorkspace('research')} /> : null}
+          </div>
+          <div ref={setActionsSlot} className="flex flex-wrap items-center justify-end gap-2 pt-3 empty:hidden @xl:border-b @xl:border-default @xl:pt-0 @xl:pl-3" />
         </div>
-        <div ref={setActionsSlot} className="ml-auto flex flex-wrap items-center justify-end gap-2 pb-2 empty:hidden" />
       </div>
       <div className="mt-4">
         {queryWorkspace === 'tracked' ? (
