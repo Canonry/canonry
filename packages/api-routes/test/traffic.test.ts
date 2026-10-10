@@ -42,7 +42,9 @@ import type {
 } from '@ainyc/canonry-integration-vercel'
 import { VercelLogsApiError } from '@ainyc/canonry-integration-vercel'
 import { apiRoutes } from '../src/index.js'
+import type { OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
 import { tryClaimTrafficSyncLease } from '../src/traffic-sync-lease.js'
+import { connectionOutcomes } from './outcome-capture.js'
 import type {
   CloudRunCredentialRecord,
   CloudRunCredentialStore,
@@ -176,6 +178,7 @@ async function buildHarness(
   } = {},
 ) {
   const trafficSyncedEvents: Array<unknown> = []
+  const outcomes: OutcomeTelemetryEvent[] = []
   const scheduleUpdates: Array<{ action: string; projectId: string; kind: string }> = []
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traffic-routes-test-'))
   const dbPath = path.join(tmpDir, 'test.db')
@@ -360,6 +363,7 @@ async function buildHarness(
       trafficSyncedEvents.push(event)
       options.onTrafficSynced?.(event, db)
     },
+    onOutcome: (event) => { outcomes.push(event) },
     onScheduleUpdated: (action, projectId, kind) => {
       const event = { action, projectId, kind }
       scheduleUpdates.push(event)
@@ -392,6 +396,7 @@ async function buildHarness(
     getObservedWindows: () => observedWindows,
     getObservedFirstSync: () => observedFirstSync,
     getTrafficSyncedEvents: () => trafficSyncedEvents,
+    getConnectionOutcomes: () => connectionOutcomes(outcomes),
     getScheduleUpdates: () => scheduleUpdates,
     getWpProbeInvocations: () => wpProbeInvocations,
     getVercelProbeInvocations: () => vercelProbeInvocations,
@@ -6136,6 +6141,64 @@ describe('POST /traffic/sources/:id/reset', () => {
       // Status must not have flipped back to `connected`.
       const row = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
       expect(row.status).toBe(TrafficSourceStatuses.archived)
+    } finally {
+      await h.close()
+    }
+  })
+})
+
+describe('traffic source connection outcomes', () => {
+  const DONE = { durationBucket: 'under_1s' } as const
+
+  it('reports each adapter connect, a reconnect as a reauth, and activation as a select', async () => {
+    const h = await buildHarness([])
+    try {
+      const connect = (adapter: string, payload: object) => h.app.inject({
+        method: 'POST', url: `/api/v1/projects/test-project/traffic/connect/${adapter}`, payload,
+      })
+      expect((await connect('cloud-run', { gcpProjectId: 'gcp-1', keyJson: SA_KEY })).statusCode).toBe(200)
+      expect((await connect('cloud-run', { gcpProjectId: 'gcp-1', keyJson: SA_KEY })).statusCode).toBe(200)
+      expect((await connect('wordpress', { baseUrl: 'https://8.8.8.8', username: 'wp', applicationPassword: 'wp-secret' })).statusCode).toBe(200)
+      const vercel = await connect('vercel', { projectId: 'prj_1', teamId: 'team_1', token: 'vercel-secret' })
+      expect(vercel.statusCode).toBe(200)
+      expect((await connect('cloudflare', {})).statusCode).toBe(200)
+      const activated = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${vercel.json<{ id: string }>().id}/activate` })
+      expect(activated.statusCode).toBe(200)
+      await h.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/traffic/sources/missing/activate' })
+
+      expect(h.getConnectionOutcomes()).toEqual([
+        { integration: 'traffic_cloud_run', action: 'connect', status: 'succeeded', ...DONE },
+        { integration: 'traffic_cloud_run', action: 'reauth', status: 'succeeded', ...DONE },
+        { integration: 'traffic_wordpress', action: 'connect', status: 'succeeded', ...DONE },
+        { integration: 'traffic_vercel', action: 'connect', status: 'succeeded', ...DONE },
+        { integration: 'traffic_cloudflare', action: 'connect', status: 'succeeded', ...DONE },
+        { integration: 'traffic_vercel', action: 'select', status: 'succeeded', ...DONE },
+      ])
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('classifies a refused address, a rejected probe and a bad request without their messages', async () => {
+    const h = await buildHarness([], {
+      failWpProbeWith: { status: 401, message: 'bad application password for wp.example' },
+      failVercelProbeWith: { status: 403, message: 'token lacks team access' },
+    })
+    try {
+      const connect = (adapter: string, payload: object) => h.app.inject({
+        method: 'POST', url: `/api/v1/projects/test-project/traffic/connect/${adapter}`, payload,
+      })
+      expect((await connect('wordpress', { baseUrl: 'http://169.254.169.254', username: 'wp', applicationPassword: 'x' })).statusCode).toBe(400)
+      expect((await connect('wordpress', { baseUrl: 'https://8.8.8.8', username: 'wp', applicationPassword: 'x' })).statusCode).toBe(502)
+      expect((await connect('vercel', { projectId: 'prj_1', teamId: 'team_1', token: 'x' })).statusCode).toBe(502)
+      expect((await connect('cloud-run', { gcpProjectId: 'gcp-1' })).statusCode).toBe(400)
+
+      expect(h.getConnectionOutcomes()).toEqual([
+        { integration: 'traffic_wordpress', action: 'connect', status: 'failed', reasonCode: 'BLOCKED_UNSAFE_URL', ...DONE },
+        { integration: 'traffic_wordpress', action: 'connect', status: 'failed', reasonCode: 'INVALID_CREDENTIALS', errorName: 'WordpressTrafficApiError', ...DONE },
+        { integration: 'traffic_vercel', action: 'connect', status: 'failed', reasonCode: 'PERMISSION_MISSING', errorName: 'VercelLogsApiError', ...DONE },
+        { integration: 'traffic_cloud_run', action: 'connect', status: 'failed', reasonCode: 'VALIDATION', errorName: 'AppError', ...DONE },
+      ])
     } finally {
       await h.close()
     }

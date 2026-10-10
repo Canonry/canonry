@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { AppError, notFound, providerError, validationError, describeError } from '@ainyc/canonry-contracts'
-import type { WordpressEnv } from '@ainyc/canonry-contracts'
+import type { OutcomeReasonCode, WordpressEnv } from '@ainyc/canonry-contracts'
 import {
   buildManualLlmsTxtUpdate,
   buildManualSchemaUpdate,
@@ -28,6 +28,7 @@ import type { SchemaProfileFile, WordpressClientConnection, WordpressConnectionR
 import { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { resolveWebhookTarget } from './webhooks.js'
+import { connectionRoute, startConnectionAttempt, webhookTargetRefusalReason, type ConnectionAttempt } from './connection-telemetry.js'
 
 interface IndexingSuccessBody {
   results?: Array<{ status: string }>
@@ -87,10 +88,18 @@ function toAppError(error: WordpressApiError): AppError {
   }
 }
 
-async function withWordpressErrorHandling<T>(handler: () => Promise<T>): Promise<T> {
+/** Why a WordPress connection failed, where the error class says more than the converted AppError. */
+function wordpressFailureReason(error: unknown): OutcomeReasonCode | undefined {
+  if (error instanceof EgressRefusedError) return 'BLOCKED_UNSAFE_URL'
+  if (error instanceof EgressFailedError) return 'NETWORK'
+  return undefined
+}
+
+async function withWordpressErrorHandling<T>(handler: () => Promise<T>, attempt?: ConnectionAttempt): Promise<T> {
   try {
     return await handler()
   } catch (error) {
+    attempt?.failed(error, wordpressFailureReason(error))
     if (error instanceof WordpressApiError) throw toAppError(error)
     // The stored site URL now resolves to a refused address: the same refusal
     // connect gives for such a URL.
@@ -125,9 +134,10 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   // Refuse such a URL at connect too, with a 400 that names the field, before
   // any credentialed call is attempted. Mirrors the WordPress *traffic*
   // path's `assertWordpressTargetAllowed` guard in `traffic.ts`.
-  async function assertWordpressUrlAllowed(rawUrl: string, field: string): Promise<void> {
+  async function assertWordpressUrlAllowed(rawUrl: string, field: string, attempt?: ConnectionAttempt): Promise<void> {
     const check = await resolveWebhookTarget(rawUrl, { allowLoopback })
     if (!check.ok) {
+      attempt?.failed(undefined, webhookTargetRefusalReason(check))
       throw validationError(`${field} ${check.message.replace(/^"url" /, '')}`)
     }
   }
@@ -149,7 +159,7 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
       appPassword: string
       defaultEnv?: WordpressEnv
     }
-  }>('/projects/:name/wordpress/connect', async (request) => {
+  }>('/projects/:name/wordpress/connect', connectionRoute(app, () => ({ integration: 'wordpress', action: 'connect' }), async (request, _reply, attempt) => {
     return withWordpressErrorHandling(async () => {
       const store = requireStore()
 
@@ -167,11 +177,12 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
 
       // SSRF guard: validate both site URLs resolve to public addresses before
       // any credentialed REST call is issued to them.
-      await assertWordpressUrlAllowed(url, 'url')
-      if (stagingUrl) await assertWordpressUrlAllowed(stagingUrl, 'stagingUrl')
+      await assertWordpressUrlAllowed(url, 'url', attempt)
+      if (stagingUrl) await assertWordpressUrlAllowed(stagingUrl, 'stagingUrl', attempt)
 
       const now = new Date().toISOString()
       const existing = store.getConnection(project.name)
+      if (existing) attempt.update({ action: 'reauth' })
       const nextConnection: WordpressConnectionRecord = {
         projectName: project.name,
         url,
@@ -204,15 +215,16 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
         staging,
         adminUrl: getWpStagingAdminUrl(connection.url),
       }
-    })
-  })
+    }, attempt)
+  }))
 
-  app.delete<{ Params: { name: string } }>('/projects/:name/wordpress/disconnect', async (request, reply) => {
+  app.delete<{ Params: { name: string } }>('/projects/:name/wordpress/disconnect', connectionRoute(app, () => ({ integration: 'wordpress', action: 'disconnect' }), async (request, reply, attempt) => {
     const store = requireStore()
 
     const project = resolveProject(app.db, request.params.name)
     const deleted = store.deleteConnection(project.name)
     if (!deleted) {
+      attempt.failed(undefined, 'NOT_CONNECTED')
       throw notFound('WordPress connection', project.name)
     }
 
@@ -225,7 +237,7 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     })
 
     return reply.status(204).send()
-  })
+  }))
 
   app.get<{ Params: { name: string } }>('/projects/:name/wordpress/status', async (request) => {
     const project = resolveProject(app.db, request.params.name)
@@ -570,6 +582,8 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
       skipSubmit?: boolean
     }
   }>('/projects/:name/wordpress/onboard', async (request) => {
+    // Onboarding's first step is a connection; the steps after it are not.
+    const attempt = startConnectionAttempt(app, { integration: 'wordpress', action: 'connect' })
     return withWordpressErrorHandling(async () => {
     const store = requireStore()
 
@@ -589,8 +603,8 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
 
     // SSRF guard (see /connect): block private/loopback/metadata targets before
     // the connect step issues any credentialed fetch.
-    await assertWordpressUrlAllowed(url, 'url')
-    if (stagingUrl) await assertWordpressUrlAllowed(stagingUrl, 'stagingUrl')
+    await assertWordpressUrlAllowed(url, 'url', attempt)
+    if (stagingUrl) await assertWordpressUrlAllowed(stagingUrl, 'stagingUrl', attempt)
 
     type StepResult = { name: string; status: 'completed' | 'skipped' | 'failed'; summary?: string; error?: string }
     const steps: StepResult[] = []
@@ -601,6 +615,7 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     try {
       const now = new Date().toISOString()
       const existing = store.getConnection(project.name)
+      if (existing) attempt.update({ action: 'reauth' })
       const nextConnection: WordpressConnectionRecord = {
         projectName: project.name,
         url,
@@ -621,7 +636,9 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
         entityId: project.name,
       })
       steps.push({ name: 'connect', status: 'completed', summary: `Connected to ${url}` })
+      attempt.succeeded()
     } catch (err) {
+      attempt.failed(err, wordpressFailureReason(err))
       const msg = describeError(err)
       steps.push({ name: 'connect', status: 'failed', error: msg })
       return { projectName: project.name, steps }
@@ -793,6 +810,6 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     })
 
     return { projectName: project.name, steps }
-    }) // end withWordpressErrorHandling
+    }, attempt) // end withWordpressErrorHandling
   })
 }

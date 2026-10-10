@@ -61,7 +61,8 @@ it('requires a host grant as well as normal read/write permissions', async () =>
   expect((await app.inject({ url: '/api/v1/keys/self', headers: headers('operator') })).json()).toMatchObject({ operator: true, readOnly: true })
   expect((await app.inject({ method: 'PUT', url: '/api/v1/telemetry', headers: headers('operator'), payload: { enabled: true } })).statusCode).toBe(403)
   expect((await app.inject({ method: 'PUT', url: '/api/v1/telemetry', headers: headers('writer'), payload: { enabled: true } })).statusCode).toBe(200)
-  expect(setTelemetry).toHaveBeenCalledExactlyOnceWith(true)
+  // The host is told who asked, for the opt-out event's surface and agent.
+  expect(setTelemetry).toHaveBeenCalledExactlyOnceWith(true, { userAgent: 'lightMyRequest' })
 })
 
 it('fails closed when no operator allowlist is configured', async () => {

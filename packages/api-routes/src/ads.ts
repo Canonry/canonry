@@ -106,6 +106,7 @@ import type {
   AdsStoredMetricRow,
 } from './ads-live-delivery.js'
 import { resolveProject, writeAuditLog, auditFromRequest } from './helpers.js'
+import { connectionRoute } from './connection-telemetry.js'
 
 export interface AdsConnectionConfigEntryLike {
   projectName: string
@@ -2292,7 +2293,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
 
   app.post<{ Params: { name: string }; Body: { apiKey?: string } }>(
     '/projects/:name/ads/connect',
-    async (request) => {
+    connectionRoute(app, () => ({ integration: 'openai_ads', action: 'connect' }), async (request, _reply, attempt) => {
       requireScope(request, ADS_WRITE_SCOPE)
       const project = resolveProject(app.db, request.params.name)
       const parsed = adsConnectRequestSchema.safeParse(request.body)
@@ -2308,6 +2309,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       try {
         account = await opts.verifyAdsAccount(parsed.data.apiKey)
       } catch (err) {
+        attempt.failed(err)
         const message = describeError(err)
         throw validationError(`OpenAI Ads API rejected the key: ${message}`)
       }
@@ -2315,6 +2317,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       const now = new Date().toISOString()
       verificationCache.delete(project.id)
       const existingCfg = opts.adsCredentialStore.getConnection(project.name)
+      if (existingCfg) attempt.update({ action: 'reauth' })
       opts.adsCredentialStore.upsertConnection({
         projectName: project.name,
         apiKey: parsed.data.apiKey,
@@ -2372,10 +2375,10 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       const row = app.db.select().from(adsConnections)
         .where(eq(adsConnections.projectId, project.id)).get()
       return statusDto(row)
-    },
+    }),
   )
 
-  app.delete<{ Params: { name: string } }>('/projects/:name/ads/connection', async (request) => {
+  app.delete<{ Params: { name: string } }>('/projects/:name/ads/connection', connectionRoute(app, () => ({ integration: 'openai_ads', action: 'disconnect' }), async (request, _reply, attempt) => {
     requireScope(request, ADS_WRITE_SCOPE)
     const project = resolveProject(app.db, request.params.name)
     const row = app.db.select().from(adsConnections)
@@ -2397,8 +2400,9 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     verificationCache.delete(project.id)
 
     const response: AdsDisconnectResponse = { disconnected: Boolean(row) || removedFromConfig }
+    if (!response.disconnected) attempt.cancelled('NOT_CONNECTED')
     return response
-  })
+  }))
 
   app.get<{ Params: { name: string } }>('/projects/:name/ads/status', async (request) => {
     const project = resolveProject(app.db, request.params.name)

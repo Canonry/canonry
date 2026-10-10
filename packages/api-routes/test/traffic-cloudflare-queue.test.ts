@@ -10,7 +10,7 @@ import { SchedulableRunKinds, TrafficSourceStatuses, TrafficSourceTypes } from '
 import { CloudflareQueueApiError } from '@ainyc/canonry-integration-cloudflare-queue'
 import { apiRoutes } from '../src/index.js'
 import { CURRENT_CLOUDFLARE_WORKER_VERSION } from '../src/cloudflare-worker-version.js'
-import type { CloudflareTrafficCredentialRecord, CloudflareTrafficCredentialStore } from '../src/traffic.js'
+import type { CloudflareTrafficCredentialRecord, CloudflareTrafficCredentialStore, TrafficSyncedEvent } from '../src/traffic.js'
 import { tryClaimTrafficSyncLease } from '../src/traffic-sync-lease.js'
 
 const directories: string[] = []
@@ -40,9 +40,10 @@ async function harness(options: {
     },
     deleteConnectionBySourceId: sourceId => credentials.delete(sourceId),
   }
+  const synced: TrafficSyncedEvent[] = []
   const app = Fastify()
   app.register(apiRoutes, {
-    db, skipAuth: true, cloudflareTrafficCredentialStore: store,
+    db, skipAuth: true, cloudflareTrafficCredentialStore: store, onTrafficSynced: event => { synced.push(event) },
     ...(options.includeDirectIngestUrl === false ? {} : {
       cloudflareTrafficIngestUrl: 'https://canonry.test/api/v1/projects/{name}/traffic/cloudflare/ingest',
     }),
@@ -54,7 +55,7 @@ async function harness(options: {
   await app.inject({ method: 'PUT', url: '/api/v1/projects/test-project', payload: {
     displayName: 'Test', canonicalDomain: 'example.com', country: 'US', language: 'en',
   } })
-  return { app, db, credentials }
+  return { app, db, credentials, synced }
 }
 
 const queuePayload = {
@@ -611,6 +612,31 @@ describe('Cloudflare Queue pull lifecycle', () => {
       lastError: 'newer authority state',
       updatedAt: newerUpdatedAt,
     })
+    await h.app.close()
+  })
+
+  it('reports every failed Queue sync to telemetry with the reason it can name', async () => {
+    const failures: Error[] = [
+      new CloudflareQueueApiError('Cloudflare Queue pull failed with HTTP 403', 403),
+      new CloudflareQueueApiError('Cloudflare Queue pull failed with HTTP 500', 500),
+      new TypeError('fetch failed'),
+    ]
+    const h = await harness({ queuePull: async () => { throw failures.shift()! } })
+    const connected = await h.app.inject({
+      method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloudflare', payload: queuePayload,
+    })
+    const sourceId = JSON.parse(connected.payload).sourceId as string
+    for (let i = 0; i < 3; i += 1) {
+      const synced = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`, payload: {} })
+      expect(synced.statusCode).toBe(502)
+    }
+
+    const failed = { status: 'failed', sourceType: TrafficSourceTypes.cloudflare, sourceId, pulledEvents: 0, selfTrafficExcluded: 0, crawlerHits: 0, aiUserFetchHits: 0, aiReferralHits: 0, durationMs: expect.any(Number) }
+    expect(h.synced).toEqual([
+      { ...failed, errorCode: 'PROVIDER_AUTH' },
+      { ...failed, errorCode: 'PROVIDER_PULL' },
+      { ...failed, errorCode: 'INTERNAL' },
+    ])
     await h.app.close()
   })
 })

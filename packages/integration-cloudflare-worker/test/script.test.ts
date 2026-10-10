@@ -367,6 +367,11 @@ describe('generateWorkerScript', () => {
     })).toEqual({ ok: true })
   })
 
+  it('names itself to the ingest endpoint with its deployed version', async () => {
+    const result = await runGeneratedWorker([200], { CANONRY_WORKER_VERSION: '1.0.7' })
+    expect(new Headers(result.ingestInit?.headers).get('user-agent')).toBe('canonry-cloudflare-worker/1.0.7')
+  })
+
   it('uses POST as the direct-push method', () => {
     const script = generateWorkerScript(BASE_OPTS)
     expect(script).toMatch(/method\s*:\s*['"]POST['"]/)

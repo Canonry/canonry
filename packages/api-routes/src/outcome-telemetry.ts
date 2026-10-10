@@ -37,6 +37,14 @@ export type OutcomeTelemetryInput = OutcomeTelemetryEvent extends infer E
   ? E extends OutcomeTelemetryEvent ? Omit<E, 'attribution'> : never
   : never
 
+/** The current request's raw attribution labels, or undefined outside a request. */
+export function currentOutcomeAttribution(): OutcomeAttribution | undefined {
+  const context = getRequestContext()
+  return context
+    ? { userAgent: context.userAgent, surfaceLabel: context.usageSurface, agentLabel: context.usageAgent }
+    : undefined
+}
+
 /**
  * Bind route code to the host's outcome sink. Attaches the current request's
  * attribution when there is one; background work started by a request but
@@ -47,13 +55,7 @@ export function createOutcomeEmitter(sink: ((event: OutcomeTelemetryEvent) => vo
   return (event) => {
     if (!sink) return
     try {
-      const context = getRequestContext()
-      sink({
-        ...event,
-        attribution: context
-          ? { userAgent: context.userAgent, surfaceLabel: context.usageSurface, agentLabel: context.usageAgent }
-          : undefined,
-      } as OutcomeTelemetryEvent)
+      sink({ ...event, attribution: currentOutcomeAttribution() } as OutcomeTelemetryEvent)
     } catch {
       // Outcome telemetry is best effort.
     }
