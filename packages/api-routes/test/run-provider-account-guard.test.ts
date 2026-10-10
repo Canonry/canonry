@@ -287,6 +287,21 @@ describe('run admission after provider account failures', () => {
     expect((await h.trigger()).statusCode).toBe(201)
   })
 
+  it.each([
+    { name: 'project', diff: { before: { vertexProject: 'old-project' }, after: { vertexProject: 'new-project' } } },
+    { name: 'region', diff: { before: { vertexRegion: 'us-central1' }, after: { vertexRegion: 'europe-west1' } } },
+    { name: 'credentials', diff: { credentialsChanged: true } },
+  ])('releases a Gemini account hold after a Vertex $name change', async ({ diff }) => {
+    const h = await harness({ projectProviders: ['gemini'] })
+    h.seed(h.accountFailures(PROVIDER_ACCOUNT_FAILURE_STREAK, [['gemini', GEMINI_BAD_KEY]]))
+    expect((await h.trigger()).statusCode).toBe(422)
+    h.db.insert(auditLog).values({
+      id: crypto.randomUUID(), projectId: h.projectId, actor: 'api', action: 'provider.updated', entityType: 'provider',
+      entityId: 'gemini', diff: JSON.stringify(diff), createdAt: new Date().toISOString(),
+    }).run()
+    expect((await h.trigger()).statusCode).toBe(201)
+  })
+
   it('refuses a run of a published measurement plan the same way', async () => {
     // The plan expects perplexity too, which this host cannot run: the runner
     // records its slots as not run (UNKNOWN), and that must not keep the run admissible.

@@ -62,6 +62,10 @@ MCP parity is the default for every new public API/CLI capability. When adding a
 
 Cloudflare connect is intentionally deferred. It is a local deployment workflow that reads Canonry's local credential store. Direct push installs Worker secret bindings; Queue pull keeps its API token server-side. Do not add `canonry_traffic_connect_cloudflare` to MCP or Aero; agents may instruct the operator to run the CLI, inspect the exact zone route, attach it manually with Fail open, and pass both acknowledgement flags. Credentials and deployment material must not enter a transcript.
 
+`canonry_providers_reload` mirrors `settings reload-providers` and `POST /settings/providers/reload`: explicit operator approval, install administrator authority and `settings.write`. It reloads the connected host's own saved providers without accepting credentials or arbitrary file paths. Optional config/database path pins are one install identity pair. Read-only catalogs and native Aero exclude this install-wide mutation.
+
+Reload refuses provider removal or non-quota configuration changes while that provider has submitting, submitted or ended batches, or an executing sweep can still submit or cancel one (`OPERATION_IN_PROGRESS`); quota-only updates stay available. The host preserves the registration that work needs for dispatch, polling, ingestion and cancellation.
+
 ## Commands
 
 ```bash

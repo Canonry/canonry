@@ -22,6 +22,8 @@ import { PROJECT_SCOPE_COPY } from '../src/lib/project-scope.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import { AINYC_LATEST_RUN, ainycCitationVisibility, ainycComparison, ainycEvidence, ainycLandscape, ainycMentionShare, ainycMetrics, ainycProviderScores, ainycRuns } from './ainyc-visibility-fixture.js'
 import { toRunListItem } from '../src/build-dashboard.js'
+import { mapInsightDtosToVms } from '../src/mappers/insight-mapper.js'
+import { AdvancedMeasurementSection } from '../src/components/project/advanced-measurement/AdvancedMeasurementSection.js'
 import {
   getApiV1CdpStatusQueryKey,
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey,
@@ -41,6 +43,13 @@ import {
 } from '@ainyc/canonry-api-client/react-query'
 
 type EmbedBlock = Pick<EmbedClientConfig, 'enabled' | 'views' | 'projectTabs'>
+
+// Pass-through spy: the setup's Publish step sits behind a multi-step draft
+// flow, so the route test reads the props ProjectPage hands the section.
+vi.mock('../src/components/project/advanced-measurement/AdvancedMeasurementSection.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/components/project/advanced-measurement/AdvancedMeasurementSection.js')>()
+  return { ...actual, AdvancedMeasurementSection: vi.fn(actual.AdvancedMeasurementSection) }
+})
 
 /** The Simple overview opens on the trend chart: no Visibility card or table above it. */
 function expectTrendChartFirst(html: string) {
@@ -880,6 +889,8 @@ test('a Simple project loads pinned and historical competitors from the stored-e
   expect(html).toContain('pinned.example')
   expect(html).toContain('observed.example')
   expect(html.indexOf('pinned.example')).toBeLessThan(html.indexOf('observed.example'))
+  // A Simple project has no per-property numbers, so its Cited needs no qualifier.
+  expect(html).not.toContain('cited (any page)')
 })
 
 test('project navigation ignores stale Site Health onboarding markers', async () => {
@@ -1185,6 +1196,56 @@ test('pinning a market competitor writes only a draft action and refetches that 
   expect(calls.some(call => call.path.includes('/measurement-plan/draft/actions/publish'))).toBe(false)
 })
 
+test('Advanced project signals name the site-wide citation flag by domain and any page', async () => {
+  const insight = (id: string, type: 'regression' | 'gain' | 'competitor-gained', title: string) => ({
+    id, projectId: 'project_citypoint', runId: 'run-1', type, severity: 'high' as const, title,
+    query: 'dentist open late', provider: 'gemini', dismissed: false, createdAt: '2026-08-02T00:00:00.000Z',
+  })
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : new Request(input, init)
+    const path = decodeURIComponent(new URL(request.url, window.location.origin).pathname)
+    if (path.endsWith('/runs')) return jsonResponse([])
+    if (path.endsWith('/queries')) return jsonResponse([])
+    if (path.endsWith('/measurement-plan')) return jsonResponse(measurementPlanV2Response(4))
+    if (path.endsWith('/measurement-setup')) {
+      return jsonResponse({ state: 'operational', nextAction: 'view_measurement', mode: 'active-v2', answerVisibilityProviderReady: true, activeRevision: 4, activeSchemaVersion: 2, draft: null })
+    }
+    if (path.endsWith('/measurement-overview')) return jsonResponse(measurementOverviewResponse())
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const fixture = createDashboardFixture({})
+  // The insights as the overview read maps them, so the mapper's subject flag is exercised too.
+  fixture.dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!.insights = mapInsightDtosToVms([
+    insight('insight-lost', 'regression', 'Citation lost'),
+    insight('insight-gain', 'gain', 'Citation gained'),
+    insight('insight-rival', 'competitor-gained', 'Rival gained a citation'),
+  ])
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint'] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  fireEvent.click(await page.findByText('Project signals', { selector: 'summary, summary > span' }))
+  const signals = await page.findByRole('region', { name: 'Latest signals' })
+  // These insights read the older flag (any page on the domain), not a
+  // property's own pages, so each badge says so instead of a bare "Lost" or
+  // "Cited" beside the per-property numbers.
+  const badgeFor = (title: string) => within(signals).getByText(title).closest('.py-3')!.querySelector('details li > div:first-child')!.textContent
+  expect(badgeFor('Citation lost')).toBe('citypointdental.com citation lost (any page)')
+  expect(badgeFor('Citation gained')).toBe('citypointdental.com newly cited (any page)')
+  // A competitor's gain borrows the "cited" state for the rival, never the project's domain.
+  expect(badgeFor('Rival gained a citation')).toBe('Cited')
+})
+
 test('a direct Portfolio URL falls back safely in embed mode', async () => {
   const html = await renderAt('/projects/project_citypoint/portfolio', {
     enabled: true,
@@ -1195,7 +1256,7 @@ test('a direct Portfolio URL falls back safely in embed mode', async () => {
   expect(html).toContain('Citypoint Dental NYC')
   expect(html).toContain('AI answers over time')
   expect(html).not.toContain('Import sitemap')
-  expect(html).not.toContain('>Portfolio</a>')
+  expect(html).not.toContain('>All projects</a>')
   expect(html).not.toContain('Coverage and performance')
 })
 
@@ -1316,6 +1377,80 @@ test('the Queries route reads the workspace and keeps scoped removal active afte
   expect(page.getByRole('heading', { name: 'Remove query' })).toBeTruthy()
   expect(page.queryByRole('heading', { name: 'Edit query' })).toBeNull()
   expect(page.getByText('Only assignments in North · Group will be removed. Earlier results stay unchanged.')).toBeTruthy()
+})
+
+// The fixture's Citypoint project has a queued AI sweep; dropping it leaves only the completed one.
+function dashboardFixture(sweepActive: boolean) {
+  const fixture = createDashboardFixture({})
+  const project = fixture.dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+  if (!sweepActive) project.recentRuns = project.recentRuns.filter(run => run.status !== 'queued' && run.status !== 'running')
+  expect(project.recentRuns.some(run => run.kind === 'answer-visibility' && run.status === 'queued')).toBe(sweepActive)
+  return fixture
+}
+
+test.each([true, false])('the Queries route pauses Confirm while a sweep is queued (queued: %s)', async sweepActive => {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = input instanceof Request ? input.url : String(input)
+    const url = new URL(raw, window.location.origin)
+    if (url.pathname.endsWith('/runs')) return jsonResponse([])
+    if (url.pathname.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (url.pathname.endsWith('/measurement-setup')) return jsonResponse({ state: 'unconfigured', nextAction: 'configure', mode: 'none', activeRevision: null, activeSchemaVersion: null, draft: null })
+    if (url.pathname.endsWith('/query-tracking')) return jsonResponse(queryTrackingWorkspaceResponse())
+    if (url.pathname.endsWith('/query-tracking/preview')) {
+      const { workspaceVersion, active } = queryTrackingWorkspaceResponse()
+      return jsonResponse({
+        mode: 'advanced', workspaceVersion, previewToken: `qtp_${'c'.repeat(64)}`, reviewedAt: '2026-09-04T12:15:00.000Z', active, tracked: [],
+        diff: { added: [], removed: [{ queryId: 'query-citypoint', queryText: 'Citypoint dentist', assignmentCount: 1 }], reused: [], unchanged: [], noOp: false },
+        workload: { existingNodes: 1, existingProviderCalls: 1, nextSweepNodes: 0, nextSweepProviderCalls: 0, addedNodes: 0, addedProviderCalls: 0, removedNodes: 1, removedProviderCalls: 1 },
+      })
+    }
+    if (url.pathname.endsWith('/measurement-query-templates')) return jsonResponse({ templates: [] })
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const fixture = dashboardFixture(sweepActive)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/queries'] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  fireEvent.click(await page.findByRole('button', { name: 'Remove Citypoint dentist' }))
+  fireEvent.click(page.getByRole('button', { name: 'Review changes' }))
+  const confirm = await page.findByRole('button', { name: 'Confirm changes' }) as HTMLButtonElement
+  expect(confirm.disabled).toBe(sweepActive)
+  const message = page.queryByText('A sweep is queued or running. Publish after it finishes.')
+  expect(message?.getAttribute('role') ?? null).toBe(sweepActive ? 'status' : null)
+})
+
+test.each([true, false])('the Portfolio route passes a queued sweep to setup Publish (queued: %s)', async sweepActive => {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async () => jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+  const section = vi.mocked(AdvancedMeasurementSection)
+  section.mockClear()
+
+  const fixture = dashboardFixture(sweepActive)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/portfolio'] })
+  await router.load()
+  render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  await waitFor(() => expect(section).toHaveBeenCalled())
+  expect(section.mock.lastCall![0].sweepActive).toBe(sweepActive)
 })
 
 test('the legacy Discovery route opens the separate research workspace without tracking reads', async () => {
@@ -2750,6 +2885,11 @@ test('an all-properties v2 view requests and renders the explicit all-markets la
   expect(html).toContain('all-market-pin.example')
   expect(html).toContain('all-market-rival.example')
   expect(html).toContain('All markets')
+  // Beside per-property numbers, your row's Cited is the older site-wide count,
+  // so it names the domain and "any page" under the figure.
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const you = doc.querySelector('.av-grid[aria-label="Competitors over time"] tbody tr')!
+  expect(you.querySelectorAll('td')[3]!.textContent).toBe('2 of 8citypoint.example cited (any page)')
 })
 
 test('a query class in the URL selects that class on first paint', async () => {
@@ -3591,6 +3731,25 @@ test('an Advanced explicit historical range is a results filter token, not conte
   ])
   expect(toolbar.querySelector('button[aria-controls]')?.textContent).toBe('Filters · 1')
   expect(page.textContent).not.toContain('2026-09-01 to 2026-09-08')
+})
+
+test.each([
+  { label: 'names when tracking changed and the next scheduled sweep', managedSweeps: false, running: false, copy: 'Tracking changed Aug 1. Showing the Jul 30 results, from before the change. New numbers after the Sep 8 sweep.' },
+  { label: 'names no next sweep date while a sweep is under way', managedSweeps: false, running: true, copy: 'Tracking changed Aug 1. Showing the Jul 30 results, from before the change. New numbers after the next sweep.' },
+  { label: 'names neither date on a managed dashboard', managedSweeps: true, running: false, copy: 'Tracking changed. Showing the Jul 30 results, from before the change. New numbers after the next sweep.' },
+])('the Advanced tracking-changed strip $label', async ({ managedSweeps, running, copy }) => {
+  const report = visibilityReportResponse({ mode: 'advanced', queryClass: parseVisibilitySelection({}).queryClass })
+  report.selection.measurement = { ...report.selection.measurement, activeRevision: 5, awaitingSweep: true, pendingAssignmentCount: 1, completedAt: '2026-07-30T12:05:00.000Z' }
+  // The plan (published Aug 1) and the schedule are cached in every case, so only the page's own rules keep a date out.
+  const html = await renderAt('/projects/project_citypoint', undefined,
+    { plan: measurementPlanV2Response(5), overview: measurementOverviewResponse(), visibilityReport: report },
+    { managedSweeps, schedule: managedSchedule, configureFixture(dashboard) {
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      project.recentRuns = running ? [{ ...project.recentRuns[0]!, kind: 'answer-visibility', status: 'running' }] : []
+    } },
+  )
+  const strips = [...renderedPage(html).querySelectorAll('[role="status"]')].filter(status => status.textContent?.startsWith('Tracking changed'))
+  expect(strips.map(strip => strip.textContent)).toEqual([copy])
 })
 
 test('managed sweeps without a schedule replaces the header action without inventing a date', async () => {

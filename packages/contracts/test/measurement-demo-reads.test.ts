@@ -287,8 +287,12 @@ describe('advanced measurement demo reads', () => {
   })
 
   it('only admits comparisons with the same immutable plan and execution identity', () => {
-    expect(measurementChangesQuerySchema.parse({})).toEqual({ scope: 'all', queryClass: 'all' })
+    // No class reads non-brand; pooling both classes takes an explicit `all`.
+    expect(measurementChangesQuerySchema.parse({})).toEqual({ scope: 'all', queryClass: 'non-brand' })
+    expect(measurementChangesQuerySchema.parse({ queryClass: 'all' })).toEqual({ scope: 'all', queryClass: 'all' })
     expect(measurementChangesQuerySchema.safeParse({ scope: 'group' }).success).toBe(false)
+    // Market scope is an overview read; a change comparison refuses it.
+    expect(measurementChangesQuerySchema.safeParse({ scope: 'market' }).success).toBe(false)
 
     const input = {
       current: { ...MEASUREMENT, executionIdentity: 'identity-cedar-a', measurementScope: 'full' },
@@ -409,7 +413,7 @@ describe('advanced measurement demo reads', () => {
   it('preserves change sort vocabulary, disjoint buckets and literal signal moves', () => {
     expect(MEASUREMENT_CHANGES_DEFAULT_SORT).toBe('magnitude')
     expect(MEASUREMENT_CHANGES_NOISE_ANSWERS).toBe(2)
-    expect(measurementChangesQuerySchema.parse({ sort: 'label' })).toEqual({ scope: 'all', queryClass: 'all', sort: 'label' })
+    expect(measurementChangesQuerySchema.parse({ sort: 'label' })).toEqual({ scope: 'all', queryClass: 'non-brand', sort: 'label' })
     expect(measurementChangesQuerySchema.safeParse({ sort: 'size' }).success).toBe(false)
 
     const delta = { state: 'available' as const, previous: METRIC, current: METRIC, delta: 0 }

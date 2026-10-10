@@ -766,8 +766,9 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     await screen.findByRole('heading', { name: 'Properties' })
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await advanceGroupsToQuestions()
+    fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'all' } })
     fireEvent.click(screen.getByLabelText(`Select query ${QUERIES[0]!.query}`))
-    await clickReadyAssignment(/Assign 1 query to all 4 Properties/)
+    await clickReadyAssignment(/Assign 1 query to every location \(4\)/)
     await waitFor(() => expect(fake.service.applyAssignments).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByRole('heading', { name: 'Review & publish' })
@@ -808,14 +809,42 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     expect(fake.service.applySitemapSelection).toHaveBeenCalledTimes(1)
   })
 
+  test('starts Apply to with nothing chosen and previews no assignment until a place is chosen', async () => {
+    const targets = [property(1), property(2), property(3)]
+    const fake = createFakeService({ initialDraft: draftFixture({ targets }) })
+    renderSection(fake)
+
+    await advanceGroupsToQuestions()
+    const applyTo = screen.getByLabelText('Apply to') as HTMLSelectElement
+    expect(applyTo.value).toBe('')
+    expect((screen.getByRole('option', { name: 'Choose where to apply' }) as HTMLOptionElement).selected).toBe(true)
+    expect(screen.getByRole('option', { name: 'Every location (3)' })).toBeTruthy()
+    expect(screen.getByRole('option', { name: 'Specific locations…' })).toBeTruthy()
+    expect(screen.queryByText('Specific locations')).toBeNull()
+    fireEvent.click(screen.getByLabelText(`Select query ${QUERIES[0]!.query}`))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)) })
+    expect(fake.service.previewAssignments).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Assign 1 query' })).toHaveProperty('disabled', true)
+    expect(screen.getByText('Choose where to apply first.')).toBeTruthy()
+
+    fireEvent.change(applyTo, { target: { value: 'all' } })
+    await clickReadyAssignment(/Assign 1 query to every location \(3\)/)
+    await waitFor(() => expect(fake.service.applyAssignments).toHaveBeenCalledTimes(1))
+    expect(fake.service.previewAssignments).toHaveBeenCalledWith(PROJECT, {
+      targetKeys: targets.map(target => target.stableKey),
+      queryIds: [QUERIES[0]!.id],
+    })
+  })
+
   test('applies every selected query to every selected Property in exactly one bulk call', async () => {
     const targets = [property(1), property(2), property(3)]
     const fake = createFakeService({ initialDraft: draftFixture({ targets }) })
     renderSection(fake)
 
     await advanceGroupsToQuestions()
+    fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'all' } })
     for (const query of QUERIES) fireEvent.click(screen.getByLabelText(`Select query ${query.query}`))
-    await clickReadyAssignment(/Assign 2 queries to all 3 Properties/)
+    await clickReadyAssignment(/Assign 2 queries to every location \(3\)/)
 
     await waitFor(() => expect(fake.service.applyAssignments).toHaveBeenCalledTimes(1))
     expect(fake.service.previewAssignments).toHaveBeenCalledTimes(1)
@@ -858,7 +887,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     })
   })
 
-  test('applies Specific Properties in canonical order regardless of checkbox order', async () => {
+  test('applies Specific locations in canonical order regardless of checkbox order', async () => {
     const targets = [property(1), property(2), property(3)]
     const fake = createFakeService({ initialDraft: draftFixture({ targets }) })
     renderSection(fake)
@@ -868,7 +897,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.click(screen.getByLabelText('Select Property 003'))
     fireEvent.click(screen.getByLabelText('Select Property 001'))
     fireEvent.click(screen.getByLabelText(`Select query ${QUERIES[0]!.query}`))
-    await clickReadyAssignment(/Assign 1 query to 2 Properties/)
+    await clickReadyAssignment(/Assign 1 query to 2 locations/)
 
     await waitFor(() => expect(fake.service.applyAssignments).toHaveBeenCalledTimes(1))
     expect(fake.service.applyAssignments).toHaveBeenCalledWith(PROJECT, '"mpd_7"', {
@@ -899,7 +928,8 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Continue without groups' }))
     await screen.findByRole('heading', { name: 'Queries' })
 
-    expect((screen.getByLabelText('Apply to') as HTMLSelectElement).value).toBe('all')
+    expect((screen.getByLabelText('Apply to') as HTMLSelectElement).value).toBe('')
+    expect((screen.getByRole('option', { name: 'Choose where to apply' }) as HTMLOptionElement).selected).toBe(true)
     expect(screen.queryByText(/selected group is no longer available/i)).toBeNull()
   })
 
@@ -915,6 +945,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     renderSection(fake, { onCreateQueries })
 
     await advanceGroupsToQuestions()
+    fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'all' } })
     const pattern = await screen.findByLabelText('Query pattern')
     fireEvent.change(pattern, { target: { value: 'events at {property}' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add 2 queries' }))
@@ -941,6 +972,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     renderSection(fake, { onCreateQueries })
 
     await advanceGroupsToQuestions()
+    fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'all' } })
     const pattern = await screen.findByLabelText('Query pattern')
     fireEvent.change(pattern, { target: { value: 'events at {property}' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add 2 queries' }))
@@ -1020,7 +1052,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
 
     await advancePropertiesToQuestions()
     fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'specific' } })
-    expect(screen.getByText('Specific Properties')).toBeTruthy()
+    expect(screen.getByText('Specific locations')).toBeTruthy()
 
     fireEvent.click(screen.getByLabelText('Select Property 001'))
     fireEvent.click(screen.getByLabelText('Select Property 002'))
@@ -1032,8 +1064,8 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     expect(screen.getByText('194 of 194 selected')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await advanceGroupsToQuestions()
-    expect((screen.getByLabelText('Apply to') as HTMLSelectElement).value).toBe('all')
-    expect(screen.queryByText('Specific Properties')).toBeNull()
+    expect((screen.getByLabelText('Apply to') as HTMLSelectElement).value).toBe('')
+    expect(screen.queryByText('Specific locations')).toBeNull()
 
     expect(fake.service.applySitemapSelection).not.toHaveBeenCalled()
     expect(fake.getDraft()?.authoring.targets.filter(target => target.status === 'included')).toHaveLength(194)
@@ -1167,9 +1199,10 @@ describe('AdvancedMeasurementSection server draft controller', () => {
         await refreshedPreviewGate
         return preview
       })
-    const assignButtonName = /Assign 1 query to all 1 Property/
+    const assignButtonName = /Assign 1 query to every location \(1\)/
     renderSection(fake)
     await advanceGroupsToQuestions()
+    fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'all' } })
     fireEvent.click(screen.getByLabelText(`Select query ${QUERIES[0]!.query}`))
     await clickReadyAssignment(assignButtonName)
 
@@ -1203,6 +1236,23 @@ describe('AdvancedMeasurementSection server draft controller', () => {
       expectedCompiledChecksum: COMPILED_CHECKSUM,
     })
     expect(onPublished).toHaveBeenCalledTimes(1)
+  })
+
+  test.each([true, false])('pauses Publish setup while a sweep is queued or running (sweepActive=%s)', async (sweepActive) => {
+    const fake = createFakeService({
+      initialDraft: draftFixture({ targets: [property(1)], assignedQueryIds: ['q-nearby'], baseActiveRevision: 4 }),
+    })
+    renderSection(fake, { sweepActive })
+    await advanceExistingDraftToReview()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+    const publish = await screen.findByRole('button', { name: 'Publish setup' }) as HTMLButtonElement
+    expect(publish.disabled).toBe(sweepActive)
+    const message = screen.queryByText('A sweep is queued or running. Publish after it finishes.')
+    expect(message?.getAttribute('role') ?? null).toBe(sweepActive ? 'status' : null)
+    fireEvent.click(publish)
+    if (sweepActive) expect(fake.service.publish).not.toHaveBeenCalled()
+    else await waitFor(() => expect(fake.service.publish).toHaveBeenCalledTimes(1))
   })
 
   test('groups repeated review checks into concise Property actions while retaining distinct fixes', async () => {

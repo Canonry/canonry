@@ -74,6 +74,17 @@ describe('mapInsightDtoToVm', () => {
     expect(vm.affectedPhrases[0]!.citationState).toBe('emerging')
   })
 
+  test('marks which citation states are the project\'s own site-wide citation', () => {
+    const site = (type: InsightDto['type']) => mapInsightDtoToVm(makeInsightDto({ type })).affectedPhrases[0]!.siteCitation
+    for (const type of ['regression', 'gain', 'opportunity', 'first-citation', 'provider-pickup', 'persistent-gap'] as const) {
+      expect(site(type), type).toBe(true)
+    }
+    // These borrow the same states for a competitor or a Business Profile signal.
+    for (const type of ['competitor-gained', 'competitor-lost', 'gbp-lodging-gap', 'gbp-metric-drop'] as const) {
+      expect(site(type), type).toBe(false)
+    }
+  })
+
   test('opportunity → citationState not-cited', () => {
     const vm = mapInsightDtoToVm(makeInsightDto({ type: 'opportunity' }))
     expect(vm.affectedPhrases[0]!.citationState).toBe('not-cited')

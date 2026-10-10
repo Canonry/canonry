@@ -59,6 +59,8 @@ export interface AdvancedMeasurementSectionProps {
   onRetryQueries?: () => void
   publishedPlan?: MeasurementPlanResponse['active']
   canEdit?: boolean
+  /** A queued or running sweep is pinned to the current plan, so Publish waits for it. */
+  sweepActive?: boolean
   /** Adds tracked queries to the project from inside setup. */
   /** Returns the project's queries AFTER the write, so a pairing can resolve text -> id. */
   onCreateQueries?: (texts: readonly string[]) => Promise<readonly { id: string; query: string }[]>
@@ -700,7 +702,7 @@ function assignmentInputFor(
     return { groupKeys: uniqueSorted(audience.groupIds), queryIds: uniqueSorted(queryIds) }
   }
   return {
-    targetKeys: uniqueSorted(audience.kind === 'all' ? allTargetKeys : audience.propertyIds),
+    targetKeys: uniqueSorted(audience.kind === 'all' ? allTargetKeys : audience.kind === 'specific' ? audience.propertyIds : []),
     queryIds: uniqueSorted(queryIds),
   }
 }
@@ -796,6 +798,7 @@ export function AdvancedMeasurementSection({
   onRetryQueries,
   publishedPlan,
   canEdit = true,
+  sweepActive = false,
   onCreateQueries,
   onManageProjectQueries,
   onPublished,
@@ -814,7 +817,7 @@ export function AdvancedMeasurementSection({
   const [maxVisibleProperties, setMaxVisibleProperties] = useState(DEFAULT_VISIBLE_PROPERTIES)
   const [includedPropertyIds, setIncludedPropertyIds] = useState<string[]>([])
   const [selectedQueryIds, setSelectedQueryIds] = useState<string[]>([])
-  const [audience, setAudience] = useState<AdvancedMeasurementAudience>({ kind: 'all' })
+  const [audience, setAudience] = useState<AdvancedMeasurementAudience>({ kind: 'none' })
   const [assignmentPreview, setAssignmentPreview] = useState<MeasurementAudienceAssignmentPreview | null>(null)
   const [assignmentPreviewSelectionKey, setAssignmentPreviewSelectionKey] = useState<string | null>(null)
   const [isPreviewingAssignment, setIsPreviewingAssignment] = useState(false)
@@ -1125,7 +1128,7 @@ export function AdvancedMeasurementSection({
     try {
       if (!selectionChanged) {
         setIncludedPropertyIds([...selected])
-        setAudience({ kind: 'all' })
+        setAudience({ kind: 'none' })
         setStep('groups')
         return
       }
@@ -1133,7 +1136,7 @@ export function AdvancedMeasurementSection({
       const next = await refreshDraft()
       const included = includedPropertyIdsFor(next.draft)
       setIncludedPropertyIds(included)
-      setAudience({ kind: 'all' })
+      setAudience({ kind: 'none' })
       setStep('groups')
     } catch (error) {
       if (isDraftConflict(error)) await recoverConflict('This setup changed in another session. The latest Properties are loaded.')
@@ -1322,7 +1325,7 @@ export function AdvancedMeasurementSection({
     const next = await mutate('remove-group', currentEtag => service.removeGroup(projectName, currentEtag, groupId), 'Could not remove this group.')
     if (next) {
       setAudience(current => current.kind === 'groups' && current.groupIds.includes(groupId)
-        ? { kind: 'all' }
+        ? { kind: 'none' }
         : current)
       if (editingGroupId === groupId) {
         setEditingGroupId(null)
@@ -1482,7 +1485,7 @@ export function AdvancedMeasurementSection({
       setPropertiesSearch('')
       setIncludedPropertyIds([])
       setSelectedQueryIds([])
-      setAudience({ kind: 'all' })
+      setAudience({ kind: 'none' })
       setAssignmentPreview(null)
       setAssignmentPreviewError(null)
       setAssignmentNotice(null)
@@ -1700,7 +1703,8 @@ export function AdvancedMeasurementSection({
             canReviewChanges: assignmentCount > 0 && !busyAction,
             onReviewChanges: reviewSetupChanges,
             onBack: () => setStep('queries'),
-            canPublish: reviewed !== null && !busyAction,
+            canPublish: reviewed !== null && !busyAction && !sweepActive,
+            sweepActive,
             isPublishing: busyAction === 'publish',
             onPublish: publishSetup,
           }}

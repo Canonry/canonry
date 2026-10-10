@@ -1283,6 +1283,7 @@ export type VisibilityReportResponse = {
                 notMeasured: number;
                 total: number;
             };
+            notMeasuredUnchecked?: number;
         };
         trend: Array<{
             runId: string;
@@ -1412,6 +1413,11 @@ export type VisibilityReportResponse = {
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
                     unchecked?: number;
+                };
+                uncheckedSources?: {
+                    answers: number;
+                    citedAnswers: number;
+                    citedTargetKeys: Array<string>;
                 };
             }>;
             nextCursor: string | null;
@@ -8683,7 +8689,7 @@ export type MeasurementDraftUpsertTargetRequest = {
 export type MeasurementOverviewResponse = {
     mode: 'active-v1' | 'active-v2';
     scope: {
-        kind: 'all' | 'group' | 'property';
+        kind: 'all' | 'group' | 'market' | 'property';
         key?: string;
         label: string;
     };
@@ -10443,6 +10449,28 @@ export type MeasurementPropertyEvidenceResponse = {
         nextCursor: string | null;
         totalEstimate?: number;
     };
+    otherQueries?: {
+        items: Array<{
+            observationId: string;
+            expectedSlotId: string;
+            executionId: string;
+            provider: string;
+            queryText: string;
+            location: string | null;
+            queryClass: 'branded' | 'non-brand';
+            assignedTargetKeys: Array<string>;
+            sources: Array<{
+                sourceUrl: string;
+                normalizedUrl: string | null;
+                matchedUrlIds: Array<string>;
+            }>;
+            sourceCount: number;
+            sourcesTruncated: boolean;
+            evidenceComplete: boolean;
+        }>;
+        nextCursor: string | null;
+        totalEstimate?: number;
+    };
 };
 
 export type MeasurementPropertyQuestionsResponse = {
@@ -10613,6 +10641,7 @@ export type MeasurementQueryTemplateUpsertRequest = {
 
 export type MeasurementReportResponse = {
     revision: number;
+    queryClass?: 'all' | 'branded' | 'non-brand' | null;
     run: {
         id: string;
         status: 'completed' | 'partial';
@@ -10892,7 +10921,7 @@ export type UiTelemetryEvent = {
     uiSessionId: string;
     page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.action';
-    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'filter.change' | 'search.submit';
+    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'property_names.save' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'filter.change' | 'search.submit';
     tab?: 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
     integration?: 'google' | 'gsc' | 'ga' | 'bing' | 'gbp' | 'wordpress' | 'openai_ads' | 'google_ads' | 'gtm' | 'traffic_cloudflare' | 'traffic_vercel' | 'traffic_cloud_run' | 'traffic_wordpress';
     format?: 'csv' | 'json' | 'html';
@@ -12438,6 +12467,30 @@ export type ProjectSearchResponseDto = {
         snippet: string;
         dismissed: boolean;
         createdAt: string;
+    }>;
+};
+
+export type ProviderReloadRequest = {
+    configPath?: string;
+    databasePath?: string;
+};
+
+export type ProviderReloadResponseDto = {
+    reloaded: true;
+    providers: Array<{
+        name: string;
+        displayName?: string;
+        keyUrl?: string;
+        modelHint?: string;
+        model?: string;
+        defaultModel?: string;
+        configured: boolean;
+        quota?: {
+            maxConcurrency: number;
+            maxRequestsPerMinute: number;
+            maxRequestsPerDay: number;
+        };
+        vertexConfigured?: boolean;
     }>;
 };
 
@@ -15731,13 +15784,17 @@ export type GetApiV1ProjectsByNameMeasurementReportData = {
          * Eligible full measurement run to reconstruct. Omit to use the latest run for the revision.
          */
         runId?: string;
+        /**
+         * Query class every group, Target and evidence row is taken over. Defaults to non-brand; branded is a separate read. all pools branded and non-brand into one rate and is served only when asked for. A schema v1 revision records no class: omit this (or pass all) to read every answer, and the response echoes queryClass null.
+         */
+        queryClass?: 'non-brand' | 'branded' | 'all';
     };
     url: '/api/v1/projects/{name}/measurement-report';
 };
 
 export type GetApiV1ProjectsByNameMeasurementReportErrors = {
     /**
-     * The revision query parameter is invalid.
+     * The revision or queryClass parameter is invalid, or a class was requested for a schema v1 revision.
      */
     400: ErrorEnvelope;
     /**
@@ -17528,21 +17585,25 @@ export type GetApiV1ProjectsByNameMeasurementOverviewData = {
          */
         compact?: boolean;
         /**
-         * Reporting scope.
+         * Reporting scope. group is every query of the group's Properties; market is only the market's own queries.
          */
-        scope: 'all' | 'group' | 'property';
+        scope: 'all' | 'group' | 'market' | 'property';
         /**
          * Group stable key, required when scope is "group".
          */
         groupKey?: string;
         /**
+         * Market stable key (a frozen reporting scope), required when scope is "market" and refused (400) with any other scope.
+         */
+        marketKey?: string;
+        /**
          * Target stable key, required when scope is "property".
          */
         targetKey?: string;
         /**
-         * Restrict to one question class. Never pooled across classes.
+         * Query class the rates are taken over. Defaults to non-brand; read branded as a separate request. all pools branded and non-brand into one rate.
          */
-        queryClass?: 'all' | 'branded' | 'non-brand';
+        queryClass?: 'non-brand' | 'branded' | 'all';
         /**
          * Restrict to one answer provider.
          */
@@ -18333,9 +18394,9 @@ export type GetApiV1ProjectsByNameMeasurementPropertyEvidenceData = {
          */
         runId?: string;
         /**
-         * What one row is. sources (the default) returns one row per cited URL under evidence, which is what a caller written before this parameter existed reads. answers returns one row per measured answer under answers, with the cited URLs nested inside it, so the answers that cited nothing at all are present rather than missing. Exactly one of the two keys is returned; the other is absent, not empty.
+         * What one row is. sources (the default) returns one row per cited URL under evidence, which is what a caller written before this parameter existed reads. answers returns one row per measured answer under answers, with the cited URLs nested inside it, so the answers that cited nothing at all are present rather than missing. other-queries returns, under otherQueries, one row per answer to a query NOT assigned to this Property that cited one of its own pages, per assignment class; those answers are outside its rates. Exactly one of the keys is returned; the others are absent, not empty.
          */
-        shape?: 'sources' | 'answers';
+        shape?: 'sources' | 'answers' | 'other-queries';
         /**
          * Opaque cursor from the previous page. It pins pagination to the active revision, displayed run, evidence snapshot, same filters, and the shape it was issued for; a mismatch or newly appended evidence is rejected rather than silently paged across. An answer page is keyed on the slot, so a boundary never falls between one answer and its own cited URLs.
          */
@@ -18656,9 +18717,9 @@ export type GetApiV1ProjectsByNameMeasurementChangesData = {
          */
         targetKey?: string;
         /**
-         * Question class. Defaults to all.
+         * Query class. Defaults to non-brand; read branded as a separate request. all pools both classes.
          */
-        queryClass?: 'all' | 'branded' | 'non-brand';
+        queryClass?: 'non-brand' | 'branded' | 'all';
         /**
          * Restrict both runs to one answer provider.
          */
@@ -21307,6 +21368,43 @@ export type PutApiV1SettingsProvidersByNameResponses = {
 };
 
 export type PutApiV1SettingsProvidersByNameResponse = PutApiV1SettingsProvidersByNameResponses[keyof PutApiV1SettingsProvidersByNameResponses];
+
+export type PostApiV1SettingsProvidersReloadData = {
+    body?: ProviderReloadRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/settings/providers/reload';
+};
+
+export type PostApiV1SettingsProvidersReloadErrors = {
+    /**
+     * Invalid reload request, unloadable config, or install identity mismatch (error.details.reason install-identity-mismatch).
+     */
+    400: ErrorEnvelope;
+    /**
+     * Install administrator authority is required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Outstanding provider batch work requires the current registration. Quota-only changes remain available.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Provider reload is not supported.
+     */
+    501: ErrorEnvelope;
+};
+
+export type PostApiV1SettingsProvidersReloadError = PostApiV1SettingsProvidersReloadErrors[keyof PostApiV1SettingsProvidersReloadErrors];
+
+export type PostApiV1SettingsProvidersReloadResponses = {
+    /**
+     * Saved provider configuration is active.
+     */
+    200: ProviderReloadResponseDto;
+};
+
+export type PostApiV1SettingsProvidersReloadResponse = PostApiV1SettingsProvidersReloadResponses[keyof PostApiV1SettingsProvidersReloadResponses];
 
 export type PutApiV1SettingsGoogleData = {
     body: {

@@ -42,6 +42,7 @@ export interface AdvancedMeasurementApplySelection {
 
 /** A group is an assignment shortcut. Published assignments still name Properties. */
 export type AdvancedMeasurementAudience =
+  | { kind: 'none' }
   | { kind: 'all' }
   | { kind: 'groups'; groupIds: readonly string[] }
   | { kind: 'specific'; propertyIds: readonly string[] }
@@ -243,6 +244,8 @@ export interface AdvancedMeasurementReviewStepProps {
   reviewedChanges?: AdvancedMeasurementReviewedChanges | null
   reviewChangesError?: string | null
   canPublish: boolean
+  /** Explains why Publish is paused; the caller also folds it into `canPublish`. */
+  sweepActive?: boolean
   isPublishing?: boolean
   onPublish: () => void | Promise<void>
 }
@@ -278,6 +281,7 @@ function selectedAudiencePropertyIds(
   properties: readonly AdvancedMeasurementProperty[],
   groups: readonly AdvancedMeasurementGroup[],
 ): string[] {
+  if (audience.kind === 'none') return []
   if (audience.kind === 'all') return properties.map(property => property.id)
   if (audience.kind === 'specific') return properties
     .filter(property => audience.propertyIds.includes(property.id))
@@ -291,12 +295,12 @@ function selectedAudiencePropertyIds(
 }
 
 function audienceLabel(
-  audience: AdvancedMeasurementAudience,
+  audience: Exclude<AdvancedMeasurementAudience, { kind: 'none' }>,
   groups: readonly AdvancedMeasurementGroup[],
   propertyCount: number,
 ): string {
-  if (audience.kind === 'all') return `all ${propertyCount} ${propertyCount === 1 ? 'Property' : 'Properties'}`
-  if (audience.kind === 'specific') return propertyCount === 1 ? '1 Property' : `${propertyCount} Properties`
+  if (audience.kind === 'all') return `every location (${propertyCount})`
+  if (audience.kind === 'specific') return propertyCount === 1 ? '1 location' : `${propertyCount} locations`
   const labels = audience.groupIds
     .map(id => groups.find(group => group.id === id)?.name)
     .filter((label): label is string => Boolean(label))
@@ -713,7 +717,7 @@ export function AdvancedMeasurementQueriesStep({
       <div className="section-head">
         <div>
           <h3 id="advanced-measurement-queries-title">Queries</h3>
-          <p className="mt-1 max-w-2xl text-sm text-secondary">Choose queries, then apply them to Properties.</p>
+          <p className="mt-1 max-w-2xl text-sm text-secondary">Choose queries, then apply them to locations.</p>
         </div>
       </div>
 
@@ -727,11 +731,13 @@ export function AdvancedMeasurementQueriesStep({
               <span className="sr-only">Apply to</span>
               <select
                 aria-label="Apply to"
-                value={activeAudience.kind === 'all'
-                  ? 'all'
-                  : activeAudience.kind === 'specific'
-                    ? 'specific'
-                    : `group:${activeAudience.groupIds[0] ?? ''}`}
+                value={activeAudience.kind === 'none'
+                  ? ''
+                  : activeAudience.kind === 'all'
+                    ? 'all'
+                    : activeAudience.kind === 'specific'
+                      ? 'specific'
+                      : `group:${activeAudience.groupIds[0] ?? ''}`}
                 onChange={event => {
                   const value = event.currentTarget.value
                   if (value === 'all') updateAudience({ kind: 'all' })
@@ -742,7 +748,8 @@ export function AdvancedMeasurementQueriesStep({
                 }}
                 className="block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
               >
-                <option value="all">All Properties · {properties.length}</option>
+                <option value="" disabled>Choose where to apply</option>
+                <option value="all">Every location ({properties.length})</option>
                 {groups.length > 0 ? (
                   <optgroup label="Groups">
                     {groups.map(group => {
@@ -751,7 +758,7 @@ export function AdvancedMeasurementQueriesStep({
                     })}
                   </optgroup>
                 ) : null}
-                <option value="specific">Specific Properties…</option>
+                <option value="specific">Specific locations…</option>
               </select>
             </label>
           </div>
@@ -771,7 +778,7 @@ export function AdvancedMeasurementQueriesStep({
                         className="-my-px -mr-2 ml-1 inline-flex min-h-11 min-w-11 items-center justify-center rounded text-secondary outline-none hover:text-heading focus-visible:ring-2 focus-visible:ring-mono-400"
                         onClick={() => {
                           const groupIds = activeAudience.groupIds.filter(id => id !== group.id)
-                          updateAudience(groupIds.length > 0 ? { kind: 'groups', groupIds } : { kind: 'all' })
+                          updateAudience(groupIds.length > 0 ? { kind: 'groups', groupIds } : { kind: 'none' })
                         }}
                       >
                         ×
@@ -807,7 +814,7 @@ export function AdvancedMeasurementQueriesStep({
           {activeAudience.kind === 'specific' ? (
             <div className="mt-4">
               <PropertyChecklist
-                legend="Specific Properties"
+                legend="Specific locations"
                 properties={properties}
                 selectedPropertyIds={activeAudience.propertyIds}
                 showBulkActions={false}
@@ -966,10 +973,10 @@ export function AdvancedMeasurementQueriesStep({
             >
               {isApplying
                 ? 'Assigning queries…'
-                : `Assign ${selectedQueryIds.length || ''} ${selectedQueryIds.length === 1 ? 'query' : 'queries'} to ${audienceLabel(activeAudience, groups, selectedPropertyCount)}`.replace('  ', ' ')}
+                : `Assign ${selectedQueryIds.length || ''} ${selectedQueryIds.length === 1 ? 'query' : 'queries'}${activeAudience.kind === 'none' ? '' : ` to ${audienceLabel(activeAudience, groups, selectedPropertyCount)}`}`.replace('  ', ' ')}
             </Button>
             {/*
-              Four states share this slot and each is a different height, and the
+              Five states share this slot and each is a different height, and the
               impact sentence itself rewraps as the counts change. Without a
               reserved two lines, ticking a box moved the query table under
               the cursor.
@@ -991,6 +998,8 @@ export function AdvancedMeasurementQueriesStep({
                 {onRetryAssignmentImpact ? <Button type="button" size="sm" variant="outline" className="min-h-11" onClick={onRetryAssignmentImpact}>Retry impact</Button> : null}
                 {onBack ? <Button type="button" size="sm" variant="outline" className="min-h-11" onClick={onBack}>Back to Groups</Button> : null}
               </div>
+            ) : activeAudience.kind === 'none' ? (
+              <p className="text-sm text-secondary">Choose where to apply first.</p>
             ) : (
               <p className="text-sm text-secondary">{selectedQueryIds.length} {selectedQueryIds.length === 1 ? 'query' : 'queries'} × {selectedPropertyCount} Properties = {selectedQueryIds.length * selectedPropertyCount} assignments</p>
             )}
@@ -1294,6 +1303,7 @@ export function AdvancedMeasurementReviewStep({
   reviewedChanges,
   reviewChangesError,
   canPublish,
+  sweepActive = false,
   isPublishing = false,
   onPublish,
 }: AdvancedMeasurementReviewStepProps) {
@@ -1472,6 +1482,7 @@ export function AdvancedMeasurementReviewStep({
       {viewer ? null : (
         <>
           {requiresChangeReview && reviewChangesError ? <p role="alert" className="text-sm text-negative">{reviewChangesError}</p> : null}
+          {sweepActive ? <p role="status" className="text-sm text-caution">A sweep is queued or running. Publish after it finishes.</p> : null}
           <div className={`flex flex-wrap items-center gap-3 ${onBack ? 'justify-between' : 'justify-end'}`}>
             {onBack ? <Button type="button" variant="outline" className="min-h-11" onClick={onBack}>Back</Button> : null}
             {onReviewChanges !== undefined && !hasReviewedChanges ? (

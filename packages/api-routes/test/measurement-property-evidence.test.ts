@@ -326,7 +326,8 @@ describe('measurement property evidence', () => {
     const scoped = await evidence('targetKey=harbor&limit=100')
     const reportResponse = await app.inject({
       method: 'GET',
-      url: `/api/v1/projects/northstar/measurement-report?revision=1&runId=${runId}`,
+      // Both reads over every class: Property evidence pools them by default.
+      url: `/api/v1/projects/northstar/measurement-report?revision=1&runId=${runId}&queryClass=all`,
     })
     const report = reportResponse.json() as MeasurementReportResponse
 

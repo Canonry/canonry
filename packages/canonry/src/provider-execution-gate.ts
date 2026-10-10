@@ -5,42 +5,60 @@
 export class ProviderExecutionGate {
   private readonly window: number[] = []
   private readonly waiters: Array<() => void> = []
-  private rateLimitChain = Promise.resolve()
+  private rateTimer: ReturnType<typeof setTimeout> | undefined
+  private dispatching = false
   private inFlight = 0
 
-  constructor(private readonly maxConcurrency: number, private readonly maxPerMinute: number) {}
+  constructor(private maxConcurrency: number, private maxPerMinute: number) {}
+
+  updatePolicy(maxConcurrency: number, maxPerMinute: number): void {
+    this.maxConcurrency = maxConcurrency
+    this.maxPerMinute = maxPerMinute
+    this.dispatchQueued()
+  }
 
   async run<T>(task: () => Promise<T>): Promise<T> {
-    await this.acquire()
+    return new Promise<T>((resolve, reject) => {
+      this.waiters.push(() => { void this.execute(task, resolve, reject) })
+      this.dispatchQueued()
+    })
+  }
+
+  private async execute<T>(task: () => Promise<T>, resolve: (value: T) => void, reject: (reason: unknown) => void): Promise<void> {
     try {
-      await this.waitForRateLimit()
-      return await task()
+      resolve(await task())
+    } catch (error) {
+      reject(error)
     } finally {
-      this.release()
+      this.inFlight--
+      this.dispatchQueued()
     }
   }
 
-  private async acquire(): Promise<void> {
-    if (this.inFlight < Math.max(1, this.maxConcurrency)) { this.inFlight++; return }
-    await new Promise<void>(resolve => this.waiters.push(resolve))
-    this.inFlight++
-  }
-  private release(): void { this.inFlight = Math.max(0, this.inFlight - 1); this.waiters.shift()?.() }
-  private async waitForRateLimit(): Promise<void> {
-    let releaseChain: (() => void) | undefined
-    const previousChain = this.rateLimitChain
-    this.rateLimitChain = new Promise<void>(resolve => { releaseChain = resolve })
-    await previousChain
+  private dispatchQueued(): void {
+    if (this.dispatching) return
+    if (this.rateTimer !== undefined) {
+      clearTimeout(this.rateTimer)
+      this.rateTimer = undefined
+    }
+    this.dispatching = true
     try {
-      const now = Date.now(); const windowStart = now - 60_000
-      while (this.window.length > 0 && this.window[0]! < windowStart) this.window.shift()
-      if (this.window.length >= this.maxPerMinute) {
-        await new Promise(resolve => setTimeout(resolve, this.window[0]! + 60_000 - now + 50))
-        const nextWindowStart = Date.now() - 60_000
-        while (this.window.length > 0 && this.window[0]! < nextWindowStart) this.window.shift()
+      while (this.waiters.length > 0 && this.inFlight < Math.max(1, this.maxConcurrency)) {
+        const now = Date.now(); const windowStart = now - 60_000
+        while (this.window.length > 0 && this.window[0]! < windowStart) this.window.shift()
+        if (this.window.length >= this.maxPerMinute) break
+        // Reserve both budgets at dispatch; a rate waiter holds no active slot.
+        this.window.push(now)
+        this.inFlight++
+        this.waiters.shift()!()
       }
-      this.window.push(Date.now())
-    } finally { releaseChain?.() }
+    } finally { this.dispatching = false }
+    if (this.waiters.length > 0 && this.inFlight < Math.max(1, this.maxConcurrency)) {
+      this.rateTimer = setTimeout(() => {
+        this.rateTimer = undefined
+        this.dispatchQueued()
+      }, this.window[0]! + 60_000 - Date.now() + 50)
+    }
   }
 }
 
@@ -50,7 +68,7 @@ export class ProviderExecutionGate {
  * shared across every concurrent run regardless of which project queued it.
  *
  * A provider's quota policy (concurrency cap, requests/minute) is registered
- * once, process-wide, alongside its API key (see `ProviderRegistry.register`);
+ * process-wide, alongside its API key (see `ProviderRegistry.register`);
  * it is not a per-run or per-project setting. That is what makes sharing one
  * gate per provider name correct rather than merely convenient — the budget
  * being guarded is the same upstream API key no matter which run is asking.
@@ -58,11 +76,10 @@ export class ProviderExecutionGate {
 const sharedGates = new Map<string, ProviderExecutionGate>()
 
 /**
- * The one gate for this provider, process-wide. The first caller for a given
- * provider name wins the concurrency/rate-limit values it passes in — every
- * later caller for the same provider is expected to pass the same registered
- * quota policy, since it comes from the same process-wide provider
- * registration, not from anything that varies per run or per project.
+ * The one gate for this provider, process-wide. A registration updates its
+ * policy without discarding active calls or dispatch history. A run can still
+ * hold its old config after a reload, so lookups never overwrite an existing
+ * gate's current policy with those captured values.
  */
 export function getSharedProviderExecutionGate(
   providerName: string,
@@ -75,6 +92,15 @@ export function getSharedProviderExecutionGate(
   const gate = new ProviderExecutionGate(maxConcurrency, maxPerMinute)
   sharedGates.set(key, gate)
   return gate
+}
+
+export function updateSharedProviderExecutionGate(
+  providerName: string,
+  maxConcurrency: number,
+  maxPerMinute: number,
+): void {
+  getSharedProviderExecutionGate(providerName, maxConcurrency, maxPerMinute)
+    .updatePolicy(maxConcurrency, maxPerMinute)
 }
 
 /**

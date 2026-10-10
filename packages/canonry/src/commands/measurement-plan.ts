@@ -19,6 +19,7 @@ import {
   UNATTRIBUTED_MENTION_REASON,
   type MeasurementAnswerEvidence,
   type MeasurementAttributionEvidence,
+  type MeasurementOtherQueryCitation,
   type MeasurementDiscoveryRequest,
   type MeasurementDiscoveryRule,
   type MeasurementEvidenceShape,
@@ -421,8 +422,24 @@ export async function discoverMeasurementTargets(
   console.log(JSON.stringify(await createApiClient().discoverMeasurementTargets(project, request), null, 2))
 }
 
-export async function showMeasurementReport(project: string, revision: number): Promise<void> {
-  console.log(JSON.stringify(await createApiClient().getMeasurementReport(project, revision), null, 2))
+export async function showMeasurementReport(
+  project: string,
+  revision: number,
+  queryClass?: MeasurementQueryClassFilter,
+): Promise<void> {
+  console.log(JSON.stringify(await createApiClient().getMeasurementReport(project, revision, undefined, queryClass), null, 2))
+}
+
+/**
+ * The query population a figure was taken over, as a reader should see it.
+ * `all` is the explicit pooled read, so it says so.
+ */
+function queryClassText(queryClass: MeasurementQueryClassFilter): string {
+  switch (queryClass) {
+    case 'non-brand': return 'non-brand queries'
+    case 'branded': return 'branded queries'
+    case 'all': return 'branded and non-brand queries pooled'
+  }
 }
 
 /**
@@ -496,7 +513,7 @@ export async function showMeasurementProperty(project: string, opts: Measurement
 function printMeasurementProperty(response: MeasurementOverviewResponse): void {
   const row = response.properties.items.at(0)
   const lines: string[] = []
-  lines.push(`${response.scope.label} — ${response.queryClass} questions`)
+  lines.push(`${response.scope.label} · ${queryClassText(response.queryClass)}`)
   lines.push(`Measurement: ${response.measurement.state}${response.measurement.displayedRunId ? ` · run ${response.measurement.displayedRunId}` : ''}`)
   lines.push('')
   const mention = row ? row.mentionCoverage : response.metrics.mentionCoverage
@@ -544,6 +561,7 @@ interface ShapedPage<Row> {
 type ShapedEvidencePage =
   | ({ shape: typeof MeasurementEvidenceShapes.sources } & ShapedPage<MeasurementAttributionEvidence>)
   | ({ shape: typeof MeasurementEvidenceShapes.answers } & ShapedPage<MeasurementAnswerEvidence>)
+  | ({ shape: typeof MeasurementEvidenceShapes['other-queries'] } & ShapedPage<MeasurementOtherQueryCitation>)
 
 /**
  * Which page arrived IS the shape the endpoint served, so the header and the
@@ -554,7 +572,8 @@ type ShapedEvidencePage =
 function shapedPage(response: MeasurementPropertyEvidenceResponse): ShapedEvidencePage {
   if (response.answers !== undefined) return { shape: MeasurementEvidenceShapes.answers, ...response.answers }
   if (response.evidence !== undefined) return { shape: MeasurementEvidenceShapes.sources, ...response.evidence }
-  throw systemError('The measurement property evidence response carried neither an evidence nor an answers page.')
+  if (response.otherQueries !== undefined) return { shape: MeasurementEvidenceShapes['other-queries'], ...response.otherQueries }
+  throw systemError('The measurement property evidence response carried no evidence, answers or otherQueries page.')
 }
 
 /**
@@ -622,6 +641,7 @@ function printMeasurementPropertyEvidence(response: MeasurementPropertyEvidenceR
   }
   const page = shapedPage(response)
   const answerShape = page.shape === MeasurementEvidenceShapes.answers
+  const otherQueriesShape = page.shape === MeasurementEvidenceShapes['other-queries']
   lines.push(`Measurement: ${response.measurement.state}${response.measurement.displayedRunId ? ` · run ${response.measurement.displayedRunId}` : ''}`)
   if (page.items.length === 0) {
     // Named for what was looked for. "No source evidence" under the answer
@@ -629,13 +649,24 @@ function printMeasurementPropertyEvidence(response: MeasurementPropertyEvidenceR
     // with no answers at all.
     lines.push(answerShape
       ? 'No answers matched this Property in the displayed run.'
-      : 'No source evidence matched this Property in the displayed run.')
+      : otherQueriesShape
+        ? 'No answer to another query cited this Property\'s pages in the displayed run.'
+        : 'No source evidence matched this Property in the displayed run.')
     console.log(lines.join('\n'))
     return
   }
-  lines.push(`${page.items.length} of ${page.totalEstimate ?? page.items.length} ${answerShape ? 'answers' : 'evidence rows'}`)
+  lines.push(`${page.items.length} of ${page.totalEstimate ?? page.items.length} ${answerShape || otherQueriesShape ? 'answers' : 'evidence rows'}`)
+  if (otherQueriesShape) lines.push('Cited on queries not assigned to this Property; not counted in its rates.')
   lines.push('')
-  if (page.shape === MeasurementEvidenceShapes.answers) {
+  if (page.shape === MeasurementEvidenceShapes['other-queries']) {
+    lines.push(`${'Engine'.padEnd(12)}${'Question'.padEnd(40)}${'Class'.padEnd(11)}${'Assigned to'.padEnd(24)}Pages`)
+    for (const item of page.items) {
+      lines.push(
+        `${item.provider.padEnd(12)}${item.queryText.slice(0, 39).padEnd(40)}${item.queryClass.padEnd(11)}`
+        + `${item.assignedTargetKeys.join(', ').slice(0, 23).padEnd(24)}${item.sources.map(source => source.sourceUrl).join(' ')}`,
+      )
+    }
+  } else if (page.shape === MeasurementEvidenceShapes.answers) {
     // Both signals on every row: a single cell that flipped between them would
     // leave a reader unable to tell which one they are looking at.
     lines.push(`${'Engine'.padEnd(12)}${'Question'.padEnd(40)}${'Mentioned'.padEnd(15)}${'Cited'.padEnd(8)}Sources`)

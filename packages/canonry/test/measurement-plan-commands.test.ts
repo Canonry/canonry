@@ -260,7 +260,7 @@ describe('measurement-plan CLI commands', () => {
     expect(command('measurement-plan discover').usage)
       .toBe('canonry measurement-plan discover <project> --sitemap-url <url> --rule <yaml|json|-> [--max-urls N] [--format json]')
     expect(command('measurement-plan report').usage)
-      .toBe('canonry measurement-plan report <project> --revision N [--format json]')
+      .toBe('canonry measurement-plan report <project> --revision N [--query-class non-brand|branded|all] [--format json] (schema v2 revision: default non-brand, all pools both classes; schema v1 revision: reads every answer, refuses non-brand and branded)')
     expect(command('measurement-plan assignments apply').usage).toContain('--group KEY')
     expect(command('measurement-plan assignments preview').usage).toContain('--group KEY')
     expect(command('measurement-plan assignments replace').usage).toContain('--confirm')
@@ -549,7 +549,15 @@ describe('measurement-plan CLI commands', () => {
       positionals: ['acme'], values: { revision: '3' }, format: 'json', dryRun: false,
     })
 
-    expect(getMeasurementReport).toHaveBeenCalledWith('acme', 3)
+    expect(getMeasurementReport).toHaveBeenCalledWith('acme', 3, undefined, undefined)
+
+    await command('measurement-plan report').run({
+      positionals: ['acme'], values: { revision: '3', 'query-class': 'all' }, format: 'json', dryRun: false,
+    })
+    expect(getMeasurementReport).toHaveBeenLastCalledWith('acme', 3, undefined, 'all')
+    expect(() => command('measurement-plan report').run({
+      positionals: ['acme'], values: { revision: '3', 'query-class': 'brand' }, format: 'json', dryRun: false,
+    })).toThrow('--query-class must be one of all, branded, non-brand')
   })
 
   it('reads one Property through the property scope of the overview', async () => {
@@ -722,6 +730,23 @@ describe('measurement-plan CLI commands', () => {
 
     log.mockRestore()
     expect(logged.join('\n')).toContain('Mentioned  not measured (no answer could be tied to one property)')
+  })
+
+  it.each([
+    ['non-brand', 'Harbor View · non-brand queries'],
+    ['branded', 'Harbor View · branded queries'],
+    ['all', 'Harbor View · branded and non-brand queries pooled'],
+  ] as const)('heads a %s Property read with the queries it was taken over', async (queryClass, heading) => {
+    getMeasurementOverview.mockResolvedValueOnce({ ...OVERVIEW, queryClass })
+    const logged: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation(line => { logged.push(String(line)) })
+
+    await command('measurement-plan property').run({
+      positionals: ['acme'], values: { 'target-key': 'harbor-view' }, format: 'text', dryRun: false,
+    })
+
+    log.mockRestore()
+    expect(logged.join('\n').split('\n')[0]).toBe(heading)
   })
 
   it('rejects a question class outside the published vocabulary', () => {
@@ -903,5 +928,48 @@ describe('measurement-plan CLI commands', () => {
     // answers cited nothing, and the source wording says the wrong one.
     expect(output).toContain('No answers matched this Property in the displayed run.')
     expect(output).not.toContain('No source evidence matched')
+  })
+
+  it('lists citations from other Properties\' queries apart from the rates, with who each query was asked for', async () => {
+    const otherQueries = {
+      property: PROPERTY_EVIDENCE.property,
+      queryClass: 'non-brand',
+      measurement: { state: 'complete', displayedRunId: 'run-1' },
+      otherQueries: {
+        items: [{
+          observationId: 'obs-9', expectedSlotId: 'slot-9', executionId: 'exec-9', provider: 'gemini',
+          queryText: 'quiet hotels by the marina', location: null, queryClass: 'non-brand',
+          assignedTargetKeys: ['marina-point'],
+          sources: [{ sourceUrl: 'https://acme.example/harbor-view', normalizedUrl: 'https://acme.example/harbor-view', matchedUrlIds: ['harbor-view:url:0'] }],
+          sourceCount: 1, sourcesTruncated: false, evidenceComplete: true,
+        }],
+        nextCursor: null,
+        totalEstimate: 1,
+      },
+    }
+    getMeasurementPropertyEvidence.mockResolvedValueOnce(otherQueries).mockResolvedValueOnce(otherQueries)
+    const logged: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation(line => { logged.push(String(line)) })
+    await command('measurement-plan property-evidence').run({
+      positionals: ['acme'], values: { 'target-key': 'harbor-view', shape: 'other-queries' }, format: 'text', dryRun: false,
+    })
+    log.mockRestore()
+    expect(getMeasurementPropertyEvidence).toHaveBeenCalledWith('acme', { targetKey: 'harbor-view', shape: 'other-queries' })
+    const lines = logged.join('\n').split('\n')
+    expect(lines).toContain('1 of 1 answers')
+    expect(lines).toContain('Cited on queries not assigned to this Property; not counted in its rates.')
+    expect(lines.at(-1)).toBe(
+      `${'gemini'.padEnd(12)}${'quiet hotels by the marina'.padEnd(40)}${'non-brand'.padEnd(11)}${'marina-point'.padEnd(24)}https://acme.example/harbor-view`,
+    )
+
+    const written: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(chunk => { written.push(String(chunk)); return true })
+    await command('measurement-plan property-evidence').run({
+      positionals: ['acme'], values: { 'target-key': 'harbor-view', shape: 'other-queries' }, format: 'jsonl', dryRun: false,
+    })
+    write.mockRestore()
+    const rows = written.join('').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
+    expect(rows[0]).toMatchObject({ kind: 'measurement-property-evidence-header', shape: 'other-queries', totalEstimate: 1 })
+    expect(rows.slice(1)).toEqual(otherQueries.otherQueries.items)
   })
 })

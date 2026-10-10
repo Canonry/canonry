@@ -74,6 +74,13 @@ export interface QueriesSectionProps {
   onSelectionChange?: (patch: Record<string, unknown>) => void
   trackingQueryId?: string
   onTrackingQueryIdChange?: (queryId: string | undefined) => void
+  /** Read-only state that pauses Confirm; the server does not refuse these commits yet. */
+  publishGuard?: TrackingPublishGuard
+}
+
+export type TrackingPublishGuard = {
+  /** A queued run is pinned to the current tracking, so a publish now would not be measured by it. */
+  sweepActive: boolean
 }
 
 export function QueriesSection({
@@ -86,6 +93,7 @@ export function QueriesSection({
   onSelectionChange,
   trackingQueryId,
   onTrackingQueryIdChange,
+  publishGuard,
 }: QueriesSectionProps) {
   const { account } = useAccount()
   const [uncontrolledWorkspace, setUncontrolledWorkspace] = useState<QueryWorkspace>('tracked')
@@ -106,7 +114,9 @@ export function QueriesSection({
     onResearchModeChange?.(mode)
   }
   const reviewSavedSource = (source: SavedTrackingSource, scope?: ResearchRunScope | null) => {
-    const trackingSelection = scope === undefined ? { ...selection } : {
+    // Only a research run's own market or property preselects a destination.
+    // A Find result starts at project scope and leaves the Tracked filter alone.
+    const trackingSelection = {
       ...selection,
       measurementScope: scope?.kind ?? 'project' as const,
       measurementScopeKey: scope?.key,
@@ -135,6 +145,7 @@ export function QueriesSection({
             onTrackingQueryIdChange={onTrackingQueryIdChange}
             pendingTrackingSource={pendingTrackingSource}
             onPendingTrackingSourceHandled={() => setPendingTrackingSource(null)}
+            publishGuard={publishGuard}
           />
         ) : (
           <QueryResearchWorkspace
@@ -289,6 +300,7 @@ function TrackedQueriesWorkspace({
   isCommitting,
   onPreview,
   onCommit,
+  publishGuard,
 }: {
   workspace: QueryTrackingWorkspaceResponse
   selection: NonNullable<QueriesSectionProps['selection']>
@@ -303,6 +315,7 @@ function TrackedQueriesWorkspace({
   isCommitting: boolean
   onPreview: (mutation: QueryTrackingMutation) => void
   onCommit: (request: QueryTrackingCommitRequest) => void
+  publishGuard?: TrackingPublishGuard
 }) {
   const [action, setAction] = useState<TrackingAction | null>(null)
   const [draft, setDraft] = useState<TrackingDraft>(() => defaultTrackingDraft(selection))
@@ -387,7 +400,7 @@ function TrackedQueriesWorkspace({
     onTrackingQueryIdChange?.(undefined)
   }
 
-  const mutation = action ? mutationForAction(action, draft, workspace.mode) : null
+  const mutation = action ? mutationForAction(action, draft, workspace) : null
   const needsExplicitContext = action !== null
     && action.kind === 'add'
     && workspace.mode === 'advanced'
@@ -495,6 +508,7 @@ function TrackedQueriesWorkspace({
           preview={preview}
           workspace={workspace}
           isCommitting={isCommitting}
+          sweepActive={publishGuard?.sweepActive ?? false}
           onConfirm={() => {
             onCommit({
               ...reviewedMutation,
@@ -533,7 +547,7 @@ type TrackingDraft = {
 function defaultTrackingDraft(selection: NonNullable<QueriesSectionProps['selection']>): TrackingDraft {
   return {
     source: 'manual', text: '', templateId: '', templateVersion: '', template: '', researchRunQueryId: '', discoveryProbeId: '',
-    wholeSite: selection.measurementScope === 'project' || !selection.measurementScopeKey,
+    wholeSite: false,
     targetKeys: selection.measurementScope === 'property' && selection.measurementScopeKey ? [selection.measurementScopeKey] : [],
     groupKeys: selection.measurementScope === 'group' && selection.measurementScopeKey ? [selection.measurementScopeKey] : [],
     marketKeys: selection.measurementScope === 'market' && selection.measurementScopeKey ? [selection.measurementScopeKey] : [],
@@ -556,8 +570,9 @@ function draftForRow(
 function mutationForAction(
   action: TrackingAction,
   draft: TrackingDraft,
-  mode: QueryTrackingWorkspaceResponse['mode'],
+  workspace: QueryTrackingWorkspaceResponse,
 ): QueryTrackingMutation | null {
+  const advanced = workspace.mode === 'advanced'
   if (action.kind === 'remove') return { additions: [], removals: [{ queryId: action.row.queryId, ...(action.audience ? { audience: action.audience } : {}) }] }
   if (action.kind === 'edit') {
     if (!draft.text.trim()) return null
@@ -568,19 +583,21 @@ function mutationForAction(
         queryId: action.row.queryId,
         text: draft.text.trim(),
         ...(action.audience ? { audience: action.audience } : {}),
-        ...(mode === 'advanced' && draft.queryClass !== 'keep' ? { queryClass: draft.queryClass === 'auto' ? null : draft.queryClass } : {}),
+        ...(advanced && draft.queryClass !== 'keep' ? { queryClass: draft.queryClass === 'auto' ? null : draft.queryClass } : {}),
       }],
     }
   }
   const input = sourceInputForDraft(draft)
-  if (!input || needsTemplateMarket(draft) || (!draft.wholeSite && draft.targetKeys.length + draft.groupKeys.length + draft.marketKeys.length === 0)) return null
-  const audience = audienceForDraft(draft)
+  if (!input || needsTemplateMarket(draft) || (advanced && !draft.wholeSite && draft.targetKeys.length + draft.groupKeys.length + draft.marketKeys.length === 0)) return null
+  // Simple projects take no audience. Advanced ones always name it, because
+  // the server reads an omitted addition audience as every location.
+  const audience = advanced ? audienceForDraft(draft, workspace) : undefined
   return {
     additions: [{
       input,
       ...(audience ? { audience } : {}),
-      ...(mode === 'advanced' && !hasMarketOnlyAudience(draft) && draft.contexts.length > 0 ? { contexts: draft.contexts } : {}),
-      ...(mode === 'advanced' && draft.queryClass !== 'auto' && draft.queryClass !== 'keep' ? { queryClass: draft.queryClass } : {}),
+      ...(advanced && !hasMarketOnlyAudience(draft) && draft.contexts.length > 0 ? { contexts: draft.contexts } : {}),
+      ...(advanced && draft.queryClass !== 'auto' && draft.queryClass !== 'keep' ? { queryClass: draft.queryClass } : {}),
     }],
     removals: [],
   }
@@ -595,8 +612,8 @@ function sourceInputForDraft(draft: TrackingDraft): QueryTrackingMutation['addit
   return draft.discoveryProbeId ? { source: 'discovery', discoveryProbeId: draft.discoveryProbeId } : null
 }
 
-function audienceForDraft(draft: TrackingDraft): QueryTrackingMutation['additions'][number]['audience'] | undefined {
-  if (draft.wholeSite) return undefined
+function audienceForDraft(draft: TrackingDraft, workspace: QueryTrackingWorkspaceResponse): QueryTrackingMutation['additions'][number]['audience'] | undefined {
+  if (draft.wholeSite) return { targetKeys: workspace.targets.map(target => target.stableKey) }
   const audience = {
     ...(draft.targetKeys.length > 0 ? { targetKeys: draft.targetKeys } : {}),
     ...(draft.groupKeys.length > 0 ? { groupKeys: draft.groupKeys } : {}),
@@ -897,7 +914,7 @@ function TrackingComposer({
         <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(250px,0.8fr)_minmax(0,1.2fr)]">
+      <div className={`mt-4 grid gap-4 ${workspace.mode === 'advanced' ? 'lg:grid-cols-[minmax(250px,0.8fr)_minmax(0,1.2fr)]' : 'max-w-2xl'}`}>
         <div className="space-y-4">
           {draft.source === 'manual' ? (
             <label className="block" htmlFor="tracking-query-text">
@@ -913,7 +930,7 @@ function TrackingComposer({
           ) : null}
 
           {draft.source === 'template' ? (
-            <TemplateSourceField templates={templates} draft={draft} onDraftChange={onDraftChange} />
+            <TemplateSourceField templates={templates} advanced={workspace.mode === 'advanced'} draft={draft} onDraftChange={onDraftChange} />
           ) : null}
 
           {draft.source === 'research' ? (
@@ -954,7 +971,7 @@ function TrackingComposer({
           {!hasSavedTemplates ? <p id="tracking-query-source-no-templates" className="text-sm leading-6 text-secondary">No saved templates are set up for this portfolio. Write a question, or use saved research or a discovery result.</p> : null}
         </div>
 
-        <AssignmentSelector workspace={workspace} draft={draft} onDraftChange={onDraftChange} />
+        {workspace.mode === 'advanced' ? <AssignmentSelector workspace={workspace} draft={draft} onDraftChange={onDraftChange} /> : null}
       </div>
 
       {workspace.mode === 'advanced' && !hasMarketOnlyAudience(draft) ? (
@@ -1000,10 +1017,12 @@ function TrackingComposer({
 
 function TemplateSourceField({
   templates,
+  advanced,
   draft,
   onDraftChange,
 }: {
   templates: readonly MeasurementQueryTemplate[]
+  advanced: boolean
   draft: TrackingDraft
   onDraftChange: (draft: TrackingDraft) => void
 }) {
@@ -1031,7 +1050,13 @@ function TemplateSourceField({
         </select>
         {draft.template ? <span className="mt-1 block text-xs leading-5 text-muted">{draft.template}</span> : null}
       </label>
-      {needsTemplateMarket(draft) ? <p id="tracking-template-market-required" role="status" className="mt-2 text-sm leading-5 text-caution">Choose a Market under Apply to for this template. A location alone does not select a market.</p> : null}
+      {needsTemplateMarket(draft) ? (
+        <p id="tracking-template-market-required" role="status" className="mt-2 text-sm leading-5 text-caution">
+          {advanced
+            ? 'Choose a Market under Apply to for this template. A location alone does not select a market.'
+            : 'This template needs a market, and this project has no markets. Write a question instead.'}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -1144,6 +1169,7 @@ function AssignmentSelector({
   draft: TrackingDraft
   onDraftChange: (draft: TrackingDraft) => void
 }) {
+  const { canWrite } = useAccount()
   const [filter, setFilter] = useState('')
   const [changingDestination, setChangingDestination] = useState(() => draft.wholeSite || draft.targetKeys.length !== 1 || draft.groupKeys.length > 0 || draft.marketKeys.length > 0)
   const options = useMemo(() => [
@@ -1182,17 +1208,19 @@ function AssignmentSelector({
     <fieldset className="rounded-md border border-default bg-surface-subtle p-3">
       <legend className="px-1 text-xs font-medium text-secondary">Apply to</legend>
       <p className="text-sm leading-6 text-secondary">Choose where this question should be tracked.</p>
-      <label className="mt-3 flex min-h-9 items-center gap-2 rounded px-1 text-sm text-strong">
-        <input
-          type="checkbox"
-          checked={draft.wholeSite}
-          onChange={(event) => {
-            onDraftChange({ ...draft, wholeSite: event.target.checked, targetKeys: [], groupKeys: [], marketKeys: [] })
-          }}
-        />
-        Whole site
-      </label>
-      {!draft.wholeSite && !hasAudience ? <p role="status" className="mt-2 text-sm text-caution">Choose Whole site or at least one property, group, or market.</p> : null}
+      {canWrite ? (
+        <label className="mt-3 flex min-h-9 items-center gap-2 rounded px-1 text-sm text-strong">
+          <input
+            type="checkbox"
+            checked={draft.wholeSite}
+            onChange={(event) => {
+              onDraftChange({ ...draft, wholeSite: event.target.checked, targetKeys: [], groupKeys: [], marketKeys: [] })
+            }}
+          />
+          Every location ({workspace.targets.length})
+        </label>
+      ) : null}
+      {!draft.wholeSite && !hasAudience ? <p role="status" className="mt-2 text-sm text-caution">Choose at least one location, group, or market.</p> : null}
       <p className="mt-2 text-sm leading-5 text-secondary">Group: properties grouped together. Market: search context.</p>
       <DataTableSearch value={filter} onChange={setFilter} label="Filter assignments" placeholder="Search Properties, Groups, Markets" className="mt-3" />
       <div className="mt-3 max-h-64 space-y-1 overflow-y-auto pr-1">
@@ -1239,11 +1267,13 @@ function TrackingPreview({
   preview,
   workspace,
   isCommitting,
+  sweepActive,
   onConfirm,
 }: {
   preview: QueryTrackingPreviewResponse
   workspace: QueryTrackingWorkspaceResponse
   isCommitting: boolean
+  sweepActive: boolean
   onConfirm: () => void
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -1254,6 +1284,13 @@ function TrackingPreview({
     heading.focus({ preventScroll: true })
   }, [preview])
   const hasChanges = !preview.diff.noOp
+  // An advanced commit writes a new revision with no continuity link, so
+  // location and competitor reads blank while AI Visibility falls back.
+  const subcopy = !hasChanges
+    ? 'This request leaves tracking unchanged.'
+    : preview.mode === 'advanced'
+      ? 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept.'
+      : 'Changes apply to future sweeps. Earlier results stay unchanged.'
   const changed = [
     { label: 'Added', rows: preview.diff.added },
     { label: 'Removed', rows: preview.diff.removed },
@@ -1264,7 +1301,8 @@ function TrackingPreview({
       <div className="section-head section-head-inline gap-4">
         <div>
           <h3 ref={headingRef} tabIndex={-1}>{hasChanges ? 'Confirm tracked query changes' : 'No tracking changes'}</h3>
-          <p className="mt-1 text-sm leading-6 text-secondary">{hasChanges ? 'Changes apply to future sweeps. Earlier results stay unchanged.' : 'This request leaves tracking unchanged.'}</p>
+          <p className="mt-1 text-sm font-medium text-strong">{previewWorkloadLine(preview)}</p>
+          <p className="mt-1 text-sm leading-6 text-secondary">{subcopy}</p>
         </div>
         <ToneBadge tone={hasChanges ? 'caution' : 'neutral'}>{hasChanges ? 'Ready to confirm' : 'No-op'}</ToneBadge>
       </div>
@@ -1275,19 +1313,31 @@ function TrackingPreview({
         <summary className="min-h-11 cursor-pointer py-3">{preview.diff.unchanged.length} unchanged {preview.diff.unchanged.length === 1 ? 'query' : 'queries'}</summary>
         <PreviewChangeList label="Unchanged" rows={preview.diff.unchanged} workspace={workspace} tracked={preview.tracked} />
       </details> : null}
-      <details className="mt-4 border-t border-default text-sm text-secondary">
-        <summary className="min-h-11 cursor-pointer py-3">Next sweep workload</summary>
-        <p className="leading-6">
-          Next sweep: {preview.workload.nextSweepProviderCalls} provider requests (+{preview.workload.addedProviderCalls}, −{preview.workload.removedProviderCalls}).
-        </p>
-      </details>
       <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-default pt-4">
-        <WriteButton type="button" size="sm" disabled={!hasChanges || isCommitting} onClick={onConfirm}>
+        <WriteButton type="button" size="sm" disabled={!hasChanges || isCommitting || sweepActive} onClick={onConfirm}>
           {isCommitting ? 'Confirming…' : 'Confirm changes'}
         </WriteButton>
+        {hasChanges && sweepActive ? <p role="status" className="text-sm leading-5 text-caution">A sweep is queued or running. Publish after it finishes.</p> : null}
       </div>
     </Card>
   )
+}
+
+/** One provider call is one answer; added and removed answers stay separate. */
+function previewWorkloadLine(preview: QueryTrackingPreviewResponse): string {
+  const { added } = preview.diff
+  // A scoped removal lists a query that stays tracked elsewhere; only rows gone
+  // from the post-change `tracked` leave tracking. Answers still count the rest.
+  const stillTracked = new Set(preview.tracked.map(row => row.queryId))
+  const removed = preview.diff.removed.filter(row => !stillTracked.has(row.queryId))
+  const { addedProviderCalls, removedProviderCalls, nextSweepProviderCalls } = preview.workload
+  const count = (value: number) => value.toLocaleString('en-US')
+  return [
+    added.length > 0 ? `+${count(added.length)} ${added.length === 1 ? 'query' : 'queries'}` : null,
+    removed.length > 0 ? `−${count(removed.length)} ${removed.length === 1 ? 'query' : 'queries'}` : null,
+    `+${count(addedProviderCalls)} / −${count(removedProviderCalls)} answers per sweep`,
+    `next sweep asks ${count(nextSweepProviderCalls)}`,
+  ].filter((part): part is string => part !== null).join(' · ')
 }
 
 function PreviewChangeList({
@@ -1358,7 +1408,8 @@ function TrackedQueriesSection({
   onTrackingQueryIdChange,
   pendingTrackingSource,
   onPendingTrackingSourceHandled,
-}: Pick<QueriesSectionProps, 'projectName' | 'selection' | 'onSelectionChange' | 'trackingQueryId' | 'onTrackingQueryIdChange'> & {
+  publishGuard,
+}: Pick<QueriesSectionProps, 'projectName' | 'selection' | 'onSelectionChange' | 'trackingQueryId' | 'onTrackingQueryIdChange' | 'publishGuard'> & {
   pendingTrackingSource: PendingTrackingSource | null
   onPendingTrackingSourceHandled: () => void
 }) {
@@ -1395,7 +1446,7 @@ function TrackedQueriesSection({
       await invalidateQueryTrackingPublication(queryClient, projectName)
       addToast({
         title: result.committed ? 'Tracked queries updated' : 'No tracked-query change',
-        detail: result.active ? `Measurement revision ${result.active.revision}.` : 'No measurement revision is published yet.',
+        detail: result.committed && result.mode === 'advanced' ? 'New numbers after the next sweep.' : undefined,
         tone: result.committed ? 'positive' : 'neutral',
         dedupeKey: `query-tracking:commit:${projectName}`,
         dedupeMode: 'replace',
@@ -1436,6 +1487,7 @@ function TrackedQueriesSection({
       onTrackingQueryIdChange={onTrackingQueryIdChange}
       pendingTrackingSource={pendingTrackingSource}
       onPendingTrackingSourceHandled={onPendingTrackingSourceHandled}
+      publishGuard={publishGuard}
       templates={templatesQuery.data?.templates ?? []}
       preview={preview}
       isPreviewing={previewMutation.isPending}

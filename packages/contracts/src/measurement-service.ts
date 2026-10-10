@@ -404,6 +404,43 @@ export const measurementAnswerEvidenceSchema = z.object({
 }).strict()
 export type MeasurementAnswerEvidence = z.infer<typeof measurementAnswerEvidenceSchema>
 
+/** One of this Property's own pages, cited in an answer to a query it is not assigned. */
+export const measurementOtherQuerySourceSchema = z.object({
+  sourceUrl: z.string(),
+  normalizedUrl: z.string().nullable(),
+  matchedUrlIds: z.array(z.string().trim().min(1)),
+}).strict()
+export type MeasurementOtherQuerySource = z.infer<typeof measurementOtherQuerySourceSchema>
+
+/**
+ * One answer to a query this Property is NOT assigned that cited one of its own
+ * pages. The Property was never measured on the query, so the row is outside
+ * every Mentioned and Cited rate for it, and nothing here moves one.
+ *
+ * The class is that of the query's assignments to `assignedTargetKeys`, the
+ * Properties the query was asked for. A query assigned Branded to one Property
+ * and Non-brand to another yields one row per class, so the two classes never
+ * share a list.
+ */
+export const measurementOtherQueryCitationSchema = z.object({
+  observationId: z.string().trim().min(1),
+  expectedSlotId: z.string().trim().min(1),
+  executionId: z.string().trim().min(1),
+  provider: providerNameSchema,
+  queryText: z.string().trim().min(1),
+  location: z.string().nullable(),
+  queryClass: z.enum(['branded', 'non-brand']),
+  assignedTargetKeys: z.array(measurementV2StableKeySchema).min(1),
+  /** Only this Property's pages; other links in the answer are not listed. */
+  sources: z.array(measurementOtherQuerySourceSchema).min(1),
+  /** Always the FULL count of this Property's cited pages in the answer. */
+  sourceCount: z.number().int().positive(),
+  sourcesTruncated: z.boolean(),
+  /** False when the engine's source list was only partly saved. */
+  evidenceComplete: z.boolean(),
+}).strict()
+export type MeasurementOtherQueryCitation = z.infer<typeof measurementOtherQueryCitationSchema>
+
 export const measurementReportDiagnosticsSchema = z.object({
   bridgedObservationIds: z.array(z.string()),
   historicalObservationIds: z.array(z.string()),
@@ -425,6 +462,13 @@ export type MeasurementReportRun = z.infer<typeof measurementReportRunSchema>
 /** Adapter response: a revision-pinned kernel report with optional run metadata. */
 export const measurementReportResponseSchema = z.object({
   revision: z.number().int().positive(),
+  /**
+   * The query class every group, Target and evidence row below is taken over:
+   * non-brand unless the request named another, and `all` pools branded with
+   * non-brand. Null for a schema v1 revision, which records no class. Absent on
+   * servers that predate it.
+   */
+  queryClass: measurementQueryClassFilterSchema.nullable().optional(),
   run: measurementReportRunSchema.nullable(),
   groups: z.array(measurementGroupReportSchema),
   targets: z.array(measurementTargetReportSchema),
@@ -462,8 +506,10 @@ export const measurementPropertyEvidenceResponseSchema = z.object({
   }).strict(),
   evidence: measurementCursorPageSchema(measurementAttributionEvidenceSchema).optional(),
   answers: measurementCursorPageSchema(measurementAnswerEvidenceSchema).optional(),
+  /** Served for `shape=other-queries`: citations of this Property's pages outside its own queries. */
+  otherQueries: measurementCursorPageSchema(measurementOtherQueryCitationSchema).optional(),
 }).strict().refine(
-  response => (response.evidence === undefined) !== (response.answers === undefined),
-  { message: 'Exactly one of evidence or answers is present, naming the shape that was served.' },
+  response => [response.evidence, response.answers, response.otherQueries].filter(page => page !== undefined).length === 1,
+  { message: 'Exactly one of evidence, answers or otherQueries is present, naming the shape that was served.' },
 )
 export type MeasurementPropertyEvidenceResponse = z.infer<typeof measurementPropertyEvidenceResponseSchema>

@@ -23,6 +23,7 @@ import {
   canonicalMeasurementPlanV2Json,
   type MeasurementAnswerEvidence,
   type MeasurementAttributionEvidence,
+  type MeasurementOtherQueryCitation,
   type MeasurementPlanV2,
   type MeasurementPropertyEvidenceResponse,
   type MeasurementReportResponse,
@@ -46,6 +47,7 @@ import {
 } from '../src/measurement-report-adapter.js'
 import {
   measurementPagingPlanFixture,
+  pagingNodeKind,
   PAGING_NODE_COUNTS,
   seedPagingSnapshots,
 } from './measurement-property-evidence-paging-fixture.js'
@@ -128,11 +130,28 @@ async function walkAnswers(query: string, limit: number): Promise<MeasurementAns
   return rows
 }
 
+async function walkOtherQueries(query: string, limit: number): Promise<MeasurementOtherQueryCitation[]> {
+  const rows: MeasurementOtherQueryCitation[] = []
+  let cursor: string | null = null
+  do {
+    const page: MeasurementPropertyEvidenceResponse = await evidence(
+      `${query}&shape=other-queries&limit=${limit}${cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`}`,
+    )
+    expect(page.otherQueries, `other-queries page at limit ${limit}`).toBeDefined()
+    expect(page.answers).toBeUndefined()
+    expect(page.evidence).toBeUndefined()
+    rows.push(...page.otherQueries!.items)
+    cursor = page.otherQueries!.nextCursor
+  } while (cursor !== null)
+  return rows
+}
+
 /** The unpaged source rows, read from the whole-revision report rather than from the paged route. */
 async function unpagedSources(): Promise<MeasurementAttributionEvidence[]> {
   const response = await app.inject({
     method: 'GET',
-    url: `/api/v1/projects/northstar/measurement-report?revision=1&runId=${RUN_ID}`,
+    // Every class, as the paged route reads by default.
+    url: `/api/v1/projects/northstar/measurement-report?revision=1&runId=${RUN_ID}&queryClass=all`,
   })
   const report = response.json() as MeasurementReportResponse
   return report.evidence.filter(row => row.usageEdgeId.startsWith(PILOT_EDGE_PREFIX))
@@ -347,5 +366,76 @@ describe('paging across more rows than fit on one page', () => {
     expect(brandedSources).toEqual(
       (await unpagedSources()).filter(row => brandedAnswers.some(answer => answer.usageEdgeId === row.usageEdgeId)),
     )
+  })
+})
+
+/**
+ * `sibling` is assigned only q-01, yet every answer that cited anything links
+ * `/locations/sibling/<n>` too. Those are the citations its own rows can never
+ * show: answers to queries assigned only to `pilot`.
+ */
+describe('the other-queries shape', () => {
+  /** Questions whose answers cite a sibling page, minus q-01, the one sibling is assigned. */
+  function expectedOtherQueryIndexes(): string[] {
+    return Array.from({ length: PAGING_NODE_COUNTS.nodes }, (_unused, position) => position)
+      .filter(position => pagingNodeKind(position) !== 'loss' && position !== 0)
+      .map(position => String(position + 1).padStart(2, '0'))
+  }
+
+  it('lists every answer to a query not assigned to the Property that cited its pages, and only those', async () => {
+    const rows = await walkOtherQueries('targetKey=sibling&queryClass=all', 100)
+    const indexes = expectedOtherQueryIndexes()
+    expect(indexes).toHaveLength(25)
+    expect(rows).toHaveLength(indexes.length * PAGING_NODE_COUNTS.providers)
+    expect(new Set(rows.map(row => row.queryText))).toEqual(new Set(indexes.map(index => `question ${index}`)))
+    // Its own query never appears here: those answers are already in its rates.
+    expect(rows.some(row => row.queryText === 'question 01')).toBe(false)
+    for (const row of rows) {
+      const index = row.queryText.slice('question '.length)
+      expect(row.assignedTargetKeys).toEqual(['pilot'])
+      // Only the sibling's own page is listed, never pilot's or a competitor's.
+      expect(row.sources).toEqual([{
+        sourceUrl: `https://northstar.example/locations/sibling/${index}`,
+        normalizedUrl: `https://northstar.example/locations/sibling/${index}`,
+        matchedUrlIds: [expect.any(String)],
+      }])
+      expect(row.sourceCount).toBe(1)
+      expect(row.evidenceComplete).toBe(true)
+    }
+  })
+
+  it('keeps the classes apart: each answer lists under the class its query was assigned', async () => {
+    const all = await walkOtherQueries('targetKey=sibling&queryClass=all', 100)
+    const nonBrand = await walkOtherQueries('targetKey=sibling&queryClass=non-brand', 100)
+    const branded = await walkOtherQueries('targetKey=sibling&queryClass=branded', 100)
+
+    // Pilot's assignments alternate classes, starting non-brand on q-01.
+    expect(nonBrand).toHaveLength(12 * PAGING_NODE_COUNTS.providers)
+    expect(branded).toHaveLength(13 * PAGING_NODE_COUNTS.providers)
+    expect(nonBrand.every(row => row.queryClass === 'non-brand')).toBe(true)
+    expect(branded.every(row => row.queryClass === 'branded')).toBe(true)
+    expect(nonBrand.length + branded.length).toBe(all.length)
+    const brandedSlots = new Set(branded.map(row => row.expectedSlotId))
+    expect(nonBrand.some(row => brandedSlots.has(row.expectedSlotId))).toBe(false)
+  })
+
+  it('is empty for a Property assigned every query that cited it', async () => {
+    const page = await evidence('targetKey=pilot&queryClass=all&shape=other-queries')
+    expect(page.otherQueries).toEqual({ items: [], nextCursor: null, totalEstimate: 0 })
+  })
+
+  it('pages on the answer and class, and its cursor is refused on the other shapes', async () => {
+    const expected = await walkOtherQueries('targetKey=sibling&queryClass=all', 100)
+    for (const limit of [1, 7]) {
+      expect(await walkOtherQueries('targetKey=sibling&queryClass=all', limit), `limit ${limit}`).toEqual(expected)
+    }
+    const first = await evidence('targetKey=sibling&queryClass=all&shape=other-queries&limit=3')
+    expect(first.otherQueries!.totalEstimate).toBe(expected.length)
+    const cursor = encodeURIComponent(first.otherQueries!.nextCursor!)
+    const crossed = await raw(`targetKey=sibling&queryClass=all&shape=answers&limit=3&cursor=${cursor}`)
+    expect(crossed.status).toBe(400)
+    expect(JSON.parse(crossed.body)).toMatchObject({
+      error: { message: 'The measurement property evidence cursor shape does not match the request.' },
+    })
   })
 })

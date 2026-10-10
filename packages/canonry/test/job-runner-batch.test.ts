@@ -8,6 +8,7 @@ import { JobRunner } from '../src/job-runner.js'
 import { addLogListener } from '../src/logger.js'
 import { ProviderBatchPoller } from '../src/provider-batch-poller.js'
 import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
+import { assertProviderReloadKeepsPendingBatches } from '../src/provider-reload-batch-guard.js'
 import {
   CLAUDE_BATCH_COST,
   CLAUDE_MODEL,
@@ -639,6 +640,44 @@ describe('splitting a provider\'s slots into batches', () => {
   })
 })
 
+describe('reloading a provider before its queued batch starts', () => {
+  it('keeps the batch registration while an earlier provider holds the fanout slot, then releases it after execution', async () => {
+    vi.stubEnv('CANONRY_PROVIDER_FANOUT', '1')
+    const { db, projectId } = seedPlannedProject({ count: 1, providers: ['aaa-sync', 'claude'] })
+    const runId = queueBatchRun(db, projectId)
+    const syncGate = deferred()
+    const syncStarted = deferred()
+    const transport = new FakeBatchTransport()
+    const registry = registryOf([
+      { adapter: fakeAdapter('aaa-sync', { syncGate: syncGate.promise, onSyncCall: () => syncStarted.resolve() }) },
+      { adapter: fakeAdapter('claude', { transport }), config: { batch: { enabled: true } } },
+    ])
+    const runner = new JobRunner(db, registry)
+    const changed = registry.getAll().map(provider => provider.adapter.name === 'claude'
+      ? { ...provider, config: { ...provider.config, apiKey: 'replacement-batch-account' } }
+      : provider)
+    const quotaOnly = registry.getAll().map(provider => ({
+      ...provider, config: { ...provider.config, quotaPolicy: { maxConcurrency: 1, maxRequestsPerMinute: 3, maxRequestsPerDay: 300 } },
+    }))
+    const execution = runner.executeRun(runId, projectId)
+    try {
+      await syncStarted.promise
+      expect(batchRows(db, runId)).toEqual([])
+      expect(() => assertProviderReloadKeepsPendingBatches(db, registry.getAll(), quotaOnly, runner.getExecutingBatchRegistrations())).not.toThrow()
+      expect(() => assertProviderReloadKeepsPendingBatches(db, registry.getAll(), changed, runner.getExecutingBatchRegistrations()))
+        .toThrowError(expect.objectContaining({ code: 'OPERATION_IN_PROGRESS' }))
+    } finally {
+      syncGate.resolve()
+      await execution
+      vi.unstubAllEnvs()
+    }
+    const batch = batchRows(db, runId)[0]!
+    expect(batch.status).toBe('submitted')
+    await runner.abandonProviderBatches([batch.id], 'Fixture finished.')
+    expect(() => assertProviderReloadKeepsPendingBatches(db, registry.getAll(), changed, runner.getExecutingBatchRegistrations())).not.toThrow()
+  })
+})
+
 describe('cancelling a run with a batch', () => {
   it('cancels at the provider, never ingests, and reports the cancellation once', async () => {
     const { db, projectId } = seedPlannedProject({ count: 2 })
@@ -749,6 +788,8 @@ describe('cancelling a run with a batch', () => {
       expect(batchRows(db, runId)[0]?.status).toBe('submitting')
       expect(syncCalls.filter(call => call.provider === 'gemini')).toHaveLength(3)
     })
+    const captured = runner.getExecutingBatchRegistrations().map(snapshot => snapshot.registration)
+    const rotated = captured.map(provider => ({ ...provider, config: { ...provider.config, apiKey: 'replacement-batch-account' } }))
 
     cancelLikeTheRoute(db, runId)
     await runner.cancelRunBatches(runId, projectId)
@@ -760,8 +801,14 @@ describe('cancelling a run with a batch', () => {
     expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['cancelled'])
     expect(completed).toHaveBeenCalledTimes(1)
 
-    submitGate.resolve()
-    await vi.waitFor(() => expect(logged).toContain(expected.settled))
+    try {
+      expect(() => assertProviderReloadKeepsPendingBatches(db, captured, rotated, runner.getExecutingBatchRegistrations()))
+        .toThrowError(expect.objectContaining({ code: 'OPERATION_IN_PROGRESS' }))
+    } finally {
+      submitGate.resolve()
+      await vi.waitFor(() => expect(logged).toContain(expected.settled))
+    }
+    expect(() => assertProviderReloadKeepsPendingBatches(db, captured, rotated, runner.getExecutingBatchRegistrations())).not.toThrow()
 
     expect(batchRows(db, runId)[0]).toMatchObject({
       status: 'cancelled', providerBatchId: expected.providerBatchId, quotaReserved: 3, quotaReleased: expected.quotaReleased,

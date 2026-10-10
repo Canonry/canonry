@@ -5,12 +5,12 @@ import {
   measurementAttributionClassSchema,
 } from './measurement-service.js'
 import {
+  MEASUREMENT_DEFAULT_QUERY_CLASS,
   measurementCountMetricValueSchema,
   measurementMetricUnavailableReasonSchema,
   measurementMetricValueSchema,
   type CountMetricValue,
   type MetricValue,
-  measurementOverviewScopeKindSchema,
   measurementPropertyMetroSchema,
   measurementQueryClassFilterSchema,
   measurementQueryClassSchema,
@@ -642,12 +642,16 @@ export const MEASUREMENT_CHANGES_DEFAULT_SORT: MeasurementChangesSort = 'magnitu
  */
 export const MEASUREMENT_CHANGES_NOISE_ANSWERS = 2
 
+/** The scopes a change comparison reads. Market scope is an overview read only. */
+export const measurementChangesScopeKindSchema = z.enum(['all', 'group', 'property'])
+
 export const measurementChangesQuerySchema = z.object({
   runId: measurementDemoFilterQueryShape.runId,
-  scope: measurementOverviewScopeKindSchema.default('all'),
+  scope: measurementChangesScopeKindSchema.default('all'),
   groupKey: measurementV2StableKeySchema.optional(),
   targetKey: measurementV2StableKeySchema.optional(),
-  queryClass: measurementQueryClassFilterSchema.default('all'),
+  /** Defaults to non-brand. `all` pools both classes and adds `metricsByClass`. */
+  queryClass: measurementQueryClassFilterSchema.default(MEASUREMENT_DEFAULT_QUERY_CLASS),
   provider: measurementDemoFilterQueryShape.provider,
   location: measurementDemoFilterQueryShape.location,
   limit: z.number().int().positive().max(50).optional(),

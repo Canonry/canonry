@@ -89,6 +89,7 @@ const expectedToolNames = [
   'canonry_logs_list',
   'canonry_telemetry_update',
   'canonry_provider_settings_update',
+  'canonry_providers_reload',
   'canonry_telemetry_get',
   'canonry_google_connections_list',
   'canonry_gsc_performance',
@@ -703,10 +704,11 @@ describe('MCP tool registry', () => {
     // The DECLARED schema is what an MCP client validates a call against, so a
     // parameter absent from it is unreachable however the handler behaves.
     expect(tool!.inputSchema.safeParse({ project: 'acme', targetKey: 'harbor-view', shape: 'answers' }).success).toBe(true)
+    expect(tool!.inputSchema.safeParse({ project: 'acme', targetKey: 'harbor-view', shape: 'other-queries' }).success).toBe(true)
     expect(tool!.inputSchema.safeParse({ project: 'acme', targetKey: 'harbor-view' }).success).toBe(true)
     expect(tool!.inputSchema.safeParse({ project: 'acme', targetKey: 'harbor-view', shape: 'urls' }).success).toBe(false)
     expect(schemaProperty(inputSchemaFor('canonry_measurement_property_evidence'), 'shape')).toMatchObject({
-      enum: ['sources', 'answers'],
+      enum: ['sources', 'answers', 'other-queries'],
     })
 
     // The answer shape is a parameter, never a second operation: adding a tool
@@ -795,7 +797,7 @@ describe('MCP tool registry', () => {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
     expect(counts.get('monitoring')).toBe(61)
-    expect(counts.get('setup')).toBe(65)
+    expect(counts.get('setup')).toBe(66)
     expect(counts.get('gsc')).toBe(11)
     expect(counts.get('ga')).toBe(12)
     expect(counts.get('gbp')).toBe(14)

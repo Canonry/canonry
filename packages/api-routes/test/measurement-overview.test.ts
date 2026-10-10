@@ -291,15 +291,17 @@ describe('measurement overview', () => {
     seedSnapshot(runId, 'exec-nearby', 'openai')
     seedSnapshot(runId, 'exec-nearby', 'gemini')
     // Harbor's branded answers: one names only the brand (a measured negative
-    // for Harbor), one asks which Harbor Homes was meant. Both cite Harbor.
+    // for Harbor), one asks which Harbor Homes was meant. The query names only
+    // the brand and the clarifying answer cites no Harbor page, so nothing
+    // settles which Harbor Homes it meant.
     seedSnapshot(runId, 'exec-brand', 'openai', { answerText: 'Northstar is well reviewed.' })
-    seedSnapshot(runId, 'exec-brand', 'gemini', { answerText: 'Which Harbor Homes do you mean?' })
+    seedSnapshot(runId, 'exec-brand', 'gemini', { answerText: 'Which Harbor Homes do you mean?', citedUrls: ['https://reviews.example/northstar'] })
 
     const { body } = await overview('scope=property&targetKey=harbor&queryClass=branded')
 
     const harbor = body.properties.items[0]!
     expect(harbor.mentionCoverage).toEqual({ state: 'available', value: 0, numerator: 0, denominator: 1, unattributed: 1 })
-    expect(harbor.citationCoverage).toEqual({ state: 'available', value: 1, numerator: 2, denominator: 2 })
+    expect(harbor.citationCoverage).toEqual({ state: 'available', value: 0.5, numerator: 1, denominator: 2 })
     // Previously this read "cited only". The mention outcome is unknown, like reach.
     expect(body.outcomes).toEqual({ bothSignals: 0, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 1, total: 1 })
     expect(body.metrics.propertiesMentioned).toEqual({ state: 'unavailable', reason: 'identity_ambiguous' })
@@ -336,19 +338,26 @@ describe('measurement overview', () => {
     expect(body.properties.items.map(row => row.targetKey)).toEqual(['bayside', 'harbor'])
   })
 
-  it('restricts the population to one question class', async () => {
+  it('restricts the population to one question class, non-brand unless another is named', async () => {
     const versionId = seedVersion(1)
     activate(versionId)
     seedMeasuredRun(versionId)
 
-    const all = await overview('scope=property&targetKey=harbor')
+    const omitted = await overview('scope=property&targetKey=harbor')
+    const all = await overview('scope=property&targetKey=harbor&queryClass=all')
     const branded = await overview('scope=property&targetKey=harbor&queryClass=branded')
     const nonBrand = await overview('scope=property&targetKey=harbor&queryClass=non-brand')
 
-    expect(all.body.metrics.mentionCoverage).toMatchObject({ denominator: 4 })
-    expect(branded.body.metrics.mentionCoverage).toMatchObject({ denominator: 2 })
-    expect(nonBrand.body.metrics.mentionCoverage).toMatchObject({ denominator: 2 })
-    expect(nonBrand.body.queryClass).toBe('non-brand')
+    // Harbor is named in both non-brand answers and in neither branded one.
+    // Pooled, that reads 2 of 4; non-brand alone, 2 of 2.
+    expect(nonBrand.body.metrics.mentionCoverage).toEqual({ state: 'available', value: 1, numerator: 2, denominator: 2 })
+    expect(branded.body.metrics.mentionCoverage).toEqual({ state: 'available', value: 0, numerator: 0, denominator: 2 })
+    expect(all.body.metrics.mentionCoverage).toEqual({ state: 'available', value: 0.5, numerator: 2, denominator: 4 })
+    expect(all.body.queryClass).toBe('all')
+    // No class is the non-brand read, never the pooled one.
+    expect(omitted.body.queryClass).toBe('non-brand')
+    expect(omitted.body.metrics).toEqual(nonBrand.body.metrics)
+    expect(omitted.body.properties.items).toEqual(nonBrand.body.properties.items)
   })
 
   it('splits a Property row by engine over its own slots and explicitly omits that detail in compact rows', async () => {
@@ -356,9 +365,10 @@ describe('measurement overview', () => {
     activate(versionId)
     seedMeasuredRun(versionId)
 
-    const { body } = await overview('scope=property&targetKey=harbor')
+    const { body } = await overview('scope=property&targetKey=harbor&queryClass=all')
     const row = body.properties.items[0]!
 
+    // Pooled on purpose (queryClass=all), so each engine holds two answers.
     // Harbor is named in the Non-brand answer and not in the Branded one, so
     // each engine reads 1 of its 2 answered slots and the Property total is 2
     // of 4. The per-engine rows are a split of the same population, not an
@@ -378,7 +388,7 @@ describe('measurement overview', () => {
       },
     ])
 
-    const compact = await overview('scope=property&targetKey=harbor&compact=true')
+    const compact = await overview('scope=property&targetKey=harbor&queryClass=all&compact=true')
     expect(compact.status).toBe(200)
     expect(compact.body).toEqual({
       ...body,
@@ -412,7 +422,7 @@ describe('measurement overview', () => {
     activate(versionId)
     seedMeasuredRun(versionId)
 
-    const { body } = await overview('scope=property&targetKey=harbor&provider=openai')
+    const { body } = await overview('scope=property&targetKey=harbor&provider=openai&queryClass=all')
 
     expect(body.properties.items[0]!.providers).toEqual([
       {
@@ -448,10 +458,18 @@ describe('measurement overview', () => {
       detailsOmitted: ['properties.providers', 'namedShareOfVoice'],
     })
 
-    for (const scope of ['scope=all&queryClass=non-brand', 'scope=property&targetKey=harbor&queryClass=non-brand', 'scope=group&groupKey=regional']) {
+    for (const scope of [
+      'scope=all&queryClass=non-brand',
+      'scope=property&targetKey=harbor&queryClass=non-brand',
+      'scope=group&groupKey=regional&queryClass=branded',
+      'scope=group&groupKey=regional&queryClass=all',
+    ]) {
       const other = await overview(scope)
       expect(other.body.namedShareOfVoice, scope).toBeUndefined()
     }
+    // A group read with no class is the non-brand basket, so it carries the share.
+    const omitted = await overview('scope=group&groupKey=regional')
+    expect(omitted.body.namedShareOfVoice).toEqual(group.body.namedShareOfVoice)
   })
 
   it('places every Property row in its metro, from the groups that hold it', async () => {
@@ -790,6 +808,83 @@ describe('measurement overview', () => {
     expect(continued.json()).toMatchObject({
       error: { message: 'The measurement overview cursor evidence changed between pages.' },
     })
+  })
+
+  it('reads a market over its own queries only, never the group that shares its name', async () => {
+    // Harbor also answers a second non-brand query that the market does not
+    // hold. The group with the market's name reaches it through Harbor; the
+    // market, as the dashboard reads it, does not.
+    plan = measurementPlanV2Fixture({
+      querySnapshots: [
+        ...plan.querySnapshots,
+        { queryId: 'q-lake', queryText: 'homes near the lake', provenance: { source: 'manual', sourceId: null, capturedAt: '2026-07-01T00:00:00.000Z' } },
+      ],
+      assignments: [...plan.assignments, { targetKey: 'harbor', queryId: 'q-lake', queryClass: 'non-brand', executionNodeKey: 'exec-lake' }],
+      executionNodes: [
+        ...plan.executionNodes,
+        { stableKey: 'exec-lake', queryId: 'q-lake', queryText: 'homes near the lake', context: { providers: ['openai', 'gemini'], models: {}, location: plan.executionNodes[0]!.context.location }, expectedSnapshots: 2 },
+      ],
+      usageEdges: [...plan.usageEdges, { executionNodeKey: 'exec-lake', targetKey: 'harbor', queryId: 'q-lake' }],
+      reportingScopes: [{
+        stableKey: 'regional-market',
+        label: 'Regional comparison',
+        kind: 'market',
+        groupKey: 'regional',
+        usageEdges: [
+          { executionNodeKey: 'exec-nearby', targetKey: 'harbor', queryId: 'q-nearby' },
+          { executionNodeKey: 'exec-nearby', targetKey: 'bayside', queryId: 'q-nearby' },
+        ],
+      }],
+    })
+    const versionId = seedVersion(1)
+    activate(versionId)
+    const runId = seedMeasuredRun(versionId)
+    // Harbor is named on the market query and not on the lake query.
+    seedSnapshot(runId, 'exec-lake', 'openai', { answerText: 'Lakeside rentals are scarce.' })
+    seedSnapshot(runId, 'exec-lake', 'gemini', { answerText: 'Lakeside rentals are scarce.' })
+
+    const market = await overview('scope=market&marketKey=regional-market')
+    expect(market.status).toBe(200)
+    expect(market.body.scope).toEqual({ kind: 'market', key: 'regional-market', label: 'Regional comparison' })
+    expect(market.body.queryClass).toBe('non-brand')
+    // One market query, two engines: 2 answers, both naming Harbor.
+    expect(market.body.metrics.mentionCoverage).toEqual({ state: 'available', value: 1, numerator: 2, denominator: 2 })
+    expect(market.body.properties.items.map(row => [row.targetKey, row.mentionCoverage])).toEqual([
+      ['bayside', { state: 'available', value: 0, numerator: 0, denominator: 2 }],
+      ['harbor', { state: 'available', value: 1, numerator: 2, denominator: 2 }],
+    ])
+    // Group scope never carries the market's figure: it reaches the lake query too.
+    const group = await overview('scope=group&groupKey=regional')
+    expect(group.body.scope).toEqual({ kind: 'group', key: 'regional', label: 'Regional comparison' })
+    expect(group.body.metrics.mentionCoverage).toEqual({ state: 'available', value: 0.5, numerator: 2, denominator: 4 })
+    expect(group.body.properties.items.find(row => row.targetKey === 'harbor')!.mentionCoverage)
+      .toEqual({ state: 'available', value: 0.5, numerator: 2, denominator: 4 })
+    // The market holds no branded query, so its branded read is no population, not zero.
+    const branded = await overview('scope=market&marketKey=regional-market&queryClass=branded')
+    expect(branded.body.metrics.mentionCoverage).toEqual({ state: 'unavailable', reason: 'no_population' })
+  })
+
+  it('refuses a market scope without a market key, or with one the active revision does not hold', async () => {
+    activate(seedVersion(1))
+
+    for (const query of ['scope=market', 'scope=market&marketKey=missing', 'scope=market&groupKey=regional']) {
+      const response = await app.inject({ method: 'GET', url: `/api/v1/projects/northstar/measurement-overview?${query}` })
+      expect(response.statusCode, query).toBe(400)
+    }
+  })
+
+  it('refuses a market key on any scope other than market instead of reading the wider scope', async () => {
+    activate(seedVersion(1))
+
+    for (const query of [
+      'scope=property&targetKey=harbor&marketKey=regional-market',
+      'scope=group&groupKey=regional&marketKey=regional-market',
+      'scope=all&marketKey=regional-market',
+    ]) {
+      const response = await app.inject({ method: 'GET', url: `/api/v1/projects/northstar/measurement-overview?${query}` })
+      expect(response.statusCode, query).toBe(400)
+      expect(response.json().error.message, query).toMatch(/"marketKey" is accepted only when scope is "market"/)
+    }
   })
 
   it('rejects a scope without the key it needs', async () => {

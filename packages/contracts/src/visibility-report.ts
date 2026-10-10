@@ -250,7 +250,18 @@ export const visibilityReportSummarySchema = z.object({
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Outcome partition must sum to total' })
     }
   }),
-}).strict()
+  /**
+   * Of `outcomes.notMeasured`, the Properties whose mention was measured and
+   * whose citation is unknown only because an answer's source list was partly
+   * saved (`unchecked`). It says why those Properties read not measured, and is
+   * a subset, never an extra bucket. Present only when at least one is.
+   */
+  notMeasuredUnchecked: z.number().int().positive().optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.notMeasuredUnchecked !== undefined && value.notMeasuredUnchecked > value.outcomes.notMeasured) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['notMeasuredUnchecked'], message: 'notMeasuredUnchecked is a subset of outcomes.notMeasured' })
+  }
+})
 export type VisibilityReportSummary = z.output<typeof visibilityReportSummarySchema>
 
 export const visibilityReportTrendPointSchema = z.object({
@@ -286,6 +297,26 @@ export const visibilityReportQueryRowSchema = z.object({
   answerCount: z.number().int().nonnegative(),
   mentionCoverage: visibilityReportRateSchema,
   citationCoverage: visibilityReportRateSchema,
+  /**
+   * Answers in this row whose source list was only partly saved, so they are in
+   * neither side of `citationCoverage` (its `unchecked`, or the reason a
+   * one-answer rate is unavailable). Their saved links still show what they
+   * cited: `citedAnswers` of them cite one of the row's Properties, and
+   * `citedTargetKeys` names which. That is evidence, never a rate. Absent when
+   * every answer's sources were fully saved.
+   */
+  uncheckedSources: z.object({
+    answers: z.number().int().positive(),
+    citedAnswers: z.number().int().nonnegative(),
+    citedTargetKeys: z.array(nonBlankIdSchema),
+  }).strict().superRefine((value, ctx) => {
+    if (value.citedAnswers > value.answers) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['citedAnswers'], message: 'citedAnswers cannot exceed answers' })
+    }
+    if ((value.citedAnswers === 0) !== (value.citedTargetKeys.length === 0)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['citedTargetKeys'], message: 'citedTargetKeys is empty exactly when no saved link cites a Property' })
+    }
+  }).optional(),
 }).strict()
 export type VisibilityReportQueryRow = z.output<typeof visibilityReportQueryRowSchema>
 

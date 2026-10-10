@@ -58,6 +58,7 @@ import type {
   MeasurementSegmentRetirementResponse,
   MeasurementDiscoveryRequest,
   MeasurementDiscoveryResponse,
+  MeasurementQueryClassFilter,
   MeasurementReportResponse,
   MeasurementSetupResponse,
   MeasurementOverviewQuery,
@@ -302,6 +303,8 @@ import type {
   ResultsExportFormat,
   IntegrationSettingsSummaryDto,
   ProviderSummaryEntryDto,
+  ProviderReloadRequest,
+  ProviderReloadResponseDto,
   TelemetryStatusDto,
 } from '@ainyc/canonry-contracts'
 import {
@@ -371,6 +374,7 @@ import {
   getApiV1Settings,
   putApiV1SettingsGoogle,
   putApiV1SettingsProvidersByName,
+  postApiV1SettingsProvidersReload,
   postApiV1Snapshot,
   getApiV1Telemetry,
   putApiV1Telemetry,
@@ -1071,6 +1075,7 @@ export class ApiClient {
           code: 'CONNECTION_ERROR',
           message: connectionFailureMessage(this.originUrl),
           exitCode: EXIT_SYSTEM_ERROR,
+          details: { connectionUnavailable: true },
         })
       }
       throw new CliError({ code: 'CONNECTION_ERROR', message: msg, exitCode: EXIT_SYSTEM_ERROR })
@@ -1634,12 +1639,17 @@ export class ApiClient {
     )
   }
 
-  async getMeasurementReport(project: string, revision: number, runId?: string): Promise<MeasurementReportResponse> {
+  async getMeasurementReport(
+    project: string,
+    revision: number,
+    runId?: string,
+    queryClass?: MeasurementQueryClassFilter,
+  ): Promise<MeasurementReportResponse> {
     return this.invoke<MeasurementReportResponse>(() =>
       getApiV1ProjectsByNameMeasurementReport({
         client: this.heyClient,
         path: { name: project },
-        query: { revision, runId },
+        query: { revision, runId, ...(queryClass === undefined ? {} : { queryClass }) },
       }),
     )
   }
@@ -2508,6 +2518,12 @@ export class ApiClient {
   async updateGoogleSettings(body: { clientId: string; clientSecret: string }): Promise<IntegrationSettingsSummaryDto> {
     return this.invoke<IntegrationSettingsSummaryDto>(() =>
       putApiV1SettingsGoogle({ client: this.heyClient, body }),
+    )
+  }
+
+  async reloadProviders(body: ProviderReloadRequest = {}, signal?: AbortSignal): Promise<ProviderReloadResponseDto> {
+    return this.invoke<ProviderReloadResponseDto>(() =>
+      postApiV1SettingsProvidersReload({ client: this.heyClient, body, signal }),
     )
   }
 

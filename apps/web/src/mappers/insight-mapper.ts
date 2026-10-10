@@ -58,6 +58,28 @@ const CITATION_STATE_MAP: Record<InsightDto['type'], CitationState> = {
   'gbp-keyword-drop': 'lost',
 }
 
+/**
+ * Whether the mapped citation state is the project's own site-wide citation
+ * (any page on its domain). Competitor and Business Profile insights borrow the
+ * same states for a different subject.
+ */
+const SITE_CITATION_MAP: Record<InsightDto['type'], boolean> = {
+  regression: true,
+  gain: true,
+  opportunity: true,
+  'first-citation': true,
+  'provider-pickup': true,
+  'persistent-gap': true,
+  'competitor-gained': false,
+  'competitor-lost': false,
+  'gbp-lodging-gap': false,
+  'gbp-listing-discrepancy': false,
+  'gbp-cta-gap': false,
+  'gbp-description-missing': false,
+  'gbp-metric-drop': false,
+  'gbp-keyword-drop': false,
+}
+
 const ACTION_LABEL_FALLBACK: Record<InsightDto['type'], string> = {
   regression: 'Regression',
   gain: 'Gain',
@@ -88,6 +110,7 @@ export function mapInsightDtoToVm(dto: InsightDto): ProjectInsightVm {
       evidenceId: '',
       provider: dto.provider,
       citationState: CITATION_STATE_MAP[dto.type],
+      siteCitation: SITE_CITATION_MAP[dto.type],
     }],
   }
 }

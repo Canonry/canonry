@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 
-import { getBootstrapEnv, getPlatformEnv } from '../src/index.js'
+import { getBootstrapEnv, getPlatformEnv, withBootstrapProviderDefaults } from '../src/index.js'
 
 test('getPlatformEnv returns defaults when no env vars set', () => {
   const env = getPlatformEnv({})
@@ -77,10 +77,11 @@ test('Muse env trims key, model, and endpoint; quotas come from env on the platf
   expect(getPlatformEnv(source).providers.muse).toEqual({
     ...identity, quota: { maxConcurrency: 3, maxRequestsPerMinute: 12, maxRequestsPerDay: 240 },
   })
-  expect(getBootstrapEnv(source).providers.muse).toEqual({
-    ...identity, quota: { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 500 },
-  })
-  expect(getBootstrapEnv({ MUSE_API_KEY: 'k', MUSE_MODEL: '   ' }).providers.muse?.model).toBe('muse-spark-1.3')
+  // Bootstrap reads no quota variables, so a quota stays the saved one or the setup default.
+  const bootstrapMuse = getBootstrapEnv(source).providers.muse
+  expect(bootstrapMuse).toEqual(identity)
+  expect(bootstrapMuse?.quota).toBeUndefined()
+  expect(getBootstrapEnv({ MUSE_API_KEY: 'k', MUSE_MODEL: '   ' }).providers.muse?.model).toBeUndefined()
   expect(getPlatformEnv({ MUSE_API_KEY: 'k', MUSE_MODEL: '   ' }).providers.muse?.model).toBeUndefined()
 })
 
@@ -142,7 +143,30 @@ test('getBootstrapEnv configures Gemini via Vertex AI env vars', () => {
   expect(env.providers.gemini!.vertexProject).toBe('my-gcp-project')
   expect(env.providers.gemini!.vertexRegion).toBe('us-east1')
   expect(env.providers.gemini!.vertexCredentials).toBe('/path/to/sa.json')
-  expect(env.providers.gemini!.model).toBe('gemini-flash-latest')
+  expect(env.providers.gemini!.model).toBeUndefined()
+})
+
+test('getBootstrapEnv leaves model and quota unset unless set; a new entry takes the setup defaults', () => {
+  const env = getBootstrapEnv({
+    GEMINI_API_KEY: 'g', OPENAI_API_KEY: 'o', ANTHROPIC_API_KEY: 'a', PERPLEXITY_API_KEY: 'p',
+    MUSE_API_KEY: 'm', LOCAL_BASE_URL: 'http://localhost:11434/v1',
+  })
+  const setupModels = {
+    gemini: 'gemini-flash-latest', openai: 'gpt-5.4', claude: 'claude-sonnet-4-6',
+    perplexity: 'fast', muse: 'muse-spark-1.3', local: 'llama3',
+  } as const
+  const setupQuota = { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 500 }
+  for (const name of Object.keys(setupModels) as (keyof typeof setupModels)[]) {
+    const entry = env.providers[name]!
+    expect(entry.model).toBeUndefined()
+    expect(entry.quota).toBeUndefined()
+    expect(withBootstrapProviderDefaults(name, entry)).toMatchObject({ model: setupModels[name], quota: setupQuota })
+  }
+
+  expect(getBootstrapEnv({ OPENAI_API_KEY: 'o', OPENAI_MODEL: 'gpt-5.5' }).providers.openai?.model).toBe('gpt-5.5')
+  // A saved model and quota are values, not gaps: the defaults never replace them.
+  const saved = { apiKey: 'o', model: 'gpt-4.1', quota: { maxConcurrency: 4, maxRequestsPerMinute: 30, maxRequestsPerDay: 900 } }
+  expect(withBootstrapProviderDefaults('openai', saved)).toEqual(saved)
 })
 
 test('getBootstrapEnv parses hosted Canonry env vars', () => {
@@ -160,9 +184,9 @@ test('getBootstrapEnv parses hosted Canonry env vars', () => {
   expect(env.apiUrl).toBe('https://canonry.example.com')
   expect(env.databasePath).toBe('/data/canonry/data.db')
   expect(env.providers.gemini?.apiKey).toBe('gemini-key')
-  expect(env.providers.gemini?.model).toBe('gemini-flash-latest')
+  expect(env.providers.gemini?.model).toBeUndefined()
   expect(env.providers.local?.baseUrl).toBe('http://localhost:11434/v1')
-  expect(env.providers.local?.model).toBe('llama3')
+  expect(env.providers.local?.model).toBeUndefined()
   expect(env.googleClientId).toBe('google-client-id')
   expect(env.googleClientSecret).toBe('google-client-secret')
 })
@@ -194,7 +218,9 @@ test('viewer research config validation accepts only nullable booleans and posit
 })
 
 test('perplexity defaults to the fast Agent API preset and resolves retired Sonar names', () => {
-  expect(getBootstrapEnv({ PERPLEXITY_API_KEY: 'k' }).providers.perplexity?.model).toBe('fast')
+  const unset = getBootstrapEnv({ PERPLEXITY_API_KEY: 'k' }).providers.perplexity!
+  expect(unset.model).toBeUndefined()
+  expect(withBootstrapProviderDefaults('perplexity', unset).model).toBe('fast')
   expect(getBootstrapEnv({ PERPLEXITY_API_KEY: 'k', PERPLEXITY_MODEL: 'sonar' }).providers.perplexity?.model).toBe('fast')
   expect(getBootstrapEnv({ PERPLEXITY_API_KEY: 'k', PERPLEXITY_MODEL: 'sonar-pro' }).providers.perplexity?.model).toBe('low')
   expect(getBootstrapEnv({ PERPLEXITY_API_KEY: 'k', PERPLEXITY_MODEL: 'perplexity/sonar' }).providers.perplexity?.model).toBe('perplexity/sonar')

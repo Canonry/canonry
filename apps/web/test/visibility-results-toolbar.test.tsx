@@ -19,6 +19,7 @@ const TREND_RUNS = [
   { runId: 'run-2', createdAt: '2026-09-13T12:00:00.000Z' },
 ]
 const COMPLETED_AT = '2026-09-13T12:30:00.000Z'
+const CHANGED_AT = '2026-09-20T12:00:00.000Z'
 
 interface ToolbarReportOptions {
   mode?: 'simple' | 'advanced'
@@ -27,10 +28,13 @@ interface ToolbarReportOptions {
   availability?: 'available' | 'unsupported'
   scope?: 'project' | 'property'
   trendRuns?: readonly string[]
+  /** Tracking changed after the displayed sweep: the active revision is newer than the measured one. */
+  awaitingSweep?: boolean
+  explicitRun?: boolean
 }
 
 /** Parsed, so every fixture is a response the server could send. */
-function toolbarReport({ mode = 'advanced', queryClass = 'non-brand', measurement = 'measured', availability = 'available', scope = 'project', trendRuns = ['run-1', 'run-2'] }: ToolbarReportOptions = {}): VisibilityReportResponse {
+function toolbarReport({ mode = 'advanced', queryClass = 'non-brand', measurement = 'measured', availability = 'available', scope = 'project', trendRuns = ['run-1', 'run-2'], awaitingSweep = false, explicitRun = false }: ToolbarReportOptions = {}): VisibilityReportResponse {
   const provenance = mode === 'advanced' ? { kind: 'frozen-advanced', definitionRevision: 2 } : { kind: 'frozen-simple', definitionRevision: null }
   const revision = mode === 'advanced' ? 2 : null
   const measured = measurement !== 'not-measured'
@@ -42,8 +46,11 @@ function toolbarReport({ mode = 'advanced', queryClass = 'non-brand', measuremen
     selection: {
       mode, queryClass, scope: scopeOptions.find(option => option.kind === scope),
       provider: null, model: null, location: { kind: 'all' }, time: { from: null, to: null },
-      revision, run: { id: measured ? 'run-2' : null, explicit: false }, provenance,
-      measurement: { state: measurement, activeRevision: revision, measuredRevision: measured ? revision : null, awaitingSweep: false, pendingAssignmentCount: 0, completedAt: measured ? COMPLETED_AT : null },
+      revision, run: { id: measured ? 'run-2' : null, explicit: explicitRun }, provenance,
+      measurement: {
+        state: measurement, activeRevision: awaitingSweep && revision !== null ? revision + 1 : revision, measuredRevision: measured ? revision : null,
+        awaitingSweep, pendingAssignmentCount: awaitingSweep ? 3 : 0, completedAt: measured ? COMPLETED_AT : null,
+      },
       availability: availability === 'available' ? { state: 'available' } : { state: 'unsupported', reason: 'advanced-v1' },
     },
     scopeOptions,
@@ -90,14 +97,14 @@ function deferred() {
   return { promise, release: () => resolve() }
 }
 
-function renderToolbar(search: Record<string, unknown>, report = toolbarReport(), extra: { onManageQueries?: () => void } = {}) {
+function renderToolbar(search: Record<string, unknown>, report = toolbarReport(), extra: { onManageQueries?: () => void; trackingChangedAt?: string; nextSweepDate?: string } = {}) {
   const onSelectionChange = vi.fn()
   const view = render(<VisibilityResultsToolbar report={report} selection={parseVisibilitySelection(search)} onSelectionChange={onSelectionChange} {...extra} />)
   return { ...view, onSelectionChange }
 }
 
 /** The page's composition with a URL held in state, exactly as ProjectPage patches it. */
-function renderOverview(initialSearch: Record<string, unknown>, extra: { fallback?: ReactNode; showUnmeasuredFallback?: boolean } = {}) {
+function renderOverview(initialSearch: Record<string, unknown>, extra: { fallback?: ReactNode; showUnmeasuredFallback?: boolean; trackingChangedAt?: string; nextSweepDate?: string } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   onTestFinished(() => client.clear())
   function Harness() {
@@ -125,6 +132,80 @@ describe('results toolbar copy', () => {
     expect(VISIBILITY_TOOLBAR_COPY.dateThrough('Sep 8, 2026')).toBe('Through Sep 8, 2026 (UTC)')
     expect(VISIBILITY_TOOLBAR_COPY.resultsFrom('Sep 6, 2026')).toBe('Results from: Sep 6, 2026')
     expect(VISIBILITY_TOOLBAR_COPY.resultsFromSelectedSweep).toBe('Results from: selected sweep')
+    expect(VISIBILITY_TOOLBAR_COPY.trackingChanged('Oct 9', 'Oct 7', 'Oct 21')).toBe('Tracking changed Oct 9. Showing the Oct 7 results, from before the change. New numbers after the Oct 21 sweep.')
+    expect(VISIBILITY_TOOLBAR_COPY.trackingChanged(null, null, null)).toBe('Tracking changed. Showing the last results, from before the change. New numbers after the next sweep.')
+  })
+})
+
+describe('tracking-changed strip', () => {
+  const DATES = { trackingChangedAt: CHANGED_AT, nextSweepDate: 'Sep 27' }
+
+  it('tells the default latest view that tracking changed since the displayed sweep, below the results header', () => {
+    renderToolbar({ queryClass: 'non-brand' }, toolbarReport({ awaitingSweep: true }), DATES)
+    const strip = screen.getByRole('status')
+    expect(strip.textContent).toBe('Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.')
+    // The header keeps to the displayed run and its date; the strip follows it.
+    const toolbar = document.querySelector<HTMLElement>(TOOLBAR)!
+    expect(toolbar.contains(strip)).toBe(false)
+    expect(toolbar.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+
+  it.each([
+    { label: 'tracking has not changed', search: {}, options: {} },
+    { label: 'no sweep was measured before the change', search: {}, options: { awaitingSweep: true, measurement: 'not-measured' } },
+    { label: 'the displayed report is an explicit run', search: {}, options: { awaitingSweep: true, explicitRun: true } },
+    // The toolbar keeps the previous latest report while the chosen sweep loads.
+    { label: 'the URL picks a sweep before its report arrives', search: { measurementRunId: 'run-1' }, options: { awaitingSweep: true } },
+    { label: 'the URL names a revision', search: { measurementRevision: '2' }, options: { awaitingSweep: true } },
+    { label: 'the URL sets an end date', search: { measurementTo: '2026-09-14T23:59:59.999Z' }, options: { awaitingSweep: true } },
+  ] as const)('is hidden when $label', ({ search, options }) => {
+    renderToolbar({ queryClass: 'non-brand', ...search }, toolbarReport(options), DATES)
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(document.body.textContent).not.toContain('Tracking changed')
+  })
+
+  it('names no change date or next sweep when the page passes none, as an embed or managed dashboard does', () => {
+    renderToolbar({ queryClass: 'non-brand' }, toolbarReport({ awaitingSweep: true }))
+    expect(screen.getByRole('status').textContent).toBe('Tracking changed. Showing the Sep 13 results, from before the change. New numbers after the next sweep.')
+  })
+
+  it('reads "the last results" when the displayed sweep has no completion date', () => {
+    const report = toolbarReport({ awaitingSweep: true, measurement: 'partial' })
+    report.selection.measurement.completedAt = null
+    renderToolbar({ queryClass: 'non-brand' }, report, DATES)
+    expect(screen.getByRole('status').textContent).toBe('Tracking changed Sep 20. Showing the last results, from before the change. New numbers after the Sep 27 sweep.')
+  })
+
+  it('stays hidden while the latest report loads after the end date is removed', async () => {
+    const gate = deferred()
+    onTestFinished(gate.release)
+    onTestFinished(mockFetch(async url => {
+      const to = new URL(url).searchParams.get('to')
+      if (to === null) await gate.promise
+      const report = toolbarReport({ awaitingSweep: true })
+      report.selection.time.to = to
+      return jsonResponse(report)
+    }))
+    renderOverview({ queryClass: 'non-brand', measurementTo: '2026-09-14T23:59:59.999Z' }, DATES)
+    await screen.findByRole('region', { name: 'AI visibility results' })
+    expect(screen.queryByText(/^Tracking changed/)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Remove filter / }))
+    // The toolbar keeps the end-dated report until the latest one arrives, and it says nothing about the latest view.
+    expect(await screen.findByRole('status', { name: 'Loading AI visibility' })).toBeTruthy()
+    expect(screen.queryByText(/^Tracking changed/)).toBeNull()
+
+    gate.release()
+    expect(await screen.findByText('Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.')).toBeTruthy()
+  })
+
+  it('carries the page dates through the overview, above the results', async () => {
+    onTestFinished(mockFetch(() => jsonResponse(toolbarReport({ awaitingSweep: true }))))
+    renderOverview({ queryClass: 'non-brand' }, DATES)
+    const results = await screen.findByRole('region', { name: 'AI visibility results' })
+    const strip = screen.getByText('Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.')
+    expect(strip.getAttribute('role')).toBe('status')
+    expect(strip.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })
 })
 

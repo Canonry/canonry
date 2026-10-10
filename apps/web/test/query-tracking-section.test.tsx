@@ -1,6 +1,6 @@
 import React from 'react'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import {
@@ -14,6 +14,7 @@ import { heyClient } from '../src/api.js'
 import { QueriesSection } from '../src/components/project/DiscoverySection.js'
 import { RESEARCH_COPY } from '../src/components/project/ResearchQueriesSection.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
+import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 
 afterEach(() => {
@@ -221,7 +222,7 @@ function installScrollSpy() {
   return scrollIntoView
 }
 
-test('leaves no audience after the last property is unchecked and requires an explicit whole-site choice', async () => {
+test('leaves no audience after the last property is unchecked and requires an explicit Every location choice', async () => {
   const requests: unknown[] = []
   installWorkspaceApi((path, body) => {
     if (path.endsWith('/query-tracking/preview')) {
@@ -239,21 +240,115 @@ test('leaves no audience after the last property is unchecked and requires an ex
   expect(review.hasAttribute('disabled')).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: 'Change tracking destination' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
-  expect((screen.getByRole('checkbox', { name: 'Whole site' }) as HTMLInputElement).checked).toBe(false)
-  expect(screen.getByText('Choose Whole site or at least one property, group, or market.')).toBeTruthy()
+  expect((screen.getByRole('checkbox', { name: 'Every location (1)' }) as HTMLInputElement).checked).toBe(false)
+  expect(screen.getByText('Choose at least one location, group, or market.')).toBeTruthy()
   expect(review.hasAttribute('disabled')).toBe(true)
   fireEvent.click(review)
   expect(requests).toEqual([])
 
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Whole site' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Every location (1)' }))
   expect(review.hasAttribute('disabled')).toBe(false)
   fireEvent.click(review)
   await screen.findByRole('heading', { name: 'Confirm tracked query changes' })
   expect(requests).toEqual([{
     expectedWorkspaceVersion: workspaceVersion,
-    additions: [{ input: { source: 'manual', text: 'How does Acme compare?' }, contexts: [selectedContext] }],
+    additions: [{ input: { source: 'manual', text: 'How does Acme compare?' }, audience: { targetKeys: ['acme'] }, contexts: [selectedContext] }],
     removals: [],
   }])
+})
+
+test('starts a project-scope Add with no destination chosen and Review disabled', async () => {
+  const requests: unknown[] = []
+  installWorkspaceApi((path, body) => {
+    requests.push({ path, body })
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  renderWorkspace()
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'How does Acme compare?' } })
+  chooseContext()
+
+  const applyTo = screen.getByRole('group', { name: 'Apply to' })
+  expect(within(applyTo).getAllByRole('checkbox')).toHaveLength(4)
+  for (const name of ['Every location (1)', 'Acme, Property', 'North East, Group', 'New York, Market']) {
+    expect(within(applyTo).getByRole('checkbox', { name })).toHaveProperty('checked', false)
+  }
+  expect(within(applyTo).getByText('Choose at least one location, group, or market.')).toBeTruthy()
+  const review = screen.getByRole('button', { name: 'Review changes' })
+  expect(review.hasAttribute('disabled')).toBe(true)
+  fireEvent.click(review)
+  expect(requests).toEqual([])
+})
+
+test('sends Every location as the explicit list of every location key', async () => {
+  const data = workspace()
+  data.targets.push({ stableKey: 'beta', label: 'Beta' }, { stableKey: 'gamma', label: 'Gamma' })
+  let previewBody: unknown
+  installWorkspaceApi((path, body) => {
+    if (path === '/api/v1/projects/demo/query-tracking/preview') {
+      previewBody = body
+      return jsonResponse(preview())
+    }
+    throw new Error(`Unexpected fetch: ${path}`)
+  }, [], data)
+  renderWorkspace()
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Which platform fits our team?' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Every location (3)' }))
+  chooseContext()
+  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+
+  await screen.findByRole('heading', { name: 'Confirm tracked query changes' })
+  expect(previewBody).toEqual({
+    expectedWorkspaceVersion: workspaceVersion,
+    additions: [{
+      input: { source: 'manual', text: 'Which platform fits our team?' },
+      audience: { targetKeys: ['acme', 'beta', 'gamma'] },
+      contexts: [selectedContext],
+    }],
+    removals: [],
+  })
+})
+
+test.each([
+  ['property', 'acme', 'Acme, Property', { targetKeys: ['acme'] }],
+  ['group', 'north-east', 'North East, Group', { groupKeys: ['north-east'] }],
+  ['market', 'new-york', 'New York, Market', { marketKeys: ['new-york'] }],
+] as const)('pre-ticks only the selected %s when Add opens from its view', async (scope, key, checkbox, audience) => {
+  let previewBody: unknown
+  installWorkspaceApi((path, body) => {
+    if (path === '/api/v1/projects/demo/query-tracking/preview') {
+      previewBody = body
+      return jsonResponse(preview())
+    }
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  renderWorkspace({ selection: { measurementScope: scope, measurementScopeKey: key, queryClass: 'all' } })
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Which platform fits our team?' } })
+  const change = screen.queryByRole('button', { name: 'Change tracking destination' })
+  if (change) fireEvent.click(change)
+
+  const applyTo = screen.getByRole('group', { name: 'Apply to' })
+  for (const name of ['Every location (1)', 'Acme, Property', 'North East, Group', 'New York, Market']) {
+    expect(within(applyTo).getByRole('checkbox', { name })).toHaveProperty('checked', name === checkbox)
+  }
+  if (scope !== 'market') chooseContext()
+  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+
+  await screen.findByRole('heading', { name: 'Confirm tracked query changes' })
+  expect(previewBody).toEqual({
+    expectedWorkspaceVersion: workspaceVersion,
+    additions: [{
+      input: { source: 'manual', text: 'Which platform fits our team?' },
+      audience,
+      ...(scope === 'market' ? {} : { contexts: [selectedContext] }),
+    }],
+    removals: [],
+  })
 })
 
 test('starts with the question, preserves written text, and keeps required measurement controls outside optional options', async () => {
@@ -274,6 +369,7 @@ test('starts with the question, preserves written text, and keeps required measu
   expect(options.open).toBe(false)
   expect(screen.getByText('Measurement options', { selector: 'summary' })).toBeTruthy()
   expect(screen.getByLabelText('Location and engines').closest('details')).toBeNull()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   chooseContext()
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(false)
 })
@@ -354,25 +450,128 @@ test('shows only in-group properties and relationships for a shared query', asyn
   expect(within(row).queryByText(/Downtown/)).toBeNull()
 })
 
-test('focuses the preview outcome and keeps request counts in a secondary disclosure', async () => {
+const advancedResetNotice = 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept.'
+const sweepActiveMessage = 'A sweep is queued or running. Publish after it finishes.'
+const removalDiff = { added: [], removed: [{ queryId: 'query-acme', queryText: 'Acme pricing', assignmentCount: 1 }], reused: [], unchanged: [], noOp: false }
+const removalWorkload = { existingNodes: 2, existingProviderCalls: 2, nextSweepNodes: 1, nextSweepProviderCalls: 1, addedNodes: 0, addedProviderCalls: 0, removedNodes: 1, removedProviderCalls: 1 }
+// The preview's `tracked` is the post-change state, so a whole-query removal drops the row.
+const trackedAfterRemoval = workspace().tracked.filter(row => row.queryId !== 'query-acme')
+
+async function reviewRemoval() {
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  return screen.findByRole('heading', { name: /^(Confirm tracked query changes|No tracking changes)$/ })
+}
+
+test('focuses the preview outcome and shows the sweep workload under the heading', async () => {
   const scrollIntoView = installScrollSpy()
   installWorkspaceApi(path => {
+    if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({ tracked: trackedAfterRemoval, diff: removalDiff, workload: removalWorkload }))
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  renderWorkspace()
+  const heading = await reviewRemoval()
+  await waitFor(() => expect(document.activeElement).toBe(heading))
+  expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
+  // Visible under the heading, not folded into a disclosure.
+  expect(screen.getByText('−1 query · +0 / −1 answers per sweep · next sweep asks 1').closest('details')).toBeNull()
+  expect(screen.getByText(advancedResetNotice)).toBeTruthy()
+})
+
+test('keeps added and removed queries and answers separate in the workload line', async () => {
+  const added = [
+    { queryId: 'query-new-1', queryText: 'Acme hours', assignmentCount: 1 },
+    { queryId: 'query-new-2', queryText: 'Acme parking', assignmentCount: 1 },
+  ]
+  installWorkspaceApi(path => {
     if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({
-      diff: { added: [], removed: [{ queryId: 'query-acme', queryText: 'Acme pricing', assignmentCount: 1 }], reused: [], unchanged: [], noOp: false },
+      tracked: trackedAfterRemoval,
+      diff: { ...removalDiff, added },
+      workload: { existingNodes: 1228, existingProviderCalls: 1228, nextSweepNodes: 1236, nextSweepProviderCalls: 1236, addedNodes: 12, addedProviderCalls: 12, removedNodes: 4, removedProviderCalls: 4 },
     }))
     throw new Error(`Unexpected fetch: ${path}`)
   })
   renderWorkspace()
-  await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
-  const heading = await screen.findByRole('heading', { name: 'Confirm tracked query changes' })
-  await waitFor(() => expect(document.activeElement).toBe(heading))
-  expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
-  expect(screen.getByText('Changes apply to future sweeps. Earlier results stay unchanged.')).toBeTruthy()
-  const workload = screen.getByText('Next sweep workload', { selector: 'summary' }).closest('details')!
-  expect(workload.open).toBe(false)
-  expect(workload.textContent).toContain('3 provider requests')
+  await reviewRemoval()
+  expect(screen.getByText('+2 queries · −1 query · +12 / −4 answers per sweep · next sweep asks 1,236')).toBeTruthy()
+})
+
+test('counts a location-scoped removal as answers, not as a query leaving tracking', async () => {
+  let previewBody: unknown
+  installWorkspaceApi((path, body) => {
+    if (path.endsWith('/query-tracking/preview')) {
+      previewBody = body
+      // The server lists the query as removed while it stays tracked for its other assignments.
+      return jsonResponse(preview({ diff: removalDiff, workload: removalWorkload }))
+    }
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
+  await reviewRemoval()
+  expect(previewBody).toEqual({ expectedWorkspaceVersion: workspaceVersion, additions: [], removals: [{ queryId: 'query-acme', audience: { targetKeys: ['acme'] } }] })
+  expect(screen.getByText('+0 / −1 answers per sweep · next sweep asks 1')).toBeTruthy()
+  expect(screen.queryByText(/−1 query/)).toBeNull()
+})
+
+test.each([
+  { name: 'a simple preview', mode: 'simple', noOp: false, subcopy: 'Changes apply to future sweeps. Earlier results stay unchanged.' },
+  { name: 'an advanced no-op preview', mode: 'advanced', noOp: true, subcopy: 'This request leaves tracking unchanged.' },
+])('shows no reset notice for $name', async ({ mode, noOp, subcopy }) => {
+  installWorkspaceApi(path => {
+    if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({ mode, diff: noOp ? { ...removalDiff, removed: [], noOp } : removalDiff }))
+    throw new Error(`Unexpected fetch: ${path}`)
+  }, [], { ...workspace(), mode })
+  renderWorkspace()
+  await reviewRemoval()
+  expect(screen.getByText(subcopy)).toBeTruthy()
+  expect(screen.queryByText(advancedResetNotice)).toBeNull()
+})
+
+test.each([
+  { name: 'an advanced commit', mode: 'advanced', committed: true, title: 'Tracked queries updated', detail: 'New numbers after the next sweep.' },
+  { name: 'a simple commit', mode: 'simple', committed: true, title: 'Tracked queries updated', detail: undefined },
+  { name: 'a no-op commit', mode: 'advanced', committed: false, title: 'No tracked-query change', detail: undefined },
+])('names when new numbers arrive only after $name', async ({ mode, committed, title, detail }) => {
+  resetToasts()
+  onTestFinished(resetToasts)
+  installWorkspaceApi(path => {
+    if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({ mode, diff: removalDiff }))
+    if (path.endsWith('/query-tracking/commit')) return jsonResponse({ committed, mode, workspaceVersion, reviewedAt: '2026-09-04T12:15:00.000Z', active, diff: removalDiff, workload: removalWorkload })
+    throw new Error(`Unexpected fetch: ${path}`)
+  }, [], { ...workspace(), mode })
+  renderWorkspace()
+  await reviewRemoval()
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm changes' }))
+  await waitFor(() => expect(getToasts().map(toast => toast.title)).toEqual([title]))
+  expect(getToasts()[0]!.detail).toBe(detail)
+})
+
+test.each([true, false])('pauses Confirm while a sweep is queued or running (sweepActive=%s)', async (sweepActive) => {
+  const commits: unknown[] = []
+  installWorkspaceApi((path, body) => {
+    if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({ diff: removalDiff, workload: removalWorkload }))
+    if (path.endsWith('/query-tracking/commit')) {
+      commits.push(body)
+      return jsonResponse({ committed: true, mode: 'advanced', workspaceVersion, reviewedAt: '2026-09-04T12:15:00.000Z', active, diff: removalDiff, workload: removalWorkload })
+    }
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  renderWorkspace({ publishGuard: { sweepActive } })
+  await reviewRemoval()
+  const confirm = screen.getByRole('button', { name: 'Confirm changes' }) as HTMLButtonElement
+  expect(confirm.disabled).toBe(sweepActive)
+  if (sweepActive) {
+    expect(screen.getByRole('status').textContent).toBe(sweepActiveMessage)
+    fireEvent.click(confirm)
+    // A commit reaches fetch only after the mutation's async onMutate, so let a task pass before asserting none went out.
+    await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+    expect(commits).toEqual([])
+  } else {
+    expect(screen.queryByText(sweepActiveMessage)).toBeNull()
+    fireEvent.click(confirm)
+    await waitFor(() => expect(commits).toHaveLength(1))
+  }
 })
 
 test('clears the previous confirmation while a changed draft awaits a new preview', async () => {
@@ -390,6 +589,7 @@ test('clears the previous confirmation while a changed draft awaits a new previe
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'New question' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByRole('heading', { name: 'Confirm tracked query changes' })
@@ -534,6 +734,7 @@ test('requires a selected context for an advanced addition, then uses the server
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Acme pricing' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
@@ -547,7 +748,7 @@ test('requires a selected context for an advanced addition, then uses the server
     path: '/api/v1/projects/demo/query-tracking/preview',
     body: {
       expectedWorkspaceVersion: workspaceVersion,
-      additions: [{ input: { source: 'manual', text: 'Acme pricing' }, contexts: [selectedContext] }],
+      additions: [{ input: { source: 'manual', text: 'Acme pricing' }, audience: { targetKeys: ['acme'] }, contexts: [selectedContext] }],
       removals: [],
     },
   })
@@ -868,6 +1069,7 @@ test('promotes a saved research query as source provenance, never an answer or a
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
   fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'research' } })
   fireEvent.change(screen.getByLabelText('Saved research query'), { target: { value: 'research-query-1' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
 
@@ -875,7 +1077,7 @@ test('promotes a saved research query as source provenance, never an answer or a
   expect(screen.getByText('Only the saved query is added.')).toBeTruthy()
   expect(previewBody).toEqual({
     expectedWorkspaceVersion: workspaceVersion,
-    additions: [{ input: { source: 'research', researchRunQueryId: 'research-query-1' }, contexts: [selectedContext] }],
+    additions: [{ input: { source: 'research', researchRunQueryId: 'research-query-1' }, audience: { targetKeys: ['acme'] }, contexts: [selectedContext] }],
     removals: [],
   })
 })
@@ -960,8 +1162,11 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
     expect(screen.queryByLabelText('Location and engines')).toBeNull()
     expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(false)
   } else {
+    expect(onSelectionChange).not.toHaveBeenCalled()
+    expect(screen.getByRole('checkbox', { name: 'Acme, Property' })).toHaveProperty('checked', false)
     expect((screen.getByLabelText('Location and engines') as HTMLSelectElement).value).toBe('')
     expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
     chooseContext()
   }
   expect(writes).toEqual([])
@@ -1028,13 +1233,14 @@ test('sends an explicit class only when the operator overrides server classifica
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Enterprise AEO platform' } })
   fireEvent.change(screen.getByLabelText('Classification'), { target: { value: 'non-brand' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
 
   await screen.findByText('Confirm tracked query changes')
   expect(previewBody).toEqual({
     expectedWorkspaceVersion: workspaceVersion,
-    additions: [{ input: { source: 'manual', text: 'Enterprise AEO platform' }, contexts: [selectedContext], queryClass: 'non-brand' }],
+    additions: [{ input: { source: 'manual', text: 'Enterprise AEO platform' }, audience: { targetKeys: ['acme'] }, contexts: [selectedContext], queryClass: 'non-brand' }],
     removals: [],
   })
 })
@@ -1072,6 +1278,7 @@ test('requires a market for a saved market template before sending its identity 
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
   fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'template' } })
   fireEvent.change(screen.getByLabelText('Saved template'), { target: { value: 'template-market' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   chooseContext()
   const review = screen.getByRole('button', { name: 'Review changes' })
   expect(review.hasAttribute('disabled')).toBe(true)
@@ -1085,7 +1292,6 @@ test('requires a market for a saved market template before sending its identity 
   fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'template' } })
   expect(review.hasAttribute('disabled')).toBe(true)
 
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'New York, Market' }))
   expect(review.hasAttribute('disabled')).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
@@ -1119,7 +1325,7 @@ test.each(['non-brand', 'branded'] as const)('keeps all Simple tracked rows visi
   expect(screen.queryByText('Unknown')).toBeNull()
 })
 
-test('keeps simple measurements classifier-only and never submits an operator override', async () => {
+test('keeps simple measurements classifier-only with no Apply to box and never submits an operator override', async () => {
   let previewBody: Record<string, unknown> | undefined
   installWorkspaceApi((path, body) => {
     if (path === '/api/v1/projects/demo/query-tracking/preview') {
@@ -1134,6 +1340,8 @@ test('keeps simple measurements classifier-only and never submits an operator ov
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
   expect(screen.queryByLabelText('Classification')).toBeNull()
   expect(screen.queryByLabelText('Location and engines')).toBeNull()
+  expect(screen.queryByRole('group', { name: 'Apply to' })).toBeNull()
+  expect(screen.queryByRole('checkbox')).toBeNull()
   expect(screen.getByText('Automatic')).toBeTruthy()
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'How does Acme compare?' } })
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
@@ -1144,6 +1352,24 @@ test('keeps simple measurements classifier-only and never submits an operator ov
     additions: [{ input: { source: 'manual', text: 'How does Acme compare?' } }],
     removals: [],
   })
+})
+
+test('tells a simple project that a market template cannot be used, without naming Apply to', async () => {
+  const template = {
+    id: 'template-market', projectId: 'project-demo', name: 'Market comparison', description: null,
+    pattern: 'Best {property} provider in {market}', variables: ['property', 'market'],
+    createdAt: '2026-09-01T12:00:00.000Z', updatedAt: '2026-09-04T12:00:00.000Z',
+  }
+  installWorkspaceApi(undefined, [template], { ...workspace(), mode: 'simple', groups: [], markets: [] })
+  renderWorkspace()
+
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'template' } })
+  fireEvent.change(screen.getByLabelText('Saved template'), { target: { value: 'template-market' } })
+  expect(screen.getByText('This template needs a market, and this project has no markets. Write a question instead.')).toBeTruthy()
+  expect(screen.queryByText(/Apply to/)).toBeNull()
+  expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
 })
 
 

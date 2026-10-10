@@ -139,6 +139,13 @@ describe('ui telemetry', () => {
     for (const event of sent) expect(uiTelemetryEventSchema.safeParse(event).success).toBe(true)
   })
 
+  it('counts a Property name save into the measurement draft, and never as a publish', () => {
+    const { sent } = capture()
+    recordUiApiResult({ method: 'POST', route: '/api/v1/projects/{name}/measurement-plan/draft/actions/upsert-target', status: 200 })
+    expect(actions(sent)).toEqual([['property_names.save', undefined]])
+    for (const event of sent) expect(uiTelemetryEventSchema.safeParse(event).success).toBe(true)
+  })
+
   it('tells a project create (201) from an update (200) on the upsert', () => {
     const { sent } = capture()
     recordUiApiResult({ method: 'PUT', route: '/api/v1/projects/{name}', status: 201 })

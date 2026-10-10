@@ -15,6 +15,7 @@ import {
   getApiV1ProjectsByNameMeasurementPropertyCompetitorsOptions,
   getApiV1ProjectsByNameMeasurementPropertyEvidenceInfiniteOptions,
   getApiV1ProjectsByNameMeasurementQuestionResultOptions,
+  getApiV1ProjectsByNameVisibilityReportOptions,
 } from '@ainyc/canonry-api-client/react-query'
 
 import { getEmbedConfig, heyClient, isDashboardManagedSweeps } from '../api.js'
@@ -27,11 +28,12 @@ import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../components/shared/Answe
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { excludedAnswersLabel, splitPercentSign, type CoverageSignal } from '../lib/format-helpers.js'
 import { SourceLink } from '../components/shared/SourceLink.js'
-import { carryVisibilitySearch, parseVisibilitySelection, patchVisibilitySelection } from '../lib/measurement-view-url.js'
+import { carryVisibilitySearch, parseVisibilitySelection, patchVisibilitySelection, visibilityReportFirstPageQuery } from '../lib/measurement-view-url.js'
 import type { VisibilitySelectionState } from '../lib/measurement-view-url.js'
 import { MARKET_SCOPE_COPY } from '../components/project/VisibilityScopePicker.js'
 import { useAccount } from '../contexts/account-context.js'
 import { matcherLabel } from '../components/project/advanced-measurement/v2-overview-adapter.js'
+import { PropertyNamesSection } from '../components/project/advanced-measurement/PropertyNamesEditor.js'
 
 type QueryClass = 'branded' | 'non-brand'
 type MetricValue = MeasurementOverviewResponse['metrics']['mentionCoverage']
@@ -46,6 +48,8 @@ type PropertyRow = MeasurementOverviewResponse['properties']['items'][number]
 type AnswerPage = NonNullable<MeasurementPropertyEvidenceResponse['answers']>
 type AnswerRow = AnswerPage['items'][number]
 type AnswerSource = AnswerRow['sources'][number]
+type OtherQueryPage = NonNullable<MeasurementPropertyEvidenceResponse['otherQueries']>
+type OtherQueryRow = OtherQueryPage['items'][number]
 type ActivePlan = NonNullable<MeasurementPlanResponse['active']>
 type PlanV2 = Extract<ActivePlan['plan'], { schemaVersion: 2 }>
 
@@ -195,12 +199,12 @@ function AnswerSources({ row }: { row: AnswerRow }) {
  * `resultId` this read takes — both are the stored snapshot id — so no new
  * plumbing is needed to line them up.
  */
-function AnswerText({ project, targetKey, row }: { project: string; targetKey: string; row: AnswerRow }) {
+function AnswerText({ project, targetKey, resultId }: { project: string; targetKey: string; resultId: string }) {
   const query = useQuery({
     ...getApiV1ProjectsByNameMeasurementQuestionResultOptions({
       client: heyClient,
       path: { name: project },
-      query: { targetKey, resultId: row.observationId },
+      query: { targetKey, resultId },
     }),
   })
 
@@ -773,6 +777,188 @@ function PropertyUrls({ urls }: { urls: readonly string[] }) {
   )
 }
 
+export const OTHER_QUERIES_COPY = {
+  heading: 'Cited on other queries',
+  help: 'Answers to queries assigned to other properties that still cited one of this Property\u2019s own pages. This Property was not measured on those queries, so these answers are not in its Mentioned or Cited rates.',
+  notCounted: 'not in this Property\u2019s rates',
+  empty: 'No answer to a query assigned elsewhere cited this Property\u2019s pages in the displayed measurement.',
+  loadError: 'Citations from other queries could not be loaded.',
+  partlySaved: 'Sources partly saved',
+} as const
+
+/**
+ * Citations of this Property's own pages from answers to queries it is not
+ * assigned, read from `shape=other-queries` for the displayed run and class.
+ *
+ * Kept out of every number above by construction: the rates read only this
+ * Property's own assignments. The answer itself is read through the Property
+ * the query IS assigned to, since an answer belongs to the queries that asked it.
+ */
+function CitedOnOtherQueries({
+  project,
+  targetKey,
+  queryClass,
+  runId,
+  targetLabels,
+}: {
+  project: string
+  targetKey: string
+  queryClass: QueryClass
+  runId: string | undefined
+  targetLabels: ReadonlyMap<string, string>
+}) {
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set<string>())
+  const input = {
+    client: heyClient,
+    path: { name: project },
+    query: {
+      targetKey,
+      queryClass,
+      shape: MeasurementEvidenceShapes['other-queries'],
+      limit: EVIDENCE_PAGE_SIZE,
+      ...(runId ? { runId } : {}),
+    },
+  } as const
+  const query = useInfiniteQuery({
+    ...getApiV1ProjectsByNameMeasurementPropertyEvidenceInfiniteOptions(input),
+    initialPageParam: input,
+    getNextPageParam: (lastPage: MeasurementPropertyEvidenceResponse) => (
+      lastPage.otherQueries?.nextCursor
+        ? { path: input.path, query: { ...input.query, cursor: lastPage.otherQueries.nextCursor } }
+        : undefined
+    ),
+  })
+  const pages = query.data?.pages ?? []
+  // A measurement that has not happened has no other-query citations to list,
+  // and the answers section already says so.
+  if (pages[0]?.measurement.state === 'not_measured') return null
+  const rows = pages.flatMap(page => page.otherQueries?.items ?? [])
+  const total = pages[0]?.otherQueries?.totalEstimate ?? rows.length
+  const rowKey = (row: OtherQueryRow) => `${row.expectedSlotId}:${row.queryClass}`
+  const classWords = CLASS_LABELS[queryClass].technical.toLocaleLowerCase()
+
+  return (
+    <section aria-labelledby="property-other-queries" className="page-section-divider">
+      <div className="section-head section-head-inline">
+        <div className="flex items-center gap-1">
+          <h2 id="property-other-queries" className="text-base font-semibold text-heading">{OTHER_QUERIES_COPY.heading}</h2>
+          <InfoTooltip text={OTHER_QUERIES_COPY.help} />
+        </div>
+        {query.data ? (
+          <p className="supporting-copy">
+            {total} {total === 1 ? 'answer' : 'answers'} &middot; {classWords} &middot; {OTHER_QUERIES_COPY.notCounted}
+          </p>
+        ) : null}
+      </div>
+      {query.isPending ? (
+        <p className="text-sm text-secondary">Loading…</p>
+      ) : query.isError && rows.length === 0 ? (
+        <div className="flex flex-wrap items-center gap-3 text-sm text-secondary">
+          <span role="alert">{OTHER_QUERIES_COPY.loadError}</span>
+          <Button type="button" size="sm" variant="outline" className="h-11 px-4 text-sm md:h-11" onClick={() => { void query.refetch() }}>Retry</Button>
+        </div>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-secondary">{OTHER_QUERIES_COPY.empty}</p>
+      ) : (
+        <>
+          <div className="overflow-x-auto rounded-md border border-default">
+            <table className="evidence-table min-w-[640px]">
+              <caption className="sr-only">Answers to other properties&rsquo; queries that cited this Property&rsquo;s pages</caption>
+              <thead>
+                <tr>
+                  <th>Query</th>
+                  <th>Assigned to</th>
+                  <th>Pages cited</th>
+                  <th><span className="sr-only">Answer</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(row => {
+                  const key = rowKey(row)
+                  const open = expanded.has(key)
+                  const detailId = `property-other-query-${encodeURIComponent(key)}`
+                  return (
+                    <Fragment key={key}>
+                      <tr>
+                        <td className="text-secondary">
+                          <span className="block text-sm font-medium text-heading">{row.queryText}</span>
+                          <span className="mt-1 block text-xs text-muted">{[row.provider, row.location].filter(Boolean).join(' · ')}</span>
+                        </td>
+                        <td>
+                          <ul className="space-y-1">
+                            {row.assignedTargetKeys.map(key => (
+                              <li key={key}>
+                                <Link
+                                  to="/projects/$projectName/properties/$targetKey"
+                                  params={{ projectName: project, targetKey: key }}
+                                  search={carryVisibilitySearch}
+                                  className="text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
+                                >
+                                  {targetLabels.get(key) ?? key}
+                                </Link>
+                              </li>
+                            ))}
+                          </ul>
+                        </td>
+                        <td>
+                          <ul className="space-y-1">
+                            {row.sources.map(source => <li key={source.sourceUrl} className="min-w-0"><SourceLink url={source.sourceUrl} /></li>)}
+                          </ul>
+                          {row.sourcesTruncated ? <span className="mt-1 block text-xs text-muted">{row.sourceCount} pages in total</span> : null}
+                          {row.evidenceComplete ? null : <span className="mt-1 block text-xs text-muted">{OTHER_QUERIES_COPY.partlySaved}</span>}
+                        </td>
+                        <td className="text-right">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-auto min-h-11 max-w-full whitespace-normal py-2 text-left md:h-auto"
+                            aria-expanded={open}
+                            aria-label={open ? `Hide the answer for ${row.queryText}` : `Read the answer for ${row.queryText}`}
+                            aria-controls={open ? detailId : undefined}
+                            onClick={() => setExpanded(current => {
+                              const next = new Set(current)
+                              if (!next.delete(key)) next.add(key)
+                              return next
+                            })}
+                          >
+                            {open ? 'Hide answer' : 'Read answer'}
+                          </Button>
+                        </td>
+                      </tr>
+                      {open ? (
+                        <tr>
+                          <td id={detailId} colSpan={4} className="bg-surface-subtle px-4">
+                            <AnswerText project={project} targetKey={row.assignedTargetKeys[0]!} resultId={row.observationId} />
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          {query.hasNextPage ? (
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-secondary">
+              <span>Showing {rows.length} of {total}</span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-11 px-4 text-sm md:h-11"
+                disabled={query.isFetchingNextPage}
+                onClick={() => { void query.fetchNextPage() }}
+              >
+                {query.isFetchingNextPage ? 'Loading…' : `Show ${EVIDENCE_PAGE_SIZE} more`}
+              </Button>
+            </div>
+          ) : null}
+        </>
+      )}
+    </section>
+  )
+}
+
 /**
  * The AI Visibility filters this page cannot apply: its reads take no market,
  * engine, model, location, date range, or saved sweep. Null when none is carried.
@@ -847,6 +1033,24 @@ export function MeasurementPropertyPage() {
   // Undefined while the response is unread, so a pending or failed fetch never
   // asserts this Property has never been swept.
   const measuredAt = selected === undefined ? undefined : selected.measurement.completedAt ?? null
+  const needsMeasurement = selected !== undefined && (selected.measurement.state === 'not_measured' || selected.nextAction.kind === 'run_measurement')
+  // After a tracking change this page blanks, but AI Visibility still shows this Property's last
+  // results. Ask the report the link opens, so the link names results only when there are some.
+  // The link opens the latest view, so a carried sweep, revision or end date is dropped.
+  const lastResultsSearch = (previous: Record<string, unknown>) => patchVisibilitySelection(carryVisibilitySearch(previous), {
+    measurementScope: 'property', measurementScopeKey: property, queryClass,
+    measurementRunId: undefined, measurementRevision: undefined, measurementTo: undefined,
+  })
+  const lastResultsQuery = useQuery({
+    ...getApiV1ProjectsByNameVisibilityReportOptions({ client: heyClient, path: { name: project }, query: visibilityReportFirstPageQuery(parseVisibilitySelection(lastResultsSearch(urlSearch))) }),
+    enabled: enabled && needsMeasurement,
+    retry: false,
+  })
+  // The measured revision belongs to the whole sweep. A Property that had no queries of this type
+  // before the change has an empty population in it, so nothing to show.
+  const lastResults = lastResultsQuery.data
+  const hasLastResults = lastResults !== undefined && lastResults.selection.measurement.measuredRevision !== null
+    && (lastResults.populations.find(population => population.queryClass === queryClass)?.summary.queryCount ?? 0) > 0
 
   const evidenceInput = {
     client: heyClient,
@@ -888,6 +1092,10 @@ export function MeasurementPropertyPage() {
   }, [planV2, property, queryClass])
 
   const urls = useMemo(() => target?.urlMatchers.map(matcherLabel) ?? [], [target])
+  const targetLabels = useMemo(
+    () => new Map((planV2?.targets ?? []).map(candidate => [candidate.stableKey, candidate.label])),
+    [planV2],
+  )
   // Every market this Property belongs to. Membership is a plain lookup rather
   // than a field on the target: a Property can sit in several markets, and the
   // plan stores the relation on the group.
@@ -1044,16 +1252,16 @@ export function MeasurementPropertyPage() {
         }}
       />
 
-      {selected && (selected.measurement.state === 'not_measured' || selected.nextAction.kind === 'run_measurement') ? (
+      {needsMeasurement ? (
         <section className="flex flex-wrap items-center justify-between gap-3 border-y border-default py-4" aria-label="Measurement next step">
           <p className="text-sm text-secondary">
             {isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : canWrite
-              ? 'Run a measurement from the project overview to collect this Property’s coverage and source evidence.'
+              ? `Run a measurement from the project overview to collect this Property’s coverage and source evidence.${hasLastResults ? ' AI Visibility still shows the last results.' : ''}`
               : 'This Property needs a new measurement before coverage and source evidence are available.'}
           </p>
           <Button asChild type="button" className="h-11 px-4 text-sm md:h-11">
-            <Link to="/projects/$projectName" params={{ projectName: project }} search={carryVisibilitySearch}>
-              {canWrite ? 'Go to AI Visibility' : 'View AI Visibility'}
+            <Link to="/projects/$projectName" params={{ projectName: project }} search={hasLastResults ? lastResultsSearch : carryVisibilitySearch}>
+              {hasLastResults ? 'See the last results' : canWrite ? 'Go to AI Visibility' : 'View AI Visibility'}
             </Link>
           </Button>
         </section>
@@ -1087,6 +1295,13 @@ export function MeasurementPropertyPage() {
           answer. The evidence table below is the receipts; this is the finding. */}
       <NamedInstead project={project} targetKey={property} queryClass={queryClass} />
       <AssignedQuestions questions={questions} queryClass={queryClass} />
+      <PropertyNamesSection
+        projectName={project}
+        targetKey={property}
+        published={target}
+        activeRevision={activePlan!.revision}
+        publishedBrandNames={planV2.identities.projectBrand.names}
+      />
       <PropertyUrls urls={urls} />
       <MarketLink project={project} groups={memberGroups} />
 
@@ -1179,7 +1394,7 @@ export function MeasurementPropertyPage() {
                               {/* The answer leads. The source list is the supporting
                                   detail, not the point: a reader who opened this row
                                   wants to know what was said before who was linked. */}
-                              <AnswerText project={project} targetKey={property} row={item} />
+                              <AnswerText project={project} targetKey={property} resultId={item.observationId} />
                               <AnswerSources row={item} />
                             </td>
                           </tr>
@@ -1212,6 +1427,16 @@ export function MeasurementPropertyPage() {
           </>
         )}
       </section>
+
+      {selected ? (
+        <CitedOnOtherQueries
+          project={project}
+          targetKey={property}
+          queryClass={queryClass}
+          runId={displayedRunId}
+          targetLabels={targetLabels}
+        />
+      ) : null}
     </div>
   )
 }

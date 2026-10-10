@@ -93,6 +93,8 @@ export const UI_ACTIONS = [
   'notification.save',
   'notification.test',
   'measurement_plan.publish',
+  /** A Property's names or qualified names were saved into the measurement draft. */
+  'property_names.save',
   'discovery.run',
   'api_key.create',
   'api_key.revoke',
@@ -169,7 +171,7 @@ export const UI_ROUTE_FIXED_CHILDREN: ReadonlySet<string> = new Set([
   'ads/account', 'ads/activation-grants', 'ads/ad-groups', 'ads/ads', 'ads/campaigns', 'ads/connect',
   'ads/connection', 'ads/conversions', 'ads/delivery-diagnostics', 'ads/files', 'ads/geo', 'ads/insights',
   'ads/live-delivery', 'ads/operations', 'ads/status', 'ads/summary', 'ads/sync', 'keys/self',
-  'locations/default', 'locations/discover', 'notifications/events', 'operations/logs', 'queries/generate',
+  'locations/default', 'locations/discover', 'notifications/events', 'operations/logs', 'providers/reload', 'queries/generate',
   'queries/replace-preview', 'runs/latest', 'snapshots/diff',
 ])
 

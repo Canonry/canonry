@@ -7,7 +7,7 @@
  * prevents a read from mutating or re-fetching evidence.
  */
 
-import { answerProseForMentions, escapeRegExp, normalizeIdentityText, normalizeMeasurementHost, rateOverChecked, compareText, sortedUnique } from '@ainyc/canonry-contracts'
+import { answerProseForMentions, escapeRegExp, measurementNameKey, measurementNameWords, normalizeIdentityText, normalizeMeasurementHost, rateOverChecked, compareText, sortedUnique } from '@ainyc/canonry-contracts'
 
 export type MeasurementAttributionClass =
   | 'assigned'
@@ -572,15 +572,12 @@ export function normalizeMeasurementLocation(value: string | null): string | nul
   return normalizeIdentityText(value) || null
 }
 
-function words(value: string): string[] {
-  // Unicode's default lowercasing is locale-independent and matches the en
-  // mapping used here; avoid invoking locale resolution for every answer.
-  return value.normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
-}
+/** Shared with the Property name editor, so its warnings read the words this matcher reads. */
+const words = measurementNameWords
 
 /** The exact token identity used when deciding whether two Target aliases are ambiguous. */
 export function measurementMentionAliasKey(value: string): string {
-  return words(value).join('\u0000')
+  return measurementNameKey(value)
 }
 
 function aliasMatchesAt(textWords: readonly string[], aliasWords: readonly string[], start: number): boolean {
@@ -668,6 +665,30 @@ function identityAmbiguityPatterns(aliases: readonly string[]) {
   }
 }
 
+const NO_TARGETS: ReadonlySet<string> = new Set()
+
+/**
+ * The Properties a branded query names among those it is assigned to as
+ * branded. A branded query such as "is Harbor Point a good place to live" asks
+ * about one Property by name, so an answer that only asks which Harbor Point
+ * was meant is still about it. A non-brand query that contains the same name
+ * ("apartments near Harbor Point") uses it as a place, so it settles nothing,
+ * and neither does a schema v1 assignment, which records no class. The query
+ * is read with the answer's own longest-name matcher, so a query naming
+ * "Harbor Point East" names that Property and not "Harbor Point".
+ */
+function queryNamedTargetIds(
+  queryText: string | null | undefined,
+  brandedTargetIds: Iterable<string> | undefined,
+  aliases: ReadonlyMap<string, readonly MentionAlias[]>,
+): ReadonlySet<string> {
+  if (!queryText || brandedTargetIds === undefined) return NO_TARGETS
+  const branded = new Set(brandedTargetIds)
+  if (branded.size === 0) return NO_TARGETS
+  const named = [...mentionedTargetsForAliases(queryText, aliases).mentioned].filter(id => branded.has(id))
+  return named.length === 0 ? NO_TARGETS : new Set(named)
+}
+
 /** `text` is the answer's prose (`answerProseForMentions`), never the raw answer. */
 function resolveMentionIdentity(
   text: string | null,
@@ -675,6 +696,7 @@ function resolveMentionIdentity(
   aliases: ReadonlyMap<string, readonly MentionAlias[]>,
   citedTargetIds: ReadonlySet<string>,
   ambiguityPatterns = new Map(targets.map(target => [target.id, identityAmbiguityPatterns(target.aliases)])),
+  queryNamed: ReadonlySet<string> = NO_TARGETS,
 ) {
   const textWords = text === null ? [] : words(text)
   const state = mentionedTargetsForAliases(text, aliases, textWords)
@@ -682,13 +704,18 @@ function resolveMentionIdentity(
   const normalized = textWords.join(' ')
   for (const target of targets) {
     if (!state.mentioned.has(target.id)) continue
-    // Repeating a name in a clarification question does not resolve identity.
-    // A multi-entity discussion can still identify this Property through its
-    // own source URL or an explicitly configured qualified identity phrase.
+    // A clarification question ("which Harbor Point do you mean?") repeats a
+    // name it could not resolve. It names this Property only when the answer
+    // cites the Property's own page, or when this Property's branded query
+    // named it: the engine was asked about this Property by name.
+    // A multi-entity discussion can identify this Property through its own
+    // source URL or an explicitly configured qualified identity phrase.
     const patterns = ambiguityPatterns.get(target.id)
-    const qualified = citedTargetIds.has(target.id)
+    const cited = citedTargetIds.has(target.id)
+    const qualified = cited
       || ((target.identityAliases?.length ?? 0) > 0 && containsAnyAlias(text, target.identityAliases!))
-    const unresolved = patterns?.clarification.some(pattern => pattern.test(normalized))
+    const clarified = cited || queryNamed.has(target.id)
+    const unresolved = (!clarified && patterns?.clarification.some(pattern => pattern.test(normalized)))
       || (!qualified && (patterns?.multipleEntities.some(pattern => pattern.test(normalized))
         || (target.identityAliases?.length ?? 0) > 0))
     if (unresolved) { state.mentioned.delete(target.id); state.unknown.add(target.id) }
@@ -718,21 +745,36 @@ export function targetMentionedInAnswer(
   return state.unknown.has(targetId) ? null : state.mentioned.has(targetId)
 }
 
+/** The frozen query one stored answer was asked, for `createTargetMentionReader`. */
+export interface MentionReaderQuery {
+  text: string
+  /**
+   * The answer's Properties whose frozen assignment on this query is branded.
+   * Only these can be named by the query; a non-brand assignment never is.
+   */
+  brandedTargetIds: readonly string[]
+}
+
 /** Prepared frozen identities for repeated answer reads, preserving ambiguous matches. */
-export function createTargetMentionReader(targets: readonly MeasurementTargetInput[], ownedHosts: readonly string[] = []): (answerText: string | null, targetIds: readonly string[], citedUrls?: readonly string[]) => boolean | null {
+export function createTargetMentionReader(targets: readonly MeasurementTargetInput[], ownedHosts: readonly string[] = []): (answerText: string | null, targetIds: readonly string[], citedUrls?: readonly string[], query?: MentionReaderQuery | null) => boolean | null {
   const compiledAliases = compiledMentionAliases(targets)
   const mentionableIds = new Set(compiledAliases.map(alias => alias.targetId))
   const aliases = indexMentionAliases(compiledAliases)
   const ambiguityPatterns = new Map(targets.map(target => [target.id, identityAmbiguityPatterns(target.aliases)]))
   const routes = compiledTargetRoutes(targets)
   const normalizedOwnedHosts = ownedHosts.map(normalizedHost)
-  return (answerText, targetIds, citedUrls = []) => {
+  return (answerText, targetIds, citedUrls = [], query = null) => {
     if (answerText === null || targetIds.length === 0) return null
     const citedTargetIds = new Set(citedUrls.flatMap(url => {
       const source = classifySourceAttribution(url, routes, normalizedOwnedHosts)
       return source.classification === 'matched' ? source.matchedTargetIds : []
     }))
-    const state = resolveMentionIdentity(answerProseForMentions(answerText), targets, aliases, citedTargetIds, ambiguityPatterns)
+    // Only the answer's own Properties with a branded assignment on this
+    // query can be identified by it.
+    const queryNamed = query === null
+      ? NO_TARGETS
+      : queryNamedTargetIds(query.text, query.brandedTargetIds.filter(id => targetIds.includes(id)), aliases)
+    const state = resolveMentionIdentity(answerProseForMentions(answerText), targets, aliases, citedTargetIds, ambiguityPatterns, queryNamed)
     if (targetIds.some(id => state.mentioned.has(id))) return true
     return targetIds.some(id => !mentionableIds.has(id) || state.unknown.has(id)) ? null : false
   }
@@ -863,12 +905,32 @@ function prepareReport(
   const mentionableIds = new Set(
     mentionAliases.map(alias => alias.targetId),
   )
+  // The Properties each query names among the ones it is assigned to as
+  // branded. One query serves every engine of an execution, so it is read
+  // once per execution.
+  const queryNamedByExecution = new Map<string, ReadonlySet<string>>()
+  const queryNamedFor = (slot: MeasurementExpectedSlotInput): ReadonlySet<string> => {
+    const cached = queryNamedByExecution.get(slot.executionId)
+    if (cached !== undefined) return cached
+    const branded = (edgesByExecution.get(slot.executionId) ?? [])
+      .flatMap(edge => edge.type === 'target' && edge.queryClass === 'branded' ? [edge.targetId] : [])
+    const named = queryNamedTargetIds(slot.queryText, branded, aliasesByFirstWord)
+    queryNamedByExecution.set(slot.executionId, named)
+    return named
+  }
   for (const observation of observationsBySlot.values()) {
     const citedTargetIds = new Set(observation.sourceUrls.flatMap(url => {
       const source = sourceAttribution(url)
       return source.classification === 'matched' ? source.matchedTargetIds : []
     }))
-    const mentions = resolveMentionIdentity(observation.mentionText, input.targets, aliasesByFirstWord, citedTargetIds, ambiguityPatterns)
+    const mentions = resolveMentionIdentity(
+      observation.mentionText,
+      input.targets,
+      aliasesByFirstWord,
+      citedTargetIds,
+      ambiguityPatterns,
+      queryNamedFor(observation.slot),
+    )
     observation.mentionedTargetIds = mentions.mentioned
     observation.unknownMentionTargetIds = mentions.unknown
     observation.citedTargetIds = citedTargetIds

@@ -352,6 +352,10 @@ describe('canonry', () => {
         apiUrl: 'http://127.0.0.1:4999',
         providers: [],
       })
+      const { nextSteps } = JSON.parse(output.at(-1)!) as { nextSteps: string[] }
+      expect(nextSteps.join(' ')).toContain('GEMINI_API_KEY')
+      expect(nextSteps.join(' ')).toContain('canonry settings provider gemini --api-key <key>')
+      expect(nextSteps.join(' ')).toContain('never ask for it in chat')
       expect(loadConfig()).toMatchObject({
         database: databasePath,
         apiUrl: 'http://127.0.0.1:4999',
@@ -932,6 +936,7 @@ describe('canonry', () => {
       expect(config.providers?.gemini?.model).toBe('gemini-flash-latest')
       expect(config.providers?.openai?.apiKey).toBe('test-openai-key')
       expect(config.providers?.openai?.model).toBe('gpt-5.4')
+      expect(config.providers?.openai?.quota).toEqual({ maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 500 })
       expect(config.providers?.claude).toBeUndefined()
       expect(config.apiKey).toMatch(/^cnry_/)
     } finally {

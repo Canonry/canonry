@@ -587,8 +587,7 @@ export function getConfigPath(): string {
   return path.join(getConfigDir(), 'config.yaml')
 }
 
-export function loadConfig(): CanonryConfig {
-  const configPath = getConfigPath()
+export function loadConfig(configPath = getConfigPath()): CanonryConfig {
   if (!fs.existsSync(configPath)) {
     throw new Error(
       `Config not found at ${configPath}.\n` +
