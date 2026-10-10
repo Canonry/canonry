@@ -246,6 +246,7 @@ import {
 } from "@ainyc/canonry-db";
 import { ProviderRegistry, type RegisteredProvider } from "./provider-registry.js";
 import { batchEligibleProviderNames, providerConfigFromEntry, providersWithUnsupportedBatch } from "./provider-batch-config.js";
+import { handleRouteOutcome } from "./outcome-telemetry.js";
 import { registeredProviderNames } from "./provider-registration.js";
 import { configuredProviderEntries, DEFAULT_CDP_QUOTA, DEFAULT_PROVIDER_QUOTA, resolveProviderQuotaPolicy } from "./provider-runtime-config.js";
 import { assertProviderReloadKeepsPendingBatches } from "./provider-reload-batch-guard.js";
@@ -2988,6 +2989,8 @@ export async function createServer(opts: {
     }
   };
   await app.register(apiRoutes, {
+    // Outcome telemetry reported from route code (`app.emitOutcome`).
+    onOutcome: handleRouteOutcome,
     db: opts.db,
     sentiment: {
       install: () => { const configuration = loadSentimentInstallConfig(); return { ...sentimentInstallReadiness(configuration), model: configuration.model }; },

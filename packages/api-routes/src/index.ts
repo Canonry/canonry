@@ -12,6 +12,7 @@ export { sentimentClassifierInput, sentimentHash } from './sentiment-input.js'
 import { AppError, runtimeStateMissing, describeError } from '@ainyc/canonry-contracts'
 import { authPlugin } from './auth.js'
 import { registerRequestContext, type RequestContextOptions } from './request-context.js'
+import { createOutcomeEmitter, type OutcomeTelemetryEvent, type OutcomeTelemetryInput } from './outcome-telemetry.js'
 import { createCredentialChecker, type CredentialChecker } from './user-session.js'
 import { resolveOAuthAccessToken } from './oauth.js'
 import { projectRoutes } from './projects.js'
@@ -115,6 +116,8 @@ import type { CheckOutput, DoctorUpdateStatus, TrafficSourceProbe, TrafficSource
 declare module 'fastify' {
   interface FastifyInstance {
     db: DatabaseClient
+    /** Report an outcome (`integration.connection`, `feature.completed`) to the host; a no-op without `onOutcome`. */
+    emitOutcome: (event: OutcomeTelemetryInput) => void
   }
 }
 
@@ -128,6 +131,7 @@ export {
 export type { OAuthRoutesOptions } from './oauth.js'
 export type { CredentialChecker } from './user-session.js'
 export type { ApiRequestCompletedInfo, RequestContextOptions } from './request-context.js'
+export type { OutcomeAttribution, OutcomeTelemetryEvent, OutcomeTelemetryInput } from './outcome-telemetry.js'
 export type { FeedbackRequestContext, FeedbackRoutesOptions } from './feedback.js'
 export { SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from './doctor/checks/site-reachability.js'
 export { runChecks } from './doctor/runner.js'
@@ -457,11 +461,18 @@ export interface ApiRoutesOptions {
   getAgentPluginState?: () => AgentPluginState
   /** Running vs latest published version for the `canonry.version.current` doctor check. */
   getUpdateStatus?: () => DoctorUpdateStatus
+  /**
+   * Outcome telemetry sink. Route code reports through `app.emitOutcome`; the
+   * host validates and sends. Hosts without telemetry (Cloud Run) omit it.
+   */
+  onOutcome?: (event: OutcomeTelemetryEvent) => void
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
   // Decorate with db
   app.decorate('db', opts.db)
+  // Before any route plugin registers, so every one of them inherits it.
+  app.decorate('emitOutcome', createOutcomeEmitter(opts.onOutcome))
 
   // Global error handler — serializes AppError consistently, prevents stack trace leaks
   app.setErrorHandler((error: FastifyError | AppError, _request, reply) => {

@@ -17,6 +17,9 @@ export interface RequestContext {
   method?: string
   route?: string
   statusCode?: number
+  /** Raw `x-canonry-surface` / `x-canonry-agent` labels for outcome attribution; never identity. */
+  usageSurface?: string
+  usageAgent?: string
 }
 
 const requestContext = new AsyncLocalStorage<RequestContext & { completed?: boolean }>()
@@ -107,6 +110,8 @@ export function registerRequestContext(app: FastifyInstance, options: RequestCon
       method: request.method,
       // Route template only, never a raw URL, query string, or route parameter.
       route: request.routeOptions.url,
+      usageSurface: headerValue(request.headers[USAGE_TELEMETRY_HEADERS.surface]),
+      usageAgent: headerValue(request.headers[USAGE_TELEMETRY_HEADERS.agent]),
     }, done)
   })
 

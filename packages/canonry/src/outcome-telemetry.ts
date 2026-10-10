@@ -1,0 +1,125 @@
+import {
+  bucketDuration,
+  classifyOutcomeError,
+  featureCompletedPropertiesSchema,
+  installStatePropertiesSchema,
+  integrationConnectionPropertiesSchema,
+  normalizeAgentSlug,
+  OutcomeSurfaces,
+  type FeatureCompletedProperties,
+  type InstallStateProperties,
+  type IntegrationConnectionProperties,
+  type OutcomeReasonCode,
+  type OutcomeSurface,
+} from '@ainyc/canonry-contracts'
+import type { OutcomeAttribution, OutcomeTelemetryEvent } from '@ainyc/canonry-api-routes'
+import { trackEvent } from './telemetry.js'
+import { classifyUsageSurface } from './usage-telemetry.js'
+
+/**
+ * Outcome telemetry: `integration.connection`, `feature.completed` and
+ * `install.state` (contracts `outcome-telemetry.ts`). Every payload is
+ * validated against the contracts schema before it is sent. In tests an
+ * invalid payload throws so schema drift fails loudly; in production it is
+ * dropped, because telemetry must never change what the product does.
+ */
+
+const STRICT = Boolean(process.env.VITEST)
+
+function withoutUndefined<T extends object>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as T
+}
+
+function send(
+  event: 'integration.connection' | 'feature.completed' | 'install.state',
+  schema: { safeParse: (v: unknown) => { success: boolean; data?: unknown; error?: unknown } },
+  properties: object,
+  errorCode?: string,
+): void {
+  const parsed = schema.safeParse(withoutUndefined(properties))
+  if (!parsed.success) {
+    if (STRICT) throw new Error(`invalid ${event} telemetry: ${JSON.stringify(parsed.error)}`)
+    return
+  }
+  trackEvent(event, parsed.data as Record<string, unknown>, errorCode ? { errorCode } : undefined)
+}
+
+/** Classify a request's raw labels with the same rules as `api.request`; no request means the server acted alone. */
+export function outcomeAttribution(attribution: OutcomeAttribution | undefined): { surface: OutcomeSurface; agent?: string } {
+  if (!attribution) return { surface: OutcomeSurfaces.system }
+  const surface = classifyUsageSurface({ userAgent: attribution.userAgent, usageLabels: { surface: attribution.surfaceLabel } })
+  const agent = normalizeAgentSlug(attribution.agentLabel) ?? undefined
+  return agent ? { surface, agent } : { surface }
+}
+
+export function trackIntegrationConnection(properties: IntegrationConnectionProperties, options: { errorCode?: string } = {}): void {
+  send('integration.connection', integrationConnectionPropertiesSchema, properties, options.errorCode ?? properties.reasonCode)
+}
+
+export function trackFeatureCompleted(properties: FeatureCompletedProperties, options: { errorCode?: string } = {}): void {
+  send('feature.completed', featureCompletedPropertiesSchema, properties, options.errorCode ?? properties.reasonCode)
+}
+
+export function trackInstallState(properties: InstallStateProperties): void {
+  send('install.state', installStatePropertiesSchema, properties)
+}
+
+/** The sink `apiRoutes({ onOutcome })` calls for every outcome reported from route code. */
+export function handleRouteOutcome(event: OutcomeTelemetryEvent): void {
+  const attributed = outcomeAttribution(event.attribution)
+  const properties = {
+    ...event.properties,
+    surface: event.properties.surface ?? attributed.surface,
+    ...(event.properties.agent ?? attributed.agent ? { agent: event.properties.agent ?? attributed.agent } : {}),
+  }
+  if (event.event === 'integration.connection') {
+    trackIntegrationConnection(properties as IntegrationConnectionProperties, { errorCode: event.errorCode })
+  } else {
+    trackFeatureCompleted(properties as FeatureCompletedProperties, { errorCode: event.errorCode })
+  }
+}
+
+/**
+ * The failure half of an outcome from a caught error: a reason code and
+ * error class name, never the message. Pass `reasonCode` when the caller
+ * knows better than the classifier (a refused gate, an OAuth denial).
+ */
+export function outcomeFailure(err: unknown, reasonCode?: OutcomeReasonCode): { reasonCode: OutcomeReasonCode; errorName?: string } {
+  const classified = classifyOutcomeError(err)
+  return reasonCode ? { ...classified, reasonCode } : classified
+}
+
+/** Time an operation for its `durationBucket`. */
+export function startOutcomeTimer(now: () => number = Date.now): () => FeatureCompletedProperties['durationBucket'] {
+  const started = now()
+  return () => bucketDuration(now() - started)
+}
+
+/**
+ * A per-key token bucket for high-volume outcomes (webhook deliveries,
+ * traffic push ingest). Suppressed events are counted and reported as
+ * `droppedBefore` on the next one sent, so totals stay reconstructable while
+ * the per-IP collector budget is protected. Defaults match `api.request`:
+ * a burst of 20, then one per 10 seconds per key.
+ */
+export function createOutcomeSampler(options: { burst?: number; refillMs?: number; now?: () => number } = {}) {
+  const burst = options.burst ?? 20
+  const refillMs = options.refillMs ?? 10_000
+  const now = options.now ?? Date.now
+  const buckets = new Map<string, { tokens: number; at: number; dropped: number }>()
+  return (key: string): { send: boolean; droppedBefore?: number } => {
+    const t = now()
+    const bucket = buckets.get(key) ?? { tokens: burst, at: t, dropped: 0 }
+    bucket.tokens = Math.min(burst, bucket.tokens + (t - bucket.at) / refillMs)
+    bucket.at = t
+    buckets.set(key, bucket)
+    if (bucket.tokens < 1) {
+      bucket.dropped += 1
+      return { send: false }
+    }
+    bucket.tokens -= 1
+    const droppedBefore = bucket.dropped
+    bucket.dropped = 0
+    return droppedBefore > 0 ? { send: true, droppedBefore } : { send: true }
+  }
+}
