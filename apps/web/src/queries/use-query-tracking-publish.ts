@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type {
   QueryTrackingCommitRequest,
+  QueryTrackingCommitResponse,
   QueryTrackingPreviewRequest,
   QueryTrackingPreviewResponse,
 } from '@ainyc/canonry-contracts'
@@ -32,8 +33,8 @@ function trackingErrorDetail(error: unknown, fallback: string): string {
  * next request: a modal sheet covers the toasts, so it shows this itself.
  */
 export function useQueryTrackingPublish(projectName: string, { onCommitted }: {
-  /** Runs once a publish succeeds, before the cache refresh. */
-  onCommitted?: () => void
+  /** Runs once a publish succeeds, before the cache refresh, with what the server published. */
+  onCommitted?: (result: QueryTrackingCommitResponse) => void
 } = {}) {
   const queryClient = useQueryClient()
   const [preview, setPreview] = useState<QueryTrackingPreviewResponse | null>(null)
@@ -58,7 +59,7 @@ export function useQueryTrackingPublish(projectName: string, { onCommitted }: {
     meta: { skipGlobalErrorToast: true },
     onSuccess: async (result) => {
       setPreview(null)
-      onCommitted?.()
+      onCommitted?.(result)
       await invalidateQueryTrackingPublication(queryClient, projectName)
       addToast({
         title: result.committed ? 'Tracked queries updated' : 'No tracked-query change',

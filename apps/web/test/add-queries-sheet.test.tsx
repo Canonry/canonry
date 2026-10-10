@@ -746,6 +746,23 @@ test('starts on the market the Tracked view is filtered to', async () => {
   expect(writes[0]!.body.additions).toEqual([{ input: { source: 'manual', text: 'best remote team tools' }, audience: { marketKeys: ['remote'] } }])
 })
 
+test('starts on the location the Tracked view is filtered to', async () => {
+  const writes = installApi({ workspace: locationWorkspace })
+  renderTracked({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
+  fireEvent.click(await screen.findByRole('button', { name: 'Add queries' }))
+  const sheet = within(screen.getByRole('dialog', { name: 'Add queries' }))
+  expect(sheet.getByRole('radio', { name: 'Location' }).getAttribute('aria-checked')).toBe('true')
+  expect(sheet.getByText('Acme · Location')).toBeTruthy()
+  expect(sheet.getByText('Counts in: New York, Remote searches')).toBeTruthy()
+  // Tracked has the Add query form, so its link stays.
+  expect(sheet.getByRole('button', { name: handPickedLink })).toBeTruthy()
+  fireEvent.change(queriesField(sheet), { target: { value: 'Acme reviews' } })
+  fireEvent.click(reviewButton(sheet))
+
+  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  expect(writes[0]!.body.additions).toEqual([acmeAddition('Acme reviews')])
+})
+
 test('points to hand-picked locations when the project has no markets', async () => {
   installApi({ workspace: () => workspace({ markets: [], scopeOptions: workspace().scopeOptions.filter(option => option.kind !== 'market') }) })
   renderTracked()

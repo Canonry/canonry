@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { RefObject } from 'react'
+import type { ComponentProps, RefObject } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Pencil, Play, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import type {
@@ -31,7 +31,7 @@ import {
   getApiV1RunsQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
 import { addToast } from '../../lib/toast-store.js'
-import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
+import { invalidateProjectQueryDomain, invalidateQueryTrackingPublication } from '../../queries/query-invalidation.js'
 import { useQueryTrackingPublish } from '../../queries/use-query-tracking-publish.js'
 import { Button } from '../ui/button.js'
 import { WriteButton } from '../shared/AccessControls.js'
@@ -532,23 +532,79 @@ function TrackedQueriesWorkspace({
       )}
 
       {addSheetOpen && (
-        <AddQueriesSheet
+        <TrackingAddQueriesSheet
           projectName={projectName}
           workspace={workspace}
-          contextChoices={uniqueContextInputs(workspace.defaultContexts.map(contextInput)).map(input => ({ label: contextLabel(input), input }))}
+          sweepActive={publishGuard?.sweepActive ?? false}
           defaultMarketKey={selection.measurementScope === 'market' ? selection.measurementScopeKey : undefined}
+          defaultLocationKey={selection.measurementScope === 'property' ? selection.measurementScopeKey : undefined}
           onOpenComposer={({ text }) => { setAddSheetOpen(false); openAdd('manual', text) }}
           onClose={() => setAddSheetOpen(false)}
-          renderReview={review => {
-            const sweepActive = publishGuard?.sweepActive ?? false
-            return {
-              changes: <TrackingPreview {...review} workspace={workspace} sweepActive={sweepActive} showActions={false} propertyNoun={LOCATION_NOUN} />,
-              actions: <TrackingPreviewActions {...review} sweepActive={sweepActive} />,
-            }
-          }}
         />
       )}
     </div>
+  )
+}
+
+/** The Add queries sheet with the Add query form's search location and engines choices and the review every tracking change gets. */
+function TrackingAddQueriesSheet({ workspace, sweepActive, ...sheet }: Omit<ComponentProps<typeof AddQueriesSheet>, 'contextChoices' | 'renderReview'> & { sweepActive: boolean }) {
+  return (
+    <AddQueriesSheet
+      {...sheet}
+      workspace={workspace}
+      contextChoices={uniqueContextInputs(workspace.defaultContexts.map(contextInput)).map(input => ({ label: contextLabel(input), input }))}
+      renderReview={review => ({
+        changes: <TrackingPreview {...review} workspace={workspace} sweepActive={sweepActive} showActions={false} propertyNoun={LOCATION_NOUN} />,
+        actions: <TrackingPreviewActions {...review} sweepActive={sweepActive} />,
+      })}
+    />
+  )
+}
+
+/**
+ * "Add query about this location" on the location page: the button, and the
+ * Add queries sheet it opens on Location with that location chosen. The
+ * tracking workspace is read only once the button is pressed, so loading the
+ * page makes no extra request. The sheet opens only when that press's read
+ * comes back holding this location. A failed read, or a workspace the page's
+ * setup is behind, shows a line instead, and a later refresh of the read never
+ * opens the sheet without a press. That page has no Add query form, so the
+ * sheet links to none. It reads no runs either, so Confirm is not paused here:
+ * the server refuses a publish during a sweep and the sheet shows the reason.
+ */
+export function AddLocationQueryButton({ projectName, locationKey, className, onPublished }: {
+  projectName: string
+  locationKey: string
+  className?: string
+  /** What the server published, so the page can say where a new query went. */
+  onPublished?: ComponentProps<typeof AddQueriesSheet>['onPublished']
+}) {
+  const queryClient = useQueryClient()
+  const [state, setState] = useState<'closed' | 'opening' | 'failed' | 'missing' | 'open'>('closed')
+  const options = getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } })
+  // The press reads. This only follows that read while the sheet is open, so a
+  // refused review still refreshes the workspace version under the draft, and
+  // it never counts the press's read as stale, so opening does not read twice.
+  const workspace = useQuery({ ...options, enabled: state === 'open', staleTime: Infinity }).data
+  async function press() {
+    setState('opening')
+    const read = await queryClient.fetchQuery(options).catch(() => null)
+    if (!read) return setState('failed')
+    if (read.scopeOptions?.some(option => option.kind === 'property' && option.id === locationKey)) return setState('open')
+    setState('missing')
+    // The page's setup and this workspace disagree: the setup is read again now, the workspace on the next press.
+    void invalidateQueryTrackingPublication(queryClient, projectName)
+  }
+  return (
+    <>
+      {state === 'failed' ? <p role="alert" className="text-sm text-negative">Could not load tracked queries. Try again.</p> : null}
+      {state === 'missing' ? <p role="alert" className="text-sm text-negative">This location was not found in tracked queries. Try again.</p> : null}
+      <WriteButton type="button" variant="outline" size="sm" className={className} onClick={() => { void press() }}>
+        <Plus aria-hidden="true" size={14} />
+        {state === 'opening' ? 'Opening…' : 'Add query about this location'}
+      </WriteButton>
+      {state === 'open' && workspace ? <TrackingAddQueriesSheet projectName={projectName} workspace={workspace} sweepActive={false} defaultLocationKey={locationKey} onPublished={onPublished} onClose={() => setState('closed')} /> : null}
+    </>
   )
 }
 
