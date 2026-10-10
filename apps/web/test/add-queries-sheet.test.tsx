@@ -90,9 +90,15 @@ function locationWorkspace(overrides: Record<string, unknown> = {}) {
 
 function preview(added: string[], version = workspaceVersion) {
   const calls = { existingNodes: 1, existingProviderCalls: 1, nextSweepNodes: 1 + added.length, nextSweepProviderCalls: 1 + added.length, addedNodes: added.length, addedProviderCalls: added.length, removedNodes: 0, removedProviderCalls: 0 }
+  const rows = added.map((queryText, index) => ({ queryId: `query-new-${index}`, queryText, assignmentCount: 1 }))
   return {
-    mode: 'advanced', workspaceVersion: version, previewToken, reviewedAt, active, tracked,
-    diff: { added: added.map((queryText, index) => ({ queryId: `query-new-${index}`, queryText, assignmentCount: 1 })), removed: [], reused: [], unchanged: [], noOp: false },
+    mode: 'advanced', workspaceVersion: version, previewToken, reviewedAt, active,
+    // As the server answers a review: `tracked` is the post-change list, so it holds each added query.
+    tracked: [...tracked, ...rows.map(row => ({
+      ...tracked[0]!, queryId: row.queryId, queryText: row.queryText, normalizedText: row.queryText.toLowerCase(), state: 'awaiting-sweep', lastMeasuredAt: null,
+      assignments: [{ ...tracked[0]!.assignments[0]!, queryClass: 'non-brand', classificationSource: 'server' }],
+    }))],
+    diff: { added: rows, removed: [], reused: [], unchanged: [], noOp: false },
     workload: calls,
   }
 }
@@ -143,6 +149,7 @@ async function openSheet() {
 type Sheet = Awaited<ReturnType<typeof openSheet>>['sheet']
 const queriesField = (sheet: Sheet) => sheet.getByLabelText('Queries') as HTMLTextAreaElement
 const reviewButton = (sheet: Sheet) => sheet.getByRole('button', { name: 'Review' }) as HTMLButtonElement
+const reviewHeading = (sheet: Sheet) => sheet.findByRole('heading', { name: /^Review \d+ changes?$/ })
 const sheetIsOpen = () => screen.queryByRole('dialog', { name: 'Add queries' }) !== null
 const sheetText = () => screen.getByRole('dialog', { name: 'Add queries' }).textContent
 
@@ -249,7 +256,7 @@ test('sends one addition per line for the chosen market, with no contexts, and d
   expect(sheet.queryByRole('combobox')).toBeNull()
   fireEvent.click(reviewButton(sheet))
 
-  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  await reviewHeading(sheet)
   expect(writes).toEqual([{
     operation: 'preview',
     body: {
@@ -278,7 +285,7 @@ test.each([
   fireEvent.click(within(type).getByRole('radio', { name: label }))
   fireEvent.click(reviewButton(sheet))
 
-  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  await reviewHeading(sheet)
   expect(writes[0]!.body.additions).toEqual([
     { ...newYorkAddition('Acme reviews'), queryClass },
     { ...newYorkAddition('Acme pricing plans'), queryClass },
@@ -299,7 +306,7 @@ test('keeps a Type choice across a Subject change, in view while More options is
   chooseNewYork(sheet)
   fireEvent.click(reviewButton(sheet))
 
-  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  await reviewHeading(sheet)
   expect(writes[0]!.body.additions).toEqual([{ ...newYorkAddition('Acme reviews'), queryClass: 'branded' }])
 })
 
@@ -330,10 +337,13 @@ test('reviews inside the sheet, keeps the draft on Back, and publishes with the 
   fill(sheet, 'best pizza in New York\nbest bagels in New York')
   fireEvent.click(reviewButton(sheet))
 
-  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
-  expect(sheet.getByText('+2 queries · +2 / −0 answers per sweep · next sweep asks 3')).toBeTruthy()
+  await sheet.findByRole('heading', { name: 'Review 2 changes' })
+  expect(Object.fromEntries(sheet.getAllByRole('term').map(term => [term.textContent, term.nextElementSibling?.textContent]))).toEqual({
+    Queries: '1 → 3', 'Answers per sweep': '1 → 3', 'Answers added': '+2', 'Answers removed': '−0',
+  })
   expect(sheet.getByText('2 added')).toBeTruthy()
   expect(sheet.getByText(resetNotice)).toBeTruthy()
+  expect(sheet.getByText('Publishing does not run a sweep.')).toBeTruthy()
   expect(sheet.queryByLabelText('Queries')).toBeNull()
   expect(sheetText()).not.toMatch(/question/i)
   fireEvent.click(sheet.getByRole('button', { name: 'Back' }))
@@ -341,7 +351,7 @@ test('reviews inside the sheet, keeps the draft on Back, and publishes with the 
   expect(sheet.getByText('New York · Market')).toBeTruthy()
 
   fireEvent.click(reviewButton(sheet))
-  fireEvent.click(await sheet.findByRole('button', { name: 'Confirm changes' }))
+  fireEvent.click(await sheet.findByRole('button', { name: 'Publish 2 changes' }))
   await waitFor(() => expect(sheetIsOpen()).toBe(false))
   const reviewed = {
     expectedWorkspaceVersion: workspaceVersion,
@@ -364,15 +374,15 @@ test('pauses publishing in the sheet while a sweep is queued or running', async 
   fill(sheet, 'best pizza in New York')
   fireEvent.click(reviewButton(sheet))
 
-  const confirm = await sheet.findByRole('button', { name: 'Confirm changes' }) as HTMLButtonElement
-  expect(confirm.disabled).toBe(true)
+  const publish = await sheet.findByRole('button', { name: 'Publish 1 change' }) as HTMLButtonElement
+  expect(publish.disabled).toBe(true)
   expect(sheet.getByRole('status').textContent).toBe('A sweep is queued or running. Publish after it finishes.')
-  // Confirm and the pause sit in the footer beside Back, not at the end of the scrolling list of changes.
+  // Publish and the pause sit in the footer beside Back, not at the end of the scrolling list of changes.
   const footer = sheet.getByRole('button', { name: 'Back' }).parentElement!
-  expect(confirm.parentElement).toBe(footer)
+  expect(publish.parentElement).toBe(footer)
   expect(sheet.getByRole('status').parentElement).toBe(footer)
-  expect(footer.contains(sheet.getByRole('heading', { name: 'Confirm tracked query changes' }))).toBe(false)
-  fireEvent.click(confirm)
+  expect(footer.contains(sheet.getByRole('heading', { name: 'Review 1 change' }))).toBe(false)
+  fireEvent.click(publish)
   // A commit reaches fetch only after the mutation's async onMutate, so let a task pass before asserting none went out.
   await act(() => new Promise(resolve => setTimeout(resolve, 0)))
   expect(writes.map(write => write.operation)).toEqual(['preview'])
@@ -391,9 +401,9 @@ test('asks for a new review when the draft changes while a review is in flight',
 
   await act(async () => finish!(jsonResponse(preview(['best pizza in New York']))))
   await waitFor(() => expect(reviewButton(sheet).disabled).toBe(false))
-  expect(sheet.queryByRole('button', { name: 'Confirm changes' })).toBeNull()
+  expect(sheet.queryByRole('button', { name: 'Publish 1 change' })).toBeNull()
   fireEvent.click(reviewButton(sheet))
-  await sheet.findByRole('button', { name: 'Confirm changes' })
+  await sheet.findByRole('button', { name: 'Publish 1 change' })
   expect(writes.map(write => write.body.additions)).toEqual([[newYorkAddition('best pizza in New York')], [newYorkAddition('best bagels in New York')]])
 })
 
@@ -413,11 +423,11 @@ test('asks for a new review when Subject changes while a review is in flight', a
   // The market review lands under Subject Location; confirming it would publish the market draft.
   await act(async () => finish!(jsonResponse(preview(['best pizza in New York']))))
   await waitFor(() => expect(sheet.queryByRole('button', { name: 'Reviewing…' })).toBeNull())
-  expect(sheet.queryByRole('button', { name: 'Confirm changes' })).toBeNull()
+  expect(sheet.queryByRole('button', { name: 'Publish 1 change' })).toBeNull()
   expect(sheet.getByText('Choose a location')).toBeTruthy()
   chooseLocation(sheet, 'Acme')
   fireEvent.click(reviewButton(sheet))
-  await sheet.findByRole('button', { name: 'Confirm changes' })
+  await sheet.findByRole('button', { name: 'Publish 1 change' })
   expect(writes.map(write => write.body.additions)).toEqual([[newYorkAddition('best pizza in New York')], [acmeAddition('best pizza in New York')]])
 })
 
@@ -439,16 +449,16 @@ test('asks for a new review when the search location and engines pick changes wh
   // The New York review lands while the pick shows Boston; confirming it would publish New York.
   await act(async () => finish!(jsonResponse(preview(['Birch House reviews']))))
   await waitFor(() => expect(sheet.queryByRole('button', { name: 'Reviewing…' })).toBeNull())
-  expect(sheet.queryByRole('button', { name: 'Confirm changes' })).toBeNull()
+  expect(sheet.queryByRole('button', { name: 'Publish 1 change' })).toBeNull()
   fireEvent.click(reviewButton(sheet))
-  await sheet.findByRole('button', { name: 'Confirm changes' })
+  await sheet.findByRole('button', { name: 'Publish 1 change' })
   expect(writes.map(write => write.body.additions)).toEqual([
     [birchAddition('Birch House reviews', { providers: ['openai'], models: { openai: 'gpt-5' }, location: 'New York' })],
     [birchAddition('Birch House reviews', { providers: ['openai', 'gemini'], models: { openai: 'gpt-5', gemini: 'gemini-3' }, location: 'Boston' })],
   ])
 })
 
-test.each(['preview', 'commit'] as const)('returns to the same draft after a refused %s and reviews it against the refreshed workspace', async refused => {
+test.each(['preview', 'commit'] as const)('shows a refused %s in the review, reviews the draft again against the refreshed workspace, and keeps it behind Back', async refused => {
   resetToasts()
   onTestFinished(resetToasts)
   const refreshedVersion = `qtw_${'d'.repeat(64)}`
@@ -465,21 +475,54 @@ test.each(['preview', 'commit'] as const)('returns to the same draft after a ref
   const { sheet } = await openSheet()
   fill(sheet, 'best pizza in New York')
   fireEvent.click(reviewButton(sheet))
-  if (refused === 'commit') fireEvent.click(await sheet.findByRole('button', { name: 'Confirm changes' }))
+  if (refused === 'commit') fireEvent.click(await sheet.findByRole('button', { name: 'Publish 1 change' }))
 
   await waitFor(() => expect(getToasts().map(toast => toast.detail)).toEqual(['Workspace changed. Review again.']))
-  // The toast sits under the open sheet, so the sheet shows the refusal itself.
-  expect(sheet.getByRole('alert').textContent).toBe(`Could not ${refused === 'preview' ? 'review' : 'confirm'} tracking changes. Workspace changed. Review again.`)
+  // The toast sits under the open sheet, so the review shows the refusal itself, in place of the changes.
+  const refusal = `Could not ${refused === 'preview' ? 'review' : 'confirm'} tracking changes. Workspace changed. Review again.`
+  expect(sheet.getByRole('alert').textContent).toBe(refusal)
+  expect(sheet.queryByRole('button', { name: /^Publish/ })).toBeNull()
+  expect(sheet.queryByLabelText('Queries')).toBeNull()
   await waitFor(() => expect(queryClient.getQueryCache().getAll().some(query => (query.state.data as { workspaceVersion?: string } | undefined)?.workspaceVersion === refreshedVersion)).toBe(true))
+  // Back returns to the same draft, with the refusal still beside it.
+  fireEvent.click(sheet.getByRole('button', { name: 'Back' }))
   expect(queriesField(sheet).value).toBe('best pizza in New York')
   expect(sheet.getByText('New York · Market')).toBeTruthy()
+  expect(sheet.getByRole('alert').textContent).toBe(refusal)
   fireEvent.click(reviewButton(sheet))
   expect(sheet.queryByRole('alert')).toBeNull()
-  expect(await sheet.findByRole('button', { name: 'Confirm changes' })).toBeTruthy()
+  expect(await sheet.findByRole('button', { name: 'Publish 1 change' })).toBeTruthy()
   expect(writes.at(-1)).toEqual({
     operation: 'preview',
     body: { expectedWorkspaceVersion: refreshedVersion, additions: [newYorkAddition('best pizza in New York')], removals: [] },
   })
+})
+
+test('reviews an expired review again from the review, then publishes it', async () => {
+  let refused = false
+  const writes = installApi({
+    respond: write => {
+      if (write.operation !== 'commit' || refused) return undefined
+      refused = true
+      return jsonResponse({ error: { code: 'VALIDATION_ERROR', message: 'The reviewed preview has expired or has an invalid review time. Preview the changes again.' } }, 400)
+    },
+  })
+  renderTracked()
+  const { sheet } = await openSheet()
+  fill(sheet, 'best pizza in New York')
+  fireEvent.click(reviewButton(sheet))
+  fireEvent.click(await sheet.findByRole('button', { name: 'Publish 1 change' }))
+
+  expect((await sheet.findByRole('alert')).textContent).toBe('Could not confirm tracking changes. The reviewed preview has expired or has an invalid review time. Preview the changes again.')
+  // Review again and Back share the pinned footer, as Publish and Back do.
+  const again = sheet.getByRole('button', { name: 'Review again' })
+  expect(again.parentElement).toBe(sheet.getByRole('button', { name: 'Back' }).parentElement)
+  fireEvent.click(again)
+  fireEvent.click(await sheet.findByRole('button', { name: 'Publish 1 change' }))
+  await waitFor(() => expect(sheetIsOpen()).toBe(false))
+  const body = { expectedWorkspaceVersion: workspaceVersion, additions: [newYorkAddition('best pizza in New York')], removals: [] }
+  expect(writes.map(write => write.operation)).toEqual(['preview', 'commit', 'preview', 'commit'])
+  expect(writes.slice(2)).toEqual([{ operation: 'preview', body }, { operation: 'commit', body: { ...body, previewToken, reviewedAt } }])
 })
 
 test('keeps Back off while a publish is in flight', async () => {
@@ -489,10 +532,10 @@ test('keeps Back off while a publish is in flight', async () => {
   const { sheet } = await openSheet()
   fill(sheet, 'best pizza in New York')
   fireEvent.click(reviewButton(sheet))
-  fireEvent.click(await sheet.findByRole('button', { name: 'Confirm changes' }))
+  fireEvent.click(await sheet.findByRole('button', { name: 'Publish 1 change' }))
   await waitFor(() => expect(finish).toBeTypeOf('function'))
   // Going back would let another draft be reviewed while this publish still closes the sheet.
-  expect((sheet.getByRole('button', { name: 'Confirming…' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((sheet.getByRole('button', { name: 'Publishing…' }) as HTMLButtonElement).disabled).toBe(true)
   expect((sheet.getByRole('button', { name: 'Back' }) as HTMLButtonElement).disabled).toBe(true)
 
   await act(async () => finish!(jsonResponse({ committed: true, mode: 'advanced', workspaceVersion, reviewedAt, active })))
@@ -525,7 +568,7 @@ test('adds a location query to every market that location is in, with no context
   expect(sheetText()).not.toMatch(/question|propert|—/i)
   fireEvent.click(reviewButton(sheet))
 
-  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  await reviewHeading(sheet)
   expect(writes).toEqual([{
     operation: 'preview',
     body: { expectedWorkspaceVersion: workspaceVersion, additions: [acmeAddition('Acme reviews'), acmeAddition('Acme parking')], removals: [] },
@@ -542,7 +585,7 @@ test('sends a Type choice on every location addition', async () => {
   fireEvent.click(within(sheet.getByRole('radiogroup', { name: 'Type' })).getByRole('radio', { name: 'Branded' }))
   fireEvent.click(reviewButton(sheet))
 
-  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  await reviewHeading(sheet)
   expect(writes[0]!.body.additions).toEqual([
     { ...acmeAddition('Acme reviews'), queryClass: 'branded' },
     { ...acmeAddition('Acme parking'), queryClass: 'branded' },
@@ -561,7 +604,7 @@ test('gives a location in no market the one search location and engines the proj
   expect(sheetText()).not.toMatch(/question|propert|—/i)
   fireEvent.click(reviewButton(sheet))
 
-  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  await reviewHeading(sheet)
   expect(writes[0]!.body.additions).toEqual([
     birchAddition('Birch House reviews', { providers: ['openai'], models: { openai: 'gpt-5' }, location: 'New York' }),
   ])
@@ -591,7 +634,7 @@ test('asks for one search location and engines when a location is in no market a
   fireEvent.change(choice, { target: { value: 'Boston · openai (gpt-5), gemini (gemini-3)' } })
   expect(reviewButton(sheet).disabled).toBe(false)
   fireEvent.click(reviewButton(sheet))
-  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  await reviewHeading(sheet)
   expect(writes[0]!.body.additions).toEqual([
     birchAddition('Birch House reviews', { providers: ['openai', 'gemini'], models: { openai: 'gpt-5', gemini: 'gemini-3' }, location: 'Boston' }),
   ])
@@ -603,7 +646,7 @@ test('asks for one search location and engines when a location is in no market a
   expect(sheet.getByText('Counts in: Boston')).toBeTruthy()
   expect(sheet.queryByRole('combobox')).toBeNull()
   fireEvent.click(reviewButton(sheet))
-  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  await reviewHeading(sheet)
   expect(writes[1]!.body.additions).toEqual([
     { input: { source: 'manual', text: 'Birch House reviews' }, audience: { targetKeys: ['cedar'], marketKeys: ['boston'] } },
   ])
@@ -641,9 +684,9 @@ test('lists groups and locations for Location, never markets, and calls them loc
 })
 
 test.each([
-  { subject: 'Location', targetKeys: ['acme'], marketKeys: ['new-york', 'remote'], detail: 'Acme · Group: North East · 2 markets · New York · openai (gpt-5)', classifications: 'Classifications · 1 location' },
-  { subject: 'Market', targetKeys: ['acme', 'cedar'], marketKeys: ['new-york'], detail: '2 locations · Group: North East · Market: New York · New York · openai (gpt-5)', classifications: 'Classifications · 2 locations' },
-])('calls a location a location in the review of a $subject add', async ({ subject, targetKeys, marketKeys, detail, classifications }) => {
+  { subject: 'Location', targetKeys: ['acme'], marketKeys: ['new-york', 'remote'], markets: 'New York, Remote searches', locations: ['Acme'], classifications: 'Classifications · 1 location' },
+  { subject: 'Market', targetKeys: ['acme', 'cedar'], marketKeys: ['new-york'], markets: 'New York', locations: ['Acme', 'Cedar Court'], classifications: 'Classifications · 2 locations' },
+])('calls a location a location in the review of a $subject add', async ({ subject, targetKeys, marketKeys, markets, locations, classifications }) => {
   // As the server answers a review: `tracked` holds the added query, on every location its markets hold.
   const held = () => locationWorkspace({ markets: locationWorkspace().markets.map(market => marketKeys.includes(market.stableKey) ? { ...market, usageEdges: targetKeys.map(key => usageEdge(key)) } : market) })
   const added = {
@@ -662,9 +705,14 @@ test.each([
   else fill(sheet, 'Acme reviews')
   fireEvent.click(reviewButton(sheet))
 
-  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
-  expect(sheet.getByText(detail)).toBeTruthy()
-  expect(sheet.getByText(classifications, { selector: 'summary' })).toBeTruthy()
+  await reviewHeading(sheet)
+  const changes = sheet.getByRole('table', { name: 'Changes' })
+  expect(within(changes).getAllByRole('columnheader').map(header => header.textContent)).toContain('Locations')
+  const row = within(changes).getByText('Acme reviews').closest('tr')!
+  // Type, the server's assignment count under Locations, and where the query is asked.
+  expect([...row.cells].map(cell => cell.textContent).slice(2)).toEqual(['Branded', String(targetKeys.length), 'New York · openai (gpt-5)'])
+  expect(within(row).getByText(classifications, { selector: 'summary' })).toBeTruthy()
+  expect([...row.querySelectorAll('li')].map(line => line.textContent)).toEqual(locations.map(location => `${location} · Branded · Groups: North East · Markets: ${markets} · New York · openai (gpt-5)`))
   expect(sheetText()).not.toMatch(/question|propert|—/i)
 })
 
@@ -742,7 +790,7 @@ test('starts on the market the Tracked view is filtered to', async () => {
   fireEvent.change(queriesField(sheet), { target: { value: 'best remote team tools' } })
   fireEvent.click(reviewButton(sheet))
 
-  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  await reviewHeading(sheet)
   expect(writes[0]!.body.additions).toEqual([{ input: { source: 'manual', text: 'best remote team tools' }, audience: { marketKeys: ['remote'] } }])
 })
 

@@ -11,13 +11,13 @@ An advanced project adds market and location queries in the **Add queries** shee
 2. Set **Subject** to **Market** or **Location** and choose one market or one location. A group row only opens the group, and only groups that hold a market (or a location) are listed. Changing **Subject** clears the choice.
 3. Enter the queries, one per line. Blank and repeated lines are skipped.
 4. Optional: under **More options**, set **Type** to **Branded** or **Non-brand**. **Automatic** leaves the class to the server. Any other choice applies to every line and stays visible beside **More options**.
-5. Select **Review**, then check the resolved queries and next-sweep workload.
-6. Select **Confirm changes**, which stays at the bottom of the sheet with the sweep pause notice.
+5. Select **Review**, then check the numbers before and after, and the table of changes.
+6. Select **Publish N changes**, which stays at the bottom of the sheet with **Back** and the sweep pause notice.
 
 Each market line becomes one addition for that market with no contexts, so it takes the market's frozen engines, models, and search locations.
 Each location line becomes one addition for that location and every market the location already has queries in, again with no contexts. The query is asked with those markets' engines and search locations and counts in those markets' numbers, not only on the location's own page. The sheet lists the markets under the picker (**Counts in** and **Engines and search locations come from**).
 A location with no query in any market has nothing to take them from. The sheet says so and sends the location with one search location and engines: the project's only one, or the one chosen under **Search location and engines** when the project has several.
-If the server refuses a review or a publish, for example over the 1,000-query limit, the sheet shows the reason and keeps the draft.
+If the server refuses a review or a publish, for example over the 1,000-query limit, the review shows the reason with **Review again**. **Back** returns to the draft, which is kept.
 The link **Hand-picked locations, templates or saved research** leads to the Add query form. That form adds one query at a time, so it opens with the first line only. **Company** is not available yet.
 When the Tracked view is filtered to one market or one location, the sheet opens with that **Subject** and place already chosen.
 A location's page opens the same sheet from **Add query about this location**, above the queries assigned to that location. It starts on **Location** with that location chosen and has no link to the Add query form. After a publish the sheet closes and the page reloads its list. A view-only account does not see the button.
@@ -33,7 +33,16 @@ The Add query form assigns one query at a time:
 5. For new group or property assignments, select a search location and engines. A market uses its frozen context.
 6. Select **Review changes**.
 7. Check the resolved queries, assignments, and next-sweep workload.
-8. Select **Confirm changes**.
+8. Select **Publish N changes** (**Confirm changes** on a simple site).
+
+An advanced project's review shows the same thing for every change, from the sheet, the form, **Edit** or **Remove**:
+
+- **Queries** and **Answers per sweep**, each as the count now and the count after publishing, with **Answers added** and **Answers removed** kept separate.
+- One row per added, reused, and removed query: its type, its location assignments, and its search location and engines. A removed row shows how many assignments it removes. **Classifications** lists each location.
+- Unchanged queries, behind **N unchanged queries**.
+
+Every figure comes from the preview response, the same one `canonry query preview` returns. A simple site keeps its shorter review.
+If the server refuses the review or the publish, the review shows its message and **Review again**.
 
 Publication starts no provider calls. New assignments await the next project-wide sweep.
 An unchanged preview cannot publish another revision.
@@ -48,7 +57,7 @@ Advanced assignments can carry an explicit operator classification.
 1. Select Whole site, a property, a group, or a market.
 2. Select **Edit** or **Remove** beside the query.
 3. Review the selected scope and the proposed changes.
-4. Select **Confirm changes**.
+4. Select **Publish N changes** (**Confirm changes** on a simple site).
 
 Whole site changes every assignment of that query. Other scopes change only their existing assignments.
 An edit preserves the stored engines, models, locations, and unrelated market assignments.

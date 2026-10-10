@@ -1388,7 +1388,7 @@ function dashboardFixture(sweepActive: boolean) {
   return fixture
 }
 
-test.each([true, false])('the Queries route pauses Confirm while a sweep is queued (queued: %s)', async sweepActive => {
+test.each([true, false])('the Queries route pauses publishing while a sweep is queued (queued: %s)', async sweepActive => {
   const realFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const raw = input instanceof Request ? input.url : String(input)
@@ -1424,8 +1424,8 @@ test.each([true, false])('the Queries route pauses Confirm while a sweep is queu
 
   fireEvent.click(await page.findByRole('button', { name: 'Remove Citypoint dentist' }))
   fireEvent.click(page.getByRole('button', { name: 'Review changes' }))
-  const confirm = await page.findByRole('button', { name: 'Confirm changes' }) as HTMLButtonElement
-  expect(confirm.disabled).toBe(sweepActive)
+  const publish = await page.findByRole('button', { name: 'Publish 1 change' }) as HTMLButtonElement
+  expect(publish.disabled).toBe(sweepActive)
   const message = page.queryByText('A sweep is queued or running. Publish after it finishes.')
   expect(message?.getAttribute('role') ?? null).toBe(sweepActive ? 'status' : null)
 })
