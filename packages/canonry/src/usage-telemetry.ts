@@ -39,7 +39,9 @@ export const API_REQUEST_BUCKET_CAPACITY = 20
 export const API_REQUEST_REFILL_PER_MS = 1 / 10_000
 const MAX_TRACKED_MCP_SESSIONS = 2000
 const MAX_ROUTE_LENGTH = 200
-const SKIPPED_ROUTE_PATTERN = /(?:^|\/)(?:health|openapi\.json|telemetry)(?:\/|$)/
+// The Cloudflare Worker's ingest push is machine traffic with its own sampled
+// outcome (`server_traffic`/`ingest`), not an agent surface.
+const SKIPPED_ROUTE_PATTERN = /(?:^|\/)(?:health|openapi\.json|telemetry|traffic\/cloudflare\/ingest)(?:\/|$)/
 const MCP_CALL_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MCP_TOOL_PATTERN = /^[a-z][a-z0-9_]{0,79}$/
 

@@ -80,6 +80,17 @@ describe('createApiUsageTelemetry', () => {
     expect(events).toEqual([])
   })
 
+  it('skips the Cloudflare Worker ingest push, which reports its own sampled outcome, from any client', () => {
+    const { events, hook } = recorder()
+
+    for (const userAgent of ['canonry-cloudflare-worker/1.0.1', undefined]) {
+      hook(request({ route: '/api/v1/projects/:name/traffic/cloudflare/ingest', method: 'POST', userAgent, usageLabels: {} }))
+    }
+    hook(request({ route: '/api/v1/projects/:name/traffic/sources/:id/sync', method: 'POST', userAgent: 'curl/8.7.1', usageLabels: {} }))
+
+    expect(events.map(e => e.properties.route)).toEqual(['/api/v1/projects/:name/traffic/sources/:id/sync'])
+  })
+
   it('names a hosted MCP agent from its client, since the server process has no agent environment', () => {
     const { events, hook } = recorder()
 

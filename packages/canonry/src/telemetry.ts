@@ -443,6 +443,12 @@ export function recordDashboardEvent(event: { event: string; eventId: string } &
 
 export type TelemetryPreferenceMethod = 'cli' | 'api'
 
+/** Who turned telemetry off: the interface, and the coding agent when one is known. */
+export interface TelemetryPreferenceAttribution {
+  surface: string
+  agent?: string
+}
+
 /**
  * Persist the telemetry preference, announcing an opt-out first.
  *
@@ -462,15 +468,26 @@ export type TelemetryPreferenceMethod = 'cli' | 'api'
  * server ignores it, and the CLI awaits it so process exit cannot drop the one
  * event that can never be retried.
  */
-export function setTelemetryPreference(enabled: boolean, method: TelemetryPreferenceMethod): Promise<void> {
+export function setTelemetryPreference(
+  enabled: boolean,
+  method: TelemetryPreferenceMethod,
+  attribution?: TelemetryPreferenceAttribution,
+): Promise<void> {
   // Validate the whole config before touching it. A bare patch succeeds on a
   // config that fails validation, which turned `telemetry enable` into a silent
   // write to an invalid file instead of a path-qualified CONFIG_INVALID error.
   loadConfig()
   const announce = !enabled && isTelemetryEnabled()
   saveConfigPatch({ telemetry: enabled })
+  // From the CLI the agent comes from this process's environment; an API caller is attributed by the server.
+  const who = attribution ?? (method === 'cli' ? { surface: 'cli', agent: cliRuntimeContext().agent } : { surface: 'system' })
+  const properties = {
+    method,
+    surface: who.surface,
+    ...(who.agent ? { agent: who.agent } : {}),
+  }
   return announce
-    ? deliverEvent('telemetry.disabled', { method }, undefined, { preferenceChecked: true })
+    ? deliverEvent('telemetry.disabled', properties, undefined, { preferenceChecked: true })
     : Promise.resolve()
 }
 

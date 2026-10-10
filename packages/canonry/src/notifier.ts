@@ -1,5 +1,5 @@
 import { eq, desc, and, inArray, or } from 'drizzle-orm'
-import { deliverWebhook, measurementRunCompleteness, notProbeRun, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView } from '@ainyc/canonry-api-routes'
+import { deliverWebhook, measurementRunCompleteness, notProbeRun, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { auditLog, doctorHealthState, siteLivenessState, gbpLocations, gbpReviewRatings, gbpReviews, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, readNegativeReviewMaxStars, runs } from '@ainyc/canonry-db'
 import type { GbpReviewAlertState, NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload, RatingWebhookPayload, ReviewAlertLocation, ReviewWebhookPayload } from '@ainyc/canonry-contracts'
@@ -9,9 +9,44 @@ import type { AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 import { isWithinAlertWindow } from './gbp-reviews.js'
-import { CheckNotificationPolicies, describeError, type CheckNotificationPolicy } from '@ainyc/canonry-contracts'
+import { CheckNotificationPolicies, describeError, notificationEventSchema, statusClassOf, type CheckNotificationPolicy, type OutcomeReasonCode, type StatusClass } from '@ainyc/canonry-contracts'
+import { createOutcomeSampler, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
 const log = createLogger('Notifier')
+
+/**
+ * Deliveries fan out per event and destination, so their outcomes are sampled:
+ * a burst of 20, then one a minute, with failures on their own key so a
+ * stream of successes never starves them.
+ */
+const sampleDelivery = createOutcomeSampler({ burst: 20, refillMs: 60_000, now: () => Date.now() })
+
+/** `feature.completed` `webhooks`/`deliver`: one per delivery, after its last attempt. */
+function trackWebhookDelivery(input: {
+  url: string
+  event: string
+  attempts: number
+  durationBucket: ReturnType<ReturnType<typeof startOutcomeTimer>>
+  statusClass: StatusClass
+  failure?: { reasonCode: OutcomeReasonCode; errorName?: string }
+}): void {
+  const sample = sampleDelivery(input.failure ? 'failed' : 'succeeded')
+  if (!sample.send) return
+  const eventType = notificationEventSchema.safeParse(input.event)
+  trackFeatureCompleted({
+    feature: 'webhooks',
+    operation: 'deliver',
+    status: input.failure ? 'failed' : 'succeeded',
+    surface: 'system',
+    target: webhookOutcomeTarget(input.url),
+    ...(eventType.success ? { eventType: eventType.data } : {}),
+    statusClass: input.statusClass,
+    counts: { attempts: input.attempts },
+    durationBucket: input.durationBucket,
+    ...input.failure,
+    ...(sample.droppedBefore ? { droppedBefore: sample.droppedBefore } : {}),
+  })
+}
 
 /**
  * How far a magnitude must move before the same finding is news again.
@@ -908,6 +943,7 @@ export class Notifier {
 
   /** True only when the destination accepted the payload. Callers that record "already said" must not count an attempt. */
   private async sendWebhook(url: string, payload: AnyWebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<boolean> {
+    const elapsed = startOutcomeTimer()
     // A chat webhook IS a webhook whose body has to look a particular way, so
     // the destination is resolved from the URL rather than declared on the
     // stored notification. Discord and Slack both reject arbitrary JSON;
@@ -920,6 +956,11 @@ export class Notifier {
     if (!targetCheck.ok) {
       log.error('webhook.ssrf-blocked', { url: targetLabel, reason: targetCheck.message })
       this.logDelivery(projectId, notificationId, payload.event, 'failed', `SSRF: ${targetCheck.message}`)
+      const reasonCode = webhookTargetRefusalReason(targetCheck)
+      trackWebhookDelivery({
+        url, event: payload.event, attempts: 0, durationBucket: elapsed(),
+        statusClass: reasonCode === 'NETWORK' ? 'network' : 'blocked', failure: { reasonCode },
+      })
       return false
     }
 
@@ -927,6 +968,9 @@ export class Notifier {
 
     const maxRetries = 3
     const delays = [1000, 4000, 16000]
+    // The last attempt's answer, for the delivery outcome.
+    let lastStatusClass: StatusClass = 'network'
+    let lastFailure: { reasonCode: OutcomeReasonCode; errorName?: string } = { reasonCode: 'UNKNOWN' }
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
@@ -935,16 +979,21 @@ export class Notifier {
         if (response.status >= 200 && response.status < 300) {
           log.info('webhook.delivered', { event: payload.event, url: targetLabel, httpStatus: response.status })
           this.logDelivery(projectId, notificationId, payload.event, 'sent', null)
+          trackWebhookDelivery({ url, event: payload.event, attempts: attempt + 1, durationBucket: elapsed(), statusClass: '2xx' })
           return true
         }
 
         const errorDetail = response.error ?? `HTTP ${response.status}`
         log.warn('webhook.attempt-failed', { event: payload.event, url: targetLabel, attempt: attempt + 1, maxRetries, httpStatus: response.status, error: errorDetail })
+        lastStatusClass = response.status === 0 && response.timedOut ? 'timeout' : statusClassOf(response.status)
+        lastFailure = { reasonCode: webhookResponseReason(response) ?? 'UNKNOWN' }
         if (attempt === maxRetries - 1) {
           this.logDelivery(projectId, notificationId, payload.event, 'failed', errorDetail)
         }
       } catch (err: unknown) {
         const errorDetail = describeError(err)
+        lastStatusClass = 'network'
+        lastFailure = outcomeFailure(err)
         if (attempt === maxRetries - 1) {
           this.logDelivery(projectId, notificationId, payload.event, 'failed', errorDetail)
           log.error('webhook.exhausted', { event: payload.event, url: targetLabel, maxRetries, error: errorDetail })
@@ -955,6 +1004,10 @@ export class Notifier {
         await new Promise(resolve => setTimeout(resolve, delays[attempt]!))
       }
     }
+    trackWebhookDelivery({
+      url, event: payload.event, attempts: maxRetries, durationBucket: elapsed(),
+      statusClass: lastStatusClass, failure: lastFailure,
+    })
     return false
   }
 

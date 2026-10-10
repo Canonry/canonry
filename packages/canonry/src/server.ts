@@ -150,7 +150,6 @@ import {
 import {
   getTelemetryStatus,
   setTelemetryPreference,
-  trackEvent,
   recordDashboardEvent,
 } from "./telemetry.js";
 import { createApiUsageTelemetry } from "./usage-telemetry.js";
@@ -246,7 +245,8 @@ import {
 } from "@ainyc/canonry-db";
 import { ProviderRegistry, type RegisteredProvider } from "./provider-registry.js";
 import { batchEligibleProviderNames, providerConfigFromEntry, providersWithUnsupportedBatch } from "./provider-batch-config.js";
-import { handleRouteOutcome } from "./outcome-telemetry.js";
+import { handleRouteOutcome, outcomeAttribution } from "./outcome-telemetry.js";
+import { trackTrafficIngested, trackTrafficSynced } from "./traffic-telemetry.js";
 import { registeredProviderNames } from "./provider-registration.js";
 import { configuredProviderEntries, DEFAULT_CDP_QUOTA, DEFAULT_PROVIDER_QUOTA, resolveProviderQuotaPolicy } from "./provider-runtime-config.js";
 import { assertProviderReloadKeepsPendingBatches } from "./provider-reload-batch-guard.js";
@@ -3455,26 +3455,8 @@ export async function createServer(opts: {
     vercelTrafficCredentialStore,
     cloudflareTrafficCredentialStore,
     cloudflareTrafficIngestUrl: buildCloudflareIngestUrlTemplate(opts.config),
-    onTrafficSynced: (event) => {
-      // Emit anonymous canonry telemetry for every sync (success + fail).
-      // Same envelope shape as run.completed (top-level `errorCode` on
-      // failure, payload in `properties`). Counts are aggregate, sourceId
-      // is an opaque UUID — no PII surface.
-      trackEvent(
-        "traffic.synced",
-        {
-          status: event.status,
-          sourceType: event.sourceType,
-          sourceId: event.sourceId,
-          pulledEvents: event.pulledEvents,
-          selfTrafficExcluded: event.selfTrafficExcluded,
-          crawlerHits: event.crawlerHits,
-          aiReferralHits: event.aiReferralHits,
-          durationMs: event.durationMs,
-        },
-        event.errorCode ? { errorCode: event.errorCode } : undefined,
-      );
-    },
+    onTrafficSynced: trackTrafficSynced,
+    onTrafficIngested: trackTrafficIngested,
     onRunCreated: (
       runId: string,
       projectId: string,
@@ -3681,10 +3663,10 @@ export async function createServer(opts: {
     operatorApiKeyIds,
     listOperationalLogs: (query) => operationalLogs.list(query),
     getTelemetryStatus,
-    setTelemetryEnabled: (enabled: boolean) => {
+    setTelemetryEnabled: (enabled, attribution) => {
       // Persists synchronously; an opt-out's `telemetry.disabled` event is
       // delivered in the background, since this process keeps running.
-      void setTelemetryPreference(enabled, "api");
+      void setTelemetryPreference(enabled, "api", outcomeAttribution(attribution));
       // Keep in-memory config in sync
       opts.config.telemetry = enabled;
     },

@@ -14,6 +14,7 @@ import type { CanonryConfig } from '../config.js'
 import { trackEvent, showFirstRunNotice, isTelemetryEnabled } from '../telemetry.js'
 import { buildSetupState } from '../setup-state.js'
 import { cliRuntimeContext } from '../runtime-context.js'
+import { trackCliConnection } from '../cli-connection-telemetry.js'
 import { createClient, migrate } from '@ainyc/canonry-db'
 import { apiKeys } from '@ainyc/canonry-db'
 import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
@@ -484,6 +485,10 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
       skillsInstalled: !!skillsSummary,
       ...cliRuntimeContext(),
     })
+    // Init writes a fresh config, so every provider it stored is a new connection.
+    for (const provider of Object.keys(providers) as BootstrapProviderName[]) {
+      trackCliConnection({ integration: 'provider', provider, action: 'connect', status: 'succeeded' })
+    }
   }
 
   // End inside the product, not at a printout. Half of new installs run init

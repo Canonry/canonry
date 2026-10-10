@@ -2,6 +2,8 @@ import { loadConfig, saveConfigPatch } from '../config.js'
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { describeError } from '@ainyc/canonry-contracts'
+import { trackCliConnection } from '../cli-connection-telemetry.js'
+import { outcomeFailure } from '../outcome-telemetry.js'
 
 function getClient() {
   return createApiClient()
@@ -21,7 +23,14 @@ export async function cdpConnect(opts: { host?: string; port?: string; format?: 
     host,
     port,
   }
-  saveConfigPatch(config)
+  // The endpoint is saved locally, without the API, so the CLI reports the connection.
+  try {
+    saveConfigPatch(config)
+  } catch (err) {
+    trackCliConnection({ integration: 'cdp', action: 'connect', status: 'failed', ...outcomeFailure(err) })
+    throw err
+  }
+  trackCliConnection({ integration: 'cdp', action: 'connect', status: 'succeeded' })
 
   if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify({
