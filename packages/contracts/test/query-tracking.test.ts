@@ -83,10 +83,10 @@ describe('query tracking contract', () => {
     }
   })
 
-  it('requires frozen template details only for a template provenance row', () => {
-    expect(queryTrackingProvenanceSchema.safeParse({
-      source: 'template', sourceId: 'tpl-market@3', capturedAt: '2026-09-04T00:00:00.000Z',
-    }).success).toBe(false)
+  it('reads a template provenance row with or without its frozen details, and refuses them on any other source', () => {
+    // A plan published before query control froze the template keeps only the source.
+    const bare = { source: 'template', sourceId: 'tpl-market@3', capturedAt: '2026-09-04T00:00:00.000Z' }
+    expect(queryTrackingProvenanceSchema.parse(bare)).toEqual(bare)
     expect(queryTrackingProvenanceSchema.parse({
       source: 'template', sourceId: 'tpl-market@3', capturedAt: '2026-09-04T00:00:00.000Z',
       template: {
@@ -177,6 +177,18 @@ describe('query tracking contract', () => {
     expect('limits' in queryTrackingPreviewResponseSchema.parse(previewResponse())).toBe(false)
   })
 
+  it('carries the room under the limit exactly as sent, and never a negative one', () => {
+    const limits = { queries: { current: 1_002, next: 999, max: 1_000, left: { current: 0, next: 1 } } }
+
+    expect(queryTrackingPreviewResponseSchema.parse({ ...previewResponse(), limits }).limits).toEqual(limits)
+    expect(queryTrackingWorkspaceResponseSchema.parse({ ...advancedWorkspace(), limits }).limits).toEqual(limits)
+    for (const left of [{ current: -2, next: 1 }, { current: 0 }, { current: 0, next: 1, after: 1 }]) {
+      expect(queryTrackingPreviewResponseSchema.safeParse({
+        ...previewResponse(), limits: { queries: { ...limits.queries, left } },
+      }).success, JSON.stringify(left)).toBe(false)
+    }
+  })
+
   it('rejects a partial, negative or zero-limit query count', () => {
     for (const limits of [
       { queries: { current: 1, next: 2 } },
@@ -203,6 +215,60 @@ describe('query tracking contract', () => {
     }
 
     expect('focus' in queryTrackingWorkspaceResponseSchema.parse(advancedWorkspace()).tracked[0]!).toBe(false)
+  })
+
+  it('carries the server summary, place counts and each row\'s Type exactly as sent', () => {
+    const base = advancedWorkspace()
+    const sent = {
+      ...base,
+      targets: [{ ...base.targets[0]!, marketKeys: ['alpha'], counts: { propertyQueries: 0, marketQueries: 1, customQueries: 0, answersPerSweep: 1 } }],
+      groups: [{ ...base.groups[0]!, counts: { queries: 1, markets: 0, answersPerSweep: 1 } }],
+      markets: [{ ...base.markets[0]!, targetKeys: ['harbor-point'], counts: { marketQueries: 1, propertyQueries: 0, answersPerSweep: 1 } }],
+      tracked: [{ ...base.tracked[0]!, queryClasses: ['branded', 'non-brand'] }],
+      summary: {
+        asked: 1, notAsked: 0,
+        byClass: { branded: 0, nonBrand: 0, mixed: 1, unknown: 0 },
+        byFocus: { market: 1, property: 0, company: 0, custom: 0 },
+        assignments: { total: 2, branded: 1, nonBrand: 1, unknown: 0 },
+        answersPerSweep: 1,
+        structure: { targets: 1, markets: 1, groups: 1, topLevelGroups: 1, competitors: 0 },
+      },
+    }
+
+    expect(queryTrackingWorkspaceResponseSchema.parse(sent)).toEqual(sent)
+  })
+
+  it('still parses a workspace without the summary, limits, place counts or row Types from an older server', () => {
+    const workspace = queryTrackingWorkspaceResponseSchema.parse(advancedWorkspace())
+
+    expect('summary' in workspace || 'limits' in workspace).toBe(false)
+    expect(workspace.targets[0]).toEqual({ stableKey: 'harbor-point', label: 'Harbor Point' })
+    expect('counts' in workspace.groups[0]! || 'counts' in workspace.markets[0]! || 'targetKeys' in workspace.markets[0]!).toBe(false)
+    expect('queryClasses' in workspace.tracked[0]!).toBe(false)
+  })
+
+  it('rejects a negative, fractional, missing or pooled count and an unknown class', () => {
+    const base = advancedWorkspace()
+    const summary = {
+      asked: 1, notAsked: 0,
+      byClass: { branded: 0, nonBrand: 1, mixed: 0, unknown: 0 },
+      byFocus: { market: 1, property: 0, company: 0, custom: 0 },
+      assignments: { total: 1, branded: 0, nonBrand: 1, unknown: 0 },
+      answersPerSweep: 1,
+      structure: { targets: 1, markets: 1, groups: 1, topLevelGroups: 1, competitors: 0 },
+    }
+    expect(queryTrackingWorkspaceResponseSchema.safeParse({ ...base, summary }).success).toBe(true)
+    for (const [name, workspace] of Object.entries({
+      negative: { ...base, summary: { ...summary, notAsked: -1 } },
+      fractional: { ...base, summary: { ...summary, answersPerSweep: 1.5 } },
+      'missing mixed': { ...base, summary: { ...summary, byClass: { branded: 0, nonBrand: 1, unknown: 0 } } },
+      // One figure for both classes is not a count this contract carries.
+      pooled: { ...base, summary: { ...summary, byClass: { ...summary.byClass, all: 1 } } },
+      'place count': { ...base, targets: [{ ...base.targets[0]!, counts: { propertyQueries: 0, marketQueries: 1, customQueries: 0 } }] },
+      'unknown class': { ...base, tracked: [{ ...base.tracked[0]!, queryClasses: ['mixed'] }] },
+    })) {
+      expect(queryTrackingWorkspaceResponseSchema.safeParse(workspace).success, name).toBe(false)
+    }
   })
 
   it('rejects an unknown Subject kind, a missing market or location key, and a key on any other kind', () => {

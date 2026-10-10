@@ -1389,7 +1389,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_query_tracking_workspace',
     title: 'Read query assignments',
-    description: 'Read tracked queries, exact assignments, saved research sources and the current workspace version for a simple site or advanced portfolio. Also returns scopeOptions: server-built project, group, market and property choices with distinct property counts. Each tracked row carries focus, its Subject derived from the active plan: market or property (with key), company (simple site), custom, or not-asked.',
+    description: 'Read tracked queries, exact assignments, saved research sources and the current workspace version for a simple site or advanced portfolio. Also returns scopeOptions: server-built project, group, market and property choices with distinct property counts. Each tracked row carries focus, its Subject derived from the active plan: market or property (with key), company (simple site), custom, or not-asked; and queryClasses, its Type: the distinct classes across its plan assignments (two mean Mixed, none means Not set). Server-computed counts: summary (asked and notAsked rows, byClass and byFocus over asked rows, plan assignments, answersPerSweep, structure), limits.queries with left (advanced only), and counts on each target (with marketKeys), market (with targetKeys) and group. Each target, market and group counts a shared execution once, so their answersPerSweep values do not add up to summary.answersPerSweep.',
     access: 'read', tier: 'setup', inputSchema: projectInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/query-tracking'],
@@ -1398,7 +1398,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_query_tracking_preview',
     title: 'Preview query assignments',
-    description: 'Preview manual, template or saved research additions and assignment removals against the exact workspace version. Returns a review token, per-query locations and markets before and after (`changes`), deduplicated change and next-sweep workload; an advanced portfolio also gets limits.queries (current, next, max distinct assigned queries). Does not publish or start provider work and is allowed during a sweep. This POST requires write access.',
+    description: 'Preview manual, template or saved research additions and assignment removals against the exact workspace version. Returns a review token, per-query locations and markets before and after (`changes`), deduplicated change and next-sweep workload; an advanced portfolio also gets limits.queries (current, next, max distinct assigned queries, and left: the room under max, never below zero). Does not publish or start provider work and is allowed during a sweep. This POST requires write access.',
     access: 'write', tier: 'setup',
     inputSchema: z.object({ project: projectNameSchema, request: queryTrackingPreviewRequestSchema }).strict(),
     annotations: readAnnotations(),

@@ -115,6 +115,46 @@ Duplicate matching prefers the query ID that the active plan already uses.
 Otherwise, matching uses normalized query text.
 Shared execution contexts reuse one provider request across multiple property assignments.
 
+## Workspace numbers
+
+The workspace read returns its own counts, so a client prints them without recounting rows.
+Each field in this section is optional on the wire, so a client still reads a server that predates it.
+
+Each tracked row carries `queryClasses`, its Type: the distinct classes across every plan assignment of the query (one per location and search location), sorted. Two classes mean Mixed, none means Not set.
+A row's per-location `assignments[].queryClass` shows one class per location, so it can list fewer classes than `queryClasses`.
+A simple site's row carries the one Type the project classifier gives it, or none when the project has no usable brand name.
+
+`summary` counts the tracked rows:
+
+| Field | Counts |
+| --- | --- |
+| `asked`, `notAsked` | Rows with and without a pairing. Together they are the row count. Every row on a simple site is asked. |
+| `byClass` | Asked rows by Type: `branded`, `nonBrand`, `mixed`, `unknown` (shown as Not set). A mixed row counts under neither Branded nor Non-brand. |
+| `byFocus` | Asked rows by Subject: `market`, `property`, `company`, `custom`. |
+| `assignments` | Location links: plan assignments (`total`, `branded`, `nonBrand`, `unknown`), the unit of a preview row's `assignmentCount`. One query at one location with two search locations is two. All zero on a simple site. |
+| `answersPerSweep` | Provider answers one sweep asks for. A preview that changes nothing reports the same number as `workload.existingProviderCalls`. |
+| `structure` | `targets`, `markets`, `groups`, `topLevelGroups`, and `competitors` (distinct domains across groups). |
+
+`byClass` and `byFocus` each add up to `asked`.
+An advanced portfolio's read also returns `limits.queries`, with `next` equal to `current` because a read changes nothing.
+`current` is the compiler's count of assigned queries, and equals `summary.asked` for every plan the compiler published.
+`limits.queries.left` is the room under `max`, 0 when the plan is over it.
+
+Each place carries its own counts:
+
+| Place | Fields |
+| --- | --- |
+| `targets[]` | `marketKeys` (on `targets[]`; `scopeOptions` location choices still carry none): markets holding an edge for the location. `counts.propertyQueries`: rows whose Subject is this location. `counts.marketQueries`: rows whose Subject is a market holding it. `counts.customQueries`: hand-picked rows paired with it. |
+| `markets[]` | `targetKeys`: the distinct locations its edges name. `counts.marketQueries`: rows whose Subject is this market. `counts.propertyQueries`: rows whose Subject is one of its locations. |
+| `groups[]` | `counts.queries`: distinct queries paired with a member location. `counts.markets`: markets whose `groupKey` is this group. |
+
+Every place also has `counts.answersPerSweep`: the answers of the distinct executions the place has a usage edge on.
+An execution shared by two locations counts once in each, so place values do not add up to `summary.answersPerSweep`.
+`markets[].counts.marketQueries` add up to `byFocus.market`, and `targets[].counts.propertyQueries` add up to `byFocus.property`.
+
+A plan published before query control froze pattern records keeps only the source. Such a row reads `provenance.source: template` with no `template` record.
+Adding the query to another place keeps that source.
+
 ## Read results
 
 1. Open **AI Visibility**.
@@ -239,6 +279,7 @@ An all-locations sweep is several runs: the message then gives their count, `det
 Previews and no-op confirmations remain available during a sweep.
 A setup publish (`draft-action` with `publish`) is refused the same way, unless it is identical to the active revision.
 An advanced preview also returns `limits.queries`: distinct assigned queries now (`current`), after the change (`next`), and the limit (`max`, 1,000).
+`limits.queries.left` is the room under the limit now and after the change (`max` minus each count), and is 0, never negative, for a plan over the limit.
 A commit that grows the plan past the limit returns `400` with `details.check: query-limit-exceeded`. A plan already over the limit may still shrink.
 Preview and commit require write access. Stored workspace and visibility reads do not.
 

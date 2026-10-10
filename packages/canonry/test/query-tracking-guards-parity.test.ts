@@ -139,7 +139,7 @@ describe('query tracking guard CLI/REST/MCP parity', () => {
       }],
     }
     const review = await api.previewQueryTracking(PROJECT, mutation)
-    expect(review.limits).toEqual({ queries: { current: 1_000, next: 1_001, max: 1_000 } })
+    expect(review.limits).toEqual({ queries: { current: 1_000, next: 1_001, max: 1_000, left: { current: 0, next: 0 } } })
     const commit = { ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt }
     const refusal = {
       code: 'VALIDATION_ERROR',
@@ -181,7 +181,7 @@ describe('query tracking guard CLI/REST/MCP parity', () => {
     const mcp = await connect()
 
     // Previews stay available during the sweep, with the same limit on every surface.
-    const limits = { queries: { current: 1, next: 1, max: 1_000 } }
+    const limits = { queries: { current: 1, next: 1, max: 1_000, left: { current: 999, next: 999 } } }
     expect((await api.previewQueryTracking(PROJECT, mutation)).limits).toEqual(limits)
     const cliPreview = await invokeCli(['query', 'preview', PROJECT, inputFile('preview', mutation), '--format', 'json'])
     expect(cliPreview.exitCode, cliPreview.stderr).toBeUndefined()
