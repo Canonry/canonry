@@ -46,6 +46,8 @@ export function invalidateQueriesForRunKind(
       // that same revision path without requiring a notification observer.
       void invalidateCompetitorLandscapes(queryClient, projectName, 'none')
       void invalidateProjectQueryDomain(queryClient, 'visibilityReport')
+      // The prefix also matches the results read (`queryTrackingResults`). A
+      // second call for it would cancel that refetch and start it again.
       void invalidateProjectQueryDomain(queryClient, 'queryTracking')
       // No explicit `['analytics-metrics', project]` invalidation here. That
       // key's last segment is `analyticsRevision` (`VisibilityTrendSection`,

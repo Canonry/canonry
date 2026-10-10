@@ -100,6 +100,13 @@ type SearchParams = {
   queryWorkspace?: string
   researchMode?: string
   trackingQueryId?: string
+  /** The Tracked page's own filters. `trackedView` is held for its saved views. */
+  trackedSubject?: string
+  trackedType?: string
+  trackedStatus?: string
+  trackedSource?: string
+  trackedResult?: string
+  trackedView?: string
   measurementScope?: string
   measurementScopeKey?: string
   measurementMarketKey?: string
@@ -148,6 +155,7 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
     class: typeof search.class === 'string' ? search.class : undefined,
     ...Object.fromEntries([
       'queryWorkspace', 'researchMode', 'trackingQueryId', 'measurementScope', 'measurementScopeKey', 'measurementMarketKey', 'queryClass',
+      'trackedSubject', 'trackedType', 'trackedStatus', 'trackedSource', 'trackedResult', 'trackedView',
       'measurementProvider', 'measurementModel', 'measurementLocation', 'measurementFrom', 'measurementTo',
       'measurementRevision', 'measurementRunId', 'measurementQueryKey', 'measurementAnswer',
     ].map(key => [key, typeof search[key] === 'string' ? search[key] : undefined])),

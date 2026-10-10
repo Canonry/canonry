@@ -23,6 +23,8 @@ export const PROJECT_QUERY_DOMAINS = {
   researchRuns: 'getApiV1ProjectsByNameResearchRuns',
   visibilityReport: 'getApiV1ProjectsByNameVisibilityReport',
   queryTracking: 'getApiV1ProjectsByNameQueryTracking',
+  // The results read alone. The `queryTracking` prefix above also matches it.
+  queryTrackingResults: 'getApiV1ProjectsByNameQueryTrackingResults',
   technicalAeo: 'getApiV1ProjectsByNameTechnicalAeo',
   runs: 'getApiV1ProjectsByNameRuns',
   runAdmission: 'getApiV1ProjectsByNameRunAdmission',
@@ -43,7 +45,7 @@ export function invalidateProjectQueryDomain(
   })
 }
 
-/** Query publication changes live assignments and the measurement revision. */
+/** Query publication changes live assignments, the measurement revision and which results still hold. */
 export function invalidateQueryTrackingPublication(
   queryClient: Pick<QueryClient, 'invalidateQueries'>,
   projectName: string,
@@ -54,6 +56,7 @@ export function invalidateQueryTrackingPublication(
       if (head?.path?.name !== projectName || typeof head._id !== 'string') return false
       return head._id.startsWith('getApiV1ProjectsByNameMeasurement')
         || head._id === PROJECT_QUERY_DOMAINS.queryTracking
+        || head._id === PROJECT_QUERY_DOMAINS.queryTrackingResults
         || head._id === PROJECT_QUERY_DOMAINS.visibilityReport
         || head._id === 'getApiV1ProjectsByNameQueries'
         || head._id === 'getApiV1ProjectsByName'

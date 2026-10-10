@@ -45,7 +45,8 @@ import { CitationVisibilitySection } from '../components/project/CitationVisibil
 import { PastSweeps } from '../components/project/PastSweeps.js'
 import { useVisibilityReportFirstPage, VisibilityOverview, VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
 import { VisibilityScopePicker } from '../components/project/VisibilityScopePicker.js'
-import { QueriesSection } from '../components/project/DiscoverySection.js'
+import { QueriesSection, type ResearchWorkspaceMode } from '../components/project/DiscoverySection.js'
+import { parseTrackedFilters, trackedFiltersPatch } from '../components/project/queries/advanced/tracked-filters.js'
 import { SiteHealthSection } from '../components/project/SiteHealthSection.js'
 import { ProjectHistorySection } from '../components/project/ProjectHistorySection.js'
 import { ConversionIntegrityWorkspace } from '../components/project/ConversionIntegrityWorkspace.js'
@@ -176,6 +177,12 @@ export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onC
 }
 
 type SearchConsoleWorkspace = 'google' | 'bing'
+
+/** The Research mode a URL names. `test` is the old word for write; anything else names none. */
+function researchModeFromSearch(value: unknown): ResearchWorkspaceMode | undefined {
+  if (value === 'test') return 'write'
+  return value === 'write' || value === 'pattern' || value === 'find' ? value : undefined
+}
 
 /**
  * Patch the cached `useProjectDashboard` detail entries for a single project
@@ -1661,6 +1668,8 @@ function ProjectPageContent({
     class?: string
   }
   const visibilitySelection = parseVisibilitySelection(projectSearchParams)
+  // The Tracked filters have their own URL keys, so its Type is not the query type AI Visibility is set to.
+  const trackedFilters = useMemo(() => parseTrackedFilters(projectSearchParams), [projectSearchParams])
   const measurementScoped = isMeasurementScoped(visibilitySelection)
   const measurementSetupQuery = useQuery({
     ...getApiV1ProjectsByNameMeasurementSetupOptions({ client: heyClient, path: { name: projectName } }),
@@ -2583,6 +2592,11 @@ function ProjectPageContent({
 
   // What the place picker and the report call the whole project.
   const placeRootLabel = PROJECT_SCOPE_COPY.allOf(model.project.displayName || model.project.name)
+  // AI Visibility and Tracked name the same two dates. Embeds and managed dashboards name
+  // neither. A sweep already under way brings new numbers before the scheduled one, so it
+  // names no date either.
+  const shownTrackingChangedAt = isEmbed() || isDashboardManagedSweeps() ? undefined : activeMeasurementPlan?.createdAt
+  const shownNextSweepDate = isEmbed() || isDashboardManagedSweeps() || hasActiveVisibilitySweep ? undefined : nextSweepDate ?? undefined
 
   function renderVisibilityOverview(overview: React.ReactNode) {
     // Simple keeps its own layout even when a unified report is available.
@@ -2605,10 +2619,8 @@ function ProjectPageContent({
             Location details
           </Link>
         ) : undefined}
-        // Embeds and managed dashboards name neither date. A sweep already under way brings
-        // new numbers before the scheduled one, so it names no date either.
-        trackingChangedAt={isEmbed() || isDashboardManagedSweeps() ? undefined : activeMeasurementPlan?.createdAt}
-        nextSweepDate={isEmbed() || isDashboardManagedSweeps() || hasActiveVisibilitySweep ? undefined : nextSweepDate ?? undefined}
+        trackingChangedAt={shownTrackingChangedAt}
+        nextSweepDate={shownNextSweepDate}
         rootLabel={placeRootLabel}
         fallback={overview}
       />
@@ -3249,13 +3261,17 @@ function ProjectPageContent({
           projectName={projectName}
           queryWorkspace={requestedQueryWorkspace}
           onQueryWorkspaceChange={value => updateVisibilitySearch({ queryWorkspace: value, trackingQueryId: undefined })}
-          researchMode={projectSearchParams.researchMode === 'test' ? 'test' : 'find'}
+          researchMode={researchModeFromSearch(projectSearchParams.researchMode)}
           onResearchModeChange={value => updateVisibilitySearch({ researchMode: value })}
           selection={visibilitySelection}
           onSelectionChange={updateVisibilitySearch}
           trackingQueryId={typeof projectSearchParams.trackingQueryId === 'string' ? projectSearchParams.trackingQueryId : undefined}
           onTrackingQueryIdChange={value => updateVisibilitySearch({ trackingQueryId: value })}
           publishGuard={{ sweepActive: hasActiveVisibilitySweep }}
+          trackedFilters={trackedFilters}
+          onTrackedFiltersChange={patch => updateVisibilitySearch(trackedFiltersPatch(patch))}
+          trackingChangedAt={shownTrackingChangedAt}
+          nextSweepDate={shownNextSweepDate}
         />
       ) : tab === 'technical-aeo' ? (
         <SiteHealthSection

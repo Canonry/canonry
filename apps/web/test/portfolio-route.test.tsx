@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
-import type { CompetitorLandscapeResponse, EmbedClientConfig, MeasurementPlanResponse, MeasurementPlanV2, VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import type { CompetitorLandscapeResponse, EmbedClientConfig, MeasurementPlanResponse, MeasurementPlanV2, UiTelemetryEvent, VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import { aggregateSentiment, emptyCitationVisibility, queryTrackingWorkspaceResponseSchema, sentimentSettingsSchema, sentimentSummarySchema, visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 
 import { createDashboardFixture } from '../src/mock-data.js'
@@ -24,6 +24,9 @@ import { AINYC_LATEST_RUN, ainycCitationVisibility, ainycComparison, ainycEviden
 import { toRunListItem } from '../src/build-dashboard.js'
 import { mapInsightDtosToVms } from '../src/mappers/insight-mapper.js'
 import { AdvancedMeasurementSection } from '../src/components/project/advanced-measurement/AdvancedMeasurementSection.js'
+import { QueriesSection } from '../src/components/project/DiscoverySection.js'
+import { TRACKED_FILTER_KEYS } from '../src/components/project/queries/advanced/tracked-filters.js'
+import { configureUiTelemetry, recordUiSearchParamsChange, resetUiTelemetryForTests, UI_FILTER_DEBOUNCE_MS } from '../src/lib/ui-telemetry.js'
 import {
   getApiV1CdpStatusQueryKey,
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey,
@@ -49,6 +52,13 @@ type EmbedBlock = Pick<EmbedClientConfig, 'enabled' | 'views' | 'projectTabs'>
 vi.mock('../src/components/project/advanced-measurement/AdvancedMeasurementSection.js', async importOriginal => {
   const actual = await importOriginal<typeof import('../src/components/project/advanced-measurement/AdvancedMeasurementSection.js')>()
   return { ...actual, AdvancedMeasurementSection: vi.fn(actual.AdvancedMeasurementSection) }
+})
+
+// Pass-through spy: the route test reads what ProjectPage hands the Queries section from the URL,
+// whatever the section's pages draw.
+vi.mock('../src/components/project/DiscoverySection.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/components/project/DiscoverySection.js')>()
+  return { ...actual, QueriesSection: vi.fn(actual.QueriesSection) }
 })
 
 /** The place picker's project option for the fixture project. */
@@ -1474,7 +1484,7 @@ test('the legacy Discovery route opens the separate research workspace without t
 
   const fixture = createDashboardFixture({})
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/discovery'] })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/discovery?researchMode=find'] })
   await router.load()
   const page = render(
     <QueryClientProvider client={queryClient}>
@@ -1485,9 +1495,7 @@ test('the legacy Discovery route opens the separate research workspace without t
   )
 
   expect(await page.findByRole('heading', { name: 'Queries' })).toBeTruthy()
-  expect(await page.findByRole('heading', { name: 'Generate and check questions' })).toBeTruthy()
   expect(page.getByRole('tab', { name: 'Research' }).getAttribute('aria-selected')).toBe('true')
-  expect(page.getByRole('tab', { name: 'Find queries' }).getAttribute('aria-selected')).toBe('true')
   await waitFor(() => expect(observed.some(path => path.includes('/discover/sessions'))).toBe(true))
   expect(observed.some(path => path.includes('/query-tracking'))).toBe(false)
 })
@@ -3366,14 +3374,123 @@ test('Simple tracked Queries have no scope trigger', async () => {
 })
 
 test.each([
-  ['the Research workspace', '/projects/project_citypoint/queries?queryWorkspace=research'],
-  ['the legacy Discovery route', '/projects/project_citypoint/discovery'],
+  ['the Research workspace', '/projects/project_citypoint/queries?queryWorkspace=research&researchMode=find'],
+  ['the legacy Discovery route', '/projects/project_citypoint/discovery?researchMode=find'],
 ])('%s has no scope trigger and no tracking read', async (_name, entry) => {
   const { observed, page } = await renderScopeRoute(entry, trackingRoute())
-  expect(await page.findByRole('heading', { name: 'Generate and check questions' })).toBeTruthy()
+  expect((await page.findByRole('tab', { name: 'Research' })).getAttribute('aria-selected')).toBe('true')
+  await waitFor(() => expect(observed.some(url => url.pathname.endsWith('/discover/sessions'))).toBe(true))
   expect(page.container.querySelector('.visibility-scope-trigger')).toBeNull()
   expect(contextRow(page.container).querySelector('.project-context-scope')).toBeNull()
   expect(observed.some(url => url.pathname.endsWith('/query-tracking'))).toBe(false)
+})
+
+/** What ProjectPage last handed the Queries section. */
+function queriesSectionProps() {
+  return vi.mocked(QueriesSection).mock.lastCall![0]
+}
+
+test.each([
+  ['no researchMode hands the Queries section no mode', undefined, undefined],
+  ['researchMode=write reaches the Queries section', 'write', 'write'],
+  ['researchMode=pattern reaches the Queries section', 'pattern', 'pattern'],
+  ['researchMode=find reaches the Queries section', 'find', 'find'],
+  ['the older researchMode=test reads as write', 'test', 'write'],
+  ['a researchMode no page has hands the Queries section no mode', 'other', undefined],
+] as const)('%s', async (_label, inUrl, mode) => {
+  vi.mocked(QueriesSection).mockClear()
+  const { page, router } = await renderScopeRoute(`/projects/project_citypoint/queries?queryWorkspace=research${inUrl ? `&researchMode=${inUrl}` : ''}`, trackingRoute())
+  expect((await page.findByRole('tab', { name: 'Research' })).getAttribute('aria-selected')).toBe('true')
+  expect(queriesSectionProps().researchMode).toBe(mode)
+  // Reading the mode never rewrites the URL, so a link keeps the mode it was shared with.
+  expect(router.state.location.search.researchMode).toBe(inUrl)
+})
+
+test('the Tracked filter keys survive a reload and reach the Queries section, apart from the query type AI Visibility is set to', async () => {
+  vi.mocked(QueriesSection).mockClear()
+  const opened = { trackedSubject: 'market', trackedType: 'non-brand', trackedStatus: 'not-asked', trackedSource: 'manual', trackedResult: 'not-cited', trackedView: 'thin-markets' }
+  expect(Object.keys(opened)).toEqual([...Object.values(TRACKED_FILTER_KEYS), 'trackedView'])
+  const { router } = await renderScopeRoute(`/projects/project_citypoint/queries?${new URLSearchParams({ ...opened, queryClass: 'branded' })}`, trackingRoute())
+  expect(router.state.location.search).toMatchObject({ ...opened, queryClass: 'branded' })
+  expect(queriesSectionProps().trackedFilters).toEqual({ subject: 'market', type: 'non-brand', status: 'not-asked', source: 'manual', result: 'not-cited' })
+
+  // A filter back on its default leaves the URL; every other key stays, the shared query type included.
+  act(() => queriesSectionProps().onTrackedFiltersChange!({ type: 'mixed', status: 'asked' }))
+  await waitFor(() => expect(queriesSectionProps().trackedFilters).toEqual({ subject: 'market', type: 'mixed', status: 'asked', source: 'manual', result: 'not-cited' }))
+  const href = router.state.location.href
+  expect(Object.fromEntries(new URL(href, window.location.origin).searchParams)).toEqual({
+    trackedSubject: 'market', trackedType: 'mixed', trackedSource: 'manual', trackedResult: 'not-cited', trackedView: 'thin-markets', queryClass: 'branded',
+  })
+
+  const reloaded = createAppRouter(new QueryClient(), { initialEntries: [href] })
+  await reloaded.load()
+  expect(reloaded.state.location.search).toEqual(router.state.location.search)
+
+  // The route holds each key as text, like every other Queries key: a number or a flag is dropped.
+  const untyped = createAppRouter(new QueryClient(), { initialEntries: ['/projects/project_citypoint/queries?trackedSubject=7&trackedType=true&trackedStatus=7&trackedSource=false&trackedResult=7&trackedView=7'] })
+  await untyped.load()
+  const held = untyped.state.matches.at(-1)!.search as Record<string, unknown>
+  expect(Object.keys(opened).filter(key => held[key] !== undefined)).toEqual([])
+
+  // With no key of its own, the Tracked Type is All whatever AI Visibility is filtered to.
+  vi.mocked(QueriesSection).mockClear()
+  const shared = await renderScopeRoute('/projects/project_citypoint/queries?queryClass=branded', trackingRoute())
+  expect(queriesSectionProps().trackedFilters).toEqual({ subject: 'any', type: 'all', status: 'asked', source: 'any', result: 'any' })
+  expect(shared.router.state.location.search.queryClass).toBe('branded')
+})
+
+test('each Tracked URL key reports a filter change by its dimension, never by its value', () => {
+  vi.useFakeTimers()
+  const sent: UiTelemetryEvent[] = []
+  configureUiTelemetry({ send: async event => { sent.push(event); return { accepted: true } } })
+  onTestFinished(() => {
+    resetUiTelemetryForTests()
+    vi.useRealTimers()
+  })
+  const reported = [...Object.values(TRACKED_FILTER_KEYS), 'trackedView'].map(key => {
+    const before = sent.length
+    recordUiSearchParamsChange({ runId: 'run-1' }, { runId: 'run-2', [key]: 'value-kept-out' })
+    vi.advanceTimersByTime(UI_FILTER_DEBOUNCE_MS)
+    return [key, sent.slice(before).map(event => event.event === 'ui.action' ? [event.action, event.filter] : [event.event])]
+  })
+  expect(Object.fromEntries(reported)).toEqual({
+    trackedSubject: [['filter.change', 'other']],
+    trackedType: [['filter.change', 'query_class']],
+    trackedStatus: [['filter.change', 'other']],
+    trackedSource: [['filter.change', 'other']],
+    trackedResult: [['filter.change', 'other']],
+    trackedView: [['filter.change', 'other']],
+  })
+  expect(JSON.stringify(sent)).not.toContain('value-kept-out')
+})
+
+test.each([
+  ['with no sweep under way', { sweepActive: false, managed: false }, { trackingChangedAt: '2026-08-01T12:00:00.000Z', nextSweepDate: 'Aug 7' }],
+  ['while a sweep is queued', { sweepActive: true, managed: false }, { trackingChangedAt: '2026-08-01T12:00:00.000Z', nextSweepDate: undefined }],
+  ['on managed sweeps', { sweepActive: false, managed: true }, { trackingChangedAt: undefined, nextSweepDate: undefined }],
+] as const)('the Queries section is handed the dates AI Visibility names %s', async (_label, state, dates) => {
+  if (state.managed) window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps: true } }
+  vi.mocked(QueriesSection).mockClear()
+  const tracking = trackingRoute()
+  const { observed, queryClient } = await renderScopeRoute(
+    '/projects/project_citypoint/queries',
+    url => url.pathname.endsWith('/schedules') ? jsonResponse([schedule()]) : tracking(url),
+    {
+      configureFixture(dashboard) {
+        const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+        if (!state.sweepActive) project.recentRuns = project.recentRuns.filter(run => run.status !== 'queued' && run.status !== 'running')
+        expect(project.recentRuns.some(run => run.kind === 'answer-visibility' && run.status === 'queued')).toBe(state.sweepActive)
+      },
+    },
+  )
+  // The plan gives the tracking change and the schedule gives the next sweep, so both reads settle first.
+  await waitFor(() => expect(observed.some(url => url.pathname.endsWith('/measurement-plan'))).toBe(true))
+  if (!state.managed) await waitFor(() => expect(observed.some(url => url.pathname.endsWith('/schedules'))).toBe(true))
+  await waitFor(() => expect(queryClient.isFetching()).toBe(0))
+  await waitFor(() => {
+    const { trackingChangedAt, nextSweepDate } = queriesSectionProps()
+    expect({ trackingChangedAt, nextSweepDate }).toEqual(dates)
+  })
 })
 
 test('the tracked Queries row picker floats over the table, closes on Escape or outside interaction, and keeps focus after a search selection', async () => {
