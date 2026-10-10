@@ -1,3 +1,5 @@
+import type { QueryClass } from '@ainyc/canonry-contracts'
+
 import type { EngineSignal, TrackedFilters, TrackedRowVm } from './tracked-types.js'
 
 /** One choice of a Tracked filter: the value the URL carries and the words the toolbar shows. */
@@ -85,10 +87,15 @@ export function activeFilterCount(filters: TrackedFilters): number {
 }
 
 /**
- * Whether a row's chips show the result asked for. `signals` are the row's
- * engine cells, one per engine and type: `null` is a cell with no result and
- * `undefined` one still loading, which matches nothing yet. A cell is not
- * checked when either chip is. A row with no cell was never checked.
+ * One engine cell of a row: the type its chips were asked under, and what they
+ * show. `null` is a cell with no result and `undefined` one still loading.
+ */
+export interface TrackedResultCell { queryClass: QueryClass; signal: EngineSignal | null | undefined }
+
+/**
+ * Whether a row's chips show the result asked for. A cell still loading
+ * matches nothing yet. A cell is not checked when either chip is. A row with
+ * no cell was never checked.
  */
 function matchesResult(result: Exclude<TrackedFilters['result'], 'any'>, signals: readonly (EngineSignal | null | undefined)[]): boolean {
   if (result === 'not-mentioned') return signals.some(signal => signal?.mentioned === false)
@@ -99,12 +106,16 @@ function matchesResult(result: Exclude<TrackedFilters['result'], 'any'>, signals
 /**
  * Whether the filters list a row. They only list: nothing is counted or
  * summed here. A mixed row is asked both ways, so Non-brand, Branded and Mixed
- * all list it.
+ * all list it. `cells` are the row's engine cells, one per engine and type.
+ * Under Non-brand or Branded only the cells of that type decide Result, so a
+ * mixed row's Branded chips never list it among Non-brand results.
  */
-export function matchesTrackedFilters(row: TrackedRowVm, filters: TrackedFilters, signals: readonly (EngineSignal | null | undefined)[]): boolean {
+export function matchesTrackedFilters(row: TrackedRowVm, filters: TrackedFilters, cells: readonly TrackedResultCell[]): boolean {
   if (filters.subject !== 'any' && row.subject.kind !== filters.subject) return false
   if (filters.type !== 'all' && row.type !== filters.type && !(row.type === 'mixed' && (filters.type === 'branded' || filters.type === 'non-brand'))) return false
   if (filters.status === 'asked' ? row.status === 'not-asked' : filters.status !== 'all' && row.status !== filters.status) return false
   if (filters.source !== 'any' && row.source.kind !== filters.source) return false
-  return filters.result === 'any' || matchesResult(filters.result, signals)
+  if (filters.result === 'any') return true
+  const ofType = filters.type === 'branded' || filters.type === 'non-brand' ? cells.filter(cell => cell.queryClass === filters.type) : cells
+  return matchesResult(filters.result, ofType.map(cell => cell.signal))
 }

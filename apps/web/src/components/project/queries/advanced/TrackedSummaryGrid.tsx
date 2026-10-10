@@ -1,8 +1,8 @@
-import { useId, useState, type ReactNode } from 'react'
-import { AlertTriangle, Ban, ChevronRight, Loader } from 'lucide-react'
+import { forwardRef, useId, useState, type CSSProperties, type ReactNode } from 'react'
+import { AlertTriangle, Ban, ChevronRight, Loader, type LucideProps } from 'lucide-react'
 import type { QueryTrackingGroup, QueryTrackingLimits, QueryTrackingMarket, QueryTrackingSummary, QueryTrackingTarget } from '@ainyc/canonry-contracts'
 
-import { formatObservedInstantMonthDay, observedInstant } from '../../../shared/ChartPrimitives.js'
+import { formatObservedInstantLabel, formatObservedInstantMonthDay, observedInstant, observedInstantYear } from '../../../shared/ChartPrimitives.js'
 import { InfoTooltip } from '../../../shared/InfoTooltip.js'
 import { StatusNote } from '../../../shared/StatusNote.js'
 import { Button } from '../../../ui/button.js'
@@ -40,13 +40,17 @@ function projectStats(summary: QueryTrackingSummary, limits: QueryTrackingLimits
   ])
 }
 
-/** Subject and type first, then the links. Company, Mixed type and Not set are rare, so each shows only above zero. */
+/**
+ * Subject and type first, then the links. Company, Mixed type and Not set are rare, so each shows only above
+ * zero. A Subject's count is named as queries, as a place's strip names it, so it never reads as a count of
+ * markets or locations.
+ */
 function detailStats(summary: QueryTrackingSummary): Stat[] {
   return cells([
-    { label: 'Market', value: summary.byFocus.market },
-    { label: 'Location', value: summary.byFocus.property },
-    { label: 'Hand-picked', value: summary.byFocus.custom },
-    summary.byFocus.company > 0 && { label: 'Company', value: summary.byFocus.company },
+    { label: 'Market queries', value: summary.byFocus.market },
+    { label: 'Location queries', value: summary.byFocus.property },
+    { label: 'Hand-picked queries', value: summary.byFocus.custom },
+    summary.byFocus.company > 0 && { label: 'Company queries', value: summary.byFocus.company },
     summary.byClass.mixed > 0 && { label: 'Mixed type', value: summary.byClass.mixed },
     summary.byClass.unknown > 0 && { label: 'Not set', value: summary.byClass.unknown },
     { label: 'Not asked', value: summary.notAsked },
@@ -72,7 +76,7 @@ function placeStats(place: TrackedSummaryPlace): Stat[] | null {
     return counts ? cells([
       { label: 'Location queries', value: counts.propertyQueries },
       { label: 'Market queries', value: counts.marketQueries },
-      counts.customQueries > 0 && { label: 'Hand-picked', value: counts.customQueries },
+      counts.customQueries > 0 && { label: 'Hand-picked queries', value: counts.customQueries },
       listed('Markets', place.target.marketKeys),
       { label: 'Answers counted', value: counts.answersPerSweep, help: HELP.locationAnswers },
     ]) : null
@@ -86,28 +90,93 @@ function placeStats(place: TrackedSummaryPlace): Stat[] | null {
   ]) : null
 }
 
-// One row where the strip is 52rem wide or more, hairlines between cells, and no cell narrower than its own
-// label and number. In less room the cells pair up over row hairlines. The strip's own width decides, not the
-// window's: the sidebar takes its share of a window.
-const STRIP = 'grid grid-cols-2 border-y border-default @[52rem]:flex'
-const CELL = 'min-w-0 border-subtle py-3 @[52rem]:min-w-max @[52rem]:flex-1 @[52rem]:px-4'
-const LAST_CELL = 'col-span-2 flex min-w-0 flex-col justify-center gap-y-1 border-subtle py-3 text-[13px] leading-5 text-secondary @max-[52rem]:border-t @[52rem]:flex-[2] @[52rem]:border-l @[52rem]:pl-4'
-/**
- * A cell's hairlines. One row: a line on its left. Pairs: a line above every row but the first, unbroken
- * because the right-hand cell is set in by padding, not a gap; an odd count gives the first cell a row of
- * its own, so no cell sits beside an empty one.
- */
-function cellClass(index: number, count: number): string {
-  const odd = count % 2 === 1
-  const firstRow = index === 0 || (index === 1 && !odd)
-  const rightColumn = odd ? index > 0 && index % 2 === 0 : index % 2 === 1
-  return `${CELL}${index === 0 ? ' @[52rem]:pl-0' : ' @[52rem]:border-l'}${firstRow ? '' : ' @max-[52rem]:border-t'}${rightColumn ? ' @max-[52rem]:pl-4' : ''}${index === 0 && odd ? ' @max-[52rem]:col-span-2' : ''}`
+// The strip has three shapes, decided by its own width, not the window's: the sidebar takes its share of a
+// window. Pairs of cells on a phone. Three columns from 36rem, so a laptop beside the sidebar reads two rows.
+// One row from the width every cell fits at its own label and number: a place's few numbers from 44rem, five
+// numbers from 52rem. In the row no column is narrower than its number's label, and the last cell spans two
+// columns, so Details opens under the row on the same columns.
+type Shape = 'few' | 'many'
+const ROW: Record<Shape, { strip: string; inset: string; flat: string; wide: string }> = {
+  few: {
+    strip: '@[44rem]:grid-cols-[repeat(var(--tracked-strip-columns),minmax(max-content,1fr))]',
+    inset: '@[44rem]:border-l @[44rem]:pl-4',
+    flat: '@[44rem]:border-t-0',
+    wide: '@[44rem]:col-span-2',
+  },
+  many: {
+    strip: '@[52rem]:grid-cols-[repeat(var(--tracked-strip-columns),minmax(max-content,1fr))]',
+    inset: '@[52rem]:border-l @[52rem]:pl-4',
+    flat: '@[52rem]:border-t-0',
+    wide: '@[52rem]:col-span-2',
+  },
 }
+const STRIP = 'grid grid-cols-2 border-y border-default @xl:grid-cols-3'
+const CELL = 'min-w-0 border-subtle py-3 @xl:pr-4'
+// On a phone the last cell is a row: the links, and the sweep dates beside them where they fit. From three columns up it is a cell, the links over the dates.
+const LAST = 'col-span-2 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-subtle py-3 text-[13px] leading-5 text-secondary @xl:flex-col @xl:flex-nowrap @xl:items-stretch @xl:justify-center'
+// The sweep dates are one line where the cell holds both and two lines in less; they never widen the cell. Each
+// carries the dot before it in a gutter that hangs out on the left, where it is cut off: a dot shows between
+// two dates on a line, and never at the end or the start of one.
+const SWEEP_BOX = 'min-w-[10rem] flex-1 contain-inline-size [clip-path:inset(-0.25rem_-0.25rem_-0.25rem_0)] @xl:flex-none'
+const SWEEP = '-ml-4 flex flex-wrap items-center'
+const SWEEP_PART = 'flex items-center whitespace-nowrap'
+const SWEEP_DOT = 'w-4 shrink-0 text-center'
+// Details stands on the strip's own columns, so each number is under one of the strip's: two and three columns
+// as the strip has them, and from 62rem the columns of the row. From there each number's cell keeps room for the
+// labels that open under it, unseen and as generated text, so opening Details moves no column. A row narrower
+// than that cannot hold every label on its own columns, so there Details is four columns of its own.
+const DETAILS = 'col-span-full grid grid-cols-subgrid border-t border-subtle @[52rem]:@max-[62rem]:grid-cols-4'
+const DETAIL_CELL = 'min-w-0 border-subtle py-3 @xl:pr-4'
+const RESERVE = 'invisible hidden h-0 whitespace-nowrap text-[13px] font-normal before:content-[attr(data-reserve)] @[62rem]:block'
+
+/** A place's four numbers or fewer fit one row sooner than five do. */
+const shapeOf = (count: number, place: boolean): Shape => place && count <= 4 ? 'few' : 'many'
+/** The row's columns: one for each number and two for the last cell. */
+const stripStyle = (count: number) => ({ '--tracked-strip-columns': count + 2 }) as CSSProperties
+
+/**
+ * A number's cell. Pairs and three columns put a hairline over every row but the first; the right-hand cell
+ * of a pair is set in by padding, not a gap, so that line is unbroken. An odd count gives the first cell a
+ * row of the pairs to itself, so no cell sits beside an empty one. In three columns and in the row a cell is
+ * set in, behind a hairline, from every column but the first.
+ */
+function cellClass(index: number, count: number, shape: Shape): string {
+  const alone = count % 2 === 1
+  const pair = alone && index > 0 ? index + 1 : index
+  const below = index >= 3 ? ` border-t ${ROW[shape].flat}` : pair >= 2 ? ' @max-xl:border-t' : ''
+  const inset = index % 3 ? ' @xl:border-l @xl:pl-4' : index > 0 ? ` ${ROW[shape].inset}` : ''
+  return `${CELL}${alone && index === 0 ? ' @max-xl:col-span-2' : ''}${below}${pair % 2 ? ' @max-xl:pl-4' : ''}${inset}`
+}
+
+/** The last cell takes what the numbers leave of a row of three: with five it is the sixth cell. In the row it spans two columns. */
+function lastCellClass(count: number, shape: Shape): string {
+  const over = count % 3
+  const three = over === 2 ? ' @xl:col-span-1 @xl:border-l @xl:pl-4' : over === 1 ? ' @xl:border-l @xl:pl-4' : ' @xl:col-span-3'
+  const row = over === 2 ? ` ${ROW[shape].wide}` : over === 0 ? ` ${ROW[shape].wide} ${ROW[shape].inset}` : ''
+  return `${LAST}${three}${row} ${ROW[shape].flat}`
+}
+
+/** A Details cell is set in from every column but the first, behind a hairline wherever the strip draws one. */
+function detailCellClass(index: number, columns: number): string {
+  return `${DETAIL_CELL}${index % 2 ? ' @max-xl:pl-4' : ''}${index % 3 ? ' @xl:@max-[52rem]:border-l @xl:@max-[52rem]:pl-4' : ''}${index % 4 ? ' @[52rem]:@max-[62rem]:border-l @[52rem]:@max-[62rem]:pl-4' : ''}${index % columns ? ' @[62rem]:border-l @[62rem]:pl-4' : ''}`
+}
+
 const LABEL = 'flex items-center text-[13px] leading-5 text-secondary'
 const NUMBER = 'text-[19px] font-semibold leading-7 tabular-nums text-heading'
 const LINK = 'inline-flex items-center gap-1 rounded-sm font-medium text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 pointer-coarse:min-h-11 max-md:min-h-11'
 
-function StatCell({ stat, className, numberClassName = NUMBER }: { stat: Stat; className: string; numberClassName?: string }) {
+/** The running sweep's icon turns, so it does not read as stalled. It holds still where motion is reduced. */
+const Turning = forwardRef<SVGSVGElement, LucideProps>(function Turning({ className, ...props }, ref) {
+  return <Loader ref={ref} {...props} className={`${className ?? ''} motion-safe:animate-spin`} />
+})
+
+/** A sweep from another year keeps its year, so last year's "Oct 7" never reads as this year's. */
+function sweepDate(at: string): string {
+  const instant = observedInstant(at)
+  return observedInstantYear(instant) === new Date().getFullYear() ? formatObservedInstantMonthDay(instant) : formatObservedInstantLabel(instant)
+}
+
+function StatCell({ stat, className, numberClassName = NUMBER, reserve }: { stat: Stat; className: string; numberClassName?: string; reserve?: readonly Stat[] }) {
   return (
     <div className={className}>
       <dt className={LABEL}>{stat.label}{stat.help ? <InfoTooltip text={stat.help} /> : null}</dt>
@@ -116,6 +185,8 @@ function StatCell({ stat, className, numberClassName = NUMBER }: { stat: Stat; c
         {stat.of !== undefined && stat.value === 0
           ? <span className="flex min-h-7 items-center"><StatusNote icon={Ban} tone="negative" label="Limit reached" detail={`The limit is ${whole(stat.of)} queries. Stop tracking one to add another.`} /></span>
           : <>{whole(stat.value)}{stat.of !== undefined ? <span className="text-[13px] font-normal text-secondary"> of {whole(stat.of)}</span> : null}</>}
+        {/* Room for each label that opens under this number, and for its help icon. */}
+        {reserve?.map(below => <span key={below.label} aria-hidden="true" data-reserve={below.label} className={`${RESERVE}${below.help ? ' pr-5' : ''}`} />)}
       </dd>
     </div>
   )
@@ -148,31 +219,34 @@ export function TrackedSummaryGrid({ summary, limits, place, lastSweepAt, nextSw
   const stats = place ? placeStats(place) : summary ? projectStats(summary, limits) : null
   const details = !place && summary ? detailStats(summary) : null
   const notAsked = !place && summary ? summary.notAsked : 0
+  // Without its numbers the strip is one note over the full row of three.
+  const count = stats?.length ?? 3
+  const shape = shapeOf(count, place !== undefined)
   const sweep: ReactNode[] = []
-  if (lastSweepAt !== undefined) sweep.push(<span key="last" className="whitespace-nowrap">{lastSweepAt ? `Last sweep ${formatObservedInstantMonthDay(observedInstant(lastSweepAt))}` : 'Last sweep: none'}</span>)
-  if (sweepActive) sweep.push(<StatusNote key="next" icon={Loader} label="Sweep running" detail="Answers are being collected now. Numbers update when the sweep finishes." />)
-  else if (nextSweepDate) sweep.push(<span key="next" className="whitespace-nowrap">Next {nextSweepDate}</span>)
+  if (lastSweepAt !== undefined) sweep.push(<span key="last">{lastSweepAt ? `Last sweep ${sweepDate(lastSweepAt)}` : 'Last sweep: none'}</span>)
+  if (sweepActive) sweep.push(<StatusNote key="next" icon={Turning} label="Sweep running" detail="Answers are being collected now. Numbers update when the sweep finishes." />)
+  else if (nextSweepDate) sweep.push(<span key="next">Next {nextSweepDate}</span>)
 
   return (
     <div className="@container">
-      <div className={STRIP}>
+      <div className={`${STRIP} ${ROW[shape].strip}`} style={stripStyle(count)}>
         {stats ? (
           <dl className="contents">
-            {stats.map((stat, index) => <StatCell key={stat.label} stat={stat} className={cellClass(index, stats.length)} />)}
+            {stats.map((stat, index) => <StatCell key={stat.label} stat={stat} className={cellClass(index, count, shape)} reserve={details?.filter((_, below) => below % (count + 2) === index)} />)}
           </dl>
         ) : (
-          <div className="col-span-2 flex min-h-[4.5rem] min-w-0 items-center py-3 @[52rem]:flex-[5] @[52rem]:pr-4">
+          <div className="col-span-2 flex min-h-[4.5rem] min-w-0 items-center py-3 @xl:col-span-3 @xl:pr-4">
             <StatusNote
               icon={AlertTriangle}
               tone="caution"
               label="Numbers unavailable"
-              detail="The server sent no numbers for this view."
+              detail="These numbers did not load."
               action={onRetry ? <Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11 max-md:min-h-11" onClick={onRetry}>Retry</Button> : undefined}
             />
           </div>
         )}
         {details || sweep.length > 0 ? (
-          <div className={LAST_CELL}>
+          <div className={lastCellClass(count, shape)}>
             {details ? (
               <div className="flex flex-wrap items-center gap-x-3">
                 <button type="button" className={LINK} aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen(value => !value)}>
@@ -185,36 +259,38 @@ export function TrackedSummaryGrid({ summary, limits, place, lastSweepAt, nextSw
               </div>
             ) : null}
             {sweep.length > 0 ? (
-              <p className="flex flex-wrap items-center gap-x-1.5">
-                {sweep.flatMap((part, index) => index === 0 ? [part] : [<span key={`dot-${index}`} aria-hidden="true">·</span>, part])}
-              </p>
+              <div className={SWEEP_BOX}>
+                <p className={SWEEP}>
+                  {sweep.map((part, index) => <span key={index} className={SWEEP_PART}><span aria-hidden="true" className={SWEEP_DOT}>{index > 0 ? '·' : null}</span>{part}</span>)}
+                </p>
+              </div>
             ) : null}
           </div>
         ) : null}
+        {details ? (
+          <div id={detailsId} hidden={!open} className={DETAILS}>
+            <dl className="contents">
+              {details.map((stat, index) => <StatCell key={stat.label} stat={stat} className={detailCellClass(index, count + 2)} numberClassName="text-[15px] font-semibold leading-6 tabular-nums text-heading" />)}
+            </dl>
+          </div>
+        ) : null}
       </div>
-      {details ? (
-        <div id={detailsId} hidden={!open}>
-          {/* Three columns in a narrow strip. In a wider one each number takes its own width, so the rare ones fit the same row. */}
-          <dl className="grid grid-cols-3 gap-x-4 gap-y-3 border-b border-default py-3 @lg:flex @lg:flex-wrap @lg:gap-x-8">
-            {details.map(stat => <StatCell key={stat.label} stat={stat} className="min-w-0" numberClassName="text-[15px] font-semibold leading-6 tabular-nums text-heading" />)}
-          </dl>
-        </div>
-      ) : null}
     </div>
   )
 }
 
-/** The strip while the workspace loads: the same row and height, so nothing jumps when the numbers land. */
+/** The strip while the workspace loads: the same cells at the same height, so nothing jumps when the numbers land. A place has four numbers, the project five. */
 export function TrackedSummaryGridSkeleton({ cells = 5 }: { cells?: number }) {
+  const shape = shapeOf(cells, true)
   return (
-    <div className="@container" aria-hidden="true"><div className={STRIP}>
+    <div className="@container" aria-hidden="true"><div className={`${STRIP} ${ROW[shape].strip}`} style={stripStyle(cells)}>
       {Array.from({ length: cells }, (_, index) => (
-        <div key={index} className={cellClass(index, cells)}>
+        <div key={index} className={cellClass(index, cells, shape)}>
           <div className="flex h-5 items-center"><div className="skeleton-text w-24 max-w-full" /></div>
           <div className="flex h-7 items-center"><div className="skeleton-text h-4 w-12" /></div>
         </div>
       ))}
-      <div className={LAST_CELL}><div className="skeleton-text w-40 max-w-full" /></div>
+      <div className={lastCellClass(cells, shape)}><div className="skeleton-text w-40 max-w-full" /></div>
     </div></div>
   )
 }

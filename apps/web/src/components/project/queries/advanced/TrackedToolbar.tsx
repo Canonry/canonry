@@ -24,8 +24,11 @@ const CONTROL = 'relative inline-flex h-8 min-w-0 items-center gap-1.5 rounded-m
 /**
  * One filter as one control with its label inside: "Subject Any". The words
  * and the chevron are drawn; a native select lies over them, unseen, so the
- * control is as wide as its current choice and still opens, takes keys and
- * reads its name and value as a select does.
+ * control still opens, takes keys and reads its name and value as a select
+ * does. Beside a mouse the control is as wide as its widest choice, so
+ * choosing never moves the row: every choice is set under the current one,
+ * unseen and as generated text, which leaves nothing in the page to read or
+ * to find. In the phone panel the grid sets the width.
  */
 function FilterSelect<K extends keyof TrackedFilters>({ filter, label, value, onChange }: {
   filter: K
@@ -39,7 +42,10 @@ function FilterSelect<K extends keyof TrackedFilters>({ filter, label, value, on
     // Status holds the longest choice, so it takes a row of the phone panel to itself.
     <span className={`${CONTROL} ${active ? 'border-strong' : 'border-default'}${filter === 'status' ? ' max-md:col-span-2' : ''}`}>
       <span aria-hidden="true" className="whitespace-nowrap">{label}</span>
-      <span aria-hidden="true" className="min-w-0 truncate font-medium text-heading">{options.find(option => option.value === value)?.label}</span>
+      <span aria-hidden="true" className="grid min-w-0 font-medium text-heading">
+        {options.map(option => <span key={option.value} data-choice={option.label} className="invisible col-start-1 row-start-1 h-0 whitespace-nowrap before:content-[attr(data-choice)] max-md:hidden" />)}
+        <span className="col-start-1 row-start-1 truncate">{options.find(option => option.value === value)?.label}</span>
+      </span>
       <ChevronDown aria-hidden="true" className="ml-auto size-3.5 shrink-0 text-muted" />
       <select
         aria-label={label}
@@ -59,7 +65,8 @@ function FilterSelect<K extends keyof TrackedFilters>({ filter, label, value, on
  * URL) and both counts, which are lengths of lists it holds. The filters list
  * rows and never sum anything. The controls are one row and the count and
  * the legend the row under it: five filters leave no room for both beside
- * them in the page column.
+ * them in the page column. Clear filters sits with the count, in reach at
+ * every width without opening the panel, and where it never moves a control.
  */
 export function TrackedToolbar({ search, onSearchChange, filters, onFiltersChange, shown, total, legend }: {
   search: string
@@ -68,16 +75,28 @@ export function TrackedToolbar({ search, onSearchChange, filters, onFiltersChang
   onFiltersChange: (filters: TrackedFilters) => void
   /** Queries listed after the search and the filters. Left out while they load. */
   shown?: number
-  /** Queries in all, before the search and the filters. */
+  /**
+   * Every tracked query, asked and not asked: the one number a narrowed list
+   * is counted against ("92 of 970 queries"). A clean view lists the asked
+   * queries only and is not narrowed, so it prints `shown` alone.
+   */
   total?: number
   /** What the chips mean, such as `SignalLegend`, and any note that belongs beside it. */
   legend?: ReactNode
 }) {
   const [open, setOpen] = useState(false)
   const filtersButton = useRef<HTMLButtonElement>(null)
+  const panel = useRef<HTMLDivElement>(null)
   const panelId = useId()
   const active = activeFilterCount(filters)
+  const narrowed = active > 0 || search.trim().length > 0
   const whole = (value: number) => value.toLocaleString('en-US')
+  // Clear filters goes with the last filter, so focus moves on: to the Filters button where the selects sit behind it, else to the first select.
+  const clearFilters = () => {
+    onFiltersChange(DEFAULT_TRACKED_FILTERS)
+    filtersButton.current?.focus()
+    if (document.activeElement !== filtersButton.current) panel.current?.querySelector('select')?.focus()
+  }
   // Escape in the open panel, or on its button, closes it and leaves focus on the button.
   const closeOnEscape = (event: { key: string }) => {
     if (event.key !== 'Escape' || !open) return
@@ -85,27 +104,33 @@ export function TrackedToolbar({ search, onSearchChange, filters, onFiltersChang
     filtersButton.current?.focus()
   }
   const count = shown === undefined ? null
-    : total === undefined || total === shown ? `${whole(shown)} ${shown === 1 ? 'query' : 'queries'}`
+    : !narrowed || total === undefined || total === shown ? `${whole(shown)} ${shown === 1 ? 'query' : 'queries'}`
     : `${whole(shown)} of ${whole(total)} queries`
 
   return (
     <div className="@container">
       <div className="flex flex-wrap items-center gap-2 py-3">
-        {/* The search shares a row with the selects where the toolbar is 56rem wide or more, and takes a row of its own in less. */}
-        <div className="flex min-w-[9.5rem] grow basis-full gap-2 @4xl:basis-0">
+        {/* The search shares a row with the selects where the toolbar holds them all at their widest, 66rem or more, and takes a row of its own in less. The width decides, never the choices. */}
+        <div className="flex min-w-[9.5rem] grow basis-full gap-2 @[66rem]:basis-0">
           <DataTableSearch size="sm" value={search} onChange={onSearchChange} label="Search queries" placeholder="Search queries" className="min-w-0 flex-1" />
           <Button ref={filtersButton} type="button" variant="outline" className="hidden min-h-11 pointer-coarse:inline-flex max-md:inline-flex" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(value => !value)} onKeyDown={closeOnEscape}>
             {active === 0 ? 'Filters' : `Filters · ${active}`}
           </Button>
         </div>
-        <div id={panelId} role="group" aria-label="Filters" className={open ? PANEL_OPEN : PANEL_CLOSED} onKeyDown={closeOnEscape}>
+        <div ref={panel} id={panelId} role="group" aria-label="Filters" className={open ? PANEL_OPEN : PANEL_CLOSED} onKeyDown={closeOnEscape}>
           {FILTER_LABELS.map(([filter, label]) => (
             <FilterSelect key={filter} filter={filter} label={label} value={filters[filter]} onChange={value => onFiltersChange({ ...filters, [filter]: value })} />
           ))}
         </div>
-        {count || legend ? (
+        {count || legend || active > 0 ? (
           <div className="flex basis-full flex-wrap items-center justify-between gap-x-4 gap-y-1">
-            {count ? <p role="status" className="whitespace-nowrap text-[13px] leading-5 tabular-nums text-secondary">{count}</p> : null}
+            {count || active > 0 ? (
+              <div className="flex items-center gap-x-1">
+                {count ? <p role="status" className="whitespace-nowrap text-[13px] leading-5 tabular-nums text-secondary">{count}</p> : null}
+                {/* Set into the count's line with a mouse, so the first filter chosen does not move the table. */}
+                {active > 0 ? <Button type="button" variant="ghost" size="sm" className="-my-1.5 px-2 text-[13px] pointer-coarse:my-0 pointer-coarse:min-h-11 max-md:my-0 max-md:min-h-11" onClick={clearFilters}>Clear filters</Button> : null}
+              </div>
+            ) : null}
             {legend ? <div className="min-w-0 md:ml-auto">{legend}</div> : null}
           </div>
         ) : null}

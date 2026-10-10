@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import type { QueryClass } from '@ainyc/canonry-contracts'
 
 import {
   activeFilterCount,
@@ -6,6 +7,7 @@ import {
   matchesTrackedFilters,
   parseTrackedFilters,
   trackedFiltersPatch,
+  type TrackedResultCell,
 } from '../src/components/project/queries/advanced/tracked-filters.js'
 import type { EngineSignal, TrackedFilters, TrackedRowVm, TrackedSource, TrackedSubject } from '../src/components/project/queries/advanced/tracked-types.js'
 
@@ -137,7 +139,8 @@ describe('which rows the filters list', () => {
 describe('Result', () => {
   const measured = ROWS[0]!
   const signal = (mentioned: boolean | null, cited: boolean | null): EngineSignal => ({ mentioned, cited })
-  const lists = (result: TrackedFilters['result'], signals: readonly (EngineSignal | null | undefined)[]) => matchesTrackedFilters(measured, { ...DEFAULT_TRACKED_FILTERS, result }, signals)
+  const cellsOf = (queryClass: QueryClass, signals: readonly (EngineSignal | null | undefined)[]): TrackedResultCell[] => signals.map(value => ({ queryClass, signal: value }))
+  const lists = (result: TrackedFilters['result'], signals: readonly (EngineSignal | null | undefined)[]) => matchesTrackedFilters(measured, { ...DEFAULT_TRACKED_FILTERS, result }, cellsOf('non-brand', signals))
   const BOTH = signal(true, true)
 
   test('Any lists a row whatever its chips show', () => {
@@ -168,5 +171,25 @@ describe('Result', () => {
 
   test('a cell that is still loading matches no result yet', () => {
     for (const result of ['not-mentioned', 'not-cited', 'not-checked'] as const) expect(lists(result, [undefined, undefined])).toBe(false)
+  })
+
+  test('under Non-brand or Branded, only a mixed row\'s chips of that type decide the result', () => {
+    const mixed = ROWS[3]!
+    // Mentioned and cited as Non-brand; neither as Branded.
+    const cells = [...cellsOf('non-brand', [BOTH, BOTH]), ...cellsOf('branded', [BOTH, signal(false, false)])]
+    const listsMixed = (type: TrackedFilters['type'], result: TrackedFilters['result'], given = cells) => matchesTrackedFilters(mixed, { ...DEFAULT_TRACKED_FILTERS, type, result }, given)
+    for (const result of ['not-mentioned', 'not-cited'] as const) {
+      expect([result, listsMixed('non-brand', result)]).toEqual([result, false])
+      expect([result, listsMixed('branded', result)]).toEqual([result, true])
+      // Every type in view: either type's chips list the row.
+      expect([result, listsMixed('all', result), listsMixed('mixed', result)]).toEqual([result, true, true])
+    }
+    // The row is still a Non-brand row whatever its chips show.
+    expect(listsMixed('non-brand', 'any')).toBe(true)
+    // Not checked reads the same way: a Branded cell with no result is not a Non-brand one.
+    const unchecked = [...cellsOf('non-brand', [BOTH]), ...cellsOf('branded', [null])]
+    expect([listsMixed('non-brand', 'not-checked', unchecked), listsMixed('branded', 'not-checked', unchecked)]).toEqual([false, true])
+    // No chips of the type asked for: that type was never checked.
+    expect(listsMixed('non-brand', 'not-checked', cellsOf('branded', [BOTH]))).toBe(true)
   })
 })
