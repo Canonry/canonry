@@ -194,16 +194,18 @@ It reads stored evidence only and never starts a sweep.
 | `runId` | One completed or partial whole-project sweep. Omit it for the default sweep. A probe or a scoped run is refused. |
 
 The default sweep is the newest completed or partial whole-project sweep comparable to the active plan, else the newest of any plan. This is the sweep AI Visibility shows by default.
+A simple project has no plan. Its default sweep is the newest of its last 100 sweeps that was sent with the engines, models, search location, country and language the project uses now, else the newest.
+So a newer run of one engine, at another search location or with none never hides the full sweep before it. An all-locations run is one run per search location, and only the one at the project's default search location counts as sent that way. AI Visibility still opens on the newest sweep of a simple project.
 `run` names it: `id`, `createdAt`, `completedAt`, `status`, `revision` (null on a simple project) and `matchesCurrentTracking`.
 `matchesCurrentTracking` is false when tracking changed after that sweep. A label-only republish keeps it true.
-On a simple project, tracking is the tracked queries and the project's names, sites, engines, models and search location. An older sweep that recorded none of them is never a match.
+On a simple project, tracking is the tracked queries and the project's names, sites, engines, models, search location, country and language. An older sweep that recorded none of them is never a match.
 `run` is null and `rows` is empty until a sweep finishes. `engines` lists every engine the sweep asked.
 
 Each row is one query under one class: `queryId`, `queryText`, `queryClass` and `engines[]`.
 `queryClass` is a class the workspace row carries in `queryClasses`, or `unknown` when it carries none. A query asked as Branded for one location and Non-brand for another has two rows. The two are never combined.
 A row is returned only when the sweep asked every pairing of that query and class in the place exactly as it is asked now: same location, class, text, engines, models and search location.
 A query that was moved, re-typed or reworded since has no row until the next sweep, and neither has one whose engines, models or search location changed. `pendingRows` counts those query and class pairs.
-On a simple project the engines, models and search location are project settings, so changing one withholds every row, as the workspace marks every query `awaiting-sweep`. A new name or site keeps the rows and sets `matchesCurrentTracking` to false.
+On a simple project the engines, models, search location, country and language are project settings. Changing one withholds every row until a sweep is sent that way, and the workspace marks every query `awaiting-sweep` until then. A run named by `runId` that was sent another way returns no rows either. A new name or site keeps the rows and sets `matchesCurrentTracking` to false.
 The project read returns every tracked query, about 0.5 MB per 1,000 queries on three engines. Pass `scope` and `scopeKey` to read one place.
 
 Each `engines[]` entry reads only the answers of that row's own executions:

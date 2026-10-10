@@ -176,9 +176,13 @@ describe('seeded demo route coverage', () => {
       expect(body.mode, project).toBe(modes[project])
       expect(body.run, project).not.toBeNull()
       expect(body.engines.length, project).toBeGreaterThan(0)
-      // Every seeded query was swept as it is tracked now.
+      // Every seeded query was swept as it is tracked now, so nothing reads as changed since.
       expect(body.rows.length, project).toBeGreaterThan(0)
       expect(body.pendingRows, project).toBe(0)
+      expect(body.run.matchesCurrentTracking, project).toBe(true)
+      // The workspace compares the same sweeps: no sample query waits for one.
+      const workspace = (await inject(`/api/v1/projects/${project}/query-tracking`)).json()
+      expect([...new Set(workspace.tracked.map((row: Json) => row.state))], project).toEqual(['tracked'])
     }
     expect(network).not.toHaveBeenCalled()
   })

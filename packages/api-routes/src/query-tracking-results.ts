@@ -311,26 +311,58 @@ function simplePairings(
  * pairing's signature covers. `sameTracking` adds the project's names and
  * sites, which decide how an answer is read: the workspace's full rule.
  */
-function simpleSweepComparison(
+function simpleSweepComparer(
   project: ProjectRow,
-  definition: SimpleMeasurementDefinition,
   opts: QueryTrackingRoutesOptions,
-): { sameDispatch: boolean; sameTracking: boolean } {
+): (definition: SimpleMeasurementDefinition) => { sameDispatch: boolean; sameTracking: boolean } {
   const current = currentSimpleExecutionSignature(project, opts)
-  const namedAsNow: SimpleMeasurementDefinition = {
-    ...definition,
-    identity: {
-      ...definition.identity,
-      displayName: project.displayName,
-      aliases: project.aliases,
-      canonicalDomain: project.canonicalDomain,
-      ownedDomains: project.ownedDomains,
-    },
+  return definition => {
+    const namedAsNow: SimpleMeasurementDefinition = {
+      ...definition,
+      identity: {
+        ...definition.identity,
+        displayName: project.displayName,
+        aliases: project.aliases,
+        canonicalDomain: project.canonicalDomain,
+        ownedDomains: project.ownedDomains,
+      },
+    }
+    return {
+      sameDispatch: frozenSimpleExecutionSignature(namedAsNow) === current,
+      sameTracking: frozenSimpleExecutionSignature(definition) === current,
+    }
   }
-  return {
-    sameDispatch: frozenSimpleExecutionSignature(namedAsNow) === current,
-    sameTracking: frozenSimpleExecutionSignature(definition) === current,
+}
+
+/**
+ * The planless sweep a read shows, with its frozen definition. Named by id,
+ * `candidates` holds that sweep alone. Otherwise the choice is `defaultSweep`'s
+ * for a plan: the newest sweep that sent the engines what the project sends
+ * now, else the newest. A run of one engine, at another search location or
+ * without one froze another dispatch, as every member but one of an
+ * all-locations run did, so it never hides the full sweep before it.
+ *
+ * The newest sweep's definition is read alone, because on most reads it is
+ * the answer. Only when it is not are the older candidates' definitions read,
+ * all in one read. `candidates` is the look-back: the newest
+ * `VISIBILITY_REPORT_MAX_RUNS` sweeps, the ones the workspace compares too.
+ */
+function simpleSweepChoice(
+  db: DatabaseClient,
+  projectId: string,
+  candidates: ReadonlyArray<{ id: string }>,
+  sameDispatch: (definition: SimpleMeasurementDefinition) => boolean,
+): { id: string; definition: SimpleMeasurementDefinition | undefined } | undefined {
+  const [newest, ...older] = candidates
+  if (!newest) return undefined
+  const definition = frozenSimpleDefinitions(db, projectId, [newest.id]).get(newest.id)
+  if (older.length === 0 || (definition !== undefined && sameDispatch(definition))) return { id: newest.id, definition }
+  const definitions = frozenSimpleDefinitions(db, projectId, older.map(candidate => candidate.id))
+  for (const candidate of older) {
+    const frozen = definitions.get(candidate.id)
+    if (frozen !== undefined && sameDispatch(frozen)) return { id: candidate.id, definition: frozen }
   }
+  return { id: newest.id, definition }
 }
 
 /** Whole-project sweeps, newest first, without their stored slot lists. */
@@ -438,16 +470,17 @@ function simpleResults(
   // The workspace row's class: no usable brand name leaves it unset, never non-brand.
   const classifier = compileQueryClassifier(effectiveBrandNames(project))
   const classOf = (queryText: string): VisibilityReportPopulationClass => classifier?.classify(queryText) ?? 'unknown'
-  const chosen = sweepCandidates(db, project.id, true, query.runId).at(0)
+  const compare = simpleSweepComparer(project, opts)
+  const chosen = simpleSweepChoice(db, project.id, sweepCandidates(db, project.id, true, query.runId), definition => compare(definition).sameDispatch)
   if (!chosen) {
     if (query.runId !== undefined) throw notASweep(query.runId)
     return { run: null, engines: [], ...foldQueryTrackingResults(null, simplePairings(tracked, classOf, null)) }
   }
+  const { definition } = chosen
   const run = sweepRow(db, chosen.id)
-  const definition = frozenSimpleDefinitions(db, project.id, [run.id]).get(run.id)
   const sweep = simpleRunInput(db, project, run, definition, false)
   // An older sweep with no frozen definition recorded nothing to compare.
-  const comparison = definition === undefined ? null : simpleSweepComparison(project, definition, opts)
+  const comparison = definition === undefined ? null : compare(definition)
   // As an advanced row whose engines, models or search location changed: a
   // sweep that sent the engines something else leaves every query pending.
   const pairings = simplePairings(tracked, classOf, comparison?.sameDispatch === false ? null : sweep)

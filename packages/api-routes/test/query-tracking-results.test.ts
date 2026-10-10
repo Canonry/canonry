@@ -269,6 +269,24 @@ function rowKeys(body: QueryTrackingResultsResponse): string[] {
   return body.rows.map(row => `${row.queryId} ${row.queryClass}`)
 }
 
+/** Table names of every `select().from()` the routes run. */
+function recordReads(): string[] {
+  const reads: string[] = []
+  const select = db.select.bind(db) as (...args: unknown[]) => { from: (table: Table) => unknown }
+  vi.spyOn(db, 'select').mockImplementation(((...args: unknown[]) => {
+    const builder = select(...args)
+    const from = builder.from.bind(builder)
+    builder.from = (table: Table) => {
+      reads.push(getTableName(table))
+      return from(table)
+    }
+    return builder
+  }) as typeof db.select)
+  return reads
+}
+
+const count = (reads: readonly string[], table: string) => reads.filter(name => name === table).length
+
 /**
  * The seeded sweep:
  * - `q-market`: Claude names Harbor and cites nobody tracked, Gemini names nobody and cites Cedar's page, OpenAI never answered.
@@ -668,10 +686,10 @@ describe('query tracking results: tracking changed after the sweep', () => {
 describe('query tracking results: a simple project', () => {
   // What the project dispatches in `beforeEach`: its three engines, their models and its search location.
   const CAPTURED = { capturedAt: LAST_SWEEP, country: 'US', language: 'en', location: RIVERSIDE }
-  const AS_SWEPT = { providers: [...ENGINES], providerModels: MODELS, locations: [RIVERSIDE], defaultLocation: 'riverside', aliases: [] as string[] }
+  const AS_SWEPT = { providers: [...ENGINES], providerModels: MODELS, locations: [RIVERSIDE], defaultLocation: 'riverside', country: 'US', language: 'en', aliases: [] as string[] }
   /** One answer per engine for each query, so the workspace counts the query as swept. */
-  const everyEngine = (rows: ReadonlyArray<readonly [id: string, text: string]>) => (
-    ENGINES.flatMap(provider => rows.map(([queryId, text]) => ({ queryId, text, provider, answer: 'Northbridge.' })))
+  const everyEngine = (rows: ReadonlyArray<readonly [id: string, text: string]>, engines: readonly Engine[] = ENGINES, answer = 'Northbridge.') => (
+    engines.flatMap(provider => rows.map(([queryId, text]) => ({ queryId, text, provider, answer })))
   )
   const states = async () => (await workspace()).tracked.map(row => row.state)
 
@@ -679,10 +697,15 @@ describe('query tracking results: a simple project', () => {
     db.insert(queries).values(rows.map(([id, text]) => ({ id, projectId: PROJECT_ID, query: text, createdAt: NOW }))).run()
   }
 
-  /** A planless sweep. With `frozen` it carries the definition a sweep captures today; without, it is older history. */
+  /**
+   * A planless sweep. With `frozen` it carries the definition a sweep captures today; without, it is older history.
+   * `engines` and `location` are what this run was sent with when that is not what the project dispatches.
+   */
   function seedSimpleSweep(input: {
     createdAt: string
     frozen?: ReadonlyArray<readonly [id: string, text: string]>
+    engines?: readonly Engine[]
+    location?: SearchLocation | null
     answers: ReadonlyArray<{ queryId: string; text: string; provider: Engine; answer: string; cited?: boolean; mentioned?: boolean | null }>
   }): string {
     const id = crypto.randomUUID()
@@ -693,8 +716,9 @@ describe('query tracking results: a simple project', () => {
     if (input.frozen) {
       const definition = buildSimpleMeasurementDefinition({
         ...CAPTURED,
+        ...(input.location === undefined ? {} : { location: input.location }),
         identity: { displayName: 'Northbridge', aliases: [], canonicalDomain: 'northbridge.example', ownedDomains: [] },
-        engines: ENGINES.map(provider => ({ provider, requestedModel: MODELS[provider] })),
+        engines: (input.engines ?? ENGINES).map(provider => ({ provider, requestedModel: MODELS[provider] })),
         queries: input.frozen.map(([queryId, queryText]) => ({ queryId, queryText, provenance: 'manual' })),
       })
       db.insert(simpleMeasurementDefinitions).values({
@@ -787,7 +811,7 @@ describe('query tracking results: a simple project', () => {
     expect(body.run?.matchesCurrentTracking).toBe(false)
   })
 
-  it('withholds every row once the engines, a model or the search location changed, and keeps them after a new name', async () => {
+  it('withholds every row once the engines, a model, the search location, the country or the language changed, and keeps them after a new name', async () => {
     seedSimpleQueries([BRAND_QUERY, CATEGORY_QUERY])
     const runId = seedSimpleSweep({ createdAt: LAST_SWEEP, frozen: [BRAND_QUERY, CATEGORY_QUERY], answers: everyEngine([BRAND_QUERY, CATEGORY_QUERY]) })
     const set = (change: Partial<typeof projects.$inferInsert>) => (
@@ -804,6 +828,8 @@ describe('query tracking results: a simple project', () => {
       ['an engine removed', { providers: ['claude', 'openai'] }],
       ['a model changed', { providerModels: { ...MODELS, openai: 'gpt-next' } }],
       ['the search location changed', { locations: [RIVERSIDE, LAKESIDE], defaultLocation: 'lakeside' }],
+      ['the country changed', { country: 'CA' }],
+      ['the language changed', { language: 'fr' }],
     ]
     for (const [what, change] of changes) {
       set(change)
@@ -828,6 +854,95 @@ describe('query tracking results: a simple project', () => {
 
     set({})
     expect(await results()).toStrictEqual(swept)
+  })
+
+  it('reads the newest sweep sent as the project sends now, never a newer run of one engine or another search location', async () => {
+    db.update(projects).set({ locations: [RIVERSIDE, LAKESIDE] }).where(eq(projects.id, PROJECT_ID)).run()
+    const tracked = [BRAND_QUERY, CATEGORY_QUERY]
+    seedSimpleQueries(tracked)
+    const full = seedSimpleSweep({ createdAt: FIRST_SWEEP, frozen: tracked, answers: everyEngine(tracked) })
+    const swept = await results()
+    expect(swept.run).toMatchObject({ id: full, matchesCurrentTracking: true })
+    expect(rowKeys(swept)).toEqual(['q-brand branded', 'q-category non-brand'])
+    expect(engine(swept, 'q-category', 'non-brand', 'gemini').mentioned).toBe(true)
+
+    // Each newer run froze another dispatch. None changed the project, and none names it in an answer.
+    const partial = (engines: readonly Engine[] = ENGINES) => everyEngine(tracked, engines, 'Several builders stand out.')
+    const sends: ReadonlyArray<readonly [what: string, sent: { engines?: readonly Engine[]; location?: SearchLocation | null }]> = [
+      ['one engine', { engines: ['openai'] }],
+      ['another saved search location', { location: LAKESIDE }],
+      ['no search location', { location: null }],
+    ]
+    const newer: string[] = []
+    for (const [index, [what, sent]] of sends.entries()) {
+      newer.push(seedSimpleSweep({ createdAt: `2026-10-07T1${index}:00:00.000Z`, frozen: tracked, ...sent, answers: partial(sent.engines) }))
+      expect(await results(), what).toStrictEqual(swept)
+      expect(await states(), what).toEqual(['tracked', 'tracked'])
+    }
+
+    // Named by id, such a run is read as it ran: nothing in it was asked as the project asks now.
+    const oneEngine = await results(`runId=${newer[0]}`)
+    expect(oneEngine.run).toMatchObject({ id: newer[0], matchesCurrentTracking: false })
+    expect(oneEngine).toMatchObject({ engines: ['openai'], rows: [], pendingRows: 2 })
+  })
+
+  it('reads the default member of an all-locations run, and the newest sweep when none was sent as the project sends now', async () => {
+    db.update(projects).set({ locations: [RIVERSIDE, LAKESIDE] }).where(eq(projects.id, PROJECT_ID)).run()
+    const tracked = [BRAND_QUERY, CATEGORY_QUERY]
+    seedSimpleQueries(tracked)
+    seedSimpleSweep({ createdAt: FIRST_SWEEP, frozen: tracked, answers: everyEngine(tracked, ENGINES, 'Several builders stand out.') })
+    // One run per saved search location. The other location's run happens to be the newest.
+    const atDefault = seedSimpleSweep({ createdAt: LAST_SWEEP, frozen: tracked, location: RIVERSIDE, answers: everyEngine(tracked) })
+    const atOther = seedSimpleSweep({ createdAt: LATER, frozen: tracked, location: LAKESIDE, answers: everyEngine(tracked, ENGINES, 'Several builders stand out.') })
+
+    // The newest of the two sweeps sent as the project sends now, with its own answers.
+    const body = await results()
+    expect(body.run).toMatchObject({ id: atDefault, createdAt: LAST_SWEEP, matchesCurrentTracking: true })
+    expect(body.pendingRows).toBe(0)
+    expect(engine(body, 'q-category', 'non-brand', 'claude')).toMatchObject({ mentionedAnswers: 1, mentioned: true })
+
+    // A new model: no stored sweep asked that. The read names the newest sweep and withholds every row.
+    db.update(projects).set({ providerModels: { ...MODELS, openai: 'gpt-next' } }).where(eq(projects.id, PROJECT_ID)).run()
+    const changed = await results()
+    expect(changed.run).toMatchObject({ id: atOther, createdAt: LATER, matchesCurrentTracking: false })
+    expect(changed).toMatchObject({ rows: [], pendingRows: 2 })
+    expect(await states()).toEqual(['awaiting-sweep', 'awaiting-sweep'])
+  })
+
+  it('looks back over as many sweeps as the workspace does, in two reads of the frozen definitions at most', async () => {
+    const tracked = [BRAND_QUERY, CATEGORY_QUERY]
+    seedSimpleQueries(tracked)
+    const full = seedSimpleSweep({ createdAt: FIRST_SWEEP, frozen: tracked, answers: everyEngine(tracked) })
+    const reads = recordReads()
+    const read = async () => {
+      reads.length = 0
+      const body = await results()
+      return { body, definitions: count(reads, 'simple_measurement_definitions'), snapshots: count(reads, 'query_snapshots'), runs: count(reads, 'runs') }
+    }
+
+    // The everyday read: the newest sweep was sent as the project sends now, so only its definition is read.
+    expect(await read()).toMatchObject({ body: { run: { id: full } }, definitions: 1, snapshots: 1, runs: 2 })
+
+    // 99 newer one-engine runs: the full sweep is the last of the 100 sweeps looked at.
+    const oneEngineRun = (minute: number) => seedSimpleSweep({
+      createdAt: new Date(Date.parse(LAST_SWEEP) + minute * 60_000).toISOString(), frozen: tracked, engines: ['openai'],
+      answers: everyEngine(tracked, ['openai'], 'Several builders stand out.'),
+    })
+    for (let minute = 0; minute < 99; minute++) oneEngineRun(minute)
+    const inside = await read()
+    expect(inside.body.run).toMatchObject({ id: full, matchesCurrentTracking: true })
+    expect(inside.body.rows).toHaveLength(2)
+    // The newest definition, then every older one in a single read. Never one read per sweep.
+    expect(inside).toMatchObject({ definitions: 2, snapshots: 1, runs: 2 })
+    expect(await states()).toEqual(['tracked', 'tracked'])
+
+    // One more: the full sweep is past the look-back for this read and for the workspace alike.
+    const newest = oneEngineRun(99)
+    const outside = await read()
+    expect(outside.body.run).toMatchObject({ id: newest, matchesCurrentTracking: false })
+    expect(outside.body).toMatchObject({ engines: ['openai'], rows: [], pendingRows: 2 })
+    expect(outside).toMatchObject({ definitions: 2, snapshots: 1, runs: 2 })
+    expect(await states()).toEqual(['awaiting-sweep', 'awaiting-sweep'])
   })
 
   it('reads a sweep with no frozen definition only under the class it can vouch for', async () => {
@@ -860,24 +975,6 @@ describe('query tracking results: a simple project', () => {
 })
 
 describe('query tracking results: cost', () => {
-  /** Table names of every `select().from()` the routes run. */
-  function recordReads(): string[] {
-    const reads: string[] = []
-    const select = db.select.bind(db) as (...args: unknown[]) => { from: (table: Table) => unknown }
-    vi.spyOn(db, 'select').mockImplementation(((...args: unknown[]) => {
-      const builder = select(...args)
-      const from = builder.from.bind(builder)
-      builder.from = (table: Table) => {
-        reads.push(getTableName(table))
-        return from(table)
-      }
-      return builder
-    }) as typeof db.select)
-    return reads
-  }
-
-  const count = (reads: readonly string[], table: string) => reads.filter(name => name === table).length
-
   it('parses only the plans it needs and reads one sweep\'s snapshots once, however many revisions exist', async () => {
     const { versionId, plan } = seedPortfolio()
     // Nineteen more revisions and a sweep of each: every one is history this read must not open.

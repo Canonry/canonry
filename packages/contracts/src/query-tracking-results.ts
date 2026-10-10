@@ -79,8 +79,8 @@ export const queryTrackingResultsRunSchema = z.object({
    * False when tracking changed after this sweep, so some pairings may have no
    * row until the next one. A label-only republish keeps it true. On a simple
    * project, tracking is the tracked queries and the project's names, sites,
-   * engines, models and search location; an older sweep that recorded none of
-   * them is never a match.
+   * engines, models, search location, country and language; an older sweep
+   * that recorded none of them is never a match.
    */
   matchesCurrentTracking: z.boolean(),
 }).strict()
@@ -101,7 +101,8 @@ export const queryTrackingResultsResponseSchema = z.object({
    * One row per query and class whose every pairing in the place was asked by
    * the sweep exactly as it is asked now. A query moved, re-typed or reworded
    * since has no row until the next sweep, and neither has one whose engines,
-   * models or search location changed.
+   * models or search location changed (on a simple project also the country
+   * or language).
    */
   rows: z.array(queryTrackingResultRowSchema),
   /** Query and class pairs asked in the place now that the sweep did not measure. */
