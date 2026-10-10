@@ -14,8 +14,21 @@ import {
   loadDuckdb as defaultLoadDuckdb,
   type BacklinkRow,
 } from '@ainyc/canonry-integration-commoncrawl'
-import { BacklinkSources, CcReleaseSyncStatuses, RunStatuses, computeBacklinkSummaryMetrics, describeError } from '@ainyc/canonry-contracts'
+import {
+  BacklinkSources,
+  CcReleaseSyncStatuses,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
+  OutcomeSurfaces,
+  OutcomeTriggers,
+  RunStatuses,
+  RunTriggers,
+  computeBacklinkSummaryMetrics,
+  describeError,
+  type OutcomeReasonCode,
+} from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
+import { outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
 const log = createLogger('BacklinkExtract')
 
@@ -46,12 +59,22 @@ export async function executeBacklinkExtract(
 ): Promise<void> {
   const deps = { ...defaultDeps(), ...opts.deps }
   const startedAt = deps.now().toISOString()
+  const elapsed = startOutcomeTimer()
+  // Auto-extracts after a release sync are queued as scheduled runs.
+  const scheduled = db.select({ trigger: runs.trigger }).from(runs).where(eq(runs.id, runId)).get()?.trigger === RunTriggers.scheduled
+  const outcome = {
+    feature: 'backlinks',
+    operation: 'extract',
+    ...(scheduled ? { trigger: OutcomeTriggers.scheduled, surface: OutcomeSurfaces.system } : { trigger: OutcomeTriggers.manual }),
+  } as const
+  let refusal: OutcomeReasonCode | undefined
 
   db.update(runs).set({ status: RunStatuses.running, startedAt }).where(eq(runs.id, runId)).run()
 
   try {
     const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) {
+      refusal = OutcomeReasonCodes.NOT_FOUND
       throw new Error(`Project not found: ${projectId}`)
     }
 
@@ -63,6 +86,8 @@ export async function executeBacklinkExtract(
           .limit(1)
           .get()
 
+    // Every refusal below is a release that is not synced and cached here yet.
+    refusal = OutcomeReasonCodes.NO_DATA
     if (!sync) {
       throw new Error('No ready release sync available — run `canonry backlinks sync` first')
     }
@@ -80,6 +105,7 @@ export async function executeBacklinkExtract(
       )
     }
 
+    refusal = undefined
     const duckdb = deps.loadDuckdb()
     const rows = await deps.queryBacklinks({
       vertexPath: sync.vertexPath,
@@ -147,6 +173,13 @@ export async function executeBacklinkExtract(
     db.update(runs).set({ status: RunStatuses.completed, finishedAt }).where(eq(runs.id, runId)).run()
 
     log.info('extract.completed', { runId, projectId, release, rows: rows.length })
+    const summary = computeSummary(rows)
+    trackFeatureCompleted({
+      ...outcome,
+      status: OutcomeStatuses.succeeded,
+      durationBucket: elapsed(),
+      counts: { domains: summary.totalLinkingDomains, links: summary.totalHosts },
+    })
   } catch (err) {
     const errorMsg = describeError(err)
     const finishedAt = deps.now().toISOString()
@@ -154,6 +187,7 @@ export async function executeBacklinkExtract(
       status: RunStatuses.failed, error: errorMsg, finishedAt,
     }).where(eq(runs.id, runId)).run()
     log.error('extract.failed', { runId, projectId, error: errorMsg })
+    trackFeatureCompleted({ ...outcome, status: OutcomeStatuses.failed, durationBucket: elapsed(), ...outcomeFailure(err, refusal) })
     throw err
   }
 }

@@ -57,7 +57,6 @@ import {
   embedClientConfigForRequest,
   serializeForInlineScript,
   frameAncestorsHeaderValue,
-  CcReleaseSyncStatuses,
   RunKinds,
   SchedulableRunKinds,
   type SchedulableRunKind,
@@ -78,6 +77,8 @@ import {
   type ProviderSummaryEntryDto,
   type AgentPluginState,
   describeError,
+  OutcomeTriggers,
+  type OutcomeTrigger,
 } from "@ainyc/canonry-contracts";
 import type {
   CanonryConfig,
@@ -223,7 +224,7 @@ import { GTM_READONLY_SCOPE } from "@ainyc/canonry-integration-google-tag-manage
 import { executeInspectSitemap } from "./gsc-inspect-sitemap.js";
 import { executeBingInspectSitemap } from "./bing-inspect-sitemap.js";
 import { maybeRefreshGscCoverage, runWasUserInitiated } from "./coverage-refresh.js";
-import { executeReleaseSync } from "./commoncrawl-sync.js";
+import { executeReleaseSync, syncLatestReleaseOnSchedule } from "./commoncrawl-sync.js";
 import { executeBacklinkExtract } from "./backlink-extract.js";
 import { executeDiscoveryRun } from "./discovery-run.js";
 import { executeSiteAudit } from "./execute-site-audit.js";
@@ -1125,6 +1126,9 @@ export async function createServer(opts: {
   const schedulerClient = new ApiClient(opts.config.apiUrl, opts.config.apiKey, {
     skipProbe: true,
   });
+  // Releases the backlinks schedule asked POST /backlinks/syncs for, so the
+  // release sync that request starts reports a scheduled trigger.
+  const scheduledBacklinkReleases = new Set<string>();
   // Built-in Aero agent kill-switch. When disabled (config `agent.mode:
   // 'disabled'` or env CANONRY_AGENT_DISABLED=1) we skip the SessionRegistry,
   // the proactive wake on run completion, and the interactive agent routes —
@@ -1942,56 +1946,14 @@ export async function createServer(opts: {
       void refreshAllIntegrations(schedulerClient, projectName);
     },
     onBacklinksSyncRequested: (projectName) => {
-      // Re-probe Common Crawl for the newest rolling window. The release sync is
-      // workspace-GLOBAL, so we gate on freshness: skip when the latest published
-      // release is already synced READY (avoids re-downloading a ~4 GB/~13 GB
-      // near-identical window every tick). We match on (release, status) directly
-      // rather than the most-recently-updated ready row, so re-syncing an older
-      // release out of band doesn't make us re-trigger an already-synced latest.
-      // Otherwise reuse POST /backlinks/syncs, which owns insert/dedupe (UNIQUE
-      // release + non-terminal check) and the per-project auto-extract fan-out.
-      // Probe directly (not the 5-min cache) so each tick sees fresh results.
-      void (async () => {
-        const probed = await probeLatestRelease().catch((err: unknown) => {
-          app.log.warn(
-            { projectName, err },
-            "Scheduled backlinks sync: latest-release probe failed",
-          );
-          return null;
-        });
-        if (!probed) return;
-        const alreadySynced = opts.db
-          .select()
-          .from(ccReleaseSyncsTable)
-          .where(
-            and(
-              eq(ccReleaseSyncsTable.release, probed.release),
-              eq(ccReleaseSyncsTable.status, CcReleaseSyncStatuses.ready),
-            ),
-          )
-          .limit(1)
-          .get();
-        if (alreadySynced) {
-          app.log.info(
-            { projectName, release: probed.release },
-            "Scheduled backlinks sync: already up to date, skipping",
-          );
-          return;
-        }
-        schedulerClient
-          .backlinksTriggerSync(probed.release)
-          .catch((err: unknown) => {
-            app.log.error(
-              {
-                projectName,
-                release: probed.release,
-                err: describeError(err),
-              },
-              "Scheduled backlinks sync failed",
-            );
-          });
-      })();
-
+      void syncLatestReleaseOnSchedule(projectName, {
+        db: opts.db,
+        // Probe directly (not the 5-min cache) so each tick sees fresh results.
+        probe: () => probeLatestRelease(),
+        requestSync: (release) => schedulerClient.backlinksTriggerSync(release),
+        scheduledReleases: scheduledBacklinkReleases,
+        log: app.log,
+      });
     },
     onSiteAuditRequested: (runId, projectId, auditOpts) => {
       // The scheduler already created the site-audit run row; run the same
@@ -2782,8 +2744,8 @@ export async function createServer(opts: {
     config: opts.config,
   });
 
-  const dispatchResearchRun = (runId: string, projectId: string) => {
-    executeResearchRun(opts.db, registry, runId, projectId).catch((err: unknown) => {
+  const dispatchResearchRun = (runId: string, projectId: string, trigger?: OutcomeTrigger) => {
+    executeResearchRun(opts.db, registry, runId, projectId, { trigger }).catch((err: unknown) => {
       app.log.error({ runId, err }, 'Research run failed');
     });
   };
@@ -3256,6 +3218,7 @@ export async function createServer(opts: {
     onReleaseSyncRequested: (syncId: string, release: string) => {
       executeReleaseSync(opts.db, syncId, {
         release,
+        trigger: scheduledBacklinkReleases.delete(release) ? OutcomeTriggers.scheduled : OutcomeTriggers.manual,
         deps: {
           enqueueAutoExtract: ({ projectId, release: r }) => {
             const now = new Date().toISOString();
@@ -4129,7 +4092,7 @@ export async function createServer(opts: {
       // running compare-and-set keeps this safe when a concurrent retry also
       // asks for execution.
       for (const run of opts.db.select({ id: researchRuns.id, projectId: researchRuns.projectId }).from(researchRuns).where(eq(researchRuns.status, ResearchRunStatuses.queued)).all()) {
-        dispatchResearchRun(run.id, run.projectId);
+        dispatchResearchRun(run.id, run.projectId, OutcomeTriggers.startup);
       }
       runtimeStartupSettled = true;
       resolveRuntimeStartup();
