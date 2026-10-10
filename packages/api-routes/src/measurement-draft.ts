@@ -69,6 +69,7 @@ import { beginMarketPinWrite, marketPinWriteAuditFields, notifyMarketPinWrite, t
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
 import { storedPlanPinGroups } from './plan-competitors.js'
+import { assertNoActiveSweep } from './query-replace.js'
 import {
   applyDraftAction,
   applyAssignmentsToAuthoring,
@@ -1193,6 +1194,10 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
         }))
         return settle(false, active, parseV2Plan(active))
       }
+
+      // A new revision waits for any queued or running sweep. The identical
+      // publish above still clears the draft, since it changes nothing.
+      assertNoActiveSweep(tx, { projectId: gate.project.id, projectName: gate.project.name })
 
       // Identical to an OLDER revision publishes as a NEW revision at max + 1:
       // revert is a first-class operation, and the compiled-checksum index is

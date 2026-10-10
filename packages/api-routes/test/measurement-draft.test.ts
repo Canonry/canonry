@@ -1622,6 +1622,90 @@ describe('measurement draft publish', () => {
     expect(db.select().from(querySnapshots).all()).toEqual(beforeSnapshots)
   })
 
+  it.each([RunStatuses.queued, RunStatuses.running])('refuses a new revision while a sweep is %s, leaving the draft, pointer and receipts unchanged', async status => {
+    expect((await publish(await readyDraft(), null)).statusCode).toBe(200)
+    const revisionOne = db.select().from(measurementPlanVersions).get()!
+    const next = await DraftSession.start(1)
+    await next.run('upsert-target', { target: GADGETS_TARGET })
+    await next.run('apply-assignments', { targetKey: 'gadgets', queryIds: [queryId('widget delivery times')] })
+    db.insert(runs).values({
+      id: 'run_sweep', projectId: 'prj_northwind', kind: RunKinds['answer-visibility'], status,
+      trigger: RunTriggers.scheduled, measurementPlanVersionId: revisionOne.id, createdAt: NOW,
+    }).run()
+    const stored = () => ({
+      drafts: db.select().from(measurementPlanDrafts).all(),
+      pointer: db.select().from(measurementPlans).all(),
+      versions: db.select().from(measurementPlanVersions).all(),
+      segments: db.select().from(measurementSegments).all(),
+      receipts: db.select().from(measurementOperationReceipts).all(),
+    })
+    const before = stored()
+
+    const refused = await publish(next, 1)
+    expect(refused.statusCode, refused.body).toBe(409)
+    expect(refused.json()).toEqual({
+      error: {
+        code: 'RUN_IN_PROGRESS',
+        message: `Sweep run run_sweep is ${status} for 'northwind'. Publish tracked query and setup changes after it finishes, or cancel it first: canonry run cancel northwind run_sweep`,
+        details: { projectName: 'northwind', kind: 'answer-visibility', activeRunId: 'run_sweep', reason: 'sweep-in-progress' },
+      },
+    })
+    expect(stored()).toEqual(before)
+
+    db.update(runs).set({ status: RunStatuses.completed, finishedAt: NOW }).where(eq(runs.id, 'run_sweep')).run()
+    const published = await publish(next, 1)
+    expect(published.statusCode, published.body).toBe(200)
+    expect(published.json()).toMatchObject({ published: true, active: { revision: 2 } })
+  })
+
+  it('refuses a first publish during a planless sweep', async () => {
+    const session = await readyDraft()
+    db.insert(runs).values({
+      id: 'run_planless', projectId: 'prj_northwind', kind: RunKinds['answer-visibility'], status: RunStatuses.running,
+      trigger: RunTriggers.manual, createdAt: NOW,
+    }).run()
+    const refused = await publish(session, null)
+    expect(refused.statusCode, refused.body).toBe(409)
+    expect(refused.json().error).toMatchObject({ code: 'RUN_IN_PROGRESS', details: { activeRunId: 'run_planless', reason: 'sweep-in-progress' } })
+    expect(db.select().from(measurementPlans).all()).toEqual([])
+    expect(db.select().from(measurementPlanDrafts).all()).toHaveLength(1)
+  })
+
+  it('counts every sibling of a location fan-out, and keeps refusing until the last one ends', async () => {
+    const session = await readyDraft()
+    // Created together and inserted out of order: the id breaks the tie, so the list is stable.
+    db.insert(runs).values(['run_b', 'run_a'].map(id => ({
+      id, projectId: 'prj_northwind', kind: RunKinds['answer-visibility'], status: RunStatuses.running,
+      trigger: RunTriggers.manual, createdAt: NOW,
+    }))).run()
+    const refused = await publish(session, null)
+    expect(refused.statusCode, refused.body).toBe(409)
+    expect(refused.json().error).toMatchObject({
+      message: "2 sweep runs are queued or running for 'northwind'. Publish tracked query and setup changes after they all finish, or cancel each one first: canonry run cancel northwind <run-id>",
+      details: { activeRunId: 'run_a', reason: 'sweep-in-progress', activeRunIds: ['run_a', 'run_b'] },
+    })
+
+    db.update(runs).set({ status: RunStatuses.cancelled, finishedAt: NOW }).where(eq(runs.id, 'run_a')).run()
+    const stillRefused = await publish(session, null)
+    expect(stillRefused.statusCode, stillRefused.body).toBe(409)
+    expect(stillRefused.json().error.details).toEqual({ projectName: 'northwind', kind: 'answer-visibility', activeRunId: 'run_b', reason: 'sweep-in-progress' })
+  })
+
+  it('still clears a draft identical to the active revision during a sweep', async () => {
+    expect((await publish(await readyDraft(), null)).statusCode).toBe(200)
+    const revisionOne = db.select().from(measurementPlanVersions).get()!
+    const same = await DraftSession.start(1)
+    db.insert(runs).values({
+      id: 'run_sweep', projectId: 'prj_northwind', kind: RunKinds['answer-visibility'], status: RunStatuses.running,
+      trigger: RunTriggers.scheduled, measurementPlanVersionId: revisionOne.id, createdAt: NOW,
+    }).run()
+    const noop = await publish(same, 1)
+    expect(noop.statusCode, noop.body).toBe(200)
+    expect(noop.json()).toMatchObject({ published: false, active: { revision: 1 } })
+    expect(db.select().from(measurementPlanVersions).all()).toEqual([revisionOne])
+    expect(db.select().from(measurementPlanDrafts).all()).toEqual([])
+  })
+
   it('deletes only the active-plan pointer on deactivate', async () => {
     const session = await readyDraft()
     await publish(session, null)

@@ -765,6 +765,8 @@ function measurementDraftAction(input: {
   payloadTooLarge?: boolean
   /** The route has a per-caller request budget and can return HTTP 429. */
   rateLimited?: boolean
+  /** Replaces the idempotency-only 409 text when the action has another conflict. */
+  conflictDescription?: string
 }): OpenApiOperation {
   const requiresDraftEtag = !input.readOnly && input.requiresDraftEtag !== false
   const parameters = input.readOnly
@@ -802,7 +804,7 @@ function measurementDraftAction(input: {
       ...(input.readOnly
         ? {}
         : {
-            409: errorResponse('The idempotency key was already used with a different request body.'),
+            409: errorResponse(input.conflictDescription ?? 'The idempotency key was already used with a different request body.'),
             ...(requiresDraftEtag
               ? {
                   412: errorResponse('The draft changed since it was loaded.'),
@@ -1273,10 +1275,11 @@ const routeCatalog: OpenApiOperation[] = [
   measurementDraftAction({
     action: 'publish',
     summary: 'Publish the draft as a new revision',
-    description: 'Recompiles server-side and refuses content that changed after review. Content identical to the active revision is a no-op returning it; content identical to an older revision publishes as a new revision, so a revert is a first-class operation. Publishing never starts a run.',
+    description: 'Recompiles server-side and refuses content that changed after review. Content identical to the active revision is a no-op returning it; content identical to an older revision publishes as a new revision, so a revert is a first-class operation. Publishing never starts a run. Any other publish returns 409 `RUN_IN_PROGRESS` with `details.reason: sweep-in-progress` and `details.activeRunId` while an answer-visibility sweep for the project is queued or running; publish after it finishes or cancel it.',
     request: 'MeasurementDraftPublishRequest',
     response: 'MeasurementPlanV2PublishResponse',
     responseDescription: 'The published revision, or the unchanged active revision when the content was identical to it.',
+    conflictDescription: 'The idempotency key was already used with a different request body, or a sweep is queued or running.',
   }),
   measurementDraftAction({
     action: 'discard',
@@ -1757,17 +1760,17 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post', path: '/api/v1/projects/{name}/query-tracking/preview', summary: 'Preview query and template assignment changes', tags: ['queries'],
-    description: 'Resolves normalized query identities, expands templates, checks classification and computes the next sweep workload. Makes no provider calls. The preview token binds the exact mutation and current workspace.',
+    description: 'Resolves normalized query identities, expands templates, checks classification and computes the next sweep workload. Makes no provider calls. The preview token binds the exact mutation and current workspace. For an advanced portfolio, `limits.queries` reports the distinct assigned queries before (`current`) and after (`next`) the change, against the limit (`max`). A preview is allowed while a sweep runs.',
     parameters: [nameParameter],
     requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/QueryTrackingPreviewRequest' } } } },
     responses: { 200: jsonResponse('Assignment impact and review token.', 'QueryTrackingPreviewResponse'), 400: errorResponse('Invalid assignments or source.'), 403: errorResponse('Write access required.'), 404: errorResponse('Project or source not found.'), 409: errorResponse('Workspace changed; refresh and preview again.') },
   },
   {
     method: 'post', path: '/api/v1/projects/{name}/query-tracking/commit', summary: 'Publish a reviewed query assignment change', tags: ['queries'],
-    description: 'Atomically commits only the reviewed mutation. An exact no-op creates no revision. No sweep or provider call starts. Research answers never become official observations.',
+    description: 'Atomically commits only the reviewed mutation. An exact no-op creates no revision. No sweep or provider call starts. Research answers never become official observations. A change that would grow an advanced plan past its query limit returns 400 with `details.check: query-limit-exceeded`; a plan already over the limit may still shrink. On an advanced portfolio any other change returns 409 `RUN_IN_PROGRESS` with `details.reason: sweep-in-progress` while an answer-visibility sweep is queued or running; a simple basket is refused only when its queries change during a planless sweep.',
     parameters: [nameParameter],
     requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/QueryTrackingCommitRequest' } } } },
-    responses: { 200: jsonResponse('Actual committed revision, or unchanged no-op.', 'QueryTrackingCommitResponse'), 400: errorResponse('Invalid mutation or review token.'), 403: errorResponse('Write access required.'), 404: errorResponse('Project or source not found.'), 409: errorResponse('Workspace changed or a sweep is using the live query catalog.') },
+    responses: { 200: jsonResponse('Actual committed revision, or unchanged no-op.', 'QueryTrackingCommitResponse'), 400: errorResponse('Invalid mutation or review token, or the change exceeds the query limit.'), 403: errorResponse('Write access required.'), 404: errorResponse('Project or source not found.'), 409: errorResponse('Workspace changed, or a sweep is queued or running.') },
   },
   {
     method: 'post', path: '/api/v1/projects/{name}/results/clear', summary: 'Preview or clear selected saved visibility and research results', tags: ['runs'],

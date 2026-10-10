@@ -1255,6 +1255,29 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     else await waitFor(() => expect(fake.service.publish).toHaveBeenCalledTimes(1))
   })
 
+  test('shows a sweep refusal as the server wrote it and keeps the review, so Publish works once the sweep ends', async () => {
+    const message = `Sweep run run_1 is running for '${PROJECT}'. Publish tracked query and setup changes after it finishes, or cancel it first: canonry run cancel ${PROJECT} run_1`
+    const onPublished = vi.fn()
+    const fake = createFakeService({
+      initialDraft: draftFixture({ targets: [property(1)], assignedQueryIds: ['q-nearby'], baseActiveRevision: 4 }),
+    })
+    vi.mocked(fake.service.publish).mockRejectedValueOnce(new ApiError(message, 409, 'RUN_IN_PROGRESS', {
+      projectName: PROJECT, kind: 'answer-visibility', activeRunId: 'run_1', reason: 'sweep-in-progress',
+    }))
+    renderSection(fake, { onPublished })
+    await advanceExistingDraftToReview()
+    fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+    const draftLoads = vi.mocked(fake.service.loadDraft).mock.calls.length
+    fireEvent.click(await screen.findByRole('button', { name: 'Publish setup' }))
+
+    expect((await screen.findByRole('alert')).textContent).toBe(message)
+    // Not a draft conflict: nothing is reloaded and the review still stands.
+    expect(fake.service.loadDraft).toHaveBeenCalledTimes(draftLoads)
+    fireEvent.click(screen.getByRole('button', { name: 'Publish setup' }))
+    await waitFor(() => expect(onPublished).toHaveBeenCalledTimes(1))
+    expect(fake.service.publish).toHaveBeenCalledTimes(2)
+  })
+
   test('groups repeated review checks into concise Property actions while retaining distinct fixes', async () => {
     const targets = Array.from({ length: 194 }, (_, index) => property(index + 1))
     const repeatedChecks: MeasurementDraftCompilePreviewResponse['checks'] = [

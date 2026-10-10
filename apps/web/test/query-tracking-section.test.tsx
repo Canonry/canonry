@@ -15,6 +15,7 @@ import { QueriesSection } from '../src/components/project/DiscoverySection.js'
 import { RESEARCH_COPY } from '../src/components/project/ResearchQueriesSection.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
+import { createQueryClient } from '../src/queries/query-client.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 
 afterEach(() => {
@@ -545,6 +546,60 @@ test.each([
   fireEvent.click(screen.getByRole('button', { name: 'Confirm changes' }))
   await waitFor(() => expect(getToasts().map(toast => toast.title)).toEqual([title]))
   expect(getToasts()[0]!.detail).toBe(detail)
+})
+
+test.each([
+  {
+    name: 'a commit that meets a sweep', operation: 'commit', title: 'Could not confirm tracking changes', status: 409,
+    error: {
+      code: 'RUN_IN_PROGRESS',
+      message: "Sweep run run_1 is running for 'demo'. Publish tracked query and setup changes after it finishes, or cancel it first: canonry run cancel demo run_1",
+      details: { projectName: 'demo', kind: 'answer-visibility', activeRunId: 'run_1', reason: 'sweep-in-progress' },
+    },
+  },
+  {
+    name: 'a commit past the query limit', operation: 'commit', title: 'Could not confirm tracking changes', status: 400,
+    error: {
+      code: 'VALIDATION_ERROR',
+      message: 'This change would track 1,001 queries, over the 1,000-query limit. Remove queries or add fewer, then preview the change again.',
+      details: { check: 'query-limit-exceeded', current: 1_000, next: 1_001, max: 1_000, displayToOperator: true },
+    },
+  },
+  {
+    name: 'a refused preview', operation: 'preview', title: 'Could not review tracking changes', status: 409,
+    error: { code: 'QUERY_TRACKING_PREVIEW_STALE', message: 'Workspace changed. Review again.' },
+  },
+])('shows the server message in one toast for $name', async ({ operation, title, status, error }) => {
+  resetToasts()
+  onTestFinished(resetToasts)
+  installWorkspaceApi(path => {
+    if (path.endsWith(`/query-tracking/${operation}`)) return jsonResponse({ error }, status)
+    if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({ diff: removalDiff, workload: removalWorkload }))
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  // The app's client adds a fallback toast to any mutation error that is not marked as handled.
+  const queryClient = createQueryClient()
+  onTestFinished(() => queryClient.clear())
+  render(<QueryClientProvider client={queryClient}><QueriesSection projectName="demo" /></QueryClientProvider>)
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  if (operation === 'commit') fireEvent.click(await screen.findByRole('button', { name: 'Confirm changes' }))
+  await waitFor(() => expect(getToasts().map(toast => [toast.title, toast.detail])).toEqual([[title, error.message]]))
+})
+
+test('keeps the fallback copy when a refused commit carries no Canonry error', async () => {
+  resetToasts()
+  onTestFinished(resetToasts)
+  installWorkspaceApi(path => {
+    if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({ diff: removalDiff, workload: removalWorkload }))
+    if (path.endsWith('/query-tracking/commit')) return new Response('<html>Bad Gateway</html>', { status: 502 })
+    throw new Error(`Unexpected fetch: ${path}`)
+  })
+  renderWorkspace()
+  await reviewRemoval()
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm changes' }))
+  await waitFor(() => expect(getToasts().map(toast => toast.detail)).toEqual(['The review may be stale. Review the changes again.']))
 })
 
 test.each([true, false])('pauses Confirm while a sweep is queued or running (sweepActive=%s)', async (sweepActive) => {

@@ -139,7 +139,9 @@ Historical runs receive no inferred definition. `visibility-report` reads this s
 
 `query-tracking` owns workspace, preview, and commit for simple sites and v2 portfolios.
 Commit requires the exact workspace version and preview token. A no-op must not publish a revision.
-Before changing catalog rows, commit calls `assertNoActivePlanlessSweep` inside its write transaction, including when an Advanced plan was published after a simple sweep queued. Plan-only edits and no-ops remain available.
+On an advanced portfolio, commit calls `assertNoActiveSweep` inside its write transaction for any change that is not a no-op, plan-only edits included, so a plan never moves under a queued or running sweep. Setup publish (`measurement-draft.ts`) calls it too, before writing a new revision.
+A simple basket keeps `assertNoActivePlanlessSweep`, and only when catalog rows change.
+Previews, no-ops, a publish identical to the active revision and receipt replays stay available during a sweep.
 Query identity uses normalized text and prefers the ID already bound by the active plan.
 Publication starts zero provider calls. Existing drafts become stale through their normal base-version guard.
 Research rejects normalized duplicate queries before dispatch while preserving accepted text exactly. Research templates must be project-configured; editor and server expansion share declared bindings, and saved provenance remains immutable.

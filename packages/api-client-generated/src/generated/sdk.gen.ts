@@ -941,7 +941,7 @@ export const postApiV1ProjectsByNameMeasurementPlanDraftActionsDiffPreview = <Th
 /**
  * Publish the draft as a new revision
  *
- * Recompiles server-side and refuses content that changed after review. Content identical to the active revision is a no-op returning it; content identical to an older revision publishes as a new revision, so a revert is a first-class operation. Publishing never starts a run.
+ * Recompiles server-side and refuses content that changed after review. Content identical to the active revision is a no-op returning it; content identical to an older revision publishes as a new revision, so a revert is a first-class operation. Publishing never starts a run. Any other publish returns 409 `RUN_IN_PROGRESS` with `details.reason: sweep-in-progress` and `details.activeRunId` while an answer-visibility sweep for the project is queued or running; publish after it finishes or cancel it.
  */
 export const postApiV1ProjectsByNameMeasurementPlanDraftActionsPublish = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ProjectsByNameMeasurementPlanDraftActionsPublishData, ThrowOnError>) => {
     return (options.client ?? client).post<PostApiV1ProjectsByNameMeasurementPlanDraftActionsPublishResponses, PostApiV1ProjectsByNameMeasurementPlanDraftActionsPublishErrors, ThrowOnError>({
@@ -1567,7 +1567,7 @@ export const getApiV1ProjectsByNameQueryTracking = <ThrowOnError extends boolean
 /**
  * Preview query and template assignment changes
  *
- * Resolves normalized query identities, expands templates, checks classification and computes the next sweep workload. Makes no provider calls. The preview token binds the exact mutation and current workspace.
+ * Resolves normalized query identities, expands templates, checks classification and computes the next sweep workload. Makes no provider calls. The preview token binds the exact mutation and current workspace. For an advanced portfolio, `limits.queries` reports the distinct assigned queries before (`current`) and after (`next`) the change, against the limit (`max`). A preview is allowed while a sweep runs.
  */
 export const postApiV1ProjectsByNameQueryTrackingPreview = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ProjectsByNameQueryTrackingPreviewData, ThrowOnError>) => {
     return (options.client ?? client).post<PostApiV1ProjectsByNameQueryTrackingPreviewResponses, PostApiV1ProjectsByNameQueryTrackingPreviewErrors, ThrowOnError>({
@@ -1589,7 +1589,7 @@ export const postApiV1ProjectsByNameQueryTrackingPreview = <ThrowOnError extends
 /**
  * Publish a reviewed query assignment change
  *
- * Atomically commits only the reviewed mutation. An exact no-op creates no revision. No sweep or provider call starts. Research answers never become official observations.
+ * Atomically commits only the reviewed mutation. An exact no-op creates no revision. No sweep or provider call starts. Research answers never become official observations. A change that would grow an advanced plan past its query limit returns 400 with `details.check: query-limit-exceeded`; a plan already over the limit may still shrink. On an advanced portfolio any other change returns 409 `RUN_IN_PROGRESS` with `details.reason: sweep-in-progress` while an answer-visibility sweep is queued or running; a simple basket is refused only when its queries change during a planless sweep.
  */
 export const postApiV1ProjectsByNameQueryTrackingCommit = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ProjectsByNameQueryTrackingCommitData, ThrowOnError>) => {
     return (options.client ?? client).post<PostApiV1ProjectsByNameQueryTrackingCommitResponses, PostApiV1ProjectsByNameQueryTrackingCommitErrors, ThrowOnError>({
