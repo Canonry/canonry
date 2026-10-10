@@ -41,6 +41,20 @@ function queryLines(text: string): string[] {
   })
 }
 
+/** Markets, and only the groups that lead to one, so browsing a group never ends in an empty list. */
+function marketPlaces(options: NonNullable<QueryTrackingWorkspaceResponse['scopeOptions']>) {
+  const groups = new Map(options.filter(option => option.kind === 'group').map(group => [group.id, group]))
+  const leading = new Set<string>()
+  const pending = options.filter(option => option.kind === 'market').flatMap(market => market.parentGroupIds ?? [])
+  while (pending.length) {
+    const key = pending.pop()!
+    if (leading.has(key)) continue
+    leading.add(key)
+    pending.push(...(groups.get(key)?.parentGroupIds ?? []))
+  }
+  return options.filter(option => option.kind === 'market' || (option.kind === 'group' && leading.has(option.id)))
+}
+
 /**
  * Add several queries to one market. Each line becomes one addition whose only
  * audience is that market and which names no contexts, so the server gives it
@@ -48,16 +62,23 @@ function queryLines(text: string): string[] {
  * does for a market. Location, hand-picked, template and saved-research adds
  * stay in that form, which `onOpenComposer` opens. Location is a choice that
  * offers the form, never a jump to it: arrow keys move this control's choice.
+ * The form holds one query, so a hand-off takes the first line with it and
+ * says so when there are more. The chosen market stays behind: checked in the
+ * form it would narrow hand-picked locations to that market.
  */
 export function AddQueriesSheet({ projectName, workspace, defaultMarketKey, onOpenComposer, onClose, renderReview }: {
   projectName: string
   workspace: QueryTrackingWorkspaceResponse
   /** The market the Tracked view is filtered to, chosen to start with. */
   defaultMarketKey?: string
-  onOpenComposer: () => void
+  /** `text` is the first query line, or empty when nothing is typed yet. */
+  onOpenComposer: (carried: { text: string }) => void
   onClose: () => void
-  /** The caller draws the review, so this sheet shows the same one as every other tracking change. */
-  renderReview: (review: { preview: QueryTrackingPreviewResponse; isCommitting: boolean; onConfirm: () => void }) => ReactNode
+  /**
+   * The caller draws the review, so this sheet shows the same one as every other tracking change.
+   * `actions` (confirm and the sweep pause) go in the footer, in reach however long the list is.
+   */
+  renderReview: (review: { preview: QueryTrackingPreviewResponse; isCommitting: boolean; onConfirm: () => void }) => { changes: ReactNode; actions: ReactNode }
 }) {
   const publish = useQueryTrackingPublish(projectName, { onCommitted: onClose })
   const [subject, setSubject] = useState<Subject>('market')
@@ -70,11 +91,24 @@ export function AddQueriesSheet({ projectName, workspace, defaultMarketKey, onOp
   const openingComposer = useRef(false)
   const id = useId()
 
-  const places = (workspace.scopeOptions ?? []).filter(option => option.kind === 'group' || option.kind === 'market')
+  const places = marketPlaces(workspace.scopeOptions ?? [])
   const market = places.find(option => option.kind === 'market' && option.id === marketKey)
   const lines = queryLines(text)
   const preview = reviewed ? publish.preview : null
   const canReview = subject === 'market' && market !== undefined && lines.length > 0 && !publish.isPreviewing
+  const reviewStep = reviewed && preview ? renderReview({
+    preview,
+    isCommitting: publish.isCommitting,
+    onConfirm: () => publish.commit({
+      ...reviewed,
+      expectedWorkspaceVersion: preview.workspaceVersion,
+      previewToken: preview.previewToken,
+      reviewedAt: preview.reviewedAt,
+    }),
+  }) : null
+  // The toast for a refused review or publish sits under this sheet, so the refusal is repeated here.
+  const refusal = publish.error ? <p role="alert" className="mt-4 text-sm leading-5 text-negative"><span className="font-medium">{publish.error.title}.</span> {publish.error.detail}</p> : null
+  const firstLineOnly = lines.length > 1 ? 'The Add query form adds one query at a time. It opens with your first line only.' : null
 
   /** A change to the draft drops a review still in flight, so the sheet never shows a review of an older draft. */
   function edit<T>(set: (value: T) => void) {
@@ -86,7 +120,7 @@ export function AddQueriesSheet({ projectName, workspace, defaultMarketKey, onOp
 
   function openComposer() {
     openingComposer.current = true
-    onOpenComposer()
+    onOpenComposer({ text: lines[0] ?? '' })
   }
 
   // A sheet opened without a Radix trigger returns focus to its opener itself.
@@ -122,21 +156,13 @@ export function AddQueriesSheet({ projectName, workspace, defaultMarketKey, onOp
           <SheetTitle>Add queries</SheetTitle>
           <SheetDescription>Each query is tracked in one market, with that market's engines and search locations.</SheetDescription>
         </SheetHeader>
-        {reviewed && preview ? <>
-          <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
-            {renderReview({
-              preview,
-              isCommitting: publish.isCommitting,
-              onConfirm: () => publish.commit({
-                ...reviewed,
-                expectedWorkspaceVersion: preview.workspaceVersion,
-                previewToken: preview.previewToken,
-                reviewedAt: preview.reviewedAt,
-              }),
-            })}
-          </div>
-          <div className="mt-4 border-t border-default pt-4">
-            <Button type="button" variant="ghost" size="sm" onClick={() => setReviewed(null)}>Back</Button>
+        {reviewStep ? <>
+          <div className="mt-4 min-h-0 flex-1 overflow-y-auto">{reviewStep.changes}</div>
+          {refusal}
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-default pt-4">
+            {reviewStep.actions}
+            {/* A publish in flight closes the sheet when it lands, so the draft stays out of reach until then. */}
+            <Button type="button" variant="ghost" size="sm" disabled={publish.isCommitting} onClick={() => setReviewed(null)}>Back</Button>
           </div>
         </> : <>
           <div className="-mx-1 mt-4 min-h-0 flex-1 space-y-5 overflow-y-auto px-1">
@@ -147,6 +173,7 @@ export function AddQueriesSheet({ projectName, workspace, defaultMarketKey, onOp
             </div>
             {subject === 'location' ? <div>
               <p className="text-sm leading-6 text-secondary">Location queries use the Add query form.</p>
+              {firstLineOnly ? <p className={FIELD_HINT}>{firstLineOnly}</p> : null}
               <Button type="button" variant="outline" size="sm" className="mt-2" onClick={openComposer}>Open the Add query form</Button>
             </div> : <>
               <div ref={picker}>
@@ -168,17 +195,22 @@ export function AddQueriesSheet({ projectName, workspace, defaultMarketKey, onOp
                 </p>
               </div>
               <details className="border-t border-default text-sm text-secondary">
-                <summary className="min-h-11 cursor-pointer py-3">More options</summary>
+                {/* A Type other than Automatic is sent on every line, so it shows while this is closed. */}
+                <summary className="min-h-11 cursor-pointer py-3">More options{type === 'auto' ? '' : ` · Type: ${TYPES.find(option => option.value === type)!.label}`}</summary>
                 <div className="pb-3">
                   <span aria-hidden="true" className={FIELD_LABEL}>Type</span>
                   <SegmentedRadioGroup label="Type" options={TYPES} value={type} onChange={edit(setType)} />
                 </div>
               </details>
-              <button type="button" className="min-h-11 text-left text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={openComposer}>
-                Hand-picked locations, templates or saved research
-              </button>
+              <div>
+                <button type="button" className="min-h-11 text-left text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={openComposer}>
+                  Hand-picked locations, templates or saved research
+                </button>
+                {firstLineOnly ? <p className="text-[13px] leading-5 text-secondary">{firstLineOnly}</p> : null}
+              </div>
             </>}
           </div>
+          {refusal}
           <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-default pt-4">
             <WriteButton type="button" size="sm" disabled={!canReview} onClick={review}>
               {publish.isPreviewing ? 'Reviewing…' : 'Review'}

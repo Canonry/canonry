@@ -377,9 +377,9 @@ function TrackedQueriesWorkspace({
     heading.focus({ preventScroll: true })
   }, [action])
 
-  function openAdd(source: TrackingDraft['source'] = 'manual') {
+  function openAdd(source: TrackingDraft['source'] = 'manual', text = '') {
     setAction({ kind: 'add' })
-    setDraft({ ...defaultTrackingDraft(selection), source })
+    setDraft({ ...defaultTrackingDraft(selection), source, text })
     setReviewedMutation(null)
     onTrackingQueryIdChange?.(undefined)
   }
@@ -536,9 +536,15 @@ function TrackedQueriesWorkspace({
           projectName={projectName}
           workspace={workspace}
           defaultMarketKey={selection.measurementScope === 'market' ? selection.measurementScopeKey : undefined}
-          onOpenComposer={() => { setAddSheetOpen(false); openAdd() }}
+          onOpenComposer={({ text }) => { setAddSheetOpen(false); openAdd('manual', text) }}
           onClose={() => setAddSheetOpen(false)}
-          renderReview={review => <TrackingPreview {...review} workspace={workspace} sweepActive={publishGuard?.sweepActive ?? false} />}
+          renderReview={review => {
+            const sweepActive = publishGuard?.sweepActive ?? false
+            return {
+              changes: <TrackingPreview {...review} workspace={workspace} sweepActive={sweepActive} showActions={false} />,
+              actions: <TrackingPreviewActions {...review} sweepActive={sweepActive} />,
+            }
+          }}
         />
       )}
     </div>
@@ -1291,12 +1297,15 @@ function TrackingPreview({
   isCommitting,
   sweepActive,
   onConfirm,
+  showActions = true,
 }: {
   preview: QueryTrackingPreviewResponse
   workspace: QueryTrackingWorkspaceResponse
   isCommitting: boolean
   sweepActive: boolean
   onConfirm: () => void
+  /** False when the caller draws `TrackingPreviewActions` itself, outside the scrolling list. */
+  showActions?: boolean
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
@@ -1335,13 +1344,34 @@ function TrackingPreview({
         <summary className="min-h-11 cursor-pointer py-3">{preview.diff.unchanged.length} unchanged {preview.diff.unchanged.length === 1 ? 'query' : 'queries'}</summary>
         <PreviewChangeList label="Unchanged" rows={preview.diff.unchanged} workspace={workspace} tracked={preview.tracked} />
       </details> : null}
-      <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-default pt-4">
-        <WriteButton type="button" size="sm" disabled={!hasChanges || isCommitting || sweepActive} onClick={onConfirm}>
-          {isCommitting ? 'Confirming…' : 'Confirm changes'}
-        </WriteButton>
-        {hasChanges && sweepActive ? <p role="status" className="text-sm leading-5 text-caution">A sweep is queued or running. Publish after it finishes.</p> : null}
-      </div>
+      {showActions ? <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-default pt-4">
+        <TrackingPreviewActions preview={preview} isCommitting={isCommitting} sweepActive={sweepActive} onConfirm={onConfirm} />
+      </div> : null}
     </Card>
+  )
+}
+
+/** Confirm and the sweep pause: under the review, or pinned in the Add queries sheet's footer. */
+function TrackingPreviewActions({
+  preview,
+  isCommitting,
+  sweepActive,
+  onConfirm,
+}: {
+  preview: QueryTrackingPreviewResponse
+  isCommitting: boolean
+  sweepActive: boolean
+  onConfirm: () => void
+}) {
+  const hasChanges = !preview.diff.noOp
+  return (
+    <>
+      <WriteButton type="button" size="sm" disabled={!hasChanges || isCommitting || sweepActive} onClick={onConfirm}>
+        {isCommitting ? 'Confirming…' : 'Confirm changes'}
+      </WriteButton>
+      {/* Last in its row, so a caller's own button stays beside Confirm. */}
+      {hasChanges && sweepActive ? <p role="status" className="order-last text-sm leading-5 text-caution">A sweep is queued or running. Publish after it finishes.</p> : null}
+    </>
   )
 }
 

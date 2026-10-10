@@ -30,6 +30,7 @@ const tracked = [{
 }]
 const resetNotice = 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept.'
 const handPickedLink = 'Hand-picked locations, templates or saved research'
+const firstLineOnly = 'The Add query form adds one query at a time. It opens with your first line only.'
 
 /** One group holding the New York market, and a second market that sits in no group. */
 function workspace(overrides: Record<string, unknown> = {}) {
@@ -84,12 +85,18 @@ function installApi(options: { workspace?: () => unknown; respond?: (write: Writ
   return writes
 }
 
-function renderTracked(props: Partial<React.ComponentProps<typeof QueriesSection>> = {}, role?: 'viewer') {
+type TrackedProps = Partial<React.ComponentProps<typeof QueriesSection>>
+
+/** `show` renders the same section again with other props, as the page does when the Tracked filter changes. */
+function renderTracked(props: TrackedProps = {}, role?: 'viewer') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   onTestFinished(() => queryClient.clear())
-  const section = <QueryClientProvider client={queryClient}><QueriesSection projectName="demo" {...props} /></QueryClientProvider>
-  render(role ? <AccountProvider account={{ name: role, role }}>{section}</AccountProvider> : section)
-  return queryClient
+  const section = (next: TrackedProps) => {
+    const tracked = <QueryClientProvider client={queryClient}><QueriesSection projectName="demo" {...next} /></QueryClientProvider>
+    return role ? <AccountProvider account={{ name: role, role }}>{tracked}</AccountProvider> : tracked
+  }
+  const { rerender } = render(section(props))
+  return { queryClient, show: (next: TrackedProps) => rerender(section(next)) }
 }
 
 async function openSheet() {
@@ -104,12 +111,17 @@ type Sheet = Awaited<ReturnType<typeof openSheet>>['sheet']
 const queriesField = (sheet: Sheet) => sheet.getByLabelText('Queries') as HTMLTextAreaElement
 const reviewButton = (sheet: Sheet) => sheet.getByRole('button', { name: 'Review' }) as HTMLButtonElement
 const sheetIsOpen = () => screen.queryByRole('dialog', { name: 'Add queries' }) !== null
+const sheetText = () => screen.getByRole('dialog', { name: 'Add queries' }).textContent
+
+// A group row only browses; the market inside it is the choice.
+function chooseNewYorkFromGroup(sheet: Sheet) {
+  fireEvent.click(sheet.getByRole('button', { name: 'Browse North East' }))
+  fireEvent.click(sheet.getByRole('button', { name: 'Select New York' }))
+}
 
 function chooseNewYork(sheet: Sheet) {
   fireEvent.click(sheet.getByText('Choose a market'))
-  // A group row only browses; the market inside it is the choice.
-  fireEvent.click(sheet.getByRole('button', { name: 'Browse North East' }))
-  fireEvent.click(sheet.getByRole('button', { name: 'Select New York' }))
+  chooseNewYorkFromGroup(sheet)
 }
 
 function fill(sheet: Sheet, text: string) {
@@ -119,13 +131,28 @@ function fill(sheet: Sheet, text: string) {
 
 const newYorkAddition = (text: string) => ({ input: { source: 'manual', text }, audience: { marketKeys: ['new-york'] } })
 
+/** After a hand-off the sheet is gone, the form holds the first line, and focus stays on the form. */
+async function expectAddQueryForm(firstLine: string) {
+  const heading = await screen.findByRole('heading', { name: 'Add query' })
+  expect(sheetIsOpen()).toBe(false)
+  expect(screen.getByRole('group', { name: 'Apply to' })).toBeTruthy()
+  expect((screen.getByLabelText('Question') as HTMLTextAreaElement).value).toBe(firstLine)
+  // The market chosen in the sheet stays behind: checked here it would narrow hand-picked locations to it.
+  expect((screen.getByRole('checkbox', { name: 'New York, Market' }) as HTMLInputElement).checked).toBe(false)
+  // The form keeps the focus it took; the closed sheet does not hand it back to its opener.
+  await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+  expect(document.activeElement).toBe(heading)
+}
+
 test('opens from Tracked on an advanced project and keeps Review off until a market and a query line exist', async () => {
   const writes = installApi()
   renderTracked()
   const { sheet } = await openSheet()
   // The open sheet hides the page behind it from assistive tech, so look past that for the form.
   expect(screen.queryByRole('heading', { name: 'Add query', hidden: true })).toBeNull()
-  expect(sheet.getByRole('radio', { name: 'Market' }).getAttribute('aria-checked')).toBe('true')
+  expect(within(sheet.getByRole('radiogroup', { name: 'Subject' })).getByRole('radio', { name: 'Market' }).getAttribute('aria-checked')).toBe('true')
+  expect(sheet.getByText('More options', { selector: 'summary' })).toBeTruthy()
+  expect(sheetText()).not.toMatch(/question/i)
   expect(reviewButton(sheet).disabled).toBe(true)
 
   fireEvent.change(queriesField(sheet), { target: { value: 'best pizza in New York' } })
@@ -136,7 +163,10 @@ test('opens from Tracked on an advanced project and keeps Review off until a mar
   fireEvent.change(search, { target: { value: 'Acme' } })
   expect(sheet.getByText('No matching scopes.')).toBeTruthy()
   fireEvent.change(search, { target: { value: '' } })
+  // A group row only browses: it is never a choice, here or once inside it.
+  expect(sheet.queryByRole('button', { name: 'Select North East' })).toBeNull()
   fireEvent.click(sheet.getByRole('button', { name: 'Browse North East' }))
+  expect(sheet.queryByText('All properties in this group')).toBeNull()
   fireEvent.click(sheet.getByRole('button', { name: 'Select New York' }))
   expect(sheet.getByText('New York · Market')).toBeTruthy()
   expect(reviewButton(sheet).disabled).toBe(false)
@@ -199,6 +229,39 @@ test.each([
   ])
 })
 
+test('keeps a Type choice in view after a Subject change closes More options', async () => {
+  const writes = installApi()
+  renderTracked()
+  const { sheet } = await openSheet()
+  fill(sheet, 'Acme reviews')
+  fireEvent.click(within(sheet.getByRole('radiogroup', { name: 'Type' })).getByRole('radio', { name: 'Branded' }))
+  fireEvent.click(sheet.getByRole('radio', { name: 'Location' }))
+  fireEvent.click(sheet.getByRole('radio', { name: 'Market' }))
+  expect(sheet.getByText('More options · Type: Branded', { selector: 'summary' }).closest('details')!.open).toBe(false)
+  fireEvent.click(reviewButton(sheet))
+
+  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  expect(writes[0]!.body.additions).toEqual([{ ...newYorkAddition('Acme reviews'), queryClass: 'branded' }])
+})
+
+test('lists only the groups that lead to a market', async () => {
+  installApi({ workspace: () => workspace({
+    scopeOptions: [
+      ...workspace().scopeOptions.map(option => option.id === 'north-east' ? { ...option, parentGroupIds: ['east'] } : option),
+      { id: 'east', label: 'East', kind: 'group', targetCount: 1 },
+      { id: 'south-west', label: 'South West', kind: 'group', targetCount: 3 },
+    ],
+  }) })
+  renderTracked()
+  const { sheet } = await openSheet()
+  fireEvent.click(sheet.getByText('Choose a market'))
+  // East holds no market itself but its subgroup does; South West would open on an empty list.
+  expect(sheet.queryByRole('button', { name: 'Browse South West' })).toBeNull()
+  fireEvent.click(sheet.getByRole('button', { name: 'Browse East' }))
+  chooseNewYorkFromGroup(sheet)
+  expect(sheet.getByText('New York · Market')).toBeTruthy()
+})
+
 test('reviews inside the sheet, keeps the draft on Back, and publishes with the review token', async () => {
   resetToasts()
   onTestFinished(resetToasts)
@@ -213,6 +276,7 @@ test('reviews inside the sheet, keeps the draft on Back, and publishes with the 
   expect(sheet.getByText('2 added')).toBeTruthy()
   expect(sheet.getByText(resetNotice)).toBeTruthy()
   expect(sheet.queryByLabelText('Queries')).toBeNull()
+  expect(sheetText()).not.toMatch(/question/i)
   fireEvent.click(sheet.getByRole('button', { name: 'Back' }))
   expect(queriesField(sheet).value).toBe('best pizza in New York\nbest bagels in New York')
   expect(sheet.getByText('New York · Market')).toBeTruthy()
@@ -244,6 +308,11 @@ test('pauses publishing in the sheet while a sweep is queued or running', async 
   const confirm = await sheet.findByRole('button', { name: 'Confirm changes' }) as HTMLButtonElement
   expect(confirm.disabled).toBe(true)
   expect(sheet.getByRole('status').textContent).toBe('A sweep is queued or running. Publish after it finishes.')
+  // Confirm and the pause sit in the footer beside Back, not at the end of the scrolling list of changes.
+  const footer = sheet.getByRole('button', { name: 'Back' }).parentElement!
+  expect(confirm.parentElement).toBe(footer)
+  expect(sheet.getByRole('status').parentElement).toBe(footer)
+  expect(footer.contains(sheet.getByRole('heading', { name: 'Confirm tracked query changes' }))).toBe(false)
   fireEvent.click(confirm)
   // A commit reaches fetch only after the mutation's async onMutate, so let a task pass before asserting none went out.
   await act(() => new Promise(resolve => setTimeout(resolve, 0)))
@@ -258,6 +327,7 @@ test('asks for a new review when the draft changes while a review is in flight',
   fill(sheet, 'best pizza in New York')
   fireEvent.click(reviewButton(sheet))
   await waitFor(() => expect(finish).toBeTypeOf('function'))
+  expect((sheet.getByRole('button', { name: 'Reviewing…' }) as HTMLButtonElement).disabled).toBe(true)
   fireEvent.change(queriesField(sheet), { target: { value: 'best bagels in New York' } })
 
   await act(async () => finish!(jsonResponse(preview(['best pizza in New York']))))
@@ -281,17 +351,20 @@ test.each(['preview', 'commit'] as const)('returns to the same draft after a ref
       return jsonResponse({ error: { code: 'QUERY_TRACKING_PREVIEW_STALE', message: 'Workspace changed. Review again.' } }, 409)
     },
   })
-  const queryClient = renderTracked()
+  const { queryClient } = renderTracked()
   const { sheet } = await openSheet()
   fill(sheet, 'best pizza in New York')
   fireEvent.click(reviewButton(sheet))
   if (refused === 'commit') fireEvent.click(await sheet.findByRole('button', { name: 'Confirm changes' }))
 
   await waitFor(() => expect(getToasts().map(toast => toast.detail)).toEqual(['Workspace changed. Review again.']))
+  // The toast sits under the open sheet, so the sheet shows the refusal itself.
+  expect(sheet.getByRole('alert').textContent).toBe(`Could not ${refused === 'preview' ? 'review' : 'confirm'} tracking changes. Workspace changed. Review again.`)
   await waitFor(() => expect(queryClient.getQueryCache().getAll().some(query => (query.state.data as { workspaceVersion?: string } | undefined)?.workspaceVersion === refreshedVersion)).toBe(true))
   expect(queriesField(sheet).value).toBe('best pizza in New York')
   expect(sheet.getByText('New York · Market')).toBeTruthy()
   fireEvent.click(reviewButton(sheet))
+  expect(sheet.queryByRole('alert')).toBeNull()
   expect(await sheet.findByRole('button', { name: 'Confirm changes' })).toBeTruthy()
   expect(writes.at(-1)).toEqual({
     operation: 'preview',
@@ -299,28 +372,58 @@ test.each(['preview', 'commit'] as const)('returns to the same draft after a ref
   })
 })
 
-test.each([
-  ['the hand-picked link', (sheet: Sheet) => fireEvent.click(sheet.getByRole('button', { name: handPickedLink }))],
-  ['Location', (sheet: Sheet) => {
-    fireEvent.click(sheet.getByRole('radio', { name: 'Location' }))
-    // Choosing Location only offers the form, so arrow keys on Subject never leave the sheet.
-    expect(sheetIsOpen()).toBe(true)
-    expect(sheet.queryByLabelText('Queries')).toBeNull()
-    expect(reviewButton(sheet).disabled).toBe(true)
-    fireEvent.click(sheet.getByRole('button', { name: 'Open the Add query form' }))
-  }],
-] as const)('opens the Add query form from %s', async (_name, leave) => {
+test('keeps Back off while a publish is in flight', async () => {
+  let finish: ((response: Response) => void) | undefined
+  installApi({ respond: write => write.operation === 'commit' ? new Promise<Response>(resolve => { finish = resolve }) : undefined })
+  renderTracked()
+  const { sheet } = await openSheet()
+  fill(sheet, 'best pizza in New York')
+  fireEvent.click(reviewButton(sheet))
+  fireEvent.click(await sheet.findByRole('button', { name: 'Confirm changes' }))
+  await waitFor(() => expect(finish).toBeTypeOf('function'))
+  // Going back would let another draft be reviewed while this publish still closes the sheet.
+  expect((sheet.getByRole('button', { name: 'Confirming…' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((sheet.getByRole('button', { name: 'Back' }) as HTMLButtonElement).disabled).toBe(true)
+
+  await act(async () => finish!(jsonResponse({ committed: true, mode: 'advanced', workspaceVersion, reviewedAt, active })))
+  await waitFor(() => expect(sheetIsOpen()).toBe(false))
+})
+
+test('opens the Add query form from the hand-picked link with the first line typed', async () => {
   installApi()
   renderTracked()
   const { sheet } = await openSheet()
-  leave(sheet)
+  fill(sheet, 'best pizza in New York')
+  expect(sheet.queryByText(firstLineOnly)).toBeNull()
+  fireEvent.change(queriesField(sheet), { target: { value: 'best pizza in New York\nbest bagels in New York' } })
+  expect(sheet.getByText(firstLineOnly)).toBeTruthy()
+  fireEvent.click(sheet.getByRole('button', { name: handPickedLink }))
+  await expectAddQueryForm('best pizza in New York')
+})
 
-  const heading = await screen.findByRole('heading', { name: 'Add query' })
-  expect(sheetIsOpen()).toBe(false)
-  expect(screen.getByRole('group', { name: 'Apply to' })).toBeTruthy()
-  // The form keeps the focus it took; the closed sheet does not hand it back to its opener.
+test('offers the Add query form from Location and keeps a filled market draft out of Review meanwhile', async () => {
+  const writes = installApi()
+  renderTracked()
+  const { sheet } = await openSheet()
+  fill(sheet, 'best pizza in New York')
+  expect(reviewButton(sheet).disabled).toBe(false)
+  fireEvent.click(sheet.getByRole('radio', { name: 'Location' }))
+  // Choosing Location only offers the form, so arrow keys on Subject never leave the sheet.
+  expect(sheetIsOpen()).toBe(true)
+  expect(sheet.queryByLabelText('Queries')).toBeNull()
+  expect(reviewButton(sheet).disabled).toBe(true)
+  fireEvent.click(reviewButton(sheet))
   await act(() => new Promise(resolve => setTimeout(resolve, 0)))
-  expect(document.activeElement).toBe(heading)
+  expect(writes).toEqual([])
+
+  fireEvent.click(sheet.getByRole('radio', { name: 'Market' }))
+  expect(queriesField(sheet).value).toBe('best pizza in New York')
+  expect(sheet.getByText('New York · Market')).toBeTruthy()
+  expect(reviewButton(sheet).disabled).toBe(false)
+
+  fireEvent.click(sheet.getByRole('radio', { name: 'Location' }))
+  fireEvent.click(sheet.getByRole('button', { name: 'Open the Add query form' }))
+  await expectAddQueryForm('best pizza in New York')
 })
 
 test('shows Company as not available yet and never selects it', async () => {
@@ -375,6 +478,39 @@ test('closes the open market picker on Escape before the sheet', async () => {
   expect(sheetIsOpen()).toBe(true)
 
   fireEvent.keyDown(sheet.getByLabelText('Queries'), { key: 'Escape' })
+  expect(sheetIsOpen()).toBe(false)
+})
+
+test('closes an open Edit form when it opens, and Cancel returns focus to the button', async () => {
+  installApi()
+  renderTracked()
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Acme pricing' }))
+  expect(await screen.findByRole('heading', { name: 'Edit query' })).toBeTruthy()
+  const opener = screen.getByRole('button', { name: 'Add queries' })
+  opener.focus()
+  fireEvent.click(opener)
+  expect(screen.queryByRole('heading', { name: 'Edit query', hidden: true })).toBeNull()
+
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Add queries' })).getByRole('button', { name: 'Cancel' }))
+  expect(sheetIsOpen()).toBe(false)
+  await waitFor(() => expect(document.activeElement).toBe(opener))
+})
+
+test('stays closed after a publication retires the market the Tracked view is filtered to', async () => {
+  let retired = false
+  installApi({ workspace: () => retired ? workspace({ markets: [] }) : workspace() })
+  const { queryClient, show } = renderTracked({ selection: { measurementScope: 'market', measurementScopeKey: 'remote', queryClass: 'all' } })
+  fireEvent.click(await screen.findByRole('button', { name: 'Add queries' }))
+  expect(sheetIsOpen()).toBe(true)
+  retired = true
+  await act(() => queryClient.invalidateQueries())
+
+  expect(await screen.findByText('This saved market filter is unavailable in the current measurement.')).toBeTruthy()
+  expect(sheetIsOpen()).toBe(false)
+  // Back on the whole site, the sheet does not come back by itself.
+  show({})
+  await screen.findByText('Acme pricing')
   expect(sheetIsOpen()).toBe(false)
 })
 

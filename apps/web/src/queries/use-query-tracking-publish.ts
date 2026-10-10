@@ -28,7 +28,8 @@ function trackingErrorDetail(error: unknown, fallback: string): string {
 /**
  * Review a tracked-query change, then publish it. Owns the pending review,
  * both requests, their cache refresh and their toasts, so every surface that
- * publishes tracking behaves the same.
+ * publishes tracking behaves the same. `error` is the last refusal, until the
+ * next request: a modal sheet covers the toasts, so it shows this itself.
  */
 export function useQueryTrackingPublish(projectName: string, { onCommitted }: {
   /** Runs once a publish succeeds, before the cache refresh. */
@@ -36,21 +37,20 @@ export function useQueryTrackingPublish(projectName: string, { onCommitted }: {
 } = {}) {
   const queryClient = useQueryClient()
   const [preview, setPreview] = useState<QueryTrackingPreviewResponse | null>(null)
+  const [lastError, setLastError] = useState<{ title: string; detail: string } | null>(null)
   const previewMutation = useMutation({
     ...postApiV1ProjectsByNameQueryTrackingPreviewMutation(),
     meta: { skipGlobalErrorToast: true },
     onSuccess: (result) => setPreview(result),
     onError: async (error) => {
+      const refusal = { title: 'Could not review tracking changes', detail: trackingErrorDetail(error, 'Update the draft and review it again.') }
       setPreview(null)
+      setLastError(refusal)
       // Refresh the optimistic version while keeping the user's draft intact.
       await queryClient.invalidateQueries({
         queryKey: getApiV1ProjectsByNameQueryTrackingQueryKey({ client: heyClient, path: { name: projectName } }),
       })
-      addToast({
-        title: 'Could not review tracking changes',
-        detail: trackingErrorDetail(error, 'Update the draft and review it again.'),
-        tone: 'negative',
-      })
+      addToast({ ...refusal, tone: 'negative' })
     },
   })
   const commitMutation = useMutation({
@@ -69,29 +69,28 @@ export function useQueryTrackingPublish(projectName: string, { onCommitted }: {
       })
     },
     onError: async (error) => {
+      const refusal = { title: 'Could not confirm tracking changes', detail: trackingErrorDetail(error, 'The review may be stale. Review the changes again.') }
       setPreview(null)
+      setLastError(refusal)
       // A concurrent publication can make both the review and the report stale.
       await invalidateQueryTrackingPublication(queryClient, projectName)
-      addToast({
-        title: 'Could not confirm tracking changes',
-        detail: trackingErrorDetail(error, 'The review may be stale. Review the changes again.'),
-        tone: 'negative',
-      })
+      addToast({ ...refusal, tone: 'negative' })
     },
   })
 
   return {
     preview,
+    error: lastError,
     isPreviewing: previewMutation.isPending,
     isCommitting: commitMutation.isPending,
     requestPreview: (body: QueryTrackingPreviewRequest) => {
       setPreview(null)
+      setLastError(null)
       previewMutation.mutate({ client: heyClient, path: { name: projectName }, body })
     },
-    commit: (body: QueryTrackingCommitRequest) => commitMutation.mutate({
-      client: heyClient,
-      path: { name: projectName },
-      body,
-    }),
+    commit: (body: QueryTrackingCommitRequest) => {
+      setLastError(null)
+      commitMutation.mutate({ client: heyClient, path: { name: projectName }, body })
+    },
   }
 }

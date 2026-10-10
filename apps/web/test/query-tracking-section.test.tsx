@@ -1102,6 +1102,8 @@ test.each(['simple', 'advanced'])('commits a resolved template query edit in %s 
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Edit Acme pricing' }))
   expect((screen.getByLabelText('Query text') as HTMLTextAreaElement).value).toBe('Acme pricing')
+  // The hint names the button this project has: a simple project keeps Add query.
+  expect(screen.getByText(`Existing locations and engines are preserved. Use ${mode === 'simple' ? 'Add query' : 'Add queries'} to create assignments in another scope.`)).toBeTruthy()
   fireEvent.change(screen.getByLabelText('Query text'), { target: { value: 'Acme fees' } })
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByText('Confirm tracked query changes')
