@@ -447,6 +447,9 @@ cnry query remove <project> "phrase"
 cnry query list <project>
 cnry query import <project> queries.txt
 cnry query generate <project> --provider gemini --count 10 --save
+cnry query results <project>                                         # Mentioned + Cited per tracked query and engine, one stored sweep
+cnry query results <project> --scope property --scope-key <key>      # one group, market or property (--scope group|market|property)
+cnry query results <project> --run <run-id> --format json            # another whole-project sweep; JSON is the API body
 
 cnry competitor add <project> competitor1.com competitor2.com
 cnry competitor add <project> spoketuneworks.example --alias TuneSpoke   # one domain; repeat --alias for more names
@@ -461,6 +464,8 @@ cnry competitor aliases detect <project> --format json             # dry run: na
 cnry competitor aliases detect <project> --apply                   # run detection now and store it, in any mode (after each sweep the project's mode decides)
 cnry competitor landscape <project> --query-class non-brand --window 30d --format json
 ```
+
+`cnry query results` reads stored evidence only and never starts a sweep. Each row is one query under one Type (`queryClass`: `branded`, `non-brand`, or `unknown` shown as Not set); the Branded and Non-brand rows of one query are never combined. Each engine cell is two glyphs, the mention first, under the legend `M mentioned · m not mentioned · C cited · c not cited · - not checked`. In JSON each engine carries `expectedAnswers`, `answers`, `mentionedAnswers`, `citedAnswers`, `uncheckedSourceAnswers`, and `mentioned` / `cited` (true, false, or null for not checked; never read null as no, and never compute one from the other). The sweep is the newest completed or partial whole-project sweep comparable to the active plan, else the newest of any plan; on a simple project it is the newest of the last 100 such sweeps sent with the engines, models, search location, country and language the project uses now, else the newest. A probe or a scoped run is never read. When `run.matchesCurrentTracking` is false, tracking changed after that sweep: a query moved, re-typed or reworded since, or one whose engines, models or search location changed (on a simple project also the country or language), has no row and is counted in `pendingRows` (the line `Not in this sweep: N`) until the next sweep. `run` is null (`No sweep yet`) before the first sweep. A simple project is read at project scope only. On a large plan pass `--scope` and `--scope-key`: the project read returns every tracked query (about 0.5 MB per 1,000 queries on three engines). The table lists rows by query text; a blank cell is an engine that row was not asked on, and `No results` is a sweep with no row for the place.
 
 ### Competitor aliases
 

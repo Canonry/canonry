@@ -111,6 +111,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/measurement-overview': 'included',
   'GET /api/v1/projects/{name}/visibility-report': 'included',
   'GET /api/v1/projects/{name}/query-tracking': 'included',
+  'GET /api/v1/projects/{name}/query-tracking/results': 'included',
   'POST /api/v1/projects/{name}/query-tracking/preview': 'included',
   'POST /api/v1/projects/{name}/query-tracking/commit': 'included',
   'GET /api/v1/projects/{name}/measurement-property-evidence': 'included',

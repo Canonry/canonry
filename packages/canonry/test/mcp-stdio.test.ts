@@ -232,6 +232,7 @@ describe('canonry-mcp stdio', () => {
     expect(names).toContain('canonry_conversion_tracking_integrity')
     expect(names).toContain('canonry_gsc_sitemaps_submit')
     expect(names).toContain('canonry_query_tracking_workspace')
+    expect(names).toContain('canonry_query_tracking_results')
     expect(names).toContain('canonry_query_tracking_preview')
     expect(names).toContain('canonry_query_tracking_commit')
     expect(names).toContain('canonry_research_batch_start')

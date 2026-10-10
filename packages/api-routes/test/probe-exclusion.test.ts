@@ -5,7 +5,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { RunKinds, RunStatuses, RunTriggers, type ContentTargetsResponseDto, type VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, type ContentTargetsResponseDto, type QueryTrackingResultsResponse, type VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import {
   createClient,
   migrate,
@@ -318,6 +318,26 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
       { state: 'unavailable', reason: 'legacy-unknown', previousRun },
       { state: 'unavailable', reason: 'legacy-unknown', previousRun },
     ])
+  })
+
+  it('query-tracking/results reads the real run, never the newer probe, even by id', async () => {
+    const { status, body } = await get<QueryTrackingResultsResponse>('/api/v1/projects/probe-excl/query-tracking/results')
+    expect(status).toBe(200)
+    expect(body.run?.id).toBe(ctx.realRunId)
+
+    // These planless runs froze no class, so a row reads only where the project
+    // cannot classify either. The real run mentioned and cited; the probe did neither.
+    ctx.db.update(projects).set({ displayName: '', canonicalDomain: '' }).where(eq(projects.id, ctx.projectId)).run()
+    const unclassified = (await get<QueryTrackingResultsResponse>('/api/v1/projects/probe-excl/query-tracking/results')).body
+    expect(unclassified.run?.id).toBe(ctx.realRunId)
+    expect(unclassified.rows).toEqual([{
+      queryId: ctx.queryId, queryText: 'best AEO platform', queryClass: 'unknown',
+      engines: [{ provider: 'openai', expectedAnswers: 1, answers: 1, mentionedAnswers: 1, citedAnswers: 1, uncheckedSourceAnswers: 0, mentioned: true, cited: true }],
+    }])
+
+    const pinned = await get<{ error: { message: string } }>(`/api/v1/projects/probe-excl/query-tracking/results?runId=${ctx.probeRunId}`)
+    expect(pinned.status).toBe(400)
+    expect(pinned.body.error.message).toBe(`Run "${ctx.probeRunId}" is not a completed whole-project sweep of this project.`)
   })
 
   it('competitor auto-alias detection scans the real run only', async () => {

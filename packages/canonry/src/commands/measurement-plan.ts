@@ -3,6 +3,8 @@ import fs from 'node:fs'
 import { parse } from 'yaml'
 import {
   MeasurementEvidenceShapes,
+  compareText,
+  formatIsoDate,
   formatPercent,
   measurementChangesQuerySchema,
   measurementDataQualityQuerySchema,
@@ -14,6 +16,7 @@ import {
   measurementPlanInputSchema,
   measurementPortfolioSummaryQuerySchema,
   measurementPropertyCompetitorsQuerySchema,
+  normalizeIdentityText,
   unattributedAnswersLabel,
   uncheckedSourcesLabel,
   UNATTRIBUTED_MENTION_REASON,
@@ -28,6 +31,8 @@ import {
   type MeasurementPropertyEvidenceResponse,
   type MeasurementQueryClassFilter,
   type MetricValue,
+  type QueryTrackingResultsRequest,
+  type QueryTrackingResultsResponse,
   measurementPropertyQuestionsQuerySchema,
   measurementQuestionResultQuerySchema,
   measurementQuerySetUpsertRequestSchema,
@@ -536,6 +541,72 @@ function printMeasurementProperty(response: MeasurementOverviewResponse): void {
       const providerUnchecked = uncheckedText(provider.citationCoverage)
       if (providerUnchecked) lines.push(`${''.padEnd(engineWidth + mentionWidth)}${providerUnchecked}`)
     }
+  }
+  console.log(lines.join('\n'))
+}
+
+export interface QueryTrackingResultsOptions extends QueryTrackingResultsRequest {
+  format?: string
+}
+
+/** One glyph per signal, so a cell never reads one signal from the other. */
+const QUERY_RESULTS_LEGEND = 'M mentioned · m not mentioned · C cited · c not cited · - not checked'
+const QUERY_RESULT_TYPES: Record<QueryTrackingResultsResponse['rows'][number]['queryClass'], string> = {
+  branded: 'Branded',
+  'non-brand': 'Non-brand',
+  unknown: 'Not set',
+}
+
+/**
+ * `canonry query results <project>`: Mentioned and Cited per tracked query and
+ * engine, from one stored sweep. `--format json` is the endpoint's response
+ * unchanged. Never starts a sweep.
+ */
+export async function showQueryTrackingResults(project: string, opts: QueryTrackingResultsOptions): Promise<void> {
+  const { format, ...request } = opts
+  const response = await createApiClient().getQueryTrackingResults(project, request)
+  if (isMachineFormat(format)) {
+    console.log(JSON.stringify(response, null, 2))
+    return
+  }
+  printQueryTrackingResults(response)
+}
+
+function signalGlyph(value: boolean | null, yes: string, no: string): string {
+  return value === null ? '-' : value ? yes : no
+}
+
+function printQueryTrackingResults(response: QueryTrackingResultsResponse): void {
+  if (response.run === null) {
+    console.log('No sweep yet')
+    return
+  }
+  const lines = [`Sweep ${formatIsoDate(response.run.completedAt ?? response.run.createdAt)} · run ${response.run.id}`]
+  if (response.pendingRows > 0) lines.push(`Not in this sweep: ${response.pendingRows}`)
+  if (response.rows.length === 0) {
+    lines.push('No results')
+    console.log(lines.join('\n'))
+    return
+  }
+  lines.push(QUERY_RESULTS_LEGEND)
+  // The API orders rows by query id. A person scans by text, as the workspace
+  // lists them, so only this table is re-ordered; the JSON stays as returned.
+  const rows = response.rows
+    .map(row => ({ ...row, sortText: normalizeIdentityText(row.queryText), type: QUERY_RESULT_TYPES[row.queryClass] }))
+    .sort((left, right) => compareText(left.sortText, right.sortText) || compareText(left.type, right.type))
+  const queryWidth = Math.max('Query'.length, ...rows.map(row => row.queryText.length))
+  const typeWidth = Math.max(...Object.values(QUERY_RESULT_TYPES).map(label => label.length))
+  // Each cell is the mention glyph then the citation glyph, as the dashboard's two chips.
+  const cellWidth = (engine: string) => Math.max(2, engine.length)
+  lines.push(['Query'.padEnd(queryWidth), 'Type'.padEnd(typeWidth), ...response.engines.map(engine => engine.padEnd(cellWidth(engine)))].join('  ').trimEnd())
+  for (const row of rows) {
+    const cells = response.engines.map(engine => {
+      const result = row.engines.find(entry => entry.provider === engine)
+      // An engine this row was not asked on is blank: nothing was expected, so nothing is "not checked".
+      const cell = result ? `${signalGlyph(result.mentioned, 'M', 'm')}${signalGlyph(result.cited, 'C', 'c')}` : ''
+      return cell.padEnd(cellWidth(engine))
+    })
+    lines.push([row.queryText.padEnd(queryWidth), row.type.padEnd(typeWidth), ...cells].join('  ').trimEnd())
   }
   console.log(lines.join('\n'))
 }

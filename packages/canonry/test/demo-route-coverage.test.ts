@@ -166,4 +166,24 @@ describe('seeded demo route coverage', () => {
     expect([...unseeded].sort(), 'The sample gained or lost a record kind; update UNSEEDED_RECORDS').toEqual(UNSEEDED_RECORDS)
     expect(network).not.toHaveBeenCalled()
   }, 120_000)
+
+  it('reads tracked query results for both sample projects from their seeded sweeps', async () => {
+    const modes: Record<ProjectName, string> = { 'summit-roofing': 'simple', 'harbor-resorts': 'advanced' }
+    for (const project of Object.keys(PROJECTS) as ProjectName[]) {
+      const response = await inject(`/api/v1/projects/${project}/query-tracking/results`)
+      expect(response.statusCode, `${project}: ${response.body.slice(0, 200)}`).toBe(200)
+      const body = response.json()
+      expect(body.mode, project).toBe(modes[project])
+      expect(body.run, project).not.toBeNull()
+      expect(body.engines.length, project).toBeGreaterThan(0)
+      // Every seeded query was swept as it is tracked now, so nothing reads as changed since.
+      expect(body.rows.length, project).toBeGreaterThan(0)
+      expect(body.pendingRows, project).toBe(0)
+      expect(body.run.matchesCurrentTracking, project).toBe(true)
+      // The workspace compares the same sweeps: no sample query waits for one.
+      const workspace = (await inject(`/api/v1/projects/${project}/query-tracking`)).json()
+      expect([...new Set(workspace.tracked.map((row: Json) => row.state))], project).toEqual(['tracked'])
+    }
+    expect(network).not.toHaveBeenCalled()
+  })
 })

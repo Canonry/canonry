@@ -351,7 +351,8 @@ function simpleExecutionSignature(input: {
   })
 }
 
-function currentSimpleExecutionSignature(project: ProjectRow, opts: QueryTrackingRoutesOptions): string {
+/** What a planless sweep of this project would ask now. Also read by the query-tracking results route. */
+export function currentSimpleExecutionSignature(project: ProjectRow, opts: QueryTrackingRoutesOptions): string {
   return simpleExecutionSignature({
     identity: {
       displayName: project.displayName,
@@ -366,7 +367,8 @@ function currentSimpleExecutionSignature(project: ProjectRow, opts: QueryTrackin
   })
 }
 
-function frozenSimpleExecutionSignature(definition: SimpleMeasurementDefinition): string {
+/** What a stored planless sweep asked. Equal to the current signature when nothing it dispatches changed since. */
+export function frozenSimpleExecutionSignature(definition: SimpleMeasurementDefinition): string {
   return simpleExecutionSignature(definition)
 }
 
