@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-libra
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import type { CompetitorLandscapeResponse, EmbedClientConfig, MeasurementPlanResponse, MeasurementPlanV2, UiTelemetryEvent, VisibilityReportResponse } from '@ainyc/canonry-contracts'
-import { aggregateSentiment, emptyCitationVisibility, queryTrackingWorkspaceResponseSchema, sentimentSettingsSchema, sentimentSummarySchema, visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
+import { aggregateSentiment, emptyCitationVisibility, queryTrackingResultsResponseSchema, queryTrackingWorkspaceResponseSchema, sentimentSettingsSchema, sentimentSummarySchema, visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
@@ -15,7 +15,8 @@ import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { heyClient } from '../src/api.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 import { MANAGED_SWEEPS_COPY, MANAGED_SWEEPS_UNAVAILABLE_COPY, MANAGED_SWEEPS_RUNNING_COPY, MANAGED_SWEEPS_NEXT_LABEL } from '../src/components/project/ManagedSweepStatus.js'
-import { VISIBILITY_SCOPE_RECOVERY_COPY } from '../src/components/project/VisibilityTrendSection.js'
+import { VISIBILITY_SCOPE_RECOVERY_COPY, VISIBILITY_TOOLBAR_COPY } from '../src/components/project/VisibilityTrendSection.js'
+import { formatObservedInstantMonthDay, observedInstant } from '../src/components/shared/ChartPrimitives.js'
 import { MARKET_SCOPE_COPY } from '../src/components/project/VisibilityScopePicker.js'
 import { parseVisibilitySelection, visibilityReportFirstPageQuery } from '../src/lib/measurement-view-url.js'
 import { PROJECT_SCOPE_COPY } from '../src/lib/project-scope.js'
@@ -509,6 +510,21 @@ function queryTrackingWorkspaceResponse(overrides: Record<string, unknown> = {})
     }],
     savedSources: { research: [], discovery: [] },
     ...overrides,
+  })
+}
+
+/** The last sweep's results for the tracked workspace above. `changed` is a sweep from before the last tracking change. */
+function queryTrackingResultsResponse({ changed = false } = {}) {
+  return queryTrackingResultsResponseSchema.parse({
+    mode: 'advanced',
+    scope: { kind: 'project', key: null },
+    run: { id: 'run-sweep', createdAt: '2026-07-28T12:00:00.000Z', completedAt: '2026-07-28T12:10:00.000Z', status: 'completed', revision: changed ? 3 : 4, matchesCurrentTracking: !changed },
+    engines: ['openai'],
+    rows: changed ? [] : [{
+      queryId: 'query-citypoint', queryText: 'Citypoint dentist', queryClass: 'branded',
+      engines: [{ provider: 'openai', expectedAnswers: 1, answers: 1, mentionedAnswers: 1, citedAnswers: 1, uncheckedSourceAnswers: 0, mentioned: true, cited: true }],
+    }],
+    pendingRows: changed ? 1 : 0,
   })
 }
 
@@ -1348,8 +1364,16 @@ test('embedded Queries and legacy Discovery URLs fall back before reading unpubl
   expect(observed.some(path => path.includes('/query-tracking') || path.includes('/research') || path.includes('/discover'))).toBe(false)
 })
 
-test('the Queries route reads the workspace and keeps scoped removal active after its URL update', async () => {
+test('the Queries route reads the workspace and the results once, lists every type whatever queryClass the URL carries, and a row action writes no URL', async () => {
   const observed: string[] = []
+  const base = queryTrackingWorkspaceResponse()
+  // One branded and one non-brand query for the same location, which sits in the North group.
+  const workspace = queryTrackingWorkspaceResponse({
+    tracked: [base.tracked[0]!, {
+      ...base.tracked[0]!, queryId: 'query-category', queryText: 'Best dentist nearby', normalizedText: 'best dentist nearby',
+      assignments: [{ ...base.tracked[0]!.assignments[0]!, queryClass: 'non-brand' }],
+    }],
+  })
   const realFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const raw = input instanceof Request ? input.url : String(input)
@@ -1359,7 +1383,8 @@ test('the Queries route reads the workspace and keeps scoped removal active afte
     if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
     if (url.pathname.endsWith('/measurement-plan')) return jsonResponse({ active: null })
     if (url.pathname.endsWith('/measurement-setup')) return jsonResponse({ state: 'unconfigured', nextAction: 'configure', mode: 'none', activeRevision: null, activeSchemaVersion: null, draft: null })
-    if (url.pathname.endsWith('/query-tracking')) return jsonResponse(queryTrackingWorkspaceResponse())
+    if (url.pathname.endsWith('/query-tracking')) return jsonResponse(workspace)
+    if (url.pathname.endsWith('/query-tracking/results')) return jsonResponse(queryTrackingResultsResponse())
     if (url.pathname.endsWith('/measurement-query-templates')) return jsonResponse({ templates: [] })
     return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
   }) as typeof fetch
@@ -1367,7 +1392,8 @@ test('the Queries route reads the workspace and keeps scoped removal active afte
 
   const fixture = createDashboardFixture({})
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/queries?measurementScope=group&measurementScopeKey=north'] })
+  // `queryClass` is AI Visibility's key: alone, it narrows nothing on Tracked, which has its own Type filter.
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/queries?measurementScope=group&measurementScopeKey=north&queryClass=branded'] })
   await router.load()
   const page = render(
     <QueryClientProvider client={queryClient}>
@@ -1379,17 +1405,25 @@ test('the Queries route reads the workspace and keeps scoped removal active afte
 
   expect(await page.findByRole('heading', { name: 'Queries' })).toBeTruthy()
   expect(await page.findByText('Citypoint dentist')).toBeTruthy()
+  expect(page.getByText('Best dentist nearby')).toBeTruthy()
+  expect((page.getByRole('combobox', { name: 'Type' }) as HTMLSelectElement).value).toBe('all')
   expect(page.getByRole('tab', { name: 'Tracked' }).getAttribute('aria-selected')).toBe('true')
-  await waitFor(() => expect(observed.some(path => path.endsWith('/query-tracking'))).toBe(true))
+  // One workspace read and one results read, for the Place in the URL.
+  await waitFor(() => expect(observed.filter(path => path.includes('/query-tracking')).map(path => path.slice(path.indexOf('/query-tracking')))).toEqual([
+    '/query-tracking',
+    '/query-tracking/results?scope=group&scopeKey=north',
+  ]))
   expect(observed.some(path => path.includes('/discover') || path.includes('/research'))).toBe(false)
 
-  fireEvent.click(page.getByRole('button', { name: 'Remove Citypoint dentist' }))
-  await waitFor(() => expect(router.state.location.search.trackingQueryId).toBe('query-citypoint'))
+  // A row changes through its menu and a sheet. Nothing is written to the URL, so the Place stays.
+  fireEvent.click(page.getByRole('button', { name: 'Actions for Citypoint dentist' }))
+  fireEvent.click(page.getByRole('menuitem', { name: 'Stop tracking' }))
+  expect(within(await page.findByRole('dialog', { name: 'Stop tracking' })).getByText('Citypoint dentist')).toBeTruthy()
+  expect(router.state.location.search.trackingQueryId).toBeUndefined()
   expect(router.state.location.search.measurementScope).toBe('group')
   expect(router.state.location.search.measurementScopeKey).toBe('north')
-  expect(page.getByRole('heading', { name: 'Remove query' })).toBeTruthy()
-  expect(page.queryByRole('heading', { name: 'Edit query' })).toBeNull()
-  expect(page.getByText('Applies to').nextElementSibling?.textContent).toBe('Only North · Group')
+  expect(router.state.location.search.queryClass).toBe('branded')
+  expect(page.queryByRole('heading', { name: /^(Edit|Remove) query$/ })).toBeNull()
 })
 
 // The fixture's Citypoint project has a queued AI sweep; dropping it leaves only the completed one.
@@ -1410,6 +1444,7 @@ test.each([true, false])('the Queries route pauses publishing while a sweep is q
     if (url.pathname.endsWith('/measurement-plan')) return jsonResponse({ active: null })
     if (url.pathname.endsWith('/measurement-setup')) return jsonResponse({ state: 'unconfigured', nextAction: 'configure', mode: 'none', activeRevision: null, activeSchemaVersion: null, draft: null })
     if (url.pathname.endsWith('/query-tracking')) return jsonResponse(queryTrackingWorkspaceResponse())
+    if (url.pathname.endsWith('/query-tracking/results')) return jsonResponse(queryTrackingResultsResponse())
     if (url.pathname.endsWith('/query-tracking/preview')) {
       const { workspaceVersion, active } = queryTrackingWorkspaceResponse()
       return jsonResponse({
@@ -1435,8 +1470,9 @@ test.each([true, false])('the Queries route pauses publishing while a sweep is q
     </QueryClientProvider>,
   )
 
-  fireEvent.click(await page.findByRole('button', { name: 'Remove Citypoint dentist' }))
-  fireEvent.click(page.getByRole('button', { name: 'Review changes' }))
+  fireEvent.click(await page.findByRole('button', { name: 'Actions for Citypoint dentist' }))
+  fireEvent.click(page.getByRole('menuitem', { name: 'Stop tracking' }))
+  fireEvent.click(within(await page.findByRole('dialog', { name: 'Stop tracking' })).getByRole('button', { name: 'Review' }))
   const publish = await page.findByRole('button', { name: 'Publish 1 change' }) as HTMLButtonElement
   expect(publish.disabled).toBe(sweepActive)
   const message = page.queryByRole('button', { name: 'Sweep running. A sweep is queued or running. Publish after it finishes.' })
@@ -3100,12 +3136,14 @@ async function renderScopeRoute(
 function trackingRoute(
   workspace = queryTrackingWorkspaceResponse(),
   measurement: { plan: unknown; setup: unknown } = { plan: measurementPlanV2Response(4), setup: activeMeasurementSetupResponse(4) },
+  results = queryTrackingResultsResponse(),
 ) {
   return (url: URL) => {
     const path = decodeURIComponent(url.pathname)
     if (path.endsWith('/measurement-plan')) return jsonResponse(measurement.plan)
     if (path.endsWith('/measurement-setup')) return jsonResponse(measurement.setup)
     if (path.endsWith('/query-tracking')) return jsonResponse(workspace)
+    if (path.endsWith('/query-tracking/results')) return jsonResponse(results)
     if (path.endsWith('/measurement-query-templates')) return jsonResponse({ templates: [] })
     if (path.endsWith('/discover/sessions')) return jsonResponse([])
     return undefined
@@ -3326,8 +3364,9 @@ test('a viewer on Advanced tracked Queries gets exactly one scope trigger, in th
   expect(trigger.textContent).toBe(ALL_OF_CITYPOINT)
   expect(page.container.querySelectorAll('.visibility-scope-trigger')).toHaveLength(1)
   expect(page.getByRole('region', { name: 'Tracked queries' }).querySelector('.visibility-scope-trigger')).toBeNull()
-  // The row reads the body's own workspace key, so it adds no request.
+  // The row reads the body's own workspace key, so it adds no request. The body reads the last sweep's results once.
   expect(observed.filter(url => url.pathname.endsWith('/query-tracking'))).toHaveLength(1)
+  expect(observed.filter(url => url.pathname.endsWith('/query-tracking/results'))).toHaveLength(1)
   expect(observed.some(url => url.pathname.endsWith('/measurement-setup') || url.pathname.endsWith('/measurement-plan'))).toBe(false)
   const nav = page.getByRole('navigation', { name: 'Project sections' })
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
@@ -3345,13 +3384,17 @@ test('a viewer without research access who opens Research gets the tracked table
 
 test('a retired tracking scope is named in the row while the body keeps the recovery action', async () => {
   const { page, router } = await renderScopeRoute('/projects/project_citypoint/queries?measurementScope=group&measurementScopeKey=retired-group', trackingRoute())
-  expect(await page.findByText('This saved group filter is unavailable in the current measurement.')).toBeTruthy()
+  // The body says it in two words, with the sentence behind them, and its button names the project as the picker does.
+  const showAll = await page.findByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showRoot(ALL_OF_CITYPOINT) })
+  expect(showAll.textContent).toBe('Show all')
+  expect(page.getByText('Place unavailable')).toBeTruthy()
   const row = contextRow(page.container)
   await waitFor(() => expect(row.querySelector('.project-context-scope')?.textContent).toBe(PROJECT_SCOPE_COPY.savedScopeUnavailable))
   expect(page.container.querySelector('.visibility-scope-trigger')).toBeNull()
-  expect(within(row).queryByRole('button', { name: 'Show whole site' })).toBeNull()
+  expect(row.contains(showAll)).toBe(false)
+  expect(page.container.textContent).not.toMatch(/Show whole site|filter is unavailable/)
 
-  fireEvent.click(page.getByRole('button', { name: 'Show whole site' }))
+  fireEvent.click(showAll)
   await waitFor(() => expect(router.state.location.search.measurementScope).toBe('project'))
   expect((await rowTrigger(page.container)).textContent).toBe(ALL_OF_CITYPOINT)
   expect(row.textContent).not.toContain(PROJECT_SCOPE_COPY.savedScopeUnavailable)
@@ -3492,12 +3535,16 @@ test.each([
     const { trackingChangedAt, nextSweepDate } = queriesSectionProps()
     expect({ trackingChangedAt, nextSweepDate }).toEqual(dates)
   })
+  // The page names the whole project as the picker does, and the published plan says the page is the advanced one before the workspace lands.
+  expect(queriesSectionProps().rootLabel).toBe(ALL_OF_CITYPOINT)
+  expect(queriesSectionProps().trackedMode).toBe('advanced')
 })
 
-test('a viewer who opens Queries first is handed the next sweep and no tracking-change date', async () => {
+test('a viewer who opens Queries first is handed the next sweep and no tracking-change date, and still reads that tracking changed', async () => {
   vi.mocked(QueriesSection).mockClear()
-  const tracking = trackingRoute()
-  const { observed, queryClient } = await renderScopeRoute(
+  // The last sweep ran before the last tracking change: the results read says so, to every role.
+  const tracking = trackingRoute(undefined, undefined, queryTrackingResultsResponse({ changed: true }))
+  const { observed, page, queryClient } = await renderScopeRoute(
     '/projects/project_citypoint/queries',
     url => url.pathname.endsWith('/schedules') ? jsonResponse([schedule()]) : tracking(url),
     {
@@ -3511,9 +3558,14 @@ test('a viewer who opens Queries first is handed the next sweep and no tracking-
   await waitFor(() => expect(observed.some(url => url.pathname.endsWith('/schedules'))).toBe(true))
   await waitFor(() => expect(queryClient.isFetching()).toBe(0))
   await waitFor(() => expect(queriesSectionProps().nextSweepDate).toBe('Aug 7'))
-  // The plan holds the tracking change, and a viewer reads no plan on Queries: the page's note goes undated.
+  // The plan holds the date of the tracking change, and a viewer reads no plan on Queries: the page's note goes undated.
   expect(observed.some(url => url.pathname.endsWith('/measurement-plan'))).toBe(false)
   expect(queriesSectionProps().trackingChangedAt).toBeUndefined()
+  // With no plan or setup read, the host does not know the mode either, and says nothing rather than guess.
+  expect(queriesSectionProps().trackedMode).toBeUndefined()
+  // The note itself comes from the results read, so the viewer still sees it, in the words AI Visibility uses.
+  const note = await page.findByRole('button', { name: `Tracking changed. ${VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(formatObservedInstantMonthDay(observedInstant('2026-07-28T12:10:00.000Z')), 'Aug 7')}` })
+  expect(note.textContent).toBe('Tracking changed')
 })
 
 test('the tracked Queries row picker floats over the table, closes on Escape or outside interaction, and keeps focus after a search selection', async () => {
@@ -3547,7 +3599,7 @@ test('the tracked Queries row picker floats over the table, closes on Escape or 
   expect(details.open).toBe(true)
   fireEvent.pointerDown(search)
   expect(details.open).toBe(true)
-  const querySearch = page.getByRole('searchbox', { name: 'Filter tracked queries' })
+  const querySearch = page.getByRole('searchbox', { name: 'Search queries' })
   querySearch.focus()
   fireEvent.pointerDown(querySearch)
   expect(details.open).toBe(false)

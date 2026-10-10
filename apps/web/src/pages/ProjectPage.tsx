@@ -3272,6 +3272,9 @@ function ProjectPageContent({
           onTrackedFiltersChange={patch => updateVisibilitySearch(trackedFiltersPatch(patch))}
           trackingChangedAt={shownTrackingChangedAt}
           nextSweepDate={shownNextSweepDate}
+          rootLabel={placeRootLabel}
+          // A published plan is an advanced workspace. Known from the reads this page already made, never from a new one.
+          trackedMode={(measurementSetupQuery.data?.activeSchemaVersion ?? activeMeasurementPlanSchemaVersion) === 2 ? 'advanced' : undefined}
         />
       ) : tab === 'technical-aeo' ? (
         <SiteHealthSection

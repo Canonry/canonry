@@ -189,6 +189,38 @@ test('a failed workspace read keeps the tabs and offers one action, which reads 
   expect(reads).toBe(2)
 })
 
+test.each([
+  // The host knows the mode from a plan it already read: the skeleton has the advanced page's strip and toolbar.
+  ['an advanced project the host knows', 'advanced' as const, 2],
+  // Until any read says which page this is, a plain list of rows stands for both.
+  ['a project whose mode is not known yet', undefined, 0],
+])('while the workspace loads, %s gets a skeleton and no words', async (_label, trackedMode, above) => {
+  onTestFinished(mockFetch(() => new Promise<Response>(() => {})))
+  renderSection({ trackedMode })
+  const rows = await screen.findByRole('status', { name: 'Loading queries' })
+  expect(rows.children).toHaveLength(8)
+  // What stands above the rows is drawing only: nothing to read and nothing to reach.
+  const before = [...rows.parentElement!.children].slice(0, -1)
+  expect(before).toHaveLength(above)
+  for (const block of before) expect(block.getAttribute('aria-hidden')).toBe('true')
+  const body = screen.getByRole('region', { name: 'Queries' }).lastElementChild as HTMLElement
+  expect(body.textContent).toBe('')
+  expect(within(body).queryAllByRole('button')).toEqual([])
+  expect(actionsSlot().childElementCount).toBe(0)
+})
+
+test.each(['advanced', undefined] as const)('a failed workspace read says Could not load with one Retry, whatever the mode (hint: %s)', async trackedMode => {
+  onTestFinished(mockFetch(() => jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'unavailable' } }, 500)))
+  renderSection({ trackedMode })
+  // An icon, a label and one action. The button reads Retry and its name says what it reads again.
+  const alert = await screen.findByRole('alert')
+  expect(alert.textContent).toBe('Could not loadRetry')
+  expect(alert.querySelector('svg')).not.toBeNull()
+  const retry = within(alert).getByRole('button', { name: 'Retry tracked queries' })
+  expect(retry.textContent).toBe('Retry')
+  expect(within(alert).getAllByRole('button')).toEqual([retry])
+})
+
 test('the Queries heading names the section and is drawn for assistive tech only', async () => {
   renderSection({ queryWorkspace: 'research' })
   const heading = screen.getByRole('heading', { name: 'Queries' })

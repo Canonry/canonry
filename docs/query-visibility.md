@@ -35,7 +35,7 @@ The Add query form assigns one query at a time:
 7. Check the resolved queries, assignments, and next-sweep workload.
 8. Select **Publish N changes** (**Confirm changes** on a simple site).
 
-An advanced project's review shows the same thing for every change, from the sheet, the form, **Edit** or **Remove**:
+An advanced project's review shows the same thing for every change, from the sheet, the form, or a row's menu or the bar for ticked rows on the Tracked table:
 
 - **Queries** and **Answers per sweep**, each as the count now and the count after publishing, with **Answers added** and **Answers removed** kept separate. **Queries** counts the queries the project asks, so a query that loses its last location leaves the count.
 - One row per added, reused, and removed query: its Subject, its type, and its location links. A query has one link per location and search location, so the count can be higher than the number of locations. A removed row shows how many links it removes, with the Subject and type it has now. A query asked as Branded for some locations and as Non-brand for others reads **Mixed**. **N locations** under the query lists each location with its own type.
@@ -58,10 +58,19 @@ Advanced assignments can carry an explicit operator classification.
 
 ## Edit or remove a query
 
+An advanced project's Tracked table lists each query with its Subject, its type, Mentioned and Cited per engine from the last sweep, and its status. Each row has a menu:
+
 1. In **Place**, select All of {project}, a location, a group, or a market.
-2. Select **Edit** or **Remove** beside the query.
-3. Review the selected scope and the proposed changes.
-4. Select **Publish N changes** (**Confirm changes** on a simple site).
+2. Open the row's menu and select **Edit wording**, **Change Subject**, **Move to another location**, **Change type** or **Stop tracking**. A query that is asked nowhere offers **Track** and **Remove query** instead.
+3. Under a place, check **Applies to**. It starts on **Only {place}**; **Everywhere** changes the whole query. A query asked nowhere else has no such choice.
+4. Select **Review**, check the proposed changes, then select **Publish N changes**.
+
+Ticking rows opens a bar with the actions every ticked row can take: **Change type** and **Stop tracking**, or **Track** and **Remove query** for queries that are asked nowhere. One change takes at most 50 rows.
+**Copy link** in the menu copies a link that opens the table on that row, marked and open. A link never opens a form.
+A view-only account sees the table, each row's locations and **Copy link**, and no way to change tracking.
+The chips come from `GET /query-tracking/results` (see "Results per query and engine"). A query changed or added since the last sweep reads **Not checked** until the next one, and **Tracking changed** shows beside the legend.
+
+A simple site keeps **Edit** and **Remove** beside each query, then **Review changes** and **Confirm changes**.
 
 All of {project} changes every assignment of that query. Other places change only their existing assignments.
 An edit preserves the stored engines, models, locations, and unrelated market assignments.

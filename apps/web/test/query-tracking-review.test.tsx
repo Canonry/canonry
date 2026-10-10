@@ -14,12 +14,23 @@ import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 import {
-  active, advancedResetLine, advancedResetNotice, context, installScrollSpy, installWorkspaceApi, listLocations, noteButton, preview, previewToken,
-  removalDiff, removalWorkload, renderWorkspace, reviewNumbers, reviewRemoval, reviewRow, searchLocationModels, sharedSearchLocation, sweepActiveLabel, sweepActiveMessage,
+  active, advancedResetLine, advancedResetNotice, context, installScrollSpy, installWorkspaceApi, listLocations, noteButton, openRowSheet, preview, previewToken,
+  removalDiff, removalWorkload, renderWorkspace, results, reviewNumbers, reviewRemoval, reviewRow, searchLocationModels, sharedSearchLocation, sweepActiveLabel, sweepActiveMessage,
   trackedAfterRemoval, workspace, workspaceVersion,
 } from './support/query-tracking-fixtures.js'
 
-// The review and publish of an Advanced tracking change, reached through a removal (`reviewRemoval`, or its two clicks).
+// The review and publish of an Advanced tracking change, reached through Stop tracking in a row's menu (`reviewRemoval`, or its steps).
+
+/** Acme pricing asked for Acme and for Beta, so a Place that holds only Acme narrows a change to it. */
+function sharedWorkspace() {
+  const shared = workspace()
+  shared.targets.push({ stableKey: 'beta', label: 'Beta' })
+  shared.tracked[0]!.assignments.push({
+    targetKey: 'beta', groupKeys: [], marketKeys: [], queryClass: 'non-brand', classificationSource: 'operator',
+    contexts: [{ ...context, location: { label: 'Chicago', city: 'Chicago', region: 'IL', country: 'US' } }],
+  })
+  return shared
+}
 
 afterEach(() => {
   cleanup()
@@ -75,7 +86,7 @@ test('counts a location-scoped removal as answers, not as a query leaving tracki
       return jsonResponse(preview({ diff: removalDiff, workload: removalWorkload }))
     }
     throw new Error(`Unexpected fetch: ${path}`)
-  })
+  }, [], sharedWorkspace())
   renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
   await reviewRemoval()
   expect(previewBody).toEqual({ expectedWorkspaceVersion: workspaceVersion, additions: [], removals: [{ queryId: 'query-acme', audience: { targetKeys: ['acme'] } }] })
@@ -238,9 +249,7 @@ test.each([
   const queryClient = createQueryClient()
   onTestFinished(() => queryClient.clear())
   render(<QueryClientProvider client={queryClient}><QueriesSection projectName="demo" /></QueryClientProvider>)
-  await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  fireEvent.click((await openRowSheet('Acme pricing', 'Stop tracking')).getByRole('button', { name: 'Review' }))
   if (operation === 'commit') fireEvent.click(await screen.findByRole('button', { name: 'Publish 1 change' }))
   await waitFor(() => expect(getToasts().map(toast => [toast.title, toast.detail])).toEqual([[title, error.message]]))
   // The review stays up with the same refusal and a way to review the change again.
@@ -303,7 +312,8 @@ test('shows no sweep pause on a review that changes nothing', async () => {
   renderWorkspace({ publishGuard: { sweepActive: true } })
   await reviewRemoval()
   expect(screen.getByRole('button', { name: 'Publish changes' }).hasAttribute('disabled')).toBe(true)
-  expect(screen.queryByText(sweepActiveLabel)).toBeNull()
+  // The page's strip says a sweep is running. The review, which has nothing to publish, does not.
+  expect(within(screen.getByRole('dialog')).queryByText(sweepActiveLabel)).toBeNull()
   expect(screen.queryByRole('status')).toBeNull()
 })
 
@@ -324,14 +334,12 @@ test('requires a preview before removing a named tracked query and commits its e
   })
   renderWorkspace()
 
-  await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
-  // The form names the query and where the removal applies, with no sentence.
-  const form = screen.getByRole('heading', { name: 'Remove query' }).parentElement!
-  expect(within(form).getByText('Acme pricing')).toBeTruthy()
-  expect(within(form).getByRole('term').nextElementSibling?.textContent).toBe('Everywhere')
-  noteButton('Past answers kept', 'Removal applies to future sweeps. Earlier results stay unchanged.', form)
-  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  // The sheet names the query. It is asked for the whole project here, so there is no place to narrow to.
+  const sheet = await openRowSheet('Acme pricing', 'Stop tracking')
+  expect(sheet.getByText('Acme pricing')).toBeTruthy()
+  expect(sheet.queryByRole('radiogroup', { name: 'Applies to' })).toBeNull()
+  expect(requests).toEqual([])
+  fireEvent.click(sheet.getByRole('button', { name: 'Review' }))
 
   await screen.findByText('1 removed')
   fireEvent.click(screen.getByRole('button', { name: 'Publish 1 change' }))
@@ -359,9 +367,7 @@ test('describes removed assignments without attributing the retained Property to
     throw new Error(`Unexpected fetch: ${path}`)
   }, [], shared)
   renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
-  await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  await reviewRemoval()
   await screen.findByText('1 removed')
   const removed = reviewRow('Acme pricing')
   // The post-change row holds only what survives (Beta), so the removal names no search location. Its type is the query's own, now.
@@ -375,27 +381,33 @@ test.each([
   { measurementScope: 'group' as const, measurementScopeKey: 'north-east', audience: { groupKeys: ['north-east'] } },
   { measurementScope: 'market' as const, measurementScopeKey: 'new-york', audience: { marketKeys: ['new-york'] } },
 ])('removes only the selected $measurementScope audience of a shared query', async ({ measurementScope, measurementScopeKey, audience }) => {
-  let previewBody: unknown
-  const shared = workspace()
-  shared.targets.push({ stableKey: 'beta', label: 'Beta' })
-  shared.tracked[0]!.assignments.push({
-    targetKey: 'beta', groupKeys: [], marketKeys: [], queryClass: 'non-brand', classificationSource: 'operator',
-    contexts: [{ ...context, location: { label: 'Chicago', city: 'Chicago', region: 'IL', country: 'US' } }],
-  })
+  const previewBodies: unknown[] = []
   installWorkspaceApi((path, body) => {
     if (path.endsWith('/query-tracking/preview')) {
-      previewBody = body
+      previewBodies.push(body)
       return jsonResponse(preview())
     }
     throw new Error(`Unexpected fetch: ${path}`)
-  }, [], shared)
+  }, [], sharedWorkspace())
   renderWorkspace({ selection: { measurementScope, measurementScopeKey, queryClass: 'all' } })
 
-  await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  // The sheet opens on the Place, and says so: the query is asked for Beta too.
+  const sheet = await openRowSheet('Acme pricing', 'Stop tracking')
+  const appliesTo = within(sheet.getByRole('radiogroup', { name: 'Applies to' })).getAllByRole('radio')
+  expect(appliesTo.map(choice => [choice.textContent, choice.getAttribute('aria-checked')])).toEqual([
+    [`Only ${measurementScope === 'property' ? 'Acme' : measurementScope === 'group' ? 'North East' : 'New York'}`, 'true'],
+    ['Everywhere', 'false'],
+  ])
+  fireEvent.click(sheet.getByRole('button', { name: 'Review' }))
   await screen.findByText('Review tracking changes')
-  expect(previewBody).toEqual({ expectedWorkspaceVersion: workspaceVersion, additions: [], removals: [{ queryId: 'query-acme', audience }] })
+  expect(previewBodies).toEqual([{ expectedWorkspaceVersion: workspaceVersion, additions: [], removals: [{ queryId: 'query-acme', audience }] }])
+
+  // Everywhere is the whole query: the same removal with no place.
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  fireEvent.click(sheet.getByRole('radio', { name: 'Everywhere' }))
+  fireEvent.click(sheet.getByRole('button', { name: 'Review' }))
+  await screen.findByText('Review tracking changes')
+  expect(previewBodies[1]).toEqual({ expectedWorkspaceVersion: workspaceVersion, additions: [], removals: [{ queryId: 'query-acme' }] })
 })
 
 test('refreshes cached measurement and query state for the published project', async () => {
@@ -415,9 +427,7 @@ test('refreshes cached measurement and query state for the published project', a
   const unrelatedKey = getApiV1ProjectsByNameVisibilityReportQueryKey({ client: heyClient, path: { name: 'another-project' } })
   for (const key of [...changedKeys, unrelatedKey]) queryClient.setQueryData(key, { cached: true })
   render(<QueryClientProvider client={queryClient}><QueriesSection projectName="demo" /></QueryClientProvider>)
-  await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  fireEvent.click((await openRowSheet('Acme pricing', 'Stop tracking')).getByRole('button', { name: 'Review' }))
   fireEvent.click(await screen.findByRole('button', { name: 'Publish changes' }))
   await waitFor(() => {
     for (const key of changedKeys) expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true)
@@ -426,8 +436,9 @@ test('refreshes cached measurement and query state for the published project', a
 })
 
 test.each([
-  { failedOperation: 'preview', again: 'Review changes' },
-  { failedOperation: 'commit', again: 'Review changes' },
+  // Back returns to the sheet's form, whose Review sends the same change.
+  { failedOperation: 'preview', again: 'Review' },
+  { failedOperation: 'commit', again: 'Review' },
   { failedOperation: 'preview', again: 'Review again' },
   { failedOperation: 'commit', again: 'Review again' },
 ] as const)('refreshes a stale workspace after $failedOperation fails so $again reviews the same draft', async ({ failedOperation, again }) => {
@@ -438,6 +449,7 @@ test.each([
   const restore = mockFetch((url, init) => {
     const path = new URL(url).pathname
     if (path.endsWith('/query-tracking')) return jsonResponse({ ...workspace(), workspaceVersion: stale ? refreshedVersion : workspaceVersion })
+    if (path.endsWith('/query-tracking/results')) return jsonResponse(results())
     if (path.endsWith('/measurement-query-templates')) return jsonResponse({ templates: [] })
     if (path.endsWith('/query-tracking/preview')) {
       reviewedVersions.push(JSON.parse(String(init?.body)).expectedWorkspaceVersion)
@@ -453,13 +465,17 @@ test.each([
   onTestFinished(restore)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 300_000 } } })
   render(<QueryClientProvider client={queryClient}><QueriesSection projectName="demo" /></QueryClientProvider>)
-  await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  fireEvent.click((await openRowSheet('Acme pricing', 'Stop tracking')).getByRole('button', { name: 'Review' }))
   if (failedOperation === 'commit') fireEvent.click(await screen.findByRole('button', { name: 'Publish changes' }))
   await waitFor(() => expect(refused).toBe(true))
   await waitFor(() => expect(queryClient.getQueryCache().getAll().some(query => (query.state.data as { workspaceVersion?: string } | undefined)?.workspaceVersion === refreshedVersion)).toBe(true))
-  expect(screen.getByRole('alert').textContent).toBe(`Could not ${failedOperation === 'preview' ? 'review' : 'confirm'} tracking changes. Workspace changed. Review again.`)
+  const refusal = `Could not ${failedOperation === 'preview' ? 'review' : 'confirm'} tracking changes. Workspace changed. Review again.`
+  expect((await screen.findByRole('alert')).textContent).toBe(refusal)
+  // The refusal follows the change back to the form, until the next request.
+  if (again === 'Review') {
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByRole('alert').textContent).toBe(refusal)
+  }
   fireEvent.click(screen.getByRole('button', { name: again }))
   await screen.findByRole('button', { name: 'Publish changes' })
   expect(screen.queryByRole('alert')).toBeNull()
