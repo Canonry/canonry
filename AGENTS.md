@@ -139,7 +139,7 @@ The tracked thing (`canonry query add`, the `queries` / `query_snapshots` tables
 1. Human-facing copy says `query`: UI labels, headings, tooltips, `aria-label`, placeholders, CLI output, and exported output — with correct agreement ("Assign at least one query", "3 query assignments").
 2. The frozen wire names stay: routes `/measurement-property-questions` and `/measurement-question-result`, MCP tools `canonry_measurement_property_questions` and `canonry_measurement_question_result`, and every SDK symbol, field, prop, and file built on them. The copy/wire mismatch is deliberate.
 3. Discovery's generative framing ("questions your customers might ask") is a real-world noun; once a candidate is promoted into the basket it is a query.
-4. `canonry-vocabulary/no-question-ui-copy` enforces this in `apps/web/src`. Machine tokens (no whitespace, e.g. `property-questions`) and `className` / `id` / `aria-labelledby` values are exempt; only two files are excluded, permanently: `DiscoverySection.tsx` (rule 3's framing can't be separated by regex) and `mock-data.ts` (test fixture).
+4. `canonry-vocabulary/no-question-ui-copy` enforces this in `apps/web/src`. Machine tokens (no whitespace, e.g. `property-questions`) and `className` / `id` / `aria-labelledby` values are exempt; two files are excluded permanently: `components/project/queries/FindQueriesSection.tsx` (rule 3's framing can't be separated by regex) and `mock-data.ts` (test fixture). `components/project/queries/TrackingComposer.tsx` (the Add query form) is excluded only until its copy says "query".
 
 ## Enum Constants (Critical)
 

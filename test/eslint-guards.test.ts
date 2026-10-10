@@ -48,6 +48,20 @@ const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
     ],
   },
   {
+    // The Queries tab exempts two files (see GUARD_EXEMPTIONS); its host and
+    // the tracked pages beside them are guarded.
+    file: 'apps/web/src/components/project/DiscoverySection.tsx',
+    rules: ['canonry-vocabulary/no-question-ui-copy'],
+  },
+  {
+    file: 'apps/web/src/components/project/queries/SimpleTrackedQueries.tsx',
+    rules: ['canonry-vocabulary/no-question-ui-copy'],
+  },
+  {
+    file: 'apps/web/src/components/project/queries/advanced/AdvancedTrackedPage.tsx',
+    rules: ['canonry-vocabulary/no-question-ui-copy'],
+  },
+  {
     file: 'packages/api-routes/src/traffic-analytics.ts',
     rules: [
       'canonry-guards/no-inline-percent',
@@ -98,7 +112,8 @@ const GUARD_EXEMPTIONS: Array<{ file: string, rule: string }> = [
   { file: 'apps/web/src/api.ts', rule: 'canonry-guards/no-raw-http-web' },
   { file: 'apps/web/src/api-aero.ts', rule: 'canonry-guards/no-raw-http-web' },
   { file: 'apps/web/src/mock-data.ts', rule: 'canonry-vocabulary/no-question-ui-copy' },
-  { file: 'apps/web/src/components/project/DiscoverySection.tsx', rule: 'canonry-vocabulary/no-question-ui-copy' },
+  { file: 'apps/web/src/components/project/queries/FindQueriesSection.tsx', rule: 'canonry-vocabulary/no-question-ui-copy' },
+  { file: 'apps/web/src/components/project/queries/TrackingComposer.tsx', rule: 'canonry-vocabulary/no-question-ui-copy' },
   { file: 'apps/web/src/components/shared/ProviderBadge.tsx', rule: 'design-tokens/no-literal-palette' },
   { file: 'packages/canonry/src/client.ts', rule: 'canonry-guards/no-raw-http-cli' },
   { file: 'packages/integration-google-analytics/src/constants.ts', rule: 'canonry-guards/no-inline-ga4-dimension' },
