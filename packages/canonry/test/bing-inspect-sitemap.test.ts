@@ -7,8 +7,15 @@ import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { bingCoverageSnapshots, bingUrlInspections, createClient, migrate, projects, runs } from '@ainyc/canonry-db'
+import { BingApiError } from '@ainyc/canonry-integration-bing'
 import { executeBingInspectSitemap } from '../src/bing-inspect-sitemap.js'
 import type { CanonryConfig } from '../src/config.js'
+
+const trackEvent = vi.hoisted(() => vi.fn())
+vi.mock('../src/telemetry.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/telemetry.js')>()),
+  trackEvent,
+}))
 
 function startSitemapServer(routes: Record<string, string | undefined>): Promise<{ server: http.Server; baseUrl: string }> {
   return new Promise((resolve) => {
@@ -407,5 +414,113 @@ describe('executeBingInspectSitemap', () => {
     const ok = inspections.find((r) => r.url.endsWith('/ok'))
     expect(blocked?.inIndex).toBe(false)
     expect(ok?.inIndex).toBe(true)
+  })
+
+  describe('outcome telemetry', () => {
+    const instant = { sleep: async () => {}, jitter: () => 0 }
+    const sitemapOf = (count: number) => `<?xml version="1.0" encoding="UTF-8"?>\n<urlset>\n${
+      Array.from({ length: count }, (_, i) => `  <url><loc>https://harborline-coatings.example.com/p${i}</loc></url>`).join('\n')
+    }\n</urlset>`
+    const throttled = () => new BingApiError('Bing API error (400): {"ErrorCode":5,"Message":"ERROR!!! ThrottleHost"}', 400, 5)
+
+    function featureCompleted() {
+      const calls = trackEvent.mock.calls.filter((call) => call[0] === 'feature.completed')
+      expect(calls).toHaveLength(1)
+      return calls[0]!.slice(1)
+    }
+
+    beforeEach(() => trackEvent.mockReset())
+
+    it('reports the coverage sweep as the bing sync, with URL counts, after it is saved', async () => {
+      const s = await startSitemapServer({ '/sitemap.xml': sitemapOf(2) })
+      server = s.server
+      const bingModule = await import('@ainyc/canonry-integration-bing')
+      vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _site, url) => ({ Url: url, HttpStatus: 200, DocumentSize: 1000 }))
+
+      const runId = await queueRun()
+      await executeBingInspectSitemap(db, runId, projectId, {
+        sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant,
+      })
+
+      expect(featureCompleted()).toEqual([
+        {
+          feature: 'bing', operation: 'sync', trigger: 'manual', status: 'succeeded',
+          durationBucket: 'under_1s', counts: { urls: 2, failures: 0, skipped: 0 },
+        },
+        undefined,
+      ])
+    })
+
+    it('reports a URL Bing throttled as partial on rate limit, not as a client error', async () => {
+      const s = await startSitemapServer({ '/sitemap.xml': sitemapOf(2) })
+      server = s.server
+      const bingModule = await import('@ainyc/canonry-integration-bing')
+      vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _site, url) => {
+        if (url.endsWith('/p1')) throw throttled()
+        return { Url: url, HttpStatus: 200, DocumentSize: 1000 }
+      })
+
+      const runId = await queueRun()
+      await executeBingInspectSitemap(db, runId, projectId, {
+        sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant,
+      })
+
+      expect(featureCompleted()).toEqual([
+        {
+          feature: 'bing', operation: 'sync', trigger: 'manual', status: 'partial', reasonCode: 'RATE_LIMITED',
+          errorName: 'BingApiError', durationBucket: 'under_1s', counts: { urls: 1, failures: 1, skipped: 0 },
+        },
+        { errorCode: 'RATE_LIMITED' },
+      ])
+    })
+
+    it('reports a sweep that inspected nothing by the throttle behind it', async () => {
+      const s = await startSitemapServer({ '/sitemap.xml': sitemapOf(6) })
+      server = s.server
+      const bingModule = await import('@ainyc/canonry-integration-bing')
+      vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async () => { throw throttled() })
+
+      const runId = await queueRun()
+      await expect(executeBingInspectSitemap(db, runId, projectId, {
+        sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant,
+      })).rejects.toThrow(/failed for every URL/i)
+
+      expect(featureCompleted()).toEqual([
+        {
+          feature: 'bing', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'RATE_LIMITED',
+          errorName: 'BingApiError', durationBucket: 'under_1s',
+        },
+        { errorCode: 'RATE_LIMITED' },
+      ])
+    })
+
+    it('reports a missing connection and a missing site by reason', async () => {
+      const noConnection = await queueRun()
+      await expect(executeBingInspectSitemap(db, noConnection, projectId, {
+        config: { apiUrl: 'http://localhost:4100', database: '/tmp/x', apiKey: 'cnry_test' }, pacedDeps: instant,
+      })).rejects.toThrow('No Bing connection')
+      const noSite = await queueRun()
+      await expect(executeBingInspectSitemap(db, noSite, projectId, {
+        config: {
+          apiUrl: 'http://localhost:4100', database: '/tmp/x', apiKey: 'cnry_test',
+          bing: { connections: [{
+            domain: 'harborline-coatings.example.com', apiKey: 'k', siteUrl: null,
+            createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+          }] },
+        },
+        pacedDeps: instant,
+      })).rejects.toThrow('No Bing site configured')
+
+      expect(trackEvent.mock.calls.map((call) => call.slice(1))).toEqual([
+        [
+          { feature: 'bing', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'NOT_CONNECTED', errorName: 'Error', durationBucket: 'under_1s' },
+          { errorCode: 'NOT_CONNECTED' },
+        ],
+        [
+          { feature: 'bing', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'PROPERTY_NOT_FOUND', errorName: 'Error', durationBucket: 'under_1s' },
+          { errorCode: 'PROPERTY_NOT_FOUND' },
+        ],
+      ])
+    })
   })
 })

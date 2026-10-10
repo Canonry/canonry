@@ -72,6 +72,9 @@ import {
   adsConversionPixelListResponseSchema,
   adsConversionEventSettingListResponseSchema,
   GoogleMarketingProviders,
+  FeatureNames,
+  OutcomeReasonCodes,
+  OutcomeSurfaces,
   type AdsCampaignBiddingType,
   type AdsAdGroupBillingEventType,
   type ProviderAdapter,
@@ -247,6 +250,7 @@ import {
 import { ProviderRegistry, type RegisteredProvider } from "./provider-registry.js";
 import { batchEligibleProviderNames, providerConfigFromEntry, providersWithUnsupportedBatch } from "./provider-batch-config.js";
 import { handleRouteOutcome } from "./outcome-telemetry.js";
+import { reportUnstartedRun } from "./sync-outcome.js";
 import { registeredProviderNames } from "./provider-registration.js";
 import { configuredProviderEntries, DEFAULT_CDP_QUOTA, DEFAULT_PROVIDER_QUOTA, resolveProviderQuotaPolicy } from "./provider-runtime-config.js";
 import { assertProviderReloadKeepsPendingBatches } from "./provider-reload-batch-guard.js";
@@ -1120,10 +1124,12 @@ export async function createServer(opts: {
   // are server automation, not Aero, so they get their own client without the
   // `aero` usage label. Otherwise every scheduled sync would be reported as
   // `api.request` agent traffic and spend the per-process telemetry budget
-  // that real agent requests need. Unlabelled, usage telemetry skips them like
-  // the CLI; the jobs report through their own events (`traffic.synced`, ...).
+  // that real agent requests need. Usage telemetry skips them like the CLI;
+  // the jobs report through their own events (`traffic.synced`, ...). The
+  // `system` label lets outcome telemetry report this work as scheduled.
   const schedulerClient = new ApiClient(opts.config.apiUrl, opts.config.apiKey, {
     skipProbe: true,
+    surface: OutcomeSurfaces.system,
   });
   // Built-in Aero agent kill-switch. When disabled (config `agent.mode:
   // 'disabled'` or env CANONRY_AGENT_DISABLED=1) we skip the SessionRegistry,
@@ -1389,6 +1395,7 @@ export async function createServer(opts: {
       app.log.error(
         "GBP sync requested but Google OAuth credentials are not configured in the local config",
       );
+      reportUnstartedRun(opts.db, runId, FeatureNames.gbp, "sync", OutcomeReasonCodes.NOT_CONNECTED);
       return;
     }
     executeGbpSync(opts.db, runId, projectId, {
@@ -3173,6 +3180,7 @@ export async function createServer(opts: {
         app.log.error(
           "GSC sync requested but Google OAuth credentials are not configured in the local config",
         );
+        reportUnstartedRun(opts.db, runId, FeatureNames.search_console, "sync", OutcomeReasonCodes.NOT_CONNECTED);
         return;
       }
       executeGscSync(opts.db, runId, projectId, {
@@ -3204,6 +3212,7 @@ export async function createServer(opts: {
         app.log.error(
           "Inspect sitemap requested but Google OAuth credentials are not configured",
         );
+        reportUnstartedRun(opts.db, runId, FeatureNames.search_console, "inspect", OutcomeReasonCodes.NOT_CONNECTED);
         return;
       }
       executeInspectSitemap(opts.db, runId, projectId, {
