@@ -37,6 +37,7 @@ import { Button } from '../ui/button.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
+import { AddQueriesSheet } from './AddQueriesSheet.js'
 import { ResearchQueriesSection, type ResearchTemplateOption } from './ResearchQueriesSection.js'
 import { DataTablePagination, DataTableSearch, useClientTable } from '../shared/DataTableControls.js'
 import { canUseResearchWorkspace, effectiveQueryWorkspace, unavailableTrackingScope, type QueryWorkspace } from '../../lib/project-scope.js'
@@ -282,9 +283,12 @@ function QueryResearchWorkspace({
  * The generated SDK transport is attached in `TrackedQueriesSection`. Keeping
  * the presentation below transport-free makes the review boundary explicit:
  * the browser builds a requested mutation, but the server resolves duplicates,
- * class, exact diff, and next-sweep workload.
+ * class, exact diff, and next-sweep workload. `AddQueriesSheet` is the one
+ * exception: it publishes through its own instance of the same hook, so this
+ * component passes it `projectName`.
  */
 function TrackedQueriesWorkspace({
+  projectName,
   workspace,
   selection,
   onSelectionChange,
@@ -300,6 +304,7 @@ function TrackedQueriesWorkspace({
   onCommit,
   publishGuard,
 }: {
+  projectName: string
   workspace: QueryTrackingWorkspaceResponse
   selection: NonNullable<QueriesSectionProps['selection']>
   onSelectionChange?: QueriesSectionProps['onSelectionChange']
@@ -318,6 +323,7 @@ function TrackedQueriesWorkspace({
   const [action, setAction] = useState<TrackingAction | null>(null)
   const [draft, setDraft] = useState<TrackingDraft>(() => defaultTrackingDraft(selection))
   const [reviewedMutation, setReviewedMutation] = useState<QueryTrackingMutation | null>(null)
+  const [addSheetOpen, setAddSheetOpen] = useState(false)
   const editorHeadingRef = useRef<HTMLHeadingElement>(null)
   const handledRouteAction = useRef<string | null>(null)
   const unavailableScope = unavailableTrackingScope(workspace, selection)
@@ -359,6 +365,7 @@ function TrackedQueriesWorkspace({
     if (!unavailableScope) return
     setAction(null)
     setReviewedMutation(null)
+    setAddSheetOpen(false)
     if (trackingQueryId !== undefined) onTrackingQueryIdChange?.(undefined)
   }, [onTrackingQueryIdChange, trackingQueryId, unavailableScope])
 
@@ -398,6 +405,12 @@ function TrackedQueriesWorkspace({
     onTrackingQueryIdChange?.(undefined)
   }
 
+  // Advanced projects add through the sheet; it hands off to the Add query form for the rest.
+  function openAddSheet() {
+    closeAction()
+    setAddSheetOpen(true)
+  }
+
   const mutation = action ? mutationForAction(action, draft, workspace) : null
   const needsExplicitContext = action !== null
     && action.kind === 'add'
@@ -425,9 +438,9 @@ function TrackedQueriesWorkspace({
             className="min-w-64 flex-[2]"
           />
           {!isEmbed() && (
-            <WriteButton type="button" size="sm" onClick={() => openAdd()}>
+            <WriteButton type="button" size="sm" onClick={() => workspace.mode === 'advanced' ? openAddSheet() : openAdd()}>
               <Plus aria-hidden="true" size={14} />
-              Add query
+              {workspace.mode === 'advanced' ? 'Add queries' : 'Add query'}
             </WriteButton>
           )}
         </div>
@@ -515,6 +528,17 @@ function TrackedQueriesWorkspace({
               reviewedAt: preview.reviewedAt,
             })
           }}
+        />
+      )}
+
+      {addSheetOpen && (
+        <AddQueriesSheet
+          projectName={projectName}
+          workspace={workspace}
+          defaultMarketKey={selection.measurementScope === 'market' ? selection.measurementScopeKey : undefined}
+          onOpenComposer={() => { setAddSheetOpen(false); openAdd() }}
+          onClose={() => setAddSheetOpen(false)}
+          renderReview={review => <TrackingPreview {...review} workspace={workspace} sweepActive={publishGuard?.sweepActive ?? false} />}
         />
       )}
     </div>
@@ -898,7 +922,7 @@ function TrackingComposer({
               </select>
             </label>
           )}
-          <p className="text-sm leading-6 text-secondary">Existing locations and engines are preserved. Use Add query to create assignments in another scope.</p>
+          <p className="text-sm leading-6 text-secondary">Existing locations and engines are preserved. Use {workspace.mode === 'advanced' ? 'Add queries' : 'Add query'} to create assignments in another scope.</p>
         </div>
         <ComposerActions canReview={canReview} isPreviewing={isPreviewing} onCancel={onClose} onReview={onReview} />
       </Card>
@@ -1302,7 +1326,7 @@ function TrackingPreview({
           <p className="mt-1 text-sm font-medium text-strong">{previewWorkloadLine(preview)}</p>
           <p className="mt-1 text-sm leading-6 text-secondary">{subcopy}</p>
         </div>
-        <ToneBadge tone={hasChanges ? 'caution' : 'neutral'}>{hasChanges ? 'Ready to confirm' : 'No-op'}</ToneBadge>
+        <ToneBadge tone={hasChanges ? 'caution' : 'neutral'} className="sm:shrink-0 sm:whitespace-nowrap">{hasChanges ? 'Ready to confirm' : 'No-op'}</ToneBadge>
       </div>
       {changed.length > 0 ? <div className="mt-4 space-y-4">
         {changed.map(group => <PreviewChangeList key={group.label} label={group.label} rows={group.rows} workspace={workspace} tracked={preview.tracked} />)}
@@ -1351,7 +1375,7 @@ function PreviewChangeList({
 }) {
   return (
     <section aria-label={`${label} queries`}>
-      <p className="text-xs font-medium text-secondary">{rows.length} {label.toLocaleLowerCase()}{rows.length === 1 ? '' : 's'}</p>
+      <p className="text-xs font-medium text-secondary">{rows.length} {label.toLocaleLowerCase()}</p>
       <ul className="mt-2 divide-y divide-default">
         {rows.map(row => <li key={`${label}:${row.queryId}`} className="py-2 text-sm">
           <p className="font-medium text-strong">{row.queryText}</p>
@@ -1436,6 +1460,7 @@ function TrackedQueriesSection({
 
   return (
     <TrackedQueriesWorkspace
+      projectName={projectName}
       workspace={workspaceQuery.data}
       selection={selection}
       onSelectionChange={onSelectionChange}

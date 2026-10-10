@@ -212,6 +212,12 @@ function chooseContext(location = 'New York') {
   fireEvent.change(control, { target: { value: option.value } })
 }
 
+/** An advanced project opens the Add queries sheet first; its link opens the Add query form these tests cover. */
+function openLegacyAdd() {
+  fireEvent.click(screen.getByRole('button', { name: 'Add queries' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Hand-picked locations, templates or saved research' }))
+}
+
 function installScrollSpy() {
   const scrollIntoView = vi.fn()
   const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')
@@ -234,7 +240,7 @@ test('leaves no audience after the last property is unchecked and requires an ex
   })
   renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
   await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'How does Acme compare?' } })
   chooseContext()
   const review = screen.getByRole('button', { name: 'Review changes' })
@@ -266,7 +272,7 @@ test('starts a project-scope Add with no destination chosen and Review disabled'
   })
   renderWorkspace()
   await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'How does Acme compare?' } })
   chooseContext()
 
@@ -295,7 +301,7 @@ test('sends Every location as the explicit list of every location key', async ()
   }, [], data)
   renderWorkspace()
   await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Which platform fits our team?' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'Every location (3)' }))
   chooseContext()
@@ -328,7 +334,7 @@ test.each([
   })
   renderWorkspace({ selection: { measurementScope: scope, measurementScopeKey: key, queryClass: 'all' } })
   await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Which platform fits our team?' } })
   const change = screen.queryByRole('button', { name: 'Change tracking destination' })
   if (change) fireEvent.click(change)
@@ -356,7 +362,7 @@ test('starts with the question, preserves written text, and keeps required measu
   installWorkspaceApi()
   renderWorkspace()
   await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  openLegacyAdd()
   const text = screen.getByLabelText('Question')
   const source = screen.getByLabelText('Query source')
   expect(text.compareDocumentPosition(source) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -381,7 +387,7 @@ test('opens Property Add with a compact destination and expands assignments only
   installWorkspaceApi(undefined, [], data)
   renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
   await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  openLegacyAdd()
   expect(screen.getByText('Property: Acme')).toBeTruthy()
   expect(screen.getByText('Property: Acme').closest('fieldset')?.classList.contains('self-start')).toBe(true)
   expect(screen.queryByRole('checkbox', { name: 'Property 223, Property' })).toBeNull()
@@ -642,7 +648,7 @@ test('clears the previous confirmation while a changed draft awaits a new previe
   })
   renderWorkspace()
   await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'New question' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   chooseContext()
@@ -757,13 +763,17 @@ test('focuses and scrolls an opened assignment editor without hijacking assignme
   renderWorkspace()
 
   await screen.findByText('Acme pricing')
-  const add = screen.getByRole('button', { name: 'Add query' })
+  const add = screen.getByRole('button', { name: 'Add queries' })
   add.focus()
   fireEvent.click(add)
+  fireEvent.click(screen.getByRole('button', { name: 'Hand-picked locations, templates or saved research' }))
 
   const heading = await screen.findByRole('heading', { name: 'Add query' })
   await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' }))
   expect(heading.getAttribute('tabindex')).toBe('-1')
+  expect(document.activeElement).toBe(heading)
+  // The closed sheet returns focus to its opener a task later unless told not to.
+  await act(() => new Promise(resolve => setTimeout(resolve, 0)))
   expect(document.activeElement).toBe(heading)
 
   const group = screen.getByRole('checkbox', { name: 'North East, Group' })
@@ -787,7 +797,7 @@ test('requires a selected context for an advanced addition, then uses the server
   renderWorkspace()
 
   await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Acme pricing' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
@@ -833,7 +843,7 @@ test('sends one explicitly selected context for a new advanced group assignment'
   renderWorkspace()
 
   await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'New group query' } })
   fireEvent.click(screen.getByRole('checkbox', { name: /^North East/ }))
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
@@ -865,7 +875,7 @@ test('requires an explicit context when a market is combined with a group', asyn
   renderWorkspace()
 
   await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Mixed scope query' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'New York, Market' }))
   expect(screen.queryByLabelText('Location and engines')).toBeNull()
@@ -1022,7 +1032,7 @@ test.each([
   expect(screen.queryByLabelText('Query source')).toBeNull()
   expect(screen.queryByLabelText('Location and engines')).toBeNull()
   expect(screen.queryByRole('checkbox', { name: 'Beta, Property' })).toBeNull()
-  expect(screen.getByText('Existing locations and engines are preserved. Use Add query to create assignments in another scope.')).toBeTruthy()
+  expect(screen.getByText('Existing locations and engines are preserved. Use Add queries to create assignments in another scope.')).toBeTruthy()
 })
 
 test('reviews an untouched multi-property edit as a no-op without rewriting classifications', async () => {
@@ -1121,7 +1131,7 @@ test('promotes a saved research query as source provenance, never an answer or a
   renderWorkspace()
 
   await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'research' } })
   fireEvent.change(screen.getByLabelText('Saved research query'), { target: { value: 'research-query-1' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
@@ -1257,7 +1267,7 @@ test.each([false, true])('keeps reused-query classifications collapsed until req
   }, [], data)
   renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
   await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Acme pricing' } })
   fireEvent.click(screen.getByText('Measurement options', { selector: 'summary' }))
   fireEvent.change(screen.getByLabelText('Classification'), { target: { value: 'non-brand' } })
@@ -1285,7 +1295,7 @@ test('sends an explicit class only when the operator overrides server classifica
   renderWorkspace()
 
   await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Enterprise AEO platform' } })
   fireEvent.change(screen.getByLabelText('Classification'), { target: { value: 'non-brand' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
@@ -1305,7 +1315,7 @@ test('does not offer a template source when this portfolio has no saved template
   renderWorkspace()
 
   await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  openLegacyAdd()
 
   const source = screen.getByLabelText('Query source') as HTMLSelectElement
   expect([...source.options].map(option => option.textContent)).not.toContain('Saved template')
@@ -1330,7 +1340,7 @@ test('requires a market for a saved market template before sending its identity 
   renderWorkspace()
 
   await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
+  openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'template' } })
   fireEvent.change(screen.getByLabelText('Saved template'), { target: { value: 'template-market' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Property' }))
@@ -1503,7 +1513,7 @@ test.each([
   const props = renderWorkspace({ selection: { measurementScope, measurementScopeKey, queryClass: 'branded' } })
 
   expect(await screen.findByText(`This saved ${measurementScope} filter is unavailable in the current measurement.`)).toBeTruthy()
-  expect(screen.queryByRole('button', { name: 'Add query' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Add queries' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Edit Acme pricing' })).toBeNull()
   expect(props.onTrackingQueryIdChange).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Show whole site' }))
@@ -1526,7 +1536,7 @@ test('hides an open scoped action when a workspace publication retires its group
 
   expect(await screen.findByText('This saved group filter is unavailable in the current measurement.')).toBeTruthy()
   expect(screen.queryByRole('heading', { name: 'Edit query' })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Add query' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Add queries' })).toBeNull()
   expect(props.onTrackingQueryIdChange).toHaveBeenCalledWith(undefined)
 })
 
