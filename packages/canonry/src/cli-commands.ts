@@ -6,6 +6,7 @@ import { BACKFILL_CLI_COMMANDS } from './cli-commands/backfill.js'
 import { BACKLINKS_CLI_COMMANDS } from './cli-commands/backlinks.js'
 import { BING_CLI_COMMANDS } from './cli-commands/bing.js'
 import { CDP_CLI_COMMANDS } from './cli-commands/cdp.js'
+import { DASHBOARD_CLI_COMMANDS } from './cli-commands/dashboard.js'
 import { DISCOVER_CLI_COMMANDS } from './cli-commands/discover.js'
 import { RESEARCH_CLI_COMMANDS } from './cli-commands/research.js'
 import { DOCTOR_CLI_COMMANDS } from './cli-commands/doctor.js'
@@ -54,6 +55,7 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...USERS_CLI_COMMANDS,
   ...COMPETITOR_CLI_COMMANDS,
   ...SETTINGS_CLI_COMMANDS,
+  ...DASHBOARD_CLI_COMMANDS,
   ...SKILLS_CLI_COMMANDS,
   ...SNAPSHOT_CLI_COMMANDS,
   ...RUN_CLI_COMMANDS,

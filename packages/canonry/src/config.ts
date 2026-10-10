@@ -894,9 +894,13 @@ export function saveConfig(config: CanonryConfig): void {
  * (provider settings, connection tokens, etc.) to prevent a server started
  * with a temporary CANONRY_CONFIG_DIR from clobbering production values like
  * `database`, `apiKey`, and `anonymousId`. The `sentiment` block is never
- * written: it always keeps its on-disk value.
+ * written: it always keeps its on-disk value. So does `dashboardPasswordHash`,
+ * which only `options.setDashboardPasswordHash` can add.
  */
-export function saveConfigPatch(patch: Partial<CanonryConfig>): void {
+export function saveConfigPatch(
+  patch: Partial<CanonryConfig>,
+  options: { setDashboardPasswordHash?: string } = {},
+): void {
   const configDir = getConfigDir()
   if (!fs.existsSync(configDir)) {
     fs.mkdirSync(configDir, { recursive: true })
@@ -904,10 +908,16 @@ export function saveConfigPatch(patch: Partial<CanonryConfig>): void {
   const configPath = getConfigPath()
 
   let base: Partial<CanonryConfig> = {}
+  // Whether config.yaml was read as settings. Only then does a password
+  // missing from it mean "no password": an absent, empty, or unreadable file
+  // says nothing, and the patch stands.
+  let baseRead = false
   if (fs.existsSync(configPath)) {
     try {
       const raw = fs.readFileSync(configPath, 'utf-8')
-      base = (parse(raw) as Partial<CanonryConfig>) ?? {}
+      const parsed: unknown = parse(raw)
+      base = (parsed as Partial<CanonryConfig> | null) ?? {}
+      baseRead = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
     } catch {
       base = {}
     }
@@ -921,7 +931,15 @@ export function saveConfigPatch(patch: Partial<CanonryConfig>): void {
   if (base.database) merged.database = base.database
   if (base.apiKey) merged.apiKey = base.apiKey
   if (base.anonymousId) merged.anonymousId = base.anonymousId
+
+  // config.yaml is the only source of the dashboard password. Callers pass a
+  // startup snapshot, and writing its hash back would undo a `canonry dashboard
+  // reset-password` run while the server is up. Keep what a readable file
+  // holds, including its absence: only first-run setup names a new hash, and
+  // never over a saved one.
   if (base.dashboardPasswordHash) merged.dashboardPasswordHash = base.dashboardPasswordHash
+  else if (options.setDashboardPasswordHash) merged.dashboardPasswordHash = options.setDashboardPasswordHash
+  else if (baseRead) delete merged.dashboardPasswordHash
 
   // config.yaml is the only source of the sentiment block: the worker rereads
   // it before every dispatch, and callers pass a startup snapshot. Writing that
@@ -943,6 +961,50 @@ export function saveConfigPatch(patch: Partial<CanonryConfig>): void {
 
   const yaml = stringify(merged)
   writeConfigAtomically(configPath, yaml)
+}
+
+/**
+ * Take the dashboard password off config.yaml. `saveConfigPatch` never removes
+ * it, so the reset rewrites the file itself. A running server keeps the
+ * password it started with until it restarts, and its later config writes
+ * cannot put the hash back (see `saveConfigPatch`). Returns whether a
+ * password was set.
+ */
+export function clearDashboardPassword(): { cleared: boolean, configPath: string } {
+  const configPath = getConfigPath()
+  // A missing file usually means the server runs from another config
+  // directory. Reporting "nothing to reset" there would look like success.
+  if (!fs.existsSync(configPath)) {
+    throw new CliError({
+      code: 'CONFIG_REQUIRED',
+      message: `No config found at ${configPath}. If the server uses another config directory, set CANONRY_CONFIG_DIR to it and retry.`,
+    })
+  }
+
+  const raw = fs.readFileSync(configPath, 'utf-8')
+  let parsed: unknown
+  try {
+    parsed = parse(raw) ?? {}
+  } catch {
+    // YAML parser errors can include the secret-bearing source line.
+    parsed = undefined
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: it could not be read as YAML settings. Repair the file and retry.`,
+    })
+  }
+
+  // The server reads any falsy value as "no password", so this does too.
+  const config = parsed as Record<string, unknown>
+  if (!config.dashboardPasswordHash) {
+    return { cleared: false, configPath }
+  }
+
+  delete config.dashboardPasswordHash
+  writeConfigAtomically(configPath, stringify(config))
+  return { cleared: true, configPath }
 }
 
 export function configExists(): boolean {

@@ -70,6 +70,7 @@ Automation:
 
 Admin:
   settings              Show/update provider and quota settings
+  dashboard             Reset the dashboard password
   backfill              Backfill answer visibility or insights
   telemetry             Manage anonymous telemetry
   history <project>     Show audit trail

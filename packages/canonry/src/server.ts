@@ -5,7 +5,7 @@ import path from "node:path";
 import { isIP } from "node:net";
 import { fileURLToPath } from "node:url";
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
-import { and, eq, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, lte, max, ne, or, sql } from "drizzle-orm";
 import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@ainyc/canonry-config";
 import { CliError } from "./cli-error.js";
 import { createTypeSafeClassifier, buildJevSentimentRequest } from "@ainyc/canonry-integration-typesafe";
@@ -22,6 +22,7 @@ import type { SetHeadersResponse } from "@fastify/static";
 import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, writeAuditLog, type ApiRoutesOptions } from "@ainyc/canonry-api-routes";
 import {
   apiKeys,
+  auditLog,
   dashboardSessions,
   googleAdsConnections,
   gtmConnections,
@@ -2392,6 +2393,28 @@ export async function createServer(opts: {
     ),
   )).run();
 
+  // A password taken off config.yaml (`canonry dashboard reset-password`, or a
+  // hand edit) never passed through a route, so the first start that finds it
+  // gone records it. Without this row the audit trail shows two creations with
+  // nothing between them.
+  if (!opts.config.dashboardPasswordHash) {
+    const lastPasswordEventAt = (action: string) => opts.db
+      .select({ at: max(auditLog.createdAt) })
+      .from(auditLog)
+      .where(and(eq(auditLog.entityType, "dashboard-password"), eq(auditLog.action, action)))
+      .get()?.at ?? null;
+    const createdAt = lastPasswordEventAt("dashboard-password.created");
+    const clearedAt = lastPasswordEventAt("dashboard-password.cleared");
+    if (createdAt !== null && (clearedAt === null || clearedAt < createdAt)) {
+      writeAuditLog(opts.db, {
+        actor: "system",
+        action: "dashboard-password.cleared",
+        entityType: "dashboard-password",
+        diff: { detectedAt: "startup" },
+      });
+    }
+  }
+
   const createSession = (
     key: Pick<typeof apiKeys.$inferSelect, "id" | "keyHash">,
     passwordBased = false,
@@ -2586,7 +2609,8 @@ export async function createServer(opts: {
 
     // The session binds a digest of the configured password hash, so set it
     // first, and take it back if any write below fails.
-    opts.config.dashboardPasswordHash = hashDashboardPassword(password);
+    const passwordHash = hashDashboardPassword(password);
+    opts.config.dashboardPasswordHash = passwordHash;
     let sessionId: string;
     try {
       sessionId = opts.db.transaction((tx) => {
@@ -2603,8 +2627,9 @@ export async function createServer(opts: {
         const created = createSession(defaultKey, true, tx);
         // config.yaml goes last, inside the transaction: a failed write rolls
         // back the audit row and the session, while `saveConfigPatch` can never
-        // take a saved password back off disk if a later step failed.
-        saveConfigPatch(opts.config);
+        // take a saved password back off disk if a later step failed. It also
+        // never writes the hash from `opts.config`, so name it here.
+        saveConfigPatch(opts.config, { setDashboardPasswordHash: passwordHash });
         return created;
       });
     } catch (err) {
