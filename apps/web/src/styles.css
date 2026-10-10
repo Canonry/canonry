@@ -3485,9 +3485,18 @@
     @apply size-3;
   }
 
-  /* Caution variant: the triangle holds the caution tone at rest and on hover. */
+  /* Caution variant: the triangle holds the caution tone at rest and on hover.
+     The icon is the only way to its note, so it takes taps 4px past its 16px
+     box on every side (24px) without looking any larger. */
   .info-tooltip-trigger-caution {
+    position: relative;
     @apply text-caution hover:text-caution-200;
+  }
+
+  .info-tooltip-trigger-caution::before {
+    content: '';
+    position: absolute;
+    inset: -0.25rem;
   }
 
   /* Portal-rendered tooltip uses inline styles — see InfoTooltip.tsx */

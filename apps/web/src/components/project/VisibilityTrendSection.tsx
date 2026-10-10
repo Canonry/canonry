@@ -175,7 +175,7 @@ function reportRateReason(value: VisibilityReportRate): string {
 function ReportRate({ value, signal, noteAsText = false }: { value: VisibilityReportRate; signal: CoverageSignal; noteAsText?: boolean }) {
   if (value.rate === null) return <span className="text-sm text-secondary">{reportRateReason(value)}</span>
   const excluded = excludedAnswersLabel(value, signal)
-  return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{formatPercent(value.rate)}</strong><span className="text-sm tabular-nums text-secondary">{value.numerator} of {value.denominator}{excluded && !noteAsText ? <InfoTooltip variant="caution" text={excluded} /> : null}</span>{excluded && noteAsText ? <span className="text-sm tabular-nums text-secondary">{excluded}</span> : null}</span>
+  return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{formatPercent(value.rate)}</strong><span className="whitespace-nowrap text-sm tabular-nums text-secondary">{value.numerator} of {value.denominator}{excluded && !noteAsText ? <InfoTooltip variant="caution" text={excluded} /> : null}</span>{excluded && noteAsText ? <span className="text-sm tabular-nums text-secondary">{excluded}</span> : null}</span>
 }
 
 /** A bounded bar at the server rate. The rate text beside it carries the value for assistive tech. */
@@ -552,14 +552,6 @@ function selectedReportPopulation(report: VisibilityReportResponse, queryKey?: s
     ?? report.populations[0]!
 }
 
-function trackingChangedLabel(changedOn: string | null): string {
-  return changedOn ? `Tracking changed ${changedOn}` : 'Tracking changed'
-}
-
-function trackingChangedDetail(resultsOn: string | null, nextSweepOn: string | null): string {
-  return `Showing the ${resultsOn ?? 'last'} results, from before the change. New numbers after the ${nextSweepOn ?? 'next'} sweep.`
-}
-
 /** Results toolbar copy. A filter token names the URL value it removes. */
 export const VISIBILITY_TOOLBAR_COPY = {
   queryType: 'Query type',
@@ -578,11 +570,9 @@ export const VISIBILITY_TOOLBAR_COPY = {
   resultsFrom: (date: string) => `Results from: ${date}`,
   resultsFromSelectedSweep: 'Results from: selected sweep',
   /** The strip's visible label. A missing date reads generically, so the strip never invents one. */
-  trackingChangedLabel,
+  trackingChangedLabel: (changedOn: string | null) => changedOn ? `Tracking changed ${changedOn}` : 'Tracking changed',
   /** The rest of the sentence, behind the strip's caution icon. */
-  trackingChangedDetail,
-  /** The whole sentence, as the strip states it to assistive tech. */
-  trackingChanged: (changedOn: string | null, resultsOn: string | null, nextSweepOn: string | null) => `${trackingChangedLabel(changedOn)}. ${trackingChangedDetail(resultsOn, nextSweepOn)}`,
+  trackingChangedDetail: (resultsOn: string | null, nextSweepOn: string | null) => `Showing the ${resultsOn ?? 'last'} results, from before the change. New numbers after the ${nextSweepOn ?? 'next'} sweep.`,
 } as const
 
 /** Clear filters empties exactly the panel's filters. Scope, market, class and every other param stay. */
@@ -685,8 +675,6 @@ export function VisibilityResultsToolbar({ report, selection, onSelectionChange,
   // A placeholder report was read for the previous selection, so it cannot speak for this one.
   const trackingChanged = !reportIsPlaceholder && measurement.awaitingSweep && measurement.measuredRevision !== null && !served.run.explicit
     && selection.measurementRunId === undefined && selection.revision === undefined && selection.to === undefined
-  const changedOn = trackingChangedAt ? formatObservedInstantMonthDay(observedInstant(trackingChangedAt)) : null
-  const trackingChangedRest = trackingChangedDetail(measurement.completedAt ? formatObservedInstantMonthDay(observedInstant(measurement.completedAt)) : null, nextSweepDate ?? null)
   const focusFilters = () => filtersButton.current?.focus()
   const filterSelect = (label: string, key: string, value: string, choices: VisibilityFilterChoice[], help?: string) => <div className="min-w-0">
     <div className="mb-1 flex items-center gap-1"><label htmlFor={`${controlId}-${key}`} className="text-sm font-medium text-heading">{label}</label>{help ? <InfoTooltip text={help} /> : null}</div>
@@ -741,12 +729,15 @@ export function VisibilityResultsToolbar({ report, selection, onSelectionChange,
       </div>
     </div>
     {/* Below the results header, which keeps to the displayed run and its date (DESIGN.md). The
-        status holds the whole sentence once: its label is the visible part, and the caution icon
-        shows sighted readers the rest. */}
-    {trackingChanged ? <div className="flex items-center border-b border-default py-3 text-sm text-secondary">
-      <p role="status">{trackingChangedLabel(changedOn)}<span className="sr-only">{`. ${trackingChangedRest}`}</span></p>
-      <InfoTooltip variant="caution" text={trackingChangedRest} />
-    </div> : null}
+        status shows the short label and holds the caution icon, whose name is the rest of the
+        sentence, so assistive tech reads the whole sentence once. */}
+    {trackingChanged ? <p role="status" className="border-b border-default py-3 text-sm text-secondary">
+      {VISIBILITY_TOOLBAR_COPY.trackingChangedLabel(trackingChangedAt ? formatObservedInstantMonthDay(observedInstant(trackingChangedAt)) : null)}
+      <InfoTooltip variant="caution" text={VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(
+        measurement.completedAt ? formatObservedInstantMonthDay(observedInstant(measurement.completedAt)) : null,
+        nextSweepDate ?? null,
+      )} />
+    </p> : null}
   </div>
 }
 

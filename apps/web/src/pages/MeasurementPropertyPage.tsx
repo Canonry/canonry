@@ -261,7 +261,7 @@ function MetricCell({ metric, signal, emphasis = false }: { metric: MetricValue;
   const excluded = excludedAnswersLabel(metric, signal)
   const note = excluded ? <InfoTooltip variant="caution" text={excluded} /> : null
   return (
-    <span className="inline-flex flex-col gap-0.5 tabular-nums">
+    <span className="inline-flex flex-col gap-0.5 whitespace-nowrap tabular-nums">
       <span className={emphasis ? 'text-lg font-semibold text-heading' : 'text-sm font-medium text-primary'}>{percent}{counted ? null : note}</span>
       {counted ? <span className="text-xs text-muted">{counted}{note}</span> : null}
     </span>

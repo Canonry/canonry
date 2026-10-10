@@ -171,8 +171,7 @@ test('keeps the dated measured report unchanged when future assignments are pend
   const strip = within(toolbar.container).getByRole('status')
   expect(toolbar.container.querySelector('.visibility-results-toolbar')!.contains(strip)).toBe(false)
   const withoutStrip = toolbar.container.cloneNode(true) as HTMLElement
-  // The strip is the status and the caution icon beside it, in one row.
-  withoutStrip.querySelector('[role="status"]')!.parentElement!.remove()
+  withoutStrip.querySelector('[role="status"]')!.remove()
   expect(withoutStrip.innerHTML).toBe(measuredToolbar)
 })
 

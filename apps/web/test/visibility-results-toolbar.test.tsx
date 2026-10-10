@@ -8,7 +8,7 @@ import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import { parseVisibilitySelection, patchVisibilitySelection } from '../src/lib/measurement-view-url.js'
 import { VISIBILITY_TOOLBAR_COPY, VisibilityOverview, VisibilityResultsToolbar } from '../src/components/project/VisibilityTrendSection.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
-import { expectCautionNote, visibleText } from './caution-note.js'
+import { expectCautionNote } from './caution-note.js'
 
 afterEach(cleanup)
 
@@ -133,9 +133,7 @@ describe('results toolbar copy', () => {
     expect(VISIBILITY_TOOLBAR_COPY.dateThrough('Sep 8, 2026')).toBe('Through Sep 8, 2026 (UTC)')
     expect(VISIBILITY_TOOLBAR_COPY.resultsFrom('Sep 6, 2026')).toBe('Results from: Sep 6, 2026')
     expect(VISIBILITY_TOOLBAR_COPY.resultsFromSelectedSweep).toBe('Results from: selected sweep')
-    expect(VISIBILITY_TOOLBAR_COPY.trackingChanged('Oct 9', 'Oct 7', 'Oct 21')).toBe('Tracking changed Oct 9. Showing the Oct 7 results, from before the change. New numbers after the Oct 21 sweep.')
-    expect(VISIBILITY_TOOLBAR_COPY.trackingChanged(null, null, null)).toBe('Tracking changed. Showing the last results, from before the change. New numbers after the next sweep.')
-    // The same sentence in its two parts: the visible label, and the rest behind the caution icon.
+    // One sentence in two parts: the strip's visible label, and the rest behind its caution icon.
     expect(VISIBILITY_TOOLBAR_COPY.trackingChangedLabel('Oct 9')).toBe('Tracking changed Oct 9')
     expect(VISIBILITY_TOOLBAR_COPY.trackingChangedLabel(null)).toBe('Tracking changed')
     expect(VISIBILITY_TOOLBAR_COPY.trackingChangedDetail('Oct 7', 'Oct 21')).toBe('Showing the Oct 7 results, from before the change. New numbers after the Oct 21 sweep.')
@@ -148,17 +146,17 @@ describe('tracking-changed strip', () => {
 
   it('tells the default latest view that tracking changed since the displayed sweep, below the results header', () => {
     renderToolbar({ queryClass: 'non-brand' }, toolbarReport({ awaitingSweep: true }), DATES)
-    const sentence = 'Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.'
+    const detail = 'Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.'
     const strip = screen.getByRole('status')
-    expect(strip.textContent).toBe(sentence)
-    // A sighted reader gets the short label; the rest sits behind the caution icon beside it.
-    expect(visibleText(strip)).toBe('Tracking changed Sep 20')
-    const caution = expectCautionNote(strip.parentElement!, 'Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.', sentence)
-    // Assistive tech gets the whole sentence once: one status holds it, the label is not repeated beside
-    // it, and the icon stays outside the status, so the status never announces the rest a second time.
+    // The strip shows only the short label; the rest sits behind the caution icon beside it.
+    expect(strip.textContent).toBe('Tracking changed Sep 20')
+    expectCautionNote(strip, detail, 'Tracking changed Sep 20')
+    // Assistive tech reads the sentence once: one status holds the label and the icon that names the
+    // rest, and neither half is anywhere else on the page, as text or as another control's name.
     expect(screen.getAllByRole('status')).toEqual([strip])
     expect(document.body.textContent!.split('Tracking changed')).toHaveLength(2)
-    expect(strip.contains(caution)).toBe(false)
+    expect(document.body.textContent).not.toContain(detail)
+    expect(screen.getAllByLabelText(detail)).toEqual(within(strip).getAllByRole('button'))
     // The header keeps to the displayed run and its date; the strip follows it.
     const toolbar = document.querySelector<HTMLElement>(TOOLBAR)!
     expect(toolbar.contains(strip)).toBe(false)
@@ -182,9 +180,8 @@ describe('tracking-changed strip', () => {
   it('names no change date or next sweep when the page passes none, as an embed or managed dashboard does', () => {
     renderToolbar({ queryClass: 'non-brand' }, toolbarReport({ awaitingSweep: true }))
     const strip = screen.getByRole('status')
-    expect(strip.textContent).toBe('Tracking changed. Showing the Sep 13 results, from before the change. New numbers after the next sweep.')
-    expect(visibleText(strip)).toBe('Tracking changed')
-    expect(within(strip.parentElement!).getByRole('button', { name: 'Showing the Sep 13 results, from before the change. New numbers after the next sweep.' })).toBeTruthy()
+    expect(strip.textContent).toBe('Tracking changed')
+    expect(within(strip).getByRole('button', { name: 'Showing the Sep 13 results, from before the change. New numbers after the next sweep.' })).toBeTruthy()
   })
 
   it('reads "the last results" when the displayed sweep has no completion date', () => {
@@ -192,9 +189,8 @@ describe('tracking-changed strip', () => {
     report.selection.measurement.completedAt = null
     renderToolbar({ queryClass: 'non-brand' }, report, DATES)
     const strip = screen.getByRole('status')
-    expect(strip.textContent).toBe('Tracking changed Sep 20. Showing the last results, from before the change. New numbers after the Sep 27 sweep.')
-    expect(visibleText(strip)).toBe('Tracking changed Sep 20')
-    expect(within(strip.parentElement!).getByRole('button', { name: 'Showing the last results, from before the change. New numbers after the Sep 27 sweep.' })).toBeTruthy()
+    expect(strip.textContent).toBe('Tracking changed Sep 20')
+    expect(within(strip).getByRole('button', { name: 'Showing the last results, from before the change. New numbers after the Sep 27 sweep.' })).toBeTruthy()
   })
 
   it('stays hidden while the latest report loads after the end date is removed', async () => {
@@ -217,7 +213,7 @@ describe('tracking-changed strip', () => {
     expect(screen.queryByText(/^Tracking changed/)).toBeNull()
 
     gate.release()
-    expect((await screen.findByText('Tracking changed Sep 20')).textContent).toBe('Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.')
+    expect(within(await screen.findByText('Tracking changed Sep 20')).getByRole('button', { name: 'Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.' })).toBeTruthy()
   })
 
   it('carries the page dates through the overview, above the results', async () => {
@@ -226,7 +222,7 @@ describe('tracking-changed strip', () => {
     const results = await screen.findByRole('region', { name: 'AI visibility results' })
     const strip = screen.getByText('Tracking changed Sep 20')
     expect(strip.getAttribute('role')).toBe('status')
-    expect(strip.textContent).toBe('Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.')
+    expect(within(strip).getByRole('button', { name: 'Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.' })).toBeTruthy()
     expect(strip.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })
 })

@@ -22,7 +22,7 @@ import {
 } from '@ainyc/canonry-api-client/react-query'
 import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
-import { expectCautionNote } from './caution-note.js'
+import { expectCautionNote, expectCautionNoteOnOneLine } from './caution-note.js'
 
 const TARGET_KEY = 'harbor-house'
 const RUN_ID = 'run-synthetic'
@@ -846,7 +846,7 @@ describe('Property page', () => {
     const nonBrand = within(contrast).getByText('When they don\'t').closest('tr')!
     const [, mentioned, cited] = [...nonBrand.querySelectorAll('td')]
     expect(mentioned!.textContent).toBe('100%1 of 1')
-    expectCautionNote(mentioned!, line, '1 of 1')
+    await expectCautionNoteOnOneLine(expectCautionNote(mentioned!, line, '1 of 1'))
     expect(cited!.querySelector('.info-tooltip-trigger-caution')).toBeNull()
     // Every answer ambiguous: the reason is named instead of a bare "Not measured".
     const branded = within(contrast).getByText('When they know your name').closest('tr')!
@@ -926,7 +926,7 @@ describe('Property page', () => {
     const contrast = screen.getByRole('table', { name: 'Mention and citation coverage for this Property, split by query class' })
     const cited = within(contrast).getByText('When they don\'t').closest('tr')!.querySelectorAll('td')[2]!
     expect(cited.textContent).toBe('25.0%')
-    expectCautionNote(cited, line, '25.0%')
+    await expectCautionNoteOnOneLine(expectCautionNote(cited, line, '25.0%'))
   })
 
   it('lists the assigned questions, URLs, and scoped evidence for the selected class', async () => {

@@ -1,5 +1,6 @@
 import { act, fireEvent, within } from '@testing-library/react'
 import { expect } from 'vitest'
+import { compileAppStyles, compiledElementProperty, parseCompiledCss } from './compiled-app-css.js'
 
 /** What a sighted reader sees: the text with every screen-reader-only node removed. */
 export function visibleText(element: HTMLElement): string {
@@ -33,4 +34,17 @@ export function expectCautionNote(scope: HTMLElement, note: string, beside: stri
   expect([button.getAttribute('aria-expanded'), openBubbles(note).length]).toEqual(['false', 0])
   act(() => button.blur())
   return button
+}
+
+/**
+ * The line a caution icon sits on in a table cell cannot wrap, so a narrow
+ * column never drops the icon under its count. Read from the compiled
+ * stylesheet, because jsdom lays nothing out.
+ */
+export async function expectCautionNoteOnOneLine(button: HTMLElement): Promise<void> {
+  const boxes: Element[] = []
+  for (let box = button.closest('.info-tooltip-wrapper')!.parentElement; box && box.tagName !== 'TD'; box = box.parentElement) boxes.push(box)
+  const rules = parseCompiledCss(await compileAppStyles(boxes.flatMap(box => [...box.classList])))
+  // White space is inherited, so the nearest box that sets it decides.
+  expect(boxes.map(box => compiledElementProperty(rules, box, 'white-space')).find(value => value !== undefined)).toBe('nowrap')
 }

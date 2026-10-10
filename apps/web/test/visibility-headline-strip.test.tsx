@@ -5,7 +5,7 @@ import { VISIBILITY_DISPLAY_COPY, visibilityReportResponseSchema } from '@ainyc/
 import type { VisibilityReportComparison, VisibilityReportPopulationClass, VisibilityReportRate, VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import { CHART_SERIES_COLORS, CHART_TONE } from '../src/components/shared/ChartPrimitives.js'
 import { REPORT_TREND_UNCHECKED_NOTE, REPORT_CHANGE_COPY, REPORT_CLASS_NOUN, REPORT_HEADLINE_HELP, VisibilityReportView } from '../src/components/project/VisibilityTrendSection.js'
-import { expectCautionNote, visibleText } from './caution-note.js'
+import { expectCautionNote, expectCautionNoteOnOneLine, visibleText } from './caution-note.js'
 
 // jsdom lays out no SVG, so each Recharts Line renders as a span carrying the
 // props that decide what is drawn: its series key, stroke, dash, and dot.
@@ -457,7 +457,7 @@ describe('headline strip', () => {
     expect(bar(propertyCited!)?.width).toBe('50%')
   })
 
-  it('keeps the answers a breakdown row left out behind a caution icon beside its count', () => {
+  it('keeps the answers a breakdown row left out behind a caution icon beside its count', async () => {
     const report = headlineReport()
     report.populations[0]!.breakdown.properties[0]!.mentionCoverage = { numerator: 3, denominator: 4, rate: 0.75, unattributed: 1 }
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
@@ -465,7 +465,7 @@ describe('headline strip', () => {
     fireEvent.click(within(breakdown).getByRole('button', { name: 'Properties' }))
     const [, , mentioned, cited] = [...within(breakdown).getByRole('button', { name: 'Harbor House' }).closest('tr')!.querySelectorAll('td')]
     expect(mentioned!.textContent).toBe('75.0%3 of 4')
-    expectCautionNote(mentioned!, '1 of 5 answers could not be tied to one property', '3 of 4')
+    await expectCautionNoteOnOneLine(expectCautionNote(mentioned!, '1 of 5 answers could not be tied to one property', '3 of 4'))
     expect(cited!.textContent).toBe('50.0%2 of 4')
     expect(cautionNotes(cited!)).toEqual([])
   })

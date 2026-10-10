@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { InfoTooltip } from '../src/components/shared/InfoTooltip.js'
+import { compileAppStyles, compiledDeclarations, compiledDeclarationValues, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
 
 afterEach(() => {
   cleanup()
@@ -73,6 +74,22 @@ describe('InfoTooltip caution variant', () => {
     expect(center + halfWidth).toBeLessThanOrEqual(390 - 8)
     // It opens below the trigger, at readable size.
     expect([bubble()!.style.top, bubble()!.style.fontSize]).toEqual(['316px', '13px'])
+  })
+})
+
+describe('InfoTooltip caution hit area', () => {
+  it('takes taps on a 24px square around its 16px icon, and leaves the info trigger as it was', async () => {
+    const css = parseCompiledCss(await compileAppStyles([]))
+    const trigger = compiledDeclarations(css, '.info-tooltip-trigger')
+    const hit = compiledDeclarations(css, '.info-tooltip-trigger-caution::before')
+    expect(compiledDeclarations(css, '.info-tooltip-trigger-caution').position).toBe('relative')
+    expect(hit.position).toBe('absolute')
+    expect(hit.content).toMatch(/^(['"])\1$/)
+    const box = cssLengthPx(compiledDeclarations(css, '.info-tooltip-icon').width!, css) + 2 * cssLengthPx(trigger.padding!, css)
+    expect([box, box - 2 * cssLengthPx(hit.inset!, css)], 'drawn box, then tap target, at the default 16px root').toEqual([16, 24])
+    // Only the caution variant grows: the shared trigger is not positioned and has no box around it.
+    expect(trigger.position).toBeUndefined()
+    expect(compiledDeclarationValues(css, '.info-tooltip-trigger::before', 'inset')).toEqual([])
   })
 })
 
