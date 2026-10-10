@@ -41,14 +41,14 @@ function fixture(kind: 'project' | 'group' | 'property' = 'project'): Visibility
 
 test('labels aggregate answer coverage separately from property reach and explains the chart', () => {
   render(<VisibilityReportView report={fixture()} onSelectionChange={() => {}} />)
-  expect(screen.getByText('Answers mentioning a property')).toBeTruthy()
-  expect(screen.getByText('Answers citing a property')).toBeTruthy()
-  expect(screen.getByText('Properties mentioned')).toBeTruthy()
+  expect(screen.getByText('Answers mentioning a location')).toBeTruthy()
+  expect(screen.getByText('Answers citing a location')).toBeTruthy()
+  expect(screen.getByText('Locations mentioned')).toBeTruthy()
   const legend = screen.getByRole('group', { name: 'Trend legend' })
   expect(within(legend).getAllByRole('checkbox')).toHaveLength(2)
   expect((within(legend).getByRole('checkbox', { name: 'Mentioned' }) as HTMLInputElement).checked).toBe(true)
   expect((within(legend).getByRole('checkbox', { name: 'Cited' }) as HTMLInputElement).checked).toBe(true)
-  const outcomes = screen.getByText('Property outcomes', { selector: 'summary > span' }).closest('details')!
+  const outcomes = screen.getByText('Location outcomes', { selector: 'summary > span' }).closest('details')!
   expect(outcomes.open).toBe(false)
   expect(screen.queryByText('Trend data and comparability')).toBeNull()
   const data = screen.getByRole('table', { name: 'Non-brand queries trend data' })
@@ -56,7 +56,7 @@ test('labels aggregate answer coverage separately from property reach and explai
   expect(within(data).getAllByRole('row')).toHaveLength(2)
   expect(screen.getByText('First measurement. A trend appears after another comparable run.')).toBeTruthy()
   const trend = screen.getByRole('img', { name: /mention and citation trend/ })
-  const breakdown = screen.getByRole('region', { name: 'Scope breakdown' })
+  const breakdown = screen.getByRole('region', { name: 'By place' })
   expect(trend.compareDocumentPosition(breakdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   expect(breakdown.compareDocumentPosition(outcomes) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
 })
@@ -65,13 +65,13 @@ test('labels aggregate answer coverage separately from property reach and explai
  * The whole explanation, asserted verbatim. It is the accessible name of the
  * trigger, so a screen reader user and a sighted user read the same sentence.
  */
-const OUTCOMES_HELP = "Counts properties, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the property's page as a source without naming it in the answer. Not measured covers a property with no eligible completed measurement, and one where only one of the two signals was measured: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
+const OUTCOMES_HELP = "Counts locations, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the location's page as a source without naming it in the answer. Not measured covers a location with no eligible completed measurement, and one where only one of the two signals was measured: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
 
 function outcomesDisclosure() {
-  return screen.getByText('Property outcomes', { selector: 'summary > span' }).closest('details')!
+  return screen.getByText('Location outcomes', { selector: 'summary > span' }).closest('details')!
 }
 
-test('Property outcomes counts properties from the server total and keeps its explanation out of the summary', () => {
+test('Location outcomes counts locations from the server total and keeps its explanation out of the summary', () => {
   const report = fixture()
   // Five distinct counts, so each label is pinned to its own server key and a
   // rotated tuple list cannot pass. They deliberately do not sum to the total:
@@ -81,7 +81,7 @@ test('Property outcomes counts properties from the server total and keeps its ex
   render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
   const outcomes = outcomesDisclosure()
   const summary = outcomes.querySelector('summary')!
-  expect(within(summary).getByText('12 properties')).toBeTruthy()
+  expect(within(summary).getByText('12 locations')).toBeTruthy()
 
   // Every bucket keeps its label, its order, and its own server count.
   expect([...outcomes.querySelectorAll('strong')].map(count => [count.textContent, count.nextElementSibling?.textContent])).toEqual([
@@ -120,7 +120,7 @@ test('the outcomes explanation claims no competitor finding the buckets never me
 test('the report detail rows share one disclosure row pattern', () => {
   render(<VisibilityReportView report={fixture()} onSelectionChange={() => {}} />)
   const rows = [...document.querySelectorAll('details.visibility-disclosure')]
-  expect(rows.map(row => row.querySelector('.visibility-disclosure-label')?.textContent)).toEqual(['Property outcomes', 'Query results', 'Competitors'])
+  expect(rows.map(row => row.querySelector('.visibility-disclosure-label')?.textContent)).toEqual(['Location outcomes', 'Query results', 'Competitors'])
   for (const row of rows) {
     // The row carries no utilities of its own: drift lands in the stylesheet,
     // where the compiled-rule test in design-tokens.test.ts can see it.
@@ -131,20 +131,20 @@ test('the report detail rows share one disclosure row pattern', () => {
   }
 })
 
-test('a single property reads as one property', () => {
+test('a single location reads as one location', () => {
   const report = fixture()
   report.populations[0]!.summary.outcomes = { bothSignals: 1, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 0, total: 1 }
   render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
-  expect(within(outcomesDisclosure().querySelector('summary')!).getByText('1 property')).toBeTruthy()
+  expect(within(outcomesDisclosure().querySelector('summary')!).getByText('1 location')).toBeTruthy()
 })
 
 test('a group opens its properties while a property avoids a redundant group summary', () => {
   const { rerender } = render(<VisibilityReportView report={fixture('group')} onSelectionChange={() => {}} />)
-  const breakdown = screen.getByRole('region', { name: 'Scope breakdown' })
+  const breakdown = screen.getByRole('region', { name: 'By place' })
   expect(within(breakdown).getByRole('button', { name: 'Northstar One' })).toBeTruthy()
   expect(within(breakdown).queryByRole('button', { name: 'Metro Alpha' })).toBeNull()
   rerender(<VisibilityReportView report={fixture('property')} onSelectionChange={() => {}} />)
-  expect(screen.queryByRole('region', { name: 'Scope breakdown' })).toBeNull()
+  expect(screen.queryByRole('region', { name: 'By place' })).toBeNull()
 })
 
 test('keeps the dated measured report unchanged when future assignments are pending', () => {

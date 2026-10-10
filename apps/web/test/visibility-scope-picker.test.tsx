@@ -6,7 +6,7 @@ import { VisibilityScopePicker, MARKET_SCOPE_COPY } from '../src/components/proj
 afterEach(cleanup)
 
 const scopes: VisibilityReportScopeOption[] = [
-  { id: 'project', kind: 'project', label: 'Whole site', targetCount: 3 },
+  { id: 'project', kind: 'project', label: 'Project', targetCount: 3 },
   { id: 'north', kind: 'group', label: 'North Region', targetCount: 2 },
   { id: 'south', kind: 'group', label: 'South Region', targetCount: 1 },
   { id: 'center', kind: 'group', label: 'City Center', targetCount: 1, parentGroupIds: ['north'] },
@@ -33,9 +33,9 @@ describe('group-first scope navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Browse North Region' }))
     expect(onSelect).not.toHaveBeenCalled()
     expect(screen.getByText('Subgroups (2)').closest('details')!.open).toBe(true)
-    expect(screen.getByText('All properties (2)').closest('details')!.open).toBe(false)
+    expect(screen.getByText('All locations (2)').closest('details')!.open).toBe(false)
     expect(screen.getByRole('button', { name: 'Select Harbor House' }).closest('details')!.open).toBe(false)
-    fireEvent.click(screen.getByText('All properties (2)'))
+    fireEvent.click(screen.getByText('All locations (2)'))
     expect(screen.getByRole('button', { name: 'Select City Center' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Select Harbor House' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Select Lake House' })).toBeTruthy()
@@ -53,7 +53,7 @@ describe('group-first scope navigation', () => {
     expect(screen.getByRole('button', { name: 'Select Harbor House' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Back to North Region' }))
     expect(screen.getByRole('button', { name: 'Select Lake House' }).closest('details')!.open).toBe(false)
-    fireEvent.click(screen.getByText('All properties (2)'))
+    fireEvent.click(screen.getByText('All locations (2)'))
     expect(screen.getAllByRole('button', { name: 'Select Harbor House' })).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: 'Select Lake House' }))
     expect(onSelect).toHaveBeenCalledWith(scopes[6])
@@ -61,13 +61,13 @@ describe('group-first scope navigation', () => {
 
   it('searches all levels from the root and only group members when browsing', () => {
     openPicker()
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'Harbor' } })
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search places' }), { target: { value: 'Harbor' } })
     expect(screen.getByRole('button', { name: 'Select Harbor House' }).textContent).toContain('North Region')
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search scopes' }), { target: { value: '' } })
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search places' }), { target: { value: '' } })
     fireEvent.click(screen.getByRole('button', { name: 'Browse South Region' }))
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'Harbor' } })
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search places' }), { target: { value: 'Harbor' } })
     expect(screen.queryByRole('button', { name: 'Select Harbor House' })).toBeNull()
-    expect(screen.getByText('No matching scopes.')).toBeTruthy()
+    expect(screen.getByText('No matches')).toBeTruthy()
   })
 
   it('keeps group membership independent of query-context markets', () => {
@@ -81,14 +81,14 @@ describe('group-first scope navigation', () => {
     openPicker(vi.fn(), legacy)
     expect(screen.getByRole('button', { name: 'Select North Region' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Select Harbor House' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Browse all properties' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Browse all locations' }))
     expect(screen.getByRole('button', { name: 'Select Harbor House' })).toBeTruthy()
   })
 
   it('lists group members by display name regardless of stable-key order', () => {
     openPicker(vi.fn(), [...scopes].reverse())
     fireEvent.click(screen.getByRole('button', { name: 'Browse North Region' }))
-    fireEvent.click(screen.getByText('All properties (2)'))
+    fireEvent.click(screen.getByText('All locations (2)'))
     expect(screen.getAllByRole('button', { name: /^Select .* House$/ }).map(button => button.getAttribute('aria-label'))).toEqual(['Select Harbor House', 'Select Lake House'])
   })
 
@@ -97,9 +97,9 @@ describe('group-first scope navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Browse North Region' }))
     fireEvent.click(screen.getByText('Subgroups (2)'))
     expect(screen.getByRole('button', { name: 'Select City Center' }).closest('details')!.open).toBe(false)
-    fireEvent.click(screen.getByText('All properties (2)'))
+    fireEvent.click(screen.getByText('All locations (2)'))
     expect(screen.getByRole('button', { name: 'Select Harbor House' })).toBeTruthy()
-    fireEvent.click(screen.getByText('All properties (2)'))
+    fireEvent.click(screen.getByText('All locations (2)'))
     expect(screen.getByRole('button', { name: 'Select Harbor House' }).closest('details')!.open).toBe(false)
     expect(screen.getByRole('button', { name: 'Select North Region' })).toBeTruthy()
     expect(onSelect).not.toHaveBeenCalled()
@@ -109,10 +109,10 @@ describe('group-first scope navigation', () => {
     openPicker()
     fireEvent.click(screen.getByRole('button', { name: 'Browse North Region' }))
     fireEvent.click(screen.getByRole('button', { name: 'Browse City Center' }))
-    expect(screen.getByText('Properties (1)').closest('details')!.open).toBe(true)
-    fireEvent.click(screen.getByText('Properties (1)'))
+    expect(screen.getByText('Locations (1)').closest('details')!.open).toBe(true)
+    fireEvent.click(screen.getByText('Locations (1)'))
     expect(screen.getByRole('button', { name: 'Select Harbor House' }).closest('details')!.open).toBe(false)
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'Harbor' } })
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search places' }), { target: { value: 'Harbor' } })
     expect(screen.getByRole('button', { name: 'Select Harbor House' })).toBeTruthy()
   })
 
@@ -146,13 +146,13 @@ describe('group-first scope navigation', () => {
     const selected = { ...scopes[5]!, parentGroupIds: ['retired'] }
     const view = render(<VisibilityScopePicker options={[...scopes.filter(scope => scope.id !== selected.id), selected]} selected={selected} onSelect={vi.fn()} />)
     fireEvent.click(view.container.querySelector('summary')!)
-    expect(screen.getByText('All properties', { selector: 'p' })).toBeTruthy()
+    expect(screen.getByText('All locations', { selector: 'p' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Select Harbor House' })).toBeTruthy()
   })
 
   it('closes on Escape and restores focus to the scope trigger', () => {
     const view = openPicker()
-    const search = screen.getByRole('searchbox', { name: 'Search scopes' })
+    const search = screen.getByRole('searchbox', { name: 'Search places' })
     search.focus()
     fireEvent.keyDown(search, { key: 'Escape' })
     expect(view.container.querySelector('details')!.open).toBe(false)
@@ -255,7 +255,7 @@ describe('market context through property navigation', () => {
 
     fireEvent.click(trigger)
     fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.browse('Coastal Maine') }))
-    fireEvent.click(within(screen.getByText('All properties in this group').closest('button')!.parentElement!).getByRole('button', { name: MARKET_SCOPE_COPY.select('Coastal Maine') }))
+    fireEvent.click(within(screen.getByText('All in this group').closest('button')!.parentElement!).getByRole('button', { name: MARKET_SCOPE_COPY.select('Coastal Maine') }))
     expect(onSelect.mock.lastCall).toStrictEqual([group])
 
     fireEvent.click(trigger)
@@ -267,46 +267,72 @@ describe('market context through property navigation', () => {
 
 describe('trigger label and naming', () => {
   it.each([
-    ['group with one property', { id: 'metro-beta', kind: 'group', label: 'Metro Beta', targetCount: 1 }, 'Metro Beta · 1 property'],
-    ['group', { id: 'metro-beta', kind: 'group', label: 'Metro Beta', targetCount: 15 }, 'Metro Beta · 15 properties'],
+    ['group with one location', { id: 'metro-beta', kind: 'group', label: 'Metro Beta', targetCount: 1 }, 'Metro Beta · 1 location'],
+    ['group', { id: 'metro-beta', kind: 'group', label: 'Metro Beta', targetCount: 15 }, 'Metro Beta · 15 locations'],
+    // Thousands are grouped, as in the counts beside the picker.
+    ['large group', { id: 'metro-beta', kind: 'group', label: 'Metro Beta', targetCount: 1240 }, 'Metro Beta · 1,240 locations'],
     ['market', { id: 'metro-beta', kind: 'market', label: 'Metro Beta', targetCount: 15 }, 'Metro Beta · Market'],
   ] as const)('names a selected %s by label and kind', (_name, selected, text) => {
     render(<VisibilityScopePicker options={[scopes[0]!, selected]} selected={selected} onSelect={vi.fn()} />)
     expect(screen.getByText(text, { selector: 'summary' })).toBeTruthy()
   })
 
-  it('calls a property by the supplied noun in every label, count and placeholder', () => {
-    const view = render(<VisibilityScopePicker options={scopes} selected={scopes[6]!} propertyNoun={['location', 'locations']} onSelect={vi.fn()} />)
+  it.each([
+    ['the default noun', undefined, 'location', 'Location'],
+    ['a supplied noun', ['store', 'stores'], 'store', 'Store'],
+  ] as const)('calls a location by %s in every label, count and placeholder', (_name, propertyNoun, noun, Noun) => {
+    const view = render(<VisibilityScopePicker options={scopes} selected={scopes[6]!} propertyNoun={propertyNoun} onSelect={vi.fn()} />)
     const trigger = view.container.querySelector('summary')!
-    expect(trigger.textContent).toBe('Lake House · Location')
+    expect(trigger.textContent).toBe(`Lake House · ${Noun}`)
     // Opens inside Lake House's group.
     fireEvent.click(trigger)
-    expect(screen.getByText('All locations in this group').closest('button')!.textContent).toContain('2 locations')
-    expect(screen.getByText('All locations (2)')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Select Lake House' }).textContent).toBe('Lake HouseLocation')
+    // The group's own row is four words; the count beside it carries the noun.
+    expect(screen.getByText('All in this group').closest('button')!.textContent).toBe(`All in this group2 ${noun}s`)
+    expect(screen.getByText(`All ${noun}s (2)`)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Select Lake House' }).textContent).toBe(`Lake House${Noun}`)
     fireEvent.click(screen.getByRole('button', { name: 'Back to all groups' }))
-    expect(screen.getByPlaceholderText('Search groups or locations')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Select South Region' }).textContent).toBe('South Region1 location')
+    expect(screen.getByPlaceholderText(`Search groups or ${noun}s`)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Select South Region' }).textContent).toBe(`South Region1 ${noun}`)
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'House' } })
-    expect(screen.getByRole('region', { name: 'Locations' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: `${Noun}s` })).toBeTruthy()
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: '' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Browse all locations' }))
-    expect(screen.getByPlaceholderText('Search locations')).toBeTruthy()
-    expect(screen.getByText('All locations', { selector: 'p' })).toBeTruthy()
-    expect(screen.getByText('Locations (3)')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: `Browse all ${noun}s` }))
+    expect(screen.getByPlaceholderText(`Search ${noun}s`)).toBeTruthy()
+    expect(screen.getByText(`All ${noun}s`, { selector: 'p' })).toBeTruthy()
+    expect(screen.getByText(`${Noun}s (3)`)).toBeTruthy()
     expect(view.container.textContent).not.toMatch(/propert/i)
+  })
+
+  it('names the project option All locations, or the root label the caller supplies', () => {
+    // The server labels the option "Project"; the picker never shows that label.
+    const byDefault = openPicker()
+    expect(byDefault.container.querySelector('summary')!.textContent).toBe(MARKET_SCOPE_COPY.allLocations)
+    expect(screen.getByRole('button', { name: 'Select All locations' }).textContent).toBe('All locations3 locations')
+    expect(byDefault.container.textContent).not.toContain('Project')
+    byDefault.unmount()
+
+    const onSelect = vi.fn()
+    const named = render(<VisibilityScopePicker options={scopes} selected={scopes[1]!} rootLabel="All of Citypoint" onSelect={onSelect} />)
+    fireEvent.click(named.container.querySelector('summary')!)
+    fireEvent.click(screen.getByRole('button', { name: 'Back to all groups' }))
+    // Search matches the root label, not the server's label.
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search places' }), { target: { value: 'citypoint' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Select All of Citypoint' }))
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(scopes[0])
+    named.rerender(<VisibilityScopePicker options={scopes} selected={scopes[0]!} rootLabel="All of Citypoint" onSelect={onSelect} />)
+    expect(named.container.querySelector('summary')!.textContent).toBe('All of Citypoint')
   })
 
   it.each(['visible', 'sr-only'] as const)('keeps a %s label naming the trigger and returns focus when search closes', labelVisibility => {
     const view = render(<VisibilityScopePicker options={scopes} selected={scopes[0]!} onSelect={vi.fn()} labelVisibility={labelVisibility} />)
-    const label = screen.getByText('Measurement scope')
-    const trigger = screen.getByText('Whole site', { selector: 'summary' })
+    const label = screen.getByText('Place')
+    const trigger = screen.getByText('All locations', { selector: 'summary' })
     expect(label.id).not.toBe('')
     expect(trigger.getAttribute('aria-labelledby')).toBe(`${label.id} ${trigger.id}`)
     expect(label.className).toBe(labelVisibility === 'sr-only' ? 'sr-only' : 'mb-1 block text-sm font-medium text-heading')
     const picker = trigger.closest('details')!
     picker.open = true
-    const search = screen.getByRole('searchbox', { name: 'Search scopes' })
+    const search = screen.getByRole('searchbox', { name: 'Search places' })
     search.focus()
     fireEvent.keyDown(search, { key: 'Escape' })
     expect(picker.open).toBe(false)
@@ -316,7 +342,7 @@ describe('trigger label and naming', () => {
 
   it('defaults to a visible label and never changes the trigger classes', () => {
     const visible = render(<VisibilityScopePicker options={scopes} selected={scopes[0]!} onSelect={vi.fn()} />)
-    expect(screen.getByText('Measurement scope').className).toBe('mb-1 block text-sm font-medium text-heading')
+    expect(screen.getByText('Place').className).toBe('mb-1 block text-sm font-medium text-heading')
     const visibleTriggerClass = visible.container.querySelector('summary')!.className
     visible.unmount()
     const hidden = render(<VisibilityScopePicker options={scopes} selected={scopes[0]!} onSelect={vi.fn()} labelVisibility="sr-only" />)
@@ -324,7 +350,7 @@ describe('trigger label and naming', () => {
     expect(visibleTriggerClass.split(' ')).toContain('visibility-scope-trigger')
   })
 
-  it('distinguishes a property group from a market query context with the same label', () => {
+  it('distinguishes a group from a market with the same label', () => {
     const options: VisibilityReportScopeOption[] = [
       { id: 'project', label: 'Whole site', kind: 'project', targetCount: 15 },
       { id: 'metro-alpha', label: 'Metro Alpha', kind: 'group', targetCount: 15 },
@@ -332,10 +358,10 @@ describe('trigger label and naming', () => {
       { id: 'p1', label: 'Northstar One', kind: 'property', targetCount: 1 },
     ]
     render(<VisibilityScopePicker options={options} selected={options[0]!} onSelect={vi.fn()} />)
-    screen.getByText('Whole site', { selector: 'summary' }).closest('details')!.open = true
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'Metro Alpha' } })
-    expect(within(screen.getByRole('region', { name: 'Groups', exact: true })).getByRole('button', { name: 'Select Metro Alpha', exact: true }).textContent).toContain('15 properties')
-    expect(within(screen.getByRole('region', { name: 'Markets', exact: true })).getByRole('button', { name: 'Select Metro Alpha', exact: true }).textContent).toContain('Query context')
+    screen.getByText('All locations', { selector: 'summary' }).closest('details')!.open = true
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search places' }), { target: { value: 'Metro Alpha' } })
+    expect(within(screen.getByRole('region', { name: 'Groups', exact: true })).getByRole('button', { name: 'Select Metro Alpha', exact: true }).textContent).toContain('15 locations')
+    expect(within(screen.getByRole('region', { name: 'Markets', exact: true })).getByRole('button', { name: 'Select Metro Alpha', exact: true }).textContent).toBe('Metro AlphaMarket')
   })
 })
 
@@ -345,7 +371,7 @@ describe('an empty choice', () => {
     const view = render(<VisibilityScopePicker options={scopes} placeholder="Choose a market" onSelect={onSelect} />)
     const trigger = view.container.querySelector('summary')!
     expect(trigger.textContent).toBe('Choose a market')
-    expect(trigger.getAttribute('aria-labelledby')).toBe(`${screen.getByText('Measurement scope').id} ${trigger.id}`)
+    expect(trigger.getAttribute('aria-labelledby')).toBe(`${screen.getByText('Place').id} ${trigger.id}`)
 
     fireEvent.click(trigger)
     expect(screen.getByRole('button', { name: 'Select North Region' })).toBeTruthy()
@@ -360,7 +386,7 @@ describe('an empty choice', () => {
 
   it('falls back to a default placeholder', () => {
     const view = render(<VisibilityScopePicker options={scopes} onSelect={vi.fn()} />)
-    expect(view.container.querySelector('summary')!.textContent).toBe('Choose a scope')
+    expect(view.container.querySelector('summary')!.textContent).toBe('Choose a place')
   })
 })
 
@@ -402,7 +428,7 @@ describe('browsing with group selection off', () => {
     expect(onSelect).not.toHaveBeenCalled()
     expect(container.querySelector('details')!.open).toBe(true)
     expect(screen.getByRole('button', { name: 'Back to all groups' })).toBeTruthy()
-    expect(screen.queryByText('All properties in this group')).toBeNull()
+    expect(screen.queryByText('All in this group')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Browse City Center' }))
     expect(screen.getByRole('button', { name: 'Back to North Region' })).toBeTruthy()
     expect(onSelect).not.toHaveBeenCalled()

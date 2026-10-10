@@ -148,14 +148,14 @@ function caption(queryClass: VisibilityReportPopulationClass = 'non-brand'): str
   return section(queryClass).querySelector('.report-headline-caption')!.textContent ?? ''
 }
 
-const MENTION_LABEL = 'Answers mentioning a property'
-const CITATION_LABEL = 'Answers citing a property'
-const REACH_LABEL = 'Properties mentioned'
+const MENTION_LABEL = 'Answers mentioning a location'
+const CITATION_LABEL = 'Answers citing a location'
+const REACH_LABEL = 'Locations mentioned'
 const SR_CLASS_SUFFIX = ` · ${REPORT_CLASS_NOUN['non-brand']}`
 const FIGURES = {
   [MENTION_LABEL]: ['66.7%', '24 of 36 answers'],
   [CITATION_LABEL]: ['66.7%', '24 of 36 answers'],
-  [REACH_LABEL]: ['100%', '12 of 12 properties'],
+  [REACH_LABEL]: ['100%', '12 of 12 locations'],
 } satisfies Record<string, [string, string]>
 
 /** The two `dd`s of a tile with no change beside its value. */
@@ -184,12 +184,12 @@ describe('headline strip', () => {
     // Mention reads the answer text and Cited reads the source links, in both modes.
     expect(REPORT_HEADLINE_HELP.simpleMention).toBe('Mentioned counts answers naming your brand in the answer text, not in the source links.')
     expect(REPORT_HEADLINE_HELP.simpleCitation).toBe('Cited counts answers linking to your site in the sources behind the answer, not in the answer text.')
-    expect(REPORT_HEADLINE_HELP.advancedMention).toBe('An answer counts when it mentions any assigned property. This does not mean every property was mentioned. An answer that could not be tied to one property is left out of the rate, never counted as not mentioned.')
-    expect(REPORT_HEADLINE_HELP.advancedCitation).toBe('An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted behind the caution icon.')
+    expect(REPORT_HEADLINE_HELP.advancedMention).toBe("An answer counts when it mentions any of the query's locations. This does not mean every location was mentioned. An answer that could not be tied to one location is left out of the rate, never counted as not mentioned.")
+    expect(REPORT_HEADLINE_HELP.advancedCitation).toBe("An answer counts when it cites a matching URL for any of the query's locations. This does not mean every location was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted behind the caution icon.")
     // Server truth: eligible = the property has a name to match (`mentionEligible`),
     // reach counts a property once across its answers, and one unknown property
     // makes the whole rate unavailable rather than partial.
-    expect(REPORT_HEADLINE_HELP.propertyReach).toBe('Selected properties named in at least one measured answer, out of the selected properties that have a name to match on. It counts properties, not answers, and shows no rate while any of those properties is unmeasured.')
+    expect(REPORT_HEADLINE_HELP.propertyReach).toBe('Selected locations named in at least one measured answer, out of the selected locations that have a name to match on. It counts locations, not answers, and shows no rate while any of those locations is unmeasured.')
   })
 
   it('renders separate tiles with the change inline beside each value', () => {
@@ -207,7 +207,7 @@ describe('headline strip', () => {
     expect(valueRow(REACH_LABEL)).toEqual([['100%', VALUE_CLASS], [SR_CLASS_SUFFIX, 'sr-only'], ['No change', 'text-sm text-secondary']])
     // One supporting line under the value, and nothing else.
     expect(cell(REACH_LABEL).map(([, className]) => className)).toEqual(['report-headline-value', DETAIL_CLASS])
-    expect(cell(REACH_LABEL).at(-1)).toEqual(['12 of 12 properties', DETAIL_CLASS])
+    expect(cell(REACH_LABEL).at(-1)).toEqual(['12 of 12 locations', DETAIL_CLASS])
     expect(screen.queryByText('Queries measured')).toBeNull()
   })
 
@@ -438,7 +438,7 @@ describe('headline strip', () => {
 
   it('draws breakdown bars at the server rate and omits them for a null rate', () => {
     render(<VisibilityReportView report={headlineReport()} onSelectionChange={() => {}} />)
-    const breakdown = screen.getByRole('region', { name: 'Scope breakdown' })
+    const breakdown = screen.getByRole('region', { name: 'By place' })
     const cells = (name: string) => [...within(breakdown).getByRole('button', { name }).closest('tr')!.querySelectorAll('td')]
     const bar = (td: HTMLElement) => {
       const track = td.querySelector<HTMLElement>('.report-rate-bar')
@@ -451,7 +451,7 @@ describe('headline strip', () => {
     expect(groupCited!.textContent).toBe('Not measured')
     expect(bar(groupCited!)).toBeNull()
 
-    fireEvent.click(within(breakdown).getByRole('button', { name: 'Properties' }))
+    fireEvent.click(within(breakdown).getByRole('button', { name: 'Locations' }))
     const [, , propertyMentioned, propertyCited] = cells('Harbor House')
     expect(bar(propertyMentioned!)?.width).toBe('75%')
     expect(bar(propertyCited!)?.width).toBe('50%')
@@ -461,8 +461,8 @@ describe('headline strip', () => {
     const report = headlineReport()
     report.populations[0]!.breakdown.properties[0]!.mentionCoverage = { numerator: 3, denominator: 4, rate: 0.75, unattributed: 1 }
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
-    const breakdown = screen.getByRole('region', { name: 'Scope breakdown' })
-    fireEvent.click(within(breakdown).getByRole('button', { name: 'Properties' }))
+    const breakdown = screen.getByRole('region', { name: 'By place' })
+    fireEvent.click(within(breakdown).getByRole('button', { name: 'Locations' }))
     const [, , mentioned, cited] = [...within(breakdown).getByRole('button', { name: 'Harbor House' }).closest('tr')!.querySelectorAll('td')]
     expect(mentioned!.textContent).toBe('75.0%3 of 4')
     await expectCautionNoteOnOneLine(expectCautionNote(mentioned!, '1 of 5 answers could not be tied to one property', '3 of 4'))
@@ -474,8 +474,8 @@ describe('headline strip', () => {
     const report = headlineReport()
     report.populations[0]!.breakdown.properties[0]!.citationCoverage = { numerator: 2, denominator: 3, rate: 2 / 3, unchecked: 1 }
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
-    const breakdown = screen.getByRole('region', { name: 'Scope breakdown' })
-    fireEvent.click(within(breakdown).getByRole('button', { name: 'Properties' }))
+    const breakdown = screen.getByRole('region', { name: 'By place' })
+    fireEvent.click(within(breakdown).getByRole('button', { name: 'Locations' }))
     const [, , mentioned, cited] = [...within(breakdown).getByRole('button', { name: 'Harbor House' }).closest('tr')!.querySelectorAll('td')]
     expect(mentioned!.textContent).toBe('75.0%3 of 4')
     expect(cautionNotes(mentioned!)).toEqual([])
@@ -515,13 +515,13 @@ describe('headline strip', () => {
     expect(table.querySelectorAll('button')).toHaveLength(0)
   })
 
-  it('orders the strip, trend chart, breakdown, Property outcomes, and query results', () => {
+  it('orders the strip, trend chart, breakdown, Location outcomes, and query results', () => {
     render(<VisibilityReportView report={headlineReport({ comparison: MOVED })} onSelectionChange={() => {}} />)
     const ordered = [
       strip(),
       screen.getByRole('img', { name: 'Non-brand queries mention and citation trend' }),
-      screen.getByRole('region', { name: 'Scope breakdown' }),
-      screen.getByText('Property outcomes', { selector: 'summary > span' }).closest('details')!,
+      screen.getByRole('region', { name: 'By place' }),
+      screen.getByText('Location outcomes', { selector: 'summary > span' }).closest('details')!,
       document.querySelector<HTMLElement>('details[data-query-results="non-brand"]')!,
     ]
     for (const [index, element] of ordered.slice(1).entries()) {

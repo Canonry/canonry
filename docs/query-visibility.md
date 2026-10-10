@@ -55,12 +55,12 @@ Advanced assignments can carry an explicit operator classification.
 
 ## Edit or remove a query
 
-1. Select Whole site, a property, a group, or a market.
+1. In **Place**, select All of {project}, a location, a group, or a market.
 2. Select **Edit** or **Remove** beside the query.
 3. Review the selected scope and the proposed changes.
 4. Select **Publish N changes** (**Confirm changes** on a simple site).
 
-Whole site changes every assignment of that query. Other scopes change only their existing assignments.
+All of {project} changes every assignment of that query. Other places change only their existing assignments.
 An edit preserves the stored engines, models, locations, and unrelated market assignments.
 A scoped text edit creates or reuses the new question. Other properties keep the original question and its measured history.
 An unchanged edit publishes no revision. Editing a resolved template question does not expand the template again.
