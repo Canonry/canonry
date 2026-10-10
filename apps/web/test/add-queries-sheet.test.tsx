@@ -33,6 +33,7 @@ const publishLine = 'New numbers after the next sweep'
 const publishNotice = 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept. Publishing does not run a sweep.'
 const marketsHelp = "Asked with these markets' engines and search locations."
 const queriesHelp = 'Blank and repeated lines are skipped.'
+const companyHelp = 'Company is not available yet.'
 const handPickedLink = 'Hand-picked locations, templates or saved research'
 const firstLineOnly = 'The Add query form adds one query at a time. It opens with your first line only.'
 
@@ -232,11 +233,16 @@ test('opens from Tracked on an advanced project and keeps Review off until a mar
   helpBeside(sheet.getByText('Queries', { selector: 'label' }), queriesHelp)
   expect(sheet.queryByText(/^\d+ quer(y|ies)$/)).toBeNull()
   expect(queriesField(sheet).hasAttribute('aria-describedby')).toBe(false)
+  // The count's line is held while empty, so the first line typed does not push the form down.
+  const count = queriesField(sheet).nextElementSibling as HTMLElement
+  expect(count.textContent).toBe('')
+  expect(count.classList.contains('min-h-5')).toBe(true)
   // Review does not publish, so the form says nothing about publishing.
   expect(sheet.queryByText('Publishing does not run a sweep.')).toBeNull()
 
   fireEvent.change(queriesField(sheet), { target: { value: 'best pizza in New York' } })
-  expect(sheet.getByText('1 query').id).toBe(queriesField(sheet).getAttribute('aria-describedby'))
+  expect(sheet.getByText('1 query')).toBe(count)
+  expect(count.id).toBe(queriesField(sheet).getAttribute('aria-describedby'))
   expect(reviewButton(sheet).disabled).toBe(true)
   fireEvent.click(sheet.getByText('Choose a market'))
   // The list holds groups and markets, never locations.
@@ -834,12 +840,19 @@ test('shows Company as not available yet and never selects it', async () => {
   installApi()
   renderTracked()
   const { sheet } = await openSheet()
+  // The sheet opens with focus on the chosen Subject, so no help opens with it.
+  expect(document.activeElement).toBe(sheet.getByRole('radio', { name: 'Market' }))
   const company = sheet.getByRole('radio', { name: 'Company' })
   expect(company.getAttribute('aria-disabled')).toBe('true')
   // The option gives its own reason, to assistive tech and on hover, with no line under the control.
   expect(document.getElementById(company.getAttribute('aria-describedby')!)!.textContent).toBe('Not available yet')
   expect(company.title).toBe('Not available yet')
-  expect(sheet.queryByText('Company is not available yet.')).toBeNull()
+  expect(sheet.queryByText(companyHelp)).toBeNull()
+  // A hover title shows on neither a tap nor keyboard focus, so the help after the control says it too.
+  const help = helpBeside(sheet.getByRole('radiogroup', { name: 'Subject' }), companyHelp)
+  fireEvent.click(help)
+  expect(help.getAttribute('aria-expanded')).toBe('true')
+  expect(screen.getByText(companyHelp)).toBeTruthy()
   fireEvent.click(company)
   expect(company.getAttribute('aria-checked')).toBe('false')
   expect(sheet.getByRole('radio', { name: 'Market' }).getAttribute('aria-checked')).toBe('true')

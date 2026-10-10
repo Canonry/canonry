@@ -644,6 +644,7 @@ test.each([
   expect((await reviewRemoval()).textContent).toBe(heading)
   if (subcopy) expect(screen.getByText(subcopy)).toBeTruthy()
   else expect(screen.queryByText('This request leaves tracking unchanged.')).toBeNull()
+  expect(screen.queryByText(/AI Visibility keeps showing the last sweep/)).toBeNull()
   expect(screen.queryByText(advancedResetLine)).toBeNull()
   expect(screen.queryByRole('button', { name: advancedResetNotice })).toBeNull()
 })

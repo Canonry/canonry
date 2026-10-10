@@ -220,7 +220,11 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
           <div className="-mx-1 mt-4 min-h-0 flex-1 space-y-5 overflow-y-auto px-1">
             <div>
               <span aria-hidden="true" className={FIELD_LABEL}>Subject</span>
-              <SegmentedRadioGroup label="Subject" options={SUBJECTS} value={subject} onChange={changeSubject} />
+              {/* A hover title shows on neither a tap nor keyboard focus, so the help says why Company is off. After the control, so the sheet opens with focus on the Subject, not on the help. */}
+              <div className="flex items-center">
+                <SegmentedRadioGroup label="Subject" options={SUBJECTS} value={subject} onChange={changeSubject} />
+                <InfoTooltip text="Company is not available yet." placement="bottom" />
+              </div>
             </div>
             <div ref={picker}>
               {places.some(option => option.kind === placing.kind)
@@ -258,7 +262,8 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
                 value={text}
                 onChange={event => edit(setText)(event.target.value)}
               />
-              {lines.length > 0 ? <p id={`${id}-queries-count`} className={FIELD_HINT}>{lines.length.toLocaleString('en-US')} {lines.length === 1 ? 'query' : 'queries'}</p> : null}
+              {/* Stays in place, empty until there are lines, so the first line typed does not push the form down. */}
+              <p id={`${id}-queries-count`} className={`${FIELD_HINT} min-h-5`}>{lines.length > 0 ? `${lines.length.toLocaleString('en-US')} ${lines.length === 1 ? 'query' : 'queries'}` : null}</p>
             </div>
             <details className="border-t border-default text-sm text-secondary">
               {/* A Type other than Automatic is sent on every line, so it shows while this is closed. */}
