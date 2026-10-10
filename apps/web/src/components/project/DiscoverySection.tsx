@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { ResearchRunScope } from '@ainyc/canonry-contracts'
 
@@ -13,6 +13,8 @@ import { Card } from '../ui/card.js'
 import { QueryResearchWorkspace } from './queries/QueryResearchWorkspace.js'
 import { SimpleTrackedQueries } from './queries/SimpleTrackedQueries.js'
 import { AdvancedTrackedPage } from './queries/advanced/AdvancedTrackedPage.js'
+import { DEFAULT_TRACKED_FILTERS } from './queries/advanced/tracked-filters.js'
+import type { TrackedFilters } from './queries/advanced/tracked-types.js'
 import { useTrackingComposer, type TrackedQueriesPageProps } from './queries/use-tracking-composer.js'
 import { canUseResearchWorkspace, effectiveQueryWorkspace, type QueryWorkspace } from '../../lib/project-scope.js'
 import { useAccount } from '../../contexts/account-context.js'
@@ -21,7 +23,7 @@ export { AddLocationQueryButton } from './queries/AddQueriesEntry.js'
 export { DiscoverySection } from './queries/FindQueriesSection.js'
 
 export type { QueryWorkspace }
-export type ResearchWorkspaceMode = 'find' | 'test'
+export type ResearchWorkspaceMode = 'write' | 'pattern' | 'find'
 export type SavedTrackingSource =
   | { source: 'research'; researchRunQueryId: string }
   | { source: 'discovery'; discoveryProbeId: string }
@@ -37,6 +39,7 @@ export interface QueriesSectionProps {
   projectName: string
   queryWorkspace?: QueryWorkspace
   onQueryWorkspaceChange?: (workspace: QueryWorkspace) => void
+  /** Left out when the URL names none: the research page picks where that lands. */
   researchMode?: ResearchWorkspaceMode
   onResearchModeChange?: (mode: ResearchWorkspaceMode) => void
   selection?: {
@@ -50,6 +53,21 @@ export interface QueriesSectionProps {
   onTrackingQueryIdChange?: (queryId: string | undefined) => void
   /** Read-only state that pauses Confirm; the server does not refuse these commits yet. */
   publishGuard?: TrackingPublishGuard
+  /** The Tracked filters as the URL holds them. Left out, the section keeps them itself. */
+  trackedFilters?: TrackedFilters
+  onTrackedFiltersChange?: (patch: Partial<TrackedFilters>) => void
+  /** When tracking last changed, for results that come from an older sweep. */
+  trackingChangedAt?: string
+  /** The next scheduled sweep as shown ("Oct 21"). Left out when no date should be named. */
+  nextSweepDate?: string
+}
+
+/** What the Tracked page gets from this host beside the composer's props. */
+export type TrackedPageHostProps = Pick<QueriesSectionProps, 'trackingChangedAt' | 'nextSweepDate'> & {
+  trackedFilters: TrackedFilters
+  onTrackedFiltersChange: (patch: Partial<TrackedFilters>) => void
+  /** Where the page portals its actions: the right of the Tracked | Research row, or the line under it in a narrow frame. Null until the row has mounted. */
+  actionsSlot: HTMLElement | null
 }
 
 export type TrackingPublishGuard = {
@@ -68,16 +86,28 @@ export function QueriesSection({
   trackingQueryId,
   onTrackingQueryIdChange,
   publishGuard,
+  trackedFilters: controlledTrackedFilters,
+  onTrackedFiltersChange,
+  trackingChangedAt,
+  nextSweepDate,
 }: QueriesSectionProps) {
   const { account } = useAccount()
   const [uncontrolledWorkspace, setUncontrolledWorkspace] = useState<QueryWorkspace>('tracked')
-  const [uncontrolledResearchMode, setUncontrolledResearchMode] = useState<ResearchWorkspaceMode>('find')
+  const [uncontrolledResearchMode, setUncontrolledResearchMode] = useState<ResearchWorkspaceMode>()
+  const [uncontrolledTrackedFilters, setUncontrolledTrackedFilters] = useState(DEFAULT_TRACKED_FILTERS)
+  const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null)
   const [pendingTrackingSource, setPendingTrackingSource] = useState<PendingTrackingSource | null>(null)
   const viewerResearchConfig = account?.role === 'viewer' ? getViewerResearchConfig() : null
   const showResearchWorkspace = canUseResearchWorkspace(account?.role, viewerResearchConfig)
   const requestedWorkspace = controlledWorkspace ?? uncontrolledWorkspace
   const queryWorkspace = effectiveQueryWorkspace(requestedWorkspace, showResearchWorkspace)
   const researchMode = controlledResearchMode ?? uncontrolledResearchMode
+  const trackedFilters = controlledTrackedFilters ?? uncontrolledTrackedFilters
+
+  // Once the host names a mode, a choice kept here is spent: back on a URL with none, the default shows again.
+  useEffect(() => {
+    if (controlledResearchMode !== undefined) setUncontrolledResearchMode(undefined)
+  }, [controlledResearchMode])
 
   const selectWorkspace = (workspace: QueryWorkspace) => {
     if (controlledWorkspace === undefined) setUncontrolledWorkspace(workspace)
@@ -86,6 +116,10 @@ export function QueriesSection({
   const selectResearchMode = (mode: ResearchWorkspaceMode) => {
     if (controlledResearchMode === undefined) setUncontrolledResearchMode(mode)
     onResearchModeChange?.(mode)
+  }
+  const changeTrackedFilters = (patch: Partial<TrackedFilters>) => {
+    if (controlledTrackedFilters === undefined) setUncontrolledTrackedFilters(previous => ({ ...previous, ...patch }))
+    onTrackedFiltersChange?.(patch)
   }
   const reviewSavedSource = (source: SavedTrackingSource, scope?: ResearchRunScope | null) => {
     // Only a research run's own market or property preselects a destination.
@@ -101,13 +135,17 @@ export function QueriesSection({
   }
 
   return (
-    <section className="page-section-divider" aria-labelledby="queries-heading">
-      <div className="section-head">
-        <h2 id="queries-heading">Queries</h2>
-      </div>
-      <div className="mt-3 flex border-b border-default" role="tablist" aria-label="Query workspace">
-        <WorkspaceTab active={queryWorkspace === 'tracked'} label="Tracked" onClick={() => selectWorkspace('tracked')} />
-        {showResearchWorkspace ? <WorkspaceTab active={queryWorkspace === 'research'} label="Research" onClick={() => selectWorkspace('research')} /> : null}
+    <section aria-labelledby="queries-heading">
+      <h2 id="queries-heading" className="sr-only">Queries</h2>
+      {/* The tab row keeps one height with or without actions, so the tabs never move. In a row too narrow for both, the actions take the first line under the rule. */}
+      <div className="@container">
+        <div className="grid @xl:grid-cols-[1fr_auto]">
+          <div className="flex min-h-12 items-end border-b border-default" role="tablist" aria-label="Query workspace">
+            <WorkspaceTab active={queryWorkspace === 'tracked'} label="Tracked" onClick={() => selectWorkspace('tracked')} />
+            {showResearchWorkspace ? <WorkspaceTab active={queryWorkspace === 'research'} label="Research" onClick={() => selectWorkspace('research')} /> : null}
+          </div>
+          <div ref={setActionsSlot} className="flex flex-wrap items-center justify-end gap-2 pt-3 empty:hidden @xl:border-b @xl:border-default @xl:pt-0 @xl:pl-3" />
+        </div>
       </div>
       <div className="mt-4">
         {queryWorkspace === 'tracked' ? (
@@ -120,6 +158,11 @@ export function QueriesSection({
             pendingTrackingSource={pendingTrackingSource}
             onPendingTrackingSourceHandled={() => setPendingTrackingSource(null)}
             publishGuard={publishGuard}
+            trackedFilters={trackedFilters}
+            onTrackedFiltersChange={changeTrackedFilters}
+            trackingChangedAt={trackingChangedAt}
+            nextSweepDate={nextSweepDate}
+            actionsSlot={actionsSlot}
           />
         ) : (
           <QueryResearchWorkspace
@@ -160,7 +203,8 @@ function TrackedQueriesSection({
   pendingTrackingSource,
   onPendingTrackingSourceHandled,
   publishGuard,
-}: Pick<QueriesSectionProps, 'projectName' | 'selection' | 'onSelectionChange' | 'trackingQueryId' | 'onTrackingQueryIdChange' | 'publishGuard'> & {
+  ...host
+}: Pick<QueriesSectionProps, 'projectName' | 'selection' | 'onSelectionChange' | 'trackingQueryId' | 'onTrackingQueryIdChange' | 'publishGuard'> & TrackedPageHostProps & {
   pendingTrackingSource: PendingTrackingSource | null
   onPendingTrackingSourceHandled: () => void
 }) {
@@ -189,6 +233,7 @@ function TrackedQueriesSection({
 
   return (
     <TrackedQueriesGate
+      {...host}
       projectName={projectName}
       workspace={workspaceQuery.data}
       selection={selection}
@@ -210,7 +255,7 @@ function TrackedQueriesSection({
 }
 
 /** The mode gate: each mode has its own page. One composer sits above both, so a mode change keeps the open form, its draft and the search. */
-function TrackedQueriesGate(props: TrackedQueriesPageProps) {
+function TrackedQueriesGate(props: TrackedQueriesPageProps & TrackedPageHostProps) {
   const composer = useTrackingComposer(props)
   const TrackedPage = props.workspace.mode === 'advanced' ? AdvancedTrackedPage : SimpleTrackedQueries
   return <TrackedPage {...props} composer={composer} />

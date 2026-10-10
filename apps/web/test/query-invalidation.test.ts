@@ -1,12 +1,16 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, vi } from 'vitest'
-import { QueryClient } from '@tanstack/react-query'
+import { QueryClient, QueryObserver } from '@tanstack/react-query'
+import { RunKinds } from '@ainyc/canonry-contracts'
 
 import {
   invalidateProjectQueryDomain,
+  invalidateQueryTrackingPublication,
   PROJECT_QUERY_DOMAINS,
+  refreshQueriesAfterWrite,
 } from '../src/queries/query-invalidation.js'
+import { invalidateQueriesForRunKind } from '../src/queries/run-invalidations.js'
 
 function sourceFiles(root: string): string[] {
   return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
@@ -31,6 +35,60 @@ test('the Google connection domain includes connection-owned and GSC queries', a
   expect(matches('getApiV1ProjectsByNameGoogleGscCoverage')).toBe(true)
   expect(matches('getApiV1ProjectsByNameGaStatus')).toBe(false)
   expect(matches('getApiV1ProjectsByNameBingStatus')).toBe(false)
+})
+
+// The generated operation of GET /projects/{name}/query-tracking/results, and its cache key for one project and place.
+const RESULTS_READ = 'getApiV1ProjectsByNameQueryTrackingResults'
+const WORKSPACE_READ = 'getApiV1ProjectsByNameQueryTracking'
+const readKey = (id: string, name: string, query?: Record<string, string>) => [{ _id: id, baseUrl: '', path: { name }, ...(query ? { query } : {}) }]
+
+test('a tracking publish refreshes the results read of every place in that project only', async () => {
+  const queryClient = new QueryClient()
+  const published = [readKey(RESULTS_READ, 'demo'), readKey(RESULTS_READ, 'demo', { scope: 'market', scopeKey: 'north' }), readKey(WORKSPACE_READ, 'demo')]
+  const untouched = [readKey(RESULTS_READ, 'other'), readKey(WORKSPACE_READ, 'other')]
+  for (const key of [...published, ...untouched]) queryClient.setQueryData(key, {})
+
+  await invalidateQueryTrackingPublication(queryClient, 'demo')
+
+  expect(published.map(key => queryClient.getQueryState(key)?.isInvalidated)).toEqual([true, true, true])
+  expect(untouched.map(key => queryClient.getQueryState(key)?.isInvalidated)).toEqual([false, false])
+})
+
+test('a publish refetches a mounted results read once, and a refused publish still refetches it', async () => {
+  const queryClient = new QueryClient()
+  const key = readKey(RESULTS_READ, 'demo')
+  const read = vi.fn(async () => ({ rows: [] }))
+  const unsubscribe = new QueryObserver(queryClient, { queryKey: key, queryFn: read, staleTime: Infinity }).subscribe(() => {})
+  await vi.waitFor(() => expect(queryClient.getQueryData(key)).toEqual({ rows: [] }))
+  expect(read).toHaveBeenCalledTimes(1)
+
+  // The order a commit runs them in: the write refresh on its response, then the publish hook.
+  refreshQueriesAfterWrite(queryClient, new Request('http://localhost/api/v1/projects/demo/query-tracking/commit', { method: 'POST' }), {})
+  await invalidateQueryTrackingPublication(queryClient, 'demo')
+  expect(read).toHaveBeenCalledTimes(2)
+
+  // A refused commit has no write refresh: the publish hook's own call is the refetch.
+  await invalidateQueryTrackingPublication(queryClient, 'demo')
+  expect(read).toHaveBeenCalledTimes(3)
+  unsubscribe()
+  queryClient.clear()
+})
+
+test('a finished sweep refetches a mounted results read once', async () => {
+  const queryClient = new QueryClient()
+  const key = readKey(RESULTS_READ, 'demo')
+  const read = vi.fn(async () => ({ rows: [] }))
+  const unsubscribe = new QueryObserver(queryClient, { queryKey: key, queryFn: read, staleTime: Infinity }).subscribe(() => {})
+  await vi.waitFor(() => expect(queryClient.getQueryData(key)).toEqual({ rows: [] }))
+  expect(read).toHaveBeenCalledTimes(1)
+
+  invalidateQueriesForRunKind(queryClient, RunKinds['answer-visibility'], 'demo')
+
+  // Two invalidations of the same read would cancel the first refetch and send a second request.
+  await vi.waitFor(() => expect(queryClient.isFetching({ queryKey: key })).toBe(0))
+  expect(read).toHaveBeenCalledTimes(2)
+  unsubscribe()
+  queryClient.clear()
 })
 
 test('keeps generated operation-prefix matching in the typed domain registry', () => {

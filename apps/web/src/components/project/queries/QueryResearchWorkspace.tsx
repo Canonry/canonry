@@ -25,14 +25,16 @@ export function QueryResearchWorkspace({
 }: {
   projectName: string
   selection: NonNullable<QueriesSectionProps['selection']>
-  mode: ResearchWorkspaceMode
+  mode?: ResearchWorkspaceMode
   onModeChange: (mode: ResearchWorkspaceMode) => void
   onSelectionChange?: QueriesSectionProps['onSelectionChange']
   onReviewSavedSource: (source: SavedTrackingSource, scope?: ResearchRunScope | null) => void
   viewerResearchConfig: ViewerResearchConfig | null
 }) {
   const { canWrite } = useAccount()
-  const researchWorkspaceEnabled = !canWrite || mode === 'test'
+  // The two tabs stand in for the modes: Write and Pattern open Test queries, Find and no mode open Find queries.
+  const tab = mode === 'write' || mode === 'pattern' ? 'test' : 'find'
+  const researchWorkspaceEnabled = !canWrite || tab === 'test'
   const workspaceQuery = useQuery({
     ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
     enabled: researchWorkspaceEnabled,
@@ -98,11 +100,11 @@ export function QueryResearchWorkspace({
   return (
     <div>
       <div className="flex border-b border-default" role="tablist" aria-label="Research workspace">
-        <WorkspaceTab active={mode === 'find'} label="Find queries" onClick={() => onModeChange('find')} />
-        <WorkspaceTab active={mode === 'test'} label="Test queries" onClick={() => onModeChange('test')} />
+        <WorkspaceTab active={tab === 'find'} label="Find queries" onClick={() => onModeChange('find')} />
+        <WorkspaceTab active={tab === 'test'} label="Test queries" onClick={() => onModeChange('write')} />
       </div>
       <div className="mt-4">
-        {mode === 'find' ? (
+        {tab === 'find' ? (
           <FindQueriesSection
             projectName={projectName}
             onReviewDiscoveryProbe={(discoveryProbeId) => onReviewSavedSource({ source: 'discovery', discoveryProbeId })}
