@@ -27,7 +27,7 @@ function renderPublish(respond: (path: string) => Response) {
 
 const toasts = () => getToasts().map(({ title, tone }) => ({ title, tone }))
 
-test('runs onCommitted once after a successful commit', async () => {
+test('runs onCommitted once after a successful commit, with what the server published', async () => {
   const { result, onCommitted } = renderPublish(path => {
     if (path === '/api/v1/projects/demo/query-tracking/commit') return jsonResponse({ committed: true, mode: 'advanced' })
     throw new Error(`Unexpected fetch: ${path}`)
@@ -35,6 +35,7 @@ test('runs onCommitted once after a successful commit', async () => {
   act(() => result.current.commit(commitRequest))
   await waitFor(() => expect(toasts()).toEqual([{ title: 'Tracked queries updated', tone: 'positive' }]))
   expect(onCommitted).toHaveBeenCalledTimes(1)
+  expect(onCommitted).toHaveBeenCalledWith({ committed: true, mode: 'advanced' })
 })
 
 test('reports a failed commit without running onCommitted', async () => {

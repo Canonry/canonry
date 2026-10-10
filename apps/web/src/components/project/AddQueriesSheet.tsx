@@ -2,6 +2,7 @@ import { useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { normalizeIdentityText } from '@ainyc/canonry-contracts'
 import type {
+  QueryTrackingCommitResponse,
   QueryTrackingContextInput,
   QueryTrackingMutation,
   QueryTrackingPreviewResponse,
@@ -82,7 +83,7 @@ function placesOf(options: NonNullable<QueryTrackingWorkspaceResponse['scopeOpti
  * locations to that market. A caller with no form (the location page) leaves
  * `onOpenComposer` out, and the sheet shows no link to it.
  */
-export function AddQueriesSheet({ projectName, workspace, contextChoices, defaultMarketKey, defaultLocationKey, onOpenComposer, onClose, renderReview }: {
+export function AddQueriesSheet({ projectName, workspace, contextChoices, defaultMarketKey, defaultLocationKey, onOpenComposer, onPublished, onClose, renderReview }: {
   projectName: string
   workspace: QueryTrackingWorkspaceResponse
   /** The search location and engines choices the Add query form offers, so a location in no market gets the same ones. */
@@ -93,6 +94,8 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
   defaultLocationKey?: string
   /** `text` is the first query line, or empty when nothing is typed yet. */
   onOpenComposer?: (carried: { text: string }) => void
+  /** Runs once a publish succeeds, just before the sheet closes, with what the server published. */
+  onPublished?: (result: QueryTrackingCommitResponse) => void
   onClose: () => void
   /**
    * The caller draws the review, so this sheet shows the same one as every other tracking change.
@@ -100,7 +103,7 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
    */
   renderReview: (review: { preview: QueryTrackingPreviewResponse; isCommitting: boolean; onConfirm: () => void }) => { changes: ReactNode; actions: ReactNode }
 }) {
-  const publish = useQueryTrackingPublish(projectName, { onCommitted: onClose })
+  const publish = useQueryTrackingPublish(projectName, { onCommitted: result => { onPublished?.(result); onClose() } })
   const [subject, setSubject] = useState<Subject>(defaultLocationKey ? 'location' : 'market')
   const [placeKey, setPlaceKey] = useState(defaultLocationKey ?? defaultMarketKey)
   const [contextLabel, setContextLabel] = useState('')

@@ -724,7 +724,7 @@ function NamedInstead({ project, targetKey, queryClass }: { project: string; tar
   )
 }
 
-function AssignedQuestions({ questions, queryClass, action }: { questions: readonly string[]; queryClass: QueryClass; action?: ReactNode }) {
+function AssignedQuestions({ questions, queryClass, action, notice }: { questions: readonly string[]; queryClass: QueryClass; action?: ReactNode; notice?: ReactNode }) {
   return (
     <section aria-labelledby="property-questions" className="page-section-divider">
       <div className="section-head section-head-inline flex-wrap">
@@ -738,6 +738,7 @@ function AssignedQuestions({ questions, queryClass, action }: { questions: reado
           {action}
         </div>
       </div>
+      {notice}
       {questions.length === 0 ? (
         <p className="text-sm text-secondary">
           No {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()} are assigned. Add one in advanced measurement setup to measure this class.
@@ -988,6 +989,8 @@ export function MeasurementPropertyPage() {
   const urlSearch = useSearch({ strict: false }) as Record<string, unknown>
   const selection = useMemo(() => parseVisibilitySelection(urlSearch), [urlSearch])
   const [expandedAnswers, setExpandedAnswers] = useState<ReadonlySet<string>>(new Set<string>())
+  // The queries the last publish from this page's sheet touched, with where it was made.
+  const [published, setPublished] = useState<{ property: string; queryClass: QueryClass; revision: number; queryIds: readonly string[] } | null>(null)
   const project = projectName ?? ''
   const property = targetKey ?? ''
   const hasRouteParams = Boolean(project) && Boolean(property)
@@ -1016,6 +1019,9 @@ export function MeasurementPropertyPage() {
     if (!assignedPlan || urlQueryClass) return
     void navigate({ to: '.', replace: true, search: previous => patchVisibilitySelection(previous, { queryClass }) })
   }, [assignedPlan, urlQueryClass, queryClass, navigate])
+  const showQueryClass = (next: QueryClass) => {
+    void navigate({ to: '.', search: previous => patchVisibilitySelection(previous, { queryClass: next }) })
+  }
   const brandedQuery = useQuery({ ...overviewOptions(project, property, 'branded'), enabled })
   const nonBrandQuery = useQuery({ ...overviewOptions(project, property, 'non-brand'), enabled })
 
@@ -1095,6 +1101,19 @@ export function MeasurementPropertyPage() {
         return text === undefined ? [] : [text]
       }))].sort((left, right) => left.localeCompare(right))
   }, [planV2, property, queryClass])
+
+  // The server files a query that names this location as Branded, so a query
+  // added from this page can land under the Query type the list is not showing.
+  // Counted once the page holds the published setup, and only on the location
+  // and Query type it was added from.
+  const otherClass: QueryClass = queryClass === 'branded' ? 'non-brand' : 'branded'
+  const addedElsewhere = useMemo(() => {
+    if (!planV2 || !activePlan || !published || published.property !== property || published.queryClass !== queryClass) return 0
+    if (activePlan.revision < published.revision) return 0
+    return new Set(planV2.assignments
+      .filter(assignment => assignment.targetKey === property && assignment.queryClass === otherClass && published.queryIds.includes(assignment.queryId))
+      .map(assignment => assignment.queryId)).size
+  }, [planV2, activePlan, published, property, queryClass, otherClass])
 
   const urls = useMemo(() => target?.urlMatchers.map(matcherLabel) ?? [], [target])
   const targetLabels = useMemo(
@@ -1278,10 +1297,7 @@ export function MeasurementPropertyPage() {
           <select
             id="property-query-class"
             value={queryClass}
-            onChange={event => {
-              const next: QueryClass = event.target.value === 'branded' ? 'branded' : 'non-brand'
-              void navigate({ to: '.', search: previous => patchVisibilitySelection(previous, { queryClass: next }) })
-            }}
+            onChange={event => showQueryClass(event.target.value === 'branded' ? 'branded' : 'non-brand')}
             className="h-11 rounded-md border border-default bg-surface px-3 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-mono-400"
           >
             <option value="non-brand">{CLASS_LABELS['non-brand'].technical}</option>
@@ -1306,7 +1322,28 @@ export function MeasurementPropertyPage() {
       <AssignedQuestions
         questions={questions}
         queryClass={queryClass}
-        action={canWrite ? <AddLocationQueryButton key={property} projectName={project} locationKey={property} className="h-11 px-4 text-sm md:h-11" /> : null}
+        action={canWrite ? (
+          <AddLocationQueryButton
+            key={property}
+            projectName={project}
+            locationKey={property}
+            className="h-11 px-4 text-sm md:h-11"
+            onPublished={result => {
+              if (!result.committed || !result.active) return
+              setPublished({ property, queryClass, revision: result.active.revision, queryIds: [...result.diff.added, ...result.diff.reused].map(row => row.queryId) })
+            }}
+          />
+        ) : null}
+        notice={addedElsewhere > 0 ? (
+          <div className="mb-3 flex flex-wrap items-center gap-3">
+            <p role="status" className="text-sm text-secondary">
+              {addedElsewhere === 1 ? '1 query you added is' : `${addedElsewhere} queries you added are`} listed under {CLASS_LABELS[otherClass].technical}.
+            </p>
+            <Button type="button" size="sm" variant="outline" className="h-11 px-4 text-sm md:h-11" onClick={() => showQueryClass(otherClass)}>
+              Show {CLASS_LABELS[otherClass].technical.toLocaleLowerCase()}
+            </Button>
+          </div>
+        ) : null}
       />
       <PropertyNamesSection
         projectName={project}

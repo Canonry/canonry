@@ -21,6 +21,7 @@ If the server refuses a review or a publish, for example over the 1,000-query li
 The link **Hand-picked locations, templates or saved research** leads to the Add query form. That form adds one query at a time, so it opens with the first line only. **Company** is not available yet.
 When the Tracked view is filtered to one market or one location, the sheet opens with that **Subject** and place already chosen.
 A location's page opens the same sheet from **Add query about this location**, above the queries assigned to that location. It starts on **Location** with that location chosen and has no link to the Add query form. After a publish the sheet closes and the page reloads its list. A view-only account does not see the button.
+That list shows one query type at a time, and with **Type** on **Automatic** the server files a query that names the location as **Branded**. When a new query is filed under the type the page is not showing, the page says so above the list (for example "1 query you added is listed under Branded queries.") and **Show branded queries** switches **Query type** to it.
 A simple site has no sheet: **Add query** opens the Add query form directly.
 
 The Add query form assigns one query at a time:
