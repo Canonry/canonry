@@ -9,8 +9,11 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import {
+  AppError,
   BacklinkSources,
   CcReleaseSyncStatuses,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
   RunKinds,
   RunStatuses,
   RunTriggers,
@@ -35,6 +38,7 @@ import {
 import { isValidReleaseId } from '@ainyc/canonry-integration-commoncrawl'
 import { resolveProject } from './helpers.js'
 import { backlinkCrawlerExclusionClause } from './backlinks-filter.js'
+import { withFeatureOutcome } from './feature-outcome.js'
 
 export interface BacklinksRoutesOptions {
   /**
@@ -301,13 +305,14 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
     return reply.send(opts.getBacklinksStatus())
   })
 
-  app.post('/backlinks/install', async (_request, reply) => {
+  app.post('/backlinks/install', async (_request, reply) => withFeatureOutcome(app, { feature: 'backlinks', operation: 'install' }, async (settle) => {
     if (!opts.onInstallBacklinks) {
       throw missingDependency(BACKLINKS_UNSUPPORTED_MESSAGE)
     }
     const result = await opts.onInstallBacklinks()
+    if (result.alreadyPresent) settle({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.ALREADY_CONNECTED })
     return reply.status(200).send(result)
-  })
+  }, err => (err instanceof AppError && err.code === 'MISSING_DEPENDENCY' ? OutcomeReasonCodes.UNSUPPORTED : undefined)))
 
   app.post<{ Body: { release?: string } }>('/backlinks/syncs', async (request, reply) => {
     let release = request.body?.release

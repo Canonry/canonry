@@ -16,6 +16,8 @@ import {
 } from '@ainyc/canonry-db'
 import { backlinksRoutes, type BacklinksRoutesOptions } from '../src/backlinks.js'
 import type { BacklinkSource, BacklinkSourcesResponseDto } from '@ainyc/canonry-contracts'
+import { createOutcomeEmitter, type OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
+import { featureOutcomes } from './feature-outcome-capture.js'
 
 function buildApp(overrides: Partial<BacklinksRoutesOptions> = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'backlinks-routes-'))
@@ -25,6 +27,8 @@ function buildApp(overrides: Partial<BacklinksRoutesOptions> = {}) {
 
   const app = Fastify()
   app.decorate('db', db)
+  const outcomes: OutcomeTelemetryEvent[] = []
+  app.decorate('emitOutcome', createOutcomeEmitter(event => { outcomes.push(event) }))
   app.setErrorHandler((error, _request, reply) => {
     const statusCode = (error as { statusCode?: number }).statusCode ?? 500
     const code = (error as { code?: string }).code
@@ -49,7 +53,7 @@ function buildApp(overrides: Partial<BacklinksRoutesOptions> = {}) {
   }
   app.register(backlinksRoutes, { ...defaults, ...overrides })
 
-  return { app, db, tmpDir }
+  return { app, db, tmpDir, outcomes }
 }
 
 function insertProject(db: ReturnType<typeof createClient>, id: string, name: string, domain: string): void {
@@ -144,6 +148,33 @@ describe('Backlinks routes', () => {
       expect(body.installed).toBe(true)
       expect(body.alreadyPresent).toBe(false)
       await custom.close()
+    })
+
+    it('reports each install attempt: installed, already present, failed, or unsupported here', async () => {
+      const cases: Array<[Partial<BacklinksRoutesOptions>, Record<string, unknown>]> = [
+        [{}, { status: 'succeeded' }],
+        [
+          { onInstallBacklinks: async () => ({ installed: true, version: '1.4.4-r.3', path: '/tmp/plugins', alreadyPresent: true }) },
+          { status: 'skipped', reasonCode: 'ALREADY_CONNECTED' },
+        ],
+        [
+          { onInstallBacklinks: async () => { throw new Error('npm install exited with code 1 in /home/someone/.canonry') } },
+          { status: 'failed', reasonCode: 'UNKNOWN', errorName: 'Error' },
+        ],
+        // A deployment that cannot host DuckDB (the cloud API).
+        [{ onInstallBacklinks: undefined }, { status: 'failed', reasonCode: 'UNSUPPORTED', errorName: 'AppError' }],
+      ]
+      for (const [overrides, expected] of cases) {
+        const { app: custom, outcomes, tmpDir: customDir } = buildApp(overrides)
+        await custom.ready()
+        await custom.inject({ method: 'POST', url: '/backlinks/install' })
+        expect(featureOutcomes(outcomes)).toEqual([{
+          feature: 'backlinks', operation: 'install', trigger: 'manual', durationBucket: 'under_1s', ...expected,
+        }])
+        expect(JSON.stringify(outcomes)).not.toContain('/home/someone')
+        await custom.close()
+        fs.rmSync(customDir, { recursive: true, force: true })
+      }
     })
   })
 

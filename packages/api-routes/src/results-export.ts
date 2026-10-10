@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { parseJsonColumn, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import {
   CitationStates,
+  OutcomeStatuses,
   parseInclusiveEndMs,
   RunKinds,
   runStatusSchema,
@@ -15,6 +16,7 @@ import {
   type ResultsExportRecord,
 } from '@ainyc/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
+import { withFeatureOutcome } from './feature-outcome.js'
 
 const CSV_COLUMNS = [
   'export_schema_version',
@@ -172,7 +174,7 @@ export async function resultsExportRoutes(app: FastifyInstance) {
   app.get<{
     Params: { name: string }
     Querystring: { format?: string; since?: string; until?: string; includeProbes?: string }
-  }>('/projects/:name/results/export', async (request, reply) => {
+  }>('/projects/:name/results/export', async (request, reply) => withFeatureOutcome(app, { feature: 'exports', operation: 'export' }, async (settle) => {
     const project = resolveProject(app.db, request.params.name)
     const format = parseFormat(request.query.format)
     const includeProbes = parseBoolean(request.query.includeProbes, 'includeProbes')
@@ -286,11 +288,10 @@ export async function resultsExportRoutes(app: FastifyInstance) {
     reply.header('Content-Disposition', `attachment; filename="${filenameFor(project.name, format)}"`)
     reply.header('Cache-Control', 'private, no-store')
     reply.header('X-Content-Type-Options', 'nosniff')
-    if (format === 'csv') {
-      reply.type('text/csv; charset=utf-8')
-      return reply.send(renderResultsExportCsv(dto))
-    }
-    reply.type('application/json; charset=utf-8')
-    return reply.send(dto)
-  })
+    // Serialized here, exactly as Fastify would, so the export's size is known.
+    const body = format === 'csv' ? renderResultsExportCsv(dto) : JSON.stringify(dto)
+    settle({ status: OutcomeStatuses.succeeded, counts: { rows: records.length, bytes: Buffer.byteLength(body) } })
+    reply.type(format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8')
+    return reply.send(body)
+  }))
 }
