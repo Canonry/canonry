@@ -8,6 +8,7 @@ import {
 import { loadConfig, saveConfigPatch, configExists, loadConfigRaw, getConfigPath } from './config.js'
 import type { SetupState } from './setup-state.js'
 import { cliRuntimeContext } from './runtime-context.js'
+import { telemetryEnvironment } from './telemetry-environment.js'
 
 import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
@@ -68,6 +69,8 @@ export interface TelemetryEvent {
   arch: string
   /** Stable error classifier when the event represents a failure. */
   errorCode?: string
+  /** Automation or development markers (container, temp_config, dev_build, ...); absent for an ordinary install. */
+  environment?: string[]
   /** Free-shape per-event payload. */
   properties?: TelemetryProperties
 }
@@ -474,6 +477,15 @@ export function setTelemetryPreference(enabled: boolean, method: TelemetryPrefer
     : Promise.resolve()
 }
 
+function environmentField(): { environment?: string[] } {
+  try {
+    const flags = telemetryEnvironment()
+    return flags.length > 0 ? { environment: flags } : {}
+  } catch {
+    return {}
+  }
+}
+
 /** Compose and send one event. Settles when the collector answers or the timeout aborts; never rejects. */
 function deliverEvent(
   event: string,
@@ -502,6 +514,7 @@ function deliverEvent(
     arch: process.arch,
     ...(options?.sourceContext ? { sourceContext: options.sourceContext } : {}),
     ...(options?.errorCode ? { errorCode: options.errorCode } : {}),
+    ...environmentField(),
     ...(properties ? { properties } : {}),
   }
 

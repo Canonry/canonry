@@ -20,10 +20,13 @@ export interface RequestContext {
   /** Raw `x-canonry-surface` / `x-canonry-agent` labels for outcome attribution; never identity. */
   usageSurface?: string
   usageAgent?: string
+  /** Stable code of the error that failed this request (`NOT_FOUND`, `FST_ERR_VALIDATION`), never its message. */
+  errorCode?: string
 }
 
 const requestContext = new AsyncLocalStorage<RequestContext & { completed?: boolean }>()
 const MAX_REQUEST_CONTEXT_LENGTH = 512
+const ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{1,39}$/
 
 /**
  * Active HTTP context only. A request-bound logger may retain its own completed
@@ -73,6 +76,8 @@ export interface ApiRequestCompletedInfo {
   route: string
   statusCode: number
   durationMs: number
+  /** Stable code of the error that failed the request, when one was thrown. */
+  errorCode?: string
   userAgent?: string
   actorSession?: string
   principalKind?: 'user' | 'api-key'
@@ -124,8 +129,11 @@ export function registerRequestContext(app: FastifyInstance, options: RequestCon
   })
   // Authorization or validation may reject an authenticated caller before
   // preHandler. Completion/error diagnostics still need the trusted identity.
-  app.addHook('onError', (request, _reply, _error, done) => {
+  app.addHook('onError', (request, _reply, error, done) => {
     populateIdentity(request)
+    const code = (error as { code?: unknown }).code
+    const context = requestContext.getStore()
+    if (context && typeof code === 'string' && ERROR_CODE_PATTERN.test(code)) context.errorCode = code
     done()
   })
   app.addHook('onResponse', (request, reply, done) => {
@@ -141,6 +149,7 @@ export function registerRequestContext(app: FastifyInstance, options: RequestCon
           route,
           statusCode: reply.statusCode,
           durationMs: reply.elapsedTime,
+          ...(context?.errorCode && reply.statusCode >= 400 ? { errorCode: context.errorCode } : {}),
           userAgent: headerValue(request.headers['user-agent']),
           actorSession: headerValue(request.headers['x-canonry-actor-session']),
           principalKind: kind === 'user' ? 'user' : kind ? 'api-key' : undefined,

@@ -73,3 +73,31 @@ describe('request completion usage hook', () => {
     expect(response.json()).toEqual({ ok: true })
   })
 })
+
+describe('request error codes', () => {
+  it('reports the stable code of a thrown error, never its message', async () => {
+    const seen: ApiRequestCompletedInfo[] = []
+    const app = Fastify()
+    apps.push(app)
+    registerRequestContext(app, { onRequestCompleted: info => seen.push(info) })
+    app.get('/projects/:name/backlinks', async () => {
+      throw Object.assign(new Error('backlinks for acme.example are not installed'), { code: 'NOT_FOUND', statusCode: 404 })
+    })
+    app.get('/projects/:name', async () => ({ ok: true }))
+    await app.inject({ method: 'GET', url: '/projects/acme/backlinks' })
+    await app.inject({ method: 'GET', url: '/projects/acme' })
+    expect(seen[0]).toMatchObject({ statusCode: 404, errorCode: 'NOT_FOUND' })
+    expect(JSON.stringify(seen[0])).not.toContain('acme')
+    expect(seen[1]).not.toHaveProperty('errorCode')
+  })
+
+  it('ignores codes that are not stable identifiers', async () => {
+    const seen: ApiRequestCompletedInfo[] = []
+    const app = Fastify()
+    apps.push(app)
+    registerRequestContext(app, { onRequestCompleted: info => seen.push(info) })
+    app.get('/x', async () => { throw Object.assign(new Error('x'), { code: 'not a code', statusCode: 500 }) })
+    await app.inject({ method: 'GET', url: '/x' })
+    expect(seen[0]).not.toHaveProperty('errorCode')
+  })
+})

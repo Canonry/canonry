@@ -13,7 +13,10 @@ import {
   type OutcomeSurface,
 } from '@ainyc/canonry-contracts'
 import type { OutcomeAttribution, OutcomeTelemetryEvent } from '@ainyc/canonry-api-routes'
-import { trackEvent } from './telemetry.js'
+import fs from 'node:fs'
+import path from 'node:path'
+import { getConfigDir } from './config.js'
+import { isTelemetryEnabled, trackEvent } from './telemetry.js'
 import { classifyUsageSurface } from './usage-telemetry.js'
 
 /**
@@ -52,12 +55,50 @@ export function outcomeAttribution(attribution: OutcomeAttribution | undefined):
   return agent ? { surface, agent } : { surface }
 }
 
+const MILESTONES_FILE = 'telemetry-milestones.json'
+let milestones: Set<string> | undefined
+
+/**
+ * Whether this is the install's first success of a kind, recorded in a small
+ * file beside the config. Lets milestone funnels survive sampling and the
+ * collector's one-year retention. Never consulted when telemetry is off.
+ */
+function isFirstSuccess(key: string): boolean {
+  try {
+    if (!isTelemetryEnabled()) return false
+    const file = path.join(getConfigDir(), MILESTONES_FILE)
+    if (!milestones) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as { keys?: unknown }
+        milestones = new Set(Array.isArray(parsed.keys) ? parsed.keys.filter((k): k is string => typeof k === 'string') : [])
+      } catch {
+        milestones = new Set()
+      }
+    }
+    if (milestones.has(key)) return false
+    milestones.add(key)
+    fs.writeFileSync(file, JSON.stringify({ keys: [...milestones] }))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Forget cached milestones; tests switch config directories. */
+export function resetOutcomeMilestonesForTest(): void {
+  milestones = undefined
+}
+
 export function trackIntegrationConnection(properties: IntegrationConnectionProperties, options: { errorCode?: string } = {}): void {
-  send('integration.connection', integrationConnectionPropertiesSchema, properties, options.errorCode ?? properties.reasonCode)
+  const succeeded = properties.status === 'succeeded' && (properties.action === 'connect' || properties.action === 'reauth')
+  const key = `connection:${properties.integration}${properties.provider ? `:${properties.provider}` : ''}`
+  const first = succeeded && isFirstSuccess(key)
+  send('integration.connection', integrationConnectionPropertiesSchema, first ? { ...properties, first: true } : properties, options.errorCode ?? properties.reasonCode)
 }
 
 export function trackFeatureCompleted(properties: FeatureCompletedProperties, options: { errorCode?: string } = {}): void {
-  send('feature.completed', featureCompletedPropertiesSchema, properties, options.errorCode ?? properties.reasonCode)
+  const first = properties.status === 'succeeded' && isFirstSuccess(`feature:${properties.feature}.${properties.operation}`)
+  send('feature.completed', featureCompletedPropertiesSchema, first ? { ...properties, first: true } : properties, options.errorCode ?? properties.reasonCode)
 }
 
 export function trackInstallState(properties: InstallStateProperties): void {

@@ -164,3 +164,24 @@ describe('createApiUsageTelemetry', () => {
     expect(events.at(-1)!.properties).not.toHaveProperty('droppedBefore')
   })
 })
+
+describe('failed agent requests', () => {
+  it('carry the stable error code on the envelope', () => {
+    const { events, hook } = recorder()
+    hook(request({ statusCode: 404, errorCode: 'NOT_FOUND' }))
+    hook(request({ statusCode: 200, errorCode: 'NOT_FOUND' }))
+    expect(events.filter(e => e.event === 'api.request').map(e => e.options)).toEqual([
+      { source: 'cli-server', errorCode: 'NOT_FOUND' },
+      { source: 'cli-server' },
+    ])
+  })
+
+  it('are never starved by successes: errors have their own budget', () => {
+    const { events, hook } = recorder()
+    for (let i = 0; i < API_REQUEST_BUCKET_CAPACITY + 5; i++) hook(request())
+    hook(request({ statusCode: 500, errorCode: 'INTERNAL' }))
+    const failed = events.filter(e => e.event === 'api.request' && e.properties.statusClass === '5xx')
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.options).toEqual({ source: 'cli-server', errorCode: 'INTERNAL' })
+  })
+})

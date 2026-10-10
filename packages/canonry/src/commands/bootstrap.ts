@@ -12,6 +12,8 @@ import { CliError, isEndpointMissing, isMachineFormat, systemError, type CliForm
 import { createApiClient } from '../client.js'
 import { isLoopbackBindHost } from '../server.js'
 import { registeredProviderNames } from '../provider-registration.js'
+import { recordInstallRef } from '../telemetry-environment.js'
+import { isTelemetryEnabled } from '../telemetry.js'
 
 function persistedValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(persistedValue)
@@ -128,7 +130,7 @@ function notMatchingLines(reason: NotMatchingReason, serverUrl: string): [string
   }
 }
 
-export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<void> {
+export async function bootstrapCommand(opts?: { format?: CliFormat; ref?: string }): Promise<void> {
   const format = opts?.format ?? 'text'
   const configDir = getConfigDir()
   const existing = configExists()
@@ -261,6 +263,7 @@ export async function bootstrapCommand(opts?: { format?: CliFormat }): Promise<v
     || providersChanged
     || !isDeepStrictEqual(persistedValue(existingRaw.google), persistedValue(mergedGoogle))
   if (configChanged) saveConfig(nextConfig)
+  if (isTelemetryEnabled()) recordInstallRef(opts?.ref)
 
   const status = !existing ? 'created' : configChanged || keyChanged ? 'updated' : 'unchanged'
   const providerFree = registeredProviderNames(nextConfig).length === 0

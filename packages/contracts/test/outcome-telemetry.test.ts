@@ -7,6 +7,7 @@ import {
   featureCompletedPropertiesSchema,
   installStatePropertiesSchema,
   integrationConnectionPropertiesSchema,
+  normalizeInstallRef,
   statusClassOf,
 } from '../src/index.js'
 
@@ -197,5 +198,26 @@ describe('helpers', () => {
     expect(classifyOutcomeError({ details: { httpStatus: 429 } }).reasonCode).toBe('RATE_LIMITED')
     expect(classifyOutcomeError('boom')).toEqual({ reasonCode: 'UNKNOWN' })
     expect(classifyOutcomeError(null)).toEqual({ reasonCode: 'UNKNOWN' })
+  })
+})
+
+describe('signals added for analysts', () => {
+  it('accepts first-success flags only as true', () => {
+    expect(featureCompletedPropertiesSchema.safeParse({ feature: 'ga4', operation: 'sync', status: 'succeeded', first: true }).success).toBe(true)
+    expect(featureCompletedPropertiesSchema.safeParse({ feature: 'ga4', operation: 'sync', status: 'succeeded', first: false }).success).toBe(false)
+    expect(integrationConnectionPropertiesSchema.safeParse({ integration: 'gsc', action: 'connect', status: 'succeeded', first: true }).success).toBe(true)
+  })
+
+  it('reports server start failures and crashes', () => {
+    expect(featureCompletedPropertiesSchema.safeParse({ feature: 'server', operation: 'start', status: 'failed', reasonCode: 'PORT_IN_USE' }).success).toBe(true)
+    expect(featureCompletedPropertiesSchema.safeParse({ feature: 'server', operation: 'crash', status: 'failed', reasonCode: 'UNHANDLED_REJECTION', errorName: 'TypeError' }).success).toBe(true)
+  })
+
+  it('carries install source and a slug-only ref on install.state', () => {
+    const base = { providers: [], integrations: [], counts: {}, usage24h: {} }
+    expect(installStatePropertiesSchema.safeParse({ ...base, installSource: 'homebrew', installRef: 'hero-cta' }).success).toBe(true)
+    expect(installStatePropertiesSchema.safeParse({ ...base, installRef: 'https://evil.example' }).success).toBe(false)
+    expect(normalizeInstallRef(' Docs-Quickstart ')).toBe('docs-quickstart')
+    expect(normalizeInstallRef('a b')).toBeUndefined()
   })
 })

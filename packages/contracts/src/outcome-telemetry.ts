@@ -106,6 +106,10 @@ export const OUTCOME_REASON_CODES = [
   'SERVER_RESTARTED',
   'INTERNAL',
   'UNKNOWN',
+  'PORT_IN_USE',
+  'MIGRATION_FAILED',
+  'UNCAUGHT_EXCEPTION',
+  'UNHANDLED_REJECTION',
 ] as const
 export const outcomeReasonCodeSchema = z.enum(OUTCOME_REASON_CODES)
 export type OutcomeReasonCode = z.infer<typeof outcomeReasonCodeSchema>
@@ -137,6 +141,7 @@ export const FEATURE_OPERATIONS = {
   site_liveness: ['check'],
   reports: ['download'],
   data_refresh: ['refresh'],
+  server: ['start', 'crash'],
 } as const satisfies Record<string, readonly string[]>
 export type FeatureName = keyof typeof FEATURE_OPERATIONS
 export const FEATURE_NAMES = Object.keys(FEATURE_OPERATIONS) as [FeatureName, ...FeatureName[]]
@@ -236,6 +241,8 @@ export const integrationConnectionPropertiesSchema = z
     agent: agentSlugSchema.optional(),
     durationBucket: durationBucketSchema.optional(),
     attempt: z.number().int().min(1).max(1_000_000).optional(),
+    /** The install's first success of this kind; set by the helpers, never by callers. */
+    first: z.literal(true).optional(),
   })
   .strict()
   .refine(
@@ -269,6 +276,7 @@ export const featureCompletedPropertiesSchema = z
     sampleRate: z.number().int().min(1).max(1_000_000).optional(),
     droppedBefore: z.number().int().min(0).max(MAX_COUNT).optional(),
     domainHash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+    first: z.literal(true).optional(),
   })
   .strict()
   .refine(
@@ -277,6 +285,21 @@ export const featureCompletedPropertiesSchema = z
   )
   .refine(p => p.status === OutcomeStatuses.succeeded || p.reasonCode !== undefined, 'a non-succeeded outcome needs a reasonCode')
 export type FeatureCompletedProperties = z.infer<typeof featureCompletedPropertiesSchema>
+
+/** How canonry was installed. `source` is a build run from a repository checkout. */
+export const INSTALL_SOURCES = ['npm', 'homebrew', 'docker', 'source'] as const
+export const installSourceSchema = z.enum(INSTALL_SOURCES)
+export type InstallSource = z.infer<typeof installSourceSchema>
+/** First-touch campaign tag from `--ref` or `CANONRY_REF`, e.g. the canonry.ai button a command was copied from. */
+export const installRefSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/)
+export function normalizeInstallRef(value: string | null | undefined): string | undefined {
+  const ref = value?.trim().toLowerCase()
+  return ref && installRefSchema.safeParse(ref).success ? ref : undefined
+}
+
+/** Where an event came from when it is not an ordinary install; sent on every event's envelope. */
+export const TELEMETRY_ENVIRONMENT_FLAGS = ['container', 'temp_config', 'dev_build', 'wp_subprocess', 'ci', 'ephemeral'] as const
+export type TelemetryEnvironmentFlag = (typeof TELEMETRY_ENVIRONMENT_FLAGS)[number]
 
 /** What an install has set up. Counts are exact small integers; there is nothing identifying in a count. */
 export const INSTALL_STATE_COUNT_KEYS = [
@@ -325,6 +348,8 @@ export const installStatePropertiesSchema = z
     agentProvider: slugSchema.optional(),
     agentModel: modelIdSchema.optional(),
     uptimeBucket: durationBucketSchema.optional(),
+    installSource: installSourceSchema.optional(),
+    installRef: installRefSchema.optional(),
   })
   .strict()
 export type InstallStateProperties = z.infer<typeof installStatePropertiesSchema>

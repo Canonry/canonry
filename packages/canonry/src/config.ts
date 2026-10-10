@@ -482,6 +482,8 @@ export interface CanonryConfig {
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)
   telemetry?: boolean
   anonymousId?: string
+  /** First-touch campaign tag (`--ref` / `CANONRY_REF`), kept once and sent with install telemetry. */
+  installRef?: string
   // Last canonry CLI version observed by this install — used to fire a
   // single `cli.upgraded` event when the running binary version changes.
   lastSeenVersion?: string

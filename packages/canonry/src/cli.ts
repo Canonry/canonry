@@ -73,6 +73,7 @@ Admin:
   backfill              Backfill answer visibility or insights
   telemetry             Manage anonymous telemetry
   history <project>     Show audit trail
+  support               Get help: Canonry Discord and issue tracker
 
 Global options:
   --format json         Machine-readable output: one JSON document (all commands)

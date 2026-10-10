@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const trackEvent = vi.hoisted(() => vi.fn())
-vi.mock('../src/telemetry.js', () => ({ trackEvent }))
+const telemetryOn = vi.hoisted(() => ({ value: false }))
+vi.mock('../src/telemetry.js', () => ({ trackEvent, isTelemetryEnabled: () => telemetryOn.value }))
 
 const {
   createOutcomeSampler,
@@ -11,6 +12,7 @@ const {
   trackFeatureCompleted,
   trackInstallState,
   trackIntegrationConnection,
+  resetOutcomeMilestonesForTest,
 } = await import('../src/outcome-telemetry.js')
 
 beforeEach(() => trackEvent.mockReset())
@@ -91,5 +93,43 @@ describe('outcome sampler', () => {
     t = 1_000
     expect(sample('webhooks.deliver')).toEqual({ send: true, droppedBefore: 2 })
     expect(sample('webhooks.deliver')).toEqual({ send: false })
+  })
+})
+
+describe('first-success flags', () => {
+  it('mark the install\'s first success of each kind once, and only while telemetry is on', async () => {
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-milestones-'))
+    const saved = process.env.CANONRY_CONFIG_DIR
+    process.env.CANONRY_CONFIG_DIR = dir
+    try {
+      resetOutcomeMilestonesForTest()
+      telemetryOn.value = true
+      trackFeatureCompleted({ feature: 'ga4', operation: 'sync', status: 'failed', reasonCode: 'NETWORK' })
+      trackFeatureCompleted({ feature: 'ga4', operation: 'sync', status: 'succeeded' })
+      trackFeatureCompleted({ feature: 'ga4', operation: 'sync', status: 'succeeded' })
+      trackIntegrationConnection({ integration: 'provider', provider: 'gemini', action: 'connect', status: 'succeeded' })
+      trackIntegrationConnection({ integration: 'provider', provider: 'openai', action: 'connect', status: 'succeeded' })
+      trackIntegrationConnection({ integration: 'provider', provider: 'gemini', action: 'test', status: 'succeeded' })
+      const firsts = trackEvent.mock.calls.map(c => (c[1] as { first?: boolean }).first === true)
+      expect(firsts).toEqual([false, true, false, true, true, false])
+      // A new process reads the milestones back from disk.
+      resetOutcomeMilestonesForTest()
+      trackEvent.mockReset()
+      trackFeatureCompleted({ feature: 'ga4', operation: 'sync', status: 'succeeded' })
+      expect((trackEvent.mock.calls[0]![1] as { first?: boolean }).first).toBeUndefined()
+      // Telemetry off: nothing is read or written.
+      telemetryOn.value = false
+      resetOutcomeMilestonesForTest()
+      trackFeatureCompleted({ feature: 'gbp', operation: 'sync', status: 'succeeded' })
+      expect(JSON.parse(fs.readFileSync(path.join(dir, 'telemetry-milestones.json'), 'utf8')).keys).not.toContain('feature:gbp.sync')
+    } finally {
+      telemetryOn.value = false
+      if (saved === undefined) delete process.env.CANONRY_CONFIG_DIR
+      else process.env.CANONRY_CONFIG_DIR = saved
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

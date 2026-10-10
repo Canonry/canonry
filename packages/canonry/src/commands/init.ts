@@ -20,6 +20,7 @@ import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
 import { installSkills, type SkillsInstallSummary } from './skills.js'
 import { installMcp, type McpInstallResult } from './mcp.js'
 import { describeError } from '@ainyc/canonry-contracts'
+import { installAttribution, recordInstallRef } from '../telemetry-environment.js'
 
 /**
  * Hand control to `canonry serve` after init finishes.
@@ -90,6 +91,8 @@ function cwdLooksLikeProject(dir: string): boolean {
 
 export interface InitOptions {
   force?: boolean
+  /** First-touch campaign tag; see `recordInstallRef`. */
+  ref?: string
   geminiKey?: string
   openaiKey?: string
   claudeKey?: string
@@ -458,6 +461,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
 
   if (isTelemetryEnabled()) {
     const postInitSetupState = buildSetupState()
+    recordInstallRef(opts?.ref)
     trackEvent('cli.init', {
       providerCount: providerNames.length,
       providers: providerNames,
@@ -482,6 +486,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
         hasAgent: !!agentLLM,
       }),
       skillsInstalled: !!skillsSummary,
+      ...installAttribution(),
       ...cliRuntimeContext(),
     })
   }
