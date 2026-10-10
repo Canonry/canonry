@@ -255,7 +255,7 @@ describe('market context through property navigation', () => {
 
     fireEvent.click(trigger)
     fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.browse('Coastal Maine') }))
-    fireEvent.click(within(screen.getByText('All locations in this group').closest('button')!.parentElement!).getByRole('button', { name: MARKET_SCOPE_COPY.select('Coastal Maine') }))
+    fireEvent.click(within(screen.getByText('All in this group').closest('button')!.parentElement!).getByRole('button', { name: MARKET_SCOPE_COPY.select('Coastal Maine') }))
     expect(onSelect.mock.lastCall).toStrictEqual([group])
 
     fireEvent.click(trigger)
@@ -269,6 +269,8 @@ describe('trigger label and naming', () => {
   it.each([
     ['group with one location', { id: 'metro-beta', kind: 'group', label: 'Metro Beta', targetCount: 1 }, 'Metro Beta · 1 location'],
     ['group', { id: 'metro-beta', kind: 'group', label: 'Metro Beta', targetCount: 15 }, 'Metro Beta · 15 locations'],
+    // Thousands are grouped, as in the counts beside the picker.
+    ['large group', { id: 'metro-beta', kind: 'group', label: 'Metro Beta', targetCount: 1240 }, 'Metro Beta · 1,240 locations'],
     ['market', { id: 'metro-beta', kind: 'market', label: 'Metro Beta', targetCount: 15 }, 'Metro Beta · Market'],
   ] as const)('names a selected %s by label and kind', (_name, selected, text) => {
     render(<VisibilityScopePicker options={[scopes[0]!, selected]} selected={selected} onSelect={vi.fn()} />)
@@ -284,7 +286,8 @@ describe('trigger label and naming', () => {
     expect(trigger.textContent).toBe(`Lake House · ${Noun}`)
     // Opens inside Lake House's group.
     fireEvent.click(trigger)
-    expect(screen.getByText(`All ${noun}s in this group`).closest('button')!.textContent).toContain(`2 ${noun}s`)
+    // The group's own row is four words; the count beside it carries the noun.
+    expect(screen.getByText('All in this group').closest('button')!.textContent).toBe(`All in this group2 ${noun}s`)
     expect(screen.getByText(`All ${noun}s (2)`)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Select Lake House' }).textContent).toBe(`Lake House${Noun}`)
     fireEvent.click(screen.getByRole('button', { name: 'Back to all groups' }))
@@ -425,7 +428,7 @@ describe('browsing with group selection off', () => {
     expect(onSelect).not.toHaveBeenCalled()
     expect(container.querySelector('details')!.open).toBe(true)
     expect(screen.getByRole('button', { name: 'Back to all groups' })).toBeTruthy()
-    expect(screen.queryByText('All locations in this group')).toBeNull()
+    expect(screen.queryByText('All in this group')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Browse City Center' }))
     expect(screen.getByRole('button', { name: 'Back to North Region' })).toBeTruthy()
     expect(onSelect).not.toHaveBeenCalled()

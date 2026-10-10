@@ -2622,16 +2622,23 @@ function ProjectPageContent({
     return <SentimentScopeProvider hasSourceEvidence={!isSimpleOverview || Boolean(sentimentSelection.runId || sentimentSelection.runIds?.length)} evidenceReady={!isSimpleOverview || !(evidenceDashboard.isLoading || evidenceDashboard.evidenceLoading || evidenceDashboard.evidenceError)} waitForResolvedRun={!isSimpleOverview} projectName={projectName} runOptions={model.visibilitySweeps.slice(0, SENTIMENT_BACKFILL_SWEEP_OPTIONS).map(run => ({ id: run.id, label: formatTimestamp(run.finishedAt ?? run.createdAt) }))} selection={sentimentSelection}>{content}</SentimentScopeProvider>
   }
 
-  // Both pickers read alike: Place, the picker, then how many locations and
-  // markets the server listed. The picker's own label stays for assistive tech.
-  // Below md the counts take their own line under a full-width picker.
-  const placeSlot = (picker: React.ReactNode, counts?: { locations: number; markets: number }) => (
+  // Both pickers read alike: Place, the picker, then, while the whole project
+  // is selected, how many locations and markets the server listed. A narrower
+  // place shows no counts: the trigger names it, and the totals are not its own.
+  // The picker's own label stays for assistive tech. Below md Place sits above
+  // the picker, so the open menu starts at the page gutter, and the counts
+  // always take the line under it, which is the room the placeholder holds.
+  const placeSlot = (picker: React.ReactNode, meta?: React.ReactNode) => (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 md:flex-nowrap">
-      <span aria-hidden="true" className="text-[13px] text-secondary">{PROJECT_SCOPE_COPY.place}</span>
+      <span aria-hidden="true" className="basis-full text-[13px] text-secondary md:basis-auto">{PROJECT_SCOPE_COPY.place}</span>
       <div className="min-w-0 flex-1 basis-56 md:basis-auto">{picker}</div>
-      {counts ? <span className="whitespace-nowrap text-[13px] tabular-nums text-secondary">{PROJECT_SCOPE_COPY.placeCounts(counts.locations, counts.markets)}</span> : null}
+      {meta}
     </div>
   )
+  const placeCounts = (selected: { kind: string }, locations: number, markets: number) => {
+    const text = selected.kind === 'project' ? PROJECT_SCOPE_COPY.placeCounts(locations, markets) : ''
+    return text ? <span className="basis-full whitespace-nowrap text-[13px] tabular-nums text-secondary md:basis-auto">{text}</span> : null
+  }
 
   // The context row's measurement scope slot. Each tab owns recovery for a
   // saved scope that no longer exists; the row only names it.
@@ -2645,7 +2652,11 @@ function ProjectPageContent({
             : null
         }
         const report = reportScopeQuery.data
-        if (!report) return placeSlot(<div className="skeleton-text h-11 w-56" role="status" aria-label={PROJECT_SCOPE_COPY.loadingPlaces} />)
+        // The placeholder holds the room the counts will take, so the tabs below stay put.
+        if (!report) return placeSlot(
+          <div className="skeleton-text h-11 w-56" role="status" aria-label={PROJECT_SCOPE_COPY.loadingPlaces} />,
+          visibilitySelection.measurementScope === 'project' ? <div className="basis-full md:basis-auto" aria-hidden="true"><div className="skeleton-text my-1 w-40" /></div> : null,
+        )
         if (report.selection.availability.state !== 'available' || report.scopeOptions.length <= 1) return null
         // The URL owns the choice, so the trigger never snaps back while the
         // next report loads over the previous one.
@@ -2659,10 +2670,11 @@ function ProjectPageContent({
             marketKey={visibilitySelection.marketKey}
             onSelect={(scope, marketKey) => updateVisibilitySearch({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id, measurementMarketKey: marketKey })}
           />,
-          {
-            locations: report.scopeOptions.filter(option => option.kind === 'property').length,
-            markets: report.scopeOptions.filter(option => option.kind === 'market').length,
-          },
+          placeCounts(
+            selected,
+            report.scopeOptions.filter(option => option.kind === 'property').length,
+            report.scopeOptions.filter(option => option.kind === 'market').length,
+          ),
         )
       }
       case 'tracking-picker': {
@@ -2678,7 +2690,7 @@ function ProjectPageContent({
             selected={selected}
             onSelect={scope => updateVisibilitySearch({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id })}
           />,
-          { locations: workspace.targets.length, markets: workspace.markets.length },
+          placeCounts(selected, workspace.targets.length, workspace.markets.length),
         ) : null
       }
       case 'scope-unavailable':

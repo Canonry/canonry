@@ -124,9 +124,23 @@ describe('shared production visibility view', () => {
     }
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={client}><Workspace /></QueryClientProvider>)
-    const recovery = await screen.findByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite })
-    expect(screen.getByRole('alert').textContent).not.toContain('VALIDATION_ERROR')
-    expect(screen.getByRole('alert').textContent).toContain(VISIBILITY_SCOPE_RECOVERY_COPY.retiredScope)
+    // The wording itself, once: every other recovery assertion reads it back from the constant.
+    expect(VISIBILITY_SCOPE_RECOVERY_COPY).toMatchObject({
+      retiredScope: 'Place unavailable', retiredMarket: 'Market unavailable', showWholeSite: 'Show all', showAllMarkets: 'Show all markets',
+      retiredMarketHelp: 'This saved market is not in this measurement. Show all markets to pick another.',
+    })
+    expect(VISIBILITY_SCOPE_RECOVERY_COPY.retiredScopeHelp('All of Acme')).toBe('This saved place is not in this measurement. Show all of Acme to pick another.')
+    expect(VISIBILITY_SCOPE_RECOVERY_COPY.showRoot('All of Acme')).toBe('Show all of Acme')
+    // The button reads "Show all" and its name says all of what. No caller named a root here, so it is all locations.
+    const recovery = await screen.findByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showRoot('All locations') })
+    expect(recovery.textContent).toBe(VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite)
+    const alert = screen.getByRole('alert')
+    // A heading, a caution icon with a two-word label, one action. The sentence is the tooltip.
+    expect(alert.textContent).toBe('AI visibility unavailablePlace unavailableShow all')
+    const note = within(alert).getByText(VISIBILITY_SCOPE_RECOVERY_COPY.retiredScope)
+    expect(note.firstElementChild?.tagName.toLowerCase()).toBe('svg')
+    expect(note.firstElementChild?.getAttribute('aria-hidden')).toBe('true')
+    expect(within(note).getByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.retiredScopeHelp('All locations') })).toBeTruthy()
     expect(screen.queryByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showAllMarkets })).toBeNull()
     fireEvent.click(recovery)
     await screen.findByRole('region', { name: 'Non-brand queries', exact: true })
@@ -150,8 +164,10 @@ describe('shared production visibility view', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={client}><Workspace /></QueryClientProvider>)
     const recovery = await screen.findByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showAllMarkets })
-    expect(screen.getByRole('alert').textContent).toContain(VISIBILITY_SCOPE_RECOVERY_COPY.retiredMarket)
-    expect(screen.queryByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite })).toBeNull()
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toBe('AI visibility unavailableMarket unavailableShow all markets')
+    expect(within(alert).getByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.retiredMarketHelp })).toBeTruthy()
+    expect(screen.queryByText(VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite)).toBeNull()
     fireEvent.click(recovery)
     await screen.findByRole('region', { name: 'Non-brand queries', exact: true })
     expect(currentSearch).toMatchObject({ measurementScope: 'group', measurementScopeKey: 'metro-alpha', queryClass: 'non-brand', measurementProvider: 'gemini', tab: 'overview' })
@@ -164,8 +180,8 @@ describe('shared production visibility view', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={client}><VisibilityWorkspace projectName="demo" selection={parseVisibilitySelection({ measurementScope: 'group', measurementScopeKey: 'removed', queryClass: 'non-brand' })} onSelectionChange={() => {}} /></QueryClientProvider>)
     expect(await screen.findByRole('button', { name: 'Retry' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite })).toBeNull()
-    expect(screen.queryByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showAllMarkets })).toBeNull()
+    // Retry is the only button: no scope recovery, and no caution note with a tooltip.
+    expect(within(screen.getByRole('alert')).getAllByRole('button').map(button => button.textContent)).toEqual(['Retry'])
   })
 
   it('normalizes a clean URL to the served class without adding a history entry', async () => {
@@ -366,7 +382,7 @@ describe('shared production visibility view', () => {
     expect(within(toolbar).getAllByRole('combobox').map(control => control.getAttribute('aria-label'))).toEqual(['Query type'])
     const filters = screen.getByRole('group', { name: 'Visibility filters' })
     expect(filters.hasAttribute('data-has-scope')).toBe(false)
-    expect(within(filters).getAllByRole('combobox').map(control => (control as HTMLSelectElement).labels[0]?.textContent)).toEqual(['Answer engine', 'Requested search location', 'AI model', 'Results from'])
+    expect(within(filters).getAllByRole('combobox').map(control => (control as HTMLSelectElement).labels[0]?.textContent)).toEqual(['Answer engine', 'Search location', 'AI model', 'Results from'])
     expect(within(screen.getByRole('region', { name: 'AI visibility results' })).queryAllByRole('combobox')).toEqual([])
   })
 
@@ -377,7 +393,14 @@ describe('shared production visibility view', () => {
     population.breakdown.groups = []
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
     const breakdown = screen.getByRole('region', { name: 'By place' })
+    // The region is named by its visible title.
+    expect(within(breakdown).getByRole('heading', { name: 'By place' })).toBeTruthy()
     expect(within(breakdown).getAllByRole('row')).toHaveLength(26)
+    expect(within(breakdown).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Location', 'Queries', 'Mentioned', 'Cited'])
+    expect(within(breakdown).getByText('1 to 25 of 225 locations')).toBeTruthy()
+    // No groups here, so the table opens on Locations and says so.
+    expect(within(breakdown).getByRole('button', { name: 'Locations' }).getAttribute('aria-pressed')).toBe('true')
+    expect(within(breakdown).getByRole('button', { name: 'Groups' }).getAttribute('aria-pressed')).toBe('false')
     expect(within(breakdown).queryByRole('button', { name: 'Property 25', exact: true })).toBeNull()
     fireEvent.click(within(breakdown).getByRole('button', { name: 'Next', exact: true }))
     expect(within(breakdown).getByRole('button', { name: 'Property 25', exact: true })).toBeTruthy()
@@ -386,6 +409,11 @@ describe('shared production visibility view', () => {
     expect(within(breakdown).getAllByRole('row')).toHaveLength(2)
     expect(screen.getAllByText('43.0%').length).toBeGreaterThan(0)
     expect(screen.getByText('1 query · 3 answers')).toBeTruthy()
+    // A search with no hits reads as the place picker's does.
+    fireEvent.change(within(breakdown).getByRole('searchbox', { name: 'Search breakdown' }), { target: { value: 'No such place' } })
+    expect(within(breakdown).getAllByRole('row')).toHaveLength(1)
+    expect(within(breakdown).getByText('No matches')).toBeTruthy()
+    expect(breakdown.textContent).not.toMatch(/propert/i)
   })
 
   it('requests a bounded page of query results while retaining server cursor paging', async () => {
@@ -447,7 +475,7 @@ describe('shared production visibility view', () => {
     expect(within(table).getByRole('button', { name: 'View answers for apartments near transit · gemini' })).toBeTruthy()
     expect(within(table).getByRole('button', { name: 'View answers for apartments near transit · openai' })).toBeTruthy()
     expect(within(table).getByText('gpt-5.6')).toBeTruthy()
-    expect(within(table).getByText('Requested search location: Detroit')).toBeTruthy()
+    expect(within(table).getByText('Search location: Detroit')).toBeTruthy()
     if (showsProperties) {
       expect(within(table).getByText('Northstar Alpha 01')).toBeTruthy()
       expect(within(table).getByText('Harbor House')).toBeTruthy()
@@ -624,7 +652,7 @@ describe('shared production visibility view', () => {
     fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
     const table = screen.getByRole('table', { name: 'Non-brand queries engine results' })
     expect(within(table).getAllByText('apartments near transit')).toHaveLength(1)
-    expect(within(table).getAllByText('No location requested')).toHaveLength(1)
+    expect(within(table).getAllByText('No search location')).toHaveLength(1)
     expect(within(table).getAllByText('No')).toHaveLength(2)
     expect(within(table).getByText('Yes')).toBeTruthy()
     expect(within(table).getByText('Not measured')).toBeTruthy()
@@ -805,6 +833,8 @@ describe('shared production visibility view', () => {
       { ...base, provider: 'openai', targetKeys: ['p2'], citationCoverage: unavailable, uncheckedSources: { answers: 1, citedAnswers: 0, citedTargetKeys: [] } },
       // Three answers, one partly saved: the rate's own caution note counts it, so it is not repeated.
       { ...base, provider: 'claude', answerCount: 3, targetKeys: ['p1'], citationCoverage: { numerator: 1, denominator: 2, rate: 0.5, unchecked: 1 }, uncheckedSources: { answers: 1, citedAnswers: 1, citedTargetKeys: ['p1'] } },
+      // One answer for two locations, sources partly saved, and the saved links cite neither.
+      { ...base, provider: 'perplexity', targetKeys: ['p1', 'p2'], citationCoverage: unavailable, uncheckedSources: { answers: 1, citedAnswers: 0, citedTargetKeys: [] } },
     ]
     population.summary = { ...population.summary, notMeasuredUnchecked: 2 }
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
@@ -815,12 +845,16 @@ describe('shared production visibility view', () => {
     expect(cited('gemini').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}Saved links cite Park House`)
     expect(cited('openai').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}No saved link cites Lake House`)
     expect(cited('claude').textContent).toBe('Cited50.0%1 of 2Saved links cite Park House')
+    expect(cited('perplexity').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}Saved links cite none`)
     expectCautionNote(cited('claude'), '1 of 3 answers had sources that could not be checked', '1 of 2')
     // "Unchecked" is explained in plain words instead of the missing-evidence note.
-    for (const provider of ['gemini', 'openai', 'claude']) {
+    for (const provider of ['gemini', 'openai', 'claude', 'perplexity']) {
       expect(within(cited(provider)).getByRole('button', { name: UNCHECKED_SOURCES_COPY.help })).toBeTruthy()
       expect(within(cited(provider)).queryByRole('button', { name: /The saved evidence is incomplete/ })).toBeNull()
     }
+
+    // The panel's help names the search location apart from the query's own locations.
+    expect(within(screen.getByRole('group', { name: 'Non-brand queries query results' })).getByRole('button', { name: "Each tracked query is grouped once on this page. Its engine rows retain the recorded model, search location, the query's locations, and answer counts. Mentioned and Cited count answers matching any of those locations, not the percentage of locations found." })).toBeTruthy()
 
     // Location outcomes says why two of its locations read not measured.
     const outcomes = screen.getByRole('group', { name: 'Non-brand queries location outcomes' })
@@ -1147,12 +1181,12 @@ describe('shared production visibility view', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^Filters/ }))
     fireEvent.click((await screen.findByText('Query results', { selector: 'span' })).closest('summary')!)
     fireEvent.click(screen.getByRole('button', { name: 'View answers for apartments near transit · gemini' }))
-    expect((await screen.findByText('Stored negative evidence for this exact context.')).closest('article')?.textContent).toContain('Requested search location: Detroit')
+    expect((await screen.findByText('Stored negative evidence for this exact context.')).closest('article')?.textContent).toContain('Search location: Detroit')
     expect(screen.getByText('Not mentioned')).toBeTruthy()
     expect(screen.getByText('Not cited')).toBeTruthy()
     expect(screen.getByRole('combobox', { name: 'Query type' })).toHaveProperty('value', 'non-brand')
     expect(screen.getByRole('combobox', { name: 'Answer engine' })).toHaveProperty('value', '')
-    expect(screen.getByRole('combobox', { name: 'Requested search location' })).toHaveProperty('value', '')
+    expect(screen.getByRole('combobox', { name: 'Search location' })).toHaveProperty('value', '')
     expect(screen.queryByText('0%')).toBeNull()
     expect(screen.getByRole('button', { name: 'View answers for apartments near transit · openai' })).toBeTruthy()
     expect(currentSearch.queryClass).toBe('non-brand')
@@ -1199,7 +1233,7 @@ describe('shared production visibility view', () => {
     expect(await screen.findByText('No matching answers on this page. Continue to the next answers.')).toBeTruthy()
     expect(screen.queryByText('Answer from a different disclosed model.')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Next answers' }))
-    expect((await screen.findByText('Answer with no disclosed model or location.')).closest('article')?.textContent).toContain('No location requested')
+    expect((await screen.findByText('Answer with no disclosed model or location.')).closest('article')?.textContent).toContain('No search location')
     expect(screen.getByRole('button', { name: 'View answers for apartments near transit · gemini' })).toBeTruthy()
     expect(requests.filter(request => !request.searchParams.has('queryKey'))).toHaveLength(1)
     expect(Object.fromEntries(requests.at(-1)!.searchParams)).toMatchObject({ provider: 'gemini', location: 'none', runId: 'run-2', revision: '2', cursor: 'null-model-page-2' })

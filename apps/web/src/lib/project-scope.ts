@@ -47,8 +47,11 @@ export const PROJECT_SCOPE_COPY = {
   place: 'Place',
   /** The picker's project option. */
   allOf: (project: string) => `All of ${project}`,
-  /** The lengths of the lists the server returned, never a recount. */
-  placeCounts: (locations: number, markets: number) => `${counted(locations, 'location', 'locations')} · ${counted(markets, 'market', 'markets')}`,
+  /** The lengths of the lists the server returned, never a recount. A list with nothing in it is left out. */
+  placeCounts: (locations: number, markets: number) => [
+    ...(locations > 0 ? [counted(locations, 'location', 'locations')] : []),
+    ...(markets > 0 ? [counted(markets, 'market', 'markets')] : []),
+  ].join(' · '),
   loadingPlaces: 'Loading places',
   projectWide: 'Project-wide',
   projectWideHelp: 'This tab covers the whole project. Your place stays selected for AI Visibility and Queries.',

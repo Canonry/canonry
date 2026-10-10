@@ -12,7 +12,7 @@ import type { VisibilityAnswerSelection, VisibilitySelectionState } from '../../
 import { visibilityReportFirstPageQuery } from '../../lib/measurement-view-url.js'
 import { selectedScopeOption } from '../../lib/project-scope.js'
 import { Button } from '../ui/button.js'
-import { Check, ChevronRight, Minus, X } from 'lucide-react'
+import { AlertTriangle, Check, ChevronRight, Minus, X } from 'lucide-react'
 import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../shared/AnswerMarkdown.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { SourceLink } from '../shared/SourceLink.js'
@@ -294,11 +294,22 @@ function ReportHeadlineCell({ label, help, value, signal, unit, classNoun, chang
 
 export const REPORT_MARKET_COPY = { otherQueries: 'Other queries' }
 
-/** Recovery for a saved place or market that the displayed measurement no longer has. */
+/** A root label such as "All of Acme", as it reads inside a sentence. */
+const midSentence = (label: string) => `${label.charAt(0).toLocaleLowerCase()}${label.slice(1)}`
+
+/**
+ * Recovery for a saved place or market that the displayed measurement no longer
+ * has: a short label, with the sentence behind the icon beside it. `root` is
+ * what the place picker calls the whole project.
+ */
 export const VISIBILITY_SCOPE_RECOVERY_COPY = {
   retiredScope: 'Place unavailable',
+  retiredScopeHelp: (root: string) => `This saved place is not in this measurement. Show ${midSentence(root)} to pick another.`,
   retiredMarket: 'Market unavailable',
+  retiredMarketHelp: 'This saved market is not in this measurement. Show all markets to pick another.',
   showWholeSite: 'Show all',
+  /** The button's accessible name, which says all of what. */
+  showRoot: (root: string) => `Show ${midSentence(root)}`,
   showAllMarkets: 'Show all markets',
 } as const
 
@@ -342,7 +353,7 @@ export const UNCHECKED_SOURCES_COPY = {
   savedCite: (citedAnswers: number, answers: number, names: string) => answers === 1
     ? `Saved links cite ${names}`
     : `Saved links in ${citedAnswers} of ${answers} answers cite ${names}`,
-  savedCiteNone: (name: string | null) => name === null ? "No saved link cites any of the query's locations" : `No saved link cites ${name}`,
+  savedCiteNone: (name: string | null) => name === null ? 'Saved links cite none' : `No saved link cites ${name}`,
   outcomes: (count: number) => `${count} not measured only because an answer's sources were partly saved. Query results shows which answer.`,
 } as const
 
@@ -413,7 +424,7 @@ function QueryResultGroup({ group, queryClass, advanced, targetLabels, marketHea
   const targetIdentity = (row: VisibilityReportQueryRow) => JSON.stringify([...row.targetKeys].sort())
   const sharedTargets = group.rows.every(row => targetIdentity(row) === targetIdentity(first))
   const sharedLocation = group.rows.every(row => row.location === first.location)
-  const locationLabel = (location: string | null) => location === null ? 'No location requested' : `Requested search location: ${location}`
+  const locationLabel = (location: string | null) => location === null ? VISIBILITY_TOOLBAR_COPY.noLocation : VISIBILITY_TOOLBAR_COPY.location(location)
   return <tbody data-query-key={group.queryKey}>
     {marketHeading ? <tr><th colSpan={4} className="border-t border-default py-4 text-left"><h3 className="text-base font-semibold text-heading">{marketHeading}</h3></th></tr> : null}
     <tr className="measurement-result-heading"><th scope="rowgroup" colSpan={4}>
@@ -565,8 +576,10 @@ export const VISIBILITY_TOOLBAR_COPY = {
   removeFilter: (label: string) => `Remove filter ${label}`,
   engine: (provider: string) => `Engine: ${provider}`,
   model: (model: string) => `Model: ${model}`,
-  location: (location: string) => `Requested search location: ${location}`,
-  noLocation: 'No location requested',
+  searchLocation: 'Search location',
+  location: (location: string) => `Search location: ${location}`,
+  noLocation: 'No search location',
+  allLocations: 'All search locations',
   dateRange: (from: string, to: string) => `${from} to ${to} (UTC)`,
   dateFrom: (from: string) => `From ${from} (UTC)`,
   dateThrough: (to: string) => `Through ${to} (UTC)`,
@@ -721,7 +734,7 @@ export function VisibilityResultsToolbar({ report, selection, onSelectionChange,
     }}>
       <div className="visibility-report-filters">
         {filterSelect('Answer engine', 'measurementProvider', provider, withSelectedChoice([{ value: '', label: 'All engines' }, ...filterOptions.providers.map(value => ({ value, label: value }))], provider, provider))}
-        {filterSelect('Requested search location', 'measurementLocation', location, withSelectedChoice([{ value: '', label: 'All requested locations' }, ...filterOptions.locations.flatMap(option => option.kind === 'exact' ? [{ value: option.value, label: option.value }] : option.kind === 'none' ? [{ value: 'none', label: VISIBILITY_TOOLBAR_COPY.noLocation }] : [])], location, location === 'none' ? VISIBILITY_TOOLBAR_COPY.noLocation : location))}
+        {filterSelect(VISIBILITY_TOOLBAR_COPY.searchLocation, 'measurementLocation', location, withSelectedChoice([{ value: '', label: VISIBILITY_TOOLBAR_COPY.allLocations }, ...filterOptions.locations.flatMap(option => option.kind === 'exact' ? [{ value: option.value, label: option.value }] : option.kind === 'none' ? [{ value: 'none', label: VISIBILITY_TOOLBAR_COPY.noLocation }] : [])], location, location === 'none' ? VISIBILITY_TOOLBAR_COPY.noLocation : location))}
         {filterSelect('AI model', 'measurementModel', model, withSelectedChoice([{ value: '', label: 'All models' }, ...Array.from(new Set(filterOptions.models.filter(option => !selection.provider || option.provider === selection.provider).map(option => option.model))).map(value => ({ value, label: value }))], model, model), 'Filter by the AI model recorded with each answer. This does not change the model used by future sweeps.')}
         {dateInput('Start date (UTC)', 'measurementFrom', selection.from, 'T00:00:00.000Z')}
         {dateInput('End date (UTC)', 'measurementTo', selection.to, 'T23:59:59.999Z')}
@@ -884,13 +897,17 @@ function ReportScopeBreakdown({ population, scope, scopeOptions, marketKey, onSe
   })
   const [kind, setKind] = useState<'groups' | 'locations'>(() => scope.kind === 'project' && groups.length > 0 ? 'groups' : 'locations')
   const table = useClientTable({ rows: kind === 'groups' ? groups : population.breakdown.properties, getSearchText: row => row.label })
-  return <section className="border-t border-default py-5" aria-label="By place">
+  const headingId = useId()
+  return <section className="border-t border-default py-5" aria-labelledby={headingId}>
     <div className="flex flex-wrap items-end justify-between gap-3">
-      <div className="flex gap-2">{(['groups', 'locations'] as const).map(value => <Button key={value} variant={kind === value ? 'secondary' : 'ghost'} onClick={() => { setKind(value); table.setPage(1) }}>{value === 'groups' ? 'Groups' : 'Locations'}</Button>)}</div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <h3 id={headingId} className="font-semibold text-heading">By place</h3>
+        <div className="flex gap-2">{(['groups', 'locations'] as const).map(value => <Button key={value} variant={kind === value ? 'secondary' : 'ghost'} aria-pressed={kind === value} onClick={() => { setKind(value); table.setPage(1) }}>{value === 'groups' ? 'Groups' : 'Locations'}</Button>)}</div>
+      </div>
       <input type="search" aria-label="Search breakdown" placeholder="Search" value={table.query} onChange={event => table.setQuery(event.target.value)} className={`${REPORT_CONTROL} max-w-sm`} />
     </div>
     <div className="mt-3 overflow-x-auto"><table className="evidence-table"><thead><tr><th>{kind === 'groups' ? 'Group' : 'Location'}</th><th>Queries</th><th>Mentioned</th><th>Cited</th></tr></thead><tbody>{table.rows.map(row => <tr key={row.id}><td><button className="min-h-11 text-left text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={() => onSelectionChange({ measurementScope: kind === 'groups' ? 'group' : 'property', measurementScopeKey: row.id, measurementMarketKey: marketKey })}>{row.label}</button></td><td>{row.queryCount}</td><td><ReportRate value={row.mentionCoverage} signal="mentioned" /><ReportRateBar value={row.mentionCoverage} /></td><td><ReportRate value={row.citationCoverage} signal="cited" /><ReportRateBar value={row.citationCoverage} /></td></tr>)}</tbody></table></div>
-    {table.rows.length === 0 ? <p className="py-3 text-sm text-secondary">No {kind} match this search.</p> : null}
+    {table.rows.length === 0 ? <p className="py-3 text-sm text-secondary">No matches</p> : null}
     <DataTablePagination page={table.page} pageSize={table.pageSize} visibleRows={table.rows.length} totalRows={table.totalRows} itemLabel={kind} onPageChange={table.setPage} />
   </section>
 }
@@ -926,7 +943,7 @@ function usesUnmeasuredFallback(report: VisibilityReportResponse, showUnmeasured
   return showUnmeasuredFallback && report.selection.mode === 'simple' && report.selection.measurement.state === 'not-measured'
 }
 
-export function VisibilityWorkspace({ projectName, selection, onSelectionChange, fallback, showUnmeasuredFallback = false, rootLabel }: VisibilityWorkspaceProps) {
+export function VisibilityWorkspace({ projectName, selection, onSelectionChange, fallback, showUnmeasuredFallback = false, rootLabel = MARKET_SCOPE_COPY.allLocations }: VisibilityWorkspaceProps) {
   const [cursor, setCursor] = useState<string | undefined>()
   const [search, setSearch] = useState('')
   const [answerCursor, setAnswerCursor] = useState<{ selection: string; cursor: string }>()
@@ -997,9 +1014,11 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
     const retired = parseVisibilityReportScopeErrorDetails(apiErrorDetails(reportQuery.error))
     const retiredMarket = retired?.reason === VisibilityReportScopeErrorReasons['retired-market']
     return <section className="page-section-divider" role="alert"><h2>AI visibility unavailable</h2>
-      <p className="my-3 text-sm text-secondary">{retiredMarket ? VISIBILITY_SCOPE_RECOVERY_COPY.retiredMarket : retired ? VISIBILITY_SCOPE_RECOVERY_COPY.retiredScope : describeError(reportQuery.error)}</p>
+      {retired
+        ? <p className="my-3 flex items-center gap-1.5 text-sm text-secondary"><AlertTriangle size={16} className="shrink-0 text-caution" aria-hidden="true" />{retiredMarket ? VISIBILITY_SCOPE_RECOVERY_COPY.retiredMarket : VISIBILITY_SCOPE_RECOVERY_COPY.retiredScope}<InfoTooltip text={retiredMarket ? VISIBILITY_SCOPE_RECOVERY_COPY.retiredMarketHelp : VISIBILITY_SCOPE_RECOVERY_COPY.retiredScopeHelp(rootLabel)} /></p>
+        : <p className="my-3 text-sm text-secondary">{describeError(reportQuery.error)}</p>}
       {retiredMarket ? <Button variant="outline" onClick={() => { setCursor(undefined); onSelectionChange({ measurementMarketKey: undefined }) }}>{VISIBILITY_SCOPE_RECOVERY_COPY.showAllMarkets}</Button>
-        : retired ? <Button variant="outline" onClick={() => { setCursor(undefined); onSelectionChange({ measurementScope: 'project', measurementScopeKey: undefined }) }}>{VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite}</Button>
+        : retired ? <Button variant="outline" aria-label={VISIBILITY_SCOPE_RECOVERY_COPY.showRoot(rootLabel)} onClick={() => { setCursor(undefined); onSelectionChange({ measurementScope: 'project', measurementScopeKey: undefined }) }}>{VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite}</Button>
           : <Button variant="outline" onClick={() => { setCursor(undefined); void reportQuery.refetch() }}>Retry</Button>}
     </section>
   }

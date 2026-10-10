@@ -40,7 +40,7 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, plac
   const picker = useRef<HTMLDetailsElement>(null)
   const searchInput = useRef<HTMLInputElement>(null)
   const id = useId()
-  const countFor = (count: number) => `${count} ${count === 1 ? noun : nouns}`
+  const countFor = (count: number) => `${count.toLocaleString('en-US')} ${count === 1 ? noun : nouns}`
   const groups = options.filter(scope => scope.kind === 'group')
   const groupById = new Map(groups.map(group => [group.id, group]))
   const current = groupById.get(path.at(-1) ?? '')
@@ -158,7 +158,7 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, plac
         </div> : null}
         <input ref={searchInput} type="search" aria-label="Search places" className={CONTROL} placeholder={current ? 'Search within this group' : allProperties ? `Search ${nouns}` : properties.length > 0 ? `Search groups or ${nouns}` : 'Search groups or markets'} value={search} onChange={event => setSearch(event.target.value)} />
         <div className="mt-2 max-h-80 overflow-y-auto">
-          {allowGroupSelect && current && !query ? row(current, `All ${nouns} in this group`) : null}
+          {allowGroupSelect && current && !query ? row(current, 'All in this group') : null}
           {projects.map(scope => row(scope))}
           {current && !query ? disclosure('Subgroups', visibleGroups, true) : section(current ? 'Subgroups' : 'Groups', visibleGroups)}
           {query ? section(capitalized(nouns), visibleProperties) : disclosure(current && visibleGroups.length > 0 ? `All ${nouns}` : capitalized(nouns), visibleProperties, !current || visibleGroups.length === 0)}

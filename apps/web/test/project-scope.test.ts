@@ -174,8 +174,11 @@ describe('PROJECT_SCOPE_COPY', () => {
   it.each([
     [192, 137, '192 locations · 137 markets'],
     [1, 1, '1 location · 1 market'],
-    [0, 0, '0 locations · 0 markets'],
     [1240, 2, '1,240 locations · 2 markets'],
+    // A list with nothing in it is left out, never printed as a zero.
+    [1, 0, '1 location'],
+    [0, 3, '3 markets'],
+    [0, 0, ''],
   ])('prints %i locations and %i markets as given', (locations, markets, text) => {
     expect(PROJECT_SCOPE_COPY.placeCounts(locations, markets)).toBe(text)
   })

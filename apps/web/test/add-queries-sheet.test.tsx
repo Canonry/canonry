@@ -253,7 +253,7 @@ test('opens from Tracked on an advanced project and keeps Review off until a mar
   // A group row only browses: it is never a choice, here or once inside it.
   expect(sheet.queryByRole('button', { name: 'Select North East' })).toBeNull()
   fireEvent.click(sheet.getByRole('button', { name: 'Browse North East' }))
-  expect(sheet.queryByText('All locations in this group')).toBeNull()
+  expect(sheet.queryByText('All in this group')).toBeNull()
   fireEvent.click(sheet.getByRole('button', { name: 'Select New York' }))
   expect(sheet.getByText('New York · Market')).toBeTruthy()
   expect(reviewButton(sheet).disabled).toBe(false)
