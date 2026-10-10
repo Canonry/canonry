@@ -64,7 +64,8 @@ export function queryLimitCounts(current: number, next: number, max: number): Qu
 }
 
 /**
- * `asked` counts rows with a pairing, which is the plan's distinct assigned
+ * `asked` counts the listed rows with a pairing, so it never disagrees with
+ * them. For a plan the compiler published that is the plan's distinct assigned
  * queries (the limit's `current`). `workload` is the same map a preview diffs,
  * so `answersPerSweep` equals a no-op preview's `existingProviderCalls`.
  */

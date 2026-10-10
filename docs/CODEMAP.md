@@ -144,6 +144,7 @@ only other published artifact; every remaining internal package is bundled into 
 | `src/measurement-*` | Advanced measurement plans, overview, property evidence |
 | `src/measurement-scope-options.ts` | `planScopeOptions`: the single server scope-option builder (visibility report with `marketLinks: true`, query-tracking workspace with `marketLinks: false`); `simpleScopeOptions` for Simple projects |
 | `src/query-focus.ts` | `planQueryFocus`: the one rule that derives each tracked query's Subject (`focus`) from the active plan's pairings on read; never stored |
+| `src/query-tracking-summary.ts` | The workspace read's server counts: `trackingSummary`, `planPlaceCounts`, `queryLimitCounts` (`left`, on the read and the preview) |
 | `src/visibility-attribution.ts` | Query attribution helpers (`buildQueryAttribution`, `resolveCurrentQuery`) — by-id then by-text fallback for historical snapshots |
 | `AGENTS.md` | Route file map, `notProbeRun` contract, SDK layering |
 

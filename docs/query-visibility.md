@@ -117,31 +117,34 @@ Shared execution contexts reuse one provider request across multiple property as
 
 ## Workspace numbers
 
-The workspace read returns its own counts. The dashboard, CLI, and MCP print them and never recount rows.
+The workspace read returns its own counts, so a client prints them without recounting rows.
 Each field in this section is optional on the wire, so a client still reads a server that predates it.
 
-Each tracked row carries `queryClasses`, its Type: the distinct classes of its assignments, sorted. Two classes mean Mixed, none means Not set.
-A simple site's row carries the one class the project classifier gives it, or none when the project has no usable brand name.
+Each tracked row carries `queryClasses`, its Type: the distinct classes across every plan assignment of the query (one per location and search location), sorted. Two classes mean Mixed, none means Not set.
+A row's per-location `assignments[].queryClass` shows one class per location, so it can list fewer classes than `queryClasses`.
+A simple site's row carries the one Type the project classifier gives it, or none when the project has no usable brand name.
 
 `summary` counts the tracked rows:
 
 | Field | Counts |
 | --- | --- |
 | `asked`, `notAsked` | Rows with and without a pairing. Together they are the row count. Every row on a simple site is asked. |
-| `byClass` | Asked rows by Type: `branded`, `nonBrand`, `mixed`, `unknown`. A mixed row is in neither class. |
+| `byClass` | Asked rows by Type: `branded`, `nonBrand`, `mixed`, `unknown` (shown as Not set). A mixed row counts under neither Branded nor Non-brand. |
 | `byFocus` | Asked rows by Subject: `market`, `property`, `company`, `custom`. |
-| `assignments` | Plan assignments (`total`, `branded`, `nonBrand`, `unknown`), the unit of a preview row's `assignmentCount`. One query at one location with two search locations is two. All zero on a simple site. |
+| `assignments` | Location links: plan assignments (`total`, `branded`, `nonBrand`, `unknown`), the unit of a preview row's `assignmentCount`. One query at one location with two search locations is two. All zero on a simple site. |
 | `answersPerSweep` | Provider answers one sweep asks for. A preview that changes nothing reports the same number as `workload.existingProviderCalls`. |
 | `structure` | `targets`, `markets`, `groups`, `topLevelGroups`, and `competitors` (distinct domains across groups). |
 
 `byClass` and `byFocus` each add up to `asked`.
-An advanced portfolio's read also returns `limits.queries`, with `next` equal to `current` because a read changes nothing. `current` equals `summary.asked`.
+An advanced portfolio's read also returns `limits.queries`, with `next` equal to `current` because a read changes nothing.
+`current` is the compiler's count of assigned queries, and equals `summary.asked` for every plan the compiler published.
+`limits.queries.left` is the room under `max`, 0 when the plan is over it.
 
 Each place carries its own counts:
 
 | Place | Fields |
 | --- | --- |
-| `targets[]` | `marketKeys`: markets holding an edge for the location. `counts.propertyQueries`: rows whose Subject is this location. `counts.marketQueries`: rows whose Subject is a market holding it. `counts.customQueries`: hand-picked rows paired with it. |
+| `targets[]` | `marketKeys` (on `targets[]`; `scopeOptions` location choices still carry none): markets holding an edge for the location. `counts.propertyQueries`: rows whose Subject is this location. `counts.marketQueries`: rows whose Subject is a market holding it. `counts.customQueries`: hand-picked rows paired with it. |
 | `markets[]` | `targetKeys`: the distinct locations its edges name. `counts.marketQueries`: rows whose Subject is this market. `counts.propertyQueries`: rows whose Subject is one of its locations. |
 | `groups[]` | `counts.queries`: distinct queries paired with a member location. `counts.markets`: markets whose `groupKey` is this group. |
 
@@ -149,7 +152,8 @@ Every place also has `counts.answersPerSweep`: the answers of the distinct execu
 An execution shared by two locations counts once in each, so place values do not add up to `summary.answersPerSweep`.
 `markets[].counts.marketQueries` add up to `byFocus.market`, and `targets[].counts.propertyQueries` add up to `byFocus.property`.
 
-A query whose plan row says `template` but holds no template record, as plans published before query control froze it do, reads with `provenance.source: template`. It used to read as `null`.
+A plan published before query control froze pattern records keeps only the source. Such a row reads `provenance.source: template` with no `template` record.
+Adding the query to another place keeps that source.
 
 ## Read results
 

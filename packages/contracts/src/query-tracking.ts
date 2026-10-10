@@ -264,9 +264,11 @@ export const queryTrackingTrackedRowSchema = z.object({
   /** Optional so a client tolerates a server that predates it. This server always sets it. */
   focus: queryTrackingFocusSchema.optional(),
   /**
-   * The row's Type: its distinct assignment classes, sorted. Two mean mixed,
-   * none means not set. A simple site's row carries the project classifier's
-   * one class. Optional like `focus`.
+   * The row's Type: the distinct classes across every plan assignment of the
+   * query (one per location and search location), sorted. Two mean mixed, none
+   * means not set. `assignments[].queryClass` shows one class per location, so
+   * it can list fewer classes. A simple site's row carries the project
+   * classifier's one class. Optional like `focus`.
    */
   queryClasses: z.array(queryClassSchema).optional(),
 }).strict()
