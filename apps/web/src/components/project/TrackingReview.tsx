@@ -163,7 +163,7 @@ function ReviewTable({ label, rows, tracked, workspace, contextLabels }: {
     <div className="mt-2 overflow-x-auto">
       <table aria-label={label} className="evidence-table min-w-[640px] table-auto">
         <thead>
-          <tr><th>Change</th><th>Query</th><th>Type</th><th>Location assignments</th><th>Search location and engines</th></tr>
+          <tr><th>Change</th><th>Query</th><th>Type</th><th>Location links</th><th>Search location and engines</th></tr>
         </thead>
         <tbody>
           {rows.map(({ change, row }) => {
@@ -176,10 +176,10 @@ function ReviewTable({ label, rows, tracked, workspace, contextLabels }: {
                 <td className="whitespace-nowrap"><ToneBadge tone={CHANGE_TONE[change]}>{change}</ToneBadge></td>
                 <td className="min-w-44 break-words">
                   <span className="font-medium text-heading">{row.queryText}</span>
-                  {resolved ? <Classifications row={resolved} workspace={workspace} contextLabels={contextLabels} /> : null}
+                  {resolved ? <RowLocations row={resolved} workspace={workspace} contextLabels={contextLabels} /> : null}
                 </td>
                 <td className="whitespace-nowrap text-secondary">{[...new Set(assignments.map(assignment => typeLabel(assignment.queryClass)))].join(', ')}</td>
-                {/* The server's assignment count: one per location and search location the query is asked for, so it can pass the number of locations. A removal counts what it takes away. */}
+                {/* The server's `assignmentCount`: one link per location and search location the query is asked for, so it can pass the number of locations. A removal counts what it takes away. */}
                 <td className="whitespace-nowrap tabular-nums text-secondary">{change === 'Removed' ? '−' : ''}{count(row.assignmentCount)}</td>
                 <td className="min-w-44 text-secondary">{searchLocations.length > 1 ? `${count(searchLocations.length)} combinations` : searchLocations[0]}</td>
               </tr>
@@ -191,14 +191,14 @@ function ReviewTable({ label, rows, tracked, workspace, contextLabels }: {
   )
 }
 
-function Classifications({ row, workspace, contextLabels }: { row: QueryTrackingTrackedRow; workspace: QueryTrackingWorkspaceResponse; contextLabels: ContextLabels }) {
+function RowLocations({ row, workspace, contextLabels }: { row: QueryTrackingTrackedRow; workspace: QueryTrackingWorkspaceResponse; contextLabels: ContextLabels }) {
   if (!row.assignments.length) return null
   const locations = new Set(row.assignments.map(assignment => assignment.targetKey)).size
   const named = (prefix: string, scopes: readonly { stableKey: string; label: string }[], keys: readonly string[]) =>
     keys.length > 0 ? `${prefix}: ${keys.map(key => scopes.find(scope => scope.stableKey === key)?.label ?? key).join(', ')}` : null
   return (
     <details className="text-secondary">
-      <summary className="min-h-11 cursor-pointer py-3 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500">Classifications · {count(locations)} {locations === 1 ? 'location' : 'locations'}</summary>
+      <summary className="min-h-11 cursor-pointer py-3 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500">{count(locations)} {locations === 1 ? 'location' : 'locations'}</summary>
       <ul className="max-h-40 space-y-1 overflow-y-auto">
         {row.assignments.map((assignment, index) => <li key={`${assignment.targetKey}:${index}`}>{[
           workspace.targets.find(target => target.stableKey === assignment.targetKey)?.label ?? assignment.targetKey,

@@ -583,12 +583,12 @@ test('lists each added, reused and removed query in one table, with unchanged qu
   expect(reviewNumbers()).toEqual({ Queries: '3 → 3', 'Answers per sweep': '6 → 8', 'Answers added': '+4', 'Answers removed': '−2' })
   expect(screen.getByText('1 added · 1 reused · 1 removed')).toBeTruthy()
   const changes = screen.getByRole('table', { name: 'Changes' })
-  expect(within(changes).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Type', 'Location assignments', 'Search location and engines'])
+  expect(within(changes).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Type', 'Location links', 'Search location and engines'])
   expect([...changes.querySelectorAll('tbody tr')].map(line => line.firstElementChild?.textContent)).toEqual(['Added', 'Reused', 'Removed'])
   const added = reviewRow('Acme hours')
   // The server's assignment count, which passes the two locations the classifications name.
   expect(added).toMatchObject({ change: 'Added', type: 'Non-brand', assignments: '3', searchLocation: '2 combinations' })
-  const classifications = within(added.row).getByText('Classifications · 2 locations', { selector: 'summary' }).closest('details')!
+  const classifications = within(added.row).getByText('2 locations', { selector: 'summary' }).closest('details')!
   expect(classifications.open).toBe(false)
   expect([...classifications.querySelectorAll('li')].map(line => line.textContent)).toEqual([
     'Acme · Non-brand · Groups: North East · Markets: New York · New York · openai (gpt-5); Chicago · openai (gpt-5)',
@@ -603,7 +603,7 @@ test('lists each added, reused and removed query in one table, with unchanged qu
   expect(unchanged.contains(kept.row)).toBe(true)
   expect(kept).toMatchObject({ change: 'Unchanged', type: 'Branded', assignments: '1', searchLocation: 'New York · openai (gpt-5)' })
   // An unchanged query still names its location, group and market.
-  const keptIn = within(kept.row).getByText('Classifications · 1 location', { selector: 'summary' }).closest('details')!
+  const keptIn = within(kept.row).getByText('1 location', { selector: 'summary' }).closest('details')!
   expect([...keptIn.querySelectorAll('li')].map(line => line.textContent)).toEqual(['Acme · Branded · Groups: North East · Markets: New York · New York · openai (gpt-5)'])
   expect((screen.getByRole('button', { name: 'Publish 3 changes' }) as HTMLButtonElement).disabled).toBe(false)
   // The review says location and query, with no em dash.
@@ -1392,7 +1392,7 @@ test.each([false, true])('keeps reused-query classifications collapsed until req
   expect((screen.getByRole('button', { name: noOp ? 'Publish changes' : 'Publish 1 change' }) as HTMLButtonElement).disabled).toBe(noOp)
   expect(reviewRow('Acme pricing').type).toBe('Non-brand, Branded')
   const results = reviewRow('Acme pricing').row
-  const summary = within(results).getByText('Classifications · 2 locations', { selector: 'summary' })
+  const summary = within(results).getByText('2 locations', { selector: 'summary' })
   const disclosure = summary.closest('details')!
   expect(disclosure.open).toBe(false)
   fireEvent.click(summary)

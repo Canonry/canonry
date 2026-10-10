@@ -591,7 +591,7 @@ function TrackingAddQueriesSheet({ workspace, sweepActive, ...sheet }: Omit<Comp
  * comes back holding this location. A failed read, or a workspace the page's
  * setup is behind, shows a line instead, and a later refresh of the read never
  * opens the sheet without a press. That page has no Add query form, so the
- * sheet links to none. It reads no runs either, so Confirm is not paused here:
+ * sheet links to none. It reads no runs either, so Publish is not paused here:
  * the server refuses a publish during a sweep and the sheet shows the reason.
  */
 export function AddLocationQueryButton({ projectName, locationKey, className, onPublished }: {

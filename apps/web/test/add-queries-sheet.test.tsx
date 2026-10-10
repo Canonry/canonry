@@ -722,8 +722,8 @@ test('lists groups and locations for Location, never markets, and calls them loc
 
 test.each([
   // One location in two markets is asked from each market's search location: two assignments on one location.
-  { subject: 'Location', targetKeys: ['acme'], marketKeys: ['new-york', 'remote'], contexts: [context, bostonContext], markets: 'New York, Remote searches', locations: ['Acme'], classifications: 'Classifications · 1 location', asked: '2 combinations', each: 'New York · openai (gpt-5); Boston · openai (gpt-5), gemini (gemini-3)' },
-  { subject: 'Market', targetKeys: ['acme', 'cedar'], marketKeys: ['new-york'], contexts: [context], markets: 'New York', locations: ['Acme', 'Cedar Court'], classifications: 'Classifications · 2 locations', asked: 'New York · openai (gpt-5)', each: 'New York · openai (gpt-5)' },
+  { subject: 'Location', targetKeys: ['acme'], marketKeys: ['new-york', 'remote'], contexts: [context, bostonContext], markets: 'New York, Remote searches', locations: ['Acme'], classifications: '1 location', asked: '2 combinations', each: 'New York · openai (gpt-5); Boston · openai (gpt-5), gemini (gemini-3)' },
+  { subject: 'Market', targetKeys: ['acme', 'cedar'], marketKeys: ['new-york'], contexts: [context], markets: 'New York', locations: ['Acme', 'Cedar Court'], classifications: '2 locations', asked: 'New York · openai (gpt-5)', each: 'New York · openai (gpt-5)' },
 ])('calls a location a location in the review of a $subject add', async ({ subject, targetKeys, marketKeys, contexts, markets, locations, classifications, asked, each }) => {
   // As the server answers a review: `tracked` holds the added query, on every location its markets hold.
   const held = () => locationWorkspace({ markets: locationWorkspace().markets.map(market => marketKeys.includes(market.stableKey) ? { ...market, usageEdges: targetKeys.map(key => usageEdge(key)) } : market) })
@@ -745,7 +745,7 @@ test.each([
 
   await reviewHeading(sheet)
   const changes = sheet.getByRole('table', { name: 'Changes' })
-  expect(within(changes).getAllByRole('columnheader').map(header => header.textContent)).toContain('Location assignments')
+  expect(within(changes).getAllByRole('columnheader').map(header => header.textContent)).toContain('Location links')
   const row = within(changes).getByText('Acme reviews').closest('tr')!
   // Type, the server's assignment count (two either way, on one location or on two), and where the query is asked.
   expect([...row.cells].map(cell => cell.textContent).slice(2)).toEqual(['Branded', '2', asked])
@@ -845,7 +845,7 @@ test('starts on the location the Tracked view is filtered to', async () => {
   fireEvent.change(queriesField(sheet), { target: { value: 'Acme reviews' } })
   fireEvent.click(reviewButton(sheet))
 
-  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  await sheet.findByRole('heading', { name: 'Review 1 change' })
   expect(writes[0]!.body.additions).toEqual([acmeAddition('Acme reviews')])
 })
 
