@@ -115,18 +115,26 @@ export function useClientTable<T>({
   }
 }
 
+// `sm` is the 32px height of a toolbar's filters; where a finger is the pointer it is a 44px target.
+const SEARCH_SIZE = {
+  default: 'h-9',
+  sm: 'h-8 pointer-coarse:h-11 max-md:h-11',
+} as const
+
 export function DataTableSearch({
   value,
   onChange,
   label,
   placeholder = 'Filter rows',
   className,
+  size = 'default',
 }: {
   value: string
   onChange: (value: string) => void
   label: string
   placeholder?: string
   className?: string
+  size?: keyof typeof SEARCH_SIZE
 }) {
   return (
     <div className={`relative ${className ?? ''}`}>
@@ -148,7 +156,7 @@ export function DataTableSearch({
         placeholder={placeholder}
         autoComplete="off"
         spellCheck={false}
-        className="h-9 w-full rounded-md border border-default bg-surface/50 pl-9 pr-9 text-sm text-strong placeholder:text-muted outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 [&::-webkit-search-cancel-button]:appearance-none"
+        className={`${SEARCH_SIZE[size]} w-full rounded-md border border-default bg-surface/50 pl-9 pr-9 text-sm text-strong placeholder:text-muted outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 [&::-webkit-search-cancel-button]:appearance-none`}
       />
       {value.trim().length > 0 ? (
         <button
@@ -174,6 +182,8 @@ export function DataTablePagination({
   itemLabel = 'rows',
   className,
   disabled = false,
+  pageSizeOptions,
+  onPageSizeChange,
 }: {
   page: number
   pageSize?: number
@@ -184,6 +194,9 @@ export function DataTablePagination({
   itemLabel?: string
   className?: string
   disabled?: boolean
+  /** With `onPageSizeChange`, adds a "Rows" select of these page sizes. */
+  pageSizeOptions?: readonly number[]
+  onPageSizeChange?: (pageSize: number) => void
 }) {
   if (visibleRows === 0) return null
 
@@ -201,6 +214,20 @@ export function DataTablePagination({
           ? `${canGoNext ? '+' : ''} ${itemLabel}`
           : ` of ${totalRows.toLocaleString('en-US')} ${itemLabel}`}
       </p>
+      {pageSizeOptions && onPageSizeChange ? (
+        <label className="ml-auto flex items-center gap-2">
+          Rows
+          <select
+            value={pageSize}
+            onChange={event => onPageSizeChange(Number(event.target.value))}
+            disabled={disabled}
+            className="rounded-md border border-base bg-bg px-2 py-1.5 tabular-nums text-strong transition hover:border-strong focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mono-500 disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:min-h-11 max-md:min-h-11"
+          >
+            {/* A size that is not one of the choices still shows as the current one. */}
+            {[...new Set([...pageSizeOptions, pageSize])].sort((a, b) => a - b).map(option => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </label>
+      ) : null}
       {showPageControls ? (
         <div className="flex items-center gap-2">
           <button
