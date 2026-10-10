@@ -54,7 +54,7 @@ function queryLines(text: string): string[] {
 }
 
 /** Places of one kind, and only the groups that lead to one, so browsing a group never ends in an empty list. */
-function placesOf(options: NonNullable<QueryTrackingWorkspaceResponse['scopeOptions']>, kind: 'market' | 'property') {
+export function placesOf(options: NonNullable<QueryTrackingWorkspaceResponse['scopeOptions']>, kind: 'market' | 'property') {
   const groups = new Map(options.filter(option => option.kind === 'group').map(group => [group.id, group]))
   const leading = new Set<string>()
   const pending = options.filter(option => option.kind === kind).flatMap(place => place.parentGroupIds ?? [])
