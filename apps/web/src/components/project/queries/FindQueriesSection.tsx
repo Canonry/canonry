@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Play, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Clock, History, MousePointerClick, Play, RefreshCw } from 'lucide-react'
 import type { DiscoveryBucket, DiscoverySessionDto } from '@ainyc/canonry-contracts'
 import {
   getApiV1ProjectsByNameDiscoverSessionsByIdOptions,
@@ -12,12 +12,45 @@ import { heyClient, isEmbed, triggerDiscoveryRun } from '../../../api.js'
 import { addToast } from '../../../lib/toast-store.js'
 import { invalidateProjectQueryDomain } from '../../../queries/query-invalidation.js'
 import { WriteButton } from '../../shared/AccessControls.js'
+import { InfoTooltip } from '../../shared/InfoTooltip.js'
+import { StatusNote } from '../../shared/StatusNote.js'
 import { ToneBadge } from '../../shared/ToneBadge.js'
 import { Button } from '../../ui/button.js'
 import { Card } from '../../ui/card.js'
 import { ResearchQueriesSection } from '../ResearchQueriesSection.js'
+import { RESEARCH_TABLE, RESEARCH_TD, RESEARCH_TH } from './research/ResearchResults.js'
 
 const ACTIVE_DISCOVERY_STATUSES = new Set<DiscoverySessionDto['status']>(['queued', 'seeding', 'probing'])
+
+/**
+ * The words of Find ideas. Every label is four words or fewer; the sentence
+ * behind one is its `Help` or `Detail`, shown in a tooltip. A generated
+ * candidate is a question a customer might ask until it is tracked.
+ */
+export const FIND_COPY = {
+  customer: 'Ideal customer',
+  customerPlaceholder: 'Saved profile if blank',
+  customerHelp: 'Describe who buys from you, such as small online stores that want faster support. Find ideas writes questions your customers might ask and checks whether your site shows up for each. Leave blank to use the customer profile saved on this project.',
+  count: 'Questions to test',
+  countHelp: 'More questions means broader coverage and a longer run. 100 is a good default.',
+  runAction: 'Find ideas',
+  engine: 'Runs on Gemini',
+  runsTitle: 'Recent runs',
+  noRuns: 'No runs yet',
+  loadError: 'Could not load',
+  runsError: 'Recent runs did not load.',
+  retry: 'Retry',
+  noRun: 'No run selected',
+  citedSites: 'Cited sites',
+  resultsTitle: 'Results',
+  resultsHelp: 'Choose a Cited queries or Worth tracking result to review it for tracking. Only its text is added, with the Subject you choose. Nothing here adds competitors or starts a sweep.',
+  noResults: 'No results yet',
+  resultsError: "This run's results did not load.",
+} as const
+const SESSION_STATUS_LABEL: Record<DiscoverySessionDto['status'], string> = { queued: 'Queued', seeding: 'Seeding', probing: 'Testing', completed: 'Completed', failed: 'Failed' }
+const FIELD_LABEL = 'text-sm font-medium text-heading'
+// Buttons here are 44px tall where a finger is the pointer.
+const TOUCH_TARGET = 'pointer-coarse:min-h-11 max-md:min-h-11'
 
 export function DiscoverySection({ projectName }: { projectName: string }) {
   const [workflow, setWorkflow] = useState<'find' | 'research'>('find')
@@ -59,9 +92,12 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
 
 export function FindQueriesSection({
   projectName,
+  startControl,
   onReviewDiscoveryProbe,
 }: {
   projectName: string
+  /** The page's "Start from" control, drawn at the head of the form when Find ideas is one of its choices. */
+  startControl?: ReactNode
   onReviewDiscoveryProbe?: (discoveryProbeId: string) => void
 }) {
   const queryClient = useQueryClient()
@@ -134,6 +170,9 @@ export function FindQueriesSection({
 
   const activeSession = detail ?? selectedSession
   const probeRows = useMemo(() => (detail?.probes ?? []).slice(0, 30), [detail?.probes])
+  // A list that did not load is not an empty one. A refetch that fails keeps the runs already shown.
+  const sessionsFailed = sessionsQuery.isError && !sessionsQuery.data
+  const canReview = !isEmbed() && Boolean(onReviewDiscoveryProbe)
 
   async function handleRefreshSessions() {
     try {
@@ -158,93 +197,82 @@ export function FindQueriesSection({
     }
   }
 
+  // Help sits beside a heading or label, never inside it, so its sentence stays out of that name.
   return (
     <>
-      <div className="section-head section-head-inline">
-        <div>
-          <p className="eyebrow eyebrow-soft">Step 1</p>
-          <h2>Generate and check questions</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-secondary">
-            {isEmbed()
-              ? 'Generate customer questions and check whether your site is already visible.'
-              : 'Generate customer questions, check current visibility, then choose what to track.'}
-          </p>
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={sessionsQuery.isFetching}
-          onClick={() => void handleRefreshSessions()}
-        >
-          <RefreshCw className={`size-3.5 ${sessionsQuery.isFetching ? 'animate-spin' : ''}`} aria-hidden="true" />
-          Refresh
-        </Button>
-      </div>
-
       <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
         <div className="space-y-4">
-          <Card className="surface-card">
-            <div className="section-head section-head-inline">
+          <Card className="surface-card min-w-0">
+            <div className="space-y-4">
+              {startControl}
               <div>
-                <p className="eyebrow eyebrow-soft">Step 1</p>
-                <h3>Describe your customer</h3>
-              </div>
-              <ToneBadge tone="neutral">Runs on Gemini</ToneBadge>
-            </div>
-            <div className="space-y-3">
-              <label className="block">
-                <span className="text-sm text-secondary">Who is your ideal customer?</span>
+                <div className="flex items-center"><label className={FIELD_LABEL} htmlFor="find-ideas-customer">{FIND_COPY.customer}</label><InfoTooltip text={FIND_COPY.customerHelp} placement="bottom" /></div>
                 <textarea
+                  id="find-ideas-customer"
                   className="mt-1 min-h-24 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
-                  placeholder="e.g. Small e-commerce stores that want AI-powered customer support. Leave blank to use the customer profile saved on this project."
+                  placeholder={FIND_COPY.customerPlaceholder}
                   value={icpDescription}
                   onChange={(event) => setIcpDescription(event.target.value)}
                 />
-              </label>
-              <label className="block">
-                <span className="text-sm text-secondary">How many questions to test</span>
+              </div>
+              <div>
+                <div className="flex items-center"><label className={FIELD_LABEL} htmlFor="find-ideas-count">{FIND_COPY.count}</label><InfoTooltip text={FIND_COPY.countHelp} placement="bottom" /></div>
                 <input
+                  id="find-ideas-count"
                   className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                   inputMode="numeric"
                   value={maxProbes}
                   onChange={(event) => setMaxProbes(event.target.value)}
                 />
-                <span className="mt-1 block text-sm text-secondary">
-                  More questions means broader coverage but a longer run. 100 is a good default.
-                </span>
-              </label>
-              {!isEmbed() && (
-                <WriteButton
-                  type="button"
-                  size="sm"
-                  disabled={startMutation.isPending}
-                  onClick={() => startMutation.mutate()}
-                >
-                  <Play size={14} />
-                  {startMutation.isPending ? 'Starting…' : 'Find queries'}
-                </WriteButton>
-              )}
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                {!isEmbed() && (
+                  <WriteButton
+                    type="button"
+                    size="sm"
+                    className={TOUCH_TARGET}
+                    disabled={startMutation.isPending}
+                    onClick={() => startMutation.mutate()}
+                  >
+                    <Play size={14} />
+                    {startMutation.isPending ? 'Starting…' : FIND_COPY.runAction}
+                  </WriteButton>
+                )}
+                <p className="text-sm text-secondary">{FIND_COPY.engine}</p>
+              </div>
             </div>
           </Card>
 
-          <Card className="surface-card">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">History</p>
-                <h3>Recent runs</h3>
-              </div>
-              {sessionsQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
+          <Card className="surface-card min-w-0">
+            <div className="section-head section-head-inline items-center">
+              <h3>{FIND_COPY.runsTitle}</h3>
+              {/* A failed list has one action, its Retry. */}
+              {!sessionsFailed && <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={TOUCH_TARGET}
+                disabled={sessionsQuery.isFetching}
+                onClick={() => void handleRefreshSessions()}
+              >
+                <RefreshCw className={`size-3.5 ${sessionsQuery.isFetching ? 'animate-spin' : ''}`} aria-hidden="true" />
+                Refresh
+              </Button>}
             </div>
-            {sessions.length === 0 ? (
-              <p className="text-sm text-secondary">No discovery runs yet. Describe your customer above to start your first one.</p>
+            {sessionsFailed ? (
+              <div role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={FIND_COPY.loadError} detail={FIND_COPY.runsError} action={<Button type="button" variant="outline" size="sm" className={TOUCH_TARGET} aria-label={`${FIND_COPY.retry} recent runs`} onClick={() => { void sessionsQuery.refetch() }}>{FIND_COPY.retry}</Button>} /></div>
+            ) : sessionsQuery.isPending ? (
+              <div role="status" aria-label="Loading recent runs" className="space-y-2">{[0, 1, 2].map(row => <div key={row} aria-hidden="true" className="skeleton h-[4.25rem] rounded-md" />)}</div>
+            ) : sessions.length === 0 ? (
+              <StatusNote icon={History} label={FIND_COPY.noRuns} />
             ) : (
               <div className="space-y-2">
                 {sessions.map(session => (
                   <button
                     key={session.id}
                     type="button"
-                    className={`w-full rounded-md border px-3 py-2 text-left transition-colors ${
+                    aria-pressed={selectedSessionId === session.id}
+                    className={`w-full rounded-md border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 ${
                       selectedSessionId === session.id
                         ? 'border-mono-600 bg-bg-elevated/70'
                         : 'border-default bg-bg/40 hover:border-strong hover:bg-bg-elevated/40'
@@ -252,14 +280,15 @@ export function FindQueriesSection({
                     onClick={() => setSelectedSessionId(session.id)}
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-medium text-heading">{shortId(session.id)}</span>
-                      <ToneBadge tone={toneForSession(session.status)}>{session.status}</ToneBadge>
+                      <span className="font-mono text-sm font-medium text-heading">{shortId(session.id)}</span>
+                      <ToneBadge tone={toneForSession(session.status)}>{SESSION_STATUS_LABEL[session.status]}</ToneBadge>
                     </div>
-                    <div className="mt-2 grid grid-cols-3 gap-2 text-sm text-secondary">
-                      <span>Cited queries {session.citedCount ?? 0}</span>
-                      <span>Worth tracking {session.aspirationalCount ?? 0}</span>
-                      <span>Skip {session.wastedCount ?? 0}</span>
-                    </div>
+                    {/* A short label over its number, three to a row. */}
+                    <span className="mt-2 grid grid-cols-3 gap-2 text-[13px] text-secondary">
+                      {([['Cited queries', session.citedCount], ['Worth tracking', session.aspirationalCount], ['Skip', session.wastedCount]] as const).map(([label, value]) => (
+                        <span key={label}><span className="block">{label}</span><span className="block tabular-nums text-heading">{value ?? 0}</span></span>
+                      ))}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -267,21 +296,16 @@ export function FindQueriesSection({
           </Card>
         </div>
 
-        <div className="space-y-4">
-          <Card className="surface-card">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">Run detail</p>
-                <h3>{activeSession ? shortId(activeSession.id) : 'No run selected'}</h3>
-              </div>
-              {activeSession && <ToneBadge tone={toneForSession(activeSession.status)}>{activeSession.status}</ToneBadge>}
-            </div>
+        <div className="min-w-0 space-y-4">
+          <Card className="surface-card min-w-0">
+            {activeSession ? <div className="section-head section-head-inline items-center">
+              <h3>Run {shortId(activeSession.id)}</h3>
+              <ToneBadge tone={toneForSession(activeSession.status)}>{SESSION_STATUS_LABEL[activeSession.status]}</ToneBadge>
+            </div> : <StatusNote icon={MousePointerClick} label={FIND_COPY.noRun} />}
 
-            {!activeSession ? (
-              <p className="text-sm text-secondary">Start a run above, or pick one from Recent runs to see its progress.</p>
-            ) : (
+            {activeSession && (
               <div className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <DiscoveryMetric label="Questions tested" value={activeSession.probeCount ?? 0} />
                   <DiscoveryMetric label="Cited queries" value={activeSession.citedCount ?? 0} tone="positive" />
                   <DiscoveryMetric label="Worth tracking" value={activeSession.aspirationalCount ?? 0} tone="caution" />
@@ -309,11 +333,11 @@ export function FindQueriesSection({
 
                 {activeSession.competitorMap.length > 0 && (
                   <div>
-                    <p className="mb-2 text-sm font-medium text-secondary">Sites that keep getting cited</p>
+                    <p className="mb-2 text-sm font-medium text-secondary">{FIND_COPY.citedSites}</p>
                     <div className="flex flex-wrap gap-2">
                       {activeSession.competitorMap.slice(0, 8).map(entry => (
                         <span key={entry.domain} className="rounded-md border border-default bg-bg px-2 py-1 text-xs text-neutral">
-                          {entry.domain} <span className="text-muted">{entry.hits}</span>
+                          {entry.domain} <span className="tabular-nums text-muted">{entry.hits}</span>
                         </span>
                       ))}
                     </div>
@@ -323,53 +347,42 @@ export function FindQueriesSection({
             )}
           </Card>
 
-          {activeSession?.status === 'completed' && (
-            <Card className="surface-card">
-              <div className="section-head">
-                <div>
-                  <p className="eyebrow eyebrow-soft">Step 2</p>
-                  <h3>Review a discovery question for tracking</h3>
-                  <p className="mt-1 max-w-3xl text-sm leading-6 text-secondary">
-                    Choose a Cited query or Worth tracking result below. Tracking opens with the saved discovery source, where you choose its scope and review the exact next-sweep change.
-                  </p>
-                </div>
-              </div>
-              <p className="mt-3 text-xs leading-5 text-muted">Discovery remains research. This review does not add competitors or start a sweep.</p>
-            </Card>
-          )}
-
-          <Card className="surface-card">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">All results</p>
-                <h3>Every question we tested</h3>
+          {/* With no run in view there is nothing to show results for: the card above says so. */}
+          {activeSession && <Card className="surface-card min-w-0">
+            <div className="section-head section-head-inline items-center">
+              <div className="flex items-center">
+                <h3>{FIND_COPY.resultsTitle}</h3>
+                {canReview && activeSession.status === 'completed' && <InfoTooltip text={FIND_COPY.resultsHelp} placement="bottom" />}
               </div>
               {detailQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
             </div>
-            {probeRows.length === 0 ? (
-              <p className="text-sm text-muted">Results show up here once the run starts testing questions.</p>
+            {detailQuery.isError && !detail ? (
+              <div role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={FIND_COPY.loadError} detail={FIND_COPY.resultsError} action={<Button type="button" variant="outline" size="sm" className={TOUCH_TARGET} aria-label={`${FIND_COPY.retry} results`} onClick={() => { void detailQuery.refetch() }}>{FIND_COPY.retry}</Button>} /></div>
+            ) : probeRows.length === 0 ? (
+              <StatusNote icon={Clock} label={FIND_COPY.noResults} />
             ) : (
-              <div className="evidence-table-wrap">
-                <table className="evidence-table">
+              // Positioned, so the header's screen-reader text scrolls with the table and never widens the page.
+              <div className="relative overflow-x-auto">
+                <table className={`${RESEARCH_TABLE} min-w-[40rem]`}>
                   <thead>
                     <tr>
-                      <th>Question</th>
-                      <th>Result</th>
-                      <th>Sites cited</th>
-                      <th><span className="sr-only">Tracking review</span></th>
+                      <th scope="col" className={RESEARCH_TH}>Question</th>
+                      <th scope="col" className={RESEARCH_TH}>Result</th>
+                      <th scope="col" className={RESEARCH_TH}>{FIND_COPY.citedSites}</th>
+                      <th scope="col" className={RESEARCH_TH}><span className="sr-only">Tracking review</span></th>
                     </tr>
                   </thead>
                   <tbody>
                     {probeRows.map(probe => (
                       <tr key={probe.id}>
-                        <td className="font-medium text-heading">{probe.query}</td>
-                        <td>
+                        <td className={`${RESEARCH_TD} font-medium text-heading`}>{probe.query}</td>
+                        <td className={`${RESEARCH_TD} whitespace-nowrap`}>
                           <ToneBadge tone={toneForBucket(probe.bucket)}>{bucketLabel(probe.bucket)}</ToneBadge>
                         </td>
-                        <td className="text-secondary">
+                        <td className={`${RESEARCH_TD} text-secondary`}>
                           {probe.citedDomains.length > 0 ? probe.citedDomains.slice(0, 3).join(', ') : '-'}
                         </td>
-                        <td className="whitespace-nowrap text-right">
+                        <td className={`${RESEARCH_TD} whitespace-nowrap text-right`}>
                           {!isEmbed() && onReviewDiscoveryProbe && (probe.bucket === 'cited' || probe.bucket === 'aspirational') && (
                             <WriteButton type="button" variant="ghost" size="sm" onClick={() => onReviewDiscoveryProbe(probe.id)}>
                               Review for tracking
@@ -382,7 +395,7 @@ export function FindQueriesSection({
                 </table>
               </div>
             )}
-          </Card>
+          </Card>}
         </div>
       </div>
     </>
@@ -429,7 +442,7 @@ const BUCKET_LABELS: Record<DiscoveryBucket, string> = {
 }
 
 function bucketLabel(bucket: DiscoveryBucket | null): string {
-  return bucket ? BUCKET_LABELS[bucket] : 'Not classified'
+  return bucket ? BUCKET_LABELS[bucket] : 'No result'
 }
 
 function shortId(id: string): string {

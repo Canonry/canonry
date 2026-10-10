@@ -500,13 +500,16 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
 
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('tab', { name: 'Research', exact: true }))
+  // Research opens on Write, with the saved runs under it. Find ideas is one choice of "Start from", not a tab.
+  expect(screen.getByRole('radio', { name: 'Write' }).getAttribute('aria-checked')).toBe('true')
+  expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Tracked', 'Research'])
   if (source === 'research') {
-    fireEvent.click(screen.getByRole('tab', { name: 'Test queries' }))
     fireEvent.click(await screen.findByRole('button', { name: queryText }))
     expect(await screen.findByText(`Saved answer for ${queryText}`)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Review for tracking' }))
   } else {
-    expect(screen.getByRole('tab', { name: 'Find queries', exact: true }).getAttribute('aria-selected')).toBe('true')
+    fireEvent.click(screen.getByRole('radio', { name: 'Find ideas' }))
+    expect(screen.getByRole('radio', { name: 'Find ideas' }).getAttribute('aria-checked')).toBe('true')
     const result = await screen.findByText(queryText)
     fireEvent.click(within(result.closest('tr')!).getByRole('button', { name: 'Review for tracking' }))
   }

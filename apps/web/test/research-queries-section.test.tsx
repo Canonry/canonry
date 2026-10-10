@@ -13,6 +13,9 @@ afterEach(() => {
   delete window.__CANONRY_CONFIG__
 })
 
+/** The Run button says how many answers it will ask for, and only "Run" while there is none. */
+const RUN = /^Run(?: \d+ answers?)?$/
+
 function installApiMock(posts?: string[], bodies?: Array<Record<string, unknown>>) {
   const restoreFetch = mockFetch((url, init) => {
     const path = new URL(url).pathname
@@ -64,13 +67,13 @@ test.each([false, true])('managedSweeps=%s preserves client Discovery and Resear
     </AccountProvider>,
   )
 
-  fireEvent.click(screen.getByRole('button', { name: /Find queries/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Find ideas' }))
   await waitFor(() => expect(posts).toContain('/api/v1/projects/demo/discover/run'))
 
   fireEvent.click(screen.getByRole('tab', { name: 'Research queries' }))
   await screen.findByRole('option', { name: 'OpenAI' })
   fireEvent.change(screen.getByPlaceholderText(RESEARCH_COPY.queryPlaceholder), { target: { value: 'How do I measure AI citations?' } })
-  const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
+  const run = screen.getByRole('button', { name: 'Run 1 answer' }) as HTMLButtonElement
   await waitFor(() => expect(run.disabled).toBe(false))
   fireEvent.click(run)
   await waitFor(() => expect(posts).toContain('/api/v1/projects/demo/research/batches'))
@@ -175,16 +178,26 @@ function shownText() {
 test('saved results retain their saved scope independently from the current form', async () => {
   renderSavedResearch('Demo is also the name of a fishing line company.')
   await screen.findByText('Demo is also the name of a fishing line company.')
-  const results = within(screen.getByRole('region', { name: 'Research results' }))
-  expect(results.getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Query', 'Type', 'Status', 'Named', 'Cited'])
-  // The fixture names the company and does not cite it: each signal prints its own field. No type came with the query.
-  expect(within(results.getByRole('row', { name: /Demo building reviews/ })).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['Demo building reviews', 'Not set', 'Completed', 'Named', 'Not cited'])
+  const results = within(screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle }))
+  expect(results.getByRole('heading', { level: 3 }).textContent).toBe('Results')
+  // One column for the engine that answered, holding both chips.
+  expect(results.getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Query', 'Type', 'Status', 'OpenAI'])
+  const row = within(results.getByRole('row', { name: /Demo building reviews/ }))
+  // No type came with the query. Below sm the Type sits under the query, so the first cell holds it too.
+  expect(row.getAllByRole('cell').slice(0, 3).map(cell => cell.textContent)).toEqual(['Demo building reviewsNot set', 'Not set', 'Completed'])
+  // The fixture names the company and does not cite it: each chip prints its own field, under N and C.
+  const pair = row.getByRole('button', { name: 'OpenAI: Named, Not cited' })
+  expect(pair.textContent).toBe('NC')
+  // The legend names what the two chips check: the project's name and its domain.
+  expect(results.getAllByRole('listitem').slice(0, 4).map(item => item.textContent)).toEqual(['N Names demo', 'C Cites demo.example', 'NNo', 'NNot checked'])
   // What the two signals check is one short label; its sentence is the label's tooltip and part of its name.
   const checked = results.getByRole('button', { name: `${RESEARCH_COPY.methodologySummary}. ${RESEARCH_COPY.methodology}` })
   expect(checked.textContent).toBe('Company names only')
   expect(checked.getAttribute('aria-label')).toMatch(/Neither checks a location's own names\.$/)
   const facts = Object.fromEntries([...document.querySelectorAll('[role="region"] dl > div')].map(item => [item.querySelector('dt')!.textContent, item.querySelector('dd')!.textContent]))
-  expect(facts).toEqual({ Engine: 'OpenAI', Model: 'saved-model', 'Search location': 'No search location', Subject: 'Downtown' })
+  expect(facts).toEqual({ Run: 'saved-ru', Engine: 'OpenAI', Model: 'saved-model', 'Search location': 'No search location', Subject: 'Downtown' })
+  // One saved run has no other to choose: no select over the results.
+  expect(results.queryByRole('combobox')).toBeNull()
   expect(results.queryByText('current-model')).toBeNull()
   // A query's type is its Type, a run is saved under a Subject, and an engine searches from a Search location.
   expect(shownText()).not.toMatch(/Whole site|Destination|\bClass\b|Property|Template|scoped|Brand-name|Unclassified|\bUnknown\b|Answer engine/i)
@@ -198,7 +211,7 @@ test('a run from a saved pattern shows its pattern details, and each helper sent
     onReviewForTracking,
   })
   await screen.findByText('Harbor Point has three apartment communities.')
-  const results = within(screen.getByRole('region', { name: 'Research results' }))
+  const results = within(screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle }))
 
   const details = results.getByText(RESEARCH_COPY.templateProvenance)
   expect(details.textContent).toBe('Pattern details')
@@ -219,10 +232,10 @@ test('a run from a saved pattern shows its pattern details, and each helper sent
   expect(shownText()).not.toMatch(/Whole site|Destination|\bClass\b|Property|Template|scoped|Brand-name|Unclassified|\bUnknown\b|Answer engine/i)
 })
 
-test('a signal with no value says why and is never printed as a No', async () => {
+test('a signal with no value is a dashed chip or a skeleton, and is never printed as a No', async () => {
   const run = {
     id: 'mixed-run', projectId: 'project_demo', status: 'running', provider: 'openai', requestedModel: 'model-a', resolvedModel: 'model-a',
-    scope: null, location: null, totalQueries: 5, completedQueries: 2, failedQueries: 1, error: null,
+    scope: null, location: null, totalQueries: 6, completedQueries: 3, failedQueries: 1, error: null,
     startedAt: '2026-07-23T10:00:00.000Z', finishedAt: null, createdAt: '2026-07-23T10:00:00.000Z',
   }
   const query = (id: string, status: string, queryClass: string | null, answerMentioned: boolean | null, citationState: string | null, error: string | null = null) => ({
@@ -239,6 +252,7 @@ test('a signal with no value says why and is never printed as a No', async () =>
       query('later', 'queued', 'non-brand', null, null),
       query('failed', 'failed', 'branded', null, null, 'Engine refused the request'),
       query('half', 'completed', 'non-brand', false, null),
+      query('named', 'completed', 'non-brand', true, null),
       query('done', 'completed', null, true, 'cited'),
     ] })
     if (path === '/api/v1/projects/demo') return jsonResponse({ id: 'project_demo', name: 'demo', providers: [], providerModels: {}, locations: [], defaultLocation: null })
@@ -250,18 +264,31 @@ test('a signal with no value says why and is never printed as a No', async () =>
   onTestFinished(() => queryClient.clear())
   render(<QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>)
 
-  const results = within(await screen.findByRole('region', { name: 'Research results' }))
-  const cells = async (name: RegExp) => within(await results.findByRole('row', { name })).getAllByRole('cell').slice(1).map(cell => cell.textContent)
+  const results = within(await screen.findByRole('region', { name: RESEARCH_COPY.resultsTitle }))
+  /** A row's Type and Status, then the name of its pair of chips, or null while the pair is still a skeleton. */
+  const cells = async (name: RegExp) => {
+    const row = within(await results.findByRole('row', { name }))
+    return [...row.getAllByRole('cell').slice(1, 3).map(cell => cell.textContent), row.queryByRole('button', { name: /^OpenAI: / })?.getAttribute('aria-label') ?? null]
+  }
   // Nothing has been read yet: the card is there and says it is loading.
-  expect(results.getByRole('heading').textContent).toBe('Loading results…')
-  expect(await cells(/waiting query/)).toEqual(['Non-brand', 'Running', 'Pending', 'Pending'])
-  // The run's own status, and each query's, in the same capitalized words as every other badge.
-  expect(results.getByRole('heading').closest('.section-head')!.textContent).toBe('ResultsResearch run mixed-ruRunning')
-  expect(await cells(/later query/)).toEqual(['Non-brand', 'Queued', 'Pending', 'Pending'])
-  expect(await cells(/failed query/)).toEqual(['Branded', 'Failed', 'Unavailable', 'Unavailable'])
+  expect(results.getByRole('heading').textContent).toBe('Results')
+  expect(results.getByRole('status', { name: RESEARCH_COPY.resultsLoading })).toBeTruthy()
+  // A query still running or queued has no result to show yet: its chips are a skeleton, with nothing to read as a No.
+  expect(await cells(/waiting query/)).toEqual(['Non-brand', 'Running', null])
+  expect(results.queryByRole('status', { name: RESEARCH_COPY.resultsLoading })).toBeNull()
+  // The run's own status sits beside the heading, in the same capitalized words as every other badge.
+  expect(results.getByRole('heading').parentElement!.textContent).toBe('ResultsRunning')
+  expect(await cells(/later query/)).toEqual(['Non-brand', 'Queued', null])
+  expect(await cells(/failed query/)).toEqual(['Branded', 'Failed', 'OpenAI: Not checked'])
   // Named was checked and is a No; Cited was not checked, which is not a No.
-  expect(await cells(/half query/)).toEqual(['Non-brand', 'Completed', 'Not named', 'Not checked'])
-  expect(await cells(/done query/)).toEqual(['Not set', 'Completed', 'Named', 'Cited'])
+  expect(await cells(/half query/)).toEqual(['Non-brand', 'Completed', 'OpenAI: Not named, Citation not checked'])
+  // Named is a Yes and Cited was not checked: the second chip is never read from the first.
+  expect(await cells(/named query/)).toEqual(['Non-brand', 'Completed', 'OpenAI: Named, Citation not checked'])
+  expect(await cells(/done query/)).toEqual(['Not set', 'Completed', 'OpenAI: Named, Cited'])
+  // A dashed chip shows no letter; a lit or a grey one shows N or C.
+  const letters = (name: string) => [...results.getByRole('button', { name }).querySelectorAll(':scope > span')].map(chip => chip.querySelector('.invisible') ? '' : chip.textContent)
+  expect(letters('OpenAI: Named, Citation not checked')).toEqual(['N', ''])
+  expect(letters('OpenAI: Named, Cited')).toEqual(['N', 'C'])
 
   // The first query is still running and the next has not started: each answer is pending, not missing.
   expect(results.getByText(RESEARCH_COPY.answerPending)).toBeTruthy()
@@ -297,14 +324,15 @@ test('with no engine configured the form renders and Run stays off beside a No e
   const note = await screen.findByRole('button', { name: `${RESEARCH_COPY.noEngineKey}. ${RESEARCH_COPY.noEngineKeyDetail}` })
   expect(note.textContent).toBe('No engine key')
   fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'Which platform fits?' } })
-  const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
+  const run = screen.getByRole('button', { name: RUN }) as HTMLButtonElement
   expect(run.disabled).toBe(true)
   fireEvent.click(run)
-  // The count beside Run names no engine and no model, because none is chosen. The reason Run is off sits in the same footer.
-  expect(run.parentElement!.textContent).toBe(`${RESEARCH_COPY.runAction}1 query`)
+  // Nothing beside Run names an engine or a model, because none is chosen. The reason Run is off sits in the same footer.
+  expect(run.parentElement!.textContent).toBe('Run 1 answer')
   expect(run.parentElement!.parentElement!.contains(note)).toBe(true)
+  // With no run saved there is no Results card: the Past research row says there is none.
   expect(screen.getByText(RESEARCH_COPY.emptyHistory)).toBeTruthy()
-  expect(screen.getByRole('heading', { name: RESEARCH_COPY.resultsEmpty })).toBeTruthy()
+  expect(screen.queryByRole('region', { name: RESEARCH_COPY.resultsTitle })).toBeNull()
   expect(posts).toEqual([])
 })
 
@@ -314,11 +342,12 @@ test('saved answers render readable Markdown with safe links and no active HTML 
   expect(source.getAttribute('href')).toBe('https://example.com/source')
   expect(source.getAttribute('target')).toBe('_blank')
   expect(source.getAttribute('rel')).toBe('noopener noreferrer')
-  const results = within(screen.getByRole('region', { name: 'Research results' }))
+  const results = within(screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle }))
   expect(results.getByText('Unsafe')).toBeTruthy()
   expect(results.queryByRole('link', { name: 'Unsafe' })).toBeNull()
   expect(results.queryByRole('img')).toBeNull()
-  expect(results.getAllByRole('listitem')).toHaveLength(2)
+  // The answer's own list, apart from the legend's.
+  expect(within(results.getByText('First choice').closest('ul')!).getAllByRole('listitem').map(item => item.textContent)).toEqual(['First choice', 'Second choice'])
   expect(results.queryByText('[Source](https://example.com/source)')).toBeNull()
 })
 
@@ -326,7 +355,7 @@ test('saved research sources show their titles and full URLs', async () => {
   const url = 'https://hotel.example/rooms/ocean-view?guests=2#availability'
   renderSavedResearch('Saved hotel recommendation.', [{ uri: url, title: 'Rooms and rates' }])
   await screen.findByText('Saved hotel recommendation.')
-  const results = within(screen.getByRole('region', { name: 'Research results' }))
+  const results = within(screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle }))
   expect(results.getByText('Rooms and rates')).toBeTruthy()
   expect(results.getByRole('link', { name: url }).getAttribute('href')).toBe(url)
 })
@@ -418,14 +447,14 @@ test.each([true, false])('key research uses server capability (%s) and safe prov
   await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · gpt-test` })
   fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'Which platform fits?' } })
   if (canRun) {
-    const button = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
+    const button = screen.getByRole('button', { name: RUN }) as HTMLButtonElement
     await waitFor(() => expect(button.disabled).toBe(false))
     fireEvent.click(button)
     expect(screen.getByRole('button', { name: /^7 runs per day\. Up to 7 research runs per project per day\./ }).textContent).toBe('7 runs per day')
     await waitFor(() => expect(bodies).toHaveLength(1))
   } else {
     // Without the capability there is no Run button to press, only the reason in its place.
-    expect(screen.queryByRole('button', { name: RESEARCH_COPY.runAction })).toBeNull()
+    expect(screen.queryByRole('button', { name: RUN })).toBeNull()
     expect(screen.getByRole('button', { name: `${RESEARCH_COPY.viewOnly}. ${RESEARCH_COPY.viewOnlyDetail}` }).textContent).toBe('View only')
     expect(bodies).toHaveLength(0)
   }
@@ -451,7 +480,7 @@ test('a limited account with no engine is told to ask its team, and the Model li
   const note = await screen.findByRole('button', { name: `${RESEARCH_COPY.noEngineKey}. ${RESEARCH_COPY.noEngineDetail}` })
   expect(note.textContent).toBe('No engine key')
   expect([...(screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).options].map(option => option.text)).toEqual(['Choose an engine'])
-  expect((screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: RUN }) as HTMLButtonElement).disabled).toBe(true)
 })
 
 test('viewer research follows the visibility model, offers discovered alternatives, and resets on engine change', async () => {
@@ -485,7 +514,7 @@ test('viewer research follows the visibility model, offers discovered alternativ
   expect(model.value).toBe('')
   fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'best apartments' } })
   const submit = async () => {
-    const button = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
+    const button = screen.getByRole('button', { name: RUN }) as HTMLButtonElement
     await waitFor(() => expect(button.disabled).toBe(false))
     fireEvent.click(button)
   }
@@ -547,6 +576,8 @@ test('public demo reads saved research without settings or run controls', async 
   expect(requests).not.toContain('/api/v1/settings')
   expect(screen.getByRole('button', { name: `${RESEARCH_COPY.demo}. ${RESEARCH_COPY.demoDetail}` }).textContent).toBe('Saved results only')
   expect(screen.queryByRole('textbox', { name: 'Queries' })).toBeNull()
-  expect(screen.queryByRole('button', { name: RESEARCH_COPY.runAction })).toBeNull()
+  // No form at all: nothing to start from and nothing to run.
+  expect(screen.queryByRole('radiogroup', { name: 'Start from' })).toBeNull()
+  expect(screen.queryByRole('button', { name: RUN })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Review for tracking' })).toBeNull()
 })

@@ -57,17 +57,19 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
   onTestFinished(restore)
   renderViewerWorkspace({ queryWorkspace: 'research', researchMode: 'find' })
 
-  expect(await screen.findByRole('heading', { name: 'Test queries' })).toBeTruthy()
-  expect(screen.queryByRole('tab', { name: 'Find queries' })).toBeNull()
+  // A viewer starts from Write or Pattern. A link that names Find ideas opens Write, and no row of tabs sits under Tracked | Research.
+  const start = await screen.findByRole('radiogroup', { name: 'Start from' })
+  expect(within(start).getAllByRole('radio').map(radio => [radio.textContent, radio.getAttribute('aria-checked')])).toEqual([['Write', 'true'], ['Pattern', 'false']])
+  expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Tracked', 'Research'])
   expect(await screen.findByLabelText('Engine')).toBeTruthy()
-  expect((screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'Run' }) as HTMLButtonElement).disabled).toBe(true)
   expect((await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · gpt-5-mini` }) as HTMLOptionElement).selected).toBe(true)
   fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'gpt-5' } })
   fireEvent.change(screen.getByLabelText('Engine'), { target: { value: 'gemini' } })
   expect((await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · gemini-2.5-flash` }) as HTMLOptionElement).selected).toBe(true)
 
   fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'Which AEO platform fits an agency?' } })
-  const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
+  const run = screen.getByRole('button', { name: 'Run 1 answer' }) as HTMLButtonElement
   await waitFor(() => expect(run.disabled).toBe(false))
   fireEvent.click(run)
   await waitFor(() => expect(requests.some(request => request.method === 'POST')).toBe(true))

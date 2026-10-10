@@ -1,17 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AnswerMarkdown } from '../shared/AnswerMarkdown.js'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Ban, Clock, Eye, Gauge, History, Info, Key, Play, Plus, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Eye, Gauge, History, Info, Key, MapPinOff, Play, Plus, RefreshCw } from 'lucide-react'
 import {
   MAX_RESEARCH_BATCH_QUERIES,
   MAX_RESEARCH_BATCH_RUNS,
-  ResearchQueryStatuses,
   ResearchRunStatuses,
   deduplicateResearchQueries,
   expandResearchTemplate,
+  hostOf,
   researchTemplateBindings,
   type LocationContext,
-  type ResearchRunQueryDto,
   type ResearchRunDetailDto,
   type ResearchRunStatus,
   type ResearchRunScope,
@@ -35,14 +33,20 @@ import { addToast } from '../../lib/toast-store.js'
 import { extractApiErrorInfo } from '../../lib/extract-error-message.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
-import { SourceLink } from '../shared/SourceLink.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { SegmentedRadioGroup, type SegmentedRadioOption } from '../shared/SegmentedRadioGroup.js'
 import { StatusNote } from '../shared/StatusNote.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { Button } from '../ui/button.js'
 import { useAccount } from '../../contexts/account-context.js'
+import {
+  RESEARCH_RESULTS_COPY, RESEARCH_ROW_BUTTON, RESEARCH_STATUS_LABEL, RESEARCH_TABLE, RESEARCH_TD, RESEARCH_TH,
+  ResearchRunDetail, toneForResearchRun, type ResearchTrackingSource,
+} from './queries/research/ResearchResults.js'
+
+export type { ResearchTrackingSource }
 
 const ACTIVE_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
   ResearchRunStatuses.queued,
@@ -56,16 +60,21 @@ const ACTIVE_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
  * `property` is a Location and a `location` is a Search location.
  */
 export const RESEARCH_COPY = {
+  ...RESEARCH_RESULTS_COPY,
   queryPlaceholder: 'One query per line',
   inheritedModel: 'Use AI Visibility model',
-  runAction: 'Run queries',
-  introHelp: 'See how an engine answers a query. Results are saved apart from tracked queries and AI Visibility numbers.',
-  subject: 'Subject',
+  runAction: 'Run',
+  startFrom: 'Start from',
+  startWrite: 'Write',
+  startPattern: 'Pattern',
+  startFind: 'Find ideas',
+  introHelp: 'Write runs your queries once. Pattern repeats a query for each place you pick. Results are saved apart from tracked queries and AI Visibility numbers.',
+  introHelpWithFind: 'Write runs your queries once. Pattern repeats a query for each place you pick. Find ideas tests what your customers might ask. Results are saved apart from tracked queries and AI Visibility numbers.',
+  forEach: 'For each',
+  noSearchLocations: 'No search locations',
+  noSearchLocationsDetail: 'This project has no search location to repeat across. Add one in Settings.',
   subjectHelp: 'The market or location these results are saved under. It does not change the query text.',
-  notSet: 'Not set',
   subjectUnavailable: 'Subject unavailable',
-  searchLocation: 'Search location',
-  noSearchLocation: 'No search location',
   selectedHelp: 'A market or location name changes the query text only. The engine searches from the search location set beside it.',
   queriesHelp: 'The engine receives exactly this text. Blank and repeated lines are skipped.',
   usesSearchLocation: 'Uses search location',
@@ -94,31 +103,44 @@ export const RESEARCH_COPY = {
   historyLoading: 'Loading older runs…',
   historyError: 'Past research did not load.',
   historyMoreError: 'Older runs did not load.',
-  resultsTitle: 'Research results',
   resultsError: "This run's results did not load.",
   emptyHistory: 'No research yet',
-  resultsEmpty: 'No run selected',
-  methodologySummary: 'Company names only',
-  methodology: "Named checks the answer text for this project's company names and domains. Cited checks the source links for this project's domain. Neither checks a location's own names.",
-  templateProvenance: 'Pattern details',
-  resolvedTextHelp: 'The queries below are the final text sent to the engine, including any edits.',
-  reviewHelp: 'Only this saved query text goes to tracking review. Its answer stays research evidence.',
-  citedCompetitorsHelp: 'Cited as a source, not only named in the answer.',
-  noAnswer: 'No answer',
-  answerPending: 'Answer pending',
-  brandedQuery: 'Branded',
-  nonBrandQuery: 'Non-brand',
-  untypedQuery: 'Not set',
 } as const
 
 /** A blocking check or a failure: the label is what shows, the sentence is its tooltip. */
 type ResearchNote = { label: string; detail: string; tone?: 'caution' | 'negative' }
 const plural = (value: number, one: string, many: string) => `${value} ${value === 1 ? one : many}`
+/** The Run button's words: one engine answers each query once, so the count is the queries about to be sent. */
+const researchRunLabel = (answers: number) => answers > 0 ? `${RESEARCH_COPY.runAction} ${plural(answers, 'answer', 'answers')}` : RESEARCH_COPY.runAction
 
 export type ResearchTemplateOption = { id: string; version: string; label: string; pattern: string; variables: readonly string[] }
 export type ResearchScopeOption = ResearchRunScope & { expectedPlanRevision: number }
 
-export type ResearchTrackingSource = { researchRunQueryId: string; scope?: ResearchRunScope | null }
+/** Where the page starts from. Write and Pattern are this section's two forms; Find ideas is the caller's own page. */
+export type ResearchStart = 'write' | 'pattern' | 'find'
+/** What a pattern repeats for, as the batch modes name it: a market, a location (`properties`) or a search location (`locations`). */
+type ResearchRepeat = 'markets' | 'properties' | 'locations'
+
+/**
+ * The page's first control, the same in every start: a writer picks Write,
+ * Pattern or Find ideas; an account that cannot write gets the first two.
+ * The help is a sibling of the group, outside its name.
+ */
+export function ResearchStartControl({ value, onChange, findIdeas }: { value: ResearchStart; onChange: (start: ResearchStart) => void; findIdeas: boolean }) {
+  const options: SegmentedRadioOption<ResearchStart>[] = [
+    { value: 'write', label: RESEARCH_COPY.startWrite },
+    { value: 'pattern', label: RESEARCH_COPY.startPattern },
+    ...(findIdeas ? [{ value: 'find' as const, label: RESEARCH_COPY.startFind }] : []),
+  ]
+  return <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+    <span aria-hidden="true" className="text-sm font-medium text-heading">{RESEARCH_COPY.startFrom}</span>
+    <div className="flex items-center">
+      <SegmentedRadioGroup label={RESEARCH_COPY.startFrom} options={options} value={value} onChange={onChange} />
+      <InfoTooltip text={findIdeas ? RESEARCH_COPY.introHelpWithFind : RESEARCH_COPY.introHelp} placement="bottom" />
+    </div>
+  </div>
+}
+
 export function ResearchQueriesSection({
   projectName,
   onReviewForTracking,
@@ -130,8 +152,17 @@ export function ResearchQueriesSection({
   onRetryScope,
   templates = [],
   viewerResearchConfig = null,
+  start: controlledStart,
+  onStartChange,
+  findIdeas = false,
 }: {
   projectName: string
+  /** Write or Pattern, as the caller holds it. Left out, the section keeps it and opens on Write. */
+  start?: Exclude<ResearchStart, 'find'>
+  /** Told every choice, Find ideas included: that one is the caller's page to show. */
+  onStartChange?: (start: ResearchStart) => void
+  /** Offers Find ideas beside Write and Pattern. */
+  findIdeas?: boolean
   onReviewForTracking?: (source: ResearchTrackingSource) => void
   viewerResearchConfig?: ViewerResearchConfig | null
   scopeOptions?: VisibilityReportScopeOption[]
@@ -149,6 +180,10 @@ export function ResearchQueriesSection({
   const publicDemo = isPublicDemo()
   const [provider, setProvider] = useState('')
   const [model, setModel] = useState('')
+  const [uncontrolledStart, setUncontrolledStart] = useState<Exclude<ResearchStart, 'find'>>('write')
+  // Kept here, above the form, so a run that clears the form leaves Pattern on the same kind of place.
+  const [repeat, setRepeat] = useState<ResearchRepeat | null>(null)
+  const start = controlledStart ?? uncontrolledStart
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [createdRuns, setCreatedRuns] = useState<ResearchRunDetailDto[]>([])
   const retryRequest = useRef<{ fingerprint: string; key: string } | null>(null)
@@ -177,6 +212,8 @@ export function ResearchQueriesSection({
   // An older-page failure must leave loaded history and the selected answer usable.
   // Failed authoritative refreshes still close the Research admission UI.
   const historyError = runsQuery.isError && !runsQuery.isFetchNextPageError
+  // Widened to a boolean: `initialData` makes the query's own type say it is never pending.
+  const historyPending = runsQuery.isPending as boolean
   const historyPolicy = runsQuery.data?.pages.at(-1)
   const runs = historyError ? [] : [...new Map((runsQuery.data?.pages.flatMap(page => page.runs) ?? []).map(run => [run.id, run])).values()]
   const canRun = historyPolicy?.access?.canRun ?? (canWrite || isViewerResearch)
@@ -263,6 +300,16 @@ export function ResearchQueriesSection({
   // Known only once past research has loaded: a research-only key reads as no access until then.
   const viewOnly = !canRun && !historyError && !runsQuery.isPending
 
+  // The runs the last batch made, with the status past research now reports for each.
+  const batchRuns = createdRuns.map(created => runs.find(run => run.id === created.id) ?? created)
+  const batch = batchRuns.length > 1 && selectedRunId && batchRuns.some(run => run.id === selectedRunId)
+    ? { runs: batchRuns, selectedRunId, onSelect: setSelectedRunId }
+    : undefined
+  const changeStart = (next: ResearchStart) => {
+    if (next !== 'find' && controlledStart === undefined) setUncontrolledStart(next)
+    onStartChange?.(next)
+  }
+
   return (
     <div className="space-y-4">
       <div className="space-y-4">
@@ -271,10 +318,14 @@ export function ResearchQueriesSection({
             <StatusNote icon={Info} label={RESEARCH_COPY.demo} detail={RESEARCH_COPY.demoDetail} />
           </Card>
         ) : (
-          <>
           <ResearchBatchComposer
             key={`${projectName}:${composerVersion}`}
             projectName={projectName}
+            start={start}
+            onStartChange={changeStart}
+            findIdeas={findIdeas}
+            repeat={repeat}
+            onRepeatChange={setRepeat}
             canWrite={canWrite}
             researchAllowed={canRun && !historyError}
             viewOnly={viewOnly}
@@ -314,50 +365,52 @@ export function ResearchQueriesSection({
               {noEngine && <StatusNote icon={Key} tone="caution" label={RESEARCH_COPY.noEngineKey} detail={limitedAccess ? RESEARCH_COPY.noEngineDetail : RESEARCH_COPY.noEngineKeyDetail} />}
             </>}
           />
-          {/* One link per run with no separator: a Subject or a search location can hold a comma. */}
-          {createdRuns.length > 0 && <div role="status" className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 text-sm text-secondary"><span>Saved runs</span>{createdRuns.map(run => <a key={run.id} href={`#research-run-${run.id}`} className={`inline-flex items-center text-link underline ${TOUCH_TARGET}`} onClick={() => setSelectedRunId(run.id)}>{[run.scope?.label, run.location?.label].filter(Boolean).join(' · ') || RESEARCH_COPY.notSet}</a>)}</div>}
-          </>
         )}
 
+        {/* Closed until asked for: the page is the form and the results of the run in view. A failed, loading or empty history says so on the row itself. */}
         <Card className="surface-card min-w-0">
-          <div className="section-head section-head-inline">
-            <div>
-              <h3>{RESEARCH_COPY.historyTitle}</h3>
-            </div>
-            {runsQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
-          </div>
-          {historyError ? <div role="alert" className="mt-4"><StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={RESEARCH_COPY.historyError} action={<RetryButton name="past research" onClick={() => { void runsQuery.refetch() }} />} /></div> : runsQuery.isPending ? <div role="status" aria-label="Loading past research" className="mt-4">{[0, 1, 2].map(row => <div key={row} aria-hidden="true" className="flex items-center gap-8 py-3"><span className="skeleton-text w-28" /><span className="skeleton-text w-20" /><span className="skeleton-text w-36" /><span className="skeleton-text w-24" /></div>)}</div> : runs.length === 0 ? (
-            <div className="mt-4"><StatusNote icon={History} label={RESEARCH_COPY.emptyHistory} /></div>
-          ) : (
-            <div className="mt-4 overflow-x-auto">
-              <table className="evidence-table min-w-[760px] [overflow-wrap:anywhere]">
-                <thead><tr><th>Run</th><th>Engine</th><th>{RESEARCH_COPY.subject}</th><th>{RESEARCH_COPY.searchLocation}</th><th>Progress</th><th>Status</th></tr></thead>
-                <tbody>
-                  {runs.map(run => (
-                    <tr key={run.id} className={selectedRunId === run.id ? 'bg-bg-elevated/40' : undefined}>
-                      <td className="whitespace-nowrap"><button type="button" className={ROW_BUTTON} onClick={() => setSelectedRunId(run.id)}>{formatResearchDate(run.createdAt)}</button></td>
-                      <td className="whitespace-nowrap text-secondary"><span className="block">{providerDisplayName(run.provider)}</span><span className="font-mono text-[11px] text-muted">{run.requestedModel ?? run.resolvedModel}</span></td>
-                      <td className="text-secondary">{run.scope?.label ?? RESEARCH_COPY.notSet}</td>
-                      <td className="text-secondary">{run.location?.label ?? RESEARCH_COPY.noSearchLocation}</td>
-                      <td className="whitespace-nowrap tabular-nums text-secondary">{run.completedQueries + run.failedQueries} of {run.totalQueries}</td>
-                      <td className="whitespace-nowrap"><ToneBadge tone={toneForResearchRun(run.status)}>{STATUS_LABEL[run.status]}</ToneBadge></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {/* One button for the next page and its retry, so a failed load keeps focus on it. */}
-          {(runsQuery.isFetchNextPageError || runsQuery.hasNextPage) && <div className="mt-3 flex flex-wrap items-center gap-3">
-            {runsQuery.isFetchNextPageError && <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={RESEARCH_COPY.historyMoreError} /></span>}
-            {runsQuery.hasNextPage && <Button variant="outline" size="sm" className={TOUCH_TARGET} disabled={runsQuery.isFetching} aria-label={runsQuery.isFetchNextPageError && !runsQuery.isFetchingNextPage ? 'Retry older runs' : undefined} onClick={() => { void runsQuery.fetchNextPage() }}>{runsQuery.isFetchingNextPage ? RESEARCH_COPY.historyLoading : runsQuery.isFetchNextPageError ? RESEARCH_COPY.retry : RESEARCH_COPY.historyMore}</Button>}
-          </div>}
+          {historyError ? <div role="alert" className="flex flex-wrap items-center gap-x-4 gap-y-2"><h3>{RESEARCH_COPY.historyTitle}</h3><StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={RESEARCH_COPY.historyError} action={<RetryButton name="past research" onClick={() => { void runsQuery.refetch() }} />} /></div>
+            : historyPending ? <div className="flex items-center gap-4"><h3>{RESEARCH_COPY.historyTitle}</h3><span role="status" aria-label="Loading past research"><span aria-hidden="true" className="skeleton-text block w-14" /></span></div>
+            : runs.length === 0 ? <div className="flex flex-wrap items-center gap-x-4 gap-y-1"><h3>{RESEARCH_COPY.historyTitle}</h3><StatusNote icon={History} label={RESEARCH_COPY.emptyHistory} /></div>
+            : <details>
+              {/* More runs may be saved than are loaded, so the count of a history with an older page ends in a plus. */}
+              <summary className={`-m-4 cursor-pointer rounded-xl p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 ${TOUCH_TARGET}`}>
+                <h3 className="inline">{RESEARCH_COPY.historyTitle}</h3>
+                <span className="ml-3 text-sm tabular-nums text-secondary">{runs.length}{runsQuery.hasNextPage ? '+' : ''} {runs.length === 1 && !runsQuery.hasNextPage ? 'run' : 'runs'}</span>
+              </summary>
+              <div className="mt-6 overflow-x-auto">
+                <table className={`${RESEARCH_TABLE} min-w-[760px]`}>
+                  <thead><tr>{['Run', 'Engine', RESEARCH_COPY.subject, RESEARCH_COPY.searchLocation, 'Progress', 'Status'].map(header => <th key={header} scope="col" className={RESEARCH_TH}>{header}</th>)}</tr></thead>
+                  <tbody>
+                    {runs.map(run => (
+                      <tr key={run.id} className={selectedRunId === run.id ? 'bg-bg-elevated/40' : undefined}>
+                        <td className={`${RESEARCH_TD} whitespace-nowrap`}><button type="button" className={RESEARCH_ROW_BUTTON} aria-pressed={selectedRunId === run.id} onClick={() => setSelectedRunId(run.id)}>{formatResearchDate(run.createdAt)}</button></td>
+                        <td className={`${RESEARCH_TD} whitespace-nowrap text-secondary`}><span className="block">{providerDisplayName(run.provider)}</span><span className="font-mono text-[11px] text-muted">{run.requestedModel ?? run.resolvedModel}</span></td>
+                        <td className={`${RESEARCH_TD} text-secondary`}>{run.scope?.label ?? RESEARCH_COPY.notSet}</td>
+                        <td className={`${RESEARCH_TD} text-secondary`}>{run.location?.label ?? RESEARCH_COPY.noSearchLocation}</td>
+                        <td className={`${RESEARCH_TD} whitespace-nowrap tabular-nums text-secondary`}>{run.completedQueries + run.failedQueries} of {run.totalQueries}</td>
+                        <td className={`${RESEARCH_TD} whitespace-nowrap`}><ToneBadge tone={toneForResearchRun(run.status)}>{RESEARCH_STATUS_LABEL[run.status]}</ToneBadge></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {/* One button for the next page and its retry, so a failed load keeps focus on it. */}
+              {(runsQuery.isFetchNextPageError || runsQuery.hasNextPage) && <div className="mt-3 flex flex-wrap items-center gap-3">
+                {runsQuery.isFetchNextPageError && <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={RESEARCH_COPY.historyMoreError} /></span>}
+                {runsQuery.hasNextPage && <Button variant="outline" size="sm" className={TOUCH_TARGET} disabled={runsQuery.isFetching} aria-label={runsQuery.isFetchNextPageError && !runsQuery.isFetchingNextPage ? 'Retry older runs' : undefined} onClick={() => { void runsQuery.fetchNextPage() }}>{runsQuery.isFetchingNextPage ? RESEARCH_COPY.historyLoading : runsQuery.isFetchNextPageError ? RESEARCH_COPY.retry : RESEARCH_COPY.historyMore}</Button>}
+              </div>}
+            </details>}
         </Card>
       </div>
 
-      {!historyError && <ResearchRunDetail detail={detail} isLoading={detailQuery.isFetching || runsQuery.isPending} onReviewForTracking={publicDemo ? undefined : onReviewForTracking}
+      {/* With no run saved there is nothing to show results for: the row above says so. */}
+      {!historyError && (historyPending || runs.length > 0) && <ResearchRunDetail detail={detail} isLoading={detailQuery.isFetching || historyPending} onReviewForTracking={publicDemo ? undefined : onReviewForTracking}
         failedRunId={detailQuery.isError ? selectedRunId : null}
         failure={<StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={RESEARCH_COPY.resultsError} action={<RetryButton name="results" onClick={() => { void detailQuery.refetch() }} />} />}
+        batch={batch}
+        company={projectQuery.data?.displayName || projectQuery.data?.name || 'the company'}
+        domain={hostOf(projectQuery.data?.canonicalDomain) ?? 'its site'}
       />}
     </div>
   )
@@ -368,6 +421,12 @@ type PreviewRow = { id: string; query: string; scope: ResearchRunScope | null; l
 type ResearchDestination = VisibilityReportScopeOption & { kind: 'market' | 'property' }
 type ComposerProps = {
   projectName: string
+  start: Exclude<ResearchStart, 'find'>
+  onStartChange: (start: ResearchStart) => void
+  findIdeas: boolean
+  /** The kind of place Pattern repeats for, once chosen. Null takes the first kind the project has. */
+  repeat: ResearchRepeat | null
+  onRepeatChange: (repeat: ResearchRepeat) => void
   canWrite: boolean
   researchAllowed: boolean
   /** The account cannot run research: the footer says so in place of a Run button that could never work. */
@@ -402,14 +461,7 @@ type ComposerProps = {
 }
 // Buttons and links here are 44px tall where a finger is the pointer.
 const TOUCH_TARGET = 'pointer-coarse:min-h-11 max-md:min-h-11'
-const ROW_BUTTON = 'rounded-sm text-left font-medium text-heading hover:text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
-const STATUS_LABEL: Record<ResearchRunStatus, string> = {
-  [ResearchRunStatuses.queued]: 'Queued',
-  [ResearchRunStatuses.running]: 'Running',
-  [ResearchRunStatuses.completed]: 'Completed',
-  [ResearchRunStatuses.partial]: 'Partial',
-  [ResearchRunStatuses.failed]: 'Failed',
-}
+const REPEAT_LABEL: Record<ResearchRepeat, string> = { markets: 'Market', properties: 'Location', locations: RESEARCH_COPY.searchLocation }
 const INPUT_CLASS = 'mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50'
 const NO_LOCATION = '__none__'
 const OVER_RUNS = `Over ${MAX_RESEARCH_BATCH_RUNS} runs`
@@ -418,7 +470,6 @@ const SELECTION_UNAVAILABLE: ResearchNote = { label: 'Selection unavailable', de
 function ResearchBatchComposer(props: ComposerProps) {
   const { projectName, locations, provider, resolvedModel, planRevision } = props
   const queryClient = useQueryClient()
-  const [mode, setMode] = useState<ResearchMode>('once')
   const [queryText, setQueryText] = useState('')
   const [pattern, setPattern] = useState('')
   const [scopeKey, setScopeKey] = useState(props.initialScope ? `${props.initialScope.kind}:${props.initialScope.key}` : 'project')
@@ -440,6 +491,13 @@ function ResearchBatchComposer(props: ComposerProps) {
   useEffect(() => { setScopeKey(initialScopeIdentity); setSelectedTemplate(null) }, [initialScopeIdentity])
 
   const allDestinations = props.scopeOptions.filter((option): option is ResearchDestination => option.kind === 'market' || option.kind === 'property')
+  // A pattern repeats for the kinds of place the project has. A project with no plan has search locations only.
+  const repeats = (['markets', 'properties', 'locations'] as const).filter(kind => kind === 'locations' || allDestinations.some(option => option.kind === (kind === 'markets' ? 'market' : 'property')))
+  const repeat = props.repeat && repeats.includes(props.repeat) ? props.repeat : repeats[0]!
+  const mode: ResearchMode = props.start === 'write' ? 'once' : repeat
+  // A new mode starts a new selection. The pattern and a preview are kept, so the same button regenerates them.
+  const [modeInView, setModeInView] = useState(mode)
+  if (modeInView !== mode) { setModeInView(mode); setSelectedKeys([]); setSelectedTemplate(null); setSearch(''); setShowErrors(false) }
   const destinationKind = mode === 'markets' ? 'market' : 'property'
   const destinations = allDestinations.filter(option => option.kind === destinationKind)
   const scopeFor = (option: ResearchDestination): ResearchRunScope => ({ kind: option.kind, key: option.id, label: option.label, planRevision: planRevision ?? props.initialScope?.planRevision ?? 0 })
@@ -519,7 +577,6 @@ function ResearchBatchComposer(props: ComposerProps) {
     })))
     setPreview({ signature, planRevision, rows: nextRows })
   }
-  const changeMode = (next: ResearchMode) => { setMode(next); setSelectedKeys([]); setSelectedTemplate(null); setSearch(''); setShowErrors(false) }
   const chooseTemplate = (template: ResearchTemplateOption) => {
     setSaveError(null)
     if (mode === 'once') {
@@ -570,20 +627,21 @@ function ResearchBatchComposer(props: ComposerProps) {
   })
 
   const tokenName = mode === 'markets' ? 'market' : mode === 'properties' ? 'property' : 'location'
+  // A project with no search location has nothing to list or search: the list's place says so.
+  const noSearchLocations = mode === 'locations' && !locations.length && props.projectReady
   const engineLabel = props.providerOptions.find(item => item.name === provider)?.displayName ?? provider
 
   // Help sits beside a heading or label, never inside it, so its sentence stays out of that name.
   return <Card className="surface-card min-w-0">
-    <div className="section-head"><div className="flex items-center"><h3>Test queries</h3><InfoTooltip text={RESEARCH_COPY.introHelp} placement="bottom" /></div></div>
-    <fieldset aria-label="Research setup" className="mt-5 min-w-0 space-y-5" disabled={props.isPending || saveMutation.isPending}>
-      <label className="block"><span className="text-sm font-medium text-heading">Run mode</span>
-        <select className={INPUT_CLASS} value={mode} disabled={props.isPending} onChange={event => changeMode(event.target.value as ResearchMode)}>
-          <option value="once">Run once</option>
-          <option value="markets" disabled={!allDestinations.some(item => item.kind === 'market')}>Repeat across markets</option>
-          <option value="properties" disabled={!allDestinations.some(item => item.kind === 'property')}>Repeat across locations</option>
-          <option value="locations" disabled={!locations.length}>Repeat across search locations</option>
-        </select>
-      </label>
+    <fieldset aria-label="Research setup" className="min-w-0 space-y-5" disabled={props.isPending || saveMutation.isPending}>
+      {/* The card has no heading: its first row says what the form starts from and, for a pattern, what it repeats for. */}
+      <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+        <ResearchStartControl value={props.start} onChange={props.onStartChange} findIdeas={props.findIdeas} />
+        {mode !== 'once' && <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <span aria-hidden="true" className="text-sm font-medium text-heading">{RESEARCH_COPY.forEach}</span>
+          <SegmentedRadioGroup label={RESEARCH_COPY.forEach} options={repeats.map(kind => ({ value: kind, label: REPEAT_LABEL[kind] }))} value={repeat} onChange={props.onRepeatChange} />
+        </div>}
+      </div>
       {mode === 'once' && <div className="grid gap-4 sm:grid-cols-2">
         {(allDestinations.length > 0 || scopeKey !== 'project') && <div>
           <div className="flex items-center"><label className="text-sm font-medium text-heading" htmlFor="research-subject">{RESEARCH_COPY.subject}</label><InfoTooltip text={RESEARCH_COPY.subjectHelp} placement="bottom" /></div>
@@ -597,15 +655,17 @@ function ResearchBatchComposer(props: ComposerProps) {
       </div>}
       {mode !== 'once' && <fieldset className="space-y-3" aria-labelledby="research-places-label">
         <div className="flex items-center"><span id="research-places-label" className="text-sm font-medium text-heading">{mode === 'markets' ? 'Markets' : mode === 'properties' ? 'Locations' : 'Search locations'}</span><InfoTooltip text={`Select each ${placeNoun} yourself. Each one gets its own saved run.`} placement="bottom" /></div>
-        <input type="search" aria-label="Search" className={INPUT_CLASS} placeholder="Search" value={search} onChange={event => setSearch(event.target.value)} />
+        {!noSearchLocations && <input type="search" aria-label="Search" className={INPUT_CLASS} placeholder="Search" value={search} onChange={event => setSearch(event.target.value)} />}
         {/* Column headers on the rows' own grid. Each select carries its own name, and below sm, where it stacks under its row, its own label. */}
         {mode !== 'locations' && <div aria-hidden="true" className="hidden gap-2 pr-1 text-[13px] text-secondary sm:grid sm:grid-cols-[minmax(0,1fr)_16rem]"><span>{mode === 'markets' ? 'Market' : 'Location'}</span><span>{RESEARCH_COPY.searchLocation}</span></div>}
+        {noSearchLocations && <div><StatusNote icon={MapPinOff} label={RESEARCH_COPY.noSearchLocations} detail={RESEARCH_COPY.noSearchLocationsDetail} /></div>}
         <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
           {(mode === 'locations' ? locations.map(location => ({ key: location.label, label: location.label })) : destinations.map(option => ({ key: `${option.kind}:${option.id}`, label: option.label })))
             .filter(option => option.label.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(option => {
               const checked = selectedKeys.includes(option.key)
               return <div key={option.key} className="grid items-center gap-2 border-b border-default pb-2 sm:grid-cols-[minmax(0,1fr)_16rem]">
-                <label className="flex min-h-11 items-center gap-3 text-sm text-heading"><input type="checkbox" checked={checked} onChange={() => setSelectedKeys(current => checked ? current.filter(key => key !== option.key) : [...current, option.key])} />{option.label}</label>
+                {/* A first tick settles what the pattern repeats for, so places that load later never move the form to another kind. */}
+                <label className="flex min-h-11 items-center gap-3 text-sm text-heading"><input type="checkbox" checked={checked} onChange={() => { props.onRepeatChange(repeat); setSelectedKeys(current => checked ? current.filter(key => key !== option.key) : [...current, option.key]) }} />{option.label}</label>
                 {checked && mode !== 'locations' && <LocationSelect inRow label={RESEARCH_COPY.searchLocation} name={`${RESEARCH_COPY.searchLocation} for ${option.label}`} value={destinationLocations[option.key] ?? NO_LOCATION} locations={locations} onChange={value => setDestinationLocations(current => ({ ...current, [option.key]: value }))} />}
               </div>
             })}
@@ -634,7 +694,7 @@ function ResearchBatchComposer(props: ComposerProps) {
           </div>
           {selectedTemplate && <p className="text-sm text-secondary">Using: {selectedTemplate.label}</p>}
           {props.canWrite && !props.isEmbed && <><Button size="sm" variant="outline" className={TOUCH_TARGET} onClick={() => setSaveOpen(!saveOpen)}>{saveOpen ? 'Cancel save' : 'Save as a pattern'}</Button>
-            {saveOpen && <div className="flex flex-wrap items-end gap-3"><label className="min-w-48 flex-1 text-sm text-heading">Pattern name<input className={INPUT_CLASS} value={saveName} maxLength={120} onChange={event => setSaveName(event.target.value)} /></label><Button size="sm" className={TOUCH_TARGET} disabled={saveMutation.isPending || !saveName.trim() || !source.trim()} onClick={savePattern}>{saveMutation.isPending ? 'Saving…' : 'Save pattern'}</Button></div>}
+            {saveOpen && <div className="flex flex-wrap items-end gap-3"><label className="min-w-48 flex-1 text-sm text-heading">Pattern name<input className={INPUT_CLASS} value={saveName} maxLength={120} onChange={event => setSaveName(event.target.value)} /></label><WriteButton size="sm" className={TOUCH_TARGET} disabled={saveMutation.isPending || !saveName.trim() || !source.trim()} onClick={savePattern}>{saveMutation.isPending ? 'Saving…' : 'Save pattern'}</WriteButton></div>}
           </>}
           {saveError && <InlineNotes notes={[saveError]} />}
         </div>
@@ -664,8 +724,9 @@ function ResearchBatchComposer(props: ComposerProps) {
       {/* An account that cannot run research gets no Run button, only the reason. What limits or holds back a run sits beside Run. */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-default pt-4">
         {props.viewOnly ? <StatusNote icon={Eye} label={RESEARCH_COPY.viewOnly} detail={RESEARCH_COPY.viewOnlyDetail} /> : <div className="flex flex-wrap items-center gap-3">
-          {!props.isEmbed && <Button size="sm" className={TOUCH_TARGET} disabled={!canRun} onClick={() => { if (canRun) { const request = buildRequest(); props.onSubmit(request, JSON.stringify({ projectName, ...request })) } }}><Play size={14} />{props.isPending ? 'Starting…' : RESEARCH_COPY.runAction}</Button>}
-          <p className="text-sm tabular-nums text-secondary">{[plural(mode === 'once' ? directQueries.length : rows.length, 'query', 'queries'), engineLabel, resolvedModel].filter(Boolean).join(' · ')}</p>
+          {/* The button carries the count, so the line beside it names only the engine and the model. */}
+          {!props.isEmbed && <Button size="sm" className={TOUCH_TARGET} disabled={!canRun} onClick={() => { if (canRun) { const request = buildRequest(); props.onSubmit(request, JSON.stringify({ projectName, ...request })) } }}><Play size={14} />{props.isPending ? 'Starting…' : researchRunLabel(mode === 'once' ? directQueries.length : rows.length)}</Button>}
+          {(engineLabel || resolvedModel) && <p className="text-sm text-secondary">{[engineLabel, resolvedModel].filter(Boolean).join(' · ')}</p>}
         </div>}
         {props.runNotes}
       </div>
@@ -702,177 +763,10 @@ function groupPreviewRows(rows: readonly PreviewRow[]) {
   }
   return [...groups.values()]
 }
-function ResearchRunDetail({
-  detail,
-  isLoading,
-  failedRunId,
-  failure,
-  onReviewForTracking,
-}: {
-  detail: ResearchRunDetailDto | null
-  isLoading: boolean
-  /** The selected run when its results did not load: the card keeps its heading and shows `failure` as its body. */
-  failedRunId: string | null
-  failure: ReactNode
-  onReviewForTracking?: (source: ResearchTrackingSource) => void
-}) {
-  const [selectedQueryId, setSelectedQueryId] = useState<string | null>(null)
-
-  useEffect(() => {
-    setSelectedQueryId(detail?.queries[0]?.id ?? null)
-  }, [detail?.id])
-
-  const selected = detail?.queries.find(item => item.id === selectedQueryId) ?? detail?.queries[0] ?? null
-
-  return (
-    <Card id={detail ? `research-run-${detail.id}` : undefined} className="surface-card min-w-0" role="region" aria-label={RESEARCH_COPY.resultsTitle}>
-      <div className="section-head section-head-inline">
-        <div>
-          <p className="eyebrow eyebrow-soft">Results</p>
-          <h3>{detail ? `Research run ${shortId(detail.id)}` : failedRunId ? `Research run ${shortId(failedRunId)}` : isLoading ? 'Loading results…' : RESEARCH_COPY.resultsEmpty}</h3>
-        </div>
-        {detail && <ToneBadge tone={toneForResearchRun(detail.status)}>{STATUS_LABEL[detail.status]}</ToneBadge>}
-      </div>
-      {failedRunId && <div role="alert" className="mt-4">{failure}</div>}
-      {detail && <div className="mt-3 space-y-3 text-sm text-secondary">
-        <dl className="flex flex-wrap gap-x-6 gap-y-2 [overflow-wrap:anywhere]">
-          <div><dt className="font-medium">Engine</dt><dd>{providerDisplayName(detail.provider)}</dd></div>
-          <div><dt className="font-medium">Model</dt><dd className="font-mono">{detail.requestedModel ?? detail.resolvedModel}</dd></div>
-          <div><dt className="font-medium">{RESEARCH_COPY.searchLocation}</dt><dd>{detail.location?.label ?? RESEARCH_COPY.noSearchLocation}</dd></div>
-          <div><dt className="font-medium">{RESEARCH_COPY.subject}</dt><dd>{detail.scope?.label ?? RESEARCH_COPY.notSet}</dd></div>
-        </dl>
-        {detail.template && <details>
-          <summary className="cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">{RESEARCH_COPY.templateProvenance}</summary>
-          <dl className="mt-2 space-y-2">
-            <div><dt className="font-medium">Saved pattern</dt><dd className="whitespace-pre-wrap">{detail.template.template}</dd></div>
-            <div><dt className="font-medium">Names used</dt><dd>{Object.entries(detail.template.bindings).map(([key, value]) => `{${key}}: ${value}`).join(' · ') || 'None'}</dd></div>
-            <div><dt className="flex items-center font-medium">Resolved text<InfoTooltip text={RESEARCH_COPY.resolvedTextHelp} placement="bottom" /></dt><dd className="whitespace-pre-wrap">{detail.template.output}</dd></div>
-          </dl>
-          <p className="mt-2 font-mono text-xs">{detail.template.templateId} · {detail.template.templateVersion}</p>
-        </details>}
-        <div><StatusNote icon={Info} label={RESEARCH_COPY.methodologySummary} detail={RESEARCH_COPY.methodology} /></div>
-      </div>}
-      {detail && (
-        <div className="mt-4 space-y-4">
-          <div className="overflow-x-auto">
-            <table className="evidence-table min-w-[760px] [overflow-wrap:anywhere]">
-              <thead><tr><th>Query</th><th>Type</th><th>Status</th><th>Named</th><th>Cited</th></tr></thead>
-              <tbody>
-                {detail.queries.map(item => (
-                  <tr key={item.id} className={selected?.id === item.id ? 'bg-bg-elevated/40' : undefined}>
-                    <td className="max-sm:max-w-[13rem]"><button type="button" className={ROW_BUTTON} onClick={() => setSelectedQueryId(item.id)}>{item.query}</button></td>
-                    <td className="whitespace-nowrap"><ToneBadge tone={item.queryClass === 'branded' ? 'positive' : item.queryClass === 'non-brand' ? 'neutral' : 'caution'}>{item.queryClass === 'branded' ? RESEARCH_COPY.brandedQuery : item.queryClass === 'non-brand' ? RESEARCH_COPY.nonBrandQuery : RESEARCH_COPY.untypedQuery}</ToneBadge></td>
-                    <td className="whitespace-nowrap"><ToneBadge tone={toneForResearchQuery(item.status)}>{STATUS_LABEL[item.status]}</ToneBadge></td>
-                    <td className="whitespace-nowrap"><ToneBadge tone={item.answerMentioned === true ? 'positive' : item.answerMentioned === false ? 'neutral' : item.status === ResearchQueryStatuses.failed ? 'negative' : 'caution'}>{item.answerMentioned === null ? unchecked(item.status) : item.answerMentioned ? 'Named' : 'Not named'}</ToneBadge></td>
-                    <td className="whitespace-nowrap"><ToneBadge tone={item.citationState === 'cited' ? 'positive' : item.citationState === 'not-cited' ? 'neutral' : item.status === ResearchQueryStatuses.failed ? 'negative' : 'caution'}>{item.citationState === null ? unchecked(item.status) : item.citationState === 'cited' ? 'Cited' : 'Not cited'}</ToneBadge></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <ResearchAnswer query={selected} scope={detail.scope ?? null} isLoading={isLoading} onReviewForTracking={onReviewForTracking} />
-        </div>
-      )}
-    </Card>
-  )
-}
-function ResearchAnswer({
-  query,
-  isLoading,
-  scope,
-  onReviewForTracking,
-}: {
-  query: ResearchRunQueryDto | null
-  isLoading: boolean
-  scope: ResearchRunScope | null
-  onReviewForTracking?: (source: ResearchTrackingSource) => void
-}) {
-  if (!query) return <p className="text-sm text-muted">{isLoading ? 'Loading answers…' : 'No answers yet'}</p>
-  return (
-    <div className="min-w-0 space-y-4 border-t border-default pt-4 [overflow-wrap:anywhere]">
-      <div>
-        <p className="text-[10px] uppercase tracking-wide text-muted">Selected query</p>
-        <p className="mt-1 text-sm font-medium leading-6 text-heading">{query.query}</p>
-      </div>
-      {!isEmbed() && onReviewForTracking && (
-        <div className="flex items-center">
-          <WriteButton type="button" size="sm" onClick={() => onReviewForTracking({ researchRunQueryId: query.id, scope })}>
-            Review for tracking
-          </WriteButton>
-          <InfoTooltip text={RESEARCH_COPY.reviewHelp} placement="bottom" />
-        </div>
-      )}
-      {query.error ? (
-        <div className="rounded-md border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-sm text-negative">{query.error}</div>
-      ) : query.answerText ? (
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted">Answer</p>
-          <div className="mt-1"><AnswerMarkdown headingLevel={4} copyable>{query.answerText}</AnswerMarkdown></div>
-        </div>
-      ) : (
-        <div>{query.status === ResearchQueryStatuses.queued || query.status === ResearchQueryStatuses.running
-          ? <StatusNote icon={Clock} label={RESEARCH_COPY.answerPending} />
-          : <StatusNote icon={Ban} label={RESEARCH_COPY.noAnswer} />}</div>
-      )}
-      {query.namedCompetitors.length > 0 && (
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted">Competitors named</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {query.namedCompetitors.map(name => <span key={name} className="mention-chip mention-chip--competitor">{name}</span>)}
-          </div>
-        </div>
-      )}
-      {query.citedCompetitorDomains.length > 0 && (
-        <div>
-          <p className="flex items-center text-[10px] uppercase tracking-wide text-muted">Cited competitor domains<InfoTooltip text={RESEARCH_COPY.citedCompetitorsHelp} placement="bottom" /></p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {query.citedCompetitorDomains.map(domain => <span key={domain} className="mention-chip mention-chip--competitor">{domain.replace(/^www\./, '')}</span>)}
-          </div>
-        </div>
-      )}
-      {query.groundingSources.length > 0 && (
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted">Source links</p>
-          <ul className="mt-2 space-y-3">
-            {query.groundingSources.map((source, index) => (
-              <li key={`${source.uri}-${index}`} className="min-w-0">
-                <SourceLink url={source.uri} title={source.title} />
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  )
-}
-
 function formatResearchDate(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.valueOf())) return value
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date)
-}
-
-function shortId(id: string): string {
-  return id.length > 8 ? id.slice(0, 8) : id
-}
-
-function toneForResearchRun(status: ResearchRunStatus) {
-  if (status === ResearchRunStatuses.completed) return 'positive'
-  if (status === ResearchRunStatuses.partial) return 'caution'
-  if (status === ResearchRunStatuses.failed) return 'negative'
-  return 'neutral'
-}
-
-/** A signal with no value: the query failed, is still running, or finished without that check. Never a No. */
-function unchecked(status: ResearchRunQueryDto['status']) {
-  if (status === ResearchQueryStatuses.failed) return 'Unavailable'
-  return status === ResearchQueryStatuses.completed ? 'Not checked' : 'Pending'
-}
-
-function toneForResearchQuery(status: ResearchRunQueryDto['status']) {
-  if (status === ResearchQueryStatuses.completed) return 'positive'
-  if (status === ResearchQueryStatuses.failed) return 'negative'
-  return 'neutral'
 }
 
 async function refreshResearch(queryClient: Pick<ReturnType<typeof useQueryClient>, 'invalidateQueries'>) {

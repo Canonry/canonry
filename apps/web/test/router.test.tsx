@@ -149,10 +149,13 @@ test('/projects/$id/local renders the local presence tab', async () => {
   await waitFor(() => expect(container.innerHTML).toMatch(/Google Business Profile/))
 })
 
-test('/projects/$id/discovery renders the discovery tab with plain-language copy', async () => {
-  const { container } = await renderRoute('/projects/project_citypoint/discovery')
-  expect(container.innerHTML).toMatch(/Generate and check questions/)
-  expect(container.innerHTML).toMatch(/Describe your customer/)
+test('/projects/$id/discovery opens Research on Write, with Find ideas one choice away', async () => {
+  await renderRoute('/projects/project_citypoint/discovery')
+  expect(screen.getByRole('tab', { name: 'Research' }).getAttribute('aria-selected')).toBe('true')
+  // A bare URL names no start: a writer lands on the form that runs nothing until pressed.
+  expect(within(screen.getByRole('radiogroup', { name: 'Start from' })).getAllByRole('radio').map(radio => [radio.textContent, radio.getAttribute('aria-checked')])).toEqual([['Write', 'true'], ['Pattern', 'false'], ['Find ideas', 'false']])
+  expect(screen.getByRole('textbox', { name: 'Queries' })).toBeTruthy()
+  expect(screen.queryByRole('textbox', { name: 'Ideal customer' })).toBeNull()
 })
 
 // ── Smart redirects ──
