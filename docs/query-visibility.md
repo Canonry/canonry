@@ -208,23 +208,27 @@ Neither process adds queries to official tracking automatically.
 
 ### Repeat research across destinations
 
-1. Select the repeat mode.
-2. Select each destination explicitly.
-3. Enter one query pattern per line, such as `Best apartments in {market}`.
-4. Select the answer engine and model.
+The dashboard names a run's market or property its **Subject**, shows a property as a Location, and calls the engine's location the **Search location**.
+The API, CLI, and MCP keep `scope`, `property`, and `location`.
+
+1. Select the run mode: **Repeat across markets**, **Repeat across locations**, or **Repeat across search locations**.
+2. Select each market, location, or search location yourself.
+3. Enter one **Pattern** per line, such as `Best apartments in {market}`.
+4. Select the **Engine** and **Model**.
 5. Open the preview.
-6. Check each destination, resolved query, and location context.
-7. Edit individual queries or location contexts as required.
+6. Check each Subject, resolved query, and **Search location**.
+7. Edit individual queries or search locations as required.
 8. Start the reviewed queries.
 
 A pattern substitutes text. For Atlanta, `Best apartments in {market}` becomes `Best apartments in Atlanta`.
 `{market}` and `{submarket}` use the market label. `{property}` and `{propertyBrand}` use the property label.
-`{location}` uses the selected location label.
-Unknown variables block the preview.
+`{location}` uses the search location's label, never the Subject's.
+When a pattern repeated across locations holds `{location}`, the form marks it **Uses search location**.
+A name the pattern does not recognize blocks the preview.
 
-The destination does not set the answer engine's location context.
-Each preview shows a configured location or **No location context** separately.
-Location repetition uses the selected configured locations.
+The Subject does not set the search location.
+Each preview row shows a configured search location or **No search location** separately. The CLI prints that state as `No location context`.
+Repeating across search locations uses the selected configured locations.
 Advanced portfolios can select explicit published markets or properties.
 Simple portfolios can repeat across configured locations without a measurement plan.
 

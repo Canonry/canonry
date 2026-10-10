@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AnswerMarkdown } from '../shared/AnswerMarkdown.js'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Ban, Clock, Gauge, History, Info, Key, Play, Plus, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Ban, Clock, Eye, Gauge, History, Info, Key, Play, Plus, RefreshCw } from 'lucide-react'
 import {
   MAX_RESEARCH_BATCH_QUERIES,
   MAX_RESEARCH_BATCH_RUNS,
@@ -32,6 +32,7 @@ import {
   putApiV1ProjectsByNameMeasurementQueryTemplatesByTemplateIdMutation,
 } from '@ainyc/canonry-api-client/react-query'
 import { addToast } from '../../lib/toast-store.js'
+import { extractApiErrorInfo } from '../../lib/extract-error-message.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
 import { SourceLink } from '../shared/SourceLink.js'
@@ -55,7 +56,7 @@ const ACTIVE_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
  * `property` is a Location and a `location` is a Search location.
  */
 export const RESEARCH_COPY = {
-  queryPlaceholder: 'Write one research query per line',
+  queryPlaceholder: 'One query per line',
   inheritedModel: 'Use AI Visibility model',
   runAction: 'Run queries',
   introHelp: 'See how an engine answers a query. Results are saved apart from tracked queries and AI Visibility numbers.',
@@ -66,7 +67,7 @@ export const RESEARCH_COPY = {
   searchLocation: 'Search location',
   noSearchLocation: 'No search location',
   selectedHelp: 'A market or location name changes the query text only. The engine searches from the search location set beside it.',
-  queriesHelp: 'One query per line. The engine receives exactly this text.',
+  queriesHelp: 'The engine receives exactly this text. Blank and repeated lines are skipped.',
   usesSearchLocation: 'Uses search location',
   usesSearchLocationDetail: "{location} is the search location. Use {property} for the location's name.",
   savedPatternsHelp: 'Reusable starting text. Saving a pattern does not run or track queries.',
@@ -84,6 +85,8 @@ export const RESEARCH_COPY = {
   noEngineKey: 'No engine key',
   noEngineKeyDetail: 'No engine has an API key. Add one in Settings to run research. Browser engines cannot run research.',
   noEngineDetail: 'No research engine is available. Ask your Canonry team to set one up.',
+  viewOnly: 'View only',
+  viewOnlyDetail: 'You can preview queries and read past research. Running research needs research access.',
   demo: 'Saved results only',
   demoDetail: 'This public demo shows saved research results. Running research is unavailable.',
   historyTitle: 'Past research',
@@ -233,17 +236,19 @@ export function ResearchQueriesSection({
       setSelectedRunId(batch.runs[0]?.id ?? null)
       await refreshResearch(queryClient)
       addToast({
-        title: 'Research batch saved',
-        detail: `${batch.runs.length} ${batch.runs.length === 1 ? 'run is' : 'runs are'} in past research. Nothing was added to tracked queries.`,
+        title: 'Research saved',
+        detail: `${plural(batch.runs.length, 'run', 'runs')} · ${RESEARCH_COPY.historyTitle}`,
         tone: 'positive',
         dedupeKey: `research:start:${batch.runs.map(run => run.id).join(':')}`,
         dedupeMode: 'replace',
       })
     },
     onError: (error) => {
+      // The generated SDK throws the API's error envelope, not an Error. The detail is the server's own message or nothing.
+      const info = extractApiErrorInfo(error)
       addToast({
         title: 'Could not start research',
-        detail: error instanceof Error ? error.message : 'Check the engine, model and search location, then try again.',
+        detail: error instanceof Error || info.code ? info.message : undefined,
         tone: 'negative',
       })
     },
@@ -255,6 +260,8 @@ export function ResearchQueriesSection({
   const setupReadError = settingsError || projectQuery.isError
   const setupReads = settingsError && projectQuery.isError ? 'engines and search locations' : settingsError ? 'engines' : 'search locations'
   const noEngine = !(limitedAccess ? historyError : settingsQuery.isError) && noConfiguredApiProviders
+  // Known only once past research has loaded: a research-only key reads as no access until then.
+  const viewOnly = !canRun && !historyError && !runsQuery.isPending
 
   return (
     <div className="space-y-4">
@@ -270,6 +277,7 @@ export function ResearchQueriesSection({
             projectName={projectName}
             canWrite={canWrite}
             researchAllowed={canRun && !historyError}
+            viewOnly={viewOnly}
             limitedAccess={limitedAccess}
             isEmbed={isEmbed()}
             scopeOptions={scopeOptions ?? []}
@@ -300,13 +308,14 @@ export function ResearchQueriesSection({
               submitInFlight.current = true
               researchMutation.mutate({ client: heyClient, path: { name: projectName }, body: { ...body, idempotencyKey: retryRequest.current.key } })
             }}
+            runNotes={(dailyRunLimit !== null || setupReadError || noEngine) && <>
+              {dailyRunLimit !== null && <StatusNote icon={Gauge} label={`${plural(dailyRunLimit, 'run', 'runs')} per day`} detail={`Up to ${plural(dailyRunLimit, 'research run', 'research runs')} per project per day. Each market, location or search location in a batch is one run.`} />}
+              {setupReadError && <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={`The ${setupReads} did not load.`} action={<RetryButton name={setupReads} onClick={() => { if (settingsError) void settingsQuery.refetch(); if (projectQuery.isError) void projectQuery.refetch() }} />} /></span>}
+              {noEngine && <StatusNote icon={Key} tone="caution" label={RESEARCH_COPY.noEngineKey} detail={limitedAccess ? RESEARCH_COPY.noEngineDetail : RESEARCH_COPY.noEngineKeyDetail} />}
+            </>}
           />
-          {(dailyRunLimit !== null || setupReadError || noEngine) && <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4">
-            {dailyRunLimit !== null && <StatusNote icon={Gauge} label={`${plural(dailyRunLimit, 'run', 'runs')} per day`} detail={`Up to ${plural(dailyRunLimit, 'research run', 'research runs')} per project per day. Each market, location or search location in a batch is one run.`} />}
-            {setupReadError && <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={`The ${setupReads} did not load.`} action={<RetryButton name={setupReads} onClick={() => { if (settingsError) void settingsQuery.refetch(); if (projectQuery.isError) void projectQuery.refetch() }} />} /></span>}
-            {noEngine && <StatusNote icon={Key} tone="caution" label={RESEARCH_COPY.noEngineKey} detail={limitedAccess ? RESEARCH_COPY.noEngineDetail : RESEARCH_COPY.noEngineKeyDetail} />}
-          </div>}
-          {createdRuns.length > 0 && <p role="status" className="px-4 text-sm text-secondary">Saved runs: {createdRuns.map((run, index) => <span key={run.id}>{index > 0 ? ', ' : ''}<a href={`#research-run-${run.id}`} className="text-link underline" onClick={() => setSelectedRunId(run.id)}>{[run.scope?.label, run.location?.label].filter(Boolean).join(' · ') || RESEARCH_COPY.notSet}</a></span>)}</p>}
+          {/* One link per run with no separator: a Subject or a search location can hold a comma. */}
+          {createdRuns.length > 0 && <div role="status" className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 text-sm text-secondary"><span>Saved runs</span>{createdRuns.map(run => <a key={run.id} href={`#research-run-${run.id}`} className={`inline-flex items-center text-link underline ${TOUCH_TARGET}`} onClick={() => setSelectedRunId(run.id)}>{[run.scope?.label, run.location?.label].filter(Boolean).join(' · ') || RESEARCH_COPY.notSet}</a>)}</div>}
           </>
         )}
 
@@ -326,12 +335,12 @@ export function ResearchQueriesSection({
                 <tbody>
                   {runs.map(run => (
                     <tr key={run.id} className={selectedRunId === run.id ? 'bg-bg-elevated/40' : undefined}>
-                      <td className="whitespace-nowrap"><button type="button" className="text-left font-medium text-heading hover:text-link focus:outline-none focus:underline" onClick={() => setSelectedRunId(run.id)}>{formatResearchDate(run.createdAt)}</button></td>
+                      <td className="whitespace-nowrap"><button type="button" className={ROW_BUTTON} onClick={() => setSelectedRunId(run.id)}>{formatResearchDate(run.createdAt)}</button></td>
                       <td className="whitespace-nowrap text-secondary"><span className="block">{providerDisplayName(run.provider)}</span><span className="font-mono text-[11px] text-muted">{run.requestedModel ?? run.resolvedModel}</span></td>
                       <td className="text-secondary">{run.scope?.label ?? RESEARCH_COPY.notSet}</td>
                       <td className="text-secondary">{run.location?.label ?? RESEARCH_COPY.noSearchLocation}</td>
-                      <td className="whitespace-nowrap tabular-nums text-secondary">{run.completedQueries + run.failedQueries}/{run.totalQueries}</td>
-                      <td className="whitespace-nowrap"><ToneBadge tone={toneForResearchRun(run.status)}>{run.status}</ToneBadge></td>
+                      <td className="whitespace-nowrap tabular-nums text-secondary">{run.completedQueries + run.failedQueries} of {run.totalQueries}</td>
+                      <td className="whitespace-nowrap"><ToneBadge tone={toneForResearchRun(run.status)}>{STATUS_LABEL[run.status]}</ToneBadge></td>
                     </tr>
                   ))}
                 </tbody>
@@ -341,12 +350,15 @@ export function ResearchQueriesSection({
           {/* One button for the next page and its retry, so a failed load keeps focus on it. */}
           {(runsQuery.isFetchNextPageError || runsQuery.hasNextPage) && <div className="mt-3 flex flex-wrap items-center gap-3">
             {runsQuery.isFetchNextPageError && <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={RESEARCH_COPY.historyMoreError} /></span>}
-            {runsQuery.hasNextPage && <Button variant="outline" disabled={runsQuery.isFetching} aria-label={runsQuery.isFetchNextPageError && !runsQuery.isFetchingNextPage ? 'Retry older runs' : undefined} onClick={() => { void runsQuery.fetchNextPage() }}>{runsQuery.isFetchingNextPage ? RESEARCH_COPY.historyLoading : runsQuery.isFetchNextPageError ? RESEARCH_COPY.retry : RESEARCH_COPY.historyMore}</Button>}
+            {runsQuery.hasNextPage && <Button variant="outline" size="sm" className={TOUCH_TARGET} disabled={runsQuery.isFetching} aria-label={runsQuery.isFetchNextPageError && !runsQuery.isFetchingNextPage ? 'Retry older runs' : undefined} onClick={() => { void runsQuery.fetchNextPage() }}>{runsQuery.isFetchingNextPage ? RESEARCH_COPY.historyLoading : runsQuery.isFetchNextPageError ? RESEARCH_COPY.retry : RESEARCH_COPY.historyMore}</Button>}
           </div>}
         </Card>
       </div>
 
-      {!historyError && detailQuery.isError ? <div role="alert" className="px-4"><StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={RESEARCH_COPY.resultsError} action={<RetryButton name="results" onClick={() => { void detailQuery.refetch() }} />} /></div> : !historyError ? <ResearchRunDetail detail={detail} isLoading={detailQuery.isFetching || runsQuery.isPending} onReviewForTracking={publicDemo ? undefined : onReviewForTracking} /> : null}
+      {!historyError && <ResearchRunDetail detail={detail} isLoading={detailQuery.isFetching || runsQuery.isPending} onReviewForTracking={publicDemo ? undefined : onReviewForTracking}
+        failedRunId={detailQuery.isError ? selectedRunId : null}
+        failure={<StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={RESEARCH_COPY.resultsError} action={<RetryButton name="results" onClick={() => { void detailQuery.refetch() }} />} />}
+      />}
     </div>
   )
 }
@@ -358,6 +370,10 @@ type ComposerProps = {
   projectName: string
   canWrite: boolean
   researchAllowed: boolean
+  /** The account cannot run research: the footer says so in place of a Run button that could never work. */
+  viewOnly: boolean
+  /** Limits and failed reads that hold back a run, shown beside Run. */
+  runNotes?: ReactNode
   limitedAccess: boolean
   isEmbed: boolean
   scopeOptions: readonly VisibilityReportScopeOption[]
@@ -384,10 +400,20 @@ type ComposerProps = {
   errorMessage?: string
   onSubmit: (body: Omit<ResearchBatchCreate, 'idempotencyKey'>, fingerprint: string) => void
 }
+// Buttons and links here are 44px tall where a finger is the pointer.
+const TOUCH_TARGET = 'pointer-coarse:min-h-11 max-md:min-h-11'
+const ROW_BUTTON = 'rounded-sm text-left font-medium text-heading hover:text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
+const STATUS_LABEL: Record<ResearchRunStatus, string> = {
+  [ResearchRunStatuses.queued]: 'Queued',
+  [ResearchRunStatuses.running]: 'Running',
+  [ResearchRunStatuses.completed]: 'Completed',
+  [ResearchRunStatuses.partial]: 'Partial',
+  [ResearchRunStatuses.failed]: 'Failed',
+}
 const INPUT_CLASS = 'mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50'
 const NO_LOCATION = '__none__'
 const OVER_RUNS = `Over ${MAX_RESEARCH_BATCH_RUNS} runs`
-const SELECTION_UNAVAILABLE: ResearchNote = { label: 'Selection unavailable', detail: 'A ticked market, location or search location is no longer available. Update what is ticked.' }
+const SELECTION_UNAVAILABLE: ResearchNote = { label: 'Selection unavailable', detail: 'A selected market, location or search location is no longer available. Update the selection.' }
 
 function ResearchBatchComposer(props: ComposerProps) {
   const { projectName, locations, provider, resolvedModel, planRevision } = props
@@ -440,14 +466,14 @@ function ResearchBatchComposer(props: ComposerProps) {
   const setupErrors: ResearchNote[] = []
   if (!sourceLines.length) setupErrors.push(mode === 'once' ? { label: 'Write a query', detail: 'Enter at least one query.' } : { label: 'Write a pattern', detail: 'Enter at least one pattern.' })
   if (sourceLines.some(line => line.length > 4000)) setupErrors.push({ label: 'Query too long', detail: 'Keep each query under 4,001 characters.' })
-  if (mode !== 'once' && patternSyntaxError) setupErrors.push({ label: 'Unknown name', detail: 'Use the name button to insert a name. Remove unknown or incomplete braces.' })
-  if (!contexts.length) setupErrors.push({ label: `Pick a ${placeNoun}`, detail: `Tick at least one ${placeNoun}.` })
+  if (mode !== 'once' && patternSyntaxError) setupErrors.push({ label: 'Name not recognized', detail: 'Use the name button to insert a name. Remove unrecognized or incomplete braces.' })
+  if (!contexts.length) setupErrors.push({ label: `Pick a ${placeNoun}`, detail: `Select at least one ${placeNoun}.` })
   if (contexts.some(context => !context || context.location === undefined)) setupErrors.push(SELECTION_UNAVAILABLE)
   const requiresScope = (mode === 'once' && scopeKey !== 'project') || mode === 'markets' || mode === 'properties'
   if (requiresScope && (props.scopePending || props.scopeError || !planRevision)) setupErrors.push({ label: 'Places not loaded', detail: 'Markets and locations are loading or did not load. Research for one of them has to wait.' })
   else if (requiresScope && contexts.some(context => !context?.scope)) setupErrors.push(mode === 'once' ? { label: RESEARCH_COPY.subjectUnavailable, detail: 'The Subject is no longer in the published plan. Pick another, or Not set.' } : SELECTION_UNAVAILABLE)
   const total = (mode === 'once' ? directQueries.length : sourceLines.length) * contexts.length
-  if (contexts.length > MAX_RESEARCH_BATCH_RUNS) setupErrors.push({ label: OVER_RUNS, detail: `${contexts.length} ${placeNoun}s ticked. One batch takes at most ${MAX_RESEARCH_BATCH_RUNS} runs.` })
+  if (contexts.length > MAX_RESEARCH_BATCH_RUNS) setupErrors.push({ label: OVER_RUNS, detail: `${contexts.length} ${placeNoun}s selected. One batch takes at most ${MAX_RESEARCH_BATCH_RUNS} runs.` })
   if (total > MAX_RESEARCH_BATCH_QUERIES) setupErrors.push({ label: `Over ${MAX_RESEARCH_BATCH_QUERIES} queries`, detail: `${total} queries selected. One batch takes at most ${MAX_RESEARCH_BATCH_QUERIES}.` })
   if (templateStale) setupErrors.push({ label: 'Pattern changed', detail: 'This saved pattern changed. Pick its current version from Saved patterns.' })
   if (mode !== 'once' && !patternSyntaxError) {
@@ -457,8 +483,8 @@ function ResearchBatchComposer(props: ComposerProps) {
       catch {
         // {location} binds only where a search location is set; any other name that fails belongs to another run mode.
         setupErrors.push((selectedTemplate?.variables ?? patternVariables).includes('location') && !context.location
-          ? { label: 'Pick a search location', detail: `{location} is the search location. Set one beside each ticked ${placeNoun}, or remove {location}.` }
-          : { label: 'Unknown name', detail: `A name in this pattern has no value for a ${placeNoun}. Use the name button to insert one that does.` })
+          ? { label: 'Pick a search location', detail: `{location} is the search location. Set one beside each selected ${placeNoun}, or remove {location}.` }
+          : { label: 'Name has no value', detail: `A name in this pattern has no value for a ${placeNoun}. Use the name button to insert one that does.` })
         break
       }
     }
@@ -473,7 +499,7 @@ function ResearchBatchComposer(props: ComposerProps) {
   const rowErrors: ResearchNote[] = []
   if (mode !== 'once' && preview) {
     if (rows.some(row => !row.query.trim() || row.query.length > 4000 || /\{(?:market|submarket|property|propertyBrand|location)\}/.test(row.query))) rowErrors.push({ label: 'Incomplete query', detail: 'Every row needs a query of 1 to 4,000 characters with no unfilled names.' })
-    if (rows.some(row => row.location && !locations.some(location => JSON.stringify(location) === JSON.stringify(row.location)))) rowErrors.push({ label: SELECTION_UNAVAILABLE.label, detail: 'A search location in this preview changed. Regenerate the preview.' })
+    if (rows.some(row => row.location && !locations.some(location => JSON.stringify(location) === JSON.stringify(row.location)))) rowErrors.push({ label: 'Search location changed', detail: 'A search location in this preview changed. Regenerate the preview.' })
     if (groups.some(group => deduplicateResearchQueries(group.queries).length !== group.queries.length)) rowErrors.push({ label: 'Duplicate queries', detail: 'Remove repeated queries within one run.' })
     if (groups.length > MAX_RESEARCH_BATCH_RUNS) rowErrors.push({ label: OVER_RUNS, detail: `This preview holds ${groups.length} runs. One batch takes at most ${MAX_RESEARCH_BATCH_RUNS}.` })
   }
@@ -518,7 +544,7 @@ function ResearchBatchComposer(props: ComposerProps) {
       setSelectedTemplate(template)
       setSaveOpen(false); setSaveName(''); setSaveError(null); saveReceipt.current = null
       await queryClient.invalidateQueries({ queryKey: getApiV1ProjectsByNameMeasurementQueryTemplatesQueryKey({ client: heyClient, path: { name: projectName } }) })
-      addToast({ title: 'Pattern saved', detail: 'Available in Saved patterns. Tracking was not changed.', tone: 'positive' })
+      addToast({ title: 'Pattern saved', detail: 'In Saved patterns', tone: 'positive' })
     },
     onError: () => setSaveError({ label: 'Could not save', detail: 'The pattern was not saved. Your text is kept. Save again to retry.', tone: 'negative' }),
     onSettled: () => { saveInFlight.current = false },
@@ -570,15 +596,17 @@ function ResearchBatchComposer(props: ComposerProps) {
         <LocationSelect label={RESEARCH_COPY.searchLocation} value={directLocationLabel} locations={locations} onChange={value => { setDirectLocation(value); setSelectedTemplate(null) }} />
       </div>}
       {mode !== 'once' && <fieldset className="space-y-3" aria-labelledby="research-places-label">
-        <div className="flex items-center"><span id="research-places-label" className="text-sm font-medium text-heading">{mode === 'markets' ? 'Markets' : mode === 'properties' ? 'Locations' : 'Search locations'}</span><InfoTooltip text={`Tick each ${placeNoun} yourself. Each one gets its own saved run.`} placement="bottom" /></div>
+        <div className="flex items-center"><span id="research-places-label" className="text-sm font-medium text-heading">{mode === 'markets' ? 'Markets' : mode === 'properties' ? 'Locations' : 'Search locations'}</span><InfoTooltip text={`Select each ${placeNoun} yourself. Each one gets its own saved run.`} placement="bottom" /></div>
         <input type="search" aria-label="Search" className={INPUT_CLASS} placeholder="Search" value={search} onChange={event => setSearch(event.target.value)} />
+        {/* Column headers on the rows' own grid. Each select carries its own name, and below sm, where it stacks under its row, its own label. */}
+        {mode !== 'locations' && <div aria-hidden="true" className="hidden gap-2 pr-1 text-[13px] text-secondary sm:grid sm:grid-cols-[minmax(0,1fr)_16rem]"><span>{mode === 'markets' ? 'Market' : 'Location'}</span><span>{RESEARCH_COPY.searchLocation}</span></div>}
         <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
           {(mode === 'locations' ? locations.map(location => ({ key: location.label, label: location.label })) : destinations.map(option => ({ key: `${option.kind}:${option.id}`, label: option.label })))
             .filter(option => option.label.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(option => {
               const checked = selectedKeys.includes(option.key)
               return <div key={option.key} className="grid items-center gap-2 border-b border-default pb-2 sm:grid-cols-[minmax(0,1fr)_16rem]">
                 <label className="flex min-h-11 items-center gap-3 text-sm text-heading"><input type="checkbox" checked={checked} onChange={() => setSelectedKeys(current => checked ? current.filter(key => key !== option.key) : [...current, option.key])} />{option.label}</label>
-                {checked && mode !== 'locations' && <LocationSelect hideLabel label={`${RESEARCH_COPY.searchLocation} for ${option.label}`} value={destinationLocations[option.key] ?? NO_LOCATION} locations={locations} onChange={value => setDestinationLocations(current => ({ ...current, [option.key]: value }))} />}
+                {checked && mode !== 'locations' && <LocationSelect inRow label={RESEARCH_COPY.searchLocation} name={`${RESEARCH_COPY.searchLocation} for ${option.label}`} value={destinationLocations[option.key] ?? NO_LOCATION} locations={locations} onChange={value => setDestinationLocations(current => ({ ...current, [option.key]: value }))} />}
               </div>
             })}
         </div>
@@ -592,21 +620,21 @@ function ResearchBatchComposer(props: ComposerProps) {
           else { setPattern(event.target.value); setSelectedTemplate(null) }
         }} />
         {mode !== 'once' && <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
-          <Button size="sm" variant="outline" onClick={() => insertToken(tokenName)}><Plus size={14} aria-hidden="true" />{mode === 'markets' ? 'Market name' : mode === 'properties' ? 'Location name' : 'Search location name'}</Button>
+          <Button size="sm" variant="outline" className={TOUCH_TARGET} onClick={() => insertToken(tokenName)}><Plus size={14} aria-hidden="true" />{mode === 'markets' ? 'Market name' : mode === 'properties' ? 'Location name' : 'Search location name'}</Button>
           {mode === 'properties' && patternVariables.includes('location') && <StatusNote icon={AlertTriangle} tone="caution" label={RESEARCH_COPY.usesSearchLocation} detail={RESEARCH_COPY.usesSearchLocationDetail} />}
         </div>}
         <p id="research-query-count" className="mt-2 text-sm tabular-nums text-secondary">{total} of {MAX_RESEARCH_BATCH_QUERIES} queries{mode === 'once' ? '' : ` · ${plural(contexts.length, 'run', 'runs')}`}</p>
       </div>
       {mode !== 'once' && <details className="border-t border-default pt-3"><summary className="cursor-pointer text-sm font-medium text-heading focus-visible:outline focus-visible:outline-2">Saved patterns <span className="font-normal text-secondary">(optional)</span></summary>
         <div className="mt-3 space-y-3">
-          {/* The help is in the panel: a button inside the summary would toggle the disclosure. It stays beside the list when the list wraps. */}
-          <div className="flex items-center">
-            {!selectableTemplates.length ? <span className="text-sm text-secondary">{RESEARCH_COPY.noSavedPatterns}</span> : <div className="flex min-w-0 flex-wrap gap-2">{selectableTemplates.map(template => <Button size="sm" variant="outline" key={template.id} onClick={() => chooseTemplate(template)}>{template.label}</Button>)}</div>}
-            <InfoTooltip text={RESEARCH_COPY.savedPatternsHelp} placement="bottom" />
+          {/* The help is in the panel: a button inside the summary would toggle the disclosure. It leads the row, so it never reads as help for the last pattern. */}
+          <div className="flex items-start gap-2">
+            <span className={`flex h-9 shrink-0 items-center md:h-8 ${TOUCH_TARGET}`}><InfoTooltip text={RESEARCH_COPY.savedPatternsHelp} placement="bottom" /></span>
+            {!selectableTemplates.length ? <span className={`flex h-9 items-center text-sm text-secondary md:h-8 ${TOUCH_TARGET}`}>{RESEARCH_COPY.noSavedPatterns}</span> : <div className="flex min-w-0 flex-wrap gap-2">{selectableTemplates.map(template => <Button size="sm" variant="outline" className={TOUCH_TARGET} key={template.id} onClick={() => chooseTemplate(template)}>{template.label}</Button>)}</div>}
           </div>
           {selectedTemplate && <p className="text-sm text-secondary">Using: {selectedTemplate.label}</p>}
-          {props.canWrite && !props.isEmbed && <><Button size="sm" variant="outline" onClick={() => setSaveOpen(!saveOpen)}>{saveOpen ? 'Cancel save' : 'Save as a pattern'}</Button>
-            {saveOpen && <div className="flex flex-wrap items-end gap-3"><label className="min-w-48 flex-1 text-sm text-heading">Pattern name<input className={INPUT_CLASS} value={saveName} maxLength={120} onChange={event => setSaveName(event.target.value)} /></label><Button size="sm" disabled={saveMutation.isPending || !saveName.trim() || !source.trim()} onClick={savePattern}>{saveMutation.isPending ? 'Saving…' : 'Save pattern'}</Button></div>}
+          {props.canWrite && !props.isEmbed && <><Button size="sm" variant="outline" className={TOUCH_TARGET} onClick={() => setSaveOpen(!saveOpen)}>{saveOpen ? 'Cancel save' : 'Save as a pattern'}</Button>
+            {saveOpen && <div className="flex flex-wrap items-end gap-3"><label className="min-w-48 flex-1 text-sm text-heading">Pattern name<input className={INPUT_CLASS} value={saveName} maxLength={120} onChange={event => setSaveName(event.target.value)} /></label><Button size="sm" className={TOUCH_TARGET} disabled={saveMutation.isPending || !saveName.trim() || !source.trim()} onClick={savePattern}>{saveMutation.isPending ? 'Saving…' : 'Save pattern'}</Button></div>}
           </>}
           {saveError && <InlineNotes notes={[saveError]} />}
         </div>
@@ -614,7 +642,7 @@ function ResearchBatchComposer(props: ComposerProps) {
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block text-sm font-medium text-heading">Engine<select className={INPUT_CLASS} value={provider} onChange={event => props.onProviderChange(event.target.value)}><option value="" disabled>Choose an engine</option>{props.providerOptions.map(item => <option key={item.name} value={item.name}>{item.displayName ?? item.name}</option>)}</select></label>
         <label className="block text-sm font-medium text-heading">Model
-          {props.limitedAccess ? <select className={INPUT_CLASS} value={props.model} disabled={!provider || !props.configurableModel} onChange={event => props.onModelChange(event.target.value)}><option value="">Use AI Visibility model · {props.visibilityModel}</option>{props.modelOptions.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select>
+          {props.limitedAccess ? <select className={INPUT_CLASS} value={props.model} disabled={!provider || !props.configurableModel} onChange={event => props.onModelChange(event.target.value)}><option value="">{props.visibilityModel ? `${RESEARCH_COPY.inheritedModel} · ${props.visibilityModel}` : 'Choose an engine'}</option>{props.modelOptions.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select>
             : <><input aria-label="Model" className={INPUT_CLASS} list="research-known-models" placeholder={resolvedModel ?? 'Choose an engine'} value={props.model} disabled={!provider || !props.configurableModel} onChange={event => props.onModelChange(event.target.value)} /><datalist id="research-known-models">{props.modelOptions.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</datalist></>}
         </label>
       </div>
@@ -622,7 +650,7 @@ function ResearchBatchComposer(props: ComposerProps) {
       {mode !== 'once' && <div className="space-y-4 border-t border-default pt-4">
         {/* The button comes first and stays mounted, so regenerating a stale preview keeps focus on it. */}
         <div className="flex flex-wrap items-center gap-3">
-          <Button variant="outline" size="sm" disabled={props.isPending || !props.projectReady} onClick={createPreview}><RefreshCw size={14} />{preview ? RESEARCH_COPY.refreshPreview : 'Preview queries'}</Button>
+          <Button variant="outline" size="sm" className={TOUCH_TARGET} disabled={props.isPending || !props.projectReady} onClick={createPreview}><RefreshCw size={14} />{preview ? RESEARCH_COPY.refreshPreview : 'Preview queries'}</Button>
           {previewStale && <span role="alert"><StatusNote icon={AlertTriangle} tone="caution" label={planChanged ? RESEARCH_COPY.planChanged : RESEARCH_COPY.setupChanged} detail={planChanged ? RESEARCH_COPY.planChangedDetail : RESEARCH_COPY.setupChangedDetail} /></span>}
         </div>
         {preview && <><div>
@@ -633,17 +661,21 @@ function ResearchBatchComposer(props: ComposerProps) {
         </>}
       </div>}
       {props.errorMessage && <InlineNotes notes={[{ label: RESEARCH_COPY.notConfirmed, detail: `${props.errorMessage} ${RESEARCH_COPY.notConfirmedDetail}`, tone: 'negative' }]} />}
-      <div className="flex flex-wrap items-center gap-3 border-t border-default pt-4">
-        {!props.isEmbed && <Button size="sm" disabled={!canRun} onClick={() => { if (canRun) { const request = buildRequest(); props.onSubmit(request, JSON.stringify({ projectName, ...request })) } }}><Play size={14} />{props.isPending ? 'Starting…' : RESEARCH_COPY.runAction}</Button>}
-        <p className="text-sm tabular-nums text-secondary">{[plural(mode === 'once' ? directQueries.length : rows.length, 'query', 'queries'), engineLabel, resolvedModel].filter(Boolean).join(' · ')}</p>
+      {/* An account that cannot run research gets no Run button, only the reason. What limits or holds back a run sits beside Run. */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-default pt-4">
+        {props.viewOnly ? <StatusNote icon={Eye} label={RESEARCH_COPY.viewOnly} detail={RESEARCH_COPY.viewOnlyDetail} /> : <div className="flex flex-wrap items-center gap-3">
+          {!props.isEmbed && <Button size="sm" className={TOUCH_TARGET} disabled={!canRun} onClick={() => { if (canRun) { const request = buildRequest(); props.onSubmit(request, JSON.stringify({ projectName, ...request })) } }}><Play size={14} />{props.isPending ? 'Starting…' : RESEARCH_COPY.runAction}</Button>}
+          <p className="text-sm tabular-nums text-secondary">{[plural(mode === 'once' ? directQueries.length : rows.length, 'query', 'queries'), engineLabel, resolvedModel].filter(Boolean).join(' · ')}</p>
+        </div>}
+        {props.runNotes}
       </div>
     </fieldset>
   </Card>
 }
 
-/** `label` is the select's name. `name` replaces it for assistive tech when the visible label is shorter; `hideLabel` is for a row whose value says what it is. */
-function LocationSelect({ label, name, hideLabel = false, value, locations, onChange }: { label: string; name?: string; hideLabel?: boolean; value: string; locations: readonly LocationContext[]; onChange: (value: string) => void }) {
-  return <label className="block text-sm"><span className={hideLabel ? 'sr-only' : 'font-medium text-heading'}>{label}</span><select className={INPUT_CLASS} aria-label={name} value={value} onChange={event => onChange(event.target.value)}><option value={NO_LOCATION}>{RESEARCH_COPY.noSearchLocation}</option>{locations.map(location => <option key={location.label} value={location.label}>{location.label}</option>)}</select></label>
+/** `label` is the select's name. `name` replaces it for assistive tech when the visible label is shorter; `inRow` is for a list row under a column header, which shows the label only below sm, where the select stacks under its row. */
+function LocationSelect({ label, name, inRow = false, value, locations, onChange }: { label: string; name?: string; inRow?: boolean; value: string; locations: readonly LocationContext[]; onChange: (value: string) => void }) {
+  return <label className="block text-sm"><span className={inRow ? 'text-[13px] text-secondary sm:sr-only' : 'font-medium text-heading'}>{label}</span><select className={INPUT_CLASS} aria-label={name} value={value} onChange={event => onChange(event.target.value)}><option value={NO_LOCATION}>{RESEARCH_COPY.noSearchLocation}</option>{locations.map(location => <option key={location.label} value={location.label}>{location.label}</option>)}</select></label>
 }
 function ConcretePreview({ rows, locations, onChange }: { rows: readonly PreviewRow[]; locations: readonly LocationContext[]; onChange: (id: string, changes: Partial<Pick<PreviewRow, 'query' | 'location'>>) => void }) {
   return <ol className="divide-y divide-default">{rows.map((row, index) => <li key={row.id} className="grid gap-3 py-4 md:grid-cols-[10rem_minmax(0,1fr)_15rem]">
@@ -658,7 +690,7 @@ function InlineNotes({ notes }: { notes: readonly ResearchNote[] }) {
 }
 /** "Retry" on screen. Its name says what it reloads, because a server that is down shows several. */
 function RetryButton({ name, onClick }: { name: string; onClick?: () => void }) {
-  return <Button variant="outline" size="sm" className="pointer-coarse:min-h-11 max-md:min-h-11" aria-label={`${RESEARCH_COPY.retry} ${name}`} onClick={onClick}>{RESEARCH_COPY.retry}</Button>
+  return <Button variant="outline" size="sm" className={TOUCH_TARGET} aria-label={`${RESEARCH_COPY.retry} ${name}`} onClick={onClick}>{RESEARCH_COPY.retry}</Button>
 }
 function groupPreviewRows(rows: readonly PreviewRow[]) {
   const groups = new Map<string, { scope: ResearchRunScope | null; location: LocationContext | null; queries: string[]; template?: ResearchTemplateSelection }>()
@@ -673,10 +705,15 @@ function groupPreviewRows(rows: readonly PreviewRow[]) {
 function ResearchRunDetail({
   detail,
   isLoading,
+  failedRunId,
+  failure,
   onReviewForTracking,
 }: {
   detail: ResearchRunDetailDto | null
   isLoading: boolean
+  /** The selected run when its results did not load: the card keeps its heading and shows `failure` as its body. */
+  failedRunId: string | null
+  failure: ReactNode
   onReviewForTracking?: (source: ResearchTrackingSource) => void
 }) {
   const [selectedQueryId, setSelectedQueryId] = useState<string | null>(null)
@@ -692,10 +729,11 @@ function ResearchRunDetail({
       <div className="section-head section-head-inline">
         <div>
           <p className="eyebrow eyebrow-soft">Results</p>
-          <h3>{detail ? `Research run ${shortId(detail.id)}` : isLoading ? 'Loading results…' : RESEARCH_COPY.resultsEmpty}</h3>
+          <h3>{detail ? `Research run ${shortId(detail.id)}` : failedRunId ? `Research run ${shortId(failedRunId)}` : isLoading ? 'Loading results…' : RESEARCH_COPY.resultsEmpty}</h3>
         </div>
-        {detail && <ToneBadge tone={toneForResearchRun(detail.status)}>{detail.status}</ToneBadge>}
+        {detail && <ToneBadge tone={toneForResearchRun(detail.status)}>{STATUS_LABEL[detail.status]}</ToneBadge>}
       </div>
+      {failedRunId && <div role="alert" className="mt-4">{failure}</div>}
       {detail && <div className="mt-3 space-y-3 text-sm text-secondary">
         <dl className="flex flex-wrap gap-x-6 gap-y-2 [overflow-wrap:anywhere]">
           <div><dt className="font-medium">Engine</dt><dd>{providerDisplayName(detail.provider)}</dd></div>
@@ -722,9 +760,9 @@ function ResearchRunDetail({
               <tbody>
                 {detail.queries.map(item => (
                   <tr key={item.id} className={selected?.id === item.id ? 'bg-bg-elevated/40' : undefined}>
-                    <td><button type="button" className="text-left font-medium text-heading hover:text-link focus:outline-none focus:underline" onClick={() => setSelectedQueryId(item.id)}>{item.query}</button></td>
+                    <td className="max-sm:max-w-[13rem]"><button type="button" className={ROW_BUTTON} onClick={() => setSelectedQueryId(item.id)}>{item.query}</button></td>
                     <td className="whitespace-nowrap"><ToneBadge tone={item.queryClass === 'branded' ? 'positive' : item.queryClass === 'non-brand' ? 'neutral' : 'caution'}>{item.queryClass === 'branded' ? RESEARCH_COPY.brandedQuery : item.queryClass === 'non-brand' ? RESEARCH_COPY.nonBrandQuery : RESEARCH_COPY.untypedQuery}</ToneBadge></td>
-                    <td className="whitespace-nowrap"><ToneBadge tone={toneForResearchQuery(item.status)}>{item.status}</ToneBadge></td>
+                    <td className="whitespace-nowrap"><ToneBadge tone={toneForResearchQuery(item.status)}>{STATUS_LABEL[item.status]}</ToneBadge></td>
                     <td className="whitespace-nowrap"><ToneBadge tone={item.answerMentioned === true ? 'positive' : item.answerMentioned === false ? 'neutral' : item.status === ResearchQueryStatuses.failed ? 'negative' : 'caution'}>{item.answerMentioned === null ? unchecked(item.status) : item.answerMentioned ? 'Named' : 'Not named'}</ToneBadge></td>
                     <td className="whitespace-nowrap"><ToneBadge tone={item.citationState === 'cited' ? 'positive' : item.citationState === 'not-cited' ? 'neutral' : item.status === ResearchQueryStatuses.failed ? 'negative' : 'caution'}>{item.citationState === null ? unchecked(item.status) : item.citationState === 'cited' ? 'Cited' : 'Not cited'}</ToneBadge></td>
                   </tr>
@@ -778,7 +816,7 @@ function ResearchAnswer({
       )}
       {query.namedCompetitors.length > 0 && (
         <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted">Named in answer</p>
+          <p className="text-[10px] uppercase tracking-wide text-muted">Competitors named</p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {query.namedCompetitors.map(name => <span key={name} className="mention-chip mention-chip--competitor">{name}</span>)}
           </div>

@@ -90,6 +90,7 @@ test('past research names each run by engine, Subject and search location, and a
 
   expect(screen.getByRole('heading', { name: RESEARCH_COPY.historyTitle }).textContent).toBe('Past research')
   expect(screen.getByRole('status', { name: 'Loading past research' })).toBeTruthy()
+  expect(within(screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle })).getByRole('heading').textContent).toBe('Loading results…')
   const failed = await screen.findByRole('button', { name: `${RESEARCH_COPY.loadError}. ${RESEARCH_COPY.historyError}` })
   expect(failed.textContent).toBe('Could not load')
   // No results card and no table are drawn over a history that did not load.
@@ -103,9 +104,9 @@ test('past research names each run by engine, Subject and search location, and a
   expect(screen.queryByRole('alert')).toBeNull()
   expect(within(history).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Run', 'Engine', 'Subject', 'Search location', 'Progress', 'Status'])
   const cells = (id: string) => within(within(history).getAllByRole('row').find(row => row.textContent?.includes(id))!).getAllByRole('cell').slice(1).map(cell => cell.textContent)
-  expect(cells(market.id)).toEqual([`Gemini${market.id}`, 'Harbor Point', 'Northbridge', '1/1', 'completed'])
+  expect(cells(market.id)).toEqual([`Gemini${market.id}`, 'Harbor Point', 'Northbridge', '1 of 1', 'Completed'])
   // A run saved under no Subject and asked from no search location says so in those words.
-  expect(cells(plain.id)).toEqual([`OpenAI${plain.id}`, RESEARCH_COPY.notSet, RESEARCH_COPY.noSearchLocation, '1/1', 'completed'])
+  expect(cells(plain.id)).toEqual([`OpenAI${plain.id}`, RESEARCH_COPY.notSet, RESEARCH_COPY.noSearchLocation, '1 of 1', 'Completed'])
 })
 
 test('with no saved runs the page says No research yet and No run selected', async () => {
@@ -142,11 +143,17 @@ test('a run whose results did not load offers Retry and reads them again', async
   onTestFinished(() => client.clear())
   render(<QueryClientProvider client={client}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>)
 
-  expect((await screen.findByRole('button', { name: `${RESEARCH_COPY.loadError}. ${RESEARCH_COPY.resultsError}` })).textContent).toBe('Could not load')
+  const failed = await screen.findByRole('button', { name: `${RESEARCH_COPY.loadError}. ${RESEARCH_COPY.resultsError}` })
+  expect(failed.textContent).toBe('Could not load')
+  // The failure is the body of the Results card, under the run it belongs to, with its Retry beside it.
+  const results = screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle })
+  expect(within(results).getByRole('heading').textContent).toBe('Research run only-run')
+  expect(within(within(results).getByRole('alert')).getAllByRole('button').map(button => button.textContent)).toEqual(['Could not load', 'Retry'])
   // The run list is still there to pick another run from.
   expect(screen.getAllByRole('table')).toHaveLength(1)
   fail = false
   fireEvent.click(screen.getByRole('button', { name: 'Retry results' }))
   await screen.findByText(run.queries[0]!.answerText!)
   expect(screen.queryByRole('alert')).toBeNull()
+  expect(within(screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle })).getByRole('heading', { level: 3 }).textContent).toBe('Research run only-run')
 })
