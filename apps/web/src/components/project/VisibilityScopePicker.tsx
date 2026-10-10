@@ -9,13 +9,13 @@ export const MARKET_SCOPE_COPY = {
   allMarkets: 'All markets',
   browse: (label: string) => `Browse ${label}`,
   select: (label: string) => `Select ${label}`,
-  browseAll: 'Browse all properties',
+  browseAll: (plural: string) => `Browse all ${plural}`,
 }
 const marketForGroup = (scope?: VisibilityReportScopeOption) => scope?.kind === 'group' && scope.marketKeys?.length === 1 ? scope.marketKeys[0] : undefined
-const countFor = (count: number) => `${count} ${count === 1 ? 'property' : 'properties'}`
+const capitalized = (word: string) => `${word.charAt(0).toLocaleUpperCase()}${word.slice(1)}`
 
 /** Navigation uses explicit frozen memberships, never labels or inferred containment. */
-export function VisibilityScopePicker({ options: suppliedOptions, selected, placeholder = 'Choose a scope', onSelect, marketKey, label = 'Measurement scope', labelVisibility = 'visible', allowGroupSelect = true }: {
+export function VisibilityScopePicker({ options: suppliedOptions, selected, placeholder = 'Choose a scope', onSelect, marketKey, label = 'Measurement scope', labelVisibility = 'visible', allowGroupSelect = true, propertyNoun: [noun, nouns] = ['property', 'properties'] }: {
   options: VisibilityReportScopeOption[]
   /** Omit while nothing is chosen yet; the trigger then shows `placeholder`. */
   selected?: VisibilityReportScopeOption
@@ -26,6 +26,8 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, plac
   /** `sr-only` hides the label visually; it still names the trigger. */
   labelVisibility?: 'visible' | 'sr-only'
   allowGroupSelect?: boolean
+  /** What a Property is called here, singular then plural. The Add queries sheet says location. */
+  propertyNoun?: readonly [singular: string, plural: string]
 }) {
   const options = [...suppliedOptions].sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true }) || left.id.localeCompare(right.id))
   const [search, setSearch] = useState('')
@@ -34,6 +36,7 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, plac
   const picker = useRef<HTMLDetailsElement>(null)
   const searchInput = useRef<HTMLInputElement>(null)
   const id = useId()
+  const countFor = (count: number) => `${count} ${count === 1 ? noun : nouns}`
   const groups = options.filter(scope => scope.kind === 'group')
   const groupById = new Map(groups.map(group => [group.id, group]))
   const current = groupById.get(path.at(-1) ?? '')
@@ -122,7 +125,7 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, plac
       onClick={() => scope.kind === 'group' && !allowGroupSelect ? browse(scope) : choose(scope)}
     >
       <span className="min-w-0 break-words">{displayLabel}{query && parentLabels(scope) ? <span className="block text-[13px] text-secondary">{parentLabels(scope)}</span> : null}</span>
-      <span className="shrink-0 text-right text-[13px] text-secondary">{scope.kind === 'market' ? allowGroupSelect ? 'Query context' : 'Market' : scope.kind === 'property' ? 'Property' : countFor(scope.targetCount)}</span>
+      <span className="shrink-0 text-right text-[13px] text-secondary">{scope.kind === 'market' ? allowGroupSelect ? 'Query context' : 'Market' : scope.kind === 'property' ? capitalized(noun) : countFor(scope.targetCount)}</span>
     </button>
     {allowGroupSelect && scope.kind === 'group' && scope.id !== current?.id && options.some(option => option.parentGroupIds?.includes(scope.id)) ? <button type="button" aria-label={MARKET_SCOPE_COPY.browse(scope.label)} title={`Browse ${scope.label}`} className="flex min-h-11 min-w-11 items-center justify-center rounded text-secondary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={() => browse(scope)}><ChevronRight size={18} aria-hidden="true" /></button> : null}
   </div>
@@ -142,21 +145,21 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, plac
       if (event.key === 'Escape') { event.preventDefault(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() }
     }}>
       <summary id={`${id}-value`} aria-labelledby={`${id}-label ${id}-value`} className={`${CONTROL} visibility-scope-trigger`} onClick={() => { if (!picker.current?.open) restoreSelection() }}>
-        {selected ? `${labelFor(selected)}${selected.kind === 'group' ? ` · ${countFor(selected.targetCount)}` : selected.kind === 'property' ? ` · ${options.find(option => option.kind === 'market' && option.id === marketKey)?.label ?? (selected.marketKeys?.length ? MARKET_SCOPE_COPY.allMarkets : 'Property')}` : selected.kind === 'market' ? ' · Market' : ''}` : <span className="text-secondary">{placeholder}</span>}<ChevronDown size={16} aria-hidden="true" className="shrink-0 text-secondary" />
+        {selected ? `${labelFor(selected)}${selected.kind === 'group' ? ` · ${countFor(selected.targetCount)}` : selected.kind === 'property' ? ` · ${options.find(option => option.kind === 'market' && option.id === marketKey)?.label ?? (selected.marketKeys?.length ? MARKET_SCOPE_COPY.allMarkets : capitalized(noun))}` : selected.kind === 'market' ? ' · Market' : ''}` : <span className="text-secondary">{placeholder}</span>}<ChevronDown size={16} aria-hidden="true" className="shrink-0 text-secondary" />
       </summary>
       <div className="visibility-scope-menu">
         {current || allProperties ? <div className="mb-2 border-b border-default pb-2">
           <button type="button" className={ROW} aria-label={`Back to ${parent?.label ?? 'all groups'}`} onClick={() => { setPath(path.slice(0, -1)); setAllProperties(false); setSearch(''); searchInput.current?.focus() }}><span className="flex items-center gap-1"><ChevronLeft size={16} aria-hidden="true" />{parent?.label ?? 'All groups'}</span></button>
-          <p className="px-2 py-1 text-sm font-medium text-heading" aria-live="polite">{current?.label ?? 'All properties'}</p>
+          <p className="px-2 py-1 text-sm font-medium text-heading" aria-live="polite">{current?.label ?? `All ${nouns}`}</p>
         </div> : null}
-        <input ref={searchInput} type="search" aria-label="Search scopes" className={CONTROL} placeholder={current ? 'Search within this group' : allProperties ? 'Search properties' : properties.length > 0 ? 'Search groups or properties' : 'Search groups or markets'} value={search} onChange={event => setSearch(event.target.value)} />
+        <input ref={searchInput} type="search" aria-label="Search scopes" className={CONTROL} placeholder={current ? 'Search within this group' : allProperties ? `Search ${nouns}` : properties.length > 0 ? `Search groups or ${nouns}` : 'Search groups or markets'} value={search} onChange={event => setSearch(event.target.value)} />
         <div className="mt-2 max-h-80 overflow-y-auto">
-          {allowGroupSelect && current && !query ? row(current, 'All properties in this group') : null}
+          {allowGroupSelect && current && !query ? row(current, `All ${nouns} in this group`) : null}
           {projects.map(scope => row(scope))}
           {current && !query ? disclosure('Subgroups', visibleGroups, true) : section(current ? 'Subgroups' : 'Groups', visibleGroups)}
-          {query ? section('Properties', visibleProperties) : disclosure(current && visibleGroups.length > 0 ? 'All properties' : 'Properties', visibleProperties, !current || visibleGroups.length === 0)}
+          {query ? section(capitalized(nouns), visibleProperties) : disclosure(current && visibleGroups.length > 0 ? `All ${nouns}` : capitalized(nouns), visibleProperties, !current || visibleGroups.length === 0)}
           {section('Markets', markets)}
-          {!current && !allProperties && !query && groups.length > 0 && properties.length > 0 ? <button type="button" className={`${ROW} mt-2 border-t border-default`} aria-label={MARKET_SCOPE_COPY.browseAll} onClick={() => { setAllProperties(true); searchInput.current?.focus() }}><span>All properties</span><ChevronRight size={18} aria-hidden="true" /></button> : null}
+          {!current && !allProperties && !query && groups.length > 0 && properties.length > 0 ? <button type="button" className={`${ROW} mt-2 border-t border-default`} aria-label={MARKET_SCOPE_COPY.browseAll(nouns)} onClick={() => { setAllProperties(true); searchInput.current?.focus() }}><span>{`All ${nouns}`}</span><ChevronRight size={18} aria-hidden="true" /></button> : null}
           {query && visibleGroups.length + visibleProperties.length + markets.length + projects.length === 0 ? <p className="py-3 text-sm text-secondary">No matching scopes.</p> : null}
         </div>
       </div>

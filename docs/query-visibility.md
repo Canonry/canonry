@@ -5,18 +5,20 @@ Both surfaces use the same API contracts as the CLI and MCP.
 
 ## Assign queries
 
-An advanced project adds market queries in the **Add queries** sheet:
+An advanced project adds market and location queries in the **Add queries** sheet:
 
 1. Open the project's **Queries** tab and select **Add queries**.
-2. Keep **Subject** on **Market** and choose one market. A group row only opens the group, and only groups that hold a market are listed.
+2. Set **Subject** to **Market** or **Location** and choose one market or one location. A group row only opens the group, and only groups that hold a market (or a location) are listed. Changing **Subject** clears the choice.
 3. Enter the queries, one per line. Blank and repeated lines are skipped.
 4. Optional: under **More options**, set **Type** to **Branded** or **Non-brand**. **Automatic** leaves the class to the server. Any other choice applies to every line and stays visible beside **More options**.
 5. Select **Review**, then check the resolved queries and next-sweep workload.
 6. Select **Confirm changes**, which stays at the bottom of the sheet with the sweep pause notice.
 
-Each line becomes one addition for that market with no contexts, so it takes the market's frozen engines, models, and search locations.
+Each market line becomes one addition for that market with no contexts, so it takes the market's frozen engines, models, and search locations.
+Each location line becomes one addition for that location and every market the location already has queries in, again with no contexts. The query is asked with those markets' engines and search locations and counts in those markets' numbers, not only on the location's own page. The sheet lists the markets under the picker (**Counts in** and **Engines and search locations come from**).
+A location with no query in any market has nothing to take them from. The sheet says so and sends the location with one search location and engines: the project's only one, or the one chosen under **Search location and engines** when the project has several.
 If the server refuses a review or a publish, for example over the 1,000-query limit, the sheet shows the reason and keeps the draft.
-**Location** and the link **Hand-picked locations, templates or saved research** lead to the Add query form. That form adds one query at a time, so it opens with the first line only. **Company** is not available yet.
+The link **Hand-picked locations, templates or saved research** leads to the Add query form. That form adds one query at a time, so it opens with the first line only. **Company** is not available yet.
 A simple site has no sheet: **Add query** opens the Add query form directly.
 
 The Add query form assigns one query at a time:
@@ -189,6 +191,9 @@ Preview input contains `expectedWorkspaceVersion`, `additions`, and `removals`, 
 Each edit contains `queryId`, an optional audience, and resolved `text` or `queryClass`.
 An omitted `queryClass` preserves classification. A `null` value requests automatic classification.
 The server retains the exact execution contexts. An edit cannot replace those contexts.
+The **Add queries** sheet works out a location's markets in the browser, so a CLI, MCP or Aero add states them itself.
+To count a location query in its markets as the sheet does, send `audience: { "targetKeys": [<location>], "marketKeys": [<its markets>] }` with no `contexts`. Its markets are every market in the workspace whose `usageEdges` name that location.
+A location in no market has none to take engines from: send `audience: { "targetKeys": [<location>] }` with explicit `contexts` (the sheet sends one). Sent for a location that is in a market, that request counts on the location alone.
 Commit input adds the returned `previewToken` and `reviewedAt` to that exact request.
 The server binds the review time to the token and refuses expired reviews.
 The API returns the actual active revision after publication.
