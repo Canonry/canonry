@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { RefObject } from 'react'
+import type { ComponentProps, RefObject } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Pencil, Play, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import type {
@@ -532,23 +532,61 @@ function TrackedQueriesWorkspace({
       )}
 
       {addSheetOpen && (
-        <AddQueriesSheet
+        <TrackingAddQueriesSheet
           projectName={projectName}
           workspace={workspace}
-          contextChoices={uniqueContextInputs(workspace.defaultContexts.map(contextInput)).map(input => ({ label: contextLabel(input), input }))}
+          sweepActive={publishGuard?.sweepActive ?? false}
           defaultMarketKey={selection.measurementScope === 'market' ? selection.measurementScopeKey : undefined}
+          defaultLocationKey={selection.measurementScope === 'property' ? selection.measurementScopeKey : undefined}
           onOpenComposer={({ text }) => { setAddSheetOpen(false); openAdd('manual', text) }}
           onClose={() => setAddSheetOpen(false)}
-          renderReview={review => {
-            const sweepActive = publishGuard?.sweepActive ?? false
-            return {
-              changes: <TrackingPreview {...review} workspace={workspace} sweepActive={sweepActive} showActions={false} propertyNoun={LOCATION_NOUN} />,
-              actions: <TrackingPreviewActions {...review} sweepActive={sweepActive} />,
-            }
-          }}
         />
       )}
     </div>
+  )
+}
+
+/** The Add queries sheet with the Add query form's search location and engines choices and the review every tracking change gets. */
+function TrackingAddQueriesSheet({ workspace, sweepActive, ...sheet }: Omit<ComponentProps<typeof AddQueriesSheet>, 'contextChoices' | 'renderReview'> & { sweepActive: boolean }) {
+  return (
+    <AddQueriesSheet
+      {...sheet}
+      workspace={workspace}
+      contextChoices={uniqueContextInputs(workspace.defaultContexts.map(contextInput)).map(input => ({ label: contextLabel(input), input }))}
+      renderReview={review => ({
+        changes: <TrackingPreview {...review} workspace={workspace} sweepActive={sweepActive} showActions={false} propertyNoun={LOCATION_NOUN} />,
+        actions: <TrackingPreviewActions {...review} sweepActive={sweepActive} />,
+      })}
+    />
+  )
+}
+
+/**
+ * "Add query about this location" on the location page: the button, and the
+ * Add queries sheet it opens on Location with that location chosen. The
+ * tracking workspace is read only once the button is pressed, so loading the
+ * page makes no extra request. That page has no Add query form, so the sheet
+ * links to none. It reads no runs either, so Confirm is not paused here: the
+ * server refuses a publish during a sweep and the sheet shows the reason.
+ */
+export function AddLocationQueryButton({ projectName, locationKey, className }: { projectName: string; locationKey: string; className?: string }) {
+  const [open, setOpen] = useState(false)
+  const workspaceQuery = useQuery({
+    ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
+    enabled: open,
+  })
+  const workspace = workspaceQuery.data
+  const opening = open && !workspace && workspaceQuery.isFetching
+  const failed = open && !workspace && workspaceQuery.isError && !opening
+  return (
+    <>
+      {failed ? <p role="alert" className="text-sm text-negative">Could not load tracked queries. Try again.</p> : null}
+      <WriteButton type="button" variant="outline" size="sm" className={className} onClick={() => { setOpen(true); if (failed) void workspaceQuery.refetch() }}>
+        <Plus aria-hidden="true" size={14} />
+        {opening ? 'Opening…' : 'Add query about this location'}
+      </WriteButton>
+      {open && workspace ? <TrackingAddQueriesSheet projectName={projectName} workspace={workspace} sweepActive={false} defaultLocationKey={locationKey} onClose={() => setOpen(false)} /> : null}
+    </>
   )
 }
 

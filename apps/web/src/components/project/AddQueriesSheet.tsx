@@ -31,7 +31,7 @@ const TYPES: readonly SegmentedRadioOption<QueryType>[] = [
 /** The wire calls a location a property; this sheet never does, nor does the review its caller draws in it. */
 export const LOCATION_NOUN = ['location', 'locations'] as const
 const PLACES = {
-  market: { kind: 'market', label: 'Market', placeholder: 'Choose a market', none: 'This project has no markets yet. Use hand-picked locations below.' },
+  market: { kind: 'market', label: 'Market', placeholder: 'Choose a market', none: 'This project has no markets yet.' },
   location: { kind: 'property', label: 'Location', placeholder: 'Choose a location', none: 'This project has no locations yet.' },
 } as const
 const FIELD_LABEL = 'mb-1 block text-sm font-medium text-heading'
@@ -79,17 +79,20 @@ function placesOf(options: NonNullable<QueryTrackingWorkspaceResponse['scopeOpti
  * which `onOpenComposer` opens. The form holds one query, so a hand-off takes
  * the first line with it and says so when there are more. The chosen place
  * stays behind: a market checked in the form would narrow hand-picked
- * locations to that market.
+ * locations to that market. A caller with no form (the location page) leaves
+ * `onOpenComposer` out, and the sheet shows no link to it.
  */
-export function AddQueriesSheet({ projectName, workspace, contextChoices, defaultMarketKey, onOpenComposer, onClose, renderReview }: {
+export function AddQueriesSheet({ projectName, workspace, contextChoices, defaultMarketKey, defaultLocationKey, onOpenComposer, onClose, renderReview }: {
   projectName: string
   workspace: QueryTrackingWorkspaceResponse
   /** The search location and engines choices the Add query form offers, so a location in no market gets the same ones. */
   contextChoices: readonly { label: string; input: QueryTrackingContextInput }[]
   /** The market the Tracked view is filtered to, chosen to start with. */
   defaultMarketKey?: string
+  /** The location the Tracked view is filtered to, or the location page the sheet opened from. Subject starts on Location with it chosen. */
+  defaultLocationKey?: string
   /** `text` is the first query line, or empty when nothing is typed yet. */
-  onOpenComposer: (carried: { text: string }) => void
+  onOpenComposer?: (carried: { text: string }) => void
   onClose: () => void
   /**
    * The caller draws the review, so this sheet shows the same one as every other tracking change.
@@ -98,8 +101,8 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
   renderReview: (review: { preview: QueryTrackingPreviewResponse; isCommitting: boolean; onConfirm: () => void }) => { changes: ReactNode; actions: ReactNode }
 }) {
   const publish = useQueryTrackingPublish(projectName, { onCommitted: onClose })
-  const [subject, setSubject] = useState<Subject>('market')
-  const [placeKey, setPlaceKey] = useState(defaultMarketKey)
+  const [subject, setSubject] = useState<Subject>(defaultLocationKey ? 'location' : 'market')
+  const [placeKey, setPlaceKey] = useState(defaultLocationKey ?? defaultMarketKey)
   const [contextLabel, setContextLabel] = useState('')
   const [text, setText] = useState('')
   const [type, setType] = useState<QueryType>('auto')
@@ -156,7 +159,7 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
 
   function openComposer() {
     openingComposer.current = true
-    onOpenComposer({ text: lines[0] ?? '' })
+    onOpenComposer?.({ text: lines[0] ?? '' })
   }
 
   // A sheet opened without a Radix trigger returns focus to its opener itself.
@@ -210,7 +213,7 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
             <div ref={picker}>
               {places.some(option => option.kind === placing.kind)
                 ? <VisibilityScopePicker key={subject} label={placing.label} placeholder={placing.placeholder} options={places} selected={place} allowGroupSelect={false} propertyNoun={LOCATION_NOUN} onSelect={scope => edit(setPlaceKey)(scope.id)} />
-                : <p className="text-sm leading-6 text-secondary">{placing.none}</p>}
+                : <p className="text-sm leading-6 text-secondary">{placing.none}{subject !== 'location' && onOpenComposer ? ' Use hand-picked locations below.' : ''}</p>}
               {subject !== 'location' || !place ? null : locationMarkets.length > 0 ? <>
                 <p className={FIELD_HINT}>Counts in: {marketNames}</p>
                 <p className={FIELD_NOTE}>Engines and search locations come from: {marketNames}</p>
@@ -248,12 +251,12 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
                 <SegmentedRadioGroup label="Type" options={TYPES} value={type} onChange={edit(setType)} />
               </div>
             </details>
-            <div>
+            {onOpenComposer ? <div>
               <button type="button" className="min-h-11 text-left text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={openComposer}>
                 Hand-picked locations, templates or saved research
               </button>
               {firstLineOnly ? <p className={FIELD_NOTE}>{firstLineOnly}</p> : null}
-            </div>
+            </div> : null}
           </div>
           {refusal}
           <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-default pt-4">

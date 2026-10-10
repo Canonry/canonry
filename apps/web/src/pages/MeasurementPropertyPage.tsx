@@ -1,5 +1,6 @@
 import { usePublishAeroView } from '../contexts/aero-view-context.js'
 import { Fragment, useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
@@ -34,6 +35,7 @@ import { MARKET_SCOPE_COPY } from '../components/project/VisibilityScopePicker.j
 import { useAccount } from '../contexts/account-context.js'
 import { matcherLabel } from '../components/project/advanced-measurement/v2-overview-adapter.js'
 import { PropertyNamesSection } from '../components/project/advanced-measurement/PropertyNamesEditor.js'
+import { AddLocationQueryButton } from '../components/project/DiscoverySection.js'
 
 type QueryClass = 'branded' | 'non-brand'
 type MetricValue = MeasurementOverviewResponse['metrics']['mentionCoverage']
@@ -722,16 +724,19 @@ function NamedInstead({ project, targetKey, queryClass }: { project: string; tar
   )
 }
 
-function AssignedQuestions({ questions, queryClass }: { questions: readonly string[]; queryClass: QueryClass }) {
+function AssignedQuestions({ questions, queryClass, action }: { questions: readonly string[]; queryClass: QueryClass; action?: ReactNode }) {
   return (
     <section aria-labelledby="property-questions" className="page-section-divider">
-      <div className="section-head section-head-inline">
+      <div className="section-head section-head-inline flex-wrap">
         <div>
           <h2 id="property-questions" className="text-base font-semibold text-heading">
             {CLASS_LABELS[queryClass].technical} assigned to this Property
           </h2>
         </div>
-        <p className="supporting-copy">{questions.length} assigned</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="supporting-copy">{questions.length} assigned</p>
+          {action}
+        </div>
       </div>
       {questions.length === 0 ? (
         <p className="text-sm text-secondary">
@@ -1294,7 +1299,15 @@ export function MeasurementPropertyPage() {
       {/* Directly under coverage, because it is what coverage raises and cannot
           answer. The evidence table below is the receipts; this is the finding. */}
       <NamedInstead project={project} targetKey={property} queryClass={queryClass} />
-      <AssignedQuestions questions={questions} queryClass={queryClass} />
+      {/* The button is for writers only, so a viewer sees no dead one. This render
+          is past the setup checks above: the plan is advanced and holds this
+          location. Keyed, because the router keeps this page mounted from one
+          location to the next. */}
+      <AssignedQuestions
+        questions={questions}
+        queryClass={queryClass}
+        action={canWrite ? <AddLocationQueryButton key={property} projectName={project} locationKey={property} className="h-11 px-4 text-sm md:h-11" /> : null}
+      />
       <PropertyNamesSection
         projectName={project}
         targetKey={property}
