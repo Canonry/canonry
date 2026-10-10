@@ -247,6 +247,7 @@ import {
 import { ProviderRegistry, type RegisteredProvider } from "./provider-registry.js";
 import { batchEligibleProviderNames, providerConfigFromEntry, providersWithUnsupportedBatch } from "./provider-batch-config.js";
 import { handleRouteOutcome } from "./outcome-telemetry.js";
+import { startInstallStateTelemetry } from "./install-state-telemetry.js";
 import { registeredProviderNames } from "./provider-registration.js";
 import { configuredProviderEntries, DEFAULT_CDP_QUOTA, DEFAULT_PROVIDER_QUOTA, resolveProviderQuotaPolicy } from "./provider-runtime-config.js";
 import { assertProviderReloadKeepsPendingBatches } from "./provider-reload-batch-guard.js";
@@ -1865,6 +1866,7 @@ export async function createServer(opts: {
 
   let stopSiteLiveness: (() => void) | null = null;
   let stopProviderBatchPoller: (() => void) | null = null;
+  let stopInstallState: (() => void) | null = null;
 
   const scheduler = new Scheduler(opts.db, {
     onRunCreated: (runId, projectId, providers, location) => {
@@ -4122,6 +4124,15 @@ export async function createServer(opts: {
       // Resumes every batch a previous process left outstanding, and finalizes
       // the runs boot recovery handed to it.
       stopProviderBatchPoller = startProviderBatchPoller({ db: opts.db, registry, runner: jobRunner });
+      // Daily `install.state`; an embedded read-only render reports nothing.
+      if (!embed.enabled) {
+        stopInstallState = startInstallStateTelemetry({
+          db: opts.db,
+          config: opts.config,
+          agentEnabled,
+          isBacklinksInstalled: () => isDuckdbInstalled(),
+        });
+      }
 
       // A request can commit its queued row just before a process exits,
       // leaving no in-memory callback to claim it. Re-dispatch every queued
@@ -4150,6 +4161,8 @@ export async function createServer(opts: {
     stopSiteLiveness = null;
     stopProviderBatchPoller?.();
     stopProviderBatchPoller = null;
+    stopInstallState?.();
+    stopInstallState = null;
     scheduler.stop();
   });
 
