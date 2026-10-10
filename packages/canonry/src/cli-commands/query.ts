@@ -47,9 +47,16 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
       if (!request.success) {
         // A failed parse always carries at least one issue.
         const issue = request.error.issues[0]
-        const message = issue.path[0] === 'scope'
+        const field = issue.path[0]
+        // Only the two scope-key rules are worded by the contract. Any other
+        // issue is a blank or malformed value, named here by its flag.
+        const message = field === 'scope'
           ? '--scope must be one of project, group, market, property'
-          : issue.message.replace('scopeKey', '--scope-key')
+          : field === 'runId'
+            ? '--run needs a value'
+            : field === 'scopeKey' && issue.code !== 'custom'
+              ? '--scope-key needs a value'
+              : issue.message.replace('scopeKey', '--scope-key')
         throw usageError(`Error: ${message}\nUsage: ${QUERY_RESULTS_USAGE}`, {
           message,
           details: { command: 'query.results', usage: QUERY_RESULTS_USAGE },

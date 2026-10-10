@@ -656,7 +656,10 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getRunnableProviderNames: opts.getRunnableProviderNames,
       providerSummary: opts.providerSummary,
     })
-    await api.register(queryTrackingResultsRoutes)
+    await api.register(queryTrackingResultsRoutes, {
+      getRunnableProviderNames: opts.getRunnableProviderNames,
+      providerSummary: opts.providerSummary,
+    })
     await api.register(applyRoutes, {
       onScheduleUpdated: opts.onScheduleUpdated,
       onProjectUpserted: opts.onProjectUpserted,

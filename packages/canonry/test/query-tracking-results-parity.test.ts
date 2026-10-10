@@ -142,7 +142,8 @@ function simpleSweep(): string {
   const definition = buildSimpleMeasurementDefinition({
     capturedAt: SWEEP_AT,
     identity: { displayName: 'Northwind', aliases: [], canonicalDomain: 'northwind.example', ownedDomains: [] },
-    country: 'US', language: 'en', location: null,
+    // What the project dispatches now: its engines, their models and its search location.
+    country: 'US', language: 'en', location: NYC,
     engines: [{ provider: 'gemini', requestedModel: MODELS.gemini }, { provider: 'openai', requestedModel: MODELS.openai }],
     queries: [
       { queryId: 'q-supplier', queryText: 'best widget supplier', provenance: 'manual' },
@@ -228,16 +229,49 @@ describe('query tracking results CLI/REST/MCP parity', () => {
     expect(viaMcp).toStrictEqual(rest)
   })
 
-  it('prints the legend above a two-glyph table, mention first', async () => {
+  it('prints the legend above a two-glyph table, mention first, in query order', async () => {
     simpleSweep()
     const result = await invokeCli(['query', 'results', PROJECT])
     expect(result.exitCode, result.stderr).toBeUndefined()
+    // The API returns `q-brand` first (by id); the table reads by query text.
     expect(result.stdout.split('\n')).toStrictEqual([
       'Sweep 2026-10-07 · run run-simple',
       LEGEND,
       'Query                     Type       gemini  openai',
-      'northwind delivery times  Branded    --      Mc',
       'best widget supplier      Non-brand  Mc      mC',
+      // Gemini was asked and saved no answer: both signals are not checked.
+      'northwind delivery times  Branded    --      Mc',
+    ])
+  })
+
+  it('prints Not set for a query with no Type, and a blank cell for an engine the row was not asked on', async () => {
+    // An older sweep that froze no definition, on a project with no usable brand name.
+    db.update(projects).set({ displayName: '', canonicalDomain: '' }).where(eq(projects.id, PROJECT_ID)).run()
+    db.insert(runs).values({
+      id: 'run-older', projectId: PROJECT_ID, kind: 'answer-visibility', status: 'completed', trigger: 'manual',
+      finishedAt: SWEEP_AT, createdAt: SWEEP_AT,
+    }).run()
+    const answer = (queryId: string, queryText: string, provider: 'gemini' | 'openai', mentioned: boolean, cited: boolean) => ({
+      id: `${queryId}-${provider}`, runId: 'run-older', queryId, queryText, provider,
+      citationState: cited ? 'cited' : 'not-cited', answerMentioned: mentioned, answerText: null,
+      citedDomains: [], citedUrls: [], captureStatus: 'complete',
+      competitorOverlap: [], recommendedCompetitors: [], location: null, createdAt: SWEEP_AT,
+    })
+    db.insert(querySnapshots).values([
+      answer('q-supplier', 'best widget supplier', 'gemini', true, false),
+      answer('q-supplier', 'best widget supplier', 'openai', false, true),
+      // That sweep asked this query on OpenAI only.
+      answer('q-brand', 'northwind delivery times', 'openai', true, true),
+    ]).run()
+
+    const result = await invokeCli(['query', 'results', PROJECT])
+    expect(result.exitCode, result.stderr).toBeUndefined()
+    expect(result.stdout.split('\n')).toStrictEqual([
+      'Sweep 2026-10-07 · run run-older',
+      LEGEND,
+      'Query                     Type       gemini  openai',
+      'best widget supplier      Not set    Mc      mC',
+      'northwind delivery times  Not set            MC',
     ])
   })
 
@@ -249,6 +283,12 @@ describe('query tracking results CLI/REST/MCP parity', () => {
     const lines = (await invokeCli(['query', 'results', PROJECT])).stdout.split('\n')
     expect(lines.slice(0, 3)).toStrictEqual(['Sweep 2026-10-07 · run run-simple', 'Not in this sweep: 1', LEGEND])
     expect(lines).toHaveLength(6)
+
+    // The project stopped asking Gemini, so the sweep measured nothing as it is asked now: no table to print.
+    db.update(projects).set({ providers: ['openai'] }).where(eq(projects.id, PROJECT_ID)).run()
+    expect((await invokeCli(['query', 'results', PROJECT])).stdout.split('\n')).toStrictEqual([
+      'Sweep 2026-10-07 · run run-simple', 'Not in this sweep: 3', 'No results',
+    ])
   })
 
   it('refuses a bad selection before a request is sent, and reports the server\'s refusal', async () => {
@@ -263,6 +303,17 @@ describe('query tracking results CLI/REST/MCP parity', () => {
     const strayKey = await invokeCli(['query', 'results', PROJECT, '--scope-key', 'widgets', '--format', 'json'])
     expect(strayKey.exitCode).toBe(1)
     expect(JSON.parse(strayKey.stderr)).toMatchObject({ error: { code: 'CLI_USAGE_ERROR', message: '--scope-key is not valid for project scope' } })
+
+    // A blank value, as an unset shell variable leaves, is named by its flag.
+    for (const [flags, message] of [
+      [['--scope-key', ''], '--scope-key needs a value'],
+      [['--scope', 'market', '--scope-key', ' '], '--scope-key needs a value'],
+      [['--run', ''], '--run needs a value'],
+    ] as const) {
+      const blank = await invokeCli(['query', 'results', PROJECT, ...flags, '--format', 'json'])
+      expect(blank.exitCode, flags.join(' ')).toBe(1)
+      expect(JSON.parse(blank.stderr), flags.join(' ')).toMatchObject({ error: { code: 'CLI_USAGE_ERROR', message } })
+    }
 
     const noRun = await invokeCli(['query', 'results', PROJECT, '--run', 'missing', '--format', 'json'])
     expect(noRun.exitCode).toBe(1)

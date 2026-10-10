@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import { parse } from 'yaml'
 import {
   MeasurementEvidenceShapes,
+  compareText,
   formatIsoDate,
   formatPercent,
   measurementChangesQuerySchema,
@@ -15,6 +16,7 @@ import {
   measurementPlanInputSchema,
   measurementPortfolioSummaryQuerySchema,
   measurementPropertyCompetitorsQuerySchema,
+  normalizeIdentityText,
   unattributedAnswersLabel,
   uncheckedSourcesLabel,
   UNATTRIBUTED_MENTION_REASON,
@@ -581,19 +583,30 @@ function printQueryTrackingResults(response: QueryTrackingResultsResponse): void
   }
   const lines = [`Sweep ${formatIsoDate(response.run.completedAt ?? response.run.createdAt)} · run ${response.run.id}`]
   if (response.pendingRows > 0) lines.push(`Not in this sweep: ${response.pendingRows}`)
+  if (response.rows.length === 0) {
+    lines.push('No results')
+    console.log(lines.join('\n'))
+    return
+  }
   lines.push(QUERY_RESULTS_LEGEND)
-  const queryWidth = Math.max('Query'.length, ...response.rows.map(row => row.queryText.length))
+  // The API orders rows by query id. A person scans by text, as the workspace
+  // lists them, so only this table is re-ordered; the JSON stays as returned.
+  const rows = response.rows
+    .map(row => ({ ...row, sortText: normalizeIdentityText(row.queryText), type: QUERY_RESULT_TYPES[row.queryClass] }))
+    .sort((left, right) => compareText(left.sortText, right.sortText) || compareText(left.type, right.type))
+  const queryWidth = Math.max('Query'.length, ...rows.map(row => row.queryText.length))
   const typeWidth = Math.max(...Object.values(QUERY_RESULT_TYPES).map(label => label.length))
   // Each cell is the mention glyph then the citation glyph, as the dashboard's two chips.
   const cellWidth = (engine: string) => Math.max(2, engine.length)
   lines.push(['Query'.padEnd(queryWidth), 'Type'.padEnd(typeWidth), ...response.engines.map(engine => engine.padEnd(cellWidth(engine)))].join('  ').trimEnd())
-  for (const row of response.rows) {
+  for (const row of rows) {
     const cells = response.engines.map(engine => {
       const result = row.engines.find(entry => entry.provider === engine)
-      const cell = result ? `${signalGlyph(result.mentioned, 'M', 'm')}${signalGlyph(result.cited, 'C', 'c')}` : '--'
+      // An engine this row was not asked on is blank: nothing was expected, so nothing is "not checked".
+      const cell = result ? `${signalGlyph(result.mentioned, 'M', 'm')}${signalGlyph(result.cited, 'C', 'c')}` : ''
       return cell.padEnd(cellWidth(engine))
     })
-    lines.push([row.queryText.padEnd(queryWidth), QUERY_RESULT_TYPES[row.queryClass].padEnd(typeWidth), ...cells].join('  ').trimEnd())
+    lines.push([row.queryText.padEnd(queryWidth), row.type.padEnd(typeWidth), ...cells].join('  ').trimEnd())
   }
   console.log(lines.join('\n'))
 }

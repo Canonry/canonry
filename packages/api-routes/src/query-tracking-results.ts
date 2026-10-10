@@ -27,11 +27,17 @@ import {
   type QueryTrackingResultsQuery,
   type QueryTrackingResultsResponse,
   type QueryTrackingResultsRun,
+  type SimpleMeasurementDefinition,
   type VisibilityReportPopulationClass,
 } from '@ainyc/canonry-contracts'
 import { measurementPlanVersions, projects, queries, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { resolveProject } from './helpers.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
+import {
+  currentSimpleExecutionSignature,
+  frozenSimpleExecutionSignature,
+  type QueryTrackingRoutesOptions,
+} from './query-tracking.js'
 import {
   targetValues,
   type VisibilityReportEdgeInput,
@@ -194,7 +200,7 @@ export function foldQueryTrackingResults(
 const PLACE_WORDS = { group: 'Group', market: 'Market', property: 'Location' } as const
 
 function placeNotTracked(scope: 'group' | 'market' | 'property', key: string) {
-  return validationError(`${PLACE_WORDS[scope]} "${key}" is not in the active tracking plan.`, {
+  return validationError(`${PLACE_WORDS[scope]} "${key}" is not in the active plan.`, {
     reason: VisibilityReportScopeErrorReasons['retired-scope'],
     kind: scope,
     key,
@@ -269,7 +275,9 @@ function advancedPairings(
  * A simple basket's pairings: each tracked query under the class the project
  * classifier gives it now (`unknown` with no usable brand name), measured only
  * by a sweep that asked that query id with the same text under the same class.
- * An older sweep that stored no query text has only the id to go by.
+ * An older sweep that stored no query text has only the id to go by. Pass no
+ * sweep when it sent the engines something the project no longer sends: then
+ * no query was measured as it is asked now.
  */
 function simplePairings(
   tracked: ReadonlyArray<{ id: string; query: string }>,
@@ -293,6 +301,36 @@ function simplePairings(
     ))
     return measured.length === 0 ? [{ ...pairing, edge: null }] : measured.map(edge => ({ ...pairing, edge }))
   })
+}
+
+/**
+ * A simple basket has no revision, so a planless sweep's frozen definition is
+ * compared with what the project dispatches now, through the workspace's own
+ * signature. `sameDispatch`: the engines were sent the same thing (engines,
+ * models, search location, country and language), which is what an advanced
+ * pairing's signature covers. `sameTracking` adds the project's names and
+ * sites, which decide how an answer is read: the workspace's full rule.
+ */
+function simpleSweepComparison(
+  project: ProjectRow,
+  definition: SimpleMeasurementDefinition,
+  opts: QueryTrackingRoutesOptions,
+): { sameDispatch: boolean; sameTracking: boolean } {
+  const current = currentSimpleExecutionSignature(project, opts)
+  const namedAsNow: SimpleMeasurementDefinition = {
+    ...definition,
+    identity: {
+      ...definition.identity,
+      displayName: project.displayName,
+      aliases: project.aliases,
+      canonicalDomain: project.canonicalDomain,
+      ownedDomains: project.ownedDomains,
+    },
+  }
+  return {
+    sameDispatch: frozenSimpleExecutionSignature(namedAsNow) === current,
+    sameTracking: frozenSimpleExecutionSignature(definition) === current,
+  }
 }
 
 /** Whole-project sweeps, newest first, without their stored slot lists. */
@@ -391,6 +429,7 @@ function simpleResults(
   db: DatabaseClient,
   project: ProjectRow,
   query: QueryTrackingResultsQuery,
+  opts: QueryTrackingRoutesOptions,
 ): Omit<QueryTrackingResultsResponse, 'mode' | 'scope'> {
   if (query.scope !== 'project') {
     throw validationError(`${PLACE_WORDS[query.scope]} "${query.scopeKey}" does not exist: a simple project is read as a whole.`)
@@ -405,29 +444,40 @@ function simpleResults(
     return { run: null, engines: [], ...foldQueryTrackingResults(null, simplePairings(tracked, classOf, null)) }
   }
   const run = sweepRow(db, chosen.id)
-  const sweep = simpleRunInput(db, project, run, frozenSimpleDefinitions(db, project.id, [run.id]).get(run.id), false)
-  const pairings = simplePairings(tracked, classOf, sweep)
+  const definition = frozenSimpleDefinitions(db, project.id, [run.id]).get(run.id)
+  const sweep = simpleRunInput(db, project, run, definition, false)
+  // An older sweep with no frozen definition recorded nothing to compare.
+  const comparison = definition === undefined ? null : simpleSweepComparison(project, definition, opts)
+  // As an advanced row whose engines, models or search location changed: a
+  // sweep that sent the engines something else leaves every query pending.
+  const pairings = simplePairings(tracked, classOf, comparison?.sameDispatch === false ? null : sweep)
   const folded = foldQueryTrackingResults(sweep, pairings)
-  // A simple basket has no revision. Tracking matches when the sweep measured
-  // every tracked query as it is tracked now, and asked nothing else.
+  // Tracking matches when nothing the workspace compares changed, the sweep
+  // measured every tracked query as it is tracked now, and it asked nothing
+  // else. A sweep that cannot be compared never claims a match.
   const trackedPairs = new Set(pairings.map(pairing => `${pairing.queryId}\u0000${pairing.queryClass}`))
-  const matchesCurrentTracking = folded.pendingRows === 0 && sweep.definition.edges.every(edge => (
+  const matchesCurrentTracking = comparison?.sameTracking === true && folded.pendingRows === 0 && sweep.definition.edges.every(edge => (
     edge.queryId !== null && trackedPairs.has(`${edge.queryId}\u0000${edge.queryClass}`)
   ))
   return { run: runDto(run, null, matchesCurrentTracking), engines: engines(sweep), ...folded }
 }
 
-/** Shared stored-evidence reader. Callers enforce authorization before resolving the project. */
+/**
+ * Shared stored-evidence reader. Callers enforce authorization before resolving
+ * the project. `opts` is the host's provider configuration, read only to tell
+ * what a simple project dispatches now.
+ */
 export function readQueryTrackingResults(
   db: DatabaseClient,
   project: ProjectRow,
   rawQuery: Record<string, unknown>,
+  opts: QueryTrackingRoutesOptions,
 ): QueryTrackingResultsResponse {
   const query = parseQuery(rawQuery)
   const scope = { kind: query.scope, key: query.scopeKey ?? null }
   const active = activeMeasurementPlan(db, project.id)
   if (active === null) {
-    return queryTrackingResultsResponseSchema.parse({ mode: 'simple', scope, ...simpleResults(db, project, query) })
+    return queryTrackingResultsResponseSchema.parse({ mode: 'simple', scope, ...simpleResults(db, project, query, opts) })
   }
   const { version, plan } = active
   if (plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) {
@@ -436,9 +486,9 @@ export function readQueryTrackingResults(
   return queryTrackingResultsResponseSchema.parse({ mode: 'advanced', scope, ...advancedResults(db, project.id, { version, plan }, query) })
 }
 
-export async function queryTrackingResultsRoutes(app: FastifyInstance) {
+export async function queryTrackingResultsRoutes(app: FastifyInstance, opts: QueryTrackingRoutesOptions) {
   app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>(
     '/projects/:name/query-tracking/results',
-    async request => readQueryTrackingResults(app.db, resolveProject(app.db, request.params.name), request.query),
+    async request => readQueryTrackingResults(app.db, resolveProject(app.db, request.params.name), request.query, opts),
   )
 }
