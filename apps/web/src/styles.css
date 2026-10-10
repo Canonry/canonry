@@ -1042,7 +1042,7 @@
      returns to DOM order and caps its width. The trigger label wraps
      instead of truncating. */
   .project-context-scope {
-    @apply order-last w-full min-w-0 md:order-none md:w-auto md:min-w-64 md:max-w-md;
+    @apply order-last w-full min-w-0 md:order-none md:w-auto md:min-w-64 md:max-w-2xl;
   }
 
   .project-context-domain {

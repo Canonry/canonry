@@ -2581,6 +2581,9 @@ function ProjectPageContent({
     ? { key: 'settings' as const, label: 'Settings', href: `${projectTabBase}/settings` }
     : null
 
+  // What the place picker and the report call the whole project.
+  const placeRootLabel = PROJECT_SCOPE_COPY.allOf(model.project.displayName || model.project.name)
+
   function renderVisibilityOverview(overview: React.ReactNode) {
     // Simple keeps its own layout even when a unified report is available.
     // Advanced retains the report workspace and its existing legacy fallback.
@@ -2598,14 +2601,15 @@ function ProjectPageContent({
         onSelectionChange={updateVisibilitySearch}
         onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined, measurementMarketKey: undefined }) }) } : undefined}
         renderPropertyLink={!isEmbed() ? ({ id, label }) => (
-          <Link to="/projects/$projectName/properties/$targetKey" params={{ projectName, targetKey: id }} search={carryVisibilitySearch} aria-label={`Property details for ${label}`} className="inline-flex min-h-11 items-center text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
-            Property details
+          <Link to="/projects/$projectName/properties/$targetKey" params={{ projectName, targetKey: id }} search={carryVisibilitySearch} aria-label={`Location details for ${label}`} className="inline-flex min-h-11 items-center text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
+            Location details
           </Link>
         ) : undefined}
         // Embeds and managed dashboards name neither date. A sweep already under way brings
         // new numbers before the scheduled one, so it names no date either.
         trackingChangedAt={isEmbed() || isDashboardManagedSweeps() ? undefined : activeMeasurementPlan?.createdAt}
         nextSweepDate={isEmbed() || isDashboardManagedSweeps() || hasActiveVisibilitySweep ? undefined : nextSweepDate ?? undefined}
+        rootLabel={placeRootLabel}
         fallback={overview}
       />
     )
@@ -2617,6 +2621,17 @@ function ProjectPageContent({
     }
     return <SentimentScopeProvider hasSourceEvidence={!isSimpleOverview || Boolean(sentimentSelection.runId || sentimentSelection.runIds?.length)} evidenceReady={!isSimpleOverview || !(evidenceDashboard.isLoading || evidenceDashboard.evidenceLoading || evidenceDashboard.evidenceError)} waitForResolvedRun={!isSimpleOverview} projectName={projectName} runOptions={model.visibilitySweeps.slice(0, SENTIMENT_BACKFILL_SWEEP_OPTIONS).map(run => ({ id: run.id, label: formatTimestamp(run.finishedAt ?? run.createdAt) }))} selection={sentimentSelection}>{content}</SentimentScopeProvider>
   }
+
+  // Both pickers read alike: Place, the picker, then how many locations and
+  // markets the server listed. The picker's own label stays for assistive tech.
+  // Below md the counts take their own line under a full-width picker.
+  const placeSlot = (picker: React.ReactNode, counts?: { locations: number; markets: number }) => (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 md:flex-nowrap">
+      <span aria-hidden="true" className="text-[13px] text-secondary">{PROJECT_SCOPE_COPY.place}</span>
+      <div className="min-w-0 flex-1 basis-56 md:basis-auto">{picker}</div>
+      {counts ? <span className="whitespace-nowrap text-[13px] tabular-nums text-secondary">{PROJECT_SCOPE_COPY.placeCounts(counts.locations, counts.markets)}</span> : null}
+    </div>
+  )
 
   // The context row's measurement scope slot. Each tab owns recovery for a
   // saved scope that no longer exists; the row only names it.
@@ -2630,32 +2645,40 @@ function ProjectPageContent({
             : null
         }
         const report = reportScopeQuery.data
-        if (!report) return <div className="skeleton-text h-11 w-56" role="status" aria-label="Loading measurement scope" />
+        if (!report) return placeSlot(<div className="skeleton-text h-11 w-56" role="status" aria-label={PROJECT_SCOPE_COPY.loadingPlaces} />)
         if (report.selection.availability.state !== 'available' || report.scopeOptions.length <= 1) return null
         // The URL owns the choice, so the trigger never snaps back while the
         // next report loads over the previous one.
         const selected = selectedScopeOption(report.scopeOptions, visibilitySelection) ?? report.selection.scope
-        return (
+        return placeSlot(
           <VisibilityScopePicker
             labelVisibility="sr-only"
+            rootLabel={placeRootLabel}
             options={report.scopeOptions}
             selected={selected}
             marketKey={visibilitySelection.marketKey}
             onSelect={(scope, marketKey) => updateVisibilitySearch({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id, measurementMarketKey: marketKey })}
-          />
+          />,
+          {
+            locations: report.scopeOptions.filter(option => option.kind === 'property').length,
+            markets: report.scopeOptions.filter(option => option.kind === 'market').length,
+          },
         )
       }
       case 'tracking-picker': {
-        const options = trackingWorkspaceQuery.data?.scopeOptions ?? []
+        const workspace = trackingWorkspaceQuery.data
+        const options = workspace?.scopeOptions ?? []
         const selected = selectedScopeOption(options, visibilitySelection)
         // Tracked assignments have no market intersection, so a new scope drops the market.
-        return selected ? (
+        return workspace && selected ? placeSlot(
           <VisibilityScopePicker
             labelVisibility="sr-only"
+            rootLabel={placeRootLabel}
             options={options}
             selected={selected}
             onSelect={scope => updateVisibilitySearch({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id })}
-          />
+          />,
+          { locations: workspace.targets.length, markets: workspace.markets.length },
         ) : null
       }
       case 'scope-unavailable':

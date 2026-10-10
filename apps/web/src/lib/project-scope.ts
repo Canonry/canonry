@@ -40,10 +40,19 @@ export interface ProjectScopeSlotInput {
   tracking: ProjectScopeTracking
 }
 
+const counted = (count: number, one: string, many: string) => `${count.toLocaleString('en-US')} ${count === 1 ? one : many}`
+
 export const PROJECT_SCOPE_COPY = {
+  /** The visible name of the picker in the row. The picker's own label names the trigger. */
+  place: 'Place',
+  /** The picker's project option. */
+  allOf: (project: string) => `All of ${project}`,
+  /** The lengths of the lists the server returned, never a recount. */
+  placeCounts: (locations: number, markets: number) => `${counted(locations, 'location', 'locations')} · ${counted(markets, 'market', 'markets')}`,
+  loadingPlaces: 'Loading places',
   projectWide: 'Project-wide',
-  projectWideHelp: 'This tab covers the whole project. Your measurement scope stays selected for AI Visibility and Queries.',
-  savedScopeUnavailable: 'Saved scope unavailable',
+  projectWideHelp: 'This tab covers the whole project. Your place stays selected for AI Visibility and Queries.',
+  savedScopeUnavailable: 'Saved place unavailable',
 } as const
 
 /** Operators always have Research; a viewer needs the deployment's research grant. */

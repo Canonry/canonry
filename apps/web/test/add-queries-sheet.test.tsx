@@ -248,12 +248,12 @@ test('opens from Tracked on an advanced project and keeps Review off until a mar
   // The list holds groups and markets, never locations.
   const search = sheet.getByPlaceholderText('Search groups or markets')
   fireEvent.change(search, { target: { value: 'Acme' } })
-  expect(sheet.getByText('No matching scopes.')).toBeTruthy()
+  expect(sheet.getByText('No matches')).toBeTruthy()
   fireEvent.change(search, { target: { value: '' } })
   // A group row only browses: it is never a choice, here or once inside it.
   expect(sheet.queryByRole('button', { name: 'Select North East' })).toBeNull()
   fireEvent.click(sheet.getByRole('button', { name: 'Browse North East' }))
-  expect(sheet.queryByText('All properties in this group')).toBeNull()
+  expect(sheet.queryByText('All locations in this group')).toBeNull()
   fireEvent.click(sheet.getByRole('button', { name: 'Select New York' }))
   expect(sheet.getByText('New York · Market')).toBeTruthy()
   expect(reviewButton(sheet).disabled).toBe(false)
@@ -741,7 +741,7 @@ test('lists groups and locations for Location, never markets, and calls them loc
   fireEvent.click(sheet.getByText('Choose a location'))
   const search = sheet.getByPlaceholderText('Search groups or locations')
   fireEvent.change(search, { target: { value: 'Remote' } })
-  expect(sheet.getByText('No matching scopes.')).toBeTruthy()
+  expect(sheet.getByText('No matches')).toBeTruthy()
   fireEvent.change(search, { target: { value: '' } })
   // A group row only browses, as it does for a market.
   expect(sheet.queryByRole('button', { name: 'Select North East' })).toBeNull()
@@ -906,7 +906,7 @@ test('closes the open market picker on Escape before the sheet', async () => {
   renderTracked()
   const { sheet } = await openSheet()
   fireEvent.click(sheet.getByText('Choose a market'))
-  const search = sheet.getByRole('searchbox', { name: 'Search scopes' })
+  const search = sheet.getByRole('searchbox', { name: 'Search places' })
   const picker = search.closest('details')!
   expect(picker.open).toBe(true)
   fireEvent.keyDown(search, { key: 'Escape' })
