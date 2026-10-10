@@ -59,11 +59,11 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
 
   expect(await screen.findByRole('heading', { name: 'Test queries' })).toBeTruthy()
   expect(screen.queryByRole('tab', { name: 'Find queries' })).toBeNull()
-  expect(await screen.findByLabelText('Answer engine')).toBeTruthy()
+  expect(await screen.findByLabelText('Engine')).toBeTruthy()
   expect((screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement).disabled).toBe(true)
   expect((await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · gpt-5-mini` }) as HTMLOptionElement).selected).toBe(true)
   fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'gpt-5' } })
-  fireEvent.change(screen.getByLabelText('Answer engine'), { target: { value: 'gemini' } })
+  fireEvent.change(screen.getByLabelText('Engine'), { target: { value: 'gemini' } })
   expect((await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · gemini-2.5-flash` }) as HTMLOptionElement).selected).toBe(true)
 
   fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'Which AEO platform fits an agency?' } })
