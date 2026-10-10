@@ -67,8 +67,33 @@ interface Runtime {
   corrected: Map<string, string>
   /** Set once a bounded turn has been asked for its final answer. */
   wrapUp: boolean
+  usage: AeroTurnUsage
 }
 const runtimes = new WeakMap<Agent, Runtime>()
+
+/**
+ * What one turn's model calls reported and how many of its tool calls failed,
+ * for outcome telemetry. Server-side only: `aero_turn_status` is streamed to
+ * viewers, who never see cost.
+ */
+export interface AeroTurnUsage {
+  /** Model calls that came back with a response, as `llm_usage_events` records them. */
+  responses: number
+  inputTokens: number
+  outputTokens: number
+  cachedTokens: number
+  costUsd: number
+  /** Counted tool calls that returned an error; calls the turn's limits blocked are not. */
+  toolErrors: number
+}
+
+function emptyTurnUsage(): AeroTurnUsage {
+  return { responses: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0, toolErrors: 0 }
+}
+
+function nonNegative(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0
+}
 
 /**
  * Sent with every tool removed to a turn that used its tool budget, so what
@@ -413,7 +438,7 @@ function explainMissingTool(runtime: Runtime, message: { isError?: boolean; cont
 export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?: AgentTurnLimits, progressive = true, pinned: readonly string[] = []): void {
   let runtime = runtimes.get(agent)
   if (!runtime) {
-    runtime = { allowed, loaded: new Set(), limits: agentTurnLimitsSchema.parse(limits ?? {}), calls: 0, rounds: 0, startedAt: 0, reason: 'completed', progressive, pinned: new Set(pinned), corrected: new Map(), wrapUp: false, hardDeadline: false, memo: new Map(), pageReferences: new Map(), pageNamespace: randomUUID().slice(0, 8), pageTurn: 0 }
+    runtime = { allowed, loaded: new Set(), limits: agentTurnLimitsSchema.parse(limits ?? {}), calls: 0, rounds: 0, startedAt: 0, reason: 'completed', progressive, pinned: new Set(pinned), corrected: new Map(), wrapUp: false, hardDeadline: false, memo: new Map(), pageReferences: new Map(), pageNamespace: randomUUID().slice(0, 8), pageTurn: 0, usage: emptyTurnUsage() }
     runtimes.set(agent, runtime)
     const state = runtime
     const stream = agent.streamFunction
@@ -442,8 +467,13 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
     const after = agent.afterToolCall
     // Calls past the tool limit, marked at tool_execution_start.
     const overLimit = new Set<string>()
+    // Calls this runtime refused to run, so their error results are not tool failures.
+    const blocked = new Set<string>()
     agent.beforeToolCall = async (event, signal) => {
-      if (signal?.aborted || state.reason === 'time-limit' || state.wrapUp || overLimit.has(event.toolCall.id)) return { block: true, reason: 'Turn stopped.' }
+      if (signal?.aborted || state.reason === 'time-limit' || state.wrapUp || overLimit.has(event.toolCall.id)) {
+        blocked.add(event.toolCall.id)
+        return { block: true, reason: 'Turn stopped.' }
+      }
       return before?.(event, signal)
     }
     const finish = agent.finishTurn
@@ -501,8 +531,18 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
         if (startedAt !== undefined) toolDurations.set(event.toolCallId, Date.now() - startedAt)
         toolStarts.delete(event.toolCallId)
       }
+      if (event.type === 'turn_end' && event.message.role === 'assistant' && !isRunFailureMessage(event.message)) {
+        // Read loosely: a malformed message must not break the turn it is counted in.
+        const usage = event.message.usage as { input?: unknown; output?: unknown; cacheRead?: unknown; cost?: { total?: unknown } } | undefined
+        state.usage.responses++
+        state.usage.inputTokens += nonNegative(usage?.input)
+        state.usage.outputTokens += nonNegative(usage?.output)
+        state.usage.cachedTokens += nonNegative(usage?.cacheRead)
+        state.usage.costUsd += nonNegative(usage?.cost?.total)
+      }
       if (event.type === 'message_end' && event.message.role === 'toolResult') {
         const message = event.message
+        if (message.isError && !overLimit.has(message.toolCallId) && !blocked.has(message.toolCallId)) state.usage.toolErrors++
         explainMissingTool(state, message)
         const durationMs = toolDurations.get(message.toolCallId)
         const requested = state.corrected.get(message.toolCallId)
@@ -518,6 +558,8 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
         toolStarts.clear()
         toolDurations.clear()
         overLimit.clear()
+        blocked.clear()
+        state.usage = emptyTurnUsage()
         state.corrected.clear()
         state.wrapUp = false
         state.hardDeadline = false
@@ -607,6 +649,11 @@ export function setAeroSystemPrompt(agent: Agent, prompt: string = agent.state.s
   const system = createInitialSystemMessage(prompt, agent.state.tools.map(toToolDeclaration))
   const rest = agent.state.messages.filter(message => message.role !== 'system')
   agent.state.messages = system ? [system, ...rest] : rest
+}
+
+/** Token, cost and tool-error totals of the agent's latest turn. Never streamed to clients. */
+export function aeroTurnUsage(agent: Agent): Readonly<AeroTurnUsage> | undefined {
+  return runtimes.get(agent)?.usage
 }
 
 export function aeroTurnStatus(agent: Agent) {
