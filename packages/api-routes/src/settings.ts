@@ -9,6 +9,7 @@ import {
 } from '@ainyc/canonry-contracts'
 import { requireAdminSession, requireInstanceAdministrator, requireScope } from './auth.js'
 import { auditFromRequest, type AuditEntry } from './helpers.js'
+import { connectionRoute, outcomeProviderName } from './connection-telemetry.js'
 
 /**
  * Scope required to mutate any global setting — provider API keys,
@@ -106,7 +107,14 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
   app.put<{
     Params: { name: string }
     Body: { apiKey?: string; baseUrl?: string; model?: string; quota?: Partial<ProviderQuotaPolicy> }
-  }>('/settings/providers/:name', async (request) => {
+  }>('/settings/providers/:name', connectionRoute(app, (request) => {
+    // A key or endpoint is a connection; a model or quota change alone is not.
+    const provider = outcomeProviderName(request.params.name)
+    const body = request.body as { apiKey?: unknown; baseUrl?: unknown } | undefined
+    if (!provider || (body?.apiKey === undefined && body?.baseUrl === undefined)) return undefined
+    const configured = (opts.providerSummary ?? []).some(entry => entry.name === provider && entry.configured)
+    return { integration: 'provider', provider, action: configured ? 'reauth' : 'connect' }
+  }, async (request) => {
     requireScope(request, SETTINGS_WRITE_SCOPE)
     const { apiKey, baseUrl, model, quota } = request.body ?? {}
     const name = request.params.name
@@ -195,7 +203,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     }
 
     return result
-  })
+  }))
 
   app.post('/settings/providers/reload', async (request) => {
     requireScope(request, SETTINGS_WRITE_SCOPE)

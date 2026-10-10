@@ -44,6 +44,8 @@ export const INTEGRATION_NAMES = [
   'webhook',
   'agent_webhook',
   'cdp',
+  /** The WordPress traffic-logger plugin source, apart from the WordPress publishing connection. */
+  'traffic_wordpress',
 ] as const
 export const integrationNameSchema = z.enum(INTEGRATION_NAMES)
 export type IntegrationName = z.infer<typeof integrationNameSchema>

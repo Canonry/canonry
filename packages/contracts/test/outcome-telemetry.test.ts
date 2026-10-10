@@ -65,6 +65,13 @@ describe('integration.connection', () => {
     expect(integrationConnectionPropertiesSchema.safeParse({ integration: 'gsc', provider: 'gemini', action: 'connect', status: 'succeeded' }).success).toBe(false)
   })
 
+  it('names the WordPress traffic source apart from the WordPress publishing connection', () => {
+    const attempt = { integration: 'traffic_wordpress', action: 'connect', status: 'failed', reasonCode: 'BLOCKED_UNSAFE_URL' }
+    expect(integrationConnectionPropertiesSchema.parse(attempt)).toEqual(attempt)
+    expect(installStatePropertiesSchema.parse({ providers: [], integrations: ['wordpress', 'traffic_wordpress'], counts: {}, usage24h: {} }).integrations)
+      .toEqual(['wordpress', 'traffic_wordpress'])
+  })
+
   it('requires a reason for a failed or cancelled attempt, not for started or succeeded', () => {
     const base = { integration: 'gsc', action: 'connect' }
     expect(integrationConnectionPropertiesSchema.safeParse({ ...base, status: 'failed' }).success).toBe(false)
@@ -148,7 +155,7 @@ describe('install.state', () => {
     const props = {
       providers: ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local', 'cdp:chatgpt'],
       integrations: ['gsc', 'ga4', 'bing', 'gbp', 'google_ads', 'gtm', 'openai_ads', 'traffic_cloudflare',
-        'traffic_vercel', 'traffic_cloud_run', 'wordpress', 'backlinks', 'webhook', 'agent_webhook', 'cdp'],
+        'traffic_vercel', 'traffic_cloud_run', 'wordpress', 'backlinks', 'webhook', 'agent_webhook', 'cdp', 'traffic_wordpress'],
       counts: { projects: 1e6, queries: 1e6, competitors: 1e6, locations: 1e6, schedules: 1e6, webhooks: 1e6,
         agentWebhooks: 1e6, trafficSources: 1e6, googleConnections: 1e6, bingConnections: 1e6, backlinkSources: 1e6, adsAccounts: 1e6 },
       usage24h: { sweeps: 1e9, audits: 1e9, providerCalls: 1e9, inputTokens: 1e9, outputTokens: 1e9, costMicros: 1e9,

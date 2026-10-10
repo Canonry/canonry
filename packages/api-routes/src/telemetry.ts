@@ -13,10 +13,12 @@ import {
 import { requireOperator, requireScope } from './auth.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import { auditFromRequest, writeAuditLog } from './helpers.js'
+import { currentOutcomeAttribution, type OutcomeAttribution } from './outcome-telemetry.js'
 
 export interface TelemetryRoutesOptions {
   getTelemetryStatus?: () => TelemetryStatusInput
-  setTelemetryEnabled?: (enabled: boolean) => void
+  /** `attribution` is who asked, for the `telemetry.disabled` event's surface and agent. */
+  setTelemetryEnabled?: (enabled: boolean, attribution?: OutcomeAttribution) => void
   recordOnboardingEvent?: (event: OnboardingTelemetryEvent) => void
   /**
    * Dashboard usage: page views, feature actions, UI errors, web vitals.
@@ -48,7 +50,7 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
       throw validationError('enabled (boolean) is required')
     }
 
-    opts.setTelemetryEnabled(enabled)
+    opts.setTelemetryEnabled(enabled, currentOutcomeAttribution())
     const status = opts.getTelemetryStatus?.()
     const effective = normalizeTelemetryStatus(status ?? { enabled })
 

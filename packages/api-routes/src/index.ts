@@ -398,6 +398,8 @@ export interface ApiRoutesOptions {
   defaultTrafficSampleLimit?: TrafficRoutesOptions['defaultSampleLimit']
   /** Fired after every traffic sync (success OR failure). Used by canonry to emit `traffic.synced` telemetry. */
   onTrafficSynced?: TrafficRoutesOptions['onTrafficSynced']
+  /** Fired after every authenticated traffic push. Used by canonry to emit the sampled `server_traffic` ingest outcome. */
+  onTrafficIngested?: TrafficRoutesOptions['onTrafficIngested']
   /** Discovery feature callback — fires after a discovery_sessions row + matching runs row are inserted. */
   onDiscoveryRunRequested?: DiscoveryRoutesOptions['onDiscoveryRunRequested']
   /** Executes an isolated research batch. Never creates a tracked run or query snapshots. */
@@ -800,6 +802,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       cloudflareIngestIpRateLimitMax: opts.cloudflareIngestIpRateLimitMax,
       defaultSampleLimit: opts.defaultTrafficSampleLimit,
       onTrafficSynced: opts.onTrafficSynced,
+      onTrafficIngested: opts.onTrafficIngested,
       onScheduleUpdated: opts.onScheduleUpdated,
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
     } satisfies TrafficRoutesOptions)
@@ -921,6 +924,8 @@ export type {
   OnDiscoveryRunRequested,
 } from './discovery/index.js'
 export { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
+// One classification of a webhook destination and its answer, shared by the test route and deliveries.
+export { webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from './connection-telemetry.js'
 // Audit rows written by a host route, so they carry the same request context.
 export { auditFromRequest, notProbeRun, writeAuditLog } from './helpers.js'
 // Shared public-egress preflight: validates every resolved address class and
@@ -932,6 +937,7 @@ export { resolveMeasurementSitemapTarget as resolvePublicHttpTarget } from './me
 export { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
 export { redactNotificationDiff, redactNotificationUrl } from './notification-redaction.js'
 export type { SafeWebhookTarget } from './webhooks.js'
+export type { TrafficIngestedEvent, TrafficSyncedEvent } from './traffic.js'
 export type { RunRoutesOptions } from './runs.js'
 // Pure GBP summary math — reused by the intelligence service to derive
 // per-location signals (window deltas, lodging/CTA flags) for gbp-sync insights.

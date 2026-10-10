@@ -14,6 +14,8 @@ import { isLoopbackBindHost } from '../server.js'
 import { registeredProviderNames } from '../provider-registration.js'
 import { recordInstallRef } from '../telemetry-environment.js'
 import { isTelemetryEnabled } from '../telemetry.js'
+import { trackCliConnection } from '../cli-connection-telemetry.js'
+import { outcomeFailure } from '../outcome-telemetry.js'
 
 function persistedValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(persistedValue)
@@ -262,8 +264,20 @@ export async function bootstrapCommand(opts?: { format?: CliFormat; ref?: string
     || existingRaw.apiKey !== rawApiKey
     || providersChanged
     || !isDeepStrictEqual(persistedValue(existingRaw.google), persistedValue(mergedGoogle))
-  if (configChanged) saveConfig(nextConfig)
+  // A provider the environment set or changed is a connection; a rerun with the same keys is not.
+  const providerConnections = (Object.keys(env.providers) as BootstrapProviderName[])
+    .filter(name => env.providers[name] && !isDeepStrictEqual(persistedValue(existingRaw?.providers?.[name]), persistedValue(mergedProviders[name])))
+    .map(name => ({ integration: 'provider' as const, provider: name, action: existingRaw?.providers?.[name] ? 'reauth' as const : 'connect' as const }))
+  if (configChanged) {
+    try {
+      saveConfig(nextConfig)
+    } catch (err) {
+      for (const connection of providerConnections) trackCliConnection({ ...connection, status: 'failed', ...outcomeFailure(err) })
+      throw err
+    }
+  }
   if (isTelemetryEnabled()) recordInstallRef(opts?.ref)
+  for (const connection of providerConnections) trackCliConnection({ ...connection, status: 'succeeded' })
 
   const status = !existing ? 'created' : configChanged || keyChanged ? 'updated' : 'unchanged'
   const providerFree = registeredProviderNames(nextConfig).length === 0
