@@ -11,8 +11,17 @@ interface TooltipPos {
  * keyboard and exposes the explanatory copy to assistive tech via its
  * accessible name (`aria-label`) — the visual bubble is decorative
  * (`aria-hidden`). Hover, focus, click (touch), and Escape all toggle it.
+ *
+ * `variant="caution"` is the same control behind a triangle in the caution
+ * tone: a note about the figure beside it, rather than help for a label. It
+ * opens below unless told otherwise, the placement that keeps the bubble
+ * inside a narrow viewport, because it sits beside figures anywhere in a row.
  */
-export function InfoTooltip({ text, placement = 'top' }: { text: string; placement?: 'top' | 'bottom' }) {
+export function InfoTooltip({ text, variant = 'info', placement = variant === 'caution' ? 'bottom' : 'top' }: {
+  text: string
+  variant?: 'info' | 'caution'
+  placement?: 'top' | 'bottom'
+}) {
   const [pos, setPos] = useState<TooltipPos | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const bubbleRef = useRef<HTMLSpanElement>(null)
@@ -49,7 +58,7 @@ export function InfoTooltip({ text, placement = 'top' }: { text: string; placeme
       <button
         ref={triggerRef}
         type="button"
-        className="info-tooltip-trigger"
+        className={variant === 'caution' ? 'info-tooltip-trigger info-tooltip-trigger-caution' : 'info-tooltip-trigger'}
         aria-label={text}
         aria-expanded={pos !== null}
         onFocus={show}
@@ -66,10 +75,12 @@ export function InfoTooltip({ text, placement = 'top' }: { text: string; placeme
           if (e.key === 'Escape') hide()
         }}
       >
-        <svg className="info-tooltip-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        {variant === 'caution' ? <svg className="info-tooltip-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M8 2 14.5 13.5h-13L8 2ZM8 6.5v3M8 11.5v0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg> : <svg className="info-tooltip-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
           <path d="M8 7v4M8 5.5v0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
+        </svg>}
       </button>
       {pos !== null && createPortal(
         <span

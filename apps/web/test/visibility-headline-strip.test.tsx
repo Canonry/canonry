@@ -5,6 +5,7 @@ import { VISIBILITY_DISPLAY_COPY, visibilityReportResponseSchema } from '@ainyc/
 import type { VisibilityReportComparison, VisibilityReportPopulationClass, VisibilityReportRate, VisibilityReportResponse } from '@ainyc/canonry-contracts'
 import { CHART_SERIES_COLORS, CHART_TONE } from '../src/components/shared/ChartPrimitives.js'
 import { REPORT_TREND_UNCHECKED_NOTE, REPORT_CHANGE_COPY, REPORT_CLASS_NOUN, REPORT_HEADLINE_HELP, VisibilityReportView } from '../src/components/project/VisibilityTrendSection.js'
+import { expectCautionNote, visibleText } from './caution-note.js'
 
 // jsdom lays out no SVG, so each Recharts Line renders as a span carrying the
 // props that decide what is drawn: its series key, stroke, dash, and dot.
@@ -123,6 +124,11 @@ function tile(label: string, queryClass: VisibilityReportPopulationClass = 'non-
   return within(strip(queryClass)).getByText(label, { selector: 'dt span' }).closest('div')!
 }
 
+/** The caution icons inside an element, by the note each one holds. */
+function cautionNotes(element: HTMLElement): Array<string | null> {
+  return [...element.querySelectorAll('.info-tooltip-trigger-caution')].map(trigger => trigger.getAttribute('aria-label'))
+}
+
 /** Every `dd` in that tile, as [text, exact class list]. */
 function cell(label: string, queryClass: VisibilityReportPopulationClass = 'non-brand'): Array<[string, string]> {
   return [...tile(label, queryClass).querySelectorAll('dd')].map(definition => [definition.textContent ?? '', definition.className])
@@ -132,13 +138,6 @@ function cell(label: string, queryClass: VisibilityReportPopulationClass = 'non-
 function valueRow(label: string, queryClass: VisibilityReportPopulationClass = 'non-brand'): Array<[string, string]> {
   const value = tile(label, queryClass).querySelector('dd')!
   return [...value.children].map(part => [part.textContent ?? '', part.className])
-}
-
-/** What a sighted reader sees: the same text with every screen-reader-only span removed. */
-function visibleText(element: HTMLElement): string {
-  const copy = element.cloneNode(true) as HTMLElement
-  for (const hidden of copy.querySelectorAll('.sr-only')) hidden.remove()
-  return copy.textContent ?? ''
 }
 
 function section(queryClass: VisibilityReportPopulationClass = 'non-brand'): HTMLElement {
@@ -186,7 +185,7 @@ describe('headline strip', () => {
     expect(REPORT_HEADLINE_HELP.simpleMention).toBe('Mentioned counts answers naming your brand in the answer text, not in the source links.')
     expect(REPORT_HEADLINE_HELP.simpleCitation).toBe('Cited counts answers linking to your site in the sources behind the answer, not in the answer text.')
     expect(REPORT_HEADLINE_HELP.advancedMention).toBe('An answer counts when it mentions any assigned property. This does not mean every property was mentioned. An answer that could not be tied to one property is left out of the rate, never counted as not mentioned.')
-    expect(REPORT_HEADLINE_HELP.advancedCitation).toBe('An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted on its own line.')
+    expect(REPORT_HEADLINE_HELP.advancedCitation).toBe('An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted behind the caution icon.')
     // Server truth: eligible = the property has a name to match (`mentionEligible`),
     // reach counts a property once across its answers, and one unknown property
     // makes the whole rate unavailable rather than partial.
@@ -287,36 +286,40 @@ describe('headline strip', () => {
     expect(valueRow(CITATION_LABEL).at(-1)).toEqual(['Up 16.7 pts', 'text-sm text-positive'])
   })
 
-  it('shows the server rate over attributable answers and, under it, the answers it left out', () => {
+  it('shows the server rate over attributable answers and, behind a caution icon beside its count, the answers it left out', () => {
     // 12 of 1152 branded answers asked which property was meant. The server left
-    // them out of both sides of the rate; the tile states the rate and the count.
+    // them out of both sides of the rate; the tile states the rate and its count,
+    // and the icon beside the count holds the answers left out.
     const partial: VisibilityReportRate = { numerator: 1055, denominator: 1140, rate: 1055 / 1140, unattributed: 12 }
     render(<VisibilityReportView report={headlineReport({ queryClass: 'branded', answerCount: 1152, summary: { mentionCoverage: partial } })} onSelectionChange={() => {}} />)
     expect(cell(MENTION_LABEL, 'branded')).toEqual([
       [`92.5% · ${REPORT_CLASS_NOUN.branded}`, 'report-headline-value'],
       ['1055 of 1140 answers', DETAIL_CLASS],
-      ['12 of 1152 answers could not be tied to one property', DETAIL_CLASS],
     ])
+    expectCautionNote(tile(MENTION_LABEL, 'branded'), '12 of 1152 answers could not be tied to one property', '1055 of 1140 answers')
     expect(visibleText(tile(MENTION_LABEL, 'branded'))).not.toContain(VISIBILITY_DISPLAY_COPY.ambiguous)
-    // Cited is a separate signal with its own denominator and no such line.
+    // Cited is a separate signal with its own denominator and no such note.
     expect(cell(CITATION_LABEL, 'branded')).toEqual(figure(CITATION_LABEL, 'branded'))
+    expect(cautionNotes(tile(CITATION_LABEL, 'branded'))).toEqual([])
   })
 
-  it('shows the server citation rate over checked answers and, under it, the answers whose sources could not be checked', () => {
+  it('shows the server citation rate over checked answers and, behind a caution icon beside its count, the answers whose sources could not be checked', () => {
     // The incident: 2 of 2796 saved answers had incomplete source capture. The
-    // server left them out of both sides; the tile states the rate and the count.
+    // server left them out of both sides; the tile states the rate and its count,
+    // and the icon beside the count holds the answers left out.
     const checked: VisibilityReportRate = { numerator: 1397, denominator: 2794, rate: 0.5, unchecked: 2 }
     render(<VisibilityReportView report={headlineReport({ answerCount: 2796, summary: { mentionCoverage: rate(1398, 2796), citationCoverage: checked } })} onSelectionChange={() => {}} />)
     expect(cell(CITATION_LABEL)).toEqual([
       [`50.0% · ${REPORT_CLASS_NOUN['non-brand']}`, 'report-headline-value'],
       ['1397 of 2794 answers', DETAIL_CLASS],
-      ['2 of 2796 answers had sources that could not be checked', DETAIL_CLASS],
     ])
-    // Mention reads the answer text, so its tile carries no source-check line.
+    expectCautionNote(tile(CITATION_LABEL), '2 of 2796 answers had sources that could not be checked', '1397 of 2794 answers')
+    // Mention reads the answer text, so its tile carries no source-check note.
     expect(cell(MENTION_LABEL)).toEqual([
       [`50.0% · ${REPORT_CLASS_NOUN['non-brand']}`, 'report-headline-value'],
       ['1398 of 2796 answers', DETAIL_CLASS],
     ])
+    expect(cautionNotes(tile(MENTION_LABEL))).toEqual([])
   })
 
   it('reads each left-out count under its own signal only', () => {
@@ -327,6 +330,7 @@ describe('headline strip', () => {
     render(<VisibilityReportView report={headlineReport({ summary: { mentionCoverage: mention, citationCoverage: citation } })} onSelectionChange={() => {}} />)
     expect(cell(MENTION_LABEL)).toEqual(figure(MENTION_LABEL))
     expect(cell(CITATION_LABEL)).toEqual(figure(CITATION_LABEL))
+    expect(cautionNotes(strip())).toEqual([])
   })
 
   it('leaves a Simple Cited tile as the rate and its count under the Simple help', () => {
@@ -453,18 +457,20 @@ describe('headline strip', () => {
     expect(bar(propertyCited!)?.width).toBe('50%')
   })
 
-  it('states the answers a breakdown row left out beneath its rate', () => {
+  it('keeps the answers a breakdown row left out behind a caution icon beside its count', () => {
     const report = headlineReport()
     report.populations[0]!.breakdown.properties[0]!.mentionCoverage = { numerator: 3, denominator: 4, rate: 0.75, unattributed: 1 }
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
     const breakdown = screen.getByRole('region', { name: 'Scope breakdown' })
     fireEvent.click(within(breakdown).getByRole('button', { name: 'Properties' }))
     const [, , mentioned, cited] = [...within(breakdown).getByRole('button', { name: 'Harbor House' }).closest('tr')!.querySelectorAll('td')]
-    expect(mentioned!.textContent).toBe('75.0%3 of 41 of 5 answers could not be tied to one property')
+    expect(mentioned!.textContent).toBe('75.0%3 of 4')
+    expectCautionNote(mentioned!, '1 of 5 answers could not be tied to one property', '3 of 4')
     expect(cited!.textContent).toBe('50.0%2 of 4')
+    expect(cautionNotes(cited!)).toEqual([])
   })
 
-  it('states the answers whose sources could not be checked beneath a breakdown row\'s citation rate', () => {
+  it('keeps the answers whose sources could not be checked behind a caution icon beside a breakdown row\'s citation count', () => {
     const report = headlineReport()
     report.populations[0]!.breakdown.properties[0]!.citationCoverage = { numerator: 2, denominator: 3, rate: 2 / 3, unchecked: 1 }
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
@@ -472,7 +478,9 @@ describe('headline strip', () => {
     fireEvent.click(within(breakdown).getByRole('button', { name: 'Properties' }))
     const [, , mentioned, cited] = [...within(breakdown).getByRole('button', { name: 'Harbor House' }).closest('tr')!.querySelectorAll('td')]
     expect(mentioned!.textContent).toBe('75.0%3 of 4')
-    expect(cited!.textContent).toBe('66.7%2 of 31 of 4 answers had sources that could not be checked')
+    expect(cautionNotes(mentioned!)).toEqual([])
+    expect(cited!.textContent).toBe('66.7%2 of 3')
+    expectCautionNote(cited!, '1 of 4 answers had sources that could not be checked', '2 of 3')
   })
 
   it.each([
@@ -489,14 +497,22 @@ describe('headline strip', () => {
       { createdAt: Date.parse(DISPLAYED_RUN_AT), 'mentioned-0': 0.5, 'cited-0': 0.5 },
     ])
     const note = 'Missing citation results mean the saved evidence is incomplete.'
-    const describedBy = chart.getAttribute('aria-describedby')
-    // The displayed sweep left 2 answers unchecked, so the chart says Cited counts only checked answers in both cases.
-    expect(describedBy === null ? '' : document.getElementById(describedBy)!.textContent).toBe(notesMissing ? `${note} ${REPORT_TREND_UNCHECKED_NOTE}` : REPORT_TREND_UNCHECKED_NOTE)
-    // The history table carries the same count under Cited, never under Mentioned.
-    const history = within(screen.getByRole('table', { name: 'Non-brand queries trend data' })).getAllByRole('row')
-    const [, mentionedCell, citedCell] = [...history[2]!.querySelectorAll('td')]
+    // The displayed sweep left 2 answers unchecked, so the legend says Cited counts only checked answers in both
+    // cases, behind a caution icon after Cited rather than as a line under it.
+    const legend = screen.getByRole('group', { name: 'Trend legend' })
+    const caution = expectCautionNote(legend, REPORT_TREND_UNCHECKED_NOTE, '')
+    expect(within(legend).getByRole('checkbox', { name: 'Cited' }).compareDocumentPosition(caution) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    // The chart still reads the note as part of its description, after any note that stays in view.
+    const described = chart.getAttribute('aria-describedby')!.split(' ').map(id => document.getElementById(id)!)
+    expect(described.map(element => element.querySelector('button')?.getAttribute('aria-label') ?? element.textContent)).toEqual(notesMissing ? [note, REPORT_TREND_UNCHECKED_NOTE] : [REPORT_TREND_UNCHECKED_NOTE])
+    // The history table, read by screen readers only, carries the same count as text under Cited, never under
+    // Mentioned, and holds no button a keyboard would stop on unseen.
+    const table = screen.getByRole('table', { name: 'Non-brand queries trend data' })
+    expect(table.parentElement!.classList.contains('sr-only')).toBe(true)
+    const [, mentionedCell, citedCell] = [...within(table).getAllByRole('row')[2]!.querySelectorAll('td')]
     expect(mentionedCell!.textContent).toBe('50.0%1398 of 2796')
     expect(citedCell!.textContent).toBe('50.0%1397 of 27942 of 2796 answers had sources that could not be checked')
+    expect(table.querySelectorAll('button')).toHaveLength(0)
   })
 
   it('orders the strip, trend chart, breakdown, Property outcomes, and query results', () => {

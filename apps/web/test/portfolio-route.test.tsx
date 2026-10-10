@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, expect, onTestFinished, test, vi } from 'vitest'
 import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
+import { visibleText } from './caution-note.js'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
@@ -3734,10 +3735,10 @@ test('an Advanced explicit historical range is a results filter token, not conte
 })
 
 test.each([
-  { label: 'names when tracking changed and the next scheduled sweep', managedSweeps: false, running: false, copy: 'Tracking changed Aug 1. Showing the Jul 30 results, from before the change. New numbers after the Sep 8 sweep.' },
-  { label: 'names no next sweep date while a sweep is under way', managedSweeps: false, running: true, copy: 'Tracking changed Aug 1. Showing the Jul 30 results, from before the change. New numbers after the next sweep.' },
-  { label: 'names neither date on a managed dashboard', managedSweeps: true, running: false, copy: 'Tracking changed. Showing the Jul 30 results, from before the change. New numbers after the next sweep.' },
-])('the Advanced tracking-changed strip $label', async ({ managedSweeps, running, copy }) => {
+  { label: 'names when tracking changed and the next scheduled sweep', managedSweeps: false, running: false, visible: 'Tracking changed Aug 1', copy: 'Tracking changed Aug 1. Showing the Jul 30 results, from before the change. New numbers after the Sep 8 sweep.' },
+  { label: 'names no next sweep date while a sweep is under way', managedSweeps: false, running: true, visible: 'Tracking changed Aug 1', copy: 'Tracking changed Aug 1. Showing the Jul 30 results, from before the change. New numbers after the next sweep.' },
+  { label: 'names neither date on a managed dashboard', managedSweeps: true, running: false, visible: 'Tracking changed', copy: 'Tracking changed. Showing the Jul 30 results, from before the change. New numbers after the next sweep.' },
+])('the Advanced tracking-changed strip $label', async ({ managedSweeps, running, visible, copy }) => {
   const report = visibilityReportResponse({ mode: 'advanced', queryClass: parseVisibilitySelection({}).queryClass })
   report.selection.measurement = { ...report.selection.measurement, activeRevision: 5, awaitingSweep: true, pendingAssignmentCount: 1, completedAt: '2026-07-30T12:05:00.000Z' }
   // The plan (published Aug 1) and the schedule are cached in every case, so only the page's own rules keep a date out.
@@ -3748,8 +3749,11 @@ test.each([
       project.recentRuns = running ? [{ ...project.recentRuns[0]!, kind: 'answer-visibility', status: 'running' }] : []
     } },
   )
-  const strips = [...renderedPage(html).querySelectorAll('[role="status"]')].filter(status => status.textContent?.startsWith('Tracking changed'))
+  const strips = [...renderedPage(html).querySelectorAll<HTMLElement>('[role="status"]')].filter(status => status.textContent?.startsWith('Tracking changed'))
   expect(strips.map(strip => strip.textContent)).toEqual([copy])
+  // Only the short label shows; the rest of the sentence is the name of the caution icon beside it.
+  expect(strips.map(strip => visibleText(strip))).toEqual([visible])
+  expect(strips[0]!.parentElement!.querySelector('.info-tooltip-trigger-caution')!.getAttribute('aria-label')).toBe(copy.slice(`${visible}. `.length))
 })
 
 test('managed sweeps without a schedule replaces the header action without inventing a date', async () => {

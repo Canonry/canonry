@@ -7,6 +7,7 @@ import type {
 } from '@ainyc/canonry-api-client'
 
 import { AdvancedMeasurementOverview } from '../src/components/project/advanced-measurement/AdvancedMeasurementOverview.js'
+import { expectCautionNote } from './caution-note.js'
 import {
   adaptV2MeasurementOverview,
   areV2OverviewPagesCompatible,
@@ -400,11 +401,15 @@ describe('property row detail', () => {
     render(<AdvancedMeasurementOverview report={report} canEdit onViewChange={vi.fn()} onLoadMore={vi.fn()} onPropertyExpand={vi.fn()} />)
     const row = screen.getByRole('button', { name: 'Show details for Property 1' }).closest('tr')!
     const [, mention, citation] = [...row.querySelectorAll('td')]
-    expect(mention!.textContent).toBe('1 of 1 (100%)9 of 10 answers could not be tied to one property')
+    // The left-out answers sit behind a caution icon beside the count, on the row and on each engine.
+    expect(mention!.textContent).toBe('1 of 1 (100%)')
+    expectCautionNote(mention!, '9 of 10 answers could not be tied to one property', '1 of 1 (100%)')
     expect(citation!.textContent).toBe('0 of 10 (0%)')
+    expect(citation!.querySelector('.info-tooltip-trigger-caution')).toBeNull()
     fireEvent.click(row)
     const openai = screen.getByText('openai').closest('tr')!
-    expect(openai.querySelectorAll('td')[1]!.textContent).toBe('1 of 1 (100%)4 of 5 answers could not be tied to one property')
+    expect(openai.querySelectorAll('td')[1]!.textContent).toBe('1 of 1 (100%)')
+    expectCautionNote(openai.querySelectorAll('td')[1]!, '4 of 5 answers could not be tied to one property', '1 of 1 (100%)')
     const gemini = screen.getByText('gemini').closest('tr')!
     expect(gemini.querySelectorAll('td')[1]!.querySelector('[title]')!.getAttribute('title')).toBe('No answer could be tied to one property.')
     const ambiguousRow = screen.getByRole('button', { name: 'Show details for Property 2' }).closest('tr')!
@@ -424,7 +429,7 @@ describe('property row detail', () => {
       { provider: 'gemini', mentionCoverage: { state: 'available', value: 0, numerator: 0, denominator: 1 },
         citationCoverage: { state: 'unavailable', reason: 'evidence_incomplete' } },
     ]
-    // Property 2: each left-out count sits on the other signal's rate, so neither line may show.
+    // Property 2: each left-out count sits on the other signal's rate, so neither note may show.
     overview.properties.items[1]!.mentionCoverage = { state: 'available', value: 1, numerator: 1, denominator: 1, unchecked: 2 }
     overview.properties.items[1]!.citationCoverage = { state: 'available', value: 0, numerator: 0, denominator: 3, unattributed: 4 }
 
@@ -440,7 +445,9 @@ describe('property row detail', () => {
     const row = screen.getByRole('button', { name: 'Show details for Property 1' }).closest('tr')!
     const [, mention, citation] = [...row.querySelectorAll('td')]
     expect(mention!.textContent).toBe('1 of 2 (50.0%)')
-    expect(citation!.textContent).toBe('1 of 1 (100%)1 of 2 answers had sources that could not be checked')
+    expect(mention!.querySelector('.info-tooltip-trigger-caution')).toBeNull()
+    expect(citation!.textContent).toBe('1 of 1 (100%)')
+    expectCautionNote(citation!, '1 of 2 answers had sources that could not be checked', '1 of 1 (100%)')
     fireEvent.click(row)
     const openai = screen.getByText('openai').closest('tr')!
     expect(openai.querySelectorAll('td')[2]!.textContent).toBe('1 of 1 (100%)')
@@ -450,6 +457,7 @@ describe('property row detail', () => {
     const [, crossedMention, crossedCitation] = [...crossed.querySelectorAll('td')]
     expect(crossedMention!.textContent).toBe('1 of 1 (100%)')
     expect(crossedCitation!.textContent).toBe('0 of 3 (0%)')
+    expect(crossed.querySelector('.info-tooltip-trigger-caution')).toBeNull()
   })
 
   it('names the market a property belongs to, so a row is identifiable at portfolio scale', () => {

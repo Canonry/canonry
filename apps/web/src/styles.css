@@ -3485,6 +3485,11 @@
     @apply size-3;
   }
 
+  /* Caution variant: the triangle holds the caution tone at rest and on hover. */
+  .info-tooltip-trigger-caution {
+    @apply text-caution hover:text-caution-200;
+  }
+
   /* Portal-rendered tooltip uses inline styles — see InfoTooltip.tsx */
 
   /* ── Data table (generic) ── */
