@@ -206,7 +206,8 @@ describe('Aero turn outcome', () => {
   })
 
   it('reports a turn Aero started itself as the system acting, triggered by the agent', async () => {
-    scripted.responses.push({ content: [{ type: 'text', text: 'The sweep looks steady.' }], stopReason: 'stop', usage: usage(900, 40, 0, 0.0033), responseId: 'resp-1' })
+    // A provider that reports fractional token counts still yields whole counts.
+    scripted.responses.push({ content: [{ type: 'text', text: 'The sweep looks steady.' }], stopReason: 'stop', usage: usage(900.4, 39.6, 0, 0.0033), responseId: 'resp-1' })
     registry.queueFollowUp('demo', { role: 'user', content: '[system] run.completed for demo', timestamp: Date.now() } as AgentMessage)
 
     await registry.drainNow('demo')

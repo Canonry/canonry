@@ -535,9 +535,10 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
         // Read loosely: a malformed message must not break the turn it is counted in.
         const usage = event.message.usage as { input?: unknown; output?: unknown; cacheRead?: unknown; cost?: { total?: unknown } } | undefined
         state.usage.responses++
-        state.usage.inputTokens += nonNegative(usage?.input)
-        state.usage.outputTokens += nonNegative(usage?.output)
-        state.usage.cachedTokens += nonNegative(usage?.cacheRead)
+        // Whole tokens per response, as `llm_usage_events` stores them: a fractional count is not a valid outcome count.
+        state.usage.inputTokens += Math.round(nonNegative(usage?.input))
+        state.usage.outputTokens += Math.round(nonNegative(usage?.output))
+        state.usage.cachedTokens += Math.round(nonNegative(usage?.cacheRead))
         state.usage.costUsd += nonNegative(usage?.cost?.total)
       }
       if (event.type === 'message_end' && event.message.role === 'toolResult') {
