@@ -127,7 +127,7 @@ export function installWorkspaceApi(
 }
 
 export function chooseContext(location = 'New York') {
-  const control = screen.getByLabelText('Location and engines') as HTMLSelectElement
+  const control = screen.getByLabelText('Search location and engines') as HTMLSelectElement
   const details = control.closest('details')
   if (details && !details.open) fireEvent.click(details.querySelector('summary')!)
   const option = [...control.options].find(candidate => candidate.text.includes(location))
@@ -138,7 +138,7 @@ export function chooseContext(location = 'New York') {
 /** An advanced project opens the Add queries sheet first; its link opens the Add query form the legacy-form tests cover. */
 export function openLegacyAdd() {
   fireEvent.click(screen.getByRole('button', { name: 'Add queries' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Hand-picked locations, templates or saved research' }))
+  fireEvent.click(screen.getByRole('button', { name: 'More ways to add' }))
 }
 
 export function installScrollSpy() {
@@ -152,9 +152,29 @@ export function installScrollSpy() {
   return scrollIntoView
 }
 
-export const advancedResetLine = 'New numbers after the next sweep'
-export const advancedResetNotice = 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept. Publishing does not run a sweep.'
+export const advancedResetLine = 'New numbers next sweep'
+export const advancedResetNotice = 'After you publish, location pages and competitor results show no numbers until the next sweep. AI Visibility keeps showing the last sweep. Past answers are kept. Publishing does not run a sweep.'
+export const sweepActiveLabel = 'Sweep running'
 export const sweepActiveMessage = 'A sweep is queued or running. Publish after it finishes.'
+
+/** A short note's button: its name is the label, then the sentence behind it. Only the label is visible text. */
+export function noteButton(label: string, detail: string, container: HTMLElement = document.body) {
+  const note = within(container).getByRole('button', { name: `${label}. ${detail}` })
+  expect(note.textContent).toBe(label)
+  return note
+}
+/**
+ * No sentence in what a surface shows: its sentences sit behind help buttons, in their names. Text a
+ * person typed is not copy, a server refusal keeps its sentence, and screen-reader-only text is not shown.
+ */
+export function expectNoSentence(container: HTMLElement) {
+  const shown = container.cloneNode(true) as HTMLElement
+  for (const own of shown.querySelectorAll('textarea, [role="alert"], .sr-only')) own.remove()
+  // A word, then a full stop that ends it: "kept." at the end, and "kept.Next", where the next element's
+  // text follows with no space. Never "example.com": a lowercase letter or a digit after the stop is one word.
+  expect(shown.textContent).not.toMatch(/[a-z]{2}\.(?![a-z0-9])/)
+}
+
 export const removalDiff = { added: [], removed: [{ queryId: 'query-acme', queryText: 'Acme pricing', assignmentCount: 1 }], reused: [], unchanged: [], noOp: false }
 // One node asked on three engines is three provider calls, so an answer number read from the node counts would show.
 export const removalWorkload = { existingNodes: 2, existingProviderCalls: 6, nextSweepNodes: 1, nextSweepProviderCalls: 3, addedNodes: 0, addedProviderCalls: 0, removedNodes: 1, removedProviderCalls: 3 }
@@ -171,14 +191,50 @@ export async function reviewRemoval() {
 
 /** The advanced review's number grid, as label and value pairs. */
 export function reviewNumbers() {
-  return Object.fromEntries(screen.getAllByRole('term').map(term => [term.textContent, term.nextElementSibling?.textContent]))
+  const grid = screen.getByText('Queries', { selector: 'dt' }).closest('dl')!
+  return Object.fromEntries(within(grid).getAllByRole('term').map(term => [term.textContent, term.nextElementSibling?.textContent]))
 }
 
-/** One row of an advanced review table, by its query. `row` holds the button that lists the query's locations in the row under it. */
+/**
+ * One row of an advanced review table, by its query, read by column header. `subject` is undefined when
+ * the table has no Subject column, and `searchLocation` when every row shares one value, which
+ * `sharedSearchLocation` reads. A table with both a Subject and a search location column has one
+ * "Subject and type" column: the Subject on its first line and the Type on its second.
+ * `row` holds the button that lists the query's locations in the row under it.
+ */
 export function reviewRow(queryText: string, table = 'Changes') {
-  const row = within(screen.getByRole('table', { name: table })).getByText(queryText).closest('tr')!
-  const [change, , type, assignments, searchLocation] = [...row.cells].map(cell => cell.textContent)
-  return { row, change, type, assignments, searchLocation }
+  const element = screen.getByRole('table', { name: table })
+  const row = within(element).getByText(queryText).closest('tr')!
+  const headers = within(element).getAllByRole('columnheader').map(header => header.textContent)
+  const cell = (header: string) => headers.includes(header) ? row.cells[headers.indexOf(header)]!.textContent : undefined
+  const stacked = headers.includes('Subject and type') ? [...row.cells[headers.indexOf('Subject and type')]!.children].map(line => line.textContent) : null
+  if (stacked) expect(stacked).toHaveLength(2)
+  return { row, change: cell('Change'), subject: stacked ? stacked[0] : cell('Subject'), type: stacked ? stacked[1] : cell('Type'), assignments: cell('Location links'), searchLocation: cell('Search location and engines') }
+}
+
+/**
+ * A search location and engines value that is its own help button: it shows `label`, the engines by
+ * display name, and its name ends with the caller's words for it, model ids included. Returns those words.
+ */
+export function searchLocationModels(container: HTMLElement, label: string) {
+  const value = within(container).getByRole('button', { name: name => name.startsWith(`${label}. `) })
+  expect(value.textContent).toBe(label)
+  return value.getAttribute('aria-label')!.slice(label.length + 2)
+}
+
+/**
+ * The search location and engines every row of a review table shares, said once on the line above the
+ * table: the engines by display name, with the model ids behind the value (`models`). A value that
+ * already carries the model ids is plain text, and `models` is null. Null when the table keeps the
+ * column, or no row names one.
+ */
+export function sharedSearchLocation(table = 'Changes') {
+  const line = screen.getByRole('table', { name: table }).parentElement!.previousElementSibling
+  if (!(line instanceof HTMLElement) || line.tagName !== 'DL') return null
+  expect(within(line).getByRole('term').textContent).toBe('Search location and engines')
+  const value = within(line).getByRole('definition')
+  const label = value.textContent
+  return { label, models: within(value).queryByRole('button') ? searchLocationModels(value, label) : null }
 }
 
 /** Open a review row's location list, closed until asked for, and read its lines from the row under it. */

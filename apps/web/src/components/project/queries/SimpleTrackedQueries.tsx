@@ -48,7 +48,7 @@ export function SimpleTrackedQueries(props: TrackedQueriesPageProps & { composer
           )}
         </div>
         <p className="mt-2 text-xs leading-5 text-secondary">
-          {table.totalRows.toLocaleString('en-US')} saved query {table.totalRows === 1 ? 'record' : 'records'} in this view. Each record can have more than one property, group, or market assignment.
+          {table.totalRows.toLocaleString('en-US')} {table.totalRows === 1 ? 'query' : 'queries'}
         </p>
         {selection.measurementScope === 'group' ? <p className="mt-1 text-xs leading-5 text-secondary">Queries belong to properties, so a shared query can also cover other groups.</p> : null}
 

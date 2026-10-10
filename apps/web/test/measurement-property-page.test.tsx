@@ -2120,7 +2120,7 @@ describe('Add query about this location', () => {
     expect(within(countsIn.nextElementSibling as HTMLElement).getByRole('button', { name: "Asked with these markets' engines and search locations." })).toBeTruthy()
     expect(sheet.queryByText(/^Engines and search locations come from/)).toBeNull()
     // This page has no Add query form to hand off to.
-    expect(sheet.queryByRole('button', { name: 'Hand-picked locations, templates or saved research' })).toBeNull()
+    expect(sheet.queryByRole('button', { name: 'More ways to add' })).toBeNull()
     expect(screen.getByRole('dialog', { name: 'Add queries' }).textContent).not.toMatch(/propert|—/i)
     // The press read the workspace once, and opening the sheet does not read it again.
     await new Promise(resolve => setTimeout(resolve, 50))
@@ -2284,7 +2284,8 @@ describe('Add query about this location', () => {
     const sheet = await openSheet(section)
     fireEvent.click(sheet.getByRole('radio', { name: 'Market' }))
 
-    expect(sheet.getByText(/no markets/).textContent).toBe('This project has no markets yet.')
+    // Plain text: with no form to point to, the note has no help to open.
+    expect(sheet.getByText('No markets yet').closest('button')).toBeNull()
   })
 
   it('carries a failed read to no other location the page moves to', async () => {

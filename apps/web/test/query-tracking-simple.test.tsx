@@ -1,11 +1,11 @@
 import { afterEach, expect, onTestFinished, test } from 'vitest'
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 
 import { RESEARCH_COPY } from '../src/components/project/ResearchQueriesSection.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 import {
-  active, advancedResetLine, advancedResetNotice, installWorkspaceApi, preview, previewToken, removalDiff, removalWorkload,
+  active, advancedResetLine, advancedResetNotice, expectNoSentence, installWorkspaceApi, noteButton, preview, previewToken, removalDiff, removalWorkload,
   renderViewerWorkspace, renderWorkspace, workspace, workspaceVersion,
 } from './support/query-tracking-fixtures.js'
 
@@ -92,7 +92,21 @@ test.each([
   else expect(screen.queryByText('This request leaves tracking unchanged.')).toBeNull()
   expect(screen.queryByText(/AI Visibility keeps showing the last sweep/)).toBeNull()
   expect(screen.queryByText(advancedResetLine)).toBeNull()
-  expect(screen.queryByRole('button', { name: advancedResetNotice })).toBeNull()
+  expect(screen.queryByRole('button', { name: `${advancedResetLine}. ${advancedResetNotice}` })).toBeNull()
+})
+
+test('names no place on the Remove form of a simple project', async () => {
+  installWorkspaceApi(undefined, [], { ...workspace(), mode: 'simple' })
+  renderWorkspace()
+  await screen.findByText('Acme pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
+  const form = screen.getByRole('heading', { name: 'Remove query' }).closest('.surface-card') as HTMLElement
+  // A simple project has one place, so the form names the query and what the removal keeps, and no place.
+  expect(within(form).getByText('Acme pricing')).toBeTruthy()
+  expect(within(form).queryByText('Applies to')).toBeNull()
+  expect(within(form).queryByRole('term')).toBeNull()
+  noteButton('Past answers kept', 'Removal applies to future sweeps. Earlier results stay unchanged.', form)
+  expectNoSentence(form)
 })
 
 test.each([
@@ -133,10 +147,15 @@ test.each(['simple'])('commits a resolved template query edit in %s mode without
   renderWorkspace()
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Edit Acme pricing' }))
-  expect((screen.getByLabelText('Query text') as HTMLTextAreaElement).value).toBe('Acme pricing')
-  // The hint names the button this project has: a simple project keeps Add query.
-  expect(screen.getByText(`Existing locations and engines are preserved. Use ${mode === 'simple' ? 'Add query' : 'Add queries'} to create assignments in another scope.`)).toBeTruthy()
-  fireEvent.change(screen.getByLabelText('Query text'), { target: { value: 'Acme fees' } })
+  expect((screen.getByLabelText('Query') as HTMLTextAreaElement).value).toBe('Acme pricing')
+  // The note's help names the button this project has: a simple project keeps Add query.
+  const form = screen.getByRole('heading', { name: 'Edit query' }).closest('.surface-card') as HTMLElement
+  noteButton('Locations and engines kept', `An edit keeps the query's locations and engines. Use ${mode === 'simple' ? 'Add query' : 'Add queries'} to track it somewhere else.`, form)
+  // A simple project has one place, so the form names none, and it has no Type to keep.
+  expect(within(form).queryByText('Applies to')).toBeNull()
+  expect(within(form).queryByLabelText('Type')).toBeNull()
+  expectNoSentence(form)
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Acme fees' } })
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByText(mode === 'simple' ? 'Confirm tracked query changes' : 'Review tracking changes')
   fireEvent.click(screen.getByRole('button', { name: mode === 'simple' ? 'Confirm changes' : 'Publish changes' }))
@@ -160,6 +179,10 @@ test.each(['non-brand', 'branded'] as const)('keeps all Simple tracked rows visi
 
   expect(await screen.findByText('Acme pricing')).toBeTruthy()
   expect(screen.getByText('Best AEO platform')).toBeTruthy()
+  // The count line is the count alone: a number and its noun, with no sentence.
+  expect(screen.getByText('2 queries')).toBeTruthy()
+  expect(screen.queryByText(/saved query record/)).toBeNull()
+  expect(screen.queryByText(/property, group, or market/)).toBeNull()
   expect(screen.queryByRole('combobox', { name: 'Query type' })).toBeNull()
   expect(screen.queryByRole('columnheader', { name: 'Class' })).toBeNull()
   expect(screen.queryByText('Unknown')).toBeNull()
@@ -178,12 +201,16 @@ test('keeps simple measurements classifier-only with no Apply to box and never s
 
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
-  expect(screen.queryByLabelText('Classification')).toBeNull()
-  expect(screen.queryByLabelText('Location and engines')).toBeNull()
+  // Type is read-only here: a label and its value, with no control to set it.
+  expect(screen.queryByLabelText('Type')).toBeNull()
+  expect(screen.getByText('Type').nextElementSibling?.textContent).toBe('Automatic')
+  expect(screen.queryByLabelText('Search location and engines')).toBeNull()
   expect(screen.queryByRole('group', { name: 'Apply to' })).toBeNull()
   expect(screen.queryByRole('checkbox')).toBeNull()
-  expect(screen.getByText('Automatic')).toBeTruthy()
-  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'How does Acme compare?' } })
+  const form = screen.getByRole('heading', { name: 'Add query' }).closest('.surface-card') as HTMLElement
+  expect(form.textContent).not.toMatch(/question|classif|template/i)
+  expectNoSentence(form)
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'How does Acme compare?' } })
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
 
   await screen.findByText('Confirm tracked query changes')
@@ -214,8 +241,9 @@ test('tells a simple project that a market template cannot be used, without nami
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Add query' }))
   fireEvent.change(screen.getByLabelText('Query source'), { target: { value: 'template' } })
-  fireEvent.change(screen.getByLabelText('Saved template'), { target: { value: 'template-market' } })
-  expect(screen.getByText('This template needs a market, and this project has no markets. Write a question instead.')).toBeTruthy()
+  fireEvent.change(screen.getByLabelText('Saved pattern'), { target: { value: 'template-market' } })
+  noteButton('Needs a market', 'This pattern needs a market, and this project has no markets. Write a query instead.')
   expect(screen.queryByText(/Apply to/)).toBeNull()
+  expect(screen.queryByRole('button', { name: /Apply to/ })).toBeNull()
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
 })

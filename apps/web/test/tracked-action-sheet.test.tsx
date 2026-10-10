@@ -682,7 +682,8 @@ describe('review step', () => {
     const { sheet } = renderSheet({ action: 'stop', rows: [rows.market], sweepActive: true })
     await review(sheet, writes)
     expect(sheet.getByRole<HTMLButtonElement>('button', { name: 'Publish 1 change' }).disabled).toBe(true)
-    expect(sheet.getByRole('status').textContent).toBe('A sweep is queued or running. Publish after it finishes.')
+    expect(sheet.getByRole('status').textContent).toBe('Sweep running')
+    expect(within(sheet.getByRole('status')).getByRole('button', { name: 'Sweep running. A sweep is queued or running. Publish after it finishes.' })).toBeTruthy()
   })
 
   it.each(['stop', 'edit-wording', 'change-type', 'change-subject', 'move-location', 'remove'] as const)('draws no %s sheet for a viewer, so there is no dead control', action => {

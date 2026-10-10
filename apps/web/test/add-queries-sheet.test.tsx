@@ -5,9 +5,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema } from '@ainyc/canonry-contracts'
 
 import { QueriesSection } from '../src/components/project/DiscoverySection.js'
+import { TrackingAddQueriesSheet } from '../src/components/project/queries/AddQueriesEntry.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
+import { expectNoSentence, noteButton, searchLocationModels } from './support/query-tracking-fixtures.js'
 
 afterEach(() => {
   cleanup()
@@ -29,13 +31,15 @@ const tracked = [{
   state: 'tracked', lastMeasuredAt: '2026-09-04T12:10:00.000Z',
   assignments: [{ targetKey: 'acme', groupKeys: ['north-east'], marketKeys: ['new-york'], queryClass: 'branded', classificationSource: 'frozen', contexts: [context] }],
 }]
-const publishLine = 'New numbers after the next sweep'
-const publishNotice = 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept. Publishing does not run a sweep.'
+const publishLine = 'New numbers next sweep'
+const publishNotice = 'After you publish, location pages and competitor results show no numbers until the next sweep. AI Visibility keeps showing the last sweep. Past answers are kept. Publishing does not run a sweep.'
 const marketsHelp = "Asked with these markets' engines and search locations."
 const queriesHelp = 'Blank and repeated lines are skipped.'
 const companyHelp = 'Company is not available yet.'
-const handPickedLink = 'Hand-picked locations, templates or saved research'
+const handPickedLink = 'More ways to add'
+const handPickedHelp = 'Hand-picked locations, patterns or saved research, in the Add query form.'
 const firstLineOnly = 'The Add query form adds one query at a time. It opens with your first line only.'
+const noMarketHelp = 'A query for a location in no market needs its own search location and engines.'
 
 /** One group holding the New York market, and a second market that sits in no group. */
 function workspace(overrides: Record<string, unknown> = {}) {
@@ -205,7 +209,7 @@ async function expectAddQueryForm(firstLine: string) {
   const heading = await screen.findByRole('heading', { name: 'Add query' })
   expect(sheetIsOpen()).toBe(false)
   expect(screen.getByRole('group', { name: 'Apply to' })).toBeTruthy()
-  expect((screen.getByLabelText('Question') as HTMLTextAreaElement).value).toBe(firstLine)
+  expect((screen.getByLabelText('Query') as HTMLTextAreaElement).value).toBe(firstLine)
   // The market chosen in the sheet stays behind: checked here it would narrow hand-picked locations to it.
   expect((screen.getByRole('checkbox', { name: 'New York, Market' }) as HTMLInputElement).checked).toBe(false)
   // The form keeps the focus it took; the closed sheet does not hand it back to its opener.
@@ -238,7 +242,10 @@ test('opens from Tracked on an advanced project and keeps Review off until a mar
   expect(count.textContent).toBe('')
   expect(count.classList.contains('min-h-5')).toBe(true)
   // Review does not publish, so the form says nothing about publishing.
-  expect(sheet.queryByText('Publishing does not run a sweep.')).toBeNull()
+  expect(sheet.queryByText(/sweep/i)).toBeNull()
+  // The Add query form is one short link away; what it offers is the help beside the link, outside its name.
+  helpBeside(sheet.getByRole('button', { name: handPickedLink }), handPickedHelp)
+  expectNoSentence(screen.getByRole('dialog', { name: 'Add queries' }))
 
   fireEvent.change(queriesField(sheet), { target: { value: 'best pizza in New York' } })
   expect(sheet.getByText('1 query')).toBe(count)
@@ -280,7 +287,7 @@ test('sends one addition per line for the chosen market, with no contexts, and d
   ].join('\n'))
   expect(sheet.getByText('3 queries')).toBeTruthy()
   // The line under the picker, its help and the search location pick are for a location only, however many the project has.
-  expect(sheet.queryByText('This location is in no market.')).toBeNull()
+  expect(sheet.queryByText('In no market')).toBeNull()
   expect(sheet.queryByText(/^(Counts in|Search location and engines)/)).toBeNull()
   expect(sheet.queryByRole('button', { name: marketsHelp })).toBeNull()
   expect(sheet.queryByRole('combobox')).toBeNull()
@@ -368,15 +375,18 @@ test('reviews inside the sheet, keeps the draft on Back, and publishes with the 
   fireEvent.click(reviewButton(sheet))
 
   await sheet.findByRole('heading', { name: 'Review 2 changes' })
-  expect(Object.fromEntries(sheet.getAllByRole('term').map(term => [term.textContent, term.nextElementSibling?.textContent]))).toEqual({
+  expect(Object.fromEntries(within(sheet.getByText('Queries', { selector: 'dt' }).closest('dl')!).getAllByRole('term').map(term => [term.textContent, term.nextElementSibling?.textContent]))).toEqual({
     Queries: '1 → 3', 'Answers per sweep': '3 → 9', 'Answers added': '+6', 'Answers removed': '0',
   })
   expect(sheet.getByText('2 added')).toBeTruthy()
-  // One short line; what a publish does to the numbers, and that it runs no sweep, is the help beside it.
-  helpBeside(sheet.getByText(publishLine), publishNotice)
+  // One short note; what a publish does to the numbers, and that it runs no sweep, is the note's own help.
+  const dialog = screen.getByRole('dialog', { name: 'Add queries' })
+  expect(sheet.queryByText(publishNotice)).toBeNull()
+  expect(noteButton(publishLine, publishNotice, dialog).classList.contains('text-caution')).toBe(true)
   expect(sheet.queryByText('Publishing does not run a sweep.')).toBeNull()
   expect(sheet.queryByLabelText('Queries')).toBeNull()
   expect(sheetText()).not.toMatch(/question/i)
+  expectNoSentence(dialog)
   fireEvent.click(sheet.getByRole('button', { name: 'Back' }))
   expect(queriesField(sheet).value).toBe('best pizza in New York\nbest bagels in New York')
   expect(sheet.getByText('New York · Market')).toBeTruthy()
@@ -407,7 +417,9 @@ test('pauses publishing in the sheet while a sweep is queued or running', async 
 
   const publish = await sheet.findByRole('button', { name: 'Publish 1 change' }) as HTMLButtonElement
   expect(publish.disabled).toBe(true)
-  expect(sheet.getByRole('status').textContent).toBe('A sweep is queued or running. Publish after it finishes.')
+  // A short status; the sentence is its help.
+  expect(sheet.getByRole('status').textContent).toBe('Sweep running')
+  noteButton('Sweep running', 'A sweep is queued or running. Publish after it finishes.', sheet.getByRole('status'))
   // Publish and the pause sit in the footer beside Back, not at the end of the scrolling list of changes.
   const footer = sheet.getByRole('button', { name: 'Back' }).parentElement!
   expect(publish.parentElement).toBe(footer)
@@ -614,9 +626,11 @@ test('opens the Add query form from the hand-picked link with the first line typ
   renderTracked()
   const { sheet } = await openSheet()
   fill(sheet, 'best pizza in New York')
-  expect(sheet.queryByText(firstLineOnly)).toBeNull()
+  expect(sheet.queryByText('First line only')).toBeNull()
   fireEvent.change(queriesField(sheet), { target: { value: 'best pizza in New York\nbest bagels in New York' } })
-  expect(sheet.getByText(firstLineOnly)).toBeTruthy()
+  // With more than one line, a short note says which one goes along. The sentence is its help.
+  noteButton('First line only', firstLineOnly, screen.getByRole('dialog', { name: 'Add queries' }))
+  expect(sheet.queryByText(firstLineOnly)).toBeNull()
   fireEvent.click(sheet.getByRole('button', { name: handPickedLink }))
   await expectAddQueryForm('best pizza in New York')
 })
@@ -630,7 +644,7 @@ test('adds a location query to every market that location is in, with no context
   // Boston holds only Cedar Court, and Remote searches is listed once for its two Acme queries.
   helpBeside(sheet.getByText('Counts in: New York, Remote searches'), marketsHelp)
   expect(sheet.queryByText(/^Engines and search locations come from/)).toBeNull()
-  expect(sheet.queryByText('This location is in no market.')).toBeNull()
+  expect(sheet.queryByText('In no market')).toBeNull()
   expect(sheet.queryByText(/^Search location and engines/)).toBeNull()
   expect(sheetText()).not.toMatch(/question|propert|—/i)
   fireEvent.click(reviewButton(sheet))
@@ -664,8 +678,13 @@ test('gives a location in no market the one search location and engines the proj
   renderTracked()
   const { sheet } = await openSheet()
   fillLocation(sheet, 'Birch House', 'Birch House reviews')
-  expect(sheet.getByText('This location is in no market.')).toBeTruthy()
-  expect(sheet.getByText('Search location and engines: New York · openai (gpt-5)')).toBeTruthy()
+  // A short caution; why it matters is its help.
+  expect(noteButton('In no market', noMarketHelp, screen.getByRole('dialog', { name: 'Add queries' })).classList.contains('text-caution')).toBe(true)
+  // The one choice reads as the review names it: the engine by display name, with the model id behind the value.
+  const only = sheet.getByText('Search location and engines', { selector: 'dt' }).parentElement!
+  expect(only.textContent).toBe('Search location and enginesNew York · OpenAI')
+  expect(searchLocationModels(only, 'New York · OpenAI')).toBe('New York · openai (gpt-5)')
+  expectNoSentence(screen.getByRole('dialog', { name: 'Add queries' }))
   expect(sheet.queryByRole('combobox')).toBeNull()
   expect(sheet.queryByText(/^Counts in:/)).toBeNull()
   expect(sheet.queryByRole('button', { name: marketsHelp })).toBeNull()
@@ -725,7 +744,9 @@ test('keeps Review off for a location in no market when the project has no engin
   renderTracked()
   const { sheet } = await openSheet()
   fillLocation(sheet, 'Birch House', 'Birch House reviews')
-  expect(sheet.getByText('No search location and engines are set up for this project.')).toBeTruthy()
+  const dialog = screen.getByRole('dialog', { name: 'Add queries' })
+  noteButton('In no market', noMarketHelp, dialog)
+  noteButton('No search location', 'No search location and engines are set up for this project, so this location cannot take the query.', dialog)
   expect(sheet.queryByRole('combobox')).toBeNull()
   expect(reviewButton(sheet).disabled).toBe(true)
   fireEvent.click(reviewButton(sheet))
@@ -753,9 +774,9 @@ test('lists groups and locations for Location, never markets, and calls them loc
 
 test.each([
   // One location in two markets is asked from each market's search location: two assignments on one location.
-  { subject: 'Location', targetKeys: ['acme'], marketKeys: ['new-york', 'remote'], contexts: [context, bostonContext], markets: 'New York, Remote searches', locations: ['Acme'], classifications: '1 location', asked: '2 combinations', each: 'New York · openai (gpt-5); Boston · openai (gpt-5), gemini (gemini-3)' },
-  { subject: 'Market', targetKeys: ['acme', 'cedar'], marketKeys: ['new-york'], contexts: [context], markets: 'New York', locations: ['Acme', 'Cedar Court'], classifications: '2 locations', asked: 'New York · openai (gpt-5)', each: 'New York · openai (gpt-5)' },
-])('calls a location a location in the review of a $subject add', async ({ subject, targetKeys, marketKeys, contexts, markets, locations, classifications, asked, each }) => {
+  { subject: 'Location', targetKeys: ['acme'], marketKeys: ['new-york', 'remote'], contexts: [context, bostonContext], markets: 'New York, Remote searches', locations: ['Acme'], classifications: '1 location', asked: 'New York · OpenAI; Boston · OpenAI, Gemini', models: 'New York · openai (gpt-5); Boston · openai (gpt-5), gemini (gemini-3)' },
+  { subject: 'Market', targetKeys: ['acme', 'cedar'], marketKeys: ['new-york'], contexts: [context], markets: 'New York', locations: ['Acme', 'Cedar Court'], classifications: '2 locations', asked: 'New York · OpenAI', models: 'New York · openai (gpt-5)' },
+])('calls a location a location in the review of a $subject add', async ({ subject, targetKeys, marketKeys, contexts, markets, locations, classifications, asked, models }) => {
   // As the server answers a review: `tracked` holds the added query, on every location its markets hold.
   const held = () => locationWorkspace({ markets: locationWorkspace().markets.map(market => marketKeys.includes(market.stableKey) ? { ...market, usageEdges: targetKeys.map(key => usageEdge(key)) } : market) })
   const added = {
@@ -776,13 +797,19 @@ test.each([
 
   await reviewHeading(sheet)
   const changes = sheet.getByRole('table', { name: 'Changes' })
-  expect(within(changes).getAllByRole('columnheader').map(header => header.textContent)).toContain('Location links')
+  // One added query, so where it is asked is one line above the table, not a column.
+  expect(within(changes).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Type', 'Location links'])
+  const where = changes.parentElement!.previousElementSibling as HTMLElement
+  expect(within(where).getByRole('term').textContent).toBe('Search location and engines')
+  // Engines by display name; the model ids are behind the value, which is its own help button.
+  expect(within(where).getByRole('definition').textContent).toBe(asked)
+  expect(searchLocationModels(where, asked)).toBe(models)
   const row = within(changes).getByText('Acme reviews').closest('tr')!
-  // Type, the server's assignment count (two either way, on one location or on two), and where the query is asked.
-  expect([...row.cells].map(cell => cell.textContent).slice(2)).toEqual(['Branded', '2', asked])
-  // The row's locations open in a row of their own under the query.
+  // Type and the server's assignment count (two either way, on one location or on two).
+  expect([...row.cells].map(cell => cell.textContent).slice(2)).toEqual(['Branded', '2'])
+  // The row's locations open in a row of their own under the query. Each says where it is asked only when there is more than one way.
   fireEvent.click(within(row).getByRole('button', { name: classifications }))
-  expect([...row.nextElementSibling!.querySelectorAll('li')].map(line => line.textContent)).toEqual(locations.map(location => `${location} · Branded · Groups: North East · Markets: ${markets} · ${each}`))
+  expect([...row.nextElementSibling!.querySelectorAll('li')].map(line => line.textContent)).toEqual(locations.map(location => `${location} · Branded · Groups: North East · Markets: ${markets}${contexts.length > 1 ? ` · ${asked}` : ''}`))
   expect(sheetText()).not.toMatch(/question|propert|—/i)
 })
 
@@ -831,7 +858,7 @@ test('keeps the Add query form one link away from Location, with no button of it
   fireEvent.click(sheet.getByRole('radio', { name: 'Location' }))
   expect(sheet.queryByRole('button', { name: 'Open the Add query form' })).toBeNull()
   fireEvent.change(queriesField(sheet), { target: { value: 'best pizza in New York\nbest bagels in New York' } })
-  expect(sheet.getByText(firstLineOnly)).toBeTruthy()
+  noteButton('First line only', firstLineOnly, screen.getByRole('dialog', { name: 'Add queries' }))
   fireEvent.click(sheet.getByRole('button', { name: handPickedLink }))
   await expectAddQueryForm('best pizza in New York')
 })
@@ -894,11 +921,49 @@ test('points to hand-picked locations when the project has no markets', async ()
   installApi({ workspace: () => workspace({ markets: [], scopeOptions: workspace().scopeOptions.filter(option => option.kind !== 'market') }) })
   renderTracked()
   const { sheet } = await openSheet()
-  expect(sheet.getByText('This project has no markets yet. Use hand-picked locations below.')).toBeTruthy()
+  // A short note under the field's label; where hand-picked locations are is its help.
+  const dialog = screen.getByRole('dialog', { name: 'Add queries' })
+  expect(noteButton('No markets yet', 'Use More ways to add for hand-picked locations.', dialog).parentElement!.previousElementSibling!.textContent).toBe('Market')
   expect(sheet.queryByText('Choose a market')).toBeNull()
+  expectNoSentence(dialog)
   fireEvent.change(queriesField(sheet), { target: { value: 'best pizza near me' } })
   expect(reviewButton(sheet).disabled).toBe(true)
   expect(sheet.getByRole('button', { name: handPickedLink })).toBeTruthy()
+})
+
+test('says No locations yet under Location, as plain text with nothing to open', async () => {
+  installApi({ workspace: () => workspace({ targets: [], scopeOptions: workspace().scopeOptions.filter(option => option.kind !== 'property') }) })
+  renderTracked()
+  const { sheet } = await openSheet()
+  fireEvent.click(sheet.getByRole('radio', { name: 'Location' }))
+  const note = sheet.getByText('No locations yet')
+  // Hand-picked locations need a location too, so this note points nowhere and is no button.
+  expect(note.closest('button')).toBeNull()
+  expect(note.parentElement!.previousElementSibling!.textContent).toBe('Location')
+  expect(sheet.queryByText('Choose a location')).toBeNull()
+  fireEvent.change(queriesField(sheet), { target: { value: 'Acme reviews' } })
+  expect(reviewButton(sheet).disabled).toBe(true)
+})
+
+test('opens with the lines it is given, counted as typed ones are', async () => {
+  const writes = installApi()
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+  // Two of the four lines are one query to the server, and one is blank.
+  const lines = 'best pizza in New York\n\nBest  Pizza in New York\nbest bagels in New York'
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TrackingAddQueriesSheet projectName="demo" workspace={workspace() as never} sweepActive={false} defaultMarketKey="new-york" defaultText={lines} onClose={() => {}} />
+    </QueryClientProvider>,
+  )
+  const sheet = within(screen.getByRole('dialog', { name: 'Add queries' }))
+  expect(queriesField(sheet).value).toBe(lines)
+  expect(sheet.getByText('2 queries').id).toBe(queriesField(sheet).getAttribute('aria-describedby'))
+  expect(reviewButton(sheet).disabled).toBe(false)
+  fireEvent.click(reviewButton(sheet))
+
+  await sheet.findByRole('heading', { name: 'Review 2 changes' })
+  expect(writes[0]!.body.additions).toEqual([newYorkAddition('best pizza in New York'), newYorkAddition('best bagels in New York')])
 })
 
 test('closes the open market picker on Escape before the sheet', async () => {

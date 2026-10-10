@@ -25,7 +25,7 @@ export function contextLabel(context: QueryTrackingContextInput): string {
     const model = context.models[provider]
     return model ? `${provider} (${model})` : provider
   }).join(', ')
-  return `${context.location ?? 'No location'} · ${engines}`
+  return `${context.location ?? 'No search location'} · ${engines}`
 }
 
 /** The distinct search location and engines among stored contexts, named as the Add query form names them. */

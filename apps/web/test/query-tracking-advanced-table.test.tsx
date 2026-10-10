@@ -8,7 +8,7 @@ import { heyClient } from '../src/api.js'
 import { QueriesSection } from '../src/components/project/DiscoverySection.js'
 import { jsonResponse } from './mock-fetch.js'
 import {
-  active, context, installWorkspaceApi, preview, previewToken, renderViewerWorkspace, renderWorkspace, workspace, workspaceVersion,
+  active, context, expectNoSentence, installWorkspaceApi, noteButton, preview, previewToken, renderViewerWorkspace, renderWorkspace, workspace, workspaceVersion,
 } from './support/query-tracking-fixtures.js'
 
 // The tracked table of an Advanced project: its labels, filters and recovery, and the Edit and Remove row buttons.
@@ -36,7 +36,11 @@ test.each(['group', 'market'] as const)('keeps the selected %s kind in the remov
   const kindLabel = kind === 'group' ? 'Group' : 'Market'
   expect(document.querySelector('.visibility-scope-trigger')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
-  expect(screen.getByText(`Only assignments in Metro Beta · ${kindLabel} will be removed. Earlier results stay unchanged.`)).toBeTruthy()
+  // Where the removal applies is a label and its value. That past answers stay is a short note with the sentence behind it.
+  const form = screen.getByRole('heading', { name: 'Remove query' }).closest('.surface-card') as HTMLElement
+  expect(within(form).getByText('Applies to', { selector: 'dt' }).nextElementSibling?.textContent).toBe(`Only Metro Beta · ${kindLabel}`)
+  noteButton('Past answers kept', 'Removal applies to future sweeps. Earlier results stay unchanged.', form)
+  expectNoSentence(form)
 })
 
 test('distinguishes this property from shared assignments and deduplicates group and market names', async () => {
@@ -214,7 +218,7 @@ test.each([
 
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Edit Acme pricing' }))
-  fireEvent.change(screen.getByLabelText('Query text'), { target: { value: 'Acme fees' } })
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Acme fees' } })
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByText('Review tracking changes')
   expect(previewBody).toEqual({
@@ -222,9 +226,16 @@ test.each([
     edits: [{ queryId: 'query-acme', ...(audience ? { audience } : {}), text: 'Acme fees' }],
   })
   expect(screen.queryByLabelText('Query source')).toBeNull()
-  expect(screen.queryByLabelText('Location and engines')).toBeNull()
-  expect(screen.queryByRole('checkbox', { name: 'Beta, Property' })).toBeNull()
-  expect(screen.getByText('Existing locations and engines are preserved. Use Add queries to create assignments in another scope.')).toBeTruthy()
+  expect(screen.queryByLabelText('Search location and engines')).toBeNull()
+  expect(screen.queryByRole('checkbox', { name: 'Beta, Location' })).toBeNull()
+  const form = screen.getByRole('heading', { name: 'Edit query' }).closest('.surface-card') as HTMLElement
+  // Where the edit applies is a label and its value; what it keeps is two short notes.
+  expect(within(form).getByText('Applies to', { selector: 'dt' }).nextElementSibling?.textContent).toBe(audience ? `Only ${measurementScope === 'property' ? 'Acme' : measurementScope === 'group' ? 'North East · Group' : 'New York · Market'}` : 'Everywhere')
+  noteButton('Past answers kept', 'Changes apply to future sweeps. Earlier results stay unchanged.', form)
+  noteButton('Locations and engines kept', "An edit keeps the query's locations and engines. Use Add queries to track it somewhere else.", form)
+  expect([...(within(form).getByLabelText('Type') as HTMLSelectElement).options].map(option => option.text)).toEqual(['Keep type', 'Automatic', 'Branded', 'Non-brand'])
+  expect(form.textContent).not.toMatch(/question|propert|classif|assign|scope/i)
+  expectNoSentence(form)
 })
 
 test('reviews an untouched multi-property edit as a no-op without rewriting classifications', async () => {
@@ -263,7 +274,7 @@ test('sends an automatic classification edit only after an explicit operator cho
   renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Edit Acme pricing' }))
-  fireEvent.change(screen.getByLabelText('Classification'), { target: { value: 'auto' } })
+  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'auto' } })
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByText('Review tracking changes')
   expect(previewBody).toEqual({
@@ -293,10 +304,10 @@ test.each(['advanced'])('commits a resolved template query edit in %s mode witho
   renderWorkspace()
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Edit Acme pricing' }))
-  expect((screen.getByLabelText('Query text') as HTMLTextAreaElement).value).toBe('Acme pricing')
-  // The hint names the button this project has: a simple project keeps Add query.
-  expect(screen.getByText(`Existing locations and engines are preserved. Use ${mode === 'simple' ? 'Add query' : 'Add queries'} to create assignments in another scope.`)).toBeTruthy()
-  fireEvent.change(screen.getByLabelText('Query text'), { target: { value: 'Acme fees' } })
+  expect((screen.getByLabelText('Query') as HTMLTextAreaElement).value).toBe('Acme pricing')
+  // The note's help names the button this project has: a simple project keeps Add query.
+  noteButton('Locations and engines kept', `An edit keeps the query's locations and engines. Use ${mode === 'simple' ? 'Add query' : 'Add queries'} to track it somewhere else.`)
+  fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Acme fees' } })
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByText(mode === 'simple' ? 'Confirm tracked query changes' : 'Review tracking changes')
   fireEvent.click(screen.getByRole('button', { name: mode === 'simple' ? 'Confirm changes' : 'Publish changes' }))

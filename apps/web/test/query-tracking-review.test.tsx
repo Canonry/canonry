@@ -14,9 +14,9 @@ import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 import {
-  active, advancedResetLine, advancedResetNotice, context, installScrollSpy, installWorkspaceApi, listLocations, preview, previewToken,
-  removalDiff, removalWorkload, renderWorkspace, reviewNumbers, reviewRemoval, reviewRow, sweepActiveMessage, trackedAfterRemoval,
-  workspace, workspaceVersion,
+  active, advancedResetLine, advancedResetNotice, context, installScrollSpy, installWorkspaceApi, listLocations, noteButton, preview, previewToken,
+  removalDiff, removalWorkload, renderWorkspace, reviewNumbers, reviewRemoval, reviewRow, searchLocationModels, sharedSearchLocation, sweepActiveLabel, sweepActiveMessage,
+  trackedAfterRemoval, workspace, workspaceVersion,
 } from './support/query-tracking-fixtures.js'
 
 // The review and publish of an Advanced tracking change, reached through a removal (`reviewRemoval`, or its two clicks).
@@ -40,10 +40,8 @@ test('focuses the preview outcome and shows the before and after numbers under t
   expect(heading.textContent).toBe('Review 1 change')
   expect(reviewNumbers()).toEqual({ Queries: '2 → 1', 'Answers per sweep': '6 → 3', 'Answers added': '0', 'Answers removed': '−3' })
   expect(screen.getByText('Queries', { selector: 'dt' }).closest('details')).toBeNull()
-  // One short caution line; the full notice, sweep sentence included, is the help right after it and not visible text.
-  const line = within(heading.parentElement!).getByText(advancedResetLine)
-  expect(line.classList.contains('text-caution')).toBe(true)
-  expect(within(line.nextElementSibling as HTMLElement).getByRole('button', { name: advancedResetNotice })).toBeTruthy()
+  // One short caution note; the full notice, sweep sentence included, is the note's own help and not visible text.
+  expect(noteButton(advancedResetLine, advancedResetNotice, heading.parentElement!).classList.contains('text-caution')).toBe(true)
   expect(screen.queryByText(/AI Visibility keeps showing the last sweep/)).toBeNull()
   expect(within(heading.parentElement!).queryByText('Publishing does not run a sweep.')).toBeNull()
 })
@@ -134,13 +132,18 @@ test('lists each added, reused and removed query in one table, with unchanged qu
   const added = reviewRow('Acme hours')
   // The server's link count, which passes the two locations the row lists.
   expect(added).toMatchObject({ change: 'Added', type: 'Non-brand', assignments: '3', searchLocation: '2 combinations' })
-  expect(reviewRow('Best AEO platform')).toMatchObject({ change: 'Reused', type: 'Non-brand', assignments: '1', searchLocation: 'New York · openai (gpt-5)' })
-  expect(reviewRow('Acme pricing')).toMatchObject({ change: 'Removed', type: '', assignments: '−1', searchLocation: '' })
+  // The rows differ, so each names its own: the engine by its display name, with the model id behind the value.
+  expect(sharedSearchLocation()).toBeNull()
+  expect(reviewRow('Best AEO platform')).toMatchObject({ change: 'Reused', type: 'Non-brand', assignments: '1', searchLocation: 'New York · OpenAI' })
+  expect(searchLocationModels(reviewRow('Best AEO platform').row, 'New York · OpenAI')).toBe('New York · openai (gpt-5)')
+  expect(searchLocationModels(added.row, '2 combinations')).toBe('New York · openai (gpt-5); Chicago · openai (gpt-5)')
+  // A removed row reads the type the query has now, as its Subject does.
+  expect(reviewRow('Acme pricing')).toMatchObject({ change: 'Removed', type: 'Branded', assignments: '−1', searchLocation: '' })
   // A removed row lists no locations: the post-change state holds only what survives.
   expect(within(reviewRow('Acme pricing').row).queryByRole('button')).toBeNull()
   expect(listLocations(added.row, '2 locations')).toEqual([
-    'Acme · Non-brand · Groups: North East · Markets: New York · New York · openai (gpt-5); Chicago · openai (gpt-5)',
-    'Beta · Non-brand · Chicago · openai (gpt-5)',
+    'Acme · Non-brand · Groups: North East · Markets: New York · New York · OpenAI; Chicago · OpenAI',
+    'Beta · Non-brand · Chicago · OpenAI',
   ])
   // The list is its own row, the table's full width, and closes again.
   expect((added.row.nextElementSibling as HTMLTableRowElement).cells[0]!.colSpan).toBe(5)
@@ -149,11 +152,19 @@ test('lists each added, reused and removed query in one table, with unchanged qu
 
   const unchanged = screen.getByText('1 unchanged query').closest('details')!
   expect(unchanged.open).toBe(false)
+  // Every other tracked query is in this list, so its table is drawn only once it is opened.
+  expect(screen.queryByRole('table', { name: 'Unchanged queries' })).toBeNull()
+  expect(unchanged.textContent).toBe('1 unchanged query')
+  fireEvent.click(screen.getByText('1 unchanged query'))
+  await screen.findByRole('table', { name: 'Unchanged queries' })
   const kept = reviewRow('Acme reviews', 'Unchanged queries')
   expect(unchanged.contains(kept.row)).toBe(true)
-  expect(kept).toMatchObject({ change: 'Unchanged', type: 'Branded', assignments: '1', searchLocation: 'New York · openai (gpt-5)' })
-  // An unchanged query still names its location, group and market.
-  expect(listLocations(kept.row, '1 location')).toEqual(['Acme · Branded · Groups: North East · Markets: New York · New York · openai (gpt-5)'])
+  // Every unchanged row is asked the same way, so that is said once above the table, in place of a column.
+  expect(kept).toMatchObject({ change: 'Unchanged', type: 'Branded', assignments: '1', searchLocation: undefined })
+  expect(sharedSearchLocation('Unchanged queries')).toEqual({ label: 'New York · OpenAI', models: 'New York · openai (gpt-5)' })
+  expect(within(screen.getByRole('table', { name: 'Unchanged queries' })).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Type', 'Location links'])
+  // An unchanged query still names its location, group and market. Where it is asked is on the line above the table.
+  expect(listLocations(kept.row, '1 location')).toEqual(['Acme · Branded · Groups: North East · Markets: New York'])
   expect((screen.getByRole('button', { name: 'Publish 3 changes' }) as HTMLButtonElement).disabled).toBe(false)
   // The review says location and query, with no em dash.
   expect(heading.parentElement!.textContent).not.toMatch(/propert|question|—/i)
@@ -173,7 +184,7 @@ test.each([
   else expect(screen.queryByText('This request leaves tracking unchanged.')).toBeNull()
   expect(screen.queryByText(/AI Visibility keeps showing the last sweep/)).toBeNull()
   expect(screen.queryByText(advancedResetLine)).toBeNull()
-  expect(screen.queryByRole('button', { name: advancedResetNotice })).toBeNull()
+  expect(screen.queryByRole('button', { name: `${advancedResetLine}. ${advancedResetNotice}` })).toBeNull()
 })
 
 test.each([
@@ -269,13 +280,16 @@ test.each([true, false])('pauses publishing while a sweep is queued or running (
   const confirm = screen.getByRole('button', { name: 'Publish 1 change' }) as HTMLButtonElement
   expect(confirm.disabled).toBe(sweepActive)
   if (sweepActive) {
-    expect(screen.getByRole('status').textContent).toBe(sweepActiveMessage)
+    // A short status; the sentence is its help.
+    const status = screen.getByRole('status')
+    expect(status.textContent).toBe(sweepActiveLabel)
+    noteButton(sweepActiveLabel, sweepActiveMessage, status)
     fireEvent.click(confirm)
     // A commit reaches fetch only after the mutation's async onMutate, so let a task pass before asserting none went out.
     await act(() => new Promise(resolve => setTimeout(resolve, 0)))
     expect(commits).toEqual([])
   } else {
-    expect(screen.queryByText(sweepActiveMessage)).toBeNull()
+    expect(screen.queryByText(sweepActiveLabel)).toBeNull()
     fireEvent.click(confirm)
     await waitFor(() => expect(commits).toHaveLength(1))
   }
@@ -289,7 +303,7 @@ test('shows no sweep pause on a review that changes nothing', async () => {
   renderWorkspace({ publishGuard: { sweepActive: true } })
   await reviewRemoval()
   expect(screen.getByRole('button', { name: 'Publish changes' }).hasAttribute('disabled')).toBe(true)
-  expect(screen.queryByText(sweepActiveMessage)).toBeNull()
+  expect(screen.queryByText(sweepActiveLabel)).toBeNull()
   expect(screen.queryByRole('status')).toBeNull()
 })
 
@@ -312,7 +326,11 @@ test('requires a preview before removing a named tracked query and commits its e
 
   await screen.findByText('Acme pricing')
   fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
-  expect(screen.getByText('Remove “Acme pricing” from future tracking?')).toBeTruthy()
+  // The form names the query and where the removal applies, with no sentence.
+  const form = screen.getByRole('heading', { name: 'Remove query' }).parentElement!
+  expect(within(form).getByText('Acme pricing')).toBeTruthy()
+  expect(within(form).getByRole('term').nextElementSibling?.textContent).toBe('Everywhere')
+  noteButton('Past answers kept', 'Removal applies to future sweeps. Earlier results stay unchanged.', form)
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
 
   await screen.findByText('1 removed')
@@ -346,8 +364,9 @@ test('describes removed assignments without attributing the retained Property to
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByText('1 removed')
   const removed = reviewRow('Acme pricing')
-  // The post-change row holds only what survives (Beta), so the removal names no type or search location.
-  expect(removed).toMatchObject({ change: 'Removed', type: '', assignments: '−1', searchLocation: '' })
+  // The post-change row holds only what survives (Beta), so the removal names no search location. Its type is the query's own, now.
+  expect(removed).toMatchObject({ change: 'Removed', type: 'Branded', assignments: '−1', searchLocation: undefined })
+  expect(sharedSearchLocation()).toBeNull()
   expect(removed.row.textContent).not.toContain('Beta')
 })
 

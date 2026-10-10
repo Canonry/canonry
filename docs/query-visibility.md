@@ -16,9 +16,9 @@ An advanced project adds market and location queries in the **Add queries** shee
 
 Each market line becomes one addition for that market with no contexts, so it takes the market's frozen engines, models, and search locations.
 Each location line becomes one addition for that location and every market the location already has queries in, again with no contexts. The query is asked with those markets' engines and search locations and counts in those markets' numbers, not only on the location's own page. The sheet lists the markets under the picker (**Counts in**). The info button beside that line says the query is asked with those markets' engines and search locations.
-A location with no query in any market has nothing to take them from. The sheet says so and sends the location with one search location and engines: the project's only one, or the one chosen under **Search location and engines** when the project has several.
+A location with no query in any market has nothing to take them from. The sheet marks it **In no market** and sends the location with one search location and engines: the project's only one, or the one chosen under **Search location and engines** when the project has several. A project with none shows **No search location**, and **Review** stays off.
 If the server refuses a review or a publish, for example over the 1,000-query limit, the review shows the reason with **Review again**. **Back** returns to the draft, which is kept.
-The link **Hand-picked locations, templates or saved research** leads to the Add query form. That form adds one query at a time, so it opens with the first line only. **Company** is not available yet, which the info button after the **Subject** choices says.
+The link **More ways to add** leads to the Add query form, for hand-picked locations, saved patterns or saved research. That form adds one query at a time, so it opens with the first line only, and the sheet shows **First line only** when there are more. **Company** is not available yet, which the info button after the **Subject** choices says.
 When the Tracked view is filtered to one market or one location, the sheet opens with that **Subject** and place already chosen.
 A location's page opens the same sheet from **Add query about this location**, above the queries assigned to that location. It starts on **Location** with that location chosen and has no link to the Add query form. After a publish the sheet closes and the page reloads its list. A view-only account does not see the button.
 That list shows one query type at a time, and with **Type** on **Automatic** the server files a query that names the location as **Branded**. When a new query is filed under the type the page is not showing, the page says so above the list (for example "1 query you added is listed under Branded queries.") and **Show branded queries** switches **Query type** to it.
@@ -28,9 +28,9 @@ The Add query form assigns one query at a time:
 
 1. Open the project's **Queries** tab.
 2. Open the Add query form or an existing query's assignments.
-3. Enter a query, select a template, or select a saved research result.
-4. Select the properties, groups, or markets for the query.
-5. For new group or property assignments, select a search location and engines. A market uses its frozen context.
+3. Enter a query, select a saved pattern, or select a saved research result.
+4. Select the locations, groups, or markets for the query.
+5. For new group or location assignments, select a search location and engines. A market uses its frozen context.
 6. Select **Review changes**.
 7. Check the resolved queries, assignments, and next-sweep workload.
 8. Select **Publish N changes** (**Confirm changes** on a simple site).
@@ -38,9 +38,12 @@ The Add query form assigns one query at a time:
 An advanced project's review shows the same thing for every change, from the sheet, the form, **Edit** or **Remove**:
 
 - **Queries** and **Answers per sweep**, each as the count now and the count after publishing, with **Answers added** and **Answers removed** kept separate. **Queries** counts the queries the project asks, so a query that loses its last location leaves the count.
-- One row per added, reused, and removed query: its type, its location links, and its search location and engines. A query has one link per location and search location, so the count can be higher than the number of locations. A removed row shows how many links it removes. **N locations** under the query lists each location.
+- One row per added, reused, and removed query: its Subject, its type, and its location links. A query has one link per location and search location, so the count can be higher than the number of locations. A removed row shows how many links it removes, with the Subject and type it has now. A query asked as Branded for some locations and as Non-brand for others reads **Mixed**. **N locations** under the query lists each location with its own type.
+- **Search location and engines**, once above the table when every query is asked the same way, or as a column when queries differ (the type then sits under the Subject). Engines read by name, and the value opens the model ids. Two that differ only by model show their model ids.
 - Unchanged queries, behind **N unchanged queries**, each with its own list of locations.
-- **New numbers after the next sweep**, under the counts. Its info button says what stays on screen until then: AI Visibility keeps showing the last sweep, location pages and competitor results show no numbers, past answers are kept, and publishing does not run a sweep. A review with no changes shows no such line.
+- **New numbers next sweep**, under the counts. Its help says what stays on screen until then: location pages and competitor results show no numbers, AI Visibility keeps showing the last sweep, past answers are kept, and publishing does not run a sweep. A review with no changes shows no such note.
+- **Market changes**, when the publish takes a location out of a market: each market with its locations now and after, and **Loses N locations** or **Market emptied**. **Publish** stays off until **Confirm market changes** is ticked. This check is the dashboard's: the CLI, MCP and the API report the same `marketChanges` and publish without it.
+- **First answers** with the next scheduled sweep date, beside **Publish**, when the publish adds answers and the page passes that date to the review. While a sweep is queued or running, **Sweep running** shows there and **Publish** is off.
 
 Every figure comes from the preview response, the same one `canonry query preview` returns. A simple site keeps its shorter review.
 If the server refuses the review or the publish, the review shows its message and **Review again**.
