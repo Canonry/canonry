@@ -324,7 +324,8 @@ function MetricValue({
   const valueClassName = compact
     ? isMeasured(metric) ? 'text-sm font-medium text-primary' : 'text-sm font-medium text-secondary'
     : isMeasured(metric) ? 'text-lg font-semibold text-heading' : 'text-lg font-semibold text-secondary'
-  // Answers the server left out of this rate, named for its own signal only.
+  // Answers the server left out of this rate, named for its own signal only,
+  // behind a caution icon beside the count.
   const excluded = isMeasured(metric) ? excludedAnswersLabel(metric, signal) : null
   return (
     <span
@@ -332,7 +333,7 @@ function MetricValue({
       {...(!isMeasured(metric) ? { title: metricReason(metric) } : {})}
     >
       <span className={valueClassName}>{metricLabel(metric)}</span>
-      {excluded ? <span className="text-xs text-secondary">{excluded}</span> : null}
+      {excluded ? <InfoTooltip variant="caution" text={excluded} /> : null}
     </span>
   )
 }

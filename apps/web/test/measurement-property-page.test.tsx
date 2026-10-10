@@ -30,6 +30,7 @@ import {
 } from '@ainyc/canonry-api-client/react-query'
 import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
+import { expectCautionNote, expectCautionNoteOnOneLine } from './caution-note.js'
 
 const TARGET_KEY = 'harbor-house'
 const RUN_ID = 'run-synthetic'
@@ -842,24 +843,27 @@ describe('Property page', () => {
       }),
     })
 
+    // Each count keeps its left-out answers behind a caution icon beside it, never as a line of its own.
     const line = '9 of 10 answers could not be tied to one property'
     const hero = await screen.findByRole('region', { name: 'Coverage for this Property' })
-    const nonBrandMention = within(hero).getAllByText('Mentioned')[0]!.closest('.aeo-hero-row')!
-    expect(within(nonBrandMention as HTMLElement).getByText('1 of 1')).toBeTruthy()
-    expect(within(nonBrandMention as HTMLElement).getByText(line)).toBeTruthy()
+    const nonBrandMention = within(hero).getAllByText('Mentioned')[0]!.closest<HTMLElement>('.aeo-hero-row')!
+    expect(nonBrandMention.querySelector('.aeo-hero-row-detail')!.textContent).toBe('1 of 1')
+    expectCautionNote(nonBrandMention, line, '1 of 1')
 
     const contrast = screen.getByRole('table', { name: 'Mention and citation coverage for this Property, split by query class' })
     const nonBrand = within(contrast).getByText('When they don\'t').closest('tr')!
     const [, mentioned, cited] = [...nonBrand.querySelectorAll('td')]
-    expect([...mentioned!.querySelectorAll('span span')].map(node => node.textContent)).toEqual(['100%', '1 of 1', line])
-    expect(cited!.textContent).not.toContain('could not be tied')
+    expect(mentioned!.textContent).toBe('100%1 of 1')
+    await expectCautionNoteOnOneLine(expectCautionNote(mentioned!, line, '1 of 1'))
+    expect(cited!.querySelector('.info-tooltip-trigger-caution')).toBeNull()
     // Every answer ambiguous: the reason is named instead of a bare "Not measured".
     const branded = within(contrast).getByText('When they know your name').closest('tr')!
     expect(within(branded).getByText('No answer could be tied to one property')).toBeTruthy()
 
     const providers = screen.getByRole('table', { name: 'Per-engine mention and citation coverage' })
     const gemini = within(providers).getByText('gemini').closest('tr')!
-    expect(within(gemini).getByText('4 of 5 answers could not be tied to one property')).toBeTruthy()
+    expect(gemini.querySelectorAll('td')[1]!.textContent).toBe('100%1 of 1')
+    expectCautionNote(gemini.querySelectorAll('td')[1]!, '4 of 5 answers could not be tied to one property', '1 of 1')
     const openai = within(providers).getByText('openai').closest('tr')!
     expect(within(openai).getByText('No answer could be tied to one property')).toBeTruthy()
   })
@@ -886,15 +890,18 @@ describe('Property page', () => {
 
     const line = '2 of 10 answers had sources that could not be checked'
     const hero = await screen.findByRole('region', { name: 'Coverage for this Property' })
-    const nonBrandCited = within(hero).getAllByText('Cited')[0]!.closest('.aeo-hero-row')!
-    expect(nonBrandCited.querySelector('.aeo-hero-row-detail')!.textContent).toBe(`2 of 8${line}`)
+    const nonBrandCited = within(hero).getAllByText('Cited')[0]!.closest<HTMLElement>('.aeo-hero-row')!
+    expect(nonBrandCited.querySelector('.aeo-hero-row-detail')!.textContent).toBe('2 of 8')
+    expectCautionNote(nonBrandCited, line, '2 of 8')
     const nonBrandMentioned = within(hero).getAllByText('Mentioned')[0]!.closest('.aeo-hero-row')!
     expect(nonBrandMentioned.querySelector('.aeo-hero-row-detail')!.textContent).toBe('5 of 10')
+    expect(nonBrandMentioned.querySelector('.info-tooltip-trigger-caution')).toBeNull()
 
     const contrast = screen.getByRole('table', { name: 'Mention and citation coverage for this Property, split by query class' })
     const nonBrand = within(contrast).getByText('When they don\'t').closest('tr')!
     const [, mentioned, cited] = [...nonBrand.querySelectorAll('td')]
-    expect([...cited!.querySelectorAll('span span')].map(node => node.textContent)).toEqual(['25.0%', '2 of 8', line])
+    expect(cited!.textContent).toBe('25.0%2 of 8')
+    expectCautionNote(cited!, line, '2 of 8')
     expect([...mentioned!.querySelectorAll('span span')].map(node => node.textContent)).toEqual(['50.0%', '5 of 10'])
     // Every branded answer unchecked: unavailable, with its reason and no count line.
     const branded = within(contrast).getByText('When they know your name').closest('tr')!
@@ -902,10 +909,32 @@ describe('Property page', () => {
 
     const providers = screen.getByRole('table', { name: 'Per-engine mention and citation coverage' })
     const gemini = within(providers).getByText('gemini').closest('tr')!
-    expect(gemini.querySelectorAll('td')[2]!.textContent).toBe('33.3%1 of 32 of 5 answers had sources that could not be checked')
+    expect(gemini.querySelectorAll('td')[2]!.textContent).toBe('33.3%1 of 3')
+    expectCautionNote(gemini.querySelectorAll('td')[2]!, '2 of 5 answers had sources that could not be checked', '1 of 3')
     expect(gemini.querySelectorAll('td')[1]!.textContent).toBe('40.0%2 of 5')
+    expect(gemini.querySelectorAll('td')[1]!.querySelector('.info-tooltip-trigger-caution')).toBeNull()
     const openai = within(providers).getByText('openai').closest('tr')!
     expect(openai.querySelectorAll('td')[2]!.textContent).toBe('20.0%1 of 5')
+  })
+
+  it('keeps the left-out answers beside the rate itself when the server sends no count to put them beside', async () => {
+    // The wire allows a rate with a denominator and no numerator. That prints no
+    // count line, and the answers left out must not go with it.
+    const noCount = { state: 'available', value: 0.25, denominator: 8, unchecked: 2 } as unknown as Metric
+    await renderPropertyPage({
+      branded: overviewResponse('branded', { mentionCoverage: available(4, 4), citationCoverage: available(1, 4) }),
+      nonBrand: overviewResponse('non-brand', { mentionCoverage: available(5, 10), citationCoverage: noCount }),
+    })
+    const line = '2 of 10 answers had sources that could not be checked'
+    const hero = await screen.findByRole('region', { name: 'Coverage for this Property' })
+    const heroCited = within(hero).getAllByText('Cited')[0]!.closest<HTMLElement>('.aeo-hero-row')!
+    expect(heroCited.querySelector('.aeo-hero-row-value')!.textContent).toBe('25.0%')
+    expectCautionNote(heroCited, line, '')
+
+    const contrast = screen.getByRole('table', { name: 'Mention and citation coverage for this Property, split by query class' })
+    const cited = within(contrast).getByText('When they don\'t').closest('tr')!.querySelectorAll('td')[2]!
+    expect(cited.textContent).toBe('25.0%')
+    await expectCautionNoteOnOneLine(expectCautionNote(cited, line, '25.0%'))
   })
 
   it('lists the assigned questions, URLs, and scoped evidence for the selected class', async () => {

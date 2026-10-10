@@ -257,13 +257,15 @@ function MetricCell({ metric, signal, emphasis = false }: { metric: MetricValue;
     : `${metric.numerator} of ${metric.denominator}`
   // Answers the server left out of both sides of this rate, named for its own
   // signal: not tied to one property under Mentioned, sources that could not be
-  // checked under Cited. The count above already excludes them; this keeps them visible.
+  // checked under Cited. The count already excludes them; the caution icon
+  // beside it (beside the rate, when there is no count) keeps them a hover,
+  // focus or tap away.
   const excluded = excludedAnswersLabel(metric, signal)
+  const note = excluded ? <InfoTooltip variant="caution" text={excluded} /> : null
   return (
-    <span className="inline-flex flex-col gap-0.5 tabular-nums">
-      <span className={emphasis ? 'text-lg font-semibold text-heading' : 'text-sm font-medium text-primary'}>{percent}</span>
-      {counted ? <span className="text-xs text-muted">{counted}</span> : null}
-      {excluded ? <span className="text-xs text-muted">{excluded}</span> : null}
+    <span className="inline-flex flex-col gap-0.5 whitespace-nowrap tabular-nums">
+      <span className={emphasis ? 'text-lg font-semibold text-heading' : 'text-sm font-medium text-primary'}>{percent}{counted ? null : note}</span>
+      {counted ? <span className="text-xs text-muted">{counted}{note}</span> : null}
     </span>
   )
 }
@@ -443,7 +445,7 @@ function CoverageHeroRow({ label, metric, signal, failed = false }: { label: str
       </div>
       <p className="aeo-hero-row-detail tabular-nums">
         {counted ?? ''}
-        {excluded ? <span className="block">{excluded}</span> : null}
+        {excluded ? <InfoTooltip variant="caution" text={excluded} /> : null}
       </p>
     </div>
   )

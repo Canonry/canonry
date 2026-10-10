@@ -11,6 +11,7 @@ import { REPORT_TREND_UNCHECKED_NOTE, UNCHECKED_SOURCES_COPY, VisibilityOverview
 import { formatObservedInstantLabel, observedInstant } from '../src/components/shared/ChartPrimitives.js'
 import { ANSWER_SOURCES_LABEL } from '../src/components/shared/AnswerMarkdown.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
+import { expectCautionNote } from './caution-note.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 import { SENTIMENT_COPY, SentimentScopeProvider } from '../src/components/project/SentimentSection.js'
 
@@ -765,7 +766,7 @@ describe('shared production visibility view', () => {
     ])
   })
 
-  it('states the answers whose sources could not be checked under each Cited query and competitor result, never under Mentioned', () => {
+  it('keeps the answers whose sources could not be checked behind a caution icon beside each Cited query and competitor count, never beside Mentioned', () => {
     const report = reportFixture()
     const population = report.populations[0]!
     // Three saved answers, one with incomplete source capture: Cited reads 1 of the 2 checked.
@@ -778,13 +779,17 @@ describe('shared production visibility view', () => {
     const engine = within(screen.getByRole('table', { name: 'Non-brand queries engine results' })).getByRole('button', { name: 'View answers for apartments near transit · gemini' }).closest('tr')!
     const [, mentioned, cited] = [...engine.querySelectorAll('td')]
     expect(mentioned!.textContent).toBe('Mentioned33.3%1 of 3')
-    expect(cited!.textContent).toBe(`Cited50.0%1 of 2${line}`)
+    expect(mentioned!.querySelector('.info-tooltip-trigger-caution')).toBeNull()
+    expect(cited!.textContent).toBe('Cited50.0%1 of 2')
+    expectCautionNote(cited!, line, '1 of 2')
 
     const competitors = screen.getByRole('group', { name: 'Non-brand queries competitors' })
     fireEvent.click(within(competitors).getByText('Competitors', { selector: 'span' }).closest('summary')!)
     const [, competitorMentioned, competitorCited] = [...within(competitors).getByText('rival.example').closest('tr')!.querySelectorAll('td')]
     expect(competitorMentioned!.textContent).toBe('66.7%2 of 3')
-    expect(competitorCited!.textContent).toBe(`0%0 of 2${line}`)
+    expect(competitorMentioned!.querySelector('.info-tooltip-trigger-caution')).toBeNull()
+    expect(competitorCited!.textContent).toBe('0%0 of 2')
+    expectCautionNote(competitorCited!, line, '0 of 2')
   })
 
   it('shows what a partly saved answer cited on its engine row and explains why it is out of Cited', () => {
@@ -798,7 +803,7 @@ describe('shared production visibility view', () => {
       { ...base, provider: 'gemini', targetKeys: ['p1', 'p2'], citationCoverage: unavailable, uncheckedSources: { answers: 1, citedAnswers: 1, citedTargetKeys: ['p1'] } },
       // One answer, sources partly saved, nothing for Lake House among the saved links.
       { ...base, provider: 'openai', targetKeys: ['p2'], citationCoverage: unavailable, uncheckedSources: { answers: 1, citedAnswers: 0, citedTargetKeys: [] } },
-      // Three answers, one partly saved: the rate's own line counts it, so it is not repeated.
+      // Three answers, one partly saved: the rate's own caution note counts it, so it is not repeated.
       { ...base, provider: 'claude', answerCount: 3, targetKeys: ['p1'], citationCoverage: { numerator: 1, denominator: 2, rate: 0.5, unchecked: 1 }, uncheckedSources: { answers: 1, citedAnswers: 1, citedTargetKeys: ['p1'] } },
     ]
     population.summary = { ...population.summary, notMeasuredUnchecked: 2 }
@@ -809,7 +814,8 @@ describe('shared production visibility view', () => {
     const cited = (provider: string) => [...within(table).getByRole('button', { name: `View answers for apartments near transit · ${provider}` }).closest('tr')!.querySelectorAll('td')][2]!
     expect(cited('gemini').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}Saved links cite Park House`)
     expect(cited('openai').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}No saved link cites Lake House`)
-    expect(cited('claude').textContent).toBe('Cited50.0%1 of 21 of 3 answers had sources that could not be checkedSaved links cite Park House')
+    expect(cited('claude').textContent).toBe('Cited50.0%1 of 2Saved links cite Park House')
+    expectCautionNote(cited('claude'), '1 of 3 answers had sources that could not be checked', '1 of 2')
     // "Unchecked" is explained in plain words instead of the missing-evidence note.
     for (const provider of ['gemini', 'openai', 'claude']) {
       expect(within(cited(provider)).getByRole('button', { name: UNCHECKED_SOURCES_COPY.help })).toBeTruthy()
@@ -834,7 +840,7 @@ describe('shared production visibility view', () => {
     expect(screen.queryByText(/only because an answer's sources were partly saved/)).toBeNull()
   })
 
-  it('notes under the trend that Cited counts only checked answers when a plotted point left some out, and only then', () => {
+  it('notes beside the Cited legend entry that Cited counts only checked answers when a plotted point left some out, and only then', () => {
     const report = reportFixture()
     const population = report.populations[0]!
     const point = (index: number, citationCoverage: typeof population.summary.citationCoverage) => ({
@@ -846,11 +852,12 @@ describe('shared production visibility view', () => {
     population.trend = [point(0, { numerator: 1, denominator: 3, rate: 1 / 3 }), point(1, { numerator: 1, denominator: 2, rate: 0.5, unchecked: 1 })]
     const view = render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
     expect(REPORT_TREND_UNCHECKED_NOTE).toBe('Cited counts only answers whose sources could be checked.')
-    expect(screen.getByText(REPORT_TREND_UNCHECKED_NOTE, { exact: false })).toBeTruthy()
+    expectCautionNote(screen.getByRole('group', { name: 'Trend legend' }), REPORT_TREND_UNCHECKED_NOTE, '')
     view.unmount()
     population.trend = [point(0, { numerator: 1, denominator: 3, rate: 1 / 3 }), point(1, { numerator: 2, denominator: 3, rate: 2 / 3 })]
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
-    expect(screen.queryByText(REPORT_TREND_UNCHECKED_NOTE, { exact: false })).toBeNull()
+    expect(screen.queryByRole('button', { name: REPORT_TREND_UNCHECKED_NOTE })).toBeNull()
+    expect(document.body.textContent).not.toContain(REPORT_TREND_UNCHECKED_NOTE)
   })
 
   it.each(['definition-changed', 'model-changed', 'legacy-unknown'] as const)('explains %s trend gaps beside the chart', state => {

@@ -139,7 +139,7 @@ export const REPORT_HEADLINE_HELP = {
   simpleMention: 'Mentioned counts answers naming your brand in the answer text, not in the source links.',
   simpleCitation: 'Cited counts answers linking to your site in the sources behind the answer, not in the answer text.',
   advancedMention: 'An answer counts when it mentions any assigned property. This does not mean every property was mentioned. An answer that could not be tied to one property is left out of the rate, never counted as not mentioned.',
-  advancedCitation: 'An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted on its own line.',
+  advancedCitation: 'An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted behind the caution icon.',
   propertyReach: 'Selected properties named in at least one measured answer, out of the selected properties that have a name to match on. It counts properties, not answers, and shows no rate while any of those properties is unmeasured.',
 } as const
 /**
@@ -166,14 +166,16 @@ function reportRateReason(value: VisibilityReportRate): string {
 }
 
 /**
- * A rate, its count and, when the server left answers out of both sides, the
- * line naming them for this rate's own signal: answers not tied to one property
- * under Mentioned, answers whose sources could not be checked under Cited.
+ * A rate, its count and, when the server left answers out of both sides, a
+ * caution icon beside the count naming them for this rate's own signal: answers
+ * not tied to one property under Mentioned, answers whose sources could not be
+ * checked under Cited. `noteAsText` keeps the note a plain line instead, for a
+ * table no one sees, where the icon would be a tab stop with nothing to show.
  */
-function ReportRate({ value, signal }: { value: VisibilityReportRate; signal: CoverageSignal }) {
+function ReportRate({ value, signal, noteAsText = false }: { value: VisibilityReportRate; signal: CoverageSignal; noteAsText?: boolean }) {
   if (value.rate === null) return <span className="text-sm text-secondary">{reportRateReason(value)}</span>
   const excluded = excludedAnswersLabel(value, signal)
-  return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{formatPercent(value.rate)}</strong><span className="text-sm tabular-nums text-secondary">{value.numerator} of {value.denominator}</span>{excluded ? <span className="text-sm tabular-nums text-secondary">{excluded}</span> : null}</span>
+  return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{formatPercent(value.rate)}</strong><span className="whitespace-nowrap text-sm tabular-nums text-secondary">{value.numerator} of {value.denominator}{excluded && !noteAsText ? <InfoTooltip variant="caution" text={excluded} /> : null}</span>{excluded && noteAsText ? <span className="text-sm tabular-nums text-secondary">{excluded}</span> : null}</span>
 }
 
 /** A bounded bar at the server rate. The rate text beside it carries the value for assistive tech. */
@@ -256,9 +258,9 @@ function reportHeadlineCaption(summary: VisibilityReportSummary, comparison: str
 
 /**
  * One headline tile: its own quiet surface, a labelled rate with the change
- * beside it, and one supporting line, or two when the server left answers out of
- * the rate. The class is visible in the section heading, so each figure repeats
- * it for assistive tech only.
+ * beside it, and one supporting line, with a caution icon beside it when the
+ * server left answers out of the rate. The class is visible in the section
+ * heading, so each figure repeats it for assistive tech only.
  */
 function ReportHeadlineCell({ label, help, value, signal, unit, classNoun, change }: {
   label: string
@@ -273,7 +275,8 @@ function ReportHeadlineCell({ label, help, value, signal, unit, classNoun, chang
   // Answers the server left out of both sides of this rate: for a mention rate,
   // answers it could not tie to one property; for a citation rate, answers whose
   // sources could not be checked. The rate's own count already excludes them;
-  // this line keeps them visible. Stated by the server, never derived here.
+  // the caution icon beside it keeps them a hover, focus or tap away. Stated by
+  // the server, never derived here.
   const excluded = excludedAnswersLabel(value, signal)
   return <div className="report-headline-tile">
     <dt className="flex items-center gap-1 text-sm text-secondary"><span>{label}</span><InfoTooltip text={help} /></dt>
@@ -283,8 +286,7 @@ function ReportHeadlineCell({ label, help, value, signal, unit, classNoun, chang
         {queryClassSuffix}
         {change ? <span className={`text-sm ${change.tone}`}>{change.text}</span> : null}
       </dd>
-      <dd className="text-sm tabular-nums text-secondary">{`${value.numerator} of ${value.denominator} ${unit}`}</dd>
-      {excluded ? <dd className="text-sm tabular-nums text-secondary">{excluded}</dd> : null}
+      <dd className="text-sm tabular-nums text-secondary">{`${value.numerator} of ${value.denominator} ${unit}`}{excluded ? <InfoTooltip variant="caution" text={excluded} /> : null}</dd>
     </>}
   </div>
 }
@@ -346,7 +348,7 @@ export const UNCHECKED_SOURCES_COPY = {
 function UncheckedSourcesLines({ row, targetLabels, showCount }: {
   row: VisibilityReportQueryRow
   targetLabels: Map<string, string>
-  /** False when the rate's own left-out line already counts these answers. */
+  /** False when the rate's own caution note already counts these answers. */
   showCount: boolean
 }) {
   const unchecked = row.uncheckedSources
@@ -370,7 +372,7 @@ function QueryResultRate({ value, signal, singleAnswer, row, targetLabels }: {
   targetLabels?: Map<string, string>
 }) {
   // A Yes/No reading only when the one answer is the whole population; a rate
-  // that left an answer out keeps its count and its left-out line.
+  // that left an answer out keeps its count and its caution note.
   if (singleAnswer && value.denominator === 1 && value.unattributed === undefined && value.unchecked === undefined && (value.rate === 0 || value.rate === 1)) {
     const found = value.rate === 1
     return <span className={`inline-flex items-center gap-2 text-sm ${found ? 'text-positive' : 'text-secondary'}`}>
@@ -436,7 +438,7 @@ function QueryResultGroup({ group, queryClass, advanced, targetLabels, marketHea
 }
 
 type ReportTrendSeries = 'mentioned' | 'cited'
-/** Under the trend chart when a plotted Cited point left out answers whose sources could not be checked. */
+/** Behind a caution icon in the trend legend when a plotted Cited point left out answers whose sources could not be checked. */
 export const REPORT_TREND_UNCHECKED_NOTE = 'Cited counts only answers whose sources could be checked.'
 const REPORT_TREND_SERIES: ReadonlyArray<{ key: ReportTrendSeries; label: string; color: string; dashed: boolean }> = [
   { key: 'mentioned', label: 'Mentioned', color: CHART_SERIES_COLORS[1]!, dashed: false },
@@ -447,6 +449,7 @@ const REPORT_TREND_HOLLOW_DOT = 'var(--chart-tooltip-bg)'
 
 function ReportTrend({ population }: { population: VisibilityReportPopulation }) {
   const descriptionId = useId()
+  const uncheckedNoteId = useId()
   const [visibleSeries, setVisibleSeries] = useState<Record<ReportTrendSeries, boolean>>({ mentioned: true, cited: true })
   const visibleKeys = REPORT_TREND_SERIES.filter(series => visibleSeries[series.key]).map(series => series.key)
   // The last visible series stays on, so the chart never empties.
@@ -471,9 +474,10 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
     ...(boundaries.has('model-changed') ? ['Gaps mark changes to answer engines or models.'] : []),
     ...(boundaries.has('legacy-unknown') ? ['Older runs lack the details needed for comparison.'] : []),
     ...(population.trend.some(point => point.citationCoverage.reason === 'evidence-incomplete') ? ['Missing citation results mean the saved evidence is incomplete.'] : []),
-    // A plotted Cited point may leave out answers whose sources could not be checked; the chart says so, the table counts them.
-    ...(population.trend.some(point => point.citationCoverage.unchecked !== undefined) ? [REPORT_TREND_UNCHECKED_NOTE] : []),
   ]
+  // A plotted Cited point may leave out answers whose sources could not be checked; the legend says so behind a caution icon, the table counts them.
+  const uncheckedNote = population.trend.some(point => point.citationCoverage.unchecked !== undefined)
+  const describedBy = [...(notes.length > 0 ? [descriptionId] : []), ...(uncheckedNote ? [uncheckedNoteId] : [])].join(' ')
   if (points.length === 0) return <p className="py-6 text-sm text-secondary">No measured trend for this selection.</p>
   const hasRates = population.trend.some(point => point.mentionCoverage.rate !== null || point.citationCoverage.rate !== null)
   return <>
@@ -485,9 +489,11 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
           <svg aria-hidden="true" className="shrink-0" width="24" height="10" viewBox="0 0 24 10"><line x1="0" y1="5" x2="24" y2="5" stroke={series.color} strokeWidth="2" strokeDasharray={series.dashed ? '6 4' : undefined} /><circle cx="12" cy="5" r="3" fill={series.dashed ? REPORT_TREND_HOLLOW_DOT : series.color} stroke={series.color} strokeWidth="2" /></svg>
           {series.label}
         </label>)}
+        {/* Beside Cited, the series it qualifies. The chart reads it as part of its description. */}
+        {uncheckedNote ? <span id={uncheckedNoteId} className="-ml-4 flex items-center"><InfoTooltip variant="caution" text={REPORT_TREND_UNCHECKED_NOTE} /></span> : null}
       </fieldset>
       {notes.length > 0 && <p id={descriptionId} className="pb-3 text-sm text-secondary">{notes.join(' ')}</p>}
-      <div className="visibility-trend-chart" role="img" data-visible-series={visibleKeys.join(' ')} aria-describedby={notes.length > 0 ? descriptionId : undefined} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} mention and citation trend`}>
+      <div className="visibility-trend-chart" role="img" data-visible-series={visibleKeys.join(' ')} aria-describedby={describedBy || undefined} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} mention and citation trend`}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
@@ -505,7 +511,7 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
     </> : <p className="py-6 text-sm text-secondary">No measured trend for this selection.</p>}
     <div className={hasRates ? 'sr-only' : 'overflow-x-auto'}>
       <table className="evidence-table" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} trend data`}><thead><tr><th>Date</th><th>Mentioned</th><th>Cited</th><th>Comparison</th></tr></thead><tbody>
-        {population.trend.map(point => <tr key={point.runId}><td>{new Date(point.createdAt).toLocaleDateString()}</td><td><ReportRate value={point.mentionCoverage} signal="mentioned" /></td><td><ReportRate value={point.citationCoverage} signal="cited" /></td><td>{point.continuity.state.replaceAll('-', ' ')}</td></tr>)}
+        {population.trend.map(point => <tr key={point.runId}><td>{new Date(point.createdAt).toLocaleDateString()}</td><td><ReportRate value={point.mentionCoverage} signal="mentioned" noteAsText /></td><td><ReportRate value={point.citationCoverage} signal="cited" noteAsText /></td><td>{point.continuity.state.replaceAll('-', ' ')}</td></tr>)}
       </tbody></table>
     </div>
   </>
@@ -563,12 +569,10 @@ export const VISIBILITY_TOOLBAR_COPY = {
   dateThrough: (to: string) => `Through ${to} (UTC)`,
   resultsFrom: (date: string) => `Results from: ${date}`,
   resultsFromSelectedSweep: 'Results from: selected sweep',
-  /** A missing date reads generically, so the strip never invents one. */
-  trackingChanged: (changedOn: string | null, resultsOn: string | null, nextSweepOn: string | null) => [
-    changedOn ? `Tracking changed ${changedOn}.` : 'Tracking changed.',
-    `Showing the ${resultsOn ?? 'last'} results, from before the change.`,
-    `New numbers after the ${nextSweepOn ?? 'next'} sweep.`,
-  ].join(' '),
+  /** The strip's visible label. A missing date reads generically, so the strip never invents one. */
+  trackingChangedLabel: (changedOn: string | null) => changedOn ? `Tracking changed ${changedOn}` : 'Tracking changed',
+  /** The rest of the sentence, behind the strip's caution icon. */
+  trackingChangedDetail: (resultsOn: string | null, nextSweepOn: string | null) => `Showing the ${resultsOn ?? 'last'} results, from before the change. New numbers after the ${nextSweepOn ?? 'next'} sweep.`,
 } as const
 
 /** Clear filters empties exactly the panel's filters. Scope, market, class and every other param stay. */
@@ -724,12 +728,16 @@ export function VisibilityResultsToolbar({ report, selection, onSelectionChange,
         <Button type="button" variant="ghost" className="min-h-11" disabled={tokens.length === 0} onClick={() => { onSelectionChange({ ...CLEARED_VISIBILITY_FILTERS }); focusFilters() }}>{VISIBILITY_TOOLBAR_COPY.clearFilters}</Button>
       </div>
     </div>
-    {/* Below the results header, which keeps to the displayed run and its date (DESIGN.md). */}
-    {trackingChanged ? <p role="status" className="border-b border-default py-3 text-sm text-secondary">{VISIBILITY_TOOLBAR_COPY.trackingChanged(
-      trackingChangedAt ? formatObservedInstantMonthDay(observedInstant(trackingChangedAt)) : null,
-      measurement.completedAt ? formatObservedInstantMonthDay(observedInstant(measurement.completedAt)) : null,
-      nextSweepDate ?? null,
-    )}</p> : null}
+    {/* Below the results header, which keeps to the displayed run and its date (DESIGN.md). The
+        status shows the short label and holds the caution icon, whose name is the rest of the
+        sentence, so assistive tech reads the whole sentence once. */}
+    {trackingChanged ? <p role="status" className="border-b border-default py-3 text-sm text-secondary">
+      {VISIBILITY_TOOLBAR_COPY.trackingChangedLabel(trackingChangedAt ? formatObservedInstantMonthDay(observedInstant(trackingChangedAt)) : null)}
+      <InfoTooltip variant="caution" text={VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(
+        measurement.completedAt ? formatObservedInstantMonthDay(observedInstant(measurement.completedAt)) : null,
+        nextSweepDate ?? null,
+      )} />
+    </p> : null}
   </div>
 }
 
