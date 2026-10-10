@@ -41,6 +41,7 @@ import {
   registerAdsActivationRoutes,
   resolveAdsActivationMaxEntities,
 } from '../src/ads-activation-routes.js'
+import type { OutcomeTelemetryInput } from '../src/outcome-telemetry.js'
 
 const MANIFEST: AdsActivationManifest = {
   campaign: {
@@ -261,6 +262,8 @@ function buildHarness(options: ActivationHarnessOptions = {}) {
 
   const app = Fastify()
   app.decorate('db', db)
+  const outcomes: OutcomeTelemetryInput[] = []
+  app.decorate('emitOutcome', (event: OutcomeTelemetryInput) => { outcomes.push(event) })
   app.addHook('onRequest', async (request) => {
     const idHeader = request.headers['x-test-api-key-id']
     const id = Array.isArray(idHeader) ? idHeader[0] : idHeader
@@ -340,6 +343,7 @@ function buildHarness(options: ActivationHarnessOptions = {}) {
     calls,
     entities,
     headers,
+    outcomes,
     createGrant,
     setAdAccountId: (adAccountId: string) => {
       credential.adAccountId = adAccountId
@@ -1937,5 +1941,120 @@ describe('operational activation entity cap', () => {
       grant: { state: AdsActivationGrantStates.consumed },
       operation: { state: AdsOperationStates.succeeded },
     })
+  })
+})
+
+describe('ads activation outcome telemetry', () => {
+  let ctx: ReturnType<typeof buildHarness>
+
+  async function start(options: ActivationHarnessOptions = {}) {
+    ctx = buildHarness(options)
+    await ctx.app.ready()
+  }
+
+  afterEach(async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+  })
+
+  async function approve(): Promise<{ id: string; manifestHash: string }> {
+    return JSON.parse((await ctx.createGrant()).body).grant as { id: string; manifestHash: string }
+  }
+
+  function activate(grant: { id: string; manifestHash: string }, operationKey: string) {
+    return ctx.app.inject({
+      method: 'POST',
+      url: '/projects/acme/ads/campaigns/cmpn_approved/activate-tree',
+      headers: ctx.headers('key_executor'),
+      payload: { operationKey, grantId: grant.id, manifestHash: grant.manifestHash },
+    })
+  }
+
+  const properties = () => ctx.outcomes.map((event) => event.properties)
+
+  it('reports an executed activation once, with its campaign and steps, and nothing for the approval or the replay', async () => {
+    await start()
+    const grant = await approve()
+    await activate(grant, 'outcome:activate')
+    await activate(grant, 'outcome:activate')
+
+    expect(ctx.outcomes).toEqual([{
+      event: 'feature.completed',
+      properties: {
+        feature: 'openai_ads', operation: 'activation', status: 'succeeded',
+        durationBucket: 'under_1s', counts: { campaigns: 1, operations: 3 },
+      },
+    }])
+  })
+
+  it('reports a stale approval as a validation refusal, and revoking an approval that never ran as a cancellation', async () => {
+    await start()
+    ctx.entities.get('ad_approved')!.updatedAt = 31
+    const stale = await ctx.createGrant()
+    ctx.entities.get('ad_approved')!.updatedAt = 30
+    const grant = await approve()
+    const revoked = await ctx.app.inject({
+      method: 'POST', url: `/projects/acme/ads/activation-grants/${grant.id}/revoke`, headers: ctx.headers('key_approver'),
+    })
+
+    expect([stale.statusCode, revoked.statusCode]).toEqual([400, 200])
+    expect(properties()).toEqual([
+      { feature: 'openai_ads', operation: 'activation', status: 'failed', reasonCode: 'VALIDATION', errorName: 'AdsActivationError', durationBucket: 'under_1s' },
+      { feature: 'openai_ads', operation: 'activation', status: 'cancelled', reasonCode: 'CANCELLED_BY_USER', durationBucket: 'under_1s' },
+    ])
+  })
+
+  it('reports an approval the account review blocks as a refused gate', async () => {
+    await start({ accountReviewStatus: 'in_review' })
+    const refused = await ctx.createGrant()
+
+    expect(refused.statusCode).toBe(400)
+    expect(properties()).toEqual([
+      { feature: 'openai_ads', operation: 'activation', status: 'failed', reasonCode: 'GATE_REFUSED', errorName: 'AdsActivationError', durationBucket: 'under_1s' },
+    ])
+  })
+
+  it('reports a provider read that released the lease, then the resume that finished the activation', async () => {
+    await start()
+    const grant = await approve()
+    ctx.failVerifyAfter(1)
+    const interrupted = await activate(grant, 'outcome:resume')
+    const resumed = await activate(grant, 'outcome:resume')
+
+    expect([interrupted.statusCode, resumed.statusCode]).toEqual([502, 200])
+    expect(properties()).toEqual([
+      { feature: 'openai_ads', operation: 'activation', status: 'failed', reasonCode: 'HTTP_5XX', errorName: 'AdsActivationError', durationBucket: 'under_1s' },
+      { feature: 'openai_ads', operation: 'activation', status: 'succeeded', durationBucket: 'under_1s', counts: { campaigns: 1, operations: 3 } },
+    ])
+  })
+
+  it('reports the watchdog finishing a released activation as a retry', async () => {
+    await start({ sweepIntervalMs: 10 })
+    const grant = await approve()
+    ctx.failVerifyAfter(1)
+    await activate(grant, 'outcome:watchdog')
+
+    await waitForCondition(() => ctx.outcomes.length === 2)
+    expect(properties()[1]).toEqual({
+      feature: 'openai_ads', operation: 'activation', status: 'succeeded', trigger: 'retry',
+      durationBucket: 'under_1s', counts: { campaigns: 1, operations: 3 },
+    })
+  })
+
+  it('reports an activation revoked mid-flight and rolled back as one cancellation', async () => {
+    await start({ blockAdActivation: true, sweepIntervalMs: 60_000 })
+    const grant = await approve()
+    const activation = activate(grant, 'outcome:revoke-running')
+    await ctx.activationStarted
+    await ctx.app.inject({
+      method: 'POST', url: `/projects/acme/ads/activation-grants/${grant.id}/revoke`, headers: ctx.headers('key_approver'),
+    })
+    await waitForCondition(() => ctx.calls.includes('pause:campaign:cmpn_approved'))
+    ctx.releaseBlockedActivation()
+    expect((await activation).statusCode).toBe(409)
+
+    expect(properties()).toEqual([
+      { feature: 'openai_ads', operation: 'activation', status: 'cancelled', reasonCode: 'CANCELLED_BY_USER', errorName: 'AdsActivationError', durationBucket: 'under_1s' },
+    ])
   })
 })

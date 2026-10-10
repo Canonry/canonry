@@ -2,10 +2,12 @@ import crypto from 'node:crypto'
 import { eq, and, desc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { bingUrlInspections, bingCoverageSnapshots, runs } from '@ainyc/canonry-db'
-import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError, percentOf } from '@ainyc/canonry-contracts'
+import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError, percentOf, classifyOutcomeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses } from '@ainyc/canonry-contracts'
 import { assertNotProjectScoped } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { startRouteOutcome } from './route-outcome.js'
 import {
+  BingApiError,
   getSites,
   getUrlInfo,
   getCrawlIssues,
@@ -458,10 +460,14 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
-    const conn = requireConnection(store, project.canonicalDomain)
+    const outcome = startRouteOutcome(app, FeatureNames.bing, 'inspect')
+    const conn = outcome.guard(OutcomeReasonCodes.NOT_CONNECTED, () => requireConnection(store, project.canonicalDomain))
 
     if (!conn.siteUrl) {
-      throw validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.')
+      throw outcome.refuse(
+        OutcomeReasonCodes.PROPERTY_NOT_FOUND,
+        validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.'),
+      )
     }
 
     const { url } = request.body ?? {}
@@ -555,6 +561,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
         .set({ status: RunStatuses.completed, finishedAt: now })
         .where(eq(runs.id, runId))
         .run()
+      outcome.report({ status: OutcomeStatuses.succeeded, counts: { urls: 1 } })
 
       return {
         id,
@@ -575,6 +582,13 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
         .set({ status: RunStatuses.failed, error: msg, finishedAt: new Date().toISOString() })
         .where(eq(runs.id, runId))
         .run()
+      // Bing reports throttling as a 400 with its own error code.
+      const failure = classifyOutcomeError(e)
+      outcome.report({
+        status: OutcomeStatuses.failed,
+        ...failure,
+        ...(e instanceof BingApiError && e.isThrottle ? { reasonCode: OutcomeReasonCodes.RATE_LIMITED } : {}),
+      })
       throw e
     }
   })
