@@ -26,6 +26,8 @@ export type TrackedTypeChoice = 'auto' | QueryClass
 export type TrackedSubjectTarget = { kind: 'market' | 'location'; key: string }
 
 type Addition = QueryTrackingMutation['additions'][number]
+type Market = QueryTrackingWorkspaceResponse['markets'][number]
+type Pairing = TrackedRowVm['tracked']['assignments'][number]
 
 export const TRACKED_ACTION_LABEL: Record<TrackedRowAction, string> = {
   'edit-wording': 'Edit wording',
@@ -46,9 +48,44 @@ function scoped(place?: TrackedPlace): Pick<QueryTrackingMutation['removals'][nu
   return { audience: { marketKeys: [place.key] } }
 }
 
+/** A place holds a pairing when the pairing is asked for it. */
+function holds(place: TrackedPlace, pairing: Pairing): boolean {
+  if (place.kind === 'location') return pairing.targetKey === place.key
+  if (place.kind === 'group') return pairing.groupKeys.includes(place.key)
+  // A market holds one pairing per search location, and the row lists a location's markets together.
+  // Asked from more than one, it may be in the market for only some of them.
+  return pairing.contexts.length === 1 && pairing.marketKeys.length === 1 && pairing.marketKeys[0] === place.key
+}
+
+/**
+ * True when some row is asked outside the place, so a change narrowed to the
+ * place and the same change everywhere differ. False when every pairing of
+ * every row sits in the place and nowhere else: both are then one request.
+ */
+export function reachesBeyond(rows: readonly TrackedRowVm[], place: TrackedPlace): boolean {
+  return rows.some(row => row.tracked.assignments.some(pairing => !holds(place, pairing)))
+}
+
+/** Which markets hold each location and which locations each market holds. Read once per workspace, because every row's guards ask. */
+const MEMBERSHIP = new WeakMap<QueryTrackingWorkspaceResponse, { holders: Map<string, Market[]>; members: Map<string, Set<string>> }>()
+
+function membership(workspace: QueryTrackingWorkspaceResponse) {
+  let index = MEMBERSHIP.get(workspace)
+  if (!index) {
+    index = { holders: new Map(), members: new Map() }
+    for (const market of workspace.markets) {
+      const locations = new Set(market.usageEdges.map(edge => edge.targetKey))
+      index.members.set(market.stableKey, locations)
+      for (const location of locations) index.holders.set(location, [...(index.holders.get(location) ?? []), market])
+    }
+    MEMBERSHIP.set(workspace, index)
+  }
+  return index
+}
+
 /** The markets a location's queries count in: those holding a usage edge for it. */
-export function marketsHolding(workspace: QueryTrackingWorkspaceResponse, locationKey: string) {
-  return workspace.markets.filter(market => market.usageEdges.some(edge => edge.targetKey === locationKey))
+export function marketsHolding(workspace: QueryTrackingWorkspaceResponse, locationKey: string): Market[] {
+  return membership(workspace).holders.get(locationKey) ?? []
 }
 
 /**
@@ -58,14 +95,19 @@ export function marketsHolding(workspace: QueryTrackingWorkspaceResponse, locati
  * location, anything else the market.
  */
 export function typeSetsSubject(target: TrackedSubjectTarget, workspace: QueryTrackingWorkspaceResponse): boolean {
-  const markets = target.kind === 'market'
-    ? workspace.markets.filter(market => market.stableKey === target.key)
-    : marketsHolding(workspace, target.key)
-  if (markets.length !== 1) return false
-  const locations = new Set(markets[0]!.usageEdges.map(edge => edge.targetKey))
-  if (locations.size !== 1) return false
+  const { holders, members } = membership(workspace)
+  const home = target.kind === 'location' ? holders.get(target.key) ?? [] : null
+  if (home && home.length !== 1) return false
+  const locations = members.get(home ? home[0]!.stableKey : target.key)
+  if (locations?.size !== 1) return false
   const [location] = locations
-  return marketsHolding(workspace, location!).length === 1
+  return holders.get(location!)?.length === 1
+}
+
+/** True for a market or location row whose type alone decides which of the two it is. */
+export function rowTypeSetsSubject(row: TrackedRowVm, workspace: QueryTrackingWorkspaceResponse): boolean {
+  const { subject } = row
+  return (subject.kind === 'market' || subject.kind === 'location') && typeSetsSubject(subject, workspace)
 }
 
 /** False where a Subject change could change nothing: the type decides there, and a row that is not asked has no Subject. */
@@ -76,32 +118,39 @@ export function canChangeSubject(row: TrackedRowVm, workspace: QueryTrackingWork
   return !typeSetsSubject(subject, workspace)
 }
 
+/** The type a market or a location query is set to. */
+const OWN_TYPE = { market: 'non-brand', location: 'branded' } as const
+
 /**
- * The types a row can be set to. A market query is Non-brand and a location
- * query Branded, so each is offered only its own, and a type never moves a
- * query into the other population by accident. A hand-picked query takes
- * either, and so does a query where the type sets the Subject.
+ * The types a row can be set to. A market query is set to Non-brand and a
+ * location query to Branded, so a type never moves a query into the other
+ * population by accident. A hand-picked query takes either. So does one row
+ * where the type sets the Subject, because there the type is the only way to
+ * move it; among several rows (`bulk`) it takes only its own, so a bulk change
+ * moves no query to the other Subject. A query that is not asked has no
+ * pairing to give a type, and the server refuses one, so it takes none.
  */
-export function allowedTypes(row: TrackedRowVm, workspace: QueryTrackingWorkspaceResponse): TrackedTypeChoice[] {
+export function allowedTypes(row: TrackedRowVm, workspace: QueryTrackingWorkspaceResponse, bulk = false): TrackedTypeChoice[] {
   const { subject } = row
-  if (subject.kind === 'none') return ['auto']
-  const either = subject.kind === 'hand-picked' || subject.kind === 'company' || typeSetsSubject(subject, workspace)
-  return [
-    'auto',
-    ...(either || subject.kind === 'location' ? ['branded' as const] : []),
-    ...(either || subject.kind === 'market' ? ['non-brand' as const] : []),
-  ]
+  if (subject.kind === 'none') return []
+  if (subject.kind === 'hand-picked' || subject.kind === 'company' || (!bulk && typeSetsSubject(subject, workspace))) return ['auto', 'branded', 'non-brand']
+  return ['auto', OWN_TYPE[subject.kind]]
 }
 
-/** A bulk type change skips the rows that cannot take the chosen type. */
+/** A type change skips the rows that cannot take the chosen type. More than one row is a bulk change. */
 export function typeChangeRows(rows: readonly TrackedRowVm[], type: TrackedTypeChoice, workspace: QueryTrackingWorkspaceResponse) {
   const changed: TrackedRowVm[] = []
   const skipped: TrackedRowVm[] = []
-  for (const row of rows) (allowedTypes(row, workspace).includes(type) ? changed : skipped).push(row)
+  for (const row of rows) (allowedTypes(row, workspace, rows.length > 1).includes(type) ? changed : skipped).push(row)
   return { changed, skipped }
 }
 
-/** The one type an operator set on every pairing of the row, or null when the server chose any of them. */
+/**
+ * The one type an operator set on every pairing of the row, or null when the
+ * server chose any of them. The row carries one type and one source per
+ * location, read from that location's first search location, so a location
+ * asked from several reads as operator-set when only the first one is.
+ */
 export function operatorType(row: TrackedRowVm): QueryClass | null {
   const { assignments } = row.tracked
   const type = assignments.at(0)?.queryClass
@@ -109,6 +158,20 @@ export function operatorType(row: TrackedRowVm): QueryClass | null {
   // `assignments` holds one type per location; `queryClasses` is every type the query is asked under.
   if (row.queryClasses.some(queryClass => queryClass !== type)) return null
   return assignments.every(assignment => assignment.classificationSource === 'operator' && assignment.queryClass === type) ? type : null
+}
+
+/**
+ * False when the row plainly has the type already, so sending it would change
+ * nothing. Automatic changes a type an operator set and one with no recorded
+ * source: the server classifies both again. Where a location is asked from
+ * more than one search location the row cannot tell (see `operatorType`), so
+ * the answer is yes and the server's review says whether anything changes.
+ */
+export function typeWouldChange(row: TrackedRowVm, type: TrackedTypeChoice): boolean {
+  const { assignments } = row.tracked
+  if (assignments.some(pairing => pairing.contexts.length > 1)) return true
+  if (type === 'auto') return assignments.some(pairing => pairing.classificationSource !== 'server')
+  return operatorType(row) !== type
 }
 
 /** A Subject change to the Subject the row already has changes nothing. */

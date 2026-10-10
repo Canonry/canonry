@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { TrackedActionSheet } from '../src/components/project/queries/advanced/TrackedActionSheet.js'
@@ -8,7 +8,7 @@ import type { TrackedRowVm } from '../src/components/project/queries/advanced/tr
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
-import { contextChoices, rows, uptownPlace, workspace, workspaceVersion } from './support/tracked-action-fixtures.js'
+import { contextChoices, rows, uptownPlace, withSecondSearchLocation, withSource, workspace, workspaceVersion } from './support/tracked-action-fixtures.js'
 
 afterEach(() => {
   cleanup()
@@ -17,6 +17,8 @@ afterEach(() => {
 
 const previewToken = `qtp_${'b'.repeat(64)}`
 const reviewedAt = '2026-09-04T12:15:00.000Z'
+/** The version the review answers with. Not the one the form sent, so a publish shows which of the two it carries. */
+const reviewedVersion = `qtw_${'f'.repeat(64)}`
 const active = { revision: 4, compiledChecksum: 'c'.repeat(64) }
 const committed = { committed: true, mode: 'advanced', workspaceVersion: `qtw_${'d'.repeat(64)}`, reviewedAt, active: { ...active, revision: 5 } }
 const refusal = () => jsonResponse({ error: { code: 'QUERY_TRACKING_PREVIEW_STALE', message: 'Workspace changed. Review again.' } }, 409)
@@ -36,15 +38,15 @@ function preview(body: Body) {
   const reused = body.additions.length > 0 ? body.removals : body.edits ?? []
   const removed = body.additions.length > 0 ? [] : body.removals
   return {
-    mode: 'advanced', workspaceVersion: body.expectedWorkspaceVersion, previewToken, reviewedAt, active,
+    mode: 'advanced', workspaceVersion: reviewedVersion, previewToken, reviewedAt, active,
     tracked: workspace.tracked.filter(row => !removed.some(removal => removal.queryId === row.queryId)),
     diff: { added: [], removed: removed.map(removal => change(removal.queryId)), reused: reused.map(row => change(row.queryId)), unchanged: [], noOp: false },
     workload: { existingNodes: 9, existingProviderCalls: 9, nextSweepNodes: 9 - removed.length, nextSweepProviderCalls: 9 - removed.length, addedNodes: 0, addedProviderCalls: 0, removedNodes: removed.length, removedProviderCalls: removed.length },
   }
 }
 
-/** Records every review and publish the sheet sends; `respond` can answer one itself. */
-function installApi(respond?: (write: Write) => Response | undefined) {
+/** Records every review and publish the sheet sends; `respond` can answer one itself, at once or later. */
+function installApi(respond?: (write: Write) => Response | Promise<Response> | undefined) {
   const writes: Write[] = []
   onTestFinished(mockFetch((url, init) => {
     const operation = new URL(url).pathname.replace('/api/v1/projects/demo/query-tracking/', '')
@@ -66,7 +68,8 @@ function renderSheet(props: Pick<SheetProps, 'action' | 'rows'> & Partial<SheetP
   const { rerender } = render(role ? <AccountProvider account={{ name: role, role }}>{sheet}</AccountProvider> : sheet)
   /** Renders the same sheet with other props, as the page does when the workspace is read again. */
   const show = (next: Partial<SheetProps>) => rerender(<QueryClientProvider client={queryClient}><TrackedActionSheet {...all} {...next} /></QueryClientProvider>)
-  return { ...all, show, sheet: within(screen.getByRole('dialog')) }
+  // A viewer gets no sheet, so there is no dialog to look in.
+  return { ...all, show, sheet: within(screen.queryByRole('dialog') ?? document.body) }
 }
 
 type Sheet = ReturnType<typeof renderSheet>['sheet']
@@ -107,7 +110,8 @@ describe('Stop tracking and Remove query', () => {
     fireEvent.click(sheet.getByRole('button', { name: 'Publish 3 changes' }))
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce())
     expect(writes).toHaveLength(2)
-    expect(writes[1]).toStrictEqual({ operation: 'commit', body: { ...version, additions: [], removals, previewToken, reviewedAt } })
+    // The publish carries the version the review answered with, not the one the form sent.
+    expect(writes[1]).toStrictEqual({ operation: 'commit', body: { expectedWorkspaceVersion: reviewedVersion, additions: [], removals, previewToken, reviewedAt } })
     expect(onPublished).toHaveBeenCalledExactlyOnceWith(committed)
   })
 
@@ -145,29 +149,56 @@ describe('Stop tracking and Remove query', () => {
     expect(sheet.getByText('apartments in the old town')).toBeTruthy()
     expect(sheet.queryByRole('radiogroup', { name: 'Applies to' })).toBeNull()
     expect(await review(sheet, writes)).toStrictEqual({ ...version, additions: [], removals: [{ queryId: 'q-old' }] })
+
+    cleanup()
+    const second = { ...rows.notAsked, queryId: 'q-older', queryText: 'apartments by the old mill' }
+    const several = renderSheet({ action: 'remove', rows: [rows.notAsked, second] }).sheet
+    expect(screen.getByRole('dialog', { name: 'Remove queries' })).toBeTruthy()
+    expect(several.getByText('2 queries')).toBeTruthy()
+    expect((await review(several, writes)).removals).toStrictEqual([{ queryId: 'q-old' }, { queryId: 'q-older' }])
   })
 })
 
 describe('Applies to', () => {
   const audience = { marketKeys: ['uptown'] }
+  // The hand-picked query is asked at Harbor Point in Uptown and at Pier House outside it, so the two choices differ.
   const cases = [
-    ['stop', (sheet: Sheet) => sheet, (scope: object) => ({ additions: [], removals: [{ queryId: 'q-uptown', ...scope }] })],
-    ['change-type', (sheet: Sheet) => { choose(sheet, 'Type', 'Non-brand'); return sheet }, (scope: object) => ({ additions: [], removals: [], edits: [{ queryId: 'q-uptown', queryClass: 'non-brand', ...scope }] })],
-    ['edit-wording', (sheet: Sheet) => { fireEvent.change(sheet.getByLabelText('Query'), { target: { value: 'best apartments in uptown' } }); return sheet }, (scope: object) => ({ additions: [], removals: [], edits: [{ queryId: 'q-uptown', text: 'best apartments in uptown', ...scope }] })],
+    ['stop', (sheet: Sheet) => sheet, (queryId: string, scope: object) => ({ additions: [], removals: [{ queryId, ...scope }] })],
+    ['change-type', (sheet: Sheet) => { choose(sheet, 'Type', 'Non-brand'); return sheet }, (queryId: string, scope: object) => ({ additions: [], removals: [], edits: [{ queryId, queryClass: 'non-brand', ...scope }] })],
+    ['edit-wording', (sheet: Sheet) => { fireEvent.change(sheet.getByLabelText('Query'), { target: { value: 'apartments with a rooftop pool' } }); return sheet }, (queryId: string, scope: object) => ({ additions: [], removals: [], edits: [{ queryId, text: 'apartments with a rooftop pool', ...scope }] })],
   ] as const
 
   it.each(cases)('narrows %s to the place by default, and to nothing under Everywhere', async (action, fill, body) => {
     const writes = installApi()
-    const { sheet } = renderSheet({ action, rows: [rows.market], place: uptownPlace })
+    const { sheet } = renderSheet({ action, rows: [rows.handPicked], place: uptownPlace })
     expect(radios(sheet, 'Applies to').map(radio => radio.textContent)).toEqual(['Only Uptown', 'Everywhere'])
     expect(checked(sheet, 'Applies to')).toBe('Only Uptown')
     fill(sheet)
-    expect(await review(sheet, writes)).toStrictEqual({ ...version, ...body({ audience }) })
+    expect(await review(sheet, writes)).toStrictEqual({ ...version, ...body('q-picked', { audience }) })
 
     // Back to the form: a change there drops the review, and the next one is for the whole query.
     fireEvent.click(sheet.getByRole('button', { name: 'Back' }))
     choose(sheet, 'Applies to', 'Everywhere')
-    expect(await review(sheet, writes)).toStrictEqual({ ...version, ...body({}) })
+    expect(await review(sheet, writes)).toStrictEqual({ ...version, ...body('q-picked', {}) })
+  })
+
+  it.each(cases)('asks nothing for %s when the query is asked nowhere else, and sends the plain request', async (action, fill, body) => {
+    const writes = installApi()
+    // Every pairing of this market query is in Uptown: "Only Uptown" and "Everywhere" would be one change.
+    const { sheet } = renderSheet({ action, rows: [rows.market], place: uptownPlace })
+    expect(sheet.queryByRole('radiogroup', { name: 'Applies to' })).toBeNull()
+    expect(sheet.queryByText('Applies to')).toBeNull()
+    fill(sheet)
+    expect(await review(sheet, writes)).toStrictEqual({ ...version, ...body('q-uptown', {}) })
+  })
+
+  it('keeps the whole place name as the choice, however long, beside Everywhere', () => {
+    installApi()
+    const long = 'Acme Homes at Harbor Point Waterfront Residences'
+    const { sheet } = renderSheet({ action: 'stop', rows: [rows.handPicked], place: { ...uptownPlace, label: long } })
+    // Cut on screen with an ellipsis, never in its name.
+    expect(radios(sheet, 'Applies to').map(radio => radio.textContent)).toEqual([`Only ${long}`, 'Everywhere'])
+    expect(sheet.getByRole('radio', { name: `Only ${long}` })).toBeTruthy()
   })
 
   it.each(['change-subject', 'move-location'] as const)('is not offered for %s, which replaces every place the query is in', action => {
@@ -199,47 +230,131 @@ describe('Edit wording', () => {
 
 describe('Change type', () => {
   const types = (sheet: Sheet) => radios(sheet, 'Type').map(radio => radio.textContent)
+  /** The row's own type, printed over the control. */
+  const now = (sheet: Sheet) => sheet.getByText('Now').nextElementSibling?.textContent
+  const followsSubject = /^Type follows Subject\. Set a market query to Non-brand and a location query to Branded\. A hand-picked query takes either\.$/
+  const setsSubject = /^Type sets Subject\. In a market with one location, the type decides the Subject\./
 
   it('offers a market query Non-brand, a location query Branded and a hand-picked query both', () => {
     installApi()
-    expect(types(renderSheet({ action: 'change-type', rows: [rows.market] }).sheet)).toEqual(['Automatic', 'Non-brand'])
+    const market = renderSheet({ action: 'change-type', rows: [rows.market] }).sheet
+    expect(types(market)).toEqual(['Automatic', 'Non-brand'])
+    // Why Branded is missing is a short label; its sentence is the note's name and tooltip.
+    expect(market.getByRole('button', { name: followsSubject }).textContent).toBe('Type follows Subject')
     cleanup()
-    expect(types(renderSheet({ action: 'change-type', rows: [rows.location] }).sheet)).toEqual(['Automatic', 'Branded'])
+    const location = renderSheet({ action: 'change-type', rows: [rows.location] }).sheet
+    expect(types(location)).toEqual(['Automatic', 'Branded'])
+    expect(location.getByRole('button', { name: followsSubject })).toBeTruthy()
     cleanup()
     const { sheet } = renderSheet({ action: 'change-type', rows: [rows.handPicked] })
     expect(types(sheet)).toEqual(['Automatic', 'Branded', 'Non-brand'])
+    // It takes every type, so there is nothing to explain.
+    expect(sheet.queryByText('Type follows Subject')).toBeNull()
     expect(sheet.queryByText('Type sets Subject')).toBeNull()
     cleanup()
     // A type no selected row can take is not offered at all.
     expect(types(renderSheet({ action: 'change-type', rows: [rows.market, rows.marketB] }).sheet)).toEqual(['Automatic', 'Non-brand'])
   })
 
-  it('sends null for Automatic and the type otherwise', async () => {
+  it('shows the type one row has now, and none for several rows', () => {
+    installApi()
+    expect(now(renderSheet({ action: 'change-type', rows: [rows.market] }).sheet)).toBe('Non-brand')
+    cleanup()
+    expect(now(renderSheet({ action: 'change-type', rows: [rows.location] }).sheet)).toBe('Branded')
+    cleanup()
+    const mixed: TrackedRowVm = { ...rows.handPicked, type: 'mixed', queryClasses: ['branded', 'non-brand'] }
+    expect(now(renderSheet({ action: 'change-type', rows: [mixed] }).sheet)).toBe('Mixed')
+    cleanup()
+    expect(now(renderSheet({ action: 'change-type', rows: [{ ...rows.handPicked, type: 'not-set', queryClasses: [] }] }).sheet)).toBe('Not set')
+    cleanup()
+    expect(renderSheet({ action: 'change-type', rows: [rows.market, rows.marketB] }).sheet.queryByText('Now')).toBeNull()
+  })
+
+  it('keeps Review off while the type is the one the server already chose', async () => {
     const writes = installApi()
     const { sheet } = renderSheet({ action: 'change-type', rows: [rows.handPicked] })
     expect(checked(sheet, 'Type')).toBe('Automatic')
-    expect(await review(sheet, writes)).toStrictEqual({ ...version, additions: [], removals: [], edits: [{ queryId: 'q-picked', queryClass: null }] })
-    fireEvent.click(sheet.getByRole('button', { name: 'Back' }))
+    expect(reviewButton(sheet).disabled).toBe(true)
+    // Automatic is what the row has: choosing it by hand changes nothing either.
+    choose(sheet, 'Type', 'Automatic')
+    expect(reviewButton(sheet).disabled).toBe(true)
     choose(sheet, 'Type', 'Branded')
     expect(await review(sheet, writes)).toStrictEqual({ ...version, additions: [], removals: [], edits: [{ queryId: 'q-picked', queryClass: 'branded' }] })
+    fireEvent.click(sheet.getByRole('button', { name: 'Back' }))
+    choose(sheet, 'Type', 'Automatic')
+    expect(reviewButton(sheet).disabled).toBe(true)
   })
 
-  it('opens one row on the type an operator set and keeps Review off until it changes', async () => {
+  it('opens one row on the type an operator set, keeps Review off until it changes, and sends null for Automatic', async () => {
     const writes = installApi()
-    const set: TrackedRowVm = { ...rows.location, tracked: { ...rows.location.tracked, assignments: rows.location.tracked.assignments.map(pairing => ({ ...pairing, classificationSource: 'operator' as const })) } }
-    const { sheet } = renderSheet({ action: 'change-type', rows: [set] })
+    const { sheet } = renderSheet({ action: 'change-type', rows: [withSource(rows.location, 'operator')] })
     expect(checked(sheet, 'Type')).toBe('Branded')
+    expect(now(sheet)).toBe('Branded')
+    expect(reviewButton(sheet).disabled).toBe(true)
+    // A press on the type it has is no change.
+    choose(sheet, 'Type', 'Branded')
     expect(reviewButton(sheet).disabled).toBe(true)
     choose(sheet, 'Type', 'Automatic')
     expect((await review(sheet, writes)).edits).toStrictEqual([{ queryId: 'q-harbor', queryClass: null }])
+  })
+
+  it('never hands an operator\'s type back to the classifier unasked', async () => {
+    const writes = installApi()
+    // A location query an operator set to Non-brand, which a location query cannot be set to here: the control cannot show it.
+    const { sheet } = renderSheet({ action: 'change-type', rows: [rows.operatorSet] })
+    expect(now(sheet)).toBe('Non-brand')
+    expect(types(sheet)).toEqual(['Automatic', 'Branded'])
+    expect(checked(sheet, 'Type')).toBe('Automatic')
+    // Automatic is only where the control opens. Review waits for a choice.
+    expect(reviewButton(sheet).disabled).toBe(true)
+    fireEvent.click(reviewButton(sheet))
+    expect(writes).toEqual([])
+    choose(sheet, 'Type', 'Automatic')
+    expect((await review(sheet, writes)).edits).toStrictEqual([{ queryId: 'q-harbor-parking', queryClass: null }])
+  })
+
+  it('waits for a choice in bulk, where the control always opens on Automatic', async () => {
+    const writes = installApi()
+    const second: TrackedRowVm = { ...rows.operatorSet, queryId: 'q-harbor-gym', queryText: 'Harbor Point gym' }
+    const { sheet } = renderSheet({ action: 'change-type', rows: [rows.operatorSet, second] })
+    expect(checked(sheet, 'Type')).toBe('Automatic')
+    expect(reviewButton(sheet).disabled).toBe(true)
+    choose(sheet, 'Type', 'Automatic')
+    expect((await review(sheet, writes)).edits).toStrictEqual([{ queryId: 'q-harbor-parking', queryClass: null }, { queryId: 'q-harbor-gym', queryClass: null }])
+
+    cleanup()
+    // Rows the server classified have nothing to hand back, so Automatic stays off for them even when chosen.
+    const server = renderSheet({ action: 'change-type', rows: [rows.market, rows.marketB] }).sheet
+    choose(server, 'Type', 'Automatic')
+    expect(reviewButton(server).disabled).toBe(true)
+    choose(server, 'Type', 'Non-brand')
+    expect(reviewButton(server).disabled).toBe(false)
+  })
+
+  it('lets the server answer where the row cannot tell: no recorded source, or two search locations', async () => {
+    const writes = installApi()
+    // No recorded source: the server classifies it again under Automatic.
+    const frozen = renderSheet({ action: 'change-type', rows: [withSource(rows.handPicked, 'frozen')] }).sheet
+    expect(reviewButton(frozen).disabled).toBe(true)
+    choose(frozen, 'Type', 'Automatic')
+    expect((await review(frozen, writes)).edits).toStrictEqual([{ queryId: 'q-picked', queryClass: null }])
+
+    cleanup()
+    // The row shows only the first search location's type and who set it, so the type it opens on may still be a change.
+    const twice = renderSheet({ action: 'change-type', rows: [withSecondSearchLocation(withSource(rows.handPicked, 'operator'))] }).sheet
+    expect(checked(twice, 'Type')).toBe('Non-brand')
+    expect(reviewButton(twice).disabled).toBe(true)
+    choose(twice, 'Type', 'Non-brand')
+    expect((await review(twice, writes)).edits).toStrictEqual([{ queryId: 'q-picked', queryClass: 'non-brand' }])
   })
 
   it('says the type sets the Subject in a one-location market and offers both types there', async () => {
     const writes = installApi()
     const { sheet } = renderSheet({ action: 'change-type', rows: [rows.soloMarket] })
     expect(types(sheet)).toEqual(['Automatic', 'Branded', 'Non-brand'])
-    const note = sheet.getByRole('button', { name: /^Type sets Subject\. This market has one location/ })
+    const note = sheet.getByRole('button', { name: setsSubject })
     expect(note.textContent).toBe('Type sets Subject')
+    expect(sheet.queryByText('Type follows Subject')).toBeNull()
     // Branded is what makes this market query its location's query.
     choose(sheet, 'Type', 'Branded')
     expect((await review(sheet, writes)).edits).toStrictEqual([{ queryId: 'q-solo', queryClass: 'branded' }])
@@ -254,10 +369,40 @@ describe('Change type', () => {
     expect(sheet.queryByText(/skipped$/)).toBeNull()
 
     choose(sheet, 'Type', 'Branded')
-    const skipped = sheet.getByText('3 skipped', { selector: 'summary' })
+    const skipped = sheet.getByText('1 to change · 3 skipped', { selector: 'summary' })
     expect(within(skipped.parentElement!).getAllByRole('listitem').map(item => item.textContent))
       .toEqual(['best apartments uptown', 'uptown apartments with parking', 'pet friendly apartments uptown'])
     expect(await review(sheet, writes)).toStrictEqual({ ...version, additions: [], removals: [], edits: [{ queryId: 'q-picked', queryClass: 'branded' }] })
+  })
+
+  it('moves no query to the other Subject in bulk: a one-location market row is skipped for Branded', async () => {
+    const writes = installApi()
+    const { sheet } = renderSheet({ action: 'change-type', rows: [rows.market, rows.soloMarket, rows.handPicked] })
+    expect(types(sheet)).toEqual(['Automatic', 'Branded', 'Non-brand'])
+    // Automatic can still land a one-location market row on its location, so the form says so.
+    expect(sheet.getByRole('button', { name: setsSubject })).toBeTruthy()
+
+    choose(sheet, 'Type', 'Branded')
+    const skipped = sheet.getByText('1 to change · 2 skipped', { selector: 'summary' })
+    expect(within(skipped.parentElement!).getAllByRole('listitem').map(item => item.textContent)).toEqual(['best apartments uptown', 'apartments near the pier'])
+    // No row left in the change has its Subject set by its type.
+    expect(sheet.queryByText('Type sets Subject')).toBeNull()
+    expect(await review(sheet, writes)).toStrictEqual({ ...version, additions: [], removals: [], edits: [{ queryId: 'q-picked', queryClass: 'branded' }] })
+
+    fireEvent.click(sheet.getByRole('button', { name: 'Back' }))
+    choose(sheet, 'Type', 'Non-brand')
+    expect(sheet.queryByText(/skipped$/)).toBeNull()
+    expect(sheet.getByRole('button', { name: setsSubject })).toBeTruthy()
+    expect((await review(sheet, writes)).edits).toStrictEqual([{ queryId: 'q-uptown', queryClass: 'non-brand' }, { queryId: 'q-solo', queryClass: 'non-brand' }, { queryId: 'q-picked', queryClass: 'non-brand' }])
+  })
+
+  it('skips a query that is not asked for every type, and lists every skipped row', () => {
+    installApi()
+    const unasked = Array.from({ length: 12 }, (_, index): TrackedRowVm => ({ ...rows.notAsked, queryId: `q-old-${index}`, queryText: `apartments in old town ${index}` }))
+    const { sheet } = renderSheet({ action: 'change-type', rows: [rows.market, ...unasked] })
+    const skipped = sheet.getByText('1 to change · 12 skipped', { selector: 'summary' })
+    // The whole list, not a first few: the form is the one scroller.
+    expect(within(skipped.parentElement!).getAllByRole('listitem').map(item => item.textContent)).toEqual(unasked.map(row => row.queryText))
   })
 })
 
@@ -275,6 +420,8 @@ describe('Change Subject', () => {
     expect(document.getElementById(company.getAttribute('aria-describedby')!)!.textContent).toBe('Not available yet')
     fireEvent.click(company)
     expect(checked(sheet, 'Subject')).toBe('Market')
+    // A hover title shows on neither a tap nor keyboard focus, so the help beside the control says it too.
+    expect(sheet.getByRole('button', { name: 'Company is not available yet.' })).toBeTruthy()
     // A press on the Subject it already has keeps the place.
     choose(sheet, 'Subject', 'Market')
     expect(sheet.getByText('Uptown · Market', { selector: 'summary' })).toBeTruthy()
@@ -288,6 +435,7 @@ describe('Change Subject', () => {
     expect(reviewButton(sheet).disabled).toBe(true)
     pick(sheet, 'Choose a location', 'Harbor Point')
     expect(sheet.getByText('Counts in: Uptown, Downtown')).toBeTruthy()
+    expect(sheet.getByRole('button', { name: "Asked with these markets' engines and search locations." })).toBeTruthy()
     expect(sheet.queryByText('Type sets Subject')).toBeNull()
     expect(await review(sheet, writes)).toStrictEqual({
       ...version,
@@ -334,15 +482,46 @@ describe('Change Subject', () => {
     expect(reviewButton(sheet).disabled).toBe(true)
   })
 
-  it('says the type sets the Subject when the new place is a one-location market', () => {
+  it('warns that the type sets the Subject when the new place is a one-location market', () => {
     installApi()
     const { sheet } = renderSheet({ action: 'change-subject', rows: [rows.market] })
     pick(sheet, 'Uptown · Market', 'Solo')
-    expect(sheet.getByRole('button', { name: /^Type sets Subject\. This market has one location/ })).toBeTruthy()
+    const note = sheet.getByRole('button', { name: /^Type sets Subject\. In a market with one location, the type decides the Subject\./ })
+    // A caution here, not a tip: the publish can land as the other Subject than the one picked.
+    expect(note.className).toContain('text-caution')
     choose(sheet, 'Subject', 'Location')
     pick(sheet, 'Choose a location', 'Pier House')
     expect(sheet.getByText('Counts in: Solo')).toBeTruthy()
-    expect(sheet.getByRole('button', { name: /^Type sets Subject\./ })).toBeTruthy()
+    expect(sheet.getByRole('button', { name: /^Type sets Subject\./ }).className).toContain('text-caution')
+  })
+
+  it('counts a location\'s markets past two and names them in the help', () => {
+    installApi()
+    // River Point in three markets: the names would run to several lines on a phone.
+    const edge = { executionNodeKey: 'node-q-river', targetKey: 'river', queryId: 'q-river' }
+    const wide = { ...workspace, markets: workspace.markets.map(market => market.stableKey === 'uptown' ? market : { ...market, usageEdges: [...market.usageEdges, edge] }) }
+    const { sheet } = renderSheet({ action: 'change-subject', rows: [rows.market], workspace: wide })
+    choose(sheet, 'Subject', 'Location')
+    pick(sheet, 'Choose a location', 'River Point')
+    expect(sheet.getByText('Counts in 3 markets')).toBeTruthy()
+    expect(sheet.getByRole('button', { name: "Uptown, Downtown, Solo. Asked with these markets' engines and search locations." })).toBeTruthy()
+  })
+
+  it.each([
+    ['market', 'Market', 'No markets yet', rows.handPicked],
+    ['property', 'Location', 'No locations yet', rows.location],
+  ] as const)('says a project has no %s to choose and keeps Review off', (kind, label, none, row) => {
+    const writes = installApi()
+    const empty = { ...workspace, scopeOptions: workspace.scopeOptions!.filter(option => option.kind !== kind) }
+    const { sheet } = renderSheet({ action: 'change-subject', rows: [row], workspace: empty })
+    expect(checked(sheet, 'Subject')).toBe(label)
+    // The field keeps its label over the note, so the note does not read as a caption of the Subject control.
+    const note = sheet.getByText(none)
+    expect(note.closest('div')!.textContent).toBe(`${label}${none}`)
+    expect(sheet.queryByText(`Choose a ${label.toLowerCase()}`)).toBeNull()
+    expect(reviewButton(sheet).disabled).toBe(true)
+    fireEvent.click(reviewButton(sheet))
+    expect(writes).toEqual([])
   })
 })
 
@@ -368,7 +547,9 @@ describe('Move to another location', () => {
     pick(sheet, 'Harbor Point · Location', 'Lone Pine')
     expect(sheet.getByRole('button', { name: /^In no market\./ }).textContent).toBe('In no market')
     expect(reviewButton(sheet).disabled).toBe(true)
-    fireEvent.change(sheet.getByLabelText('Search location and engines'), { target: { value: contextChoices[1]!.label } })
+    const select = sheet.getByLabelText('Search location and engines')
+    expect(within(select).getAllByRole('option').map(option => option.textContent)).toEqual(['Choose one', ...contextChoices.map(choice => choice.label)])
+    fireEvent.change(select, { target: { value: contextChoices[1]!.label } })
     expect(await review(sheet, writes)).toStrictEqual({
       ...version,
       additions: [{ input: { source: 'manual', text: 'Harbor Point reviews' }, audience: { targetKeys: ['lone'] }, contexts: [contextChoices[1]!.input] }],
@@ -418,7 +599,33 @@ describe('review step', () => {
     const body = { ...version, additions: [], removals: [{ queryId: 'q-uptown' }] }
     // Both reviews carry the same change, each against the workspace version the form holds.
     expect(writes.filter(write => write.operation === 'preview').map(write => write.body)).toStrictEqual([body, body])
-    expect(writes.at(-1)).toStrictEqual({ operation: 'commit', body: { ...body, previewToken, reviewedAt } })
+    expect(writes.at(-1)).toStrictEqual({ operation: 'commit', body: { ...body, expectedWorkspaceVersion: reviewedVersion, previewToken, reviewedAt } })
+  })
+
+  it('shows Reviewing while a review is out, sends no second one, and never shows the review of an older form', async () => {
+    let answer: (() => void) | undefined
+    const writes = installApi(write => writes.length === 1
+      ? new Promise<Response>(resolve => { answer = () => resolve(jsonResponse(preview(write.body))) })
+      : undefined)
+    const { sheet } = renderSheet({ action: 'stop', rows: [rows.handPicked], place: uptownPlace })
+    fireEvent.click(reviewButton(sheet))
+    const reviewing = await sheet.findByRole<HTMLButtonElement>('button', { name: 'Reviewing…' })
+    expect(reviewing.disabled).toBe(true)
+    fireEvent.click(reviewing)
+    expect(writes.map(write => write.body.removals)).toStrictEqual([[{ queryId: 'q-picked', audience: { marketKeys: ['uptown'] } }]])
+
+    // The form changes while that review is still out: its answer is for a narrower change than the form now shows.
+    choose(sheet, 'Applies to', 'Everywhere')
+    await act(async () => { answer!() })
+    await waitFor(() => expect(reviewButton(sheet).disabled).toBe(false))
+    expect(sheet.queryByRole('heading', { name: /^Review \d+ changes?$/ })).toBeNull()
+    expect(sheet.queryByRole('button', { name: /^Publish/ })).toBeNull()
+
+    // The next review is of the form as it stands.
+    expect((await review(sheet, writes)).removals).toStrictEqual([{ queryId: 'q-picked' }])
+    fireEvent.click(sheet.getByRole('button', { name: 'Publish 1 change' }))
+    await waitFor(() => expect(writes.at(-1)!.operation).toBe('commit'))
+    expect(writes.at(-1)!.body.removals).toStrictEqual([{ queryId: 'q-picked' }])
   })
 
   it('sends the same change again from Review again', async () => {
@@ -453,6 +660,23 @@ describe('review step', () => {
     expect(writes.map(write => write.body)).toStrictEqual([{ ...version, ...change }, { expectedWorkspaceVersion: refreshed, ...change }])
   })
 
+  it('builds the change again from the refreshed workspace on Review again', async () => {
+    const writes = installApi(write => writes.length === 1 && write.operation === 'preview' ? refusal() : undefined)
+    const { sheet, show } = renderSheet({ action: 'move-location', rows: [rows.location] })
+    pick(sheet, 'Harbor Point · Location', 'River Point')
+    fireEvent.click(reviewButton(sheet))
+    const again = await sheet.findByRole('button', { name: 'Review again' })
+
+    // Read again, River Point is in Downtown too: the query must count there as well, which the first review did not say.
+    const refreshed = `qtw_${'e'.repeat(64)}`
+    const edge = { executionNodeKey: 'node-q-river', targetKey: 'river', queryId: 'q-river' }
+    show({ workspace: { ...workspace, workspaceVersion: refreshed, markets: workspace.markets.map(market => market.stableKey === 'downtown' ? { ...market, usageEdges: [...market.usageEdges, edge] } : market) } })
+    fireEvent.click(again)
+    await sheet.findByRole('heading', { name: 'Review 1 change' })
+    const change = (marketKeys: string[]) => ({ additions: [{ input: { source: 'manual', text: 'Harbor Point reviews' }, audience: { targetKeys: ['river'], marketKeys } }], removals: [{ queryId: 'q-harbor' }] })
+    expect(writes.map(write => write.body)).toStrictEqual([{ ...version, ...change(['uptown']) }, { expectedWorkspaceVersion: refreshed, ...change(['uptown', 'downtown']) }])
+  })
+
   it('pauses Publish while a sweep is queued or running', async () => {
     const writes = installApi()
     const { sheet } = renderSheet({ action: 'stop', rows: [rows.market], sweepActive: true })
@@ -461,12 +685,38 @@ describe('review step', () => {
     expect(sheet.getByRole('status').textContent).toBe('A sweep is queued or running. Publish after it finishes.')
   })
 
-  it('keeps Review off for a viewer', () => {
+  it.each(['stop', 'edit-wording', 'change-type', 'change-subject', 'move-location', 'remove'] as const)('draws no %s sheet for a viewer, so there is no dead control', action => {
     const writes = installApi()
-    const { sheet } = renderSheet({ action: 'stop', rows: [rows.market] }, 'viewer')
-    expect(reviewButton(sheet).disabled).toBe(true)
-    fireEvent.click(reviewButton(sheet))
+    renderSheet({ action, rows: [rows.location] }, 'viewer')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
     expect(writes).toEqual([])
+  })
+
+  it('starts the form again when the action or the rows change, so one row never takes another\'s text', () => {
+    installApi()
+    const { sheet: first, show } = renderSheet({ action: 'edit-wording', rows: [rows.market] })
+    fireEvent.change(first.getByLabelText('Query'), { target: { value: 'best apartments in uptown' } })
+    expect(reviewButton(first).disabled).toBe(false)
+
+    show({ rows: [rows.location] })
+    const next = within(screen.getByRole('dialog', { name: 'Edit wording' }))
+    expect(next.getByLabelText<HTMLTextAreaElement>('Query').value).toBe('Harbor Point reviews')
+    expect(reviewButton(next).disabled).toBe(true)
+
+    // Another action on the same row starts again too: a choice made for one is not carried into the next.
+    show({ rows: [rows.handPicked], action: 'stop', place: uptownPlace })
+    const stop = within(screen.getByRole('dialog', { name: 'Stop tracking' }))
+    choose(stop, 'Applies to', 'Everywhere')
+    show({ rows: [rows.handPicked], action: 'change-type', place: uptownPlace })
+    expect(checked(within(screen.getByRole('dialog', { name: 'Change type' })), 'Applies to')).toBe('Only Uptown')
+
+    // The same action and rows read again keep the form: a refreshed workspace hands over new row objects.
+    show({ rows: [rows.location], action: 'edit-wording' })
+    const kept = within(screen.getByRole('dialog', { name: 'Edit wording' }))
+    fireEvent.change(kept.getByLabelText('Query'), { target: { value: 'Harbor Point tenant reviews' } })
+    show({ rows: [{ ...rows.location }], action: 'edit-wording' })
+    expect(within(screen.getByRole('dialog')).getByLabelText<HTMLTextAreaElement>('Query').value).toBe('Harbor Point tenant reviews')
   })
 })
 

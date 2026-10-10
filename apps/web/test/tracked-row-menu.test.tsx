@@ -92,6 +92,65 @@ describe('TrackedRowMenu', () => {
     expect(document.activeElement).toBe(items().at(-1))
   })
 
+  it('marks the keys it moves with as handled, so the page does not scroll under the menu and close it', () => {
+    const { trigger } = renderMenu(rows.market)
+    expect(fireEvent.keyDown(trigger, { key: 'ArrowDown' })).toBe(false)
+    const [first] = items()
+    for (const key of ['ArrowDown', 'ArrowUp', 'End', 'Home']) expect(fireEvent.keyDown(first!, { key }), key).toBe(false)
+    // Any other key is left alone.
+    expect(fireEvent.keyDown(first!, { key: 'a' })).toBe(true)
+  })
+
+  it('keeps its keys and clicks from the row around it, the page and a dialog', () => {
+    const row = { keys: vi.fn<(key: string) => void>(), click: vi.fn() }
+    const page = { early: vi.fn(), capture: vi.fn(), window: vi.fn() }
+    // A page shortcut registered before the menu opens, in either phase, and one on the window.
+    document.addEventListener('keydown', page.early)
+    document.addEventListener('keydown', page.capture, true)
+    window.addEventListener('keydown', page.window)
+    try {
+      const onAction = vi.fn()
+      render(
+        <table><tbody><tr onKeyDown={event => row.keys(event.key)} onClick={row.click}>
+          <td><TrackedRowMenu row={rows.market} workspace={workspace} onAction={onAction} /></td>
+        </tr></tbody></table>,
+      )
+      const trigger = screen.getByRole('button', { name: `Actions for ${rows.market.queryText}` })
+      fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+      for (const key of ['ArrowDown', 'End', 'Home', 'Enter']) fireEvent.keyDown(document.activeElement!, { key })
+      expect(row.keys).not.toHaveBeenCalled()
+
+      for (const listener of Object.values(page)) listener.mockClear()
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+      expect(menu()).toBeNull()
+      expect(row.keys).not.toHaveBeenCalled()
+      expect(page.early).not.toHaveBeenCalled()
+      expect(page.capture).not.toHaveBeenCalled()
+      expect(page.window).not.toHaveBeenCalled()
+      // Closed, the menu takes no key: the next Escape is the page's.
+      fireEvent.keyDown(trigger, { key: 'Escape' })
+      expect(row.keys).toHaveBeenCalledExactlyOnceWith('Escape')
+      expect(page.early).toHaveBeenCalledOnce()
+
+      fireEvent.click(trigger)
+      row.click.mockClear()
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Stop tracking' }))
+      expect(onAction).toHaveBeenCalledExactlyOnceWith('stop', rows.market)
+      expect(row.click).not.toHaveBeenCalled()
+    } finally {
+      document.removeEventListener('keydown', page.early)
+      document.removeEventListener('keydown', page.capture, true)
+      window.removeEventListener('keydown', page.window)
+    }
+  })
+
+  it('reads the row\'s actions only for the open menu', () => {
+    // A closed menu sits on every row of a long table, so it must not walk the workspace.
+    const unread = new Proxy(workspace, { get: (_target, key) => { throw new Error(`read ${String(key)} while closed`) } })
+    render(<TrackedRowMenu row={rows.location} workspace={unread} onAction={vi.fn()} />)
+    expect(screen.getByRole('button', { name: `Actions for ${rows.location.queryText}` }).getAttribute('aria-expanded')).toBe('false')
+  })
+
   it('closes on Tab from the button, on a press outside and on a scroll of the page, and not on a press inside', () => {
     const { trigger, onAction } = renderMenu(rows.market)
     fireEvent.click(trigger)
@@ -110,8 +169,18 @@ describe('TrackedRowMenu', () => {
     fireEvent.click(trigger)
     fireEvent.scroll(screen.getByRole('menu'))
     expect(menu()).not.toBeNull()
+    expect(document.activeElement).toBe(items()[0])
     fireEvent.scroll(document)
     expect(menu()).toBeNull()
+    // The focus was in the menu: it goes back to the button, not to the page.
+    expect(document.activeElement).toBe(trigger)
+
+    // A resize moves the row under the menu too.
+    fireEvent.click(trigger)
+    expect(document.activeElement).toBe(items()[0])
+    fireEvent(window, new Event('resize'))
+    expect(menu()).toBeNull()
+    expect(document.activeElement).toBe(trigger)
 
     fireEvent.click(trigger)
     fireEvent.click(trigger)
@@ -121,9 +190,9 @@ describe('TrackedRowMenu', () => {
 
   it('opens under the button, and above it when the viewport ends first', () => {
     const { trigger } = renderMenu(rows.market)
-    const lay = (button: { top: number; bottom: number; right: number }) => {
+    const lay = (button: { top: number; bottom: number; right: number }, height = 200) => {
       vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-        const rect = this === trigger ? { ...button, left: button.right - 28, width: 28, height: 28 } : { top: 0, bottom: 200, left: 0, right: 208, width: 208, height: 200 }
+        const rect = this === trigger ? { ...button, left: button.right - 28, width: 28, height: 28 } : { top: 0, bottom: height, left: 0, right: 208, width: 208, height }
         return { ...rect, x: rect.left, y: rect.top, toJSON: () => rect }
       })
     }
@@ -146,5 +215,22 @@ describe('TrackedRowMenu', () => {
     lay({ top: 100, bottom: 128, right: 100 })
     fireEvent.click(trigger)
     expect(position()).toEqual({ top: '132px', left: '8px' })
+    fireEvent.click(trigger)
+
+    // With room on neither side it stays whole inside the viewport, over its button: a scroll to reach the rest would close it.
+    lay({ top: 300, bottom: 328, right: 1000 }, 500)
+    fireEvent.click(trigger)
+    expect(position()).toEqual({ top: '260px', left: '792px' })
+    // Never taller than the viewport less its margins, where it scrolls in itself.
+    expect(screen.getByRole('menu').style.maxHeight).toBe('752px')
+    fireEvent.click(trigger)
+    lay({ top: 300, bottom: 328, right: 1000 }, 752)
+    fireEvent.click(trigger)
+    expect(position().top).toBe('8px')
+    fireEvent.click(trigger)
+    // A button half under the top edge still opens a menu that starts inside the viewport.
+    lay({ top: -26, bottom: 2, right: 1000 })
+    fireEvent.click(trigger)
+    expect(position().top).toBe('8px')
   })
 })

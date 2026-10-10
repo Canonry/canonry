@@ -7,6 +7,7 @@ import type {
   QueryTrackingWorkspaceResponse,
 } from '@ainyc/canonry-contracts'
 
+import { useAccount } from '../../../../contexts/account-context.js'
 import { useQueryTrackingPublish } from '../../../../queries/use-query-tracking-publish.js'
 import { WriteButton } from '../../../shared/AccessControls.js'
 import { InfoTooltip } from '../../../shared/InfoTooltip.js'
@@ -26,16 +27,19 @@ import {
   marketsHolding,
   moveLocation,
   operatorType,
+  reachesBeyond,
+  rowTypeSetsSubject,
   sameSubject,
   stopTracking,
   TRACKED_ACTION_LABEL,
   TRACKED_BULK_MAX,
   typeChangeRows,
   typeSetsSubject,
+  typeWouldChange,
   type TrackedPlace,
   type TrackedTypeChoice,
 } from './tracked-actions.js'
-import type { TrackedRowAction, TrackedRowVm } from './tracked-types.js'
+import type { TrackedRowAction, TrackedRowVm, TrackedType } from './tracked-types.js'
 
 /** The actions that end in a review. Track opens the Add queries sheet and Copy link writes no change, so the page handles both. */
 export type TrackedSheetAction = Exclude<TrackedRowAction, 'track' | 'copy-link'>
@@ -57,6 +61,7 @@ const SUBJECTS: readonly SegmentedRadioOption<SubjectChoice>[] = [
 ]
 const TYPE_LABEL: Record<TrackedTypeChoice, string> = { auto: 'Automatic', branded: 'Branded', 'non-brand': 'Non-brand' }
 const TYPE_ORDER: readonly TrackedTypeChoice[] = ['auto', 'branded', 'non-brand']
+const TYPE_NOW: Record<TrackedType, string> = { branded: 'Branded', 'non-brand': 'Non-brand', mixed: 'Mixed', 'not-set': 'Not set' }
 /** The wire calls a location a property; this sheet never does. */
 const LOCATION_NOUN = ['location', 'locations'] as const
 const PLACES = {
@@ -65,9 +70,12 @@ const PLACES = {
 } as const
 /** A stop or a bulk change names this many queries, then counts the rest. */
 const LISTED = 5
+/** A location's markets are named up to this many, then counted, with the names in the help. */
+const NAMED_MARKETS = 2
 const NEW_TREND_LINE = 'New wording is tracked as a new query. Its trend starts at the next sweep and its Source becomes Manual. Past answers stay with the old wording.'
-const TYPE_FOLLOWS_SUBJECT = 'A market query is Non-brand and a location query is Branded. Only a hand-picked query takes either.'
-const TYPE_SETS_SUBJECT = 'This market has one location, so the type decides the Subject. Branded reads as a location query and Non-brand as a market query.'
+const TYPE_FOLLOWS_SUBJECT = 'Set a market query to Non-brand and a location query to Branded. A hand-picked query takes either.'
+const TYPE_SETS_SUBJECT = 'In a market with one location, the type decides the Subject. Branded reads as a location query and Non-brand as a market query.'
+const COUNTS_IN = "Asked with these markets' engines and search locations."
 const FIELD_LABEL = 'mb-1 block text-sm font-medium text-heading'
 const FIELD_HINT = 'mt-2 text-[13px] leading-5 text-secondary'
 const FIELD_CONTROL = 'block w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500'
@@ -96,49 +104,62 @@ interface TrackedActionSheetProps {
  * small form, then the shared review, exactly as the Add queries sheet ends.
  * The form only fills one of the `tracked-actions` builders; the review shows
  * what the server will do, and a refused review or publish stays in the sheet
- * with Review again. Mount it once per action: the form starts from the rows
- * and the place it is given.
+ * with Review again. The form starts from the action, the rows and the place
+ * it is given, and starts again when the action or the rows change. A viewer
+ * gets no sheet: every action here writes.
  *
  * With a `place`, Edit wording, Change type and Stop tracking start on "Only
  * {place}", which narrows the change to that place, and "Everywhere" sends it
- * for the whole query. Change Subject and Move replace the query's whole
- * placement, so they take no place. Edit wording, Change Subject and Move act
- * on the first row.
+ * for the whole query. Rows asked nowhere else get no such choice and the
+ * plain request. Change Subject and Move replace the query's whole placement,
+ * so they take no place. Edit wording, Change Subject and Move act on the
+ * first row.
  */
 export function TrackedActionSheet(props: TrackedActionSheetProps) {
+  const { canWrite } = useAccount()
+  // Read here, above the keyed form, so a form that starts again still returns focus to what opened the sheet.
+  const [opener] = useState(() => document.activeElement)
   const row = props.rows.at(0)
-  return row ? <ActionSheet {...props} row={row} /> : null
+  if (!row || !canWrite) return null
+  // Keyed, so another action or selection never takes over the text, type or place of the last one.
+  return <ActionSheet key={`${props.action}:${props.rows.map(selected => selected.queryId).join()}`} {...props} row={row} opener={opener} />
 }
 
-function ActionSheet({ projectName, workspace, action, rows, row, place, contextChoices, sweepActive, nextSweepDate, onClose, onPublished }: TrackedActionSheetProps & { row: TrackedRowVm }) {
+function ActionSheet({ projectName, workspace, action, rows, row, place, contextChoices, sweepActive, nextSweepDate, onClose, onPublished, opener }: TrackedActionSheetProps & { row: TrackedRowVm; opener: Element | null }) {
   const publish = useQueryTrackingPublish(projectName, { onCommitted: result => { onPublished?.(result); onClose() } })
   const [appliesTo, setAppliesTo] = useState<'place' | 'everywhere'>('place')
   const [text, setText] = useState(row.queryText)
-  // One row starts on the type an operator gave it, so the control shows what a change would replace.
+  const bulk = rows.length > 1
+  // One row opens on the type an operator gave it, when that is one it can be set to. Anything else opens on Automatic.
   const [type, setType] = useState<TrackedTypeChoice>(() => {
-    const current = rows.length === 1 ? operatorType(row) : null
+    const current = bulk ? null : operatorType(row)
     return current && allowedTypes(row, workspace).includes(current) ? current : 'auto'
   })
+  // The type the control opens on is not a choice: Review waits for one, so nothing is handed back to the classifier unasked.
+  const [typePicked, setTypePicked] = useState(false)
   const [subject, setSubject] = useState<'market' | 'location'>(action === 'move-location' || row.subject.kind === 'location' ? 'location' : 'market')
   // The row's own market or location, so the form opens on the Subject it has and Review stays off until that changes.
   const [placeKey, setPlaceKey] = useState(row.subject.kind === 'market' || row.subject.kind === 'location' ? row.subject.key : undefined)
   const [contextLabel, setContextLabel] = useState('')
   const [reviewed, setReviewed] = useState<QueryTrackingMutation | null>(null)
   const picker = useRef<HTMLDivElement>(null)
-  const [opener] = useState(() => document.activeElement)
   const id = useId()
 
   const narrows = action === 'edit-wording' || action === 'change-type' || action === 'stop'
   const placed = action === 'change-subject' || action === 'move-location'
-  const within = place && narrows && appliesTo === 'place' ? place : undefined
-  const types = TYPE_ORDER.filter(choice => rows.some(candidate => allowedTypes(candidate, workspace).includes(choice)))
-  const { changed, skipped } = typeChangeRows(rows, type, workspace)
+  // The place to choose against. Rows asked nowhere else change the same either way, so they get no choice.
+  const narrowTo = place && narrows && reachesBeyond(rows, place) ? place : undefined
+  const within = appliesTo === 'place' ? narrowTo : undefined
+  const typeChange = action === 'change-type' ? typeForm() : null
   const placing = PLACES[subject]
   const places = placesOf(workspace.scopeOptions ?? [], placing.kind)
   const chosen = places.find(option => option.kind === placing.kind && option.id === placeKey)
   const target = chosen ? { kind: subject, key: chosen.id } : null
   // The markets a location's queries already count in: those with a usage edge for it.
   const locationMarkets = subject === 'location' && chosen ? marketsHolding(workspace, chosen.id) : []
+  const marketNames = locationMarkets.map(market => market.label).join(', ')
+  // The same pairings read as the market's or the location's query there, whichever Subject was picked.
+  const landsByType = target !== null && typeSetsSubject(target, workspace)
   // A project with one search location and engines choice needs no pick.
   const context = contextChoices.length === 1 ? contextChoices[0] : contextChoices.find(choice => choice.label === contextLabel)
   const mutation = draft()
@@ -170,6 +191,21 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
   // The review reads no next sweep date yet. It is passed along with the sweep state, so the review can show it with no change here.
   const reviewContext = { sweepActive, nextSweepDate }
 
+  /** What the Type control offers for the rows, and which rows the chosen type changes. */
+  function typeForm() {
+    const allowed = rows.map(candidate => allowedTypes(candidate, workspace, bulk))
+    const { changed, skipped } = typeChangeRows(rows, type, workspace)
+    return {
+      types: TYPE_ORDER.filter(choice => allowed.some(list => list.includes(choice))),
+      // Some row takes a type, but not every type.
+      bySubject: allowed.some(list => list.length > 0 && list.length < TYPE_ORDER.length),
+      // There the type is what moves a query between its market and its location.
+      setsSubject: changed.some(candidate => rowTypeSetsSubject(candidate, workspace)),
+      changed,
+      skipped,
+    }
+  }
+
   /** The request the form stands for, or null while it would change nothing or is not complete. */
   function draft(): QueryTrackingMutation | null {
     switch (action) {
@@ -177,8 +213,8 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
         const next = text.trim()
         return next && next !== row.queryText ? editWording(row, next, within) : null
       }
-      // Rows an operator already set to this type have nothing to change.
-      case 'change-type': return changed.some(candidate => operatorType(candidate) !== type) ? changeType(changed, type, within) : null
+      // Rows that plainly have this type already have nothing to change.
+      case 'change-type': return typeChange && typePicked && typeChange.changed.some(candidate => typeWouldChange(candidate, type)) ? changeType(typeChange.changed, type, within) : null
       case 'stop': return stopTracking(rows, within)
       case 'remove': return stopTracking(rows)
       case 'change-subject': return target && !sameSubject(row, target) ? changeSubject(row, target, workspace, context?.input) : null
@@ -192,6 +228,12 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
       set(value)
       setReviewed(null)
     }
+  }
+
+  // The control reports a click on the current choice too, so Automatic can be chosen where it opened.
+  function pickType(next: TrackedTypeChoice) {
+    setTypePicked(true)
+    edit(setType)(next)
   }
 
   // The control reports a click on the current choice too, which must keep the place. A query has one Subject, so a change drops it.
@@ -224,7 +266,7 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
     <Sheet open onOpenChange={open => { if (!open) onClose() }}>
       <SheetContent onCloseAutoFocus={restoreFocus} onEscapeKeyDown={keepOpenForInner}>
         <SheetHeader>
-          <SheetTitle>{TRACKED_ACTION_LABEL[action]}</SheetTitle>
+          <SheetTitle>{action === 'remove' && bulk ? 'Remove queries' : TRACKED_ACTION_LABEL[action]}</SheetTitle>
           <SheetDescription className="sr-only">{DESCRIPTION[action]}</SheetDescription>
         </SheetHeader>
         {reviewState ? <>
@@ -245,29 +287,37 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
               </div>
             ) : (
               <div>
-                <span className={FIELD_LABEL}>{rows.length === 1 ? 'Query' : `${count(rows.length)} queries`}</span>
+                <span className={FIELD_LABEL}>{bulk ? `${count(rows.length)} queries` : 'Query'}</span>
                 <ul className="space-y-1 text-sm leading-5 text-strong">
                   {rows.slice(0, LISTED).map(listed => <li key={listed.queryId} className="break-words">{listed.queryText}</li>)}
                 </ul>
                 {rows.length > LISTED ? <p className="mt-1 text-[13px] leading-5 text-secondary">+{count(rows.length - LISTED)} more</p> : null}
               </div>
             )}
-            {action === 'change-type' ? (
+            {typeChange ? (
               <div>
                 <span aria-hidden="true" className={FIELD_LABEL}>Type</span>
-                {/* After the control, so the sheet opens with focus on the Type, not on the help. */}
-                <div className="flex items-center">
-                  <SegmentedRadioGroup label="Type" options={types.map(value => ({ value, label: TYPE_LABEL[value] }))} value={type} onChange={edit(setType)} />
-                  {rows.some(candidate => allowedTypes(candidate, workspace).length < TYPE_ORDER.length) ? <InfoTooltip text={TYPE_FOLLOWS_SUBJECT} placement="bottom" /> : null}
-                </div>
-                {/* Here the type is the only way to move the query between its market and its location. */}
-                {rows.length === 1 && (row.subject.kind === 'market' || row.subject.kind === 'location') && typeSetsSubject(row.subject, workspace)
-                  ? <div className="mt-2"><StatusNote icon={Info} label="Type sets Subject" detail={TYPE_SETS_SUBJECT} /></div> : null}
-                {skipped.length > 0 ? (
+                {/* The type the row has, which the control cannot always show: it offers only what can be set. */}
+                {bulk ? null : (
+                  <dl className="mb-2 flex gap-2 text-[13px] leading-5">
+                    <dt className="text-secondary">Now</dt>
+                    <dd className="font-medium text-strong">{TYPE_NOW[row.type]}</dd>
+                  </dl>
+                )}
+                {typeChange.types.length > 0 ? <SegmentedRadioGroup label="Type" options={typeChange.types.map(value => ({ value, label: TYPE_LABEL[value] }))} value={type} onChange={pickType} /> : null}
+                {/* After the control, so the sheet opens with focus on the Type, not on a note. */}
+                {typeChange.bySubject || typeChange.setsSubject ? (
+                  <div className="mt-2 flex flex-wrap gap-x-5">
+                    {typeChange.bySubject ? <StatusNote icon={Info} label="Type follows Subject" detail={TYPE_FOLLOWS_SUBJECT} /> : null}
+                    {typeChange.setsSubject ? <StatusNote icon={Info} label="Type sets Subject" detail={TYPE_SETS_SUBJECT} /> : null}
+                  </div>
+                ) : null}
+                {typeChange.skipped.length > 0 ? (
                   <details className="mt-3 border-t border-default text-sm text-secondary">
-                    <summary className="min-h-11 cursor-pointer py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">{count(skipped.length)} skipped</summary>
-                    <ul className="max-h-40 space-y-1 overflow-y-auto pb-3 leading-5">
-                      {skipped.map(left => <li key={left.queryId} className="break-words">{left.queryText}</li>)}
+                    <summary className="min-h-11 cursor-pointer py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">{count(typeChange.changed.length)} to change · {count(typeChange.skipped.length)} skipped</summary>
+                    {/* The whole list: the form is the one scroller. */}
+                    <ul className="space-y-1 pb-3 leading-5">
+                      {typeChange.skipped.map(left => <li key={left.queryId} className="break-words">{left.queryText}</li>)}
                     </ul>
                   </details>
                 ) : null}
@@ -287,11 +337,19 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
               <div ref={picker}>
                 {places.some(option => option.kind === placing.kind)
                   ? <VisibilityScopePicker key={subject} label={placing.label} placeholder={placing.placeholder} options={places} selected={chosen} allowGroupSelect={false} propertyNoun={LOCATION_NOUN} onSelect={option => edit(setPlaceKey)(option.id)} />
-                  : <p className="text-sm leading-6 text-secondary">{placing.none}</p>}
+                  : <>
+                    <span className={FIELD_LABEL}>{placing.label}</span>
+                    <StatusNote icon={Info} label={placing.none} />
+                  </>}
                 {subject !== 'location' || !chosen ? null : locationMarkets.length > 0 ? (
                   <div className={`${FIELD_HINT} flex items-center`}>
-                    <p>Counts in: {locationMarkets.map(market => market.label).join(', ')}</p>
-                    <InfoTooltip text="Asked with these markets' engines and search locations." placement="bottom" />
+                    {locationMarkets.length > NAMED_MARKETS ? <>
+                      <p>Counts in {count(locationMarkets.length)} markets</p>
+                      <InfoTooltip text={`${marketNames}. ${COUNTS_IN}`} placement="bottom" />
+                    </> : <>
+                      <p>Counts in: {marketNames}</p>
+                      <InfoTooltip text={COUNTS_IN} placement="bottom" />
+                    </>}
                   </div>
                 ) : (
                   <div className="mt-2">
@@ -301,23 +359,24 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
                         : <>
                           <label className={`${FIELD_LABEL} mt-3`} htmlFor={`${id}-context`}>Search location and engines</label>
                           <select id={`${id}-context`} required className={`${FIELD_CONTROL} min-h-11`} value={context?.label ?? ''} onChange={event => edit(setContextLabel)(event.target.value)}>
-                            <option value="">Choose a search location and engines</option>
+                            <option value="">Choose one</option>
                             {contextChoices.map(choice => <option key={choice.label} value={choice.label}>{choice.label}</option>)}
                           </select>
                         </>}
                   </div>
                 )}
-                {/* The same pairings read as the market's or the location's query there, whichever Subject was picked. */}
-                {target && typeSetsSubject(target, workspace) ? <div className="mt-2"><StatusNote icon={Info} label="Type sets Subject" detail={TYPE_SETS_SUBJECT} /></div> : null}
+                {/* A caution here: the publish can land as the other Subject than the one picked. */}
+                {landsByType ? <div className="mt-2"><StatusNote icon={AlertTriangle} tone="caution" label="Type sets Subject" detail={TYPE_SETS_SUBJECT} /></div> : null}
               </div>
             ) : null}
-            {place && narrows ? (
+            {narrowTo ? (
               <div>
                 <span aria-hidden="true" className={FIELD_LABEL}>Applies to</span>
+                {/* One row at any width: a long place name is cut with an ellipsis and Everywhere keeps its place beside it. */}
                 <SegmentedRadioGroup
                   label="Applies to"
-                  className="max-w-full flex-wrap"
-                  options={[{ value: 'place', label: `Only ${place.label}` }, { value: 'everywhere', label: 'Everywhere' }]}
+                  className="max-w-full *:first:min-w-0 *:first:truncate *:last:shrink-0"
+                  options={[{ value: 'place', label: `Only ${narrowTo.label}` }, { value: 'everywhere', label: 'Everywhere' }]}
                   value={appliesTo}
                   onChange={edit(setAppliesTo)}
                 />
@@ -328,10 +387,10 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
           </div>
           {publish.error ? <p role="alert" className="mt-4 text-sm leading-5 text-negative"><span className="font-medium">{publish.error.title}.</span> {publish.error.detail}</p> : null}
           <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-default pt-4">
-            <WriteButton type="button" size="sm" disabled={!canReview} onClick={review}>
+            <WriteButton type="button" size="sm" className="max-md:h-11" disabled={!canReview} onClick={review}>
               {publish.isPreviewing ? 'Reviewing…' : 'Review'}
             </WriteButton>
-            <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+            <Button type="button" variant="ghost" size="sm" className="max-md:h-11" onClick={onClose}>Cancel</Button>
           </div>
         </>}
       </SheetContent>

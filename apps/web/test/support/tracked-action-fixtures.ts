@@ -66,6 +66,17 @@ export const rows = {
   notAsked: row('q-old', 'apartments in the old town', { kind: 'none' }, []),
 }
 
+/** The same row with every pairing's type set by `source`: an operator, the server, or `frozen` for no recorded source. */
+export function withSource(tracked: TrackedRowVm, source: Pairing['classificationSource']): TrackedRowVm {
+  return { ...tracked, tracked: { ...tracked.tracked, assignments: tracked.tracked.assignments.map(assignment => ({ ...assignment, classificationSource: source })) } }
+}
+
+/** The same row with its first location asked from a second search location too. The row still lists one type and one source for it. */
+export function withSecondSearchLocation(tracked: TrackedRowVm): TrackedRowVm {
+  const [first, ...rest] = tracked.tracked.assignments
+  return { ...tracked, tracked: { ...tracked.tracked, assignments: [{ ...first!, contexts: [context, { ...context, location: { label: 'Boston', city: 'Boston', region: 'MA', country: 'US' } }] }, ...rest] } }
+}
+
 const edge = (targetKey: string, queryId: string) => ({ executionNodeKey: `node-${queryId}`, targetKey, queryId })
 const location = (id: string, label: string) => ({ id, label, kind: 'property' as const, targetCount: 1 })
 const market = (id: string, label: string, targetCount: number) => ({ id, label, kind: 'market' as const, targetCount })

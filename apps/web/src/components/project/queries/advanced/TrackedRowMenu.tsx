@@ -16,16 +16,21 @@ const EDGE = 8
 /**
  * Under the trigger with their right edges level, kept inside the viewport.
  * Above the trigger when the viewport ends first and there is room there, so
- * the last rows of a long table open a whole menu.
+ * the last rows of a long table open a whole menu. With room on neither side
+ * it covers the trigger rather than run off the viewport, because a scroll to
+ * reach the rest would close it.
  */
 function placeMenu(menu: HTMLElement, trigger: HTMLElement) {
   const view = trigger.ownerDocument.defaultView
   if (!view) return
+  // Never taller than the viewport, where it scrolls in itself. Set first, so the box is measured at the height it will have.
+  menu.style.maxHeight = `${view.innerHeight - 2 * EDGE}px`
   const anchor = trigger.getBoundingClientRect()
   const box = menu.getBoundingClientRect()
   const below = anchor.bottom + GAP
   const above = anchor.top - GAP - box.height
-  menu.style.top = `${below + box.height > view.innerHeight - EDGE && above >= EDGE ? above : below}px`
+  const top = below + box.height > view.innerHeight - EDGE && above >= EDGE ? above : below
+  menu.style.top = `${Math.max(EDGE, Math.min(top, view.innerHeight - EDGE - box.height))}px`
   menu.style.left = `${Math.max(EDGE, Math.min(anchor.right - box.width, view.innerWidth - box.width - EDGE))}px`
 }
 
@@ -38,6 +43,12 @@ function placeMenu(menu: HTMLElement, trigger: HTMLElement) {
  * the action sheet, the Add queries sheet or copies the link. The menu is
  * drawn on the body at a fixed position, so no table frame clips it; a scroll
  * or resize that would leave it behind its row closes it.
+ *
+ * The open menu keeps its keys and clicks to itself. Escape is taken on the
+ * window before anything else hears it, so a page shortcut on Escape, a
+ * dialog around the table and a handler on the row all leave it to the menu.
+ * A portal still bubbles through React to the row, so the menu stops its own
+ * key presses and clicks there.
  */
 export function TrackedRowMenu({ row, workspace, onAction }: {
   row: TrackedRowVm
@@ -50,7 +61,8 @@ export function TrackedRowMenu({ row, workspace, onAction }: {
   const menu = useRef<HTMLDivElement>(null)
   const initialFocus = useRef<'first' | 'last'>('first')
   const menuId = useId()
-  const actions = rowMenuActions(row, workspace, canWrite)
+  // Read only for the open menu: a closed one on every row of a long table costs nothing.
+  const actions = open ? rowMenuActions(row, workspace, canWrite) : []
   const name = `Actions for ${row.queryText}`
 
   // Before paint, so the menu never shows at the corner it is measured in.
@@ -65,24 +77,31 @@ export function TrackedRowMenu({ row, workspace, onAction }: {
     if (!open) return
     const inside = (target: EventTarget | null) => target instanceof Node && (menu.current?.contains(target) || trigger.current?.contains(target))
     const onPointerDown = (event: PointerEvent) => { if (!inside(event.target)) setOpen(false) }
+    // On the window in the capture phase, the one place reached before a dialog's document listener, React and the page.
+    // Marked as handled and stopped there, so Escape closes the menu and nothing else.
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      // Marked as handled, so a page shortcut on Escape can leave it to the menu.
       event.preventDefault()
+      event.stopPropagation()
       setOpen(false)
       trigger.current?.focus()
     }
-    const onScroll = (event: Event) => { if (!(event.target instanceof Node && menu.current?.contains(event.target))) setOpen(false) }
-    const onResize = () => setOpen(false)
+    // The menu goes with the focus inside it, so the focus is handed to the button and not dropped on the page.
+    const leave = () => {
+      const held = menu.current?.contains(document.activeElement)
+      setOpen(false)
+      if (held) trigger.current?.focus({ preventScroll: true })
+    }
+    const onScroll = (event: Event) => { if (!(event.target instanceof Node && menu.current?.contains(event.target))) leave() }
     document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keydown', onKeyDown, true)
     window.addEventListener('scroll', onScroll, true)
-    window.addEventListener('resize', onResize)
+    window.addEventListener('resize', leave)
     return () => {
       document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keydown', onKeyDown, true)
       window.removeEventListener('scroll', onScroll, true)
-      window.removeEventListener('resize', onResize)
+      window.removeEventListener('resize', leave)
     }
   }, [open])
 
@@ -98,7 +117,7 @@ export function TrackedRowMenu({ row, workspace, onAction }: {
       <button
         ref={trigger}
         type="button"
-        className="inline-flex size-7 items-center justify-center rounded-md text-secondary transition-colors hover:bg-surface-inset hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 pointer-coarse:size-11 max-md:size-11"
+        className="inline-flex size-7 items-center justify-center rounded-md text-secondary transition-colors hover:bg-surface-inset hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 aria-expanded:bg-surface-inset aria-expanded:text-heading pointer-coarse:size-11 max-md:size-11"
         aria-label={name}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -107,6 +126,7 @@ export function TrackedRowMenu({ row, workspace, onAction }: {
         onKeyDown={event => {
           if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
           event.preventDefault()
+          event.stopPropagation()
           initialFocus.current = event.key === 'ArrowUp' ? 'last' : 'first'
           setOpen(true)
         }}
@@ -119,8 +139,10 @@ export function TrackedRowMenu({ row, workspace, onAction }: {
           id={menuId}
           role="menu"
           aria-label={name}
-          className="fixed left-0 top-0 z-50 flex max-h-[calc(100vh-1rem)] min-w-52 max-w-[calc(100vw-1rem)] flex-col gap-0.5 overflow-y-auto rounded-md border border-mono-800/80 bg-bg-elevated p-1 shadow-[0_12px_28px_var(--color-shadow-panel)]"
+          className="fixed left-0 top-0 z-50 flex min-w-52 max-w-[calc(100vw-1rem)] flex-col gap-0.5 overflow-y-auto rounded-md border border-mono-800/80 bg-bg-elevated p-1 shadow-[0_12px_28px_var(--color-shadow-panel)]"
+          onClick={event => event.stopPropagation()}
           onKeyDown={event => {
+            event.stopPropagation()
             // Tab leaves the menu from the button, so the next stop is the control after it.
             if (event.key === 'Tab') {
               setOpen(false)

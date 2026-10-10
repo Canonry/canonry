@@ -8,16 +8,20 @@ import {
   changeSubject,
   changeType,
   editWording,
+  marketsHolding,
   moveLocation,
+  reachesBeyond,
   rowMenuActions,
+  rowTypeSetsSubject,
   sameSubject,
   stopTracking,
   typeChangeRows,
   typeSetsSubject,
+  typeWouldChange,
   type TrackedPlace,
 } from '../src/components/project/queries/advanced/tracked-actions.js'
 import type { TrackedRowVm } from '../src/components/project/queries/advanced/tracked-types.js'
-import { contextChoices, rows, uptownPlace, workspace, workspaceVersion } from './support/tracked-action-fixtures.js'
+import { contextChoices, rows, uptownPlace, withSecondSearchLocation, withSource, workspace, workspaceVersion } from './support/tracked-action-fixtures.js'
 
 /** The builder's request as built, once the preview route's own schema accepts it: a key the route does not know fails here. */
 function sent(mutation: QueryTrackingMutation | null): QueryTrackingMutation {
@@ -170,6 +174,20 @@ describe('guards', () => {
     expect(typeSetsSubject({ kind: 'location', key: 'harbor' }, workspace)).toBe(false)
     expect(typeSetsSubject({ kind: 'location', key: 'lone' }, workspace)).toBe(false)
     expect(typeSetsSubject({ kind: 'market', key: 'gone' }, workspace)).toBe(false)
+    expect([rows.soloMarket, rows.soloLocation].map(row => rowTypeSetsSubject(row, workspace))).toEqual([true, true])
+    expect([rows.market, rows.downtown, rows.location, rows.handPicked, rows.notAsked].map(row => rowTypeSetsSubject(row, workspace))).toEqual([false, false, false, false, false])
+  })
+
+  it('lists the markets that hold a location, in the workspace order, for each workspace it is given', () => {
+    const labels = (key: string, from = workspace) => marketsHolding(from, key).map(market => market.label)
+    expect(labels('harbor')).toEqual(['Uptown', 'Downtown'])
+    expect(labels('pier')).toEqual(['Solo'])
+    expect(labels('lone')).toEqual([])
+    // Another workspace is read on its own, never from the first one's answer.
+    const [uptown, ...others] = workspace.markets
+    expect(labels('harbor', { ...workspace, markets: others })).toEqual(['Downtown'])
+    expect(labels('river', { ...workspace, markets: [...others, uptown!] })).toEqual(['Uptown'])
+    expect(labels('harbor')).toEqual(['Uptown', 'Downtown'])
   })
 
   it('offers a Subject change except where the type decides it', () => {
@@ -192,7 +210,13 @@ describe('guards', () => {
     // In Solo the type is what moves a query between the market and its one location.
     expect(allowedTypes(rows.soloMarket, workspace)).toEqual(['auto', 'branded', 'non-brand'])
     expect(allowedTypes(rows.soloLocation, workspace)).toEqual(['auto', 'branded', 'non-brand'])
-    expect(allowedTypes(rows.notAsked, workspace)).toEqual(['auto'])
+    // Among several rows it keeps its own type, so a bulk change moves no query to the other Subject.
+    expect(allowedTypes(rows.soloMarket, workspace, true)).toEqual(['auto', 'non-brand'])
+    expect(allowedTypes(rows.soloLocation, workspace, true)).toEqual(['auto', 'branded'])
+    expect(allowedTypes(rows.handPicked, workspace, true)).toEqual(['auto', 'branded', 'non-brand'])
+    // The server refuses any type for a query with no pairing, Automatic included.
+    expect(allowedTypes(rows.notAsked, workspace)).toEqual([])
+    expect(allowedTypes(rows.notAsked, workspace, true)).toEqual([])
   })
 
   it('skips the rows of a bulk type change that cannot take the type', () => {
@@ -202,6 +226,60 @@ describe('guards', () => {
     expect(skipped).toEqual([rows.market, rows.marketB, rows.marketC])
     expect(typeChangeRows(selected, 'non-brand', workspace)).toEqual({ changed: selected, skipped: [] })
     expect(typeChangeRows([...selected, rows.location], 'auto', workspace).skipped).toEqual([])
+    // A query that is not asked is skipped for every type, so one such row never has the whole change refused.
+    expect(typeChangeRows([rows.market, rows.notAsked], 'auto', workspace)).toEqual({ changed: [rows.market], skipped: [rows.notAsked] })
+  })
+
+  it('moves no Subject in bulk: a one-location market row keeps its own type and is skipped for the other', () => {
+    const selected = [rows.market, rows.soloMarket, rows.soloLocation, rows.handPicked]
+    expect(typeChangeRows(selected, 'branded', workspace)).toEqual({ changed: [rows.soloLocation, rows.handPicked], skipped: [rows.market, rows.soloMarket] })
+    expect(typeChangeRows(selected, 'non-brand', workspace)).toEqual({ changed: [rows.market, rows.soloMarket, rows.handPicked], skipped: [rows.soloLocation] })
+    expect(typeChangeRows(selected, 'auto', workspace).skipped).toEqual([])
+    // One row alone takes either: there the type is the only way to move it.
+    expect(typeChangeRows([rows.soloMarket], 'branded', workspace)).toEqual({ changed: [rows.soloMarket], skipped: [] })
+    expect(typeChangeRows([rows.soloLocation], 'non-brand', workspace)).toEqual({ changed: [rows.soloLocation], skipped: [] })
+  })
+
+  it('knows when a type would change nothing', () => {
+    // The server chose this Non-brand: Automatic is what it has, and setting Non-brand makes it an operator's.
+    expect(typeWouldChange(rows.market, 'auto')).toBe(false)
+    expect(typeWouldChange(rows.market, 'non-brand')).toBe(true)
+    // An operator set this Non-brand: Automatic hands it back, Non-brand is what it has.
+    expect(typeWouldChange(rows.operatorSet, 'auto')).toBe(true)
+    expect(typeWouldChange(rows.operatorSet, 'non-brand')).toBe(false)
+    expect(typeWouldChange(rows.operatorSet, 'branded')).toBe(true)
+    // No recorded source: the server classifies it again under Automatic.
+    expect(typeWouldChange(withSource(rows.market, 'frozen'), 'auto')).toBe(true)
+    // Asked from two search locations, the row shows only the first one's type and source: the server is asked.
+    const twice = withSecondSearchLocation(rows.operatorSet)
+    expect(typeWouldChange(twice, 'non-brand')).toBe(true)
+    expect(typeWouldChange(withSecondSearchLocation(rows.location), 'auto')).toBe(true)
+  })
+
+  it('knows when narrowing a change to the place differs from the change everywhere', () => {
+    const harbor: TrackedPlace = { kind: 'location', key: 'harbor', label: 'Harbor Point' }
+    const north: TrackedPlace = { kind: 'group', key: 'north', label: 'North' }
+    // Every pairing of an Uptown market query is in Uptown and in no other market.
+    expect(reachesBeyond([rows.market, rows.marketB], uptownPlace)).toBe(false)
+    // Harbor Point's own query is asked in Uptown and in Downtown; a hand-picked one also at Pier House, outside Uptown.
+    expect(reachesBeyond([rows.location], uptownPlace)).toBe(true)
+    expect(reachesBeyond([rows.handPicked], uptownPlace)).toBe(true)
+    expect(reachesBeyond([rows.market, rows.handPicked], uptownPlace)).toBe(true)
+    // In a market, a location asked from two search locations may be in it for only one of them.
+    expect(reachesBeyond([withSecondSearchLocation(rows.market)], uptownPlace)).toBe(true)
+
+    expect(reachesBeyond([rows.location, rows.operatorSet], harbor)).toBe(false)
+    expect(reachesBeyond([withSecondSearchLocation(rows.location)], harbor)).toBe(false)
+    expect(reachesBeyond([rows.market], harbor)).toBe(true)
+
+    // Each location's groups, first location first: a location can sit in several.
+    const grouped = (row: TrackedRowVm, first: string[], others = first): TrackedRowVm => ({ ...row, tracked: { ...row.tracked, assignments: row.tracked.assignments.map((pairing, index) => ({ ...pairing, groupKeys: index === 0 ? first : others })) } })
+    expect(reachesBeyond([grouped(rows.market, ['north'])], north)).toBe(false)
+    expect(reachesBeyond([grouped(rows.market, ['east', 'north'])], north)).toBe(false)
+    expect(reachesBeyond([grouped(rows.market, ['east', 'north'], ['east'])], north)).toBe(true)
+    expect(reachesBeyond([rows.market], north)).toBe(true)
+    // A query that is not asked has nothing outside any place.
+    expect(reachesBeyond([rows.notAsked], uptownPlace)).toBe(false)
   })
 })
 
