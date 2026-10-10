@@ -222,7 +222,7 @@ describe('query tracking: a Subject change is one removal plus one addition of t
       after: placement(['harbor'], ['uptown']),
     }])
     expect(row(preview, 'q-uptown')).toMatchObject({ provenance: RESEARCH, focus: { kind: 'property', key: 'harbor' } })
-    // The other market query still asks River and Summit, so Uptown keeps its three locations.
+    // The other market query is still asked for River and Summit, so Uptown keeps its three locations.
     expect(preview.marketChanges).toEqual([])
     expect(preview.limits?.queries).toMatchObject({ current: 4, next: 4 })
     expect(preview.workload).toMatchObject({ existingProviderCalls: 4, nextSweepProviderCalls: 4 })
@@ -306,7 +306,7 @@ describe('query tracking: a market of one location', () => {
   })
 
   it('treats a removal and re-add of the same edges as a no-op, so a Subject change there publishes nothing', async () => {
-    // Added through the API so its execution carries the key the server compiles, as a published plan's does.
+    // Added through the API, so its execution carries the key the server compiles today. The next case holds another key.
     const text = 'apartments with a rooftop terrace'
     const added = await review({ additions: [{ input: { source: 'manual', text }, audience: { marketKeys: ['solo'] } }] })
     const queryId = added.preview.diff.added[0]!.queryId
@@ -324,5 +324,30 @@ describe('query tracking: a market of one location', () => {
     }
     expect(activePlan()).toEqual(published)
     expect(db.select().from(measurementPlanVersions).all()).toHaveLength(2)
+  })
+
+  it('replaces the execution once when the plan holds a key the server does not compile today, so the same change publishes', async () => {
+    // The seeded plan names its executions by hand (`n-q-pier`), as a plan from an older compiler can.
+    // The removal drops that execution before the addition can reuse it, so the same edges are not a no-op here.
+    const nodeKey = () => activePlan().plan.executionNodes.find(node => node.queryId === 'q-pier')?.stableKey
+    expect(nodeKey()).toBe('n-q-pier')
+    const { preview, commit } = await subjectChange('q-pier', PIER_TEXT, { audience: { marketKeys: ['solo'] } })
+
+    expect(preview.diff).toMatchObject({ noOp: false, added: [], removed: [], reused: [{ queryId: 'q-pier', queryText: PIER_TEXT, assignmentCount: 1 }] })
+    expect(preview.changes).toEqual([{
+      queryId: 'q-pier', queryText: PIER_TEXT, change: 'reused',
+      before: placement(['pier'], ['solo']), after: placement(['pier'], ['solo']),
+    }])
+    expect(preview.marketChanges).toEqual([])
+    expect(preview.workload).toMatchObject({
+      addedNodes: 1, addedProviderCalls: 1, removedNodes: 1, removedProviderCalls: 1, existingNodes: 4, nextSweepNodes: 4,
+    })
+    expect(await publish(commit)).toMatchObject({ committed: true, active: { revision: 2 } })
+    expect(nodeKey()).not.toBe('n-q-pier')
+
+    // The published execution carries the compiled key, so the same change is now a no-op.
+    const again = await subjectChange('q-pier', PIER_TEXT, { audience: { marketKeys: ['solo'] } })
+    expect(again.preview.diff.noOp).toBe(true)
+    expect(await publish(again.commit)).toMatchObject({ committed: false, active: { revision: 2 } })
   })
 })

@@ -270,8 +270,11 @@ Preview output adds `changes`, one row per added, reused, or removed query.
 Each row lists the query's locations (`targetKeys`) and markets (`marketKeys`) `before` in the active plan and `after` in the reviewed change.
 A scoped removal or move keeps its remaining placement in `after`. Simple projects list no locations or markets, and a no-op returns an empty `changes`.
 An advanced preview also returns `marketChanges`, one row per market whose locations change: `marketKey`, its locations `before` and `after` (each a `targetKeys` list), `removedTargetKeys`, and `emptied`.
-A market has no stored list of locations. It holds the locations its queries still ask, so stopping a query, or moving it to another Subject or location, can remove a location from a market or empty it.
-An emptied market stays in the plan with no location, and every later addition to it is refused, so read `marketChanges` before you commit.
+A market has no stored list of locations. It holds only the locations that still have a query in it, so stopping a query, or moving it to another Subject or location, can remove a location from a market or empty it.
+An emptied market stays in the plan with no location and takes no later addition, so read `marketChanges` before you commit.
+An addition that names the emptied market alone is refused with `Select at least one location, group or market.`
+One that names it with a location or a group, or beside another market through a pattern that uses `{market}`, is refused with `Market "<key>" has no selected location.`
+Any other addition that names it beside another market is accepted and placed in the other market only, so compare `changes[].after.marketKeys` with the markets you sent.
 The server reports the change and refuses nothing for it: a commit from the CLI, MCP or the API publishes as before. A preview that changes no market returns an empty list, and a simple project returns no `marketChanges`.
 Commit input adds the returned `previewToken` and `reviewedAt` to that exact request.
 The server binds the review time to the token and refuses expired reviews.

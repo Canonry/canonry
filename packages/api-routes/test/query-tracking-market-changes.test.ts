@@ -18,6 +18,7 @@ import {
   createClient,
   measurementPlans,
   measurementPlanVersions,
+  measurementQueryTemplates,
   migrate,
   projects,
   queries,
@@ -203,7 +204,7 @@ afterEach(async () => {
 })
 
 describe('query tracking preview: market membership changes', () => {
-  it('reports a three-location market emptied when its only query is stopped, and then refuses every add to it', async () => {
+  it('reports a three-location market emptied when its only query is stopped, after which it takes no addition', async () => {
     seedPortfolio()
     const uptown = async () => (await workspace()).markets.find(market => market.stableKey === 'uptown')?.targetKeys
     // `before` and `after` are the market's locations as the workspace read lists them before and after the publish.
@@ -221,11 +222,40 @@ describe('query tracking preview: market membership changes', () => {
     // The server reports the change and still publishes it. Asking for a confirmation is the client's job.
     expect((await publish(commit)).committed).toBe(true)
     expect(await uptown()).toEqual([])
+    // Named alone, or with a location, the emptied market refuses the addition.
     expect(await refusal(manual('apartments with a rooftop terrace', { marketKeys: ['uptown'] }))).toEqual({
       status: 400,
       body: { error: { code: 'VALIDATION_ERROR', message: 'Select at least one location, group or market.' } },
     })
     expect(await refusal(manual('apartments with a rooftop terrace', { targetKeys: ['harbor'], marketKeys: ['uptown'] }))).toEqual({
+      status: 400,
+      body: { error: { code: 'VALIDATION_ERROR', message: 'Market "uptown" has no selected location.' } },
+    })
+    // Named beside a market that has locations, it is left out and nothing is refused.
+    const beside = (await review({
+      additions: [manual('apartments with a rooftop terrace', { marketKeys: ['uptown', 'downtown'] })],
+    })).preview
+    expect(beside.changes?.map(change => [change.change, change.after])).toEqual([
+      ['added', { targetKeys: ['dock', 'pier'], marketKeys: ['downtown'] }],
+    ])
+    expect(beside.marketChanges).toEqual([])
+  })
+
+  it.each([
+    'best apartments in {market}',
+    '{property} reviews in {market}',
+  ])('refuses the pattern "%s" for an emptied market named beside a market that has locations', async pattern => {
+    seedPortfolio()
+    expect((await publish((await review({ removals: [{ queryId: 'q-uptown' }] })).commit)).committed).toBe(true)
+    db.insert(measurementQueryTemplates).values({
+      id: 'pattern-1', projectId: PROJECT_ID, name: 'pattern', description: null,
+      pattern, variables: [...pattern.matchAll(/\{(\w+)\}/g)].map(match => match[1]!), createdAt: NOW, updatedAt: NOW,
+    }).run()
+
+    expect(await refusal({
+      input: { source: 'template', templateId: 'pattern-1', templateVersion: NOW, template: pattern },
+      audience: { marketKeys: ['uptown', 'downtown'] },
+    })).toEqual({
       status: 400,
       body: { error: { code: 'VALIDATION_ERROR', message: 'Market "uptown" has no selected location.' } },
     })
@@ -313,6 +343,20 @@ describe('query tracking preview: market membership changes', () => {
     expect((await review({
       removals: [{ queryId: 'q-down-a', audience: { targetKeys: ['pier'] } }],
     })).preview.marketChanges).toEqual([])
+  })
+
+  it('treats a stop scoped to a location or a market the query is not in as no change', async () => {
+    seedPortfolio()
+
+    // `q-uptown` is asked for Harbor, River and Summit, in Uptown only.
+    for (const audience of [{ targetKeys: ['dock'] }, { marketKeys: ['downtown'] }]) {
+      const { preview } = await review({ removals: [{ queryId: 'q-uptown', audience }] })
+      expect(preview.diff.noOp, JSON.stringify(audience)).toBe(true)
+      expect(preview.diff.removed, JSON.stringify(audience)).toEqual([])
+      expect(preview.diff.reused).toEqual([])
+      expect(preview.changes).toEqual([])
+      expect(preview.marketChanges).toEqual([])
+    }
   })
 
   it('lists no change for an addition, a wording or type edit, or an empty review', async () => {

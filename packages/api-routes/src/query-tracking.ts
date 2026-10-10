@@ -1286,10 +1286,11 @@ function queryChanges(
 /**
  * One row per market whose locations differ between the active plan and the
  * candidate. A market stores no member list: its locations are the targets its
- * usage edges name. A removal drops edges, `pruneReportingScopes` keeps the
- * emptied market, and `resolveAudience` refuses every later addition to a
- * market with no edge. Query tracking never adds or drops a market, so the
- * active plan lists them all.
+ * usage edges name. A removal drops edges and `pruneReportingScopes` keeps the
+ * emptied market, which then takes no later addition: `resolveAudience` refuses
+ * one that names only that market, and `addAdvancedSource` skips that market
+ * for one that names it beside another. Query tracking never adds or drops a
+ * market, so the active plan lists them all.
  */
 function marketChanges(before: MeasurementPlanV2, after: MeasurementPlanV2): QueryTrackingMarketChange[] {
   const membersOf = (plan: MeasurementPlanV2) => new Map((plan.reportingScopes ?? []).map(scope => [
