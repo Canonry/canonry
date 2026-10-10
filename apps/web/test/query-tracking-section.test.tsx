@@ -477,11 +477,24 @@ function reviewNumbers() {
   return Object.fromEntries(screen.getAllByRole('term').map(term => [term.textContent, term.nextElementSibling?.textContent]))
 }
 
-/** One row of an advanced review table, by its query. `row` also holds the query's closed classifications. */
+/** One row of an advanced review table, by its query. `row` holds the button that lists the query's locations in the row under it. */
 function reviewRow(queryText: string, table = 'Changes') {
   const row = within(screen.getByRole('table', { name: table })).getByText(queryText).closest('tr')!
   const [change, , type, assignments, searchLocation] = [...row.cells].map(cell => cell.textContent)
   return { row, change, type, assignments, searchLocation }
+}
+
+/** Open a review row's location list, closed until asked for, and read its lines from the row under it. */
+function listLocations(row: HTMLTableRowElement, name: string) {
+  const toggle = within(row).getByRole('button', { name })
+  expect(toggle.getAttribute('aria-expanded')).toBe('false')
+  const rowsBefore = row.parentElement!.rows.length
+  fireEvent.click(toggle)
+  expect(toggle.getAttribute('aria-expanded')).toBe('true')
+  expect(row.parentElement!.rows.length).toBe(rowsBefore + 1)
+  const list = row.nextElementSibling as HTMLTableRowElement
+  expect(list.id).toBe(toggle.getAttribute('aria-controls'))
+  return [...list.querySelectorAll('li')].map(line => line.textContent)
 }
 
 test('focuses the preview outcome and shows the before and after numbers under the heading', async () => {
@@ -496,7 +509,7 @@ test('focuses the preview outcome and shows the before and after numbers under t
   expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
   // Visible under the heading, not folded into a disclosure.
   expect(heading.textContent).toBe('Review 1 change')
-  expect(reviewNumbers()).toEqual({ Queries: '2 → 1', 'Answers per sweep': '6 → 3', 'Answers added': '+0', 'Answers removed': '−3' })
+  expect(reviewNumbers()).toEqual({ Queries: '2 → 1', 'Answers per sweep': '6 → 3', 'Answers added': '0', 'Answers removed': '−3' })
   expect(screen.getByText('Queries', { selector: 'dt' }).closest('details')).toBeNull()
   expect(screen.getByText(advancedResetNotice)).toBeTruthy()
   expect(within(heading.parentElement!).getByText('Publishing does not run a sweep.')).toBeTruthy()
@@ -535,7 +548,7 @@ test('counts a location-scoped removal as answers, not as a query leaving tracki
   renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
   await reviewRemoval()
   expect(previewBody).toEqual({ expectedWorkspaceVersion: workspaceVersion, additions: [], removals: [{ queryId: 'query-acme', audience: { targetKeys: ['acme'] } }] })
-  expect(reviewNumbers()).toEqual({ Queries: '2 → 2', 'Answers per sweep': '6 → 3', 'Answers added': '+0', 'Answers removed': '−3' })
+  expect(reviewNumbers()).toEqual({ Queries: '2 → 2', 'Answers per sweep': '6 → 3', 'Answers added': '0', 'Answers removed': '−3' })
 })
 
 test('reads the query count from the server when a scoped removal takes the last assignment of a query', async () => {
@@ -586,16 +599,20 @@ test('lists each added, reused and removed query in one table, with unchanged qu
   expect(within(changes).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Type', 'Location links', 'Search location and engines'])
   expect([...changes.querySelectorAll('tbody tr')].map(line => line.firstElementChild?.textContent)).toEqual(['Added', 'Reused', 'Removed'])
   const added = reviewRow('Acme hours')
-  // The server's assignment count, which passes the two locations the classifications name.
+  // The server's link count, which passes the two locations the row lists.
   expect(added).toMatchObject({ change: 'Added', type: 'Non-brand', assignments: '3', searchLocation: '2 combinations' })
-  const classifications = within(added.row).getByText('2 locations', { selector: 'summary' }).closest('details')!
-  expect(classifications.open).toBe(false)
-  expect([...classifications.querySelectorAll('li')].map(line => line.textContent)).toEqual([
+  expect(reviewRow('Best AEO platform')).toMatchObject({ change: 'Reused', type: 'Non-brand', assignments: '1', searchLocation: 'New York · openai (gpt-5)' })
+  expect(reviewRow('Acme pricing')).toMatchObject({ change: 'Removed', type: '', assignments: '−1', searchLocation: '' })
+  // A removed row lists no locations: the post-change state holds only what survives.
+  expect(within(reviewRow('Acme pricing').row).queryByRole('button')).toBeNull()
+  expect(listLocations(added.row, '2 locations')).toEqual([
     'Acme · Non-brand · Groups: North East · Markets: New York · New York · openai (gpt-5); Chicago · openai (gpt-5)',
     'Beta · Non-brand · Chicago · openai (gpt-5)',
   ])
-  expect(reviewRow('Best AEO platform')).toMatchObject({ change: 'Reused', type: 'Non-brand', assignments: '1', searchLocation: 'New York · openai (gpt-5)' })
-  expect(reviewRow('Acme pricing')).toMatchObject({ change: 'Removed', type: '', assignments: '−1', searchLocation: '' })
+  // The list is its own row, the table's full width, and closes again.
+  expect((added.row.nextElementSibling as HTMLTableRowElement).cells[0]!.colSpan).toBe(5)
+  fireEvent.click(within(added.row).getByRole('button', { name: '2 locations' }))
+  expect(changes.querySelectorAll('tbody tr')).toHaveLength(3)
 
   const unchanged = screen.getByText('1 unchanged query').closest('details')!
   expect(unchanged.open).toBe(false)
@@ -603,8 +620,7 @@ test('lists each added, reused and removed query in one table, with unchanged qu
   expect(unchanged.contains(kept.row)).toBe(true)
   expect(kept).toMatchObject({ change: 'Unchanged', type: 'Branded', assignments: '1', searchLocation: 'New York · openai (gpt-5)' })
   // An unchanged query still names its location, group and market.
-  const keptIn = within(kept.row).getByText('1 location', { selector: 'summary' }).closest('details')!
-  expect([...keptIn.querySelectorAll('li')].map(line => line.textContent)).toEqual(['Acme · Branded · Groups: North East · Markets: New York · New York · openai (gpt-5)'])
+  expect(listLocations(kept.row, '1 location')).toEqual(['Acme · Branded · Groups: North East · Markets: New York · New York · openai (gpt-5)'])
   expect((screen.getByRole('button', { name: 'Publish 3 changes' }) as HTMLButtonElement).disabled).toBe(false)
   // The review says location and query, with no em dash.
   expect(heading.parentElement!.textContent).not.toMatch(/propert|question|—/i)
@@ -960,7 +976,7 @@ test('sends one explicitly selected context for a new advanced group assignment'
   await screen.findByText('Review 1 change')
   const added = reviewRow('New group query')
   expect(added).toMatchObject({ change: 'Added', type: 'Non-brand', assignments: '1', searchLocation: 'New York · openai (gpt-5)' })
-  expect(within(added.row).getByText('Acme · Non-brand · Groups: North East · New York · openai (gpt-5)')).toBeTruthy()
+  expect(listLocations(added.row, '1 location')).toEqual(['Acme · Non-brand · Groups: North East · New York · openai (gpt-5)'])
   expect(previewBody).toEqual({
     expectedWorkspaceVersion: workspaceVersion,
     additions: [{
@@ -1391,14 +1407,10 @@ test.each([false, true])('keeps reused-query classifications collapsed until req
   expect(screen.getByRole('heading', { name: noOp ? 'No tracking changes' : 'Review 1 change' })).toBeTruthy()
   expect((screen.getByRole('button', { name: noOp ? 'Publish changes' : 'Publish 1 change' }) as HTMLButtonElement).disabled).toBe(noOp)
   expect(reviewRow('Acme pricing').type).toBe('Non-brand, Branded')
-  const results = reviewRow('Acme pricing').row
-  const summary = within(results).getByText('2 locations', { selector: 'summary' })
-  const disclosure = summary.closest('details')!
-  expect(disclosure.open).toBe(false)
-  fireEvent.click(summary)
-  expect(disclosure.open).toBe(true)
-  expect(within(results).getByText(/^Acme · Non-brand ·/)).toBeTruthy()
-  expect(within(results).getByText(/^Beta · Branded ·/)).toBeTruthy()
+  expect(screen.queryByText(/^Acme · Non-brand ·/)).toBeNull()
+  const lines = listLocations(reviewRow('Acme pricing').row, '2 locations')
+  expect(lines[0]).toMatch(/^Acme · Non-brand ·/)
+  expect(lines[1]).toMatch(/^Beta · Branded ·/)
 })
 
 test('sends an explicit class only when the operator overrides server classification', async () => {

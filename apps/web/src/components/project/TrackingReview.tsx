@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { Fragment, useEffect, useId, useRef, useState } from 'react'
+import { ChevronRight } from 'lucide-react'
 import type {
   QueryTrackingPreviewResponse,
   QueryTrackingTrackedRow,
@@ -32,6 +33,8 @@ export type TrackingReviewState = {
 
 const CHANGE_TONE = { Added: 'positive', Reused: 'neutral', Removed: 'caution', Unchanged: 'neutral' } as const
 const count = (value: number) => value.toLocaleString('en-US')
+/** A change in answers per sweep; none reads as a plain zero. */
+const signed = (sign: '+' | '−', value: number) => value === 0 ? '0' : `${sign}${count(value)}`
 
 /**
  * The rows a publish changes. A no-op lists the queries it matched, and changes none of them.
@@ -101,8 +104,8 @@ export function TrackingReview({ workspace, contextLabels, showActions = true, .
         <ReviewNumber label="Queries" value={`${count(queries.current)} → ${count(queries.next)}`} />
         <ReviewNumber label="Answers per sweep" value={`${count(workload.existingProviderCalls)} → ${count(workload.nextSweepProviderCalls)}`} />
         {/* One provider call is one answer; added and removed answers stay separate. */}
-        <ReviewNumber label="Answers added" value={`+${count(workload.addedProviderCalls)}`} />
-        <ReviewNumber label="Answers removed" value={`−${count(workload.removedProviderCalls)}`} />
+        <ReviewNumber label="Answers added" value={signed('+', workload.addedProviderCalls)} />
+        <ReviewNumber label="Answers removed" value={signed('−', workload.removedProviderCalls)} />
       </dl>
       {/* A publish writes a new revision with no continuity link, so location and competitor reads blank while AI Visibility falls back. */}
       <p className="mt-3 text-sm leading-6 text-secondary">{diff.noOp
@@ -159,6 +162,14 @@ function ReviewTable({ label, rows, tracked, workspace, contextLabels }: {
   workspace: QueryTrackingWorkspaceResponse
   contextLabels: ContextLabels
 }) {
+  const listId = useId()
+  // The rows whose locations are listed. Each list is a row of its own under the query, the table's full width.
+  const [listed, setListed] = useState<ReadonlySet<string>>(new Set<string>())
+  const toggle = (key: string) => setListed(previous => {
+    const next = new Set(previous)
+    if (!next.delete(key)) next.add(key)
+    return next
+  })
   return (
     <div className="mt-2 overflow-x-auto">
       <table aria-label={label} className="evidence-table min-w-[640px] table-auto">
@@ -171,18 +182,41 @@ function ReviewTable({ label, rows, tracked, workspace, contextLabels }: {
             const resolved = change === 'Removed' ? undefined : tracked.get(row.queryId)
             const assignments = resolved?.assignments ?? []
             const searchLocations = contextLabels(assignments.flatMap(assignment => assignment.contexts))
+            const locations = new Set(assignments.map(assignment => assignment.targetKey)).size
+            const key = `${change}:${row.queryId}`
+            const open = listed.has(key)
             return (
-              <tr key={`${change}:${row.queryId}`}>
-                <td className="whitespace-nowrap"><ToneBadge tone={CHANGE_TONE[change]}>{change}</ToneBadge></td>
-                <td className="min-w-44 break-words">
-                  <span className="font-medium text-heading">{row.queryText}</span>
-                  {resolved ? <RowLocations row={resolved} workspace={workspace} contextLabels={contextLabels} /> : null}
-                </td>
-                <td className="whitespace-nowrap text-secondary">{[...new Set(assignments.map(assignment => typeLabel(assignment.queryClass)))].join(', ')}</td>
-                {/* The server's `assignmentCount`: one link per location and search location the query is asked for, so it can pass the number of locations. A removal counts what it takes away. */}
-                <td className="whitespace-nowrap tabular-nums text-secondary">{change === 'Removed' ? '−' : ''}{count(row.assignmentCount)}</td>
-                <td className="min-w-44 text-secondary">{searchLocations.length > 1 ? `${count(searchLocations.length)} combinations` : searchLocations[0]}</td>
-              </tr>
+              <Fragment key={key}>
+                <tr>
+                  <td className="whitespace-nowrap"><ToneBadge tone={CHANGE_TONE[change]}>{change}</ToneBadge></td>
+                  <td className="min-w-44 break-words">
+                    <span className="font-medium text-heading">{row.queryText}</span>
+                    {locations > 0 ? (
+                      <button
+                        type="button"
+                        aria-expanded={open}
+                        aria-controls={open ? `${listId}-${key}` : undefined}
+                        className="flex min-h-11 items-center gap-1 text-left text-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500"
+                        onClick={() => toggle(key)}
+                      >
+                        <ChevronRight size={14} aria-hidden="true" className={open ? 'rotate-90' : ''} />
+                        {count(locations)} {locations === 1 ? 'location' : 'locations'}
+                      </button>
+                    ) : null}
+                  </td>
+                  <td className="whitespace-nowrap text-secondary">{[...new Set(assignments.map(assignment => typeLabel(assignment.queryClass)))].join(', ')}</td>
+                  {/* The server's `assignmentCount`: one link per location and search location the query is asked for, so it can pass the number of locations. A removal counts what it takes away. */}
+                  <td className="whitespace-nowrap tabular-nums text-secondary">{change === 'Removed' ? '−' : ''}{count(row.assignmentCount)}</td>
+                  <td className="min-w-44 text-secondary">{searchLocations.length > 1 ? `${count(searchLocations.length)} combinations` : searchLocations[0]}</td>
+                </tr>
+                {open ? (
+                  <tr id={`${listId}-${key}`}>
+                    <td colSpan={5} className="text-secondary">
+                      <RowLocations assignments={assignments} workspace={workspace} contextLabels={contextLabels} />
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
             )
           })}
         </tbody>
@@ -191,23 +225,19 @@ function ReviewTable({ label, rows, tracked, workspace, contextLabels }: {
   )
 }
 
-function RowLocations({ row, workspace, contextLabels }: { row: QueryTrackingTrackedRow; workspace: QueryTrackingWorkspaceResponse; contextLabels: ContextLabels }) {
-  if (!row.assignments.length) return null
-  const locations = new Set(row.assignments.map(assignment => assignment.targetKey)).size
+/** Each location a query is asked for, with its type, groups, markets, search locations and engines. */
+function RowLocations({ assignments, workspace, contextLabels }: { assignments: readonly Assignment[]; workspace: QueryTrackingWorkspaceResponse; contextLabels: ContextLabels }) {
   const named = (prefix: string, scopes: readonly { stableKey: string; label: string }[], keys: readonly string[]) =>
     keys.length > 0 ? `${prefix}: ${keys.map(key => scopes.find(scope => scope.stableKey === key)?.label ?? key).join(', ')}` : null
   return (
-    <details className="text-secondary">
-      <summary className="min-h-11 cursor-pointer py-3 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500">{count(locations)} {locations === 1 ? 'location' : 'locations'}</summary>
-      <ul className="max-h-40 space-y-1 overflow-y-auto">
-        {row.assignments.map((assignment, index) => <li key={`${assignment.targetKey}:${index}`}>{[
-          workspace.targets.find(target => target.stableKey === assignment.targetKey)?.label ?? assignment.targetKey,
-          typeLabel(assignment.queryClass),
-          named('Groups', workspace.groups, assignment.groupKeys),
-          named('Markets', workspace.markets, assignment.marketKeys),
-          contextLabels(assignment.contexts).join('; '),
-        ].filter(Boolean).join(' · ')}</li>)}
-      </ul>
-    </details>
+    <ul className="max-h-60 space-y-2 overflow-y-auto break-words text-sm leading-5">
+      {assignments.map((assignment, index) => <li key={`${assignment.targetKey}:${index}`}>{[
+        workspace.targets.find(target => target.stableKey === assignment.targetKey)?.label ?? assignment.targetKey,
+        typeLabel(assignment.queryClass),
+        named('Groups', workspace.groups, assignment.groupKeys),
+        named('Markets', workspace.markets, assignment.marketKeys),
+        contextLabels(assignment.contexts).join('; '),
+      ].filter(Boolean).join(' · ')}</li>)}
+    </ul>
   )
 }

@@ -340,7 +340,7 @@ test('reviews inside the sheet, keeps the draft on Back, and publishes with the 
 
   await sheet.findByRole('heading', { name: 'Review 2 changes' })
   expect(Object.fromEntries(sheet.getAllByRole('term').map(term => [term.textContent, term.nextElementSibling?.textContent]))).toEqual({
-    Queries: '1 → 3', 'Answers per sweep': '3 → 9', 'Answers added': '+6', 'Answers removed': '−0',
+    Queries: '1 → 3', 'Answers per sweep': '3 → 9', 'Answers added': '+6', 'Answers removed': '0',
   })
   expect(sheet.getByText('2 added')).toBeTruthy()
   expect(sheet.getByText(resetNotice)).toBeTruthy()
@@ -749,8 +749,9 @@ test.each([
   const row = within(changes).getByText('Acme reviews').closest('tr')!
   // Type, the server's assignment count (two either way, on one location or on two), and where the query is asked.
   expect([...row.cells].map(cell => cell.textContent).slice(2)).toEqual(['Branded', '2', asked])
-  expect(within(row).getByText(classifications, { selector: 'summary' })).toBeTruthy()
-  expect([...row.querySelectorAll('li')].map(line => line.textContent)).toEqual(locations.map(location => `${location} · Branded · Groups: North East · Markets: ${markets} · ${each}`))
+  // The row's locations open in a row of their own under the query.
+  fireEvent.click(within(row).getByRole('button', { name: classifications }))
+  expect([...row.nextElementSibling!.querySelectorAll('li')].map(line => line.textContent)).toEqual(locations.map(location => `${location} · Branded · Groups: North East · Markets: ${markets} · ${each}`))
   expect(sheetText()).not.toMatch(/question|propert|—/i)
 })
 
