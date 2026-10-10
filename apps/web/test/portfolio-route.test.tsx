@@ -1248,7 +1248,7 @@ test('a direct Portfolio URL falls back safely in embed mode', async () => {
   expect(html).toContain('Citypoint Dental NYC')
   expect(html).toContain('AI answers over time')
   expect(html).not.toContain('Import sitemap')
-  expect(html).not.toContain('>Portfolio</a>')
+  expect(html).not.toContain('>All projects</a>')
   expect(html).not.toContain('Coverage and performance')
 })
 

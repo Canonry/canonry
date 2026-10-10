@@ -136,14 +136,14 @@ export function ProjectSettingsSection({
       setNewLocTimezone('')
       setShowAddLocation(false)
       addToast({
-        title: 'Location added',
+        title: 'Search location added',
         detail: `${label} is now available for ${project.name}.`,
         tone: 'positive',
         dedupeKey: `project:location:add:${project.name}:${label}`,
         dedupeMode: 'drop',
       })
     } catch (err) {
-      setLocationError(err instanceof Error ? err.message : 'Failed to add location')
+      setLocationError(err instanceof Error ? err.message : 'Failed to add search location')
     } finally {
       setLocationWorking(false)
     }
@@ -155,14 +155,14 @@ export function ProjectSettingsSection({
     try {
       await removeLocation(project.name, label)
       addToast({
-        title: 'Location removed',
+        title: 'Search location removed',
         detail: `${label} was removed from ${project.name}.`,
         tone: 'positive',
         dedupeKey: `project:location:remove:${project.name}:${label}`,
         dedupeMode: 'drop',
       })
     } catch (err) {
-      setLocationError(err instanceof Error ? err.message : 'Failed to remove location')
+      setLocationError(err instanceof Error ? err.message : 'Failed to remove search location')
     } finally {
       setLocationWorking(false)
     }
@@ -174,14 +174,14 @@ export function ProjectSettingsSection({
     try {
       await setDefaultLocation(project.name, label)
       addToast({
-        title: 'Default location updated',
+        title: 'Default search location updated',
         detail: `${label} is now the default for ${project.name}.`,
         tone: 'positive',
         dedupeKey: `project:location:default:${project.name}`,
         dedupeMode: 'replace',
       })
     } catch (err) {
-      setLocationError(err instanceof Error ? err.message : 'Failed to set default location')
+      setLocationError(err instanceof Error ? err.message : 'Failed to set default search location')
     } finally {
       setLocationWorking(false)
     }
@@ -386,7 +386,7 @@ export function ProjectSettingsSection({
                 </tr>
               ) : null}
               <tr>
-                <td className="px-4 py-2.5 text-muted font-medium align-top pt-3">Locations</td>
+                <td className="px-4 py-2.5 text-muted font-medium align-top pt-3">Search Locations</td>
                 <td className="px-4 py-2.5">
                   {locationError && (
                     <div className="mb-2 rounded border border-negative-800/40 bg-negative-950/20 px-2 py-1 text-xs text-negative">
@@ -426,7 +426,7 @@ export function ProjectSettingsSection({
                                     disabled={locationWorking}
                                     onClick={() => { void handleSetDefaultLocation(loc.label) }}
                                     className="text-sm text-secondary hover:text-positive-400 transition-colors disabled:opacity-40"
-                                    aria-label={`Set ${loc.label} as default location`}
+                                    aria-label={`Set ${loc.label} as default search location`}
                                   >
                                     Set default
                                   </button>
@@ -437,7 +437,7 @@ export function ProjectSettingsSection({
                                     disabled={locationWorking}
                                     onClick={() => { void handleRemoveLocation(loc.label) }}
                                     className="text-sm text-secondary hover:text-negative-400 transition-colors disabled:opacity-40"
-                                    aria-label={`Remove location ${loc.label}`}
+                                    aria-label={`Remove search location ${loc.label}`}
                                   >
                                     Remove
                                   </button>
@@ -449,11 +449,11 @@ export function ProjectSettingsSection({
                       </tbody>
                     </table>
                   ) : (
-                    <p className="text-muted text-xs mb-2">No locations configured</p>
+                    <p className="text-muted text-xs mb-2">No search locations configured</p>
                   )}
                   {!canChange ? null : showAddLocation ? (
                     <div className="mt-2 rounded border border-base bg-bg-elevated/50 p-3 space-y-2">
-                      <p className="text-sm font-medium text-secondary">Add location</p>
+                      <p className="text-sm font-medium text-secondary">Add search location</p>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <label className="mb-1 block text-sm text-secondary">Label *</label>
@@ -478,7 +478,7 @@ export function ProjectSettingsSection({
                       </div>
                       <div className="flex items-center gap-2 pt-1">
                         <Button type="button" size="sm" disabled={locationWorking || !newLocValid} onClick={asyncHandler(handleAddLocation)}>
-                          {locationWorking ? 'Adding...' : 'Add location'}
+                          {locationWorking ? 'Adding...' : 'Add search location'}
                         </Button>
                         <Button type="button" size="sm" variant="outline" disabled={locationWorking} onClick={() => { setShowAddLocation(false); setLocationError(null) }}>
                           Cancel
@@ -487,7 +487,7 @@ export function ProjectSettingsSection({
                     </div>
                   ) : (
                     <Button type="button" size="sm" variant="outline" onClick={() => setShowAddLocation(true)}>
-                      + Add location
+                      + Add search location
                     </Button>
                   )}
                 </td>
