@@ -833,8 +833,28 @@
     @apply lg:pl-0;
   }
 
+  /* The topbar's height: its 40px icon button (36px from md), 10px of padding
+     above and below, and its 1px border. A header that sticks under the topbar
+     uses it as its `top`. The setup wizard's topbar has no icon button and is
+     shorter, and an embed has no topbar. */
+  :root {
+    --topbar-h: 3.8125rem;
+  }
+
+  @media (min-width: 48rem) {
+    :root {
+      --topbar-h: 3.5625rem;
+    }
+  }
+
+  .app-shell-focus,
+  .app-shell-embed {
+    --topbar-h: 0px;
+  }
+
   .topbar {
     @apply sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-default bg-bg/95 px-4 py-2.5 backdrop-blur-sm md:px-6;
+    min-height: var(--topbar-h);
   }
 
   .topbar-left {
@@ -3177,6 +3197,359 @@
     .tracking-query-cell { min-width: 14rem; }
     .tracking-scope-cell { min-width: 10rem; }
     .tracking-row-actions { flex-direction: column; align-items: flex-start; gap: 0; }
+  }
+
+  /* ── Tracked queries table ── */
+  /* Fixed layout: every column but Query has a width (`TRACKED_COLUMN_WIDTH`
+     in tracked-view-model.ts), set on its <col>, and Query takes the rest.
+     `trackedLayout` folds columns away, and then stacks the rows, before Query
+     gets too narrow, so the frame never scrolls sideways and the header can
+     stick under the topbar. */
+  .tracked-table-frame {
+    container: tracked-table / inline-size;
+  }
+
+  .tracked-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+    @apply text-[13.5px] leading-5 text-neutral;
+  }
+
+  .tracked-table > thead th {
+    position: sticky;
+    top: var(--topbar-h);
+    z-index: 10;
+    @apply whitespace-nowrap border-b border-default bg-bg px-2.5 py-2 text-left text-[13px] font-medium text-secondary;
+  }
+
+  .tracked-sort {
+    @apply inline-flex items-center gap-px rounded-sm text-inherit hover:text-heading pointer-coarse:min-h-11;
+  }
+
+  .tracked-sort-mark {
+    @apply size-3 shrink-0 text-heading;
+  }
+
+  .tracked-row > td {
+    @apply border-b border-subtle px-2.5 py-2 align-middle;
+  }
+
+  .tracked-row:hover > td {
+    @apply bg-surface;
+  }
+
+  /* A ticked row and the row a link points at: a tint and a 2px marker on the
+     left edge. The marker is a background, so it also covers the cell's border
+     and runs unbroken from a row into its open detail. */
+  .tracked-row[data-selected] > td,
+  .tracked-row[data-highlighted] > td,
+  .tracked-detail-row[data-highlighted] > td {
+    @apply bg-surface-active;
+  }
+
+  .tracked-row[data-selected] > td:first-child,
+  .tracked-row[data-highlighted] > td:first-child,
+  .tracked-detail-row[data-highlighted] > td {
+    background-image: linear-gradient(var(--color-text-primary), var(--color-text-primary));
+    background-repeat: no-repeat;
+    background-size: 2px 100%;
+    background-origin: border-box;
+  }
+
+  /* An open row and its detail read as one block. */
+  .tracked-row[data-open] > td {
+    border-bottom-color: transparent;
+  }
+
+  .tracked-table .tracked-cell-select {
+    @apply p-0 text-center;
+  }
+
+  .tracked-check {
+    @apply inline-grid size-8 cursor-pointer select-none place-items-center align-middle pointer-coarse:size-11;
+  }
+
+  /* A quiet outlined box, filled when ticked. A dash is some of the page's rows. */
+  .tracked-check > input {
+    appearance: none;
+    @apply grid size-3.5 cursor-pointer place-content-center rounded-[3.5px] border-[1.5px] border-strong disabled:cursor-default disabled:opacity-50;
+  }
+
+  .tracked-check > input:checked,
+  .tracked-check > input:indeterminate {
+    @apply border-mono-100 bg-mono-100;
+  }
+
+  .tracked-check > input:checked::after {
+    content: '';
+    width: 0.5rem;
+    height: 0.3125rem;
+    margin-top: -0.125rem;
+    border-bottom: 1.5px solid var(--color-on-inverse);
+    border-left: 1.5px solid var(--color-on-inverse);
+    transform: rotate(-45deg);
+  }
+
+  .tracked-check > input:indeterminate::after {
+    content: '';
+    width: 0.5rem;
+    border-bottom: 1.5px solid var(--color-on-inverse);
+  }
+
+  .tracked-query {
+    @apply block w-full rounded-sm text-left font-medium text-heading hover:text-primary hover:underline pointer-coarse:min-h-11;
+    text-underline-offset: 3px;
+  }
+
+  .tracked-query > span {
+    @apply line-clamp-2 break-words;
+  }
+
+  .tracked-cell-subject {
+    @apply break-words text-[13px] leading-[1.35] text-secondary;
+  }
+
+  /* A count is a few characters wide. Where a finger is the pointer it takes taps 14px past its box on every side. */
+  .tracked-count {
+    position: relative;
+    @apply rounded-sm tabular-nums text-secondary underline decoration-current/40 decoration-dotted underline-offset-4 hover:text-heading;
+    @apply pointer-coarse:before:absolute pointer-coarse:before:-inset-3.5 pointer-coarse:before:content-[''] max-md:before:absolute max-md:before:-inset-3.5 max-md:before:content-[''];
+  }
+
+  .tracked-cell-type {
+    @apply whitespace-nowrap;
+  }
+
+  .tracked-table .tracked-cell-engine {
+    @apply px-1 text-center;
+  }
+
+  /* Drawn in a stacked row only: an engine's name beside its chips, and a type beside each of two pairs. */
+  .tracked-engine-name,
+  .tracked-pair-type {
+    @apply text-[13px] text-secondary;
+  }
+
+  .tracked-pair {
+    @apply inline-flex items-center gap-1.5 align-middle;
+  }
+
+  /* A row asked both ways: the Type cell names it and then its two types, and
+     each engine cell leaves the first line blank, so every type sits level
+     with its own pair. A line is as tall as a pair. */
+  .tracked-pair-stack {
+    @apply inline-flex flex-col items-center gap-1 align-middle;
+  }
+
+  .tracked-cell-type .tracked-pair-stack {
+    @apply items-start;
+  }
+
+  .tracked-pair-lead {
+    @apply block h-5;
+  }
+
+  .tracked-pair-label {
+    @apply flex h-[19px] items-center text-[13px] text-secondary pointer-coarse:h-11 max-md:h-11;
+  }
+
+  .tracked-cell-date {
+    @apply whitespace-nowrap tabular-nums text-secondary;
+  }
+
+  .tracked-cell-source {
+    @apply truncate text-[13px] text-secondary;
+  }
+
+  /* No padding above or below: a menu button is taller than a line of text and must not set the row's height. */
+  .tracked-table .tracked-cell-menu {
+    @apply px-0.5 py-0 text-right;
+  }
+
+  .tracked-empty {
+    @apply px-2.5 py-8 text-center;
+  }
+
+  .tracked-detail-row > td {
+    @apply border-b border-subtle bg-surface-subtle px-2.5 pb-3 pt-1;
+  }
+
+  /* The detail starts under the query text, past the checkbox column. */
+  .tracked-table[data-selectable] .tracked-detail-row > td {
+    padding-left: 2.625rem;
+  }
+
+  .tracked-table-skeleton {
+    container-type: inline-size;
+  }
+
+  .tracked-table-skeleton > div {
+    @apply flex h-[37px] items-center gap-6 overflow-hidden border-b border-subtle px-2.5;
+  }
+
+  .tracked-table-skeleton span {
+    @apply block shrink-0;
+  }
+
+  .tracked-table-skeleton span:first-child {
+    margin-right: auto;
+  }
+
+  /* A phone has room for the query and one more bar. */
+  @container (max-width: 40rem) {
+    .tracked-table-skeleton span:nth-child(n + 3) {
+      display: none;
+    }
+  }
+
+  /* Stacked: each row is a block. The query, Status and the menu share the
+     first line; Subject, Type and each engine by name follow, Subject and Type
+     at their table widths so the engines line up down the list. Source and
+     Last measured are in the row detail. */
+  .tracked-table[data-layout='stacked'] {
+    display: block;
+
+    & > thead {
+      display: none;
+    }
+
+    & > tbody,
+    & .tracked-detail-row,
+    & .tracked-detail-row > td {
+      display: block;
+    }
+
+    & .tracked-row {
+      position: relative;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      column-gap: 1rem;
+      @apply border-b border-subtle py-2.5 hover:bg-surface;
+    }
+
+    /* A full-width break after the first line. */
+    & .tracked-row::after {
+      content: '';
+      order: 3;
+      flex-basis: 100%;
+    }
+
+    & .tracked-row > td {
+      display: block;
+      order: 4;
+      margin-top: 0.375rem;
+      border: 0;
+      padding: 0;
+      background: none;
+    }
+
+    & .tracked-row > .tracked-cell-query {
+      order: 0;
+      flex: 1 1 0;
+      min-width: 0;
+      margin-top: 0;
+    }
+
+    & .tracked-row > .tracked-cell-status {
+      order: 1;
+      margin-top: 0;
+    }
+
+    & .tracked-row > .tracked-cell-menu {
+      order: 2;
+      margin-top: 0;
+    }
+
+    & .tracked-row > .tracked-cell-subject {
+      flex: 0 0 11.25rem;
+    }
+
+    & .tracked-row > .tracked-cell-type {
+      flex: 0 0 5rem;
+    }
+
+    /* The checkbox hangs in the left margin, so every line starts under the query text. */
+    &[data-selectable] .tracked-row {
+      padding-left: 2.25rem;
+    }
+
+    & .tracked-row > .tracked-cell-select {
+      position: absolute;
+      top: 0.375rem;
+      left: -0.375rem;
+      margin: 0;
+    }
+
+    & .tracked-row[data-selected],
+    & .tracked-row[data-highlighted] {
+      background-image: linear-gradient(var(--color-text-primary), var(--color-text-primary));
+      background-repeat: no-repeat;
+      background-size: 2px 100%;
+      background-origin: border-box;
+      @apply bg-surface-active;
+    }
+
+    & .tracked-row[data-open] {
+      border-bottom-color: transparent;
+    }
+
+    & .tracked-row > .tracked-cell-engine {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+      text-align: left;
+    }
+
+    /* A row asked both ways: each engine's name over its two pairs, each pair after its type. */
+    & .tracked-row[data-mixed] > .tracked-cell-engine {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0;
+    }
+
+    & .tracked-pair-stack {
+      @apply items-start gap-0;
+    }
+
+    & .tracked-pair-type {
+      min-width: 4.25rem;
+    }
+
+    &[data-selectable] .tracked-detail-row > td {
+      padding-left: 2.25rem;
+    }
+  }
+
+  /* A phone: Subject and Type, then the engines, then Status, each on a line of its own. */
+  @container tracked-table (max-width: 40rem) {
+    .tracked-table[data-layout='stacked'] {
+      & .tracked-row > .tracked-cell-subject {
+        flex: 1 1 0;
+        min-width: 0;
+      }
+
+      & .tracked-row > .tracked-cell-type {
+        flex: none;
+      }
+
+      & .tracked-row::before {
+        content: '';
+        order: 5;
+        flex-basis: 100%;
+      }
+
+      & .tracked-row > .tracked-cell-engine {
+        order: 6;
+      }
+
+      & .tracked-row > .tracked-cell-status {
+        order: 7;
+        margin-top: 0.375rem;
+      }
+    }
   }
 
   /* Site Health tables read as prose, not as a spec sheet: sentence-case
