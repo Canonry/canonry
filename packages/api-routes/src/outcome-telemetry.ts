@@ -2,7 +2,7 @@ import type {
   FeatureCompletedProperties,
   IntegrationConnectionProperties,
 } from '@ainyc/canonry-contracts'
-import { getRequestContext } from './request-context.js'
+import { currentOutcomeAttribution } from './request-context.js'
 
 /**
  * Who made the request an outcome came from, as the raw, caller-controlled
@@ -35,14 +35,6 @@ export type OutcomeTelemetryEvent =
 
 /** What route code reports. `attribution` defaults to the current request's; work that reports after its request passes the one it captured. */
 export type OutcomeTelemetryInput = OutcomeTelemetryEvent
-
-/** The current request's raw attribution labels, or undefined outside a request. */
-export function currentOutcomeAttribution(): OutcomeAttribution | undefined {
-  const context = getRequestContext()
-  return context
-    ? { userAgent: context.userAgent, surfaceLabel: context.usageSurface, agentLabel: context.usageAgent }
-    : undefined
-}
 
 /**
  * Bind route code to the host's outcome sink. Attaches the current request's

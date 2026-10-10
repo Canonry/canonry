@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { redactLogString, USAGE_TELEMETRY_HEADERS } from '@ainyc/canonry-contracts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { OutcomeAttribution } from './outcome-telemetry.js'
 
 /**
  * Durable, non-secret request correlation that can safely accompany an audit
@@ -50,6 +51,14 @@ export function getRequestContext(boundRequestId?: string): RequestContext | und
   if (!context || (context.completed && context.requestId !== boundRequestId)) return undefined
   const { completed: _completed, ...safeContext } = context
   return safeContext
+}
+
+/** The current request's raw attribution labels, or undefined outside a request. */
+export function currentOutcomeAttribution(): OutcomeAttribution | undefined {
+  const context = getRequestContext()
+  return context
+    ? { userAgent: context.userAgent, surfaceLabel: context.usageSurface, agentLabel: context.usageAgent }
+    : undefined
 }
 
 /**

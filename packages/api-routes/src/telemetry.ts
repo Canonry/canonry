@@ -13,7 +13,8 @@ import {
 import { requireOperator, requireScope } from './auth.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import { auditFromRequest, writeAuditLog } from './helpers.js'
-import { currentOutcomeAttribution, type OutcomeAttribution } from './outcome-telemetry.js'
+import type { OutcomeAttribution } from './outcome-telemetry.js'
+import { currentOutcomeAttribution } from './request-context.js'
 
 export interface TelemetryRoutesOptions {
   getTelemetryStatus?: () => TelemetryStatusInput

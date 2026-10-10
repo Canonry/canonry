@@ -134,7 +134,6 @@ export type { ApiRequestCompletedInfo, RequestContextOptions } from './request-c
 export type { OutcomeAttribution, OutcomeTelemetryEvent, OutcomeTelemetryInput } from './outcome-telemetry.js'
 export type { FeedbackRequestContext, FeedbackRoutesOptions } from './feedback.js'
 export { credentialFailure } from './feature-outcome.js'
-export { currentOutcomeAttribution } from './outcome-telemetry.js'
 export { SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from './doctor/checks/site-reachability.js'
 export { runChecks } from './doctor/runner.js'
 export { scheduledHealthCheckIds } from './doctor/registry.js'

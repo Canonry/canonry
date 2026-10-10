@@ -13,7 +13,8 @@ import {
   type OutcomeSurface,
   type OutcomeTrigger,
 } from '@ainyc/canonry-contracts'
-import { currentOutcomeAttribution, type OutcomeAttribution, type OutcomeTelemetryEvent } from '@ainyc/canonry-api-routes'
+import type { OutcomeAttribution, OutcomeTelemetryEvent } from '@ainyc/canonry-api-routes'
+import { currentOutcomeAttribution } from '@ainyc/canonry-api-routes/request-context'
 import fs from 'node:fs'
 import path from 'node:path'
 import { getConfigDir } from './config.js'

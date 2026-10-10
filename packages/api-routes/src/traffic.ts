@@ -132,7 +132,7 @@ import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type 
 import { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
 import { resolveWebhookTarget } from './webhooks.js'
 import { failedOutcome, reportFeatureOutcome, withFeatureOutcome, type FeatureOutcome } from './feature-outcome.js'
-import { currentOutcomeAttribution } from './outcome-telemetry.js'
+import { currentOutcomeAttribution } from './request-context.js'
 import {
   DIRECT_PUSH_RECEIPT_TTL_MS,
   writeTrafficEventBatch,
