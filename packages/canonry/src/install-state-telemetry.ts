@@ -39,6 +39,7 @@ import type { CanonryConfig } from './config.js'
 import { isCdpProviderRegistrable, registeredProviderNames } from './provider-registration.js'
 import { trackInstallState } from './outcome-telemetry.js'
 import { isTelemetryEnabled } from './telemetry.js'
+import { installAttribution } from './telemetry-environment.js'
 import { AeroLlmUsageFeatures } from './agent/llm-usage.js'
 import { isAgentModelAvailable } from './agent/providers.js'
 import { resolveSessionProviderAndModel } from './agent/session.js'
@@ -235,6 +236,7 @@ function buildInstallState(sources: InstallStateSources, now: number, startedAt:
     ...(Object.keys(providerCalls24h).length > 0 ? { providerCalls24h } : {}),
     ...(sources.agentEnabled ? aeroSettings(config) : {}),
     uptimeBucket: bucketDuration(now - startedAt),
+    ...installAttribution(),
   }
 }
 

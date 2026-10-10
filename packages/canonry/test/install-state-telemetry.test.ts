@@ -228,6 +228,7 @@ describe('install.state contents', () => {
       agentProvider: 'claude',
       agentModel: claudeModel,
       uptimeBucket: '5m_to_30m',
+      installSource: expect.stringMatching(/^(npm|homebrew|docker|source)$/),
     })
     expect(installStatePropertiesSchema.parse(state)).toEqual(state)
     expect(Buffer.byteLength(JSON.stringify(state))).toBeLessThanOrEqual(1_400)
@@ -259,6 +260,7 @@ describe('install.state contents', () => {
       },
       agentProvider: 'openai',
       uptimeBucket: '5m_to_30m',
+      installSource: expect.stringMatching(/^(npm|homebrew|docker|source)$/),
     }])
   })
 
