@@ -1773,6 +1773,21 @@ const routeCatalog: OpenApiOperation[] = [
     responses: { 200: jsonResponse('Actual committed revision, or unchanged no-op.', 'QueryTrackingCommitResponse'), 400: errorResponse('Invalid mutation or review token, or the change exceeds the query limit.'), 403: errorResponse('Write access required.'), 404: errorResponse('Project or source not found.'), 409: errorResponse('Workspace changed, or a sweep is queued or running.') },
   },
   {
+    method: 'get', path: '/api/v1/projects/{name}/query-tracking/results', summary: 'Read Mentioned and Cited per tracked query and engine', tags: ['queries'],
+    description: 'Stored evidence only: one sweep, every tracked query in the place, one call. Each row is one query under one class (`branded`, `non-brand`, or `unknown` when the workspace row carries no class); the two classes of one query are separate rows, never pooled. Each engine entry carries `expectedAnswers`, `answers`, `mentionedAnswers`, `citedAnswers`, `uncheckedSourceAnswers`, and the two signals `mentioned` (answer text names a location the row covers in the place) and `cited` (a source cites one). Each signal is true when any answer shows it, false only when every expected answer was checked and none did, and null when not checked; neither is computed from the other. The sweep is the newest completed or partial whole-project sweep comparable to the active plan, else the newest of any plan; probes and scoped runs are never read. `run.matchesCurrentTracking` is false when tracking changed after that sweep. A row is returned only when the sweep asked every pairing of that query and class in the place exactly as it is asked now, so a query moved, re-typed or reworded since has no row and is counted in `pendingRows` until the next sweep. `run` is null and `rows` is empty when no sweep has finished. A simple project is read at project scope only. Never starts a sweep.',
+    parameters: [
+      nameParameter,
+      { name: 'scope', in: 'query', description: 'The place whose pairings are read, resolved against the active plan. Read-selection identity.', schema: { type: 'string', enum: ['project', 'group', 'market', 'property'], default: 'project' } },
+      { name: 'scopeKey', in: 'query', description: 'Stable key of the group, market or property. Required for non-project scopes. A key the active plan holds and the sweep never measured returns no rows.', schema: stringSchema },
+      { name: 'runId', in: 'query', description: 'One completed or partial whole-project sweep. Omit for the default sweep.', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Per-query engine results for one sweep, or an empty list with no sweep.', 'QueryTrackingResultsResponse'),
+      400: errorResponse('Invalid selection, a place the active plan does not hold, or a run that is not a whole-project sweep.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
     method: 'post', path: '/api/v1/projects/{name}/results/clear', summary: 'Preview or clear selected saved visibility and research results', tags: ['runs'],
     description: 'Administrator or runs.write key only. Exact run IDs are required; confirm defaults to false for a non-mutating preview. Refuses active visibility or research work and any selected non-visibility run. Keeps queries, measurement plans, Site Health, backlinks, schedules, audit history, and usage accounting. Back up stored evidence before confirming deletion.',
     parameters: [nameParameter],

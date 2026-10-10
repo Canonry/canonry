@@ -37,6 +37,7 @@ import { measurementPortfolioReadRoutes } from './measurement-portfolio-reads.js
 import { measurementQuestionReadRoutes } from './measurement-question-reads.js'
 import { visibilityReportRoutes } from './visibility-report.js'
 import { queryTrackingRoutes } from './query-tracking.js'
+import { queryTrackingResultsRoutes } from './query-tracking-results.js'
 import { applyRoutes } from './apply.js'
 import type { ApplyRoutesOptions } from './apply.js'
 import { historyRoutes } from './history.js'
@@ -655,6 +656,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getRunnableProviderNames: opts.getRunnableProviderNames,
       providerSummary: opts.providerSummary,
     })
+    await api.register(queryTrackingResultsRoutes)
     await api.register(applyRoutes, {
       onScheduleUpdated: opts.onScheduleUpdated,
       onProjectUpserted: opts.onProjectUpserted,

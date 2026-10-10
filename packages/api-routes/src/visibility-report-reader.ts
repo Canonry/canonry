@@ -378,7 +378,8 @@ function targetMap(definition: VisibilityReportDefinitionInput): ReadonlyMap<str
   return new Map(definition.targets.map(target => [target.id, target]))
 }
 
-function targetValues(
+/** One expected answer's signals. Exported so the query-tracking results read folds this same rule. */
+export function targetValues(
   candidate: Candidate,
   targets: ReadonlyMap<string, VisibilityReportTargetInput>,
   targetKey?: string,

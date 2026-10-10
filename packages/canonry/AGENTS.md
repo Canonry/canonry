@@ -99,7 +99,7 @@ Rules for `canonry-mcp`, hosted MCP catalogs, guidance generation, MCP parity, a
 File-level rules for the MCP pieces in this package:
 
 - `src/mcp/server.ts` — `createCanonryMcpServer` registers all API tools, then disables non-core tiers unless `--eager`.
-- `src/mcp/tool-registry.ts` — all 252 API tools, including Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
+- `src/mcp/tool-registry.ts` — all 253 API tools, including Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
 - `src/mcp/cli.ts` — `canonry-mcp` stdio entrypoint; parses `--read-only`, `--eager`, `--scope`, plus `CANONRY_MCP_*` env. `resolveEffectiveScope()` best-effort probes `GET /keys/self` at startup and forces `read-only` when the configured key is read-only (auto-restricts the catalog to read tools; falls back to the flag scope on any probe failure).
 - `src/mcp/operations-guide.ts` — compact intent routing filtered against the connection's loaded tools; generated source is `docs/agent-operations/v1.md`. No provider calls or permission grants.
 - `src/commands/mcp.ts` — MCP client install helpers: `mcp install`, `mcp config` (writes to client config files only — separate from the `canonry-mcp` stdio bin). `src/mcp-clients.ts` is the registry of supported MCP clients (Claude Desktop, Cursor, Codex) — config-path resolvers and format hints used by `mcp install`/`mcp config`.
@@ -583,6 +583,7 @@ Every field after `version` is optional and is omitted rather than nulled, so co
   - `--format jsonl` streams one row per line in any shape, under a header line carrying the shape, the measurement state and the cursor, and an unknown mention prints `not measured` rather than `no`
 - The per-Property reads share `--query-class` / `--provider` / `--location` / `--run-id`, and both render an unavailable metric as `not measured (<reason>)` — never a percentage, so an unmeasured class can't read as a measured zero. `--format json` is the endpoint response verbatim.
 - `measurement-plan advanced <project> <operation> [<json|->]` is the compact typed-JSON bridge for the remaining v2 reads/writes; its paged/list reads stream a metadata header and records with `--format jsonl`.
+- `query results <project> [--scope <project|group|market|property>] [--scope-key <key>] [--run <id>]` (`showQueryTrackingResults`, registered via `src/cli-commands/query.ts`): `GET /query-tracking/results`, Mentioned and Cited per tracked query and engine from one stored sweep, for simple and advanced projects. The table prints the legend, then one two-glyph cell per engine with the mention glyph first (`M`/`m`, then `C`/`c`, `-` for not checked); a signal is never printed from the other. `Not in this sweep: N` prints the API's `pendingRows` and `No sweep yet` a null `run`. The selection is checked with `queryTrackingResultsRequestSchema` before the request (a bad one is a usage error, exit 1). `--format json` is the endpoint response verbatim.
 
 Registered via `src/cli-commands/measurement-plan.ts`.
 

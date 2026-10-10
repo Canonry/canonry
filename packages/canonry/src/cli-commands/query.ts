@@ -1,7 +1,9 @@
 import { addQueries, generateQueries, importQueries, listQueries, removeQueries, replaceQueries } from '../commands/query.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
+import { queryTrackingResultsRequestSchema } from '@ainyc/canonry-contracts'
 import {
   getBoolean,
+  getString,
   parseIntegerOption,
   requirePositional,
   requireProject,
@@ -10,7 +12,9 @@ import {
   unknownSubcommand,
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
-import { runAdvancedMeasurementOperation } from '../commands/measurement-plan.js'
+import { runAdvancedMeasurementOperation, showQueryTrackingResults } from '../commands/measurement-plan.js'
+
+const QUERY_RESULTS_USAGE = 'canonry query results <project> [--scope <project|group|market|property>] [--scope-key <key>] [--run <id>] [--format json]'
 
 export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...(['workspace', 'preview', 'commit'] as const).map(action => ({
@@ -25,6 +29,35 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
       await runAdvancedMeasurementOperation(project, `query-${action}`, source, input.format)
     },
   } satisfies CliCommandSpec)),
+  {
+    path: ['query', 'results'],
+    usage: QUERY_RESULTS_USAGE,
+    options: { scope: stringOption(), 'scope-key': stringOption(), run: stringOption() },
+    run: async (input) => {
+      const project = requireProject(input, 'query.results', QUERY_RESULTS_USAGE)
+      const scope = getString(input.values, 'scope')
+      const scopeKey = getString(input.values, 'scope-key')
+      const runId = getString(input.values, 'run')
+      // The endpoint's own selection rules, checked before any request is sent.
+      const request = queryTrackingResultsRequestSchema.safeParse({
+        ...(scope === undefined ? {} : { scope }),
+        ...(scopeKey === undefined ? {} : { scopeKey }),
+        ...(runId === undefined ? {} : { runId }),
+      })
+      if (!request.success) {
+        // A failed parse always carries at least one issue.
+        const issue = request.error.issues[0]
+        const message = issue.path[0] === 'scope'
+          ? '--scope must be one of project, group, market, property'
+          : issue.message.replace('scopeKey', '--scope-key')
+        throw usageError(`Error: ${message}\nUsage: ${QUERY_RESULTS_USAGE}`, {
+          message,
+          details: { command: 'query.results', usage: QUERY_RESULTS_USAGE },
+        })
+      }
+      await showQueryTrackingResults(project, { ...request.data, format: input.format })
+    },
+  },
   {
     path: ['query', 'add'],
     usage: 'canonry query add <project> <query...> [--format json]',
@@ -151,12 +184,12 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['query'],
-    usage: 'canonry query <add|replace|remove|delete|list|import|generate|workspace|preview|commit> <project> [args]',
+    usage: 'canonry query <add|replace|remove|delete|list|import|generate|workspace|preview|commit|results> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'query',
-        usage: 'canonry query <add|replace|remove|delete|list|import|generate|workspace|preview|commit> <project> [args]',
-        available: ['add', 'replace', 'remove', 'delete', 'list', 'import', 'generate', 'workspace', 'preview', 'commit'],
+        usage: 'canonry query <add|replace|remove|delete|list|import|generate|workspace|preview|commit|results> <project> [args]',
+        available: ['add', 'replace', 'remove', 'delete', 'list', 'import', 'generate', 'workspace', 'preview', 'commit', 'results'],
       })
     },
   },

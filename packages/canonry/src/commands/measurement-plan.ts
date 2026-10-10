@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import { parse } from 'yaml'
 import {
   MeasurementEvidenceShapes,
+  formatIsoDate,
   formatPercent,
   measurementChangesQuerySchema,
   measurementDataQualityQuerySchema,
@@ -28,6 +29,8 @@ import {
   type MeasurementPropertyEvidenceResponse,
   type MeasurementQueryClassFilter,
   type MetricValue,
+  type QueryTrackingResultsRequest,
+  type QueryTrackingResultsResponse,
   measurementPropertyQuestionsQuerySchema,
   measurementQuestionResultQuerySchema,
   measurementQuerySetUpsertRequestSchema,
@@ -536,6 +539,61 @@ function printMeasurementProperty(response: MeasurementOverviewResponse): void {
       const providerUnchecked = uncheckedText(provider.citationCoverage)
       if (providerUnchecked) lines.push(`${''.padEnd(engineWidth + mentionWidth)}${providerUnchecked}`)
     }
+  }
+  console.log(lines.join('\n'))
+}
+
+export interface QueryTrackingResultsOptions extends QueryTrackingResultsRequest {
+  format?: string
+}
+
+/** One glyph per signal, so a cell never reads one signal from the other. */
+const QUERY_RESULTS_LEGEND = 'M mentioned · m not mentioned · C cited · c not cited · - not checked'
+const QUERY_RESULT_TYPES: Record<QueryTrackingResultsResponse['rows'][number]['queryClass'], string> = {
+  branded: 'Branded',
+  'non-brand': 'Non-brand',
+  unknown: 'Not set',
+}
+
+/**
+ * `canonry query results <project>`: Mentioned and Cited per tracked query and
+ * engine, from one stored sweep. `--format json` is the endpoint's response
+ * unchanged. Never starts a sweep.
+ */
+export async function showQueryTrackingResults(project: string, opts: QueryTrackingResultsOptions): Promise<void> {
+  const { format, ...request } = opts
+  const response = await createApiClient().getQueryTrackingResults(project, request)
+  if (isMachineFormat(format)) {
+    console.log(JSON.stringify(response, null, 2))
+    return
+  }
+  printQueryTrackingResults(response)
+}
+
+function signalGlyph(value: boolean | null, yes: string, no: string): string {
+  return value === null ? '-' : value ? yes : no
+}
+
+function printQueryTrackingResults(response: QueryTrackingResultsResponse): void {
+  if (response.run === null) {
+    console.log('No sweep yet')
+    return
+  }
+  const lines = [`Sweep ${formatIsoDate(response.run.completedAt ?? response.run.createdAt)} · run ${response.run.id}`]
+  if (response.pendingRows > 0) lines.push(`Not in this sweep: ${response.pendingRows}`)
+  lines.push(QUERY_RESULTS_LEGEND)
+  const queryWidth = Math.max('Query'.length, ...response.rows.map(row => row.queryText.length))
+  const typeWidth = Math.max(...Object.values(QUERY_RESULT_TYPES).map(label => label.length))
+  // Each cell is the mention glyph then the citation glyph, as the dashboard's two chips.
+  const cellWidth = (engine: string) => Math.max(2, engine.length)
+  lines.push(['Query'.padEnd(queryWidth), 'Type'.padEnd(typeWidth), ...response.engines.map(engine => engine.padEnd(cellWidth(engine)))].join('  ').trimEnd())
+  for (const row of response.rows) {
+    const cells = response.engines.map(engine => {
+      const result = row.engines.find(entry => entry.provider === engine)
+      const cell = result ? `${signalGlyph(result.mentioned, 'M', 'm')}${signalGlyph(result.cited, 'C', 'c')}` : '--'
+      return cell.padEnd(cellWidth(engine))
+    })
+    lines.push([row.queryText.padEnd(queryWidth), QUERY_RESULT_TYPES[row.queryClass].padEnd(typeWidth), ...cells].join('  ').trimEnd())
   }
   console.log(lines.join('\n'))
 }

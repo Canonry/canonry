@@ -1985,6 +1985,39 @@ export type QueryTrackingCommitResponse = {
     };
 };
 
+export type QueryTrackingResultsResponse = {
+    mode: 'simple' | 'advanced';
+    scope: {
+        kind: 'project' | 'group' | 'market' | 'property';
+        key: string | null;
+    };
+    run: {
+        id: string;
+        createdAt: string;
+        completedAt: string | null;
+        status: 'completed' | 'partial';
+        revision: number | null;
+        matchesCurrentTracking: boolean;
+    } | null;
+    engines: Array<string>;
+    rows: Array<{
+        queryId: string;
+        queryText: string;
+        queryClass: 'branded' | 'non-brand' | 'unknown';
+        engines: Array<{
+            provider: string;
+            expectedAnswers: number;
+            answers: number;
+            mentionedAnswers: number;
+            citedAnswers: number;
+            uncheckedSourceAnswers: number;
+            mentioned: boolean | null;
+            cited: boolean | null;
+        }>;
+    }>;
+    pendingRows: number;
+};
+
 export type AgentPromptRequest = {
     prompt: string;
     conversationId?: string | null;
@@ -19541,6 +19574,53 @@ export type PostApiV1ProjectsByNameQueryTrackingCommitResponses = {
 };
 
 export type PostApiV1ProjectsByNameQueryTrackingCommitResponse = PostApiV1ProjectsByNameQueryTrackingCommitResponses[keyof PostApiV1ProjectsByNameQueryTrackingCommitResponses];
+
+export type GetApiV1ProjectsByNameQueryTrackingResultsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * The place whose pairings are read, resolved against the active plan. Read-selection identity.
+         */
+        scope?: 'project' | 'group' | 'market' | 'property';
+        /**
+         * Stable key of the group, market or property. Required for non-project scopes. A key the active plan holds and the sweep never measured returns no rows.
+         */
+        scopeKey?: string;
+        /**
+         * One completed or partial whole-project sweep. Omit for the default sweep.
+         */
+        runId?: string;
+    };
+    url: '/api/v1/projects/{name}/query-tracking/results';
+};
+
+export type GetApiV1ProjectsByNameQueryTrackingResultsErrors = {
+    /**
+     * Invalid selection, a place the active plan does not hold, or a run that is not a whole-project sweep.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameQueryTrackingResultsError = GetApiV1ProjectsByNameQueryTrackingResultsErrors[keyof GetApiV1ProjectsByNameQueryTrackingResultsErrors];
+
+export type GetApiV1ProjectsByNameQueryTrackingResultsResponses = {
+    /**
+     * Per-query engine results for one sweep, or an empty list with no sweep.
+     */
+    200: QueryTrackingResultsResponse;
+};
+
+export type GetApiV1ProjectsByNameQueryTrackingResultsResponse = GetApiV1ProjectsByNameQueryTrackingResultsResponses[keyof GetApiV1ProjectsByNameQueryTrackingResultsResponses];
 
 export type PostApiV1ProjectsByNameResultsClearData = {
     body: ResultsClearRequest;

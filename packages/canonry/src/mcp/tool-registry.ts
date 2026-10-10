@@ -101,6 +101,7 @@ import {
   visibilityReportRequestSchema,
   queryTrackingPreviewRequestSchema,
   queryTrackingCommitRequestSchema,
+  queryTrackingResultsRequestSchema,
   GOOGLE_MARKETING_STORED_SNAPSHOT_PAGE_MAX,
   googleAdsMetricsWindowSchema,
   canonicalizeGtmAccountId,
@@ -1394,6 +1395,19 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/query-tracking'],
     handler: (client, input) => client.getQueryTrackingWorkspace(input.project),
+  }),
+  defineTool({
+    name: 'canonry_query_tracking_results',
+    title: 'Read tracked query results',
+    description: 'Read Mentioned and Cited for every tracked query and engine from one stored sweep, in one call, for the project or one group, market or property (scope and scopeKey, resolved against the active plan). Each row is one query under one class (branded, non-brand, or unknown when the workspace row carries no class); the classes of one query are separate rows, never pooled. Per engine: expectedAnswers, answers, mentionedAnswers, citedAnswers, uncheckedSourceAnswers, and the two signals mentioned and cited. A signal is true when any answer shows it, false only when every expected answer was checked and none did, and null when not checked; never read null as no. mentioned reads answer text and cited reads sources; neither is computed from the other. The sweep is the newest completed or partial whole-project sweep comparable to the active plan, else the newest of any plan; probes and scoped runs are never read, and runId names another whole-project sweep. When run.matchesCurrentTracking is false, tracking changed after that sweep: a query moved, re-typed or reworded since has no row and is counted in pendingRows until the next sweep. run is null before the first sweep. A simple project is read at project scope only. Never starts a sweep.',
+    access: 'read', tier: 'monitoring',
+    inputSchema: queryTrackingResultsRequestSchema.safeExtend({ project: projectNameSchema }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/query-tracking/results'],
+    handler: (client, input) => {
+      const { project, ...selection } = input
+      return client.getQueryTrackingResults(project, selection)
+    },
   }),
   defineTool({
     name: 'canonry_query_tracking_preview',

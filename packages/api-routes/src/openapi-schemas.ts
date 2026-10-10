@@ -25,7 +25,7 @@
 import { z, type ZodType } from 'zod'
 import { sentimentSummarySchema, sentimentSettingsSchema, sentimentSettingsUpdateSchema, sentimentEvidencePageSchema, sentimentComparisonSchema, sentimentBackfillPreviewSchema, sentimentBackfillRequestSchema, sentimentJobsSchema, sentimentJobSchema } from '@ainyc/canonry-contracts'
 import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
-import { queryTrackingWorkspaceResponseSchema, queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema, queryTrackingCommitRequestSchema, queryTrackingCommitResponseSchema } from '@ainyc/canonry-contracts'
+import { queryTrackingWorkspaceResponseSchema, queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema, queryTrackingCommitRequestSchema, queryTrackingCommitResponseSchema, queryTrackingResultsResponseSchema } from '@ainyc/canonry-contracts'
 import {
   agentProvidersResponseDtoSchema,
   agentPromptRequestSchema,
@@ -340,6 +340,7 @@ const SCHEMA_TABLE = {
   QueryTrackingPreviewResponse: queryTrackingPreviewResponseSchema,
   QueryTrackingCommitRequest: queryTrackingCommitRequestSchema,
   QueryTrackingCommitResponse: queryTrackingCommitResponseSchema,
+  QueryTrackingResultsResponse: queryTrackingResultsResponseSchema,
   AgentPromptRequest: agentPromptRequestSchema,
   AgentConversation: agentConversationSchema,
   AgentConversationList: agentConversationListSchema,

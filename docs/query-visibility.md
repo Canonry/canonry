@@ -183,6 +183,47 @@ Otherwise `comparison.reason` names the cause, such as `partial-run` or `model-c
 Each available `delta` is the current rate minus the previous rate. An unavailable change is not a zero change.
 When the previous sweep cannot be read, `comparison` is absent and the rest of the report still loads.
 
+## Results per query and engine
+
+`GET /query-tracking/results` (`canonry query results <project>`, `canonry_query_tracking_results`) returns Mentioned and Cited for every tracked query per engine, from one stored sweep, in one call.
+It reads stored evidence only and never starts a sweep.
+
+| Input | Meaning |
+| --- | --- |
+| `scope`, `scopeKey` | The place: `project` (the default), or a `group`, `market` or `property` key. The key is resolved against the active plan. A key the active plan does not hold is a 400. A key it holds that the sweep never measured returns no rows. |
+| `runId` | One completed or partial whole-project sweep. Omit it for the default sweep. A probe or a scoped run is refused. |
+
+The default sweep is the newest completed or partial whole-project sweep comparable to the active plan, else the newest of any plan. This is the sweep AI Visibility shows by default.
+`run` names it: `id`, `createdAt`, `completedAt`, `status`, `revision` (null on a simple project) and `matchesCurrentTracking`.
+`matchesCurrentTracking` is false when tracking changed after that sweep. A label-only republish keeps it true.
+`run` is null and `rows` is empty until a sweep finishes. `engines` lists every engine the sweep asked.
+
+Each row is one query under one class: `queryId`, `queryText`, `queryClass` and `engines[]`.
+`queryClass` is a class the workspace row carries in `queryClasses`, or `unknown` when it carries none. A query asked as Branded for one location and Non-brand for another has two rows. The two are never combined.
+A row is returned only when the sweep asked every pairing of that query and class in the place exactly as it is asked now: same location, class, text, engines, models and search location.
+A query that was moved, re-typed or reworded since has no row until the next sweep. `pendingRows` counts those query and class pairs.
+
+Each `engines[]` entry reads only the answers of that row's own executions:
+
+| Field | Counts |
+| --- | --- |
+| `expectedAnswers` | Answers the sweep asked this engine for: one per search location the row is asked at. |
+| `answers` | Answers saved. |
+| `mentionedAnswers` | Saved answers whose text names a location the row covers in the place. |
+| `citedAnswers` | Saved answers with fully saved sources that cite a location the row covers in the place. |
+| `uncheckedSourceAnswers` | Saved answers whose sources were only partly saved. They are in neither side of the cited count. |
+| `mentioned`, `cited` | True when any answer shows it. False only when every expected answer was checked and none did. Null is not checked, never no. |
+
+`mentioned` reads answer text and `cited` reads sources. Neither is computed from the other.
+In a place, a row covers only the locations it is paired with there, so a market query read for one location counts an answer only when it names or cites that location.
+A simple project is read at project scope only: one row per tracked query, measured when the sweep asked that query with the same text under the same class.
+
+The CLI table prints two glyphs per engine, the mention first, under this legend:
+
+```text
+M mentioned · m not mentioned · C cited · c not cited · - not checked
+```
+
 ## Revision continuity
 
 A label-only publication uses the existing comparable-revision chain.
@@ -252,6 +293,7 @@ Embeds expose measured results, not query publication or saved research administ
 | Action | CLI | MCP |
 | --- | --- | --- |
 | Read assignments | `canonry query workspace <project>` | `canonry_query_tracking_workspace` |
+| Read results per query and engine | `canonry query results <project> [--scope <kind> --scope-key <key>] [--run <id>]` | `canonry_query_tracking_results` |
 | Preview changes | `canonry query preview <project> <json\|->` | `canonry_query_tracking_preview` |
 | Publish changes | `canonry query commit <project> <json\|->` | `canonry_query_tracking_commit` |
 | Read visibility | `canonry measurement-plan visibility <project> [<json\|->]` | `canonry_visibility_report` |
@@ -288,10 +330,10 @@ A setup publish (`draft-action` with `publish`) is refused the same way, unless 
 An advanced preview also returns `limits.queries`: distinct assigned queries now (`current`), after the change (`next`), and the limit (`max`, 1,000).
 `limits.queries.left` is the room under the limit now and after the change (`max` minus each count), and is 0, never negative, for a plan over the limit.
 A commit that grows the plan past the limit returns `400` with `details.check: query-limit-exceeded`. A plan already over the limit may still shrink.
-Preview and commit require write access. Stored workspace and visibility reads do not.
+Preview and commit require write access. Stored workspace, results and visibility reads do not.
 
 The project API prefix is `/api/v1/projects/:name`.
-Its four endpoint suffixes are `/query-tracking`, `/query-tracking/preview`, `/query-tracking/commit`, and `/visibility-report`.
+Its five endpoint suffixes are `/query-tracking`, `/query-tracking/results`, `/query-tracking/preview`, `/query-tracking/commit`, and `/visibility-report`.
 
 Research uses `POST /research/runs` for one run and `POST /research/batches` for reviewed destinations.
 The batch request contains a required `idempotencyKey` and a `runs` array.
