@@ -43,6 +43,7 @@ import {
   type QueryTrackingDiff,
   type QueryTrackingEdit,
   type QueryTrackingLimits,
+  type QueryTrackingMarketChange,
   type QueryTrackingMode,
   type QueryTrackingMutation,
   type QueryTrackingPlacement,
@@ -53,6 +54,7 @@ import {
   type SimpleMeasurementDefinition,
   compareText,
   normalizeIdentityText as normalizeText,
+  sortedUnique,
 } from '@ainyc/canonry-contracts'
 import {
   discoveryProbes,
@@ -162,6 +164,8 @@ interface Candidate {
   mutatedQueryIds: Set<string>
   diff: QueryTrackingDiff
   changes: QueryTrackingQueryChange[]
+  /** Advanced portfolios only; a simple basket has no market. */
+  marketChanges?: QueryTrackingMarketChange[]
   workload: QueryTrackingWorkload
 }
 
@@ -866,7 +870,7 @@ function resolveAudience(plan: MeasurementPlanV2, input: QueryTrackingAudience |
   const groupKeys = unique(input?.groupKeys ?? [])
   const marketKeys = unique(input?.marketKeys ?? [])
   for (const targetKey of unique(input?.targetKeys ?? [])) {
-    if (!targetByKey.has(targetKey)) throw validationError(`Selected Property "${targetKey}" is not in the active plan.`)
+    if (!targetByKey.has(targetKey)) throw validationError(`Selected location "${targetKey}" is not in the active plan.`)
     targetKeys.add(targetKey)
   }
   for (const groupKey of groupKeys) {
@@ -880,7 +884,7 @@ function resolveAudience(plan: MeasurementPlanV2, input: QueryTrackingAudience |
     const scope = marketByKey.get(marketKey)
     if (!scope) throw validationError(`Selected market "${marketKey}" is not in the active plan.`)
     if (hasExplicitTargets && !scope.usageEdges.some(edge => targetKeys.has(edge.targetKey))) {
-      throw validationError(`Market "${marketKey}" has no selected Property.`)
+      throw validationError(`Market "${marketKey}" has no selected location.`)
     }
     for (const edge of scope.usageEdges) {
       marketTargetKeys.add(edge.targetKey)
@@ -890,12 +894,12 @@ function resolveAudience(plan: MeasurementPlanV2, input: QueryTrackingAudience |
   if (hasExplicitTargets && marketKeys.length > 0) {
     for (const targetKey of targetKeys) {
       if (!marketTargetKeys.has(targetKey)) {
-        throw validationError(`Selected Property "${targetKey}" does not belong to any selected market.`)
+        throw validationError(`Selected location "${targetKey}" does not belong to any selected market.`)
       }
     }
   }
   if (targetKeys.size === 0) {
-    throw validationError('Select at least one Property, group, or market for a portfolio query.')
+    throw validationError('Select at least one location, group or market.')
   }
   return {
     targetKeys: [...targetKeys].sort(compareText),
@@ -1055,7 +1059,7 @@ function templateRecords(
       const scope = scopes.get(marketKey)!
       const marketTargets = unique(scope.usageEdges.map(edge => edge.targetKey))
       const selected = audience.targetKeys.filter(targetKey => marketTargets.includes(targetKey))
-      if (selected.length === 0) throw validationError(`Market "${marketKey}" has no selected Property.`)
+      if (selected.length === 0) throw validationError(`Market "${marketKey}" has no selected location.`)
       return selected.map(targetKey => expand(
         { market: scope.label, property: targets.get(targetKey)?.label ?? targetKey },
         { targetKeys: [targetKey], groupKeys: audience.groupKeys, marketKeys: [marketKey] },
@@ -1071,7 +1075,7 @@ function templateRecords(
   return audience.marketKeys.map(marketKey => {
     const scope = scopes.get(marketKey)!
     const targetKeys = audience.targetKeys.filter(targetKey => scope.usageEdges.some(edge => edge.targetKey === targetKey))
-    if (targetKeys.length === 0) throw validationError(`Market "${marketKey}" has no selected Property.`)
+    if (targetKeys.length === 0) throw validationError(`Market "${marketKey}" has no selected location.`)
     return expand({ market: scope.label }, { targetKeys, groupKeys: audience.groupKeys, marketKeys: [marketKey] })
   })
 }
@@ -1277,6 +1281,35 @@ function queryChanges(
     before: placedBefore(row.queryId),
     after: placedAfter(row.queryId),
   })))
+}
+
+/**
+ * One row per market whose locations differ between the active plan and the
+ * candidate. A market stores no member list: its locations are the targets its
+ * usage edges name. A removal drops edges, `pruneReportingScopes` keeps the
+ * emptied market, and `resolveAudience` refuses every later addition to a
+ * market with no edge. Query tracking never adds or drops a market, so the
+ * active plan lists them all.
+ */
+function marketChanges(before: MeasurementPlanV2, after: MeasurementPlanV2): QueryTrackingMarketChange[] {
+  const membersOf = (plan: MeasurementPlanV2) => new Map((plan.reportingScopes ?? []).map(scope => [
+    scope.stableKey,
+    sortedUnique(scope.usageEdges.map(edge => edge.targetKey)),
+  ]))
+  const membersAfter = membersOf(after)
+  return [...membersOf(before)].flatMap(([marketKey, targetKeys]) => {
+    const remaining = membersAfter.get(marketKey) ?? []
+    const kept = new Set(remaining)
+    const removedTargetKeys = targetKeys.filter(targetKey => !kept.has(targetKey))
+    if (removedTargetKeys.length === 0 && remaining.length === targetKeys.length) return []
+    return [{
+      marketKey,
+      before: { targetKeys },
+      after: { targetKeys: remaining },
+      removedTargetKeys,
+      emptied: remaining.length === 0,
+    }]
+  }).sort((left, right) => compareText(left.marketKey, right.marketKey))
 }
 
 type CandidateQueryRow = { id: string; query: string; provenance: string | null }
@@ -1493,7 +1526,7 @@ function applyOperatorClass(
     if (assignment.queryClass !== queryClass || assignment.classificationSource !== 'operator') {
       if (marketKeys?.size && (plan.reportingScopes ?? []).some(scope => !marketKeys.has(scope.stableKey)
         && scope.usageEdges.some(edge => edgeKey(edge) === edgeKey(assignment)))) {
-        throw validationError('This assignment is shared with another market. Change its classification from the Property or Whole site scope.')
+        throw validationError('This query is shared with another market. Change its type for every location instead.')
       }
       assignment.queryClass = queryClass
       assignment.classificationSource = 'operator'
@@ -1762,7 +1795,7 @@ function addAdvancedSource(
   const targets = new Map(plan.targets.map(target => [target.stableKey, target]))
   for (const targetKey of source.audience.targetKeys) {
     const target = targets.get(targetKey)
-    if (!target) throw validationError(`Selected Property "${targetKey}" is not in the active plan.`)
+    if (!target) throw validationError(`Selected location "${targetKey}" is not in the active plan.`)
     const existing = plan.assignments.filter(assignment => assignment.queryId === queryId && assignment.targetKey === targetKey)
     const existingClass = existing.at(0)?.queryClass
     const existingSource = existing.at(0)?.classificationSource
@@ -1872,7 +1905,7 @@ function applyAdvancedEdit(
     for (const record of records) {
       if (record.assignment.queryClass === record.queryClass && record.assignment.classificationSource === record.classificationSource) continue
       if (marketKeys.size > 0 && record.scopes.some(scope => !marketKeys.has(scope.stableKey))) {
-        throw validationError('This assignment is shared with another market. Change its classification from the Property or Whole site scope.')
+        throw validationError('This query is shared with another market. Change its type for every location instead.')
       }
       record.assignment.queryClass = record.queryClass
       record.assignment.classificationSource = record.classificationSource
@@ -1949,7 +1982,9 @@ function buildAdvancedCandidate(
   for (const removal of mutation.removals) {
     const queryId = resolveMutationQueryId(state, plan, rows, removal)
     if (!queryId) continue
-    const before = canonicalMeasurementPlanV2Json(plan)
+    // Both removal helpers return the plan they were given when nothing matched,
+    // so identity tells a change apart without serializing the plan per removal.
+    const before = plan
     if (removal.audience?.marketKeys?.length) {
       const audience = resolveAudience(active.plan, removal.audience)
       plan = removeMarketMembership(plan, queryId, new Set(audience.targetKeys), new Set(audience.marketKeys))
@@ -1963,7 +1998,7 @@ function buildAdvancedCandidate(
       // assignments, if any.
       if (removal.audience === undefined) fullRemovals.add(queryId)
     }
-    if (canonicalMeasurementPlanV2Json(plan) !== before) {
+    if (plan !== before) {
       mutatedQueryIds.add(queryId)
       if (removal.audience !== undefined) scopedRemovalQueryIds.add(queryId)
     }
@@ -2002,6 +2037,7 @@ function buildAdvancedCandidate(
     mutatedQueryIds,
     diff,
     changes: queryChanges(active.plan, plan, diff),
+    marketChanges: marketChanges(active.plan, plan),
     workload: workloadDiff(advancedWorkload(active.plan), advancedWorkload(plan)),
   }
 }
@@ -2166,6 +2202,7 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
       tracked: trackedRows(app.db, state, candidate.queryRows, candidate.plan, opts),
       diff: candidate.diff,
       changes: candidate.changes,
+      ...(candidate.marketChanges ? { marketChanges: candidate.marketChanges } : {}),
       workload: candidate.workload,
       ...(limits ? { limits } : {}),
     })
