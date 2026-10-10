@@ -46,16 +46,17 @@ export const queryTrackingTemplateProvenanceSchema = z.object({
 }).strict()
 export type QueryTrackingTemplateProvenance = z.output<typeof queryTrackingTemplateProvenanceSchema>
 
-/** Frozen source metadata carried by a workspace row and a published v2 snapshot. */
+/**
+ * Frozen source metadata carried by a workspace row and a published v2 snapshot.
+ * A template row may lack its record: a plan published before query control
+ * froze it keeps only the source.
+ */
 export const queryTrackingProvenanceSchema = z.object({
   source: z.enum(['manual', 'query-set', 'template', 'research', 'discovery']),
   sourceId: queryTrackingIdSchema.nullable(),
   capturedAt: z.string().datetime(),
   template: queryTrackingTemplateProvenanceSchema.optional(),
 }).strict().superRefine((value, ctx) => {
-  if (value.source === 'template' && value.template === undefined) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['template'], message: 'Template provenance is required for a template query.' })
-  }
   if (value.source !== 'template' && value.template !== undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['template'], message: 'Only a template query may carry template provenance.' })
   }
@@ -160,25 +161,69 @@ export const queryTrackingCommitRequestSchema = queryTrackingPreviewRequestSchem
 }).strict()
 export type QueryTrackingCommitRequest = z.output<typeof queryTrackingCommitRequestSchema>
 
+const countSchema = z.number().int().nonnegative()
+
+/**
+ * A place's own numbers, counted by the server from the tracked rows' `focus`.
+ * `answersPerSweep` counts each execution the place uses once, so places
+ * sharing an execution do not add up to the project total.
+ */
+export const queryTrackingTargetCountsSchema = z.object({
+  /** Rows whose Subject is this location. */
+  propertyQueries: countSchema,
+  /** Rows whose Subject is a market holding this location. */
+  marketQueries: countSchema,
+  /** Hand-picked rows paired with this location. */
+  customQueries: countSchema,
+  answersPerSweep: countSchema,
+}).strict()
+export type QueryTrackingTargetCounts = z.output<typeof queryTrackingTargetCountsSchema>
+
 export const queryTrackingTargetSchema = z.object({
   stableKey: measurementV2StableKeySchema,
   label: z.string().trim().min(1),
+  /** Markets holding a usage edge for this location. Optional, as `counts`, for a server that predates them. */
+  marketKeys: z.array(measurementV2StableKeySchema).optional(),
+  counts: queryTrackingTargetCountsSchema.optional(),
 }).strict()
 export type QueryTrackingTarget = z.output<typeof queryTrackingTargetSchema>
+
+export const queryTrackingGroupCountsSchema = z.object({
+  /** Distinct queries paired with a member location. */
+  queries: countSchema,
+  /** Markets whose `groupKey` is this group. */
+  markets: countSchema,
+  answersPerSweep: countSchema,
+}).strict()
+export type QueryTrackingGroupCounts = z.output<typeof queryTrackingGroupCountsSchema>
 
 export const queryTrackingGroupSchema = z.object({
   stableKey: measurementV2StableKeySchema,
   parentGroupKey: measurementV2StableKeySchema.optional(),
   label: z.string().trim().min(1),
   targetKeys: z.array(measurementV2StableKeySchema),
+  /** Optional so a client tolerates a server that predates it. */
+  counts: queryTrackingGroupCountsSchema.optional(),
 }).strict()
 export type QueryTrackingGroup = z.output<typeof queryTrackingGroupSchema>
+
+export const queryTrackingMarketCountsSchema = z.object({
+  /** Rows whose Subject is this market. */
+  marketQueries: countSchema,
+  /** Rows whose Subject is one of this market's locations. */
+  propertyQueries: countSchema,
+  answersPerSweep: countSchema,
+}).strict()
+export type QueryTrackingMarketCounts = z.output<typeof queryTrackingMarketCountsSchema>
 
 export const queryTrackingMarketSchema = z.object({
   stableKey: measurementV2StableKeySchema,
   groupKey: measurementV2StableKeySchema.optional(),
   label: z.string().trim().min(1),
   usageEdges: z.array(measurementV2UsageEdgeSchema),
+  /** Distinct locations named by `usageEdges`. Optional, as `counts`, for a server that predates them. */
+  targetKeys: z.array(measurementV2StableKeySchema).optional(),
+  counts: queryTrackingMarketCountsSchema.optional(),
 }).strict()
 export type QueryTrackingMarket = z.output<typeof queryTrackingMarketSchema>
 
@@ -218,6 +263,12 @@ export const queryTrackingTrackedRowSchema = z.object({
   assignments: z.array(queryTrackingAssignmentSchema),
   /** Optional so a client tolerates a server that predates it. This server always sets it. */
   focus: queryTrackingFocusSchema.optional(),
+  /**
+   * The row's Type: its distinct assignment classes, sorted. Two mean mixed,
+   * none means not set. A simple site's row carries the project classifier's
+   * one class. Optional like `focus`.
+   */
+  queryClasses: z.array(queryClassSchema).optional(),
 }).strict()
 export type QueryTrackingTrackedRow = z.output<typeof queryTrackingTrackedRowSchema>
 
@@ -236,6 +287,64 @@ export const queryTrackingDiscoveryCandidateSchema = z.object({
   createdAt: z.string().datetime(),
 }).strict()
 export type QueryTrackingDiscoveryCandidate = z.output<typeof queryTrackingDiscoveryCandidateSchema>
+
+/**
+ * Workspace totals, counted by the server so no client recounts rows.
+ * `byClass` and `byFocus` each add up to `asked`; `asked + notAsked` is the
+ * number of tracked rows. Branded and non-brand stay separate counts.
+ */
+export const queryTrackingSummarySchema = z.object({
+  /** Rows with at least one pairing. Every row on a simple site. */
+  asked: countSchema,
+  notAsked: countSchema,
+  /** Asked rows by Type: one class, both (`mixed`), or none (`unknown`). */
+  byClass: z.object({
+    branded: countSchema,
+    nonBrand: countSchema,
+    mixed: countSchema,
+    unknown: countSchema,
+  }).strict(),
+  /** Asked rows by Subject (`focus.kind`). */
+  byFocus: z.object({
+    market: countSchema,
+    property: countSchema,
+    company: countSchema,
+    custom: countSchema,
+  }).strict(),
+  /** Plan assignments, the unit of a diff row's `assignmentCount`. All zero on a simple site. */
+  assignments: z.object({
+    total: countSchema,
+    branded: countSchema,
+    nonBrand: countSchema,
+    unknown: countSchema,
+  }).strict(),
+  /** Provider answers one sweep asks for: a no-op preview's `workload.existingProviderCalls`. */
+  answersPerSweep: countSchema,
+  structure: z.object({
+    targets: countSchema,
+    markets: countSchema,
+    groups: countSchema,
+    topLevelGroups: countSchema,
+    /** Distinct competitor domains across groups. */
+    competitors: countSchema,
+  }).strict(),
+}).strict()
+export type QueryTrackingSummary = z.output<typeof queryTrackingSummarySchema>
+
+/** Distinct queries the plan assigns now and after the change, against the server limit. */
+export const queryTrackingLimitsSchema = z.object({
+  queries: z.object({
+    current: countSchema,
+    next: countSchema,
+    max: z.number().int().positive(),
+    /** `max` minus each count, never below zero. Optional so a client tolerates a server that predates it. */
+    left: z.object({
+      current: countSchema,
+      next: countSchema,
+    }).strict().optional(),
+  }).strict(),
+}).strict()
+export type QueryTrackingLimits = z.output<typeof queryTrackingLimitsSchema>
 
 export const queryTrackingWorkspaceResponseSchema = z.object({
   mode: queryTrackingModeSchema,
@@ -258,6 +367,10 @@ export const queryTrackingWorkspaceResponseSchema = z.object({
     research: z.array(queryTrackingResearchCandidateSchema),
     discovery: z.array(queryTrackingDiscoveryCandidateSchema),
   }).strict(),
+  /** Optional so a client tolerates a server that predates it. This server always sets it. */
+  summary: queryTrackingSummarySchema.optional(),
+  /** Advanced portfolios only, with `next` equal to `current`. Optional like `summary`. */
+  limits: queryTrackingLimitsSchema.optional(),
 }).strict()
 export type QueryTrackingWorkspaceResponse = z.output<typeof queryTrackingWorkspaceResponseSchema>
 
@@ -308,16 +421,6 @@ export const queryTrackingWorkloadSchema = z.object({
   removedProviderCalls: z.number().int().nonnegative(),
 }).strict()
 export type QueryTrackingWorkload = z.output<typeof queryTrackingWorkloadSchema>
-
-/** Distinct queries the plan assigns now and after the change, against the server limit. */
-export const queryTrackingLimitsSchema = z.object({
-  queries: z.object({
-    current: z.number().int().nonnegative(),
-    next: z.number().int().nonnegative(),
-    max: z.number().int().positive(),
-  }).strict(),
-}).strict()
-export type QueryTrackingLimits = z.output<typeof queryTrackingLimitsSchema>
 
 export const queryTrackingPreviewResponseSchema = z.object({
   mode: queryTrackingModeSchema,

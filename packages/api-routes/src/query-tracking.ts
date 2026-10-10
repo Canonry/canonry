@@ -48,7 +48,6 @@ import {
   type QueryTrackingPlacement,
   type QueryTrackingProvenance,
   type QueryTrackingQueryChange,
-  type QueryTrackingTrackedRow,
   type QueryTrackingWorkload,
   type QueryTrackingWorkspaceResponse,
   type SimpleMeasurementDefinition,
@@ -95,6 +94,7 @@ import {
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
 import { planScopeOptions, simpleScopeOptions } from './measurement-scope-options.js'
 import { planQueryFocus } from './query-focus.js'
+import { distinctQueryClasses, planPlaceCounts, queryLimitCounts, trackingSummary, type SummarizedRow } from './query-tracking-summary.js'
 import { assertNoActivePlanlessSweep, assertNoActiveSweep, preserveSnapshotQueryText, replaceProjectQueries } from './query-replace.js'
 import { resolveRunProviderSelection } from './run-queue.js'
 import type { ProviderSummaryEntry } from './settings.js'
@@ -696,9 +696,11 @@ function trackedRows(
   queryRows: ReadonlyMap<string, { id: string; query: string; provenance: string | null }>,
   plan: MeasurementPlanV2 | null,
   opts: QueryTrackingRoutesOptions,
-): QueryTrackingTrackedRow[] {
+): SummarizedRow[] {
   const measured = measuredAtByQuery(db, state, opts)
   if (!plan) {
+    // No usable brand identity leaves the class unset rather than guessing non-brand.
+    const classifier = compileQueryClassifier(effectiveBrandNames(state.project))
     return [...queryRows.values()]
       .map(row => ({
         queryId: row.id,
@@ -709,6 +711,7 @@ function trackedRows(
         lastMeasuredAt: measured.get(row.id) ?? null,
         assignments: [],
         focus: { kind: 'company' as const },
+        queryClasses: classifier ? [classifier.classify(row.query)] : [],
       }))
       .sort((left, right) => compareText(left.normalizedText, right.normalizedText) || compareText(left.queryId, right.queryId))
   }
@@ -726,6 +729,12 @@ function trackedRows(
   }
   const marketsByEdge = marketKeysByEdge(plan)
   const focusOf = planQueryFocus(plan)
+  const assignmentsByQuery = new Map<string, MeasurementPlanV2['assignments']>()
+  for (const assignment of plan.assignments) {
+    const assigned = assignmentsByQuery.get(assignment.queryId)
+    if (assigned) assigned.push(assignment)
+    else assignmentsByQuery.set(assignment.queryId, [assignment])
+  }
   return allIds.map(queryId => {
     const snapshot = snapshots.get(queryId)
     const row = queryRows.get(queryId)
@@ -741,9 +750,12 @@ function trackedRows(
       classificationSource: 'frozen' | 'server' | 'operator'
       contexts: MeasurementV2ExecutionContext[]
     }>()
-    for (const assignment of plan.assignments.filter(candidate => candidate.queryId === queryId)) {
+    // One location can hold both classes across its search locations, so read every assignment.
+    const classes: QueryClass[] = []
+    for (const assignment of assignmentsByQuery.get(queryId) ?? []) {
       const node = nodes.get(assignment.executionNodeKey)
       if (!node) continue
+      classes.push(assignment.queryClass)
       const existing = assignments.get(assignment.targetKey)
       const edgeKey = measurementV2UsageEdgeKey({
         executionNodeKey: assignment.executionNodeKey,
@@ -780,6 +792,7 @@ function trackedRows(
         }))
         .sort((left, right) => compareText(left.targetKey, right.targetKey)),
       focus: focusOf(queryId),
+      queryClasses: distinctQueryClasses(classes),
     }
   }).sort((left, right) => compareText(left.normalizedText, right.normalizedText) || compareText(left.queryId, right.queryId))
 }
@@ -813,21 +826,28 @@ function savedSources(db: DbLike, projectId: string) {
 function workspaceDto(db: DbLike, state: WorkspaceState, opts: QueryTrackingRoutesOptions): QueryTrackingWorkspaceResponse {
   const plan = state.active?.plan ?? null
   const rows = new Map(state.queryRows.map(row => [row.id, row]))
+  const tracked = trackedRows(db, state, rows, plan, opts)
+  const places = plan ? planPlaceCounts(plan, tracked) : null
+  const assigned = plan ? assignedQueryCount(plan) : null
   return queryTrackingWorkspaceResponseSchema.parse({
     mode: state.mode,
     workspaceVersion: state.workspaceVersion,
     active: activeDto(state.active),
     defaultContexts: defaultContexts(state.project, opts, state.mode),
-    targets: plan?.targets.map(target => ({ stableKey: target.stableKey, label: target.label })) ?? [],
+    targets: plan?.targets.map(target => ({ stableKey: target.stableKey, label: target.label, ...places?.targets.get(target.stableKey) })) ?? [],
     groups: plan?.groups.map(group => ({
       stableKey: group.stableKey, label: group.label, targetKeys: group.targetKeys,
       ...(group.parentGroupKey ? { parentGroupKey: group.parentGroupKey } : {}),
+      ...places?.groups.get(group.stableKey),
     })) ?? [],
-    markets: plan?.reportingScopes?.map(scope => ({ stableKey: scope.stableKey, label: scope.label, usageEdges: scope.usageEdges, ...(scope.groupKey ? { groupKey: scope.groupKey } : {}) })) ?? [],
+    markets: plan?.reportingScopes?.map(scope => ({ stableKey: scope.stableKey, label: scope.label, usageEdges: scope.usageEdges, ...(scope.groupKey ? { groupKey: scope.groupKey } : {}), ...places?.markets.get(scope.stableKey) })) ?? [],
     // Tracked assignments have no market intersection, so Groups and Properties carry no market links.
     scopeOptions: plan ? planScopeOptions(plan, { marketLinks: false }) : simpleScopeOptions(),
-    tracked: trackedRows(db, state, rows, plan, opts),
+    tracked,
     savedSources: savedSources(db, state.project.id),
+    summary: trackingSummary(tracked, plan, plan ? advancedWorkload(plan) : simpleWorkload(state.project, rows, opts)),
+    // A read changes nothing, so `next` repeats `current`. A simple basket has no limit.
+    ...(assigned === null ? {} : { limits: queryLimitCounts(assigned, assigned, MEASUREMENT_DRAFT_MAX_QUERIES) }),
   })
 }
 
@@ -1996,13 +2016,11 @@ function assignedQueryCount(plan: MeasurementPlanV2): number {
  */
 function queryLimits(candidate: Candidate): QueryTrackingLimits | undefined {
   if (!candidate.state.active || !candidate.plan) return undefined
-  return {
-    queries: {
-      current: assignedQueryCount(candidate.state.active.plan),
-      next: assignedQueryCount(candidate.plan),
-      max: MEASUREMENT_DRAFT_MAX_QUERIES,
-    },
-  }
+  return queryLimitCounts(
+    assignedQueryCount(candidate.state.active.plan),
+    assignedQueryCount(candidate.plan),
+    MEASUREMENT_DRAFT_MAX_QUERIES,
+  )
 }
 
 /** A plan already over the limit may still shrink, but no change may grow it past the limit. */

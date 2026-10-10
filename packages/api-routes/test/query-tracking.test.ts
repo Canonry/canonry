@@ -655,9 +655,10 @@ describe('query tracking workspace: advanced portfolios', () => {
       groups.push({ stableKey: 'metro', label: 'Metro', targetKeys: ['harbor-point'], competitors: [] })
     })
     const current = await workspace()
+    const counts = { queries: 1, markets: 0, answersPerSweep: 3 }
     expect(current.groups).toEqual([
-      { stableKey: 'metro', label: 'Metro', targetKeys: ['harbor-point'] },
-      { stableKey: 'northbridge', label: 'Northbridge', targetKeys: ['harbor-point'], parentGroupKey: 'metro' },
+      { stableKey: 'metro', label: 'Metro', targetKeys: ['harbor-point'], counts },
+      { stableKey: 'northbridge', label: 'Northbridge', targetKeys: ['harbor-point'], parentGroupKey: 'metro', counts },
     ])
   })
 
@@ -1498,9 +1499,9 @@ describe('query tracking guards: query limit', () => {
       expectedWorkspaceVersion: advanced.workspaceVersion,
       additions: [marketAddition('apartments near a park'), marketAddition('apartments near a library')], removals: [],
     })
-    expect(added.limits).toEqual({ queries: { current: 1, next: 3, max: 1_000 } })
+    expect(added.limits).toEqual({ queries: { current: 1, next: 3, max: 1_000, left: { current: 999, next: 997 } } })
     const removed = await preview({ expectedWorkspaceVersion: advanced.workspaceVersion, additions: [], removals: [{ queryId: 'q-existing' }] })
-    expect(removed.limits).toEqual({ queries: { current: 1, next: 0, max: 1_000 } })
+    expect(removed.limits).toEqual({ queries: { current: 1, next: 0, max: 1_000, left: { current: 999, next: 1_000 } } })
   })
 
   it('commits a change that reaches exactly 1,000 queries and refuses one more', async () => {
@@ -1508,7 +1509,7 @@ describe('query tracking guards: query limit', () => {
     const atLimit = await reviewed({
       expectedWorkspaceVersion: (await workspace()).workspaceVersion, additions: [marketAddition('apartments near a park')], removals: [],
     })
-    expect(atLimit.review.limits).toEqual({ queries: { current: 999, next: 1_000, max: 1_000 } })
+    expect(atLimit.review.limits).toEqual({ queries: { current: 999, next: 1_000, max: 1_000, left: { current: 1, next: 0 } } })
     const committed = await commit(atLimit.payload)
     expect(committed.statusCode, committed.body).toBe(200)
     expect(committed.json()).toMatchObject({ committed: true, active: { revision: 2 } })
@@ -1516,7 +1517,7 @@ describe('query tracking guards: query limit', () => {
     const overLimit = await reviewed({
       expectedWorkspaceVersion: (await workspace()).workspaceVersion, additions: [marketAddition('apartments near a library')], removals: [],
     })
-    expect(overLimit.review.limits).toEqual({ queries: { current: 1_000, next: 1_001, max: 1_000 } })
+    expect(overLimit.review.limits).toEqual({ queries: { current: 1_000, next: 1_001, max: 1_000, left: { current: 0, next: 0 } } })
     const refused = await commit(overLimit.payload)
     expect(refused.statusCode, refused.body).toBe(400)
     expect(refused.json()).toEqual({
@@ -1536,7 +1537,7 @@ describe('query tracking guards: query limit', () => {
     const shrink = await reviewed({
       expectedWorkspaceVersion: (await workspace()).workspaceVersion, additions: [], removals: [{ queryId: 'q-fill-0' }],
     })
-    expect(shrink.review.limits).toEqual({ queries: { current: 1_002, next: 1_001, max: 1_000 } })
+    expect(shrink.review.limits).toEqual({ queries: { current: 1_002, next: 1_001, max: 1_000, left: { current: 0, next: 0 } } })
     const committed = await commit(shrink.payload)
     expect(committed.statusCode, committed.body).toBe(200)
     expect(new Set(activeV2Plan().plan.assignments.map(row => row.queryId)).size).toBe(1_001)

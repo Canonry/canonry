@@ -1544,12 +1544,24 @@ export type QueryTrackingWorkspaceResponse = {
     targets: Array<{
         stableKey: string;
         label: string;
+        marketKeys?: Array<string>;
+        counts?: {
+            propertyQueries: number;
+            marketQueries: number;
+            customQueries: number;
+            answersPerSweep: number;
+        };
     }>;
     groups: Array<{
         stableKey: string;
         parentGroupKey?: string;
         label: string;
         targetKeys: Array<string>;
+        counts?: {
+            queries: number;
+            markets: number;
+            answersPerSweep: number;
+        };
     }>;
     markets: Array<{
         stableKey: string;
@@ -1560,6 +1572,12 @@ export type QueryTrackingWorkspaceResponse = {
             targetKey: string;
             queryId: string;
         }>;
+        targetKeys?: Array<string>;
+        counts?: {
+            marketQueries: number;
+            propertyQueries: number;
+            answersPerSweep: number;
+        };
     }>;
     scopeOptions?: Array<{
         id: string;
@@ -1622,6 +1640,7 @@ export type QueryTrackingWorkspaceResponse = {
         } | {
             kind: 'not-asked';
         };
+        queryClasses?: Array<'branded' | 'non-brand'>;
     }>;
     savedSources: {
         research: Array<{
@@ -1636,6 +1655,47 @@ export type QueryTrackingWorkspaceResponse = {
             queryText: string;
             createdAt: string;
         }>;
+    };
+    summary?: {
+        asked: number;
+        notAsked: number;
+        byClass: {
+            branded: number;
+            nonBrand: number;
+            mixed: number;
+            unknown: number;
+        };
+        byFocus: {
+            market: number;
+            property: number;
+            company: number;
+            custom: number;
+        };
+        assignments: {
+            total: number;
+            branded: number;
+            nonBrand: number;
+            unknown: number;
+        };
+        answersPerSweep: number;
+        structure: {
+            targets: number;
+            markets: number;
+            groups: number;
+            topLevelGroups: number;
+            competitors: number;
+        };
+    };
+    limits?: {
+        queries: {
+            current: number;
+            next: number;
+            max: number;
+            left?: {
+                current: number;
+                next: number;
+            };
+        };
     };
 };
 
@@ -1754,6 +1814,7 @@ export type QueryTrackingPreviewResponse = {
         } | {
             kind: 'not-asked';
         };
+        queryClasses?: Array<'branded' | 'non-brand'>;
     }>;
     diff: {
         added: Array<{
@@ -1806,6 +1867,10 @@ export type QueryTrackingPreviewResponse = {
             current: number;
             next: number;
             max: number;
+            left?: {
+                current: number;
+                next: number;
+            };
         };
     };
 };
