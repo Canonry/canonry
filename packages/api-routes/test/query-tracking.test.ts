@@ -905,6 +905,34 @@ describe('query tracking workspace: advanced portfolios', () => {
     expect(db.select().from(measurementPlanVersions).all()).toHaveLength(1)
   })
 
+  it('gives one Property each selected market\'s frozen contexts when the request names none', async () => {
+    seedMultiMarketPlan()
+    const original = activeV2Plan().version
+    const current = await workspace()
+    // What the web Add queries sheet sends for a location that already has queries in two markets.
+    const mutation = {
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{ input: additionSource(null), audience: { targetKeys: ['harbor-point'], marketKeys: ['alpha-market', 'beta-market'] } }],
+      removals: [],
+    }
+    const review = await preview(mutation)
+    const added = review.tracked.find(row => row.queryText === 'apartments with a rooftop terrace')!
+    expect(added.assignments.map(row => [row.targetKey, [...row.marketKeys].sort()])).toEqual([['harbor-point', ['alpha-market', 'beta-market']]])
+    // Alpha asks openai at alpha; Beta asks gemini and openai at beta.
+    expect(review.workload.addedProviderCalls).toBe(3)
+    const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
+    expect(response.statusCode, response.body).toBe(200)
+    const { plan } = activeV2Plan()
+    const nodes = new Map(plan.executionNodes.map(node => [node.stableKey, node]))
+    // One edge per market, each on that market's own search location.
+    expect((plan.reportingScopes ?? []).map(market => [
+      market.stableKey,
+      market.usageEdges.filter(edge => edge.queryId === added.queryId).map(edge => [edge.targetKey, nodes.get(edge.executionNodeKey)?.context.location?.label]),
+    ])).toEqual([['alpha-market', [['harbor-point', 'alpha']]], ['beta-market', [['harbor-point', 'beta']]]])
+    expect(db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.id, original.id)).get()).toEqual(original)
+    expect(db.select().from(runs).all()).toHaveLength(0)
+  })
+
   it('partitions explicit contexts by frozen market membership and rejects incompatible contexts', async () => {
     seedMultiMarketPlan()
     const current = await workspace()

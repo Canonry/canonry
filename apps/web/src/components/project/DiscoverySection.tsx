@@ -37,7 +37,7 @@ import { Button } from '../ui/button.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
-import { AddQueriesSheet } from './AddQueriesSheet.js'
+import { AddQueriesSheet, LOCATION_NOUN } from './AddQueriesSheet.js'
 import { ResearchQueriesSection, type ResearchTemplateOption } from './ResearchQueriesSection.js'
 import { DataTablePagination, DataTableSearch, useClientTable } from '../shared/DataTableControls.js'
 import { canUseResearchWorkspace, effectiveQueryWorkspace, unavailableTrackingScope, type QueryWorkspace } from '../../lib/project-scope.js'
@@ -542,7 +542,7 @@ function TrackedQueriesWorkspace({
           renderReview={review => {
             const sweepActive = publishGuard?.sweepActive ?? false
             return {
-              changes: <TrackingPreview {...review} workspace={workspace} sweepActive={sweepActive} showActions={false} />,
+              changes: <TrackingPreview {...review} workspace={workspace} sweepActive={sweepActive} showActions={false} propertyNoun={LOCATION_NOUN} />,
               actions: <TrackingPreviewActions {...review} sweepActive={sweepActive} />,
             }
           }}
@@ -748,6 +748,7 @@ function assignmentScopeLabel(
   row: QueryTrackingTrackedRow,
   workspace: QueryTrackingWorkspaceResponse,
   selection?: NonNullable<QueriesSectionProps['selection']>,
+  properties = 'properties',
 ): string {
   const targetLabels = new Map(workspace.targets.map(target => [target.stableKey, target.label]))
   const groupLabels = new Map(workspace.groups.map(group => [group.stableKey, group.label]))
@@ -777,7 +778,7 @@ function assignmentScopeLabel(
   const propertyScope = selection?.measurementScope === 'property' && allTargetKeys.has(selection.measurementScopeKey ?? '')
   const parts = propertyScope
     ? allTargetKeys.size === 1 ? ['This property only'] : ['This property', `Shared with ${allTargetKeys.size - 1} other ${allTargetKeys.size === 2 ? 'property' : 'properties'}`]
-    : relevantTargetKeys.size === 1 ? [targetLabels.get([...relevantTargetKeys][0]!) ?? [...relevantTargetKeys][0]!] : [`${relevantTargetKeys.size} properties`]
+    : relevantTargetKeys.size === 1 ? [targetLabels.get([...relevantTargetKeys][0]!) ?? [...relevantTargetKeys][0]!] : [`${relevantTargetKeys.size} ${properties}`]
   const group = groupKeys.size === 1 ? groupLabels.get([...groupKeys][0]!) ?? [...groupKeys][0]! : null
   const market = marketKeys.size === 1 ? marketLabels.get([...marketKeys][0]!) ?? [...marketKeys][0]! : null
   if (group && market && group === market) parts.push(`${group} (group and market)`)
@@ -1299,6 +1300,7 @@ function TrackingPreview({
   sweepActive,
   onConfirm,
   showActions = true,
+  propertyNoun = ['property', 'properties'],
 }: {
   preview: QueryTrackingPreviewResponse
   workspace: QueryTrackingWorkspaceResponse
@@ -1307,6 +1309,8 @@ function TrackingPreview({
   onConfirm: () => void
   /** False when the caller draws `TrackingPreviewActions` itself, outside the scrolling list. */
   showActions?: boolean
+  /** What a Property is called in this review, singular then plural. The Add queries sheet says location. */
+  propertyNoun?: readonly [singular: string, plural: string]
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
@@ -1339,11 +1343,11 @@ function TrackingPreview({
         <ToneBadge tone={hasChanges ? 'caution' : 'neutral'} className="sm:shrink-0 sm:whitespace-nowrap">{hasChanges ? 'Ready to confirm' : 'No-op'}</ToneBadge>
       </div>
       {changed.length > 0 ? <div className="mt-4 space-y-4">
-        {changed.map(group => <PreviewChangeList key={group.label} label={group.label} rows={group.rows} workspace={workspace} tracked={preview.tracked} />)}
+        {changed.map(group => <PreviewChangeList key={group.label} label={group.label} rows={group.rows} workspace={workspace} tracked={preview.tracked} propertyNoun={propertyNoun} />)}
       </div> : null}
       {preview.diff.unchanged.length > 0 ? <details className="mt-4 border-t border-default pt-2 text-sm text-secondary">
         <summary className="min-h-11 cursor-pointer py-3">{preview.diff.unchanged.length} unchanged {preview.diff.unchanged.length === 1 ? 'query' : 'queries'}</summary>
-        <PreviewChangeList label="Unchanged" rows={preview.diff.unchanged} workspace={workspace} tracked={preview.tracked} />
+        <PreviewChangeList label="Unchanged" rows={preview.diff.unchanged} workspace={workspace} tracked={preview.tracked} propertyNoun={propertyNoun} />
       </details> : null}
       {showActions ? <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-default pt-4">
         <TrackingPreviewActions preview={preview} isCommitting={isCommitting} sweepActive={sweepActive} onConfirm={onConfirm} />
@@ -1398,11 +1402,13 @@ function PreviewChangeList({
   rows,
   workspace,
   tracked,
+  propertyNoun,
 }: {
   label: string
   rows: QueryTrackingPreviewResponse['diff']['added']
   workspace: QueryTrackingWorkspaceResponse
   tracked: readonly QueryTrackingTrackedRow[]
+  propertyNoun: readonly [singular: string, plural: string]
 }) {
   return (
     <section aria-label={`${label} queries`}>
@@ -1413,20 +1419,20 @@ function PreviewChangeList({
           <p className="mt-1 text-secondary">{label === 'Removed'
             // `tracked` is the post-change state, so its scopes describe what survives.
             ? `${row.assignmentCount} ${row.assignmentCount === 1 ? 'assignment' : 'assignments'} removed`
-            : previewRowDetail(row, tracked, workspace)}</p>
-          {label === 'Added' || label === 'Reused' ? <PreviewClassifications row={tracked.find(candidate => candidate.queryId === row.queryId)} workspace={workspace} /> : null}
+            : previewRowDetail(row, tracked, workspace, propertyNoun[1])}</p>
+          {label === 'Added' || label === 'Reused' ? <PreviewClassifications row={tracked.find(candidate => candidate.queryId === row.queryId)} workspace={workspace} propertyNoun={propertyNoun} /> : null}
         </li>)}
       </ul>
     </section>
   )
 }
 
-function PreviewClassifications({ row, workspace }: { row?: QueryTrackingTrackedRow; workspace: QueryTrackingWorkspaceResponse }) {
+function PreviewClassifications({ row, workspace, propertyNoun: [noun, nouns] }: { row?: QueryTrackingTrackedRow; workspace: QueryTrackingWorkspaceResponse; propertyNoun: readonly [singular: string, plural: string] }) {
   if (!row?.assignments.length) return null
   const propertyCount = new Set(row.assignments.map(assignment => assignment.targetKey)).size
   return (
     <details className="mt-2 text-secondary">
-      <summary className="min-h-11 cursor-pointer py-3 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500">Classifications · {propertyCount} {propertyCount === 1 ? 'property' : 'properties'}</summary>
+      <summary className="min-h-11 cursor-pointer py-3 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500">Classifications · {propertyCount} {propertyCount === 1 ? noun : nouns}</summary>
       <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto">
         {row.assignments.map((assignment, index) => {
           const target = workspace.targets.find(candidate => candidate.stableKey === assignment.targetKey)?.label ?? assignment.targetKey
@@ -1443,6 +1449,7 @@ function previewRowDetail(
   row: QueryTrackingPreviewResponse['diff']['added'][number],
   tracked: readonly QueryTrackingTrackedRow[],
   workspace: QueryTrackingWorkspaceResponse,
+  properties: string,
 ): string {
   const resolved = tracked.find(candidate => candidate.queryId === row.queryId)
   if (!resolved) return `${row.assignmentCount} ${row.assignmentCount === 1 ? 'assignment' : 'assignments'}`
@@ -1450,7 +1457,7 @@ function previewRowDetail(
   const context = contexts.length === 1
     ? contextLabel(contexts[0]!)
     : contexts.length > 1 ? `${contexts.length} contexts` : null
-  return [assignmentScopeLabel(resolved, workspace), context].filter((value): value is string => value !== null).join(' · ')
+  return [assignmentScopeLabel(resolved, workspace, undefined, properties), context].filter((value): value is string => value !== null).join(' · ')
 }
 
 function TrackedQueriesSection({

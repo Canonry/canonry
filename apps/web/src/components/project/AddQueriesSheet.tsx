@@ -28,8 +28,8 @@ const TYPES: readonly SegmentedRadioOption<QueryType>[] = [
   { value: 'branded', label: 'Branded' },
   { value: 'non-brand', label: 'Non-brand' },
 ]
-/** The wire calls a location a property; this sheet never does. */
-const LOCATION_NOUN = ['location', 'locations'] as const
+/** The wire calls a location a property; this sheet never does, nor does the review its caller draws in it. */
+export const LOCATION_NOUN = ['location', 'locations'] as const
 const PLACES = {
   market: { kind: 'market', label: 'Market', placeholder: 'Choose a market', none: 'This project has no markets yet. Use hand-picked locations below.' },
   location: { kind: 'property', label: 'Location', placeholder: 'Choose a location', none: 'This project has no locations yet.' },

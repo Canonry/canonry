@@ -2,7 +2,7 @@ import React from 'react'
 import { afterEach, expect, onTestFinished, test } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { queryTrackingPreviewRequestSchema } from '@ainyc/canonry-contracts'
+import { queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema } from '@ainyc/canonry-contracts'
 
 import { QueriesSection } from '../src/components/project/DiscoverySection.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
@@ -230,7 +230,7 @@ test('opens from Tracked on an advanced project and keeps Review off until a mar
 })
 
 test('sends one addition per line for the chosen market, with no contexts, and drops blank and repeated lines', async () => {
-  const writes = installApi()
+  const writes = installApi({ workspace: () => workspace({ defaultContexts: [context, bostonContext] }) })
   renderTracked()
   const { sheet } = await openSheet()
   fill(sheet, [
@@ -243,6 +243,10 @@ test('sends one addition per line for the chosen market, with no contexts, and d
     'hotels near Central Park',
   ].join('\n'))
   expect(sheet.getByText(/3 queries to add\.$/)).toBeTruthy()
+  // The lines under the picker and the search location pick are for a location only, however many the project has.
+  expect(sheet.queryByText('This location is in no market.')).toBeNull()
+  expect(sheet.queryByText(/^(Counts in|Engines and search locations come from|Search location and engines)/)).toBeNull()
+  expect(sheet.queryByRole('combobox')).toBeNull()
   fireEvent.click(reviewButton(sheet))
 
   await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
@@ -393,6 +397,57 @@ test('asks for a new review when the draft changes while a review is in flight',
   expect(writes.map(write => write.body.additions)).toEqual([[newYorkAddition('best pizza in New York')], [newYorkAddition('best bagels in New York')]])
 })
 
+test('asks for a new review when Subject changes while a review is in flight', async () => {
+  let finish: ((response: Response) => void) | undefined
+  const writes = installApi({
+    workspace: locationWorkspace,
+    respond: write => write.operation === 'preview' && !finish ? new Promise<Response>(resolve => { finish = resolve }) : undefined,
+  })
+  renderTracked()
+  const { sheet } = await openSheet()
+  fill(sheet, 'best pizza in New York')
+  fireEvent.click(reviewButton(sheet))
+  await waitFor(() => expect(finish).toBeTypeOf('function'))
+  fireEvent.click(sheet.getByRole('radio', { name: 'Location' }))
+
+  // The market review lands under Subject Location; confirming it would publish the market draft.
+  await act(async () => finish!(jsonResponse(preview(['best pizza in New York']))))
+  await waitFor(() => expect(sheet.queryByRole('button', { name: 'Reviewing…' })).toBeNull())
+  expect(sheet.queryByRole('button', { name: 'Confirm changes' })).toBeNull()
+  expect(sheet.getByText('Choose a location')).toBeTruthy()
+  chooseLocation(sheet, 'Acme')
+  fireEvent.click(reviewButton(sheet))
+  await sheet.findByRole('button', { name: 'Confirm changes' })
+  expect(writes.map(write => write.body.additions)).toEqual([[newYorkAddition('best pizza in New York')], [acmeAddition('best pizza in New York')]])
+})
+
+test('asks for a new review when the search location and engines pick changes while a review is in flight', async () => {
+  let finish: ((response: Response) => void) | undefined
+  const writes = installApi({
+    workspace: () => locationWorkspace({ defaultContexts: [context, bostonContext] }),
+    respond: write => write.operation === 'preview' && !finish ? new Promise<Response>(resolve => { finish = resolve }) : undefined,
+  })
+  renderTracked()
+  const { sheet } = await openSheet()
+  fillLocation(sheet, 'Birch House', 'Birch House reviews')
+  const choice = sheet.getByRole('combobox', { name: 'Search location and engines' })
+  fireEvent.change(choice, { target: { value: 'New York · openai (gpt-5)' } })
+  fireEvent.click(reviewButton(sheet))
+  await waitFor(() => expect(finish).toBeTypeOf('function'))
+  fireEvent.change(choice, { target: { value: 'Boston · openai (gpt-5), gemini (gemini-3)' } })
+
+  // The New York review lands while the pick shows Boston; confirming it would publish New York.
+  await act(async () => finish!(jsonResponse(preview(['Birch House reviews']))))
+  await waitFor(() => expect(sheet.queryByRole('button', { name: 'Reviewing…' })).toBeNull())
+  expect(sheet.queryByRole('button', { name: 'Confirm changes' })).toBeNull()
+  fireEvent.click(reviewButton(sheet))
+  await sheet.findByRole('button', { name: 'Confirm changes' })
+  expect(writes.map(write => write.body.additions)).toEqual([
+    [birchAddition('Birch House reviews', { providers: ['openai'], models: { openai: 'gpt-5' }, location: 'New York' })],
+    [birchAddition('Birch House reviews', { providers: ['openai', 'gemini'], models: { openai: 'gpt-5', gemini: 'gemini-3' }, location: 'Boston' })],
+  ])
+})
+
 test.each(['preview', 'commit'] as const)('returns to the same draft after a refused %s and reviews it against the refreshed workspace', async refused => {
   resetToasts()
   onTestFinished(resetToasts)
@@ -467,6 +522,7 @@ test('adds a location query to every market that location is in, with no context
   expect(sheet.getByText('Engines and search locations come from: New York, Remote searches')).toBeTruthy()
   expect(sheet.queryByText('This location is in no market.')).toBeNull()
   expect(sheet.queryByText(/^Search location and engines/)).toBeNull()
+  expect(sheetText()).not.toMatch(/question|propert|—/i)
   fireEvent.click(reviewButton(sheet))
 
   await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
@@ -502,6 +558,7 @@ test('gives a location in no market the one search location and engines the proj
   expect(sheet.getByText('Search location and engines: New York · openai (gpt-5)')).toBeTruthy()
   expect(sheet.queryByRole('combobox')).toBeNull()
   expect(sheet.queryByText(/^Counts in:/)).toBeNull()
+  expect(sheetText()).not.toMatch(/question|propert|—/i)
   fireEvent.click(reviewButton(sheet))
 
   await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
@@ -525,6 +582,7 @@ test('asks for one search location and engines when a location is in no market a
     'New York · openai (gpt-5)',
     'Boston · openai (gpt-5), gemini (gemini-3)',
   ])
+  expect(sheetText()).not.toMatch(/question|propert|—/i)
   expect(reviewButton(sheet).disabled).toBe(true)
   fireEvent.click(reviewButton(sheet))
   await act(() => new Promise(resolve => setTimeout(resolve, 0)))
@@ -579,6 +637,34 @@ test('lists groups and locations for Location, never markets, and calls them loc
   expect(sheet.getByRole('button', { name: 'Browse North East' }).textContent).toBe('North East3 locations')
   fireEvent.click(sheet.getByRole('button', { name: 'Browse North East' }))
   expect(sheet.getAllByRole('button', { name: /^Select / }).map(button => button.textContent)).toEqual(['AcmeLocation', 'Birch HouseLocation', 'Cedar CourtLocation'])
+  expect(sheetText()).not.toMatch(/question|propert|—/i)
+})
+
+test.each([
+  { subject: 'Location', targetKeys: ['acme'], marketKeys: ['new-york', 'remote'], detail: 'Acme · Group: North East · 2 markets · New York · openai (gpt-5)', classifications: 'Classifications · 1 location' },
+  { subject: 'Market', targetKeys: ['acme', 'cedar'], marketKeys: ['new-york'], detail: '2 locations · Group: North East · Market: New York · New York · openai (gpt-5)', classifications: 'Classifications · 2 locations' },
+])('calls a location a location in the review of a $subject add', async ({ subject, targetKeys, marketKeys, detail, classifications }) => {
+  // As the server answers a review: `tracked` holds the added query, on every location its markets hold.
+  const held = () => locationWorkspace({ markets: locationWorkspace().markets.map(market => marketKeys.includes(market.stableKey) ? { ...market, usageEdges: targetKeys.map(key => usageEdge(key)) } : market) })
+  const added = {
+    queryId: 'query-new-0', queryText: 'Acme reviews', normalizedText: 'acme reviews',
+    provenance: { source: 'manual', sourceId: null, capturedAt: reviewedAt },
+    state: 'awaiting-sweep', lastMeasuredAt: null,
+    assignments: targetKeys.map(targetKey => ({ targetKey, groupKeys: ['north-east'], marketKeys, queryClass: 'branded', classificationSource: 'server', contexts: [context] })),
+  }
+  const base = preview(['Acme reviews'])
+  const reviewed = { ...base, tracked: [...tracked, added], diff: { ...base.diff, added: [{ queryId: added.queryId, queryText: added.queryText, assignmentCount: targetKeys.length }] } }
+  expect(queryTrackingPreviewResponseSchema.safeParse(reviewed).success).toBe(true)
+  installApi({ workspace: held, respond: write => write.operation === 'preview' ? jsonResponse(reviewed) : undefined })
+  renderTracked()
+  const { sheet } = await openSheet()
+  if (subject === 'Location') fillLocation(sheet, 'Acme', 'Acme reviews')
+  else fill(sheet, 'Acme reviews')
+  fireEvent.click(reviewButton(sheet))
+
+  await sheet.findByRole('heading', { name: 'Confirm tracked query changes' })
+  expect(sheet.getByText(detail)).toBeTruthy()
+  expect(sheet.getByText(classifications, { selector: 'summary' })).toBeTruthy()
   expect(sheetText()).not.toMatch(/question|propert|—/i)
 })
 

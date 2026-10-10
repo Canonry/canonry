@@ -191,6 +191,9 @@ Preview input contains `expectedWorkspaceVersion`, `additions`, and `removals`, 
 Each edit contains `queryId`, an optional audience, and resolved `text` or `queryClass`.
 An omitted `queryClass` preserves classification. A `null` value requests automatic classification.
 The server retains the exact execution contexts. An edit cannot replace those contexts.
+The **Add queries** sheet works out a location's markets in the browser, so a CLI, MCP or Aero add states them itself.
+To count a location query in its markets as the sheet does, send `audience: { "targetKeys": [<location>], "marketKeys": [<its markets>] }` with no `contexts`. Its markets are every market in the workspace whose `usageEdges` name that location.
+A location in no market has none to take engines from: send `audience: { "targetKeys": [<location>] }` with explicit `contexts` (the sheet sends one). Sent for a location that is in a market, that request counts on the location alone.
 Commit input adds the returned `previewToken` and `reviewedAt` to that exact request.
 The server binds the review time to the token and refuses expired reviews.
 The API returns the actual active revision after publication.
