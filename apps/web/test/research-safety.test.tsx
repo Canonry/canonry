@@ -1,6 +1,6 @@
 import React from 'react'
-import { afterEach, expect, onTestFinished, test } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ResearchBatchCreate, ResearchRunDetailDto } from '@ainyc/canonry-contracts'
 import { ResearchQueriesSection, RESEARCH_COPY } from '../src/components/project/ResearchQueriesSection.js'
@@ -75,17 +75,27 @@ function setup(sectionProps: SectionProps = {}, access: 'admin' | 'viewer' | 're
 
 const runButton = () => screen.getByRole('button', { name: 'Run queries' }) as HTMLButtonElement
 const setMode = (value: string) => fireEvent.change(screen.getByRole('combobox', { name: 'Run mode' }), { target: { value } })
-const typePattern = (value: string) => fireEvent.change(screen.getByRole('textbox', { name: 'Query pattern' }), { target: { value } })
+const typePattern = (value: string) => fireEvent.change(screen.getByRole('textbox', { name: 'Pattern' }), { target: { value } })
 const choose = (name: string) => fireEvent.click(screen.getByRole('checkbox', { name }))
 const preview = () => fireEvent.click(screen.getByRole('button', { name: 'Preview queries' }))
 const ready = () => screen.findByRole('option', { name: 'OpenAI' })
+/** A check that holds back a preview or a run: its short label is what shows, its sentence is the tooltip and the rest of its name. */
+const note = (label: string, detail: RegExp) => {
+  const item = screen.getByRole('button', { name: new RegExp(`^${label}\\. ${detail.source}`) })
+  expect(item.textContent).toBe(label)
+  return item
+}
+/** Everything a reader can meet: the text, each control's name and tooltip, and each placeholder. */
+const shownCopy = () => [document.body.textContent, ...[...document.querySelectorAll('[aria-label], [placeholder]')].flatMap(item => [item.getAttribute('aria-label'), item.getAttribute('placeholder')])].join('\n')
+// `{property}` is the pattern's own name for a location, so it is the one place the word stays.
+const OLD_WORDS = /whole site|destination|\bclass\b|classification|(?<!\{)\bpropert(?:y|ies)\b|template|\bscoped?\b|\bcontext\b|unclassified|\bdiscovery\b|answer engine|\u2014/i
 
 test('Run once is plain queries with no pattern controls or initial errors', async () => {
   const { state } = setup(advanced)
   await ready()
   expect(screen.getByRole('textbox', { name: 'Queries' })).toBeTruthy()
-  expect(screen.queryByRole('textbox', { name: 'Query pattern' })).toBeNull()
-  expect(screen.queryByRole('button', { name: /Insert/ })).toBeNull()
+  expect(screen.queryByRole('textbox', { name: 'Pattern' })).toBeNull()
+  expect(screen.queryByRole('button', { name: /name$/ })).toBeNull()
   expect(screen.queryByText(/Saved patterns/)).toBeNull()
   expect(screen.queryByRole('alert')).toBeNull()
   expect(state.posts).toHaveLength(0)
@@ -113,7 +123,7 @@ test('explicit markets resolve independently and preserve edited query text and 
   preview()
   expect((screen.getByRole('textbox', { name: 'Query 1 for Atlanta' }) as HTMLTextAreaElement).value).toBe('Best apartments in Atlanta')
   fireEvent.change(screen.getByRole('textbox', { name: 'Query 2 for Boston' }), { target: { value: '  Boston apartments near transit  ' } })
-  fireEvent.change(screen.getByRole('combobox', { name: 'Location for query 2' }), { target: { value: boston.label } })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Search location for query 2' }), { target: { value: boston.label } })
   fireEvent.click(runButton())
   await waitFor(() => expect(state.posts).toHaveLength(1))
   expect(state.posts[0]?.runs).toEqual([
@@ -175,10 +185,13 @@ test('a removed selected market cannot silently become whole-site research', asy
   const { state } = setup({ ...advanced, selectedScope: { kind: 'market', key: 'retired', label: 'Retired', planRevision: 7, expectedPlanRevision: 7 } })
   await ready()
   fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'My question' } })
-  expect(screen.getByRole('option', { name: 'Selected destination unavailable' })).toBeTruthy()
+  expect(screen.getByRole('option', { name: 'Subject unavailable' })).toBeTruthy()
+  note('Subject unavailable', /The Subject is no longer in the published plan\./)
   expect(runButton().disabled).toBe(true)
   expect(state.posts).toHaveLength(0)
-  fireEvent.change(screen.getByRole('combobox', { name: 'Save results under' }), { target: { value: 'project' } })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Subject' }), { target: { value: 'project' } })
+  expect((screen.getByRole('option', { name: 'Not set' }) as HTMLOptionElement).selected).toBe(true)
+  expect(screen.queryByRole('alert')).toBeNull()
   expect(runButton().disabled).toBe(false)
 })
 
@@ -190,7 +203,7 @@ test('a saved pattern version change blocks execution and preserves the reviewed
   fireEvent.change(screen.getByRole('textbox', { name: 'Query 1 for Atlanta' }), { target: { value: 'Reviewed query' } })
   view.rerender({ ...advanced, templates: [{ ...saved, version: 'v2', pattern: 'Updated {market}' }] })
   expect(runButton().disabled).toBe(true)
-  expect(screen.getByRole('alert').textContent).toContain('This saved pattern changed')
+  expect(within(screen.getByRole('alert')).getByRole('button').getAttribute('aria-label')).toBe('Pattern changed. This saved pattern changed. Pick its current version from Saved patterns.')
   expect((screen.getByRole('textbox', { name: 'Query 1 for Atlanta' }) as HTMLTextAreaElement).value).toBe('Reviewed query')
 })
 
@@ -198,13 +211,18 @@ test('plan and model changes invalidate previews without discarding edited rows'
   const view = setup(advanced)
   await ready(); setMode('markets'); choose('Atlanta'); typePattern('Apartments in {market}'); preview()
   fireEvent.change(screen.getByRole('textbox', { name: 'Query 1 for Atlanta' }), { target: { value: 'My reviewed wording' } })
+  expect(screen.queryByRole('alert')).toBeNull()
   view.rerender({ ...advanced, planRevision: 8 })
   expect(runButton().disabled).toBe(true)
+  expect(within(screen.getByRole('alert')).getByRole('button').getAttribute('aria-label')).toBe(`${RESEARCH_COPY.planChanged}. ${RESEARCH_COPY.planChangedDetail}`)
   expect((screen.getByRole('textbox', { name: 'Query 1 for Atlanta' }) as HTMLTextAreaElement).value).toBe('My reviewed wording')
-  fireEvent.click(screen.getByRole('button', { name: 'Regenerate preview' }))
+  fireEvent.click(screen.getByRole('button', { name: RESEARCH_COPY.refreshPreview }))
+  expect(screen.queryByRole('alert')).toBeNull()
   fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'other-model' } })
   expect(runButton().disabled).toBe(true)
-  fireEvent.click(screen.getByRole('button', { name: 'Regenerate preview' })); fireEvent.click(runButton())
+  // The plan is the same one: only the setup moved, and the note says so.
+  expect(within(screen.getByRole('alert')).getByRole('button').getAttribute('aria-label')).toBe(`${RESEARCH_COPY.setupChanged}. ${RESEARCH_COPY.setupChangedDetail}`)
+  fireEvent.click(screen.getByRole('button', { name: RESEARCH_COPY.refreshPreview })); fireEvent.click(runButton())
   await waitFor(() => expect(view.state.posts).toHaveLength(1))
   expect(view.state.posts[0]?.runs[0]).toMatchObject({ model: 'other-model', scope: { expectedPlanRevision: 8 } })
 })
@@ -216,7 +234,7 @@ test('an uncertain request reuses the same idempotency key on unchanged retry', 
   fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'Apartments near transit' } })
   fireEvent.click(runButton())
   await waitFor(() => expect(state.posts).toHaveLength(1))
-  await screen.findByText(/The request could not be confirmed/)
+  expect((await screen.findByRole('button', { name: `${RESEARCH_COPY.notConfirmed}. The request could not be confirmed. ${RESEARCH_COPY.notConfirmedDetail}` })).textContent).toBe('Not confirmed')
   await waitFor(() => expect(runButton().disabled).toBe(false))
   fireEvent.click(runButton())
   await waitFor(() => expect(state.posts).toHaveLength(2))
@@ -241,7 +259,7 @@ test('locks the editor while starting a run so a late response cannot discard ne
 test.each(['Apartments in {unknown}', 'Apartments in {market', 'Apartments in {{market}}'])('blocks unsupported or malformed variables: %s', async pattern => {
   const { state } = setup(advanced)
   await ready(); setMode('markets'); choose('Atlanta'); typePattern(pattern); preview()
-  expect(screen.getByRole('alert').textContent).toContain('unknown or incomplete braces')
+  note('Unknown name', /.*unknown or incomplete braces\./)
   expect(screen.queryByRole('textbox', { name: 'Query 1 for Atlanta' })).toBeNull()
   expect(runButton().disabled).toBe(true)
   expect(state.posts).toHaveLength(0)
@@ -251,12 +269,14 @@ test('blank or duplicate preview rows and expanded query limits block execution'
   const { state } = setup(advanced)
   await ready(); setMode('markets'); choose('Atlanta'); typePattern('Apartments in {market}\nTransit in {market}'); preview()
   fireEvent.change(screen.getByRole('textbox', { name: 'Query 1 for Atlanta' }), { target: { value: ' ' } })
+  note('Incomplete query', /Every row needs a query of 1 to 4,000 characters with no unfilled names\./)
   expect(runButton().disabled).toBe(true)
   fireEvent.change(screen.getByRole('textbox', { name: 'Query 1 for Atlanta' }), { target: { value: 'Transit in Atlanta' } })
-  expect(screen.getByRole('alert').textContent).toContain('Remove duplicate queries')
+  note('Duplicate queries', /Remove repeated queries within one run\./)
   expect(runButton().disabled).toBe(true)
   choose('Boston'); typePattern(Array.from({ length: 26 }, (_, index) => `Question ${index} in {market}`).join('\n'))
-  expect(screen.getByRole('alert').textContent).toContain('52 queries selected')
+  note('Over 50 queries', /52 queries selected\. One batch takes at most 50\./)
+  expect(screen.getByText('52 of 50 queries · 2 runs')).toBeTruthy()
   expect(state.posts).toHaveLength(0)
 })
 
@@ -308,4 +328,119 @@ test.each([null, boston])('freezes a saved pattern location before editing the e
   fireEvent.click(screen.getByRole('button', { name: RESEARCH_COPY.runAction }))
   await waitFor(() => expect(state.posts).toHaveLength(1))
   expect(state.posts[0]?.runs[0]).toMatchObject({ queries: ['Apartments in ' + atlanta.label], location, template: { templateId: saved.id, templateVersion: saved.version, bindingLocation: atlanta } })
+})
+
+test('each run mode names its places as Markets, Locations and Search locations, with no older wording left', async () => {
+  const { state } = setup(advanced)
+  await ready()
+  const mode = screen.getByRole('combobox', { name: 'Run mode' }) as HTMLSelectElement
+  // The words change and the values sent do not.
+  expect([...mode.options].map(option => [option.value, option.text])).toEqual([
+    ['once', 'Run once'], ['markets', 'Repeat across markets'], ['properties', 'Repeat across locations'], ['locations', 'Repeat across search locations'],
+  ])
+  const subject = screen.getByRole('combobox', { name: 'Subject' }) as HTMLSelectElement
+  expect([...subject.options].map(option => option.text)).toEqual(['Not set', 'Atlanta (market)', 'Boston (market)', 'Maple House (location)'])
+  expect([...(screen.getByRole('combobox', { name: 'Search location' }) as HTMLSelectElement).options].map(option => option.text)).toEqual(['No search location', atlanta.label, boston.label])
+  expect(screen.getByRole('button', { name: RESEARCH_COPY.introHelp })).toBeTruthy()
+  expect(screen.getByRole('button', { name: RESEARCH_COPY.subjectHelp })).toBeTruthy()
+  expect(screen.getByRole('button', { name: RESEARCH_COPY.queriesHelp })).toBeTruthy()
+  expect(shownCopy()).not.toMatch(OLD_WORDS)
+
+  const places: Array<[mode: string, heading: string, name: string, token: string, insert: string]> = [
+    ['markets', 'Markets', 'Atlanta', '{market}', 'Market name'],
+    ['properties', 'Locations', 'Maple House', '{property}', 'Location name'],
+    ['locations', 'Search locations', atlanta.label, '{location}', 'Search location name'],
+  ]
+  for (const [value, heading, name, token, insert] of places) {
+    setMode(value)
+    expect(screen.getByRole('group', { name: heading })).toBeTruthy()
+    expect(screen.getByRole('searchbox', { name: 'Search' }).getAttribute('placeholder')).toBe('Search')
+    // The name button still writes the pattern's own name for the place. The pattern is kept across run modes, so it is cleared first.
+    typePattern('')
+    fireEvent.click(screen.getByRole('button', { name: insert }))
+    expect((screen.getByRole('textbox', { name: 'Pattern' }) as HTMLTextAreaElement).value).toBe(token)
+    note(`Pick a ${heading.toLowerCase().replace(/s$/, '')}`, new RegExp(`Tick at least one ${heading.toLowerCase().replace(/s$/, '')}\\.`))
+    choose(name)
+    expect(screen.getByText('1 selected')).toBeTruthy()
+    expect(screen.getByText('1 of 50 queries · 1 run')).toBeTruthy()
+    fireEvent.click(screen.getByText('Saved patterns'))
+    expect(screen.getByText(RESEARCH_COPY.noSavedPatterns)).toBeTruthy()
+    expect(screen.getByRole('button', { name: RESEARCH_COPY.savedPatternsHelp })).toBeTruthy()
+    // A preview made in one run mode is kept in the next, where the same button regenerates it.
+    fireEvent.click(screen.getByRole('button', { name: value === 'markets' ? 'Preview queries' : RESEARCH_COPY.refreshPreview }))
+    expect(screen.getByText('1 query · 1 run')).toBeTruthy()
+    expect((screen.getByRole('textbox', { name: `Query 1 for ${name}` }) as HTMLTextAreaElement).value).toBe(name)
+    expect(runButton().parentElement!.textContent).toBe('Run queries1 query · OpenAI · project-model')
+    expect(shownCopy()).not.toMatch(OLD_WORDS)
+  }
+  // A market or a location takes its search location in the row; a search location is its own.
+  setMode('markets'); choose('Atlanta')
+  expect(screen.getByRole('combobox', { name: 'Search location for Atlanta' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: RESEARCH_COPY.selectedHelp })).toBeTruthy()
+  setMode('locations'); choose(atlanta.label)
+  expect(screen.queryByRole('combobox', { name: `Search location for ${atlanta.label}` })).toBeNull()
+  expect(screen.queryByRole('button', { name: RESEARCH_COPY.selectedHelp })).toBeNull()
+  expect(state.posts).toHaveLength(0)
+})
+
+test('{location} in a location pattern is flagged as the search location and binds what it always did', async () => {
+  const { state } = setup(advanced)
+  await ready(); setMode('properties'); choose('Maple House')
+  typePattern('What amenities does {property} offer?')
+  expect(screen.queryByRole('button', { name: new RegExp(`^${RESEARCH_COPY.usesSearchLocation}`) })).toBeNull()
+
+  typePattern('What does {property} offer near {location}?')
+  expect(screen.getByRole('button', { name: `${RESEARCH_COPY.usesSearchLocation}. ${RESEARCH_COPY.usesSearchLocationDetail}` }).textContent).toBe('Uses search location')
+  // No search location is set beside the location yet, so {location} has nothing to bind.
+  note('Pick a search location', /\{location\} is the search location\. Set one beside each ticked location, or remove \{location\}\./)
+  preview()
+  expect(screen.queryByRole('textbox', { name: 'Query 1 for Maple House' })).toBeNull()
+  expect(runButton().disabled).toBe(true)
+
+  fireEvent.change(screen.getByRole('combobox', { name: 'Search location for Maple House' }), { target: { value: boston.label } })
+  expect(screen.queryByRole('alert')).toBeNull()
+  // The caveat is a reminder, not a block: it stays while the pattern holds {location}.
+  expect(screen.getByRole('button', { name: new RegExp(`^${RESEARCH_COPY.usesSearchLocation}`) })).toBeTruthy()
+  preview()
+  expect((screen.getByRole('textbox', { name: 'Query 1 for Maple House' }) as HTMLTextAreaElement).value).toBe(`What does Maple House offer near ${boston.label}?`)
+  fireEvent.click(runButton())
+  await waitFor(() => expect(state.posts).toHaveLength(1))
+  expect(state.posts[0]?.runs).toEqual([{ queries: [`What does Maple House offer near ${boston.label}?`], provider: 'openai', model: 'project-model', location: boston, scope: { kind: 'property', key: 'maple', expectedPlanRevision: 7 } }])
+
+  // The caveat is for locations only: a market is not a location, so nothing there can be mistaken for one.
+  setMode('markets'); choose('Atlanta'); typePattern('Apartments in {market} near {location}')
+  expect(screen.queryByRole('button', { name: new RegExp(`^${RESEARCH_COPY.usesSearchLocation}`) })).toBeNull()
+  // A name that belongs to another run mode has no value here.
+  typePattern('Apartments at {property}')
+  note('Unknown name', /A name in this pattern has no value for a market\./)
+})
+
+test('a batch over the run limit, places still loading and a failed places read each show one short label', async () => {
+  const many = Array.from({ length: 21 }, (_, index) => ({ id: `home-${index}`, label: `Harbor Home ${index}`, kind: 'property' as const, targetCount: 1 }))
+  const onRetryScope = vi.fn()
+  const view = setup({ planRevision: 7, scopeOptions: many })
+  await ready(); setMode('properties')
+  for (const option of many) choose(option.label)
+  typePattern('Is {property} pet friendly?')
+  note('Over 20 runs', /21 locations ticked\. One batch takes at most 20 runs\./)
+  expect(screen.getByText('21 selected')).toBeTruthy()
+  expect(screen.getByText('21 of 50 queries · 21 runs')).toBeTruthy()
+  preview()
+  expect(screen.queryByRole('textbox', { name: /^Query 1 for/ })).toBeNull()
+
+  choose(many[20]!.label)
+  expect(screen.queryByRole('alert')).toBeNull()
+  view.rerender({ planRevision: 7, scopeOptions: many, scopePending: true })
+  note('Places not loaded', /Markets and locations are loading or did not load\./)
+  expect(runButton().disabled).toBe(true)
+
+  view.rerender({ planRevision: 7, scopeOptions: many, scopeError: true, onRetryScope })
+  const failed = screen.getByRole('button', { name: /^Could not load\. Markets and locations did not load\./ })
+  expect(failed.textContent).toBe('Could not load')
+  const retry = screen.getByRole('button', { name: 'Retry markets and locations' })
+  expect(retry.textContent).toBe('Retry')
+  fireEvent.click(retry)
+  expect(onRetryScope).toHaveBeenCalledTimes(1)
+  expect(shownCopy()).not.toMatch(OLD_WORDS)
+  expect(view.state.posts).toHaveLength(0)
 })

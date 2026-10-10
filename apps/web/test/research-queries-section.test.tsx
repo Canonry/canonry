@@ -166,17 +166,97 @@ test('saved results retain their saved scope independently from the current form
   renderSavedResearch('Demo is also the name of a fishing line company.')
   await screen.findByText('Demo is also the name of a fishing line company.')
   const results = within(screen.getByRole('region', { name: 'Research results' }))
-  expect(results.getByRole('columnheader', { name: 'Brand-name match' })).toBeTruthy()
-  expect(results.getByRole('columnheader', { name: 'Project domain cited' })).toBeTruthy()
-  expect(results.getByText(RESEARCH_COPY.methodologySummary)).toBeTruthy()
-  expect(results.getByText(RESEARCH_COPY.methodology)).toBeTruthy()
-  expect(results.getByText('Matched')).toBeTruthy()
-  expect(results.getByText('Not cited')).toBeTruthy()
-  expect(results.getByText('openai')).toBeTruthy()
-  expect(results.getByText('saved-model')).toBeTruthy()
-  expect(results.getByText('Downtown')).toBeTruthy()
-  expect(results.getByText('No location')).toBeTruthy()
+  expect(results.getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Query', 'Type', 'Status', 'Named', 'Cited'])
+  // The fixture names the company and does not cite it: each signal prints its own field. No type came with the query.
+  expect(within(results.getByRole('row', { name: /Demo building reviews/ })).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['Demo building reviews', 'Not set', 'completed', 'Named', 'Not cited'])
+  // What the two signals check is one short label; its sentence is the label's tooltip and part of its name.
+  const checked = results.getByRole('button', { name: `${RESEARCH_COPY.methodologySummary}. ${RESEARCH_COPY.methodology}` })
+  expect(checked.textContent).toBe('Company names only')
+  expect(checked.getAttribute('aria-label')).toMatch(/Neither checks a location's own names\.$/)
+  const facts = Object.fromEntries([...document.querySelectorAll('[role="region"] dl > div')].map(item => [item.querySelector('dt')!.textContent, item.querySelector('dd')!.textContent]))
+  expect(facts).toEqual({ Engine: 'OpenAI', Model: 'saved-model', 'Search location': 'No search location', Subject: 'Downtown' })
   expect(results.queryByText('current-model')).toBeNull()
+  // A query's type is its Type, a run is saved under a Subject, and an engine searches from a Search location.
+  expect(document.body.textContent).not.toMatch(/Whole site|Destination|\bClass\b|Property|Template|scoped|Brand-name|Unclassified|Answer engine/i)
+})
+
+test('a signal with no value says why and is never printed as a No', async () => {
+  const run = {
+    id: 'mixed-run', projectId: 'project_demo', status: 'running', provider: 'openai', requestedModel: 'model-a', resolvedModel: 'model-a',
+    scope: null, location: null, totalQueries: 4, completedQueries: 2, failedQueries: 1, error: null,
+    startedAt: '2026-07-23T10:00:00.000Z', finishedAt: null, createdAt: '2026-07-23T10:00:00.000Z',
+  }
+  const query = (id: string, status: string, queryClass: string | null, answerMentioned: boolean | null, citationState: string | null, error: string | null = null) => ({
+    id, position: 0, query: `${id} query`, queryClass, status, requestedModel: 'model-a', resolvedModel: 'model-a', servedModel: null, answerText: null,
+    groundingSources: [], citedDomains: [], searchQueries: [], namedCompetitors: [], citedCompetitorDomains: [], answerMentioned, citationState, error,
+    startedAt: null, finishedAt: null, createdAt: run.createdAt,
+  })
+  const restoreFetch = mockFetch((url, init) => {
+    expect(init?.method ?? 'GET').toBe('GET')
+    const path = new URL(url).pathname
+    if (path === '/api/v1/projects/demo/research/runs') return jsonResponse({ runs: [run] })
+    if (path === '/api/v1/projects/demo/research/runs/mixed-run') return jsonResponse({ ...run, queries: [
+      query('waiting', 'running', 'non-brand', null, null),
+      query('failed', 'failed', 'branded', null, null, 'Engine refused the request'),
+      query('half', 'completed', 'non-brand', false, null),
+      query('done', 'completed', null, true, 'cited'),
+    ] })
+    if (path === '/api/v1/projects/demo') return jsonResponse({ id: 'project_demo', name: 'demo', providers: [], providerModels: {}, locations: [], defaultLocation: null })
+    if (path === '/api/v1/settings') return jsonResponse({ providers: [], providerCatalog: [] })
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restoreFetch)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+  render(<QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>)
+
+  const results = within(await screen.findByRole('region', { name: 'Research results' }))
+  const cells = async (name: RegExp) => within(await results.findByRole('row', { name })).getAllByRole('cell').slice(1).map(cell => cell.textContent)
+  expect(await cells(/waiting query/)).toEqual(['Non-brand', 'running', 'Pending', 'Pending'])
+  expect(await cells(/failed query/)).toEqual(['Branded', 'failed', 'Unavailable', 'Unavailable'])
+  // Named was checked and is a No; Cited was not checked, which is not a No.
+  expect(await cells(/half query/)).toEqual(['Non-brand', 'completed', 'Not named', 'Not checked'])
+  expect(await cells(/done query/)).toEqual(['Not set', 'completed', 'Named', 'Cited'])
+
+  // The first query is still running: its answer is pending, not missing.
+  expect(results.getByText(RESEARCH_COPY.answerPending)).toBeTruthy()
+  fireEvent.click(results.getByRole('button', { name: 'half query' }))
+  expect(results.getByText(RESEARCH_COPY.noAnswer)).toBeTruthy()
+  expect(results.queryByText(RESEARCH_COPY.answerPending)).toBeNull()
+  fireEvent.click(results.getByRole('button', { name: 'failed query' }))
+  expect(results.getByText('Engine refused the request')).toBeTruthy()
+})
+
+test('with no engine configured the form renders and Run stays off beside a No engine key note', async () => {
+  const posts: string[] = []
+  const restoreFetch = mockFetch((url, init) => {
+    const path = new URL(url).pathname
+    if (init?.method === 'POST') { posts.push(path); return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Must not run' } }, 500) }
+    if (path === '/api/v1/projects/demo/research/runs') return jsonResponse({ runs: [] })
+    if (path === '/api/v1/projects/demo') return jsonResponse({ id: 'project_demo', name: 'demo', providers: ['openai'], providerModels: {}, locations: [], defaultLocation: null })
+    // A browser engine is configured, and research needs an API engine.
+    if (path === '/api/v1/settings') return jsonResponse({
+      providers: [{ name: 'cdp', displayName: 'Browser', configured: true }],
+      providerCatalog: [{ name: 'cdp', displayName: 'Browser', mode: 'browser', modelConfigurable: false, defaultModel: 'browser', knownModels: [], modelValidationPattern: { source: '.', flags: '' }, modelValidationHint: 'Model ID' }],
+    })
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restoreFetch)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+  render(<QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>)
+
+  const note = await screen.findByRole('button', { name: `${RESEARCH_COPY.noEngineKey}. ${RESEARCH_COPY.noEngineKeyDetail}` })
+  expect(note.textContent).toBe('No engine key')
+  fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'Which platform fits?' } })
+  const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
+  expect(run.disabled).toBe(true)
+  fireEvent.click(run)
+  // The count beside Run names no engine and no model, because none is chosen.
+  expect(run.parentElement!.textContent).toBe(`${RESEARCH_COPY.runAction}1 query`)
+  expect(screen.getByText(RESEARCH_COPY.emptyHistory)).toBeTruthy()
+  expect(screen.getByRole('heading', { name: RESEARCH_COPY.resultsEmpty })).toBeTruthy()
+  expect(posts).toEqual([])
 })
 
 test('saved answers render readable Markdown with safe links and no active HTML or remote images', async () => {
@@ -202,6 +282,51 @@ test('saved research sources show their titles and full URLs', async () => {
   expect(results.getByRole('link', { name: url }).getAttribute('href')).toBe(url)
 })
 
+
+test('failed engine and search location reads show one Could not load note, and Retry reads only what failed', async () => {
+  const reads = { settings: 0, project: 0 }
+  const fail = { settings: true, project: true }
+  const unavailable = () => jsonResponse({ error: { code: 'UNAVAILABLE', message: 'Temporary read failure' } }, 503)
+  const restoreFetch = mockFetch((url, init) => {
+    expect(init?.method ?? 'GET').toBe('GET')
+    const path = new URL(url).pathname
+    if (path === '/api/v1/projects/demo/research/runs') return jsonResponse({ runs: [] })
+    if (path === '/api/v1/projects/demo') {
+      reads.project += 1
+      return fail.project ? unavailable() : jsonResponse({ id: 'project_demo', name: 'demo', providers: ['openai'], providerModels: {}, locations: [], defaultLocation: null })
+    }
+    if (path === '/api/v1/settings') {
+      reads.settings += 1
+      return fail.settings ? unavailable() : jsonResponse({
+        providers: [{ name: 'openai', displayName: 'OpenAI', configured: true }],
+        providerCatalog: [{ name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true, defaultModel: 'gpt-test', knownModels: [], modelValidationPattern: { source: '.', flags: '' }, modelValidationHint: 'Model ID' }],
+      })
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restoreFetch)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+  render(<QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>)
+
+  const both = await screen.findByRole('button', { name: `${RESEARCH_COPY.loadError}. The engines and search locations did not load.` })
+  expect(both.textContent).toBe('Could not load')
+  expect(screen.getAllByRole('alert')).toHaveLength(1)
+  // An engine list that did not load is not an empty one.
+  expect(screen.queryByRole('button', { name: new RegExp(`^${RESEARCH_COPY.noEngineKey}`) })).toBeNull()
+  expect(reads).toEqual({ settings: 1, project: 1 })
+
+  fail.project = false
+  fireEvent.click(screen.getByRole('button', { name: 'Retry engines and search locations' }))
+  await screen.findByRole('button', { name: `${RESEARCH_COPY.loadError}. The engines did not load.` })
+  expect(reads).toEqual({ settings: 2, project: 2 })
+
+  fail.settings = false
+  fireEvent.click(screen.getByRole('button', { name: 'Retry engines' }))
+  await screen.findByRole('option', { name: 'OpenAI' })
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(reads).toEqual({ settings: 3, project: 2 })
+})
 
 test.each([true, false])('key research uses server capability (%s) and safe providers without general write access', async canRun => {
   const bodies: unknown[] = []
@@ -233,7 +358,7 @@ test.each([true, false])('key research uses server capability (%s) and safe prov
   await waitFor(() => expect(button.disabled).toBe(!canRun))
   fireEvent.click(button)
   if (canRun) {
-    expect(screen.getByText('Up to 7 destination runs per project per day.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^7 runs per day\. Up to 7 research runs per project per day\./ }).textContent).toBe('7 runs per day')
     await waitFor(() => expect(bodies).toHaveLength(1))
   } else expect(bodies).toHaveLength(0)
   expect(screen.queryByRole('button', { name: /Review for tracking/ })).toBeNull()
@@ -286,7 +411,7 @@ test('viewer research follows the visibility model, offers discovered alternativ
   expect(model.value).toBe('gpt-next')
   expect(await screen.findByRole('option', { name: 'gpt-next' })).toBeTruthy()
   expect(model.value).toBe('gpt-next')
-  fireEvent.change(screen.getByRole('combobox', { name: 'Answer engine' }), { target: { value: 'claude' } })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Engine' }), { target: { value: 'claude' } })
   expect(model.value).toBe('')
   expect(screen.getByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · claude-sonnet-new` })).toBeTruthy()
   await submit()
@@ -330,7 +455,7 @@ test('public demo reads saved research without settings or run controls', async 
 
   await screen.findByText('Saved research answer.')
   expect(requests).not.toContain('/api/v1/settings')
-  expect(screen.getByText('This public demo shows saved research results. Running research is unavailable.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: `${RESEARCH_COPY.demo}. ${RESEARCH_COPY.demoDetail}` }).textContent).toBe('Saved results only')
   expect(screen.queryByRole('textbox', { name: 'Queries' })).toBeNull()
   expect(screen.queryByRole('button', { name: RESEARCH_COPY.runAction })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Review for tracking' })).toBeNull()
