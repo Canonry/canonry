@@ -24,6 +24,12 @@ import { GBP_NO_SELECTED_LOCATIONS_ERROR, serializeRunError } from '@ainyc/canon
 import { executeGbpSync } from '../src/gbp-sync.js'
 import type { CanonryConfig } from '../src/config.js'
 
+const trackEvent = vi.hoisted(() => vi.fn())
+vi.mock('../src/telemetry.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/telemetry.js')>()),
+  trackEvent,
+}))
+
 // --- mock the integration HTTP clients (no network in unit tests) ---
 const listLocationsMock = vi.fn()
 const fetchDailyMetricsMock = vi.fn()
@@ -1025,6 +1031,139 @@ describe('executeGbpSync — reviews', () => {
       expect(db.select().from(runs).where(eq(runs.id, 'run_1')).get()!.status).toBe('completed')
       expect(location(db)).toMatchObject({ reviewsAccess: 'error', reviewsAccessReason: 'HTTP_500' })
       expect(db.select().from(gbpReviews).all()).toHaveLength(0)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('executeGbpSync outcome telemetry', () => {
+  function outcomes() {
+    return trackEvent.mock.calls.filter((call) => call[0] === 'feature.completed').map((call) => call.slice(1))
+  }
+
+  test('reports the sync with rows and locations, and v4 reviews Google has not enabled as skipped', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+      seedRun(db, 'run_1')
+
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })
+
+      // One trailing-window keyword row plus one per complete month (three).
+      expect(outcomes()).toEqual([
+        [
+          { feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'succeeded', durationBucket: 'under_1s', counts: { rows: 4, items: 1, failures: 0 } },
+          undefined,
+        ],
+        [
+          {
+            feature: 'gbp', operation: 'reviews', trigger: 'manual', status: 'skipped', reasonCode: 'PERMISSION_MISSING',
+            durationBucket: 'under_1s', counts: { items: 1, reviews: 0, skipped: 1, failures: 0 },
+          },
+          { errorCode: 'PERMISSION_MISSING' },
+        ],
+      ])
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('reports the reviews Business Profile returned, and a transient v4 failure by its HTTP class', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+      seedRun(db, 'run_1')
+      seedRun(db, 'run_2')
+      const review = (id: string) => ({
+        reviewName: `accounts/1/${LOCATION}/reviews/${id}`, starRating: 5, comment: 'Great', reviewerName: 'Guest',
+        createTime: '2026-10-01T00:00:00.000Z', updateTime: '2026-10-01T00:00:00.000Z', replyComment: null, replyUpdateTime: null,
+      })
+      listReviewsMock.mockResolvedValue({ reviews: [review('a'), review('b')], averageRating: 5, totalReviewCount: 2, stoppedEarly: false })
+
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })
+      listReviewsMock.mockRejectedValue(new GbpApiError('Backend Error', 500, null, {}))
+      await executeGbpSync(db, 'run_2', 'proj_gbp', { config: testConfig() })
+
+      const reviews = outcomes().filter(([properties]) => properties.operation === 'reviews')
+      expect(reviews).toEqual([
+        [
+          { feature: 'gbp', operation: 'reviews', trigger: 'manual', status: 'succeeded', durationBucket: 'under_1s', counts: { items: 1, reviews: 2, skipped: 0, failures: 0 } },
+          undefined,
+        ],
+        [
+          {
+            feature: 'gbp', operation: 'reviews', trigger: 'manual', status: 'failed', reasonCode: 'HTTP_5XX',
+            durationBucket: 'under_1s', counts: { items: 1, reviews: 0, skipped: 0, failures: 1 },
+          },
+          { errorCode: 'HTTP_5XX' },
+        ],
+      ])
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('reports a location that failed, the API access gate, and an unselected location by reason, with no reviews outcome', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+      seedRun(db, 'run_1')
+      seedRun(db, 'run_2')
+      seedRun(db, 'run_3')
+
+      fetchDailyMetricsMock.mockRejectedValue(new GbpApiError('Permission denied', 403, 'PERMISSION_DENIED', {}))
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })
+      listLocationsMock.mockRejectedValue(new GbpApiError('Quota exceeded', 429, 'RATE_LIMIT_EXCEEDED', {}, 0))
+      await expect(executeGbpSync(db, 'run_2', 'proj_gbp', { config: testConfig() })).rejects.toThrow('Quota exceeded')
+      db.update(gbpLocations).set({ selected: false }).where(eq(gbpLocations.id, 'loc_1')).run()
+      await expect(executeGbpSync(db, 'run_3', 'proj_gbp', { config: testConfig() })).rejects.toThrow(GBP_NO_SELECTED_LOCATIONS_ERROR)
+
+      expect(outcomes()).toEqual([
+        [
+          {
+            feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'PERMISSION_MISSING',
+            errorName: 'GbpApiError', durationBucket: 'under_1s', counts: { rows: 0, items: 0, failures: 1 },
+          },
+          { errorCode: 'PERMISSION_MISSING' },
+        ],
+        [
+          {
+            feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'QUOTA_EXCEEDED',
+            errorName: 'GbpApiError', durationBucket: 'under_1s',
+          },
+          { errorCode: 'QUOTA_EXCEEDED' },
+        ],
+        [
+          {
+            feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'PROPERTY_NOT_FOUND',
+            errorName: 'Error', durationBucket: 'under_1s',
+          },
+          { errorCode: 'PROPERTY_NOT_FOUND' },
+        ],
+      ])
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('reports a scheduled sync as the server acting on its schedule', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+      db.insert(runs).values({
+        id: 'run_scheduled', projectId: 'proj_gbp', kind: 'gbp-sync', status: 'queued', trigger: 'scheduled', createdAt: new Date().toISOString(),
+      }).run()
+
+      await executeGbpSync(db, 'run_scheduled', 'proj_gbp', { config: testConfig() })
+
+      expect(outcomes()[0]).toEqual([
+        {
+          feature: 'gbp', operation: 'sync', trigger: 'scheduled', surface: 'system', status: 'succeeded',
+          durationBucket: 'under_1s', counts: { rows: 4, items: 1, failures: 0 },
+        },
+        undefined,
+      ])
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }

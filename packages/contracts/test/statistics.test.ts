@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { breakdownShares, linearTrend, shareOf, wilsonInterval } from '../src/statistics.js'
+import { breakdownShares, linearTrend, median, shareOf, wilsonInterval } from '../src/statistics.js'
 
 describe('wilsonInterval', () => {
   // Fixtures verified against the closed-form Wilson score interval (z=1.96).
@@ -196,5 +196,29 @@ describe('breakdownShares', () => {
   it('shares out nothing when the parts sum to zero', () => {
     expect(breakdownShares([0, 0])).toEqual([0, 0])
     expect(breakdownShares([])).toEqual([])
+  })
+})
+
+describe('median', () => {
+  it('takes the middle value of an odd sample, whatever the input order', () => {
+    expect(median([5100, 2400, 3000])).toBe(3000)
+    expect(median([7])).toBe(7)
+  })
+
+  it('averages the two middle values of an even sample', () => {
+    expect(median([1000, 3000])).toBe(2000)
+    expect(median([4, 1, 3, 2])).toBe(2.5)
+  })
+
+  it('ignores values that are not finite, and has no median for nothing', () => {
+    expect(median([Number.NaN, 10, Number.POSITIVE_INFINITY, 30])).toBe(20)
+    expect(median([])).toBeNull()
+    expect(median([Number.NaN])).toBeNull()
+  })
+
+  it('leaves the caller\'s array unsorted', () => {
+    const sample = [3, 1, 2]
+    expect(median(sample)).toBe(2)
+    expect(sample).toEqual([3, 1, 2])
   })
 })

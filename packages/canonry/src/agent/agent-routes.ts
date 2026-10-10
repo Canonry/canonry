@@ -1,4 +1,4 @@
-import { UserRoles, agentBusy } from '@ainyc/canonry-contracts'
+import { OutcomeTriggers, USAGE_TELEMETRY_HEADERS, UserRoles, agentBusy } from '@ainyc/canonry-contracts'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import {
@@ -20,10 +20,11 @@ import {
   describeError,
 } from '@ainyc/canonry-contracts'
 import type { Agent, AgentEvent, AgentMessage } from '@earendil-works/pi-agent-core'
-import { registerAgentConversationRoutes, requireInstanceAdministrator } from '@ainyc/canonry-api-routes'
+import { registerAgentConversationRoutes, requireInstanceAdministrator, type OutcomeAttribution } from '@ainyc/canonry-api-routes'
 import type { SessionRegistry } from './session-registry.js'
 import { VIEWER_AERO_MAX_PROMPT_CHARS, type ViewerAeroSessions } from './viewer-sessions.js'
 import { aeroTurnStatus, isRunFailureMessage, isSystemMessage } from './runtime.js'
+import { trackAeroTurn } from './turn-telemetry.js'
 import {
   AeroToolProfiles,
   AeroToolScopes,
@@ -100,6 +101,19 @@ function viewerTranscript(opts: AgentRoutesOptions, projectName: string, userId:
   }
 }
 
+function headerText(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value
+}
+
+/** The caller-supplied labels an Aero turn's outcome is attributed with, read like `api.request`'s. */
+function turnAttribution(request: FastifyRequest): OutcomeAttribution {
+  return {
+    userAgent: headerText(request.headers['user-agent']),
+    surfaceLabel: headerText(request.headers[USAGE_TELEMETRY_HEADERS.surface]),
+    agentLabel: headerText(request.headers[USAGE_TELEMETRY_HEADERS.agent]),
+  }
+}
+
 function resolveProject(db: DatabaseClient, name: string): { id: string; name: string } {
   const row = db.select({ id: projects.id, name: projects.name }).from(projects).where(eq(projects.name, name)).get()
   if (!row) throw notFound('project', name)
@@ -135,6 +149,8 @@ async function streamAgentTurn(
     detach: () => void
     /** Set for a viewer: redact every frame and replace raw error text. */
     viewer?: boolean
+    /** Who asked, for the turn's outcome telemetry. */
+    attribution: OutcomeAttribution
   },
 ): Promise<void> {
   reply.raw.writeHead(200, {
@@ -171,25 +187,30 @@ async function streamAgentTurn(
   })
 
   let failed = false
+  let failure: unknown
   try {
     await agent.prompt(turn.batch)
     await agent.waitForIdle()
   } catch (err) {
     failed = true
+    failure = err
     write({ type: 'error', message: describeError(err) })
   } finally {
     try { turn.save() } catch (err) {
       failed = true
+      failure ??= err
       write({ type: 'error', message: describeError(err) })
     }
     const status = aeroTurnStatus(agent)
-    write({ type: 'aero_turn_status', status: status && failed ? { ...status, reason: 'error' } : status })
+    const reported = status && failed ? { ...status, reason: 'error' as const } : status
+    write({ type: 'aero_turn_status', status: reported })
     unsubscribe()
     turn.detach()
     write({ type: 'stream_close' })
     if (!reply.raw.writableEnded) {
       reply.raw.end()
     }
+    trackAeroTurn(agent, { trigger: OutcomeTriggers.manual, attribution: turn.attribution, status: reported, error: failure })
   }
 }
 
@@ -205,6 +226,7 @@ async function streamViewerTurn(
   viewerId: string,
   body: AgentPromptBody,
   reply: FastifyReply,
+  attribution: OutcomeAttribution,
 ): Promise<FastifyReply> {
   const disconnected = new AbortController()
   // Set once the turn is acquired, so a disconnect can stop it mid-stream.
@@ -235,6 +257,7 @@ async function streamViewerTurn(
       save: () => {},
       detach: () => reply.raw.off('close', onClose),
       viewer: true,
+      attribution,
     })
   } finally {
     turn.release()
@@ -391,7 +414,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
       if (body.prompt.length > VIEWER_AERO_MAX_PROMPT_CHARS) {
         throw validationError(`Keep questions under ${VIEWER_AERO_MAX_PROMPT_CHARS} characters.`)
       }
-      return streamViewerTurn(opts, project, viewerId, body, reply)
+      return streamViewerTurn(opts, project, viewerId, body, reply, turnAttribution(request))
     }
     if (body.conversationId !== undefined) {
       const current = opts.db.select({ id: agentSessions.id }).from(agentSessions).where(eq(agentSessions.projectId, project.id)).get()
@@ -448,6 +471,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
       batch: pending.length > 0 ? [...pending, userMessage] : userMessage,
       save: () => opts.sessionRegistry.save(project.name),
       detach: () => reply.raw.off('close', onClose),
+      attribution: turnAttribution(request),
     })
 
     // Fastify accepts this as "reply already handled" because we wrote to reply.raw.

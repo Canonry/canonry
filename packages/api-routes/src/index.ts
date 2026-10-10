@@ -12,6 +12,7 @@ export { sentimentClassifierInput, sentimentHash } from './sentiment-input.js'
 import { AppError, runtimeStateMissing, describeError } from '@ainyc/canonry-contracts'
 import { authPlugin } from './auth.js'
 import { registerRequestContext, type RequestContextOptions } from './request-context.js'
+import { createOutcomeEmitter, type OutcomeTelemetryEvent, type OutcomeTelemetryInput } from './outcome-telemetry.js'
 import { createCredentialChecker, type CredentialChecker } from './user-session.js'
 import { resolveOAuthAccessToken } from './oauth.js'
 import { projectRoutes } from './projects.js'
@@ -115,6 +116,8 @@ import type { CheckOutput, DoctorUpdateStatus, TrafficSourceProbe, TrafficSource
 declare module 'fastify' {
   interface FastifyInstance {
     db: DatabaseClient
+    /** Report an outcome (`integration.connection`, `feature.completed`) to the host; a no-op without `onOutcome`. */
+    emitOutcome: (event: OutcomeTelemetryInput) => void
   }
 }
 
@@ -128,7 +131,9 @@ export {
 export type { OAuthRoutesOptions } from './oauth.js'
 export type { CredentialChecker } from './user-session.js'
 export type { ApiRequestCompletedInfo, RequestContextOptions } from './request-context.js'
+export type { OutcomeAttribution, OutcomeTelemetryEvent, OutcomeTelemetryInput } from './outcome-telemetry.js'
 export type { FeedbackRequestContext, FeedbackRoutesOptions } from './feedback.js'
+export { credentialFailure } from './feature-outcome.js'
 export { SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from './doctor/checks/site-reachability.js'
 export { runChecks } from './doctor/runner.js'
 export { scheduledHealthCheckIds } from './doctor/registry.js'
@@ -394,6 +399,8 @@ export interface ApiRoutesOptions {
   defaultTrafficSampleLimit?: TrafficRoutesOptions['defaultSampleLimit']
   /** Fired after every traffic sync (success OR failure). Used by canonry to emit `traffic.synced` telemetry. */
   onTrafficSynced?: TrafficRoutesOptions['onTrafficSynced']
+  /** Fired after every authenticated traffic push. Used by canonry to emit the sampled `server_traffic` ingest outcome. */
+  onTrafficIngested?: TrafficRoutesOptions['onTrafficIngested']
   /** Discovery feature callback — fires after a discovery_sessions row + matching runs row are inserted. */
   onDiscoveryRunRequested?: DiscoveryRoutesOptions['onDiscoveryRunRequested']
   /** Executes an isolated research batch. Never creates a tracked run or query snapshots. */
@@ -457,11 +464,18 @@ export interface ApiRoutesOptions {
   getAgentPluginState?: () => AgentPluginState
   /** Running vs latest published version for the `canonry.version.current` doctor check. */
   getUpdateStatus?: () => DoctorUpdateStatus
+  /**
+   * Outcome telemetry sink. Route code reports through `app.emitOutcome`; the
+   * host validates and sends. Hosts without telemetry (Cloud Run) omit it.
+   */
+  onOutcome?: (event: OutcomeTelemetryEvent) => void
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
   // Decorate with db
   app.decorate('db', opts.db)
+  // Before any route plugin registers, so every one of them inherits it.
+  app.decorate('emitOutcome', createOutcomeEmitter(opts.onOutcome))
 
   // Global error handler — serializes AppError consistently, prevents stack trace leaks
   app.setErrorHandler((error: FastifyError | AppError, _request, reply) => {
@@ -789,6 +803,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       cloudflareIngestIpRateLimitMax: opts.cloudflareIngestIpRateLimitMax,
       defaultSampleLimit: opts.defaultTrafficSampleLimit,
       onTrafficSynced: opts.onTrafficSynced,
+      onTrafficIngested: opts.onTrafficIngested,
       onScheduleUpdated: opts.onScheduleUpdated,
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
     } satisfies TrafficRoutesOptions)
@@ -910,6 +925,8 @@ export type {
   OnDiscoveryRunRequested,
 } from './discovery/index.js'
 export { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
+// One classification of a webhook destination and its answer, shared by the test route and deliveries.
+export { webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from './connection-telemetry.js'
 // Audit rows written by a host route, so they carry the same request context.
 export { auditFromRequest, notProbeRun, writeAuditLog } from './helpers.js'
 // Shared public-egress preflight: validates every resolved address class and
@@ -921,6 +938,7 @@ export { resolveMeasurementSitemapTarget as resolvePublicHttpTarget } from './me
 export { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
 export { redactNotificationDiff, redactNotificationUrl } from './notification-redaction.js'
 export type { SafeWebhookTarget } from './webhooks.js'
+export type { TrafficIngestedEvent, TrafficSyncedEvent } from './traffic.js'
 export type { RunRoutesOptions } from './runs.js'
 // Pure GBP summary math — reused by the intelligence service to derive
 // per-location signals (window deltas, lodging/CTA flags) for gbp-sync insights.

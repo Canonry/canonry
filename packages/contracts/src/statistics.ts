@@ -64,6 +64,17 @@ export function breakdownShares(parts: readonly number[]): number[] {
 }
 
 /**
+ * The middle value of a sample (the mean of the two middle values when the
+ * count is even). Non-finite values are ignored; null when nothing is left.
+ */
+export function median(values: readonly number[]): number | null {
+  const sorted = values.filter(value => Number.isFinite(value)).sort((left, right) => left - right)
+  if (sorted.length === 0) return null
+  const middle = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 1 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2
+}
+
+/**
  * Wilson score interval for a binomial proportion — the display default for
  * mention / cited / share-of-voice rates.
  *

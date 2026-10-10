@@ -24,6 +24,8 @@ import { AppError } from '@ainyc/canonry-contracts'
 import type { SynthesizeContentBriefFn } from '../src/content.js'
 
 import { contentRoutes } from '../src/content.js'
+import { createOutcomeEmitter, type OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
+import { featureOutcomes } from './feature-outcome-capture.js'
 
 interface SeededProject {
   projectId: string
@@ -38,13 +40,16 @@ function buildApp() {
 
   const app = Fastify()
   app.decorate('db', db)
+  // What `apiRoutes({ onOutcome })` would hand the host.
+  const outcomes: OutcomeTelemetryEvent[] = []
+  app.decorate('emitOutcome', createOutcomeEmitter(event => { outcomes.push(event) }))
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof AppError) {
       return reply.status(error.statusCode).send(error.toJSON())
     }
     throw error
   })
-  return { app, db, tmpDir }
+  return { app, db, tmpDir, outcomes }
 }
 
 function seedProject(db: ReturnType<typeof createClient>): SeededProject {
@@ -1101,6 +1106,7 @@ describe('content recommendation explanation routes', () => {
   let app: ReturnType<typeof buildApp>['app']
   let db: ReturnType<typeof buildApp>['db']
   let tmpDir: string
+  let outcomes: OutcomeTelemetryEvent[]
   /** Per-test mutable state so each test can swap the explainer behavior. */
   let mockState: {
     callCount: number
@@ -1119,6 +1125,7 @@ describe('content recommendation explanation routes', () => {
     app = ctx.app
     db = ctx.db
     tmpDir = ctx.tmpDir
+    outcomes = ctx.outcomes
     mockState = {
       callCount: 0,
       lastInput: null,
@@ -1351,16 +1358,66 @@ describe('content recommendation explanation routes', () => {
     })
   })
 
+  describe('analyze outcome telemetry', () => {
+    const analyze = (targetRef: string, payload = '{}') => app.inject({
+      method: 'POST',
+      url: `/projects/example/content/recommendations/${targetRef}/analyze`,
+      headers: { 'content-type': 'application/json' },
+      payload,
+    })
+
+    it('reports a generated explanation with its model call and cost, and a cached one without', async () => {
+      seedProject(db)
+      const targetsRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const targetRef = JSON.parse(targetsRes.payload).targets[0].targetRef
+
+      expect((await analyze(targetRef)).statusCode).toBe(200)
+      expect((await analyze(targetRef)).statusCode).toBe(200)
+
+      const base = { feature: 'content', operation: 'analyze', durationBucket: expect.any(String) }
+      expect(featureOutcomes(outcomes)).toEqual([
+        // 42 millicents is 420 micro-USD.
+        { ...base, status: 'succeeded', counts: { targets: 1, modelCalls: 1, costMicros: 420 } },
+        { ...base, status: 'succeeded', counts: { targets: 1 } },
+      ])
+    })
+
+    it('reports a failed LLM call by reason and error class, never its message', async () => {
+      seedProject(db)
+      const targetsRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const targetRef = JSON.parse(targetsRes.payload).targets[0].targetRef
+      mockState.response = () => { throw Object.assign(new Error('429 from https://llm.example/v1 for key sk-secret'), { status: 429 }) }
+
+      expect((await analyze(targetRef)).statusCode).toBe(429)
+      expect(featureOutcomes(outcomes)).toEqual([{
+        feature: 'content', operation: 'analyze', durationBucket: expect.any(String),
+        status: 'failed', reasonCode: 'RATE_LIMITED', errorName: 'Error',
+      }])
+      expect(JSON.stringify(outcomes)).not.toMatch(/llm\.example|sk-secret/)
+    })
+
+    it('reports an unknown recommendation as not found', async () => {
+      seedProject(db)
+      expect((await analyze('tgt_not_a_real_ref')).statusCode).toBe(404)
+      expect(featureOutcomes(outcomes)).toEqual([{
+        feature: 'content', operation: 'analyze', durationBucket: expect.any(String),
+        status: 'failed', reasonCode: 'NOT_FOUND', errorName: 'AppError',
+      }])
+    })
+  })
+
   describe('without an explainer wired in', () => {
     let bareApp: ReturnType<typeof buildApp>['app']
     let bareDb: ReturnType<typeof buildApp>['db']
     let bareTmpDir: string
+    let bareOutcomes: OutcomeTelemetryEvent[]
 
     beforeEach(async () => {
       const ctx = buildApp()
       bareApp = ctx.app
       bareDb = ctx.db
       bareTmpDir = ctx.tmpDir
+      bareOutcomes = ctx.outcomes
       // No `explainContentRecommendation` — production state when no LLM
       // provider is configured.
       await bareApp.register(contentRoutes)
@@ -1384,6 +1441,11 @@ describe('content recommendation explanation routes', () => {
       })
       expect(res.statusCode).toBe(502)
       expect(JSON.parse(res.payload).error.code).toBe('PROVIDER_ERROR')
+      // No LLM provider is configured: a missing connection, not an upstream 5xx.
+      expect(featureOutcomes(bareOutcomes)).toEqual([{
+        feature: 'content', operation: 'analyze', durationBucket: expect.any(String),
+        status: 'failed', reasonCode: 'NOT_CONNECTED', errorName: 'AppError',
+      }])
     })
 
     it('GET still works as a cache-only read when no explainer is wired', async () => {
@@ -1407,6 +1469,7 @@ describe('content brief routes', () => {
   let app: ReturnType<typeof buildApp>['app']
   let db: ReturnType<typeof buildApp>['db']
   let tmpDir: string
+  let outcomes: OutcomeTelemetryEvent[]
   let briefState: { callCount: number; throwError: Error | null }
 
   const stubSynthesizer: SynthesizeContentBriefFn = async (input) => {
@@ -1433,6 +1496,7 @@ describe('content brief routes', () => {
     app = ctx.app
     db = ctx.db
     tmpDir = ctx.tmpDir
+    outcomes = ctx.outcomes
     briefState = { callCount: 0, throwError: null }
     await app.register(contentRoutes, {
       // Register both so the cache-isolation test can write an explanation too.
@@ -1500,6 +1564,11 @@ describe('content brief routes', () => {
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.payload).error.code).toBe('VALIDATION_ERROR')
     expect(briefState.callCount).toBe(0)
+    // The winnability gate refused it: a skip, not a failure.
+    expect(featureOutcomes(outcomes)).toEqual([{
+      feature: 'content', operation: 'brief', durationBucket: expect.any(String),
+      status: 'skipped', reasonCode: 'GATE_REFUSED',
+    }])
   })
 
   it('returns the cached brief on a second POST without forceRefresh', async () => {
@@ -1509,6 +1578,11 @@ describe('content brief routes', () => {
     await app.inject({ method: 'POST', url, headers: { 'content-type': 'application/json' }, payload: '{}' })
     await app.inject({ method: 'POST', url, headers: { 'content-type': 'application/json' }, payload: '{}' })
     expect(briefState.callCount).toBe(1) // second call served from cache
+    const base = { feature: 'content', operation: 'brief', durationBucket: expect.any(String) }
+    expect(featureOutcomes(outcomes)).toEqual([
+      { ...base, status: 'succeeded', counts: { briefs: 1, modelCalls: 1, costMicros: 880 } },
+      { ...base, status: 'succeeded', counts: { briefs: 1 } },
+    ])
   })
 
   it('re-synthesizes when forceRefresh is true', async () => {

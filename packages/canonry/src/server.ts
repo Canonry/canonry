@@ -58,7 +58,6 @@ import {
   embedClientConfigForRequest,
   serializeForInlineScript,
   frameAncestorsHeaderValue,
-  CcReleaseSyncStatuses,
   RunKinds,
   SchedulableRunKinds,
   type SchedulableRunKind,
@@ -73,12 +72,17 @@ import {
   adsConversionPixelListResponseSchema,
   adsConversionEventSettingListResponseSchema,
   GoogleMarketingProviders,
+  FeatureNames,
+  OutcomeReasonCodes,
+  OutcomeSurfaces,
   type AdsCampaignBiddingType,
   type AdsAdGroupBillingEventType,
   type ProviderAdapter,
   type ProviderSummaryEntryDto,
   type AgentPluginState,
   describeError,
+  OutcomeTriggers,
+  type OutcomeTrigger,
 } from "@ainyc/canonry-contracts";
 import type {
   CanonryConfig,
@@ -151,7 +155,6 @@ import {
 import {
   getTelemetryStatus,
   setTelemetryPreference,
-  trackEvent,
   recordDashboardEvent,
 } from "./telemetry.js";
 import { createApiUsageTelemetry } from "./usage-telemetry.js";
@@ -224,7 +227,7 @@ import { GTM_READONLY_SCOPE } from "@ainyc/canonry-integration-google-tag-manage
 import { executeInspectSitemap } from "./gsc-inspect-sitemap.js";
 import { executeBingInspectSitemap } from "./bing-inspect-sitemap.js";
 import { maybeRefreshGscCoverage, runWasUserInitiated } from "./coverage-refresh.js";
-import { executeReleaseSync } from "./commoncrawl-sync.js";
+import { executeReleaseSync, syncLatestReleaseOnSchedule } from "./commoncrawl-sync.js";
 import { executeBacklinkExtract } from "./backlink-extract.js";
 import { executeDiscoveryRun } from "./discovery-run.js";
 import { executeSiteAudit } from "./execute-site-audit.js";
@@ -247,6 +250,10 @@ import {
 } from "@ainyc/canonry-db";
 import { ProviderRegistry, type RegisteredProvider } from "./provider-registry.js";
 import { batchEligibleProviderNames, providerConfigFromEntry, providersWithUnsupportedBatch } from "./provider-batch-config.js";
+import { handleRouteOutcome, outcomeAttribution } from "./outcome-telemetry.js";
+import { startInstallStateTelemetry } from "./install-state-telemetry.js";
+import { trackTrafficIngested, trackTrafficSynced } from "./traffic-telemetry.js";
+import { reportUnstartedRun } from "./sync-outcome.js";
 import { registeredProviderNames } from "./provider-registration.js";
 import { configuredProviderEntries, DEFAULT_CDP_QUOTA, DEFAULT_PROVIDER_QUOTA, resolveProviderQuotaPolicy } from "./provider-runtime-config.js";
 import { assertProviderReloadKeepsPendingBatches } from "./provider-reload-batch-guard.js";
@@ -1120,11 +1127,16 @@ export async function createServer(opts: {
   // are server automation, not Aero, so they get their own client without the
   // `aero` usage label. Otherwise every scheduled sync would be reported as
   // `api.request` agent traffic and spend the per-process telemetry budget
-  // that real agent requests need. Unlabelled, usage telemetry skips them like
-  // the CLI; the jobs report through their own events (`traffic.synced`, ...).
+  // that real agent requests need. Usage telemetry skips them like the CLI;
+  // the jobs report through their own events (`traffic.synced`, ...). The
+  // `system` label lets outcome telemetry report this work as scheduled.
   const schedulerClient = new ApiClient(opts.config.apiUrl, opts.config.apiKey, {
     skipProbe: true,
+    surface: OutcomeSurfaces.system,
   });
+  // Releases the backlinks schedule asked POST /backlinks/syncs for, so the
+  // release sync that request starts reports a scheduled trigger.
+  const scheduledBacklinkReleases = new Set<string>();
   // Built-in Aero agent kill-switch. When disabled (config `agent.mode:
   // 'disabled'` or env CANONRY_AGENT_DISABLED=1) we skip the SessionRegistry,
   // the proactive wake on run completion, and the interactive agent routes —
@@ -1389,6 +1401,7 @@ export async function createServer(opts: {
       app.log.error(
         "GBP sync requested but Google OAuth credentials are not configured in the local config",
       );
+      reportUnstartedRun(opts.db, runId, FeatureNames.gbp, "sync", OutcomeReasonCodes.NOT_CONNECTED);
       return;
     }
     executeGbpSync(opts.db, runId, projectId, {
@@ -1865,6 +1878,7 @@ export async function createServer(opts: {
 
   let stopSiteLiveness: (() => void) | null = null;
   let stopProviderBatchPoller: (() => void) | null = null;
+  let stopInstallState: (() => void) | null = null;
 
   const scheduler = new Scheduler(opts.db, {
     onRunCreated: (runId, projectId, providers, location) => {
@@ -1942,56 +1956,14 @@ export async function createServer(opts: {
       void refreshAllIntegrations(schedulerClient, projectName);
     },
     onBacklinksSyncRequested: (projectName) => {
-      // Re-probe Common Crawl for the newest rolling window. The release sync is
-      // workspace-GLOBAL, so we gate on freshness: skip when the latest published
-      // release is already synced READY (avoids re-downloading a ~4 GB/~13 GB
-      // near-identical window every tick). We match on (release, status) directly
-      // rather than the most-recently-updated ready row, so re-syncing an older
-      // release out of band doesn't make us re-trigger an already-synced latest.
-      // Otherwise reuse POST /backlinks/syncs, which owns insert/dedupe (UNIQUE
-      // release + non-terminal check) and the per-project auto-extract fan-out.
-      // Probe directly (not the 5-min cache) so each tick sees fresh results.
-      void (async () => {
-        const probed = await probeLatestRelease().catch((err: unknown) => {
-          app.log.warn(
-            { projectName, err },
-            "Scheduled backlinks sync: latest-release probe failed",
-          );
-          return null;
-        });
-        if (!probed) return;
-        const alreadySynced = opts.db
-          .select()
-          .from(ccReleaseSyncsTable)
-          .where(
-            and(
-              eq(ccReleaseSyncsTable.release, probed.release),
-              eq(ccReleaseSyncsTable.status, CcReleaseSyncStatuses.ready),
-            ),
-          )
-          .limit(1)
-          .get();
-        if (alreadySynced) {
-          app.log.info(
-            { projectName, release: probed.release },
-            "Scheduled backlinks sync: already up to date, skipping",
-          );
-          return;
-        }
-        schedulerClient
-          .backlinksTriggerSync(probed.release)
-          .catch((err: unknown) => {
-            app.log.error(
-              {
-                projectName,
-                release: probed.release,
-                err: describeError(err),
-              },
-              "Scheduled backlinks sync failed",
-            );
-          });
-      })();
-
+      void syncLatestReleaseOnSchedule(projectName, {
+        db: opts.db,
+        // Probe directly (not the 5-min cache) so each tick sees fresh results.
+        probe: () => probeLatestRelease(),
+        requestSync: (release) => schedulerClient.backlinksTriggerSync(release),
+        scheduledReleases: scheduledBacklinkReleases,
+        log: app.log,
+      });
     },
     onSiteAuditRequested: (runId, projectId, auditOpts) => {
       // The scheduler already created the site-audit run row; run the same
@@ -2806,8 +2778,8 @@ export async function createServer(opts: {
     config: opts.config,
   });
 
-  const dispatchResearchRun = (runId: string, projectId: string) => {
-    executeResearchRun(opts.db, registry, runId, projectId).catch((err: unknown) => {
+  const dispatchResearchRun = (runId: string, projectId: string, trigger?: OutcomeTrigger) => {
+    executeResearchRun(opts.db, registry, runId, projectId, { trigger }).catch((err: unknown) => {
       app.log.error({ runId, err }, 'Research run failed');
     });
   };
@@ -3013,6 +2985,8 @@ export async function createServer(opts: {
     }
   };
   await app.register(apiRoutes, {
+    // Outcome telemetry reported from route code (`app.emitOutcome`).
+    onOutcome: handleRouteOutcome,
     db: opts.db,
     sentiment: {
       install: () => { const configuration = loadSentimentInstallConfig(); return { ...sentimentInstallReadiness(configuration), model: configuration.model }; },
@@ -3195,6 +3169,7 @@ export async function createServer(opts: {
         app.log.error(
           "GSC sync requested but Google OAuth credentials are not configured in the local config",
         );
+        reportUnstartedRun(opts.db, runId, FeatureNames.search_console, "sync", OutcomeReasonCodes.NOT_CONNECTED);
         return;
       }
       executeGscSync(opts.db, runId, projectId, {
@@ -3226,6 +3201,7 @@ export async function createServer(opts: {
         app.log.error(
           "Inspect sitemap requested but Google OAuth credentials are not configured",
         );
+        reportUnstartedRun(opts.db, runId, FeatureNames.search_console, "inspect", OutcomeReasonCodes.NOT_CONNECTED);
         return;
       }
       executeInspectSitemap(opts.db, runId, projectId, {
@@ -3278,6 +3254,7 @@ export async function createServer(opts: {
     onReleaseSyncRequested: (syncId: string, release: string) => {
       executeReleaseSync(opts.db, syncId, {
         release,
+        trigger: scheduledBacklinkReleases.delete(release) ? OutcomeTriggers.scheduled : OutcomeTriggers.manual,
         deps: {
           enqueueAutoExtract: ({ projectId, release: r }) => {
             const now = new Date().toISOString();
@@ -3477,26 +3454,8 @@ export async function createServer(opts: {
     vercelTrafficCredentialStore,
     cloudflareTrafficCredentialStore,
     cloudflareTrafficIngestUrl: buildCloudflareIngestUrlTemplate(opts.config),
-    onTrafficSynced: (event) => {
-      // Emit anonymous canonry telemetry for every sync (success + fail).
-      // Same envelope shape as run.completed (top-level `errorCode` on
-      // failure, payload in `properties`). Counts are aggregate, sourceId
-      // is an opaque UUID — no PII surface.
-      trackEvent(
-        "traffic.synced",
-        {
-          status: event.status,
-          sourceType: event.sourceType,
-          sourceId: event.sourceId,
-          pulledEvents: event.pulledEvents,
-          selfTrafficExcluded: event.selfTrafficExcluded,
-          crawlerHits: event.crawlerHits,
-          aiReferralHits: event.aiReferralHits,
-          durationMs: event.durationMs,
-        },
-        event.errorCode ? { errorCode: event.errorCode } : undefined,
-      );
-    },
+    onTrafficSynced: trackTrafficSynced,
+    onTrafficIngested: trackTrafficIngested,
     onRunCreated: (
       runId: string,
       projectId: string,
@@ -3703,10 +3662,10 @@ export async function createServer(opts: {
     operatorApiKeyIds,
     listOperationalLogs: (query) => operationalLogs.list(query),
     getTelemetryStatus,
-    setTelemetryEnabled: (enabled: boolean) => {
+    setTelemetryEnabled: (enabled, attribution) => {
       // Persists synchronously; an opt-out's `telemetry.disabled` event is
       // delivered in the background, since this process keeps running.
-      void setTelemetryPreference(enabled, "api");
+      void setTelemetryPreference(enabled, "api", outcomeAttribution(attribution));
       // Keep in-memory config in sync
       opts.config.telemetry = enabled;
     },
@@ -4144,6 +4103,15 @@ export async function createServer(opts: {
       // Resumes every batch a previous process left outstanding, and finalizes
       // the runs boot recovery handed to it.
       stopProviderBatchPoller = startProviderBatchPoller({ db: opts.db, registry, runner: jobRunner });
+      // Daily `install.state`; an embedded read-only render reports nothing.
+      if (!embed.enabled) {
+        stopInstallState = startInstallStateTelemetry({
+          db: opts.db,
+          config: opts.config,
+          agentEnabled,
+          isBacklinksInstalled: () => isDuckdbInstalled(),
+        });
+      }
 
       // A request can commit its queued row just before a process exits,
       // leaving no in-memory callback to claim it. Re-dispatch every queued
@@ -4151,7 +4119,7 @@ export async function createServer(opts: {
       // running compare-and-set keeps this safe when a concurrent retry also
       // asks for execution.
       for (const run of opts.db.select({ id: researchRuns.id, projectId: researchRuns.projectId }).from(researchRuns).where(eq(researchRuns.status, ResearchRunStatuses.queued)).all()) {
-        dispatchResearchRun(run.id, run.projectId);
+        dispatchResearchRun(run.id, run.projectId, OutcomeTriggers.startup);
       }
       runtimeStartupSettled = true;
       resolveRuntimeStartup();
@@ -4172,6 +4140,8 @@ export async function createServer(opts: {
     stopSiteLiveness = null;
     stopProviderBatchPoller?.();
     stopProviderBatchPoller = null;
+    stopInstallState?.();
+    stopInstallState = null;
     scheduler.stop();
   });
 

@@ -39,7 +39,9 @@ export const API_REQUEST_BUCKET_CAPACITY = 20
 export const API_REQUEST_REFILL_PER_MS = 1 / 10_000
 const MAX_TRACKED_MCP_SESSIONS = 2000
 const MAX_ROUTE_LENGTH = 200
-const SKIPPED_ROUTE_PATTERN = /(?:^|\/)(?:health|openapi\.json|telemetry)(?:\/|$)/
+// The Cloudflare Worker's ingest push is machine traffic with its own sampled
+// outcome (`server_traffic`/`ingest`), not an agent surface.
+const SKIPPED_ROUTE_PATTERN = /(?:^|\/)(?:health|openapi\.json|telemetry|traffic\/cloudflare\/ingest)(?:\/|$)/
 const MCP_CALL_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MCP_TOOL_PATTERN = /^[a-z][a-z0-9_]{0,79}$/
 
@@ -77,17 +79,20 @@ export interface ApiUsageTelemetryOptions {
 export function createApiUsageTelemetry(options: ApiUsageTelemetryOptions = {}): (info: ApiRequestCompletedInfo) => void {
   const emit: UsageEventEmitter = options.emit ?? trackEvent
   const now = options.now ?? Date.now
-  let tokens = API_REQUEST_BUCKET_CAPACITY
-  let refilledAt = now()
-  let droppedBefore = 0
+  // Failed requests get their own bucket, so a busy agent's successes can
+  // never starve out the errors that say what is going wrong.
+  const buckets = {
+    ok: { tokens: API_REQUEST_BUCKET_CAPACITY, refilledAt: now(), droppedBefore: 0 },
+    error: { tokens: API_REQUEST_BUCKET_CAPACITY, refilledAt: now(), droppedBefore: 0 },
+  }
   const seenSessions = new Set<string>()
 
-  const takeToken = (): boolean => {
+  const takeToken = (bucket: (typeof buckets)['ok']): boolean => {
     const at = now()
-    tokens = Math.min(API_REQUEST_BUCKET_CAPACITY, tokens + (at - refilledAt) * API_REQUEST_REFILL_PER_MS)
-    refilledAt = at
-    if (tokens < 1) return false
-    tokens -= 1
+    bucket.tokens = Math.min(API_REQUEST_BUCKET_CAPACITY, bucket.tokens + (at - bucket.refilledAt) * API_REQUEST_REFILL_PER_MS)
+    bucket.refilledAt = at
+    if (bucket.tokens < 1) return false
+    bucket.tokens -= 1
     return true
   }
 
@@ -122,10 +127,13 @@ export function createApiUsageTelemetry(options: ApiUsageTelemetryOptions = {}):
       emit('mcp.session.started', { surface, agent, ...(mcpClient ? { mcpClient } : {}) }, { source: 'cli-server' })
     }
 
-    if (!takeToken()) {
-      droppedBefore += 1
+    const failed = info.statusCode >= 400
+    const bucket = failed ? buckets.error : buckets.ok
+    if (!takeToken(bucket)) {
+      bucket.droppedBefore += 1
       return
     }
+    const droppedBefore = bucket.droppedBefore
     const properties: TelemetryProperties = {
       surface,
       agent,
@@ -138,7 +146,10 @@ export function createApiUsageTelemetry(options: ApiUsageTelemetryOptions = {}):
       ...(mcpCallId ? { mcpCallId } : {}),
       ...(droppedBefore > 0 ? { droppedBefore } : {}),
     }
-    droppedBefore = 0
-    emit('api.request', properties, { source: 'cli-server' })
+    bucket.droppedBefore = 0
+    emit('api.request', properties, {
+      source: 'cli-server',
+      ...(failed && info.errorCode ? { errorCode: info.errorCode } : {}),
+    })
   }
 }

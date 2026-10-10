@@ -80,6 +80,17 @@ describe('createApiUsageTelemetry', () => {
     expect(events).toEqual([])
   })
 
+  it('skips the Cloudflare Worker ingest push, which reports its own sampled outcome, from any client', () => {
+    const { events, hook } = recorder()
+
+    for (const userAgent of ['canonry-cloudflare-worker/1.0.1', undefined]) {
+      hook(request({ route: '/api/v1/projects/:name/traffic/cloudflare/ingest', method: 'POST', userAgent, usageLabels: {} }))
+    }
+    hook(request({ route: '/api/v1/projects/:name/traffic/sources/:id/sync', method: 'POST', userAgent: 'curl/8.7.1', usageLabels: {} }))
+
+    expect(events.map(e => e.properties.route)).toEqual(['/api/v1/projects/:name/traffic/sources/:id/sync'])
+  })
+
   it('names a hosted MCP agent from its client, since the server process has no agent environment', () => {
     const { events, hook } = recorder()
 
@@ -162,5 +173,26 @@ describe('createApiUsageTelemetry', () => {
     clock += 10_000
     raw(1)
     expect(events.at(-1)!.properties).not.toHaveProperty('droppedBefore')
+  })
+})
+
+describe('failed agent requests', () => {
+  it('carry the stable error code on the envelope', () => {
+    const { events, hook } = recorder()
+    hook(request({ statusCode: 404, errorCode: 'NOT_FOUND' }))
+    hook(request({ statusCode: 200, errorCode: 'NOT_FOUND' }))
+    expect(events.filter(e => e.event === 'api.request').map(e => e.options)).toEqual([
+      { source: 'cli-server', errorCode: 'NOT_FOUND' },
+      { source: 'cli-server' },
+    ])
+  })
+
+  it('are never starved by successes: errors have their own budget', () => {
+    const { events, hook } = recorder()
+    for (let i = 0; i < API_REQUEST_BUCKET_CAPACITY + 5; i++) hook(request())
+    hook(request({ statusCode: 500, errorCode: 'INTERNAL' }))
+    const failed = events.filter(e => e.event === 'api.request' && e.properties.statusClass === '5xx')
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.options).toEqual({ source: 'cli-server', errorCode: 'INTERNAL' })
   })
 })

@@ -145,6 +145,7 @@ async function deliverViaDirectPush(env, batch) {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
+      'user-agent': 'canonry-cloudflare-worker/' + batch.workerVersion,
       'Authorization': 'Bearer ' + bearerToken,
       'X-Canonry-Timestamp': timestamp,
       'X-Canonry-Signature': signature,

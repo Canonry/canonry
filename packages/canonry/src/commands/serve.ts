@@ -14,6 +14,8 @@ import { detectCanonryAgentPlugin } from '../agent-plugin.js'
 import { describeError, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { operatorHttpUrl } from '../operator-url.js'
 import { resolveServePort } from '../serve-endpoint.js'
+import { installAttribution } from '../telemetry-environment.js'
+import { reportPreviousServerCrash, trackServerStartFailure, watchServerCrashes } from '../server-crash-telemetry.js'
 import { registeredProviderNames } from '../provider-registration.js'
 
 /** Read persisted scan state for the startup guidance. */
@@ -90,7 +92,12 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
 
   // Create DB client and run migrations
   const db = createClient(config.database)
-  migrate(db)
+  try {
+    migrate(db)
+  } catch (err) {
+    trackServerStartFailure(err, 'MIGRATION_FAILED')
+    throw err
+  }
 
   // Repair historical paths once per normalization version. Successful
   // passes are recorded in this database; failed passes retry next startup.
@@ -198,10 +205,13 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     // CLI events.
     setTelemetrySource('cli-server')
 
+    watchServerCrashes()
+    reportPreviousServerCrash()
     const providerNames = registeredProviderNames(config)
     trackEvent('serve.started', {
       providerCount: providerNames.length,
       providers: providerNames,
+      ...installAttribution(),
       // Who launched the server: an agent-started install is its own funnel.
       ...cliRuntimeContext(),
     })
@@ -213,6 +223,7 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
       process.stderr.write(`warning: server started but post-startup reporting failed: ${message}\n`)
       return
     }
+    trackServerStartFailure(err)
     try {
       await closeWithIdleSweep(app)
     } catch (closeErr) {

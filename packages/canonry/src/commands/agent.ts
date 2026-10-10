@@ -1,6 +1,7 @@
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { AGENT_WEBHOOK_EVENTS } from '../agent-webhook.js'
+import { trackCliConnection } from '../cli-connection-telemetry.js'
 
 export async function agentAttach(opts: { project: string; url: string; format?: string }): Promise<void> {
   const client = createApiClient()
@@ -8,6 +9,8 @@ export async function agentAttach(opts: { project: string; url: string; format?:
   const existing = await client.listNotifications(opts.project)
   const hasAgent = existing.some(n => n.source === 'agent')
   if (hasAgent) {
+    // The server never sees this attempt, so the CLI reports it.
+    trackCliConnection({ integration: 'agent_webhook', action: 'connect', status: 'cancelled', reasonCode: 'ALREADY_CONNECTED' })
     if (isMachineFormat(opts.format)) {
       console.log(JSON.stringify({ status: 'already-attached', project: opts.project }))
     } else {
@@ -36,6 +39,7 @@ export async function agentDetach(opts: { project: string; format?: string }): P
   const existing = await client.listNotifications(opts.project)
   const agentNotif = existing.find(n => n.source === 'agent')
   if (!agentNotif) {
+    trackCliConnection({ integration: 'agent_webhook', action: 'disconnect', status: 'cancelled', reasonCode: 'NOT_CONNECTED' })
     if (isMachineFormat(opts.format)) {
       console.log(JSON.stringify({ status: 'not-attached', project: opts.project }))
     } else {

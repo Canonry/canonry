@@ -1,6 +1,14 @@
 import { projects } from '@ainyc/canonry-db'
 import type { DatabaseClient } from '@ainyc/canonry-db'
+import {
+  OutcomeReasonCodes,
+  OutcomeStatuses,
+  OutcomeSurfaces,
+  OutcomeTriggers,
+  type FeatureCompletedProperties,
+} from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
+import { createOutcomeSampler, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
 const log = createLogger('SiteLiveness')
 
@@ -46,8 +54,16 @@ export interface SiteLivenessDeps {
   now?: () => string
 }
 
+export interface SiteLivenessPassResult {
+  checked: number
+  events: number
+  /** Projects whose probe or notification threw, and the first such error. */
+  failed: number
+  firstFailure?: unknown
+}
+
 /** One pass over every project. One project's failure never stops the others. */
-export async function runSiteLivenessPass(deps: SiteLivenessDeps): Promise<{ checked: number; events: number }> {
+export async function runSiteLivenessPass(deps: SiteLivenessDeps): Promise<SiteLivenessPassResult> {
   const now = deps.now ?? (() => new Date().toISOString())
   const rows = deps.db
     .select({ id: projects.id, name: projects.name, canonicalDomain: projects.canonicalDomain, displayName: projects.displayName })
@@ -55,6 +71,8 @@ export async function runSiteLivenessPass(deps: SiteLivenessDeps): Promise<{ che
     .all()
   let checked = 0
   let events = 0
+  let failed = 0
+  let firstFailure: unknown
   for (const project of rows) {
     try {
       const check = await deps.probe(project)
@@ -69,9 +87,23 @@ export async function runSiteLivenessPass(deps: SiteLivenessDeps): Promise<{ che
       }
     } catch (err: unknown) {
       log.warn('site-liveness.project-failed', { projectName: project.name, err: String(err) })
+      if (failed === 0) firstFailure = err
+      failed += 1
     }
   }
-  return { checked, events }
+  return { checked, events, failed, ...(failed > 0 ? { firstFailure } : {}) }
+}
+
+type LivenessOutcome = Pick<FeatureCompletedProperties, 'status' | 'reasonCode' | 'errorName' | 'counts' | 'durationBucket'>
+
+/** Nothing checked and nothing failed: no project, or no probe produced a check. */
+function livenessOutcome(result: SiteLivenessPassResult): LivenessOutcome {
+  const counts = { pages: result.checked, failures: result.failed }
+  if (result.failed > 0) {
+    return { status: result.checked > 0 ? OutcomeStatuses.partial : OutcomeStatuses.failed, ...outcomeFailure(result.firstFailure), counts }
+  }
+  if (result.checked === 0) return { status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.NO_DATA }
+  return { status: OutcomeStatuses.succeeded, counts }
 }
 
 /**
@@ -80,16 +112,36 @@ export async function runSiteLivenessPass(deps: SiteLivenessDeps): Promise<{ che
  */
 export function startSiteLivenessLoop(deps: SiteLivenessDeps, intervalMs = SITE_LIVENESS_INTERVAL_MS): () => void {
   let running = false
+  // A pass every ten minutes is mostly routine, so pass outcomes are sampled per status and reason.
+  const sample = createOutcomeSampler({ burst: 2, refillMs: 60 * 60_000 })
+  const report = (outcome: LivenessOutcome) => {
+    const sampled = sample(`${outcome.status}:${outcome.reasonCode ?? ''}`)
+    if (!sampled.send) return
+    trackFeatureCompleted({
+      feature: 'site_liveness',
+      operation: 'check',
+      trigger: OutcomeTriggers.scheduled,
+      surface: OutcomeSurfaces.system,
+      ...outcome,
+      ...(sampled.droppedBefore ? { droppedBefore: sampled.droppedBefore } : {}),
+    })
+  }
   const timer = setInterval(() => {
     // A pass that overruns its interval must not race the next one: two passes
     // in flight could each see one failure and page the same outage twice.
     if (running) {
       log.warn('site-liveness.pass-still-running', { intervalMs })
+      report({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.OPERATION_IN_PROGRESS })
       return
     }
     running = true
+    const elapsed = startOutcomeTimer()
     void runSiteLivenessPass(deps)
-      .catch((err: unknown) => log.warn('site-liveness.pass-failed', { err: String(err) }))
+      .then(result => report({ ...livenessOutcome(result), durationBucket: elapsed() }))
+      .catch((err: unknown) => {
+        log.warn('site-liveness.pass-failed', { err: String(err) })
+        report({ status: OutcomeStatuses.failed, ...outcomeFailure(err), durationBucket: elapsed() })
+      })
       .finally(() => { running = false })
   }, intervalMs)
   timer.unref?.()

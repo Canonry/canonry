@@ -1068,7 +1068,7 @@ describe('operator CLI contract', () => {
 
     expect(result.exitCode).toBe(undefined)
     expect(result.stderr).toBe('')
-    expect(result.stdout).toContain('Usage:  canonry bootstrap [--format json]')
+    expect(result.stdout).toContain('Usage:  canonry bootstrap [--ref <tag>] [--format json]')
     expect(result.stdout).toContain('local config, SQLite database, and default API key')
     expect(result.stdout).toContain('Provider credentials are optional')
     expect(result.stdout).toContain('Safe to rerun')

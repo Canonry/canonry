@@ -45,6 +45,10 @@ import {
   providerError,
   quotaExceeded,
   validationError,
+  FeatureNames,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
+  OutcomeTriggers,
   RunKinds,
   RunStatuses,
   RunTriggers,
@@ -52,6 +56,7 @@ import {
   describeError,
 } from '@ainyc/canonry-contracts'
 import type {
+  OutcomeReasonCode,
   AdsAdDto,
   AdsAdGroupDto,
   AdsAdGroupBillingEventType,
@@ -106,6 +111,8 @@ import type {
   AdsStoredMetricRow,
 } from './ads-live-delivery.js'
 import { resolveProject, writeAuditLog, auditFromRequest } from './helpers.js'
+import { connectionRoute } from './connection-telemetry.js'
+import { startRouteOutcome, upstreamFailure } from './feature-outcome.js'
 
 export interface AdsConnectionConfigEntryLike {
   projectName: string
@@ -1280,11 +1287,13 @@ async function executeAdsOperation(
     run: () => Promise<{ id: string; status?: string; updatedAt?: number | null }>
   },
 ): Promise<AdsOperationResponse> {
+  // A replay reports nothing: the attempt that wrote the receipt already did.
+  const outcome = startRouteOutcome(app, FeatureNames.openai_ads, 'operation')
   const hash = requestHash({ kind: input.kind, entityType: input.entityType, payload: input.payload })
   const existing = readOperationByKey(app, input.projectId, input.operationKey)
   if (existing) {
     if (existing.requestHash !== hash) {
-      throw alreadyExists('Ads operation key', input.operationKey)
+      throw outcome.refuse(OutcomeReasonCodes.VALIDATION, alreadyExists('Ads operation key', input.operationKey))
     }
     return { operation: operationDto(existing), replayed: true }
   }
@@ -1292,7 +1301,12 @@ async function executeAdsOperation(
   // A receipt marks the boundary after which an upstream write may have been
   // attempted. Keep provider reads before it so a transient read failure can
   // be retried with the same operation key without manufacturing ambiguity.
-  await input.preflight?.()
+  try {
+    await input.preflight?.()
+  } catch (err) {
+    outcome.report({ status: OutcomeStatuses.failed, ...upstreamFailure(err) })
+    throw err
+  }
 
   const id = crypto.randomUUID()
   const createdAt = new Date().toISOString()
@@ -1340,10 +1354,10 @@ async function executeAdsOperation(
     ))
     .get()
   if (!canonical) {
-    throw providerError('Ads operation receipt could not be claimed')
+    throw outcome.refuse(OutcomeReasonCodes.INTERNAL, providerError('Ads operation receipt could not be claimed'))
   }
   if (canonical.requestHash !== hash) {
-    throw alreadyExists('Ads operation key', input.operationKey)
+    throw outcome.refuse(OutcomeReasonCodes.VALIDATION, alreadyExists('Ads operation key', input.operationKey))
   }
   if (inserted.length === 0) {
     return { operation: operationDto(canonical), replayed: true }
@@ -1409,6 +1423,7 @@ async function executeAdsOperation(
         }))
       }
     })
+    outcome.report({ status: OutcomeStatuses.succeeded })
     const row = app.db.select().from(adsOperations).where(eq(adsOperations.id, id)).get()!
     // A stale original request can finish after a sweeper has claimed the
     // receipt. It must not invalidate that lease or overwrite its canonical
@@ -1444,6 +1459,11 @@ async function executeAdsOperation(
         }))
       }
       return update.changes > 0
+    })
+    // `unknown` means the write may have landed: partial until reconciliation decides.
+    outcome.report({
+      status: failure.state === AdsOperationStates.failed ? OutcomeStatuses.failed : OutcomeStatuses.partial,
+      ...upstreamFailure(err),
     })
     if (!finalized) {
       const canonical = app.db.select().from(adsOperations).where(and(
@@ -1769,10 +1789,21 @@ export async function reconcileOneAdsOperation(
     maxAttempts: Math.min(20, Math.max(1, input.maxAttempts ?? DEFAULT_RECONCILE_MAX_ATTEMPTS)),
   }
   const context = input.audit ?? { actor: 'system' }
+  // Without a request this is the background sweep.
+  const outcome = startRouteOutcome(app, FeatureNames.openai_ads, 'reconcile', context.request ? {} : { trigger: OutcomeTriggers.scheduled })
+  const reportInProgress = (): void => outcome.report({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.OPERATION_IN_PROGRESS })
+  /** Report a finished attempt from the canonical row; an exhausted receipt is quarantined. */
+  const finished = (row: OperationRow, failure: { reasonCode: OutcomeReasonCode; errorName?: string }): AdsOperationReconcileResponse => {
+    if (row.state === AdsOperationStates.succeeded) outcome.report({ status: OutcomeStatuses.succeeded })
+    else if (row.errorCode === ADS_RECONCILIATION_QUARANTINED) outcome.report({ status: OutcomeStatuses.failed, reasonCode: OutcomeReasonCodes.QUARANTINED })
+    else outcome.report({ status: OutcomeStatuses.failed, ...failure })
+    return reconcileResponse(row)
+  }
   const pendingWaitMs = existing.state === AdsOperationStates.pending
     ? pendingIdleRemainingMs(existing, now, policy.pendingMinIdleMs)
     : 0
   if (pendingWaitMs > 0) {
+    reportInProgress()
     throw operationInProgress(
       'The ads mutation may still be in flight; reconciliation is blocked until the receipt is idle',
       {
@@ -1783,7 +1814,15 @@ export async function reconcileOneAdsOperation(
     )
   }
   if (existing.reconcileAttempts >= policy.maxAttempts) {
-    return reconcileResponse(quarantineExhaustedReconciliation(app, existing, now, policy, context))
+    const row = quarantineExhaustedReconciliation(app, existing, now, policy, context)
+    if (row.errorCode !== ADS_RECONCILIATION_QUARANTINED) {
+      reportInProgress()
+    } else {
+      // Quarantined by this call, or already quarantined before it.
+      const already = existing.errorCode === ADS_RECONCILIATION_QUARANTINED
+      outcome.report({ status: already ? OutcomeStatuses.skipped : OutcomeStatuses.failed, reasonCode: OutcomeReasonCodes.QUARANTINED })
+    }
+    return reconcileResponse(row)
   }
 
   const leaseOwner = `ads-reconcile:${crypto.randomUUID()}`
@@ -1802,6 +1841,7 @@ export async function reconcileOneAdsOperation(
     if (canonical.state === AdsOperationStates.pending) {
       const retryAfterMs = pendingIdleRemainingMs(canonical, now, policy.pendingMinIdleMs)
       if (retryAfterMs > 0) {
+        reportInProgress()
         throw operationInProgress(
           'The ads mutation may still be in flight; reconciliation is blocked until the receipt is idle',
           {
@@ -1812,6 +1852,8 @@ export async function reconcileOneAdsOperation(
         )
       }
     }
+    // Another worker holds or already settled the receipt.
+    reportInProgress()
     return {
       operation: operationDto(canonical),
       resolved: canonical.state === AdsOperationStates.succeeded,
@@ -1832,7 +1874,9 @@ export async function reconcileOneAdsOperation(
         : 'This legacy receipt is not bound to a verified OpenAI ad account',
       policy.maxAttempts,
     )
-    return reconcileResponse(row)
+    return finished(row, {
+      reasonCode: claimed.adAccountId ? OutcomeReasonCodes.ACCOUNT_NOT_FOUND : OutcomeReasonCodes.UNSUPPORTED,
+    })
   }
   const strategy = claimed.reconcileStrategy as AdsReconcileStrategy | null
   const desired = claimed.reconcileFields
@@ -1849,7 +1893,7 @@ export async function reconcileOneAdsOperation(
       'This operation cannot be reconciled automatically',
       policy.maxAttempts,
     )
-    return reconcileResponse(row)
+    return finished(row, { reasonCode: OutcomeReasonCodes.UNSUPPORTED })
   }
 
   try {
@@ -1869,7 +1913,7 @@ export async function reconcileOneAdsOperation(
         'The create outcome has no checkpointed provider id and cannot be resolved automatically',
         policy.maxAttempts,
       )
-      return reconcileResponse(row)
+      return finished(row, { reasonCode: OutcomeReasonCodes.UNSUPPORTED })
     }
     if (checkpointedId) {
       const entity = await getEntityForReconciliation(
@@ -1912,14 +1956,15 @@ export async function reconcileOneAdsOperation(
         'The upstream entity did not match the requested safe state',
         policy.maxAttempts,
       )
-      return reconcileResponse(row)
+      // The receipt's outcome is still unknown.
+      return finished(row, { reasonCode: OutcomeReasonCodes.UNKNOWN })
     }
 
     const row = finishReconciliation(app, claimed, leaseOwner, context, {
       state: AdsOperationStates.succeeded,
       entity: match,
     }, policy.maxAttempts)
-    return reconcileResponse(row)
+    return finished(row, { reasonCode: OutcomeReasonCodes.UNKNOWN })
   } catch (error) {
     const failure = errorDetails(error)
     const row = unknownReconciliation(
@@ -1931,7 +1976,7 @@ export async function reconcileOneAdsOperation(
       'OpenAI Ads API outcome could not be reconciled',
       policy.maxAttempts,
     )
-    return reconcileResponse(row)
+    return finished(row, upstreamFailure(error))
   }
 }
 
@@ -2020,7 +2065,11 @@ async function sweepAdsOperationsOnce(
     ),
   )).orderBy(asc(adsOperations.updatedAt)).limit(config.batchSize).all()
   for (const row of exhaustedRows) {
-    quarantineExhaustedReconciliation(app, row, now, config.policy, { actor: 'system' })
+    const settled = quarantineExhaustedReconciliation(app, row, now, config.policy, { actor: 'system' })
+    if (settled.errorCode === ADS_RECONCILIATION_QUARANTINED) {
+      startRouteOutcome(app, FeatureNames.openai_ads, 'reconcile', { trigger: OutcomeTriggers.scheduled })
+        .report({ status: OutcomeStatuses.failed, reasonCode: OutcomeReasonCodes.QUARANTINED })
+    }
   }
 
   // Apply the batch limit only after excluding projects that cannot currently
@@ -2292,7 +2341,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
 
   app.post<{ Params: { name: string }; Body: { apiKey?: string } }>(
     '/projects/:name/ads/connect',
-    async (request) => {
+    connectionRoute(app, () => ({ integration: 'openai_ads', action: 'connect' }), async (request, _reply, attempt) => {
       requireScope(request, ADS_WRITE_SCOPE)
       const project = resolveProject(app.db, request.params.name)
       const parsed = adsConnectRequestSchema.safeParse(request.body)
@@ -2308,6 +2357,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       try {
         account = await opts.verifyAdsAccount(parsed.data.apiKey)
       } catch (err) {
+        attempt.failed(err)
         const message = describeError(err)
         throw validationError(`OpenAI Ads API rejected the key: ${message}`)
       }
@@ -2315,6 +2365,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       const now = new Date().toISOString()
       verificationCache.delete(project.id)
       const existingCfg = opts.adsCredentialStore.getConnection(project.name)
+      if (existingCfg) attempt.update({ action: 'reauth' })
       opts.adsCredentialStore.upsertConnection({
         projectName: project.name,
         apiKey: parsed.data.apiKey,
@@ -2372,10 +2423,10 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       const row = app.db.select().from(adsConnections)
         .where(eq(adsConnections.projectId, project.id)).get()
       return statusDto(row)
-    },
+    }),
   )
 
-  app.delete<{ Params: { name: string } }>('/projects/:name/ads/connection', async (request) => {
+  app.delete<{ Params: { name: string } }>('/projects/:name/ads/connection', connectionRoute(app, () => ({ integration: 'openai_ads', action: 'disconnect' }), async (request, _reply, attempt) => {
     requireScope(request, ADS_WRITE_SCOPE)
     const project = resolveProject(app.db, request.params.name)
     const row = app.db.select().from(adsConnections)
@@ -2397,8 +2448,9 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     verificationCache.delete(project.id)
 
     const response: AdsDisconnectResponse = { disconnected: Boolean(row) || removedFromConfig }
+    if (!response.disconnected) attempt.cancelled('NOT_CONNECTED')
     return response
-  })
+  }))
 
   app.get<{ Params: { name: string } }>('/projects/:name/ads/status', async (request) => {
     const project = resolveProject(app.db, request.params.name)

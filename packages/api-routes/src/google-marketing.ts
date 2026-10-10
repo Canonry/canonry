@@ -84,6 +84,7 @@ import {
 } from '@ainyc/canonry-contracts'
 import { assertNotProjectScoped, requireAdminSession, requireBroadInstanceKey, requireScope } from './auth.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
+import { connectionRoute, startConnectionAttempt, telemetryRead, unverifiedOAuthStateField, type ConnectionSubject } from './connection-telemetry.js'
 import { assertSameOriginWrite } from './same-origin.js'
 import {
   buildSignedGoogleOAuthState,
@@ -235,6 +236,17 @@ interface PendingGoogleMarketingOAuthFlow {
   browserNonce: string
   /** Present only when a broad instance authority supplied a new global token. */
   developerToken?: string
+  /** Outcome telemetry: whether this flow replaces an existing credential. */
+  connectionAction?: 'connect' | 'reauth'
+}
+
+const MARKETING_INTEGRATIONS = { 'google-ads': 'google_ads', gtm: 'gtm' } as const
+
+/** The outcome subject for a Google Marketing provider name, or undefined for anything else. */
+function marketingConnection(provider: unknown, action: ConnectionSubject['action'] = 'connect'): ConnectionSubject | undefined {
+  return typeof provider === 'string' && Object.hasOwn(MARKETING_INTEGRATIONS, provider)
+    ? { integration: MARKETING_INTEGRATIONS[provider as keyof typeof MARKETING_INTEGRATIONS], action }
+    : undefined
 }
 
 interface PendingGoogleMarketingOAuthConfirmation {
@@ -1395,7 +1407,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
 
   if (stateSecret) {
     const registerOAuthConnect = (path: string, provider: GoogleMarketingProvider) => {
-      app.post<{ Params: { name: string }; Body: unknown }>(path, async (request, reply) => {
+      app.post<{ Params: { name: string }; Body: unknown }>(path, connectionRoute(app, () => marketingConnection(provider), async (request, reply, attempt) => {
         requireWrite(request)
         // OAuth code delivery is browser-bound. An Authorization-header/CLI
         // start cannot receive the HttpOnly callback cookie, so refuse it
@@ -1414,6 +1426,8 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
         }
         const project = resolveProject(app.db, request.params.name)
         const store = requireCredentialStore(opts)
+        const connectionAction = telemetryRead(() => store.get(asProjectRef(project), provider), undefined) ? 'reauth' : 'connect'
+        attempt.update({ action: connectionAction })
         const adapter = opts.googleMarketingOAuth
         if (!adapter) throw notImplemented('Google Marketing OAuth is not configured for this deployment.')
         const scopes = opts.googleMarketingOAuthScopes?.[provider]
@@ -1474,6 +1488,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
           expiresAtMs: nowMs + GOOGLE_OAUTH_STATE_MAX_AGE_MS,
           initiator: oauthInitiator(request),
           browserNonce,
+          connectionAction,
           ...(suppliedDeveloperToken ? { developerToken: suppliedDeveloperToken } : {}),
         }, nowMs)
 
@@ -1497,13 +1512,14 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
           entityId: provider,
           diff: { provider },
         }))
+        attempt.started()
         return {
           provider,
           authorizationUrl,
           redirectUri,
           expiresAt: null,
         }
-      })
+      }))
     }
 
     registerOAuthConnect('/projects/:name/google-ads/oauth/connect', GoogleMarketingProviders['google-ads'])
@@ -1511,13 +1527,18 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
 
     app.get<{
       Querystring: { code?: string; state?: string; error?: string }
-    }>('/google-marketing/callback', async (request, reply) => {
+    }>('/google-marketing/callback', connectionRoute(app, (request) => {
+      // An invalid or expired state still names its provider, read unverified for telemetry only.
+      const verified = oauthStateSchema.safeParse(verifySignedGoogleOAuthState(request.query.state ?? '', stateSecret))
+      return marketingConnection(verified.success ? verified.data.provider : unverifiedOAuthStateField(request.query.state, 'provider'))
+    }, async (request, reply, attempt) => {
       if (!request.query.state) {
         return reply.status(400).type('text/html').send(oauthHtml('Authorization failed', 'Missing OAuth state.'))
       }
       const state = verifySignedGoogleOAuthState(request.query.state, stateSecret)
       const parsedState = oauthStateSchema.safeParse(state)
       if (!parsedState.success) {
+        attempt.failed(undefined, 'OAUTH_STATE_INVALID')
         return reply.status(400).type('text/html').send(oauthHtml('Authorization failed', 'Invalid, expired, or tampered OAuth state.'))
       }
       // This is deliberately before code exchange and credential reads. A
@@ -1526,6 +1547,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
       const browserNonce = parseCookieHeader(request.headers.cookie)[oauthBindingCookieName(parsedState.data.nonce)]
       const pending = pendingOAuthFlows.consume(parsedState.data, browserNonce)
       if (!pending) {
+        attempt.failed(undefined, 'OAUTH_STATE_INVALID')
         return reply.status(400).type('text/html').send(oauthHtml('Authorization failed', 'OAuth state is unknown, expired, already used, or was opened in a different browser.'))
       }
       appendSetCookie(reply, serializeOAuthBindingCookie({
@@ -1534,12 +1556,16 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
         secure: new URL(parsedState.data.redirectUri).protocol === 'https:',
         opts,
       }))
+      attempt.update({ action: pending.connectionAction ?? 'connect' })
       if (request.query.error) {
         pendingOAuthFlows.finish(pending)
+        if (request.query.error === 'access_denied') attempt.cancelled('OAUTH_CANCELLED')
+        else attempt.failed(undefined, 'AUTH_DENIED')
         return reply.status(400).type('text/html').send(oauthHtml('Authorization failed', 'Google did not approve this authorization request.'))
       }
       if (!request.query.code) {
         pendingOAuthFlows.finish(pending)
+        attempt.failed(undefined, 'VALIDATION')
         return reply.status(400).type('text/html').send(oauthHtml('Authorization failed', 'Missing OAuth code.'))
       }
       const { projectId, projectName, provider, redirectUri } = parsedState.data
@@ -1547,19 +1573,22 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
         .where(eq(projects.id, projectId)).get()
       if (!project || project.name !== projectName) {
         pendingOAuthFlows.finish(pending)
+        attempt.failed(undefined, project ? 'OAUTH_STATE_INVALID' : 'NOT_FOUND')
         return reply.status(400).type('text/html').send(oauthHtml('Authorization failed', 'Project ownership changed. Restart the OAuth flow.'))
       }
       const store = opts.googleMarketingCredentialStore
       const adapter = opts.googleMarketingOAuth
       if (!store || !adapter) {
         pendingOAuthFlows.finish(pending)
+        attempt.failed(undefined, 'UNSUPPORTED')
         return reply.status(500).type('text/html').send(oauthHtml('Authorization failed', 'Google Marketing OAuth is not configured.'))
       }
       let tokens: GoogleMarketingOAuthToken
       try {
         tokens = await adapter.exchangeCode({ provider, code: request.query.code, redirectUri })
-      } catch {
+      } catch (err) {
         pendingOAuthFlows.finish(pending)
+        attempt.failed(err)
         return reply.status(502).type('text/html').send(oauthHtml('Authorization failed', 'Google rejected the OAuth code. Restart the connection flow.'))
       }
 
@@ -1567,6 +1596,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
       // is awaited. Do not let that old callback resurrect credentials.
       if (!pendingOAuthFlows.isCurrent(pending)) {
         pendingOAuthFlows.finish(pending)
+        attempt.failed(undefined, 'OAUTH_STATE_INVALID')
         return reply.status(400).type('text/html').send(oauthHtml('Authorization failed', 'This OAuth flow was replaced or disconnected. Restart the connection flow.'))
       }
       // Reconnects must prove they received a token for the account just
@@ -1574,6 +1604,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
       // connection back to that old principal when the access token expires.
       if (typeof tokens.refreshToken !== 'string' || tokens.refreshToken.trim().length === 0) {
         pendingOAuthFlows.finish(pending)
+        attempt.failed(undefined, 'PERMISSION_MISSING')
         return reply.status(400).type('text/html').send(oauthHtml('Authorization failed', 'Google did not provide offline access. Restart the connection flow and approve access.'))
       }
       let confirmationId: string | null
@@ -1581,19 +1612,23 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
         confirmationId = pendingOAuthFlows.createConfirmation(pending, tokens)
       } catch {
         pendingOAuthFlows.finish(pending)
+        attempt.failed(undefined, 'RATE_LIMITED')
         return reply.status(503).type('text/html').send(oauthHtml('Authorization failed', 'Too many pending OAuth confirmations. Restart the connection flow.'))
       }
       if (!confirmationId) {
         pendingOAuthFlows.finish(pending)
+        attempt.failed(undefined, 'OAUTH_STATE_INVALID')
         return reply.status(400).type('text/html').send(oauthHtml('Authorization failed', 'This OAuth flow was replaced or disconnected. Restart the connection flow.'))
       }
+      // The browser's explicit confirmation completes the connection and reports it.
+      attempt.deferred()
       return reply.type('text/html').send(oauthConfirmationHtml({
         provider,
         projectName: project.name,
         confirmationId,
         opts,
       }))
-    })
+    }))
 
     app.post<{ Params: { confirmationId: string } }>('/google-marketing/callback/confirm/:confirmationId', async (request, reply) => {
       // The public callback must not persist merely because Google returned a
@@ -1614,19 +1649,23 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
         return reply.status(400).type('text/html').send(oauthHtml('Authorization failed', 'This OAuth confirmation is unknown, expired, already used, or belongs to another browser session.'))
       }
       const { flow, tokens } = confirmation
+      const attempt = startConnectionAttempt(app, marketingConnection(flow.provider, flow.connectionAction))
       if (!pendingOAuthFlows.isCurrent(flow)) {
         pendingOAuthFlows.finish(flow)
+        attempt.failed(undefined, 'OAUTH_STATE_INVALID')
         return reply.status(400).type('text/html').send(oauthHtml('Authorization failed', 'This OAuth flow was replaced or disconnected. Restart the connection flow.'))
       }
 
       const project = app.db.select().from(projects).where(eq(projects.id, flow.projectId)).get()
       if (!project || project.name !== flow.projectName) {
         pendingOAuthFlows.finish(flow)
+        attempt.failed(undefined, project ? 'OAUTH_STATE_INVALID' : 'NOT_FOUND')
         return reply.status(400).type('text/html').send(oauthHtml('Authorization failed', 'Project ownership changed. Restart the OAuth flow.'))
       }
       const store = opts.googleMarketingCredentialStore
       if (!store) {
         pendingOAuthFlows.finish(flow)
+        attempt.failed(undefined, 'UNSUPPORTED')
         return reply.status(500).type('text/html').send(oauthHtml('Authorization failed', 'Google Marketing OAuth is not configured.'))
       }
 
@@ -1703,6 +1742,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
           })
         })
       } catch (error) {
+        attempt.failed(error)
         // Private OAuth config is outside SQLite. Restore it if the public
         // connection metadata/audit transaction did not commit. A compensator
         // failure is logged but must not hide the database failure from the
@@ -1718,6 +1758,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
       } finally {
         pendingOAuthFlows.finish(flow)
       }
+      attempt.succeeded()
       const label = flow.provider === GoogleMarketingProviders['google-ads'] ? 'Google Ads' : 'Google Tag Manager'
       return reply.type('text/html').send(oauthHtml('Connected successfully', `${label} is now linked to this project.`))
     })
@@ -1847,17 +1888,25 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
     return run.id
   }
 
-  app.put<{ Params: { name: string }; Body: unknown }>('/projects/:name/google-ads/selection', async (request) => {
+  app.put<{ Params: { name: string }; Body: unknown }>('/projects/:name/google-ads/selection', connectionRoute(app, () => marketingConnection(GoogleMarketingProviders['google-ads'], 'select'), async (request, _reply, attempt) => {
     requireWrite(request)
     const parsedBody = parseBody(googleAdsCustomerSelectionRequestSchema, request.body, 'Google Ads selection')
     const body = canonicalizeGoogleAdsCustomerSelection(parsedBody)
     if (!body) throw validationError('Invalid Google Ads selection.')
     const project = resolveProject(app.db, request.params.name)
     const projectRef = asProjectRef(project)
-    requiredCredential(opts, projectRef, GoogleMarketingProviders['google-ads'])
+    try {
+      requiredCredential(opts, projectRef, GoogleMarketingProviders['google-ads'])
+    } catch (err) {
+      attempt.failed(err, 'NOT_CONNECTED')
+      throw err
+    }
     const existing = app.db.select().from(googleAdsConnections)
       .where(eq(googleAdsConnections.projectId, project.id)).get()
-    if (!existing) throw validationError('Connect Google Ads before selecting a customer.')
+    if (!existing) {
+      attempt.failed(undefined, 'NOT_CONNECTED')
+      throw validationError('Connect Google Ads before selecting a customer.')
+    }
     const now = new Date().toISOString()
     const customerChanged = existing.selectedCustomerId !== body.customerId
     app.db.transaction((tx) => {
@@ -1887,19 +1936,27 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
     })
     queueSelectionSync(request, project.id, 'google-ads-sync', opts.onGoogleAdsSyncRequested)
     return googleAdsStatus(app, opts, projectRef)
-  })
+  }))
 
-  app.put<{ Params: { name: string }; Body: unknown }>('/projects/:name/gtm/selection', async (request) => {
+  app.put<{ Params: { name: string }; Body: unknown }>('/projects/:name/gtm/selection', connectionRoute(app, () => marketingConnection(GoogleMarketingProviders.gtm, 'select'), async (request, _reply, attempt) => {
     requireWrite(request)
     const parsedBody = parseBody(gtmResourceSelectionRequestSchema, request.body, 'GTM selection')
     const body = canonicalizeGtmResourceSelection(parsedBody)
     if (!body) throw validationError('Invalid GTM selection.')
     const project = resolveProject(app.db, request.params.name)
     const projectRef = asProjectRef(project)
-    requiredCredential(opts, projectRef, GoogleMarketingProviders.gtm)
+    try {
+      requiredCredential(opts, projectRef, GoogleMarketingProviders.gtm)
+    } catch (err) {
+      attempt.failed(err, 'NOT_CONNECTED')
+      throw err
+    }
     const existing = app.db.select().from(gtmConnections)
       .where(eq(gtmConnections.projectId, project.id)).get()
-    if (!existing) throw validationError('Connect Google Tag Manager before selecting resources.')
+    if (!existing) {
+      attempt.failed(undefined, 'NOT_CONNECTED')
+      throw validationError('Connect Google Tag Manager before selecting resources.')
+    }
     const now = new Date().toISOString()
     const selectedWorkspaceId = body.workspaceId ?? null
     const containerChanged = existing.selectedAccountId !== body.accountId || existing.selectedContainerId !== body.containerId
@@ -1930,7 +1987,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
     })
     queueSelectionSync(request, project.id, 'gtm-sync', opts.onGtmSyncRequested)
     return gtmStatus(app, opts, projectRef)
-  })
+  }))
 
   // --- Manual sync: queue only; host performs bounded GETs + snapshot writes ---
 
@@ -2106,7 +2163,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
 
   // --- Disconnect preserves append-only evidence, removes private credential --
 
-  app.delete<{ Params: { name: string } }>('/projects/:name/google-ads/connection', async (request) => {
+  app.delete<{ Params: { name: string } }>('/projects/:name/google-ads/connection', connectionRoute(app, () => marketingConnection(GoogleMarketingProviders['google-ads'], 'disconnect'), async (request, _reply, attempt) => {
     requireWrite(request)
     const project = resolveProject(app.db, request.params.name)
     const projectRef = asProjectRef(project)
@@ -2130,10 +2187,11 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
         }))
       })
     }
+    if (!row && !removedCredential) attempt.cancelled('NOT_CONNECTED')
     return { provider: GoogleMarketingProviders['google-ads'], disconnected: Boolean(row) || removedCredential }
-  })
+  }))
 
-  app.delete<{ Params: { name: string } }>('/projects/:name/gtm/connection', async (request) => {
+  app.delete<{ Params: { name: string } }>('/projects/:name/gtm/connection', connectionRoute(app, () => marketingConnection(GoogleMarketingProviders.gtm, 'disconnect'), async (request, _reply, attempt) => {
     requireWrite(request)
     const project = resolveProject(app.db, request.params.name)
     const projectRef = asProjectRef(project)
@@ -2156,8 +2214,9 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
         }))
       })
     }
+    if (!row && !removedCredential) attempt.cancelled('NOT_CONNECTED')
     return { provider: GoogleMarketingProviders.gtm, disconnected: Boolean(row) || removedCredential }
-  })
+  }))
 
   // --- Conversion-tracking contract + integrity reads ---------------------------
 
