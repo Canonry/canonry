@@ -17,7 +17,7 @@ function harness(sink?: (event: OutcomeTelemetryEvent) => void) {
 }
 
 const target = { feature: 'exports', operation: 'export' } as const
-const reported = { feature: 'exports', operation: 'export', trigger: 'manual', durationBucket: 'under_1s' }
+const reported = { feature: 'exports', operation: 'export', durationBucket: 'under_1s' }
 
 describe('withFeatureOutcome', () => {
   it('reports one outcome per operation: success by default, or what the operation settled on', async () => {
@@ -27,13 +27,13 @@ describe('withFeatureOutcome', () => {
       settle({ status: 'succeeded', counts: { rows: 3, bytes: 120 } })
       return 'counted'
     })
-    await withFeatureOutcome(app, { ...target, trigger: 'scheduled', surface: 'system' }, async (settle) => {
+    await withFeatureOutcome(app, { ...target, trigger: 'scheduled' }, async (settle) => {
       settle({ status: 'skipped', reasonCode: 'NO_DATA' })
     })
     expect(featureOutcomes(events)).toEqual([
       { ...reported, status: 'succeeded' },
       { ...reported, status: 'succeeded', counts: { rows: 3, bytes: 120 } },
-      { ...reported, trigger: 'scheduled', surface: 'system', status: 'skipped', reasonCode: 'NO_DATA' },
+      { ...reported, trigger: 'scheduled', status: 'skipped', reasonCode: 'NO_DATA' },
     ])
   })
 

@@ -44,7 +44,7 @@ async function harness() {
   const db = createClient(path.join(tmpDir, 'test.db'))
   migrate(db)
   const credentials = new Map<string, CloudRunCredentialRecord>()
-  const pull: { events: NormalizedTrafficRequest[]; error?: Error } = { events: [] }
+  const pull: { events: NormalizedTrafficRequest[]; error?: Error; gate?: Promise<void> } = { events: [] }
   const outcomes: OutcomeTelemetryEvent[] = []
   const app: FastifyInstance = Fastify()
   app.register(apiRoutes, {
@@ -56,6 +56,7 @@ async function harness() {
       deleteConnection: name => credentials.delete(name),
     },
     pullCloudRunEvents: async () => {
+      await pull.gate
       if (pull.error) throw pull.error
       return { events: pull.events, rawEntryCount: pull.events.length, skippedEntryCount: 0, nextPageToken: undefined, filter: 'mock' }
     },
@@ -75,13 +76,14 @@ async function harness() {
   const sourceId = (connected.json() as { id: string }).id
   const backfill = (id = sourceId) => app.inject({
     method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${id}/backfill`, payload: { days: 1 },
+    headers: { 'x-canonry-surface': 'cli', 'x-canonry-agent': 'codex' },
   })
   /** The `feature.completed` outcomes so far, once at least `count` have arrived. */
   const settled = async (count: number) => {
     await vi.waitFor(() => expect(featureOutcomes(outcomes).length).toBeGreaterThanOrEqual(count))
     return featureOutcomes(outcomes)
   }
-  return { app, db, pull, sourceId, backfill, settled }
+  return { app, db, pull, sourceId, backfill, settled, outcomes }
 }
 
 function storedHits(db: DatabaseClient) {
@@ -91,9 +93,7 @@ function storedHits(db: DatabaseClient) {
   return { crawlerHits: sum(crawlerEventsHourly), aiUserFetchHits: sum(aiUserFetchEventsHourly), aiReferralHits: Number(referrals.total) }
 }
 
-const backfilled = { feature: 'server_traffic', operation: 'backfill', trigger: 'manual', durationBucket: expect.any(String) }
-// The background task reports after its request, so it names its own surface.
-const finished = { ...backfilled, surface: 'system' }
+const backfilled = { feature: 'server_traffic', operation: 'backfill', durationBucket: expect.any(String) }
 
 describe('server traffic backfill and reset outcomes', () => {
   it('reports a backfill when its background task has written the rollups, with what it wrote', async () => {
@@ -104,12 +104,18 @@ describe('server traffic backfill and reset outcomes', () => {
       trafficEvent('fetch-1', { userAgent: 'ChatGPT-User/1.0' }),
       trafficEvent('visit-1', { referer: 'https://chatgpt.com/' }),
     ]
+    // Hold the pull until the response has gone, as a real window does.
+    let release!: () => void
+    h.pull.gate = new Promise(resolve => { release = resolve })
     expect((await h.backfill()).statusCode).toBe(200)
+    release()
 
     const [outcome] = await h.settled(1)
     // The counts are the hits the replace wrote, as the rollups store them.
     expect(storedHits(h.db)).toEqual({ crawlerHits: 2, aiUserFetchHits: 1, aiReferralHits: 1 })
-    expect(outcome).toEqual({ ...finished, status: 'succeeded', counts: { events: 4, ...storedHits(h.db) } })
+    expect(outcome).toEqual({ ...backfilled, status: 'succeeded', counts: { events: 4, ...storedHits(h.db) } })
+    // Reported after its request, so it carries who asked, read while the request was still active.
+    expect(h.outcomes.find(e => e.event === 'feature.completed')?.attribution).toMatchObject({ surfaceLabel: 'cli', agentLabel: 'codex' })
   })
 
   it('reports an empty window as skipped, a refused pull by its status, and a refused request from the route', async () => {
@@ -122,9 +128,8 @@ describe('server traffic backfill and reset outcomes', () => {
     expect((await h.backfill('no-such-source')).statusCode).toBe(404)
 
     expect(await h.settled(3)).toEqual([
-      { ...finished, status: 'skipped', reasonCode: 'NO_DATA' },
-      { ...finished, status: 'failed', reasonCode: 'PERMISSION_MISSING', errorName: 'Error' },
-      // Refused by the route, so the host reads the surface from the request.
+      { ...backfilled, status: 'skipped', reasonCode: 'NO_DATA' },
+      { ...backfilled, status: 'failed', reasonCode: 'PERMISSION_MISSING', errorName: 'Error' },
       { ...backfilled, status: 'failed', reasonCode: 'NOT_FOUND', errorName: 'AppError' },
     ])
   })
@@ -136,7 +141,7 @@ describe('server traffic backfill and reset outcomes', () => {
     })
     expect((await reset({ advanceToNow: true })).statusCode).toBe(200)
     expect((await reset({})).statusCode).toBe(400)
-    const reported = { feature: 'server_traffic', operation: 'reset', trigger: 'manual', durationBucket: expect.any(String) }
+    const reported = { feature: 'server_traffic', operation: 'reset', durationBucket: expect.any(String) }
     expect(await h.settled(2)).toEqual([
       { ...reported, status: 'succeeded' },
       { ...reported, status: 'failed', reasonCode: 'VALIDATION', errorName: 'AppError' },

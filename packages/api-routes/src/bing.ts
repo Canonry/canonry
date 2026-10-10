@@ -6,7 +6,7 @@ import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describe
 import { assertNotProjectScoped } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { connectionRoute } from './connection-telemetry.js'
-import { startRouteOutcome } from './route-outcome.js'
+import { startRouteOutcome } from './feature-outcome.js'
 import {
   BingApiError,
   getSites,

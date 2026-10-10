@@ -11,8 +11,9 @@ import {
   type IntegrationConnectionProperties,
   type OutcomeReasonCode,
   type OutcomeSurface,
+  type OutcomeTrigger,
 } from '@ainyc/canonry-contracts'
-import type { OutcomeAttribution, OutcomeTelemetryEvent } from '@ainyc/canonry-api-routes'
+import { currentOutcomeAttribution, type OutcomeAttribution, type OutcomeTelemetryEvent } from '@ainyc/canonry-api-routes'
 import fs from 'node:fs'
 import path from 'node:path'
 import { getConfigDir } from './config.js'
@@ -122,6 +123,20 @@ export function outcomeTriggerFor(attribution: OutcomeAttribution): NonNullable<
   const { surface } = outcomeAttribution(attribution)
   const agentSurface = surface === OutcomeSurfaces['mcp-stdio'] || surface === OutcomeSurfaces['mcp-http'] || surface === OutcomeSurfaces.aero
   return agentSurface ? 'agent' : 'manual'
+}
+
+/**
+ * Who asked for the current work, read from the active HTTP request; undefined
+ * outside one. Work that finishes after its request reads this before its
+ * first await, while the request is still active.
+ */
+export function currentOutcomeOrigin(): { trigger: OutcomeTrigger; surface: OutcomeSurface; agent?: string } | undefined {
+  try {
+    const attribution = currentOutcomeAttribution()
+    return attribution ? { trigger: outcomeTriggerFor(attribution), ...outcomeAttribution(attribution) } : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /**

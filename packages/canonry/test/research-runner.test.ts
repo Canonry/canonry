@@ -2,7 +2,9 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { registerRequestContext } from '@ainyc/canonry-api-routes/request-context'
 import { competitors, createClient, migrate, projects, researchRunQueries, researchRuns, usageCounters } from '@ainyc/canonry-db'
 import { executeResearchRun } from '../src/research-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
@@ -285,6 +287,28 @@ describe('research run outcome telemetry', () => {
         ...researched, trigger: 'startup', surface: 'system', status: 'failed', reasonCode: 'NOT_CONNECTED',
         counts: { queries: 2, snapshots: 0, failures: 2 },
       }, { errorCode: 'NOT_CONNECTED' }],
+    ])
+  })
+
+  it('reports a batch an agent requested as that agent, after the request has ended', async () => {
+    const { db, registry } = setup({ failQueries: false, provider: 'gemini' })
+    const app = Fastify()
+    registerRequestContext(app)
+    let execution: Promise<void> | undefined
+    // Dispatched from the request, as the route's callback does, and finished after it.
+    app.post('/research', async () => {
+      execution = executeResearchRun(db, registry, 'r', 'p')
+      return { queued: true }
+    })
+    await app.inject({ method: 'POST', url: '/research', headers: { 'user-agent': 'canonry-mcp', 'x-canonry-surface': 'mcp-stdio', 'x-canonry-agent': 'claude' } })
+    await app.close()
+    await execution
+
+    expect(trackEvent.mock.calls).toEqual([
+      ['feature.completed', {
+        ...researched, trigger: 'agent', surface: 'mcp-stdio', agent: 'claude', provider: 'gemini', status: 'succeeded',
+        counts: { queries: 2, snapshots: 2, failures: 0 },
+      }, undefined],
     ])
   })
 

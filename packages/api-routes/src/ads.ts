@@ -112,7 +112,7 @@ import type {
 } from './ads-live-delivery.js'
 import { resolveProject, writeAuditLog, auditFromRequest } from './helpers.js'
 import { connectionRoute } from './connection-telemetry.js'
-import { startRouteOutcome, upstreamFailure } from './route-outcome.js'
+import { startRouteOutcome, upstreamFailure } from './feature-outcome.js'
 
 export interface AdsConnectionConfigEntryLike {
   projectName: string

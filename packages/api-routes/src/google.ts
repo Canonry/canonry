@@ -39,7 +39,7 @@ import {
 } from './gsc-totals.js'
 import { assertNotProjectScoped } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
-import { startRouteOutcome } from './route-outcome.js'
+import { startRouteOutcome } from './feature-outcome.js'
 import {
   buildSignedGoogleOAuthState,
   verifySignedGoogleOAuthState,

@@ -33,9 +33,8 @@ export type OutcomeTelemetryEvent =
       attribution?: OutcomeAttribution
     }
 
-export type OutcomeTelemetryInput = OutcomeTelemetryEvent extends infer E
-  ? E extends OutcomeTelemetryEvent ? Omit<E, 'attribution'> : never
-  : never
+/** What route code reports. `attribution` defaults to the current request's; work that reports after its request passes the one it captured. */
+export type OutcomeTelemetryInput = OutcomeTelemetryEvent
 
 /** The current request's raw attribution labels, or undefined outside a request. */
 export function currentOutcomeAttribution(): OutcomeAttribution | undefined {
@@ -47,15 +46,14 @@ export function currentOutcomeAttribution(): OutcomeAttribution | undefined {
 
 /**
  * Bind route code to the host's outcome sink. Attaches the current request's
- * attribution when there is one; background work started by a request but
- * finishing later reports `surface: 'system'` unless it passes its own. Never
- * throws: telemetry must not change a response.
+ * attribution unless the event carries one; an event with neither came from
+ * the server itself. Never throws: telemetry must not change a response.
  */
 export function createOutcomeEmitter(sink: ((event: OutcomeTelemetryEvent) => void) | undefined): (event: OutcomeTelemetryInput) => void {
   return (event) => {
     if (!sink) return
     try {
-      sink({ ...event, attribution: currentOutcomeAttribution() } as OutcomeTelemetryEvent)
+      sink({ ...event, attribution: event.attribution ?? currentOutcomeAttribution() } as OutcomeTelemetryEvent)
     } catch {
       // Outcome telemetry is best effort.
     }

@@ -343,7 +343,7 @@ describe('GET /api/v1/projects/:name/results/export', () => {
     const refused = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/acme/results/export?format=yaml' })
     expect([json.statusCode, csv.statusCode, refused.statusCode]).toEqual([200, 200, 400])
 
-    const base = { feature: 'exports', operation: 'export', trigger: 'manual', durationBucket: expect.any(String) }
+    const base = { feature: 'exports', operation: 'export', durationBucket: expect.any(String) }
     expect(featureOutcomes(ctx.outcomes)).toEqual([
       { ...base, status: 'succeeded', counts: { rows: 3, bytes: json.rawPayload.byteLength } },
       { ...base, status: 'succeeded', counts: { rows: 3, bytes: csv.rawPayload.byteLength } },
@@ -355,7 +355,7 @@ describe('GET /api/v1/projects/:name/results/export', () => {
     const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/acme/export' })
     expect(res.statusCode).toBe(200)
     expect(featureOutcomes(ctx.outcomes)).toEqual([{
-      feature: 'exports', operation: 'export', trigger: 'manual', durationBucket: expect.any(String),
+      feature: 'exports', operation: 'export', durationBucket: expect.any(String),
       status: 'succeeded', counts: { queries: 1 },
     }])
   })

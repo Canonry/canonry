@@ -54,7 +54,6 @@ import {
   bucketDuration,
   OutcomeReasonCodes,
   OutcomeStatuses,
-  OutcomeSurfaces,
 } from '@ainyc/canonry-contracts'
 import type {
   NormalizedTrafficRequest,
@@ -133,6 +132,7 @@ import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type 
 import { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
 import { resolveWebhookTarget } from './webhooks.js'
 import { failedOutcome, reportFeatureOutcome, withFeatureOutcome, type FeatureOutcome } from './feature-outcome.js'
+import { currentOutcomeAttribution } from './outcome-telemetry.js'
 import {
   DIRECT_PUSH_RECEIPT_TTL_MS,
   writeTrafficEventBatch,
@@ -1092,8 +1092,8 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
     pullErrorPrefix,
   } = options
   const backfillStartedAt = Date.now()
-  // Reported after the request that started it, whether or not its response has gone.
-  const target = { feature: 'server_traffic', operation: 'backfill', surface: OutcomeSurfaces.system } as const
+  // Reported after the request that started it, so who asked is read now, before the first await.
+  const target = { feature: 'server_traffic', operation: 'backfill', attribution: currentOutcomeAttribution() } as const
   const reportBackfill = (outcome: FeatureOutcome) => reportFeatureOutcome(app, target, {
     ...outcome, durationBucket: bucketDuration(Date.now() - backfillStartedAt),
   })

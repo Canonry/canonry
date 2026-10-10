@@ -18,7 +18,6 @@ import {
   isRetryableHttpError,
   OutcomeReasonCodes,
   OutcomeStatuses,
-  OutcomeTriggers,
   RunStatuses,
   withRetry,
   type DiscoveryCompetitorType,
@@ -38,7 +37,7 @@ import {
 } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry } from './provider-registry.js'
 import { createLogger } from './logger.js'
-import { startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
+import { startRunOutcome } from './sync-outcome.js'
 
 const log = createLogger('DiscoveryRun')
 
@@ -149,8 +148,7 @@ export interface ExecuteDiscoveryRunOptions {
  */
 export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Promise<void> {
   const startedAt = new Date().toISOString()
-  const elapsed = startOutcomeTimer()
-  const outcome = { feature: 'discovery', operation: 'run', trigger: OutcomeTriggers.manual } as const
+  const reportOutcome = startRunOutcome(opts.db, opts.runId, 'discovery', 'run')
   let notConfigured = false
   opts.db
     .update(runs)
@@ -229,10 +227,8 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
       buckets: result.buckets,
       competitorCount: result.competitorMap.length,
     })
-    trackFeatureCompleted({
-      ...outcome,
+    reportOutcome({
       status: OutcomeStatuses.succeeded,
-      durationBucket: elapsed(),
       // Candidate queries seeded, probes answered, competitor domains found.
       counts: {
         queries: result.seedCountRaw,
@@ -255,10 +251,8 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
       .where(eq(runs.id, opts.runId))
       .run()
     const failure = classifyProviderOutcomeError(err)
-    trackFeatureCompleted({
-      ...outcome,
+    reportOutcome({
       status: OutcomeStatuses.failed,
-      durationBucket: elapsed(),
       ...failure,
       ...(notConfigured ? { reasonCode: OutcomeReasonCodes.NOT_CONNECTED } : {}),
     })

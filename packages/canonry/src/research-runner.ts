@@ -26,7 +26,7 @@ import { computeCitedCompetitorDomains, determineCitationState } from './citatio
 import type { ProviderRegistry } from './provider-registry.js'
 import { getSharedProviderExecutionGate } from './provider-execution-gate.js'
 import { getCurrentUsageDay, releaseDailyQueryQuota, reserveDailyQueryQuota } from './usage-quota.js'
-import { outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
+import { currentOutcomeOrigin, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
 const unfinishedResearchQueryStatuses = [ResearchQueryStatuses.queued, ResearchQueryStatuses.running] as const
 
@@ -59,6 +59,7 @@ export async function executeResearchRun(
   if (claim.changes !== 1) return
 
   const elapsed = startOutcomeTimer()
+  const requested = currentOutcomeOrigin()
   let reserved = 0
   let dispatched = 0
   let reservation: { scope: string; period: string } | undefined
@@ -158,13 +159,14 @@ export async function executeResearchRun(
     if (reservation && reserved > dispatched) {
       releaseDailyQueryQuota(db, { ...reservation, count: reserved - dispatched })
     }
-    const trigger = options.trigger ?? OutcomeTriggers.manual
     trackFeatureCompleted({
       feature: 'research',
       operation: 'run',
       status: researchOutcomeStatus(final.status),
-      trigger,
-      ...(trigger === OutcomeTriggers.startup ? { surface: OutcomeSurfaces.system } : {}),
+      // Batches re-dispatched at boot are the server's own; any other batch reports who asked.
+      ...(options.trigger
+        ? { trigger: options.trigger, ...(options.trigger === OutcomeTriggers.startup ? { surface: OutcomeSurfaces.system } : {}) }
+        : requested ?? { trigger: OutcomeTriggers.manual }),
       ...((PROVIDER_NAMES as readonly string[]).includes(run.provider) ? { provider: run.provider as FeatureCompletedProperties['provider'] } : {}),
       ...(final.status === ResearchRunStatuses.completed ? {} : fatalReason ?? classifyProviderOutcomeError(queryFailure)),
       durationBucket: elapsed(),

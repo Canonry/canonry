@@ -7,7 +7,7 @@ import { breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, 
 import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSearchLandingSyncResult, GaSocialReferralTrendResponse, ResolvedDateRange } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { assertNotProjectScoped } from './auth.js'
-import { credentialFailure, startRouteOutcome } from './route-outcome.js'
+import { credentialFailure, startRouteOutcome } from './feature-outcome.js'
 import { buildSessionHistory } from './ga-session-history.js'
 import { findBiggestMover } from './ga-source-mover.js'
 import { buildAiReferralDailySeries, normalizeAiTrafficClass, pickWinningAttributionDimension, summarizeAiReferralCounts } from './ga-ai-referral-aggregation.js'

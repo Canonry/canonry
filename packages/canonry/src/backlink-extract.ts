@@ -19,16 +19,14 @@ import {
   CcReleaseSyncStatuses,
   OutcomeReasonCodes,
   OutcomeStatuses,
-  OutcomeSurfaces,
-  OutcomeTriggers,
   RunStatuses,
-  RunTriggers,
   computeBacklinkSummaryMetrics,
   describeError,
   type OutcomeReasonCode,
 } from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
-import { outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
+import { outcomeFailure } from './outcome-telemetry.js'
+import { startRunOutcome } from './sync-outcome.js'
 
 const log = createLogger('BacklinkExtract')
 
@@ -59,14 +57,8 @@ export async function executeBacklinkExtract(
 ): Promise<void> {
   const deps = { ...defaultDeps(), ...opts.deps }
   const startedAt = deps.now().toISOString()
-  const elapsed = startOutcomeTimer()
   // Auto-extracts after a release sync are queued as scheduled runs.
-  const scheduled = db.select({ trigger: runs.trigger }).from(runs).where(eq(runs.id, runId)).get()?.trigger === RunTriggers.scheduled
-  const outcome = {
-    feature: 'backlinks',
-    operation: 'extract',
-    ...(scheduled ? { trigger: OutcomeTriggers.scheduled, surface: OutcomeSurfaces.system } : { trigger: OutcomeTriggers.manual }),
-  } as const
+  const reportOutcome = startRunOutcome(db, runId, 'backlinks', 'extract')
   let refusal: OutcomeReasonCode | undefined
 
   db.update(runs).set({ status: RunStatuses.running, startedAt }).where(eq(runs.id, runId)).run()
@@ -174,12 +166,7 @@ export async function executeBacklinkExtract(
 
     log.info('extract.completed', { runId, projectId, release, rows: rows.length })
     const summary = computeSummary(rows)
-    trackFeatureCompleted({
-      ...outcome,
-      status: OutcomeStatuses.succeeded,
-      durationBucket: elapsed(),
-      counts: { domains: summary.totalLinkingDomains, links: summary.totalHosts },
-    })
+    reportOutcome({ status: OutcomeStatuses.succeeded, counts: { domains: summary.totalLinkingDomains, links: summary.totalHosts } })
   } catch (err) {
     const errorMsg = describeError(err)
     const finishedAt = deps.now().toISOString()
@@ -187,7 +174,7 @@ export async function executeBacklinkExtract(
       status: RunStatuses.failed, error: errorMsg, finishedAt,
     }).where(eq(runs.id, runId)).run()
     log.error('extract.failed', { runId, projectId, error: errorMsg })
-    trackFeatureCompleted({ ...outcome, status: OutcomeStatuses.failed, durationBucket: elapsed(), ...outcomeFailure(err, refusal) })
+    reportOutcome({ status: OutcomeStatuses.failed, ...outcomeFailure(err, refusal) })
     throw err
   }
 }

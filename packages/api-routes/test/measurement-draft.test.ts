@@ -1120,7 +1120,7 @@ describe('measurement draft publish', () => {
     const moved = await action('publish', { payload: { expectedActiveRevision: 7, expectedCompiledChecksum: '0'.repeat(64) }, ifMatch: stale.etag })
     expect(moved.statusCode).toBe(409)
 
-    const base = { feature: 'measurement', operation: 'publish', trigger: 'manual', durationBucket: expect.any(String) }
+    const base = { feature: 'measurement', operation: 'publish', durationBucket: expect.any(String) }
     expect(featureOutcomes(outcomes)).toEqual([
       // One group, its one Target, and the two queries assigned to it.
       { ...base, status: 'succeeded', counts: { items: 1, targets: 1, queries: 2 } },

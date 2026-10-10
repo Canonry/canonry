@@ -1,6 +1,5 @@
 import { eq } from 'drizzle-orm'
 import { credentialFailure } from '@ainyc/canonry-api-routes'
-import { getRequestContext } from '@ainyc/canonry-api-routes/request-context'
 import { runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { GoogleApiError, GoogleAuthError } from '@ainyc/canonry-integration-google'
 import {
@@ -17,7 +16,7 @@ import {
   type OutcomeSurface,
   type OutcomeTrigger,
 } from '@ainyc/canonry-contracts'
-import { outcomeAttribution, outcomeFailure, outcomeTriggerFor, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
+import { currentOutcomeOrigin, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
 /** Who started a run: the request that queued it, or the server itself. */
 interface OutcomeOrigin {
@@ -32,14 +31,6 @@ export interface RunOutcome {
   reasonCode?: OutcomeReasonCode
   errorName?: string
   counts?: Partial<Record<OutcomeCountKey, number>>
-}
-
-/** Who asked for the current work, read from the active HTTP request. Undefined outside one. */
-function requestOutcomeOrigin(): OutcomeOrigin | undefined {
-  const context = getRequestContext()
-  if (!context) return undefined
-  const attribution = { userAgent: context.userAgent, surfaceLabel: context.usageSurface, agentLabel: context.usageAgent }
-  return { trigger: outcomeTriggerFor(attribution), ...outcomeAttribution(attribution) }
 }
 
 function storedRunTrigger(db: DatabaseClient, runId: string): string | undefined {
@@ -69,12 +60,7 @@ export function startRunOutcome<F extends FeatureName>(
   feature: F,
   operation: FeatureOperation<F>,
 ): (outcome: RunOutcome) => void {
-  let requested: OutcomeOrigin | undefined
-  try {
-    requested = requestOutcomeOrigin()
-  } catch {
-    requested = undefined
-  }
+  const requested = currentOutcomeOrigin()
   const elapsed = startOutcomeTimer()
   return (outcome) => {
     try {

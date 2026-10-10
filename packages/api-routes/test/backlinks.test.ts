@@ -169,7 +169,7 @@ describe('Backlinks routes', () => {
         await custom.ready()
         await custom.inject({ method: 'POST', url: '/backlinks/install' })
         expect(featureOutcomes(outcomes)).toEqual([{
-          feature: 'backlinks', operation: 'install', trigger: 'manual', durationBucket: 'under_1s', ...expected,
+          feature: 'backlinks', operation: 'install', durationBucket: 'under_1s', ...expected,
         }])
         expect(JSON.stringify(outcomes)).not.toContain('/home/someone')
         await custom.close()

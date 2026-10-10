@@ -48,7 +48,7 @@ import {
 } from '@ainyc/canonry-db'
 import { requireScope } from './auth.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
-import { startRouteOutcome, upstreamFailure, type RouteOutcome } from './route-outcome.js'
+import { startRouteOutcome, upstreamFailure, type RouteOutcome } from './feature-outcome.js'
 import {
   AdsActivationError,
   AdsActivationErrorCodes,

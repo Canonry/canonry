@@ -62,7 +62,7 @@ function connect(extra: Partial<WordpressConnectionRecord> = {}) {
   })
 }
 
-const reported = (operation: string) => ({ feature: 'wordpress', operation, trigger: 'manual', durationBucket: expect.any(String) })
+const reported = (operation: string) => ({ feature: 'wordpress', operation, durationBucket: expect.any(String) })
 const post = (url: string, payload: object = {}, method: 'POST' | 'PUT' = 'POST') =>
   app.inject({ method, url: `/api/v1/projects/test-project/wordpress${url}`, payload })
 const PAGE = { id: 7, slug: 'pricing', title: 'Pricing', status: 'draft', link: 'https://example.com/pricing/' }

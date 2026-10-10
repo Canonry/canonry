@@ -1374,7 +1374,7 @@ describe('content recommendation explanation routes', () => {
       expect((await analyze(targetRef)).statusCode).toBe(200)
       expect((await analyze(targetRef)).statusCode).toBe(200)
 
-      const base = { feature: 'content', operation: 'analyze', trigger: 'manual', durationBucket: expect.any(String) }
+      const base = { feature: 'content', operation: 'analyze', durationBucket: expect.any(String) }
       expect(featureOutcomes(outcomes)).toEqual([
         // 42 millicents is 420 micro-USD.
         { ...base, status: 'succeeded', counts: { targets: 1, modelCalls: 1, costMicros: 420 } },
@@ -1390,7 +1390,7 @@ describe('content recommendation explanation routes', () => {
 
       expect((await analyze(targetRef)).statusCode).toBe(429)
       expect(featureOutcomes(outcomes)).toEqual([{
-        feature: 'content', operation: 'analyze', trigger: 'manual', durationBucket: expect.any(String),
+        feature: 'content', operation: 'analyze', durationBucket: expect.any(String),
         status: 'failed', reasonCode: 'RATE_LIMITED', errorName: 'Error',
       }])
       expect(JSON.stringify(outcomes)).not.toMatch(/llm\.example|sk-secret/)
@@ -1400,7 +1400,7 @@ describe('content recommendation explanation routes', () => {
       seedProject(db)
       expect((await analyze('tgt_not_a_real_ref')).statusCode).toBe(404)
       expect(featureOutcomes(outcomes)).toEqual([{
-        feature: 'content', operation: 'analyze', trigger: 'manual', durationBucket: expect.any(String),
+        feature: 'content', operation: 'analyze', durationBucket: expect.any(String),
         status: 'failed', reasonCode: 'NOT_FOUND', errorName: 'AppError',
       }])
     })
@@ -1443,7 +1443,7 @@ describe('content recommendation explanation routes', () => {
       expect(JSON.parse(res.payload).error.code).toBe('PROVIDER_ERROR')
       // No LLM provider is configured: a missing connection, not an upstream 5xx.
       expect(featureOutcomes(bareOutcomes)).toEqual([{
-        feature: 'content', operation: 'analyze', trigger: 'manual', durationBucket: expect.any(String),
+        feature: 'content', operation: 'analyze', durationBucket: expect.any(String),
         status: 'failed', reasonCode: 'NOT_CONNECTED', errorName: 'AppError',
       }])
     })
@@ -1566,7 +1566,7 @@ describe('content brief routes', () => {
     expect(briefState.callCount).toBe(0)
     // The winnability gate refused it: a skip, not a failure.
     expect(featureOutcomes(outcomes)).toEqual([{
-      feature: 'content', operation: 'brief', trigger: 'manual', durationBucket: expect.any(String),
+      feature: 'content', operation: 'brief', durationBucket: expect.any(String),
       status: 'skipped', reasonCode: 'GATE_REFUSED',
     }])
   })
@@ -1578,7 +1578,7 @@ describe('content brief routes', () => {
     await app.inject({ method: 'POST', url, headers: { 'content-type': 'application/json' }, payload: '{}' })
     await app.inject({ method: 'POST', url, headers: { 'content-type': 'application/json' }, payload: '{}' })
     expect(briefState.callCount).toBe(1) // second call served from cache
-    const base = { feature: 'content', operation: 'brief', trigger: 'manual', durationBucket: expect.any(String) }
+    const base = { feature: 'content', operation: 'brief', durationBucket: expect.any(String) }
     expect(featureOutcomes(outcomes)).toEqual([
       { ...base, status: 'succeeded', counts: { briefs: 1, modelCalls: 1, costMicros: 880 } },
       { ...base, status: 'succeeded', counts: { briefs: 1 } },

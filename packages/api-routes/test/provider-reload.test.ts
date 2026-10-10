@@ -182,7 +182,7 @@ describe('provider reload HTTP contract', () => {
     const unsupported = await harness(false)
     await unsupported.app.inject({ method: 'POST', url: '/api/v1/settings/providers/reload', headers: headers(), payload: {} })
 
-    const base = { feature: 'providers', operation: 'reload', trigger: 'manual', durationBucket: expect.any(String) }
+    const base = { feature: 'providers', operation: 'reload', durationBucket: expect.any(String) }
     expect(featureOutcomes([...outcomes, ...unsupported.outcomes])).toEqual([
       { ...base, status: 'succeeded', counts: { providers: 2 } },
       { ...base, status: 'failed', reasonCode: 'OPERATION_IN_PROGRESS', errorName: 'AppError' },

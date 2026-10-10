@@ -30,7 +30,7 @@ import {
   type OutcomeTrigger,
 } from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
-import { outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
+import { currentOutcomeOrigin, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
 const log = createLogger('CommonCrawlSync')
 
@@ -69,12 +69,12 @@ export async function executeReleaseSync(
 ): Promise<void> {
   const deps = { ...defaultDeps(), ...opts.deps }
   const release = opts.release
-  const trigger = opts.trigger ?? OutcomeTriggers.manual
   const outcome = {
     feature: 'backlinks',
     operation: 'sync',
-    trigger,
-    ...(trigger === OutcomeTriggers.manual ? {} : { surface: OutcomeSurfaces.system }),
+    ...(opts.trigger && opts.trigger !== OutcomeTriggers.manual
+      ? { trigger: opts.trigger, surface: OutcomeSurfaces.system }
+      : currentOutcomeOrigin() ?? { trigger: OutcomeTriggers.manual }),
   } as const
   const elapsed = startOutcomeTimer()
   let invalidRelease = false
