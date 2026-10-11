@@ -3,7 +3,7 @@ import dns from 'node:dns/promises'
 import tls from 'node:tls'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { adsConnections, createClient, gbpLocations, migrate, projects, runs, trafficSources } from '@ainyc/canonry-db'
 import { instanceStatusDtoSchema, type RunKind } from '@ainyc/canonry-contracts'
 import { statusRoutes, type StatusRoutesOptions } from '../src/status.js'
@@ -41,7 +41,7 @@ async function fixture() {
     return instanceStatusDtoSchema.parse(result.json()).projects[0]!.integrations
   }
   const close = async () => { await app.close(); db.$client.close() }
-  return { db, app, project, options, addRun, read, close }
+  return { db, app, project, options, marketing, addRun, read, close }
 }
 
 describe('stored status integration parity', () => {
@@ -55,6 +55,9 @@ describe('stored status integration parity', () => {
         f.addRun(kind, 'completed', 10)
         for (const days of [4, 3, 2, 1]) f.addRun(kind, 'failed', days)
       }
+      f.db.update(adsConnections).set({ lastSyncedAt: daysAgo(8) }).where(eq(adsConnections.projectId, 'p')).run()
+      f.marketing.googleAds!.latestSnapshotAt = daysAgo(8)
+      f.marketing.gtm!.latestSnapshotAt = daysAgo(8)
       const rows = await f.read()
       for (const integration of ['gsc', 'ga', 'gbp', 'google-ads', 'gtm']) {
         const row = rows.find(value => value.integration === integration)!
@@ -83,6 +86,38 @@ describe('stored status integration parity', () => {
     } finally { await f.close() }
   })
 
+  it('uses stored ads and marketing freshness after a successful run, while no run remains never-synced', async () => {
+    const f = await fixture()
+    try {
+      const staleAt = daysAgo(8)
+      f.db.update(adsConnections).set({ lastSyncedAt: staleAt }).where(eq(adsConnections.projectId, 'p')).run()
+      f.marketing.googleAds!.latestSnapshotAt = staleAt
+      f.marketing.gtm!.latestSnapshotAt = staleAt
+
+      const withoutRuns = await f.read()
+      expect(Object.fromEntries(withoutRuns.filter(row => ['ads', 'google-ads', 'gtm'].includes(row.integration)).map(row => [row.integration, row.state]))).toEqual({ ads: 'never-synced', 'google-ads': 'never-synced', gtm: 'never-synced' })
+
+      for (const kind of ['ads-sync', 'google-ads-sync', 'gtm-sync'] as const) f.addRun(kind, 'completed', 0.5)
+      const withRecentRuns = await f.read()
+      expect(Object.fromEntries(withRecentRuns.filter(row => ['ads', 'google-ads', 'gtm'].includes(row.integration)).map(row => [row.integration, row.state]))).toEqual({ ads: 'stale', 'google-ads': 'stale', gtm: 'stale' })
+      for (const integration of ['ads', 'google-ads', 'gtm']) {
+        const row = withRecentRuns.find(value => value.integration === integration)!
+        expect(row.dataThrough).toBeNull()
+        expect(row.dataAgeDays).toBe(8)
+        expect(row.lastSuccessAt).not.toBeNull()
+      }
+
+      f.marketing.googleAds!.latestSnapshotAt = daysAgo(0)
+      dbAgeRuns(f.db, 'google-ads-sync', daysAgo(8))
+      const oldRunWithFreshSnapshot = await f.read()
+      const googleAds = oldRunWithFreshSnapshot.find(row => row.integration === 'google-ads')!
+      expect(googleAds.state).toBe('stale')
+      expect(googleAds.dataThrough).toBeNull()
+      expect(googleAds.dataAgeDays).toBe(0)
+      expect(googleAds.lastSuccessAt).not.toBeNull()
+    } finally { await f.close() }
+  })
+
   it('reports never-synced connections and hides disconnected integrations with old failures', async () => {
     const f = await fixture()
     try {
@@ -96,4 +131,8 @@ describe('stored status integration parity', () => {
 
 function dbAgeAllRuns(db: ReturnType<typeof createClient>, time: string) {
   db.update(runs).set({ createdAt: time, finishedAt: time }).where(eq(runs.projectId, 'p')).run()
+}
+
+function dbAgeRuns(db: ReturnType<typeof createClient>, kind: RunKind, time: string) {
+  db.update(runs).set({ createdAt: time, finishedAt: time }).where(and(eq(runs.projectId, 'p'), eq(runs.kind, kind))).run()
 }
