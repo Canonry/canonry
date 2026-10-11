@@ -109,6 +109,10 @@ export type BacklinkHistoryEntry = z.infer<typeof backlinkHistoryEntrySchema>
 /**
  * Availability for a stored backlink source. Common Crawl can be connected and
  * refreshed; retired sources may report historical data but are never connected.
+ * Common Crawl is `connected` when a workspace release sync has completed
+ * (`ready`, or completed before and syncing again) and the project has a
+ * stored summary, the rule the `backlinks.source.connected` doctor check
+ * grades. No project setting is involved.
  */
 export const backlinkSourceAvailabilityDtoSchema = z.object({
   source: backlinkSourceSchema,
