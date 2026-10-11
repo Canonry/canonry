@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
-import { apiKeys, competitors, createClient, migrate, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { apiKeys, auditLog, competitors, createClient, migrate, projects, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import { invokeCli } from './cli-test-utils.js'
@@ -19,6 +19,7 @@ describe('competitor alias CLI', () => {
   let client: ApiClient
   let db: DatabaseClient
   let close: () => Promise<void>
+  let observedPaths: string[]
 
   beforeEach(async () => {
     tmpDir = path.join(os.tmpdir(), `canonry-competitor-aliases-cli-${crypto.randomUUID()}`)
@@ -44,6 +45,8 @@ describe('competitor alias CLI', () => {
     fs.writeFileSync(configPath, JSON.stringify(config), 'utf-8')
 
     const app = await createServer({ config: config as Parameters<typeof createServer>[0]['config'], db, logger: false })
+    observedPaths = []
+    app.addHook('onRequest', async request => { observedPaths.push(request.url) })
     await app.listen({ host: '127.0.0.1', port: 0 })
     const addr = app.server.address()
     const port = typeof addr === 'object' && addr ? addr.port : 0
@@ -159,6 +162,39 @@ describe('competitor alias CLI', () => {
     expect(removed.exitCode, removed.stderr).toBeUndefined()
     expect(JSON.parse(removed.stdout)).toEqual({ project: 'rotorwise', domains: [], removedDomains: ['offers.spoketuneworks.example'], removedCount: 1 })
   })
+
+  it('runs competitor add, remove, and alias dry-runs in JSON, JSONL, and human modes without writes', async () => {
+    const project = db.select().from(projects).where(eq(projects.name, 'rotorwise')).get()!
+    const measuredAt = new Date().toISOString()
+    db.insert(runs).values({ id: crypto.randomUUID(), projectId: project.id, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: null, createdAt: measuredAt }).run()
+    db.insert(querySnapshots).values({ id: crypto.randomUUID(), runId: db.select().from(runs).where(eq(runs.projectId, project.id)).get()!.id, queryId: null, provider: 'openai', citationState: 'not-cited', answerMentioned: false, answerText: 'Stored evidence.', citedDomains: ['rival.example'], citedUrls: null, captureStatus: 'complete', competitorOverlap: [], location: null, createdAt: measuredAt }).run()
+    db.insert(competitors).values(Array.from({ length: 6 }, (_, index) => ({ id: crypto.randomUUID(), projectId: project.id, domain: `recent-${index}.example`, provenance: 'manual', createdAt: measuredAt }))).run()
+    const beforeRows = db.select().from(competitors).all()
+    const beforeAudit = db.select().from(auditLog).all().length
+
+    const json = await invokeCli(['competitor', 'add', 'rotorwise', 'new-one.example', 'new-two.example', 'new-three.example', 'new-four.example', 'new-five.example', 'new-six.example', '--dry-run', '--format', 'json'])
+    expect(json.exitCode, json.stderr).toBeUndefined()
+    expect(JSON.parse(json.stdout)).toMatchObject({ dryRun: true, change: 'add', plan: { added: ['new-one.example', 'new-two.example', 'new-three.example', 'new-four.example', 'new-five.example', 'new-six.example'] } })
+    const jsonl = await invokeCli(['competitor', 'add', 'rotorwise', 'new-one.example', '--dry-run', '--format', 'jsonl'])
+    expect(jsonl.exitCode, jsonl.stderr).toBeUndefined()
+    expect(JSON.parse(jsonl.stdout)).toMatchObject({ dryRun: true, change: 'add' })
+    const human = await invokeCli(['competitor', 'remove', 'rotorwise', 'recent-0.example', '--dry-run'])
+    expect(human.exitCode, human.stderr).toBeUndefined()
+    expect(human.stdout).toContain('Mention share')
+    expect(human.stdout).toContain('Caveat: the tracked competitor basis changed.')
+    const alias = await invokeCli(['competitor', 'aliases', 'rotorwise', 'recent-0.example', '--set', 'Recent Rival', '--dry-run', '--format', 'json'])
+    expect(alias.exitCode, alias.stderr).toBeUndefined()
+    expect(JSON.parse(alias.stdout)).toMatchObject({ dryRun: true, change: 'aliases' })
+    expect(db.select().from(competitors).all()).toEqual(beforeRows)
+    expect(db.select().from(auditLog).all()).toHaveLength(beforeAudit)
+    expect(observedPaths.filter(path => path.includes('/competitor-changes/preview'))).toHaveLength(4)
+
+    observedPaths = []
+    const ordinary = await invokeCli(['competitor', 'add', 'rotorwise', 'ordinary.example', '--acknowledge-bulk-add', '--format', 'json'])
+    expect(ordinary.exitCode, ordinary.stderr).toBeUndefined()
+    expect(observedPaths.some(path => path.includes('/competitor-changes/preview'))).toBe(false)
+    expect((await client.listCompetitors('rotorwise')).some(row => row.domain === 'ordinary.example')).toBe(true)
+  }, 60000)
 
   it('refuses a competitor stored as two rows with a remove-then-add hint that restates its aliases', async () => {
     const project = db.select().from(projects).where(eq(projects.name, 'rotorwise')).get()!

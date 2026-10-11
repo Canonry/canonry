@@ -4175,6 +4175,28 @@ export type CompetitorSuggestionsResponse = {
     truncated: boolean;
 };
 
+export type CompetitorChangePreviewRequest = {
+    change: 'add';
+    competitors: Array<string | {
+        domain: string;
+        /**
+         * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
+         */
+        aliases?: Array<string>;
+    }>;
+} | {
+    change: 'remove';
+    competitors: Array<string>;
+} | {
+    change: 'replace';
+    competitors: Array<string>;
+} | {
+    change: 'aliases';
+    domain: string;
+    aliases: Array<string>;
+    mode: 'set' | 'add';
+};
+
 export type CompetitorChangePreviewResponse = {
     project: string;
     change: 'add' | 'remove' | 'replace' | 'aliases';
@@ -21156,27 +21178,7 @@ export type GetApiV1ProjectsByNameCompetitorSuggestionsResponses = {
 export type GetApiV1ProjectsByNameCompetitorSuggestionsResponse = GetApiV1ProjectsByNameCompetitorSuggestionsResponses[keyof GetApiV1ProjectsByNameCompetitorSuggestionsResponses];
 
 export type PostApiV1ProjectsByNameCompetitorChangesPreviewData = {
-    body: {
-        change: unknown;
-        competitors: Array<string | {
-            domain: string;
-            aliases: Array<string>;
-        }>;
-    } | {
-        change: unknown;
-        competitors: Array<string>;
-    } | {
-        change: unknown;
-        competitors: Array<string | {
-            domain: string;
-            aliases: Array<string>;
-        }>;
-    } | {
-        change: unknown;
-        domain: string;
-        aliases: Array<string>;
-        mode: 'set' | 'add';
-    };
+    body: CompetitorChangePreviewRequest;
     path: {
         /**
          * Project name.
