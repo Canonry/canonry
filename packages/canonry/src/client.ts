@@ -52,6 +52,7 @@ import type {
   KeywordGenerateResponse,
   QueryGenerateResponse,
   ProjectUpsertRequest,
+  ProjectPatchRequest,
   RunDto,
   RunDetailDto,
   MeasurementPlanInput,
@@ -1284,6 +1285,34 @@ export class ApiClient {
     return this.invoke<ProjectDto>(() =>
       putApiV1ProjectsByName({ client: this.heyClient, path: { name }, body: body as never }),
     )
+  }
+
+  async patchProject(name: string, body: ProjectPatchRequest): Promise<ProjectDto> {
+    await this.probeBasePath()
+    const url = `${this.originUrl}/api/v1/projects/${encodeURIComponent(name)}`
+    let response: Response
+    try {
+      response = await fetch(url, {
+        method: 'PATCH',
+        headers: { ...this.requestHeaders, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(body),
+      })
+    } catch (error) {
+      const message = describeError(error)
+      throw new CliError({ code: 'CONNECTION_ERROR', message: connectionFailureMessage(this.originUrl), exitCode: EXIT_SYSTEM_ERROR, details: { cause: message } })
+    }
+    if (!response.ok) {
+      let errorBody: unknown
+      try { errorBody = await response.json() } catch { errorBody = null }
+      const errorObject = errorBody && typeof errorBody === 'object' && 'error' in errorBody ? errorBody.error as { code?: string; message?: string; details?: Record<string, unknown> } : undefined
+      throw new CliError({
+        code: errorObject?.code ?? 'API_ERROR',
+        message: errorObject?.message ?? `HTTP ${response.status}: ${response.statusText}`,
+        exitCode: response.status >= 500 ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR,
+        details: httpErrorDetails(errorObject?.details, response),
+      })
+    }
+    return await response.json() as ProjectDto
   }
 
   async listProjects(): Promise<ProjectDto[]> {

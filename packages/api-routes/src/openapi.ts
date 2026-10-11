@@ -43,7 +43,7 @@ export interface OpenApiInfo {
   includeCanonryLocal?: boolean
 }
 
-type HttpMethod = 'get' | 'post' | 'put' | 'delete'
+type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete'
 
 interface OpenApiParameter {
   name: string
@@ -900,6 +900,28 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Project updated.', 'ProjectDto'),
       201: jsonResponse('Project created.', 'ProjectDto'),
+    },
+  },
+  {
+    method: 'patch',
+    path: '/api/v1/projects/{name}',
+    summary: 'Update named project fields',
+    description: 'Updates only the named project fields. Omitted fields keep their stored values, measurement lists merge one level, and expectedConfigRevision provides compare-and-swap protection.',
+    tags: ['projects'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/ProjectPatchRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Project updated.', 'ProjectDto'),
+      400: errorResponse('Invalid project patch.'),
+      404: errorResponse('Project not found.'),
+      409: errorResponse('The project revision is stale.'),
     },
   },
   {

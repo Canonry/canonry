@@ -146,6 +146,7 @@ const expectedToolNames = [
   'canonry_traffic_reset',
   'canonry_snapshot',
   'canonry_project_upsert',
+  'canonry_project_update',
   'canonry_apply_config',
   'canonry_apply_config_preview',
   'canonry_queries_generate',
@@ -811,7 +812,7 @@ describe('MCP tool registry', () => {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
     expect(counts.get('monitoring')).toBe(61)
-    expect(counts.get('setup')).toBe(66)
+    expect(counts.get('setup')).toBe(67)
     expect(counts.get('gsc')).toBe(11)
     expect(counts.get('ga')).toBe(13)
     expect(counts.get('gbp')).toBe(14)

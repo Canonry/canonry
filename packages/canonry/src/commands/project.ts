@@ -1,11 +1,23 @@
-import type { CompetitorAutoAliasMode, ProjectDto, ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
-import { effectiveDomains, normalizeProjectAliases, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases } from '@ainyc/canonry-contracts'
+import type { CompetitorAutoAliasMode, MeasurementConfig, ProjectDto, ProjectPatchRequest, ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
+import { DEFAULT_MEASUREMENT_CONFIG, effectiveDomains, measurementConfigSchema, normalizeProjectAliases, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
+}
+
+export interface MeasurementUpdateFlags {
+  leadEvents?: string[]
+  addLeadEvents?: string[]
+  removeLeadEvents?: string[]
+  brandTerms?: string[]
+  addBrandTerms?: string[]
+  removeBrandTerms?: string[]
+  marketingHosts?: string[]
+  addMarketingHosts?: string[]
+  removeMarketingHosts?: string[]
 }
 
 export async function createProject(
@@ -143,6 +155,11 @@ export async function showProject(name: string, format?: string): Promise<void> 
   if (project.competitorAutoAliases !== undefined) {
     console.log(`  Competitor auto aliases: ${formatCompetitorAutoAliasMode(project.competitorAutoAliases)}`)
   }
+  if (project.measurement) {
+    console.log(`  Marketing hosts:  ${project.measurement.marketingHosts.length > 0 ? project.measurement.marketingHosts.join(', ') : '(none)'}`)
+    console.log(`  Brand terms:      ${project.measurement.brandTerms.length > 0 ? project.measurement.brandTerms.join(', ') : '(none)'}`)
+    console.log(`  Lead events:      ${project.measurement.leadEventNames.length > 0 ? project.measurement.leadEventNames.join(', ') : '(none)'}`)
+  }
   console.log(`  Tags:             ${project.tags.length > 0 ? project.tags.join(', ') : '(none)'}`)
   const labelEntries = Object.entries(project.labels)
   console.log(`  Labels:           ${labelEntries.length > 0 ? labelEntries.map(([k, v]) => `${k}=${v}`).join(', ') : '(none)'}`)
@@ -154,6 +171,39 @@ function formatCompetitorAutoAliasMode(mode: CompetitorAutoAliasMode): string {
   if (mode === 'apply') return 'apply (names detected after each sweep are stored and counted)'
   if (mode === 'off') return 'off (no detection after sweeps)'
   return 'preview (detected after each sweep and logged; nothing stored)'
+}
+
+function mergeMeasurementList(
+  current: readonly string[],
+  exact: string[] | undefined,
+  additions: string[] | undefined,
+  removals: string[] | undefined,
+  caseInsensitive: boolean,
+): string[] {
+  let values = [...(exact ?? current)]
+  if (additions) values.push(...additions)
+  if (removals?.length) {
+    const remove = new Set(removals.map(value => caseInsensitive ? value.toLowerCase() : value))
+    values = values.filter(value => !remove.has(caseInsensitive ? value.toLowerCase() : value))
+  }
+  return values
+}
+
+function resolveMeasurementUpdate(project: ProjectDto, flags: MeasurementUpdateFlags): MeasurementConfig {
+  const current = project.measurement ?? DEFAULT_MEASUREMENT_CONFIG
+  const parsed = measurementConfigSchema.safeParse({
+    marketingHosts: mergeMeasurementList(current.marketingHosts, flags.marketingHosts, flags.addMarketingHosts, flags.removeMarketingHosts, true),
+    brandTerms: mergeMeasurementList(current.brandTerms, flags.brandTerms, flags.addBrandTerms, flags.removeBrandTerms, true),
+    leadEventNames: mergeMeasurementList(current.leadEventNames, flags.leadEvents, flags.addLeadEvents, flags.removeLeadEvents, false),
+  })
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    throw usageError(`Error: invalid measurement option${issue?.message ? `: ${issue.message}` : ''}`, {
+      message: issue?.message ?? 'invalid measurement option',
+      details: { command: 'project.update', path: issue?.path.join('.') ?? '' },
+    })
+  }
+  return parsed.data
 }
 
 export async function updateProjectSettings(
@@ -182,6 +232,8 @@ export async function updateProjectSettings(
     siteAuditMaxPages?: number | null
     /** Sets the answer-derived competitor alias detection mode; undefined leaves it. */
     competitorAutoAliases?: CompetitorAutoAliasMode
+    /** Measurement lists changed by one or more measurement flags. */
+    measurement?: MeasurementUpdateFlags
     format?: string
   },
 ): Promise<void> {
@@ -266,31 +318,24 @@ export async function updateProjectSettings(
   const providerDispatchModes: ProviderDispatchModesMap = { ...(project.providerDispatchModes ?? {}), ...(opts.dispatchModes ?? {}) }
   for (const provider of opts.clearDispatchModes ?? []) delete providerDispatchModes[provider]
 
-  const result: ProjectDto = await client.putProject(name, {
-    displayName: nextDisplayName,
-    canonicalDomain: opts.domain ?? project.canonicalDomain,
-    ownedDomains,
-    aliases: nextAliases,
+  const patch: ProjectPatchRequest = {
+    expectedConfigRevision: project.configRevision,
+    ...(opts.displayName !== undefined ? { displayName: nextDisplayName } : {}),
+    ...(opts.domain !== undefined ? { canonicalDomain: opts.domain } : {}),
+    ...((opts.ownedDomains !== undefined || opts.addOwnedDomain !== undefined || opts.removeOwnedDomain !== undefined) ? { ownedDomains } : {}),
+    ...((opts.aliases !== undefined || opts.addAlias !== undefined || opts.removeAlias !== undefined) ? { aliases: nextAliases } : {}),
+    ...(opts.country !== undefined ? { country: opts.country } : {}),
+    ...(opts.language !== undefined ? { language: opts.language } : {}),
+    ...(opts.providers !== undefined ? { providers: opts.providers } : {}),
+    ...((Object.keys(opts.providerModels ?? {}).length > 0 || (opts.clearProviderModels?.length ?? 0) > 0) ? { providerModels } : {}),
     ...(touchesQualified ? { qualifiedAliases } : {}),
-    country: opts.country ?? project.country,
-    language: opts.language ?? project.language,
-    tags: project.tags,
-    labels: project.labels,
-    providers: opts.providers ?? project.providers,
-    providerModels,
     ...(touchesDispatch ? { providerDispatchModes } : {}),
-    locations: project.locations,
-    defaultLocation: project.defaultLocation,
-    autoExtractBacklinks: project.autoExtractBacklinks,
-    // Sent only when asked for: the server keeps the stored threshold when the
-    // field is absent, so a stale read cannot overwrite a newer setting.
     ...(opts.negativeReviewMaxStars !== undefined ? { negativeReviewMaxStars: opts.negativeReviewMaxStars } : {}),
-    // Same for the page budget: never echoed from the read above, so an edit
-    // that does not touch it cannot overwrite a newer one or send a stray null.
     ...(opts.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: opts.siteAuditMaxPages } : {}),
-    // Same for the detection mode.
     ...(opts.competitorAutoAliases !== undefined ? { competitorAutoAliases: opts.competitorAutoAliases } : {}),
-  })
+    ...(opts.measurement !== undefined ? { measurement: resolveMeasurementUpdate(project, opts.measurement) } : {}),
+  }
+  const result: ProjectDto = await client.patchProject(name, patch)
 
   // What the server was left holding: the map sent, else the stored one.
   warnDroppedDispatchModes(touchesDispatch ? providerDispatchModes : (project.providerDispatchModes ?? {}), result)

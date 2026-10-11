@@ -52,6 +52,7 @@ import {
   notificationCreateRequestSchema,
   notificationEventSchema,
   projectConfigSchema,
+  projectPatchRequestSchema,
   projectUpsertRequestSchema,
   runTriggerRequestSchema,
   backlinkSourceSchema,
@@ -868,6 +869,11 @@ function latestSweepUnlessPooled<T extends { runId?: string; window?: string; qu
 const projectUpsertInputSchema = z.object({
   project: projectNameSchema,
   request: projectUpsertRequestSchema,
+})
+
+const projectPatchInputSchema = z.object({
+  project: projectNameSchema,
+  request: projectPatchRequestSchema,
 })
 
 const applyConfigInputSchema = z.object({
@@ -2747,6 +2753,17 @@ export const canonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
     openApiOperations: ['PUT /api/v1/projects/{name}'],
     handler: (client, input) => client.putProject(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_project_update',
+    title: 'Update project fields',
+    description: 'Update named fields on an existing Canonry project with PATCH semantics. Omitted fields keep their stored values, measurement merges one level, and expectedConfigRevision prevents overwriting a newer edit. Prefer this for targeted changes over canonry_project_upsert.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: projectPatchInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['PATCH /api/v1/projects/{name}'],
+    handler: (client, input) => client.patchProject(input.project, input.request),
   }),
   defineTool({
     name: 'canonry_apply_config',

@@ -1044,6 +1044,7 @@ export const COMPETITOR_AUTO_ALIAS_MODE_REFUSAL =
 /** The project writes whose request can set `competitorAutoAliases`. */
 const COMPETITOR_AUTO_ALIAS_MODE_WRITES: ReadonlySet<CanonryMcpToolName> = new Set([
   CanonryMcpToolNames.canonry_project_upsert,
+  CanonryMcpToolNames.canonry_project_update,
   CanonryMcpToolNames.canonry_apply_config,
 ])
 
@@ -1057,6 +1058,10 @@ function requestedCompetitorAutoAliasMode(
   if (toolName === CanonryMcpToolNames.canonry_project_upsert) {
     const request = isRecord(params.request) ? params.request : {}
     return { project: ctx.projectName, mode: request.competitorAutoAliases }
+  }
+  if (toolName === CanonryMcpToolNames.canonry_project_update) {
+    const request = isRecord(params.request) ? params.request : {}
+    return { project: params.project, mode: request.competitorAutoAliases }
   }
   const config = isRecord(params.config) ? params.config : {}
   const metadata = isRecord(config.metadata) ? config.metadata : {}

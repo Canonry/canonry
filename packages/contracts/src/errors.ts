@@ -22,6 +22,7 @@ export type ErrorCode =
   | 'MISSING_DEPENDENCY'
   | 'RUNTIME_STATE_MISSING'
   | 'SCHEDULE_VERSION_CONFLICT'
+  | 'PROJECT_REVISION_CONFLICT'
   | 'MEASUREMENT_PLAN_REVISION_CONFLICT'
   | 'MEASUREMENT_COMPILED_CHECKSUM_CONFLICT'
   | 'MEASUREMENT_RUN_REVISION_MISMATCH'
@@ -176,6 +177,15 @@ export function scheduleVersionConflict(
     'The schedule changed since it was loaded. Reload it before saving.',
     409,
     { expectedUpdatedAt, actualUpdatedAt },
+  )
+}
+
+export function projectRevisionConflict(expected: number, actual: number): AppError {
+  return new AppError(
+    'PROJECT_REVISION_CONFLICT',
+    'The project changed since it was loaded. Reload it before saving.',
+    409,
+    { expected, actual },
   )
 }
 

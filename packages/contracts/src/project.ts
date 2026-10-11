@@ -177,6 +177,37 @@ export const projectUpsertRequestSchema = z.object({
 export type ProjectUpsertRequest = z.infer<typeof projectUpsertRequestSchema>
 
 /**
+ * Existing-project partial update. The outer object is strict so a typo can
+ * never become a successful no-op. Measurement lists merge one level in the
+ * route, with each named list replacing that list and omitted lists preserved.
+ */
+export const projectPatchRequestSchema = z.object({
+  displayName: z.string().min(1).optional(),
+  canonicalDomain: z.string().min(1).optional(),
+  ownedDomains: z.array(z.string().min(1)).optional(),
+  aliases: z.array(z.string()).optional(),
+  country: z.string().length(2).optional(),
+  language: z.string().min(2).optional(),
+  tags: z.array(z.string()).optional(),
+  labels: z.record(z.string(), z.string()).optional(),
+  providers: z.array(providerNameSchema).optional(),
+  providerModels: providerModelsSchema.optional(),
+  providerDispatchModes: providerDispatchModesSchema.optional(),
+  locations: z.array(locationContextSchema).optional(),
+  defaultLocation: z.string().nullable().optional(),
+  measurement: measurementConfigSchema.partial().strict().optional(),
+  autoExtractBacklinks: z.boolean().optional(),
+  qualifiedAliases: z.array(z.string().trim().min(1).max(PROJECT_QUALIFIED_ALIAS_MAX_LENGTH))
+    .max(PROJECT_QUALIFIED_ALIAS_LIMIT).optional(),
+  negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.nullable().optional(),
+  siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
+  competitorAutoAliases: competitorAutoAliasModeInputSchema,
+  expectedConfigRevision: z.number().int().nonnegative().optional(),
+}).strict()
+
+export type ProjectPatchRequest = z.infer<typeof projectPatchRequestSchema>
+
+/**
  * Body for create-only project creation. `name` is intentionally separate from
  * the upsert path parameter: the API normalizes it before persistence and
  * refuses a collision instead of changing an existing project's configuration.

@@ -21,6 +21,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   // have the included project upsert tool and do not need a second create path.
   'POST /api/v1/projects': 'deferred',
   'PUT /api/v1/projects/{name}': 'included',
+  'PATCH /api/v1/projects/{name}': 'included',
   'GET /api/v1/projects': 'included',
   'GET /api/v1/projects/{name}': 'included',
   'DELETE /api/v1/projects/{name}': 'deferred',
