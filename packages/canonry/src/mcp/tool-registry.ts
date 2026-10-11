@@ -4454,7 +4454,7 @@ const rawCanonryMcpTools = [
 ] as const
 
 export const canonryMcpTools = rawCanonryMcpTools.map(tool => {
-  if (tool.access !== 'read' || toolOperationAccess(tool) !== 'live') return tool
+  if (tool.access !== 'read' || toolOperationAccess(tool) !== OperationAccesses.live) return tool
   return { ...tool, annotations: { ...tool.annotations, openWorldHint: true } }
 })
 

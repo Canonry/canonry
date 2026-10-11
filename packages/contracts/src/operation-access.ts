@@ -61,7 +61,7 @@ export const WRITE_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/bing/coverage',
 ])
 
-/** Stored provider-free reads represented by the current OpenAPI and MCP catalog. */
+/** Stored reads and pure previews that retain write-scope authorization. */
 export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'POST /api/v1/projects/{name}/competitor-changes/preview',
   'POST /api/v1/projects/{name}/queries/replace-preview',

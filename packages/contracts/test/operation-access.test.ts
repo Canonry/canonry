@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   LIVE_READ_OPERATIONS,
+  OperationAccesses,
   READ_SEMANTIC_OPERATIONS,
   maxOperationAccess,
   operationAccess,
@@ -12,6 +13,8 @@ describe('operation access classification', () => {
     expect(operationAccess('get', '/api/v1/projects/{name}/competitors')).toBe('stored')
     expect(operationAccess('post', '/api/v1/projects/{name}/measurement-plan/compile-preview')).toBe('stored')
     expect(operationAccess('post', '/api/v1/projects/{name}/measurement-discovery')).toBe('live')
+    expect(operationAccess('post', '/api/v1/projects/{name}/competitor-changes/preview')).toBe('stored')
+    expect(operationAccess('post', '/api/v1/projects/{name}/queries/replace-preview')).toBe('stored')
     expect(operationAccess('delete', '/api/v1/projects/{name}/agent/transcript')).toBe('write')
   })
 
@@ -21,9 +24,12 @@ describe('operation access classification', () => {
     expect(maxOperationAccess([])).toBe('stored')
   })
 
-  it('keeps semantic reads as a subset of the explicit route table', () => {
-    expect(READ_SEMANTIC_OPERATIONS.size).toBeGreaterThan(0)
-    for (const operation of READ_SEMANTIC_OPERATIONS) expect(operation).not.toBe('')
-    for (const operation of READ_SEMANTIC_OPERATIONS) expect(LIVE_READ_OPERATIONS.has(operation)).toBe(false)
+  it('classifies every declared semantic preview as stored and not live', () => {
+    expect([...READ_SEMANTIC_OPERATIONS].every(operation => {
+      const separator = operation.indexOf(' ')
+      return separator > 0
+        && operationAccess(operation.slice(0, separator), operation.slice(separator + 1)) === OperationAccesses.stored
+        && !LIVE_READ_OPERATIONS.has(operation)
+    })).toBe(true)
   })
 })

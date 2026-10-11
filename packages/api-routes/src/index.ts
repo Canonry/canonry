@@ -484,10 +484,7 @@ export interface ApiRoutesOptions {
 
 export function canonicalRouteTemplate(route: string, prefix: string): string {
   const trimmedPrefix = prefix.replace(/^\/+|\/+$/g, '')
-  const normalizedPrefix = trimmedPrefix ? `/${trimmedPrefix}` : ''
-  const configuredPrefix = normalizedPrefix.endsWith('/api/v1')
-    ? normalizedPrefix
-    : `${normalizedPrefix}/api/v1`
+  const configuredPrefix = trimmedPrefix ? `/${trimmedPrefix}` : '/api/v1'
   const normalizedRoute = route.startsWith('/') ? route : `/${route}`
   let suffix: string
   if (normalizedRoute === configuredPrefix || normalizedRoute.startsWith(`${configuredPrefix}/`)) {

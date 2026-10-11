@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import type { ParseArgsOptionsConfig } from 'node:util'
-import type { CliCatalogDto } from '@ainyc/canonry-contracts'
+import { OperationAccesses, type CliCatalogDto } from '@ainyc/canonry-contracts'
 import { CLI_GLOBAL_OPTIONS, commandOptions, commandUsage, printGroupHelp, type CliCommandSpec } from './cli-dispatch.js'
 import { type CliFormat, usageError } from './cli-error.js'
 import { emitJsonl } from './cli-output.js'
@@ -315,7 +315,7 @@ export function renderTopLevelHelp(catalog: CliCatalogDto): string {
 
 export function printCliCatalog(specs: readonly CliCommandSpec[], format: CliFormat, group?: string, access?: string): void {
   const catalog = buildCliCatalog(specs)
-  if (access !== undefined && access !== 'stored' && access !== 'live' && access !== 'write') {
+  if (access !== undefined && access !== OperationAccesses.stored && access !== OperationAccesses.live && access !== OperationAccesses.write) {
     throw usageError(`Unknown access filter: ${access}`, { details: { access } })
   }
   if (access) {
