@@ -115,15 +115,19 @@ test('previewing the current applied document reports no changes', async () => {
   const db = createClient(path.join(tmpDir, 'test.db'))
   migrate(db)
   const app = Fastify()
-  app.register(apiRoutes, { db, skipAuth: true })
+  app.register(apiRoutes, { db, skipAuth: true, allowLoopbackWebhooks: true })
   await app.ready()
 
   try {
-    const document = config('current-preview', { queries: ['unchanged query'] })
+    const document = config('current-preview', {
+      queries: ['unchanged query'],
+      notifications: [{ id: 'same-notification', channel: 'webhook', url: 'http://127.0.0.1/hook', events: ['run.completed'] }],
+    })
     expect((await app.inject({ method: 'POST', url: '/api/v1/apply', payload: document })).statusCode).toBe(200)
     const preview = await app.inject({ method: 'POST', url: '/api/v1/apply/preview', payload: document })
     expect(preview.statusCode).toBe(200)
-    expect(preview.json()).toMatchObject({ action: 'none', changed: false, fields: {}, queries: { added: [], removed: [] }, competitors: { added: [], removed: [], aliasChanges: [] }, schedule: { action: 'none' }, notifications: { added: [], removed: [], kept: [] } })
+    expect(preview.json()).toMatchObject({ action: 'none', changed: false, fields: {}, queries: { added: [], removed: [] }, competitors: { added: [], removed: [], aliasChanges: [], droppedAliases: [] }, schedule: { action: 'none' }, notifications: { added: [], removed: [], kept: [], secretsRotated: 0 } })
+    expect(preview.body).not.toContain('http://127.0.0.1/hook')
   } finally {
     await app.close()
     db.$client.close()
@@ -195,6 +199,31 @@ test('preview reports omitted resource removals and measurement defaults without
     expect(db.select().from(competitors).where(eq(competitors.projectId, projectBefore.id)).all()).toEqual(before.competitors)
     expect(db.select().from(schedules).where(and(eq(schedules.projectId, projectBefore.id), eq(schedules.kind, SchedulableRunKinds['answer-visibility']))).all()).toEqual(before.schedules)
     expect(db.select().from(auditLog).where(eq(auditLog.projectId, projectBefore.id)).all()).toEqual(before.audits)
+  } finally {
+    await app.close()
+    db.$client.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('preview and apply share the active planless sweep refusal', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-apply-preview-active-'))
+  const db = createClient(path.join(tmpDir, 'test.db'))
+  migrate(db)
+  const app = Fastify()
+  app.register(apiRoutes, { db, skipAuth: true })
+  await app.ready()
+
+  try {
+    const initial = config('active-preview', { queries: ['kept query'] })
+    expect((await app.inject({ method: 'POST', url: '/api/v1/apply', payload: initial })).statusCode).toBe(200)
+    const project = db.select().from(projects).where(eq(projects.name, 'active-preview')).get()!
+    db.insert(runs).values({ id: 'active-preview-run', projectId: project.id, kind: 'answer-visibility', status: 'running', trigger: 'manual', createdAt: new Date().toISOString() }).run()
+    const changed = config('active-preview', { queries: ['changed query'] })
+    const preview = await app.inject({ method: 'POST', url: '/api/v1/apply/preview', payload: changed })
+    const applied = await app.inject({ method: 'POST', url: '/api/v1/apply', payload: changed })
+    expect(preview.statusCode).toBe(applied.statusCode)
+    expect(preview.json().error.code).toBe(applied.json().error.code)
   } finally {
     await app.close()
     db.$client.close()

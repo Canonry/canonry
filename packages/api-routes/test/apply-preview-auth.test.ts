@@ -28,16 +28,26 @@ test('apply preview enforces project scoped read, named, foreign and create boun
   ]).run()
   const writeToken = 'cnry_preview_write'
   const readToken = 'cnry_preview_read'
+  const settingsToken = 'cnry_preview_settings'
   db.insert(apiKeys).values([
     { id: crypto.randomUUID(), name: 'preview-write', keyHash: hashApiKey(writeToken), keyPrefix: writeToken.slice(0, 9), scopes: ['*'], projectId: projectAId, createdAt: now },
     { id: crypto.randomUUID(), name: 'preview-read', keyHash: hashApiKey(readToken), keyPrefix: readToken.slice(0, 9), scopes: ['read'], projectId: projectAId, createdAt: now },
+    { id: crypto.randomUUID(), name: 'preview-settings', keyHash: hashApiKey(settingsToken), keyPrefix: settingsToken.slice(0, 9), scopes: ['settings.write'], projectId: projectAId, createdAt: now },
   ]).run()
   const app = Fastify()
-  app.register(apiRoutes, { db })
+  app.register(apiRoutes, {
+    db,
+    providerAdapters: [{ name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true, defaultModel: 'gpt-test', knownModels: [], modelValidationPattern: /^gpt-/, modelValidationHint: 'gpt model' }],
+  })
   await app.ready()
   try {
     const own = await app.inject({ method: 'POST', url: '/api/v1/apply/preview', headers: { authorization: `Bearer ${writeToken}` }, payload: document('project-a') })
     expect(own.statusCode).toBe(200)
+
+    const namedBase = document('project-a')
+    const namedDocument = { ...namedBase, spec: { ...namedBase.spec, providers: ['openai'], providerModels: { openai: 'gpt-test' } } }
+    const named = await app.inject({ method: 'POST', url: '/api/v1/apply/preview', headers: { authorization: `Bearer ${settingsToken}` }, payload: namedDocument })
+    expect(named.statusCode).toBe(200)
 
     const readOnly = await app.inject({ method: 'POST', url: '/api/v1/apply/preview', headers: { authorization: `Bearer ${readToken}` }, payload: document('project-a') })
     expect(readOnly.statusCode).toBe(403)
