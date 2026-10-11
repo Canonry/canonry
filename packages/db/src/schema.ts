@@ -960,6 +960,33 @@ export const doctorHealthState = sqliteTable('doctor_health_state', {
    * than paging every already-degraded project the moment this ships.
    */
   failingSignature: text('failing_signature'),
+  /**
+   * The same set with each entry's check id: `status:code:id`, worst first,
+   * with `warn:health.no-signal:health.no-signal` standing in for a pass where
+   * no check could be graded. A check changes its code when its severity
+   * changes, so only the id can tell a check that eased (fail to warn) from
+   * one that cleared while another started. Kept beside `failingSignature`
+   * rather than in it: a rolled-back release compares that column as a string
+   * and would page every degraded project if its format changed. That release
+   * leaves this column behind, so the notifier trusts it only while its
+   * entries still spell `failingSignature`, and otherwise compares by code for
+   * one pass. NULL on rows written before this column existed.
+   */
+  failingChecks: text('failing_checks'),
+  /**
+   * What the operator has been told is failing, in the `failingChecks` form:
+   * the set reported by the last health alert a webhook accepted. A pass that
+   * only clears checks sends nothing and still advances `failingChecks`, so
+   * the next alert compares against this to list what cleared since the alert
+   * the operator last saw. Delivery retry state lives in `pendingSignature`:
+   * an earlier delivered set cannot acknowledge a later recurrence. NULL
+   * while no alert has been delivered since this column exists, and reset to
+   * NULL when an older release has written the row since; the notifier then
+   * compares against the previous pass alone.
+   */
+  notifiedSignature: text('notified_signature'),
+  /** Triggering breaches owed by an unaccepted degraded alert, as `status:code:id`. */
+  pendingSignature: text('pending_signature'),
 })
 
 /**

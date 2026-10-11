@@ -1052,7 +1052,7 @@ The doctor checks are adapter-agnostic. When they fail or warn:
 | `traffic.source.queue-backlog` | `traffic.queue-backlog.within-drain-budget` | 1–1,000 Queue messages remain. If no new messages arrive, the next scheduled sync can drain them. Run a manual sync to accelerate. |
 | `traffic.source.queue-backlog` | `traffic.queue-backlog.remaining` | More than 1,000 Queue messages remain. Run a manual sync. If the backlog persists, shorten the traffic-sync schedule. |
 | `traffic.source.credentials` | `traffic.credentials.resolve-failed` | Reconnect from the host that owns the source credentials. Queue pull requires a non-empty Account Queues Edit token paired by source ID. |
-| `traffic.source.cache-blindspot` | `traffic.cache-blindspot.wordpress-plugin` | Cache-served requests never execute PHP and produce no event, so a source can look active while real page views go uncounted. Exclude selected AI user agents from every page-cache and CDN layer, or switch to a log/edge source. Warns only, not a failure. |
+| `traffic.source.cache-blindspot` | `traffic.cache-blindspot.wordpress-plugin` | Cache-served requests never execute PHP and produce no event, so a source can look active while real page views go uncounted. Exclude selected AI user agents from every page-cache and CDN layer, or switch to a log/edge source. Warns only, not a failure. A standing note: it stays for as long as the WordPress source exists, so it is shown by `cnry doctor` but never sends a health alert. |
 | `traffic.source.worker-version` | `traffic.worker-version.waiting-for-first-event` | Send a smoke-test request through the Worker. For Queue delivery, run a sync to ingest it. Then run the doctor again. |
 | `traffic.source.worker-version` | `traffic.worker-version.stale` | Regenerate and redeploy the Worker from the credential-owning host with the source's existing delivery mode, then verify the route or Queue binding. |
 
@@ -1167,4 +1167,5 @@ Cache exclusions for the selected AI agents can recover crawler and user-fetch
 coverage, but they do not recover ordinary browser referrals served from cache.
 Use GA4 for landed browser visits or edge/access logs for cache-independent
 request coverage. The `traffic.source.cache-blindspot` doctor check is a static
-warning; it does not request or impersonate traffic against the public origin.
+warning; it does not request or impersonate traffic against the public origin,
+and it never sends a `health.degraded` alert.
