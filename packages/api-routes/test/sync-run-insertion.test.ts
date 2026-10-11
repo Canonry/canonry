@@ -1,3 +1,5 @@
+import { eq } from 'drizzle-orm'
+import type { GoogleConnectionRecord } from '../src/google.js'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -97,18 +99,24 @@ describe('scheduled sync trigger insertion boundary', () => {
     expect(db.select().from(runs).all().filter(row => row.kind === RunKinds['gsc-sync']).at(-1)?.trigger).toBe(RunTriggers.manual)
   })
 
-  it('permits a manual request after dedupe releases its claim', async () => {
+  it('preserves a consolidated run and admits a new manual run after it completes', async () => {
     const context = await buildApp()
     const { app, db, claims } = context
     seedConnections(db, context.projectId)
     const key = syncRunClaimKey('status-project', RunKinds['ads-sync'])
     claims.add(key)
-    db.insert(runs).values({ id: crypto.randomUUID(), projectId: context.projectId, kind: RunKinds['ads-sync'], status: RunStatuses.running, trigger: RunTriggers.manual, createdAt: NOW }).run()
+    const existingId = crypto.randomUUID()
+    db.insert(runs).values({ id: existingId, projectId: context.projectId, kind: RunKinds['ads-sync'], status: RunStatuses.running, trigger: RunTriggers.manual, createdAt: NOW }).run()
     expect((await app.inject({ method: 'POST', url: '/api/v1/projects/status-project/ads/sync', payload: {} })).statusCode).toBe(200)
     expect(claims.has(key)).toBe(true)
+    expect(db.select().from(runs).all()).toHaveLength(1)
+    expect(db.select().from(runs).get()).toMatchObject({ id: existingId, trigger: RunTriggers.manual })
     claims.delete(key)
+    db.update(runs).set({ status: RunStatuses.completed, finishedAt: NOW }).where(eq(runs.id, existingId)).run()
     expect((await app.inject({ method: 'POST', url: '/api/v1/projects/status-project/ads/sync', payload: {} })).statusCode).toBe(200)
-    expect(db.select().from(runs).all().filter(row => row.kind === RunKinds['ads-sync']).at(-1)?.trigger).toBe(RunTriggers.manual)
+    const rows = db.select().from(runs).all().filter(row => row.kind === RunKinds['ads-sync'])
+    expect(rows).toHaveLength(2)
+    expect(rows.find(row => row.id !== existingId)?.trigger).toBe(RunTriggers.manual)
   })
 })
 
@@ -139,7 +147,7 @@ async function buildApp() {
   }).run()
 
   const claims = new Set<string>()
-  const googleConnections = new Map<string, { domain: string; connectionType: string; createdAt: string; updatedAt: string; accessToken: string; refreshToken: string; tokenExpiresAt: string; propertyId?: string }>()
+  const googleConnections = new Map<string, GoogleConnectionRecord>()
   googleConnections.set('example.com:gsc', { domain: 'example.com', connectionType: 'gsc', accessToken: 'token', refreshToken: 'refresh', tokenExpiresAt: new Date(Date.now() + 3600000).toISOString(), propertyId: 'sc-domain:example.com', createdAt: NOW, updatedAt: NOW })
   googleConnections.set('example.com:gbp', { domain: 'example.com', connectionType: 'gbp', accessToken: 'token', refreshToken: 'refresh', tokenExpiresAt: new Date(Date.now() + 3600000).toISOString(), createdAt: NOW, updatedAt: NOW })
   const app = Fastify()
@@ -149,24 +157,24 @@ async function buildApp() {
     googleConnectionStore: {
       getConnection: (domain: string, connectionType: string) => googleConnections.get(`${domain}:${connectionType}`),
       listConnections: (domain: string) => [...googleConnections.values()].filter(connection => connection.domain === domain),
-      upsertConnection: (connection: never) => connection,
+      upsertConnection: connection => connection,
       updateConnection: () => undefined,
       deleteConnection: () => true,
-    } as never,
+    },
     bingConnectionStore: {
       getConnection: () => ({ domain: 'example.com', apiKey: 'bing-key', siteUrl: 'https://example.com/', createdAt: NOW, updatedAt: NOW }),
-      upsertConnection: (connection: never) => connection,
+      upsertConnection: connection => connection,
       updateConnection: () => undefined,
       deleteConnection: () => true,
-    } as never,
+    },
     ga4CredentialStore: {
       getConnection: () => ({ projectName: 'status-project', propertyId: '123', clientEmail: 'test@example.com', privateKey: 'key', createdAt: NOW, updatedAt: NOW }),
-      upsertConnection: (connection: never) => connection,
+      upsertConnection: connection => connection,
       deleteConnection: () => true,
     },
     adsCredentialStore: {
       getConnection: () => ({ projectName: 'status-project', apiKey: 'ads-key', adAccountId: 'account', createdAt: NOW, updatedAt: NOW }),
-      upsertConnection: (entry: never) => entry,
+      upsertConnection: entry => entry,
       removeConnection: () => true,
     },
     googleMarketingCredentialStore: {
