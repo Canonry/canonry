@@ -87,6 +87,7 @@ const TELEMETRY_ERROR_CODES = new Set([
   'CLI_SYSTEM_ERROR',
   'CONNECTION_ERROR',
   'UNEXPECTED_RESPONSE_FORMAT',
+  'STORED_ONLY_REFUSED',
 ])
 
 function telemetryErrorCode(err: unknown): string {

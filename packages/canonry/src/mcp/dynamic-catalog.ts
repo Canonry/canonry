@@ -34,7 +34,7 @@ export interface ToolkitCatalogEntry {
 }
 
 export interface HelpResult {
-  scope: 'all' | 'read-only'
+  scope: 'all' | 'read-only' | 'stored-only'
   eager: boolean
   loadedToolkits: CanonryMcpToolkitName[]
   coreTools: string[]
@@ -49,13 +49,13 @@ export class DynamicToolCatalog {
   private readonly entries: DynamicCatalogEntry[]
   private readonly loaded = new Set<CanonryMcpToolkitName>()
   private readonly eager: boolean
-  private readonly scope: 'all' | 'read-only'
+  private readonly scope: 'all' | 'read-only' | 'stored-only'
   private readonly server: McpServer
 
   constructor(
     server: McpServer,
     entries: DynamicCatalogEntry[],
-    scope: 'all' | 'read-only',
+    scope: 'all' | 'read-only' | 'stored-only',
     options: DynamicToolCatalogOptions = {},
   ) {
     this.server = server

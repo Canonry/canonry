@@ -36,7 +36,7 @@ import { PACKAGE_VERSION } from './package-version.js'
 import { getApiV1ProjectsByNameSchedules, getApiV1NotificationsEvents } from '@ainyc/canonry-api-client'
 import type { LogQuery, OperationalLogListDto, NotificationEvent } from '@ainyc/canonry-contracts'
 import { normalizeTelemetryStatus, type FeedbackAcceptedDto, type FeedbackSubmission, type TelemetryStatusInput } from '@ainyc/canonry-contracts'
-import { OPERATIONAL_LOG_FIELDS_HEADER, OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS, OPERATION_ACCESS_HEADER, operationalLogListReadSchema } from '@ainyc/canonry-contracts'
+import { OPERATIONAL_LOG_FIELDS_HEADER, OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS, OPERATION_ACCESS_HEADER, STORED_ONLY_HEADER, matchOperationTemplate, operationAccess, operationalLogListReadSchema } from '@ainyc/canonry-contracts'
 import { getApiV1OperationsLogs } from '@ainyc/canonry-api-client'
 import type {
   VisibilityReportRequest, VisibilityReportResponse,
@@ -880,6 +880,16 @@ export function runWithUsageTags<T>(client: unknown, tags: UsageTags, fn: () => 
   return usageTagStore.run(tags, fn)
 }
 
+/** Classify a request before the HTTP client can open a socket. */
+export function classifyStoredOnlyRequest(method: string, url: string): { operation: string; access: ReturnType<typeof operationAccess> } {
+  const operation = matchOperationTemplate(method, url)
+  const separator = operation.indexOf(' ')
+  return {
+    operation,
+    access: operationAccess(operation.slice(0, separator), operation.slice(separator + 1)),
+  }
+}
+
 const SAFE_CLIENT_NAME = /^\w[\w./-]{0,127}$/
 const SAFE_ACTOR_SESSION = /^\w[\w.:-]{0,127}$/
 
@@ -1014,6 +1024,18 @@ export class ApiClient {
     }
     this.heyClient = createHeyClient({ baseUrl: this.originUrl, apiKey: this.apiKey, headers: this.requestHeaders })
     this.heyClient.interceptors.request.use((request) => {
+      if (['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())) {
+        const { operation, access } = classifyStoredOnlyRequest(request.method, request.url.toString())
+        if (access !== 'stored') {
+          throw new CliError({
+            code: 'STORED_ONLY_REFUSED',
+            message: `Stored-only mode refuses ${access} operation ${operation}`,
+            details: { operation, access },
+            exitCode: EXIT_USER_ERROR,
+          })
+        }
+        request.headers.set(STORED_ONLY_HEADER, '1')
+      }
       const tags = usageTagStore.getStore()
       if (tags?.mcpTool) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpTool, tags.mcpTool)
       if (tags?.mcpCall) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpCall, tags.mcpCall)

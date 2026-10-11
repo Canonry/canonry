@@ -2,7 +2,7 @@ import { readWindowOptions, windowOptions, type WindowAliases } from './cli-comm
 import { parseArgs } from 'node:util'
 import type { ParseArgsOptionsConfig } from 'node:util'
 import type { OperationAccess } from '@ainyc/canonry-contracts'
-import { type CliFormat, usageError } from './cli-error.js'
+import { CliError, EXIT_USER_ERROR, type CliFormat, usageError } from './cli-error.js'
 
 type CliValue = string | boolean | string[] | boolean[] | undefined
 
@@ -80,6 +80,7 @@ export const CLI_GLOBAL_OPTIONS: ParseArgsOptionsConfig = {
   'dry-run': { type: 'boolean' },
   trace: { type: 'boolean' },
   access: { type: 'string' },
+  'stored-only': { type: 'boolean' },
 }
 
 export function commandOptions(spec: CliCommandSpec): ParseArgsOptionsConfig {
@@ -198,6 +199,19 @@ export async function dispatchRegisteredCommand(
   // existing command handler.
   if (values.trace === true) {
     process.env.CANONRY_TRACE = '1'
+  }
+
+  const storedOnly = values['stored-only'] === true || ['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())
+  if (storedOnly) {
+    process.env.CANONRY_STORED_ONLY = '1'
+    if (spec.access !== 'stored') {
+      throw new CliError({
+        code: 'STORED_ONLY_REFUSED',
+        message: `Command "${spec.path.join(' ')}" is ${spec.access ?? 'undeclared'}; --stored-only allows saved-data reads only`,
+        details: { command: commandId(spec), access: spec.access ?? 'undeclared' },
+        exitCode: EXIT_USER_ERROR,
+      })
+    }
   }
 
   const dryRunRequested = values['dry-run'] === true

@@ -5,6 +5,7 @@ export type OperationAccess = z.infer<typeof operationAccessSchema>
 export const OperationAccesses = Object.freeze(operationAccessSchema.enum)
 
 export const OPERATION_ACCESS_HEADER = 'x-canonry-access'
+export const STORED_ONLY_HEADER = 'x-canonry-stored-only'
 
 /** Provider reads and diagnostics whose result is not satisfied by stored data. */
 export const LIVE_READ_OPERATIONS: ReadonlySet<string> = new Set([
@@ -68,4 +69,33 @@ export function maxOperationAccess(accesses: readonly OperationAccess[]): Operat
   if (accesses.includes('write')) return 'write'
   if (accesses.includes('live')) return 'live'
   return 'stored'
+}
+
+function apiPath(pathname: string): string {
+  try {
+    pathname = new URL(pathname, 'http://canonry.invalid').pathname
+  } catch {
+    pathname = pathname.split('?', 1)[0] ?? pathname
+  }
+  const marker = pathname.indexOf('/api/v1/')
+  const path = marker >= 0 ? `/api/v1/${pathname.slice(marker + '/api/v1/'.length)}` : pathname
+  // Fastify exposes registered routes as /projects/:name/... while the
+  // operation catalog uses {name} placeholders. Normalize both forms before
+  // matching so guards classify the route before its handler runs.
+  return path.replace(/:(\w+)/g, '{$1}')
+}
+
+function templateMatches(template: string, pathname: string): boolean {
+  const templateParts = template.split('/').filter(Boolean)
+  const pathParts = pathname.split('/').filter(Boolean)
+  return templateParts.length === pathParts.length && templateParts.every((part, index) => (part.startsWith('{') && part.endsWith('}')) || part === pathParts[index])
+}
+
+/** Return the registered operation key for a URL, or a concrete fallback key. */
+export function matchOperationTemplate(method: string, pathname: string): string {
+  const path = apiPath(pathname)
+  const operationMethod = method.toUpperCase()
+  const known = [...LIVE_READ_OPERATIONS, ...READ_SEMANTIC_OPERATIONS]
+    .find(operation => operation.startsWith(`${operationMethod} `) && templateMatches(operation.slice(operationMethod.length + 1), path))
+  return known ?? `${operationMethod} ${path}`
 }

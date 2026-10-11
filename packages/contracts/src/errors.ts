@@ -34,6 +34,7 @@ export type ErrorCode =
   | 'RESEARCH_DAILY_LIMIT_EXCEEDED'
   | 'RUN_FILL_REFUSED'
   | 'RUN_FILL_IN_PROGRESS'
+  | 'STORED_ONLY_REFUSED'
 
 export class AppError extends Error {
   readonly code: ErrorCode
@@ -86,6 +87,10 @@ export function authInvalid(): AppError {
 
 export function forbidden(message = 'Forbidden', details?: Record<string, unknown>): AppError {
   return new AppError('FORBIDDEN', message, 403, details)
+}
+
+export function storedOnlyRefused(message = 'Stored-only mode refuses live or write operations', details?: Record<string, unknown>): AppError {
+  return new AppError('STORED_ONLY_REFUSED', message, 403, details)
 }
 
 export function quotaExceeded(metric: string, details?: Record<string, unknown>): AppError {

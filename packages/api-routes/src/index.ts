@@ -9,7 +9,7 @@ export { SentimentService } from './sentiment-service.js'
 export type { SentimentServiceOptions, SentimentInstallState } from './sentiment-service.js'
 export { selectSentimentSources } from './sentiment-source.js'
 export { sentimentClassifierInput, sentimentHash } from './sentiment-input.js'
-import { AppError, runtimeStateMissing, describeError, operationAccess, OPERATION_ACCESS_HEADER } from '@ainyc/canonry-contracts'
+import { AppError, runtimeStateMissing, describeError, operationAccess, OPERATION_ACCESS_HEADER, STORED_ONLY_HEADER, matchOperationTemplate, storedOnlyRefused } from '@ainyc/canonry-contracts'
 import { authPlugin } from './auth.js'
 import { registerRequestContext, type RequestContextOptions } from './request-context.js'
 import { createOutcomeEmitter, type OutcomeTelemetryEvent, type OutcomeTelemetryInput } from './outcome-telemetry.js'
@@ -614,6 +614,18 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       const routePath = canonicalRouteTemplate(route, prefix)
       const pathTemplate = routePath.replace(/:(\w+)/g, '{$1}').replace(/\*/g, '{wildcard}')
       reply.header(OPERATION_ACCESS_HEADER, operationAccess(request.method, pathTemplate))
+    })
+
+    api.addHook('preHandler', async (request) => {
+      const header = request.headers[STORED_ONLY_HEADER]
+      if (header !== '1' && header !== 'true') return
+      const route = request.routeOptions.url ?? request.url
+      const prefix = opts.routePrefix ?? '/api/v1'
+      const routePath = route.startsWith(prefix) ? route : `${prefix}${route.startsWith('/') ? '' : '/'}${route}`
+      const operation = matchOperationTemplate(request.method, routePath)
+      const separator = operation.indexOf(' ')
+      const access = operationAccess(operation.slice(0, separator), operation.slice(separator + 1))
+      if (access !== 'stored') throw storedOnlyRefused('Stored-only mode refuses this operation', { operation, access })
     })
 
     // Sign-in surface. Registered inside the authenticated scope so it shares
