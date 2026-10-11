@@ -1296,8 +1296,50 @@ describe('GET /projects/:name/analytics/competitors', () => {
           expect.objectContaining({ name: 'AlphaCo', answerCount: 1, pairedAnswers: 1 }),
           expect.objectContaining({ name: 'BetaCo', answerCount: 1, pairedAnswers: 1 }),
         ]),
-      }), expect.objectContaining({ domain: 'regionalonly.example', tracked: true, namingAnswers: 0, names: [] })],
+      }), expect.objectContaining({ domain: 'regionalonly.example', tracked: true, namingAnswers: 1, citingAnswers: 1, names: [expect.objectContaining({ name: 'RegionalName', answerCount: 1 })] })],
     })
+    const allLandscapeResponse = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&scope=all-markets&queryClass=all' })
+    const allLandscapeBody = allLandscapeResponse.json()
+    const allLandscapeRow = [...allLandscapeBody.pinned, ...allLandscapeBody.observed, ...allLandscapeBody.otherSources].find((row: { domain: string }) => row.domain === 'regionalonly.example')
+    expect(allLandscapeRow).toMatchObject({ mentionCount: 1, citationCount: 1 })
+    const allSuggestionResponse = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all&queryClass=all' })
+    expect(allSuggestionResponse.statusCode, allSuggestionResponse.body).toBe(200)
+    const allSuggestionRow = allSuggestionResponse.json().candidates.find((row: { domain: string }) => row.domain === 'regionalonly.example')
+    expect(allSuggestionResponse.json()).toMatchObject({ scope: { kind: 'all-markets' }, filters: { queryClass: 'all' } })
+    expect(allSuggestionRow).toMatchObject({ namingAnswers: 1, citingAnswers: 1, names: [expect.objectContaining({ name: 'RegionalName', answerCount: 1 })] })
+    const southLandscapeResponse = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&groupKey=southern&queryClass=all' })
+    const southLandscapeBody = southLandscapeResponse.json()
+    const southLandscapeRow = [...southLandscapeBody.pinned, ...southLandscapeBody.observed, ...southLandscapeBody.otherSources].find((row: { domain: string }) => row.domain === 'regionalonly.example')
+    const southSuggestionResponse = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all&groupKey=southern&queryClass=all' })
+    const southSuggestionRow = southSuggestionResponse.json().candidates.find((row: { domain: string }) => row.domain === 'regionalonly.example')
+    expect(southLandscapeRow).toMatchObject({ mentionCount: 0, citationCount: 1 })
+    expect(southSuggestionRow).toMatchObject({ namingAnswers: 0, citingAnswers: 1 })
+
+    db.update(querySnapshots).set({ answerText: 'Northwind and BetaCo. Regionalonly.' }).where(eq(querySnapshots.id, 'south_alias')).run()
+    const bareAllLandscape = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&scope=all-markets&queryClass=all' })
+    const bareAllLandscapeBody = bareAllLandscape.json()
+    const bareAllLandscapeRow = [...bareAllLandscapeBody.pinned, ...bareAllLandscapeBody.observed, ...bareAllLandscapeBody.otherSources].find((row: { domain: string }) => row.domain === 'regionalonly.example')
+    const bareAllSuggestion = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all&queryClass=all' })
+    const bareAllSuggestionRow = bareAllSuggestion.json().candidates.find((row: { domain: string }) => row.domain === 'regionalonly.example')
+    const bareSouthLandscape = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&groupKey=southern&queryClass=all' })
+    const bareSouthLandscapeBody = bareSouthLandscape.json()
+    const bareSouthLandscapeRow = [...bareSouthLandscapeBody.pinned, ...bareSouthLandscapeBody.observed, ...bareSouthLandscapeBody.otherSources].find((row: { domain: string }) => row.domain === 'regionalonly.example')
+    const bareSouthSuggestion = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all&groupKey=southern&queryClass=all' })
+    const bareSouthSuggestionRow = bareSouthSuggestion.json().candidates.find((row: { domain: string }) => row.domain === 'regionalonly.example')
+    expect(bareAllLandscapeRow).toMatchObject({ mentionCount: 1, citationCount: 1 })
+    expect(bareAllSuggestionRow).toMatchObject({ namingAnswers: 1, citingAnswers: 1, names: [expect.objectContaining({ name: 'Regionalonly', answerCount: 1 })] })
+    expect(bareSouthLandscapeRow).toMatchObject({ mentionCount: 0, citationCount: 1 })
+    expect(bareSouthSuggestionRow).toMatchObject({ namingAnswers: 0, citingAnswers: 1 })
+
+    db.update(querySnapshots).set({ answerText: 'Northwind and AlphaCo. Regionalonly.' }).where(eq(querySnapshots.id, 'south_alias')).run()
+    const crossMarketLandscape = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&scope=all-markets&queryClass=all' })
+    const crossMarketParent = crossMarketLandscape.json().pinned.find((row: { domain: string }) => row.domain === 'parentco.com')
+    const crossMarketSuggestion = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all&queryClass=all' })
+    const crossMarketCandidate = crossMarketSuggestion.json().candidates.find((row: { domain: string }) => row.domain === 'parentco.com')
+    expect(crossMarketParent).toMatchObject({ mentionCount: 2, citationCount: 2 })
+    expect(crossMarketCandidate).toMatchObject({ namingAnswers: 2, citingAnswers: 2, names: [
+      expect.objectContaining({ name: 'AlphaCo', answerCount: 2 }),
+    ] })
     const regionalSuggestions = await app.inject({
       method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all&groupKey=regional',
     })
@@ -1350,7 +1392,7 @@ describe('GET /projects/:name/analytics/competitors', () => {
 
   })
 
-  it('keeps a market-only name frozen to the revision that measured the answer', async () => {
+  it('unions current pins with names frozen to the revision that measured the answer', async () => {
     const oldPlan = marketPlan('frozen-name-old-node', 'sharedbrand.example', 'AlphaCo')
     const currentPlan = marketPlan('frozen-name-current-node', 'sharedbrand.example', 'BetaCo')
     seedVersion('frozen_name_old', 1, oldPlan)
@@ -1364,6 +1406,7 @@ describe('GET /projects/:name/analytics/competitors', () => {
     ]).run()
     db.insert(querySnapshots).values([
       { ...marketSnapshot('frozen_name_old_answer', 'frozen_name_old_run', 'frozen-name-old-node', 'Northwind recommends AlphaCo.', 'sharedbrand.example', '2026-08-10T12:00:00.000Z') },
+      { ...marketSnapshot('frozen_name_old_current_word', 'frozen_name_old_run', 'frozen-name-old-node', 'Northwind recommends BetaCo.', 'sharedbrand.example', '2026-08-10T12:00:00.000Z'), provider: 'anthropic' },
       { ...marketSnapshot('frozen_name_current_answer', 'frozen_name_current_run', 'frozen-name-current-node', 'Northwind recommends BetaCo.', 'sharedbrand.example') },
       { ...marketSnapshot('frozen_name_current_old_word', 'frozen_name_current_run', 'frozen-name-current-node', 'Northwind mentions AlphaCo.', 'sharedbrand.example'), provider: 'anthropic' },
     ]).run()
@@ -1377,14 +1420,19 @@ describe('GET /projects/:name/analytics/competitors', () => {
       candidates: [expect.objectContaining({
         domain: 'sharedbrand.example',
         tracked: true,
-        namingAnswers: 2,
-        citingAnswers: 3,
+        namingAnswers: 3,
+        citingAnswers: 4,
         names: expect.arrayContaining([
           expect.objectContaining({ name: 'AlphaCo', answerCount: 1 }),
-          expect.objectContaining({ name: 'BetaCo', answerCount: 1 }),
+          expect.objectContaining({ name: 'BetaCo', answerCount: 2 }),
         ]),
       })],
     })
+    const frozenLandscape = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&scope=all-markets&queryClass=all',
+    })
+    const frozenLandscapeCandidate = frozenLandscape.json().pinned.find((row: { domain: string }) => row.domain === 'sharedbrand.example')
+    expect(frozenLandscapeCandidate).toMatchObject({ mentionCount: 3, citationCount: 4 })
   })
 
   it('scopes classes to Target usages when two markets share one execution', async () => {
