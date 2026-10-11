@@ -41,9 +41,13 @@ describe('stored-only HTTP guard', () => {
     expect(stored.headers['x-canonry-access']).toBe('stored')
   })
 
-  it('permits a stored semantic preview POST but refuses a live discovery POST', async () => {
-    const preview = await app.inject({ method: 'POST', url: '/api/v1/projects/acme/measurement-plan/compile-preview', payload: {}, headers: { authorization: `Bearer ${token}`, 'x-canonry-stored-only': '1' } })
-    expect(preview.statusCode).not.toBe(403)
+  it('permits stored semantic previews but refuses a live discovery POST', async () => {
+    const competitorPreview = await app.inject({ method: 'POST', url: '/api/v1/projects/acme/competitor-changes/preview', payload: { change: 'add', competitors: ['preview.example'] }, headers: { authorization: `Bearer ${token}`, 'x-canonry-stored-only': '1' } })
+    expect(competitorPreview.statusCode, competitorPreview.body).toBe(200)
+    expect(competitorPreview.headers['x-canonry-access']).toBe('stored')
+    const queryPreview = await app.inject({ method: 'POST', url: '/api/v1/projects/acme/queries/replace-preview', payload: { queries: ['alpha'] }, headers: { authorization: `Bearer ${token}`, 'x-canonry-stored-only': '1' } })
+    expect(queryPreview.statusCode, queryPreview.body).toBe(200)
+    expect(queryPreview.headers['x-canonry-access']).toBe('stored')
     const discovery = await app.inject({ method: 'POST', url: '/api/v1/projects/acme/measurement-discovery', payload: {}, headers: { authorization: `Bearer ${token}`, 'x-canonry-stored-only': '1' } })
     expect(discovery.statusCode).toBe(403)
     expect(discovery.json().error.code).toBe('STORED_ONLY_REFUSED')
@@ -58,16 +62,23 @@ describe('stored-only HTTP guard', () => {
     expect(callback.headers['x-canonry-access']).toBe('write')
   })
 
-  it('normalizes a custom route prefix before applying the guard', async () => {
-    const custom = Fastify()
-    await custom.register(apiRoutes, { db, routePrefix: '/operator/api/v1', googleStateSecret: 'test-only-google-state-secret-32', getRunnableProviderNames: () => ['openai'] })
-    await custom.ready()
-    try {
-      const response = await custom.inject({ method: 'GET', url: '/operator/api/v1/projects/acme/competitors', headers: { authorization: `Bearer ${token}`, 'x-canonry-stored-only': '1' } })
-      expect(response.statusCode).toBe(200)
-      expect(response.headers['x-canonry-access']).toBe('stored')
-    } finally {
-      await custom.close()
+  it('normalizes mounted route prefixes before applying the guard', async () => {
+    for (const prefix of ['/custom', '/tenant/api/v1']) {
+      const mounted = Fastify()
+      await mounted.register(apiRoutes, { db, routePrefix: prefix, googleStateSecret: 'test-only-google-state-secret-32', getRunnableProviderNames: () => ['openai'] })
+      await mounted.ready()
+      try {
+        const base = `${prefix}/projects`
+        const storedUrl = `${prefix}/projects/acme/competitors`
+        const stored = await mounted.inject({ method: 'GET', url: storedUrl, headers: { authorization: `Bearer ${token}`, 'x-canonry-stored-only': '1' } })
+        expect(stored.statusCode, `${prefix} stored`).toBe(200)
+        expect(stored.headers['x-canonry-access'], prefix).toBe('stored')
+        const live = await mounted.inject({ method: 'GET', url: `${base}/acme/google/gsc/sitemaps`, headers: { authorization: `Bearer ${token}`, 'x-canonry-stored-only': '1' } })
+        expect(live.statusCode, `${prefix} live`).toBe(403)
+        expect(live.headers['x-canonry-access'], prefix).toBe('live')
+      } finally {
+        await mounted.close()
+      }
     }
   })
 })

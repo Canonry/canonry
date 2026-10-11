@@ -30,14 +30,18 @@ describe('direct ApiClient stored-only transport boundaries', () => {
 
   it('marks the base-path health probe without attempting an update check', async () => {
     process.env.CANONRY_STORED_ONLY = '1'
-    const headers: Headers[] = []
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
-      headers.push(new Headers(init?.headers))
+    const requests: { url: string; headers: Headers }[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      requests.push({ url: input instanceof Request ? input.url : String(input), headers: input instanceof Request ? input.headers : new Headers(init?.headers) })
       return new Response(JSON.stringify({ status: 'ok' }), { status: 200, headers: { 'content-type': 'application/json' } })
     })
     const client = new ApiClient('http://127.0.0.1:9', 'test-key')
     expect(await client.getServerUpdateAvailable()).toBeNull()
+    expect(requests).toHaveLength(0)
     await client.listProjects()
-    expect(headers[0]?.get('x-canonry-stored-only')).toBe('1')
+    expect(requests).toHaveLength(2)
+    expect(requests[0]?.url).toBe('http://127.0.0.1:9/health')
+    expect(requests[1]?.url).toContain('/api/v1/projects')
+    expect(requests.every(request => request.headers.get('x-canonry-stored-only') === '1')).toBe(true)
   })
 })

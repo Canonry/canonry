@@ -348,6 +348,28 @@ describe('canonry-mcp stdio', () => {
       },
     })
   }, SUBPROCESS_CASE_TIMEOUT_MS)
+
+  it('keeps stdio stored-only startup and a stored tool request on the marked read boundary', async () => {
+    const requests: Array<{ method: string; path: string; storedOnly: string | undefined }> = []
+    const api = await startStubApi(undefined, request => {
+      requests.push({ method: request.method ?? '', path: new URL(request.url ?? '/', 'http://127.0.0.1').pathname, storedOnly: request.headers['x-canonry-stored-only'] as string | undefined })
+    })
+    servers.push(api)
+    const { client } = await startMcpClient({
+      apiOrigin: api.origin,
+      configPrefix: 'canonry-mcp-stored-only-',
+      database: '/tmp/canonry-mcp-stored-only.sqlite',
+      clientName: 'canonry-mcp-stored-only-test',
+      args: ['--stored-only'],
+    })
+    clients.push(client)
+    const tools = await client.listTools()
+    expect(tools.tools.some(tool => tool.name === 'canonry_projects_list')).toBe(true)
+    expect(tools.tools.some(tool => tool.name === 'canonry_run_trigger')).toBe(false)
+    const projects = await client.callTool({ name: 'canonry_projects_list', arguments: {} })
+    expect(projects.isError).not.toBe(true)
+    expect(requests.find(request => request.path === '/api/v1/projects')?.storedOnly).toBe('1')
+  }, SUBPROCESS_CASE_TIMEOUT_MS)
 })
 
 /**
@@ -432,8 +454,11 @@ async function startMcpClient(options: {
   return { client, stderr: () => stderrChunks.join('') }
 }
 
-async function startStubApi(onRunRequest?: (body: unknown) => void): Promise<{ origin: string; close: () => Promise<void> }> {
-  const server = createServer((request, response) => handleRequest(request, response, onRunRequest))
+async function startStubApi(onRunRequest?: (body: unknown) => void, onRequest?: (request: IncomingMessage) => void): Promise<{ origin: string; close: () => Promise<void> }> {
+  const server = createServer((request, response) => {
+    onRequest?.(request)
+    handleRequest(request, response, onRunRequest)
+  })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Failed to start stub API')

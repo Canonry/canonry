@@ -489,15 +489,16 @@ export function canonicalRouteTemplate(route: string, prefix: string): string {
     ? normalizedPrefix
     : `${normalizedPrefix}/api/v1`
   const normalizedRoute = route.startsWith('/') ? route : `/${route}`
-  const suffix = normalizedRoute === configuredPrefix
-    ? ''
-    : normalizedRoute.startsWith(`${configuredPrefix}/`)
-      ? normalizedRoute.slice(configuredPrefix.length)
-      : normalizedRoute === '/api/v1'
-        ? ''
-        : normalizedRoute.startsWith('/api/v1/')
-          ? normalizedRoute.slice('/api/v1'.length)
-          : normalizedRoute
+  let suffix: string
+  if (normalizedRoute === configuredPrefix || normalizedRoute.startsWith(`${configuredPrefix}/`)) {
+    suffix = normalizedRoute.slice(configuredPrefix.length)
+  } else if (normalizedPrefix && (normalizedRoute === normalizedPrefix || normalizedRoute.startsWith(`${normalizedPrefix}/`))) {
+    suffix = normalizedRoute.slice(normalizedPrefix.length)
+  } else if (normalizedRoute === '/api/v1' || normalizedRoute.startsWith('/api/v1/')) {
+    suffix = normalizedRoute.slice('/api/v1'.length)
+  } else {
+    suffix = normalizedRoute
+  }
   return `/api/v1${suffix}`
 }
 
