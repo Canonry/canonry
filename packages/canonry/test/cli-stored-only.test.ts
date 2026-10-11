@@ -1,8 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
-import { classifyStoredOnlyRequest } from '../src/client.js'
+import { ApiClient, classifyStoredOnlyRequest } from '../src/client.js'
 import { createCanonryMcpServerWithCatalog, getCanonryMcpTools } from '../src/mcp/server.js'
-import type { ApiClient } from '../src/client.js'
 import { parseCliOptions } from '../src/mcp/cli.js'
 import { toolOperationAccess } from '../src/mcp/tool-registry.js'
 
@@ -23,6 +22,24 @@ describe('CLI stored-only guard', () => {
       delete process.env.CANONRY_STORED_ONLY
     }
     expect(calls).toEqual(['stored'])
+  })
+
+  it('keeps a stored CLI dispatch from opening a provider POST socket', async () => {
+    process.env.CANONRY_STORED_ONLY = '1'
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const client = new ApiClient('http://127.0.0.1:9', 'test-key', { skipProbe: true })
+    const specs = [{
+      path: ['stored', 'preview'],
+      usage: 'stored preview',
+      access: 'stored' as const,
+      run: async () => { await client.triggerRun('acme') },
+    }]
+    try {
+      await expect(dispatchRegisteredCommand(['stored', 'preview'], 'json', specs)).rejects.toMatchObject({ code: 'STORED_ONLY_REFUSED' })
+    } finally {
+      delete process.env.CANONRY_STORED_ONLY
+    }
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   it('classifies a provider URL before a mislabeled client spec can send it', () => {

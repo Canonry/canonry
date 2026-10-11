@@ -55,6 +55,8 @@ export const READ_SEMANTIC_OPERATIONS: ReadonlySet<string> = new Set([
 
 /** GET callbacks and provider-backed reads that have write side effects. */
 export const WRITE_OPERATIONS: ReadonlySet<string> = new Set([
+  'GET /api/v1/auth/session',
+  'GET /api/v1/auth/sessions',
   'GET /api/v1/google/callback',
   'GET /api/v1/projects/{name}/google/callback',
   'GET /api/v1/google-marketing/callback',
@@ -63,6 +65,9 @@ export const WRITE_OPERATIONS: ReadonlySet<string> = new Set([
 
 /** Stored reads and pure previews that retain write-scope authorization. */
 export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
+  'GET /api/v1/openapi.json',
+  'GET /api/v1/screenshots/{snapshotId}',
+  'GET /api/v1/projects/{name}/technical-aeo/runs/{runId}/page-health-preview',
   'POST /api/v1/projects/{name}/competitor-changes/preview',
   'POST /api/v1/projects/{name}/queries/replace-preview',
   'GET /api/v1/projects/{name}/ga/acquisition',

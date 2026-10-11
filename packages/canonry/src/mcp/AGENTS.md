@@ -10,9 +10,16 @@ catalog is split across a small **core tier** (always loaded) and the
 loads on demand via `canonry_load_toolkit`. The catalog coalesces enable
 side effects so each `canonry_load_toolkit` call emits exactly one
 `notifications/tools/list_changed`. Pass `--read-only` to surface
-only the read tools, or `--eager` (or `CANONRY_MCP_EAGER=1`) to register
+only the read tools, `--stored-only` or `--scope=stored-only` to expose only
+stored evidence reads, or `--eager` (or `CANONRY_MCP_EAGER=1`) to register
 every tool at startup like the previous flat catalog. Auth is inherited
 from `~/.canonry/config.yaml`.
+
+Stored-only is also selected by `CANONRY_STORED_ONLY=1` or
+`CANONRY_MCP_SCOPE=stored-only` and is monotonic if later options request a
+wider scope. Provider and write tools are refused before an HTTP request, with
+`STORED_ONLY_REFUSED` on CLI surfaces; hosted catalogs remain fixed and server
+startup or autonomous jobs are unchanged.
 
 Key files:
 - `packages/canonry/src/mcp/server.ts` — `createCanonryMcpServer` (one client per server instance, registers core tier + meta tools)

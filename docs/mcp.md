@@ -28,12 +28,19 @@ annotation says it is read-only.
 Use stored-only mode when a workflow must stay within saved evidence. The CLI
 accepts `--stored-only` or `CANONRY_STORED_ONLY=1`; the MCP adapter accepts
 `--stored-only`, `--scope=stored-only`, `CANONRY_MCP_SCOPE=stored-only`, or the
-same stored-only environment variable. These modes remove live and write tools,
-refuse provider operations before a handler or network request, and send
+same stored-only environment variable. MCP stored-only removes live and write
+tools from its stdio catalog; CLI stored-only refuses provider operations before
+a handler or network request with
+`STORED_ONLY_REFUSED` (CLI exit 1), and send
 `x-canonry-stored-only: 1` on permitted API reads. Stored semantic previews
 remain available when they do not call a provider or mutate state.
 Writing a requested results export to the operator's chosen output is still a
-stored read; stored-only blocks provider work and Canonry state changes.
+stored read; stored-only blocks provider work and Canonry state changes. Doctor
+is a live diagnostic and is refused as a whole in stored-only mode. Hosted MCP
+catalogs remain fixed; stored-only narrows the caller's visible tools locally.
+Ordinary server startup, schedulers, autonomous jobs, authentication, and
+request accounting remain unchanged; the guard covers this request and client
+housekeeping only.
 
 When a newer canonry is published, both stdio and hosted MCP tell the agent without a CLI run: the notice is appended to the initialize instructions (`Update available (UPDATE_AVAILABLE): ...`) and every `canonry_help` result carries `updateAvailable: { code, current, latest, installMethod, upgradeCommand, url }`. The source is the connected server's `/health`: only the versions and install method are taken from it, and the upgrade command is rebuilt locally. Stdio `canonry-mcp` refreshes it hourly and skips it entirely when `CANONRY_DISABLE_UPDATE_CHECK=1`, `DO_NOT_TRACK=1`, or `CI` is set in its environment. Agents should tell the operator and upgrade only with approval; `canonry_doctor` reports the same as `canonry.version.current`.
 

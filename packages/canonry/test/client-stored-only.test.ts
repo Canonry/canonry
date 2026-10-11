@@ -44,4 +44,29 @@ describe('direct ApiClient stored-only transport boundaries', () => {
     expect(requests[1]?.url).toContain('/api/v1/projects')
     expect(requests.every(request => request.headers.get('x-canonry-stored-only') === '1')).toBe(true)
   })
+
+  it('rebuilds an ordinary stream URL after discovering the server base path', async () => {
+    const requests: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input)
+      requests.push(url)
+      if (url.endsWith('/health')) {
+        return new Response(JSON.stringify({ status: 'ok', basePath: '/canonry' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      return new Response('event: complete\\ndata: {}\\n\\n', {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      })
+    })
+    const client = new ApiClient('http://127.0.0.1:9', 'test-key')
+    const response = await client.streamPost('/projects/acme/agent/stream', {})
+    expect(response.ok).toBe(true)
+    expect(requests).toEqual([
+      'http://127.0.0.1:9/health',
+      'http://127.0.0.1:9/canonry/api/v1/projects/acme/agent/stream',
+    ])
+  })
 })

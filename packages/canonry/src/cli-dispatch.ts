@@ -204,7 +204,7 @@ export async function dispatchRegisteredCommand(
   const storedOnly = values['stored-only'] === true || ['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())
   if (storedOnly) {
     process.env.CANONRY_STORED_ONLY = '1'
-    if (spec.access !== 'stored') {
+    if (spec.access !== OperationAccesses.stored) {
       throw new CliError({
         code: 'STORED_ONLY_REFUSED',
         message: `Command "${spec.path.join(' ')}" is ${spec.access ?? 'undeclared'}; --stored-only allows saved-data reads only`,

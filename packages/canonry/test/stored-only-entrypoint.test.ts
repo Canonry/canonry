@@ -14,7 +14,7 @@ function runCliEntrypoint(args: string[], configDir: string, port: number): Prom
       cwd: repoRoot,
       env: {
         ...process.env,
-        CI: '', DO_NOT_TRACK: '', CANONRY_DISABLE_UPDATE_CHECK: '', CANONRY_CONFIG_DIR: configDir,
+        CI: '', DO_NOT_TRACK: '', CANONRY_DISABLE_UPDATE_CHECK: '', CANONRY_NO_AUTO_SKILLS_SYNC: '', CANONRY_CONFIG_DIR: configDir,
         CANONRY_BASE_URL: `http://127.0.0.1:${port}`, CANONRY_STORED_ONLY: '', CANONRY_TELEMETRY: '1',
       },
     })
@@ -45,6 +45,12 @@ describe('built CLI stored-only boundary', () => {
       const refused = await runCliEntrypoint(['--stored-only', '--format', 'json', 'project', 'update', 'acme'], configDir, address.port)
       expect(refused.code).toBe(1)
       expect(refused.stderr + refused.stdout).toContain('STORED_ONLY_REFUSED')
+      expect(requests).toBe(0)
+      expect(readdirSync(configDir)).toEqual([])
+
+      const emptyRead = await runCliEntrypoint(['--stored-only', 'project', 'list', '--format', 'json'], configDir, address.port)
+      expect(emptyRead.code).not.toBe(0)
+      expect(emptyRead.stderr + emptyRead.stdout).not.toContain('STORED_ONLY_REFUSED')
       expect(requests).toBe(0)
       expect(readdirSync(configDir)).toEqual([])
 

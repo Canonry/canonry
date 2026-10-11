@@ -71,4 +71,16 @@ describe('CLI and MCP operation access metadata', () => {
     expect(operationAccess('GET', '/api/v1/google/callback')).toBe('write')
     expect(operationAccess('POST', '/api/v1/projects/{name}/queries/replace-preview')).toBe('stored')
   })
+
+  it('covers the known stored GET catalog while keeping unknown GETs live', () => {
+    const knownStoredGets = [
+      '/api/v1/openapi.json',
+      '/api/v1/screenshots/{snapshotId}',
+      '/api/v1/projects/{name}/technical-aeo/runs/{runId}/page-health-preview',
+    ]
+    for (const path of knownStoredGets) expect(operationAccess('GET', path)).toBe('stored')
+    expect(operationAccess('GET', '/api/v1/auth/session')).toBe('write')
+    expect(operationAccess('GET', '/api/v1/auth/sessions')).toBe('write')
+    expect(operationAccess('GET', '/api/v1/projects/{name}/unknown-future-read')).toBe('live')
+  })
 })

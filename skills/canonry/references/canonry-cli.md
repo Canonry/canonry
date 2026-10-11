@@ -53,6 +53,26 @@ install's server, or restart it, to apply the saved providers. Any other
 rejected reload reports `failed` and exits nonzero; the saved config remains
 available. Bootstrap never reloads a remote server automatically.
 
+### Stored-only mode
+
+Use `cnry --stored-only <command>` or set `CANONRY_STORED_ONLY=1` when the
+workflow may read saved evidence but must not perform provider work or change
+Canonry operational, configuration, or business state. The guard runs before
+telemetry, anonymous first-run setup, skills synchronization, update checks,
+configuration writes, or API access. A refused command exits 1 with
+`STORED_ONLY_REFUSED`; `doctor` remains a live diagnostic and is refused unless
+run outside stored-only mode. The local client refuses live and write operations
+before any network call on older servers; newer servers also honor
+`x-canonry-stored-only: 1` before their handlers run.
+
+Results exports are allowed because they read stored evidence; writing the
+requested export artifact is not a Canonry state mutation. Ordinary server
+request and authentication accounting remains separate from caller business
+mutations. The MCP adapter has the equivalent `--stored-only`,
+`--scope=stored-only`, `CANONRY_MCP_SCOPE=stored-only`, and
+`CANONRY_STORED_ONLY=1` forms, and a later read-only or all-scope option cannot
+widen a stored-only request.
+
 `cnry dashboard reset-password` clears a forgotten dashboard password. It edits
 `config.yaml` under `$CANONRY_CONFIG_DIR` on this machine and never calls the
 server, so run it where the server's config lives. A missing file is a

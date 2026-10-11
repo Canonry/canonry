@@ -1274,9 +1274,10 @@ export class ApiClient {
    * and releases the response when done.
    */
   async streamPost(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
-    const url = `${this.originUrl}/api/v1${path}`
-    const storedOnlyHeaders = storedOnlyRequestHeaders('POST', url)
+    const candidateUrl = `${this.originUrl}/api/v1${path}`
+    const storedOnlyHeaders = storedOnlyRequestHeaders('POST', candidateUrl)
     await this.probeBasePath()
+    const url = `${this.originUrl}/api/v1${path}`
     const headers: Record<string, string> = {
       ...this.requestHeaders,
       ...storedOnlyHeaders,

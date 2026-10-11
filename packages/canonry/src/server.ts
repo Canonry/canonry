@@ -82,6 +82,7 @@ import {
   type AgentPluginState,
   describeError,
   OutcomeTriggers,
+  STORED_ONLY_HEADER,
   type OutcomeTrigger,
   type RunKind,
 } from "@ainyc/canonry-contracts";
@@ -4016,7 +4017,7 @@ export async function createServer(opts: {
   const buildCommit = resolveBuildCommit();
   const instance = resolveInstanceIdentity();
   const healthHandler = (request: FastifyRequest) => {
-    const storedOnly = request.headers['x-canonry-stored-only'] === '1' || request.headers['x-canonry-stored-only'] === 'true';
+    const storedOnly = request.headers[STORED_ONLY_HEADER] === '1' || request.headers[STORED_ONLY_HEADER] === 'true';
     const update = checkLatestVersionForServer({ storedOnly });
     return {
       status: "ok",

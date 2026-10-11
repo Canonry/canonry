@@ -267,13 +267,15 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
       // guidance, not measurement), but LAZY about reading state: control
       // commands and non-interactive runs outside the Page Health handoff must
       // not touch config or the database, and the nudge's own gates guarantee that.
-      const nudge = buildSetupNudgeLine({
-        command: resolvedCommand,
-        format,
-        stderrIsTTY: Boolean(process.stderr.isTTY),
-        getSetupState: buildSetupState,
-      })
-      if (nudge) process.stderr.write(nudge)
+      if (!storedOnlyMode) {
+        const nudge = buildSetupNudgeLine({
+          command: resolvedCommand,
+          format,
+          stderrIsTTY: Boolean(process.stderr.isTTY),
+          getSetupState: buildSetupState,
+        })
+        if (nudge) process.stderr.write(nudge)
+      }
       // Init's dashboard handoff, honored only after init's own lifecycle
       // event is on the wire so serve's unbounded runtime cannot pollute
       // init's duration bucket.
