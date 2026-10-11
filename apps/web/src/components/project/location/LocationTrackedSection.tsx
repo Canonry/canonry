@@ -9,7 +9,6 @@ import { heyClient } from '../../../api.js'
 import { formatSweepDay } from '../../../lib/format-helpers.js'
 import { carryVisibilitySearch, patchVisibilitySelection } from '../../../lib/measurement-view-url.js'
 import { addToast } from '../../../lib/toast-store.js'
-import { providerDisplayName } from '../../../lib/visibility-trend-helpers.js'
 import { formatObservedInstantMonthDay, observedInstant } from '../../shared/ChartPrimitives.js'
 import { InfoTooltip, useTooltipBubble } from '../../shared/InfoTooltip.js'
 import { SignalLegend } from '../../shared/SignalCells.js'
@@ -17,13 +16,12 @@ import { StatusNote } from '../../shared/StatusNote.js'
 import { Button } from '../../ui/button.js'
 import { VISIBILITY_TOOLBAR_COPY } from '../VisibilityTrendSection.js'
 import { TrackedActionSheet, type TrackedSheetAction } from '../queries/advanced/TrackedActionSheet.js'
-import type { TrackedContextLabels } from '../queries/advanced/TrackedRowDetail.js'
 import { TrackedRowMenu } from '../queries/advanced/TrackedRowMenu.js'
 import { TrackedTable } from '../queries/advanced/TrackedTable.js'
 import type { TrackedPlace } from '../queries/advanced/tracked-actions.js'
 import type { TrackedRowAction, TrackedRowVm, TrackedType } from '../queries/advanced/tracked-types.js'
 import { locationCountLabel, sortTrackedRows, toTrackedRows, typeLabel, type TrackedColumn } from '../queries/advanced/tracked-view-model.js'
-import { contextInput, contextLabel, contextLabels, uniqueContextInputs } from '../queries/tracking-contexts.js'
+import { contextInput, contextLabel, searchLocationNames, uniqueContextInputs } from '../queries/tracking-contexts.js'
 import { useTrackedResults } from '../queries/use-tracked-results.js'
 
 type Workspace = QueryTrackingWorkspaceResponse
@@ -65,27 +63,6 @@ const workspaceOptions = (projectName: string) => getApiV1ProjectsByNameQueryTra
 /** Queries narrowed to one market, as Settings links to it. */
 const marketSearch = (marketKey: string) => (previous: Record<string, unknown>) =>
   patchVisibilitySelection(carryVisibilitySearch(previous), { measurementScope: 'market', measurementScopeKey: marketKey, queryWorkspace: 'tracked', trackingQueryId: undefined })
-
-/**
- * Where a query is asked, as the Tracked page's row detail names it: the
- * search location and its engines by display name, with the Add query form's
- * words, model ids included, behind the value. Two that read alike by display
- * name keep the form's words.
- */
-function searchLocationNames(workspace: Workspace): TrackedContextLabels {
-  const names = new Map<string, string>()
-  const stored = [...workspace.defaultContexts, ...workspace.tracked.flatMap(row => row.assignments.flatMap(assignment => assignment.contexts))]
-  for (const context of stored) {
-    const detail = contextLabel(contextInput(context))
-    if (!names.has(detail)) names.set(detail, `${context.location?.label ?? 'No search location'} · ${context.providers.map(providerDisplayName).join(', ')}`)
-  }
-  const uses = new Map<string, number>()
-  for (const name of names.values()) uses.set(name, (uses.get(name) ?? 0) + 1)
-  return contexts => contextLabels(contexts).map(detail => {
-    const name = names.get(detail)
-    return { label: name !== undefined && uses.get(name) === 1 ? name : detail, detail }
-  })
-}
 
 const PLACES_LINE = '-ml-4 flex min-w-0 flex-wrap items-center [clip-path:inset(-0.75rem_-0.25rem_-0.75rem_0.8125rem)]'
 // Where a finger is the pointer a link is a 44px target on a 28px line: it reaches over the lines above and below it.

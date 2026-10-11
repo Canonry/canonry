@@ -9,7 +9,6 @@ import { heyClient, isAeroPreview, isEmbed, shouldShowDashboardAgentBar } from '
 import { useAccount } from '../../../../contexts/account-context.js'
 import { addToast } from '../../../../lib/toast-store.js'
 import { trackUiAction } from '../../../../lib/ui-telemetry.js'
-import { providerDisplayName } from '../../../../lib/visibility-trend-helpers.js'
 import { WriteButton } from '../../../shared/AccessControls.js'
 import { aeroAllowedFor } from '../../../shared/AeroBar.js'
 import { formatObservedInstantMonthDay, observedInstant } from '../../../shared/ChartPrimitives.js'
@@ -25,14 +24,13 @@ import { VISIBILITY_SCOPE_RECOVERY_COPY, VISIBILITY_TOOLBAR_COPY } from '../../V
 import { TrackingAddQueriesSheet } from '../AddQueriesEntry.js'
 import { TrackingComposer } from '../TrackingComposer.js'
 import { assignmentMatchesSelection } from '../tracked-rows.js'
-import { contextInput, contextLabel, contextLabels, uniqueContextInputs } from '../tracking-contexts.js'
+import { contextInput, contextLabel, contextLabels, searchLocationNames, uniqueContextInputs } from '../tracking-contexts.js'
 import { defaultTrackingDraft } from '../tracking-draft.js'
 import { useTrackedResults } from '../use-tracked-results.js'
 import type { TrackedQueriesPageProps, TrackingComposerState } from '../use-tracking-composer.js'
 import { TrackedActionSheet, type TrackedSheetAction } from './TrackedActionSheet.js'
 import { TrackedBulkBar, type TrackedBulkAction } from './TrackedBulkBar.js'
 import { TrackedPlaceList } from './TrackedPlaceList.js'
-import type { TrackedContextLabels } from './TrackedRowDetail.js'
 import { TrackedRowMenu } from './TrackedRowMenu.js'
 import { TrackedSavedViews, trackedPlaceView, type TrackedSavedView } from './TrackedSavedViews.js'
 import { TrackedSummaryGrid, type TrackedSummaryPlace } from './TrackedSummaryGrid.js'
@@ -72,27 +70,6 @@ function placeOf(workspace: QueryTrackingWorkspaceResponse, scope: string, key: 
     return group && { summary: { kind: 'group', group }, narrow: { kind: 'group', key: group.stableKey, label: group.label } }
   }
   return undefined
-}
-
-/**
- * Where a query is asked, as the row detail names it: the search location and
- * its engines by display name, with the Add query form's words for them, model
- * ids included, behind the value. Two that read alike by display name anywhere
- * in the table (one engine on two models) keep the form's words.
- */
-function searchLocationNames(workspace: QueryTrackingWorkspaceResponse): TrackedContextLabels {
-  const names = new Map<string, string>()
-  const stored = [...workspace.defaultContexts, ...workspace.tracked.flatMap(row => row.assignments.flatMap(assignment => assignment.contexts))]
-  for (const context of stored) {
-    const detail = contextLabel(contextInput(context))
-    if (!names.has(detail)) names.set(detail, `${context.location?.label ?? 'No search location'} · ${context.providers.map(providerDisplayName).join(', ')}`)
-  }
-  const uses = new Map<string, number>()
-  for (const name of names.values()) uses.set(name, (uses.get(name) ?? 0) + 1)
-  return contexts => contextLabels(contexts).map(detail => {
-    const name = names.get(detail)
-    return { label: name !== undefined && uses.get(name) === 1 ? name : detail, detail }
-  })
 }
 
 /** A row's engine cells for the Result filter, one per engine and type. A row that is not asked has no result to wait for. */
