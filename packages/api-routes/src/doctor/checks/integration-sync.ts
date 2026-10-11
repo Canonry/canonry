@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, notInArray, or } from 'drizzle-orm'
+import { and, count, desc, eq, gte, gt, inArray, isNull, notInArray, or } from 'drizzle-orm'
 import {
   CheckCategories,
   CheckScopes,
@@ -41,12 +41,11 @@ import { gaConnected } from './data-freshness.js'
  * block keeps this check, and the error it names, in the alert.
  */
 export const SYNC_FAILURE_WINDOW = 3
-export const GBP_SYNC_STALE_DAYS = 4
 const SUMMARY_ERROR_LIMIT = 300
 
 const FINISHED_STATUSES = [RunStatuses.completed, RunStatuses.partial, RunStatuses.failed]
 const SUCCESS_STATUSES = [RunStatuses.completed, RunStatuses.partial]
-const SYNC_FAILURE_HISTORY_LIMIT = 1000
+export const GBP_NOTHING_TO_SYNC_ERRORS = [serializeRunError({ message: GBP_NO_SELECTED_LOCATIONS_ERROR })] as const
 
 /**
  * `connected` carries the time the current connection was made, when the
@@ -151,7 +150,7 @@ const SPECS: readonly SyncFailureSpec[] = [
     causeCheckIds: ['gbp.auth.connection', 'gbp.auth.scopes', 'gbp.account.access'],
     // `gbp_locations` does not record when a location was selected, so the
     // runs from before the selection are recognized by the error they stored.
-    nothingToSyncErrors: [serializeRunError({ message: GBP_NO_SELECTED_LOCATIONS_ERROR })],
+    nothingToSyncErrors: GBP_NOTHING_TO_SYNC_ERRORS,
   },
   {
     prefix: 'ga',
@@ -218,14 +217,12 @@ export function readSyncRunState(
     .orderBy(desc(runs.createdAt))
     .limit(1)
     .get()
-  const failureHistory = db
-    .select({ status: runs.status, createdAt: runs.createdAt })
+  const failureCount = db
+    .select({ count: count() })
     .from(runs)
-    .where(and(graded, eq(runs.status, RunStatuses.failed)))
-    .orderBy(desc(runs.createdAt))
-    .limit(SYNC_FAILURE_HISTORY_LIMIT)
-    .all()
-  const failuresSinceSuccess = failureHistory.filter(run => !lastSuccess || run.createdAt > lastSuccess.createdAt).length
+    .where(and(lastSuccess ? and(graded, gt(runs.createdAt, lastSuccess.createdAt)) : graded, eq(runs.status, RunStatuses.failed)))
+    .get()
+  const failuresSinceSuccess = Number(failureCount?.count ?? 0)
   const latest = recent[0]
   return {
     latestStatus: latest?.status as RunStatus | undefined ?? null,

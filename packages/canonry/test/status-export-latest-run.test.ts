@@ -5,6 +5,7 @@ const mockGetLatestRun = vi.fn()
 const mockListRuns = vi.fn()
 const mockGetExport = vi.fn()
 const mockGetRun = vi.fn()
+const mockGetStatus = vi.fn()
 
 vi.mock('../src/client.js', () => ({
   createApiClient: () => ({
@@ -13,6 +14,7 @@ vi.mock('../src/client.js', () => ({
     listRuns: mockListRuns,
     getExport: mockGetExport,
     getRun: mockGetRun,
+    getStatus: mockGetStatus,
   }),
 }))
 
@@ -60,6 +62,25 @@ describe('latest-run command usage', () => {
     expect(mockListRuns).not.toHaveBeenCalled()
     expect(logs.join('\n')).toContain('run_latest')
     expect(logs.join('\n')).toContain('Total runs: 3')
+  })
+
+  it('status --all json prints the stored status DTO unchanged', async () => {
+    const status = {
+      generatedAt: '2026-10-11T00:00:00.000Z',
+      summary: { projects: 1, ok: 1, failing: 0, stale: 0, neverSynced: 0 },
+      projects: [{ project: 'demo', displayName: 'Demo', state: 'ok', health: null, integrations: [] }],
+    }
+    mockGetStatus.mockResolvedValue(status)
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await showStatus(undefined, 'json', { all: true })
+    } finally {
+      console.log = origLog
+    }
+    expect(mockGetStatus).toHaveBeenCalledWith({ problems: undefined })
+    expect(JSON.parse(logs.join('\n'))).toEqual(status)
   })
 
   it('exportProject --include-results pulls results from the latest-run endpoint', async () => {
