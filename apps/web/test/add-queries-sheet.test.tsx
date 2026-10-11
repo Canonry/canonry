@@ -32,7 +32,7 @@ const tracked = [{
   assignments: [{ targetKey: 'acme', groupKeys: ['north-east'], marketKeys: ['new-york'], queryClass: 'branded', classificationSource: 'frozen', contexts: [context] }],
 }]
 const publishLine = 'New numbers next sweep'
-const publishNotice = 'After you publish, location pages and competitor results show no numbers until the next sweep. AI Visibility keeps showing the last sweep. Past answers are kept. Publishing does not run a sweep.'
+const publishNotice = 'After you publish, AI Visibility and location pages keep showing the last sweep, marked Tracking changed, until the next sweep. Past answers are kept. Publishing does not run a sweep.'
 const marketsHelp = "Asked with these markets' engines and search locations."
 const queriesHelp = 'Blank and repeated lines are skipped.'
 const companyHelp = 'Company is not available yet.'

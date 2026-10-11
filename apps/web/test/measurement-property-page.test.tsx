@@ -19,8 +19,10 @@ import {
   queryTrackingPreviewResponseSchema,
   queryTrackingResultsResponseSchema,
   queryTrackingWorkspaceResponseSchema,
+  RunKinds,
 } from '@ainyc/canonry-contracts'
 import { createQueryClient } from '../src/queries/query-client.js'
+import { invalidateQueriesForRunKind } from '../src/queries/run-invalidations.js'
 import { formatMonthDay } from '../src/lib/format-helpers.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { ANSWER_SOURCES_LABEL } from '../src/components/shared/AnswerMarkdown.js'
@@ -31,7 +33,6 @@ import {
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameMeasurementPropertyEvidenceInfiniteQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
-import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 import { expectCautionNote, expectCautionNoteOnOneLine, visibleText } from './caution-note.js'
 import { compileAppStyles, compiledElementProperty, parseCompiledCss } from './compiled-app-css.js'
@@ -49,6 +50,8 @@ const NEARBY_QUESTION = 'boutique hotels near the harbor'
 const OWN_QUESTION = 'Harbor House reviews'
 /** The panel now reads one row per ANSWER, so every request carries the shape. */
 const EVIDENCE_SHAPE = 'answers' as const
+/** Every results read of the page asks for the last sweep when the published setup has none of its own. */
+const LAST_SWEEP = { fallback: 'last-sweep' } as const
 
 type Metric =
   | { state: 'available'; value: number; numerator: number; denominator: number; unattributed?: number; unchecked?: number }
@@ -118,40 +121,6 @@ function planResponse() {
   }
 }
 
-/**
- * AI Visibility's report for this Property after a tracking change: it restates
- * the last sweep from revision 6 while revision 7 waits for its first sweep.
- * `measuredRevision: null` is a Property no sweep has ever measured. `empty` is
- * a Property that sweep asked no queries of this type, which the change gave its first.
- */
-function lastResultsReport(measuredRevision: number | null, empty = false) {
-  const rate = { numerator: 1, denominator: 2, rate: 0.5 }
-  const missing = { numerator: null, denominator: null, rate: null, reason: 'no-population' }
-  const provenance = { kind: 'frozen-advanced', definitionRevision: 7 }
-  return visibilityReportResponseSchema.parse({
-    selection: {
-      mode: 'advanced', queryClass: 'non-brand', scope: { id: TARGET_KEY, label: 'Harbor House', kind: 'property', targetCount: 1 },
-      provider: null, model: null, location: { kind: 'all' }, time: { from: null, to: null },
-      revision: measuredRevision, run: { id: measuredRevision === null ? null : 'run-before-change', explicit: false }, provenance,
-      measurement: {
-        state: measuredRevision === null ? 'not-measured' : 'measured', activeRevision: 7, measuredRevision, awaitingSweep: true,
-        pendingAssignmentCount: 1, completedAt: measuredRevision === null ? null : '2026-07-30T12:05:00.000Z',
-      },
-      availability: { state: 'available' },
-    },
-    scopeOptions: [{ id: 'project', label: 'Whole site', kind: 'project', targetCount: 1 }, { id: TARGET_KEY, label: 'Harbor House', kind: 'property', targetCount: 1 }],
-    filterOptions: { providers: ['openai'], models: [], locations: [{ kind: 'all' }] },
-    populations: [{
-      queryClass: 'non-brand',
-      summary: empty
-        ? { queryCount: 0, answerCount: 0, mentionCoverage: missing, citationCoverage: missing, propertyReach: missing, outcomes: { bothSignals: 0, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 1, total: 1 } }
-        : { queryCount: 1, answerCount: 2, mentionCoverage: rate, citationCoverage: rate, propertyReach: rate, outcomes: { bothSignals: 1, mentionedOnly: 0, citedOnly: 0, neither: 1, notMeasured: 0, total: 2 } },
-      trend: [], queries: { items: [], total: 0, nextCursor: null }, evidence: { items: [], total: 0, nextCursor: null },
-      competitors: [], competitorAvailability: { state: 'available' }, observedCompetitors: [], breakdown: { groups: [], properties: [] },
-    }],
-  })
-}
-
 function legacyPlanResponse() {
   return {
     active: {
@@ -215,6 +184,44 @@ function overviewResponse(queryClass: 'branded' | 'non-brand', row: {
     flags: { total: 0 },
   }
 }
+
+/**
+ * A fallback read after a tracking change. Revision 7 is published and waits for its first sweep, so the
+ * server answers with the sweep that ran with revision 6 and says so in four fields. It dates the change on
+ * a day the plan fixture's own `createdAt` is not, so the page can only have read the date from these.
+ */
+const LAST_SWEEP_RUN = 'run-before-change'
+const SWEPT_AT = '2026-10-07T12:05:00.000Z'
+const CHANGED_AT = '2026-10-09T15:00:00.000Z'
+const AWAITING_SWEEP: { activeRevision: number; measuredRevision: number | null; awaitingSweep: boolean; trackingChangedAt?: string } =
+  { activeRevision: 7, measuredRevision: 6, awaitingSweep: true, trackingChangedAt: CHANGED_AT }
+/** The days the page prints for them, in the reader's own timezone. */
+const SWEPT_ON = formatObservedInstantMonthDay(observedInstant(SWEPT_AT))
+const CHANGED_ON = formatObservedInstantMonthDay(observedInstant(CHANGED_AT))
+/** What the header's one note says, after its label. */
+const TRACKING_CHANGED_HELP = `Showing the ${SWEPT_ON} results, from before the change. New numbers after the next sweep. Queries removed since then still count here. Queries added since then do not.`
+/** Why a type with queries now has no number from that sweep. */
+const NOT_IN_LAST_SWEEP = `Not in last sweep. No queries of this type were asked for this location in the ${SWEPT_ON} sweep. First numbers after the next sweep.`
+
+/**
+ * `response` as a fallback read returns it: the last sweep's run and date, with the four fields. The published
+ * setup still needs its first sweep, and an overview keeps saying so beside the older numbers.
+ */
+function fromLastSweep<T extends { measurement: object }>(response: T, fields: Partial<typeof AWAITING_SWEEP> = {}): T {
+  return {
+    ...response,
+    ...('nextAction' in response ? { nextAction: { kind: 'run_measurement' } } : {}),
+    measurement: { ...response.measurement, displayedRunId: LAST_SWEEP_RUN, completedAt: SWEPT_AT, ...AWAITING_SWEEP, ...fields },
+  }
+}
+
+/** `response` as a fallback read returns it for a project no sweep has measured: no run, no date and no measured setup. */
+function neverSwept<T extends { measurement: object }>(response: T): T {
+  return { ...response, measurement: { state: 'not_measured', ...AWAITING_SWEEP, measuredRevision: null } }
+}
+
+/** A rate that disagrees with the counts beside it, so a figure worked out in the browser cannot match the server's. */
+const skewed = (value: number, numerator: number, denominator: number): Metric => ({ state: 'available', value, numerator, denominator })
 
 type AnswerSource = {
   sourceUrl: string
@@ -417,7 +424,7 @@ async function renderPropertyPage(options: {
       getApiV1ProjectsByNameMeasurementOverviewQueryKey({
         client: heyClient,
         path: { name: projectName },
-        query: { scope: 'property', targetKey: TARGET_KEY, queryClass },
+        query: { scope: 'property', targetKey: TARGET_KEY, queryClass, ...LAST_SWEEP },
       }),
       response,
     )
@@ -428,6 +435,7 @@ async function renderPropertyPage(options: {
     shape: EVIDENCE_SHAPE,
     limit: 50,
     runId: RUN_ID,
+    ...LAST_SWEEP,
   }
   queryClient.setQueryData(
     getApiV1ProjectsByNameMeasurementPropertyEvidenceInfiniteQueryKey({
@@ -572,6 +580,42 @@ function propertyPageResponses({
   }
 }
 
+/** The page's reads for a location no sweep has measured. */
+function neverSweptResponses() {
+  const blank = { mentionCoverage: unavailable('no_completed_run'), citationCoverage: unavailable('no_completed_run') }
+  const page = propertyPageResponses({
+    branded: neverSwept(overviewResponse('branded', blank, { measurementState: 'not_measured', nextAction: 'run_measurement' })),
+    nonBrand: neverSwept(overviewResponse('non-brand', blank, { measurementState: 'not_measured', nextAction: 'run_measurement' })),
+  })
+  return (url: string) => {
+    const path = pathOf(url)
+    if (path.includes('/measurement-property-evidence')) {
+      return jsonResponse(neverSwept(new URL(url).searchParams.get('shape') === 'answers' ? evidenceResponse([]) : otherQueriesResponse([])))
+    }
+    if (path.includes('/measurement-property-competitors')) {
+      return jsonResponse(neverSwept({ ...competitorsResponse([]), basis: { state: 'unavailable', reason: 'no_completed_run' } }))
+    }
+    return page(url)
+  }
+}
+
+/**
+ * The page's reads after a tracking change: `base` as fallback reads answer it, from the sweep before the
+ * change. The tracking results are that sweep's too, so the tracked section would say "Tracking changed"
+ * itself if the page let it.
+ */
+function afterTrackingChange(base: (url: string) => Response, fields: Partial<typeof AWAITING_SWEEP> = {}) {
+  return async (url: string) => {
+    if (new URL(url).pathname.endsWith('/query-tracking/results')) {
+      return jsonResponse(trackingResults({ run: { id: LAST_SWEEP_RUN, createdAt: '2026-10-07T12:00:00.000Z', completedAt: SWEPT_AT, status: 'completed', revision: 6, matchesCurrentTracking: false } }))
+    }
+    const response = base(url)
+    return /\/measurement-(?:overview|property-evidence|property-competitors|question-result)/.test(pathOf(url))
+      ? jsonResponse(fromLastSweep(await response.json() as { measurement: object }, fields))
+      : response
+  }
+}
+
 describe('Property page in a read-only embed', () => {
   // The project subnav drops `portfolio` in every embed. A direct link to this
   // child route must agree for every host list: none and one naming `portfolio`
@@ -677,7 +721,7 @@ describe('Property page', () => {
       queryKey: getApiV1ProjectsByNameMeasurementOverviewQueryKey({
         client: heyClient,
         path: { name: projectName },
-        query: { scope: 'property', targetKey: TARGET_KEY, queryClass: 'branded' },
+        query: { scope: 'property', targetKey: TARGET_KEY, queryClass: 'branded', ...LAST_SWEEP },
       }),
     })
 
@@ -716,7 +760,7 @@ describe('Property page', () => {
         queryKey: getApiV1ProjectsByNameMeasurementOverviewQueryKey({
           client: heyClient,
           path: { name: projectName },
-          query: { scope: 'property', targetKey: TARGET_KEY, queryClass },
+          query: { scope: 'property', targetKey: TARGET_KEY, queryClass, ...LAST_SWEEP },
         }),
       })),
     ])
@@ -779,51 +823,41 @@ describe('Property page', () => {
     await waitFor(() => expect(link.getAttribute('href')).toMatch(/\/projects\/[^/?]+\?queryClass=non-brand$/))
   })
 
-  /** A Property this page must measure, beside AI Visibility's report for it. Settles every read before returning. */
-  async function renderNeedsMeasurement(report: ReturnType<typeof lastResultsReport>, search = '', account: SignedInAccount | null = null) {
-    const reports: URL[] = []
-    const blank = { mentionCoverage: unavailable('no_completed_run'), citationCoverage: unavailable('no_completed_run') }
+  /** A location no sweep has measured. Settles every read, then returns each request the page made. */
+  async function renderNeverSwept(account: SignedInAccount | null = null) {
+    const requests: string[] = []
+    const responses = neverSweptResponses()
     const { queryClient } = await renderPropertyPageFromApi(url => {
-      if (pathOf(url).includes('/visibility-report')) {
-        reports.push(new URL(url))
-        return jsonResponse(report)
-      }
-      if (pathOf(url).includes('/measurement-property-evidence') && new URL(url).searchParams.get('shape') === 'answers') {
-        return jsonResponse({ ...evidenceResponse([]), measurement: { state: 'not_measured' as const, displayedRunId: RUN_ID } })
-      }
-      return propertyPageResponses({
-        branded: overviewResponse('branded', blank),
-        nonBrand: overviewResponse('non-brand', blank, { measurementState: 'not_measured', nextAction: 'run_measurement' }),
-      })(url)
-    }, { search, account })
-    await waitFor(() => expect(reports).toHaveLength(1))
+      requests.push(pathOf(url))
+      return responses(url)
+    }, { account })
+    await screen.findByRole('region', { name: 'Measurement next step' })
     await waitFor(() => expect(queryClient.isFetching()).toBe(0))
-    return reports
+    return requests
   }
 
-  it.each([
-    { label: 'links to this Location\'s last results when AI Visibility still shows a sweep from before the change', measuredRevision: 6, empty: false, name: 'See the last results', scoped: true },
-    { label: 'keeps the AI Visibility link when no sweep has measured this Location', measuredRevision: null, empty: false, name: 'Go to AI Visibility', scoped: false },
-    { label: 'keeps the AI Visibility link when the last sweep asked this Location nothing of this type', measuredRevision: 6, empty: true, name: 'Go to AI Visibility', scoped: false },
-  ])('$label', async ({ measuredRevision, empty, name, scoped }) => {
-    const reports = await renderNeedsMeasurement(lastResultsReport(measuredRevision, empty))
+  it('points a writer to AI Visibility for a location no sweep has measured, and reads no report for older results', async () => {
+    const requests = await renderNeverSwept(ADMIN)
 
-    const link = screen.getByRole('link', { name })
-    // The page asks the very report the scoped link opens.
-    expect(Object.fromEntries(reports[0]!.searchParams)).toMatchObject({ scope: 'property', scopeKey: TARGET_KEY, queryClass: 'non-brand' })
+    const link = screen.getByRole('link', { name: 'Go to AI Visibility' })
     await waitFor(() => expect(new URL(link.getAttribute('href')!, window.location.origin).searchParams.get('queryClass')).toBe('non-brand'))
     const search = new URL(link.getAttribute('href')!, window.location.origin).searchParams
-    expect([search.get('measurementScope'), search.get('measurementScopeKey')]).toEqual(scoped ? ['property', TARGET_KEY] : [null, null])
-    // The strip is a short status and the link. The admin instruction behind it says why the link names results it cannot collect.
+    expect([search.get('measurementScope'), search.get('measurementScopeKey')]).toEqual([null, null])
+    // The strip is a short status and the link, with what to do in its help.
     const next = screen.getByRole('region', { name: 'Measurement next step' })
-    expect(visibleText(next)).toBe(`Awaiting next sweep${name}`)
-    const instruction = within(next).getByRole('button', { name: /^Awaiting next sweep\. / }).getAttribute('aria-label')!
-    expect(instruction).toContain('Run a sweep from AI Visibility to collect this location’s coverage and source evidence.')
-    expect(instruction.includes('AI Visibility still shows the last results.')).toBe(scoped)
+    expect(visibleText(next)).toBe('Awaiting next sweepGo to AI Visibility')
+    expect(within(next).getByRole('button', { name: 'Awaiting next sweep. Run a sweep from AI Visibility to collect this location’s coverage and source evidence.' })).toBeTruthy()
+    // Nothing is measured, so no tracking change is reported and there are no older results to link to.
+    expect(screen.queryByText(/^Tracking changed/)).toBeNull()
+    expect(screen.queryByRole('link', { name: 'See the last results' })).toBeNull()
+    expect(requests.filter(request => request.includes('/visibility-report'))).toEqual([])
+    // The header's Add button stays the page's one filled action.
+    const page = document.querySelector<HTMLElement>('.page-container')!
+    expect([...page.querySelectorAll('a, button')].filter(control => control.classList.contains('bg-accent')).map(control => control.textContent)).toEqual(['Add query about this location'])
   })
 
   it('tells a viewer the location awaits a sweep, with no instruction to run one and no write control', async () => {
-    await renderNeedsMeasurement(lastResultsReport(null), '', VIEWER)
+    await renderNeverSwept(VIEWER)
 
     const next = screen.getByRole('region', { name: 'Measurement next step' })
     expect(visibleText(next)).toBe('Awaiting next sweepView AI Visibility')
@@ -843,7 +877,7 @@ describe('Property page', () => {
       if (previousConfig === undefined) delete window.__CANONRY_CONFIG__
       else window.__CANONRY_CONFIG__ = previousConfig
     })
-    await renderNeedsMeasurement(lastResultsReport(null), '', ADMIN)
+    await renderNeverSwept(ADMIN)
 
     const next = screen.getByRole('region', { name: 'Measurement next step' })
     expect(within(next).getByRole('button', { name: `Awaiting next sweep. ${MANAGED_SWEEPS_COPY}` })).toBeTruthy()
@@ -852,16 +886,6 @@ describe('Property page', () => {
     const page = document.querySelector<HTMLElement>('.page-container')!
     expect([...page.querySelectorAll('[aria-label]')].map(element => element.getAttribute('aria-label')!).filter(name => /\brun a\b/i.test(name))).toEqual([])
     expect(page.textContent).not.toMatch(/\brun a\b/i)
-  })
-
-  it('opens the latest last results, not the sweep, revision or end date the page was reached with', async () => {
-    const reports = await renderNeedsMeasurement(lastResultsReport(6), '?queryClass=non-brand&measurementRunId=run-before-change&measurementRevision=6&measurementTo=2026-07-31T23%3A59%3A59.999Z')
-
-    const link = screen.getByRole('link', { name: 'See the last results' })
-    expect(['runId', 'revision', 'to'].filter(key => reports[0]!.searchParams.has(key))).toEqual([])
-    const search = new URL(link.getAttribute('href')!, window.location.origin).searchParams
-    expect(['measurementRunId', 'measurementRevision', 'measurementTo'].filter(key => search.has(key))).toEqual([])
-    expect([search.get('measurementScope'), search.get('measurementScopeKey')]).toEqual(['property', TARGET_KEY])
   })
 
   it('directs a legacy measurement plan to republish setup', async () => {
@@ -1654,22 +1678,28 @@ describe('Named instead of this Property', () => {
   })
 
   it('says so plainly when no rival was named, rather than showing an empty table', async () => {
-    await renderPropertyPageFromApi(url => {
-      if (pathOf(url).includes('/measurement-property-competitors')) {
-        return jsonResponse({
-          property: { targetKey: TARGET_KEY, label: 'Harbor House' },
-          measurement: { state: 'complete', displayedRunId: RUN_ID, planRevision: 7, completedAt: '2026-08-02T12:05:00.000Z' },
-          queryClass: 'non-brand',
-          basis: { state: 'unavailable', reason: 'no_population' },
-          competitors: [], total: 0, truncated: false,
-        })
-      }
-      return propertyPageResponses()(url)
-    })
+    // Answers were measured and none named a rival: the basis is there, the list is empty.
+    await renderNamedInsteadWith([])
 
     const section = await screen.findByRole('region', { name: 'Named instead' })
     expect(visibleText(section)).toBe('Named insteadNone named')
     expect(within(section).getByRole('button', { name: 'None named. No rival was named in the answers this location missed.' })).toBeTruthy()
+    expect(section.querySelector('table')).toBeNull()
+  })
+
+  it.each([
+    { reason: 'no_population', why: 'No queries tracked.' },
+    { reason: 'no_completed_run', why: 'No completed sweep yet.' },
+    { reason: 'evidence_incomplete', why: 'Evidence incomplete.' },
+  ])('says Not measured, never None named, when no answer was read ($reason)', async ({ reason, why }) => {
+    await renderPropertyPageFromApi(url => {
+      if (pathOf(url).includes('/measurement-property-competitors')) return jsonResponse({ ...competitorsResponse([]), basis: { state: 'unavailable', reason } })
+      return propertyPageResponses()(url)
+    })
+
+    const section = await screen.findByRole('region', { name: 'Named instead' })
+    expect(visibleText(section)).toBe('Named insteadNot measured')
+    expect(within(section).getByRole('button', { name: `Not measured. No answers to non-brand queries have been measured for this location. ${why}` })).toBeTruthy()
     expect(section.querySelector('table')).toBeNull()
   })
 
@@ -2179,7 +2209,7 @@ describe('Cited on other queries', () => {
     expect(await within(section).findByText('2 answers · Non-brand')).toBeTruthy()
     expect(within(section).getByRole('button', { name: `${OTHER_QUERIES_COPY.notCounted}. ${OTHER_QUERIES_COPY.notCountedHelp}` })).toBeTruthy()
     const evidence = requests.find(request => request.pathname.includes('/measurement-property-evidence'))!
-    expect(Object.fromEntries(evidence.searchParams)).toMatchObject({ targetKey: TARGET_KEY, queryClass: 'non-brand', shape: 'other-queries', runId: RUN_ID })
+    expect(Object.fromEntries(evidence.searchParams)).toMatchObject({ targetKey: TARGET_KEY, queryClass: 'non-brand', shape: 'other-queries', runId: RUN_ID, ...LAST_SWEEP })
 
     const table = within(section).getByRole('table')
     expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Query', 'Location', 'Pages cited', 'Answer'])
@@ -2202,7 +2232,7 @@ describe('Cited on other queries', () => {
     fireEvent.click(within(quiet).getByRole('button', { name: 'Read the answer for quiet stays by the marina' }))
     expect(await within(section).findByText(/Harbor House next door has a pool/)).toBeTruthy()
     const answer = requests.find(request => request.pathname.includes('/measurement-question-result'))!
-    expect(Object.fromEntries(answer.searchParams)).toEqual({ targetKey: OTHER_KEY, resultId: 'obs-quiet stays by the marina' })
+    expect(Object.fromEntries(answer.searchParams)).toEqual({ targetKey: OTHER_KEY, resultId: 'obs-quiet stays by the marina', ...LAST_SWEEP })
 
     // The rates above still read only this Property's own queries.
     const contrast = screen.getByRole('table', { name: 'Mention and citation coverage for this location, by query type' })
@@ -2268,9 +2298,20 @@ function visibleRuns(root: HTMLElement): string[] {
 
 const serverError = () => jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'temporary failure' } }, 500)
 
+// Words the page must not show or say, tooltips and accessible names included. The page prints "Location".
+const BANNED = /propert|assign|\bclass\b|classification|whole site|audience|\bscope\b|\bcontext\b|revision|question|—/i
+
+/** The page says Location: no banned word on screen or in a tooltip or accessible name, and no visible sentence. */
+function expectLocationCopy(page: HTMLElement) {
+  // The badge sits beside the heading, outside its name.
+  expect(within(page).getByRole('heading', { level: 1 }).nextElementSibling!.textContent).toBe('Location')
+  expect(page.textContent).not.toMatch(BANNED)
+  expect([...page.querySelectorAll('[aria-label]')].map(element => element.getAttribute('aria-label')!).filter(name => BANNED.test(name))).toEqual([])
+  // A visible sentence ends in a full stop or carries one mid-line. Every explanation is a tooltip now.
+  expect(visibleRuns(page).filter(run => /[.!?](?:\s|$)/.test(run))).toEqual([])
+}
+
 describe('Location page copy', () => {
-  // Words the page must not show or say, tooltips and accessible names included. The page prints "Location".
-  const BANNED = /propert|assign|\bclass\b|classification|whole site|audience|\bscope\b|\bcontext\b|revision|question|—/i
   const providers = [
     { provider: 'gemini', mentionCoverage: available(1, 2), citationCoverage: available(0, 2) },
     { provider: 'openai', mentionCoverage: available(2, 2), citationCoverage: available(2, 2) },
@@ -2295,16 +2336,6 @@ describe('Location page copy', () => {
     await screen.findByRole('table', { name: 'Location queries' })
     await waitFor(() => expect(screen.getByRole('button', { name: 'OpenAI: Mentioned, Not cited' })).toBeTruthy())
     return document.querySelector<HTMLElement>('.page-container')!
-  }
-
-  /** The page says Location: no banned word on screen or in a tooltip or accessible name, and no visible sentence. */
-  function expectLocationCopy(page: HTMLElement) {
-    // The badge sits beside the heading, outside its name.
-    expect(within(page).getByRole('heading', { level: 1 }).nextElementSibling!.textContent).toBe('Location')
-    expect(page.textContent).not.toMatch(BANNED)
-    expect([...page.querySelectorAll('[aria-label]')].map(element => element.getAttribute('aria-label')!).filter(name => BANNED.test(name))).toEqual([])
-    // A visible sentence ends in a full stop or carries one mid-line. Every explanation is a tooltip now.
-    expect(visibleRuns(page).filter(run => /[.!?](?:\s|$)/.test(run))).toEqual([])
   }
 
   /** A location with nothing set and nothing measured for the type: no queries, names or site pages, and no market. */
@@ -2397,7 +2428,7 @@ describe('Location page copy', () => {
     // A location in no market has no competitor section, and the rest say what is missing in a label.
     expect(within(page).queryByRole('region', { name: 'Competitors by market' })).toBeNull()
     expect(visibleText(within(page).getByRole('region', { name: 'By engine' }))).toBe('By engineNot measured')
-    expect(visibleText(within(page).getByRole('region', { name: 'Named instead' }))).toBe('Named insteadNone named')
+    expect(visibleText(within(page).getByRole('region', { name: 'Named instead' }))).toBe('Named insteadNot measured')
     expect(visibleText(within(page).getByRole('region', { name: 'Answers' }))).toBe('AnswersNo answers')
     // The reason a type has no number is a label too, with its sentence in this page's words.
     const branded = within(within(page).getByRole('table', { name: 'Mention and citation coverage for this location, by query type' })).getByText('Branded').closest('tr')!
@@ -2443,20 +2474,7 @@ describe('Location page copy', () => {
   })
 
   it.each([{ role: 'a writer', account: ADMIN }, { role: 'a viewer', account: VIEWER }])('says Location and shows $role no sentence on a location no sweep has measured', async ({ account }) => {
-    const blank = { mentionCoverage: unavailable('no_completed_run'), citationCoverage: unavailable('no_completed_run') }
-    const { queryClient } = await renderPropertyPageFromApi(url => {
-      const path = pathOf(url)
-      if (path.includes('/visibility-report')) return jsonResponse(lastResultsReport(null))
-      if (path.includes('/measurement-property-evidence')) {
-        const state = { state: 'not_measured' as const, displayedRunId: RUN_ID }
-        return jsonResponse(new URL(url).searchParams.get('shape') === 'answers' ? { ...evidenceResponse([]), measurement: state } : { ...otherQueriesResponse([]), measurement: state })
-      }
-      if (path.includes('/measurement-property-competitors')) return jsonResponse({ ...competitorsResponse([]), basis: { state: 'unavailable', reason: 'no_completed_run' } })
-      return propertyPageResponses({
-        branded: overviewResponse('branded', blank, { measurementState: 'not_measured', nextAction: 'run_measurement' }),
-        nonBrand: overviewResponse('non-brand', blank, { measurementState: 'not_measured', nextAction: 'run_measurement' }),
-      })(url)
-    }, { account })
+    const { queryClient } = await renderPropertyPageFromApi(neverSweptResponses(), { account })
     await screen.findByRole('region', { name: 'Measurement next step' })
     await waitFor(() => expect(queryClient.isFetching()).toBe(0))
     const page = document.querySelector<HTMLElement>('.page-container')!
@@ -2464,6 +2482,10 @@ describe('Location page copy', () => {
     expectLocationCopy(page)
     expect(visibleText(within(page).getByRole('region', { name: 'Measurement next step' }))).toBe(`Awaiting next sweep${account === ADMIN ? 'Go to' : 'View'} AI Visibility`)
     expect(visibleText(within(page).getByRole('region', { name: 'Answers' }))).toBe('AnswersNot measured')
+    expect(visibleText(within(page).getByRole('region', { name: 'By engine' }))).toBe('By engineNot measured')
+    // No answer was read, so no rival can have been named or not named.
+    expect(visibleText(within(page).getByRole('region', { name: 'Named instead' }))).toBe('Named insteadNot measured')
+    expect(within(page).queryByText(/^Tracking changed/)).toBeNull()
     // Nothing was measured, so there are no citations on other queries to list.
     expect(within(page).queryByRole('region', { name: OTHER_QUERIES_COPY.heading })).toBeNull()
   })
@@ -2764,6 +2786,7 @@ describe('What the location is tracked for', () => {
   })
 
   it('dates the tracking change from the published setup, beside the legend, when the last sweep came before it', async () => {
+    // The page's own reads name no tracking change here, so its header has no note and the tracked section keeps its own.
     await renderPropertyPageFromApi(url => new URL(url).pathname.endsWith('/query-tracking/results')
       ? jsonResponse(trackingResults({ run: { ...trackingResults().run!, matchesCurrentTracking: false } }))
       : propertyPageResponses()(url))
@@ -2849,6 +2872,283 @@ describe('What the location is tracked for', () => {
   })
 })
 
+describe('After a tracking change', () => {
+  const TYPE_TABLE = 'Mention and citation coverage for this location, by query type'
+  const ENGINE_TABLE = 'Per-engine mention and citation coverage'
+  const providers = [
+    { provider: 'gemini', mentionCoverage: skewed(0.2, 3, 4), citationCoverage: skewed(0.1, 1, 4) },
+    { provider: 'openai', mentionCoverage: skewed(0.6, 2, 4), citationCoverage: skewed(0.3, 2, 4) },
+  ]
+  const otherQuery: OtherQueryRow = {
+    observationId: 'obs-marina', expectedSlotId: 'slot-marina', executionId: 'exec-marina', provider: 'gemini', queryText: 'quiet stays by the marina', location: null, queryClass: 'non-brand',
+    assignedTargetKeys: [TARGET_KEY], sources: [{ sourceUrl: `${OWN_URL}/amenities`, normalizedUrl: `${OWN_URL}/amenities`, matchedUrlIds: [`${TARGET_KEY}:url:0`] }],
+    sourceCount: 1, sourcesTruncated: false, evidenceComplete: true,
+  }
+  /** The last sweep's numbers for both types. No rate agrees with the counts beside it. */
+  const measured = {
+    nonBrand: overviewResponse('non-brand', { mentionCoverage: skewed(0.375, 5, 8), citationCoverage: skewed(0.125, 3, 8), providers }),
+    branded: overviewResponse('branded', { mentionCoverage: skewed(0.9, 4, 6), citationCoverage: skewed(0.7, 2, 6) }),
+  }
+  /** A type the last sweep asked nothing of for this location. */
+  const notAsked = (queryClass: 'branded' | 'non-brand') => overviewResponse(queryClass, { mentionCoverage: unavailable('no_population'), citationCoverage: unavailable('no_population') })
+  /** The published setup with a query of each type for Harbor House. The fixture's own has only a non-brand one. */
+  function planWithBothTypes() {
+    const plan = planResponse()
+    plan.active.plan.assignments.push({ targetKey: TARGET_KEY, queryId: 'query-own', queryClass: 'branded' as never, executionNodeKey: 'node-own' })
+    return plan
+  }
+
+  /** Harbor House as fallback reads answer for it after a tracking change, with every request recorded. */
+  async function renderAfterChange(options: {
+    account?: SignedInAccount
+    fields?: Partial<typeof AWAITING_SWEEP>
+    overviews?: Parameters<typeof propertyPageResponses>[0]
+    plan?: ReturnType<typeof planResponse>
+    /** Reads this handler answers come before the page's own. */
+    first?: (url: string) => Response | undefined
+  } = {}) {
+    const requests: URL[] = []
+    const page = propertyPageResponses(options.overviews ?? measured)
+    const responses = afterTrackingChange(url => {
+      const path = pathOf(url)
+      const first = options.first?.(url)
+      if (first) return first
+      if (path.endsWith('/measurement-plan') && options.plan) return jsonResponse(options.plan)
+      if (path.includes('/measurement-property-evidence') && new URL(url).searchParams.get('shape') === 'other-queries') return jsonResponse(otherQueriesResponse([otherQuery]))
+      return page(url)
+    }, options.fields)
+    const rendered = await renderPropertyPageFromApi(url => {
+      requests.push(new URL(url))
+      return responses(url)
+    }, { account: options.account ?? ADMIN })
+    const header = (await screen.findByRole('heading', { name: 'Harbor House', level: 1 })).closest<HTMLElement>('.page-header')!
+    await within(header).findByRole('status')
+    await screen.findByRole('table', { name: 'Location queries' })
+    await waitFor(() => expect(rendered.queryClient.isFetching()).toBe(0))
+    return { ...rendered, requests, header, page: document.querySelector<HTMLElement>('.page-container')! }
+  }
+
+  /** The figure cells of one row of a results table, as a reader sees them. */
+  const figures = (page: HTMLElement, table: string, row: string) => [...within(within(page).getByRole('table', { name: table })).getByText(row).closest('tr')!.querySelectorAll('td')].slice(1).map(cell => visibleText(cell as HTMLElement))
+  /** Each coverage row at the top of the page: its value, then its count or its reason. */
+  const heroRows = (page: HTMLElement) => [...within(page).getByRole('region', { name: 'Coverage for this location' }).querySelectorAll('.aeo-hero-row')]
+    .map(row => [row.querySelector('.aeo-hero-row-value')!.textContent, row.querySelector('.aeo-hero-row-detail')!.textContent])
+
+  it.each([{ role: 'a writer', account: ADMIN }, { role: 'a viewer', account: VIEWER }])('shows $role the last sweep in every section, under one note beside the state', async ({ account }) => {
+    const { header, page, requests } = await renderAfterChange({ account })
+    const answers = await answersTable()
+    const named = within(page).getByRole('region', { name: 'Named instead' })
+    const other = within(page).getByRole('region', { name: OTHER_QUERIES_COPY.heading })
+
+    // One note on the page, in the header after the state, which is the sweep's own. Its date is the server's:
+    // the plan fixture was published on another day. The sentence is its help and its name, never on screen.
+    const note = within(header).getByRole('status')
+    expect(visibleText(note)).toBe(`Tracking changed ${CHANGED_ON}`)
+    expect(within(note).getByRole('button', { name: `Tracking changed ${CHANGED_ON}. ${TRACKING_CHANGED_HELP}` }).classList.contains('text-caution')).toBe(true)
+    expect(note.previousElementSibling!.textContent).toBe('Measured')
+    expect(within(page).getAllByText(/^Tracking changed/)).toHaveLength(1)
+    expectLocationCopy(page)
+
+    // Every figure is a field of the reads: none of these rates is its count over its total.
+    expect(heroRows(page)).toEqual([['37.5%', '5 of 8'], ['12.5%', '3 of 8'], ['90.0%', '4 of 6'], ['70.0%', '2 of 6']])
+    expect(figures(page, TYPE_TABLE, 'Non-brand')).toEqual(['37.5%5 of 8', '12.5%3 of 8'])
+    expect(figures(page, TYPE_TABLE, 'Branded')).toEqual(['90.0%4 of 6', '70.0%2 of 6'])
+    expect(figures(page, ENGINE_TABLE, 'Gemini')).toEqual(['20.0%3 of 4', '10.0%1 of 4'])
+    expect(figures(page, ENGINE_TABLE, 'OpenAI')).toEqual(['60.0%2 of 4', '30.0%2 of 4'])
+    expect([...within(named).getByRole('table').querySelectorAll('tbody tr')].map(row => visibleText(row as HTMLElement))).toEqual(['Harborline Homes3OpenAI, Gemini1', 'The Sutton1Gemini1'])
+    expect(within(named).getByText('Missed answers').nextElementSibling!.textContent).toBe('3 of 4 · Non-brand')
+    expect(within(answers).getByText(NEARBY_QUESTION)).toBeTruthy()
+    expect(within(other).getByText('quiet stays by the marina')).toBeTruthy()
+    expect(within(page).getByText(`Measured ${formatObservedInstantLabel(observedInstant(SWEPT_AT))} · Non-brand only`)).toBeTruthy()
+    // Nothing blanks, nothing points elsewhere for these numbers, and no report is read to find them.
+    expect(visibleText(page)).not.toContain('Not measured')
+    expect(within(page).queryByRole('region', { name: 'Measurement next step' })).toBeNull()
+    expect(within(page).queryByRole('link', { name: 'See the last results' })).toBeNull()
+    expect(requests.filter(request => request.pathname.includes('/visibility-report'))).toEqual([])
+
+    // A row of that sweep opens, under Answers and under Cited on other queries.
+    fireEvent.click(within(answers).getByRole('button', { name: `Read the answer for ${NEARBY_QUESTION}` }))
+    fireEvent.click(within(other).getByRole('button', { name: 'Read the answer for quiet stays by the marina' }))
+    await waitFor(() => expect(within(page).getAllByText(/Harborline Homes and The Sutton/)).toHaveLength(2))
+
+    // Every results read asks for the last sweep, and the two lists name the sweep the numbers are from.
+    const reads = requests.filter(request => /\/measurement-(?!plan)/.test(request.pathname)).map(request => [
+      request.pathname.split('/').pop(),
+      request.searchParams.get('shape') ?? request.searchParams.get('queryClass') ?? request.searchParams.get('resultId'),
+      request.searchParams.get('fallback'),
+      request.searchParams.get('runId') ?? 'no run',
+    ].join(' · '))
+    expect([...new Set(reads)].sort()).toEqual([
+      'measurement-overview · branded · last-sweep · no run',
+      'measurement-overview · non-brand · last-sweep · no run',
+      'measurement-property-competitors · non-brand · last-sweep · no run',
+      `measurement-property-evidence · answers · last-sweep · ${LAST_SWEEP_RUN}`,
+      `measurement-property-evidence · other-queries · last-sweep · ${LAST_SWEEP_RUN}`,
+      'measurement-question-result · obs-marina · last-sweep · no run',
+      'measurement-question-result · obs-nearby · last-sweep · no run',
+    ])
+
+    // A viewer reads the same page with nothing to write with.
+    expect(within(page).queryByRole('button', { name: 'Add query about this location' }) !== null).toBe(account === ADMIN)
+    expect(within(page).queryAllByRole('button', { name: /^Actions for / }).length > 0).toBe(account === ADMIN)
+    expect(within(page).queryByRole('button', { name: PROPERTY_NAMES_COPY.edit }) !== null).toBe(account === ADMIN)
+  })
+
+  it('names no date for the change when the server sends none', async () => {
+    const { header, page } = await renderAfterChange({ fields: { trackingChangedAt: undefined } })
+
+    const note = within(header).getByRole('status')
+    expect(visibleText(note)).toBe('Tracking changed')
+    expect(within(note).getByRole('button', { name: `Tracking changed. ${TRACKING_CHANGED_HELP}` })).toBeTruthy()
+    expect(within(page).getAllByText(/^Tracking changed/)).toHaveLength(1)
+  })
+
+  it('names no date for the change on a managed dashboard, as AI Visibility and Queries name none there', async () => {
+    const previousConfig = window.__CANONRY_CONFIG__
+    window.__CANONRY_CONFIG__ = { ...previousConfig, dashboard: { managedSweeps: true } }
+    onTestFinished(() => {
+      if (previousConfig === undefined) delete window.__CANONRY_CONFIG__
+      else window.__CANONRY_CONFIG__ = previousConfig
+    })
+    const { header, page } = await renderAfterChange({ account: VIEWER })
+
+    expect(visibleText(within(header).getByRole('status'))).toBe('Tracking changed')
+    expect(within(page).getAllByText(/^Tracking changed/)).toHaveLength(1)
+    expect(figures(page, TYPE_TABLE, 'Non-brand')).toEqual(['37.5%5 of 8', '12.5%3 of 8'])
+  })
+
+  it('reads Not measured with no note for a location no sweep has measured', async () => {
+    const { queryClient } = await renderPropertyPageFromApi(neverSweptResponses(), { account: ADMIN })
+    await screen.findByRole('region', { name: 'Measurement next step' })
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0))
+    const page = document.querySelector<HTMLElement>('.page-container')!
+
+    // The server says a sweep is awaited here too. With no measured setup there is no older sweep on screen to mark.
+    expect(within(page).queryByText(/^Tracking changed/)).toBeNull()
+    expect(within(page.querySelector<HTMLElement>('.page-header')!).getByText('Not measured')).toBeTruthy()
+    expect(heroRows(page)).toEqual(Array.from({ length: 4 }, () => ['Not measured', 'No completed sweep yet']))
+    for (const type of ['Non-brand', 'Branded']) expect(figures(page, TYPE_TABLE, type)).toEqual(['Not measuredNo completed sweep yet', 'Not measuredNo completed sweep yet'])
+    for (const section of ['By engine', 'Named instead', 'Answers']) expect(visibleText(within(page).getByRole('region', { name: section }))).toBe(`${section}Not measured`)
+    expect(within(page).queryByText('Not in last sweep')).toBeNull()
+    expect(within(within(page).getByRole('region', { name: 'Measurement next step' })).getByRole('link', { name: 'Go to AI Visibility' })).toBeTruthy()
+  })
+
+  it('says Not in last sweep, in all five places, for a location added since that sweep', async () => {
+    // The last sweep's setup did not hold this location: no number of either type, no engine, no answer and
+    // no basis, each under the reason "no population". The published setup asks it queries of both types.
+    const { header, page } = await renderAfterChange({
+      plan: planWithBothTypes(),
+      overviews: { nonBrand: notAsked('non-brand'), branded: notAsked('branded') },
+      first: url => {
+        const path = pathOf(url)
+        if (path.includes('/measurement-property-evidence')) return jsonResponse(new URL(url).searchParams.get('shape') === 'answers' ? evidenceResponse([]) : otherQueriesResponse([]))
+        if (path.includes('/measurement-property-competitors')) return jsonResponse({ ...competitorsResponse([]), basis: { state: 'unavailable', reason: 'no_population' } })
+        return undefined
+      },
+    })
+    await within(await screen.findByRole('region', { name: 'Answers' })).findByText('Not in last sweep')
+    await screen.findByRole('region', { name: 'Named instead' })
+
+    // The header still says which sweep this is, and that sweep was measured.
+    expect(visibleText(within(header).getByRole('status'))).toBe(`Tracking changed ${CHANGED_ON}`)
+    expect(within(header).getByText('Measured')).toBeTruthy()
+    // 1 and 2: the coverage rows and the type table, for each type.
+    expect(heroRows(page)).toEqual(Array.from({ length: 4 }, () => ['Not measured', 'Not in last sweep']))
+    for (const type of ['Non-brand', 'Branded']) expect(figures(page, TYPE_TABLE, type)).toEqual(['Not measuredNot in last sweep', 'Not measuredNot in last sweep'])
+    // 3 to 5: By engine, Named instead and Answers, for the type on screen. None of them reports a measured nothing.
+    for (const section of ['By engine', 'Named instead', 'Answers']) {
+      const region = within(page).getByRole('region', { name: section })
+      expect(visibleText(region)).toBe(`${section}Not measuredNot in last sweep`)
+      expect(within(region).getByRole('button', { name: NOT_IN_LAST_SWEEP })).toBeTruthy()
+    }
+    // Beside the type control too, where the reason for a type with no number is said once.
+    expect(visibleText(within(page).getByLabelText('Query type').closest<HTMLElement>('.border-y')!)).toBe(`TypeNon-brandBrandedMeasured ${formatObservedInstantLabel(observedInstant(SWEPT_AT))} · Not in last sweep`)
+    // Twelve in all, each with the sweep's day and when numbers come in its help. It is a wait, not a fault.
+    expect(within(page).getAllByRole('button', { name: NOT_IN_LAST_SWEEP })).toHaveLength(12)
+    expect(within(page).queryByRole('alert')).toBeNull()
+    for (const wrong of ['None named', 'No answers', 'No queries tracked', 'No completed sweep yet']) expect(within(page).queryByText(wrong)).toBeNull()
+    expectLocationCopy(page)
+    expect(within(page).queryByRole('region', { name: 'Measurement next step' })).toBeNull()
+  })
+
+  it('says Not in last sweep for the type added since, and keeps the other type\'s numbers apart', async () => {
+    const { page } = await renderAfterChange({
+      plan: planWithBothTypes(),
+      overviews: { nonBrand: notAsked('non-brand'), branded: measured.branded },
+      first: url => {
+        const path = pathOf(url)
+        if (path.includes('/measurement-property-evidence') && new URL(url).searchParams.get('shape') === 'answers') return jsonResponse(evidenceResponse([]))
+        if (path.includes('/measurement-property-competitors')) return jsonResponse({ ...competitorsResponse([]), basis: { state: 'unavailable', reason: 'no_population' } })
+        return undefined
+      },
+    })
+    await within(await screen.findByRole('region', { name: 'Answers' })).findByText('Not in last sweep')
+
+    // Non-brand waits for its first sweep. Branded is that sweep's own, and neither borrows from the other.
+    expect(heroRows(page)).toEqual([['Not measured', 'Not in last sweep'], ['Not measured', 'Not in last sweep'], ['90.0%', '4 of 6'], ['70.0%', '2 of 6']])
+    expect(figures(page, TYPE_TABLE, 'Non-brand')).toEqual(['Not measuredNot in last sweep', 'Not measuredNot in last sweep'])
+    expect(figures(page, TYPE_TABLE, 'Branded')).toEqual(['90.0%4 of 6', '70.0%2 of 6'])
+    expect(within(page).queryByText('No queries tracked')).toBeNull()
+  })
+
+  it('keeps No queries tracked for a type this location has no query of, whatever the sweep on screen', async () => {
+    // The published setup asks Harbor House no branded query, so the last sweep did not leave one out.
+    const { page } = await renderAfterChange({ overviews: { nonBrand: measured.nonBrand, branded: notAsked('branded') } })
+
+    expect(figures(page, TYPE_TABLE, 'Branded')).toEqual(['Not measuredNo queries tracked', 'Not measuredNo queries tracked'])
+    expect(heroRows(page).slice(2)).toEqual([['Not measured', 'No queries tracked'], ['Not measured', 'No queries tracked']])
+    expect(figures(page, TYPE_TABLE, 'Non-brand')).toEqual(['37.5%5 of 8', '12.5%3 of 8'])
+    expect(within(page).queryByText('Not in last sweep')).toBeNull()
+  })
+
+  it('keeps a reason of its own for a type the last sweep did ask', async () => {
+    // Non-brand was asked in that sweep and its answers could not be read: that is not a sweep that left it out.
+    const { page } = await renderAfterChange({
+      overviews: { nonBrand: overviewResponse('non-brand', { mentionCoverage: unavailable('identity_ambiguous'), citationCoverage: unavailable('evidence_incomplete') }), branded: measured.branded },
+    })
+
+    expect(figures(page, TYPE_TABLE, 'Non-brand')).toEqual(['Not measuredUnclear answers', 'Not measuredEvidence incomplete'])
+    expect(heroRows(page).slice(0, 2)).toEqual([['Not measured', 'Unclear answers'], ['Not measured', 'Evidence incomplete']])
+    expect(within(page).queryByText('Not in last sweep')).toBeNull()
+  })
+
+  it('moves to the new sweep when one completes, with no reload: new numbers, and the note clears', async () => {
+    let swept = false
+    const NEW_RUN = 'run-after-change'
+    /** A read once a sweep of the published setup has completed: its own run, and nothing awaited. */
+    const current = <T extends { measurement: object }>(response: T): T => ({ ...response, measurement: { ...response.measurement, displayedRunId: NEW_RUN, ...AWAITING_SWEEP, measuredRevision: 7, awaitingSweep: false } })
+    const after = propertyPageResponses({
+      nonBrand: current(overviewResponse('non-brand', { mentionCoverage: skewed(0.625, 6, 8), citationCoverage: skewed(0.25, 4, 8), providers })),
+      branded: current(overviewResponse('branded', { mentionCoverage: skewed(0.8, 5, 6), citationCoverage: skewed(0.5, 3, 6) })),
+    })
+    const before = afterTrackingChange(propertyPageResponses(measured))
+    const requests: URL[] = []
+    const { queryClient, projectName } = await renderPropertyPageFromApi(url => {
+      requests.push(new URL(url))
+      return swept ? after(url) : before(url)
+    }, { account: VIEWER })
+    const header = (await screen.findByRole('heading', { name: 'Harbor House', level: 1 })).closest<HTMLElement>('.page-header')!
+    expect(visibleText(await within(header).findByRole('status'))).toBe(`Tracking changed ${CHANGED_ON}`)
+    await answersTable()
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0))
+    const page = document.querySelector<HTMLElement>('.page-container')!
+    expect(figures(page, TYPE_TABLE, 'Non-brand')).toEqual(['37.5%5 of 8', '12.5%3 of 8'])
+
+    swept = true
+    requests.length = 0
+    act(() => { invalidateQueriesForRunKind(queryClient, RunKinds['answer-visibility'], projectName) })
+
+    await waitFor(() => expect(figures(page, TYPE_TABLE, 'Non-brand')).toEqual(['62.5%6 of 8', '25.0%4 of 8']))
+    expect(figures(page, TYPE_TABLE, 'Branded')).toEqual(['80.0%5 of 6', '50.0%3 of 6'])
+    expect(heroRows(page)).toEqual([['62.5%', '6 of 8'], ['25.0%', '4 of 8'], ['80.0%', '5 of 6'], ['50.0%', '3 of 6']])
+    // Neither the header nor the tracked section says the tracking changed: the sweep on screen ran with it.
+    await waitFor(() => expect(within(page).queryByText(/^Tracking changed/)).toBeNull())
+    expect(within(header).queryByRole('status')).toBeNull()
+    // The answers are read again, for the new sweep's run.
+    await waitFor(() => expect(requests.filter(request => request.pathname.includes('/measurement-property-evidence')).map(request => request.searchParams.get('runId'))).toContain(NEW_RUN))
+  })
+})
+
 describe('Add query about this location', () => {
   const ADD_QUERY = 'Add query about this location'
   const RETRY_ADD = 'Retry adding a query about this location'
@@ -2898,6 +3198,8 @@ describe('Add query about this location', () => {
     plan?: () => ReturnType<typeof planResponse>
     publishes?: typeof MARKET_QUERY | typeof NAMED_QUERY
     queryClient?: QueryClient
+    /** Answers the page's own reads once the commit has landed. Before it, and without it, they are a measured page's. */
+    afterPublish?: (url: string) => Response | Promise<Response>
   } = {}) {
     const paths: string[] = []
     /** Every request as "METHOD /path" under the project, in the order it was made. */
@@ -2922,7 +3224,7 @@ describe('Add query about this location', () => {
         return jsonResponse(queryTrackingCommitResponseSchema.parse({ committed: true, mode: 'advanced', workspaceVersion: WORKSPACE_VERSION, reviewedAt: REVIEWED_AT, active: { ...TRACKING_ACTIVE, revision: 8 }, diff, workload }))
       }
       if (path.endsWith('/measurement-plan')) return jsonResponse(published ? planAfterPublish(publishes) : options.plan?.() ?? planResponse())
-      return page(url)
+      return published && options.afterPublish ? options.afterPublish(url) : page(url)
     }, { account: options.account ?? ADMIN, queryClient: options.queryClient })
     // The button is in the page header, with the alert it shows when its read fails.
     const header = (await screen.findByRole('heading', { name: 'Harbor House', level: 1 })).closest<HTMLElement>('.page-header')!
@@ -3086,6 +3388,35 @@ describe('Add query about this location', () => {
     expect(requests.filter(request => !request.startsWith('GET '))).toEqual(['POST /query-tracking/preview', 'POST /query-tracking/commit'])
     expect(requests.filter(request => /\/runs?\b/.test(request))).toEqual([])
     await waitFor(() => expect(getToasts().map(toast => toast.title)).toEqual(['Tracked queries updated']))
+  })
+
+  it('keeps the numbers after its own publish and says the tracking changed, with no reload and no sweep', async () => {
+    onTestFinished(resetToasts)
+    // Once revision 8 is published, the reads answer with the sweep that ran with revision 7.
+    const { header, requests } = await renderWithTracking({
+      publishes: MARKET_QUERY,
+      afterPublish: afterTrackingChange(propertyPageResponses(), { activeRevision: 8, measuredRevision: 7 }),
+    })
+    const own = await ownQueries()
+    const contrast = await screen.findByRole('table', { name: 'Mention and citation coverage for this location, by query type' })
+    const nonBrand = () => [...within(contrast).getByText('Non-brand').closest('tr')!.querySelectorAll('td')].slice(1).map(cell => cell.textContent)
+    await waitFor(() => expect(nonBrand()).toEqual(['75.0%3 of 4', '50.0%2 of 4']))
+    expect(screen.queryByText(/^Tracking changed/)).toBeNull()
+
+    await publish(await openSheet(header), MARKET_QUERY.text)
+
+    // The publish reads the page again. The numbers are the same sweep's, now marked once, in the header: the
+    // tracked section's results say the same and leave it to the header.
+    expect((await within(header).findByRole('status')).textContent).toBe(`Tracking changed ${CHANGED_ON}`)
+    expect(within(header).getByText('Measured')).toBeTruthy()
+    expect(nonBrand()).toEqual(['75.0%3 of 4', '50.0%2 of 4'])
+    expect(await within(await answersTable()).findByText(NEARBY_QUESTION)).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Measurement next step' })).toBeNull()
+    // The new query is listed and waits for its first answers.
+    await waitFor(() => expect(within(rowOf(own, MARKET_QUERY.text)).getByRole('button', { name: 'OpenAI: Not checked' })).toBeTruthy())
+    await waitFor(() => expect(screen.getAllByText(/^Tracking changed/)).toHaveLength(1))
+    expect(requests.filter(request => !request.startsWith('GET '))).toEqual(['POST /query-tracking/preview', 'POST /query-tracking/commit'])
+    expect(requests.filter(request => /\/runs?\b/.test(request))).toEqual([])
   })
 
   it('lists a query that names this location with its type, whichever type the results show', async () => {

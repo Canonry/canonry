@@ -275,7 +275,7 @@ export function TrackingReview({ workspace, contextLabels, showActions = true, .
       </dl>
       {/* A publish writes a new revision with no continuity link, so location and competitor reads blank while AI Visibility falls back. */}
       {diff.noOp ? null : <div className="mt-3">
-        <StatusNote icon={Clock} tone="caution" label="New numbers next sweep" detail="After you publish, location pages and competitor results show no numbers until the next sweep. AI Visibility keeps showing the last sweep. Past answers are kept. Publishing does not run a sweep." />
+        <StatusNote icon={Clock} tone="caution" label="New numbers next sweep" detail="After you publish, AI Visibility and location pages keep showing the last sweep, marked Tracking changed, until the next sweep. Past answers are kept. Publishing does not run a sweep." />
       </div>}
       {shrunk.length > 0 ? <MarketChanges changes={shrunk} workspace={workspace} /> : null}
       {changes.length > 0 ? <>

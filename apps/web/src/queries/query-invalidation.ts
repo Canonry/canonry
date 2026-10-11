@@ -21,6 +21,8 @@ export const PROJECT_QUERY_DOMAINS = {
   traffic: 'getApiV1ProjectsByNameTraffic',
   discovery: 'getApiV1ProjectsByNameDiscover',
   researchRuns: 'getApiV1ProjectsByNameResearchRuns',
+  // The measurement plan and every read of it: overview, location evidence, answer text, named instead.
+  measurement: 'getApiV1ProjectsByNameMeasurement',
   visibilityReport: 'getApiV1ProjectsByNameVisibilityReport',
   queryTracking: 'getApiV1ProjectsByNameQueryTracking',
   // The results read alone. The `queryTracking` prefix above also matches it.

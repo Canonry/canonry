@@ -81,6 +81,23 @@ test('a completed sweep refreshes frozen visibility and assignment readiness wit
   expect(predicateMatches('getApiV1ProjectsByNameResearchRuns')).toBe(false)
 })
 
+test('a completed sweep refreshes every measurement read, so an open location page moves to the new sweep', () => {
+  // The location page shows the sweep before a tracking change until one of the published setup completes.
+  // Left stale, it would keep the old numbers and its "Tracking changed" note until a reload.
+  invalidateQueriesForRunKind(queryClient, RunKinds['answer-visibility'], 'demo')
+  for (const read of ['Overview', 'PropertyEvidence', 'PropertyCompetitors', 'QuestionResult', 'Plan']) {
+    expect(predicateMatches(`getApiV1ProjectsByNameMeasurement${read}`)).toBe(true)
+  }
+})
+
+test('only a sweep refreshes the measurement reads', () => {
+  for (const kind of [RunKinds['site-audit'], RunKinds['gsc-sync'], RunKinds['aeo-discover-probe']]) {
+    invalidateSpy.mockClear()
+    invalidateQueriesForRunKind(queryClient, kind, 'demo')
+    expect(predicateMatches('getApiV1ProjectsByNameMeasurementOverview')).toBe(false)
+  }
+})
+
 test('does not prefix-invalidate the analytics trend after an answer-visibility run', () => {
   // The trend key ends in the revision of the NEWEST completed|partial
   // non-probe sweep (`['analytics-metrics', project, window, frameKey,
