@@ -1029,7 +1029,9 @@ function planV2Overview(
 
   if (!displayed || sweepScope === null) {
     // No sweep at all, or a place the last sweep's plan did not hold. Both list
-    // the active plan's rows with no number, under the reason that applies.
+    // the active plan's rows with no number, under the reason that applies. The
+    // cursor is pinned to the plan whose rows it pages, so a publish between
+    // two pages is refused here as it is on the default read.
     const reason = displayed ? 'no_population' : 'no_completed_run'
     const locate = propertyLocations(plan)
     const { page, outcomes } = pageOf(
@@ -1045,7 +1047,7 @@ function planV2Overview(
         })),
       query,
       displayed?.id ?? null,
-      reading.version.id,
+      active.version.id,
       snapshotEvidenceFingerprint([]),
     )
     return {

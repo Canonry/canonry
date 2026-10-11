@@ -192,8 +192,14 @@ const measurementPlanRetireInputSchema = z.object({ project: projectNameSchema, 
 const measurementDiscoveryInputSchema = measurementDiscoveryRequestSchema.extend({ project: projectNameSchema })
 const idempotencyKeyInputSchema = z.string().trim().min(1).describe('A fresh request key. Reuse it only when retrying the identical request.')
 /** The opt-in the five location reads share. A handler never sets it for the caller. */
-const lastSweepFallbackDescription = 'Omit to need a completed sweep of the active plan: after a tracking change the read says not measured until one exists. last-sweep reads the last completed sweep instead, under the plan it ran with, and measurement.awaitingSweep says so.'
-const lastSweepFallbackToolNote = ' fallback=last-sweep reads the last completed sweep after a tracking change, under the plan that sweep ran with, instead of not measured. When measurement.awaitingSweep is true, say tracking changed on trackingChangedAt and the numbers are the completedAt sweep\'s.'
+const lastSweepFallbackDescription = 'Omit it and the read needs a completed sweep of the active plan: after a tracking change it says not measured until one exists. last-sweep reads the last completed sweep instead, under the plan it ran with. With it, runId may name that sweep; any other run of an older plan is still refused.'
+/** What to say about a fallback read. `awaitingSweep` is also true before any sweep, so the sentence needs the revision. */
+const lastSweepAwaitingNote = ' When measurement.awaitingSweep is true and measuredRevision is not null, say tracking changed on trackingChangedAt and the numbers are from the completedAt sweep. With measuredRevision null there is no sweep yet.'
+const lastSweepFallbackToolNote = ` fallback=last-sweep reads the last completed sweep after a tracking change, under the plan that sweep ran with, instead of not measured.${lastSweepAwaitingNote}`
+/** Answer text refuses an older sweep's result by default; it never answers not measured. */
+const lastSweepResultToolNote = ` By default the result must come from a run of the active plan; fallback=last-sweep also opens a result of the last completed sweep after a tracking change, read under the plan that sweep ran with.${lastSweepAwaitingNote}`
+/** These two reads return an empty page, with no reason, for a location the sweep did not hold. */
+const lastSweepEmptyPageNote = ' With awaitingSweep true, an empty page can mean the location was not in that sweep: canonry_measurement_overview says which, with no_population.'
 const measurementOverviewInputSchema = z.object({
   project: projectNameSchema,
   scope: measurementOverviewQuerySchema.shape.scope.describe('Read all Properties, one group (every query of its Properties), one market (only the market\'s own queries, as the dashboard\'s market view), or one Property. A group and a market can share a name and still differ; for a market, use market scope.'),
@@ -274,7 +280,7 @@ const measurementPropertyQuestionsInputSchema = measurementPropertyQuestionsQuer
 const measurementQuestionResultInputSchema = measurementQuestionResultQuerySchema.extend({
   project: projectNameSchema,
   fallback: measurementQuestionResultQuerySchema.shape.fallback
-    .describe('Omit to open a result of a run of the active plan. last-sweep also opens a result of the last completed sweep after a tracking change, read under the plan it ran with.'),
+    .describe('Omit it and the result must come from a run of the active plan. last-sweep also opens a result of the last completed sweep after a tracking change, read under the plan it ran with.'),
 }).strict()
 const measurementPropertyCompetitorsInputSchema = measurementPropertyCompetitorsQuerySchema.extend({
   project: projectNameSchema,
@@ -2878,7 +2884,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_property_evidence',
     title: 'Page one Property\'s measurement evidence',
-    description: 'Return the stored evidence rows for exactly one Property out of one revision-pinned run, optionally narrowed to a provider or location. Defaults to non-brand queries; pass queryClass branded or all to change it, and state the returned class. shape chooses what a row is: sources (the default) returns one row per cited URL under evidence; answers returns one row per measured answer under answers, with the cited URLs nested inside and both signals on the row (mentioned, cited). Use shape=answers to explain a GAP: an answer that mentioned the Property without linking it, or that named nobody at all, has no URL to hang a source row on and does not appear in the default shape, so counting source rows understates what was measured. shape=other-queries returns, under otherQueries, answers to queries assigned only to other Properties that still cited this Property\'s pages, one row per answer and assignment class with assignedTargetKeys; never add them to its rates. mentioned is null, never false, when the answer text was never captured: that is a missing signal, not a measured no. Exactly one of evidence, answers or otherQueries is returned and the others are absent rather than empty. A cursor is bound to the shape that issued it and is refused on the other. Prefer this over canonry_measurement_report when you want one Property: the report reconstructs every group and every Target for a revision and does not paginate. Run selection matches canonry_measurement_overview: the most recent completed run pinned to the active revision unless runId names another, and a run pinned to a different revision is refused rather than joined. The cursor also pins the active revision, displayed run, evidence snapshot, and filters; reuse it unchanged. Not available for a schema v1 revision, which records no question class to scope by. It never starts provider work; page size is at most 100. An empty page under measurement.state = not_measured means the Property has not been measured at all, which is NOT a measured result of zero.' + lastSweepFallbackToolNote,
+    description: 'Return the stored evidence rows for exactly one Property out of one revision-pinned run, optionally narrowed to a provider or location. Defaults to non-brand queries; pass queryClass branded or all to change it, and state the returned class. shape chooses what a row is: sources (the default) returns one row per cited URL under evidence; answers returns one row per measured answer under answers, with the cited URLs nested inside and both signals on the row (mentioned, cited). Use shape=answers to explain a GAP: an answer that mentioned the Property without linking it, or that named nobody at all, has no URL to hang a source row on and does not appear in the default shape, so counting source rows understates what was measured. shape=other-queries returns, under otherQueries, answers to queries assigned only to other Properties that still cited this Property\'s pages, one row per answer and assignment class with assignedTargetKeys; never add them to its rates. mentioned is null, never false, when the answer text was never captured: that is a missing signal, not a measured no. Exactly one of evidence, answers or otherQueries is returned and the others are absent rather than empty. A cursor is bound to the shape that issued it and is refused on the other. Prefer this over canonry_measurement_report when you want one Property: the report reconstructs every group and every Target for a revision and does not paginate. Run selection matches canonry_measurement_overview: the most recent completed run pinned to the active revision unless runId names another, and a run pinned to a different revision is refused rather than joined. The cursor also pins the active revision, displayed run, evidence snapshot, and filters; reuse it unchanged. Not available for a schema v1 revision, which records no question class to scope by. It never starts provider work; page size is at most 100. An empty page under measurement.state = not_measured means the Property has not been measured at all, which is NOT a measured result of zero.' + lastSweepFallbackToolNote + lastSweepEmptyPageNote,
     access: 'read',
     tier: 'setup',
     inputSchema: measurementPropertyEvidenceInputSchema,
@@ -2906,7 +2912,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_property_questions',
     title: 'List a Property’s stored questions',
-    description: 'After identifying a Property, list its stored question outcomes and use a returned resultId with canonry_measurement_question_result. Reads stored data only; it never starts provider work.' + lastSweepFallbackToolNote,
+    description: 'After identifying a Property, list its stored question outcomes and use a returned resultId with canonry_measurement_question_result. Reads stored data only; it never starts provider work.' + lastSweepFallbackToolNote + lastSweepEmptyPageNote,
     access: 'read',
     tier: 'monitoring',
     inputSchema: measurementPropertyQuestionsInputSchema,
@@ -2920,7 +2926,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_question_result',
     title: 'Get a stored question result',
-    description: 'After listing a Property’s questions, expand one returned resultId into its stored answer and attribution sources. Reads stored data only; it never starts provider work.' + lastSweepFallbackToolNote,
+    description: 'After listing a Property’s questions, expand one returned resultId into its stored answer and attribution sources. Reads stored data only; it never starts provider work.' + lastSweepResultToolNote,
     access: 'read',
     tier: 'monitoring',
     inputSchema: measurementQuestionResultInputSchema,

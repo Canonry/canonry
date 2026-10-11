@@ -473,11 +473,17 @@ function uncheckedText(metric: MetricValue): string | null {
 }
 
 /** A rate followed by the note naming the answers it left out, when there is one. */
-function metricWithNote(metric: MetricValue, note: string | null): string {
-  return `${metricText(metric)}${note ? ` · ${note}` : ''}`
+function metricWithNote(metric: MetricValue, note: string | null, lastSweep = false): string {
+  return `${metricText(metric, lastSweep)}${note ? ` · ${note}` : ''}`
 }
 
-function metricText(metric: MetricValue): string {
+/**
+ * `lastSweep` is true when the numbers are an older sweep's. Then an empty
+ * population means that sweep asked this location nothing of the type, and the
+ * plan in effect now may well ask it something.
+ */
+function metricText(metric: MetricValue, lastSweep = false): string {
+  if (lastSweep && metric.state === 'unavailable' && metric.reason === 'no_population') return 'not measured (not in last sweep)'
   if (metric.state === 'unavailable') return METRIC_REASONS[metric.reason] ?? `not measured (${metric.reason})`
   const percent = formatPercent(metric.value)
   return metric.numerator === undefined || metric.denominator === undefined
@@ -536,11 +542,12 @@ function printMeasurementProperty(response: MeasurementOverviewResponse): void {
   lines.push(`Measurement: ${response.measurement.state}${response.measurement.displayedRunId ? ` · run ${response.measurement.displayedRunId}` : ''}`)
   const lastSweep = lastSweepLine(response.measurement)
   if (lastSweep) lines.push(lastSweep)
+  const fromLastSweep = lastSweep !== null
   lines.push('')
   const mention = row ? row.mentionCoverage : response.metrics.mentionCoverage
   const citation = row ? row.citationCoverage : response.metrics.citationCoverage
-  lines.push(`Mentioned  ${metricWithNote(mention, unattributedText(mention))}`)
-  lines.push(`Cited      ${metricWithNote(citation, uncheckedText(citation))}`)
+  lines.push(`Mentioned  ${metricWithNote(mention, unattributedText(mention), fromLastSweep)}`)
+  lines.push(`Cited      ${metricWithNote(citation, uncheckedText(citation), fromLastSweep)}`)
   if (row && row.flags > 0) lines.push(`Flagged    ${row.flags} ${row.flags === 1 ? 'result needs' : 'results need'} review`)
 
   if (row && row.providers.length > 0) {
@@ -549,7 +556,7 @@ function printMeasurementProperty(response: MeasurementOverviewResponse): void {
     lines.push('')
     lines.push(`${'Engine'.padEnd(engineWidth)}${'Mentioned'.padEnd(mentionWidth)}Cited`)
     for (const provider of row.providers) {
-      lines.push(`${provider.provider.padEnd(engineWidth)}${metricText(provider.mentionCoverage).padEnd(mentionWidth)}${metricText(provider.citationCoverage)}`)
+      lines.push(`${provider.provider.padEnd(engineWidth)}${metricText(provider.mentionCoverage, fromLastSweep).padEnd(mentionWidth)}${metricText(provider.citationCoverage, fromLastSweep)}`)
       // Each note continues on its own line under its own column (mention
       // under Mentioned, citation under Cited) so the columns stay aligned.
       const providerUnattributed = unattributedText(provider.mentionCoverage)

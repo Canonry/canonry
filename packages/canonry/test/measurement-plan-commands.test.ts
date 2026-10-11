@@ -839,6 +839,50 @@ describe('measurement-plan CLI commands', () => {
     }
   })
 
+  it('says a location the last sweep did not ask was not in it, never that it has no queries', async () => {
+    const noPopulation = { state: 'unavailable', reason: 'no_population' }
+    const row = { ...OVERVIEW.properties.items[0]!, providers: [{ provider: 'openai', mentionCoverage: noPopulation, citationCoverage: noPopulation }] }
+    const printed = async (fields: Record<string, unknown>) => {
+      getMeasurementOverview.mockResolvedValueOnce({
+        ...OVERVIEW,
+        measurement: { ...OVERVIEW.measurement, ...fields },
+        properties: { ...OVERVIEW.properties, items: [row] },
+      })
+      const logged: string[] = []
+      const log = vi.spyOn(console, 'log').mockImplementation(text => { logged.push(String(text)) })
+      await command('measurement-plan property').run({
+        positionals: ['acme'], values: { 'target-key': 'harbor-view', fallback: 'last-sweep' }, format: 'text', dryRun: false,
+      })
+      log.mockRestore()
+      return logged.join('\n').split('\n')
+    }
+
+    // The location was added after the sweep shown, so it may well have queries of this type now.
+    expect(await printed({
+      activeRevision: 2, measuredRevision: 1, awaitingSweep: true,
+      trackingChangedAt: '2026-10-09T15:00:00.000Z', completedAt: '2026-10-07T12:00:00.000Z',
+    })).toEqual([
+      'Harbor View · branded queries',
+      'Measurement: complete · run run-7',
+      'Tracking changed 2026-10-09. Showing the 2026-10-07 sweep. New numbers after the next sweep.',
+      '',
+      'Mentioned  not measured (not in last sweep)',
+      'Cited      not measured (not in last sweep)',
+      '',
+      'Engine        Mentioned                         Cited',
+      'openai        not measured (not in last sweep)  not measured (not in last sweep)',
+    ])
+
+    // A sweep of the plan in effect now: the plan itself asks nothing of this type.
+    const current = await printed({ activeRevision: 2, measuredRevision: 2, awaitingSweep: false, trackingChangedAt: '2026-10-09T15:00:00.000Z' })
+    expect(current.slice(2, 5)).toEqual([
+      '',
+      'Mentioned  not measured (no questions of this type)',
+      'Cited      not measured (no questions of this type)',
+    ])
+    expect(current.join('\n')).not.toContain('not in last sweep')
+  })
+
   it('pages one Property\'s evidence with the same filters as the overview read', async () => {
     await command('measurement-plan property-evidence').run({
       positionals: ['acme'],

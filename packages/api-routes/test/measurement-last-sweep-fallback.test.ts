@@ -524,6 +524,27 @@ describe('last-sweep fallback on the location reads', () => {
       .toStrictEqual({ state: 'available', answeredResults: 2, targetMissResults: 1, recommendationOccurrences: 1 })
   })
 
+  it('credits named share of voice to the names the sweep ran with, not a competitor added since', async () => {
+    const plan = firstPlan()
+    const firstVersion = seedVersion(1, plan, FIRST_PLAN_AT)
+    activate(firstVersion)
+    seedRun(firstVersion, plan, { id: 'sweep-oct-7' })
+    const group = 'scope=group&groupKey=regional'
+    const before = (await overview(group)).body.namedShareOfVoice
+    // One answer names Challenger, the group's one competitor then: 1 of 1 credit.
+    expect(before?.denominator).toBe(1)
+    expect(before?.entries.map(entry => [entry.label, entry.credits, entry.share])).toStrictEqual([['Northstar', 0, 0], ['Challenger', 1, 1]])
+
+    // "Harborview" is in that same answer. Read under the new plan it would take a credit.
+    activate(seedVersion(2, changedPlan(next => {
+      next.groups[0]!.competitors.push({ stableKey: 'harborview', label: 'Harborview', domain: 'harborview.example', aliases: ['Harborview'] })
+    }), PUBLISH_AT))
+
+    const after = (await overview(`${group}&${FALLBACK}`)).body
+    expect(after.measurement).toMatchObject(AWAITING)
+    expect(after.namedShareOfVoice).toStrictEqual(before)
+  })
+
   it('keeps each type\'s numbers when a query changes type', async () => {
     // Harbor's shared query becomes Branded. Under the new plan its non-brand side is empty.
     sweptThenPublished(changedPlan(plan => {
@@ -618,9 +639,11 @@ describe('last-sweep fallback on the location reads', () => {
       plan.usageEdges = plan.usageEdges.filter(edge => edge.targetKey !== 'bayside')
     }))
 
+    // Each row keeps the group it sat in when the sweep ran. The active plan holds Bayside in none.
+    const metro = { groupKey: 'regional', label: 'Regional comparison' }
     for (const query of ['scope=all', 'scope=group&groupKey=regional']) {
       const list = (await overview(`${query}&${FALLBACK}`)).body
-      expect(list.properties.items.map(row => row.targetKey), query).toStrictEqual(['bayside', 'harbor'])
+      expect(list.properties.items.map(row => [row.targetKey, row.metro]), query).toStrictEqual([['bayside', metro], ['harbor', metro]])
       expect(list.metrics.propertiesMentioned, query).toStrictEqual(ONE_OF_TWO_LOCATIONS)
     }
     // Its answer still opens: the row above is one a fallback read listed.
@@ -654,6 +677,51 @@ describe('last-sweep fallback on the location reads', () => {
     expect(second.status).toBe(200)
     expect(second.body.properties.items.map(row => [row.targetKey, row.mentionCoverage])).toStrictEqual([['harbor', NO_POPULATION]])
     expect(second.body.properties.nextCursor).toBeNull()
+  })
+
+  it('answers a market added since with no numbers, on the last sweep\'s run', async () => {
+    sweptThenPublished(changedPlan(plan => {
+      plan.reportingScopes!.push({
+        stableKey: 'downtown', label: 'Downtown', kind: 'market', groupKey: 'regional',
+        usageEdges: [{ executionNodeKey: 'exec-nearby', targetKey: 'bayside', queryId: 'q-nearby' }],
+      })
+    }))
+
+    const market = await overview(`scope=market&marketKey=downtown&${FALLBACK}`)
+    expect(market.status).toBe(200)
+    expect(market.body.scope).toStrictEqual({ kind: 'market', key: 'downtown', label: 'Downtown' })
+    expect(market.body.measurement).toMatchObject({ ...AWAITING, state: 'complete', displayedRunId: 'sweep-oct-7', completedAt: SWEEP_AT })
+    expect(market.body.metrics).toStrictEqual({
+      propertiesMentioned: NO_POPULATION, mentionCoverage: NO_POPULATION, citationCoverage: NO_POPULATION,
+      brandPresence: NO_POPULATION, sov: NO_POPULATION,
+    })
+    expect(market.body.properties.items.map(row => [row.targetKey, row.mentionCoverage])).toStrictEqual([['bayside', NO_POPULATION]])
+    // The market the sweep did hold keeps its numbers.
+    expect((await overview(`scope=market&marketKey=uptown&${FALLBACK}`)).body.metrics.mentionCoverage).toStrictEqual(available(1, 2))
+  })
+
+  it('refuses the next page of a list the last sweep did not hold when tracking changes again', async () => {
+    const addCoastal = (plan: MeasurementPlanV2) => {
+      plan.groups.push({ stableKey: 'coastal', label: 'Coastal', targetKeys: ['harbor', 'bayside'], competitors: [] })
+    }
+    sweptThenPublished(changedPlan(addCoastal))
+    const query = 'scope=group&groupKey=coastal&limit=1'
+    const fallbackCursor = (await overview(`${query}&${FALLBACK}`)).body.properties.nextCursor!
+    const plainCursor = (await overview(query)).body.properties.nextCursor!
+
+    // These rows are the active plan's, and the second publish adds one to them.
+    activate(seedVersion(3, changedPlan(plan => {
+      addCoastal(plan)
+      addLakeside(plan)
+      plan.groups.at(-1)!.targetKeys.push('lakeside')
+    }, 'd'), SECOND_PUBLISH_AT))
+
+    // The same refusal with the param as without it: page two would come from another plan.
+    const message = 'The measurement overview cursor revision does not match the active plan.'
+    for (const [suffix, cursor] of [[`&${FALLBACK}`, fallbackCursor], ['', plainCursor]] as const) {
+      const next = await refused('measurement-overview', `${query}${suffix}&cursor=${cursor}`)
+      expect([next.status, next.body.error.message], suffix).toStrictEqual([400, message])
+    }
   })
 
   it('refuses a location in neither plan, with and without the param', async () => {
@@ -736,6 +804,44 @@ describe('last-sweep fallback on the location reads', () => {
     }
     // The active plan's label, as today: a comparable sweep is read under the active plan.
     expect((await overview(`scope=group&groupKey=regional&${FALLBACK}`)).body.scope.label).toBe('Regional comparison (renamed)')
+  })
+
+  it('does not carry a label-only publish made between the sweep and the tracking change', async () => {
+    // Revision 2 renames Harbor Homes and adds a market over queries already asked. It reads the sweep as its own.
+    const displayOnly = (plan: MeasurementPlanV2) => {
+      plan.targets[0]!.label = 'Harbor Homes (renamed)'
+      plan.reportingScopes!.push({
+        stableKey: 'downtown', label: 'Downtown', kind: 'market', groupKey: 'regional',
+        usageEdges: [{ executionNodeKey: 'exec-nearby', targetKey: 'bayside', queryId: 'q-nearby' }],
+      })
+    }
+    const { firstVersion } = sweptThenPublished(null)
+    const renamed = firstPlan()
+    displayOnly(renamed)
+    activate(seedVersion(2, renamed, PUBLISH_AT, firstVersion))
+    expect((await overview(`scope=property&targetKey=harbor&${FALLBACK}`)).body.scope.label).toBe('Harbor Homes (renamed)')
+    expect((await overview(`scope=market&marketKey=downtown&${FALLBACK}`)).body.metrics.mentionCoverage).toStrictEqual(available(0, 2))
+
+    // Revision 3 is a tracking change on top of it.
+    activate(seedVersion(3, changedPlan(plan => { displayOnly(plan); addParkingQuery(plan) }, 'd'), SECOND_PUBLISH_AT))
+
+    // The sweep is read under revision 1, the plan it ran with, as AI Visibility reads it.
+    const location = (await overview(`scope=property&targetKey=harbor&${FALLBACK}`)).body
+    expect(location.measurement).toMatchObject({
+      activeRevision: 3, measuredRevision: 1, awaitingSweep: true, trackingChangedAt: SECOND_PUBLISH_AT, displayedRunId: 'sweep-oct-7',
+    })
+    // The location's numbers do not move.
+    expect(location.metrics.mentionCoverage).toStrictEqual(available(1, 2))
+    expect(location.metrics.citationCoverage).toStrictEqual(available(0, 2))
+    // Its label is the sweep-time one on every read, so a caller takes the current name from the plan.
+    expect(location.scope.label).toBe('Harbor Homes')
+    expect((await evidence(`targetKey=harbor&shape=answers&${FALLBACK}`)).body.property.label).toBe('Harbor Homes')
+    expect((await competitors(`targetKey=harbor&${FALLBACK}`)).body.property.label).toBe('Harbor Homes')
+    expect((await questions(`targetKey=harbor&${FALLBACK}`)).body.property.label).toBe('Harbor Homes')
+    // The market that publish added was not in revision 1, so it reads as not in the last sweep.
+    const market = (await overview(`scope=market&marketKey=downtown&${FALLBACK}`)).body
+    expect(market.measurement).toMatchObject({ measuredRevision: 1, awaitingSweep: true, displayedRunId: 'sweep-oct-7' })
+    expect(market.metrics.mentionCoverage).toStrictEqual(NO_POPULATION)
   })
 
   it('names the newer publish after two publishes, and still the one sweep', async () => {
@@ -848,6 +954,25 @@ describe('last-sweep fallback on the location reads', () => {
     // Without the param the cursor's run belongs to another plan, as any old run does.
     const reversed = await refused('measurement-property-evidence', `targetKey=harbor&shape=answers&limit=3&cursor=${fallbackCursor}`)
     expect([reversed.status, reversed.body.error.code]).toStrictEqual([422, 'MEASUREMENT_RUN_REVISION_MISMATCH'])
+  })
+
+  it('keeps paging the last sweep when tracking changes again between two pages', async () => {
+    sweptThenPublished(changedPlan(addParkingQuery))
+    const listed = (await overview(`scope=all&limit=1&${FALLBACK}`)).body.properties.nextCursor!
+    const answered = (await evidence(`targetKey=harbor&shape=answers&limit=3&${FALLBACK}`)).body.answers!.nextCursor!
+
+    activate(seedVersion(3, changedPlan(plan => { addParkingQuery(plan); addLakeside(plan) }, 'd'), SECOND_PUBLISH_AT))
+
+    // These rows are the sweep's own, under the plan it ran with. A later publish cannot move them.
+    const again = { activeRevision: 3, measuredRevision: 1, awaitingSweep: true, trackingChangedAt: SECOND_PUBLISH_AT, displayedRunId: 'sweep-oct-7' }
+    const rows = await overview(`scope=all&limit=1&${FALLBACK}&cursor=${listed}`)
+    expect(rows.status).toBe(200)
+    expect(rows.body.properties.items.map(row => [row.targetKey, row.mentionCoverage])).toStrictEqual([['harbor', available(1, 2)]])
+    expect(rows.body.measurement).toMatchObject(again)
+    const answers = await evidence(`targetKey=harbor&shape=answers&limit=3&${FALLBACK}&cursor=${answered}`)
+    expect(answers.status).toBe(200)
+    expect(answers.body.answers!.items.map(answer => [answer.provider, answer.queryText])).toStrictEqual([['openai', 'homes near harbor']])
+    expect(answers.body.measurement).toMatchObject(again)
   })
 
   it('never falls back to a probe, a spot check, a partial sweep or a sweep of a schema v1 plan', async () => {

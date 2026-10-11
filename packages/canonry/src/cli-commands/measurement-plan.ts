@@ -265,7 +265,7 @@ export const MEASUREMENT_PLAN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['measurement-plan', 'property-evidence'],
-    usage: 'canonry measurement-plan property-evidence <project> --target-key <key> [--query-class all|branded|non-brand] [--provider <p>] [--location <l>] [--run-id <id>] [--fallback last-sweep] [--shape sources|answers|other-queries] [--cursor <c>] [--limit N] [--format json|jsonl]',
+    usage: 'canonry measurement-plan property-evidence <project> --target-key <key> [--query-class all|branded|non-brand] [--provider <p>] [--location <l>] [--run-id <id>] [--fallback last-sweep] [--shape sources|answers|other-queries] [--cursor <c>] [--limit N] [--format json|jsonl] (--fallback last-sweep reads the last completed sweep after a tracking change)',
     options: { ...PROPERTY_SCOPE_OPTIONS, shape: stringOption(), cursor: stringOption(), limit: stringOption() },
     run: input => {
       const usage = 'canonry measurement-plan property-evidence <project> --target-key <key>'
