@@ -58,8 +58,30 @@ describe('universal MCP operations guidance', () => {
     const expanded = await client.callTool({ name: 'canonry_help', arguments: { intent: 'status', includeCatalog: true } })
     const compactLive = compact.structuredContent?.liveTools as string[]
     const expandedLive = expanded.structuredContent?.liveTools as string[]
+    const billedTools = [
+      'canonry_ads_account',
+      'canonry_ads_geo_search',
+      'canonry_ads_live_delivery',
+      'canonry_ads_conversion_pixels',
+      'canonry_ads_conversion_event_settings',
+    ]
+    const googleMarketingDiscoveryTools = [
+      'canonry_google_ads_customers',
+      'canonry_gtm_accounts',
+      'canonry_gtm_containers',
+      'canonry_gtm_workspaces',
+    ]
     expect(expandedLive).toEqual(compactLive)
     expect(expandedLive).toContain('canonry_ga_properties')
+    expect(compactLive).toEqual(expect.arrayContaining([...billedTools, ...googleMarketingDiscoveryTools]))
+    expect(expandedLive).toEqual(expect.arrayContaining([...billedTools, ...googleMarketingDiscoveryTools]))
+    for (const name of ['canonry_google_ads_sync', 'canonry_gtm_sync']) {
+      const tool = canonryMcpTools.find(candidate => candidate.name === name)
+      expect(tool).toMatchObject({
+        access: 'write',
+        annotations: { readOnlyHint: false, openWorldHint: true },
+      })
+    }
   })
 
   it.each(CANONRY_MCP_TIERS)('only routes to offered stored reads on hosted %s profiles', async tier => {
