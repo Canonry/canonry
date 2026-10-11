@@ -71,16 +71,19 @@ describe('CLI and MCP operation access metadata', () => {
   it('classifies added route boundaries by actual effect', () => {
     expect(operationAccess('POST', '/api/v1/apply/preview')).toBe('live')
     expect(operationAccess('POST', '/api/v1/projects/{name}/competitor-changes/preview')).toBe('stored')
+    expect(operationAccess('POST', '/api/v1/projects/{name}/queries/replace-preview')).toBe('stored')
     expect(operationAccess('GET', '/api/v1/projects/{name}/competitor-suggestions')).toBe('stored')
     expect(operationAccess('PATCH', '/api/v1/projects/{name}')).toBe('write')
     expect(operationAccess('GET', '/api/v1/doctor')).toBe('live')
-    expect(operationAccess('GET', '/api/v1/projects/{name}/bing/coverage')).toBe('write')
+    expect(operationAccess('POST', '/api/v1/projects/{name}/measurement-discovery')).toBe('live')
+    expect(operationAccess('GET', '/api/v1/projects/{name}/discover/sessions/{id}/harvest')).toBe('live')
+    expect(operationAccess('GET', '/api/v1/cdp/status')).toBe('live')
     expect(operationAccess('GET', '/api/v1/projects/{name}/bing/performance')).toBe('live')
+    expect(operationAccess('GET', '/api/v1/projects/{name}/bing/coverage')).toBe('write')
     expect(operationAccess('GET', '/api/v1/projects/{name}/results/export')).toBe('stored')
     expect(operationAccess('GET', '/api/v1/google/callback')).toBe('write')
     expect(operationAccess('GET', '/api/v1/projects/{name}/google/callback')).toBe('write')
     expect(operationAccess('GET', '/api/v1/google-marketing/callback')).toBe('write')
-    expect(operationAccess('POST', '/api/v1/projects/{name}/queries/replace-preview')).toBe('stored')
   })
 
   it('covers the known stored GET catalog while keeping unknown GETs live', () => {
