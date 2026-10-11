@@ -158,6 +158,25 @@ describe('buildCompetitorSuggestions', () => {
     expect(tracked.candidates[0]).toMatchObject({ domain: 'rival.example', tracked: true, namingAnswers: 1 })
   })
 
+  it('keeps bare-add matching for untracked domains inside a frozen scope', () => {
+    const result = buildCompetitorSuggestions({
+      project,
+      minAnswers: 1,
+      answers: [{
+        ...answer('a1', 'run-1', 'Regionalonly is a useful choice.', ['regionalonly.example']),
+        competitors: [],
+      }],
+      classifications: new Map(),
+      tracked: [],
+      claimedCompetitorAdds: new Set(),
+    })
+
+    expect(result.candidates[0]).toMatchObject({
+      domain: 'regionalonly.example', namingAnswers: 1, status: 'suggested', tracked: false,
+      names: [{ name: 'Regionalonly', answerCount: 1 }],
+    })
+  })
+
   it('records shared hosts when sources use multiple subdomains', () => {
     const result = buildCompetitorSuggestions({
       project,
