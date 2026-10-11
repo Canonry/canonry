@@ -40,11 +40,15 @@ import { TrackedTable, TrackedTableSkeleton } from './TrackedTable.js'
 import { TrackedToolbar } from './TrackedToolbar.js'
 import { TRACKED_BULK_MAX, type TrackedPlace } from './tracked-actions.js'
 import { downloadTrackedCsv, trackedRowsCsv } from './tracked-export.js'
-import { activeFilterCount, DEFAULT_TRACKED_FILTERS, matchesTrackedFilters, type TrackedResultCell } from './tracked-filters.js'
+import { activeFilterCount, DEFAULT_TRACKED_FILTERS, matchesTrackedFilters, trackedFiltersPatch, type TrackedResultCell } from './tracked-filters.js'
 import type { TrackedFilters, TrackedRowAction, TrackedRowVm, TrackedType } from './tracked-types.js'
 import { DEFAULT_TRACKED_SORT, engineSignal, resultClasses, sortTrackedRows, toTrackedRows, type TrackedCoverage, type TrackedSort } from './tracked-view-model.js'
 
-type PageProps = TrackedQueriesPageProps & TrackedPageHostProps & { composer: TrackingComposerState }
+type PageProps = TrackedQueriesPageProps & TrackedPageHostProps & {
+  composer: TrackingComposerState
+  /** The host's URL patch. Each one is a new history entry, unless it is told to replace the entry it is on. */
+  onSelectionChange?: (patch: Record<string, unknown>, options?: { replace?: boolean }) => void
+}
 
 const PAGE_SIZES = [25, 50, 100] as const
 /** One page is as many rows as one change takes, so "Select this page" never passes the limit. */
@@ -103,6 +107,9 @@ function resultCells(row: TrackedRowVm, engines: readonly string[], coverage: Tr
   })))
 }
 
+/** The Place control in the project's header, which is outside this page. Choosing a place from it leaves the focus on it. */
+const placeControl = () => document.querySelector<HTMLElement>('summary.visibility-scope-trigger')
+
 /** The search reads the query and the place it is about, so a market or a location finds its queries by name. */
 const searchText = (row: TrackedRowVm) => `${row.queryText} ${row.subject.kind === 'market' || row.subject.kind === 'location' ? row.subject.label : ''}`.toLocaleLowerCase()
 
@@ -132,8 +139,9 @@ function searchParamValue(value: string): string {
  * The saved views are the whole project's, so they show with no Place chosen.
  * Each prints the server's count. Four of them (the URL's `trackedView`) list
  * locations, markets or patterns in place of the queries; two set a filter.
- * A link to a row and a view are never both drawn: the link wins, and
- * choosing a view drops the link.
+ * A market's or a location's name in such a list opens its queries: the
+ * Place, on a clean list. A link to a row and a view are never both drawn:
+ * the link wins, and choosing a view drops the link.
  */
 export function AdvancedTrackedPage(props: PageProps) {
   const { onSelectionChange, rootLabel = MARKET_SCOPE_COPY.allLocations } = props
@@ -277,9 +285,10 @@ function TrackedPage({
     if (!awaitingResults && selectedRows.length !== selectedIds.size) setSelectedIds(new Set(selectedRows.map(row => row.queryId)))
   }, [awaitingResults, selectedRows, selectedIds])
 
-  // The view leaves the URL too, so it is not waiting behind the linked row.
+  // The view leaves the URL too, so it is not waiting behind the linked row. The address with both was never a page
+  // of its own, so its history entry is replaced: Back leaves the page, and is not sent forward from it again.
   useEffect(() => {
-    if (linked && trackedView !== undefined) onSelectionChange?.({ trackedView: undefined })
+    if (linked && trackedView !== undefined) onSelectionChange?.({ trackedView: undefined }, { replace: true })
   }, [linked, trackedView, onSelectionChange])
 
   // A view lists places in place of the queries, so no query stays ticked behind it.
@@ -298,6 +307,22 @@ function TrackedPage({
     closingView.current = false
     if (document.activeElement === document.body) (searchField() ?? list.current?.querySelector<HTMLElement>('input, button'))?.focus({ preventScroll: true })
   }, [view])
+
+  // A name in a view's list opens the queries of that market or location: the Place picker's own patch, which also
+  // closes the view and clears the filters, the URL's own keys. It is one patch, so the browser's Back returns to
+  // the view's list. The name goes with its list: once the place is up, the Place control takes the focus, where
+  // choosing a place from it leaves it.
+  const openingPlace = useRef(false)
+  const openPlace = (to: TrackedPlace) => {
+    openingPlace.current = true
+    setSearch('')
+    onSelectionChange?.({ measurementScope: to.kind === 'location' ? 'property' : to.kind, measurementScopeKey: to.key, trackedView: undefined, ...trackedFiltersPatch(DEFAULT_TRACKED_FILTERS) })
+  }
+  useEffect(() => {
+    if (!openingPlace.current || view || measurementScope === 'project') return
+    openingPlace.current = false
+    if (document.activeElement === document.body) (placeControl() ?? searchField() ?? list.current?.querySelector<HTMLElement>('input, button'))?.focus()
+  }, [view, measurementScope, measurementScopeKey])
 
   // "Show all" took its own button off the page: once the place has changed, the search takes the focus it dropped.
   useEffect(() => {
@@ -535,6 +560,7 @@ function TrackedPage({
               failed={view === 'weak-markets' && results.isError}
               onRetry={() => { void results.refetch() }}
               onBack={closeView}
+              onOpen={openPlace}
               // The sheet opens on the row's market or location, whatever the Place.
               onAdd={canEdit ? to => openAddSheet(undefined, to) : undefined}
             />

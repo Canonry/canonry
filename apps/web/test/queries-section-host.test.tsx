@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { QueriesSection, type QueriesSectionProps, type TrackedPageHostProps } from '../src/components/project/DiscoverySection.js'
+import { TrackedSavedViews } from '../src/components/project/queries/advanced/TrackedSavedViews.js'
 import { DEFAULT_TRACKED_FILTERS } from '../src/components/project/queries/advanced/tracked-filters.js'
 import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
@@ -189,16 +190,20 @@ test('a failed workspace read keeps the tabs and offers one action, which reads 
   expect(reads).toBe(2)
 })
 
+const UPTOWN = { measurementScope: 'market' as const, measurementScopeKey: 'uptown', queryClass: 'all' as const }
+
 test.each([
-  // The host knows the mode from a plan it already read: the skeleton has the advanced page's strip and toolbar,
-  // and for a writer the room of the Add button, which takes a line of its own in a narrow frame.
-  ['an advanced project the host knows', 'advanced' as const, undefined, 2, 1],
-  ['an advanced project read by a viewer, who gets no Add button', 'advanced' as const, 'viewer' as const, 2, 0],
+  // The host knows the mode from a plan it already read: the skeleton has the advanced page's strip, Views row and
+  // toolbar, and the room of its actions, which take a line of their own in a narrow frame: Export CSV, and Add for a writer.
+  ['an advanced project the host knows', 'advanced' as const, undefined, undefined, 3, 2],
+  ['an advanced project read by a viewer, who gets Export CSV and no Add button', 'advanced' as const, 'viewer' as const, undefined, 3, 1],
+  // The Views row is the whole project's: a place has none, so no room is held for one.
+  ['an advanced project opened on a place', 'advanced' as const, undefined, UPTOWN, 2, 2],
   // Until any read says which page this is, a plain list of rows stands for both.
-  ['a project whose mode is not known yet', undefined, undefined, 0, 0],
-])('while the workspace loads, %s gets a skeleton and no words', async (_label, trackedMode, role, above, actions) => {
+  ['a project whose mode is not known yet', undefined, undefined, undefined, 0, 0],
+])('while the workspace loads, %s gets a skeleton and no words', async (_label, trackedMode, role, selection, above, actions) => {
   onTestFinished(mockFetch(() => new Promise<Response>(() => {})))
-  renderSection({ trackedMode }, role)
+  renderSection({ trackedMode, selection }, role)
   const rows = await screen.findByRole('status', { name: 'Loading queries' })
   expect(rows.children).toHaveLength(8)
   // What stands above the rows is drawing only: nothing to read and nothing to reach.
@@ -210,6 +215,27 @@ test.each([
   expect(within(body).queryAllByRole('button')).toEqual([])
   expect(actionsSlot().childElementCount).toBe(actions)
   expect(actionsSlot().textContent).toBe('')
+})
+
+test('the skeleton holds one line of the Views row at the row\'s own height, with a mouse and with a finger', async () => {
+  onTestFinished(mockFetch(() => new Promise<Response>(() => {})))
+  renderSection({ trackedMode: 'advanced' })
+  const rows = await screen.findByRole('status', { name: 'Loading queries' })
+  // Under the strip and over the toolbar, where the row lands.
+  const held = rows.parentElement!.children[1] as HTMLElement
+  const row = render(<TrackedSavedViews views={{ noPropertyQueries: { count: 2, targetKeys: [] }, thinMarkets: { count: 1, floor: 4, marketKeys: [] }, patternGaps: { count: 0, patterns: [] } }} active={[]} onSelect={() => {}} />).container.firstElementChild as HTMLElement
+  const rules = parseCompiledCss(await compileAppStyles([held, row].flatMap(element => [element, ...element.querySelectorAll('*')]).flatMap(element => [...element.classList])))
+  // A row is its padding, its hairline and its tallest child: a view's button, 32px with a mouse and 44px below md and under a finger.
+  const frames = [undefined, '@media (width < 48rem)', '@media (pointer: coarse)']
+  const shape = (element: HTMLElement, child: Element) => [
+    ...['padding-block', 'border-bottom-width'].map(property => compiledElementProperty(rules, element, property)),
+    ...frames.map(frame => compiledElementProperty(rules, child, 'height', frame)),
+  ]
+  const button = within(row).getAllByRole('button').at(-1)!
+  expect(shape(held, held.lastElementChild!)).toEqual(shape(row, button))
+  expect(shape(row, button).map(value => cssLengthPx(value!, rules))).toEqual([8, 1, 32, 44, 44])
+  // One line that never scrolls the page sideways.
+  expect([compiledElementProperty(rules, held, 'overflow'), compiledElementProperty(rules, held, 'flex-wrap')]).toEqual(['hidden', undefined])
 })
 
 test('a refresh that fails keeps the loaded page and says so, with one Retry that reads again', async () => {

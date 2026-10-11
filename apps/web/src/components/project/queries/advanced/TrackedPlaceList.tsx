@@ -12,8 +12,8 @@ import type { TrackedPlace } from './tracked-actions.js'
 
 type Workspace = Pick<QueryTrackingWorkspaceResponse, 'targets' | 'groups' | 'markets'>
 
-/** One line of a list. Every number is a field of the workspace read, or the length of a list it returned. */
-type PlaceRow = { kind: 'location' | 'market'; key: string; label: string; groups: string[]; locations?: number; marketQueries?: number }
+/** One line of a list. Every number is a field of the workspace read, or the length of a list it returned. `listed` is false for a key the workspace no longer lists, which is named by its key. */
+type PlaceRow = { kind: 'location' | 'market'; key: string; label: string; listed: boolean; groups: string[]; locations?: number; marketQueries?: number }
 /** A pattern's two lists hold market names, by name. */
 type PatternRow = { kind: 'pattern'; key: string; label: string; name: string | null; pattern: string; used: string[]; missing: string[] }
 type Row = PlaceRow | PatternRow
@@ -25,6 +25,8 @@ type Sort = { key: SortKey; direction: 'asc' | 'desc' }
 const PAGE_SIZES = [25, 50, 100] as const
 const TOUCH = 'pointer-coarse:min-h-11 max-md:min-h-11'
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
+// A place's name as the control that opens its queries: the query table's own quiet link. Its focus ring stands 4px clear of the text, which stays on the column's edge.
+const NAME = `-mx-1 cursor-pointer rounded-sm px-1 text-left font-medium text-heading underline-offset-[3px] hover:underline focus-visible:underline pointer-coarse:min-w-11 max-md:min-w-11 ${FOCUS} ${TOUCH}`
 /** Names sort as a person reads them: case aside, numbers by value. */
 const collator = new Intl.Collator('en', { sensitivity: 'base', numeric: true })
 const whole = (value: number) => value.toLocaleString('en-US')
@@ -92,6 +94,7 @@ function marketRows(keys: readonly string[], workspace: Workspace): PlaceRow[] {
       kind: 'market' as const,
       key,
       label: market?.label ?? key,
+      listed: market !== undefined,
       groups: market?.groupKey ? [groupLabel(market.groupKey)] : [],
       locations: market?.targetKeys?.length,
       marketQueries: market?.counts?.marketQueries,
@@ -107,6 +110,7 @@ function rowsOf(view: TrackedPlaceView, workspace: Workspace, views: QueryTracki
       kind: 'location' as const,
       key,
       label: targets.get(key)?.label ?? key,
+      listed: targets.has(key),
       groups: workspace.groups.filter(group => group.targetKeys.includes(key)).map(group => group.label),
       marketQueries: targets.get(key)?.counts?.marketQueries,
     }))
@@ -190,7 +194,7 @@ function MarketCount({ pattern, side, onShow }: { pattern: PatternRow; side: Sid
  * where each row is a block, from a Sort control. The parent keys it, so each
  * list starts on its first page with a clean search.
  */
-function PlaceList({ label, kind, rows, total, before, after, empty, defaultSort, token, backLabel, onBack, pending, failed, onRetry, onAdd, onShowMarkets }: {
+function PlaceList({ label, kind, rows, total, before, after, empty, defaultSort, token, backLabel, onBack, pending, failed, onRetry, onOpen, onAdd, onShowMarkets }: {
   /** The table's name. */
   label: string
   kind: Row['kind']
@@ -207,6 +211,7 @@ function PlaceList({ label, kind, rows, total, before, after, empty, defaultSort
   pending: boolean
   failed: boolean
   onRetry?: () => void
+  onOpen?: (place: TrackedPlace) => void
   onAdd?: (place: TrackedPlace) => void
   onShowMarkets?: (templateId: string, side: Side) => void
 }) {
@@ -344,7 +349,12 @@ function PlaceList({ label, kind, rows, total, before, after, empty, defaultSort
               </tr>
             ) : (
               <tr key={row.key} className={`tracked-row ${STACK.row}`}>
-                <td className={`break-words font-medium text-strong ${STACK.cell} ${STACK.name}`}>{row.label}</td>
+                <td className={`break-words font-medium text-strong ${STACK.cell} ${STACK.name}`}>
+                  {/* The name is the label, and "Open" is only heard. A key the workspace no longer lists has no queries to open, so it stays text. */}
+                  {onOpen && row.listed
+                    ? <button type="button" className={NAME} aria-label={`Open ${row.label}`} onClick={() => onOpen({ kind: row.kind, key: row.key, label: row.label })}>{row.label}</button>
+                    : row.label}
+                </td>
                 {/* A name can hold a comma, so a comma cannot part two of them. */}
                 <td data-label="Group" className={`break-words text-secondary ${STACK.cell} ${STACK.group} ${STACK.labelled}`}>{row.groups.length > 0 ? row.groups.join(' · ') : 'None'}</td>
                 {row.kind === 'market' ? <td data-label="Locations" className={`${NUMBER} ${STACK.cell} ${STACK.number} ${STACK.labelled}`}>{row.locations === undefined ? null : whole(row.locations)}</td> : null}
@@ -401,16 +411,19 @@ function PlaceList({ label, kind, rows, total, before, after, empty, defaultSort
  * row's numbers are its place's own `counts`. Thin markets opens with the
  * fewest market queries first.
  *
- * A location and a market offer one action, which opens the Add queries sheet
- * on that place (`onAdd`; left out for a viewer, who gets no action column).
- * A market with no location takes no query, so it shows why and offers none.
- * A pattern's two counts each open the markets behind them as that same list
- * of markets, under the pattern's name, with Back to patterns. Weakest markets
- * reads the last sweep's non-brand results, so its count names that type, and
- * it is the one view that can be `pending` (the results are still being read)
- * or `failed` (they did not load).
+ * A location's or a market's name opens the queries of that place (`onOpen`),
+ * for a viewer too, since it changes nothing. The name of a key the workspace
+ * no longer lists is plain text. A location and a market offer one action,
+ * which opens the Add queries sheet on that place (`onAdd`; left out for a
+ * viewer, who gets no action column). A market with no location takes no
+ * query, so it shows why and offers none. A pattern's two counts each open
+ * the markets behind them as that same list of markets, under the pattern's
+ * name, with Back to patterns. Weakest markets reads the last sweep's
+ * non-brand results, so its count names that type, and it is the one view
+ * that can be `pending` (the results are still being read) or `failed` (they
+ * did not load).
  */
-export function TrackedPlaceList({ view, workspace, views, weakMarkets, pending = false, failed = false, onRetry, onBack, onAdd }: {
+export function TrackedPlaceList({ view, workspace, views, weakMarkets, pending = false, failed = false, onRetry, onBack, onOpen, onAdd }: {
   view: TrackedPlaceView
   workspace: Workspace
   views: QueryTrackingViews
@@ -419,6 +432,7 @@ export function TrackedPlaceList({ view, workspace, views, weakMarkets, pending 
   failed?: boolean
   onRetry?: () => void
   onBack: () => void
+  onOpen?: (place: TrackedPlace) => void
   onAdd?: (place: TrackedPlace) => void
 }) {
   const root = useRef<HTMLDivElement>(null)
@@ -468,6 +482,7 @@ export function TrackedPlaceList({ view, workspace, views, weakMarkets, pending 
           onBack={() => { moved.current = opened; setOpened(null) }}
           pending={false}
           failed={false}
+          onOpen={onOpen}
           onAdd={onAdd}
         />
       ) : (
@@ -488,6 +503,7 @@ export function TrackedPlaceList({ view, workspace, views, weakMarkets, pending 
           pending={pending}
           failed={failed}
           onRetry={onRetry}
+          onOpen={onOpen}
           onAdd={onAdd}
           onShowMarkets={(templateId, side) => { moved.current = 'in'; setOpened({ templateId, side }) }}
         />

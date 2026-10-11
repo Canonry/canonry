@@ -240,13 +240,21 @@ function TrackedQueriesSection({
   })
 
   if (workspaceQuery.isLoading) {
-    // An advanced page opens on its number strip and toolbar, so their room is held and the rows land where they were drawn.
+    // An advanced page opens on its number strip, its Views row and its toolbar, so their room is held and the rows land where they were drawn.
+    const action = <div aria-hidden="true" className="skeleton-text h-8 w-28 pointer-coarse:h-11 max-md:h-11" />
     return (
       <div className="query-tracking-workspace">
         {trackedMode === 'advanced' ? <>
-          {/* The page's Add button takes a line of its own in a narrow frame, so a writer's page holds that line too. */}
-          {host.actionsSlot && canWrite && !isEmbed() ? createPortal(<div aria-hidden="true" className="skeleton-text h-8 w-28 pointer-coarse:h-11 max-md:h-11" />, host.actionsSlot) : null}
+          {/* The page's actions take a line of their own in a narrow frame, so that line is held too: Export CSV for every role, and Add for a writer. */}
+          {host.actionsSlot && !isEmbed() ? createPortal(<>{action}{canWrite ? action : null}</>, host.actionsSlot) : null}
           <TrackedSummaryGridSkeleton />
+          {/* The Views row is the whole project's, so its room is held only where no Place is chosen: its label and one line of buttons, as tall as the row's. */}
+          {selection.measurementScope === 'project' ? (
+            <div aria-hidden="true" className="flex items-center gap-2 overflow-hidden border-b border-default py-2">
+              <div className="skeleton-text w-12 shrink-0" />
+              {Array.from({ length: 6 }, (_, index) => <div key={index} className="skeleton-text h-8 w-28 shrink-0 pointer-coarse:h-11 max-md:h-11" />)}
+            </div>
+          ) : null}
           <div aria-hidden="true" className="py-3">
             <div className="skeleton-text h-8 w-full max-md:h-11" />
             <div className="mt-2 flex h-5 items-center"><div className="skeleton-text w-24" /></div>

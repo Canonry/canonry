@@ -93,6 +93,28 @@ describe('InfoTooltip caution hit area', () => {
   })
 })
 
+describe('InfoTooltip align', () => {
+  it('hangs the bubble from the icon\'s left edge when asked to, and centres it on the icon otherwise', () => {
+    // A 16px icon at x=300, in a window wide enough for either bubble: 224px wide, centred on `left`.
+    vi.stubGlobal('innerWidth', 1024)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const rect = this.tagName === 'BUTTON' ? { left: 300, top: 340, width: 16, height: 16 } : { left: 0, top: 0, width: 0, height: 0 }
+      return { ...rect, x: rect.left, y: rect.top, right: rect.left + rect.width, bottom: rect.top + rect.height, toJSON: () => rect }
+    })
+    const { rerender } = render(<InfoTooltip text={NOTE} placement="bottom" align="start" />)
+    const trigger = screen.getByRole('button', { name: NOTE })
+    act(() => trigger.focus())
+    // Its left edge is the icon's: 300 + 224 / 2. The icon and the trigger are the ones every InfoTooltip draws.
+    expect([bubble()!.style.left, bubble()!.style.top]).toEqual(['412px', '356px'])
+    expect([[...trigger.classList], trigger.querySelector('circle') !== null]).toEqual([['info-tooltip-trigger'], true])
+    act(() => trigger.blur())
+
+    rerender(<InfoTooltip text={NOTE} placement="bottom" />)
+    act(() => screen.getByRole('button', { name: NOTE }).focus())
+    expect(bubble()!.style.left).toBe('308px')
+  })
+})
+
 describe('InfoTooltip default variant', () => {
   it('keeps the info circle, the neutral trigger and the bubble above it', () => {
     render(<InfoTooltip text="Help for a label." />)
