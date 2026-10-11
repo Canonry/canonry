@@ -4841,7 +4841,7 @@ export type DoctorReportDto = {
         title: string;
         status: 'ok' | 'warn' | 'fail' | 'skipped';
         /**
-         * Health checks page by default. Silent report advisories remain visible but never affect health alert state.
+         * Health checks page by default. Silent checks (report advisories and standing advisories) remain visible but never affect health alert state.
          */
         notificationPolicy?: 'health' | 'silent';
         /**
