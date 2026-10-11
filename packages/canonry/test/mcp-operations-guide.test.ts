@@ -39,7 +39,7 @@ describe('universal MCP operations guidance', () => {
     const response = await client.callTool({ name: 'canonry_help', arguments: { intent: 'status' } })
     expect(response.isError).not.toBe(true)
     const help = response.structuredContent!
-    expect(help).toMatchObject({ guideVersion: 'v1', mode: 'hosted-fixed-catalog', next: ['canonry_projects_list', 'canonry_project_overview'] })
+    expect(help).toMatchObject({ guideVersion: 'v1', mode: 'hosted-fixed-catalog', next: ['canonry_status', 'canonry_projects_list', 'canonry_project_overview'] })
     expect(help).not.toHaveProperty('loadToolkits')
     expect(help).not.toHaveProperty('toolkits')
     expect(JSON.stringify(help).length).toBeLessThan(2000)
