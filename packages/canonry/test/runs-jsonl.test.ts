@@ -142,7 +142,8 @@ describe('run list discovery and filtering', () => {
   })
 
   it('shows the stored list in root and run help', async () => {
-    expect((await captureCli(['--help'])).text).toContain('runs <project>')
+    expect((await captureCli(['--help'])).text).toContain('  runs ')
+    expect((await captureCli(['runs', '--help'])).text).toContain('canonry runs <project>')
     expect((await captureCli(['run', '--help'])).text).toContain('canonry run list <project>')
   })
 
