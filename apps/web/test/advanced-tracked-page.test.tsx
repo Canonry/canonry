@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, expect, onTestFinished, test, vi } from 'vitest'
-import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { queryTrackingResultsResponseSchema, queryTrackingWorkspaceResponseSchema } from '@ainyc/canonry-contracts'
 import type { QueryClass, QueryTrackingTrackedRow, UiTelemetryEvent } from '@ainyc/canonry-contracts'
 
 import { DEFAULT_TRACKED_FILTERS } from '../src/components/project/queries/advanced/tracked-filters.js'
 import { formatObservedInstantMonthDay, observedInstant } from '../src/components/shared/ChartPrimitives.js'
+import { VisibilityScopePicker } from '../src/components/project/VisibilityScopePicker.js'
 import { VISIBILITY_TOOLBAR_COPY } from '../src/components/project/VisibilityTrendSection.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { configureUiTelemetry, resetUiTelemetryForTests } from '../src/lib/ui-telemetry.js'
@@ -1395,6 +1396,71 @@ test('Add from a view\'s row opens the Add queries sheet on that market or locat
   expect(sheet.queryByText(/ · (Market|Location)$/)).toBeNull()
 })
 
+/** The filters as the URL holds them, each under its own key. A key that is cleared is in the patch, with no value. */
+const CLEAN_FILTER_KEYS = { trackedSubject: undefined, trackedType: undefined, trackedStatus: undefined, trackedSource: undefined, trackedResult: undefined }
+
+test.each((['writer', 'viewer'] as const).flatMap(role => [
+  ['a location', role, 'no-location-queries', undefined, 'River Point', { measurementScope: 'property', measurementScopeKey: 'river' }],
+  ['a market', role, 'thin-markets', undefined, 'Downtown, Lakeshore', { measurementScope: 'market', measurementScopeKey: 'downtown' }],
+  ['a market behind a pattern\'s count', role, 'pattern-gaps', 'Show 1 market missing Best: Downtown, Lakeshore', 'Downtown, Lakeshore', { measurementScope: 'market', measurementScopeKey: 'downtown' }],
+] as const))('the name of %s opens its queries for a %s: the Place, the view closed and the filters clean, in one patch', async (_kind, role, trackedView, count, name, place) => {
+  installApi({ workspace: withViews })
+  const onSelectionChange = vi.fn()
+  const onTrackedFiltersChange = vi.fn()
+  // Filters set before the view opened are still in the URL behind it.
+  const props = { trackedView, onSelectionChange, trackedFilters: { ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' as const, subject: 'hand-picked' as const }, onTrackedFiltersChange }
+  if (role === 'viewer') renderViewerWorkspace(props)
+  else renderWorkspace(props)
+  if (count) fireEvent.click(await screen.findByRole('button', { name: count }))
+  const control = await screen.findByRole('button', { name: `Open ${name}` })
+  expect(control.textContent).toBe(name)
+
+  fireEvent.click(control)
+  // The Place picker's own two keys, the view's key and each filter's, cleared: every key is in the one patch.
+  expect(onSelectionChange.mock.calls).toStrictEqual([[{ ...place, trackedView: undefined, ...CLEAN_FILTER_KEYS }]])
+  // Nothing else goes to the host, so the browser's Back is one step to the view's list.
+  expect(onTrackedFiltersChange).not.toHaveBeenCalled()
+})
+
+test('a place opened from a view lists its queries on a clean search, and the Place control takes the focus the name dropped', async () => {
+  installApi({ workspace: withViews })
+  // The Place control as the project page draws it, above the section.
+  const options = portfolio().scopeOptions
+  const header = render(<VisibilityScopePicker labelVisibility="sr-only" options={options} selected={options[0]} onSelect={() => {}} />)
+  const placeControl = header.container.querySelector('summary')!
+  const props = renderWorkspace({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, type: 'branded' }, onTrackedFiltersChange: vi.fn() })
+  await screen.findByText(HARBOR)
+  fireEvent.change(searchBox(), { target: { value: 'harbor point' } })
+  expect(listed()).toEqual([HARBOR])
+
+  props.rerender({ trackedView: 'thin-markets' })
+  const market = screen.getByRole('button', { name: 'Open Downtown, Lakeshore' })
+  market.focus()
+  fireEvent.click(market)
+  // The URL owns the place and the view: nothing moves until the host passes them back.
+  expect(screen.getByRole('table', { name: 'Thin markets' })).toBeTruthy()
+  expect(document.activeElement).toBe(market)
+
+  props.rerender({ selection: { measurementScope: 'market', measurementScopeKey: 'downtown', queryClass: 'all' }, trackedView: undefined, trackedFilters: DEFAULT_TRACKED_FILTERS })
+  expect(screen.queryByRole('table', { name: 'Thin markets' })).toBeNull()
+  // Every query asked in the market, of either type: the search typed before the view opened is gone with the filters.
+  expect(searchBox().value).toBe('')
+  expect(listed()).toEqual([DOWNTOWN, HARBOR])
+  expect(strip()['Market queries']).toBe('3')
+  // The name went with its list. The Place control holds the focus, as it does after a place is chosen from it.
+  expect(document.activeElement).toBe(placeControl)
+
+  // On a page with no Place control, the search of the place's queries takes it.
+  header.unmount()
+  props.rerender({ selection: PROJECT, trackedView: 'no-location-queries', trackedFilters: DEFAULT_TRACKED_FILTERS })
+  const location = screen.getByRole('button', { name: 'Open River Point' })
+  location.focus()
+  fireEvent.click(location)
+  props.rerender({ selection: { measurementScope: 'property', measurementScopeKey: 'river', queryClass: 'all' }, trackedView: undefined, trackedFilters: DEFAULT_TRACKED_FILTERS })
+  expect(listed()).toEqual([UPTOWN_BEST, UPTOWN_PETS])
+  expect(document.activeElement).toBe(searchBox())
+})
+
 test('a viewer opens a view and reads its list, with no action to take', async () => {
   installApi({ workspace: withViews })
   renderViewerWorkspace({ trackedView: 'thin-markets' })
@@ -1458,8 +1524,8 @@ test('a link to a row wins over a view in the same URL, choosing a view drops th
   expect(linked.hasAttribute('data-highlighted')).toBe(true)
   expect(screen.queryByRole('table', { name: 'Thin markets' })).toBeNull()
   expect(pressedViews()).toEqual([])
-  // The view leaves the URL, so it is not waiting behind the row.
-  expect(vi.mocked(props.onSelectionChange).mock.calls).toEqual([[{ trackedView: undefined }]])
+  // The view leaves the URL, so it is not waiting behind the row. Its entry is replaced: Back must not land on the address with both and be sent on again.
+  expect(vi.mocked(props.onSelectionChange).mock.calls).toEqual([[{ trackedView: undefined }, { replace: true }]])
   props.rerender({ trackedView: undefined, trackingQueryId: 'q-uptown-best' })
   expect(vi.mocked(props.onSelectionChange)).toHaveBeenCalledTimes(1)
 

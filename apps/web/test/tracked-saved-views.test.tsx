@@ -82,6 +82,29 @@ describe('TrackedSavedViews', () => {
     expect(onSelect.mock.calls).toEqual([['thin-markets'], ['hand-picked']])
   })
 
+  test('a view with none is set back while it is off, with the border and the size of any other, and reads as any other once it is on', async () => {
+    const none = { ...VIEWS, thinMarkets: { count: 0, floor: 6, marketKeys: [] } }
+    const { container, rerender, onSelect } = renderViews({ views: none, weakMarkets: 'pending', notAsked: undefined })
+    // Only a count of none marks a view: one that holds something, one still loading and one with no number are as they were.
+    expect(buttons().filter(button => button.hasAttribute('data-empty')).map(button => button.getAttribute('aria-label'))).toEqual(['Thin markets, 0', 'Hand-picked, 0'])
+    const rules = await rulesFor(container)
+    const [full, empty] = [buttons()[0]!, buttons()[1]!]
+    const tone = (element: Element) => compiledElementProperty(rules, element, 'color')
+    // Its name is in the muted tone, and its number takes that tone from it.
+    expect([tone(full), tone(full.querySelector('span')!)]).toEqual(['var(--color-text-strong)', 'var(--color-text-secondary)'])
+    expect([tone(empty), tone(empty.querySelector('span')!)]).toEqual(['var(--color-text-muted)', undefined])
+    for (const property of ['border-color', 'height', 'font-size', 'padding-inline']) expect(compiledElementProperty(rules, empty, property), property).toBe(compiledElementProperty(rules, full, property))
+    expect((empty as HTMLButtonElement).disabled).toBe(false)
+
+    // On, it is drawn as any view that is on. It still holds none, and still says so.
+    rerender(<TrackedSavedViews views={none} weakMarkets={{ count: 4 }} notAsked={38} handPicked={0} active={['thin-markets', 'not-asked']} onSelect={onSelect} />)
+    const pressed = await rulesFor(container)
+    const [on, onEmpty] = [buttons()[4]!, buttons()[1]!]
+    expect([on.getAttribute('aria-label'), onEmpty.getAttribute('aria-label'), onEmpty.hasAttribute('data-empty')]).toEqual(['Not asked, 38', 'Thin markets, 0', true])
+    for (const property of ['color', 'border-color', 'background-color']) expect(compiledElementProperty(pressed, onEmpty, property), property).toBe(compiledElementProperty(pressed, on, property))
+    expect(compiledElementProperty(pressed, onEmpty.querySelector('span')!, 'color')).toBe('var(--color-text-secondary)')
+  })
+
   test('the views that are on read as pressed', () => {
     const { rerender, onSelect } = renderViews({ active: ['thin-markets'] })
     const pressed = () => buttons().filter(button => button.getAttribute('aria-pressed') === 'true').map(button => button.getAttribute('aria-label'))
@@ -203,10 +226,13 @@ describe('TrackedPlaceList', () => {
   function renderList(props: Partial<Parameters<typeof TrackedPlaceList>[0]> = {}) {
     const onBack = vi.fn()
     const onAdd = vi.fn()
-    const all = { view: 'thin-markets' as const, workspace: WORKSPACE, views: VIEWS, onBack, onAdd, ...props }
+    const onOpen = vi.fn()
+    const all = { view: 'thin-markets' as const, workspace: WORKSPACE, views: VIEWS, onBack, onAdd, onOpen, ...props }
     const view = render(<TrackedPlaceList {...all} />)
-    return { ...view, onBack, onAdd }
+    return { ...view, onBack, onAdd, onOpen }
   }
+  /** The names a list offers to open, as their buttons are named. */
+  const openers = (name: string) => within(table(name)).queryAllByRole('button', { name: /^Open / }).map(button => button.getAttribute('aria-label'))
   const table = (name: string) => screen.getByRole('table', { name })
   const headers = (name: string) => within(table(name)).getAllByRole('columnheader').map(header => header.textContent)
   /** Each row's cells as text, the action cell as its button's or its note's text. */
@@ -290,10 +316,44 @@ describe('TrackedPlaceList', () => {
     expect(screen.getByRole('button', { name: 'Descending' })).toBeTruthy()
   })
 
-  test('a viewer reads the same list with no action column and no dead button', () => {
+  test('a name is the control that opens its place, named Open and the name, and a key the workspace no longer lists stays text', () => {
+    // A market and a location the workspace no longer lists are named by their keys: there is no place to open.
+    const { rerender, onBack, onAdd, onOpen } = renderList({ views: { ...VIEWS, thinMarkets: { count: 12, floor: 6, marketKeys: ['uptown', 'retired', 'lakeview'] } } })
+    expect(firstCells('Thin markets')).toEqual(['Lakeview', 'Uptown', 'retired'])
+    // A market with no location left is still a place of the workspace, so it opens too.
+    expect(openers('Thin markets')).toEqual(['Open Lakeview', 'Open Uptown'])
+    const name = within(table('Thin markets')).getByRole('button', { name: 'Open Uptown' })
+    // The name is the label: "Open" is only heard.
+    expect([name.textContent, (name as HTMLButtonElement).type]).toEqual(['Uptown', 'button'])
+    expect(within(table('Thin markets')).getByText('retired').closest('button')).toBeNull()
+
+    rerender(<TrackedPlaceList view="no-location-queries" workspace={WORKSPACE} views={VIEWS} onBack={onBack} onAdd={onAdd} onOpen={onOpen} />)
+    expect(firstCells('Location gaps')).toEqual(['gone', 'River Point', 'Summit Lofts'])
+    expect(openers('Location gaps')).toEqual(['Open River Point', 'Open Summit Lofts'])
+  })
+
+  test('a name is a quiet link: underlined under the pointer and under focus, with the list\'s focus ring and a 44px target for a finger', async () => {
+    const { container } = renderList()
+    const rules = await rulesFor(container)
+    const name = within(table('Thin markets')).getByRole('button', { name: 'Open Uptown' })
+    expect(compiledElementProperty(rules, name, 'color')).toBe('var(--color-text-heading)')
+    expect(compiledElementProperty(rules, name, 'text-decoration-line')).toBeUndefined()
+    const states = await compileAppStyles([...name.classList].filter(candidate => /^(?:hover|focus-visible):/.test(candidate)))
+    expect(states).toMatch(/&:hover \{\s*@media \(hover: hover\) \{\s*text-decoration-line: underline/)
+    expect(states).toMatch(/&:focus-visible \{\s*text-decoration-line: underline/)
+    expect(states).toMatch(/&:focus-visible \{[^}]*--tw-ring-shadow:[^;]*calc\(2px \+ var\(--tw-ring-offset-width\)\)/)
+    for (const frame of [BELOW_MD, '@media (pointer: coarse)']) {
+      expect([compiledElementProperty(rules, name, 'min-height', frame), compiledElementProperty(rules, name, 'min-width', frame)], frame).toEqual(['calc(var(--spacing) * 11)', 'calc(var(--spacing) * 11)'])
+    }
+    // The ring stands clear of the text, and the text stays on the column's edge.
+    expect([compiledElementProperty(rules, name, 'padding-inline'), compiledElementProperty(rules, name, 'margin-inline')]).toEqual(['calc(var(--spacing) * 1)', 'calc(var(--spacing) * -1)'])
+  })
+
+  test('a viewer reads the same list with no action column and no dead button, and can open a place', () => {
     renderList({ onAdd: undefined })
     expect(headers('Thin markets')).toEqual(['Market', 'Group', 'Locations', 'Market queries'])
     expect(cells('Thin markets').map(row => row.length)).toEqual([4, 4, 4])
+    expect(openers('Thin markets')).toEqual(['Open Lakeview', 'Open Downtown, Lakeshore', 'Open Uptown'])
     expect(screen.queryByRole('button', { name: /^Add / })).toBeNull()
     expect(screen.queryByText('No locations')).toBeNull()
     expect(screen.getAllByRole('button').filter(button => (button as HTMLButtonElement).disabled)).toEqual([])
@@ -482,7 +542,7 @@ describe('TrackedPlaceList', () => {
     expect(generated).toHaveLength(1)
     expect(await compileAppStyles(generated)).toMatch(/@container \(width < 52rem\) \{\s*&::before \{\s*--tw-content: attr\(data-label\);/)
     // Where a finger is the pointer, and below md, the row's action is a 44px target.
-    expect(compiledElementProperty(rules, within(row).getByRole('button'), 'min-height', BELOW_MD)).toBe('calc(var(--spacing) * 11)')
+    expect(compiledElementProperty(rules, within(row).getByRole('button', { name: 'Add market query for Downtown, Lakeshore' }), 'min-height', BELOW_MD)).toBe('calc(var(--spacing) * 11)')
   })
 
   test('a pattern\'s counts are 44px targets where a finger is the pointer and below md', async () => {

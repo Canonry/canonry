@@ -172,13 +172,17 @@ export function useTooltipBubble(text: string, { placement, align = 'center', ho
  * tone: a note about the figure beside it, rather than help for a label. It
  * opens below unless told otherwise, the placement that keeps the bubble
  * inside a narrow viewport, because it sits beside figures anywhere in a row.
+ *
+ * `align="start"` hangs the bubble from the icon's left edge, for an icon at
+ * the left of a column, where a centred bubble would run out of it.
  */
-export function InfoTooltip({ text, variant = 'info', placement = variant === 'caution' ? 'bottom' : 'top' }: {
+export function InfoTooltip({ text, variant = 'info', placement = variant === 'caution' ? 'bottom' : 'top', align }: {
   text: string
   variant?: 'info' | 'caution'
   placement?: 'top' | 'bottom'
+  align?: 'center' | 'start'
 }) {
-  const bubble = useTooltipBubble(text, { placement })
+  const bubble = useTooltipBubble(text, { placement, align })
 
   return (
     <span className="info-tooltip-wrapper" {...bubble.wrapper}>

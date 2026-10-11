@@ -15,6 +15,7 @@ import { Button } from '../ui/button.js'
 import { QueryResearchWorkspace } from './queries/QueryResearchWorkspace.js'
 import { SimpleTrackedQueries } from './queries/SimpleTrackedQueries.js'
 import { AdvancedTrackedPage } from './queries/advanced/AdvancedTrackedPage.js'
+import { trackedPlaceView } from './queries/advanced/TrackedSavedViews.js'
 import { TrackedSummaryGridSkeleton } from './queries/advanced/TrackedSummaryGrid.js'
 import { TrackedTableSkeleton } from './queries/advanced/TrackedTable.js'
 import { DEFAULT_TRACKED_FILTERS } from './queries/advanced/tracked-filters.js'
@@ -52,7 +53,8 @@ export interface QueriesSectionProps {
     queryClass: 'all' | 'branded' | 'non-brand' | 'unknown'
     measurementRunId?: string
   }
-  onSelectionChange?: (patch: Record<string, unknown>) => void
+  /** The host's URL patch. Each one is a new history entry, unless it is told to replace the entry it is on. */
+  onSelectionChange?: (patch: Record<string, unknown>, options?: { replace?: boolean }) => void
   trackingQueryId?: string
   onTrackingQueryIdChange?: (queryId: string | undefined) => void
   /** Read-only state that pauses Confirm; the server does not refuse these commits yet. */
@@ -240,13 +242,24 @@ function TrackedQueriesSection({
   })
 
   if (workspaceQuery.isLoading) {
-    // An advanced page opens on its number strip and toolbar, so their room is held and the rows land where they were drawn.
+    // An advanced page opens on its number strip, its Views row and its toolbar, so their room is held and the rows land where they were drawn.
+    const action = <div aria-hidden="true" className="skeleton-text h-8 w-28 pointer-coarse:h-11 max-md:h-11" />
+    const wholeProject = selection.measurementScope === 'project'
+    // A view's list draws no Export CSV, so a link that opens on one holds no room for it. A link to a row opens the queries.
+    const opensOnView = wholeProject && trackedPlaceView(host.trackedView) !== undefined && trackingQueryId === undefined
     return (
       <div className="query-tracking-workspace">
         {trackedMode === 'advanced' ? <>
-          {/* The page's Add button takes a line of its own in a narrow frame, so a writer's page holds that line too. */}
-          {host.actionsSlot && canWrite && !isEmbed() ? createPortal(<div aria-hidden="true" className="skeleton-text h-8 w-28 pointer-coarse:h-11 max-md:h-11" />, host.actionsSlot) : null}
-          <TrackedSummaryGridSkeleton />
+          {/* The page's actions take a line of their own in a narrow frame, so that line is held too: Export CSV for every role, and Add for a writer. */}
+          {host.actionsSlot && !isEmbed() ? createPortal(<>{opensOnView ? null : action}{canWrite ? action : null}</>, host.actionsSlot) : null}
+          <TrackedSummaryGridSkeleton cells={wholeProject ? 5 : 4} />
+          {/* The Views row is the whole project's, so its room is held only where no Place is chosen: its label and one line of buttons, as tall as the row's. */}
+          {wholeProject ? (
+            <div aria-hidden="true" className="flex items-center gap-2 overflow-hidden border-b border-default py-2">
+              <div className="skeleton-text w-12 shrink-0" />
+              {Array.from({ length: 6 }, (_, index) => <div key={index} className="skeleton-text h-8 w-28 shrink-0 pointer-coarse:h-11 max-md:h-11" />)}
+            </div>
+          ) : null}
           <div aria-hidden="true" className="py-3">
             <div className="skeleton-text h-8 w-full max-md:h-11" />
             <div className="mt-2 flex h-5 items-center"><div className="skeleton-text w-24" /></div>
