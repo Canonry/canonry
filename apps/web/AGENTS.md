@@ -113,7 +113,7 @@ the section's overflow clip. Inside, compact label/value lists with tabular
 numbers in a fixed-width panel hold, in order: the coverage rows, "Likely range
 (95%)", the most criticized Properties, then a `<p>` caption "Not counted in
 the favorable share:" above the checks not yet analyzed and each no-opinion
-outcome under its plain label (`OUTCOME_LABEL`). "Most criticized properties"
+outcome under its plain label (`OUTCOME_LABEL`). "Most criticized locations"
 lists the server's `summary.criticizedProperties` (`mostCriticizedProperties`
 maps its `keys` onto the property `breakdowns` in the server's order; the
 component never ranks or cuts), with "N of total" beside the title when the
