@@ -1,4 +1,4 @@
-import { trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema } from '@ainyc/canonry-contracts'
+import { trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema } from '@ainyc/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
@@ -901,6 +901,11 @@ const doctorInputSchema = z.object({
   checks: z.array(z.string().min(1)).optional().describe('Optional check IDs or wildcard prefixes (e.g. "google.auth.*", "config.providers"). Empty/omitted runs all matching checks for the chosen scope.'),
 })
 
+const statusInputSchema = z.object({
+  project: projectNameSchema.optional().describe('Optional project name. Omit to read every visible project.'),
+  problems: z.boolean().optional().describe('Return only failing, stale, or never-synced projects and integrations.'),
+})
+
 const contentTargetsInputSchema = z.object({
   project: projectNameSchema,
   limit: z.number().int().positive().max(500).optional().describe('Max rows. Defaults to all. Use a small number (3-10) when summarizing for the user.'),
@@ -1561,6 +1566,18 @@ export const canonryMcpTools = [
     annotations: readAnnotations(true),
     openApiOperations: ['GET /api/v1/doctor', 'GET /api/v1/projects/{name}/doctor'],
     handler: (client, input) => client.runDoctor({ project: input.project, checkIds: input.checks, ...(input.reportMonth ? { reportMonth: input.reportMonth } : {}) }),
+  }),
+  defineTool({
+    name: 'canonry_status',
+    title: 'Read integration status',
+    description: 'Read stored synchronization status for one project or the instance. This is a read-only local database read and never calls providers or runs doctor checks.',
+    access: 'read',
+    tier: 'core',
+    inputSchema: statusInputSchema,
+    outputSchema: instanceStatusDtoSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/status'],
+    handler: (client, input) => client.getStatus({ project: input.project, problems: input.problems }),
   }),
   defineTool({
     name: 'canonry_project_export',

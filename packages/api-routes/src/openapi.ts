@@ -6654,6 +6654,22 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/status',
+    summary: 'Read stored integration status',
+    description: 'Reads stored synchronization state for every visible project. This endpoint performs no provider calls and does not run or write doctor checks.',
+    tags: ['status'],
+    parameters: [
+      { name: 'project', in: 'query', description: 'Optional project name.', schema: stringSchema },
+      { name: 'problems', in: 'query', description: 'When true, return only projects and integrations with a problem.', schema: booleanSchema },
+    ],
+    responses: {
+      200: jsonResponse('Stored status returned.', 'InstanceStatusDto'),
+      403: errorResponse('Project is outside the API key scope.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/doctor',
     summary: 'Run project health checks',
     description:

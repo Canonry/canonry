@@ -532,7 +532,7 @@ const cacheBlindSpotCheck: CheckDefinition = {
  * keeping up. Traffic syncs run on schedules measured in minutes, so a source
  * hours behind is losing ground every cycle even while it reports success.
  */
-const SYNC_LAG_WARN_MS = 3 * 60 * 60_000
+export const SYNC_LAG_WARN_MS = 3 * 60 * 60_000
 
 function formatLag(ms: number): string {
   const hours = Math.floor(ms / 3_600_000)

@@ -105,6 +105,7 @@ import {
   VercelLogsApiError,
 } from '@ainyc/canonry-integration-vercel'
 import { doctorRoutes, type DoctorRoutesOptions } from './doctor.js'
+import { statusRoutes } from './status.js'
 import { discoveryRoutes } from './discovery/index.js'
 import type { DiscoveryRoutesOptions } from './discovery/index.js'
 import { technicalAeoRoutes } from './technical-aeo.js'
@@ -875,6 +876,13 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       bundledSkills: opts.bundledSkills,
       getAgentPluginState: opts.getAgentPluginState,
       getUpdateStatus: opts.getUpdateStatus,
+      getGoogleMarketingDoctorInput: opts.getGoogleMarketingDoctorInput,
+    })
+    await api.register(statusRoutes, {
+      db: opts.db,
+      googleConnectionStore: opts.googleConnectionStore,
+      bingConnectionStore: opts.bingConnectionStore,
+      ga4CredentialStore: opts.ga4CredentialStore,
       getGoogleMarketingDoctorInput: opts.getGoogleMarketingDoctorInput,
     })
     // Local-only extension hook: canonry passes the Aero agent routes here

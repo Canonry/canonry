@@ -4866,6 +4866,46 @@ export type DoctorReportDto = {
     }>;
 };
 
+export type InstanceStatusDto = {
+    generatedAt: string;
+    summary: {
+        projects: number;
+        ok: number;
+        failing: number;
+        stale: number;
+        neverSynced: number;
+    };
+    projects: Array<{
+        project: string;
+        displayName: string;
+        state: 'ok' | 'failing' | 'stale' | 'never-synced';
+        health: {
+            status: 'ok' | 'warn' | 'fail';
+            code: string;
+            summary: string;
+            checkedAt: string;
+            notifiedAt: string | null;
+        } | null;
+        integrations: Array<{
+            integration: 'gsc' | 'ga' | 'gbp' | 'bing' | 'ads' | 'google-ads' | 'gtm' | 'traffic';
+            label: string;
+            runKind: string;
+            sourceId: string | null;
+            state: 'ok' | 'failing' | 'stale' | 'never-synced';
+            lastSuccessAt: string | null;
+            latestRunAt: string | null;
+            latestRunId: string | null;
+            latestStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | null;
+            latestTrigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe' | null;
+            consecutiveFailures: number;
+            latestError: string | null;
+            dataThrough: string | null;
+            dataAgeDays: number | null;
+            doctorChecks: Array<string>;
+        }>;
+    }>;
+};
+
 export type Ga4AiReferralDailyDto = {
     days: Array<{
         date: string;
@@ -29719,6 +29759,44 @@ export type GetApiV1DoctorResponses = {
 };
 
 export type GetApiV1DoctorResponse = GetApiV1DoctorResponses[keyof GetApiV1DoctorResponses];
+
+export type GetApiV1StatusData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Optional project name.
+         */
+        project?: string;
+        /**
+         * When true, return only projects and integrations with a problem.
+         */
+        problems?: boolean;
+    };
+    url: '/api/v1/status';
+};
+
+export type GetApiV1StatusErrors = {
+    /**
+     * Project is outside the API key scope.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1StatusError = GetApiV1StatusErrors[keyof GetApiV1StatusErrors];
+
+export type GetApiV1StatusResponses = {
+    /**
+     * Stored status returned.
+     */
+    200: InstanceStatusDto;
+};
+
+export type GetApiV1StatusResponse = GetApiV1StatusResponses[keyof GetApiV1StatusResponses];
 
 export type GetApiV1ProjectsByNameDoctorData = {
     body?: never;

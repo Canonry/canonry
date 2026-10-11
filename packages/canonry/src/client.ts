@@ -269,6 +269,7 @@ import type {
   ProjectOverviewDto,
   ProjectSearchResponseDto,
   DoctorReportDto,
+  InstanceStatusDto,
   TrafficAnalyticsResponse,
   TrafficAnalyticsPeriodDays,
   OrganicEvidenceDto,
@@ -327,6 +328,7 @@ import {
   // Projects
   getApiV1Projects,
   getApiV1ProjectsByName,
+  getApiV1Status,
   putApiV1ProjectsByName,
   deleteApiV1ProjectsByName,
   getApiV1ProjectsByNameDeletePreview,
@@ -1302,9 +1304,9 @@ export class ApiClient {
     )
   }
 
-  async getStatus(project: string): Promise<ProjectDto> {
-    return this.invoke<ProjectDto>(() =>
-      getApiV1ProjectsByName({ client: this.heyClient, path: { name: project } }),
+  async getStatus(opts?: { project?: string; problems?: boolean }): Promise<InstanceStatusDto> {
+    return this.invoke<InstanceStatusDto>(() =>
+      getApiV1Status({ client: this.heyClient, query: { project: opts?.project, problems: opts?.problems } }),
     )
   }
 

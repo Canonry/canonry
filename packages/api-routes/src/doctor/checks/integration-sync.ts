@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, gte, inArray, isNull, notInArray, or } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, notInArray, or } from 'drizzle-orm'
 import {
   CheckCategories,
   CheckScopes,
@@ -11,6 +11,7 @@ import {
   serializeRunError,
   truncateUtf16,
   type RunKind,
+  type RunStatus,
 } from '@ainyc/canonry-contracts'
 import { gbpLocations, runs } from '@ainyc/canonry-db'
 import type { CheckDefinition, CheckOutput, DoctorContext, ProjectInfo } from '../types.js'
@@ -40,17 +41,19 @@ import { gaConnected } from './data-freshness.js'
  * block keeps this check, and the error it names, in the alert.
  */
 export const SYNC_FAILURE_WINDOW = 3
+export const GBP_SYNC_STALE_DAYS = 4
 const SUMMARY_ERROR_LIMIT = 300
 
 const FINISHED_STATUSES = [RunStatuses.completed, RunStatuses.partial, RunStatuses.failed]
 const SUCCESS_STATUSES = [RunStatuses.completed, RunStatuses.partial]
+const SYNC_FAILURE_HISTORY_LIMIT = 1000
 
 /**
  * `connected` carries the time the current connection was made, when the
  * store records it. `no-selected-locations` is a GBP connection with nothing
  * to sync: every sync fails by design, as `gbp.data.recent-sync` also skips.
  */
-type Connection =
+export type Connection =
   | { state: 'connected'; since: string | null }
   | { state: 'not-connected' }
   | { state: 'store-unavailable' }
@@ -76,7 +79,7 @@ interface SyncFailureSpec {
  * disconnect keeps the redacted connection row and deletes the credential, so
  * the row alone does not mean connected.
  */
-function googleMarketingConnection(provider: 'googleAds' | 'gtm') {
+export function googleMarketingConnection(provider: 'googleAds' | 'gtm') {
   return (ctx: DoctorContext): Connection => {
     const input = ctx.getGoogleMarketingDoctorInput?.(ctx)
     if (!input) return { state: 'store-unavailable' }
@@ -84,7 +87,7 @@ function googleMarketingConnection(provider: 'googleAds' | 'gtm') {
   }
 }
 
-function gscConnection(ctx: DoctorContext, project: ProjectInfo): Connection {
+export function gscConnection(ctx: DoctorContext, project: ProjectInfo): Connection {
   if (!ctx.googleConnectionStore) return { state: 'store-unavailable' }
   return ctx.googleConnectionStore.getConnection(project.canonicalDomain, 'gsc') ? CONNECTED : { state: 'not-connected' }
 }
@@ -93,7 +96,7 @@ function gscConnection(ctx: DoctorContext, project: ProjectInfo): Connection {
  * A GBP connection belongs to the domain, so every project on it counts as
  * connected, but a sync only has work once the project selects a location.
  */
-function gbpConnection(ctx: DoctorContext, project: ProjectInfo): Connection {
+export function gbpConnection(ctx: DoctorContext, project: ProjectInfo): Connection {
   if (!ctx.googleConnectionStore) return { state: 'store-unavailable' }
   if (!ctx.googleConnectionStore.getConnection(project.canonicalDomain, 'gbp')) return { state: 'not-connected' }
   const selected = ctx.db
@@ -111,7 +114,7 @@ function gbpConnection(ctx: DoctorContext, project: ProjectInfo): Connection {
  * Grade only runs since the connection the sync uses (service account first,
  * as the sync resolves it, then OAuth).
  */
-function gaConnection(ctx: DoctorContext, project: ProjectInfo): Connection {
+export function gaConnection(ctx: DoctorContext, project: ProjectInfo): Connection {
   const state = gaConnected(ctx)
   if (state === 'store-unavailable') return { state }
   if (state === 'not-connected') return { state }
@@ -172,9 +175,68 @@ function skipped(code: string, summary: string): CheckOutput {
   return { status: CheckStatuses.skipped, code, summary, remediation: null }
 }
 
-function latestErrorText(raw: string | null): string {
+export function latestErrorText(raw: string | null): string {
   const parsed = parseRunError(raw)
   return parsed ? formatRunErrorOneLine(parsed) : 'no error was recorded'
+}
+
+export interface SyncRunState {
+  latestStatus: RunStatus | null
+  latestRunAt: string | null
+  latestRunId: string | null
+  latestTrigger: string | null
+  latestError: string | null
+  lastSuccessAt: string | null
+  consecutiveFailures: number
+  repeatedFailure: boolean
+}
+
+export function readSyncRunState(
+  db: DoctorContext['db'],
+  projectId: string,
+  kind: RunKind,
+  options: { since?: string | null; nothingToSyncErrors?: readonly string[]; sourceId?: string | null } = {},
+): SyncRunState {
+  const scope = and(
+    eq(runs.projectId, projectId),
+    eq(runs.kind, kind),
+    ...(options.sourceId ? [eq(runs.sourceId, options.sourceId)] : []),
+    ...(options.nothingToSyncErrors?.length ? [or(isNull(runs.error), notInArray(runs.error, [...options.nothingToSyncErrors]))] : []),
+  )
+  const graded = options.since ? and(scope, gte(runs.createdAt, options.since)) : scope
+  const recent = db
+    .select({ id: runs.id, status: runs.status, trigger: runs.trigger, error: runs.error, createdAt: runs.createdAt })
+    .from(runs)
+    .where(and(graded, inArray(runs.status, FINISHED_STATUSES)))
+    .orderBy(desc(runs.createdAt))
+    .limit(SYNC_FAILURE_WINDOW)
+    .all()
+  const lastSuccess = db
+    .select({ createdAt: runs.createdAt, finishedAt: runs.finishedAt })
+    .from(runs)
+    .where(and(graded, inArray(runs.status, SUCCESS_STATUSES)))
+    .orderBy(desc(runs.createdAt))
+    .limit(1)
+    .get()
+  const failureHistory = db
+    .select({ status: runs.status, createdAt: runs.createdAt })
+    .from(runs)
+    .where(and(graded, eq(runs.status, RunStatuses.failed)))
+    .orderBy(desc(runs.createdAt))
+    .limit(SYNC_FAILURE_HISTORY_LIMIT)
+    .all()
+  const failuresSinceSuccess = failureHistory.filter(run => !lastSuccess || run.createdAt > lastSuccess.createdAt).length
+  const latest = recent[0]
+  return {
+    latestStatus: latest?.status as RunStatus | undefined ?? null,
+    latestRunAt: latest?.createdAt ?? null,
+    latestRunId: latest?.id ?? null,
+    latestTrigger: latest?.trigger ?? null,
+    latestError: latest?.status === RunStatuses.failed ? latestErrorText(latest.error) : null,
+    lastSuccessAt: lastSuccess ? lastSuccess.finishedAt ?? lastSuccess.createdAt : null,
+    consecutiveFailures: failuresSinceSuccess,
+    repeatedFailure: recent.length >= SYNC_FAILURE_WINDOW && recent.every(run => run.status === RunStatuses.failed),
+  }
 }
 
 function gradeSyncFailures(ctx: DoctorContext, spec: SyncFailureSpec): CheckOutput {
@@ -194,67 +256,32 @@ function gradeSyncFailures(ctx: DoctorContext, spec: SyncFailureSpec): CheckOutp
   }
 
   const nothingToSync = spec.nothingToSyncErrors ?? []
-  const scope = and(
-    eq(runs.projectId, project.id),
-    eq(runs.kind, spec.kind),
-    ...(nothingToSync.length > 0 ? [or(isNull(runs.error), notInArray(runs.error, [...nothingToSync]))] : []),
-  )
-  // Runs from before the current connection say nothing about it.
-  const graded = connection.since ? and(scope, gte(runs.createdAt, connection.since)) : scope
-  const recent = ctx.db
-    .select({ status: runs.status, error: runs.error, createdAt: runs.createdAt })
-    .from(runs)
-    .where(and(graded, inArray(runs.status, FINISHED_STATUSES)))
-    .orderBy(desc(runs.createdAt))
-    .limit(SYNC_FAILURE_WINDOW)
-    .all()
-  if (recent.length === 0) {
+  const state = readSyncRunState(ctx.db, project.id, spec.kind, { since: connection.since, nothingToSyncErrors: nothingToSync })
+  if (state.latestStatus === null) {
     return skipped(code('no-runs'), `${spec.label} is connected but no sync has finished yet.`)
   }
 
-  // Bounded like the streak, so the two describe the same runs: a success
-  // under an earlier connection is not this connection's last success.
-  const lastSuccess = ctx.db
-    .select({ createdAt: runs.createdAt, finishedAt: runs.finishedAt })
-    .from(runs)
-    .where(and(graded, inArray(runs.status, SUCCESS_STATUSES)))
-    .orderBy(desc(runs.createdAt))
-    .limit(1)
-    .get()
-  const failuresSinceSuccess = ctx.db
-    .select({ value: count() })
-    .from(runs)
-    .where(and(
-      graded,
-      eq(runs.status, RunStatuses.failed),
-      ...(lastSuccess ? [gt(runs.createdAt, lastSuccess.createdAt)] : []),
-    ))
-    .get()?.value ?? 0
-  const lastSuccessAt = lastSuccess ? lastSuccess.finishedAt ?? lastSuccess.createdAt : null
-  const latest = recent[0]!
-  const latestFailed = latest.status === RunStatuses.failed
-  const latestError = latestFailed ? latestErrorText(latest.error) : null
+  const latestFailed = state.latestStatus === RunStatuses.failed
   const details = {
     runKind: spec.kind,
     window: SYNC_FAILURE_WINDOW,
-    consecutiveFailures: failuresSinceSuccess,
-    latestStatus: latest.status,
-    latestRunAt: latest.createdAt,
-    latestError,
-    lastSuccessAt,
+    consecutiveFailures: state.consecutiveFailures,
+    latestStatus: state.latestStatus,
+    latestRunAt: state.latestRunAt,
+    latestError: state.latestError,
+    lastSuccessAt: state.lastSuccessAt,
     // Where the graded runs start (the current connection); null grades every run.
     gradedSince: connection.since,
   }
 
-  const repeatedFailure = recent.length >= SYNC_FAILURE_WINDOW && recent.every(run => run.status === RunStatuses.failed)
-  if (repeatedFailure) {
-    const errorText = latestErrorText(latest.error)
+  if (state.repeatedFailure) {
+    const errorText = state.latestError ?? 'no error was recorded'
     const shownError = errorText.length > SUMMARY_ERROR_LIMIT ? `${truncateUtf16(errorText, SUMMARY_ERROR_LIMIT)}...` : errorText
-    const lastSuccessText = lastSuccessAt ?? (connection.since ? `none since connecting at ${connection.since}` : 'never')
+    const lastSuccessText = state.lastSuccessAt ?? (connection.since ? `none since connecting at ${connection.since}` : 'never')
     return {
       status: CheckStatuses.fail,
       code: code('repeated-failures'),
-      summary: `The last ${failuresSinceSuccess} ${spec.label} syncs failed (last success: ${lastSuccessText}). Latest error: ${shownError}`,
+      summary: `The last ${state.consecutiveFailures} ${spec.label} syncs failed (last success: ${lastSuccessText}). Latest error: ${shownError}`,
       remediation: `Fix the cause the latest error names (DNS or network filtering of the API host, credentials, or account access), then run \`${spec.syncCommand(project.name)}\`.`,
       details,
     }
@@ -264,7 +291,7 @@ function gradeSyncFailures(ctx: DoctorContext, spec: SyncFailureSpec): CheckOutp
     code: code('ok'),
     summary: latestFailed
       ? `The latest ${spec.label} sync failed, but not ${SYNC_FAILURE_WINDOW} in a row.`
-      : `The latest ${spec.label} sync ${latest.status === RunStatuses.partial ? 'partly completed' : 'completed'}.`,
+      : `The latest ${spec.label} sync ${state.latestStatus === RunStatuses.partial ? 'partly completed' : 'completed'}.`,
     remediation: null,
     details,
   }

@@ -75,10 +75,13 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['status'],
-    usage: 'canonry status <project> [--format json]',
+    usage: 'canonry status <project>|--all [--problems] [--format json|jsonl]',
+    options: { all: { type: 'boolean', default: false }, problems: { type: 'boolean', default: false } },
     run: async (input) => {
-      const project = requireProject(input, 'status', 'canonry status <project> [--format json]')
-      await showStatus(project, input.format)
+      const all = getBoolean(input.values, 'all')
+      const usage = 'canonry status <project>|--all [--problems] [--format json|jsonl]'
+      const project = all ? undefined : requireProject(input, 'status', usage)
+      await showStatus(project, input.format, { all, problems: getBoolean(input.values, 'problems') })
     },
   },
   {

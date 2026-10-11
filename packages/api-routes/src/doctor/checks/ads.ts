@@ -3,8 +3,8 @@ import { CheckCategories, CheckScopes, CheckStatuses } from '@ainyc/canonry-cont
 import { adsConnections } from '@ainyc/canonry-db'
 import type { CheckDefinition } from '../types.js'
 
-const RECENT_SYNC_WARN_DAYS = 7
-const RECENT_SYNC_FAIL_DAYS = 30
+export const ADS_RECENT_SYNC_WARN_DAYS = 7
+export const ADS_RECENT_SYNC_FAIL_DAYS = 30
 
 // Both checks are presence/freshness only — no network calls. The key is
 // validated against the upstream ad account at connect time; a doctor-side
@@ -97,20 +97,20 @@ const adsRecentSyncCheck: CheckDefinition = {
     const syncedAtMs = new Date(row.lastSyncedAt).getTime()
     const ageDays = (Date.now() - syncedAtMs) / (1000 * 60 * 60 * 24)
     const details = { lastSyncedAt: row.lastSyncedAt, ageDays: Math.round(ageDays) }
-    if (ageDays > RECENT_SYNC_FAIL_DAYS) {
+    if (ageDays > ADS_RECENT_SYNC_FAIL_DAYS) {
       return {
         status: CheckStatuses.fail,
         code: 'ads.data.stale',
-        summary: `Last ads sync was ${Math.round(ageDays)} days ago (> ${RECENT_SYNC_FAIL_DAYS}d).`,
+        summary: `Last ads sync was ${Math.round(ageDays)} days ago (> ${ADS_RECENT_SYNC_FAIL_DAYS}d).`,
         remediation: `Run \`canonry ads sync ${ctx.project.name}\` and check the ads-sync schedule.`,
         details,
       }
     }
-    if (ageDays > RECENT_SYNC_WARN_DAYS) {
+    if (ageDays > ADS_RECENT_SYNC_WARN_DAYS) {
       return {
         status: CheckStatuses.warn,
         code: 'ads.data.aging',
-        summary: `Last ads sync was ${Math.round(ageDays)} days ago (> ${RECENT_SYNC_WARN_DAYS}d).`,
+        summary: `Last ads sync was ${Math.round(ageDays)} days ago (> ${ADS_RECENT_SYNC_WARN_DAYS}d).`,
         remediation: `Schedule daily syncs: \`canonry schedule set ${ctx.project.name} --kind ads-sync --preset daily\`.`,
         details,
       }
