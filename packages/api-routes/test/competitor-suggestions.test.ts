@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiKeys, auditLog, competitors, createClient, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
@@ -158,21 +158,32 @@ describe('GET competitor suggestions', () => {
     }))
     for (let offset = 0; offset < rows.length; offset += 500) db.insert(querySnapshots).values(rows.slice(offset, offset + 500)).run()
 
-    const response = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/competitor-suggestions?window=all&minAnswers=2' })
-    expect(response.statusCode).toBe(400)
-    expect(response.json()).toMatchObject({
-      error: {
-        code: 'VALIDATION_ERROR',
-        details: {
-          reason: 'competitor-suggestions-answer-cap',
-          eligibleAnswers: 10_005,
-          maxAnswers: 10_000,
-          window: 'all',
-          groupKey: null,
+    const prepareSpy = vi.spyOn(db.$client, 'prepare')
+    try {
+      const response = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/competitor-suggestions?window=all&minAnswers=2' })
+      expect(response.statusCode).toBe(400)
+      expect(response.json()).toMatchObject({
+        error: {
+          code: 'VALIDATION_ERROR',
+          details: {
+            reason: 'competitor-suggestions-answer-cap',
+            eligibleAnswers: 10_005,
+            maxAnswers: 10_000,
+            window: 'all',
+            groupKey: null,
+          },
         },
-      },
-    })
-    expect(response.body).not.toContain('raw provider response')
+      })
+      expect(response.body).not.toContain('raw provider response')
+      const snapshotReads = prepareSpy.mock.calls
+        .map(([sql]) => sql)
+        .filter(sql => /from\s+["`]query_snapshots["`]/i.test(sql))
+      expect(snapshotReads.length).toBeGreaterThan(0)
+      expect(snapshotReads.every(sql => !/["`]query_snapshots["`]\s*\.\s*["`]answer_text["`]/i.test(sql))).toBe(true)
+      expect(snapshotReads.every(sql => !/["`]query_snapshots["`]\s*\.\s*["`]raw_response["`]/i.test(sql))).toBe(true)
+    } finally {
+      prepareSpy.mockRestore()
+    }
   })
 
   it('hydrates only eligible rows after filtering and preserves exact within-cap counts', () => {
