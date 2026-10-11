@@ -45,20 +45,6 @@ export interface CompetitorCompletionOptions {
   acknowledgeBulkAdd?: boolean
 }
 
-function printCompetitorPreviewImpact(preview: CompetitorChangePreviewResponse): void {
-  const { impact } = preview
-  const before = impact.before
-  const after = impact.after
-  const frame = impact.runIds.length > 0 ? `latest stored sweep, ${impact.runIds.length} run${impact.runIds.length === 1 ? '' : 's'}` : shareOfVoiceReason(before.reason ?? null) || 'no latest stored sweep'
-  const classLabel = impact.queryClass === 'pooled' ? 'pooled queries' : `${impact.queryClass} queries`
-  console.log(`Mention share ${formatPercent(before.percent, RatioUnits.percent)} -> ${formatPercent(after.percent, RatioUnits.percent)} (${frame}, ${classLabel}): project mentions ${before.projectMentions}, tracked competitor mentions ${before.competitorMentions} -> ${after.competitorMentions}; tracked competitors ${before.competitorCount} -> ${after.competitorCount}. Restates every stored period.`)
-  for (const caveat of impact.caveats) {
-    if (caveat === 'basis-changed') console.log('Caveat: the tracked competitor basis changed.')
-    if (caveat === 'auto-alias-rescan-pending') console.log('Caveat: answer-derived aliases are pending a rescan.')
-    if (caveat === 'pooled') console.log('Caveat: branded and non-brand queries are pooled because no usable project brand was configured.')
-  }
-}
-
 function completionTimeout(options: CompetitorCompletionOptions, dryRun = false): number | undefined {
   const raw = options.waitTimeout
   if (raw !== undefined && (!/^[1-9]\d*$/.test(raw) || !Number.isSafeInteger(Number(raw)))) {
