@@ -8,6 +8,7 @@ import {
   extractAnswerTextAnchors,
   isListingMarketplace,
   normalizeCompetitorDomain,
+  normalizeProjectDomain,
   hostOf,
   registrableDomain,
   compileBrandAliases,
@@ -130,7 +131,12 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
   sourceResults: number
 } {
   const ownDomains = [options.project.domain, ...(options.project.domains ?? [])]
-  const trackedByDomain = new Map(options.tracked.map(competitor => [normalizeCompetitorDomain(competitor.domain), competitor]))
+  const trackedByDomain = new Map<string, CompetitorIdentityInput>()
+  for (const competitor of options.tracked) {
+    trackedByDomain.set(normalizeCompetitorDomain(competitor.domain), competitor)
+    const registrable = registrableDomain(competitor.domain)
+    if (registrable) trackedByDomain.set(registrable, competitor)
+  }
   const candidates = new Map<string, MutableCandidate>()
   const unresolved = new Map<string, { name: string; answers: Set<string> }>()
   const resolvedNameKeysByAnswer = new Map<string, Set<string>>()
@@ -192,7 +198,7 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
       candidates.set(domain, candidate)
       candidate.citing.add(answer.id)
       candidate.sweeps.add(answer.runId)
-      for (const host of sourceHosts.get(domain) ?? [domain]) candidate.hostForms.add(host)
+      for (const host of sourceHosts.get(domain) ?? [domain]) candidate.hostForms.add(normalizeProjectDomain(host))
       if (answer.createdAt > (candidate.lastSeenAt ?? '')) candidate.lastSeenAt = answer.createdAt
       if (candidate.firstSeenAt === null || answer.createdAt < candidate.firstSeenAt) candidate.firstSeenAt = answer.createdAt
       for (const url of answer.citedUrls ?? []) {
@@ -201,11 +207,12 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
       if (pairedByAnchor) {
         candidate.paired.add(answer.id)
         for (const name of domainAnchors) {
-          if (candidate.names.has(brandKeyFromText(name))) continue
           addName(candidate, name, answer.id, true)
-          const existing = candidate.namedByOtherName.get(name) ?? new Set<string>()
-          existing.add(answer.id)
-          candidate.namedByOtherName.set(name, existing)
+          if (brandKeyFromText(name) !== brandKeyFromText(candidate.label)) {
+            const existing = candidate.namedByOtherName.get(name) ?? new Set<string>()
+            existing.add(answer.id)
+            candidate.namedByOtherName.set(name, existing)
+          }
           resolvedNameKeys.add(brandKeyFromText(name))
         }
       }
