@@ -3209,7 +3209,8 @@ function ProjectPageContent({
                   projectName={projectName}
                   setup={measurementSetupQuery.data}
                   plan={activeMeasurementPlanQuery.data}
-                  readFailed={(measurementSetupQuery.isError && measurementSetupQuery.data === undefined) || isActiveMeasurementPlanError}
+                  setupFailed={measurementSetupQuery.isError && measurementSetupQuery.data === undefined}
+                  planFailed={isActiveMeasurementPlanError}
                   onRetryReads={() => { void Promise.all([measurementSetupQuery.refetch(), activeMeasurementPlanQuery.refetch()]) }}
                   onOpenSetup={() => { void navigate({ to: '/projects/$projectName/portfolio', params: { projectName } }) }}
                 />

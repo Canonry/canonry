@@ -105,14 +105,16 @@ export function projectStructure(workspace: StructureWorkspace, plan: StructureP
 
   const groups = workspace.groups.map((group): StructureGroup => {
     const parent = group.parentGroupKey === undefined ? undefined : groupLabels.get(group.parentGroupKey)
+    const competitors = planGroups.get(group.stableKey)?.competitors
     return {
       key: group.stableKey,
       label: group.label,
       parent,
       locations: group.targetKeys.length,
       markets: group.counts?.markets,
-      competitors: planGroups.get(group.stableKey)?.competitors.length,
-      search: searchText(group.label, parent),
+      competitors: competitors?.length,
+      // A group is found by a competitor it names, as the Competitors tab prints it.
+      search: searchText(group.label, parent, competitors?.map(competitor => normalizeCompetitorDomain(competitor.domain))),
     }
   })
 

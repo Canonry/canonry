@@ -2993,6 +2993,31 @@ test.each(['simple', 'advanced'] as const)('%s Settings leaves the sections a vi
   if (mode === 'advanced') expect(within(section).getByRole('table', { name: 'Locations' })).toBeTruthy()
 })
 
+// A key for this one project writes and is no administrator: the one account where the two gates differ.
+test.each(['simple', 'advanced'] as const)('%s Settings lists Delete project and no Engines for a writer who is not an administrator', async mode => {
+  const html = await renderAt('/projects/project_citypoint/settings', undefined, settingsMeasurement(mode), {
+    apiKey: { id: 'key-project-writer', scopes: ['*'], projectId: 'project_citypoint', readOnly: false },
+  })
+  const { page, links, options, anchors } = settingsJumpList(html)
+  const { general, siteHealth, locationsMarkets, schedule, notifications, remove } = SETTINGS_ENTRIES
+  const entries = [general, siteHealth, locationsMarkets, schedule, notifications, remove]
+
+  expect(links.map(([label]) => label)).toEqual(entries.map(([label]) => label))
+  expect(options).toEqual(entries.map(([label, id]) => [label, id]))
+  // Every entry has its section on the page, with a heading in it. Engines draws nothing for this account, so it has no entry.
+  expect(anchors).toEqual([
+    ['settings-general', ['Project settings', 'Tracking results']],
+    ['settings-site-health', ['Site Health scans']],
+    ['settings-locations-markets', ['Locations & markets']],
+    ['settings-schedule', ['Scheduled runs']],
+    ['settings-notifications', ['Notifications']],
+    ['settings-delete', ['Delete project']],
+  ])
+  expect(page.querySelector('.project-engine-settings h2')?.textContent).toBe('Site Health scans')
+  // A writer gets the way into the wizard.
+  expect(within(locationsMarketsSection(html)).getByRole('button', { name: mode === 'advanced' ? 'Bulk setup' : 'Add locations' })).toBeTruthy()
+})
+
 test.each(['simple', 'advanced'] as const)('an embedded %s Settings has no jump list and no Locations & markets section', async mode => {
   const html = await renderAt('/projects/project_citypoint/settings', { enabled: true, projectTabs: ['settings'] }, settingsMeasurement(mode))
   const page = renderedPage(html)
@@ -3048,6 +3073,54 @@ test('a market row on Settings opens Queries on that market', async () => {
   // The Queries tab opens on Tracked with that market as its Place.
   await waitFor(() => expect(queriesSectionProps().selection).toMatchObject({ measurementScope: 'market', measurementScopeKey: 'north-market' }))
   expect(queriesSectionProps().queryWorkspace).toBe('tracked')
+})
+
+// The section's setup and plan reads are the page's: a failed one shows in the section, and its Retry is the page's.
+const settingsReadFailure = () => jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'unavailable' } }, 500)
+
+test.each([
+  ['setup', '/measurement-setup'],
+  ['plan', '/measurement-plan'],
+] as const)('a failed %s read on Settings says so in Locations & markets, and Retry reads the setup and the plan again', async (_read, failingPath) => {
+  let failing = true
+  const structure = trackingRoute(settingsWorkspaceResponse())
+  const { page, observed } = await renderScopeRoute(
+    '/projects/project_citypoint/settings',
+    url => failing && decodeURIComponent(url.pathname).endsWith(failingPath) ? settingsReadFailure() : structure(url),
+    { accountRole: 'admin' },
+  )
+  const section = page.container.querySelector<HTMLElement>('#settings-locations-markets')!
+  const alert = await within(section).findByRole('alert')
+  expect(alert.textContent).toBe('Could not loadRetry')
+  expect(within(section).queryByRole('table')).toBeNull()
+  const reads = (path: string) => observed.filter(url => decodeURIComponent(url.pathname).endsWith(path)).length
+  const before = { setup: reads('/measurement-setup'), plan: reads('/measurement-plan') }
+
+  failing = false
+  fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
+  expect(await within(section).findByRole('table', { name: 'Locations' })).toBeTruthy()
+  expect(within(section).queryByRole('alert')).toBeNull()
+  expect({ setup: reads('/measurement-setup'), plan: reads('/measurement-plan') }).toEqual({ setup: before.setup + 1, plan: before.plan + 1 })
+})
+
+test('a failed plan read leaves a Simple project its setup button: the section reads no plan there', async () => {
+  const { page, router, queryClient, projectName } = await renderScopeRoute(
+    '/projects/project_citypoint/settings',
+    url => {
+      const path = decodeURIComponent(url.pathname)
+      if (path.endsWith('/measurement-plan')) return settingsReadFailure()
+      if (path.endsWith('/measurement-setup')) return jsonResponse(simpleMeasurementSetupResponse())
+      return undefined
+    },
+    { accountRole: 'admin' },
+  )
+  const section = page.container.querySelector<HTMLElement>('#settings-locations-markets')!
+  const button = await within(section).findByRole('button', { name: 'Add locations' })
+  // The plan read has failed by now, and the button is still the section's one action.
+  await waitFor(() => expect(queryClient.getQueryState(getApiV1ProjectsByNameMeasurementPlanQueryKey({ client: heyClient, path: { name: projectName } }))?.status).toBe('error'))
+  expect(within(section).queryByRole('alert')).toBeNull()
+  fireEvent.click(button)
+  await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${projectName}/portfolio`))
 })
 
 // Restored: these two shipped in #953 and were dropped when a later branch's

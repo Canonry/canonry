@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { useLinkProps, useLocation, useNavigate } from '@tanstack/react-router'
 import { ChevronDown } from 'lucide-react'
 
@@ -10,13 +10,15 @@ export interface ProjectSettingsEntry {
 }
 
 // A jump lands a section under the topbar with a little air, and the same line decides which section the page is on.
-const ANCHOR = 'scroll-mt-[calc(var(--topbar-h)+1rem)] focus:outline-none'
+// In less room the select sticks under the topbar, so the line is under the select. A jump made from the keys
+// leaves the focus on the section, and the ring shows it.
+const ANCHOR = 'rounded-sm scroll-mt-[calc(var(--topbar-h)+1rem)] max-[86rem]:scroll-mt-[calc(var(--topbar-h)+4.5rem)] focus:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 focus-visible:ring-offset-4 focus-visible:ring-offset-bg'
 // A scroll has settled when no scroll event has come for this long.
 const SETTLE_MS = 150
 // How long a page that opened on a section is kept on it while the sections above load.
 const STAY_MS = 3000
 const READER_INPUTS = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const
-const LINK = 'block rounded-md px-2.5 py-1.5 text-sm transition-colors hover:bg-surface hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
+const LINK = 'block rounded-md px-2.5 py-1.5 text-sm transition-colors hover:bg-surface hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 pointer-coarse:flex pointer-coarse:min-h-11 pointer-coarse:items-center'
 
 /**
  * The section whose top has reached the jump line. At the end of the page the
@@ -49,7 +51,16 @@ function scrollToSection(id: string, atOnce = false): HTMLElement | null {
  * here instead: one entry, the section the page is on.
  */
 function SectionLink({ id, label, current, onJump }: { id: string; label: string; current: boolean; onJump: (id: string) => void }) {
-  const link = useLinkProps({ to: '.', search: true, hash: id, replace: true, onClick: () => onJump(id) })
+  const link = useLinkProps({
+    to: '.',
+    search: true,
+    hash: id,
+    replace: true,
+    // A click that opens the link in another tab or window leaves this page where it is.
+    onClick: (event: MouseEvent) => {
+      if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) onJump(id)
+    },
+  })
   return (
     <a {...link} aria-current={current ? 'location' : undefined} className={`${LINK} ${current ? 'bg-surface font-medium text-heading' : 'text-secondary'}`}>
       {label}
@@ -59,10 +70,10 @@ function SectionLink({ id, label, current, onJump }: { id: string; label: string
 
 /**
  * The jump list for project Settings: links in a column beside the page from
- * xl up, one select in less room. A jump scrolls to the section, moves
- * keyboard focus to it and puts it in the URL as the hash, so a link to
- * Settings can name a section. The list has no route key of its own. The
- * current entry follows the page as it scrolls.
+ * 86rem up, one select that stays under the topbar in less room. A jump
+ * scrolls to the section, moves keyboard focus to it and puts it in the URL as
+ * the hash, so a link to Settings can name a section. The list has no route
+ * key of its own. The current entry follows the page as it scrolls.
  */
 export function ProjectSettingsNav({ sections }: { sections: readonly Pick<ProjectSettingsEntry, 'id' | 'label'>[] }) {
   const navigate = useNavigate()
@@ -118,10 +129,14 @@ export function ProjectSettingsNav({ sections }: { sections: readonly Pick<Proje
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => setCurrent(sectionOnPage(list)))
     }
+    // The wait is for the jump's own scroll. Once the reader takes over, the mark follows the page again.
+    const release = () => { heldUntil.current = 0 }
     window.addEventListener('scroll', follow, { passive: true })
+    for (const input of READER_INPUTS) window.addEventListener(input, release, { passive: true })
     return () => {
       cancelAnimationFrame(frame)
       window.removeEventListener('scroll', follow)
+      for (const input of READER_INPUTS) window.removeEventListener(input, release)
     }
   }, [key])
 
@@ -135,8 +150,8 @@ export function ProjectSettingsNav({ sections }: { sections: readonly Pick<Proje
   const shown = current !== undefined && ids.includes(current) ? current : ids[0]
 
   return (
-    <nav aria-label="Settings sections" className="mt-4 xl:sticky xl:top-[calc(var(--topbar-h)+1rem)] xl:mt-8 xl:self-start xl:pt-5">
-      <div className="relative xl:hidden">
+    <nav aria-label="Settings sections" className="sticky top-[var(--topbar-h)] z-10 mt-2 bg-bg py-2 min-[86rem]:top-[calc(var(--topbar-h)+1rem)] min-[86rem]:z-auto min-[86rem]:mt-8 min-[86rem]:self-start min-[86rem]:bg-transparent min-[86rem]:py-0 min-[86rem]:pt-5">
+      <div className="relative sm:max-w-xs min-[86rem]:hidden">
         <select
           aria-label="Settings section"
           className="h-11 w-full appearance-none rounded-md border border-default bg-surface/50 pl-3 pr-9 text-sm font-medium text-heading outline-none transition hover:border-strong focus-visible:border-mono-500 focus-visible:ring-1 focus-visible:ring-mono-500"
@@ -151,7 +166,7 @@ export function ProjectSettingsNav({ sections }: { sections: readonly Pick<Proje
         </select>
         <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
       </div>
-      <ul className="hidden space-y-0.5 xl:block">
+      <ul className="hidden space-y-0.5 min-[86rem]:block">
         {sections.map(section => (
           <li key={section.id}>
             <SectionLink id={section.id} label={section.label} current={section.id === shown} onJump={jump} />
@@ -170,7 +185,9 @@ export function ProjectSettingsNav({ sections }: { sections: readonly Pick<Proje
 export function ProjectSettingsLayout({ sections, nav }: { sections: readonly ProjectSettingsEntry[]; nav: boolean }) {
   if (!nav) return <>{sections.map(section => <Fragment key={section.id}>{section.content}</Fragment>)}</>
   return (
-    <div className="xl:grid xl:grid-cols-[10rem_minmax(0,1fr)] xl:gap-x-6">
+    // The list takes its column once the sections beside it keep 900px, the room their own headings need.
+    // `--settings-stick` is where a header inside a section sticks: under the topbar, and under the select while that sticks there.
+    <div className="[--settings-stick:calc(var(--topbar-h)_+_3.75rem)] min-[86rem]:grid min-[86rem]:grid-cols-[10rem_minmax(0,1fr)] min-[86rem]:gap-x-6 min-[86rem]:[--settings-stick:var(--topbar-h)]">
       <ProjectSettingsNav sections={sections} />
       <div className="min-w-0">
         {sections.map(section => <div key={section.id} id={section.id} tabIndex={-1} className={ANCHOR}>{section.content}</div>)}

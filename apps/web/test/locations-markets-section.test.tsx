@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router'
 import type { MeasurementPlanResponse, MeasurementSetupResponse, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-api-client'
@@ -95,7 +95,8 @@ async function renderSection(options: {
   plan?: MeasurementPlanResponse | undefined
   workspace?: () => Response | Promise<Response>
   role?: 'admin' | 'viewer'
-  readFailed?: boolean
+  setupFailed?: boolean
+  planFailed?: boolean
   entry?: string
 } = {}) {
   const requests: string[] = []
@@ -112,7 +113,7 @@ async function renderSection(options: {
   const rootRoute = createRootRoute({
     component: () => (
       <AccountProvider account={options.role ? { name: 'someone', role: options.role } : null}>
-        <LocationsMarketsSection projectName="acme" setup={setup} plan={plan} readFailed={options.readFailed === true} onRetryReads={onRetryReads} onOpenSetup={onOpenSetup} />
+        <LocationsMarketsSection projectName="acme" setup={setup} plan={plan} setupFailed={options.setupFailed === true} planFailed={options.planFailed === true} onRetryReads={onRetryReads} onOpenSetup={onOpenSetup} />
         <Outlet />
       </AccountProvider>
     ),
@@ -125,7 +126,7 @@ async function renderSection(options: {
   await router.load()
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
   render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>)
-  return { requests, onOpenSetup, onRetryReads, router }
+  return { requests, onOpenSetup, onRetryReads, router, client }
 }
 
 const section = () => screen.getByRole('region', { name: 'Locations & markets' })
@@ -155,17 +156,34 @@ describe('an advanced project', () => {
     const locations = await table('Locations')
     expect([...locations.querySelectorAll('thead th')].map(head => head.textContent)).toEqual(['Location', 'Markets', 'Site pages', 'Names', 'Location queries', 'Market queries'])
     // The first market's name, then how many more. No query is listed, so 7, 11, 2 and 9 can only be the server's counts.
+    // A location the server lists in no market says so: the list came, and it is empty.
     expect(cells(locations)).toEqual([
       ['Harbor Point', 'North Market+2', '2', '2', '7', '11'],
       ['Northbridge', 'North Market', '1', '1', '2', '9'],
-      ['Cedar Hollow', '', '0', '0', '0', '0'],
+      ['Cedar Hollow', 'None', '0', '0', '0', '0'],
     ])
     // The site pages are the count's own tooltip and part of its name, in the form the location page prints them.
     expect(within(locations).getByRole('button', { name: '2 site pages: https://example.com/harbor-point/* · https://example.com/floor-plans' })).toBeTruthy()
     expect(within(locations).getByRole('button', { name: '1 site page: https://northbridge.example.com/*' })).toBeTruthy()
     expect(visibleText(locations)).not.toContain('https://')
-    // Every market a location is in can be read, not only the first: the count names the rest.
-    expect(within(locations).getByRole('button', { name: '2 more: River Market · Lake Market' }).textContent).toBe('+2')
+    // Every market a location is in can be read, the first one too: its name may not fit the column.
+    expect(within(locations).getByRole('button', { name: '3 markets: North Market · River Market · Lake Market' }).textContent).toBe('+2')
+    // A name is on the page and in a list button, never in a `title`, which neither a tap nor the keys open.
+    expect(section().querySelector('[title]')).toBeNull()
+  })
+
+  test('a list behind a count names its first 25, a page of rows, then how many more', async () => {
+    const markets = Array.from({ length: 27 }, (_, index) => ({ stableKey: `market-${index + 1}`, label: `Market ${index + 1}`, usageEdges: [], targetKeys: ['harbor-point'], counts: { marketQueries: 1, propertyQueries: 1, answersPerSweep: 1 } }))
+    const targets = [
+      { stableKey: 'harbor-point', label: 'Harbor Point', marketKeys: markets.map(market => market.stableKey) },
+      { stableKey: 'northbridge', label: 'Northbridge', marketKeys: markets.slice(0, 12).map(market => market.stableKey) },
+    ]
+    await renderSection({ workspace: () => json(workspaceResponse({ targets, markets })) })
+    const locations = await table('Locations')
+    const first25 = markets.slice(0, 25).map(market => market.label).join(' · ')
+    expect(within(locations).getByRole('button', { name: `27 markets: ${first25} · +2 more` }).textContent).toBe('+26')
+    // Twelve names are read whole.
+    expect(within(locations).getByRole('button', { name: `12 markets: ${markets.slice(0, 12).map(market => market.label).join(' · ')}` }).textContent).toBe('+11')
   })
 
   test('a location opens its page and a market opens Queries on that market', async () => {
@@ -205,12 +223,36 @@ describe('an advanced project', () => {
     await table('Locations')
     fireEvent.click(tab('Groups'))
     const groups = await table('Groups')
-    expect([...groups.querySelectorAll('thead th')].map(head => head.textContent)).toEqual(['Group', 'Parent', 'Locations', 'Markets', 'Competitors'])
+    // The counts come before Parent, so a phone's first screen holds a number.
+    expect([...groups.querySelectorAll('thead th')].map(head => head.textContent)).toEqual(['Group', 'Locations', 'Markets', 'Competitors', 'Parent'])
     // Two markets name North; the server says 6, and 6 is printed.
     expect(cells(groups)).toEqual([
-      ['North', '', '2', '6', '2'],
-      ['North Side', 'North', '1', '0', '1'],
+      ['North', '2', '6', '2', ''],
+      ['North Side', '1', '0', '1', 'North'],
     ])
+  })
+
+  test('Parent sorts the top-level groups together, first from A', async () => {
+    const groups = [
+      { stableKey: 'north-side', parentGroupKey: 'north', label: 'North Side', targetKeys: ['northbridge'], counts: { queries: 3, markets: 0, answersPerSweep: 8 } },
+      { stableKey: 'south', label: 'South', targetKeys: [], counts: { queries: 0, markets: 0, answersPerSweep: 0 } },
+      { stableKey: 'harbor-side', parentGroupKey: 'south', label: 'Harbor Side', targetKeys: [], counts: { queries: 0, markets: 0, answersPerSweep: 0 } },
+      { stableKey: 'north', label: 'North', targetKeys: ['harbor-point', 'northbridge'], counts: { queries: 14, markets: 6, answersPerSweep: 40 } },
+    ]
+    await renderSection({ workspace: () => json(workspaceResponse({ groups })) })
+    await table('Locations')
+    fireEvent.click(tab('Groups'))
+    const listed = await table('Groups')
+    const parent = within(listed).getByRole('columnheader', { name: 'Parent' })
+    const parents = () => cells(listed).map(row => [row[0], row[4]])
+
+    fireEvent.click(within(parent).getByRole('button'))
+    expect(parent.getAttribute('aria-sort')).toBe('ascending')
+    expect(parents()).toEqual([['South', ''], ['North', ''], ['North Side', 'North'], ['Harbor Side', 'South']])
+
+    fireEvent.click(within(parent).getByRole('button'))
+    expect(parent.getAttribute('aria-sort')).toBe('descending')
+    expect(parents()).toEqual([['Harbor Side', 'South'], ['North Side', 'North'], ['South', ''], ['North', '']])
   })
 
   test('lists each competitor domain once, with the groups that name it', async () => {
@@ -220,9 +262,12 @@ describe('an advanced project', () => {
     const competitors = await table('Competitors')
     expect([...competitors.querySelectorAll('thead th')].map(head => head.textContent)).toEqual(['Domain', 'Groups'])
     expect(cells(competitors)).toEqual([
-      ['rival.example', 'North · North Side'],
-      ['other.example', 'North'],
+      ['rival.example', '2'],
+      ['other.example', '1'],
     ])
+    // The count is the length of the list it opens.
+    expect(within(competitors).getByRole('button', { name: '2 groups: North · North Side' }).textContent).toBe('2')
+    expect(within(competitors).getByRole('button', { name: '1 group: North' }).textContent).toBe('1')
   })
 
   test('one search box filters the open tab and keeps its text from tab to tab', async () => {
@@ -241,6 +286,12 @@ describe('an advanced project', () => {
     expect(cells(groups)).toEqual([['No matches']])
 
     fireEvent.click(within(section()).getByRole('button', { name: 'Clear search' }))
+    expect(names(groups)).toEqual(['North', 'North Side'])
+
+    // A group is found by a competitor it names, in the form the Competitors tab prints: the way to every group behind a count.
+    fireEvent.change(search(), { target: { value: 'other.example' } })
+    expect(names(groups)).toEqual(['North'])
+    fireEvent.change(search(), { target: { value: 'rival.example' } })
     expect(names(groups)).toEqual(['North', 'North Side'])
   })
 
@@ -271,9 +322,14 @@ describe('an advanced project', () => {
     const locations = await table('Locations')
     expect(names(locations)).toHaveLength(25)
     expect(within(section()).getByText('1 to 25 of 30 locations')).toBeTruthy()
+    // The page buttons come ahead of the table, a Tab or two from the search and not a page of rows away.
+    const next = within(section()).getByRole('button', { name: 'Next' })
+    expect(search().compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(next.compareDocumentPosition(locations) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 
-    fireEvent.click(within(section()).getByRole('button', { name: 'Next' }))
+    fireEvent.click(next)
     expect(names(locations)).toEqual(['Place 26', 'Place 27', 'Place 28', 'Place 29', 'Place 30'])
+    expect(within(section()).getByText('26 to 30 of 30 locations')).toBeTruthy()
     // A new order starts again from its first page.
     fireEvent.click(within(within(locations).getByRole('columnheader', { name: 'Location queries' })).getByRole('button'))
     expect(names(locations)[0]).toBe('Place 30')
@@ -344,12 +400,72 @@ describe('an advanced project', () => {
     expect(onRetryReads).not.toHaveBeenCalled()
   })
 
-  test('a failed page read says so and hands Retry to the page', async () => {
-    const { onRetryReads } = await renderSection({ setup: undefined, plan: undefined, readFailed: true })
+  test('holds the skeleton while the published plan is out, though the workspace has answered', async () => {
+    const { requests, client } = await renderSection({ plan: undefined })
+    await waitFor(() => expect(requests).toHaveLength(1))
+    await waitFor(() => expect(client.isFetching()).toBe(0))
+    // Names and site pages come from the plan: the tables wait for it, so no column fills in a moment later.
+    expect(within(section()).getByRole('status').textContent).toBe('Loading')
+    expect(within(section()).queryByRole('table')).toBeNull()
+  })
+
+  test('a failed setup read says so and hands Retry to the page', async () => {
+    const { onRetryReads } = await renderSection({ setup: undefined, plan: undefined, setupFailed: true })
     const alert = within(section()).getByRole('alert')
     expect(visibleText(alert)).toBe('Could not loadRetry')
     fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
     expect(onRetryReads).toHaveBeenCalledTimes(1)
+  })
+
+  test('a failed plan read on a published setup says so and hands Retry to the page', async () => {
+    const { requests, onRetryReads } = await renderSection({ plan: undefined, planFailed: true })
+    const alert = await within(section()).findByRole('alert')
+    expect(visibleText(alert)).toBe('Could not loadRetry')
+    expect(within(section()).queryByRole('table')).toBeNull()
+    fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
+    expect(onRetryReads).toHaveBeenCalledTimes(1)
+    // The workspace read did not fail, so it is not read again.
+    expect(requests.filter(request => request.endsWith('/query-tracking'))).toHaveLength(1)
+  })
+
+  test('each tab with nothing to list says so, whatever the search box holds', async () => {
+    const plan: MeasurementPlanResponse = { active: { ...publishedPlan.active!, plan: { ...planV2, groups: planV2.groups.map(group => ({ ...group, competitors: [] })) } } }
+    await renderSection({ plan, workspace: () => json(workspaceResponse({ targets: [], markets: [], groups: [] })) })
+    const body = async (name: string) => {
+      fireEvent.click(tab(name))
+      return cells(await table(name))
+    }
+    expect(cells(await table('Locations'))).toEqual([['No locations']])
+    expect(await body('Markets')).toEqual([['No markets']])
+    expect(await body('Groups')).toEqual([['No groups']])
+    expect(await body('Competitors')).toEqual([['No competitors']])
+
+    // An empty tab is empty, not a search with no match.
+    fireEvent.change(search(), { target: { value: 'harbor' } })
+    expect(await body('Competitors')).toEqual([['No competitors']])
+    expect(await body('Markets')).toEqual([['No markets']])
+    // With no rows there is no page to count.
+    expect(within(section()).queryByText(/ of \d/)).toBeNull()
+  })
+
+  test('prints nothing for a number the reads did not return, and never works one out', async () => {
+    // An older server: no totals, no counts and no lists on the rows. No plan is held either.
+    const bare = workspaceResponse({
+      targets: [{ stableKey: 'harbor-point', label: 'Harbor Point' }],
+      markets: [{ stableKey: 'north-market', label: 'North Market', usageEdges: [] }],
+      groups: [{ stableKey: 'north', label: 'North', targetKeys: ['harbor-point'] }],
+      summary: undefined,
+    })
+    await renderSection({ plan: { active: null }, workspace: () => json(bare) })
+    expect(cells(await table('Locations'))).toEqual([['Harbor Point', '', '', '', '', '']])
+    // No total came, so no grid is drawn: the lists are never counted in its place.
+    expect(section().querySelector('dl')).toBeNull()
+
+    fireEvent.click(tab('Markets'))
+    expect(cells(await table('Markets'))).toEqual([['North Market', '', '', '']])
+    fireEvent.click(tab('Groups'))
+    // A group's locations are the length of the list the server sent with it.
+    expect(cells(await table('Groups'))).toEqual([['North', '1', '', '', '']])
   })
 })
 
@@ -375,10 +491,21 @@ describe('a project with no published setup', () => {
     expect(visibleText(section())).toBe(`Locations & markets${label}`)
   })
 
-  test('offers a viewer no button', async () => {
+  test('offers a viewer no button, and says there is nothing to read', async () => {
     await renderSection({ setup: setupResponse('simple'), plan: { active: null }, role: 'viewer' })
-    expect(visibleText(section())).toBe('Locations & marketsView only')
+    // "View only" sits in the header, where a published setup has it; the body is the empty state.
+    expect(visibleText(section())).toBe('Locations & marketsView onlyNo locations')
     expect(within(section()).queryByRole('button', { name: /^(Add locations|Continue setup|Republish setup)$/ })).toBeNull()
+    expect(within(section()).getByRole('button', { name: 'View only. Your account cannot change this setup.' })).toBeTruthy()
+  })
+
+  test('a failed plan read does not take the setup button away: this section reads no plan here', async () => {
+    const { onRetryReads, onOpenSetup } = await renderSection({ setup: setupResponse('simple'), plan: undefined, planFailed: true })
+    expect(within(section()).queryByRole('alert')).toBeNull()
+    expect(visibleText(section())).toBe('Locations & marketsAdd locations')
+    fireEvent.click(within(section()).getByRole('button', { name: 'Add locations' }))
+    expect(onOpenSetup).toHaveBeenCalledTimes(1)
+    expect(onRetryReads).not.toHaveBeenCalled()
   })
 
   test('waits for the setup read before offering anything', async () => {
