@@ -1,4 +1,4 @@
-import { auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema } from '@ainyc/canonry-contracts'
+import { trafficSamplesQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema } from '@ainyc/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
@@ -2606,6 +2606,14 @@ export const canonryMcpTools = [
       const { project, ...query } = input
       return client.trafficReferralAssessment(project, query)
     },
+  }),
+  defineTool({
+    name: 'canonry_traffic_samples',
+    title: 'Read stored traffic samples',
+    description: 'Read the stored sampled tail of server-side traffic with 30-day retention. Sample rows are not a count of visits. Default kind excludes unknown requests. Project/source only; Property, Target and market dimensions are unavailable. No provider call or write.',
+    access: 'read', tier: 'traffic', inputSchema: trafficSamplesQuerySchema.extend({ project: projectNameSchema }), annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/traffic/samples'],
+    handler: (client, input) => { const { project, ...query } = input; return client.trafficListSamples(project, query) },
   }),
   defineTool({
     name: 'canonry_traffic_events',

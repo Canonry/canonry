@@ -1,3 +1,5 @@
+import type { TrafficSamplesQuery, TrafficSamplesResponse } from '@ainyc/canonry-contracts'
+import { getApiV1ProjectsByNameTrafficSamples } from '@ainyc/canonry-api-client'
 import type { AuditHistoryOptions } from '@ainyc/canonry-contracts'
 import type { ReferralAssessment, ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameTrafficReferralAssessment } from '@ainyc/canonry-api-client'
@@ -3958,6 +3960,10 @@ export class ApiClient {
     return this.invoke<ReferralAssessment>(() => getApiV1ProjectsByNameTrafficReferralAssessment({
       client: this.heyClient, path: { name: project }, query,
     }))
+  }
+
+  async trafficListSamples(project: string, query?: TrafficSamplesQuery): Promise<TrafficSamplesResponse> {
+    return this.invoke<TrafficSamplesResponse>(() => getApiV1ProjectsByNameTrafficSamples({ client: this.heyClient, path: { name: project }, query }))
   }
 
   async trafficListEvents(

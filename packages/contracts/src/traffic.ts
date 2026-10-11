@@ -1,6 +1,7 @@
 import { linearTrendSchema } from './statistics.js'
 import { z } from 'zod'
 import { runStatusSchema } from './run.js'
+import { aiReferralTrafficClassSchema } from './traffic-class.js'
 import type { TrafficCrawlerSegments, TrafficPathClass } from './traffic-path.js'
 
 /**
@@ -750,3 +751,52 @@ export const trafficEventsResponseSchema = z.object({
   events: z.array(trafficEventEntrySchema),
 })
 export type TrafficEventsResponse = z.infer<typeof trafficEventsResponseSchema>
+
+
+export const trafficSampleKindSchema = z.enum(['crawler', 'ai-user-fetch', 'ai-referral', 'unknown'])
+export type TrafficSampleKind = z.infer<typeof trafficSampleKindSchema>
+export const TrafficSampleKinds = trafficSampleKindSchema.enum
+
+export const trafficSamplesQuerySchema = z.object({
+  kind: z.enum(['crawler', 'ai-user-fetch', 'ai-referral', 'unknown', 'all']).optional(),
+  sourceId: z.string().min(1).optional(),
+  since: z.iso.datetime({ offset: true }).optional(),
+  until: z.iso.datetime({ offset: true }).optional(),
+  path: z.string().optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+  offset: z.number().int().nonnegative().optional(),
+}).strict()
+export type TrafficSamplesQuery = z.infer<typeof trafficSamplesQuerySchema>
+
+// Stored classifier evidence may come from an install upgraded within the
+// retention window. Inner fields may be absent or null; unknown fields are stripped.
+const sampleUserFetchSchema = z.object({
+  botId: z.string().nullish(),
+  operator: z.string().nullish(),
+  product: z.string().nullish(),
+  verificationStatus: verificationStatusSchema.nullish(),
+  verificationManifest: z.object({ id: z.string().nullish(), source: z.string().nullish(), version: z.string().nullish() }).nullish(),
+  matchedUserAgent: z.string().nullish(),
+})
+export const trafficSampleClassifierSchema = z.object({
+  crawler: sampleUserFetchSchema.extend({ purpose: z.string().nullish() }).nullable().default(null),
+  aiUserFetch: sampleUserFetchSchema.nullable().default(null),
+  aiReferral: z.object({
+    operator: z.string().nullish(), product: z.string().nullish(), sourceDomain: z.string().nullish(),
+    evidenceType: z.enum(['referer', 'utm', 'referer-utm']).nullish(), trafficClass: aiReferralTrafficClassSchema.nullish(),
+  }).nullable().default(null),
+})
+export type TrafficSampleClassifier = z.infer<typeof trafficSampleClassifierSchema>
+export const trafficSampleDtoSchema = z.object({
+  id: z.string(), sourceId: z.string(), ts: z.string(), kind: trafficSampleKindSchema,
+  pathNormalized: z.string(), status: z.number().int().nullable(), refererHost: z.string().nullable(), userAgent: z.string().nullable(),
+  classifier: trafficSampleClassifierSchema,
+})
+export type TrafficSampleDto = z.infer<typeof trafficSampleDtoSchema>
+export const trafficSamplesResponseSchema = z.object({
+  scope: z.object({ project: z.string(), sourceId: z.string().nullable(), attribution: z.literal('project-source-only'), unavailableDimensions: z.array(z.enum(['property', 'target', 'market'])) }),
+  windowStart: z.string(), windowEnd: z.string(), retentionDays: z.literal(30),
+  sampling: z.object({ complete: z.literal(false), perSync: z.literal(100), perBackfill: z.literal(500), perPushHour: z.literal(100) }),
+  totalRows: z.number().int().nonnegative(), limit: z.number().int(), offset: z.number().int(), samples: z.array(trafficSampleDtoSchema),
+})
+export type TrafficSamplesResponse = z.infer<typeof trafficSamplesResponseSchema>

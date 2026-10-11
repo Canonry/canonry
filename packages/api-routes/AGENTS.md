@@ -31,6 +31,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/ga-search-landing-pages.ts` | GA4's Search Console landing-page snapshot: the sync's persist / failure writers, the connect / disconnect clears, `resolveCurrentGa4PropertyId` and `GET /ga/search-landing-pages` (see "GA4 Search Console landing pages") |
 | `src/ads.ts` / `src/ads-live-delivery.ts` | OpenAI ads (ChatGPT ads) routes; pure live-vs-stored comparison engine |
 | `src/traffic.ts` / `src/ai-referral-status.ts` | Server-side traffic ingestion routes; shared `ai_referral_events_hourly` read conditions |
+| `src/traffic-samples.ts` | Stored diagnostic sample rows with project/source scope, bounded paging, and viewer/embed restrictions. |
 | `src/traffic-analytics.ts` | Full-window stored crawler, user-fetch and referral aggregates, exposed through `/traffic/analytics`; detail-row caps do not limit totals, operator/path/product breakdowns or history. `period` is read-selection identity, not execution tuning. |
 | `src/referral-assessment.ts` | DB-only project/source burst diagnostic. Raw headlines unchanged; grouped candidate counts and separate adjusted estimate, with GA quotient coverage limits. |
 | `src/technical-aeo.ts` | Site Health / Technical AEO routes |
@@ -826,3 +827,11 @@ apply before paging, and inclusive time bounds normalize to UTC. Keep telemetry
 filtering and recursive notification redaction on every selection. Both competitor
 replacement writers use `competitorSetChangeAuditFields` to retain set changes and
 discarded names; never rewrite old audit records.
+
+### Stored traffic samples
+
+`traffic-samples.ts` exposes bounded stored sample rows with project/source scope.
+Keep unknown traffic out of the default, require admin session authority, and
+never allow embed access. Select public fields explicitly and parse classifier
+evidence through the tolerant, stripping schema. No IP hashes, provider calls,
+retention writes, or rollup changes belong in this route.

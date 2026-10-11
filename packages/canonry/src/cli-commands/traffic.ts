@@ -7,6 +7,7 @@ import {
   trafficConnectVercel,
   trafficConnectWordpress,
   trafficEvents,
+  trafficSamples,
   trafficReferralAssessment,
   trafficReset,
   trafficSources,
@@ -323,6 +324,17 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['traffic', 'samples'],
+    usage: 'canonry traffic samples <project> [--kind crawler|ai-user-fetch|ai-referral|unknown|all] [--source <id>] [--since <ISO>] [--until <ISO>] [--since-minutes <n>] [--path <prefix>] [--limit 100] [--offset 0] [--format json|jsonl]',
+    help: 'Stored sampled tail with 30-day retention, not visits. Unknown traffic is excluded by default. No provider calls.',
+    options: { kind: stringOption(), source: stringOption(), since: stringOption(), until: stringOption(), 'since-minutes': stringOption(), path: stringOption(), limit: stringOption(), offset: stringOption() },
+    run: async input => {
+      const project = requireProject(input, 'traffic.samples', 'canonry traffic samples <project>')
+      const integer = (name: string) => parseIntegerOption(input, name, { command: 'traffic.samples', usage: 'canonry traffic samples <project>', message: `--${name} must be an integer` })
+      await trafficSamples(project, { kind: getString(input.values, 'kind'), sourceId: getString(input.values, 'source'), since: getString(input.values, 'since'), until: getString(input.values, 'until'), sinceMinutes: integer('since-minutes'), path: getString(input.values, 'path'), limit: integer('limit'), offset: integer('offset'), format: input.format })
+    },
+  },
+  {
     path: ['traffic', 'events'],
     usage: 'canonry traffic events <project> [--kind crawler|ai-user-fetch|ai-referral|all] [--source <id>] [--since-minutes 1440] [--since <iso>] [--until <iso>] [--limit 500] [--granularity hour|day] [--format json]',
     options: {
@@ -370,7 +382,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       unknownSubcommand(input.positionals[0], {
         command: 'traffic',
         usage: 'canonry traffic <subcommand> <project> [args]',
-        available: ['connect', 'activate', 'sync', 'backfill', 'reset', 'status', 'sources', 'events', 'analytics', 'referral-assessment'],
+        available: ['connect', 'activate', 'sync', 'backfill', 'reset', 'status', 'sources', 'events', 'samples', 'analytics', 'referral-assessment'],
       })
     },
   },

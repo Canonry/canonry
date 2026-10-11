@@ -1698,3 +1698,20 @@ breakdown keys, most mixed plus unfavorable first). Text output lists them under
 `Most criticized properties: N of total` with favorable, mixed and unfavorable
 counts; read one with `--scope property --scope-key <key> --outcome mixed,unfavorable`
 (in a market view, pass that market as `--market-key`).
+
+### Stored traffic samples
+
+```bash
+cnry traffic samples <project> --kind ai-referral --since 2026-10-10T00:00:00Z --until 2026-10-11T00:00:00Z --format json
+cnry traffic samples <project> --source <id> --path /blog --limit 100 --offset 100 --format jsonl
+```
+
+A stored sampled tail with 30-day retention, not visits or sessions. Use `traffic
+events` for totals. Default `--kind all` includes crawler, AI user-fetch, and AI
+referral samples; unknown requests require `--kind unknown`. Time bounds are
+inclusive ISO timestamps, defaulting to the last 24 hours. `--since-minutes`
+selects a positive relative duration and cannot be combined with `--since`. Path
+prefixes are literal. Limit is 1 to 500; offset starts at zero. Project/source
+attribution applies equally to Simple and Advanced portfolios; Property, Target,
+and market attribution is unavailable. No provider call or write. Signed-in
+viewers and embeds cannot read samples; API read keys retain project scope.

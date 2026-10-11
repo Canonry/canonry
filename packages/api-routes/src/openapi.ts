@@ -7158,6 +7158,24 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/traffic/samples',
+    summary: 'Read a stored sampled tail of server-side traffic evidence',
+    description: 'Stored rows only, with 30-day retention. Samples are not visits or sessions. Default kind excludes unknown traffic. Project/source attribution only for Simple and Advanced projects. Signed-in viewers and embedded dashboards cannot read samples. API read keys retain normal project scope. No provider calls or writes.',
+    tags: ['traffic'],
+    parameters: [
+      nameParameter,
+      { name: 'kind', in: 'query', description: 'Default all includes classified samples only.', schema: { type: 'string', enum: ['crawler', 'ai-user-fetch', 'ai-referral', 'unknown', 'all'] } },
+      { name: 'sourceId', in: 'query', description: 'Restrict to a traffic source in this project.', schema: stringSchema },
+      { name: 'since', in: 'query', description: 'Inclusive ISO timestamp, default 24 hours before until.', schema: stringSchema },
+      { name: 'until', in: 'query', description: 'Inclusive ISO timestamp, default now.', schema: stringSchema },
+      { name: 'path', in: 'query', description: 'Literal normalized path prefix.', schema: stringSchema },
+      { name: 'limit', in: 'query', description: 'Page size, default 100.', schema: { type: 'integer', minimum: 1, maximum: 500 } },
+      { name: 'offset', in: 'query', description: 'Rows to skip, default 0.', schema: { type: 'integer', minimum: 0 } },
+    ],
+    responses: { 200: jsonResponse('Stored sample page and sampling limits.', 'TrafficSamplesResponse'), 400: errorResponse('Invalid selection.'), 403: errorResponse('Samples are unavailable to this principal.'), 404: errorResponse('Project not found.') },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/traffic/events',
     summary: 'List rolled-up crawler hits, AI user-fetch hits, and AI-referral sessions within a window',
     description:

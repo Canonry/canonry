@@ -14664,6 +14664,71 @@ export type TrafficEventsResponse = {
     }>;
 };
 
+export type TrafficSamplesResponse = {
+    scope: {
+        project: string;
+        sourceId: string | null;
+        attribution: 'project-source-only';
+        unavailableDimensions: Array<'property' | 'target' | 'market'>;
+    };
+    windowStart: string;
+    windowEnd: string;
+    retentionDays: 30;
+    sampling: {
+        complete: false;
+        perSync: 100;
+        perBackfill: 500;
+        perPushHour: 100;
+    };
+    totalRows: number;
+    limit: number;
+    offset: number;
+    samples: Array<{
+        id: string;
+        sourceId: string;
+        ts: string;
+        kind: 'crawler' | 'ai-user-fetch' | 'ai-referral' | 'unknown';
+        pathNormalized: string;
+        status: number | null;
+        refererHost: string | null;
+        userAgent: string | null;
+        classifier: {
+            crawler: {
+                botId?: string | null;
+                operator?: string | null;
+                product?: string | null;
+                verificationStatus?: 'verified' | 'claimed_unverified' | 'unknown_ai_like' | null;
+                verificationManifest?: {
+                    id?: string | null;
+                    source?: string | null;
+                    version?: string | null;
+                } | null;
+                matchedUserAgent?: string | null;
+                purpose?: string | null;
+            } | null;
+            aiUserFetch: {
+                botId?: string | null;
+                operator?: string | null;
+                product?: string | null;
+                verificationStatus?: 'verified' | 'claimed_unverified' | 'unknown_ai_like' | null;
+                verificationManifest?: {
+                    id?: string | null;
+                    source?: string | null;
+                    version?: string | null;
+                } | null;
+                matchedUserAgent?: string | null;
+            } | null;
+            aiReferral: {
+                operator?: string | null;
+                product?: string | null;
+                sourceDomain?: string | null;
+                evidenceType?: 'referer' | 'utm' | 'referer-utm' | null;
+                trafficClass?: 'organic' | 'paid' | null;
+            } | null;
+        };
+    }>;
+};
+
 export type TrafficSourceDetailDto = {
     id: string;
     projectId: string;
@@ -30280,6 +30345,73 @@ export type GetApiV1ProjectsByNameTrafficReferralAssessmentResponses = {
 };
 
 export type GetApiV1ProjectsByNameTrafficReferralAssessmentResponse = GetApiV1ProjectsByNameTrafficReferralAssessmentResponses[keyof GetApiV1ProjectsByNameTrafficReferralAssessmentResponses];
+
+export type GetApiV1ProjectsByNameTrafficSamplesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Default all includes classified samples only.
+         */
+        kind?: 'crawler' | 'ai-user-fetch' | 'ai-referral' | 'unknown' | 'all';
+        /**
+         * Restrict to a traffic source in this project.
+         */
+        sourceId?: string;
+        /**
+         * Inclusive ISO timestamp, default 24 hours before until.
+         */
+        since?: string;
+        /**
+         * Inclusive ISO timestamp, default now.
+         */
+        until?: string;
+        /**
+         * Literal normalized path prefix.
+         */
+        path?: string;
+        /**
+         * Page size, default 100.
+         */
+        limit?: number;
+        /**
+         * Rows to skip, default 0.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/traffic/samples';
+};
+
+export type GetApiV1ProjectsByNameTrafficSamplesErrors = {
+    /**
+     * Invalid selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Samples are unavailable to this principal.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTrafficSamplesError = GetApiV1ProjectsByNameTrafficSamplesErrors[keyof GetApiV1ProjectsByNameTrafficSamplesErrors];
+
+export type GetApiV1ProjectsByNameTrafficSamplesResponses = {
+    /**
+     * Stored sample page and sampling limits.
+     */
+    200: TrafficSamplesResponse;
+};
+
+export type GetApiV1ProjectsByNameTrafficSamplesResponse = GetApiV1ProjectsByNameTrafficSamplesResponses[keyof GetApiV1ProjectsByNameTrafficSamplesResponses];
 
 export type GetApiV1ProjectsByNameTrafficEventsData = {
     body?: never;

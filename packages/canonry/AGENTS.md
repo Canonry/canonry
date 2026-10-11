@@ -971,3 +971,8 @@ identity. Summary and evidence accept repeatable `--run-ids` for the exact group
 location runs, mutually exclusive with `--run-id`; backfill keeps its existing
 repeatable `--run-id` syntax. Favorable % uses favorable / (favorable + mixed + unfavorable), excluding
 factual and unjudged assessments.
+
+`traffic samples` reads stored diagnostic evidence through `trafficListSamples`.
+JSON is the API DTO; JSONL streams samples with project and window context. Human
+output must distinguish sample rows from visits and the all-kind 24-hour sample
+count shown by `traffic status`.

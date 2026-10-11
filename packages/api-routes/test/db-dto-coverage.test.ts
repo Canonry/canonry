@@ -63,6 +63,7 @@ import {
   siteCrawlPageSchema,
   siteCrawlSummarySchema,
   trafficSourceDtoSchema,
+  trafficSampleDtoSchema,
   conversionTrackingContractSchema,
   gtmConnectionMetadataDtoSchema,
   gtmRawSnapshotMetadataDtoSchema,
@@ -1036,8 +1037,8 @@ const COVERAGE: Record<string, CoverageEntry> = {
     reason: 'Transport-neutral transactional idempotency claims; never returned to an API caller.',
   },
   rawEventSamples: {
-    kind: 'internal-only',
-    reason: 'Short-retention raw evidence for classifier debugging; not part of the public API.',
+    kind: 'dto', dto: trafficSampleDtoSchema,
+    internal: { ipHash: 'Never exposed, including legacy non-null hashes.', projectId: 'Route scope.', createdAt: 'Ingest bookkeeping.', eventType: 'Exposed as kind with hyphenated wire values.', classifierDetailsJson: 'Exposed as classifier with only declared public fields.' },
   },
   migrationsTable: {
     kind: 'internal-only',
