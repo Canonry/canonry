@@ -159,7 +159,7 @@ describe('probeApiHost', () => {
     })
 
     try {
-      const result = await probeApiHost('self-signed.example', {
+      const result = await probeApiHost(PUBLIC_HOST, {
         lookup: async () => [{ address: PUBLIC_ADDRESS, family: 4 }],
         timeoutMs: 1000,
       })
@@ -168,7 +168,7 @@ describe('probeApiHost', () => {
       expect(observedOptions[0]).toMatchObject({
         host: PUBLIC_ADDRESS,
         port: 443,
-        servername: 'self-signed.example',
+        servername: PUBLIC_HOST,
         rejectUnauthorized: true,
       })
     } finally {
