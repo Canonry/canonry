@@ -141,7 +141,7 @@ describe('history CLI paging arguments', () => {
 
   it('accepts and forwards a nonnegative offset beyond the first 500 entries', async () => {
     await dispatchRegisteredCommand(['history', 'demo', '--limit', '500', '--offset', '500'], 'json', OPERATOR_CLI_COMMANDS)
-    expect(mockGetHistory).toHaveBeenCalledWith('demo', { limit: 500, offset: 500, since: undefined, action: undefined, actor: undefined, entityType: undefined })
+    expect(mockGetHistory).toHaveBeenCalledWith('demo', { limit: 500, offset: 500, since: undefined, until: undefined, actionPrefix: undefined, excludeEntityTypes: undefined, entityId: undefined, action: undefined, actor: undefined, entityType: undefined })
   })
 
   it.each([
@@ -170,5 +170,29 @@ describe('results clear', () => {
   it('refuses an empty selection before contacting the server', async () => {
     await expect(clearResults('demo', { runIds: [], researchRunIds: [], confirm: true })).rejects.toMatchObject({ exitCode: 1 })
     expect(mockClearResults).not.toHaveBeenCalled()
+  })
+})
+
+describe('history investigation filters', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetHistory.mockResolvedValue([])
+    mockGetGlobalHistory.mockResolvedValue([])
+  })
+  it.each([['sample'], ['--all']])('forwards additive filters on history %s', async selection => {
+    const args = ['history', selection, '--action-prefix', 'competitors.', '--exclude-entity-type', 'traffic_source,run', '--exclude-entity-type', 'schedule', '--until', '2026-10-02T00:00:00Z', '--entity-id', 'selected']
+    await dispatchRegisteredCommand(args, 'json', OPERATOR_CLI_COMMANDS)
+    const expected = expect.objectContaining({ actionPrefix: 'competitors.', excludeEntityTypes: ['traffic_source,run', 'schedule'], until: '2026-10-02T00:00:00Z', entityId: 'selected' })
+    if (selection === '--all') expect(mockGetGlobalHistory).toHaveBeenCalledWith(expected)
+    else expect(mockGetHistory).toHaveBeenCalledWith('sample', expected)
+  })
+  it('shows authenticated actor as well as client origin in human output', async () => {
+    mockGetHistory.mockResolvedValue([{ ...entries[0], actor: 'api-key:sample', userAgent: 'canonry-cli/7.24.1' }])
+    const output: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation((...parts: unknown[]) => { output.push(parts.join(' ')) })
+    try { await showHistory('sample') } finally { log.mockRestore() }
+    expect(output.join('\n')).toContain('ACTOR')
+    expect(output.join('\n')).toContain('api-key:sample')
+    expect(output.join('\n')).toContain('cli')
   })
 })

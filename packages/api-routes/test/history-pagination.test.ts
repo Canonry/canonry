@@ -81,3 +81,63 @@ describe('audit history pagination', () => {
     expect((exact.json() as Array<{ id: string }>).map(entry => entry.id)).toEqual(['key-api'])
   })
 })
+
+const competitorActions = [
+  'competitors.replaced', 'competitors.appended', 'competitors.deleted',
+  'competitors.aliases-updated', 'competitors.auto-aliases-updated',
+  'competitors.aliases-blocked', 'competitors.aliases-unblocked',
+  'competitors.auto-aliases-apply-requested',
+]
+
+for (const route of ['/api/v1/projects/history-page/history', '/api/v1/history']) {
+  describe(`audit selection ${route}`, () => {
+    it('matches every competitor action by prefix, retains exact action and treats wildcard characters literally', async () => {
+      db.delete(auditLog).run()
+      db.insert(auditLog).values([...competitorActions, 'literal%_.changed', 'literalXY.changed', 'traffic.synced'].map((action, i) => ({
+        id: `audit-${i}`, projectId, actor: 'api-key:sample', action, entityType: 'competitor', createdAt: '2026-10-01T04:00:00.000Z',
+      }))).run()
+      const prefixed = await app.inject(`${route}?actionPrefix=competitors.`)
+      expect(prefixed.statusCode).toBe(200)
+      expect(prefixed.json().map((row: { action: string }) => row.action).sort()).toEqual([...competitorActions].sort())
+      expect((await app.inject(`${route}?action=competitors.deleted`)).json()).toMatchObject([{ action: 'competitors.deleted' }])
+      expect((await app.inject(`${route}?actionPrefix=literal%25_`)).json()).toMatchObject([{ action: 'literal%_.changed' }])
+      expect((await app.inject(`${route}?actionPrefix=literal%25_`)).json()).toHaveLength(1)
+    })
+
+    it('combines inclusive UTC-normalized bounds, entity identity, and repeated or comma exclusions before paging', async () => {
+      db.delete(auditLog).run()
+      db.insert(auditLog).values([
+        { id: 'before', entityType: 'competitor', entityId: 'selected', createdAt: '2026-10-01T03:59:59.999Z' },
+        { id: 'boundary', entityType: 'competitor', entityId: 'selected', createdAt: '2026-10-01T04:00:00.000Z' },
+        { id: 'other-id', entityType: 'competitor', entityId: 'other', createdAt: '2026-10-01T04:00:00.000Z' },
+        { id: 'after', entityType: 'competitor', entityId: 'selected', createdAt: '2026-10-01T04:00:00.001Z' },
+        { id: 'traffic', entityType: 'traffic_source', entityId: 'selected', createdAt: '2026-10-01T04:00:00.000Z' },
+        { id: 'run', entityType: 'run', entityId: 'selected', createdAt: '2026-10-01T04:00:00.000Z' },
+      ].map(row => ({ projectId, actor: 'api-key:sample', action: 'changed', ...row }))).run()
+      for (const exclusions of ['excludeEntityTypes=traffic_source&excludeEntityTypes=run', 'excludeEntityTypes=traffic_source,run']) {
+        const response = await app.inject(`${route}?since=2026-10-01T00:00:00-04:00&until=2026-10-01T04:00:00Z&entityId=selected&${exclusions}&limit=1`)
+        expect(response.statusCode).toBe(200)
+        expect(response.json().map((row: { id: string }) => row.id)).toEqual(['boundary'])
+      }
+    })
+
+    it.each(['since', 'until'])('rejects an invalid %s bound', async field => {
+      const response = await app.inject(`${route}?${field}=not-a-date`)
+      expect(response.statusCode).toBe(400)
+      expect(response.json().error.code).toBe('VALIDATION_ERROR')
+    })
+
+    it('retains telemetry hiding and notification redaction under the new filters', async () => {
+      db.delete(auditLog).run()
+      db.insert(auditLog).values([
+        { id: 'telemetry', entityType: 'telemetry', diff: JSON.stringify({ private: 'never expose' }) },
+        { id: 'notification', entityType: 'notification', diff: JSON.stringify({ url: 'https://hooks.example/synthetic-secret', events: ['run.completed'] }) },
+      ].map(row => ({ projectId, actor: 'api-key:sample', action: 'config.changed', entityId: 'selected', createdAt: '2026-10-01T04:00:00.000Z', ...row }))).run()
+      const response = await app.inject(`${route}?actionPrefix=config.&excludeEntityTypes=traffic_source&entityId=selected&until=2026-10-02T00:00:00Z`)
+      expect(response.statusCode).toBe(200)
+      expect(response.json().map((row: { id: string }) => row.id)).toEqual(['notification'])
+      expect(response.body).not.toContain('synthetic-secret')
+      expect(response.body).not.toContain('never expose')
+    })
+  })
+}

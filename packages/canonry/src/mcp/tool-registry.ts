@@ -1,4 +1,4 @@
-import { visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema } from '@ainyc/canonry-contracts'
+import { auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema } from '@ainyc/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
@@ -377,12 +377,9 @@ const timelineInputSchema = z.object({
 })
 
 const historyFilterShape = {
+  ...auditHistoryQuerySchema.shape,
   limit: z.number().int().positive().max(500).optional(),
   offset: z.number().int().nonnegative().optional(),
-  since: z.string().optional().describe('ISO 8601 lower bound.'),
-  action: z.string().optional().describe('Exact audit action filter.'),
-  actor: z.string().optional().describe('Exact actor filter.'),
-  entityType: z.string().optional().describe('Exact entity type filter.'),
 }
 
 const projectHistoryInputSchema = z.object({ project: projectNameSchema, ...historyFilterShape })
@@ -1600,6 +1597,10 @@ export const canonryMcpTools = [
       limit: input.limit,
       offset: input.offset,
       since: input.since,
+      until: input.until,
+      actionPrefix: input.actionPrefix,
+      excludeEntityTypes: input.excludeEntityTypes,
+      entityId: input.entityId,
       action: input.action,
       actor: input.actor,
       entityType: input.entityType,

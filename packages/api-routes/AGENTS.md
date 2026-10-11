@@ -817,3 +817,12 @@ answers, checks at most 50 candidates, and returns separate reasons for changed
 populations, incomplete/empty targets, and bounded searches. Select an older run
 explicitly after a bounded-search refusal. Partial rated predecessors remain
 eligible; evaluator and model changes remain comparison refusals.
+
+### Audit investigations
+
+Both history routes parse `auditHistoryQuerySchema` before querying. Exact action
+and actor compatibility remain; action prefixes escape SQL wildcards, exclusions
+apply before paging, and inclusive time bounds normalize to UTC. Keep telemetry
+filtering and recursive notification redaction on every selection. Both competitor
+replacement writers use `competitorSetChangeAuditFields` to retain set changes and
+discarded names; never rewrite old audit records.

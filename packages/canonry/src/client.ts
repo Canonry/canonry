@@ -1,3 +1,4 @@
+import type { AuditHistoryOptions } from '@ainyc/canonry-contracts'
 import type { ReferralAssessment, ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameTrafficReferralAssessment } from '@ainyc/canonry-api-client'
 
@@ -2341,7 +2342,7 @@ export class ApiClient {
 
   async getHistory(
     project: string,
-    opts?: { limit?: number; offset?: number; since?: string; action?: string; actor?: string; entityType?: string },
+    opts?: AuditHistoryOptions,
   ): Promise<AuditLogEntry[]> {
     return this.invoke<AuditLogEntry[]>(() =>
       getApiV1ProjectsByNameHistory({ client: this.heyClient, path: { name: project }, query: opts }),
@@ -2349,7 +2350,7 @@ export class ApiClient {
   }
 
   async getGlobalHistory(
-    opts?: { limit?: number; offset?: number; since?: string; action?: string; actor?: string; entityType?: string },
+    opts?: AuditHistoryOptions,
   ): Promise<AuditLogEntry[]> {
     return this.invoke<AuditLogEntry[]>(() =>
       getApiV1History({ client: this.heyClient, query: opts }),

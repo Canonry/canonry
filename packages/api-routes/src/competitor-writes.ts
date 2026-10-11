@@ -596,3 +596,23 @@ export function competitorAliasAuditFields(
     ...(plan.droppedAutoAliases?.length ? { droppedAutoAliases: plan.droppedAutoAliases } : {}),
   }
 }
+
+/**
+ * Names a delete discards (curated, auto-detected and blocked), kept in the
+ * audit row so they can be restored.
+ */
+export function deletedAliasesDiff(rows: readonly { domain: string; aliases: string[]; autoAliases: { name: string }[]; blockedAliases: string[] }[]): Record<string, unknown> {
+  const withAliases = rows.filter(row => row.aliases.length > 0)
+  const withAuto = rows.filter(row => row.autoAliases.length > 0)
+  const withBlocked = rows.filter(row => row.blockedAliases.length > 0)
+  return {
+    ...(withAliases.length ? { deletedAliases: Object.fromEntries(withAliases.map(row => [row.domain, row.aliases])) } : {}),
+    ...(withAuto.length ? { deletedAutoAliases: Object.fromEntries(withAuto.map(row => [row.domain, row.autoAliases.map(record => record.name)])) } : {}),
+    ...(withBlocked.length ? { deletedBlockedAliases: Object.fromEntries(withBlocked.map(row => [row.domain, row.blockedAliases])) } : {}),
+  }
+}
+
+/** Set membership and discarded names for both replacement audit writers. */
+export function competitorSetChangeAuditFields(plan: CompetitorSetPlan): Record<string, unknown> {
+  return { added: plan.added, removed: plan.removed.map(row => row.domain), ...deletedAliasesDiff(plan.removed) }
+}

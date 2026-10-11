@@ -20890,15 +20890,31 @@ export type GetApiV1ProjectsByNameHistoryData = {
          */
         offset?: number;
         /**
-         * ISO 8601 lower bound.
+         * Inclusive ISO 8601 lower bound, normalized to UTC.
          */
         since?: string;
+        /**
+         * Inclusive ISO 8601 upper bound, normalized to UTC.
+         */
+        until?: string;
+        /**
+         * Literal audit action prefix.
+         */
+        actionPrefix?: string;
+        /**
+         * Exact entity identity filter.
+         */
+        entityId?: string;
+        /**
+         * Exclude entity types before paging; repeated or comma-separated.
+         */
+        excludeEntityTypes?: Array<string>;
         /**
          * Exact audit action filter.
          */
         action?: string;
         /**
-         * Exact actor filter.
+         * Exact actor, or api for legacy API, API-key, and user actors.
          */
         actor?: string;
         /**
@@ -20931,15 +20947,31 @@ export type GetApiV1HistoryData = {
          */
         offset?: number;
         /**
-         * ISO 8601 lower bound.
+         * Inclusive ISO 8601 lower bound, normalized to UTC.
          */
         since?: string;
+        /**
+         * Inclusive ISO 8601 upper bound, normalized to UTC.
+         */
+        until?: string;
+        /**
+         * Literal audit action prefix.
+         */
+        actionPrefix?: string;
+        /**
+         * Exact entity identity filter.
+         */
+        entityId?: string;
+        /**
+         * Exclude entity types before paging; repeated or comma-separated.
+         */
+        excludeEntityTypes?: Array<string>;
         /**
          * Exact audit action filter.
          */
         action?: string;
         /**
-         * Exact actor filter.
+         * Exact actor, or api for legacy API, API-key, and user actors.
          */
         actor?: string;
         /**

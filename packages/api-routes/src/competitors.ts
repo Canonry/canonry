@@ -36,6 +36,8 @@ import {
 import {
   applyCompetitorSetPlan,
   competitorAliasAuditFields,
+  competitorSetChangeAuditFields,
+  deletedAliasesDiff,
   competitorIdentityChanged,
   competitorWritesFromEntries,
   findStoredCompetitor,
@@ -162,6 +164,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
         entityType: 'competitor',
         diff: {
           competitors: normalizedCompetitors,
+          ...competitorSetChangeAuditFields(plan),
           ...competitorAliasAuditFields(plan),
           ...marketNameAuditFields(marketNamesChanged),
           ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}),
@@ -601,21 +604,6 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
     if (marketNamesMoved) opts.onCompetitorAliasesChanged?.(project.id, project.name)
     return reply.status(204).send()
   })
-}
-
-/**
- * Names a delete discards (curated, auto-detected and blocked), kept in the
- * audit row so they can be restored.
- */
-function deletedAliasesDiff(rows: readonly { domain: string; aliases: string[]; autoAliases: { name: string }[]; blockedAliases: string[] }[]): Record<string, unknown> {
-  const withAliases = rows.filter(row => row.aliases.length > 0)
-  const withAuto = rows.filter(row => row.autoAliases.length > 0)
-  const withBlocked = rows.filter(row => row.blockedAliases.length > 0)
-  return {
-    ...(withAliases.length ? { deletedAliases: Object.fromEntries(withAliases.map(row => [row.domain, row.aliases])) } : {}),
-    ...(withAuto.length ? { deletedAutoAliases: Object.fromEntries(withAuto.map(row => [row.domain, row.autoAliases.map(record => record.name)])) } : {}),
-    ...(withBlocked.length ? { deletedBlockedAliases: Object.fromEntries(withBlocked.map(row => [row.domain, row.blockedAliases])) } : {}),
-  }
 }
 
 /**

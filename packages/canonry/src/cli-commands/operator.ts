@@ -90,23 +90,31 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['history'],
-    usage: 'canonry history <project> [--limit <1..500>] [--offset <n>] [--since <ISO>] [--action <action>] [--actor <actor>] [--entity-type <type>] [--format json|jsonl]\n       canonry history --all [same filters]',
+    usage: 'canonry history <project> [--limit <1..500>] [--offset <n>] [--since <ISO>] [--until <ISO>] [--action <action>] [--action-prefix <prefix>] [--actor <actor>] [--entity-type <type>] [--exclude-entity-type <type>]... [--entity-id <id>] [--format json|jsonl]\n       canonry history --all [same filters]',
     options: {
       all: { type: 'boolean', default: false },
       limit: stringOption(),
       offset: stringOption(),
       since: stringOption(),
+      until: stringOption(),
+      'action-prefix': stringOption(),
+      'exclude-entity-type': multiStringOption(),
+      'entity-id': stringOption(),
       action: stringOption(),
       actor: stringOption(),
       'entity-type': stringOption(),
     },
     run: async (input) => {
-      const usage = 'canonry history <project> [--limit <1..500>] [--offset <n>] [--since <ISO>] [--action <action>] [--actor <actor>] [--entity-type <type>] [--format json|jsonl]\n       canonry history --all [same filters]'
+      const usage = 'canonry history <project> [--limit <1..500>] [--offset <n>] [--since <ISO>] [--until <ISO>] [--action <action>] [--action-prefix <prefix>] [--actor <actor>] [--entity-type <type>] [--exclude-entity-type <type>]... [--entity-id <id>] [--format json|jsonl]\n       canonry history --all [same filters]'
       const project = getBoolean(input.values, 'all') ? undefined : requireProject(input, 'history', usage)
       await showHistory(project, input.format, {
         limit: parseHistoryPageOption(input, 'limit', usage),
         offset: parseHistoryPageOption(input, 'offset', usage),
         since: getString(input.values, 'since'),
+        until: getString(input.values, 'until'),
+        actionPrefix: getString(input.values, 'action-prefix'),
+        excludeEntityTypes: getStringArray(input.values, 'exclude-entity-type'),
+        entityId: getString(input.values, 'entity-id'),
         action: getString(input.values, 'action'),
         actor: getString(input.values, 'actor'),
         entityType: getString(input.values, 'entity-type'),

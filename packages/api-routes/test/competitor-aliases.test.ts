@@ -201,7 +201,7 @@ describe('competitor add and replace keep aliases', () => {
       'spoketuneworks.example': [],
     })
     expect(db.select().from(competitors).where(eq(competitors.domain, 'qvx.example')).get()!.id).toBe(before.id)
-    expect(JSON.parse(audits(project.id, 'competitors.replaced')[0]!.diff!)).toEqual({ competitors: ['qvx.example', 'spoketuneworks.example'] })
+    expect(JSON.parse(audits(project.id, 'competitors.replaced')[0]!.diff!)).toEqual({ competitors: ['qvx.example', 'spoketuneworks.example'], added: ['spoketuneworks.example'], removed: ['ravenwood.example'] })
     expect(competitorAliasHooks).toEqual(['rotorwise'])
   })
 })
@@ -564,6 +564,8 @@ describe('config-as-code competitor aliases', () => {
     const replacedDiff = JSON.parse(audits(project.id, 'competitors.replaced').at(-1)!.diff!)
     expect(replacedDiff).toEqual({
       competitors: ['qvx.example', 'spoketuneworks.example'],
+      added: [],
+      removed: [],
       aliasChanges: [
         { domain: 'qvx.example', before: ['QVX'], after: [] },
         { domain: 'spoketuneworks.example', before: ['TuneSpoke'], after: ['Tune Spoke'] },
@@ -888,5 +890,22 @@ describe('project-scoped keys', () => {
     } finally {
       await authed.close()
     }
+  })
+})
+
+describe('competitor replacement audit evidence', () => {
+  it.each(['put', 'apply'])('records additions, removals, and discarded names on %s, including no-op replacement', async surface => {
+    const project = await createProject()
+    const added = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: [{ domain: 'qvx.example', aliases: ['QVX'] }] } })
+    expect(added.statusCode).toBe(200)
+    const replace = () => surface === 'put'
+      ? app.inject({ method: 'PUT', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['ravenwood.example'] } })
+      : app.inject({ method: 'POST', url: '/api/v1/apply', payload: { apiVersion: 'canonry/v1', kind: 'Project', metadata: { name: 'rotorwise' }, spec: { ...PROJECT, competitors: ['ravenwood.example'] } } })
+    expect((await replace()).statusCode).toBe(200)
+    expect(JSON.parse(audits(project.id, 'competitors.replaced')[0]!.diff!)).toMatchObject({
+      competitors: ['ravenwood.example'], added: ['ravenwood.example'], removed: ['qvx.example'], deletedAliases: { 'qvx.example': ['QVX'] },
+    })
+    expect((await replace()).statusCode).toBe(200)
+    expect(JSON.parse(audits(project.id, 'competitors.replaced')[1]!.diff!)).toMatchObject({ competitors: ['ravenwood.example'], added: [], removed: [] })
   })
 })

@@ -261,6 +261,8 @@ Two independent signals per (query × provider): **mention** (`answerMentioned` 
 cnry evidence <project>                        # per-query [C/c][M/m] cell + Mentioned: X / Y / Cited: X / Y
 cnry evidence <project> --format json          # JSON output
 cnry history <project>                         # audit trail
+cnry history <project> --entity-type competitor --format json
+cnry history <project> --action-prefix competitors. --exclude-entity-type traffic_source --since 2026-10-01T00:00:00Z --until 2026-10-02T00:00:00Z
 cnry export <project> --include-results        # export as YAML
 cnry backfill answer-mentions                  # recompute answerMentioned (primary) from stored answers (honors aliases)
 cnry backfill answer-mentions --dry-run
@@ -269,6 +271,15 @@ cnry backfill answer-visibility --dry-run      # preview which snapshots would c
 cnry backfill insights <project>               # recompute insights for completed runs
 cnry backfill insights <project> --since 2026-04-01 --dry-run
 ```
+
+History filters compose on project reads and `history --all`. `--action` remains
+exact; `--action-prefix` matches a literal prefix. Repeat `--exclude-entity-type`
+or supply a comma list to remove noisy entity types before paging. `--entity-id`
+selects one entity. Time bounds are inclusive, normalize offsets to UTC, and
+reject invalid values. `--actor api` includes legacy API, API-key, and user
+actors; other actors match exactly. Human output shows actor and client origin.
+New competitor replacement records include `added`, `removed`, and any discarded
+aliases beside the resulting `competitors` list. Older records remain unchanged.
 
 Output uses a two-glyph cell per (query × provider): `[C/c][M/m]` — uppercase = present, lowercase = absent, `–` = no snapshot. **C/c = cited** (secondary), **M/m = mentioned** (primary). Always print the legend before the table; never collapse the two signals into one cell.
 

@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { projects, schedules, notifications, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
 import { competitorAliasProjectIdentity, DEFAULT_COMPETITOR_AUTO_ALIAS_MODE, forbidden, nextScheduleUpdatedAt, normalizeProjectAliases, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
-import { competitorAliasAuditFields, competitorIdentityChanged, competitorNames, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
+import { competitorSetChangeAuditFields, competitorAliasAuditFields, competitorIdentityChanged, competitorNames, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
 import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
 import { writeAuditLog } from './helpers.js'
@@ -340,6 +340,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         entityType: 'competitor',
         diff: {
           competitors: competitorWrites.map(write => write.domain),
+          ...competitorSetChangeAuditFields(competitorPlan),
           ...competitorAliasAuditFields(competitorPlan),
           ...(marketNamesChanged.length ? { marketNameChanges: marketNamesChanged } : {}),
         },
