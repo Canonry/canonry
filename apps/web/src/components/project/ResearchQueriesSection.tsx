@@ -43,7 +43,7 @@ import { Button } from '../ui/button.js'
 import { useAccount } from '../../contexts/account-context.js'
 import {
   RESEARCH_RESULTS_COPY, RESEARCH_ROW_BUTTON, RESEARCH_STATUS_LABEL, RESEARCH_TABLE, RESEARCH_TD, RESEARCH_TH,
-  ResearchRunDetail, toneForResearchRun, type ResearchTrackingSource,
+  ResearchRunDetail, formatResearchDate, toneForResearchRun, type ResearchTrackingSource,
 } from './queries/research/ResearchResults.js'
 
 export type { ResearchTrackingSource }
@@ -135,7 +135,7 @@ export function ResearchStartControl({ value, onChange, findIdeas }: { value: Re
   return <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
     <span aria-hidden="true" className="text-sm font-medium text-heading">{RESEARCH_COPY.startFrom}</span>
     <div className="flex items-center">
-      <SegmentedRadioGroup label={RESEARCH_COPY.startFrom} options={options} value={value} onChange={onChange} />
+      <SegmentedRadioGroup className={CHOICE_SIZE} label={RESEARCH_COPY.startFrom} options={options} value={value} onChange={onChange} />
       <InfoTooltip text={findIdeas ? RESEARCH_COPY.introHelpWithFind : RESEARCH_COPY.introHelp} placement="bottom" />
     </div>
   </div>
@@ -155,6 +155,7 @@ export function ResearchQueriesSection({
   start: controlledStart,
   onStartChange,
   findIdeas = false,
+  paused = false,
 }: {
   projectName: string
   /** Write or Pattern, as the caller holds it. Left out, the section keeps it and opens on Write. */
@@ -163,6 +164,8 @@ export function ResearchQueriesSection({
   onStartChange?: (start: ResearchStart) => void
   /** Offers Find ideas beside Write and Pattern. */
   findIdeas?: boolean
+  /** Kept out of view behind Find ideas: its runs are not polled until it shows again. */
+  paused?: boolean
   onReviewForTracking?: (source: ResearchTrackingSource) => void
   viewerResearchConfig?: ViewerResearchConfig | null
   scopeOptions?: VisibilityReportScopeOption[]
@@ -183,12 +186,19 @@ export function ResearchQueriesSection({
   const [uncontrolledStart, setUncontrolledStart] = useState<Exclude<ResearchStart, 'find'>>('write')
   // Kept here, above the form, so a run that clears the form leaves Pattern on the same kind of place.
   const [repeat, setRepeat] = useState<ResearchRepeat | null>(null)
+  // Which kinds of place the project has is known once its places have loaded. Until then Pattern offers none, so a list that lands late never moves a form in use.
+  const [placesSettled, setPlacesSettled] = useState(!scopePending)
+  if (!placesSettled && !scopePending) setPlacesSettled(true)
   const start = controlledStart ?? uncontrolledStart
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [createdRuns, setCreatedRuns] = useState<ResearchRunDetailDto[]>([])
   const retryRequest = useRef<{ fingerprint: string; key: string } | null>(null)
   const submitInFlight = useRef(false)
   const [composerVersion, setComposerVersion] = useState(0)
+  const [savedRuns, setSavedRuns] = useState(0)
+  const resultsHeading = useRef<HTMLHeadingElement>(null)
+  const batchSelect = useRef<HTMLSelectElement>(null)
+  const showSavedRun = useRef(false)
 
   const projectQuery = useQuery({
     ...getApiV1ProjectsByNameOptions({ client: heyClient, path: { name: projectName } }),
@@ -207,7 +217,7 @@ export function ResearchQueriesSection({
     getNextPageParam: lastPage => lastPage.nextCursor
       ? { path: historyInput.path, query: { ...historyInput.query, cursor: lastPage.nextCursor } }
       : undefined,
-    refetchInterval: query => query.state.data?.pages.some(page => page.runs.some(run => ACTIVE_RESEARCH_STATUSES.has(run.status))) ? 3000 : false,
+    refetchInterval: query => !paused && query.state.data?.pages.some(page => page.runs.some(run => ACTIVE_RESEARCH_STATUSES.has(run.status))) ? 3000 : false,
   })
   // An older-page failure must leave loaded history and the selected answer usable.
   // Failed authoritative refreshes still close the Research admission UI.
@@ -230,9 +240,22 @@ export function ResearchQueriesSection({
       path: { name: projectName, runId: selectedRunId ?? '' },
     }),
     enabled: !historyError && Boolean(selectedRunId),
-    refetchInterval: selectedRun && ACTIVE_RESEARCH_STATUSES.has(selectedRun.status) ? 3000 : false,
+    refetchInterval: !paused && selectedRun && ACTIVE_RESEARCH_STATUSES.has(selectedRun.status) ? 3000 : false,
   })
   const detail = historyError || detailQuery.isError ? null : detailQuery.data ?? null
+
+  /** Brings the Results card under the topbar and moves focus into it: to the select over a batch when asked for and shown, otherwise to the heading. */
+  const showResults = (target: 'heading' | 'batch') => {
+    const heading = resultsHeading.current
+    if (!heading) return false
+    if (typeof heading.scrollIntoView === 'function') heading.scrollIntoView({ block: 'start' })
+    ;((target === 'batch' && batchSelect.current) || heading).focus({ preventScroll: true })
+    return true
+  }
+  // A saved run clears the form, which drops focus. It goes to the run's results once they are drawn: for a first run, after past research has been read again.
+  useEffect(() => {
+    if (showSavedRun.current && showResults('batch')) showSavedRun.current = false
+  })
 
   const locations = projectQuery.data?.locations ?? []
   const providerOptions = useMemo(() => {
@@ -268,8 +291,10 @@ export function ResearchQueriesSection({
     ...postApiV1ProjectsByNameResearchBatchesMutation(),
     onSuccess: async (batch: ResearchBatchDto) => {
       retryRequest.current = null
+      showSavedRun.current = true
       setComposerVersion(value => value + 1)
       setCreatedRuns(batch.runs)
+      setSavedRuns(batch.runs.length)
       setSelectedRunId(batch.runs[0]?.id ?? null)
       await refreshResearch(queryClient)
       addToast({
@@ -300,11 +325,9 @@ export function ResearchQueriesSection({
   // Known only once past research has loaded: a research-only key reads as no access until then.
   const viewOnly = !canRun && !historyError && !runsQuery.isPending
 
-  // The runs the last batch made, with the status past research now reports for each.
+  // The runs the last batch made, with the status past research now reports for each. The select over them stays for the visit, whatever run is in view.
   const batchRuns = createdRuns.map(created => runs.find(run => run.id === created.id) ?? created)
-  const batch = batchRuns.length > 1 && selectedRunId && batchRuns.some(run => run.id === selectedRunId)
-    ? { runs: batchRuns, selectedRunId, onSelect: setSelectedRunId }
-    : undefined
+  const batch = batchRuns.length > 1 ? { runs: batchRuns, selectedRunId, onSelect: setSelectedRunId, selectRef: batchSelect } : undefined
   const changeStart = (next: ResearchStart) => {
     if (next !== 'find' && controlledStart === undefined) setUncontrolledStart(next)
     onStartChange?.(next)
@@ -312,106 +335,110 @@ export function ResearchQueriesSection({
 
   return (
     <div className="space-y-4">
-      <div className="space-y-4">
-        {publicDemo ? (
-          <Card className="surface-card min-w-0">
-            <StatusNote icon={Info} label={RESEARCH_COPY.demo} detail={RESEARCH_COPY.demoDetail} />
-          </Card>
-        ) : (
-          <ResearchBatchComposer
-            key={`${projectName}:${composerVersion}`}
-            projectName={projectName}
-            start={start}
-            onStartChange={changeStart}
-            findIdeas={findIdeas}
-            repeat={repeat}
-            onRepeatChange={setRepeat}
-            canWrite={canWrite}
-            researchAllowed={canRun && !historyError}
-            viewOnly={viewOnly}
-            limitedAccess={limitedAccess}
-            isEmbed={isEmbed()}
-            scopeOptions={scopeOptions ?? []}
-            planRevision={planRevision ?? selectedScope?.planRevision ?? null}
-            initialScope={selectedScope}
-            scopePending={scopePending}
-            scopeError={scopeError}
-            onRetryScope={onRetryScope}
-            templates={templates}
-            locations={locations}
-            defaultLocation={projectQuery.data?.defaultLocation ?? null}
-            providerOptions={providerOptions}
-            provider={provider}
-            onProviderChange={(next) => { setProvider(next); setModel('') }}
-            resolvedModel={resolvedModel}
-            visibilityModel={visibilityModel}
-            configurableModel={configurableModel}
-            model={model}
-            onModelChange={setModel}
-            modelOptions={modelOptions}
-            settingsReady={limitedAccess ? !runsQuery.isPending && !historyError : !settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching}
-            projectReady={!projectQuery.isPending && !projectQuery.isError && !projectQuery.isFetching}
-            isPending={researchMutation.isPending}
-            errorMessage={researchMutation.isError ? 'The request could not be confirmed.' : undefined}
-            onSubmit={(body, fingerprint) => {
-              if (!canRun || historyError || isEmbed() || submitInFlight.current) return
-              if (retryRequest.current?.fingerprint !== fingerprint) retryRequest.current = { fingerprint, key: crypto.randomUUID() }
-              submitInFlight.current = true
-              researchMutation.mutate({ client: heyClient, path: { name: projectName }, body: { ...body, idempotencyKey: retryRequest.current.key } })
-            }}
-            runNotes={(dailyRunLimit !== null || setupReadError || noEngine) && <>
-              {dailyRunLimit !== null && <StatusNote icon={Gauge} label={`${plural(dailyRunLimit, 'run', 'runs')} per day`} detail={`Up to ${plural(dailyRunLimit, 'research run', 'research runs')} per project per day. Each market, location or search location in a batch is one run.`} />}
-              {setupReadError && <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={`The ${setupReads} did not load.`} action={<RetryButton name={setupReads} onClick={() => { if (settingsError) void settingsQuery.refetch(); if (projectQuery.isError) void projectQuery.refetch() }} />} /></span>}
-              {noEngine && <StatusNote icon={Key} tone="caution" label={RESEARCH_COPY.noEngineKey} detail={limitedAccess ? RESEARCH_COPY.noEngineDetail : RESEARCH_COPY.noEngineKeyDetail} />}
-            </>}
-          />
-        )}
-
-        {/* Closed until asked for: the page is the form and the results of the run in view. A failed, loading or empty history says so on the row itself. */}
+      {/* The words a screen reader hears when a run is saved; the toast and the Results card show it. */}
+      <p role="status" className="sr-only">{savedRuns > 0 ? `${plural(savedRuns, 'run', 'runs')} saved` : ''}</p>
+      {publicDemo ? (
         <Card className="surface-card min-w-0">
-          {historyError ? <div role="alert" className="flex flex-wrap items-center gap-x-4 gap-y-2"><h3>{RESEARCH_COPY.historyTitle}</h3><StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={RESEARCH_COPY.historyError} action={<RetryButton name="past research" onClick={() => { void runsQuery.refetch() }} />} /></div>
-            : historyPending ? <div className="flex items-center gap-4"><h3>{RESEARCH_COPY.historyTitle}</h3><span role="status" aria-label="Loading past research"><span aria-hidden="true" className="skeleton-text block w-14" /></span></div>
-            : runs.length === 0 ? <div className="flex flex-wrap items-center gap-x-4 gap-y-1"><h3>{RESEARCH_COPY.historyTitle}</h3><StatusNote icon={History} label={RESEARCH_COPY.emptyHistory} /></div>
-            : <details>
-              {/* More runs may be saved than are loaded, so the count of a history with an older page ends in a plus. */}
-              <summary className={`-m-4 cursor-pointer rounded-xl p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 ${TOUCH_TARGET}`}>
-                <h3 className="inline">{RESEARCH_COPY.historyTitle}</h3>
-                <span className="ml-3 text-sm tabular-nums text-secondary">{runs.length}{runsQuery.hasNextPage ? '+' : ''} {runs.length === 1 && !runsQuery.hasNextPage ? 'run' : 'runs'}</span>
-              </summary>
-              <div className="mt-6 overflow-x-auto">
-                <table className={`${RESEARCH_TABLE} min-w-[760px]`}>
-                  <thead><tr>{['Run', 'Engine', RESEARCH_COPY.subject, RESEARCH_COPY.searchLocation, 'Progress', 'Status'].map(header => <th key={header} scope="col" className={RESEARCH_TH}>{header}</th>)}</tr></thead>
-                  <tbody>
-                    {runs.map(run => (
-                      <tr key={run.id} className={selectedRunId === run.id ? 'bg-bg-elevated/40' : undefined}>
-                        <td className={`${RESEARCH_TD} whitespace-nowrap`}><button type="button" className={RESEARCH_ROW_BUTTON} aria-pressed={selectedRunId === run.id} onClick={() => setSelectedRunId(run.id)}>{formatResearchDate(run.createdAt)}</button></td>
-                        <td className={`${RESEARCH_TD} whitespace-nowrap text-secondary`}><span className="block">{providerDisplayName(run.provider)}</span><span className="font-mono text-[11px] text-muted">{run.requestedModel ?? run.resolvedModel}</span></td>
-                        <td className={`${RESEARCH_TD} text-secondary`}>{run.scope?.label ?? RESEARCH_COPY.notSet}</td>
-                        <td className={`${RESEARCH_TD} text-secondary`}>{run.location?.label ?? RESEARCH_COPY.noSearchLocation}</td>
-                        <td className={`${RESEARCH_TD} whitespace-nowrap tabular-nums text-secondary`}>{run.completedQueries + run.failedQueries} of {run.totalQueries}</td>
-                        <td className={`${RESEARCH_TD} whitespace-nowrap`}><ToneBadge tone={toneForResearchRun(run.status)}>{RESEARCH_STATUS_LABEL[run.status]}</ToneBadge></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {/* One button for the next page and its retry, so a failed load keeps focus on it. */}
-              {(runsQuery.isFetchNextPageError || runsQuery.hasNextPage) && <div className="mt-3 flex flex-wrap items-center gap-3">
-                {runsQuery.isFetchNextPageError && <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={RESEARCH_COPY.historyMoreError} /></span>}
-                {runsQuery.hasNextPage && <Button variant="outline" size="sm" className={TOUCH_TARGET} disabled={runsQuery.isFetching} aria-label={runsQuery.isFetchNextPageError && !runsQuery.isFetchingNextPage ? 'Retry older runs' : undefined} onClick={() => { void runsQuery.fetchNextPage() }}>{runsQuery.isFetchingNextPage ? RESEARCH_COPY.historyLoading : runsQuery.isFetchNextPageError ? RESEARCH_COPY.retry : RESEARCH_COPY.historyMore}</Button>}
-              </div>}
-            </details>}
+          <StatusNote icon={Info} label={RESEARCH_COPY.demo} detail={RESEARCH_COPY.demoDetail} />
         </Card>
-      </div>
+      ) : (
+        <ResearchBatchComposer
+          key={`${projectName}:${composerVersion}`}
+          projectName={projectName}
+          start={start}
+          onStartChange={changeStart}
+          findIdeas={findIdeas}
+          repeat={repeat}
+          onRepeatChange={setRepeat}
+          placesSettled={placesSettled}
+          canWrite={canWrite}
+          researchAllowed={canRun && !historyError}
+          viewOnly={viewOnly}
+          limitedAccess={limitedAccess}
+          isEmbed={isEmbed()}
+          scopeOptions={scopeOptions ?? []}
+          planRevision={planRevision ?? selectedScope?.planRevision ?? null}
+          initialScope={selectedScope}
+          scopePending={scopePending}
+          scopeError={scopeError}
+          onRetryScope={onRetryScope}
+          templates={templates}
+          locations={locations}
+          defaultLocation={projectQuery.data?.defaultLocation ?? null}
+          providerOptions={providerOptions}
+          provider={provider}
+          onProviderChange={(next) => { setProvider(next); setModel('') }}
+          resolvedModel={resolvedModel}
+          visibilityModel={visibilityModel}
+          configurableModel={configurableModel}
+          model={model}
+          onModelChange={setModel}
+          modelOptions={modelOptions}
+          settingsReady={limitedAccess ? !runsQuery.isPending && !historyError : !settingsQuery.isPending && !settingsQuery.isError && !settingsQuery.isFetching}
+          projectReady={!projectQuery.isPending && !projectQuery.isError && !projectQuery.isFetching}
+          isPending={researchMutation.isPending}
+          errorMessage={researchMutation.isError ? 'The request could not be confirmed.' : undefined}
+          onSubmit={(body, fingerprint) => {
+            if (!canRun || historyError || isEmbed() || submitInFlight.current) return
+            if (retryRequest.current?.fingerprint !== fingerprint) retryRequest.current = { fingerprint, key: crypto.randomUUID() }
+            submitInFlight.current = true
+            // Emptied first, so a second batch of the same size is announced too.
+            setSavedRuns(0)
+            researchMutation.mutate({ client: heyClient, path: { name: projectName }, body: { ...body, idempotencyKey: retryRequest.current.key } })
+          }}
+          runNotes={(dailyRunLimit !== null || setupReadError || noEngine) && <>
+            {dailyRunLimit !== null && <StatusNote icon={Gauge} label={`${plural(dailyRunLimit, 'run', 'runs')} per day`} detail={`Up to ${plural(dailyRunLimit, 'research run', 'research runs')} per project per day. Each market, location or search location in a batch is one run.`} />}
+            {setupReadError && <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={`The ${setupReads} did not load.`} action={<RetryButton name={setupReads} onClick={() => { if (settingsError) void settingsQuery.refetch(); if (projectQuery.isError) void projectQuery.refetch() }} />} /></span>}
+            {noEngine && <StatusNote icon={Key} tone="caution" label={RESEARCH_COPY.noEngineKey} detail={limitedAccess ? RESEARCH_COPY.noEngineDetail : RESEARCH_COPY.noEngineKeyDetail} />}
+          </>}
+        />
+      )}
 
-      {/* With no run saved there is nothing to show results for: the row above says so. */}
+      {/* With no run saved there is nothing to show results for: the Past research row below says so. */}
       {!historyError && (historyPending || runs.length > 0) && <ResearchRunDetail detail={detail} isLoading={detailQuery.isFetching || historyPending} onReviewForTracking={publicDemo ? undefined : onReviewForTracking}
         failedRunId={detailQuery.isError ? selectedRunId : null}
         failure={<StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={RESEARCH_COPY.resultsError} action={<RetryButton name="results" onClick={() => { void detailQuery.refetch() }} />} />}
         batch={batch}
+        headingRef={resultsHeading}
         company={projectQuery.data?.displayName || projectQuery.data?.name || 'the company'}
         domain={hostOf(projectQuery.data?.canonicalDomain) ?? 'its site'}
       />}
+
+      {/* Closed until asked for: the page is the form and the results of the run in view. A failed, loading or empty history says so on the row itself. */}
+      <Card className="surface-card min-w-0">
+        {historyError ? <div role="alert" className="flex flex-wrap items-center gap-x-4 gap-y-2"><h3>{RESEARCH_COPY.historyTitle}</h3><StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={RESEARCH_COPY.historyError} action={<RetryButton name="past research" onClick={() => { void runsQuery.refetch() }} />} /></div>
+          : historyPending ? <div className="flex items-center gap-4"><h3>{RESEARCH_COPY.historyTitle}</h3><span role="status" aria-label="Loading past research"><span aria-hidden="true" className="skeleton-text block w-14" /></span></div>
+          : runs.length === 0 ? <div className="flex flex-wrap items-center gap-x-4 gap-y-1"><h3>{RESEARCH_COPY.historyTitle}</h3><StatusNote icon={History} label={RESEARCH_COPY.emptyHistory} /></div>
+          : <details>
+            {/* More runs may be saved than are loaded, so the count of a history with an older page ends in a plus. */}
+            <summary className={`-m-4 cursor-pointer rounded-xl p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 ${TOUCH_TARGET}`}>
+              <h3 className="inline">{RESEARCH_COPY.historyTitle}</h3>{' '}
+              <span className="ml-2 text-sm tabular-nums text-secondary">{runs.length}{runsQuery.hasNextPage ? '+' : ''} {runs.length === 1 && !runsQuery.hasNextPage ? 'run' : 'runs'}</span>
+            </summary>
+            <div className="mt-6 overflow-x-auto">
+              <table className={`${RESEARCH_TABLE} min-w-[760px]`}>
+                <thead><tr>{['Run', 'Engine', RESEARCH_COPY.subject, RESEARCH_COPY.searchLocation, 'Progress', 'Status'].map(header => <th key={header} scope="col" className={RESEARCH_TH}>{header}</th>)}</tr></thead>
+                <tbody>
+                  {runs.map(run => (
+                    <tr key={run.id} className={selectedRunId === run.id ? 'bg-bg-elevated/40' : undefined}>
+                      <td className={`${RESEARCH_TD} whitespace-nowrap`}><button type="button" className={RESEARCH_ROW_BUTTON} aria-pressed={selectedRunId === run.id} onClick={() => { setSelectedRunId(run.id); showResults('heading') }}>{formatResearchDate(run.createdAt)}</button></td>
+                      <td className={`${RESEARCH_TD} whitespace-nowrap text-secondary`}><span className="block">{providerDisplayName(run.provider)}</span><span className="font-mono text-[11px] text-muted">{run.requestedModel ?? run.resolvedModel}</span></td>
+                      <td className={`${RESEARCH_TD} text-secondary`}>{run.scope?.label ?? RESEARCH_COPY.notSet}</td>
+                      <td className={`${RESEARCH_TD} text-secondary`}>{run.location?.label ?? RESEARCH_COPY.noSearchLocation}</td>
+                      <td className={`${RESEARCH_TD} whitespace-nowrap tabular-nums text-secondary`}>{run.completedQueries + run.failedQueries} of {run.totalQueries}</td>
+                      <td className={`${RESEARCH_TD} whitespace-nowrap`}><ToneBadge tone={toneForResearchRun(run.status)}>{RESEARCH_STATUS_LABEL[run.status]}</ToneBadge></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {/* One button for the next page and its retry, so a failed load keeps focus on it. */}
+            {(runsQuery.isFetchNextPageError || runsQuery.hasNextPage) && <div className="mt-3 flex flex-wrap items-center gap-3">
+              {runsQuery.isFetchNextPageError && <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={RESEARCH_COPY.historyMoreError} /></span>}
+              {runsQuery.hasNextPage && <Button variant="outline" size="sm" className={TOUCH_TARGET} disabled={runsQuery.isFetching} aria-label={runsQuery.isFetchNextPageError && !runsQuery.isFetchingNextPage ? 'Retry older runs' : undefined} onClick={() => { void runsQuery.fetchNextPage() }}>{runsQuery.isFetchingNextPage ? RESEARCH_COPY.historyLoading : runsQuery.isFetchNextPageError ? RESEARCH_COPY.retry : RESEARCH_COPY.historyMore}</Button>}
+            </div>}
+          </details>}
+      </Card>
     </div>
   )
 }
@@ -427,6 +454,8 @@ type ComposerProps = {
   /** The kind of place Pattern repeats for, once chosen. Null takes the first kind the project has. */
   repeat: ResearchRepeat | null
   onRepeatChange: (repeat: ResearchRepeat) => void
+  /** False until the project's markets and locations have loaded once: Pattern shows a skeleton in place of a kind it would have to move from. */
+  placesSettled: boolean
   canWrite: boolean
   researchAllowed: boolean
   /** The account cannot run research: the footer says so in place of a Run button that could never work. */
@@ -461,6 +490,8 @@ type ComposerProps = {
 }
 // Buttons and links here are 44px tall where a finger is the pointer.
 const TOUCH_TARGET = 'pointer-coarse:min-h-11 max-md:min-h-11'
+// "Start from" and "For each" read at the size of the form's other labels, and each choice is a 44px target below md too.
+const CHOICE_SIZE = '[&_[role=radio]]:text-[13px] max-md:[&_[role=radio]]:min-h-11'
 const REPEAT_LABEL: Record<ResearchRepeat, string> = { markets: 'Market', properties: 'Location', locations: RESEARCH_COPY.searchLocation }
 const INPUT_CLASS = 'mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50'
 const NO_LOCATION = '__none__'
@@ -495,6 +526,9 @@ function ResearchBatchComposer(props: ComposerProps) {
   const repeats = (['markets', 'properties', 'locations'] as const).filter(kind => kind === 'locations' || allDestinations.some(option => option.kind === (kind === 'markets' ? 'market' : 'property')))
   const repeat = props.repeat && repeats.includes(props.repeat) ? props.repeat : repeats[0]!
   const mode: ResearchMode = props.start === 'write' ? 'once' : repeat
+  // Until the places have loaded once, Pattern shows no kind of place and none of the parts of the form that depend on one.
+  const placesLoading = mode !== 'once' && !props.placesSettled
+  const patternForm = mode !== 'once' && !placesLoading
   // A new mode starts a new selection. The pattern and a preview are kept, so the same button regenerates them.
   const [modeInView, setModeInView] = useState(mode)
   if (modeInView !== mode) { setModeInView(mode); setSelectedKeys([]); setSelectedTemplate(null); setSearch(''); setShowErrors(false) }
@@ -637,11 +671,15 @@ function ResearchBatchComposer(props: ComposerProps) {
       {/* The card has no heading: its first row says what the form starts from and, for a pattern, what it repeats for. */}
       <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
         <ResearchStartControl value={props.start} onChange={props.onStartChange} findIdeas={props.findIdeas} />
+        {/* One kind of place is no choice: it reads as plain text. The label is the group's name when there is one, so it is hidden from assistive tech only then. */}
         {mode !== 'once' && <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-          <span aria-hidden="true" className="text-sm font-medium text-heading">{RESEARCH_COPY.forEach}</span>
-          <SegmentedRadioGroup label={RESEARCH_COPY.forEach} options={repeats.map(kind => ({ value: kind, label: REPEAT_LABEL[kind] }))} value={repeat} onChange={props.onRepeatChange} />
+          <span aria-hidden={patternForm && repeats.length > 1 ? 'true' : undefined} className="text-sm font-medium text-heading">{RESEARCH_COPY.forEach}</span>
+          {placesLoading ? <span aria-hidden="true" className="skeleton-text block w-40" />
+            : repeats.length > 1 ? <SegmentedRadioGroup className={CHOICE_SIZE} label={RESEARCH_COPY.forEach} options={repeats.map(kind => ({ value: kind, label: REPEAT_LABEL[kind] }))} value={repeat} onChange={props.onRepeatChange} />
+            : <span className="text-sm text-secondary">{REPEAT_LABEL[repeat]}</span>}
         </div>}
       </div>
+      {placesLoading && <div role="status" aria-label="Loading places" className="space-y-2">{[0, 1, 2].map(row => <div key={row} aria-hidden="true" className="skeleton h-11 rounded-md" />)}</div>}
       {mode === 'once' && <div className="grid gap-4 sm:grid-cols-2">
         {(allDestinations.length > 0 || scopeKey !== 'project') && <div>
           <div className="flex items-center"><label className="text-sm font-medium text-heading" htmlFor="research-subject">{RESEARCH_COPY.subject}</label><InfoTooltip text={RESEARCH_COPY.subjectHelp} placement="bottom" /></div>
@@ -653,7 +691,7 @@ function ResearchBatchComposer(props: ComposerProps) {
         </div>}
         <LocationSelect label={RESEARCH_COPY.searchLocation} value={directLocationLabel} locations={locations} onChange={value => { setDirectLocation(value); setSelectedTemplate(null) }} />
       </div>}
-      {mode !== 'once' && <fieldset className="space-y-3" aria-labelledby="research-places-label">
+      {patternForm && <fieldset className="space-y-3" aria-labelledby="research-places-label">
         <div className="flex items-center"><span id="research-places-label" className="text-sm font-medium text-heading">{mode === 'markets' ? 'Markets' : mode === 'properties' ? 'Locations' : 'Search locations'}</span><InfoTooltip text={`Select each ${placeNoun} yourself. Each one gets its own saved run.`} placement="bottom" /></div>
         {!noSearchLocations && <input type="search" aria-label="Search" className={INPUT_CLASS} placeholder="Search" value={search} onChange={event => setSearch(event.target.value)} />}
         {/* Column headers on the rows' own grid. Each select carries its own name, and below sm, where it stacks under its row, its own label. */}
@@ -664,7 +702,7 @@ function ResearchBatchComposer(props: ComposerProps) {
             .filter(option => option.label.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(option => {
               const checked = selectedKeys.includes(option.key)
               return <div key={option.key} className="grid items-center gap-2 border-b border-default pb-2 sm:grid-cols-[minmax(0,1fr)_16rem]">
-                {/* A first tick settles what the pattern repeats for, so places that load later never move the form to another kind. */}
+                {/* A first tick settles what the pattern repeats for, so places that load later, after a failed read is retried, never move the form to another kind. */}
                 <label className="flex min-h-11 items-center gap-3 text-sm text-heading"><input type="checkbox" checked={checked} onChange={() => { props.onRepeatChange(repeat); setSelectedKeys(current => checked ? current.filter(key => key !== option.key) : [...current, option.key]) }} />{option.label}</label>
                 {checked && mode !== 'locations' && <LocationSelect inRow label={RESEARCH_COPY.searchLocation} name={`${RESEARCH_COPY.searchLocation} for ${option.label}`} value={destinationLocations[option.key] ?? NO_LOCATION} locations={locations} onChange={value => setDestinationLocations(current => ({ ...current, [option.key]: value }))} />}
               </div>
@@ -673,7 +711,7 @@ function ResearchBatchComposer(props: ComposerProps) {
         <div className="flex items-center"><p className="text-sm tabular-nums text-secondary">{selectedKeys.length} selected</p>{mode !== 'locations' && <InfoTooltip text={RESEARCH_COPY.selectedHelp} placement="bottom" />}</div>
       </fieldset>}
       {props.scopeError && <div><StatusNote icon={AlertTriangle} tone="caution" label={RESEARCH_COPY.loadError} detail="Markets and locations did not load. Research with no Subject and across search locations still works." action={<RetryButton name="markets and locations" onClick={props.onRetryScope} />} /></div>}
-      <div>
+      {!placesLoading && <div>
         <div className="flex items-center"><label className="text-sm font-medium text-heading" htmlFor="research-query-editor">{mode === 'once' ? 'Queries' : 'Pattern'}</label><InfoTooltip text={mode === 'once' ? RESEARCH_COPY.queriesHelp : `One pattern per line. Put {${tokenName}} where each name belongs, then preview the queries before running.`} placement="bottom" /></div>
         <textarea id="research-query-editor" ref={patternRef} className={`${INPUT_CLASS} min-h-32`} aria-describedby="research-query-count" value={source} placeholder={mode === 'once' ? RESEARCH_COPY.queryPlaceholder : mode === 'markets' ? 'Best apartments in {market}' : mode === 'properties' ? 'What amenities does {property} offer?' : 'Best apartments in {location}'} onChange={event => {
           if (mode === 'once') setQueryText(event.target.value)
@@ -684,8 +722,8 @@ function ResearchBatchComposer(props: ComposerProps) {
           {mode === 'properties' && patternVariables.includes('location') && <StatusNote icon={AlertTriangle} tone="caution" label={RESEARCH_COPY.usesSearchLocation} detail={RESEARCH_COPY.usesSearchLocationDetail} />}
         </div>}
         <p id="research-query-count" className="mt-2 text-sm tabular-nums text-secondary">{total} of {MAX_RESEARCH_BATCH_QUERIES} queries{mode === 'once' ? '' : ` · ${plural(contexts.length, 'run', 'runs')}`}</p>
-      </div>
-      {mode !== 'once' && <details className="border-t border-default pt-3"><summary className="cursor-pointer text-sm font-medium text-heading focus-visible:outline focus-visible:outline-2">Saved patterns <span className="font-normal text-secondary">(optional)</span></summary>
+      </div>}
+      {patternForm && <details className="border-t border-default pt-3"><summary className="cursor-pointer text-sm font-medium text-heading focus-visible:outline focus-visible:outline-2">Saved patterns <span className="font-normal text-secondary">(optional)</span></summary>
         <div className="mt-3 space-y-3">
           {/* The help is in the panel: a button inside the summary would toggle the disclosure. It leads the row, so it never reads as help for the last pattern. */}
           <div className="flex items-start gap-2">
@@ -707,7 +745,7 @@ function ResearchBatchComposer(props: ComposerProps) {
         </label>
       </div>
       {visibleErrors.length > 0 && <InlineNotes notes={visibleErrors} />}
-      {mode !== 'once' && <div className="space-y-4 border-t border-default pt-4">
+      {patternForm && <div className="space-y-4 border-t border-default pt-4">
         {/* The button comes first and stays mounted, so regenerating a stale preview keeps focus on it. */}
         <div className="flex flex-wrap items-center gap-3">
           <Button variant="outline" size="sm" className={TOUCH_TARGET} disabled={props.isPending || !props.projectReady} onClick={createPreview}><RefreshCw size={14} />{preview ? RESEARCH_COPY.refreshPreview : 'Preview queries'}</Button>
@@ -724,8 +762,8 @@ function ResearchBatchComposer(props: ComposerProps) {
       {/* An account that cannot run research gets no Run button, only the reason. What limits or holds back a run sits beside Run. */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-default pt-4">
         {props.viewOnly ? <StatusNote icon={Eye} label={RESEARCH_COPY.viewOnly} detail={RESEARCH_COPY.viewOnlyDetail} /> : <div className="flex flex-wrap items-center gap-3">
-          {/* The button carries the count, so the line beside it names only the engine and the model. */}
-          {!props.isEmbed && <Button size="sm" className={TOUCH_TARGET} disabled={!canRun} onClick={() => { if (canRun) { const request = buildRequest(); props.onSubmit(request, JSON.stringify({ projectName, ...request })) } }}><Play size={14} />{props.isPending ? 'Starting…' : researchRunLabel(mode === 'once' ? directQueries.length : rows.length)}</Button>}
+          {/* The button carries the count, so the line beside it names only the engine and the model. A stale preview's count is no longer what would run, so it shows none. */}
+          {!props.isEmbed && <Button size="sm" className={TOUCH_TARGET} disabled={!canRun} onClick={() => { if (canRun) { const request = buildRequest(); props.onSubmit(request, JSON.stringify({ projectName, ...request })) } }}><Play size={14} />{props.isPending ? 'Starting…' : researchRunLabel(mode === 'once' ? directQueries.length : previewStale ? 0 : rows.length)}</Button>}
           {(engineLabel || resolvedModel) && <p className="text-sm text-secondary">{[engineLabel, resolvedModel].filter(Boolean).join(' · ')}</p>}
         </div>}
         {props.runNotes}
@@ -763,12 +801,6 @@ function groupPreviewRows(rows: readonly PreviewRow[]) {
   }
   return [...groups.values()]
 }
-function formatResearchDate(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.valueOf())) return value
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date)
-}
-
 async function refreshResearch(queryClient: Pick<ReturnType<typeof useQueryClient>, 'invalidateQueries'>) {
   await invalidateProjectQueryDomain(queryClient, 'researchRuns')
 }

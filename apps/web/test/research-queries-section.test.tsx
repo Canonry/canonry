@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { RESEARCH_COPY, ResearchQueriesSection } from '../src/components/project/ResearchQueriesSection.js'
 import { DiscoverySection } from '../src/components/project/DiscoverySection.js'
+import { FIND_COPY } from '../src/components/project/queries/FindQueriesSection.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 
@@ -15,6 +16,8 @@ afterEach(() => {
 
 /** The Run button says how many answers it will ask for, and only "Run" while there is none. */
 const RUN = /^Run(?: \d+ answers?)?$/
+/** A run's date as the page prints it, worked out apart from the page. */
+const shownDate = (value: string) => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value))
 
 function installApiMock(posts?: string[], bodies?: Array<Record<string, unknown>>) {
   const restoreFetch = mockFetch((url, init) => {
@@ -67,7 +70,7 @@ test.each([false, true])('managedSweeps=%s preserves client Discovery and Resear
     </AccountProvider>,
   )
 
-  fireEvent.click(screen.getByRole('button', { name: 'Find ideas' }))
+  fireEvent.click(screen.getByRole('button', { name: FIND_COPY.runAction }))
   await waitFor(() => expect(posts).toContain('/api/v1/projects/demo/discover/run'))
 
   fireEvent.click(screen.getByRole('tab', { name: 'Research queries' }))
@@ -195,7 +198,8 @@ test('saved results retain their saved scope independently from the current form
   expect(checked.textContent).toBe('Company names only')
   expect(checked.getAttribute('aria-label')).toMatch(/Neither checks a location's own names\.$/)
   const facts = Object.fromEntries([...document.querySelectorAll('[role="region"] dl > div')].map(item => [item.querySelector('dt')!.textContent, item.querySelector('dd')!.textContent]))
-  expect(facts).toEqual({ Run: 'saved-ru', Engine: 'OpenAI', Model: 'saved-model', 'Search location': 'No search location', Subject: 'Downtown' })
+  // The run is named by when it was made, as Past research lists it.
+  expect(facts).toEqual({ Run: shownDate('2026-07-23T10:00:00.000Z'), Engine: 'OpenAI', Model: 'saved-model', 'Search location': 'No search location', Subject: 'Downtown' })
   // One saved run has no other to choose: no select over the results.
   expect(results.queryByRole('combobox')).toBeNull()
   expect(results.queryByText('current-model')).toBeNull()
@@ -278,6 +282,8 @@ test('a signal with no value is a dashed chip or a skeleton, and is never printe
   expect(results.queryByRole('status', { name: RESEARCH_COPY.resultsLoading })).toBeNull()
   // The run's own status sits beside the heading, in the same capitalized words as every other badge.
   expect(results.getByRole('heading').parentElement!.textContent).toBe('ResultsRunning')
+  // This project has a name and no domain: the legend names the one and says "its site" for the other.
+  expect(results.getAllByRole('listitem').slice(0, 2).map(item => item.textContent)).toEqual(['N Names demo', 'C Cites its site'])
   expect(await cells(/later query/)).toEqual(['Non-brand', 'Queued', null])
   expect(await cells(/failed query/)).toEqual(['Branded', 'Failed', 'OpenAI: Not checked'])
   // Named was checked and is a No; Cited was not checked, which is not a No.

@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useState, type ReactNode, type Ref } from 'react'
 import { Ban, Clock, Info, MousePointerClick } from 'lucide-react'
 import {
   CitationStates,
@@ -31,6 +31,8 @@ export const RESEARCH_RESULTS_COPY = {
   resultsTitle: 'Results',
   resultsLoading: 'Loading results',
   resultsEmpty: 'No run selected',
+  lastBatch: 'Last batch',
+  pickRun: 'Pick a run',
   methodologySummary: 'Company names only',
   methodology: "Named checks the answer text for this project's company names and domains. Cited checks the source links for this project's domain. Neither checks a location's own names.",
   templateProvenance: 'Pattern details',
@@ -64,11 +66,26 @@ export const RESEARCH_ROW_BUTTON = 'rounded-sm text-left font-medium text-headin
 const STICKY = 'sticky top-(--topbar-h) z-10 bg-bg'
 const RESULT_TH = `${TH} ${STICKY} px-2.5 text-left max-sm:px-1.5`
 const RESULT_TD = `${TD} px-2.5 max-sm:px-1.5`
-const FIELD = 'mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2'
+const FIELD = 'mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 max-md:min-h-11'
 
-/** What tells one run of a batch from the next: its Subject, then its search location when it has one. */
-function researchRunName(run: Pick<ResearchRunSummaryDto, 'scope' | 'location'>): string {
-  return [run.scope?.label, run.location?.label].filter(Boolean).join(' · ') || RESEARCH_RESULTS_COPY.notSet
+/**
+ * What tells each run of a batch from the others, in the batch's order: its
+ * Subject, or its search location when no run has a Subject. Runs under one
+ * Subject add their search location, because a preview edit can split a place
+ * across two.
+ */
+function batchRunNames(runs: readonly Pick<ResearchRunSummaryDto, 'scope' | 'location'>[], bySubject: boolean): string[] {
+  const searchLocation = (run: Pick<ResearchRunSummaryDto, 'location'>) => run.location?.label ?? RESEARCH_RESULTS_COPY.noSearchLocation
+  if (!bySubject) return runs.map(searchLocation)
+  const subjects = runs.map(run => run.scope?.label ?? RESEARCH_RESULTS_COPY.notSet)
+  return runs.map((run, index) => subjects.indexOf(subjects[index]!) === subjects.lastIndexOf(subjects[index]!) ? subjects[index]! : `${subjects[index]} · ${searchLocation(run)}`)
+}
+
+/** When a run was made, as Past research and the Results card both show it. */
+export function formatResearchDate(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.valueOf())) return value
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date)
 }
 
 /**
@@ -84,6 +101,7 @@ export function ResearchRunDetail({
   failedRunId,
   failure,
   batch,
+  headingRef,
   company,
   domain,
   onReviewForTracking,
@@ -93,8 +111,10 @@ export function ResearchRunDetail({
   /** The selected run when its results did not load: the card keeps its heading and shows `failure` as its body. */
   failedRunId: string | null
   failure: ReactNode
-  /** The runs the last batch made, when it made more than one and the run in view is one of them: the card gets a select over them. */
-  batch?: { runs: readonly ResearchRunSummaryDto[]; selectedRunId: string; onSelect: (runId: string) => void }
+  /** The runs the last batch made, when it made more than one: the card gets a select over them, which stays while another run is in view. */
+  batch?: { runs: readonly ResearchRunSummaryDto[]; selectedRunId: string | null; onSelect: (runId: string) => void; selectRef?: Ref<HTMLSelectElement> }
+  /** The heading takes focus when a run is picked or saved elsewhere on the page. */
+  headingRef?: Ref<HTMLHeadingElement>
   /** What the legend says the chips check: the company's name and the project's domain. */
   company: string
   domain: string
@@ -109,21 +129,26 @@ export function ResearchRunDetail({
 
   const selected = detail?.queries.find(item => item.id === selectedQueryId) ?? detail?.queries[0] ?? null
   const engine = detail ? providerDisplayName(detail.provider) : ''
-  // A batch across search locations saves every run under no Subject, so its select is named for what does differ.
-  const batchLabel = !batch ? null : batch.runs.some(run => run.scope) ? RESEARCH_RESULTS_COPY.subject : RESEARCH_RESULTS_COPY.searchLocation
+  // A batch across search locations saves every run under no Subject, so its select is named for what does differ. Over a run from outside the batch it names the batch, with no run chosen.
+  const bySubject = batch?.runs.some(run => run.scope) ?? false
+  const inBatch = batch?.runs.some(run => run.id === batch.selectedRunId) ?? false
+  const batchLabel = !batch ? null : !inBatch ? RESEARCH_RESULTS_COPY.lastBatch : bySubject ? RESEARCH_RESULTS_COPY.subject : RESEARCH_RESULTS_COPY.searchLocation
+  const batchNames = batch ? batchRunNames(batch.runs, bySubject) : []
 
   return (
     <Card className="surface-card min-w-0" role="region" aria-labelledby={headingId}>
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
         <div className="flex items-center gap-3">
-          <h3 id={headingId}>{RESEARCH_RESULTS_COPY.resultsTitle}</h3>
+          {/* Lands under the topbar when a pick or a run scrolls the page to it. */}
+          <h3 id={headingId} ref={headingRef} tabIndex={-1} className="scroll-mt-[calc(var(--topbar-h)+1.5rem)] rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 focus-visible:ring-offset-2 focus-visible:ring-offset-bg">{RESEARCH_RESULTS_COPY.resultsTitle}</h3>
           {detail && <ToneBadge tone={toneForResearchRun(detail.status)}>{RESEARCH_STATUS_LABEL[detail.status]}</ToneBadge>}
         </div>
         {detail && <SignalLegend variant="research" company={company} domain={domain} />}
       </div>
       {batch && <label className="mt-3 block max-w-md text-sm font-medium text-heading">{batchLabel}
-        <select className={FIELD} value={batch.selectedRunId} onChange={event => batch.onSelect(event.target.value)}>
-          {batch.runs.map(run => <option key={run.id} value={run.id}>{researchRunName(run)} · {RESEARCH_STATUS_LABEL[run.status]}</option>)}
+        <select ref={batch.selectRef} className={FIELD} value={inBatch ? batch.selectedRunId ?? '' : ''} onChange={event => { if (event.target.value) batch.onSelect(event.target.value) }}>
+          {!inBatch && <option value="">{RESEARCH_RESULTS_COPY.pickRun}</option>}
+          {batch.runs.map((run, index) => <option key={run.id} value={run.id}>{batchNames[index]} · {RESEARCH_STATUS_LABEL[run.status]}</option>)}
         </select>
       </label>}
       {failedRunId && <div role="alert" className="mt-4">
@@ -137,7 +162,8 @@ export function ResearchRunDetail({
         {/* What the two chips check sits under the legend it qualifies, on the line of the run's own facts. */}
         <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
           <dl className="flex flex-wrap gap-x-6 gap-y-2 [overflow-wrap:anywhere]">
-            <div><dt className="font-medium">Run</dt><dd className="font-mono">{shortId(detail.id)}</dd></div>
+            {/* The run's date, as its row in Past research shows it. */}
+            <div><dt className="font-medium">Run</dt><dd className="tabular-nums">{formatResearchDate(detail.createdAt)}</dd></div>
             <div><dt className="font-medium">Engine</dt><dd>{engine}</dd></div>
             <div><dt className="font-medium">Model</dt><dd className="font-mono">{detail.requestedModel ?? detail.resolvedModel}</dd></div>
             {/* The select over a batch already names this run by what its runs differ in. */}

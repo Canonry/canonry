@@ -85,11 +85,13 @@ const expectViewOnly = () => {
 }
 /** What a pattern repeats for, by the batch mode it sends as. */
 const FOR_EACH = { markets: 'Market', properties: 'Location', locations: 'Search location' } as const
-const forEach = () => within(screen.getByRole('radiogroup', { name: 'For each' }))
-/** The four batch modes, reached as a reader reaches them: Write, or Pattern and what it repeats for. */
+/** The four batch modes, reached as a reader reaches them: Write, or Pattern and what it repeats for. A project with one kind of place has no choice to make: Pattern names that kind in plain text. */
 const setMode = (value: 'once' | keyof typeof FOR_EACH) => {
   fireEvent.click(screen.getByRole('radio', { name: value === 'once' ? 'Write' : 'Pattern' }))
-  if (value !== 'once') fireEvent.click(forEach().getByRole('radio', { name: FOR_EACH[value] }))
+  if (value === 'once') return
+  const kinds = screen.queryByRole('radiogroup', { name: 'For each' })
+  if (kinds) fireEvent.click(within(kinds).getByRole('radio', { name: FOR_EACH[value] }))
+  else expect(screen.getByText('For each').parentElement!.textContent).toBe(`For each${FOR_EACH[value]}`)
 }
 const choices = (group: HTMLElement) => within(group).getAllByRole('radio').map(radio => [radio.textContent, radio.getAttribute('aria-checked')])
 const typePattern = (value: string) => fireEvent.change(screen.getByRole('textbox', { name: 'Pattern' }), { target: { value } })
@@ -99,6 +101,10 @@ const results = () => within(screen.getByRole('region', { name: RESEARCH_COPY.re
 /** The select over the results of a batch that saved more than one run: one choice per run, with its status. */
 const batchRuns = () => [...(results().getByRole('combobox') as HTMLSelectElement).options].map(option => option.text)
 const ready = () => screen.findByRole('option', { name: 'OpenAI' })
+/** The run's facts under the Results heading: each label and its value. */
+const runFacts = () => [...screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle }).querySelectorAll('dl > div')].map(item => [item.querySelector('dt')!.textContent, item.querySelector('dd')!.textContent])
+/** A run's date as the page prints it, worked out apart from the page. Every run the fixture saves has this one. */
+const SAVED_AT = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date('2026-09-09T12:00:00.000Z'))
 /** A check that holds back a preview or a run: its short label is what shows, its sentence is the tooltip and the rest of its name. */
 const note = (label: string, detail: RegExp) => {
   const item = screen.getByRole('button', { name: new RegExp(`^${label}\\. ${detail.source}`) })
@@ -143,7 +149,7 @@ test('direct queries preserve exact text, deduplicate, and submit only once', as
   expect(runButton().disabled).toBe(true)
   expect(runButton().textContent).toBe('Run')
   // One run has nothing to choose between: its results show with no select over them.
-  await waitFor(() => expect(Object.fromEntries([...document.querySelectorAll('[role="region"] dl > div')].map(item => [item.querySelector('dt')!.textContent, item.querySelector('dd')!.textContent]))).toMatchObject({ Run: 'run-0', Subject: 'Not set' }))
+  await waitFor(() => expect(runFacts()).toEqual([['Run', SAVED_AT], ['Engine', 'OpenAI'], ['Model', 'project-model'], ['Search location', 'No search location'], ['Subject', 'Not set']]))
   expect(results().queryByRole('combobox')).toBeNull()
   await waitFor(() => expect(getToasts().map(toast => [toast.title, toast.detail])).toEqual([['Research saved', '1 run · Past research']]))
 })
@@ -154,7 +160,9 @@ test('explicit markets resolve independently and preserve edited query text and 
   setMode('markets'); choose('Atlanta'); choose('Boston')
   expect(screen.queryByRole('checkbox', { name: 'Portfolio group' })).toBeNull()
   typePattern('Best apartments in {market}')
+  // Nothing has been previewed, so there is no count of answers to show yet.
   expect(runButton().disabled).toBe(true)
+  expect(runButton().textContent).toBe('Run')
   preview()
   expect((screen.getByRole('textbox', { name: 'Query 1 for Atlanta' }) as HTMLTextAreaElement).value).toBe('Best apartments in Atlanta')
   expect(screen.getByRole('button', { name: RESEARCH_COPY.previewHelp })).toBeTruthy()
@@ -168,9 +176,14 @@ test('explicit markets resolve independently and preserve edited query text and 
     { queries: ['Best apartments in Atlanta'], provider: 'openai', model: 'project-model', location: null, scope: { kind: 'market', key: 'atlanta', expectedPlanRevision: 7 } },
     { queries: ['  Boston apartments near transit  '], provider: 'openai', model: 'project-model', location: boston, scope: { kind: 'market', key: 'boston', expectedPlanRevision: 7 } },
   ])
-  // One choice per saved run: its Subject, then its search location when it has one, then its status. The fixture labels a Subject with its key.
-  await waitFor(() => expect(batchRuns()).toEqual(['atlanta · Completed', `boston · ${boston.label} · Completed`]))
-  expect(results().getByRole('combobox', { name: 'Subject' })).toHaveProperty('value', 'run-0')
+  // One choice per saved run: its Subject, then its status. The fixture labels a Subject with its key.
+  await waitFor(() => expect(batchRuns()).toEqual(['atlanta · Completed', 'boston · Completed']))
+  const subject = results().getByRole('combobox', { name: 'Subject' })
+  expect(subject).toHaveProperty('value', 'run-0')
+  // A run's search location is a fact under the select, which already names its Subject.
+  expect(runFacts()).toEqual([['Run', SAVED_AT], ['Engine', 'OpenAI'], ['Model', 'project-model'], ['Search location', 'No search location']])
+  fireEvent.change(subject, { target: { value: 'run-1' } })
+  await waitFor(() => expect(runFacts().at(-1)).toEqual(['Search location', boston.label]))
   await waitFor(() => expect(getToasts().map(toast => [toast.title, toast.detail])).toEqual([['Research saved', '2 runs · Past research']]))
 })
 
@@ -179,8 +192,9 @@ test('Simple portfolio repeats across configured locations without a measurement
   await ready()
   // A simple project has no markets or locations to save under or repeat across.
   expect(screen.queryByRole('combobox', { name: 'Subject' })).toBeNull()
-  fireEvent.click(screen.getByRole('radio', { name: 'Pattern' }))
-  expect(choices(screen.getByRole('radiogroup', { name: 'For each' }))).toEqual([['Search location', 'true']])
+  // Search locations are the one kind of place it has, so Pattern names it with no choice to make.
+  setMode('locations')
+  expect(screen.queryByRole('radiogroup', { name: 'For each' })).toBeNull()
   choose(atlanta.label); choose(boston.label)
   typePattern('Apartments in {location}'); preview(); fireEvent.click(runButton())
   await waitFor(() => expect(state.posts).toHaveLength(1))
@@ -188,6 +202,36 @@ test('Simple portfolio repeats across configured locations without a measurement
   // No run of this batch has a Subject, so the select over its results is named for what its runs differ in.
   await waitFor(() => expect(batchRuns()).toEqual([`${atlanta.label} · Completed`, `${boston.label} · Completed`]))
   expect(results().getByRole('combobox', { name: 'Search location' })).toBeTruthy()
+  // The select names the search location, so the facts under it do not repeat it.
+  expect(runFacts()).toEqual([['Run', SAVED_AT], ['Engine', 'OpenAI'], ['Model', 'project-model'], ['Subject', 'Not set']])
+})
+
+test('a preview edit that splits a market into two runs names each by its search location too', async () => {
+  const { state } = setup(advanced)
+  await ready()
+  // One market, two lines, and the second row moved to another search location: two runs under one Subject.
+  setMode('markets'); choose('Atlanta'); typePattern('Apartments in {market}\nTransit in {market}'); preview()
+  fireEvent.change(screen.getByRole('combobox', { name: 'Search location for query 2' }), { target: { value: boston.label } })
+  fireEvent.click(runButton())
+  await waitFor(() => expect(state.posts).toHaveLength(1))
+  expect(state.posts[0]?.runs.map(run => [run.scope?.key, run.location?.label ?? null])).toEqual([['atlanta', null], ['atlanta', boston.label]])
+  await waitFor(() => expect(batchRuns()).toEqual(['atlanta · No search location · Completed', `atlanta · ${boston.label} · Completed`]))
+  expect(results().getByRole('combobox', { name: 'Subject' })).toBeTruthy()
+})
+
+test('in a batch across search locations a run with none says No search location, never Not set', async () => {
+  const { state } = setup()
+  await ready()
+  setMode('locations'); choose(atlanta.label); typePattern('Apartments in {location}\nTransit in {location}'); preview()
+  fireEvent.change(screen.getByRole('combobox', { name: 'Search location for query 2' }), { target: { value: '__none__' } })
+  fireEvent.click(runButton())
+  await waitFor(() => expect(state.posts).toHaveLength(1))
+  expect(state.posts[0]?.runs.map(run => run.location?.label ?? null)).toEqual([atlanta.label, null])
+  await waitFor(() => expect(batchRuns()).toEqual([`${atlanta.label} · Completed`, 'No search location · Completed']))
+  fireEvent.change(results().getByRole('combobox', { name: 'Search location' }), { target: { value: 'run-1' } })
+  // The select carries the run's search location, in the words used everywhere else.
+  await waitFor(() => expect(runFacts()).toEqual([['Run', SAVED_AT], ['Engine', 'OpenAI'], ['Model', 'project-model'], ['Subject', 'Not set']]))
+  expect((results().getByRole('combobox', { name: 'Search location' }) as HTMLSelectElement).selectedOptions[0]!.text).toBe('No search location · Completed')
 })
 
 test('property patterns resolve only the selected property', async () => {
@@ -270,8 +314,11 @@ test('plan and model changes invalidate previews without discarding edited rows'
   await ready(); setMode('markets'); choose('Atlanta'); typePattern('Apartments in {market}'); preview()
   fireEvent.change(screen.getByRole('textbox', { name: 'Query 1 for Atlanta' }), { target: { value: 'My reviewed wording' } })
   expect(screen.queryByRole('alert')).toBeNull()
+  expect(runButton().textContent).toBe('Run 1 answer')
   view.rerender({ ...advanced, planRevision: 8 })
+  // A stale preview's count is no longer what would run, so the button shows none.
   expect(runButton().disabled).toBe(true)
+  expect(runButton().textContent).toBe('Run')
   expect(within(screen.getByRole('alert')).getByRole('button').getAttribute('aria-label')).toBe(`${RESEARCH_COPY.planChanged}. ${RESEARCH_COPY.planChangedDetail}`)
   expect((screen.getByRole('textbox', { name: 'Query 1 for Atlanta' }) as HTMLTextAreaElement).value).toBe('My reviewed wording')
   fireEvent.click(screen.getByRole('button', { name: RESEARCH_COPY.refreshPreview }))

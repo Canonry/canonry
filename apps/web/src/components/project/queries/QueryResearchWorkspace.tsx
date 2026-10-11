@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { QueryTrackingWorkspaceResponse, ResearchRunScope } from '@ainyc/canonry-contracts'
 import {
@@ -22,6 +22,11 @@ const NO_SCOPE_OPTIONS: NonNullable<QueryTrackingWorkspaceResponse['scopeOptions
  * only an account that can write gets. The choice is the host's `researchMode`,
  * so a link or a reload opens the same form; with none named the page opens on
  * Write, which reads saved runs and starts nothing.
+ *
+ * A form is drawn once it has been chosen and then kept, hidden while the
+ * other shows. An arrow key passes through every choice of "Start from", so a
+ * draft, a preview and the last batch's runs have to outlive the trip. A link
+ * that names Find ideas still reads nothing of Write or Pattern.
  */
 export function QueryResearchWorkspace({
   projectName,
@@ -41,14 +46,21 @@ export function QueryResearchWorkspace({
 }) {
   const { canWrite } = useAccount()
   const start: ResearchWorkspaceMode = mode === 'find' && canWrite ? 'find' : mode === 'pattern' ? 'pattern' : 'write'
+  // The form Write and Pattern share, as last chosen. Null until one of them has been shown.
+  const [form, setForm] = useState<Exclude<ResearchWorkspaceMode, 'find'> | null>(start === 'find' ? null : start)
+  if (start !== 'find' && form !== start) setForm(start)
+  const [findShown, setFindShown] = useState(start === 'find')
+  if (start === 'find' && !findShown) setFindShown(true)
   // Find ideas is another form with its own copy of "Start from". A choice made on one lands focus on the other's, so arrow keys keep working across the swap.
-  const page = useRef<HTMLDivElement>(null)
-  const chosen = useRef(false)
-  const changeStart = (next: ResearchWorkspaceMode) => { chosen.current = true; onModeChange(next) }
+  // Only a choice that changes the form moves focus: a change that comes from the host, such as Back, leaves it where the reader put it.
+  const researchPane = useRef<HTMLDivElement>(null)
+  const findPane = useRef<HTMLDivElement>(null)
+  const chosen = useRef<ResearchWorkspaceMode | null>(null)
+  const changeStart = (next: ResearchWorkspaceMode) => { chosen.current = next === start ? null : next; onModeChange(next) }
   useEffect(() => {
-    if (!chosen.current) return
-    chosen.current = false
-    page.current?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus()
+    const picked = chosen.current === start
+    chosen.current = null
+    if (picked) (start === 'find' ? findPane : researchPane).current?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus()
   }, [start])
   // Find ideas reads neither the plan nor the saved patterns.
   const researchWorkspaceEnabled = start !== 'find'
@@ -90,23 +102,26 @@ export function QueryResearchWorkspace({
     templates: researchTemplates,
   }
   return (
-    <div ref={page}>
-      {start === 'find' ? (
+    <>
+      {findShown && canWrite && <div ref={findPane} hidden={start !== 'find'}>
         <FindQueriesSection
           projectName={projectName}
           startControl={<ResearchStartControl value="find" onChange={changeStart} findIdeas />}
+          paused={start !== 'find'}
           onReviewDiscoveryProbe={(discoveryProbeId) => onReviewSavedSource({ source: 'discovery', discoveryProbeId })}
         />
-      ) : (
+      </div>}
+      {form && <div ref={researchPane} hidden={start === 'find'}>
         <ResearchQueriesSection
           {...researchProps}
-          start={start}
+          start={form}
           onStartChange={changeStart}
           findIdeas={canWrite}
+          paused={start === 'find'}
           viewerResearchConfig={viewerResearchConfig}
           onReviewForTracking={canWrite ? ({ researchRunQueryId, scope }) => onReviewSavedSource({ source: 'research', researchRunQueryId }, scope ?? null) : undefined}
         />
-      )}
-    </div>
+      </div>}
+    </>
   )
 }

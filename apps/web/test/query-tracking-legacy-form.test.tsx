@@ -510,7 +510,8 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
   } else {
     fireEvent.click(screen.getByRole('radio', { name: 'Find ideas' }))
     expect(screen.getByRole('radio', { name: 'Find ideas' }).getAttribute('aria-checked')).toBe('true')
-    const result = await screen.findByText(queryText)
+    // By role, because Write stays drawn behind Find ideas, hidden, and its results hold the same text.
+    const result = await screen.findByRole('cell', { name: queryText })
     fireEvent.click(within(result.closest('tr')!).getByRole('button', { name: 'Review for tracking' }))
   }
 

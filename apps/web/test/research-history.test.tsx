@@ -8,6 +8,9 @@ import { jsonResponse, mockFetch } from './mock-fetch.js'
 
 afterEach(cleanup)
 
+/** A run's date as the page prints it, worked out apart from the page. */
+const shownDate = (value: string) => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value))
+
 function savedRun(id: string, createdAt: string): ResearchRunDetailDto {
   return {
     id, projectId: 'demo', status: 'completed', provider: 'openai', requestedModel: id, resolvedModel: id,
@@ -47,7 +50,9 @@ test('older history pages can be retried without losing the selected answer or l
   // Past research is closed until asked for. Its count is the runs loaded, with a plus while an older page is left to load.
   const history = screen.getByRole('heading', { name: RESEARCH_COPY.historyTitle }).closest('details')!
   expect(history.open).toBe(false)
-  expect(history.querySelector('summary')!.textContent).toBe('Past research1+ runs')
+  expect(history.querySelector('summary')!.textContent).toBe('Past research 1+ runs')
+  // It comes after the results a pick in it changes.
+  expect(screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle }).compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   fireEvent.click(history.querySelector('summary')!)
   fireEvent.click(screen.getByRole('button', { name: RESEARCH_COPY.historyMore }))
   // The failed page is one short label with its sentence in the tooltip, and the same button becomes its Retry.
@@ -65,10 +70,15 @@ test('older history pages can be retried without losing the selected answer or l
   expect(screen.queryByRole('alert')).toBeNull()
   expect(screen.getByText(newest.queries[0]!.answerText!)).toBeTruthy()
   // Both pages are in, and no older one is left.
-  expect(history.querySelector('summary')!.textContent).toBe('Past research2 runs')
+  expect(history.querySelector('summary')!.textContent).toBe('Past research 2 runs')
   const row = screen.getAllByRole('row').find(item => item.textContent?.includes(older.resolvedModel))!
+  // Each run is listed by its date, and the Results card names the run in view the same way.
+  expect(row.querySelector('button')!.textContent).toBe(shownDate(older.createdAt))
   fireEvent.click(row.querySelector('button')!)
+  // The pick shows above the list, so focus goes to the Results heading.
+  expect(document.activeElement).toBe(within(screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle })).getByRole('heading'))
   await screen.findByText(older.queries[0]!.answerText!)
+  expect(document.querySelector('[role="region"] dl > div')!.textContent).toBe(`Run${shownDate(older.createdAt)}`)
   expect(cursors).toEqual([null, 'older-page', 'older-page'])
 })
 
@@ -109,7 +119,8 @@ test('past research names each run by engine, Subject and search location, and a
   const readsBefore = reads
   fail = false
   fireEvent.click(screen.getByRole('button', { name: 'Retry past research' }))
-  const history = (await screen.findAllByRole('table'))[0]!
+  await screen.findAllByRole('table')
+  const history = screen.getByRole('heading', { name: RESEARCH_COPY.historyTitle }).closest('details')!.querySelector('table')!
   expect(reads).toBe(readsBefore + 1)
   expect(screen.queryByRole('alert')).toBeNull()
   expect(within(history).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Run', 'Engine', 'Subject', 'Search location', 'Progress', 'Status'])
@@ -119,7 +130,7 @@ test('past research names each run by engine, Subject and search location, and a
   expect(cells(plain.id)).toEqual([`OpenAI${plain.id}`, RESEARCH_COPY.notSet, RESEARCH_COPY.noSearchLocation, '1 of 1', 'Completed'])
   // The whole history is loaded, so its count is exact. The table sits in the disclosure, closed until opened.
   const disclosure = history.closest('details')!
-  expect(disclosure.querySelector('summary')!.textContent).toBe('Past research2 runs')
+  expect(disclosure.querySelector('summary')!.textContent).toBe('Past research 2 runs')
   expect(disclosure.open).toBe(false)
 })
 
@@ -172,5 +183,7 @@ test('a run whose results did not load offers Retry and reads them again', async
   fireEvent.click(screen.getByRole('button', { name: 'Retry results' }))
   await screen.findByText(run.queries[0]!.answerText!)
   expect(screen.queryByRole('alert')).toBeNull()
-  expect(document.querySelector('[role="region"] dl > div')!.textContent).toBe('Runonly-run')
+  // Loaded, the run is named by its date. Its id shows only on the line of a read that failed.
+  expect(document.querySelector('[role="region"] dl > div')!.textContent).toBe(`Run${shownDate(run.createdAt)}`)
+  expect(screen.getByRole('heading', { name: RESEARCH_COPY.historyTitle }).closest('summary')!.textContent).toBe('Past research 1 run')
 })

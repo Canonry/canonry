@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Clock, History, MousePointerClick, Play, RefreshCw } from 'lucide-react'
 import type { DiscoveryBucket, DiscoverySessionDto } from '@ainyc/canonry-contracts'
@@ -33,9 +33,10 @@ export const FIND_COPY = {
   customerHelp: 'Describe who buys from you, such as small online stores that want faster support. Find ideas writes questions your customers might ask and checks whether your site shows up for each. Leave blank to use the customer profile saved on this project.',
   count: 'Questions to test',
   countHelp: 'More questions means broader coverage and a longer run. 100 is a good default.',
-  runAction: 'Find ideas',
+  runAction: 'Start run',
   engine: 'Runs on Gemini',
   runsTitle: 'Recent runs',
+  runsLoading: 'Loading recent runs',
   noRuns: 'No runs yet',
   loadError: 'Could not load',
   runsError: 'Recent runs did not load.',
@@ -43,7 +44,8 @@ export const FIND_COPY = {
   noRun: 'No run selected',
   citedSites: 'Cited sites',
   resultsTitle: 'Results',
-  resultsHelp: 'Choose a Cited queries or Worth tracking result to review it for tracking. Only its text is added, with the Subject you choose. Nothing here adds competitors or starts a sweep.',
+  resultsHelp: 'Choose a result marked Cited queries or Worth tracking to review it for tracking. Only its text is added, with the Subject you choose. Nothing here adds competitors or starts a sweep.',
+  resultsLoading: 'Loading results',
   noResults: 'No results yet',
   resultsError: "This run's results did not load.",
 } as const
@@ -51,6 +53,8 @@ const SESSION_STATUS_LABEL: Record<DiscoverySessionDto['status'], string> = { qu
 const FIELD_LABEL = 'text-sm font-medium text-heading'
 // Buttons here are 44px tall where a finger is the pointer.
 const TOUCH_TARGET = 'pointer-coarse:min-h-11 max-md:min-h-11'
+// The results header stays at the top of the table's frame while its rows scroll.
+const RESULT_TH = `${RESEARCH_TH} sticky top-0 z-10 bg-bg`
 
 export function DiscoverySection({ projectName }: { projectName: string }) {
   const [workflow, setWorkflow] = useState<'find' | 'research'>('find')
@@ -93,17 +97,21 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
 export function FindQueriesSection({
   projectName,
   startControl,
+  paused = false,
   onReviewDiscoveryProbe,
 }: {
   projectName: string
   /** The page's "Start from" control, drawn at the head of the form when Find ideas is one of its choices. */
   startControl?: ReactNode
+  /** Kept out of view behind Write or Pattern: its runs are not polled until it shows again. */
+  paused?: boolean
   onReviewDiscoveryProbe?: (discoveryProbeId: string) => void
 }) {
   const queryClient = useQueryClient()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [icpDescription, setIcpDescription] = useState('')
   const [maxProbes, setMaxProbes] = useState('100')
+  const resultsHeadingId = useId()
 
   const sessionsQuery = useQuery({
     ...getApiV1ProjectsByNameDiscoverSessionsOptions({
@@ -113,7 +121,7 @@ export function FindQueriesSection({
     }),
     refetchInterval: (query) => {
       const sessions = query.state.data
-      return sessions?.some(session => ACTIVE_DISCOVERY_STATUSES.has(session.status)) ? 3000 : false
+      return !paused && sessions?.some(session => ACTIVE_DISCOVERY_STATUSES.has(session.status)) ? 3000 : false
     },
   })
 
@@ -133,7 +141,7 @@ export function FindQueriesSection({
       path: { name: projectName, id: selectedSessionId ?? '' },
     }),
     enabled: Boolean(selectedSessionId),
-    refetchInterval: selectedSession && ACTIVE_DISCOVERY_STATUSES.has(selectedSession.status) ? 3000 : false,
+    refetchInterval: !paused && selectedSession && ACTIVE_DISCOVERY_STATUSES.has(selectedSession.status) ? 3000 : false,
   })
 
   const detail = detailQuery.data ?? null
@@ -152,24 +160,25 @@ export function FindQueriesSection({
       setIcpDescription('')
       await refreshDiscovery(queryClient, projectName, result.sessionId)
       addToast({
-        title: 'Discovery started',
-        detail: `Run ${shortId(result.sessionId)} is testing questions your customers might ask.`,
+        title: 'Find ideas started',
+        detail: `Run ${shortId(result.sessionId)} · ${SESSION_STATUS_LABEL.probing}`,
         tone: 'neutral',
         dedupeKey: `discovery:start:${result.sessionId}`,
         dedupeMode: 'replace',
       })
     },
     onError: (error) => {
+      // The detail is the server's own message or nothing.
       addToast({
-        title: 'Discovery failed to start',
-        detail: error instanceof Error ? error.message : 'Could not start discovery.',
+        title: 'Could not start',
+        detail: error instanceof Error ? error.message : undefined,
         tone: 'negative',
       })
     },
   })
 
   const activeSession = detail ?? selectedSession
-  const probeRows = useMemo(() => (detail?.probes ?? []).slice(0, 30), [detail?.probes])
+  const probeRows = detail?.probes ?? []
   // A list that did not load is not an empty one. A refetch that fails keeps the runs already shown.
   const sessionsFailed = sessionsQuery.isError && !sessionsQuery.data
   const canReview = !isEmbed() && Boolean(onReviewDiscoveryProbe)
@@ -180,16 +189,16 @@ export function FindQueriesSection({
       if (result.error) throw result.error
       const count = result.data?.length ?? 0
       addToast({
-        title: 'Discovery sessions refreshed',
-        detail: `${count} recent session${count === 1 ? '' : 's'} loaded.`,
+        title: 'Recent runs refreshed',
+        detail: `${count} ${count === 1 ? 'run' : 'runs'}`,
         tone: 'positive',
         dedupeKey: `discovery:refresh:${projectName}`,
         dedupeMode: 'replace',
       })
     } catch (error) {
       addToast({
-        title: 'Discovery refresh failed',
-        detail: error instanceof Error ? error.message : 'Could not reload discovery sessions.',
+        title: 'Could not refresh',
+        detail: error instanceof Error ? error.message : FIND_COPY.runsError,
         tone: 'negative',
         dedupeKey: `discovery:refresh:${projectName}`,
         dedupeMode: 'replace',
@@ -262,7 +271,7 @@ export function FindQueriesSection({
             {sessionsFailed ? (
               <div role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={FIND_COPY.loadError} detail={FIND_COPY.runsError} action={<Button type="button" variant="outline" size="sm" className={TOUCH_TARGET} aria-label={`${FIND_COPY.retry} recent runs`} onClick={() => { void sessionsQuery.refetch() }}>{FIND_COPY.retry}</Button>} /></div>
             ) : sessionsQuery.isPending ? (
-              <div role="status" aria-label="Loading recent runs" className="space-y-2">{[0, 1, 2].map(row => <div key={row} aria-hidden="true" className="skeleton h-[4.25rem] rounded-md" />)}</div>
+              <div role="status" aria-label={FIND_COPY.runsLoading} className="space-y-2">{[0, 1, 2].map(row => <div key={row} aria-hidden="true" className="skeleton h-[4.25rem] rounded-md" />)}</div>
             ) : sessions.length === 0 ? (
               <StatusNote icon={History} label={FIND_COPY.noRuns} />
             ) : (
@@ -297,20 +306,22 @@ export function FindQueriesSection({
         </div>
 
         <div className="min-w-0 space-y-4">
-          <Card className="surface-card min-w-0">
+          {/* With no runs, or a list that did not load, there is no run to show: Recent runs says so. */}
+          {!sessionsFailed && (sessionsQuery.isPending || sessions.length > 0) && <Card className="surface-card min-w-0">
             {activeSession ? <div className="section-head section-head-inline items-center">
-              <h3>Run {shortId(activeSession.id)}</h3>
+              {/* The id is in mono, as the list beside it shows it, with a gap wide enough to read as two words. */}
+              <h3>Run <span className="ml-1 font-mono">{shortId(activeSession.id)}</span></h3>
               <ToneBadge tone={toneForSession(activeSession.status)}>{SESSION_STATUS_LABEL[activeSession.status]}</ToneBadge>
-            </div> : <StatusNote icon={MousePointerClick} label={FIND_COPY.noRun} />}
+            </div> : sessionsQuery.isPending ? <div aria-hidden="true" className="skeleton h-24 rounded-md" /> : <StatusNote icon={MousePointerClick} label={FIND_COPY.noRun} />}
 
             {activeSession && (
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <DiscoveryMetric label="Questions tested" value={activeSession.probeCount ?? 0} />
                   <DiscoveryMetric label="Cited queries" value={activeSession.citedCount ?? 0} tone="positive" />
                   <DiscoveryMetric label="Worth tracking" value={activeSession.aspirationalCount ?? 0} tone="caution" />
                   <DiscoveryMetric label="Skip" value={activeSession.wastedCount ?? 0} tone="negative" />
-                </div>
+                </dl>
 
                 {activeSession.error && (
                   <div className="rounded-md border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-sm text-negative">
@@ -345,31 +356,36 @@ export function FindQueriesSection({
                 )}
               </div>
             )}
-          </Card>
+          </Card>}
 
-          {/* With no run in view there is nothing to show results for: the card above says so. */}
+          {/* With no run in view there is nothing to show results for. */}
           {activeSession && <Card className="surface-card min-w-0">
             <div className="section-head section-head-inline items-center">
               <div className="flex items-center">
-                <h3>{FIND_COPY.resultsTitle}</h3>
+                <h3 id={resultsHeadingId}>{FIND_COPY.resultsTitle}</h3>
+                {/* Every result the server returned is listed, so this is the length of that list. */}
+                {probeRows.length > 0 && <span className="ml-2 text-sm tabular-nums text-secondary">{probeRows.length}</span>}
                 {canReview && activeSession.status === 'completed' && <InfoTooltip text={FIND_COPY.resultsHelp} placement="bottom" />}
               </div>
               {detailQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
             </div>
             {detailQuery.isError && !detail ? (
               <div role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={FIND_COPY.loadError} detail={FIND_COPY.resultsError} action={<Button type="button" variant="outline" size="sm" className={TOUCH_TARGET} aria-label={`${FIND_COPY.retry} results`} onClick={() => { void detailQuery.refetch() }}>{FIND_COPY.retry}</Button>} /></div>
+            ) : detailQuery.isPending ? (
+              // A read still in flight is not a run with no results.
+              <div role="status" aria-label={FIND_COPY.resultsLoading}>{[0, 1, 2, 3].map(row => <div key={row} aria-hidden="true" className="flex items-center gap-8 border-b border-subtle py-3"><span className="skeleton-text w-2/5" /><span className="skeleton-text ml-auto w-16" /><span className="skeleton-text w-24" /></div>)}</div>
             ) : probeRows.length === 0 ? (
               <StatusNote icon={Clock} label={FIND_COPY.noResults} />
             ) : (
-              // Positioned, so the header's screen-reader text scrolls with the table and never widens the page.
-              <div className="relative overflow-x-auto">
+              // The table's own frame scrolls both ways: sideways on a phone, and down a long run under a header that stays. Positioned, so the header's screen-reader text scrolls with the table and never widens the page.
+              <div role="group" aria-labelledby={resultsHeadingId} tabIndex={0} className="relative max-h-[36rem] overflow-auto rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
                 <table className={`${RESEARCH_TABLE} min-w-[40rem]`}>
                   <thead>
                     <tr>
-                      <th scope="col" className={RESEARCH_TH}>Question</th>
-                      <th scope="col" className={RESEARCH_TH}>Result</th>
-                      <th scope="col" className={RESEARCH_TH}>{FIND_COPY.citedSites}</th>
-                      <th scope="col" className={RESEARCH_TH}><span className="sr-only">Tracking review</span></th>
+                      <th scope="col" className={RESULT_TH}>Question</th>
+                      <th scope="col" className={RESULT_TH}>Result</th>
+                      <th scope="col" className={RESULT_TH}>{FIND_COPY.citedSites}</th>
+                      <th scope="col" className={RESULT_TH}><span className="sr-only">Tracking review</span></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -415,8 +431,8 @@ function DiscoveryMetric({
     tone === 'positive' ? 'text-positive' : tone === 'caution' ? 'text-caution' : tone === 'negative' ? 'text-negative' : 'text-heading'
   return (
     <div className="rounded-md border border-default bg-surface px-4 py-3">
-      <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold tabular-nums ${valueClass}`}>{value}</p>
+      <dt className="text-[10px] uppercase tracking-wide text-muted">{label}</dt>
+      <dd className={`mt-1 text-2xl font-semibold tabular-nums ${valueClass}`}>{value}</dd>
     </div>
   )
 }
@@ -455,8 +471,8 @@ async function refreshDiscovery(
   _sessionId: string,
 ) {
   // Generated `<op>QueryKey` helpers produce flat keys with no shared
-  // hierarchical prefix, so match every discovery op by name pattern —
-  // catches the list, detail, promote-preview, and any future discovery
+  // hierarchical prefix, so match every discovery op by name pattern:
+  // it catches the list, detail, promote-preview, and any future discovery
   // variant. Runs list uses the exact key to avoid invalidating
   // run-detail caches unnecessarily.
   await Promise.all([
