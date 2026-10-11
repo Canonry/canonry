@@ -22,6 +22,7 @@ import type { QueryRoutesOptions } from './queries.js'
 import { competitorRoutes, type CompetitorRoutesOptions } from './competitors.js'
 import type { AppliedCompetitorAutoAliases, CompetitorAnswerAnchorReader } from './competitor-auto-aliases.js'
 import { competitorLandscapeRoutes } from './competitor-landscape.js'
+import { competitorSuggestionRoutes } from './competitor-suggestions.js'
 import { runRoutes } from './runs.js'
 import type { RunRoutesOptions } from './runs.js'
 import { measurementPlanRoutes } from './measurement-plan.js'
@@ -629,6 +630,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       runCompetitorAutoAliasPass: opts.runCompetitorAutoAliasPass,
     } satisfies CompetitorRoutesOptions)
     await api.register(competitorLandscapeRoutes)
+    await api.register(competitorSuggestionRoutes)
     await api.register(runRoutes, {
       onRunCreated: opts.onRunCreated,
       onRunCancelled: opts.onRunCancelled,

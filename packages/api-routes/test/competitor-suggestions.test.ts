@@ -1,0 +1,75 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import Fastify from 'fastify'
+import { eq } from 'drizzle-orm'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { auditLog, competitors, createClient, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { apiRoutes } from '../src/index.js'
+
+const NOW = '2026-08-20T12:00:00.000Z'
+let tempDir: string
+let db: DatabaseClient
+let app: ReturnType<typeof Fastify>
+
+beforeEach(async () => {
+  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-competitor-suggestions-'))
+  db = createClient(path.join(tempDir, 'test.db'))
+  migrate(db)
+  db.insert(projects).values({
+    id: 'project_demo', name: 'demo', displayName: 'Demo', canonicalDomain: 'demo.example', ownedDomains: [],
+    country: 'US', language: 'en', providers: ['openai'], locations: [], createdAt: NOW, updatedAt: NOW,
+  }).run()
+  db.insert(queries).values({ id: 'query_demo', projectId: 'project_demo', query: 'best options', createdAt: NOW }).run()
+  db.insert(runs).values([
+    { id: 'run_complete', projectId: 'project_demo', kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: null, createdAt: NOW },
+    { id: 'run_probe', projectId: 'project_demo', kind: 'answer-visibility', status: 'completed', trigger: 'probe', location: null, createdAt: NOW },
+    { id: 'run_partial', projectId: 'project_demo', kind: 'answer-visibility', status: 'partial', trigger: 'manual', location: null, createdAt: NOW },
+    { id: 'run_failed', projectId: 'project_demo', kind: 'answer-visibility', status: 'failed', trigger: 'manual', location: null, createdAt: NOW },
+  ]).run()
+  db.insert(querySnapshots).values([
+    ...['a', 'b', 'c'].map((suffix, index) => ({
+      id: `snapshot_${suffix}`, runId: 'run_complete', queryId: 'query_demo', provider: 'openai', citationState: 'not-cited',
+      answerMentioned: false, answerText: `Rival House is a useful choice ${index}.`, citedDomains: ['rival.example'], citedUrls: [`https://rival.example/page-${suffix}`],
+      captureStatus: 'complete', competitorOverlap: [], location: null, createdAt: NOW,
+    })),
+    { id: 'snapshot_probe', runId: 'run_probe', queryId: 'query_demo', provider: 'openai', citationState: 'not-cited', answerMentioned: false, answerText: 'Rival House probe', citedDomains: ['rival.example'], citedUrls: null, captureStatus: 'complete', competitorOverlap: [], location: null, createdAt: NOW },
+    { id: 'snapshot_partial', runId: 'run_partial', queryId: 'query_demo', provider: 'openai', citationState: 'not-cited', answerMentioned: false, answerText: 'Rival House partial', citedDomains: ['rival.example'], citedUrls: null, captureStatus: 'complete', competitorOverlap: [], location: null, createdAt: NOW },
+    { id: 'snapshot_failed', runId: 'run_failed', queryId: 'query_demo', provider: 'openai', citationState: 'not-cited', answerMentioned: false, answerText: 'Rival House failed', citedDomains: ['rival.example'], citedUrls: null, captureStatus: 'complete', competitorOverlap: [], location: null, createdAt: NOW },
+  ]).run()
+  app = Fastify()
+  app.register(apiRoutes, { db, skipAuth: true })
+  await app.ready()
+})
+
+afterEach(async () => {
+  await app.close()
+  fs.rmSync(tempDir, { recursive: true, force: true })
+})
+
+describe('GET competitor suggestions', () => {
+  it('uses the canonical matcher and excludes probe and non-completed evidence', async () => {
+    const before = { competitors: db.select().from(competitors).all().length, audit: db.select().from(auditLog).all().length }
+    const response = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/competitor-suggestions?window=all&minAnswers=2' })
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(body.candidates, JSON.stringify(body)).toBeDefined()
+    expect(body.filters).toMatchObject({ queryClass: 'non-brand', minAnswers: 2, limit: 25 })
+    expect(body.candidates[0]).toMatchObject({
+      domain: 'rival.example', namingAnswers: 4, citingAnswers: 4, bothAnswers: 4, pairedAnswers: 4,
+    })
+    expect(body.candidates[0].names[0]).toMatchObject({ name: 'Rival', answerCount: 4, pairedAnswers: 4 })
+    expect(body.evidence).toMatchObject({ answeredResults: 4, sourceResults: 4, excludedProbeResults: 1, excludedNonCompletedResults: 1 })
+    expect(body.runIds).toEqual(['run_complete', 'run_partial'])
+    expect({ competitors: db.select().from(competitors).all().length, audit: db.select().from(auditLog).all().length }).toEqual(before)
+  })
+
+  it('falls back to pooled query classes when the project has no brand identity', async () => {
+    db.update(projects).set({ displayName: '', canonicalDomain: '' }).where(eq(projects.id, 'project_demo')).run()
+    const pooled = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/competitor-suggestions?window=all' })
+    expect(pooled.statusCode).toBe(200)
+    expect(pooled.json().filters.queryClass).toBe('all')
+    const explicit = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/competitor-suggestions?queryClass=branded' })
+    expect(explicit.statusCode).toBe(400)
+  })
+})

@@ -31,6 +31,7 @@ import {
   competitorAppendRequestSchema,
   competitorBatchRequestSchema,
   competitorLandscapeQuerySchema,
+  competitorSuggestionsQuerySchema,
   contentTargetDismissRequestSchema,
   DISCOVERY_MAX_PROBES_CAP,
   DISCOVERY_PROBE_CONCURRENCY_CAP,
@@ -853,6 +854,9 @@ const competitorLandscapeInputSchema = competitorLandscapeQuerySchema.safeExtend
   project: projectNameSchema,
   runId: z.string().trim().min(1).optional().describe(latestSweepRunIdDescription),
 }).strict()
+const competitorSuggestionsInputSchema = competitorSuggestionsQuerySchema.safeExtend({
+  project: projectNameSchema,
+}).strict()
 
 /**
  * A class-scoped source or landscape read pooled over every sweep cannot be
@@ -1544,6 +1548,20 @@ export const canonryMcpTools = [
     handler: (client, input) => {
       const { project, ...query } = input
       return client.getCompetitorLandscape(project, latestSweepUnlessPooled(query))
+    },
+  }),
+  defineTool({
+    name: 'canonry_competitors_suggest',
+    title: 'Suggest competitors from stored evidence',
+    description: 'Read stored completed and partial answer evidence and rank possible direct competitors. Candidate naming and citation counts are separate, cited-only domains are excluded, listing and marketplace surfaces are excluded, and the response discloses the answer and sweep denominator. No provider, discovery, classifier, or write operation runs. A project without a usable brand alias pools all query classes and echoes queryClass=all. Use the returned evidence and sample URLs to review a candidate before tracking it.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: competitorSuggestionsInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/competitor-suggestions'],
+    handler: (client, input) => {
+      const { project, ...query } = input
+      return client.suggestCompetitors(project, query)
     },
   }),
   defineTool({

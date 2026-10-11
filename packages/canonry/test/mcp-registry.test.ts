@@ -46,6 +46,7 @@ const expectedToolNames = [
   'canonry_analytics_metrics',
   'canonry_analytics_sources',
   'canonry_competitor_landscape',
+  'canonry_competitors_suggest',
   'canonry_search',
   'canonry_doctor',
   'canonry_status',
@@ -772,7 +773,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(canonryMcpTools.filter(tool => tool.access === 'read')).toHaveLength(169)
+    expect(canonryMcpTools.filter(tool => tool.access === 'read')).toHaveLength(170)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)

@@ -512,7 +512,10 @@ cnry competitor aliases <project> spoketuneworks.example --unblock "Spoke Crew" 
 cnry competitor aliases detect <project> --format json             # dry run: names the stored answers tie to each site, with evidence
 cnry competitor aliases detect <project> --apply                   # run detection now and store it, in any mode (after each sweep the project's mode decides)
 cnry competitor landscape <project> --query-class non-brand --window 30d --format json
+cnry competitor suggest <project> --window 30d --min-answers 3 --query-class non-brand --format json
 ```
+
+`competitor suggest` reads stored answer and citation evidence and ranks possible competitors. It never starts a sweep or writes data. Use `--format jsonl` for one candidate per line. The response keeps naming counts separate from citation counts and includes the query class, answer floor, run IDs, sample URLs, exclusions, and count units. A project without a usable brand alias uses the pooled `all` class unless an explicit class filter is requested.
 
 ### Competitor aliases
 

@@ -2420,6 +2420,26 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/projects/{name}/competitor-suggestions',
+    summary: 'Suggest competitors from stored evidence',
+    description: 'Returns evidence-backed competitor candidates from stored answer text and same-answer cited domains. This is a stored-evidence read: it never calls a provider, discovery, live classification, or write path. A cited domain without answer naming is excluded as a source, and queryClass defaults to non-brand when the project has a usable brand alias or pooled all when it does not.',
+    tags: ['competitors'],
+    parameters: [
+      nameParameter,
+      analyticsWindowParameter,
+      { name: 'minAnswers', in: 'query', description: 'Minimum answer count for a suggested candidate. Defaults to 3.', schema: { type: 'integer', minimum: 1, maximum: 1000 } },
+      { name: 'queryClass', in: 'query', description: 'One query population. Defaults to non-brand when the project can classify queries, otherwise all pooled.', schema: { type: 'string', enum: ['non-brand', 'branded', 'all'] } },
+      competitorLandscapeGroupKeyParameter,
+      { name: 'limit', in: 'query', description: 'Maximum candidate rows returned. Defaults to 25 and is capped at 100.', schema: { type: 'integer', minimum: 1, maximum: 100 } },
+    ],
+    responses: {
+      200: jsonResponse('Stored-evidence competitor suggestions returned.', 'CompetitorSuggestionsResponse'),
+      400: errorResponse('Invalid suggestion filters or query class.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/projects/{name}/runs',
     summary: 'Trigger a project run',

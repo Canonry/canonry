@@ -6,6 +6,7 @@ import { getApiV1ProjectsByNameGaAcquisition } from '@ainyc/canonry-api-client'
 import type { AuditHistoryOptions } from '@ainyc/canonry-contracts'
 import type { ReferralAssessment, ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameTrafficReferralAssessment } from '@ainyc/canonry-api-client'
+import { getApiV1ProjectsByNameCompetitorSuggestions } from '@ainyc/canonry-api-client'
 
 import type { z } from 'zod'
 import type {
@@ -126,6 +127,8 @@ import type {
   BrandMetricsDto,
   CompetitorLandscapeQuery,
   CompetitorLandscapeResponse,
+  CompetitorSuggestionsQuery,
+  CompetitorSuggestionsResponse,
   GapAnalysisDto,
   SourceBreakdownDto,
   VisibilityStatsDto,
@@ -1509,6 +1512,16 @@ export class ApiClient {
   async listCompetitors(project: string): Promise<CompetitorDto[]> {
     return this.invoke<CompetitorDto[]>(() =>
       getApiV1ProjectsByNameCompetitors({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async suggestCompetitors(project: string, query: CompetitorSuggestionsQuery = {}): Promise<CompetitorSuggestionsResponse> {
+    return this.invoke<CompetitorSuggestionsResponse>(() =>
+      getApiV1ProjectsByNameCompetitorSuggestions({
+        client: this.heyClient,
+        path: { name: project },
+        query,
+      }),
     )
   }
 

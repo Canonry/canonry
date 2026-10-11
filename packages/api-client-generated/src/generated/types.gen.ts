@@ -4055,6 +4055,77 @@ export type CompetitorLandscapeResponse = {
     competitorIdentityChangedAt?: string | null;
 };
 
+export type CompetitorSuggestionsResponse = {
+    project: string;
+    window: '7d' | '30d' | '90d' | 'all';
+    scope: {
+        kind: 'project';
+    } | {
+        kind: 'group';
+        groupKey: string;
+    } | {
+        kind: 'all-markets';
+    };
+    filters: {
+        queryClass: 'non-brand' | 'branded' | 'all';
+        groupKey: string | null;
+        limit: number;
+        minAnswers: number;
+    };
+    thresholds: {
+        minAnswers: number;
+    };
+    candidates: Array<{
+        domain: string;
+        label: string;
+        names: Array<{
+            name: string;
+            answerCount: number;
+            pairedAnswers: number;
+        }>;
+        namingAnswers: number;
+        citingAnswers: number;
+        bothAnswers: number;
+        pairedAnswers: number;
+        namedByOtherNameAnswers: Array<{
+            name: string;
+            answerCount: number;
+            pairedAnswers: number;
+        }>;
+        sweeps: number;
+        firstSeenAt: string | null;
+        lastSeenAt: string | null;
+        surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        tracked: boolean;
+        marketKeys?: Array<string>;
+        status: 'suggested' | 'tracked' | 'excluded';
+        reason: 'below-min-answers' | 'not-named' | 'own-site' | 'listing-marketplace' | 'non-competitor-surface' | 'claimed-by-alias' | 'shared-host' | null;
+        sampleUrls: Array<string>;
+    }>;
+    candidatesTotal: number;
+    excludedCounts: {
+        [key: string]: number;
+    };
+    unresolvedNames: Array<{
+        name: string;
+        answerCount: number;
+    }>;
+    evidence: {
+        answeredResults: number;
+        sourceResults: number;
+        excludedProbeResults: number;
+        excludedNonCompletedResults: number;
+    };
+    runCount: number;
+    runIds: Array<string>;
+    countUnits: {
+        answers: Array<string>;
+        distinctNames: Array<string>;
+        runs: Array<string>;
+    };
+    truncated: boolean;
+};
+
 export type ContentGapsResponseDto = {
     gaps: Array<{
         query: string;
@@ -20884,6 +20955,61 @@ export type GetApiV1ProjectsByNameAnalyticsCompetitorsResponses = {
 };
 
 export type GetApiV1ProjectsByNameAnalyticsCompetitorsResponse = GetApiV1ProjectsByNameAnalyticsCompetitorsResponses[keyof GetApiV1ProjectsByNameAnalyticsCompetitorsResponses];
+
+export type GetApiV1ProjectsByNameCompetitorSuggestionsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Minimum answer count for a suggested candidate. Defaults to 3.
+         */
+        minAnswers?: number;
+        /**
+         * One query population. Defaults to non-brand when the project can classify queries, otherwise all pooled.
+         */
+        queryClass?: 'non-brand' | 'branded' | 'all';
+        /**
+         * Advanced Measurement market (v2 group stable key). Omit for the project-wide landscape.
+         */
+        groupKey?: string;
+        /**
+         * Maximum candidate rows returned. Defaults to 25 and is capped at 100.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/competitor-suggestions';
+};
+
+export type GetApiV1ProjectsByNameCompetitorSuggestionsErrors = {
+    /**
+     * Invalid suggestion filters or query class.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameCompetitorSuggestionsError = GetApiV1ProjectsByNameCompetitorSuggestionsErrors[keyof GetApiV1ProjectsByNameCompetitorSuggestionsErrors];
+
+export type GetApiV1ProjectsByNameCompetitorSuggestionsResponses = {
+    /**
+     * Stored-evidence competitor suggestions returned.
+     */
+    200: CompetitorSuggestionsResponse;
+};
+
+export type GetApiV1ProjectsByNameCompetitorSuggestionsResponse = GetApiV1ProjectsByNameCompetitorSuggestionsResponses[keyof GetApiV1ProjectsByNameCompetitorSuggestionsResponses];
 
 export type GetApiV1ProjectsByNameRunsData = {
     body?: never;

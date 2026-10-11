@@ -67,14 +67,14 @@ interface LandscapePin extends CompetitorLandscapeIdentity {
   aliases: string[]
 }
 
-interface FrozenPlanScope {
+export interface FrozenPlanScope {
   executionNodeKeys: Set<string>
   queryClassesByExecution: Map<string, Set<'branded' | 'non-brand'>>
   competitors: LandscapePin[]
   mentioned: (answerText: string | null, executionId: string | null, citedUrls: readonly string[]) => boolean | null
 }
 
-interface AdvancedScope {
+export interface AdvancedScope {
   kind: 'group' | 'all-markets'
   groupKey?: string
   activePinned: LandscapePin[]
@@ -581,7 +581,7 @@ export function readCompetitorLandscape(
     return response
 }
 
-function resolveAdvancedScope(
+export function resolveAdvancedScope(
   app: Pick<FastifyInstance, 'db'>,
   projectId: string,
   kind: AdvancedScope['kind'],
@@ -776,8 +776,9 @@ function pendingDraftPins(
   }))
 }
 
-function snapshotMatchesFilters(input: {
+export function snapshotMatchesFilters(input: {
   snapshot: {
+    runId?: string
     queryId: string | null
     queryText: string | null
     provider: string

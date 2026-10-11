@@ -1,8 +1,7 @@
-import { WINDOW_SETS } from '@ainyc/canonry-contracts'
-import { competitorLandscapeQuerySchema } from '@ainyc/canonry-contracts'
-import { addCompetitors, competitorAliases, detectCompetitorAutoAliases, listCompetitors, removeCompetitors, showCompetitorLandscape } from '../commands/competitor.js'
+import { WINDOW_SETS, competitorLandscapeQuerySchema, competitorSuggestionsQuerySchema } from '@ainyc/canonry-contracts'
+import { addCompetitors, competitorAliases, detectCompetitorAutoAliases, listCompetitors, removeCompetitors, showCompetitorLandscape, suggestCompetitors } from '../commands/competitor.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getBoolean, getString, getStringArray, multiStringOption, requirePositional, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
+import { getBoolean, getString, getStringArray, multiStringOption, parseIntegerOption, requirePositional, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 
 const ADD_USAGE = 'canonry competitor add <project> <domain...> [--alias <name>]... [--format json]'
@@ -10,6 +9,7 @@ const ALIASES_USAGE = 'canonry competitor aliases <project> <domain> [--set <nam
 const DETECT_USAGE = 'canonry competitor aliases detect <project> [--apply] [--format json|jsonl]'
 
 const LANDSCAPE_USAGE = 'canonry competitor landscape <project> [--window 7d|30d|90d|all] [--group-key <key>|--scope all-markets] [--by-model] [--provider <provider> [--model <id>]] [--query-class all|branded|non-brand] [--answers all|not-mentioned] [--location <label>] [--run-id <id>] [--format json|jsonl]'
+const SUGGEST_USAGE = 'canonry competitor suggest <project> [--window 7d|30d|90d|all] [--min-answers <n>] [--query-class all|branded|non-brand] [--group-key <key>] [--limit <n>] [--format json|jsonl]'
 
 function parseLandscapeScope(value: string | undefined): 'all-markets' | undefined {
   if (value === undefined || value === '') return undefined
@@ -200,13 +200,45 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['competitor', 'suggest'],
+    usage: SUGGEST_USAGE,
+    options: {
+      window: stringOption(),
+      'min-answers': stringOption(),
+      'query-class': stringOption(),
+      'group-key': stringOption(),
+      limit: stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'competitor.suggest', SUGGEST_USAGE)
+      const minAnswers = parseIntegerOption(input, 'min-answers', {
+        command: 'competitor.suggest', usage: SUGGEST_USAGE, message: '--min-answers must be an integer',
+      })
+      const limit = parseIntegerOption(input, 'limit', {
+        command: 'competitor.suggest', usage: SUGGEST_USAGE, message: '--limit must be an integer',
+      })
+      const parsed = competitorSuggestionsQuerySchema.safeParse({
+        window: getString(input.values, 'window'),
+        minAnswers,
+        queryClass: getString(input.values, 'query-class'),
+        groupKey: getString(input.values, 'group-key'),
+        limit,
+      })
+      if (!parsed.success) throw usageError('Invalid competitor suggestion filters', {
+        message: 'invalid competitor suggestion filters',
+        details: { command: 'competitor.suggest', usage: SUGGEST_USAGE, issues: parsed.error.issues },
+      })
+      await suggestCompetitors(project, { ...parsed.data, format: input.format })
+    },
+  },
+  {
     path: ['competitor'],
-    usage: 'canonry competitor <add|aliases|remove|delete|list|landscape> <project> [args]',
+    usage: 'canonry competitor <add|aliases|remove|delete|list|landscape|suggest> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'competitor',
-        usage: 'canonry competitor <add|aliases|remove|delete|list|landscape> <project> [args]',
-        available: ['add', 'aliases', 'remove', 'delete', 'list', 'landscape'],
+        usage: 'canonry competitor <add|aliases|remove|delete|list|landscape|suggest> <project> [args]',
+        available: ['add', 'aliases', 'remove', 'delete', 'list', 'landscape', 'suggest'],
       })
     },
   },

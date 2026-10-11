@@ -104,6 +104,16 @@ canonry competitor landscape <project> --scope all-markets --query-class non-bra
 
 The read-only MCP equivalent is `canonry_competitor_landscape`. Advanced market pinning uses the revision-guarded draft action endpoint. MCP agents can use the generic measurement-draft action workflow.
 
+## Stored competitor suggestions
+
+`GET /api/v1/projects/{name}/competitor-suggestions` ranks possible direct competitors from stored answer text and source lists. It defaults to the 30-day window, a three-answer naming floor, and non-brand queries when the project has a usable brand identity. A project without a usable brand alias falls back to `queryClass=all`; an explicit branded or non-brand filter then returns a validation error.
+
+```bash
+canonry competitor suggest <project> --window 30d --min-answers 3 --query-class non-brand --format json
+```
+
+The result keeps naming and citation counts separate, pairs a name with a domain only through the canonical answer matcher and stored answer anchors, excludes cited-only domains, own sites, listing and marketplace surfaces, probes, and failed runs, and includes at most three sample URLs per candidate. `candidates[].status` is `suggested`, `tracked`, or `excluded`; `reason` explains an excluded candidate. `evidence`, `runIds`, `countUnits`, and `truncated` describe the denominator. This read performs no provider, classifier, discovery, or write operation. The MCP equivalent is `canonry_competitors_suggest`.
+
 ## Optional model comparison for agents
 
 The default landscape combines the selected observations. The optional `groupBy=model` parameter also returns a `modelComparison` object.

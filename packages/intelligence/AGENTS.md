@@ -18,6 +18,7 @@ Pure analysis library for computing intelligence insights from run data. Takes r
 | `src/insight-severity.ts` | `classifyRegressionSeverity({ gscImpressions, recurrenceCount })` — pure tiering rule. Caller supplies the signals (lookups happen in `IntelligenceService`); rule lives here so the dashboard, CLI, and Aero classify identically. |
 | `src/query-categorize.ts` | `buildBrandTokens()` + `categorizeQueryByIntent()` — brand/lead-gen/industry/other classifier. Uses contracts' exact approved-alias matcher across spacing/hyphenation variants; suffix stripping and fuzzy/edit-distance attribution are forbidden. |
 | `src/competitor-landscape-history.ts` | Stored-evidence competitor aggregation. Global pins intentionally reinterpret history; competitors frozen only in an old Advanced revision match answer text only in snapshots from that revision. Stored classifications retain exact-host identity until deterministic registrable-domain aggregation. |
+| `src/competitor-suggestions.ts` | Pure stored-evidence candidate builder. It uses canonical matchers and receives tracked, claimed, classification, and market data from the route. |
 | `src/types.ts` | Shared types: `RunData`, `Snapshot`, `AnalysisResult`, `Insight` |
 | `src/index.ts` | Barrel re-export of all modules |
 

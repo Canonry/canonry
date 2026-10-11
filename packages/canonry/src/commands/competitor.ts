@@ -14,7 +14,7 @@ import {
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import type { CompetitorLandscapeQuery, CompetitorLandscapeResponse, ModelEvidenceState } from '@ainyc/canonry-contracts'
+import type { CompetitorLandscapeQuery, CompetitorLandscapeResponse, CompetitorSuggestionsQuery, CompetitorSuggestionsResponse, ModelEvidenceState } from '@ainyc/canonry-contracts'
 
 function getClient() {
   return createApiClient()
@@ -371,6 +371,51 @@ export async function showCompetitorLandscape(project: string, options: Competit
     return
   }
   printCompetitorLandscape(data)
+}
+
+export interface CompetitorSuggestionsOptions extends CompetitorSuggestionsQuery {
+  format?: string
+}
+
+/** `canonry competitor suggest`: rank stored, answer-grounded competitor candidates. */
+export async function suggestCompetitors(project: string, options: CompetitorSuggestionsOptions = {}): Promise<void> {
+  const client = getClient()
+  const data = await client.suggestCompetitors(project, {
+    window: options.window,
+    minAnswers: options.minAnswers,
+    queryClass: options.queryClass,
+    groupKey: options.groupKey,
+    limit: options.limit,
+  })
+
+  if (options.format === 'json') {
+    console.log(JSON.stringify(data, null, 2))
+    return
+  }
+  if (options.format === 'jsonl') {
+    emitJsonl(data.candidates.map(candidate => ({
+      project: data.project,
+      window: data.window,
+      filters: data.filters,
+      ...candidate,
+    })))
+    return
+  }
+  printCompetitorSuggestions(data)
+}
+
+function printCompetitorSuggestions(data: CompetitorSuggestionsResponse): void {
+  console.log(`Competitor suggestions for "${data.project}" (${data.window})`)
+  console.log(`Counting ${data.filters.queryClass} queries, requiring ${data.thresholds.minAnswers} answer(s).`)
+  if (data.candidates.length === 0) {
+    console.log('No stored candidates met the threshold.')
+  } else {
+    for (const candidate of data.candidates) {
+      const names = candidate.names.length > 0 ? `; names: ${candidate.names.map(name => `${name.name} (${name.answerCount})`).join(', ')}` : ''
+      console.log(`  ${candidate.domain}  ${candidate.status}, named in ${candidate.namingAnswers} answer(s), cited in ${candidate.citingAnswers}${names}`)
+    }
+  }
+  console.log(`Evidence: ${data.evidence.answeredResults} answer(s), ${data.evidence.sourceResults} source result(s), ${data.runCount} sweep(s).`)
 }
 
 function printCompetitorLandscape(data: CompetitorLandscapeResponse): void {
