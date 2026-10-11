@@ -482,6 +482,25 @@ export interface ApiRoutesOptions {
   onOutcome?: (event: OutcomeTelemetryEvent) => void
 }
 
+export function canonicalRouteTemplate(route: string, prefix: string): string {
+  const trimmedPrefix = prefix.replace(/^\/+|\/+$/g, '')
+  const normalizedPrefix = trimmedPrefix ? `/${trimmedPrefix}` : ''
+  const configuredPrefix = normalizedPrefix.endsWith('/api/v1')
+    ? normalizedPrefix
+    : `${normalizedPrefix}/api/v1`
+  const normalizedRoute = route.startsWith('/') ? route : `/${route}`
+  const suffix = normalizedRoute === configuredPrefix
+    ? ''
+    : normalizedRoute.startsWith(`${configuredPrefix}/`)
+      ? normalizedRoute.slice(configuredPrefix.length)
+      : normalizedRoute === '/api/v1'
+        ? ''
+        : normalizedRoute.startsWith('/api/v1/')
+          ? normalizedRoute.slice('/api/v1'.length)
+          : normalizedRoute
+  return `/api/v1${suffix}`
+}
+
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
   // Decorate with db
   app.decorate('db', opts.db)
@@ -559,19 +578,6 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
   // When a basePath is set and the reverse proxy does not strip it, pass
   // routePrefix: `${basePath}api/v1` so routes match the full incoming path.
   await app.register(async (api) => {
-    const canonicalRouteTemplate = (route: string, prefix: string): string => {
-      const normalizedPrefix = prefix.replace(/\/$/, '')
-      const routeWithPrefix = route.includes('/api/v1')
-        ? route
-        : route.startsWith(normalizedPrefix)
-          ? `${normalizedPrefix}/api/v1${route.slice(normalizedPrefix.length)}`
-          : `${normalizedPrefix}/api/v1${route.startsWith('/') ? '' : '/'}${route}`
-      const marker = routeWithPrefix.indexOf('/api/v1')
-      return marker >= 0
-        ? `/api/v1${routeWithPrefix.slice(marker + '/api/v1'.length)}`
-        : routeWithPrefix
-    }
-
     // Must be registered before authPlugin so its preHandler sees the
     // authenticated principal while AsyncLocalStorage remains request-local.
     registerRequestContext(api, { onRequestCompleted: opts.onRequestCompleted })

@@ -13,6 +13,7 @@ export const LIVE_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/gbp/accounts',
   'GET /api/v1/projects/{name}/ga/properties',
   'GET /api/v1/projects/{name}/bing/sites',
+  'GET /api/v1/projects/{name}/bing/performance',
   'GET /api/v1/projects/{name}/doctor',
   'GET /api/v1/doctor',
   'GET /api/v1/backlinks/latest-release',
@@ -25,6 +26,9 @@ export const LIVE_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/ads/conversions/pixels',
   'GET /api/v1/projects/{name}/ads/conversions/event-settings',
   'GET /api/v1/projects/{name}/ads/live-delivery',
+  'POST /api/v1/apply/preview',
+  'GET /api/v1/projects/{name}/discover/sessions/{id}/harvest',
+  'GET /api/v1/cdp/status',
   'GET /api/v1/projects/{name}/wordpress/status',
   'GET /api/v1/projects/{name}/wordpress/pages',
   'GET /api/v1/projects/{name}/wordpress/page',
@@ -37,10 +41,16 @@ export const LIVE_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'POST /api/v1/projects/{name}/measurement-discovery',
 ])
 
+/** GET operations with a write side effect, including OAuth callbacks and derived snapshots. */
+export const WRITE_OPERATIONS: ReadonlySet<string> = new Set([
+  'GET /api/v1/projects/{name}/bing/coverage',
+  'GET /api/v1/google/callback',
+  'GET /api/v1/projects/{name}/google/callback',
+  'GET /api/v1/google-marketing/callback',
+])
+
 /** POST previews that calculate from supplied or draft data without persistence. */
 export const READ_SEMANTIC_OPERATIONS: ReadonlySet<string> = new Set([
-  'POST /api/v1/apply/preview',
-  'POST /api/v1/projects/{name}/competitor-changes/preview',
   'POST /api/v1/projects/{name}/measurement-plan/compile-preview',
   'POST /api/v1/projects/{name}/measurement-plan/diff-preview',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-assignments',
@@ -56,16 +66,17 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
 
 export function operationAccess(method: string, pathTemplate: string): OperationAccess {
   const operation = `${method.toUpperCase()} ${pathTemplate}`
-  if (method.toUpperCase() !== 'GET' && READ_SEMANTIC_OPERATIONS.has(operation)) return 'stored'
-  if (STORED_READ_OPERATIONS.has(operation)) return 'stored'
-  if (method.toUpperCase() === 'GET' && LIVE_READ_OPERATIONS.has(operation)) return 'live'
-  if (LIVE_READ_OPERATIONS.has(operation)) return 'live'
-  if (method.toUpperCase() !== 'GET') return 'write'
-  return 'stored'
+  if (method.toUpperCase() !== 'GET' && READ_SEMANTIC_OPERATIONS.has(operation)) return OperationAccesses.stored
+  if (WRITE_OPERATIONS.has(operation)) return OperationAccesses.write
+  if (STORED_READ_OPERATIONS.has(operation)) return OperationAccesses.stored
+  if (method.toUpperCase() === 'GET' && LIVE_READ_OPERATIONS.has(operation)) return OperationAccesses.live
+  if (LIVE_READ_OPERATIONS.has(operation)) return OperationAccesses.live
+  if (method.toUpperCase() !== 'GET') return OperationAccesses.write
+  return OperationAccesses.stored
 }
 
 export function maxOperationAccess(accesses: readonly OperationAccess[]): OperationAccess {
-  if (accesses.includes('write')) return 'write'
-  if (accesses.includes('live')) return 'live'
-  return 'stored'
+  if (accesses.includes(OperationAccesses.write)) return OperationAccesses.write
+  if (accesses.includes(OperationAccesses.live)) return OperationAccesses.live
+  return OperationAccesses.stored
 }
