@@ -72,11 +72,14 @@ function rowState(
   staleAfterDays: number | null,
   dataAge: number | null,
   dataStaleAfterDays: number | null = staleAfterDays,
+  freshnessAgeDays: number | null = null,
 ): IntegrationStatusRow['state'] {
   if (state.repeatedFailure) return 'failing'
   if (state.latestStatus === null) return 'never-synced'
   const successAge = state.lastSuccessAt ? ageDays(state.lastSuccessAt) : null
-  if ((staleAfterDays !== null && successAge !== null && successAge >= staleAfterDays) || (dataStaleAfterDays !== null && dataAge !== null && dataAge >= dataStaleAfterDays)) return 'stale'
+  const runStale = staleAfterDays !== null && successAge !== null && successAge >= staleAfterDays
+  const freshnessStale = staleAfterDays !== null && freshnessAgeDays !== null && freshnessAgeDays >= staleAfterDays
+  if (runStale || freshnessStale || (dataStaleAfterDays !== null && dataAge !== null && dataAge >= dataStaleAfterDays)) return 'stale'
   return 'ok'
 }
 
@@ -90,15 +93,17 @@ function makeRow(
   sourceId: string | null = null,
   doctorChecks: string[] = [],
   dataStaleAfterDays: number | null = staleAfterDays,
+  freshnessAt: string | null = null,
 ): IntegrationStatusRow {
   const age = dataThrough ? daysSinceDate(dataThrough, new Date(), integration === 'gsc' ? GSC_REPORTING_TIME_ZONE : undefined) : null
   const throughAge = age === null ? null : Math.max(0, age)
+  const freshnessAge = ageDays(freshnessAt)
   return {
     integration,
     label,
     runKind,
     sourceId,
-    state: rowState(state, staleAfterDays, throughAge, dataStaleAfterDays),
+    state: rowState(state, staleAfterDays, throughAge, dataStaleAfterDays, freshnessAge),
     lastSuccessAt: state.lastSuccessAt,
     latestRunAt: state.latestRunAt,
     latestRunId: state.latestRunId,
@@ -107,7 +112,7 @@ function makeRow(
     consecutiveFailures: state.consecutiveFailures,
     latestError: state.latestError ? truncateUtf16(state.latestError, 300) : null,
     dataThrough,
-    dataAgeDays: throughAge,
+    dataAgeDays: throughAge ?? freshnessAge,
     doctorChecks,
   }
 }
@@ -142,11 +147,11 @@ function projectRows(opts: StatusRoutesOptions, project: typeof projects.$inferS
   const gbp = gbpConnection(ctx, info)
   if (connected(gbp)) rows.push(makeRow('gbp', 'Google Business Profile', RunKinds['gbp-sync'], readSyncRunState(opts.db, project.id, RunKinds['gbp-sync'], { nothingToSyncErrors: GBP_NOTHING_TO_SYNC_ERRORS }), GBP_SYNC_STALE_DAYS, null, null, ['gbp.sync.recent-failures']))
   if (opts.bingConnectionStore?.getConnection(project.canonicalDomain)) rows.push(makeRow('bing', 'Bing Webmaster Tools', RunKinds['bing-inspect-sitemap'], readSyncRunState(opts.db, project.id, RunKinds['bing-inspect-sitemap']), null))
-  const ads = opts.db.select({ id: adsConnections.id }).from(adsConnections).where(eq(adsConnections.projectId, project.id)).limit(1).get()
-  if (ads) rows.push(makeRow('ads', 'OpenAI Ads', RunKinds['ads-sync'], readSyncRunState(opts.db, project.id, RunKinds['ads-sync']), ADS_RECENT_SYNC_WARN_DAYS, null, null, ['ads.data.recent-sync']))
+  const ads = opts.db.select({ id: adsConnections.id, lastSyncedAt: adsConnections.lastSyncedAt }).from(adsConnections).where(eq(adsConnections.projectId, project.id)).limit(1).get()
+  if (ads) rows.push(makeRow('ads', 'OpenAI Ads', RunKinds['ads-sync'], readSyncRunState(opts.db, project.id, RunKinds['ads-sync']), ADS_RECENT_SYNC_WARN_DAYS, null, null, ['ads.data.recent-sync'], ADS_RECENT_SYNC_WARN_DAYS, ads.lastSyncedAt))
   const marketing = opts.getGoogleMarketingDoctorInput?.(ctx)
-  if (marketing?.googleAds) rows.push(makeRow('google-ads', 'Google Ads', RunKinds['google-ads-sync'], readSyncRunState(opts.db, project.id, RunKinds['google-ads-sync']), FRESH_SNAPSHOT_WARN_DAYS, null, null, ['google-ads.sync.recent-failures']))
-  if (marketing?.gtm) rows.push(makeRow('gtm', 'Google Tag Manager', RunKinds['gtm-sync'], readSyncRunState(opts.db, project.id, RunKinds['gtm-sync']), FRESH_SNAPSHOT_WARN_DAYS, null, null, ['gtm.sync.recent-failures']))
+  if (marketing?.googleAds) rows.push(makeRow('google-ads', 'Google Ads', RunKinds['google-ads-sync'], readSyncRunState(opts.db, project.id, RunKinds['google-ads-sync']), FRESH_SNAPSHOT_WARN_DAYS, null, null, ['google-ads.sync.recent-failures'], FRESH_SNAPSHOT_WARN_DAYS, marketing.googleAds.latestSnapshotAt))
+  if (marketing?.gtm) rows.push(makeRow('gtm', 'Google Tag Manager', RunKinds['gtm-sync'], readSyncRunState(opts.db, project.id, RunKinds['gtm-sync']), FRESH_SNAPSHOT_WARN_DAYS, null, null, ['gtm.sync.recent-failures'], FRESH_SNAPSHOT_WARN_DAYS, marketing.gtm.latestSnapshotAt))
   const sources = opts.db.select().from(trafficSources).where(and(eq(trafficSources.projectId, project.id), isNull(trafficSources.archivedAt))).all()
   for (const source of sources) {
     const row = makeRow('traffic', source.displayName, RunKinds['traffic-sync'], readSyncRunState(opts.db, project.id, RunKinds['traffic-sync'], { sourceId: source.id }), null, null, source.id, ['traffic.source.sync-lag', 'traffic.source.recent-data'])
