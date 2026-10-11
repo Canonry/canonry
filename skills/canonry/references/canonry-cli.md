@@ -1824,3 +1824,24 @@ is a stored read; `competitor aliases detect --dry-run --apply` is invalid.
 Block/unblock, market pin writes, project identity edits, apply and discovery
 promotion are not covered. Ordinary writes keep their request count and output.
 Preview POSTs require a write-capable key; the detection GET accepts read keys.
+### Batch curated competitors and wait for stored fields
+
+`canonry competitor import <project> <file> [--wait] [--wait-timeout 120]` sends
+one append request for the whole file. A JSON file is an array of domains or
+`{ "domain": "rival.example", "aliases": ["Rival Name"] }` entries. Other files
+contain one `domain[,alias,alias]` per line; blank lines and `#` comments are
+ignored. Import only a curated set, not every cited domain. Repeating an import
+is idempotent and reports `addedCount: 0` when nothing is newly tracked.
+
+`competitor add` and `competitor aliases` also accept `--wait` with a positive
+integer timeout in seconds (default 120). This waits for stored answer fields
+to be recomputed after name changes, such as `competitor add demo rival.example
+--alias "Rival Name" --wait`. A bare-domain add sets no recomputation mark.
+Answer-derived alias detection has a separate lifecycle and is not covered by
+this wait. Cloud already completes the backfill within the write request.
+
+Timeout exits 2 with `OPERATION_IN_PROGRESS` and `writeCommitted: true`; read
+`project show` to inspect `answerFieldsRecompute` rather than treating the write
+as failed. Older servers that omit the field return `WAIT_STATUS_UNAVAILABLE`
+after the committed write. Without `--wait`, add timing and output are unchanged.
+The existing `canonry_project_get` MCP tool returns this additive field.

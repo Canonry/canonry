@@ -997,6 +997,7 @@ export function formatProject(row: InferSelectModel<typeof projects>, negativeRe
     negativeReviewMaxStars,
     siteAuditMaxPages: row.siteAuditMaxPages ?? null,
     competitorAutoAliases: row.competitorAutoAliases,
+    answerFieldsRecompute: row.answerFieldsRecompute,
     configSource: row.configSource,
     configRevision: row.configRevision,
     createdAt: row.createdAt,

@@ -1002,3 +1002,11 @@ read-only MCP twin; call it before `canonry_apply_config`.
 ### Targeted project writes
 
 Project update flags use ApiClient PATCH with the loaded revision. Preserve omitted fields and validate explicit revision guards before writing. The legacy route-unavailable fallback re-reads before full PUT but cannot promise atomic conflict detection. Measurement flags normalize through the shared config schema. Native MCP `canonry_project_update` uses the same PATCH route.
+### Competitor import and completion
+
+`competitor import` validates curated JSON entries or line files before one append
+request, retaining each entry's aliases. Add, import and alias edits accept
+`--wait [--wait-timeout seconds]` for stored answer-field recomputation only.
+The optional project DTO mark is not an alias-detection completion signal.
+An omitted mark from an older server is reported after the committed write;
+it must not be treated as completed.

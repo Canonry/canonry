@@ -19,6 +19,7 @@ import { part as canonryReferencesAeoAnalysisPart0 } from './canonry-references-
 import { part as canonryReferencesCanonryCliPart0 } from './canonry-references-canonry-cli.0.js'
 import { part as canonryReferencesCanonryCliPart1 } from './canonry-references-canonry-cli.1.js'
 import { part as canonryReferencesCanonryCliPart2 } from './canonry-references-canonry-cli.2.js'
+import { part as canonryReferencesCanonryCliPart3 } from './canonry-references-canonry-cli.3.js'
 import { part as canonryReferencesGoogleBusinessProfilePart0 } from './canonry-references-google-business-profile.0.js'
 import { part as canonryReferencesGoogleMarketingPart0 } from './canonry-references-google-marketing.0.js'
 import { part as canonryReferencesIndexingPart0 } from './canonry-references-indexing.0.js'
@@ -163,8 +164,8 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 168841,
-    content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2].join(''),
+    characters: 170227,
+    content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2, canonryReferencesCanonryCliPart3].join(''),
   },
   {
     uri: "canonry-skill://canonry/references/google-business-profile.md",

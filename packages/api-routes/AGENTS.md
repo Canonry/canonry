@@ -879,3 +879,9 @@ writer planner; removal preserves retained identity exactly as DELETE does.
 It passes hypothetical identity and recomputed learned market names to the same
 landscape reader as share of voice. It writes no rows and invokes no hooks.
 The preview POST retains write-key authorization; detection GET remains a read.
+### Stored answer-field completion status
+
+The project DTO exposes optional `answerFieldsRecompute` (`full`, `competitors`,
+or null). It reads the existing persisted mark and does not start work. Local
+serve clears it after the latest requested pass; Cloud completes its existing
+synchronous backfill before responding. Auto-alias detection is not covered.

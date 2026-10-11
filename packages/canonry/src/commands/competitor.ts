@@ -1,4 +1,6 @@
+import fs from 'node:fs'
 import {
+  competitorAppendRequestSchema,
   formatPercent,
   CompetitorChangeKinds,
   CompetitorShareImpactCaveats,
@@ -14,7 +16,7 @@ import {
   type ShareOfVoiceContext,
 } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { CliError, isMachineFormat } from '../cli-error.js'
+import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 import type { CompetitorShareImpact, CompetitorLandscapeQuery, CompetitorLandscapeResponse, CompetitorSuggestionsQuery, CompetitorSuggestionsResponse, ModelEvidenceState } from '@ainyc/canonry-contracts'
 
@@ -37,11 +39,90 @@ function printCompetitorPreviewImpact(impact: CompetitorShareImpact): void {
   }
 }
 
+export interface CompetitorCompletionOptions {
+  wait?: boolean
+  waitTimeout?: string
+}
+
+function completionTimeout(options: CompetitorCompletionOptions, dryRun = false): number | undefined {
+  const raw = options.waitTimeout
+  if (raw !== undefined && (!/^[1-9]\d*$/.test(raw) || !Number.isSafeInteger(Number(raw)))) {
+    throw usageError('--wait-timeout must be a positive integer number of seconds')
+  }
+  if (raw !== undefined && !options.wait) throw usageError('--wait-timeout requires --wait')
+  if (options.wait && dryRun) throw usageError('--wait cannot be combined with --dry-run')
+  return options.wait ? Number(raw ?? '120') * 1_000 : undefined
+}
+
+/** Wait only for the persisted answer-field pass; alias detection has its own lifecycle. */
+async function waitForCompetitorFields(client: ReturnType<typeof getClient>, project: string, timeout: number | undefined): Promise<void> {
+  if (timeout === undefined) return
+  const deadline = Date.now() + timeout
+  for (;;) {
+    const state = await client.getProject(project)
+    if (state.answerFieldsRecompute === null) return
+    if (state.answerFieldsRecompute === undefined) {
+      throw new CliError({
+        code: 'WAIT_STATUS_UNAVAILABLE',
+        message: 'The write committed, but this server does not expose answer-field recomputation status. Upgrade the server to use --wait.',
+        details: { project, writeCommitted: true },
+        exitCode: 2,
+      })
+    }
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) {
+      throw new CliError({
+        code: 'OPERATION_IN_PROGRESS',
+        message: 'The write committed; stored answer fields are still being recomputed. Read the project status to check completion.',
+        details: { project, writeCommitted: true, answerFieldsRecompute: state.answerFieldsRecompute },
+        exitCode: 2,
+      })
+    }
+    await new Promise(resolve => setTimeout(resolve, Math.min(500, remaining)))
+  }
+}
+
+/** Import curated competitors in a single append, retaining aliases per entry. */
+export async function importCompetitors(project: string, filePath: string, format?: string, completion: CompetitorCompletionOptions = {}): Promise<void> {
+  const timeout = completionTimeout(completion)
+  if (!fs.existsSync(filePath)) {
+    throw new CliError({ code: 'COMPETITOR_IMPORT_FILE_NOT_FOUND', message: `File not found: ${filePath}`, details: { filePath } })
+  }
+  const content = fs.readFileSync(filePath, 'utf8')
+  let entries: unknown
+  if (filePath.toLowerCase().endsWith('.json')) {
+    try { entries = JSON.parse(content) } catch {
+      throw new CliError({ code: 'VALIDATION_ERROR', message: 'Competitor import must contain a JSON array of domains or { domain, aliases } entries', details: { filePath } })
+    }
+  } else {
+    entries = content.split(/\r?\n/).map(line => line.trim()).filter(line => line && !line.startsWith('#')).map(line => {
+      const [domain, ...aliases] = line.split(',').map(value => value.trim())
+      return aliases.length ? { domain, aliases } : domain
+    })
+  }
+  const parsed = competitorAppendRequestSchema.shape.competitors.safeParse(entries)
+  if (!parsed.success) {
+    throw new CliError({ code: 'VALIDATION_ERROR', message: 'Invalid competitor import entries', details: { filePath, issues: parsed.error.issues } })
+  }
+  const client = getClient()
+  const existing = new Set((await client.listCompetitors(project)).map(row => row.domain))
+  const requested = new Set(parsed.data.map(entry => normalizeCompetitorDomain(typeof entry === 'string' ? entry : entry.domain)))
+  const current = await client.appendCompetitors(project, parsed.data)
+  await waitForCompetitorFields(client, project, timeout)
+  const domains = current.map(row => row.domain)
+  const addedDomains = domains.filter(domain => requested.has(domain) && !existing.has(domain))
+  const result = { project, domains, addedDomains, addedCount: addedDomains.length }
+  if (format === 'jsonl') emitJsonl([result])
+  else if (format === 'json') console.log(JSON.stringify(result, null, 2))
+  else console.log(`Imported ${addedDomains.length} new competitor(s) to "${project}".`)
+}
+
 /**
  * `canonry competitor add`. With `aliases` (one domain only), the names are
  * added to that competitor's curated alias list, tracked already or not.
  */
-export async function addCompetitors(project: string, domains: string[], format?: string, aliases: string[] = [], dryRun = false): Promise<void> {
+export async function addCompetitors(project: string, domains: string[], format?: string, aliases: string[] = [], dryRun = false, completion: CompetitorCompletionOptions = {}): Promise<void> {
+  const timeout = completionTimeout(completion, dryRun)
   const client = getClient()
   if (dryRun) {
     const preview = await client.previewCompetitorChange(project, { change: CompetitorChangeKinds.add, competitors: aliases.length ? [{ domain: domains[0]!, aliases }] : domains })
@@ -59,6 +140,7 @@ export async function addCompetitors(project: string, domains: string[], format?
     project,
     aliases.length > 0 ? domains.map(domain => ({ domain, aliases })) : domains,
   )
+  await waitForCompetitorFields(client, project, timeout)
   const currentDomains = current.map(c => c.domain)
   const addedDomains = currentDomains.filter(domain => requested.has(domain) && !existingSet.has(domain))
   const aliasTarget = aliases.length > 0 ? normalizeCompetitorDomain(domains[0]!.trim()) : null
@@ -102,7 +184,7 @@ function sameAliasName(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase()
 }
 
-export interface CompetitorAliasesOptions {
+export interface CompetitorAliasesOptions extends CompetitorCompletionOptions {
   /** Replace the list exactly. */
   set?: string[]
   /** Append names. */
@@ -130,6 +212,10 @@ export interface CompetitorAliasesOptions {
  * idempotent (an unchanged list writes nothing server-side).
  */
 export async function competitorAliases(project: string, domain: string, options: CompetitorAliasesOptions): Promise<void> {
+  const timeout = completionTimeout(options, options.dryRun)
+  if (options.wait && !options.set && !options.clear && !options.add && !options.remove && !options.block && !options.unblock) {
+    throw usageError('--wait requires an alias change')
+  }
   const client = getClient()
   if (options.dryRun && (options.block !== undefined || options.unblock !== undefined)) {
     throw new CliError({
@@ -229,6 +315,7 @@ export async function competitorAliases(project: string, domain: string, options
     }
   }
 
+  await waitForCompetitorFields(client, project, timeout)
   if (isMachineFormat(options.format)) {
     console.log(JSON.stringify(result, null, 2))
     return

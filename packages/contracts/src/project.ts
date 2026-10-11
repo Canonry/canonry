@@ -277,6 +277,8 @@ export const projectDtoSchema = z.object({
    */
   competitorAutoAliases: competitorAutoAliasModeSchema.optional()
     .describe('Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project\'s default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period\'s competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.'),
+  /** Persisted answer-field pass still owed; null means clear. Does not track alias detection. */
+  answerFieldsRecompute: z.enum(['full', 'competitors']).nullable().optional(),
   configSource: configSourceSchema.default('cli'),
   configRevision: z.number().int().positive().default(1),
   createdAt: z.string().optional(),

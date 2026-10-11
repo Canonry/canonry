@@ -1,11 +1,15 @@
 import { WINDOW_SETS, competitorLandscapeQuerySchema, competitorSuggestionsQuerySchema } from '@ainyc/canonry-contracts'
-import { addCompetitors, competitorAliases, detectCompetitorAutoAliases, listCompetitors, removeCompetitors, showCompetitorLandscape, suggestCompetitors } from '../commands/competitor.js'
+import { addCompetitors, competitorAliases, detectCompetitorAutoAliases, importCompetitors, listCompetitors, removeCompetitors, showCompetitorLandscape, suggestCompetitors } from '../commands/competitor.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, parseIntegerOption, requirePositional, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 
-const ADD_USAGE = 'canonry competitor add <project> <domain...> [--alias <name>]... [--format json]'
-const ALIASES_USAGE = 'canonry competitor aliases <project> <domain> [--set <name>]... [--add <name>]... [--remove <name>]... [--clear] [--block <name>]... [--unblock <name>]... [--dry-run] [--format json]'
+const WAIT_USAGE = '[--wait [--wait-timeout <seconds>]]'
+const IMPORT_USAGE = `canonry competitor import <project> <file> ${WAIT_USAGE} [--format json|jsonl]`
+const WAIT_OPTIONS = { wait: { type: 'boolean' as const }, 'wait-timeout': stringOption() }
+
+const ADD_USAGE = 'canonry competitor add <project> <domain...> [--alias <name>]... [--wait [--wait-timeout <seconds>]] [--format json]'
+const ALIASES_USAGE = 'canonry competitor aliases <project> <domain> [--set <name>]... [--add <name>]... [--remove <name>]... [--clear] [--block <name>]... [--unblock <name>]... [--dry-run] [--wait [--wait-timeout <seconds>]] [--format json]'
 const DETECT_USAGE = 'canonry competitor aliases detect <project> [--apply] [--dry-run] [--format json|jsonl]'
 
 const LANDSCAPE_USAGE = 'canonry competitor landscape <project> [--window 7d|30d|90d|all] [--group-key <key>|--scope all-markets] [--by-model] [--provider <provider> [--model <id>]] [--query-class all|branded|non-brand] [--answers all|not-mentioned] [--location <label>] [--run-id <id>] [--format json|jsonl]'
@@ -24,8 +28,10 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['competitor', 'add'],
     usage: ADD_USAGE,
+    help: 'Several domains in one call are one write. Use import to batch per-domain aliases. --wait covers stored answer-field recomputation, not alias detection.',
     options: {
       alias: multiStringOption(),
+      ...WAIT_OPTIONS,
     },
     supportsDryRun: true,
     run: async (input) => {
@@ -47,7 +53,17 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
           details: { command: 'competitor.add', usage: ADD_USAGE },
         })
       }
-      await addCompetitors(project, domains, input.format, aliases, input.dryRun)
+      await addCompetitors(project, domains, input.format, aliases, input.dryRun, { wait: getBoolean(input.values, 'wait'), waitTimeout: getString(input.values, 'wait-timeout') })
+    },
+  },
+  {
+    path: ['competitor', 'import'],
+    usage: IMPORT_USAGE,
+    options: WAIT_OPTIONS,
+    run: async input => {
+      const project = requireProject(input, 'competitor.import', IMPORT_USAGE)
+      const file = requirePositional(input, 1, { command: 'competitor.import', usage: IMPORT_USAGE, message: 'input file is required' })
+      await importCompetitors(project, file, input.format, { wait: getBoolean(input.values, 'wait'), waitTimeout: getString(input.values, 'wait-timeout') })
     },
   },
   {
@@ -69,6 +85,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['competitor', 'aliases'],
     usage: ALIASES_USAGE,
     options: {
+      ...WAIT_OPTIONS,
       set: multiStringOption(),
       add: multiStringOption(),
       remove: multiStringOption(),
@@ -104,7 +121,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
           details: { command: 'competitor.aliases', usage: ALIASES_USAGE },
         })
       }
-      await competitorAliases(project, domain, { set, add, remove, clear, block, unblock, ...(input.dryRun ? { dryRun: true } : {}), format: input.format })
+      await competitorAliases(project, domain, { wait: getBoolean(input.values, 'wait'), waitTimeout: getString(input.values, 'wait-timeout'), set, add, remove, clear, block, unblock, ...(input.dryRun ? { dryRun: true } : {}), format: input.format })
     },
   },
   {
@@ -239,12 +256,12 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['competitor'],
-    usage: 'canonry competitor <add|aliases|remove|delete|list|landscape|suggest> <project> [args]',
+    usage: 'canonry competitor <add|import|aliases|remove|delete|list|landscape|suggest> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'competitor',
-        usage: 'canonry competitor <add|aliases|remove|delete|list|landscape|suggest> <project> [args]',
-        available: ['add', 'aliases', 'remove', 'delete', 'list', 'landscape', 'suggest'],
+        usage: 'canonry competitor <add|import|aliases|remove|delete|list|landscape|suggest> <project> [args]',
+        available: ['add', 'import', 'aliases', 'remove', 'delete', 'list', 'landscape', 'suggest'],
       })
     },
   },
