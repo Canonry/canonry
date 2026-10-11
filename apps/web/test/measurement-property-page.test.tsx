@@ -1087,8 +1087,10 @@ describe('Property page', () => {
     const fromMarkets = screen.getByRole('table', { name: 'Market queries' })
     expect(within(fromMarkets).getByText(NEARBY_QUESTION)).toBeTruthy()
 
-    const urls = screen.getByRole('list', { name: 'Site pages matched to this location' })
-    expect(within(urls).getByText('https://locations.example/harbor-house/*')).toBeTruthy()
+    // The whole pattern, with a place to break after each slash of its path and none inside the site.
+    const urls = within(screen.getByRole('list', { name: 'Site pages matched to this location' })).getAllByRole('listitem')
+    expect(urls.map(url => url.textContent)).toEqual(['https://locations.example/harbor-house/*'])
+    expect(urls[0]!.innerHTML.replace(/ class="[^"]*"/g, '')).toBe('<span>https://locations.example</span>/<wbr>harbor-house/<wbr>*')
 
     // The cited URL and its classification moved inside the answer row, so this
     // assertion now expands the answer before reading them.
@@ -1702,7 +1704,9 @@ it('formats the lazily loaded property answer', async () => {
   })
   const row = within(await answersTable()).getByText(NEARBY_QUESTION).closest('tr')!
   fireEvent.click(within(row).getByRole('button'))
-  expect(await screen.findByRole('heading', { name: NEARBY_QUESTION, level: 4 })).toBeTruthy()
+  // The row is headed by its query at level 4, under Answers, and the answer's own top heading sits one below it.
+  expect(within(row).getByRole('heading', { name: NEARBY_QUESTION, level: 4 })).toBeTruthy()
+  expect((await screen.findByRole('heading', { name: NEARBY_QUESTION, level: 5 })).closest('.answer-markdown')).toBeTruthy()
   expect(document.querySelector('.answer-markdown strong')?.textContent).toBe(TARGET_KEY)
   expect(document.querySelector('.answer-markdown li')?.textContent).toBe(OWN_URL)
 })
@@ -2346,7 +2350,7 @@ describe('Location page copy', () => {
     expect(headers('Answers measured for this location')).toEqual(['Query', 'Mentioned', 'Cited', 'Sources', 'Sources detail'])
     // The tracked lists: a row menu for a writer only, and no menu column without one.
     expect(headers('Location queries')).toEqual(['Query', 'Type', 'OpenAI', 'Status', ...(account === ADMIN ? ['Actions'] : [])])
-    expect(headers('Market queries')).toEqual(['Market', 'Query', 'Other locations', 'Last measured'])
+    expect(headers('Market queries')).toEqual(['Market', 'Query', 'Type', 'Last measured'])
     expect(within(page).queryAllByRole('button', { name: /^Actions for / }).map(button => button.getAttribute('aria-label'))).toEqual(account === ADMIN ? [`Actions for ${OWN_QUESTION}`] : [])
     // Engines read by their display names, in the answer rows and the rows cited on other queries.
     expect(answerFor(within(page).getByRole('table', { name: 'Answers measured for this location' }), NEARBY_QUESTION).querySelector('td')!.textContent).toBe(`${NEARBY_QUESTION}OpenAI`)
@@ -2355,11 +2359,18 @@ describe('Location page copy', () => {
     expect(within(page).getByText(`${MEASURED_LINE} · Non-brand only`)).toBeTruthy()
     expect(within(page).getByRole('region', { name: 'Site pages we match' }).querySelector('.section-head')!.textContent).toBe('Site pages we match1 pageRead-only')
     // Section headings are one to four words. What the location is tracked for and matched by comes first,
-    // then every result section the page had, in the order it had them.
+    // then Results, which heads every result section the page had, in the order it had them.
     expect(within(page).getAllByRole('heading', { level: 2 }).map(heading => heading.textContent)).toEqual([
-      'Coverage for this location', 'Queries about this location', 'From its markets', 'Site pages we match', PROPERTY_NAMES_COPY.heading,
-      'Results', 'By type', 'By engine', 'Named instead', 'Competitors by market', 'Answers', OTHER_QUERIES_COPY.heading,
+      'Coverage for this location', 'Queries about this location', 'From its markets', 'Site pages we match', PROPERTY_NAMES_COPY.heading, 'Results',
     ])
+    const results = within(page).getByRole('heading', { name: 'Results', level: 2 })
+    expect(within(page).getAllByRole('heading', { level: 3 }).filter(heading => results.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).map(heading => heading.textContent)).toEqual([
+      'By type', 'By engine', 'Named instead', 'Competitors by market', 'Answers', OTHER_QUERIES_COPY.heading,
+    ])
+    // A location with one list of names shows it under the section's heading alone: the list's own label is for a screen reader.
+    expect(within(page).getByRole('heading', { name: PROPERTY_NAMES_COPY.names, level: 3 }).className).toBe('sr-only')
+    // Each answer is headed by its query, under Answers.
+    expect(within(within(page).getByRole('region', { name: 'Answers' })).getAllByRole('heading', { level: 4 }).map(heading => heading.textContent)).toEqual([NEARBY_QUESTION])
     expect(within(page).queryByRole('button', { name: 'Add query about this location' }) !== null).toBe(account === ADMIN)
     expect(within(page).queryByRole('button', { name: PROPERTY_NAMES_COPY.edit }) !== null).toBe(account === ADMIN)
   })
@@ -2575,9 +2586,16 @@ describe('Location page copy', () => {
     { state: 'has no published setup, for a viewer', plan: () => ({ active: null }), label: 'Setup not published', detail: notPublished, link: 'View measurement setup', account: VIEWER },
     { state: 'is not in the published setup', plan: () => { const plan = planResponse(); plan.active.plan.targets = []; return plan }, label: 'Location not found', detail: 'This location is not in the published setup. It may have been renamed or removed.', link: 'Open measurement setup' },
   ])('says so in a label with one link to setup when the location $state', async ({ plan, label, detail, link, account = ADMIN }) => {
-    const { projectName } = await renderPropertyPageFromApi(url => pathOf(url).endsWith('/measurement-plan') ? jsonResponse(plan()) : propertyPageResponses()(url), { account })
+    const paths: string[] = []
+    const { projectName, queryClient } = await renderPropertyPageFromApi(url => {
+      paths.push(pathOf(url))
+      return pathOf(url).endsWith('/measurement-plan') ? jsonResponse(plan()) : propertyPageResponses()(url)
+    }, { account })
 
     expect(await screen.findByRole('button', { name: `${label}. ${detail}` })).toBeTruthy()
+    // With no location to list, the page reads neither its tracked queries nor their results.
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0))
+    expect(paths.filter(path => path.includes('/query-tracking'))).toEqual([])
     expect(screen.getByRole('status').textContent).toBe(label)
     expect(screen.getByRole('link', { name: link }).getAttribute('href')).toBe(`/projects/${encodeURIComponent(projectName)}/portfolio`)
     // One action beside the label, and the way back above it.
@@ -2704,7 +2722,13 @@ describe('What the location is tracked for', () => {
     expect(href.pathname).toBe(`/projects/${encodeURIComponent(projectName)}/queries`)
     // Queries narrowed to that market, on its Tracked list. The type the results were on is carried along.
     expect(Object.fromEntries(href.searchParams)).toEqual({ measurementScope: 'market', measurementScopeKey: 'north-coast', queryWorkspace: 'tracked', queryClass: 'non-brand' })
-    expect(visibleText(header.querySelector<HTMLElement>('.page-subtitle')!)).toBe('Market:North coastGroup:North')
+    const subtitle = header.querySelector<HTMLElement>('.page-subtitle')!
+    expect(visibleText(subtitle)).toBe('Market:North coastGroup:North')
+    // From sm that line is as wide as the header, not the name's column beside the badges and the button, so a
+    // long list of markets runs on under them.
+    const rules = parseCompiledCss(await compileAppStyles([...header.classList, ...subtitle.classList]))
+    expect(compiledElementProperty(rules, header, 'container-type')).toBe('inline-size')
+    expect([compiledElementProperty(rules, subtitle, 'width'), compiledElementProperty(rules, subtitle, 'width', '@media (width >= 40rem)')]).toEqual([undefined, '100cqw'])
     // The state of the measurement stays in the header, with the one way back above the name.
     expect(within(header).getByText('Measured')).toBeTruthy()
     expect(within(header).getAllByRole('link').map(link => link.textContent)).toEqual(['Back to AI Visibility', 'North coast'])
@@ -2747,10 +2771,61 @@ describe('What the location is tracked for', () => {
     // The setup was published on Aug 1 and the sweep ran on Aug 2: the server says which came first, never the dates.
     const changedOn = formatObservedInstantMonthDay(observedInstant(planResponse().active.createdAt))
     const sweptOn = formatObservedInstantMonthDay(observedInstant(COMPLETED_AT))
-    const tracked = await screen.findByRole('region', { name: 'Queries about this location' })
+    await screen.findByRole('table', { name: 'Location queries' })
+    const tracked = screen.getByRole('region', { name: 'Queries about this location' })
     const note = await within(tracked).findByRole('button', { name: `Tracking changed ${changedOn}. Showing the ${sweptOn} results, from before the change. New numbers after the next sweep.` })
     expect(note.textContent).toBe(`Tracking changed ${changedOn}`)
     expect(screen.getAllByText(/^Tracking changed/)).toHaveLength(1)
+  })
+
+  it('names no date for the tracking change on a managed dashboard, as AI Visibility and Queries name none there', async () => {
+    const previousConfig = window.__CANONRY_CONFIG__
+    window.__CANONRY_CONFIG__ = { ...previousConfig, dashboard: { managedSweeps: true } }
+    onTestFinished(() => {
+      if (previousConfig === undefined) delete window.__CANONRY_CONFIG__
+      else window.__CANONRY_CONFIG__ = previousConfig
+    })
+    await renderPropertyPageFromApi(url => new URL(url).pathname.endsWith('/query-tracking/results')
+      ? jsonResponse(trackingResults({ run: { ...trackingResults().run!, matchesCurrentTracking: false } }))
+      : propertyPageResponses()(url), { account: VIEWER })
+
+    const sweptOn = formatObservedInstantMonthDay(observedInstant(COMPLETED_AT))
+    await screen.findByRole('table', { name: 'Location queries' })
+    const note = await within(screen.getByRole('region', { name: 'Queries about this location' })).findByRole('button', { name: `Tracking changed. Showing the ${sweptOn} results, from before the change. New numbers after the next sweep.` })
+    expect(note.textContent).toBe('Tracking changed')
+    expect(screen.getAllByText(/^Tracking changed/)).toHaveLength(1)
+  })
+
+  it('lists each location from the top: a market opened further on one location is cut again on the next', async () => {
+    const OTHER = { stableKey: 'other-house', label: 'Other House' }
+    const plan = planResponse()
+    plan.active.plan.targets.push({ ...plan.active.plan.targets[0]!, ...OTHER, aliases: [OTHER.label] })
+    // Both locations are in the one market and take its eleven queries.
+    const both = [TARGET_KEY, OTHER.stableKey].map(targetKey => ({ targetKey, groupKeys: ['north'], marketKeys: ['north-coast'], queryClass: 'non-brand', classificationSource: 'server', contexts: [TRACKING_CONTEXT] }))
+    const workspace = trackingWorkspace({
+      targets: [TARGET_KEY, OTHER.stableKey].map(stableKey => ({ stableKey, label: stableKey === TARGET_KEY ? 'Harbor House' : OTHER.label, marketKeys: ['north-coast'], counts: TRACKING_COUNTS })),
+      markets: [{ stableKey: 'north-coast', label: 'North coast', groupKey: 'north', usageEdges: [NEARBY_EDGE], targetKeys: [TARGET_KEY, OTHER.stableKey] }],
+      tracked: Array.from({ length: 11 }, (_, index) => trackedQuery(`query-coast-${index}`, `north coast stays ${String(index + 1).padStart(2, '0')}`, { kind: 'market', key: 'north-coast' }, 'non-brand', { assignments: both })),
+    })
+    const { router, projectName } = await renderPropertyPageFromApi(url => {
+      const path = pathOf(url)
+      if (path.endsWith('/query-tracking')) return jsonResponse(workspace)
+      if (path.endsWith('/measurement-plan')) return jsonResponse(plan)
+      return propertyPageResponses()(url)
+    }, { account: VIEWER })
+    const listed = () => within(screen.getByRole('table', { name: 'Market queries' })).getAllByText(/^north coast stays \d+$/).length
+
+    await screen.findByRole('table', { name: 'Market queries' })
+    expect(listed()).toBe(8)
+    fireEvent.click(screen.getByRole('button', { name: '+ 3 more queries in North coast' }))
+    expect(listed()).toBe(11)
+    expect(screen.getByRole('button', { name: 'Show fewer queries in North coast' })).toBeTruthy()
+
+    await act(async () => { await router.navigate({ to: '/projects/$projectName/properties/$targetKey', params: { projectName, targetKey: OTHER.stableKey } }) })
+    await screen.findByRole('heading', { name: OTHER.label, level: 1 })
+    await screen.findByRole('table', { name: 'Market queries' })
+    expect(listed()).toBe(8)
+    expect(screen.getByRole('button', { name: '+ 3 more queries in North coast' })).toBeTruthy()
   })
 
   it('says the tracked queries could not load beside results that still render, and reads them again on Retry', async () => {
@@ -2822,8 +2897,11 @@ describe('Add query about this location', () => {
     workspace?: () => Response | Promise<Response>
     plan?: () => ReturnType<typeof planResponse>
     publishes?: typeof MARKET_QUERY | typeof NAMED_QUERY
+    queryClient?: QueryClient
   } = {}) {
     const paths: string[] = []
+    /** Every request as "METHOD /path" under the project, in the order it was made. */
+    const requests: string[] = []
     const writes: Array<{ operation: string; body: unknown }> = []
     const publishes = options.publishes ?? MARKET_QUERY
     const diff = { added: [{ queryId: 'query-new', queryText: publishes.text, assignmentCount: 1 }], removed: [], reused: [], unchanged: [], noOp: false }
@@ -2832,6 +2910,7 @@ describe('Add query about this location', () => {
     const rendered = await renderPropertyPageFromApi((url, init) => {
       const path = new URL(url).pathname
       paths.push(path)
+      requests.push(`${init?.method ?? 'GET'} ${path.replace(/^.*\/projects\/[^/]+/, '')}`)
       if (path.endsWith('/query-tracking')) return options.workspace?.() ?? jsonResponse(published ? workspaceAfterPublish(publishes) : trackingWorkspace())
       const operation = path.match(/\/query-tracking\/(preview|commit)$/)?.[1]
       if (operation) {
@@ -2844,11 +2923,11 @@ describe('Add query about this location', () => {
       }
       if (path.endsWith('/measurement-plan')) return jsonResponse(published ? planAfterPublish(publishes) : options.plan?.() ?? planResponse())
       return page(url)
-    }, { account: options.account ?? ADMIN })
+    }, { account: options.account ?? ADMIN, queryClient: options.queryClient })
     // The button is in the page header, with the alert it shows when its read fails.
     const header = (await screen.findByRole('heading', { name: 'Harbor House', level: 1 })).closest<HTMLElement>('.page-header')!
     const reads = (suffix: string) => paths.filter(path => path.endsWith(suffix)).length
-    return { ...rendered, header, writes, workspaceReads: () => reads('/query-tracking'), resultsReads: () => reads('/query-tracking/results'), planReads: () => reads('/measurement-plan') }
+    return { ...rendered, header, writes, requests, workspaceReads: () => reads('/query-tracking'), resultsReads: () => reads('/query-tracking/results'), planReads: () => reads('/measurement-plan') }
   }
 
   /** The table of the queries about this location, once the page's own workspace read has landed. */
@@ -2903,6 +2982,17 @@ describe('Add query about this location', () => {
     await waitFor(() => expect(document.activeElement).toBe(button))
   })
 
+  it('reads the workspace on the press however fresh the page\'s own read of it is', async () => {
+    // The app's client keeps a read fresh for five minutes. The sheet must not open on that copy: it reviews
+    // against the workspace version it opens on.
+    const { header, workspaceReads } = await renderWithTracking({ queryClient: createQueryClient() })
+    await ownQueries()
+    expect(workspaceReads()).toBe(1)
+
+    await openSheet(header)
+    expect(workspaceReads()).toBe(2)
+  })
+
   it('says it is opening while the tracking workspace is read', async () => {
     let reads = 0
     let respond: (response: Response) => void = () => {}
@@ -2940,7 +3030,7 @@ describe('Add query about this location', () => {
   })
 
   it('shows a viewer the tracked lists with no button, no row menu and no editor, from the same two reads', async () => {
-    const { header, workspaceReads, resultsReads, queryClient } = await renderWithTracking({ account: VIEWER })
+    const { header, workspaceReads, resultsReads, requests, queryClient } = await renderWithTracking({ account: VIEWER })
     const own = await ownQueries()
     await waitFor(() => expect(queryClient.isFetching()).toBe(0))
 
@@ -2951,11 +3041,18 @@ describe('Add query about this location', () => {
     expect(screen.queryByRole('button', { name: /^Actions for / })).toBeNull()
     expect(screen.queryByRole('button', { name: PROPERTY_NAMES_COPY.edit })).toBeNull()
     expect([workspaceReads(), resultsReads()]).toEqual([1, 1])
+    // Every request of the load: the six reads the page made before it listed what a location is tracked for,
+    // and those two. A third read by the tracked section, of anything, shows here.
+    expect([...requests].sort()).toEqual([
+      'GET /measurement-overview', 'GET /measurement-overview', 'GET /measurement-plan',
+      'GET /measurement-property-competitors', 'GET /measurement-property-evidence', 'GET /measurement-property-evidence',
+      'GET /query-tracking', 'GET /query-tracking/results',
+    ])
   })
 
   it('publishes each line for this location in its markets, closes, and lists the new query with no sweep', async () => {
     onTestFinished(resetToasts)
-    const { header, writes, resultsReads } = await renderWithTracking({ publishes: MARKET_QUERY })
+    const { header, writes, requests, resultsReads } = await renderWithTracking({ publishes: MARKET_QUERY })
     const own = await ownQueries()
     const sheet = await openSheet(header)
     fireEvent.change(sheet.getByLabelText('Queries'), { target: { value: MARKET_QUERY.text } })
@@ -2983,8 +3080,11 @@ describe('Add query about this location', () => {
     expect(added.querySelector('.tracked-cell-status')!.textContent).toBe('First answers')
     expect(within(rowOf(own, OWN_QUESTION)).getByRole('button', { name: 'OpenAI: Mentioned, Not cited' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Queries about this location' }).nextElementSibling!.textContent).toBe('6 queries')
-    // The results were read again after the publish, with no run started: every request here is a read or the two tracking writes.
+    // The results were read again after the publish, with no run started: the two tracking writes are the only
+    // requests that are not reads, and none is to a run.
     await waitFor(() => expect(resultsReads()).toBe(2))
+    expect(requests.filter(request => !request.startsWith('GET '))).toEqual(['POST /query-tracking/preview', 'POST /query-tracking/commit'])
+    expect(requests.filter(request => /\/runs?\b/.test(request))).toEqual([])
     await waitFor(() => expect(getToasts().map(toast => toast.title)).toEqual(['Tracked queries updated']))
   })
 

@@ -16,7 +16,8 @@ import { VISIBILITY_TOOLBAR_COPY } from '../src/components/project/VisibilityTre
 import { formatObservedInstantMonthDay, observedInstant } from '../src/components/shared/ChartPrimitives.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { visibleText } from './caution-note.js'
-import { expectNoSentence, noteButton, openRowSheet } from './support/query-tracking-fixtures.js'
+import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
+import { expectNoSentence, noteButton, openRowSheet, preview } from './support/query-tracking-fixtures.js'
 
 // The location page's tracked section, header line and side panel: what one location is tracked for, from the
 // workspace read and one results read for the location, and what it is matched by, from the published setup.
@@ -68,6 +69,9 @@ const PICKED = 'apartments with a pool'
 const RIVER = 'River Point reviews'
 const CAMPUS = 'studio apartments near campus'
 const uptown = () => ['harbor', 'river', 'summit'].map(key => pairing(key, ['uptown'], 'non-brand', key === 'summit' ? [] : ['north']))
+/** `count` queries Harbor Point takes from one market, named so they sort in the order they are made. */
+const marketQueries = (marketKey: string, count: number) => Array.from({ length: count }, (_, index) =>
+  tracked(`q-${marketKey}-${index}`, `${marketKey} apartments ${String(index + 1).padStart(2, '0')}`, { kind: 'market', key: marketKey }, [pairing('harbor', [marketKey], 'non-brand')]))
 
 /**
  * Harbor Point sits in three markets and two groups. It has two queries of its own (one added since the last
@@ -165,7 +169,7 @@ async function renderLocation(options: {
   results?: () => Response | Promise<Response>
   write?: (operation: string, body: unknown) => Response
   client?: QueryClient
-  trackingChangedAt?: string
+  trackingChangedAt?: string | null
   target?: PlanV2['targets'][number]
 } = {}) {
   const requests: string[] = []
@@ -208,6 +212,8 @@ async function renderLocation(options: {
 
 /** The reads the tracked section makes. A writer's names editor reads the draft and the project besides. */
 const trackingReads = (requests: readonly string[]) => requests.filter(request => request.includes('/query-tracking'))
+/** The two reads, in the order they are made. For a viewer they are every request the three components make. */
+const TWO_READS = ['GET /query-tracking', 'GET /query-tracking/results?scope=property&scopeKey=harbor']
 const main = () => screen.getByRole('main')
 const region = (name: string) => within(main()).getByRole('region', { name })
 const table = (name: string) => within(main()).findByRole('table', { name })
@@ -218,11 +224,26 @@ const strip = () => Object.fromEntries([...main().querySelector('dl')!.querySele
 /** The count beside a section's heading, as it reads and as it is spoken. */
 const headingCount = (name: string) => within(main()).getByRole('heading', { name, level: 2 }).nextElementSibling?.textContent
 const rowOf = (queryText: string) => within(main()).getByRole('button', { name: queryText }).closest('tr')!
-/** A market table's row, by its query: there the query is plain text, not the button that opens a row. */
-const marketRowOf = (markets: HTMLElement, queryText: string) => within(markets).getByText(queryText).closest('tr')!
+/** How many of one market's `marketQueries` its table lists. */
+const listedIn = (markets: HTMLElement, marketKey: string) => within(markets).queryAllByText(new RegExp(`^${marketKey} apartments \\d+$`)).length
 /** One row's chips, as each engine's pair names them. */
 const chips = (queryText: string) => within(rowOf(queryText)).getAllByRole('button', { name: /^(OpenAI|Gemini)[,:]/ }).map(pair => pair.getAttribute('aria-label'))
 const hrefOf = (link: HTMLElement) => new URL(link.getAttribute('href')!, 'http://localhost')
+/** A control this page adds: a 44px target where a finger is the pointer, and a ring when the keyboard reaches it. */
+function expectTouchAndFocus(control: HTMLElement) {
+  expect(control.className).toContain('pointer-coarse:min-h-11')
+  expect(control.className).toContain('max-md:min-h-11')
+  expect(control.className).toContain('focus-visible:ring-2')
+}
+/** Stands in for the clipboard for one test. */
+function stubClipboard(writeText: (text: string) => Promise<void>) {
+  const descriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+  onTestFinished(() => {
+    if (descriptor) Object.defineProperty(navigator, 'clipboard', descriptor)
+    else Reflect.deleteProperty(navigator, 'clipboard')
+  })
+}
 
 test('prints the server\'s numbers for the location, never a recount of the rows it lists', async () => {
   const { requests } = await renderLocation()
@@ -241,7 +262,7 @@ test('prints the server\'s numbers for the location, never a recount of the rows
   expect(within(main()).queryByText(RIVER)).toBeNull()
   expect(within(main()).queryByText(CAMPUS)).toBeNull()
   // Two reads: the workspace under the Queries tab's key, and the results for this location.
-  expect(trackingReads(requests)).toEqual(['GET /query-tracking', 'GET /query-tracking/results?scope=property&scopeKey=harbor'])
+  expect(trackingReads(requests)).toEqual(TWO_READS)
   expectNoSentence(main())
 })
 
@@ -276,21 +297,27 @@ test('lists a location query with its type and the last sweep\'s chips, and one 
   expect(within(main()).queryByText('Results unavailable')).toBeNull()
 })
 
-test('lists a market query under From its markets with its market, its other locations and its last sweep', async () => {
-  await renderLocation()
+test('lists a market query under From its markets with its type here, and names its market once with its other locations', async () => {
+  // Asked Branded for this location and Non-brand for another of the market's: the query is Mixed, and here it is Branded.
+  const NAMED = 'apartments near Harbor Point uptown'
+  const named = tracked('q-uptown-named', NAMED, { kind: 'market', key: 'uptown' }, [pairing('harbor', ['uptown'], 'branded', ['north']), pairing('river', ['uptown'], 'non-brand', ['north'])])
+  await renderLocation({ workspace: () => json(portfolio({ tracked: [...portfolio().tracked, named] })) })
   const markets = await table('Market queries')
 
-  expect(within(markets).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Market', 'Query', 'Other locations', 'Last measured'])
-  // In market order, then by query. A market is named once, in a cell that spans its queries and holds its link.
+  expect(within(markets).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Market', 'Query', 'Type', 'Last measured'])
+  // In market order, then by query. A market is named once, in a cell that spans its queries and holds its
+  // other locations and its link. Each query reads the type it counts as for this location.
   expect(cells(markets)).toEqual([
-    ['DowntownOpen market', DOWNTOWN, 'Other locationsNone', `Last measured${day(MEASURED_AT)}`],
-    ['Uptown, LakeshoreOpen market', UPTOWN_BEST, 'Other locations+2', `Last measured${day(MEASURED_AT)}`],
-    [UPTOWN_PETS, 'Other locations+2', `Last measured${day(MEASURED_AT)}`],
+    ['DowntownNo other locationsOpen market', DOWNTOWN, 'TypeNon-brand', `Last measured${day(MEASURED_AT)}`],
+    ['Uptown, Lakeshore+2 locationsOpen market', NAMED, 'TypeBranded', `Last measured${day(MEASURED_AT)}`],
+    [UPTOWN_BEST, 'TypeNon-brand', `Last measured${day(MEASURED_AT)}`],
+    [UPTOWN_PETS, 'TypeNon-brand', `Last measured${day(MEASURED_AT)}`],
   ])
-  expect(within(markets).getByText('Uptown, Lakeshore').closest('td')!.rowSpan).toBe(2)
+  expect(within(markets).getByText('Uptown, Lakeshore').closest('td')!.rowSpan).toBe(3)
   // The count is the market's own member list less this location. Its names are one step away and in its name.
-  const others = within(marketRowOf(markets, UPTOWN_BEST)).getByRole('button', { name: '2 other locations: River Point · Summit Lofts' })
-  expect(others.textContent).toBe('+2')
+  // It is one stop for the market, not one for each of its queries.
+  const others = within(markets).getAllByRole('button')
+  expect(others.map(button => [button.getAttribute('aria-label'), button.textContent])).toEqual([['2 other locations: River Point · Summit Lofts', '+2 locations']])
   // Each market opens in Queries, narrowed to it.
   const open = within(markets).getAllByRole('link')
   expect(open.map(link => link.getAttribute('aria-label'))).toEqual(['Open market Downtown', 'Open market Uptown, Lakeshore'])
@@ -299,24 +326,104 @@ test('lists a market query under From its markets with its market, its other loc
   expect([search.get('measurementScope'), search.get('measurementScopeKey'), search.get('queryWorkspace')]).toEqual(['market', 'uptown', 'tracked'])
 })
 
-test('shows the first eight market queries, then the rest on request', async () => {
-  const many = Array.from({ length: 11 }, (_, index) => tracked(`q-${index}`, `apartments query ${String(index + 1).padStart(2, '0')}`, { kind: 'market', key: index < 9 ? 'uptown' : 'downtown' }, [pairing('harbor', [index < 9 ? 'uptown' : 'downtown'], 'non-brand')]))
-  await renderLocation({ workspace: () => json(portfolio({ tracked: many })) })
+test('names twenty-five of a market\'s other locations behind the count, then counts the rest', async () => {
+  const towers = Array.from({ length: 26 }, (_, index) => ({ stableKey: `tower-${index}`, label: `Tower ${String(index + 1).padStart(2, '0')}`, marketKeys: ['uptown'], counts: { propertyQueries: 0, marketQueries: 7, customQueries: 0, answersPerSweep: 14 } }))
+  const base = portfolio()
+  await renderLocation({ workspace: () => json(portfolio({
+    targets: [...base.targets, ...towers],
+    // Twenty-seven members: this location and twenty-six others.
+    markets: base.markets.map(market => market.stableKey === 'uptown' ? { ...market, targetKeys: ['harbor', ...towers.map(tower => tower.stableKey)] } : market),
+  })) })
   const markets = await table('Market queries')
 
-  // Downtown's two sort first, then six of Uptown's nine. The heading keeps the server's count.
-  expect(markets.querySelectorAll('tbody tr')).toHaveLength(8)
-  expect(headingCount('From its markets')).toBe('11 queries')
-  expect(within(markets).getByText('Uptown, Lakeshore').closest('td')!.rowSpan).toBe(6)
-  const more = within(region('From its markets')).getByRole('button', { name: '+ 3 more market queries' })
-  expect(visibleText(more).trim()).toBe('+ 3 more')
+  const others = within(markets).getByRole('button', { name: /^26 other locations: / })
+  expect(others.textContent).toBe('+26 locations')
+  expect(others.getAttribute('aria-label')).toBe(`26 other locations: ${towers.slice(0, 25).map(tower => tower.label).join(' · ')} · +1 more`)
+})
 
+test('shares the first eight market queries between the markets, each with its own button for the rest', async () => {
+  await renderLocation({ workspace: () => json(portfolio({ tracked: [...marketQueries('uptown', 9), ...marketQueries('downtown', 5)] })) })
+  const markets = await table('Market queries')
+
+  // Two markets, four rows each. Downtown's fifth is listed too, where a button would take its line.
+  expect([listedIn(markets, 'downtown'), listedIn(markets, 'uptown')]).toEqual([5, 4])
+  expect(within(markets).queryByRole('button', { name: /queries in Downtown$/ })).toBeNull()
+  // The heading keeps the server's count, whatever is listed.
+  expect(headingCount('From its markets')).toBe('11 queries')
+  const more = within(markets).getByRole('button', { name: '+ 5 more queries in Uptown, Lakeshore' })
+  expect(more.textContent).toBe('+ 5 more')
+  // The market's cell spans its queries and its button.
+  expect(within(markets).getByText('Uptown, Lakeshore').closest('td')!.rowSpan).toBe(5)
+
+  more.focus()
   fireEvent.click(more)
-  expect(markets.querySelectorAll('tbody tr')).toHaveLength(11)
-  expect(within(markets).getByText('Uptown, Lakeshore').closest('td')!.rowSpan).toBe(9)
-  // The button left with the press, and the first row it brought holds the focus.
-  expect(within(region('From its markets')).queryByRole('button', { name: /more market queries$/ })).toBeNull()
-  expect(document.activeElement).toBe(markets.querySelectorAll('tbody tr')[8])
+  expect([listedIn(markets, 'downtown'), listedIn(markets, 'uptown')]).toEqual([5, 9])
+  expect(within(markets).getByText('Uptown, Lakeshore').closest('td')!.rowSpan).toBe(10)
+  // The same button takes them back, so the press left the focus on it.
+  const fewer = within(markets).getByRole('button', { name: 'Show fewer queries in Uptown, Lakeshore' })
+  expect(fewer.textContent).toBe('Show fewer')
+  expect([fewer, document.activeElement]).toEqual([more, more])
+
+  fireEvent.click(fewer)
+  expect(listedIn(markets, 'uptown')).toBe(4)
+  expect(document.activeElement).toBe(within(markets).getByRole('button', { name: '+ 5 more queries in Uptown, Lakeshore' }))
+})
+
+test('keeps every market of a location in five in view, two queries each', async () => {
+  const keys = ['east-end', 'midtown', 'old-mill', 'riverside', 'west-end']
+  await renderLocation({ workspace: () => json(portfolio({
+    targets: [{ stableKey: 'harbor', label: 'Harbor Point', marketKeys: keys, counts: { propertyQueries: 0, marketQueries: 44, customQueries: 0, answersPerSweep: 132 } }],
+    groups: [],
+    markets: keys.map(key => ({ stableKey: key, label: `Market ${key}`, usageEdges: [], targetKeys: ['harbor'], counts: { marketQueries: 8, propertyQueries: 0, answersPerSweep: 24 } })),
+    tracked: keys.flatMap(key => marketQueries(key, 8)),
+  })) })
+  const markets = await table('Market queries')
+
+  expect(keys.map(key => listedIn(markets, key))).toEqual([2, 2, 2, 2, 2])
+  expect(within(markets).getAllByRole('link').map(link => link.getAttribute('aria-label'))).toEqual(keys.map(key => `Open market Market ${key}`))
+  expect(within(markets).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(keys.map(key => `+ 6 more queries in Market ${key}`))
+  expect(headingCount('From its markets')).toBe('44 queries')
+
+  // One market opens. The others stay as they were.
+  fireEvent.click(within(markets).getByRole('button', { name: '+ 6 more queries in Market old-mill' }))
+  expect(keys.map(key => listedIn(markets, key))).toEqual([2, 2, 8, 2, 2])
+})
+
+test('brings a long market\'s queries fifty at a press', async () => {
+  await renderLocation({ workspace: () => json(portfolio({ tracked: marketQueries('uptown', 61) })) })
+  const markets = await table('Market queries')
+  const button = () => within(markets).getByRole('button', { name: /queries in Uptown, Lakeshore$/ })
+
+  // The one market with queries has all eight rows.
+  expect([listedIn(markets, 'uptown'), button().textContent]).toEqual([8, '+ 50 more'])
+  fireEvent.click(button())
+  expect([listedIn(markets, 'uptown'), button().textContent]).toEqual([58, '+ 3 more'])
+  fireEvent.click(button())
+  expect([listedIn(markets, 'uptown'), button().textContent]).toEqual([61, 'Show fewer'])
+  fireEvent.click(button())
+  expect([listedIn(markets, 'uptown'), button().textContent]).toEqual([8, '+ 50 more'])
+})
+
+test('lists the first fifty queries about a location, with the rest a press away', async () => {
+  const own = Array.from({ length: 53 }, (_, index) => tracked(`q-own-${index}`, `Harbor Point query ${String(index + 1).padStart(2, '0')}`, { kind: 'property', key: 'harbor' }, [pairing('harbor', ['uptown'], 'branded')]))
+  await renderLocation({ workspace: () => json(portfolio({ tracked: own })), results: () => json(sweep({ rows: [] })) })
+  const queries = await table('Location queries')
+  const listed = () => within(queries).getAllByRole('button', { name: /^Harbor Point query \d+$/ }).length
+  const block = region('Queries about this location')
+
+  expect(listed()).toBe(50)
+  expect(headingCount('Queries about this location')).toBe('4 queries')
+  const more = within(block).getByRole('button', { name: '+ 3 more location queries' })
+  expect(more.textContent).toBe('+ 3 more')
+  more.focus()
+  fireEvent.click(more)
+  expect(listed()).toBe(53)
+  const fewer = within(block).getByRole('button', { name: 'Show fewer location queries' })
+  expect([fewer, document.activeElement]).toEqual([more, more])
+  fireEvent.click(fewer)
+  expect(listed()).toBe(50)
+  // A list of fifty or fewer has no button.
+  expect(within(region('From its markets')).queryByRole('button', { name: /more|fewer/ })).toBeNull()
 })
 
 test('lists a hand-picked query under the type it is asked under here, and no Hand-picked section without one', async () => {
@@ -390,6 +497,23 @@ test('names the location\'s markets as links to Queries and its groups, with a d
   expect(header.textContent).toBe('Markets:Uptown, Lakeshore·Downtown·LakeviewGroups:North, Lakeshore · North Side')
   // The header and the section share the one workspace read.
   expect(header.querySelector('.skeleton-text')).toBeNull()
+
+  // The list wraps. A dot leads every market but the first, in a slot as wide as the line hangs out on the left,
+  // where it is cut off: a dot shows between two markets on a line, never at the start or the end of one.
+  const line = within(header).getByText('Markets:').parentElement!
+  const slots = links.map(link => link.previousElementSibling!)
+  expect(slots.map(slot => [slot.textContent, slot.getAttribute('aria-hidden')])).toEqual([['', 'true'], ['·', 'true'], ['·', 'true']])
+  const rules = parseCompiledCss(await compileAppStyles([line, ...slots, ...links].flatMap(element => [...element.classList])))
+  const length = (element: Element, property: string, context?: string) => cssLengthPx(compiledElementProperty(rules, element, property, context)!, rules)
+  expect([compiledElementProperty(rules, line, 'display'), compiledElementProperty(rules, line, 'flex-wrap')]).toEqual(['flex', 'wrap'])
+  expect([length(line, 'margin-left'), ...slots.map(slot => length(slot, 'width'))]).toEqual([-16, 16, 16, 16])
+  // The cut is 3px short of the slot, which leaves the focus ring of a line's first link whole, and reaches past a tall link.
+  expect(compiledElementProperty(rules, line, 'clip-path')).toBe('inset(-0.75rem -0.25rem -0.75rem 0.8125rem)')
+  // Where a finger is the pointer a link is a 44px target on a 28px line.
+  for (const context of ['@media (pointer: coarse)', '@media (width < 48rem)']) {
+    expect([length(links[0]!, 'min-height', context), length(links[0]!, 'margin-block', context)], context).toEqual([44, -8])
+  }
+  expectTouchAndFocus(links[0]!)
 })
 
 test('names one market and one group in the singular', async () => {
@@ -418,14 +542,58 @@ test('opens a row\'s action sheet with this location as the place', async () => 
   expect(writes[0]).toEqual({ operation: 'preview', body: { additions: [], removals: [{ queryId: 'q-picked', audience: { targetKeys: ['harbor'] } }], expectedWorkspaceVersion: WORKSPACE_VERSION } })
 })
 
+test('opens a sheet on the query as the project has it, not as this location reads it', async () => {
+  await renderLocation()
+  await table('Hand-picked queries')
+
+  // Asked Non-brand here and Branded for River Point. The row reads Non-brand; the sheet changes the query, which is Mixed.
+  expect(rowOf(PICKED).querySelector('.tracked-cell-type')!.textContent).toBe('Non-brand')
+  const sheet = await openRowSheet(PICKED, 'Change type')
+  expect(sheet.getByText('Now').nextElementSibling!.textContent).toBe('Mixed')
+  expect(sheet.getByRole('radio', { name: 'Only Harbor Point' }).getAttribute('aria-checked')).toBe('true')
+})
+
+test.each([
+  { read: 'after the sheet has closed, as over a network', held: true },
+  { read: 'at once', held: false },
+])('hands the focus to the list\'s heading when a stop takes its row off the page, with the next read landing $read', async ({ held }) => {
+  let stopped = false
+  let land: () => void = () => {}
+  const after = () => json(portfolio({ tracked: portfolio().tracked.filter(row => row.queryId !== 'q-harbor') }))
+  const diff = { added: [], removed: [{ queryId: 'q-harbor', queryText: HARBOR_REVIEWS, assignmentCount: 1 }], reused: [], unchanged: [], noOp: false }
+  const { requests } = await renderLocation({
+    workspace: () => !stopped ? json(portfolio()) : held ? new Promise<Response>(resolve => { land = () => resolve(after()) }) : after(),
+    write: operation => {
+      if (operation === 'preview') return json(preview({ workspaceVersion: WORKSPACE_VERSION, diff }))
+      stopped = true
+      return json({ committed: true, mode: 'advanced', workspaceVersion: WORKSPACE_VERSION, reviewedAt: '2026-10-10T12:00:00.000Z', active: { revision: 5, compiledChecksum: 'c'.repeat(64) }, diff, workload: preview().workload })
+    },
+  })
+  await table('Location queries')
+
+  const sheet = await openRowSheet(HARBOR_REVIEWS, 'Stop tracking')
+  fireEvent.click(sheet.getByRole('button', { name: 'Review' }))
+  fireEvent.click(await sheet.findByRole('button', { name: 'Publish 1 change' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  if (held) {
+    // The sheet hands the focus back to the row's menu, which is still on the page.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: `Actions for ${HARBOR_REVIEWS}` })))
+    await waitFor(() => expect(requests.filter(request => request === 'GET /query-tracking')).toHaveLength(2))
+    land()
+  }
+  await waitFor(() => expect(within(main()).queryByRole('button', { name: HARBOR_REVIEWS })).toBeNull())
+
+  // The row and its menu are gone. The focus is on its list's heading, never left on the page or on a help icon.
+  const heading = within(main()).getByRole('heading', { name: 'Queries about this location' })
+  await waitFor(() => expect(document.activeElement).toBe(heading))
+  expect(heading.tabIndex).toBe(-1)
+  expect(heading.className).toContain('focus-visible:ring-2')
+  expect(main().querySelector('button[aria-expanded="true"]')).toBeNull()
+})
+
 test('copies a row\'s link to Queries, narrowed to this location with the row marked', async () => {
   const copied: string[] = []
-  const descriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
-  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { copied.push(text) } } })
-  onTestFinished(() => {
-    if (descriptor) Object.defineProperty(navigator, 'clipboard', descriptor)
-    else Reflect.deleteProperty(navigator, 'clipboard')
-  })
+  stubClipboard(async text => { copied.push(text) })
   await renderLocation()
   await table('Location queries')
 
@@ -439,11 +607,23 @@ test('copies a row\'s link to Queries, narrowed to this location with the row ma
   expect(screen.queryByRole('dialog')).toBeNull()
 })
 
+test('says so when a row\'s link could not be copied', async () => {
+  stubClipboard(async () => { throw new Error('denied') })
+  await renderLocation()
+  await table('Location queries')
+
+  fireEvent.click(screen.getByRole('button', { name: `Actions for ${HARBOR_REVIEWS}` }))
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Copy link' }))
+  await waitFor(() => expect(getToasts().map(toast => [toast.title, toast.tone])).toEqual([['Could not copy', 'negative']]))
+})
+
 test('shows a viewer the same lists and numbers with no row menu, and opens a row\'s detail for everyone', async () => {
-  await renderLocation({ role: 'viewer' })
+  const { requests } = await renderLocation({ role: 'viewer' })
   const own = await table('Location queries')
   await waitFor(() => expect(chips(HARBOR_REVIEWS)).toHaveLength(2))
 
+  // Every request the header line, the section and the panel made: the two reads, and nothing else.
+  expect(requests).toEqual(TWO_READS)
   expect(strip()).toEqual({ 'Location queries': '4', 'Market queries': '11', Markets: '3', 'Answers counted': '51' })
   expect(screen.queryByRole('button', { name: /^Actions for / })).toBeNull()
   expect(within(own).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Query', 'Type', 'OpenAI', 'Gemini', 'Status'])
@@ -464,6 +644,9 @@ test('shows skeleton rows while the workspace loads, then Could not load with a 
   expect(within(main()).getByRole('status', { name: 'Loading queries' })).toBeTruthy()
   expect(within(main()).queryByRole('table')).toBeNull()
   expect(screen.getByRole('banner').querySelector('.skeleton-text')).toBeTruthy()
+  // The two lists every location has are headed while they load, with no count yet: two rows and eight.
+  expect(within(main()).getAllByRole('heading', { level: 2 }).map(heading => [heading.textContent, heading.nextElementSibling])).toEqual([['Queries about this location', null], ['From its markets', null]])
+  expect([region('Queries about this location'), region('From its markets')].map(list => list.querySelectorAll('.skeleton-text').length / 3)).toEqual([2, 8])
 
   await waitFor(() => expect(attempts).toBe(1))
   respond(failure())
@@ -472,10 +655,30 @@ test('shows skeleton rows while the workspace loads, then Could not load with a 
   noteButton('Could not load', 'Tracked queries did not load.', alert)
   // The side panel is the published setup's own, so it is drawn whatever the workspace read does.
   expect(within(screen.getByRole('complementary')).getByRole('heading', { name: 'Site pages we match' })).toBeTruthy()
+  expectTouchAndFocus(within(alert).getByRole('button', { name: 'Retry tracked queries' }))
 
   fireEvent.click(within(alert).getByRole('button', { name: 'Retry tracked queries' }))
   expect(await table('Location queries')).toBeTruthy()
   expect(attempts).toBe(2)
+  expect(within(main()).queryByRole('alert')).toBeNull()
+})
+
+test('says the location was not found when the workspace read does not hold it, and lists it once a read does', async () => {
+  let holds = false
+  await renderLocation({ workspace: () => json(portfolio(holds ? {} : { targets: portfolio().targets.filter(target => target.stableKey !== 'harbor') })) })
+
+  // The read worked, so this is not Could not load. A just-published setup can be ahead of it, so Retry stays.
+  const alert = await within(main()).findByRole('alert')
+  expect(visibleText(alert)).toBe('Location not foundRetry')
+  noteButton('Location not found', 'This location was not found in tracked queries.', alert)
+  expect(within(main()).getAllByRole('alert')).toHaveLength(1)
+  expect(within(main()).queryByRole('table')).toBeNull()
+  expect(within(main()).queryByRole('heading')).toBeNull()
+
+  holds = true
+  fireEvent.click(within(alert).getByRole('button', { name: 'Retry tracked queries' }))
+  expect(await table('Location queries')).toBeTruthy()
+  expect(await table('Market queries')).toBeTruthy()
   expect(within(main()).queryByRole('alert')).toBeNull()
 })
 
@@ -514,6 +717,79 @@ test('reads every chip as Not checked when the results fail, and reads them agai
   expect(within(main()).queryByText('Results unavailable')).toBeNull()
 })
 
+test('says the results are unavailable beside the hand-picked list when the location has no query of its own', async () => {
+  let attempts = 0
+  await renderLocation({
+    workspace: () => json(portfolio({ tracked: portfolio().tracked.filter(row => row.focus?.kind !== 'property') })),
+    // The second read is of a sweep from before the tracking changed.
+    results: () => { attempts += 1; return attempts === 1 ? failure() : json(sweep({ run: { ...sweep().run!, matchesCurrentTracking: false } })) },
+  })
+  await table('Hand-picked queries')
+  const picked = region('Hand-picked')
+  const own = region('Queries about this location')
+
+  // With no table of chips above it, the hand-picked list carries the legend and what there is to say about the chips.
+  const status = await within(picked).findByRole('status')
+  expect(visibleText(status)).toBe('Results unavailableRetry')
+  noteButton('Results unavailable', "The last sweep's results did not load, so every chip reads Not checked.", status)
+  expectTouchAndFocus(within(status).getByRole('button', { name: 'Retry results' }))
+  expect(visibleText(within(picked).getByRole('list'))).toBe('M MentionedC CitedMNoMNot checked')
+  expect(chips(PICKED)).toEqual(['OpenAI: Not checked', 'Gemini: Not checked'])
+  expect([within(own).queryByRole('status'), within(own).queryByRole('list')]).toEqual([null, null])
+
+  fireEvent.click(within(status).getByRole('button', { name: 'Retry results' }))
+  await waitFor(() => expect(chips(PICKED)).toEqual(['OpenAI: Mentioned, Citation not checked', 'Gemini: Not mentioned, Not cited']))
+  expect(within(main()).queryByText('Results unavailable')).toBeNull()
+  expect(within(picked).getByText('Tracking changed')).toBeTruthy()
+  expect(within(own).queryByText('Tracking changed')).toBeNull()
+})
+
+test('reads every chip as Not checked, with no note, when no sweep has finished', async () => {
+  await renderLocation({ trackingChangedAt: CHANGED_AT, results: () => json(sweep({ run: null, engines: [], rows: [], pendingRows: 0 })) })
+  await table('Location queries')
+  // The engines are the workspace's own, so each still has its pair.
+  await waitFor(() => expect(chips(HARBOR_REVIEWS)).toEqual(['OpenAI: Not checked', 'Gemini: Not checked']))
+
+  expect(chips(PICKED)).toEqual(['OpenAI: Not checked', 'Gemini: Not checked'])
+  expect(within(main()).queryByText(/^Tracking changed/)).toBeNull()
+  expect([within(main()).queryByRole('status'), within(main()).queryByRole('alert')]).toEqual([null, null])
+})
+
+test('prints no number, flag or list of locations the server did not send', async () => {
+  // A server from before the counts: no `counts` or `marketKeys` on a location, no `targetKeys` on a market.
+  const sent = portfolio()
+  const bare = {
+    ...sent,
+    targets: sent.targets.map(({ counts: _counts, marketKeys: _marketKeys, ...target }) => target),
+    markets: sent.markets.map(({ targetKeys: _targetKeys, counts: _counts, ...market }) => market),
+  }
+  await renderLocation({ workspace: () => json(bare) })
+  await table('Location queries')
+  const markets = await table('Market queries')
+
+  expect(main().querySelector('dl')).toBeNull()
+  expect(['Queries about this location', 'From its markets', 'Hand-picked'].map(headingCount)).toEqual([undefined, undefined, undefined])
+  expect(['No location queries', 'In no market', 'No market queries'].map(flag => within(main()).queryByText(flag))).toEqual([null, null, null])
+  // The rows are the workspace's, so they are listed. A market names no other location, and does not claim to have none.
+  expect(cells(markets)[0]).toEqual(['DowntownOpen market', DOWNTOWN, 'TypeNon-brand', `Last measured${day(MEASURED_AT)}`])
+  expect(within(markets).queryByRole('button')).toBeNull()
+  // The header has the groups, which are the workspace's own list, and no market.
+  expect(screen.getByRole('banner').textContent).toBe('Groups:North, Lakeshore · North Side')
+})
+
+test('gives each link and button it adds a 44px target on touch and a focus ring', async () => {
+  await renderLocation({ workspace: () => json(portfolio({ tracked: [...portfolio().tracked, ...marketQueries('uptown', 9)] })) })
+  const markets = await table('Market queries')
+
+  expectTouchAndFocus(within(screen.getByRole('banner')).getByRole('link', { name: 'Downtown' }))
+  expectTouchAndFocus(within(markets).getByRole('link', { name: 'Open market Downtown' }))
+  expectTouchAndFocus(within(markets).getByRole('button', { name: '2 other locations: River Point · Summit Lofts' }))
+  const more = within(markets).getByRole('button', { name: '+ 7 more queries in Uptown, Lakeshore' })
+  expectTouchAndFocus(more)
+  fireEvent.click(more)
+  expectTouchAndFocus(within(markets).getByRole('button', { name: 'Show fewer queries in Uptown, Lakeshore' }))
+})
+
 test('reads a location that was not in the last sweep as Not checked, with no error', async () => {
   await renderLocation({ results: () => json(sweep({ rows: [], pendingRows: 4 })) })
   await table('Location queries')
@@ -534,6 +810,24 @@ test('says when tracking changed after the sweep the chips come from, beside the
   expect(note.textContent).toBe(`Tracking changed ${day(CHANGED_AT)}`)
   expect(within(main()).getAllByText(/^Tracking changed/)).toHaveLength(1)
   expectNoSentence(main())
+})
+
+test('says tracking changed with no date when the page has none, and nothing when the page says so itself', async () => {
+  const before = () => json(sweep({ run: { ...sweep().run!, matchesCurrentTracking: false } }))
+  const { client } = await renderLocation({ results: before })
+  await table('Location queries')
+
+  const note = await within(region('Queries about this location')).findByRole('button', { name: `Tracking changed. ${VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(day(SWEPT_AT), null)}` })
+  expect(note.textContent).toBe('Tracking changed')
+
+  // `null` is the page's switch: it has its own note, so this one stays off and the legend stays.
+  cleanup()
+  client.clear()
+  await renderLocation({ results: before, trackingChangedAt: null })
+  await table('Location queries')
+  await waitFor(() => expect(chips(HARBOR_REVIEWS)).toEqual(['OpenAI: Mentioned, Not cited', 'Gemini: Mentioned, Cited']))
+  expect(within(main()).queryByText(/^Tracking changed/)).toBeNull()
+  expect(within(region('Queries about this location')).getByRole('list')).toBeTruthy()
 })
 
 test('lists the site pages as read-only for everyone and the names as chips, with the editor for a writer only', async () => {

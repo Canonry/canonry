@@ -216,7 +216,8 @@ function AnswerSources({ row }: { row: AnswerRow }) {
  * `resultId` this read takes — both are the stored snapshot id — so no new
  * plumbing is needed to line them up.
  */
-function AnswerText({ project, targetKey, resultId }: { project: string; targetKey: string; resultId: string }) {
+/** `headingLevel` is the level of the answer's own top headings: one below the heading the answer is read under. */
+function AnswerText({ project, targetKey, resultId, headingLevel }: { project: string; targetKey: string; resultId: string; headingLevel: 4 | 5 }) {
   const query = useQuery({
     ...getApiV1ProjectsByNameMeasurementQuestionResultOptions({
       client: heyClient,
@@ -246,7 +247,7 @@ function AnswerText({ project, targetKey, resultId }: { project: string; targetK
   }
   return (
     <div className="py-2">
-      <AnswerMarkdown headingLevel={4} copyable>{answer}</AnswerMarkdown>
+      <AnswerMarkdown headingLevel={headingLevel} copyable>{answer}</AnswerMarkdown>
     </div>
   )
 }
@@ -383,7 +384,7 @@ function MarketLink({
     <section aria-labelledby="property-market" className="page-section-divider">
       <div className="section-head section-head-inline flex-wrap">
         <div className="flex items-center gap-1">
-          <h2 id="property-market" className="text-base font-semibold text-heading">Competitors by market</h2>
+          <h3 id="property-market" className="text-base font-semibold text-heading">Competitors by market</h3>
           <InfoTooltip placement="bottom" text="Competitors are attached to a market rather than to a single location, because one location has nobody to be compared against. Share of voice and competitor pressure are reported for the market this location sits in." />
         </div>
         <Button asChild type="button" size="sm" variant="outline">
@@ -545,7 +546,7 @@ function BrandContrast({
     <section aria-labelledby="property-brand-contrast">
       <div className="section-head section-head-inline">
         <div className="flex items-center gap-1">
-          <h2 id="property-brand-contrast" className="text-base font-semibold text-heading">By type</h2>
+          <h3 id="property-brand-contrast" className="text-base font-semibold text-heading">By type</h3>
           <InfoTooltip placement="bottom" text="Branded queries already contain your name, so an answer engine has an easy path back to you. Non-brand queries describe the need instead, and that is the demand you have to earn. Each row is measured only over this location's queries of that type. A type with no query reads Not measured rather than 0%." />
         </div>
       </div>
@@ -601,7 +602,7 @@ function ProviderBreakdown({ row, queryClass, isError, onRetry }: { row: Propert
     <section aria-labelledby="property-providers" className="page-section-divider">
       <div className="section-head section-head-inline">
         <div className="flex items-center gap-1">
-          <h2 id="property-providers" className="text-base font-semibold text-heading">By engine</h2>
+          <h3 id="property-providers" className="text-base font-semibold text-heading">By engine</h3>
           <InfoTooltip placement="bottom" text="Each row is measured over the queries that engine actually answered for this location, so the rows are a split of the same population rather than parts that add up to the location total. An engine that answered nothing for this location is absent instead of shown at 0%." />
         </div>
       </div>
@@ -688,7 +689,7 @@ function NamedInstead({ project, targetKey, queryClass }: { project: string; tar
     <section aria-labelledby="property-named-instead" className="page-section-divider">
       <div className="section-head section-head-inline">
         <div className="flex items-center gap-1">
-          <h2 id="property-named-instead" className="text-base font-semibold text-heading">Named instead</h2>
+          <h3 id="property-named-instead" className="text-base font-semibold text-heading">Named instead</h3>
           <InfoTooltip placement="bottom" text="Counted from the answers that did not name this location, so a name here is one an engine recommended in its place. Occurrences count answers, not positions: an engine naming the same rival in two answers counts twice, and one naming it twice in a single answer counts once." />
         </div>
         {competitors.length > 0 ? <p className="supporting-copy">{query.data?.total ?? competitors.length} named</p> : null}
@@ -815,7 +816,7 @@ function CitedOnOtherQueries({
     <section aria-labelledby="property-other-queries" className="page-section-divider">
       <div className="section-head section-head-inline flex-wrap">
         <div className="flex items-center gap-1">
-          <h2 id="property-other-queries" className="text-base font-semibold text-heading">{OTHER_QUERIES_COPY.heading}</h2>
+          <h3 id="property-other-queries" className="text-base font-semibold text-heading">{OTHER_QUERIES_COPY.heading}</h3>
           <InfoTooltip placement="bottom" text={OTHER_QUERIES_COPY.help} />
         </div>
         {query.data ? (
@@ -906,7 +907,7 @@ function CitedOnOtherQueries({
                       {open ? (
                         <tr>
                           <td id={detailId} colSpan={4} className="bg-surface-subtle px-4">
-                            <AnswerText project={project} targetKey={row.assignedTargetKeys[0]!} resultId={row.observationId} />
+                            <AnswerText project={project} targetKey={row.assignedTargetKeys[0]!} resultId={row.observationId} headingLevel={4} />
                           </td>
                         </tr>
                       ) : null}
@@ -1194,7 +1195,7 @@ export function MeasurementPropertyPage() {
   return (
     <div className="page-container space-y-8">
       {/* From sm the name takes the room the badges and the button leave. In a frame too narrow for both they go under it. */}
-      <div className="page-header sm:flex-wrap">
+      <div className="page-header @container sm:flex-wrap">
         <div className="page-header-left sm:flex-1 sm:basis-80">
           {backLink}
           {/* The badge is a sibling of the heading, so the page is named by the location alone. */}
@@ -1202,7 +1203,8 @@ export function MeasurementPropertyPage() {
             <h1 className="page-title">{target.label}</h1>
             <ToneBadge tone="neutral">Location</ToneBadge>
           </div>
-          <div className="page-subtitle flex min-h-5 flex-wrap items-center gap-x-4 gap-y-0.5">
+          {/* The header's width from sm, not the name's column: the line runs on under the badges and the button, which end above it. */}
+          <div className="page-subtitle flex min-h-5 flex-wrap items-center gap-x-4 gap-y-0.5 sm:w-[100cqw]">
             <LocationPlaces projectName={project} targetKey={property} />
             {filterHelp ? (
               <span className="inline-flex items-center">
@@ -1244,7 +1246,8 @@ export function MeasurementPropertyPage() {
           sits beside this section only: a narrower column would fold the answers table below into its phone layout. */}
       <div className="@container">
         <div className="grid gap-x-6 gap-y-8 @[68rem]:grid-cols-[minmax(0,1fr)_20rem]">
-          <LocationTrackedSection key={property} projectName={project} targetKey={property} canWrite={canWrite} trackingChangedAt={activePlan!.createdAt} />
+          {/* A managed dashboard dates no tracking change, here as on AI Visibility and Queries. */}
+          <LocationTrackedSection key={property} projectName={project} targetKey={property} canWrite={canWrite} trackingChangedAt={isDashboardManagedSweeps() ? undefined : activePlan!.createdAt} />
           <div className="min-w-0 @[68rem]:border-l @[68rem]:border-default @[68rem]:pl-6">
             <LocationSidePanel
               projectName={project}
@@ -1257,6 +1260,7 @@ export function MeasurementPropertyPage() {
         </div>
       </div>
 
+      {/* Every section from here to the end of the page is under this heading. */}
       <div className="space-y-4 border-t border-default pt-6">
         <h2 className="text-lg font-semibold text-heading">Results</h2>
         <BrandContrast
@@ -1316,7 +1320,7 @@ export function MeasurementPropertyPage() {
       <section aria-labelledby="property-evidence" className="page-section-divider">
         <div className="section-head section-head-inline">
           <div className="flex items-center gap-1">
-            <h2 id="property-evidence" className="text-base font-semibold text-heading">Answers</h2>
+            <h3 id="property-evidence" className="text-base font-semibold text-heading">Answers</h3>
             <InfoTooltip placement="bottom" text="One row per answer an engine gave for this location's queries in the displayed measurement. Mentioned and cited are independent: an answer can name this location without linking it, or link it without naming it. Where the answer text was not stored the mention reads Not measured, never a zero. Open a row to read what the engine actually said, followed by the source URLs it returned, this location's own first." />
           </div>
           {evidenceRows.length > 0 ? <p className="supporting-copy">{evidenceRows.length} of {evidenceTotal}</p> : null}
@@ -1372,7 +1376,7 @@ export function MeasurementPropertyPage() {
                       <Fragment key={key}>
                         <tr className="property-answer-summary">
                           <td className="text-secondary">
-                            <h3 className="text-sm font-medium text-heading">{item.queryText}</h3>
+                            <h4 className="text-sm font-medium text-heading">{item.queryText}</h4>
                             <span className="mt-1 block text-xs text-muted">
                               {[providerDisplayName(item.provider), item.location].filter(Boolean).join(' · ')}
                             </span>
@@ -1408,7 +1412,7 @@ export function MeasurementPropertyPage() {
                               {/* The answer leads. The source list is the supporting
                                   detail, not the point: a reader who opened this row
                                   wants to know what was said before who was linked. */}
-                              <AnswerText project={project} targetKey={property} resultId={item.observationId} />
+                              <AnswerText project={project} targetKey={property} resultId={item.observationId} headingLevel={5} />
                               <AnswerSources row={item} />
                             </td>
                           </tr>

@@ -32,6 +32,8 @@ export function TrackingAddQueriesSheet({ workspace, sweepActive, ...sheet }: Om
  * Add queries sheet it opens on Location with that location chosen. The press
  * reads the tracking workspace itself, under the key the page's tracked
  * section reads, so the button depends on no read the page made before it.
+ * It is a request every time, however fresh the page's own read is: the sheet
+ * reviews against the workspace version it opens on.
  * The sheet opens only when that press's read comes back holding this
  * location. A failed read, or a workspace the page's setup is behind, shows a
  * note instead and the button reads Retry, and a later refresh of the read
@@ -58,7 +60,7 @@ export function AddLocationQueryButton({ projectName, locationKey, className, va
   const workspace = useQuery({ ...options, enabled: state === 'open', staleTime: Infinity }).data
   async function press() {
     setState('opening')
-    const read = await queryClient.fetchQuery(options).catch(() => null)
+    const read = await queryClient.fetchQuery({ ...options, staleTime: 0 }).catch(() => null)
     if (!read) return setState('failed')
     if (read.scopeOptions?.some(option => option.kind === 'property' && option.id === locationKey)) return setState('open')
     setState('missing')
