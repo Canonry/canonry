@@ -21,7 +21,7 @@ import { StatusNote } from '../../../shared/StatusNote.js'
 import { Button } from '../../../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../../../ui/sheet.js'
 import { placesOf } from '../../AddQueriesSheet.js'
-import { SearchLocationText, TrackingReview, TrackingReviewActions, type TrackingReviewState } from '../../TrackingReview.js'
+import { expectedSubject, SearchLocationText, TrackingReview, TrackingReviewActions, type TrackingReviewState } from '../../TrackingReview.js'
 import { VisibilityScopePicker } from '../../VisibilityScopePicker.js'
 import { TrackedBulkBar } from '../advanced/TrackedBulkBar.js'
 import { marketsHolding, subjectPlacement, TRACKED_BULK_MAX, type TrackedSubjectTarget } from '../advanced/tracked-actions.js'
@@ -251,6 +251,7 @@ function TrackSheet({ projectName, workspace, contextChoices, sweepActive, nextS
       item,
       ticked,
       own,
+      target: placed?.target ?? null,
       subject: placed ? `${subjectKindLabel(placed.target.kind)} · ${placed.label}` : null,
       placement,
       counts: !markets ? null
@@ -277,6 +278,8 @@ function TrackSheet({ projectName, workspace, contextChoices, sweepActive, nextS
     preview,
     error: publish.error,
     isCommitting: publish.isCommitting,
+    // Each row is tracked for its own Subject, so the review checks each lands there and nowhere else.
+    expectedSubjects: rows.flatMap(row => row.target ? [expectedSubject(row.item.text, row.target, workspace)] : []),
     onPublish: () => {
       if (preview) publish.commit({
         ...reviewed,

@@ -17,7 +17,7 @@ import { SegmentedRadioGroup, type SegmentedRadioOption } from '../shared/Segmen
 import { StatusNote } from '../shared/StatusNote.js'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
-import { SearchLocationText, type TrackingReviewState } from './TrackingReview.js'
+import { expectedSubject, SearchLocationText, type TrackingReviewState } from './TrackingReview.js'
 import { VisibilityScopePicker } from './VisibilityScopePicker.js'
 
 type Subject = 'market' | 'location' | 'company'
@@ -143,6 +143,8 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
     preview,
     error: publish.error,
     isCommitting: publish.isCommitting,
+    // Every line was added for the one place chosen, so the review checks each lands there and nowhere else.
+    expectedSubjects: place ? lines.map(line => expectedSubject(line, { kind: subject === 'location' ? 'location' : 'market', key: place.id }, workspace)) : undefined,
     onPublish: () => {
       if (preview) publish.commit({
         ...reviewed,

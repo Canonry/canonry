@@ -16,7 +16,7 @@ import { StatusNote } from '../../../shared/StatusNote.js'
 import { Button } from '../../../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../../../ui/sheet.js'
 import { placesOf } from '../../AddQueriesSheet.js'
-import { TrackingReview, TrackingReviewActions, type TrackingReviewState } from '../../TrackingReview.js'
+import { expectedSubject, TrackingReview, TrackingReviewActions, type TrackingReviewState } from '../../TrackingReview.js'
 import { VisibilityScopePicker } from '../../VisibilityScopePicker.js'
 import { contextLabels } from '../tracking-contexts.js'
 import {
@@ -172,6 +172,8 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
     preview,
     error: publish.error,
     isCommitting: publish.isCommitting,
+    // A Subject change and a move name the one place the query is to be tracked for, so the review checks it lands there.
+    expectedSubjects: placed && target ? [expectedSubject(row.queryText, target, workspace)] : undefined,
     onPublish: () => {
       if (preview) publish.commit({
         ...reviewed,
