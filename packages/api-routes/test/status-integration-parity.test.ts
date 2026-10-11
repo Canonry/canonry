@@ -41,7 +41,7 @@ async function fixture() {
     return instanceStatusDtoSchema.parse(result.json()).projects[0]!.integrations
   }
   const close = async () => { await app.close(); db.$client.close() }
-  return { db, app, project, options, addRun, read, close }
+  return { db, app, project, options, marketing, addRun, read, close }
 }
 
 describe('stored status integration parity', () => {
@@ -80,6 +80,23 @@ describe('stored status integration parity', () => {
       dbAgeAllRuns(f.db, daysAgo(8))
       const oldRows = await f.read()
       expect(oldRows.filter(row => !['bing', 'traffic'].includes(row.integration)).every(row => row.state === 'stale')).toBe(true)
+    } finally { await f.close() }
+  })
+
+  it('uses stored ads and marketing freshness after a successful run, while no run remains never-synced', async () => {
+    const f = await fixture()
+    try {
+      const staleAt = daysAgo(8)
+      f.db.update(adsConnections).set({ lastSyncedAt: staleAt }).where(eq(adsConnections.projectId, 'p')).run()
+      f.marketing.googleAds!.latestSnapshotAt = staleAt
+      f.marketing.gtm!.latestSnapshotAt = staleAt
+
+      const withoutRuns = await f.read()
+      expect(Object.fromEntries(withoutRuns.filter(row => ['ads', 'google-ads', 'gtm'].includes(row.integration)).map(row => [row.integration, row.state]))).toEqual({ ads: 'never-synced', 'google-ads': 'never-synced', gtm: 'never-synced' })
+
+      for (const kind of ['ads-sync', 'google-ads-sync', 'gtm-sync'] as const) f.addRun(kind, 'completed', 0.5)
+      const withRecentRuns = await f.read()
+      expect(Object.fromEntries(withRecentRuns.filter(row => ['ads', 'google-ads', 'gtm'].includes(row.integration)).map(row => [row.integration, row.state]))).toEqual({ ads: 'stale', 'google-ads': 'stale', gtm: 'stale' })
     } finally { await f.close() }
   })
 
