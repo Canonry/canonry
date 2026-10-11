@@ -19,7 +19,7 @@ import { createRunCompetitorResolver, readMarketCompetitorPins } from './plan-co
 import { readMarketCompetitorNames } from './market-competitor-names.js'
 import { resolveProject } from './helpers.js'
 import { projectQueryClassifier } from './mention-share-inputs.js'
-import { selectLandscapePopulation } from './competitor-landscape.js'
+import { selectLandscapePinnedIdentities, selectLandscapePopulation } from './competitor-landscape.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 
 type RawQuery = {
@@ -73,6 +73,7 @@ export async function competitorSuggestionRoutes(app: FastifyInstance) {
       blockedAliases: row.blockedAliases,
     }))
     const pins = readMarketCompetitorPins(app.db, project.id)
+    const marketNames = readMarketCompetitorNames(app.db, project.id)
     const trackedByDomain = new Map<string, { domain: string; aliases: string[] }>()
     for (const competitor of storedTracked) trackedByDomain.set(competitor.domain, { domain: competitor.domain, aliases: [...competitor.aliases] })
     for (const pin of pins) {
@@ -81,13 +82,36 @@ export async function competitorSuggestionRoutes(app: FastifyInstance) {
       else trackedByDomain.set(pin.domain, { domain: pin.domain, aliases: [...pin.names] })
     }
     const tracked = [...trackedByDomain.values()]
-    const resolveRunCompetitors = createRunCompetitorResolver(app.db, storedTracked, readMarketCompetitorNames(app.db, project.id))
+    const pooledPins = selectLandscapePinnedIdentities(
+      advanced,
+      storedTracked.map(row => ({
+        domain: row.domain,
+        label: row.domain,
+        labelSource: 'domain' as const,
+        aliases: [...row.aliases],
+      })),
+      advanced ? marketNames : new Map(),
+    )
+    const pooledByDomain = new Map<string, { domain: string; aliases: string[] }>(pooledPins.map(pin => [pin.domain, {
+      domain: pin.domain,
+      aliases: [...new Set([pin.label, ...pin.aliases])],
+    }]))
+    const resolveRunCompetitors = createRunCompetitorResolver(app.db, storedTracked, marketNames)
     const scopedAnswers = answers.map(answer => {
       const run = population.runById.get(answer.runId)
       const scoped = resolveRunCompetitors(run?.measurementPlanVersionId, answer.measurementExecutionId)
+      const scopedByDomain = new Map(scoped.domains.map(domain => [domain, {
+        domain,
+        aliases: scoped.aliases.get(domain) ?? [],
+      }] as const))
+      if (advanced?.kind === 'all-markets') {
+        for (const [domain, identity] of pooledByDomain) {
+          if (!scopedByDomain.has(domain)) scopedByDomain.set(domain, identity)
+        }
+      }
       return {
         ...answer,
-        competitors: scoped.domains.map(domain => ({ domain, aliases: scoped.aliases.get(domain) ?? [] })),
+        competitors: [...scopedByDomain.values()],
       }
     })
     const claimed = claimedCompetitorAdds(

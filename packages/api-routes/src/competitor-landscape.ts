@@ -65,7 +65,7 @@ type RawQuery = {
   answers?: string
 }
 
-interface LandscapePin extends CompetitorLandscapeIdentity {
+export interface LandscapePin extends CompetitorLandscapeIdentity {
   aliases: string[]
 }
 
@@ -89,6 +89,19 @@ export interface AdvancedScope {
 export interface LandscapePopulationSelection {
   runIds: readonly string[]
   snapshotIds?: readonly string[]
+}
+
+/** The pooled pin identity used by the landscape and suggestion readers. */
+export function selectLandscapePinnedIdentities(
+  advanced: AdvancedScope | null,
+  projectPins: readonly LandscapePin[],
+  marketNames: ReadonlyMap<string, readonly string[]>,
+): LandscapePin[] {
+  const marketPinned = mergePins(advanced?.pendingPins ?? [], advanced?.activePinned ?? [], projectPins)
+  return marketNames.size === 0 ? marketPinned : mergePins(marketPinned, marketPinned.flatMap((pin) => {
+    const learned = marketNames.get(normalizeCompetitorDomain(pin.domain))
+    return learned ? [{ domain: pin.domain, label: pin.label, labelSource: 'domain' as const, aliases: [...learned] }] : []
+  }))
 }
 
 /** Shared stored run and snapshot population used by landscape and suggestions. */
@@ -450,15 +463,11 @@ export function readCompetitorLandscape(
         labelSource: 'domain' as const,
         aliases: competitorIdentityAliases(row),
       }))
-    const marketPinned = mergePins(advanced?.pendingPins ?? [], advanced?.activePinned ?? [], projectPins)
     // Names learned for a competitor only a market pins reinterpret history
     // like a project pin's auto names do, and only on that pin: never a new
     // pin, never a project competitor's.
     const marketNames = advanced ? readMarketCompetitorNames(app.db, project.id) : new Map<string, string[]>()
-    const pinned = marketNames.size === 0 ? marketPinned : mergePins(marketPinned, marketPinned.flatMap((pin) => {
-      const learned = marketNames.get(normalizeCompetitorDomain(pin.domain))
-      return learned ? [{ domain: pin.domain, label: pin.label, labelSource: 'domain' as const, aliases: learned }] : []
-    }))
+    const pinned = selectLandscapePinnedIdentities(advanced, projectPins, marketNames)
     const buildHistory = (selectedSnapshots: typeof snapshots) => {
       const inputs = buildMentionShareInputs({ project, competitors: [], snapshots: selectedSnapshots, queryTextById })
       // Sorted by answer count, so the cap keeps the most-named. On a large
