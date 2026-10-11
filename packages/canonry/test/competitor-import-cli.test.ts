@@ -38,6 +38,14 @@ describe('competitor import and completion', () => {
     expect(JSON.parse(again.stdout).addedCount).toBe(0)
   })
 
+  it('forwards the explicit bulk acknowledgement on import', async () => {
+    const entries = Array.from({ length: 6 }, (_, index) => `ack-${index}.example`)
+    const file = path.join(directory, 'ack.json'); fs.writeFileSync(file, JSON.stringify(entries))
+    const result = await invokeCli(['competitor', 'import', 'example', file, '--acknowledge-bulk-add', '--format', 'json'])
+    expect(result.exitCode, result.stderr).toBeUndefined()
+    expect(client.appendCompetitors).toHaveBeenCalledExactlyOnceWith('example', entries, { acknowledgeBulkAdd: true })
+  })
+
   it('reads commented line files with comma-separated aliases', async () => {
     const file = path.join(directory, 'competitors.txt'); fs.writeFileSync(file, '# Curated entries\n rival.example, Rival Name, Second Name\n\n other.example\n')
     const lines: string[] = []

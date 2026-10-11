@@ -17,7 +17,7 @@ import {
 import { runs } from '@ainyc/canonry-db'
 import { readCompetitorLandscape } from './competitor-landscape.js'
 import { projectQueryClassifier, shareOfVoiceFromLandscape } from './mention-share-inputs.js'
-import { competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, type CompetitorSetPlan, type StoredCompetitor } from './competitor-writes.js'
+import { bulkCompetitorAddPreview, summarizeBulkCompetitorAdd, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, type CompetitorSetPlan, type StoredCompetitor } from './competitor-writes.js'
 import { resolveProject } from './helpers.js'
 import { readMarketCompetitorPins } from './plan-competitors.js'
 import { readMarketCompetitorNames } from './market-competitor-names.js'
@@ -99,6 +99,10 @@ export async function competitorChangePreviewRoutes(app: FastifyInstance) {
     const impact = previewCompetitorShareImpact(app, project.name, after, {
       autoAliasRescanPending: project.competitorAutoAliases === 'apply' && plan.added.length > 0,
     })
+    const bulkAdd = bulkCompetitorAddPreview(summarizeBulkCompetitorAdd(
+      app.db, project.id, plan,
+      { acknowledged: false, now: new Date().toISOString(), trackedBefore: stored.length },
+    ))
     const alreadyTracked = change.change === CompetitorChangeKinds.add ? change.competitors.map(competitorEntryParts).map(entry => normalizeCompetitorDomain(entry.domain)).filter(domain => stored.some(row => normalizeCompetitorDomain(row.domain) === domain)) : []
     const { final: _final, ...planSummary } = plan
     return {
@@ -109,6 +113,7 @@ export async function competitorChangePreviewRoutes(app: FastifyInstance) {
         removed: plan.removed.map(row => row.domain),
         alreadyTracked,
       },
+      bulkAdd,
       impact,
     }
   })

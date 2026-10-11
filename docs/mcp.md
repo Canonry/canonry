@@ -667,3 +667,8 @@ remove tools return the resulting competitor list. Ordinary writes make no
 implicit preview request. An add in apply mode reports pending alias detection,
 which can move the result again. Block/unblock, market pins, project identity
 edits, apply and discovery promotion are outside this preview surface.
+
+Competitor previews also report the shared bulk-add limit, new or recently added
+count, and whether acknowledgement is required. Measured writes above five
+domains in 24 hours require `acknowledgeBulkAdd: true`; apply and discovery
+promote are outside this guard. Aero cannot supply this acknowledgement.

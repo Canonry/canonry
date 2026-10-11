@@ -15,7 +15,7 @@ import {
   type QueryWorkspace,
 } from '../lib/project-scope.js'
 import { useQueryClient } from '@tanstack/react-query'
-import { compileQueryClassifier, effectiveBrandNames, formatPercent, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
+import { COMPETITOR_BULK_ADD_REFUSAL_REASON, COMPETITOR_BULK_ADD_WINDOW_HOURS, compileQueryClassifier, effectiveBrandNames, formatPercent, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
 import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
@@ -2456,8 +2456,8 @@ function ProjectPageContent({
     } catch (err) {
       let failure: unknown = err
       const details = apiErrorDetails(err)
-      if (details?.reason === 'bulk-add-unacknowledged') {
-        const accepted = window.confirm(`This add would grow tracked competitors from ${String(details.trackedBefore ?? '?')} to ${String(details.trackedAfter ?? '?')} within ${String(details.windowHours ?? 24)} hours. Continue?`)
+      if (details?.reason === COMPETITOR_BULK_ADD_REFUSAL_REASON) {
+        const accepted = window.confirm(`This add would grow tracked competitors from ${String(details.trackedBefore ?? '?')} to ${String(details.trackedAfter ?? '?')} within ${String(details.windowHours ?? COMPETITOR_BULK_ADD_WINDOW_HOURS)} hours. Continue?`)
         if (accepted) {
           try {
             await apiAppendCompetitors(projectName, [domain], { acknowledgeBulkAdd: true })

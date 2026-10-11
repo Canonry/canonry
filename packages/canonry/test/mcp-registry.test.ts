@@ -1098,6 +1098,20 @@ describe('MCP tool registry', () => {
     })
   })
 
+  it('forwards the bulk acknowledgement through the native competitor tool', async () => {
+    const calls: Array<{ method: string; args: unknown[] }> = []
+    const competitorsTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_competitors_add')!
+    const client = makeClient(calls)
+    await competitorsTool.handler(client, {
+      project: 'acme',
+      request: { competitors: ['one.example', 'two.example'], acknowledgeBulkAdd: true },
+    })
+    expect(calls).toContainEqual({
+      method: 'appendCompetitors',
+      args: ['acme', ['one.example', 'two.example'], { acknowledgeBulkAdd: true }],
+    })
+  })
+
   it('creates one API client per MCP server instance', () => {
     const calls: Array<{ method: string; args: unknown[] }> = []
     let factoryCalls = 0

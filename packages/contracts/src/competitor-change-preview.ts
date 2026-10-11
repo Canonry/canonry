@@ -34,6 +34,13 @@ export const competitorShareImpactSchema = z.object({
 }).strict()
 export type CompetitorShareImpact = z.infer<typeof competitorShareImpactSchema>
 
+export const competitorBulkAddPreviewSchema = z.object({
+  limit: z.number().int().positive(),
+  count: z.number().int().nonnegative(),
+  acknowledgementRequired: z.boolean(),
+}).strict()
+export type CompetitorBulkAddPreview = z.infer<typeof competitorBulkAddPreviewSchema>
+
 export const competitorChangePreviewResponseSchema = z.object({
   project: z.string().trim().min(1),
   change: competitorChangeKindSchema,
@@ -46,6 +53,7 @@ export const competitorChangePreviewResponseSchema = z.object({
     autoAliasChanges: z.array(competitorAliasChangeSchema),
     droppedAutoAliases: z.array(competitorAutoAliasDropSchema),
   }).strict(),
+  bulkAdd: competitorBulkAddPreviewSchema,
   impact: competitorShareImpactSchema,
 }).strict()
 export type CompetitorChangePreviewResponse = z.infer<typeof competitorChangePreviewResponseSchema>

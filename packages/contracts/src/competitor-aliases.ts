@@ -25,6 +25,9 @@ import { brandLabelFromDomain, hostMatchesDomain, hostOf, normalizeCompetitorDom
 export const COMPETITOR_ALIAS_LIMIT = 10
 export const COMPETITOR_BULK_ADD_THRESHOLD = 5
 export const COMPETITOR_BULK_ADD_WINDOW_HOURS = 24
+export const COMPETITOR_BULK_ADD_REFUSAL_REASON = 'bulk-add-unacknowledged' as const
+export const competitorBulkAddRefusalReasonSchema = z.enum([COMPETITOR_BULK_ADD_REFUSAL_REASON])
+export type CompetitorBulkAddRefusalReason = z.infer<typeof competitorBulkAddRefusalReasonSchema>
 /** Longest curated alias, in characters after trimming. */
 export const COMPETITOR_ALIAS_MAX_LENGTH = 80
 

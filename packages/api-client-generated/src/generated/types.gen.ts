@@ -4201,6 +4201,11 @@ export type CompetitorChangePreviewResponse = {
             conflictingName?: string;
         }>;
     };
+    bulkAdd: {
+        limit: number;
+        count: number;
+        acknowledgementRequired: boolean;
+    };
     impact: {
         instrument: 'competitor-landscape';
         queryClass: 'non-brand' | 'pooled';

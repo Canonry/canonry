@@ -61,6 +61,15 @@ describe('Aero and the competitor auto-alias mode', () => {
     }
   }
 
+  it('refuses an acknowledged measured bulk competitor add', async () => {
+    const calls: Call[] = []
+    const add = toolFor('canonry_competitors_add', 'preview', calls)
+    await expect(add.execute('call-bulk', {
+      request: { competitors: ['one.example', 'two.example'], acknowledgeBulkAdd: true },
+    })).rejects.toThrow('Aero cannot acknowledge measured bulk competitor growth')
+    expect(calls).toEqual([])
+  })
+
   it('refuses a project upsert that changes the mode, on every write surface', async () => {
     for (const options of [{}, { managedSweeps: true }]) {
       const calls: Call[] = []
