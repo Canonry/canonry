@@ -1,4 +1,5 @@
 import type { McpServer, RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { OperationAccesses } from '@ainyc/canonry-contracts'
 import { toolOperationAccess, type CanonryMcpTool } from './tool-registry.js'
 import {
   CANONRY_MCP_TOOLKITS,
@@ -111,7 +112,7 @@ export class DynamicToolCatalog {
         .filter(entry => entry.tool.tier === 'core')
         .map(entry => entry.tool.name),
       liveTools: this.entries
-        .filter(entry => entry.tool.tier === 'core' && toolOperationAccess(entry.tool) === 'live')
+        .filter(entry => entry.tool.tier === 'core' && toolOperationAccess(entry.tool) === OperationAccesses.live)
         .map(entry => entry.tool.name),
       toolkits: CANONRY_MCP_TOOLKITS.map(toolkit => this.toolkitEntry(toolkit)).filter(entry => entry.toolCount > 0),
       usage: this.eager
@@ -130,7 +131,7 @@ export class DynamicToolCatalog {
       toolCount: tools.length,
       tools,
       liveTools: this.entries
-        .filter(entry => entry.tool.tier === toolkit.name && toolOperationAccess(entry.tool) === 'live')
+        .filter(entry => entry.tool.tier === toolkit.name && toolOperationAccess(entry.tool) === OperationAccesses.live)
         .map(entry => entry.tool.name),
       loaded: this.loaded.has(toolkit.name),
     }

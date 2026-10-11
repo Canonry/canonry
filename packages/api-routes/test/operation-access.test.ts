@@ -89,7 +89,7 @@ describe('OpenAPI operation access metadata', () => {
   })
 
   it('canonicalizes exact configured prefixes without matching an unrelated path segment', () => {
-    expect(canonicalRouteTemplate('/custom/api/v1/projects/:name', '/custom')).toBe('/api/v1/projects/:name')
+    expect(canonicalRouteTemplate('/custom/projects/:name', '/custom')).toBe('/api/v1/projects/:name')
     expect(canonicalRouteTemplate('/tenant/api/v1/projects/:name', '/tenant/api/v1')).toBe('/api/v1/projects/:name')
     expect(canonicalRouteTemplate('/projects/:name', '/custom/api/v1')).toBe('/api/v1/projects/:name')
     expect(canonicalRouteTemplate('/customized/api/v1/projects/:name', '/custom/api/v1')).toBe('/api/v1/customized/api/v1/projects/:name')

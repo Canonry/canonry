@@ -59,9 +59,11 @@ export const READ_SEMANTIC_OPERATIONS: ReadonlySet<string> = new Set([
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/diff-preview',
 ])
 
-/** Stored provider-free reads added by the competitor evidence surface. */
+/** Stored provider-free reads and pure previews that retain write-scope auth. */
 export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/competitor-suggestions',
+  'POST /api/v1/projects/{name}/competitor-changes/preview',
+  'POST /api/v1/projects/{name}/queries/replace-preview',
 ])
 
 export function operationAccess(method: string, pathTemplate: string): OperationAccess {

@@ -1,4 +1,4 @@
-import { trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, type OperationAccess } from '@ainyc/canonry-contracts'
+import { trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@ainyc/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
@@ -172,9 +172,9 @@ const writeAnnotations = (opts: { idempotentHint: boolean; destructiveHint?: boo
 export function toolOperationAccess(tool: Pick<CanonryMcpTool, 'openApiOperations' | 'access'>): OperationAccess {
   const derived = maxOperationAccess(tool.openApiOperations.map(operation => {
     const separator = operation.indexOf(' ')
-    return separator < 0 ? 'stored' : operationAccess(operation.slice(0, separator), operation.slice(separator + 1))
+    return separator < 0 ? OperationAccesses.stored : operationAccess(operation.slice(0, separator), operation.slice(separator + 1))
   }))
-  return tool.access === 'write' ? 'write' : derived
+  return tool.access === 'write' ? OperationAccesses.write : derived
 }
 
 function defineTool<TSchema extends z.ZodTypeAny, TName extends string>(
@@ -4454,7 +4454,7 @@ const rawCanonryMcpTools = [
 ] as const
 
 export const canonryMcpTools = rawCanonryMcpTools.map(tool => {
-  if (tool.access !== 'read' || toolOperationAccess(tool) !== 'live') return tool
+  if (tool.access !== 'read' || toolOperationAccess(tool) !== OperationAccesses.live) return tool
   return { ...tool, annotations: { ...tool.annotations, openWorldHint: true } }
 })
 

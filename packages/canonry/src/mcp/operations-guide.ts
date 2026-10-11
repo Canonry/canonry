@@ -37,9 +37,9 @@ export function operationsHelp(catalog: HelpResult, mode: GuideMode, intent = ''
     approvalBoundary: OPERATIONS_GUIDE.approvalBoundary,
     approvalRule: OPERATIONS_GUIDE.approvalRule,
     authority: OPERATIONS_GUIDE.authority,
-    liveTools: [...new Set(liveTools)].sort(),
     operationsGuideUrl: OPERATIONS_GUIDE.operationsGuideUrl,
     ...(loadToolkits.length ? { loadToolkits } : {}),
     ...(includeCatalog ? catalog : {}),
+    liveTools: [...new Set(liveTools)].sort(),
   }
 }
