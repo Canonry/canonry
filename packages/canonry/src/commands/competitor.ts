@@ -105,12 +105,15 @@ export async function importCompetitors(project: string, filePath: string, forma
     throw new CliError({ code: 'VALIDATION_ERROR', message: 'Invalid competitor import entries', details: { filePath, issues: parsed.error.issues } })
   }
   const client = getClient()
-  const existing = new Set((await client.listCompetitors(project)).map(row => row.domain))
+  const existing = new Set((await client.listCompetitors(project)).map(row => normalizeCompetitorDomain(row.domain)))
   const requested = new Set(parsed.data.map(entry => normalizeCompetitorDomain(typeof entry === 'string' ? entry : entry.domain)))
   const current = await client.appendCompetitors(project, parsed.data)
   await waitForCompetitorFields(client, project, timeout)
   const domains = current.map(row => row.domain)
-  const addedDomains = domains.filter(domain => requested.has(domain) && !existing.has(domain))
+  const addedDomains = domains.filter(domain => {
+    const normalized = normalizeCompetitorDomain(domain)
+    return requested.has(normalized) && !existing.has(normalized)
+  })
   const result = { project, domains, addedDomains, addedCount: addedDomains.length }
   if (format === 'jsonl') emitJsonl([result])
   else if (format === 'json') console.log(JSON.stringify(result, null, 2))

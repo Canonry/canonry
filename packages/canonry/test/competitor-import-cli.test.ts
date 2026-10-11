@@ -23,6 +23,19 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); fs.rmSync(directory, {
 const args = ['competitor', 'add', 'example', 'rival.example', '--alias', 'Rival Name']
 
 describe('competitor import and completion', () => {
+  it('does not report a legacy subdomain row as newly added', async () => {
+    const file = path.join(directory, 'legacy.json'); fs.writeFileSync(file, JSON.stringify(['spoketuneworks.example']))
+    const legacy = { id: 'legacy', domain: 'offers.spoketuneworks.example', aliases: [] }
+    const canonical = { ...legacy, domain: 'spoketuneworks.example' }
+    client.listCompetitors.mockResolvedValue([legacy])
+    client.appendCompetitors.mockResolvedValue([canonical])
+
+    const result = await invokeCli(['competitor', 'import', 'example', file, '--format', 'json'])
+
+    expect(result.exitCode, result.stderr).toBeUndefined()
+    expect(JSON.parse(result.stdout)).toMatchObject({ domains: ['spoketuneworks.example'], addedDomains: [], addedCount: 0 })
+  })
+
   it('imports eight entries with aliases in one append and reports an idempotent second import', async () => {
     const entries = Array.from({ length: 8 }, (_, index) => index < 3 ? { domain: `rival${index}.example`, aliases: [`Rival Name ${index}`] } : `rival${index}.example`)
     const file = path.join(directory, 'competitors.json'); fs.writeFileSync(file, JSON.stringify(entries))
