@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import { PROVIDER_NAMES, type QueryTrackingTrackedRow, type QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
 
 import {
   coverageByQuery,
@@ -22,6 +22,7 @@ import {
   visibleTrackedColumns,
   type TrackedResults,
 } from '../src/components/project/queries/advanced/tracked-view-model.js'
+import { providerDisplayName } from '../src/lib/visibility-trend-helpers.js'
 
 type Row = QueryTrackingTrackedRow
 type Assignment = Row['assignments'][number]
@@ -146,6 +147,18 @@ describe('toTrackedRows', () => {
     expect(sourceLabel(vm.source)).toBe(label)
     expect(sourceDetailLabel(vm)).toBe(detail)
     expect(vm.addedAt).toBe(addedAt)
+  })
+
+  it.each([
+    { name: 'the day it was written', capturedAt: '2026-09-04T12:00:00.000Z', addedAt: '2026-09-04T12:00:00.000Z' },
+    { name: 'the first day a query could have been added', capturedAt: '2020-01-01T00:00:00.000Z', addedAt: '2020-01-01T00:00:00.000Z' },
+    // Setup writes the epoch where it has no time to record: "Added Jan 1, 1970" is no fact about the query.
+    { name: 'the epoch setup writes as a placeholder', capturedAt: '1970-01-01T00:00:00.000Z', addedAt: null },
+    { name: 'a time before any query was tracked', capturedAt: '2019-12-31T23:59:59.999Z', addedAt: null },
+    { name: 'a time that is no date', capturedAt: 'not recorded', addedAt: null },
+    { name: 'an empty time', capturedAt: '', addedAt: null },
+  ])('reads when a hand-written query was added from $name', ({ capturedAt, addedAt }) => {
+    expect(only(row('query', { provenance: { source: 'manual', sourceId: null, capturedAt } })).addedAt).toBe(addedAt)
   })
 
   it('carries the query, its last sweep and the workspace row behind it', () => {
@@ -366,13 +379,17 @@ describe('trackedLayout', () => {
     const four = [62, 62, 62, 62]
     expect(trackedLayout(1152, four, full)).toEqual({ columns: ['query', 'subject', 'type', 'engines', 'status', 'menu'], stacked: false, subjectWidth: 192 })
     expect(queryWidth(1152, four)).toBe(420)
-    // Perplexity's column is 72px. As the fourth it takes Subject to its floor, and Query still holds.
-    const withPerplexity = [62, 62, 62, 72]
+    // Engine columns of 258px in all are the most Query keeps its floor beside there: Subject is at its own.
+    const widest = [62, 62, 62, 72]
+    expect(trackedLayout(1152, widest, full)).toEqual({ columns: ['query', 'subject', 'type', 'engines', 'status', 'menu'], stacked: false, subjectWidth: 182 })
+    expect(queryWidth(1152, widest)).toBe(420)
+    // Perplexity's column is 88px. As the fourth it takes Subject to its floor and 16px from Query, and the rows stay a table.
+    const withPerplexity = [62, 62, 62, trackedEngineColumnWidth('Perplexity')]
     expect(trackedLayout(1152, withPerplexity, full)).toEqual({ columns: ['query', 'subject', 'type', 'engines', 'status', 'menu'], stacked: false, subjectWidth: 182 })
-    expect(queryWidth(1152, withPerplexity)).toBe(420)
-    // As one of three it costs Subject 6px.
-    expect(trackedLayout(1152, [62, 62, 72], full).subjectWidth).toBe(244)
-    expect(queryWidth(1152, [62, 62, 72])).toBe(420)
+    expect(queryWidth(1152, withPerplexity)).toBe(404)
+    // As one of three it costs Subject 22px and Query nothing.
+    expect(trackedLayout(1152, [62, 62, 88], full).subjectWidth).toBe(228)
+    expect(queryWidth(1152, [62, 62, 88])).toBe(420)
     // Past Subject's floor Query narrows.
     expect(trackedLayout(1100, four, full).subjectWidth).toBe(182)
     expect(queryWidth(1100, four)).toBe(378)
@@ -410,8 +427,38 @@ describe('trackedLayout', () => {
 
   it('widens an engine column for a longer name, and counts it', () => {
     expect(trackedEngineColumnWidth('OpenAI')).toBe(62)
-    expect(trackedEngineColumnWidth('Perplexity')).toBe(72)
+    expect(trackedEngineColumnWidth('Perplexity')).toBe(88)
     expect(trackedLayout(1360, [62, 62, 62], full).columns).toContain('source')
-    expect(trackedLayout(1360, [62, 62, 72], full).columns).not.toContain('source')
+    expect(trackedLayout(1360, [62, 62, 88], full).columns).not.toContain('source')
+  })
+
+  describe('an engine column', () => {
+    /** Each engine's name in its header, 13px medium, as Chrome measures it, in px. A new engine needs its own before this passes. */
+    const NAME_WIDTH: Record<string, number> = { Gemini: 42, OpenAI: 46, Claude: 43, Perplexity: 61, Muse: 34, Local: 34, 'Cdp:chatgpt': 76 }
+    const columns = PROVIDER_NAMES.map(provider => {
+      const name = providerDisplayName(provider)
+      return { name, text: NAME_WIDTH[name]!, width: trackedEngineColumnWidth(name) }
+    })
+    /** What a centred name leaves on each side of it, the cell's 4px of padding included. */
+    const side = (column: (typeof columns)[number]) => (column.width - column.text) / 2
+    /** The sort mark is 12px wide and starts 1px after the name. */
+    const MARK = 13
+
+    it('is measured for every engine there is', () => {
+      expect(columns.map(column => column.name).sort()).toEqual(Object.keys(NAME_WIDTH).sort())
+      expect(Object.fromEntries(columns.map(column => [column.name, column.width]))).toEqual({ Gemini: 62, OpenAI: 62, Claude: 62, Perplexity: 88, Muse: 62, Local: 62, 'Cdp:chatgpt': 95 })
+    })
+
+    it.each(columns)('holds $name inside its padding', ({ text, width }) => {
+      expect(width - 8).toBeGreaterThanOrEqual(text)
+    })
+
+    it.each(columns)('keeps the sort mark after $name off the next header\'s name, whichever engine or column that is', column => {
+      // The mark runs past the cell by what the name's side leaves it short. The next engine's name starts its own side in,
+      // and at least 4px, a cell's padding, stay between the two.
+      for (const next of columns.filter(other => other !== column)) expect(side(column) + side(next) - MARK, next.name).toBeGreaterThanOrEqual(4)
+      // After the last engine comes Last measured or Status, whose name starts 10px in.
+      expect(side(column) + 10 - MARK).toBeGreaterThanOrEqual(4)
+    })
   })
 })

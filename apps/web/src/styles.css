@@ -3208,6 +3208,37 @@
      sideways and the header can stick under the topbar. */
   .tracked-table-frame {
     container: tracked-table / inline-size;
+    /* What a one-line Subject keeps between its name and its count. */
+    --tracked-subject-gap: 0.25rem;
+  }
+
+  /* Never drawn. `rule` in TrackedTable.tsx sets a text here on one line to
+     take its width, in the type the table sets a query and a Subject in, and
+     the Subject's gap with it. The frame holds it in place, where it takes
+     no room. */
+  .tracked-ruler {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
+    white-space: pre;
+    @apply text-[13px];
+  }
+
+  .tracked-ruler > [data-face='strong'] {
+    @apply font-medium;
+  }
+
+  .tracked-ruler > [data-face='count'] {
+    @apply tabular-nums;
+  }
+
+  .tracked-ruler > [data-face='gap'] {
+    display: inline-block;
+    width: var(--tracked-subject-gap);
   }
 
   .tracked-table {
@@ -3346,9 +3377,10 @@
     @apply line-clamp-2 break-words;
   }
 
-  /* In the table a closed row is one line, so every row is one height: a
-     query, a Subject or a Source too long for its column is cut short at the
-     column's edge. The open row shows all three whole. */
+  /* In the table the closed rows of a page are one height. Where every query
+     and Subject fits its column that is one line, and a Source too long for
+     its column is cut short at the column's edge. The open row shows all
+     three whole. */
   .tracked-table[data-layout='table'] .tracked-row:not([data-open]) .tracked-query > span,
   .tracked-table[data-layout='table'] .tracked-row:not([data-open]) .tracked-cell-source > span {
     display: block;
@@ -3358,8 +3390,24 @@
     -webkit-line-clamp: unset;
   }
 
+  /* A page with a query or a Subject too long for one line (`data-lines`,
+     from `useRowLines` in TrackedTable.tsx) gives every row two. The query
+     wraps and stops after the second, and each row is as tall as two of its
+     20px lines whatever it holds, so the page keeps one rhythm, with the
+     chips, Status and the menu on the middle of the row. A row asked both
+     ways is taller, as it is among one-line rows. */
+  .tracked-table[data-layout='table'][data-lines='2'] .tracked-row:not([data-open]) .tracked-query > span {
+    display: -webkit-box;
+    white-space: normal;
+    -webkit-line-clamp: 2;
+  }
+
+  .tracked-table[data-layout='table'][data-lines='2'] .tracked-row > td {
+    height: 3.5625rem;
+  }
+
   /* A finger's 44px button holds two lines, so there the closed row's query
-     takes both and no row is taller for it. */
+     takes both on any page and no row is taller for it. */
   @media (pointer: coarse) {
     .tracked-table[data-layout='table'] .tracked-row:not([data-open]) .tracked-query > span {
       display: -webkit-box;
@@ -3377,11 +3425,23 @@
     padding-right: 0.25rem;
   }
 
-  /* Beside the checkbox column Query needs no padding on the left. A finger's
-     44px checkbox is wider than its column, so there the padding stays. */
+  /* Where a query or a Subject wraps in the table, closed or open, the
+     browser leaves no word alone on the last line if it can help it. */
+  .tracked-table[data-layout='table'] .tracked-cell-query,
+  .tracked-table[data-layout='table'] .tracked-cell-subject {
+    text-wrap: pretty;
+  }
+
+  /* Beside the checkbox column Query needs no padding on the left, and the
+     open row's detail starts where the query does. A finger's 44px checkbox
+     is wider than its column, so there both keep the padding. */
   @media not all and (pointer: coarse) {
     .tracked-table[data-layout='table'][data-selectable] .tracked-cell-query {
       padding-left: 0;
+    }
+
+    .tracked-table[data-layout='table'][data-selectable] .tracked-detail-row > td {
+      padding-left: 2rem;
     }
   }
 
@@ -3415,6 +3475,12 @@
       @apply rounded-sm bg-bg ring-2 ring-mono-400;
     }
 
+    /* On a page of two-line rows the line stays as tall as two, so it covers
+       both lines of the cells it is drawn over and starts where it did. */
+    .tracked-table[data-layout='table'][data-lines='2'] .tracked-row:not([data-open]) .tracked-query[data-clipped]:focus-visible > span {
+      min-height: 2.5rem;
+    }
+
     .tracked-table[data-layout='table'] .tracked-row:not([data-open]):hover .tracked-query[data-clipped]:focus-visible > span {
       background-image: linear-gradient(var(--color-surface), var(--color-surface));
     }
@@ -3444,9 +3510,10 @@
     @apply break-words text-[13px] leading-[1.35] text-secondary;
   }
 
-  /* A closed row's Subject: the name gives way to the column's edge and the count after it keeps its place. */
+  /* A closed row's Subject on one line: the name gives way to the column's edge and the count after it keeps its place. */
   .tracked-subject {
-    @apply flex min-w-0 items-baseline gap-x-1;
+    column-gap: var(--tracked-subject-gap);
+    @apply flex min-w-0 items-baseline;
   }
 
   .tracked-subject-name {
@@ -3455,6 +3522,22 @@
 
   .tracked-subject > :not(.tracked-subject-name) {
     flex: none;
+  }
+
+  /* On a page of two-line rows it wraps as the open row's does, the count on
+     the name's last word, on lines level with the query's. Nothing clips
+     it, so a finger's wider target on the count is whole. */
+  .tracked-table[data-layout='table'][data-lines='2'] .tracked-cell-subject {
+    @apply leading-5;
+  }
+
+  /* One that would wrap past two lines (`SubjectCell`): the name is cut short on the second, and the count beside it sits on that line. */
+  .tracked-subject[data-long] {
+    align-items: flex-end;
+  }
+
+  .tracked-subject[data-long] > .tracked-subject-name {
+    @apply line-clamp-2 whitespace-normal;
   }
 
   /* A count is a few characters wide. Where a finger is the pointer it takes taps 14px past its box on every side. */
@@ -3560,9 +3643,9 @@
     @apply border-b border-subtle bg-surface-subtle px-2.5 pb-3 pt-1;
   }
 
-  /* The detail starts under the query, past the checkbox column. */
+  /* The detail starts under the query, past the checkbox column and the query's own padding. */
   .tracked-table[data-selectable] .tracked-detail-row > td {
-    padding-left: 2rem;
+    padding-left: 2.625rem;
   }
 
   .tracked-table-skeleton {

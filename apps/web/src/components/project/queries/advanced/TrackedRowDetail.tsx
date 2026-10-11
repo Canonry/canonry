@@ -89,8 +89,9 @@ export function TrackedRowDetail({ row, workspace, contextLabels }: {
               {table.rows.map(link => (
                 <tr key={link.key}>
                   <td className={`${CELL} font-medium text-strong`}>{link.location}</td>
-                  <td className={`${CELL} text-secondary`}>{link.groups.length > 0 ? link.groups.join(', ') : 'None'}</td>
-                  <td className={`${CELL} text-secondary`}>{link.markets.length > 0 ? link.markets.join(', ') : 'None'}</td>
+                  {/* A name can hold a comma, so a comma cannot part two of them. */}
+                  <td className={`${CELL} text-secondary`}>{link.groups.length > 0 ? link.groups.join(' · ') : 'None'}</td>
+                  <td className={`${CELL} text-secondary`}>{link.markets.length > 0 ? link.markets.join(' · ') : 'None'}</td>
                   <td className={`${CELL} whitespace-nowrap`}>{link.type}</td>
                   {sharedSearch ? null : <td className={`${CELL} text-secondary`}>{searchLines(link.searchLocations)}</td>}
                 </tr>

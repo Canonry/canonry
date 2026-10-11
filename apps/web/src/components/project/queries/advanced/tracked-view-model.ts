@@ -72,6 +72,15 @@ function sourceOf(row: QueryTrackingTrackedRow, templateNames: ReadonlyMap<strin
   }
 }
 
+/** No query was added before this: setup writes the epoch where it has no time to record. */
+const EARLIEST_ADDED = Date.UTC(2020, 0, 1)
+
+/** When a hand-written query was added, or null where that is not on record: a missing time, one that is no date, or setup's placeholder. */
+function addedAtOf(capturedAt: string | null | undefined): string | null {
+  const time = capturedAt ? Date.parse(capturedAt) : Number.NaN
+  return capturedAt && time >= EARLIEST_ADDED ? capturedAt : null
+}
+
 /** Workspace rows as the Tracked table shows them, in the server's order. */
 export function toTrackedRows(workspace: QueryTrackingWorkspaceResponse, templates: readonly Pick<MeasurementQueryTemplate, 'id' | 'name'>[]): TrackedRowVm[] {
   const targetLabels = new Map(workspace.targets.map(target => [target.stableKey, target.label]))
@@ -92,7 +101,7 @@ export function toTrackedRows(workspace: QueryTrackingWorkspaceResponse, templat
       source: sourceOf(row, templateNames),
       lastMeasuredAt: row.lastMeasuredAt,
       // Only a hand-written row records when it was added. A pattern row carries its pattern's last edit, and a research row when its research ran.
-      addedAt: row.provenance?.source === 'manual' ? row.provenance.capturedAt : null,
+      addedAt: row.provenance?.source === 'manual' ? addedAtOf(row.provenance.capturedAt) : null,
       tracked: row,
     }
   })
@@ -288,12 +297,18 @@ export type TrackedColumn = (typeof TRACKED_COLUMNS)[number]
 export const TRACKED_COLUMN_WIDTH = { select: 32, subject: 250, type: 80, engine: 62, lastMeasured: 108, status: 148, source: 98, menu: 32 } as const
 /**
  * The query is the row's identity. At this width its line holds 60 to 64
- * characters, by their letters; a longer query is cut short there and shows
- * whole in the open row. Under it Query takes Source and then Last measured,
- * which stay in the row detail, and then room from Subject.
+ * characters, by their letters, and a page with a longer one gives every row
+ * two lines (`TrackedTable`). Under it Query takes Source and then Last
+ * measured, which stay in the row detail, and then room from Subject.
  */
 const TRACKED_QUERY_FLOOR = 420
-/** As narrow as Subject gets: what the 1152px content column leaves it beside four engines, Perplexity among them, once Query has its floor. */
+/**
+ * As narrow as Subject gets: two lines there hold "Market", a count and a
+ * name of about 30 characters. In the 1152px content column Query keeps its
+ * floor beside engine columns of up to 258px in all, four of the default
+ * width with 10px to spare. Wider ones narrow Query, and four with Perplexity
+ * leave it 404px. Narrower than `TRACKED_QUERY_STACK_FLOOR`, the rows stack.
+ */
 const TRACKED_SUBJECT_FLOOR = 182
 /** Under this with Subject at its floor, or in a frame under 40rem, each row stacks. */
 const TRACKED_QUERY_STACK_FLOOR = 224
@@ -302,12 +317,13 @@ const TRACKED_STACK_WIDTH = 640
 
 /**
  * An engine column is as wide as its header needs: two chips, or a longer
- * name at 6.4px a character and the cell's 8px of padding. The sort mark
- * after the name hangs in the next header's padding, where the stylesheet
- * draws it over that header.
+ * name at 7px a character, the cell's 8px of padding and 10px for the sort
+ * mark. The name is centred, so the 13px mark after it ends in the next
+ * header's padding, where the stylesheet draws it over that header, and
+ * never on that header's name.
  */
 export function trackedEngineColumnWidth(label: string): number {
-  return Math.max(TRACKED_COLUMN_WIDTH.engine, Math.ceil(label.length * 6.4) + 8)
+  return Math.max(TRACKED_COLUMN_WIDTH.engine, Math.ceil(label.length * 7) + 18)
 }
 
 export interface TrackedLayout {

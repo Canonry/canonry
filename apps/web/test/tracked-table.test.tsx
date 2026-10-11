@@ -80,13 +80,14 @@ function workspace(handPicked = 12): QueryTrackingWorkspaceResponse {
       ...Array.from({ length: handPicked }, (_, index) => ({ stableKey: `location-${index}`, label: `Acme Homes Residence ${handPicked - index}` })),
     ],
     groups: [
-      { stableKey: 'metro', label: 'Lakeshore Metro Area', targetKeys: ['location-0'] },
+      // Names hold commas, as real ones do.
+      { stableKey: 'metro', label: 'Lakeshore, Metro Area', targetKeys: ['location-0'] },
       { stableKey: 'north', label: 'North side', targetKeys: ['location-0'] },
     ],
     markets: [
       // Three locations in the server's list, one in the row's own links: the count shown is the server's.
       { stableKey: 'uptown', label: 'Uptown', usageEdges: [], targetKeys: ['harbor-point', 'location-0', 'location-1'] },
-      { stableKey: 'downtown', label: 'Downtown', usageEdges: [], targetKeys: ['location-0'] },
+      { stableKey: 'downtown', label: 'Downtown, Lakeshore metro', usageEdges: [], targetKeys: ['location-0'] },
       { stableKey: 'old-mill', label: 'Old Mill District', usageEdges: [], targetKeys: ['location-2', 'location-3', 'location-4', 'location-5'] },
     ],
     tracked: [
@@ -147,11 +148,12 @@ const columnWidths = () => [...table().querySelectorAll('col')].map(column => co
 /**
  * A frame of this width, as a browser gives it: measured when asked, and
  * reported by the observer only after `observe` has returned. `report` is that
- * later report, of the same width or of a new one.
+ * later report, of the same width or of a new one. Nothing inside the frame
+ * has a size: jsdom lays nothing out (`textLayout` does).
  */
 function frameWidth(width: number) {
   let observed: ((entries: { contentRect: { width: number } }[]) => void) | undefined
-  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ width } as DOMRect)
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) { return { width: this.classList.contains('tracked-table-frame') ? width : 0 } as DOMRect })
   vi.stubGlobal('ResizeObserver', class {
     constructor(callback: NonNullable<typeof observed>) { observed = callback }
     observe() {}
@@ -161,29 +163,61 @@ function frameWidth(width: number) {
 }
 
 /**
- * Text as a browser lays it out, which jsdom does not: 7px a character on one
- * line in a Query column `column` px wide, and three lines where a stacked row
- * shows two. An open row wraps, so nothing runs past its edge. Edges are
- * reported unrounded and widths in whole pixels, as a browser does both. Call
- * it after `frameWidth`, whose measure it keeps.
+ * Text as a browser lays it out, which jsdom does not: `char` px a character
+ * (7 to start), in a Query column `column` px wide and a Subject cell with
+ * `subject` px for its text, inside jsdom's own 1px of cell padding. A closed
+ * row of the table holds its query on as many lines as the page gives its
+ * rows (`data-lines`), a stacked row on two and an open row on all it needs;
+ * a line is 20px. The ruler sets any text on one line, and `ruled` lists each
+ * text it was asked for. Edges are reported unrounded and widths in whole
+ * pixels, as a browser does both. Call it before the table is drawn and
+ * after `frameWidth`, whose measure it keeps.
  */
-function textLayout(column: number) {
-  const state = { column }
-  const line = (element: Element) => element.parentElement?.classList.contains('tracked-query') ? element.closest('tr')! : null
-  const oneLine = (element: Element) => {
-    const row = line(element)
-    return row && !row.hasAttribute('data-open') && row.closest('table')!.getAttribute('data-layout') === 'table' ? element.textContent!.length * 7 : 0
+function textLayout(column: number, subject = 400) {
+  const state = { column, subject, char: 7, ruled: [] as string[] }
+  const frame = vi.mocked(Element.prototype.getBoundingClientRect).getMockImplementation()!
+  const width = (element: Element) => element.textContent!.length * state.char
+  const lines = (element: Element, room: number) => Math.max(1, Math.ceil(width(element) / room))
+  /** A query's line: the lines it may take and the lines it needs. */
+  const set = (element: Element) => {
+    if (!element.parentElement?.classList.contains('tracked-query')) return null
+    const row = element.closest('tr')!
+    const table = row.closest('table')!
+    const allowed = row.hasAttribute('data-open') ? Infinity : table.getAttribute('data-layout') === 'stacked' || table.getAttribute('data-lines') === '2' ? 2 : 1
+    return { allowed, needed: lines(element, state.column) }
   }
-  const frame = document.body.getBoundingClientRect()
-  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) { return { width: frame.width, right: this.classList.contains('tracked-query') ? state.column : 0 } as DOMRect })
-  Object.defineProperty(Range.prototype, 'getBoundingClientRect', { configurable: true, value(this: Range) { return { right: oneLine(this.startContainer as Element) } as DOMRect } })
+  const oneLine = (element: Element) => set(element)?.allowed === 1 ? width(element) : 0
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    if (this.parentElement?.classList.contains('tracked-ruler')) {
+      state.ruled.push(this.textContent!)
+      // The gap a one-line Subject keeps before its count is 4px.
+      return { width: (this as HTMLElement).dataset.face === 'gap' ? 4 : width(this) } as DOMRect
+    }
+    return this.classList.contains('tracked-query') ? { width: state.column, right: state.column } as DOMRect : frame.call(this)
+  })
+  // A Subject that wraps is reported as a browser does it: a box for each piece of each line, here its two halves, 17px tall on lines 20px apart.
+  // One held to a line, or to two with its name cut short, is a box of its own.
+  vi.spyOn(Element.prototype, 'getClientRects').mockImplementation(function (this: Element) {
+    const wraps = this.parentElement?.classList.contains('tracked-cell-subject') && !this.classList.contains('tracked-subject')
+    return Array.from({ length: wraps ? 2 * lines(this, state.subject) : 1 }, (_, piece) => ({ top: 9 + 20 * Math.floor(piece / 2), height: 17 })) as unknown as DOMRectList
+  })
+  Object.defineProperty(Range.prototype, 'getBoundingClientRect', { configurable: true, value(this: Range) {
+    const line = this.startContainer as Element
+    // Wrapped, a line ends at the column's edge or before it.
+    return { right: oneLine(line) || Math.min(width(line), state.column) } as DOMRect
+  } })
   onTestFinished(() => { Reflect.deleteProperty(Range.prototype, 'getBoundingClientRect') })
-  vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) { return this.classList.contains('tracked-query') ? Math.round(state.column) : 0 })
+  vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) {
+    return this.classList.contains('tracked-query') ? Math.round(state.column) : this.classList.contains('tracked-cell-subject') ? state.subject + 2 : 0
+  })
   vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockImplementation(function (this: Element) { return oneLine(this) })
-  vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) { return line(this) ? 40 : 0 })
+  vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
+    const text = set(this)
+    return text ? 20 * Math.min(text.needed, text.allowed) : 0
+  })
   vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockImplementation(function (this: Element) {
-    const row = line(this)
-    return row && row.closest('table')!.getAttribute('data-layout') === 'stacked' && this.textContent!.length * 7 > 2 * state.column ? 60 : row ? 40 : 0
+    const text = set(this)
+    return text ? 20 * (text.allowed === 1 ? 1 : text.needed) : 0
   })
   return state
 }
@@ -284,64 +318,249 @@ describe('TrackedTable', () => {
     })
   })
 
-  describe('a query cut short', () => {
+  describe('long text', () => {
+    // 73 characters: 511px at 7px each, so one line of a 424px column cannot hold it and two can.
     const LONG = 'apartments with in unit washer dryer Northbridge Heights, Lakeshore metro'
-    const long = () => {
+    // 140 characters: 980px, past two lines of 424px.
+    const LONGEST = 'two bedroom apartments under 2000 with in unit washer dryer, covered parking and a dog park near the lakefront trail in Northbridge Heights'
+    const market = (id: string, text: string) => tracked(id, text, { focus: { kind: 'market', key: 'uptown' }, queryClasses: ['non-brand'], assignments: [assignment('harbor-point', 'non-brand', ['uptown'])] })
+    const withRows = (...added: Row[]) => {
       const source = workspace()
-      source.tracked = [...source.tracked, tracked('long', LONG, { focus: { kind: 'market', key: 'uptown' }, queryClasses: ['non-brand'], assignments: [assignment('harbor-point', 'non-brand', ['uptown'])] })]
+      source.tracked = [...source.tracked, ...added]
       return source
     }
+    const long = () => withRows(market('long', LONG))
+    const FULL = { engines: ['openai', 'gemini', 'claude'], onSelectedIdsChange: vi.fn() }
     const titled = () => within(table()).getAllByRole('button').filter(button => button.hasAttribute('title') && button.classList.contains('tracked-query')).map(button => button.title)
+    /** The lines every closed row of the page takes: the table's one answer, which the stylesheet turns into each row's height. */
+    const pageLines = () => table().getAttribute('data-lines')
+    const subjectOf = (text: string) => rowOf(text).querySelector('.tracked-cell-subject')!.firstElementChild as HTMLElement
 
-    it('carries its whole text as a title only while it is cut short', () => {
-      frameWidth(1152)
-      // 73 characters are 511px here. Every other query is under 60 characters.
-      const layout = textLayout(424)
-      setup({ engines: ['openai', 'gemini', 'claude'], onSelectedIdsChange: vi.fn() }, long())
-      expect(titled()).toEqual([LONG])
-      expect([query(LONG), query(WAITING)].map(button => button.hasAttribute('data-clipped'))).toEqual([true, false])
-      // The name is the text either way, so the title adds nothing to it.
-      expect(query(LONG).getAttribute('aria-label')).toBeNull()
+    describe('the lines of a page', () => {
+      it('are one where every query and Subject fits its column', () => {
+        frameWidth(1152)
+        // The longest query here is 51 characters, 357px, and the longest Subject 34, 238px.
+        const layout = textLayout(424, 240)
+        setup(FULL)
+        expect(pageLines()).toBe('1')
+        // No row has a height of its own, and nothing is cut short.
+        expect([...table().querySelectorAll('tr')].filter(row => row.hasAttribute('data-lines') || row.hasAttribute('style'))).toEqual([])
+        expect(titled()).toEqual([])
+        // Each Subject is on one line, its count after its name.
+        expect([subjectOf(WAITING).className, subjectOf(WAITING).textContent]).toEqual(['tracked-subject', 'Market · Old Mill District (4)'])
+        // The ruler took each text's width and is gone.
+        expect(layout.ruled).toContain(WAITING)
+        expect(document.querySelector('.tracked-ruler')).toBeNull()
+      })
 
-      // The open row shows the text whole.
-      fireEvent.click(query(LONG))
-      expect(titled()).toEqual([])
-      fireEvent.click(query(LONG))
-      expect(titled()).toEqual([LONG])
+      it('are two for every row where one query does not fit, and one again when that row leaves the page', () => {
+        frameWidth(1152)
+        textLayout(424, 240)
+        const { rows, rerender } = setup(FULL, long())
+        expect(pageLines()).toBe('2')
+        // The one answer is the table's: every row reads it, the short ones too, and none carries another.
+        expect([...table().querySelectorAll('tr')].filter(row => row.hasAttribute('data-lines') || row.hasAttribute('style'))).toEqual([])
+        // Two lines hold the long query whole, so it has no title.
+        expect(titled()).toEqual([])
+        expect(query(LONG).hasAttribute('data-clipped')).toBe(false)
+        // A Subject wraps as the open row's does: the count is on the last word of the name.
+        const count = within(rowOf(WAITING)).getByRole('button', { name: '4 locations' })
+        expect([subjectOf(WAITING).className, count.parentElement!.textContent, count.parentElement!.className]).toEqual(['', 'District (4)', 'whitespace-nowrap'])
+        expect(rowOf(WAITING).querySelector('.tracked-subject-name')).toBeNull()
 
-      // The edge moves with no draw, as when a font arrives: the pointer and the focus each measure again.
-      layout.column = 300
-      fireEvent.pointerEnter(query(WAITING))
-      expect(titled()).toEqual([WAITING, LONG])
-      fireEvent.focus(query(LOCATION))
-      expect(titled()).toEqual([LOCATION, WAITING, LONG])
-      layout.column = 600
-      fireEvent.focus(query(LONG))
-      expect(titled()).toEqual([LOCATION, WAITING])
+        // Another page, a filter or a search: the rows shown decide again.
+        rerender({ rows: rows.filter(row => row.queryId !== 'long') })
+        expect(pageLines()).toBe('1')
+        expect(subjectOf(WAITING).className).toBe('tracked-subject')
+        rerender({ rows: [...rows].reverse() })
+        expect(pageLines()).toBe('2')
+      })
+
+      it('are two where a Subject does not fit, though every query does', () => {
+        frameWidth(1152)
+        // "Location · Acme Homes Harbor Point" is 238px. A line is asked to fit with a pixel to spare, so 238px of room are too few.
+        textLayout(424, 238)
+        setup(FULL)
+        expect(pageLines()).toBe('2')
+        // Wrapped, it has no box of its own to clip it.
+        expect(subjectOf(LOCATION).className).toBe('')
+        // One pixel more and it fits.
+        cleanup()
+        textLayout(424, 239)
+        setup(FULL)
+        expect(pageLines()).toBe('1')
+      })
+
+      it('stay as they are when a row opens or closes', () => {
+        frameWidth(1152)
+        textLayout(424, 240)
+        const { rerender, rows } = setup(FULL, long())
+        // The long row open shows its text whole and no longer needs two lines. The page keeps them all the same.
+        fireEvent.click(query(LONG))
+        expect([query(LONG).getAttribute('aria-expanded'), pageLines()]).toEqual(['true', '2'])
+        fireEvent.click(query(MARKET))
+        fireEvent.click(query(LONG))
+        expect(pageLines()).toBe('2')
+        // A page of one-line rows keeps one line with a row open.
+        rerender({ rows: rows.filter(row => row.queryId !== 'long') })
+        expect([query(MARKET).getAttribute('aria-expanded'), pageLines()]).toEqual(['true', '1'])
+        fireEvent.click(query(WAITING))
+        expect(pageLines()).toBe('1')
+      })
+
+      it('measure each text once', () => {
+        frameWidth(1152)
+        const layout = textLayout(424, 240)
+        const { rows, rerender } = setup(FULL)
+        const first = [...layout.ruled]
+        expect(new Set(first).size).toBe(first.length)
+        // Six queries, and each Subject's pieces: the kind, the name, the gap before the count and the count.
+        expect(first).toEqual(expect.arrayContaining([MARKET, NOT_ASKED, 'Market ·', ' Uptown', '', '(3)', 'Location ·', ' Acme Homes Harbor Point', 'Hand-picked ·', '12 locations']))
+        // Opening a row, ticking one and drawing the same rows again measure nothing.
+        fireEvent.click(query(MARKET))
+        rerender({ selectedIds: new Set(['market']) })
+        expect(layout.ruled).toEqual(first)
+        // A row new to the page is measured, and only its own text: its Subject's pieces are known.
+        rerender({ rows: [...rows, ...toTrackedRows(long(), []).filter(row => row.queryId === 'long')] })
+        expect(layout.ruled.slice(first.length)).toEqual([LONG])
+      })
+
+      it('are taken again when a font arrives, which changes every width', () => {
+        const fonts = new EventTarget()
+        Object.defineProperty(document, 'fonts', { configurable: true, value: fonts })
+        onTestFinished(() => { Reflect.deleteProperty(document, 'fonts') })
+        frameWidth(1152)
+        const layout = textLayout(424, 400)
+        setup(FULL)
+        expect(pageLines()).toBe('1')
+        // In the font that arrives the 51-character query is 459px.
+        layout.char = 9
+        act(() => { fonts.dispatchEvent(new Event('loadingdone')) })
+        expect(pageLines()).toBe('2')
+        expect(layout.ruled.filter(text => text === WAITING)).toHaveLength(2)
+      })
+
+      it('hold at two for the same rows in a narrower frame, where a folded column would bring one line back', () => {
+        const frame = frameWidth(1152)
+        const layout = textLayout(424, 240)
+        const { rows, rerender } = setup(FULL, long())
+        expect(pageLines()).toBe('2')
+        // Taller rows bring a scrollbar, the frame narrows by it, and a column folding there leaves Query more room than before.
+        layout.column = 600
+        frame.report(1137)
+        expect(pageLines()).toBe('2')
+        // Other rows decide for themselves, in whatever frame.
+        rerender({ rows: rows.slice(0, 3) })
+        expect(pageLines()).toBe('1')
+        // So does a frame as wide as the one two lines were chosen in.
+        layout.column = 424
+        rerender({ rows })
+        expect(pageLines()).toBe('2')
+        layout.column = 600
+        frame.report(1137)
+        frame.report(1152)
+        expect(pageLines()).toBe('1')
+      })
+
+      it('are not counted where the rows stack or nothing is laid out', () => {
+        setup({}, long())
+        // No layout: the rows are one line, as the table draws them before it is measured.
+        expect(pageLines()).toBe('1')
+        cleanup()
+        frameWidth(358)
+        textLayout(250)
+        setup({}, long())
+        expect([table().getAttribute('data-layout'), pageLines()]).toEqual(['stacked', null])
+        // A stacked row shows its Subject whole.
+        expect(subjectOf(WAITING).className).toBe('')
+      })
     })
 
-    it('is one that runs a fraction of a pixel past its edge too, where whole pixels call it a fit', () => {
-      frameWidth(1152)
-      // 73 characters end at 511px, 0.3px past the button's edge. Both round to 511.
-      textLayout(510.7)
-      setup({ engines: ['openai', 'gemini', 'claude'], onSelectedIdsChange: vi.fn() }, long())
-      expect([query(LONG).firstElementChild!.scrollWidth, query(LONG).clientWidth]).toEqual([511, 511])
-      expect(titled()).toEqual([LONG])
-      expect(query(LONG).hasAttribute('data-clipped')).toBe(true)
+    describe('a Subject on a page of two-line rows', () => {
+      it('is cut short on the second line when it is too long for two, with its count beside it', () => {
+        const frame = frameWidth(1152)
+        // 100px hold 14 characters: "Market · Old Mill District (4)" needs three lines, "Market · Uptown (3)" two.
+        const layout = textLayout(424, 100)
+        setup(FULL)
+        const count = within(rowOf(WAITING)).getByRole('button', { name: '4 locations' })
+        const box = subjectOf(WAITING)
+        expect([box.className, box.hasAttribute('data-long')]).toEqual(['tracked-subject', true])
+        // The name is one piece again, cut short as one, and the count stands outside it. Its whole text is its title.
+        const name = box.firstElementChild as HTMLElement
+        expect([name.className, name.textContent, name.title]).toEqual(['tracked-subject-name', 'Market · Old Mill District', 'Old Mill District'])
+        expect(count.parentElement!.textContent).toBe(' (4)')
+        // One that fits two lines wraps, with nothing to say in a title.
+        expect([subjectOf(MARKET).className, subjectOf(MARKET).hasAttribute('data-long'), subjectOf(MARKET).querySelector('[title]')]).toEqual(['', false, null])
+        // A location has no count: it is cut short the same way.
+        expect([subjectOf(LOCATION).hasAttribute('data-long'), (subjectOf(LOCATION).firstElementChild as HTMLElement).title]).toEqual([true, 'Acme Homes Harbor Point'])
+
+        // It is found again in a column of another width: here one with room for it on two lines.
+        count.focus()
+        layout.subject = 120
+        frame.report(1100)
+        expect(columnWidths()[2]).toBe('234px')
+        expect([subjectOf(WAITING).className, subjectOf(WAITING).hasAttribute('data-long')]).toEqual(['', false])
+        // The count is the same button throughout, so it keeps the focus.
+        expect(document.activeElement).toBe(count)
+      })
     })
 
-    it('carries it in a stacked row cut short after two lines', () => {
-      frameWidth(358)
-      textLayout(250)
-      setup({}, long())
-      expect(table().getAttribute('data-layout')).toBe('stacked')
-      // 511px is over two lines of 250px. 51 characters are under them.
-      expect(titled()).toEqual([LONG])
-    })
+    describe('a query cut short', () => {
+      it('carries its whole text as a title only while it is cut short', () => {
+        frameWidth(1152)
+        const layout = textLayout(424)
+        setup(FULL, withRows(market('long', LONG), market('longest', LONGEST)))
+        // Two lines of 424px hold the 511px query whole and cut the 980px one short.
+        expect(table().getAttribute('data-lines')).toBe('2')
+        expect(titled()).toEqual([LONGEST])
+        expect([query(LONGEST), query(LONG), query(WAITING)].map(button => button.hasAttribute('data-clipped'))).toEqual([true, false, false])
+        // The name is the text either way, so the title adds nothing to it.
+        expect(query(LONGEST).getAttribute('aria-label')).toBeNull()
 
-    it('has no title where nothing is measured', () => {
-      setup({}, long())
-      expect(titled()).toEqual([])
+        // The open row shows the text whole.
+        fireEvent.click(query(LONGEST))
+        expect(titled()).toEqual([])
+        fireEvent.click(query(LONGEST))
+        expect(titled()).toEqual([LONGEST])
+
+        // The edge moves with no draw, as when a font arrives: the pointer and the focus each measure again.
+        layout.column = 200
+        fireEvent.pointerEnter(query(LONG))
+        expect(titled()).toEqual([LONG, LONGEST])
+        // 357px fit two lines of 200.
+        fireEvent.focus(query(WAITING))
+        expect(titled()).toEqual([LONG, LONGEST])
+        layout.column = 600
+        fireEvent.focus(query(LONGEST))
+        expect(titled()).toEqual([LONG])
+      })
+
+      it('is one that runs a fraction of a pixel past its edge too, where whole pixels call it a fit', () => {
+        frameWidth(1152)
+        const layout = textLayout(600)
+        setup(FULL, long())
+        expect([table().getAttribute('data-lines'), titled()]).toEqual(['1', []])
+        // The edge moves with no draw. 73 characters end at 511px, 0.3px past the button's edge now. Both round to 511.
+        layout.column = 510.7
+        fireEvent.pointerEnter(query(LONG))
+        expect([query(LONG).firstElementChild!.scrollWidth, query(LONG).clientWidth]).toEqual([511, 511])
+        expect(titled()).toEqual([LONG])
+        expect(query(LONG).hasAttribute('data-clipped')).toBe(true)
+      })
+
+      it('carries it in a stacked row cut short after two lines', () => {
+        frameWidth(358)
+        textLayout(250)
+        setup({}, long())
+        expect(table().getAttribute('data-layout')).toBe('stacked')
+        // 511px is over two lines of 250px. 51 characters are under them.
+        expect(titled()).toEqual([LONG])
+      })
+
+      it('has no title where nothing is measured', () => {
+        setup({}, long())
+        expect(titled()).toEqual([])
+      })
     })
   })
 
@@ -578,7 +797,8 @@ describe('TrackedTable', () => {
       // A location with no type of its own, under a row that has one.
       expect(rows[9]).toEqual(['Acme Homes Residence 10', 'None', 'None', 'Not set', 'Lakeshore · openai, gemini'])
       expect(rows[10]![4]).toBe('Lakeshore · openai, geminiNo search location · openai, gemini')
-      expect(rows[11]).toEqual(['Acme Homes Residence 12', 'Lakeshore Metro Area, North side', 'Uptown, Downtown', 'Branded', 'Lakeshore · openai, gemini'])
+      // Two groups and two markets, each name whole: a name's own comma parts nothing.
+      expect(rows[11]).toEqual(['Acme Homes Residence 12', 'Lakeshore, Metro Area · North side', 'Uptown · Downtown, Lakeshore metro', 'Branded', 'Lakeshore · openai, gemini'])
       expect(facts(HAND_PICKED).map(fact => fact[0])).toEqual(['Source', 'Last measured'])
       // Twelve fit one page.
       expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
@@ -624,6 +844,16 @@ describe('TrackedTable', () => {
       setup()
       fireEvent.click(query(LOCATION))
       expect(facts(LOCATION).slice(1)).toEqual([['Source', 'Manual'], ['Last measured', 'Oct 7'], ['Added', 'Sep 4']])
+    })
+
+    it('names no Added date where the time on record is no real one', () => {
+      const source = workspace()
+      // Setup writes the epoch for a time it does not have.
+      source.tracked = source.tracked.map(row => row.queryId === 'location' ? { ...row, provenance: { source: 'manual' as const, sourceId: null, capturedAt: '1970-01-01T00:00:00.000Z' } } : row)
+      setup({}, source)
+      fireEvent.click(query(LOCATION))
+      expect(facts(LOCATION).slice(1)).toEqual([['Source', 'Manual'], ['Last measured', 'Oct 7']])
+      expect(rowOf(LOCATION).nextElementSibling!.textContent).not.toMatch(/Added|1970/)
     })
 
     it('tells a query found by Find queries from saved research, in the detail only', () => {
@@ -743,11 +973,11 @@ describe('TrackedTable', () => {
       expect(headerNames()).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Claude', 'Local', 'Status', 'Actions'])
       // The set widths come to 732px, so Query keeps 420.
       expect(columnWidths()).toEqual(['32px', '', '192px', '80px', '62px', '62px', '62px', '62px', '148px', '32px'])
-      // Perplexity's header takes 72px, and Subject gives those 10px too.
+      // Perplexity's header takes 88px. Subject gives 10 of them and is at its floor, so Query is left 404.
       cleanup()
       setup({ engines: ['openai', 'gemini', 'claude', 'perplexity'], renderRowMenu: menu, onSelectedIdsChange: vi.fn() })
       expect(headerNames().slice(4, 8)).toEqual(['OpenAI', 'Gemini', 'Claude', 'Perplexity'])
-      expect(columnWidths()).toEqual(['32px', '', '182px', '80px', '62px', '62px', '62px', '72px', '148px', '32px'])
+      expect(columnWidths()).toEqual(['32px', '', '182px', '80px', '62px', '62px', '62px', '88px', '148px', '32px'])
     })
 
     it('shows Last measured and Source in a frame wide enough for them, and the date in Status all the same', () => {
@@ -932,8 +1162,12 @@ describe('tracked table styles', () => {
     // Subject runs as close to Type, which is set at the size of the two.
     expect(compiledDeclarations(rules, `${TABLE} .tracked-cell-subject`)['padding-right']).toBe('0.25rem')
     expect([compiledDeclarations(rules, '.tracked-cell-subject')['font-size'], compiledDeclarations(rules, `${TABLE} .tracked-cell-type`)['font-size']]).toEqual(['13px', '13px'])
-    // The open row's detail starts where the query does, past the 32px checkbox column.
-    expect(compiledDeclarations(rules, '.tracked-table[data-selectable] .tracked-detail-row > td')['padding-left']).toBe('2rem')
+    // The open row's detail starts where the query does: past the 32px checkbox column, and past the query's 10px too where a finger keeps them.
+    const DETAIL = '.tracked-detail-row > td'
+    expect(compiledDeclarations(rules, `${TABLE}[data-selectable] ${DETAIL}`, KEYBOARD)['padding-left']).toBe('2rem')
+    expect(rules.filter(rule => rule.selector === `${TABLE}[data-selectable] ${DETAIL}`).map(rule => rule.context.filter(value => value.startsWith('@media')))).toEqual([[KEYBOARD]])
+    expect(compiledDeclarations(rules, `.tracked-table[data-selectable] ${DETAIL}`)['padding-left']).toBe('2.625rem')
+    expect(compiledDeclarations(rules, '.tracked-row > td')['padding-inline']).toBe('calc(var(--spacing) * 2.5)')
     // A stacked row keeps the table's own type size and the mark's 16px: no rule of its own sets either.
     expect(rules.filter(rule => rule.selector.includes('.tracked-query') && rule.declarations.some(([property]) => property === 'font-size' || property === 'text-indent')).map(rule => rule.selector))
       .toEqual(['.tracked-query > span', `${TABLE} .tracked-query`, `${TABLE} .tracked-query > span`])
@@ -962,6 +1196,8 @@ describe('tracked table styles', () => {
     }
     // The same two tints the row's cells wear.
     expect([compiledDeclarations(rules, '.tracked-row:hover > td')['background-color'], compiledDeclarations(rules, '.tracked-row[data-selected] > td')['background-color']]).toEqual(['var(--color-surface)', 'var(--color-surface-active)'])
+    // On a page of two-line rows the line keeps the height of two, so it covers both lines of the cells it is drawn over.
+    expect(compiledDeclarations(rules, `.tracked-table[data-layout='table'][data-lines='2'] .tracked-row:not([data-open]) ${LINE}`, KEYBOARD)['min-height']).toBe('2.5rem')
   })
 
   it('gives a closed row\'s query two lines under a finger, inside the 44px its button already has', async () => {
@@ -974,6 +1210,52 @@ describe('tracked table styles', () => {
     // Two lines of the table's 20px.
     expect(compiledDeclarations(rules, '.tracked-table')['line-height']).toBe('calc(var(--spacing) * 5)')
     expect(compiledDeclarations(rules, '.tracked-query', FINGER)['min-height']).toBe(TOUCH)
+  })
+
+  it('gives every row of a two-line page one height, with the query and the Subject wrapped on its two lines', async () => {
+    const rules = await compiled()
+    const PAGE = ".tracked-table[data-layout='table'][data-lines='2']"
+    // Two of the table's 20px lines, the cell's 8px above and below them and its 1px border: 57px.
+    expect(compiledDeclarations(rules, `${PAGE} .tracked-row > td`).height).toBe('3.5625rem')
+    const cell = compiledDeclarations(rules, '.tracked-row > td')
+    expect([compiledDeclarations(rules, '.tracked-table')['line-height'], cell['padding-block'], cell['border-bottom-width']]).toEqual(['calc(var(--spacing) * 5)', 'calc(var(--spacing) * 2)', '1px'])
+    // It is every row's, the open one's too, and the only height any row is given: the page's one answer sets them all.
+    expect(rules.filter(rule => rule.selector.includes('.tracked-row') && rule.declarations.some(([property]) => property === 'height')).map(rule => rule.selector)).toEqual([`${PAGE} .tracked-row > td`])
+    // Chips, Status and the menu sit on the middle of the taller row.
+    expect(cell['vertical-align']).toBe('middle')
+
+    // The query wraps and stops after the second line.
+    const line = compiledDeclarations(rules, `${PAGE} .tracked-row:not([data-open]) .tracked-query > span`)
+    expect([line.display, line['white-space'], line['-webkit-line-clamp']]).toEqual(['-webkit-box', 'normal', '2'])
+    // So does the Subject, on lines as tall as the query's, so the two read level.
+    expect(compiledDeclarations(rules, `${PAGE} .tracked-cell-subject`)['line-height']).toBe('calc(var(--spacing) * 5)')
+    // Nothing clips it there: the only Subject boxes that hide what runs over are the name cut short and no other.
+    expect(rules.filter(rule => rule.selector.includes('.tracked-subject') && rule.declarations.some(([property, value]) => property === 'overflow' && value !== 'visible')).map(rule => rule.selector)).toEqual(['.tracked-subject-name', '.tracked-subject[data-long] > .tracked-subject-name'])
+    // Wrapped, closed or open, neither leaves a word alone on its last line.
+    const TABLE = ".tracked-table[data-layout='table']"
+    expect(rules.filter(rule => rule.selector.includes('.tracked-') && rule.declarations.some(([property, value]) => property === 'text-wrap' && value === 'pretty')).map(rule => rule.selector)).toEqual([`${TABLE} .tracked-cell-query, ${TABLE} .tracked-cell-subject`])
+    // One too long for two lines: its name stops on the second, and its count sits on that line.
+    const name = compiledDeclarations(rules, '.tracked-subject[data-long] > .tracked-subject-name')
+    expect([name.display, name['-webkit-line-clamp'], name['white-space']]).toEqual(['-webkit-box', '2', 'normal'])
+    expect(compiledDeclarations(rules, '.tracked-subject[data-long]')['align-items']).toBe('flex-end')
+    expect(compiledDeclarations(rules, '.tracked-subject > :not(.tracked-subject-name)').flex).toBe('none')
+  })
+
+  it('sets the ruler in the type of the text it measures, and never draws it', async () => {
+    const rules = await compiled()
+    const ruler = compiledDeclarations(rules, '.tracked-ruler')
+    // Out of the flow, with no box and nothing to see. Each text stays on one line, its spaces counted.
+    expect([ruler.position, ruler.width, ruler.height, ruler.overflow, ruler.visibility, ruler['white-space']]).toEqual(['absolute', '0', '0', 'hidden', 'hidden', 'pre'])
+    // The size of a query and of a Subject in the table.
+    expect([ruler['font-size'], compiledDeclarations(rules, ".tracked-table[data-layout='table'] .tracked-query")['font-size'], compiledDeclarations(rules, '.tracked-cell-subject')['font-size']]).toEqual(['13px', '13px', '13px'])
+    // The weight of a query, which a Subject's kind shares, and the figures of a count.
+    expect(compiledDeclarations(rules, ".tracked-ruler > [data-face='strong']")['font-weight']).toBe(compiledDeclarations(rules, '.tracked-query')['font-weight'])
+    expect(compiledDeclarations(rules, ".tracked-ruler > [data-face='count']")['--tw-numeric-spacing']).toBe(compiledDeclarations(rules, '.tracked-count')['--tw-numeric-spacing'])
+    expect(compiledDeclarations(rules, '.tracked-count')['--tw-numeric-spacing']).toBe('tabular-nums')
+    // And the gap a one-line Subject keeps before its count: one length, set once on the frame.
+    const gap = compiledDeclarations(rules, ".tracked-ruler > [data-face='gap']")
+    expect([gap.display, gap.width, compiledDeclarations(rules, '.tracked-subject')['column-gap']]).toEqual(['inline-block', 'var(--tracked-subject-gap)', 'var(--tracked-subject-gap)'])
+    expect(compiledDeclarations(rules, '.tracked-table-frame')['--tracked-subject-gap']).toBe('0.25rem')
   })
 
   it('gives Status a line of its own in a phone-width frame', async () => {

@@ -181,11 +181,19 @@ const UPTOWN_PLACE = { measurementScope: 'market' as const, measurementScopeKey:
 const PROJECT = { measurementScope: 'project' as const, measurementScopeKey: undefined, queryClass: 'all' as const }
 /** A table frame of this width, as a browser measures and reports it. jsdom lays nothing out and has no observer. */
 function frameWidth(width: number) {
-  const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ width } as DOMRect)
+  const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) { return { width: this.classList.contains('tracked-table-frame') ? width : 0 } as DOMRect })
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
   onTestFinished(() => {
     rect.mockRestore()
     vi.unstubAllGlobals()
+  })
+}
+/** Text as a browser measures it: 7px a character on the table's ruler, beside a Query column of this width. Call it after `frameWidth`. */
+function queryColumn(width: number) {
+  const frame = vi.mocked(Element.prototype.getBoundingClientRect).getMockImplementation()!
+  vi.mocked(Element.prototype.getBoundingClientRect).mockImplementation(function (this: Element) {
+    if (this.parentElement?.classList.contains('tracked-ruler')) return { width: this.textContent!.length * 7 } as DOMRect
+    return this.classList.contains('tracked-query') ? { width } as DOMRect : frame.call(this)
   })
 }
 /** Stands in for the clipboard, which jsdom has none of. */
@@ -244,8 +252,8 @@ test('in the 1152px content column the table keeps Query wide: Status carries th
   const header = (name: string) => within(table()).getAllByRole('columnheader').find(cell => cell.textContent === name)!
 
   expect(within(table()).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Perplexity', 'Status', 'Actions'])
-  // Perplexity's header needs 72px, so Subject gives Query 6 of its 250 and Query keeps 420.
-  expect([...table().querySelectorAll('col')].map(column => column.style.width)).toEqual(['32px', '', '244px', '80px', '62px', '62px', '72px', '148px', '32px'])
+  // Perplexity's header needs 88px, so Subject gives Query 22 of its 250 and Query keeps 420.
+  expect([...table().querySelectorAll('col')].map(column => column.style.width)).toEqual(['32px', '', '228px', '80px', '62px', '62px', '88px', '148px', '32px'])
   expect(within(rowOf(UPTOWN_BEST)).getByText(`Measured ${day(MEASURED_AT)}`)).toBeTruthy()
   expect(within(rowOf(PIER_NEW)).getByText('First answers Oct 21')).toBeTruthy()
   // No filter went with the columns.
@@ -741,6 +749,38 @@ test('"Selected actions" jumps from the list to the bar, and the focus comes bac
   fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
   expect(bulkBar()).toBeNull()
   expect(document.activeElement).toBe(pageBox())
+})
+
+test('each page of rows takes its own height: one line where its text fits and two where a query does not, after a page turn, a search and a sort', async () => {
+  frameWidth(1152)
+  // The sixty short queries are 133px. The long one is 511px, past one line of the 424px column, and sorts after them.
+  queryColumn(424)
+  const LONG = 'apartments with in unit washer dryer Northbridge Heights, Lakeshore metro'
+  installApi({ workspace: () => portfolio({ tracked: [...longPortfolio().tracked, tracked('q-long', LONG, { kind: 'market', key: 'uptown' }, uptown())] }), results: () => jsonResponse(sweep({ rows: [] })) })
+  renderWorkspace()
+  await screen.findByText('apartments query 01')
+  const lines = () => table().getAttribute('data-lines')
+  expect([listed().length, listed().includes(LONG), lines()]).toEqual([50, false, '1'])
+
+  // The second page holds the long query, so every row there takes two lines.
+  fireEvent.click(screen.getByRole('button', { name: /Next/ }))
+  expect([listed().length, listed().at(-1), lines()]).toEqual([11, LONG, '2'])
+  fireEvent.click(screen.getByRole('button', { name: /Previous/ }))
+  expect(lines()).toBe('1')
+
+  // A search that lists it, and one that does not.
+  fireEvent.change(searchBox(), { target: { value: 'washer' } })
+  expect([listed(), lines()]).toEqual([[LONG], '2'])
+  fireEvent.change(searchBox(), { target: { value: 'query 0' } })
+  expect([listed().length, lines()]).toEqual([15, '1'])
+  fireEvent.change(searchBox(), { target: { value: '' } })
+  expect(lines()).toBe('1')
+
+  // A sort that brings it to the first page.
+  fireEvent.click(within(table()).getByRole('button', { name: 'Query' }))
+  expect([listed()[0], lines()]).toEqual(['apartments query 01', '1'])
+  fireEvent.click(within(table()).getByRole('button', { name: 'Query' }))
+  expect([listed()[0], lines()]).toEqual([LONG, '2'])
 })
 
 test('ticked rows stay ticked from page to page, the whole list is offered only when one change can take it, and a longer selection is told the limit', async () => {
