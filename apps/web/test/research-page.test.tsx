@@ -11,7 +11,7 @@ import { AccountProvider } from '../src/contexts/account-context.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 
-// Research as one page under Tracked | Research: where it opens, what "Start from" offers, the places a pattern repeats for, the select over a batch's results, and Find ideas.
+// Research as one page under Tracked | Research: where it opens, what "Start from" offers, the places a pattern repeats for, the select over a batch's results, Find ideas, and tracking ticked results on an Advanced project.
 
 afterEach(() => { cleanup(); resetToasts(); delete window.__CANONRY_CONFIG__ })
 
@@ -39,13 +39,40 @@ const probes = [
   { id: 'probe-none', query: 'Storage near the harbor', bucket: null, citationState: 'not-cited', citedDomains: [], answerMentioned: false },
 ].map(probe => ({ ...probe, sessionId: session.id, projectId: session.projectId, createdAt: session.createdAt }))
 
-type Options = { engine?: boolean; scopeOptions?: boolean; searchLocations?: boolean; sessions?: Array<typeof session>; failSessions?: boolean; failResults?: boolean; savedRunStatus?: ResearchRunDetailDto['status'] }
+type Options = {
+  engine?: boolean; scopeOptions?: boolean; searchLocations?: boolean; sessions?: Array<typeof session>; failSessions?: boolean; failResults?: boolean; savedRunStatus?: ResearchRunDetailDto['status']
+  /** A plan that holds the places research is saved under, so a result can be tracked for one. */
+  plan?: boolean
+  /** Saved runs beside the older one, newest first. */
+  saved?: ResearchRunDetailDto[]
+  /** The results of a finished Find ideas run, in place of the three. */
+  probes?: typeof probes
+}
+
+const workspaceVersion = `qtw_${'a'.repeat(64)}`
+const reviewedVersion = `qtw_${'f'.repeat(64)}`
+const previewToken = `qtp_${'b'.repeat(64)}`
+const reviewedAt = '2026-10-02T12:30:00.000Z'
+const activePlan = { revision: 7, compiledChecksum: 'c'.repeat(64) }
+const searchContext = { providers: ['openai'], models: { openai: 'model-a' }, location: downtown }
+/** One location per market, so each market reads as holding one. Harbor Point holds Acme Homes Lofts. */
+const planTargets = MARKETS.map(label => label === 'Harbor Point' ? { stableKey: 'lofts', label: 'Acme Homes Lofts' } : { stableKey: `${slug(label)}-homes`, label: `${label} Homes` })
+const planMarkets = MARKETS.map((label, index) => ({ stableKey: slug(label), label, usageEdges: [{ executionNodeKey: `node-${index}`, targetKey: planTargets[index]!.stableKey, queryId: `seed-${index}` }] }))
+type TrackedFixture = { queryId: string; queryText: string; focus: { kind: 'market' | 'property'; key: string } | { kind: 'not-asked' } }
+/** `normalizedText` as the server stores it: trimmed, single-spaced and lower case. */
+const trackedRow = ({ queryId, queryText, focus }: TrackedFixture) => ({
+  queryId, queryText, normalizedText: queryText.trim().replace(/\s+/g, ' ').toLowerCase(), provenance: { source: 'manual', sourceId: null, capturedAt: '2026-09-30T12:00:00.000Z' },
+  state: 'awaiting-sweep', lastMeasuredAt: null, assignments: [], focus, queryClasses: focus.kind === 'not-asked' ? [] : ['non-brand'],
+})
 
 function installApi(options: Options = {}) {
   const state = {
     paths: [] as string[], posts: [] as Array<{ path: string; body: unknown }>, runs: [] as ResearchRunDetailDto[],
     failSessions: options.failSessions ?? false, failResults: options.failResults ?? false, holdResults: null as Promise<void> | null,
+    /** The tracked queries of the plan. A publish adds to them, as the server does. */
+    tracked: [] as TrackedFixture[], failWorkspace: false,
   }
+  const listedProbes = options.probes ?? probes
   const catalog = [{ name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true, defaultModel: 'model-a', knownModels: [], modelValidationPattern: { source: '.', flags: '' }, modelValidationHint: 'Model ID' }]
   const restore = mockFetch(async (url, init) => {
     const path = new URL(url).pathname
@@ -69,14 +96,29 @@ function installApi(options: Options = {}) {
       return jsonResponse({ runs: state.runs.map(run => ({ ...run, status: 'queued', completedQueries: 0, queries: [] })) }, 202)
     }
     if (path === '/api/v1/projects/demo/discover/run' && method === 'POST') return jsonResponse({ runId: 'run-1', sessionId: session.id, status: 'queued' }, 202)
+    const saved = [...state.runs, ...(options.saved ?? []), { ...older, status: options.savedRunStatus ?? older.status }]
+    if (options.plan && method === 'POST' && (path === '/api/v1/projects/demo/query-tracking/preview' || path === '/api/v1/projects/demo/query-tracking/commit')) {
+      const body = JSON.parse(String(init!.body)) as { additions: Array<{ input: { researchRunQueryId?: string; discoveryProbeId?: string }; audience: { marketKeys?: string[]; targetKeys?: string[] } }> }
+      // The server reads each query's text from the saved row its addition names.
+      const added = body.additions.map(({ input, audience }, index): TrackedFixture => ({
+        queryId: `tracked-new-${state.tracked.length + index}`,
+        queryText: input.researchRunQueryId ? saved.flatMap(run => run.queries).find(query => query.id === input.researchRunQueryId)!.query : listedProbes.find(probe => probe.id === input.discoveryProbeId)!.query,
+        focus: audience.targetKeys ? { kind: 'property', key: audience.targetKeys[0]! } : { kind: 'market', key: audience.marketKeys![0]! },
+      }))
+      const diff = { added: added.map(row => ({ queryId: row.queryId, queryText: row.queryText, assignmentCount: 1 })), removed: [], reused: [], unchanged: [], noOp: false }
+      const workload = { existingNodes: 5, existingProviderCalls: 5, nextSweepNodes: 5 + added.length, nextSweepProviderCalls: 5 + added.length, addedNodes: added.length, addedProviderCalls: added.length, removedNodes: 0, removedProviderCalls: 0 }
+      if (path.endsWith('/preview')) return jsonResponse({ mode: 'advanced', workspaceVersion: reviewedVersion, previewToken, reviewedAt, active: activePlan, tracked: [...state.tracked, ...added].map(trackedRow), diff, workload })
+      state.tracked.push(...added)
+      return jsonResponse({ committed: true, mode: 'advanced', workspaceVersion: reviewedVersion, reviewedAt, active: activePlan, diff, workload })
+    }
     if (method !== 'GET') throw new Error(`Unexpected ${method}: ${path}`)
-    const saved = [...state.runs, { ...older, status: options.savedRunStatus ?? older.status }]
     if (path === '/api/v1/projects/demo/research/runs') return jsonResponse({ runs: saved.map(({ queries: _queries, ...run }) => run), nextCursor: null })
     if (path.startsWith('/api/v1/projects/demo/research/runs/')) return jsonResponse(saved.find(run => path.endsWith(`/${run.id}`)))
+    if (path === '/api/v1/projects/demo/query-tracking' && state.failWorkspace) return jsonResponse({ error: { code: 'UNAVAILABLE', message: 'Temporary read failure' } }, 503)
     if (path === '/api/v1/projects/demo/query-tracking') return jsonResponse({
-      mode: 'advanced', workspaceVersion: `qtw_${'a'.repeat(64)}`, active: { revision: 7, compiledChecksum: 'c'.repeat(64) }, defaultContexts: [],
-      targets: [{ stableKey: 'plan-target', label: 'Plan target' }], groups: [], markets: [{ stableKey: 'plan-market', label: 'Plan market', usageEdges: [] }],
-      ...(options.scopeOptions === false ? {} : { scopeOptions }), tracked: [], savedSources: { research: [], discovery: [] },
+      mode: 'advanced', workspaceVersion, active: activePlan, defaultContexts: options.plan ? [searchContext] : [],
+      ...(options.plan ? { targets: planTargets, markets: planMarkets } : { targets: [{ stableKey: 'plan-target', label: 'Plan target' }], markets: [{ stableKey: 'plan-market', label: 'Plan market', usageEdges: [] }] }), groups: [],
+      ...(options.scopeOptions === false ? {} : { scopeOptions }), tracked: state.tracked.map(trackedRow), savedSources: { research: [], discovery: [] },
     })
     if (path === '/api/v1/projects/demo/measurement-query-templates') return jsonResponse({ templates: [] })
     if (path === '/api/v1/projects/demo/discover/sessions') return state.failSessions ? jsonResponse({ error: { code: 'UNAVAILABLE', message: 'Temporary read failure' } }, 503) : jsonResponse(options.sessions ?? [])
@@ -84,7 +126,7 @@ function installApi(options: Options = {}) {
     if (found) {
       if (state.holdResults) await state.holdResults
       if (state.failResults) return jsonResponse({ error: { code: 'UNAVAILABLE', message: 'Temporary read failure' } }, 503)
-      return jsonResponse({ ...found, probes: found.status === 'completed' ? probes : [] })
+      return jsonResponse({ ...found, probes: found.status === 'completed' ? listedProbes : [] })
     }
     if (path === '/api/v1/projects/demo') return jsonResponse({
       id: 'project_demo', name: 'demo', displayName: 'Acme Homes', canonicalDomain: 'https://www.demo.example/', ownedDomains: ['demo.example'], aliases: [],
@@ -132,6 +174,28 @@ const ready = () => screen.findByRole('option', { name: 'OpenAI' })
 const shownDate = (value: string) => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value))
 /** The runs under Recent runs, each as one line of text. */
 const recentRuns = () => screen.getAllByRole('button').filter(button => button.hasAttribute('aria-pressed')).map(button => button.textContent)
+/** The Results table's rows as text, cell by cell. A box has no text, so its cell reads empty. */
+const resultRows = () => results().getAllByRole('row').slice(1).map(row => within(row).getAllByRole('cell').map(cell => cell.textContent))
+/** Each result's query and what its Tracked cell says. */
+const trackedColumn = () => {
+  const at = results().getAllByRole('columnheader').findIndex(header => header.textContent === 'Tracked')
+  return results().getAllByRole('row').slice(1).map(row => [within(row).getAllByRole('button')[0]!.textContent, within(row).getAllByRole('cell')[at]!.textContent])
+}
+const box = (name: string) => screen.getByRole<HTMLInputElement>('checkbox', { name })
+/** The bar for the ticked rows of the form in view. A hidden form's bar is hidden with it. */
+const bar = () => within(screen.getByRole('region', { name: 'Selected queries' }))
+/** A run saved before this visit under a market or a location. */
+const savedRun = (id: string, scope: NonNullable<ResearchRunDetailDto['scope']>, queries: string[]): ResearchRunDetailDto => ({
+  ...older, id, scope, totalQueries: queries.length, completedQueries: queries.length, createdAt: '2026-10-01T18:00:00.000Z',
+  queries: queries.map((query, position) => ({ ...older.queries[0]!, id: `${id}-query-${position}`, position, query, answerText: `Answer to ${query}` })),
+})
+/** Presses Review in the Track sheet and waits for the server's review. */
+async function reviewTracking(title: string) {
+  const sheet = within(await screen.findByRole('dialog', { name: title }))
+  fireEvent.click(sheet.getByRole('button', { name: 'Review' }))
+  await sheet.findByRole('heading', { name: /^Review \d+ changes?$/ })
+  return sheet
+}
 
 test('with no researchMode a writer lands on Write, and each choice of Start from is handed to the host', async () => {
   const state = installApi()
@@ -290,7 +354,8 @@ test('a link that names pattern opens Pattern, and one that names find opens Fin
 
   cleanup()
   state.paths.length = 0
-  renderPage({ researchMode: 'find' })
+  // Known to be Advanced or not: with no run there is no result to track, so nothing of the plan is read.
+  renderPage({ researchMode: 'find', trackedMode: 'advanced' })
   expect(choices('Start from')).toEqual([['Write', 'false'], ['Pattern', 'false'], ['Find ideas', 'true']])
   await screen.findByText(FIND_COPY.noRuns)
   expect(state.paths).toEqual(['/api/v1/projects/demo/discover/sessions'])
@@ -315,7 +380,8 @@ test('a project with no search location says so in Pattern, with nothing to sear
   expect(note.textContent).toBe('No search locations')
   expect(screen.getByText('For each').parentElement!.textContent).toBe('For eachSearch location')
   expect(screen.queryByRole('searchbox', { name: 'Search' })).toBeNull()
-  expect(screen.queryByRole('checkbox')).toBeNull()
+  // No place to tick in the form. The results under it have boxes of their own.
+  expect(within(screen.getByText('For each').closest('.surface-card') as HTMLElement).queryByRole('checkbox')).toBeNull()
   // A pattern can still be written. With no place to repeat for there is nothing to preview or run.
   fireEvent.change(screen.getByRole('textbox', { name: 'Pattern' }), { target: { value: 'best apartments in {location}' } })
   fireEvent.click(screen.getByRole('button', { name: 'Preview queries' }))
@@ -462,6 +528,11 @@ test('a viewer reads a saved answer with no Review for tracking button', async (
   // A viewer starts from Write or Pattern, whatever the link names.
   expect(choices('Start from')).toEqual([['Write', 'true'], ['Pattern', 'false']])
   expect(screen.queryByRole('button', { name: 'Review for tracking' })).toBeNull()
+  // A viewer reads which queries are tracked and ticks none: no box, and so no bar.
+  expect(results().getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Query', 'Type', 'Status', 'Tracked', 'OpenAI'])
+  expect(resultRows().map(cells => cells.slice(0, 4))).toEqual([['Older saved queryNon-brand', 'Non-brand', 'Completed', 'No']])
+  expect(screen.queryByRole('checkbox')).toBeNull()
+  expect(screen.queryByRole('region', { name: 'Selected queries' })).toBeNull()
   expect(state.paths.some(path => path.includes('/discover/') || path.endsWith('/settings'))).toBe(false)
 })
 
@@ -579,5 +650,197 @@ test('a Find ideas run whose results are loading says so, and one whose results 
   fireEvent.click(screen.getByRole('button', { name: 'Retry results' }))
   await screen.findByText('Lofts near transit')
   expect(screen.queryByRole('alert')).toBeNull()
+  expect(state.posts).toEqual([])
+})
+
+test('rows ticked in two runs of one batch go in one review, each for its own market, and read Tracked once published', async () => {
+  const state = installApi({ plan: true })
+  // One of the queries the pattern makes is tracked already, for another market than the run it comes back in.
+  state.tracked.push({ queryId: 'tracked-quiet', queryText: ' Quiet Apartments in  Harbor Point', focus: { kind: 'market', key: 'riverside' } })
+  renderPage({ researchMode: 'pattern', publishGuard: { sweepActive: false }, nextSweepDate: 'Oct 21' })
+  await ready()
+  for (const market of ['Harbor Point', 'Northbridge']) fireEvent.click(await screen.findByRole('checkbox', { name: market }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Pattern' }), { target: { value: 'apartments with a dog park in {market}\nquiet apartments in {market}' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Preview queries' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Run 4 answers' }))
+  const subject = await results().findByRole('combobox', { name: 'Subject' }) as HTMLSelectElement
+  await waitFor(() => expect(resultQueries()).toEqual(['apartments with a dog park in Harbor Point', 'quiet apartments in Harbor Point']))
+
+  // A Tracked column says what each query is tracked for. A tracked query, matched whatever its case and spacing, has no box.
+  expect(results().getAllByRole('columnheader').map(header => header.textContent)).toEqual(['', 'Query', 'Type', 'Status', 'Tracked', 'OpenAI'])
+  expect(trackedColumn()).toEqual([['apartments with a dog park in Harbor Point', 'No'], ['quiet apartments in Harbor Point', 'Market · Riverside (1)']])
+  expect(screen.queryByRole('checkbox', { name: 'Select quiet apartments in Harbor Point' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Review for tracking' })).toBeNull()
+  expect(screen.queryByRole('region', { name: 'Selected queries' })).toBeNull()
+
+  fireEvent.click(box('Select apartments with a dog park in Harbor Point'))
+  expect(bar().getByRole('status').textContent).toBe('1 selected')
+  // The bar follows the whole page, so the table holds the way to it by keyboard.
+  fireEvent.click(results().getByRole('link', { name: 'Selected actions' }))
+  expect(document.activeElement).toBe(bar().getByRole('button', { name: 'Track 1' }))
+  // Every row of the run that can be ticked is ticked, so the header box is too.
+  expect(box('Select all rows').checked).toBe(true)
+
+  // The second run of the batch: its rows are ticked together, and the first run's row stays ticked behind it.
+  fireEvent.change(subject, { target: { value: 'batch-run-1' } })
+  await waitFor(() => expect(resultQueries()).toEqual(['apartments with a dog park in Northbridge', 'quiet apartments in Northbridge']))
+  expect(box('Select all rows').checked).toBe(false)
+  fireEvent.click(box('Select all rows'))
+  expect(bar().getAllByRole('button').map(button => button.textContent)).toEqual(['Track 3', 'Clear'])
+  fireEvent.change(subject, { target: { value: 'batch-run-0' } })
+  await waitFor(() => expect(box('Select apartments with a dog park in Harbor Point').checked).toBe(true))
+
+  const postsBefore = state.posts.length
+  fireEvent.click(bar().getByRole('button', { name: 'Track 3' }))
+  const sheet = await reviewTracking('Track 3 queries')
+  const additions = [
+    { input: { source: 'research', researchRunQueryId: 'batch-run-0-query-0' }, audience: { marketKeys: ['harbor-point'] } },
+    { input: { source: 'research', researchRunQueryId: 'batch-run-1-query-0' }, audience: { marketKeys: ['northbridge'] } },
+    { input: { source: 'research', researchRunQueryId: 'batch-run-1-query-1' }, audience: { marketKeys: ['northbridge'] } },
+  ]
+  expect(state.posts.slice(postsBefore)).toEqual([{ path: '/api/v1/projects/demo/query-tracking/preview', body: { expectedWorkspaceVersion: workspaceVersion, additions, removals: [] } }])
+  // The review is the shared one: the host's next sweep date reaches it.
+  expect(sheet.getByText('First answers Oct 21')).toBeTruthy()
+
+  fireEvent.click(sheet.getByRole('button', { name: 'Publish 3 changes' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(state.posts.slice(postsBefore + 1)).toEqual([{ path: '/api/v1/projects/demo/query-tracking/commit', body: { expectedWorkspaceVersion: reviewedVersion, additions, removals: [], previewToken, reviewedAt } }])
+  // The tracked queries are read again, so the rows say Tracked with no reload: no box, and no bar left.
+  await waitFor(() => expect(trackedColumn().map(row => row[1])).toEqual(['Market · Harbor Point (1)', 'Market · Riverside (1)']))
+  expect(screen.queryByRole('checkbox', { name: /^Select apartments/ })).toBeNull()
+  expect(screen.queryByRole('region', { name: 'Selected queries' })).toBeNull()
+  // The bar that opened the sheet is gone, and this run has no box left to take the focus: the Results heading does.
+  await waitFor(() => expect(document.activeElement).toBe(results().getByRole('heading')))
+  // Tracking sent a review and a publish, and started nothing else.
+  expect(state.posts.map(post => post.path)).toEqual(['/api/v1/projects/demo/research/batches', '/api/v1/projects/demo/query-tracking/preview', '/api/v1/projects/demo/query-tracking/commit'])
+})
+
+test('a run saved under a location tracks for it and its markets, and one saved under no Subject asks for one', async () => {
+  const state = installApi({ plan: true, saved: [savedRun('lofts-run', { kind: 'property', key: 'lofts', label: 'Acme Homes Lofts', planRevision: 7 }, ['Is Acme Homes Lofts pet friendly?'])] })
+  // In the tracked list and asked nowhere: it is tracked, with no Subject to name.
+  state.tracked.push({ queryId: 'tracked-idle', queryText: 'Older saved query', focus: { kind: 'not-asked' } })
+  renderPage()
+  await ready()
+  await waitFor(() => expect(trackedColumn()).toEqual([['Is Acme Homes Lofts pet friendly?', 'No']]))
+  fireEvent.click(box('Select Is Acme Homes Lofts pet friendly?'))
+
+  // The older run has no Subject. Its one query is tracked already, so it has nothing to tick.
+  const history = screen.getByRole('heading', { name: RESEARCH_COPY.historyTitle }).closest('details')!
+  fireEvent.click(within(history).getAllByRole('button').at(-1)!)
+  await waitFor(() => expect(trackedColumn()).toEqual([['Older saved query', 'Not asked']]))
+  // Where the Tracked column has no room, the same words sit under the query.
+  expect(results().getByText('Tracked · Not asked')).toBeTruthy()
+  expect(box('Select all rows').disabled).toBe(true)
+  expect(bar().getByRole('status').textContent).toBe('1 selected')
+
+  fireEvent.click(bar().getByRole('button', { name: 'Track 1' }))
+  const sheet = within(await screen.findByRole('dialog', { name: 'Track 1 query' }))
+  // The run's own Subject, read-only: a location is tracked for itself and counts in the market that holds it.
+  expect(sheet.queryByRole('radiogroup', { name: 'Subject' })).toBeNull()
+  expect(sheet.getAllByRole('row').slice(1).map(row => within(row).getAllByRole('cell').map(cell => cell.textContent))).toEqual([['Is Acme Homes Lofts pet friendly?', 'Location · Acme Homes Lofts']])
+  fireEvent.click(sheet.getByRole('button', { name: 'Review' }))
+  await sheet.findByRole('heading', { name: 'Review 1 change' })
+  expect(state.posts).toEqual([{ path: '/api/v1/projects/demo/query-tracking/preview', body: {
+    expectedWorkspaceVersion: workspaceVersion, removals: [],
+    additions: [{ input: { source: 'research', researchRunQueryId: 'lofts-run-query-0' }, audience: { targetKeys: ['lofts'], marketKeys: ['harbor-point'] } }],
+  } }])
+})
+
+test('Find ideas pages its results by 50 and tracks the ticked ones as Find ideas results, for the Subject chosen', async () => {
+  const BUCKETS = ['cited', 'aspirational', 'wasted-surface', null] as const
+  const many = Array.from({ length: 120 }, (_, index) => ({ ...probes[0]!, id: `probe-${index + 1}`, query: `Idea ${index + 1}`, bucket: BUCKETS[index % 4]! }))
+  const state = installApi({ plan: true, sessions: [session], probes: many })
+  state.tracked.push({ queryId: 'tracked-idea', queryText: 'idea 2', focus: { kind: 'property', key: 'lofts' } })
+  renderPage({ researchMode: 'find', trackedMode: 'advanced' })
+  const table = within(await screen.findByRole('table'))
+  const rows = () => table.getAllByRole('row').slice(1).map(row => within(row).getAllByRole('cell').map(cell => cell.textContent))
+  // The tracked queries are read now that a run lists results. Until they land no row can be ticked.
+  await waitFor(() => expect(rows()[0]).toEqual(['', 'Idea 1', 'Cited queries', 'demo.example', 'No']))
+  expect(state.paths).toContain('/api/v1/projects/demo/query-tracking')
+  expect(table.getAllByRole('columnheader').map(header => header.textContent)).toEqual(['', 'Question', 'Result', 'Cited sites', 'Tracked'])
+
+  // Every result is listed, 50 to a page, and the number beside the heading is the length of the server's list.
+  expect(rows()).toHaveLength(50)
+  expect(screen.getByRole('heading', { name: FIND_COPY.resultsTitle }).nextElementSibling!.textContent).toBe('120')
+  expect(screen.getByText(/of 120 results$/).textContent).toBe('1 to 50 of 120 results')
+  expect(screen.getByText('Page 1 of 3')).toBeTruthy()
+  // A tracked result names its Subject and has no box. Neither has one to skip, nor one with no result. No row offers the Add query form.
+  expect(rows().slice(1, 4)).toEqual([
+    ['', 'Idea 2', 'Worth tracking', 'demo.example', 'Location · Acme Homes Lofts'],
+    ['', 'Idea 3', 'Skip', 'demo.example', 'No'],
+    ['', 'Idea 4', 'No result', 'demo.example', 'No'],
+  ])
+  for (const name of ['Select Idea 2', 'Select Idea 3', 'Select Idea 4']) expect(screen.queryByRole('checkbox', { name })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Review for tracking' })).toBeNull()
+  expect(screen.getByRole('button', { name: FIND_COPY.trackHelp })).toBeTruthy()
+
+  fireEvent.click(box('Select Idea 1'))
+  fireEvent.click(box('Select Idea 5'))
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  expect(rows().map(cells => cells[1])).toEqual(Array.from({ length: 50 }, (_, index) => `Idea ${index + 51}`))
+  expect(screen.getByText(/of 120 results$/).textContent).toBe('51 to 100 of 120 results')
+  // The ticks belong to the run, so another page keeps them. Its own rows start unticked.
+  expect(bar().getByRole('status').textContent).toBe('2 selected')
+  expect(box('Select this page').checked).toBe(false)
+  fireEvent.click(box('Select Idea 53'))
+  fireEvent.click(screen.getByRole('button', { name: 'Previous' }))
+  expect(box('Select Idea 5').checked).toBe(true)
+  expect(bar().getAllByRole('button').map(button => button.textContent)).toEqual(['Track 3', 'Clear'])
+
+  // A Find ideas result has no Subject of its own: the sheet asks, and Review waits.
+  fireEvent.click(bar().getByRole('button', { name: 'Track 3' }))
+  const sheet = within(await screen.findByRole('dialog', { name: 'Track 3 queries' }))
+  expect(sheet.getByRole<HTMLButtonElement>('button', { name: 'Review' }).disabled).toBe(true)
+  fireEvent.click(sheet.getByText('Choose a market').closest('summary')!)
+  fireEvent.click(sheet.getByRole('button', { name: 'Select Old Mill' }))
+  fireEvent.click(sheet.getByRole('button', { name: 'Review' }))
+  await sheet.findByRole('heading', { name: 'Review 3 changes' })
+  const additions = ['probe-1', 'probe-5', 'probe-53'].map(discoveryProbeId => ({ input: { source: 'discovery', discoveryProbeId }, audience: { marketKeys: ['old-mill'] } }))
+  expect(state.posts).toEqual([{ path: '/api/v1/projects/demo/query-tracking/preview', body: { expectedWorkspaceVersion: workspaceVersion, additions, removals: [] } }])
+
+  fireEvent.click(sheet.getByRole('button', { name: 'Publish 3 changes' }))
+  await waitFor(() => expect(rows()[0]).toEqual(['', 'Idea 1', 'Cited queries', 'demo.example', 'Market · Old Mill (1)']))
+  expect(screen.queryByRole('checkbox', { name: 'Select Idea 1' })).toBeNull()
+  expect(screen.queryByRole('region', { name: 'Selected queries' })).toBeNull()
+  // A review and a publish. No run was started, here or on Write.
+  expect(state.posts.map(post => post.path)).toEqual(['/api/v1/projects/demo/query-tracking/preview', '/api/v1/projects/demo/query-tracking/commit'])
+})
+
+test('Find ideas says when the tracked queries did not load, and ticks nothing until a Retry reads them', async () => {
+  const state = installApi({ plan: true, sessions: [session] })
+  state.failWorkspace = true
+  renderPage({ researchMode: 'find', trackedMode: 'advanced' })
+  const failed = await screen.findByRole('button', { name: `${FIND_COPY.loadError}. ${RESEARCH_COPY.trackedError}` })
+  expect(failed.closest('[role="alert"]')!.textContent).toBe('Could not loadRetry')
+  // The results still list. With nothing to say what is tracked, no row has a box that can be ticked, and none goes to the Add query form.
+  expect(screen.getByRole('cell', { name: 'Lofts near transit' })).toBeTruthy()
+  expect(box('Select Lofts near transit').disabled).toBe(true)
+  expect(screen.queryByRole('button', { name: 'Review for tracking' })).toBeNull()
+
+  state.failWorkspace = false
+  fireEvent.click(screen.getByRole('button', { name: 'Retry tracked queries' }))
+  await waitFor(() => expect(box('Select Lofts near transit').disabled).toBe(false))
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(state.posts).toEqual([])
+})
+
+test('a results table whose tracked queries did not load says so, marks no row a No, and ticks nothing until a Retry', async () => {
+  const state = installApi({ plan: true })
+  state.failWorkspace = true
+  renderPage({ trackedMode: 'advanced' })
+  await screen.findByText('Older saved answer')
+  const failed = await results().findByRole('button', { name: `${RESEARCH_COPY.loadError}. ${RESEARCH_COPY.trackedError}` })
+  expect(failed.closest('[role="alert"]')!.textContent).toBe('Could not loadRetry')
+  // Not a No: nothing says whether the query is tracked.
+  expect(trackedColumn()).toEqual([['Older saved query', 'Not checked']])
+  expect(box('Select Older saved query').disabled).toBe(true)
+  expect(box('Select all rows').disabled).toBe(true)
+  expect(screen.queryByRole('button', { name: 'Review for tracking' })).toBeNull()
+
+  state.failWorkspace = false
+  fireEvent.click(results().getByRole('button', { name: 'Retry tracked queries' }))
+  await waitFor(() => expect(trackedColumn()).toEqual([['Older saved query', 'No']]))
+  expect(box('Select Older saved query').disabled).toBe(false)
+  expect(results().queryByRole('alert')).toBeNull()
   expect(state.posts).toEqual([])
 })

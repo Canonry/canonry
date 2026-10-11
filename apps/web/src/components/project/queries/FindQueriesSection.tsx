@@ -1,7 +1,7 @@
-import { useEffect, useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Clock, History, MousePointerClick, Play, RefreshCw } from 'lucide-react'
-import type { DiscoveryBucket, DiscoverySessionDto } from '@ainyc/canonry-contracts'
+import type { DiscoveryBucket, DiscoverySessionDto, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
 import {
   getApiV1ProjectsByNameDiscoverSessionsByIdOptions,
   getApiV1ProjectsByNameDiscoverSessionsOptions,
@@ -12,13 +12,18 @@ import { heyClient, isEmbed, triggerDiscoveryRun } from '../../../api.js'
 import { addToast } from '../../../lib/toast-store.js'
 import { invalidateProjectQueryDomain } from '../../../queries/query-invalidation.js'
 import { WriteButton } from '../../shared/AccessControls.js'
+import { DataTablePagination } from '../../shared/DataTableControls.js'
 import { InfoTooltip } from '../../shared/InfoTooltip.js'
 import { StatusNote } from '../../shared/StatusNote.js'
 import { ToneBadge } from '../../shared/ToneBadge.js'
 import { Button } from '../../ui/button.js'
 import { Card } from '../../ui/card.js'
 import { ResearchQueriesSection } from '../ResearchQueriesSection.js'
-import { RESEARCH_TABLE, RESEARCH_TD, RESEARCH_TH } from './research/ResearchResults.js'
+import {
+  RESEARCH_RESULTS_COPY, RESEARCH_SELECT_TD, RESEARCH_SELECT_TH, RESEARCH_TABLE, RESEARCH_TD, RESEARCH_TH, SelectedActionsLink, TrackBox, TrackedCell, TrackedReadFailed, trackedSubjectOf,
+  type ResearchTracking,
+} from './research/ResearchResults.js'
+import { TrackResearchBar, useTrackSelection, type TrackResearchItem } from './research/TrackResearchSheet.js'
 
 const ACTIVE_DISCOVERY_STATUSES = new Set<DiscoverySessionDto['status']>(['queued', 'seeding', 'probing'])
 
@@ -45,6 +50,8 @@ export const FIND_COPY = {
   citedSites: 'Cited sites',
   resultsTitle: 'Results',
   resultsHelp: 'Choose a result marked Cited queries or Worth tracking to review it for tracking. Only its text is added, with the Subject you choose. Nothing here adds competitors or starts a sweep.',
+  trackHelp: 'Tick results marked Cited queries or Worth tracking, then Track. Only their text is added, with the Subject you choose. Nothing here adds competitors or starts a sweep.',
+  selectPage: 'Select this page',
   resultsLoading: 'Loading results',
   noResults: 'No results yet',
   resultsError: "This run's results did not load.",
@@ -54,7 +61,25 @@ const FIELD_LABEL = 'text-sm font-medium text-heading'
 // Buttons here are 44px tall where a finger is the pointer.
 const TOUCH_TARGET = 'pointer-coarse:min-h-11 max-md:min-h-11'
 // The results header stays at the top of the table's frame while its rows scroll.
-const RESULT_TH = `${RESEARCH_TH} sticky top-0 z-10 bg-bg`
+const STICKY = 'sticky top-0 z-10 bg-bg'
+const RESULT_TH = `${RESEARCH_TH} ${STICKY}`
+/** A run's results are listed this many to a page. */
+const RESULTS_PAGE_SIZE = 50
+
+/**
+ * What Find ideas needs to track results on an Advanced project: what the
+ * Results table of a research run gets (Find ideas keeps its own ticks), the
+ * tracked queries themselves for the Track sheet, and what the review is told
+ * about sweeps. The tracked queries are read only once a run lists results
+ * (`onResultsListed`).
+ */
+export type FindTracking = Omit<ResearchTracking, 'selection'> & {
+  /** Undefined until the tracked queries have loaded. */
+  workspace: QueryTrackingWorkspaceResponse | undefined
+  onResultsListed: () => void
+  sweepActive: boolean
+  nextSweepDate?: string
+}
 
 export function DiscoverySection({ projectName }: { projectName: string }) {
   const [workflow, setWorkflow] = useState<'find' | 'research'>('find')
@@ -99,19 +124,28 @@ export function FindQueriesSection({
   startControl,
   paused = false,
   onReviewDiscoveryProbe,
+  tracking,
 }: {
   projectName: string
   /** The page's "Start from" control, drawn at the head of the form when Find ideas is one of its choices. */
   startControl?: ReactNode
   /** Kept out of view behind Write or Pattern: its runs are not polled until it shows again. */
   paused?: boolean
+  /** A Simple project's way into tracking: one result, in the Add query form. */
   onReviewDiscoveryProbe?: (discoveryProbeId: string) => void
+  /** An Advanced project's: tick results, then Track. Takes the place of `onReviewDiscoveryProbe`. */
+  tracking?: FindTracking
 }) {
   const queryClient = useQueryClient()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [icpDescription, setIcpDescription] = useState('')
   const [maxProbes, setMaxProbes] = useState('100')
   const resultsHeadingId = useId()
+  const barId = useId()
+  const resultsFrame = useRef<HTMLDivElement>(null)
+  // The page of results in view, for the run it belongs to: another run starts at its first page.
+  const [paging, setPaging] = useState<{ sessionId: string | null; page: number }>({ sessionId: null, page: 1 })
+  const picks = useTrackSelection(tracking?.subjects)
 
   const sessionsQuery = useQuery({
     ...getApiV1ProjectsByNameDiscoverSessionsOptions({
@@ -182,6 +216,22 @@ export function FindQueriesSection({
   // A list that did not load is not an empty one. A refetch that fails keeps the runs already shown.
   const sessionsFailed = sessionsQuery.isError && !sessionsQuery.data
   const canReview = !isEmbed() && Boolean(onReviewDiscoveryProbe)
+  const totalPages = Math.max(1, Math.ceil(probeRows.length / RESULTS_PAGE_SIZE))
+  const page = Math.min(paging.sessionId === selectedSessionId ? paging.page : 1, totalPages)
+  const pageRows = probeRows.slice((page - 1) * RESULTS_PAGE_SIZE, page * RESULTS_PAGE_SIZE)
+  // Only a result worth tracking can be ticked, and only one that is not tracked already. Until the tracked queries have loaded, no row can say.
+  const worthTracking = (probe: (typeof probeRows)[number]) => probe.bucket === 'cited' || probe.bucket === 'aspirational'
+  const trackItem = (probe: (typeof probeRows)[number]): TrackResearchItem => ({ text: probe.query, input: { source: 'discovery', discoveryProbeId: probe.id } })
+  const tickable = tracking?.subjects ? pageRows.filter(probe => worthTracking(probe) && trackedSubjectOf(tracking, probe.query) === null) : []
+  const ticked = tickable.filter(probe => picks.pickedIds.has(probe.id)).length
+  const listsResults = probeRows.some(worthTracking)
+  const onResultsListed = tracking?.onResultsListed
+  useEffect(() => {
+    if (listsResults) onResultsListed?.()
+  }, [listsResults, onResultsListed])
+  // The ticked rows belong to the run in view. Its pages share them; another run starts with none.
+  const clearPicks = picks.clear
+  useEffect(() => { clearPicks() }, [selectedSessionId, clearPicks])
 
   async function handleRefreshSessions() {
     try {
@@ -366,9 +416,12 @@ export function FindQueriesSection({
                 {/* Every result the server returned is listed, so this is the length of that list. */}
                 {probeRows.length > 0 && <span className="ml-2 text-sm tabular-nums text-secondary">{probeRows.length}</span>}
                 {canReview && activeSession.status === 'completed' && <InfoTooltip text={FIND_COPY.resultsHelp} placement="bottom" />}
+                {tracking && activeSession.status === 'completed' && <InfoTooltip text={FIND_COPY.trackHelp} placement="bottom" />}
               </div>
               {detailQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
             </div>
+            {/* With no tracked queries to read, no result can be ticked: the note says so and offers the read again. */}
+            {tracking?.failed && listsResults ? <div className="mb-2"><TrackedReadFailed tracking={tracking} /></div> : null}
             {detailQuery.isError && !detail ? (
               <div role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={FIND_COPY.loadError} detail={FIND_COPY.resultsError} action={<Button type="button" variant="outline" size="sm" className={TOUCH_TARGET} aria-label={`${FIND_COPY.retry} results`} onClick={() => { void detailQuery.refetch() }}>{FIND_COPY.retry}</Button>} /></div>
             ) : detailQuery.isPending ? (
@@ -377,43 +430,87 @@ export function FindQueriesSection({
             ) : probeRows.length === 0 ? (
               <StatusNote icon={Clock} label={FIND_COPY.noResults} />
             ) : (
-              // The table's own frame scrolls both ways: sideways on a phone, and down a long run under a header that stays. Positioned, so the header's screen-reader text scrolls with the table and never widens the page.
-              <div role="group" aria-labelledby={resultsHeadingId} tabIndex={0} className="relative max-h-[36rem] overflow-auto rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
-                <table className={`${RESEARCH_TABLE} min-w-[40rem]`}>
-                  <thead>
-                    <tr>
-                      <th scope="col" className={RESULT_TH}>Question</th>
-                      <th scope="col" className={RESULT_TH}>Result</th>
-                      <th scope="col" className={RESULT_TH}>{FIND_COPY.citedSites}</th>
-                      <th scope="col" className={RESULT_TH}><span className="sr-only">Tracking review</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {probeRows.map(probe => (
-                      <tr key={probe.id}>
-                        <td className={`${RESEARCH_TD} font-medium text-heading`}>{probe.query}</td>
-                        <td className={`${RESEARCH_TD} whitespace-nowrap`}>
-                          <ToneBadge tone={toneForBucket(probe.bucket)}>{bucketLabel(probe.bucket)}</ToneBadge>
-                        </td>
-                        <td className={`${RESEARCH_TD} text-secondary`}>
-                          {probe.citedDomains.length > 0 ? probe.citedDomains.slice(0, 3).join(', ') : '-'}
-                        </td>
-                        <td className={`${RESEARCH_TD} whitespace-nowrap text-right`}>
-                          {!isEmbed() && onReviewDiscoveryProbe && (probe.bucket === 'cited' || probe.bucket === 'aspirational') && (
-                            <WriteButton type="button" variant="ghost" size="sm" onClick={() => onReviewDiscoveryProbe(probe.id)}>
-                              Review for tracking
-                            </WriteButton>
-                          )}
-                        </td>
+              <>
+                {tracking && picks.items.length > 0 ? <SelectedActionsLink barId={barId} /> : null}
+                {/* The table's own frame scrolls both ways: sideways on a phone, and down a long page under a header that stays. Positioned, so the header's screen-reader text scrolls with the table and never widens the page. */}
+                <div ref={resultsFrame} role="group" aria-labelledby={resultsHeadingId} tabIndex={0} className="relative max-h-[36rem] overflow-auto rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
+                  <table className={`${RESEARCH_TABLE} min-w-[40rem]`}>
+                    <thead>
+                      <tr>
+                        {tracking ? <th scope="col" className={`${RESEARCH_SELECT_TH} ${STICKY}`}>
+                          <TrackBox label={FIND_COPY.selectPage} checked={tickable.length > 0 && ticked === tickable.length} indeterminate={ticked > 0 && ticked < tickable.length} disabled={tickable.length === 0} onChange={checked => picks.pick(tickable.map(trackItem), checked)} />
+                        </th> : null}
+                        <th scope="col" className={`${RESULT_TH}${tracking ? ' w-2/5' : ''}`}>Question</th>
+                        <th scope="col" className={RESULT_TH}>Result</th>
+                        <th scope="col" className={RESULT_TH}>{FIND_COPY.citedSites}</th>
+                        {tracking
+                          ? <th scope="col" className={`${RESULT_TH} w-40`}>{RESEARCH_RESULTS_COPY.tracked}</th>
+                          : <th scope="col" className={RESULT_TH}><span className="sr-only">Tracking review</span></th>}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {pageRows.map(probe => {
+                        const trackedFor = tracking ? trackedSubjectOf(tracking, probe.query) : null
+                        return (
+                          <tr key={probe.id}>
+                            {tracking ? <td className={RESEARCH_SELECT_TD}>
+                              {/* A result to skip, and one that is tracked already, keep the cell and have no box. */}
+                              {worthTracking(probe) && !trackedFor ? <TrackBox label={`Select ${probe.query}`} checked={picks.pickedIds.has(probe.id)} disabled={trackedFor === undefined} onChange={checked => picks.pick([trackItem(probe)], checked)} /> : null}
+                            </td> : null}
+                            <td className={`${RESEARCH_TD} font-medium text-heading`}>{probe.query}</td>
+                            <td className={`${RESEARCH_TD} whitespace-nowrap`}>
+                              <ToneBadge tone={toneForBucket(probe.bucket)}>{bucketLabel(probe.bucket)}</ToneBadge>
+                            </td>
+                            <td className={`${RESEARCH_TD} text-secondary`}>
+                              {probe.citedDomains.length > 0 ? probe.citedDomains.slice(0, 3).join(', ') : '-'}
+                            </td>
+                            {tracking ? <td className={`${RESEARCH_TD} text-secondary`}><TrackedCell tracking={tracking} subject={trackedFor} /></td> : (
+                              <td className={`${RESEARCH_TD} whitespace-nowrap text-right`}>
+                                {!isEmbed() && onReviewDiscoveryProbe && worthTracking(probe) && (
+                                  <WriteButton type="button" variant="ghost" size="sm" onClick={() => onReviewDiscoveryProbe(probe.id)}>
+                                    Review for tracking
+                                  </WriteButton>
+                                )}
+                              </td>
+                            )}
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {/* A run that fits one page has nothing to page through: the number beside the heading is its count. */}
+                {probeRows.length > RESULTS_PAGE_SIZE ? (
+                  <DataTablePagination
+                    page={page}
+                    pageSize={RESULTS_PAGE_SIZE}
+                    visibleRows={pageRows.length}
+                    totalRows={probeRows.length}
+                    itemLabel="results"
+                    className="pointer-coarse:[&_button]:min-h-11 max-md:[&_button]:min-h-11"
+                    // Another page starts at its top, under the header that stays.
+                    onPageChange={next => { setPaging({ sessionId: selectedSessionId, page: next }); if (resultsFrame.current) resultsFrame.current.scrollTop = 0 }}
+                  />
+                ) : null}
+              </>
             )}
           </Card>}
         </div>
       </div>
+      {/* After the page it rides over, so it comes to rest under the results. */}
+      {tracking?.workspace ? (
+        <TrackResearchBar
+          id={barId}
+          projectName={projectName}
+          workspace={tracking.workspace}
+          items={picks.items}
+          sweepActive={tracking.sweepActive}
+          nextSweepDate={tracking.nextSweepDate}
+          onClear={picks.clear}
+          // Track and Clear take the bar off the page: the results take the focus.
+          returnFocus={() => (resultsFrame.current?.querySelector<HTMLElement>('input:not(:disabled)') ?? resultsFrame.current)?.focus({ preventScroll: true })}
+        />
+      ) : null}
     </>
   )
 }
