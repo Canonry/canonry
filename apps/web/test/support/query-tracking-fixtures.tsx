@@ -59,6 +59,31 @@ export function workspace() {
       research: [{ researchRunId: 'research-run-1', researchRunQueryId: 'research-query-1', queryText: 'How do teams compare AEO platforms?', createdAt: '2026-09-04T11:00:00.000Z' }],
       discovery: [{ discoverySessionId: 'discovery-session-1', discoveryProbeId: 'discovery-probe-1', queryText: 'What does Acme cost?', createdAt: '2026-09-04T10:00:00.000Z' }],
     },
+    // The server's own totals for the two rows above. The rows carry no `focus`, as an older server sends them.
+    summary: {
+      asked: 2, notAsked: 0,
+      byClass: { branded: 1, nonBrand: 1, mixed: 0, unknown: 0 },
+      byFocus: { market: 0, property: 0, company: 0, custom: 2 },
+      assignments: { total: 2, branded: 1, nonBrand: 1, unknown: 0 },
+      answersPerSweep: 2,
+      structure: { targets: 1, markets: 1, groups: 1, topLevelGroups: 1, competitors: 0 },
+    },
+  }
+}
+
+/** The last sweep's results for `workspace()`: it measured Acme pricing, and Best AEO platform still waits for its first answers. */
+export function results(overrides: Record<string, unknown> = {}) {
+  return {
+    mode: 'advanced',
+    scope: { kind: 'project', key: null },
+    run: { id: 'run-1', createdAt: '2026-09-04T12:00:00.000Z', completedAt: '2026-09-04T12:10:00.000Z', status: 'completed', revision: 4, matchesCurrentTracking: true },
+    engines: ['openai'],
+    rows: [{
+      queryId: 'query-acme', queryText: 'Acme pricing', queryClass: 'branded',
+      engines: [{ provider: 'openai', expectedAnswers: 1, answers: 1, mentionedAnswers: 1, citedAnswers: 0, uncheckedSourceAnswers: 0, mentioned: true, cited: false }],
+    }],
+    pendingRows: 1,
+    ...overrides,
   }
 }
 
@@ -89,8 +114,10 @@ export function renderWorkspace(props: Partial<React.ComponentProps<typeof Queri
     onTrackingQueryIdChange: vi.fn(),
   }
   const all = { ...base, ...props }
-  render(<QueryClientProvider client={queryClient}><QueriesSection {...all} /></QueryClientProvider>)
-  return { ...all, queryClient }
+  const section = (next: typeof all) => <QueryClientProvider client={queryClient}><QueriesSection {...next} /></QueryClientProvider>
+  const view = render(section(all))
+  // `rerender` draws the section again with other props, as the host does when the URL changes.
+  return { ...all, queryClient, rerender: (next: Partial<React.ComponentProps<typeof QueriesSection>>) => view.rerender(section({ ...all, ...next })) }
 }
 
 export function renderViewerWorkspace(props: Partial<React.ComponentProps<typeof QueriesSection>> = {}) {
@@ -114,11 +141,14 @@ export function installWorkspaceApi(
   onRequest?: (path: string, body: unknown, method: string) => Response | Promise<Response>,
   templates: unknown[] = [],
   workspaceResponse = workspace(),
+  resultsResponse: unknown = results(),
 ) {
   const restore = mockFetch((url, init) => {
     const path = new URL(url).pathname
     const method = init?.method ?? 'GET'
     if (path === '/api/v1/projects/demo/query-tracking' && method === 'GET') return jsonResponse(workspaceResponse)
+    // The advanced Tracked page reads the last sweep's results beside the workspace.
+    if (path === '/api/v1/projects/demo/query-tracking/results' && method === 'GET') return jsonResponse(resultsResponse)
     if (path === '/api/v1/projects/demo/measurement-query-templates' && method === 'GET') return jsonResponse({ templates })
     if (onRequest) return onRequest(path, init?.body ? JSON.parse(String(init.body)) : undefined, method)
     throw new Error(`Unexpected fetch: ${path}`)
@@ -135,10 +165,25 @@ export function chooseContext(location = 'New York') {
   fireEvent.change(control, { target: { value: option.value } })
 }
 
+/** The Tracked page's Add button, which names the Place when the page is narrowed to one market or one location. */
+export const addButton = () => screen.getByRole('button', { name: /^Add (queries|market query|location query)$/ })
+
 /** An advanced project opens the Add queries sheet first; its link opens the Add query form the legacy-form tests cover. */
 export function openLegacyAdd() {
-  fireEvent.click(screen.getByRole('button', { name: 'Add queries' }))
+  fireEvent.click(addButton())
   fireEvent.click(screen.getByRole('button', { name: 'More ways to add' }))
+}
+
+/** Chooses an action from a Tracked row's menu. The actions that change tracking open a sheet under the action's name. */
+export async function chooseRowAction(queryText: string, action: string) {
+  fireEvent.click(await screen.findByRole('button', { name: `Actions for ${queryText}` }))
+  fireEvent.click(screen.getByRole('menuitem', { name: action }))
+}
+
+/** Opens a Tracked row's action sheet from its menu, and gives the sheet to look in. */
+export async function openRowSheet(queryText: string, action: string) {
+  await chooseRowAction(queryText, action)
+  return within(await screen.findByRole('dialog', { name: action }))
 }
 
 export function installScrollSpy() {
@@ -181,11 +226,14 @@ export const removalWorkload = { existingNodes: 2, existingProviderCalls: 6, nex
 // The preview's `tracked` is the post-change state, so a whole-query removal drops the row.
 export const trackedAfterRemoval = workspace().tracked.filter(row => row.queryId !== 'query-acme')
 
-/** Opens the review of a removal on an Advanced project. query-tracking-simple keeps its own steps. */
+/**
+ * Opens the review of a removal on an Advanced project: Stop tracking in the row's menu, then Review in
+ * its sheet. With a Place selected the sheet stops the query there only, where it is asked elsewhere too.
+ * query-tracking-simple keeps its own steps.
+ */
 export async function reviewRemoval() {
-  await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Remove Acme pricing' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  const sheet = await openRowSheet('Acme pricing', 'Stop tracking')
+  fireEvent.click(sheet.getByRole('button', { name: 'Review' }))
   return screen.findByRole('heading', { name: /^(Confirm tracked query changes|Review \d+ changes?|No tracking changes)$/ })
 }
 

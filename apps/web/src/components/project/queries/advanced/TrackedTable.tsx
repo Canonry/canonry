@@ -85,8 +85,8 @@ export function TrackedTable({
   engines: readonly string[]
   /**
    * Results by query and type. Undefined while they load; a result that is
-   * missing draws Not checked. After a failed read pass undefined too, and say
-   * so beside the table: an empty map would name every chip Not checked.
+   * missing draws Not checked. After a failed read pass a map with no result,
+   * so every chip reads Not checked, and say so beside the table.
    */
   coverage: TrackedCoverage | undefined
   sort?: TrackedSort
@@ -302,7 +302,7 @@ export function TrackedTable({
                   </td>
                   {/* Stacked, the menu is on the first line beside the query, so it is the next stop after it. */}
                   {layout.stacked ? menuCell : null}
-                  {shown.has('subject') ? <td className="tracked-cell-subject"><SubjectCell subject={row.subject} discloses={discloses} /></td> : null}
+                  {shown.has('subject') ? <td className="tracked-cell-subject"><SubjectCell subject={row.subject} discloses={discloses} clip={!layout.stacked && !open} /></td> : null}
                   {shown.has('type') ? <td className="tracked-cell-type"><TypeCell type={row.type} classes={row.queryClasses} /></td> : null}
                   {shown.has('engines') ? engineColumns.map(engine => (
                     <td key={engine.key} className="tracked-cell-engine">
@@ -337,7 +337,7 @@ export function TrackedTable({
                       </ToneBadge>
                     </td>
                   ) : null}
-                  {shown.has('source') ? <td className="tracked-cell-source"><span>{sourceLabel(row.source)}</span></td> : null}
+                  {shown.has('source') ? <td className="tracked-cell-source"><span title={sourceLabel(row.source)}>{sourceLabel(row.source)}</span></td> : null}
                   {layout.stacked ? null : menuCell}
                 </tr>
                 {open ? (
@@ -359,28 +359,37 @@ type Discloses = { 'aria-expanded': boolean; 'aria-controls': string | undefined
 /**
  * "Market · Uptown (3)": the kind stays on the first line, and the count stays
  * on the last word of the name however the name wraps. The count opens the
- * row detail, which lists the locations it counts.
+ * row detail, which lists the locations it counts. `clip` is a closed row of
+ * the table, which is one line: a name too long for the column is cut short
+ * and the count after it never is. The open row shows the name whole. Both
+ * are one tree of elements, so the count that opens a row keeps the focus.
  */
-function SubjectCell({ subject, discloses }: { subject: TrackedSubject; discloses: Discloses }) {
+function SubjectCell({ subject, discloses, clip }: { subject: TrackedSubject; discloses: Discloses; clip: boolean }) {
   const kind = <span className="font-medium text-strong">{subjectKindLabel(subject.kind)}</span>
   // The dot stays with the kind, so a line never starts with it.
   const lead = <><span className="whitespace-nowrap">{kind} <span aria-hidden="true">·</span></span>{' '}</>
+  const box = clip ? 'tracked-subject' : undefined
+  const name = clip ? 'tracked-subject-name' : undefined
   switch (subject.kind) {
     case 'market': {
-      const cut = subject.label.lastIndexOf(' ') + 1
-      return <>
-        {lead}{subject.label.slice(0, cut)}
-        <span className="whitespace-nowrap">
-          {subject.label.slice(cut)}{' '}
-          <button type="button" className={`tracked-count ${FOCUS}`} aria-label={locationCountLabel(subject.locationCount)} {...discloses}>({subject.locationCount.toLocaleString('en-US')})</button>
+      const cut = clip ? subject.label.length : subject.label.lastIndexOf(' ') + 1
+      return (
+        <span className={box}>
+          <span className={name} title={clip ? subject.label : undefined}>{lead}{subject.label.slice(0, cut)}</span>
+          <span className="whitespace-nowrap">
+            {subject.label.slice(cut)}{' '}
+            <button type="button" className={`tracked-count ${FOCUS}`} aria-label={locationCountLabel(subject.locationCount)} {...discloses}>({subject.locationCount.toLocaleString('en-US')})</button>
+          </span>
         </span>
-      </>
+      )
     }
-    case 'location': return <>{lead}{subject.label}</>
-    case 'hand-picked': return <>
-      {lead}
-      <button type="button" className={`tracked-count whitespace-nowrap ${FOCUS}`} {...discloses}>{locationCountLabel(subject.locationCount)}</button>
-    </>
+    case 'location': return <span className={box}><span className={name} title={clip ? subject.label : undefined}>{lead}{subject.label}</span></span>
+    case 'hand-picked': return (
+      <span className={box}>
+        <span className={name}>{lead}</span>
+        <button type="button" className={`tracked-count whitespace-nowrap ${FOCUS}`} {...discloses}>{locationCountLabel(subject.locationCount)}</button>
+      </span>
+    )
     case 'company': return kind
     case 'none': return subjectKindLabel(subject.kind)
   }

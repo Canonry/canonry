@@ -162,7 +162,7 @@ test('starts with the question, preserves written text, and keeps required measu
   fireEvent.change(source, { target: { value: 'research' } })
   fireEvent.change(source, { target: { value: 'manual' } })
   expect((screen.getByLabelText('Query') as HTMLTextAreaElement).value).toBe('Which platform fits our team?')
-  const options = screen.getByLabelText('Type').closest('details')!
+  const options = screen.getByLabelText('Type', { selector: '#tracking-query-class' }).closest('details')!
   expect(options).not.toBeNull()
   expect(options.open).toBe(false)
   expect(screen.getByText('Measurement options', { selector: 'summary' })).toBeTruthy()
@@ -543,8 +543,8 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
     path: '/api/v1/projects/demo/query-tracking/commit',
     body: { ...(writes[0]!.body as Record<string, unknown>), previewToken, reviewedAt: reviewed.reviewedAt },
   })
-  const trackedRow = await screen.findByText(queryText, { selector: 'td' })
-  expect(trackedRow.closest('tr')?.textContent).toContain('Awaiting sweep')
+  const trackedRow = (await screen.findByRole('button', { name: `Actions for ${queryText}` })).closest('tr')!
+  expect(trackedRow.textContent).toContain('First answers')
 }, 15_000)
 
 test.each([false, true])('keeps reused-query classifications collapsed until requested (no-op: %s)', async noOp => {
@@ -566,7 +566,7 @@ test.each([false, true])('keeps reused-query classifications collapsed until req
   openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Acme pricing' } })
   fireEvent.click(screen.getByText('Measurement options', { selector: 'summary' }))
-  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'non-brand' } })
+  fireEvent.change(screen.getByLabelText('Type', { selector: '#tracking-query-class' }), { target: { value: 'non-brand' } })
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
   await screen.findByText('1 reused')
@@ -595,7 +595,7 @@ test('sends an explicit class only when the operator overrides server classifica
   await screen.findByText('Acme pricing')
   openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Enterprise AEO platform' } })
-  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'non-brand' } })
+  fireEvent.change(screen.getByLabelText('Type', { selector: '#tracking-query-class' }), { target: { value: 'non-brand' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Location' }))
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))

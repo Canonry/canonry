@@ -1,18 +1,22 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
-import type { ResearchRunScope } from '@ainyc/canonry-contracts'
+import { AlertTriangle } from 'lucide-react'
+import type { MeasurementQueryTemplate, QueryTrackingMode, ResearchRunScope } from '@ainyc/canonry-contracts'
 
-import { getViewerResearchConfig, heyClient } from '../../api.js'
+import { getViewerResearchConfig, heyClient, isEmbed } from '../../api.js'
 import {
   getApiV1ProjectsByNameMeasurementQueryTemplatesOptions,
   getApiV1ProjectsByNameQueryTrackingOptions,
 } from '@ainyc/canonry-api-client/react-query'
 import { useQueryTrackingPublish } from '../../queries/use-query-tracking-publish.js'
+import { StatusNote } from '../shared/StatusNote.js'
 import { Button } from '../ui/button.js'
-import { Card } from '../ui/card.js'
 import { QueryResearchWorkspace } from './queries/QueryResearchWorkspace.js'
 import { SimpleTrackedQueries } from './queries/SimpleTrackedQueries.js'
 import { AdvancedTrackedPage } from './queries/advanced/AdvancedTrackedPage.js'
+import { TrackedSummaryGridSkeleton } from './queries/advanced/TrackedSummaryGrid.js'
+import { TrackedTableSkeleton } from './queries/advanced/TrackedTable.js'
 import { DEFAULT_TRACKED_FILTERS } from './queries/advanced/tracked-filters.js'
 import type { TrackedFilters } from './queries/advanced/tracked-types.js'
 import { useTrackingComposer, type TrackedQueriesPageProps } from './queries/use-tracking-composer.js'
@@ -60,10 +64,14 @@ export interface QueriesSectionProps {
   trackingChangedAt?: string
   /** The next scheduled sweep as shown ("Oct 21"). Left out when no date should be named. */
   nextSweepDate?: string
+  /** What the place picker calls the whole project ("All of Acme"), so the page's own way back to it reads the same. */
+  rootLabel?: string
+  /** The project's mode where the host already knows it, so the loading state has the page's shape. Left out until then. */
+  trackedMode?: QueryTrackingMode
 }
 
 /** What the Tracked page gets from this host beside the composer's props. */
-export type TrackedPageHostProps = Pick<QueriesSectionProps, 'trackingChangedAt' | 'nextSweepDate'> & {
+export type TrackedPageHostProps = Pick<QueriesSectionProps, 'trackingChangedAt' | 'nextSweepDate' | 'rootLabel'> & {
   trackedFilters: TrackedFilters
   onTrackedFiltersChange: (patch: Partial<TrackedFilters>) => void
   /** Where the page portals its actions: the right of the Tracked | Research row, or the line under it in a narrow frame. Null until the row has mounted. */
@@ -90,6 +98,8 @@ export function QueriesSection({
   onTrackedFiltersChange,
   trackingChangedAt,
   nextSweepDate,
+  rootLabel,
+  trackedMode,
 }: QueriesSectionProps) {
   const { account } = useAccount()
   const [uncontrolledWorkspace, setUncontrolledWorkspace] = useState<QueryWorkspace>('tracked')
@@ -162,6 +172,8 @@ export function QueriesSection({
             onTrackedFiltersChange={changeTrackedFilters}
             trackingChangedAt={trackingChangedAt}
             nextSweepDate={nextSweepDate}
+            rootLabel={rootLabel}
+            trackedMode={trackedMode}
             actionsSlot={actionsSlot}
           />
         ) : (
@@ -186,7 +198,7 @@ export function WorkspaceTab({ active, label, onClick }: { active: boolean; labe
       type="button"
       role="tab"
       aria-selected={active}
-      className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500 focus-visible:ring-inset ${active ? 'border-mono-400 text-heading' : 'border-transparent text-muted hover:border-strong hover:text-strong'}`}
+      className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors pointer-coarse:min-h-11 max-md:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500 focus-visible:ring-inset ${active ? 'border-mono-400 text-heading' : 'border-transparent text-muted hover:border-strong hover:text-strong'}`}
       onClick={onClick}
     >
       {label}
@@ -203,11 +215,13 @@ function TrackedQueriesSection({
   pendingTrackingSource,
   onPendingTrackingSourceHandled,
   publishGuard,
+  trackedMode,
   ...host
-}: Pick<QueriesSectionProps, 'projectName' | 'selection' | 'onSelectionChange' | 'trackingQueryId' | 'onTrackingQueryIdChange' | 'publishGuard'> & TrackedPageHostProps & {
+}: Pick<QueriesSectionProps, 'projectName' | 'selection' | 'onSelectionChange' | 'trackingQueryId' | 'onTrackingQueryIdChange' | 'publishGuard' | 'trackedMode'> & TrackedPageHostProps & {
   pendingTrackingSource: PendingTrackingSource | null
   onPendingTrackingSourceHandled: () => void
 }) {
+  const { canWrite } = useAccount()
   const publish = useQueryTrackingPublish(projectName, { onCommitted: () => onTrackingQueryIdChange?.(undefined) })
   const workspaceQuery = useQuery({
     ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
@@ -218,20 +232,49 @@ function TrackedQueriesSection({
   })
 
   if (workspaceQuery.isLoading) {
-    return <Card className="surface-card"><p className="text-sm text-muted">Loading tracked queries…</p></Card>
-  }
-  if (workspaceQuery.isError || !workspaceQuery.data) {
+    // An advanced page opens on its number strip and toolbar, so their room is held and the rows land where they were drawn.
     return (
-      <Card className="surface-card">
-        <p className="text-sm text-negative">Could not load tracked queries.</p>
-        <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => void workspaceQuery.refetch()}>
-          Try again
-        </Button>
-      </Card>
+      <div className="query-tracking-workspace">
+        {trackedMode === 'advanced' ? <>
+          {/* The page's Add button takes a line of its own in a narrow frame, so a writer's page holds that line too. */}
+          {host.actionsSlot && canWrite && !isEmbed() ? createPortal(<div aria-hidden="true" className="skeleton-text h-8 w-28 pointer-coarse:h-11 max-md:h-11" />, host.actionsSlot) : null}
+          <TrackedSummaryGridSkeleton />
+          <div aria-hidden="true" className="py-3">
+            <div className="skeleton-text h-8 w-full max-md:h-11" />
+            <div className="mt-2 flex h-5 items-center"><div className="skeleton-text w-24" /></div>
+          </div>
+        </> : null}
+        <TrackedTableSkeleton />
+      </div>
+    )
+  }
+  // Only a read that left nothing to show: a refresh that failed keeps the page, with its search, selection and open sheet, on the last read.
+  if (!workspaceQuery.data) {
+    return (
+      // Centred, as the page's empty states are.
+      <div role="alert" className="py-8 text-center">
+        <StatusNote
+          icon={AlertTriangle}
+          tone="negative"
+          label="Could not load"
+          action={<Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11 max-md:min-h-11" aria-label="Retry tracked queries" onClick={() => void workspaceQuery.refetch()}>Retry</Button>}
+        />
+      </div>
     )
   }
 
-  return (
+  return <>
+    {workspaceQuery.isRefetchError ? (
+      <div role="status" className="pb-3">
+        <StatusNote
+          icon={AlertTriangle}
+          tone="caution"
+          label="Could not refresh"
+          detail="The latest tracked queries did not load, so this list may be out of date."
+          action={<Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11 max-md:min-h-11" aria-label="Retry tracked queries" onClick={() => void workspaceQuery.refetch()}>Retry</Button>}
+        />
+      </div>
+    ) : null}
     <TrackedQueriesGate
       {...host}
       projectName={projectName}
@@ -243,7 +286,7 @@ function TrackedQueriesSection({
       pendingTrackingSource={pendingTrackingSource}
       onPendingTrackingSourceHandled={onPendingTrackingSourceHandled}
       publishGuard={publishGuard}
-      templates={templatesQuery.data?.templates ?? []}
+      templates={templatesQuery.data?.templates ?? NO_TEMPLATES}
       preview={publish.preview}
       publishError={publish.error}
       isPreviewing={publish.isPreviewing}
@@ -251,8 +294,11 @@ function TrackedQueriesSection({
       onPreview={(mutation) => publish.requestPreview({ ...mutation, expectedWorkspaceVersion: workspaceQuery.data.workspaceVersion })}
       onCommit={publish.commit}
     />
-  )
+  </>
 }
+
+/** One list while the saved patterns load, so a page can key its rows on it. */
+const NO_TEMPLATES: readonly MeasurementQueryTemplate[] = []
 
 /** The mode gate: each mode has its own page. One composer sits above both, so a mode change keeps the open form, its draft and the search. */
 function TrackedQueriesGate(props: TrackedQueriesPageProps & TrackedPageHostProps) {

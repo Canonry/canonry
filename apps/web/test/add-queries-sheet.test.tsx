@@ -120,6 +120,8 @@ function installApi(options: { workspace?: () => unknown; respond?: (write: Writ
   onTestFinished(mockFetch((url, init) => {
     const path = new URL(url).pathname
     if (path === '/api/v1/projects/demo/query-tracking') return jsonResponse((options.workspace ?? workspace)())
+    // The Tracked page reads the last sweep's results beside the workspace. None has run here.
+    if (path === '/api/v1/projects/demo/query-tracking/results') return jsonResponse({ mode: 'advanced', scope: { kind: 'project', key: null }, run: null, engines: [], rows: [], pendingRows: 0 })
     if (path === '/api/v1/projects/demo/measurement-query-templates') return jsonResponse({ templates: [] })
     const operation = path.replace('/api/v1/projects/demo/query-tracking/', '')
     if (operation !== 'preview' && operation !== 'commit') throw new Error(`Unexpected fetch: ${path}`)
@@ -889,8 +891,8 @@ test('shows Company as not available yet and never selects it', async () => {
 test('starts on the market the Tracked view is filtered to', async () => {
   const writes = installApi()
   renderTracked({ selection: { measurementScope: 'market', measurementScopeKey: 'remote', queryClass: 'all' } })
-  // The filtered view lists only that market's queries, so wait for the opener instead of a row.
-  fireEvent.click(await screen.findByRole('button', { name: 'Add queries' }))
+  // The filtered view lists only that market's queries, so wait for the opener instead of a row. It names what it adds.
+  fireEvent.click(await screen.findByRole('button', { name: 'Add market query' }))
   const sheet = within(screen.getByRole('dialog', { name: 'Add queries' }))
   expect(sheet.getByText('Remote searches · Market')).toBeTruthy()
   fireEvent.change(queriesField(sheet), { target: { value: 'best remote team tools' } })
@@ -903,7 +905,7 @@ test('starts on the market the Tracked view is filtered to', async () => {
 test('starts on the location the Tracked view is filtered to', async () => {
   const writes = installApi({ workspace: locationWorkspace })
   renderTracked({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
-  fireEvent.click(await screen.findByRole('button', { name: 'Add queries' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Add location query' }))
   const sheet = within(screen.getByRole('dialog', { name: 'Add queries' }))
   expect(sheet.getByRole('radio', { name: 'Location' }).getAttribute('aria-checked')).toBe('true')
   expect(sheet.getByText('Acme · Location')).toBeTruthy()
@@ -1000,16 +1002,18 @@ test('closes an open help bubble on Escape before the sheet', async () => {
   expect(sheetIsOpen()).toBe(false)
 })
 
-test('closes an open Edit form when it opens, and Cancel returns focus to the button', async () => {
+test('takes the place of an open Add query form when it opens, and Cancel returns focus to the button', async () => {
   installApi()
   renderTracked()
-  await screen.findByText('Acme pricing')
-  fireEvent.click(screen.getByRole('button', { name: 'Edit Acme pricing' }))
-  expect(await screen.findByRole('heading', { name: 'Edit query' })).toBeTruthy()
+  // The Tracked page has no Edit form: a row changes through its menu. The one form left is Add query.
+  const first = await openSheet()
+  fill(first.sheet, 'best pizza in New York')
+  fireEvent.click(first.sheet.getByRole('button', { name: handPickedLink }))
+  expect(await screen.findByRole('heading', { name: 'Add query' })).toBeTruthy()
   const opener = screen.getByRole('button', { name: 'Add queries' })
   opener.focus()
   fireEvent.click(opener)
-  expect(screen.queryByRole('heading', { name: 'Edit query', hidden: true })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Add query', hidden: true })).toBeNull()
 
   fireEvent.click(within(screen.getByRole('dialog', { name: 'Add queries' })).getByRole('button', { name: 'Cancel' }))
   expect(sheetIsOpen()).toBe(false)
@@ -1020,14 +1024,14 @@ test('stays closed after a publication retires the market the Tracked view is fi
   let retired = false
   installApi({ workspace: () => retired ? workspace({ markets: [] }) : workspace() })
   const { queryClient, show } = renderTracked({ selection: { measurementScope: 'market', measurementScopeKey: 'remote', queryClass: 'all' } })
-  fireEvent.click(await screen.findByRole('button', { name: 'Add queries' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Add market query' }))
   expect(sheetIsOpen()).toBe(true)
   retired = true
   await act(() => queryClient.invalidateQueries())
 
-  expect(await screen.findByText('This saved market filter is unavailable in the current measurement.')).toBeTruthy()
+  expect(await screen.findByText('Place unavailable')).toBeTruthy()
   expect(sheetIsOpen()).toBe(false)
-  // Back on the whole site, the sheet does not come back by itself.
+  // Back on the whole project, the sheet does not come back by itself.
   show({})
   await screen.findByText('Acme pricing')
   expect(sheetIsOpen()).toBe(false)
@@ -1043,13 +1047,12 @@ test('keeps the Add query form and its label on a simple project', async () => {
   expect(screen.queryByRole('dialog')).toBeNull()
 })
 
-test('keeps a viewer out of the sheet and an embed without the button', async () => {
+test('gives a viewer and an embed no button to open the sheet', async () => {
   installApi()
   renderTracked({}, 'viewer')
   await screen.findByText('Acme pricing')
-  const opener = screen.getByRole('button', { name: 'Add queries' }) as HTMLButtonElement
-  expect(opener.disabled).toBe(true)
-  fireEvent.click(opener)
+  // A view-only account is offered no way to add, so there is no dead control.
+  expect(screen.queryByRole('button', { name: /^Add quer/ })).toBeNull()
   expect(screen.queryByRole('dialog')).toBeNull()
 
   cleanup()

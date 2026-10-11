@@ -3,12 +3,16 @@ import type { QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@a
 
 import { formatSweepDay } from '../../../../lib/format-helpers.js'
 import { DataTablePagination, useClientTable } from '../../../shared/DataTableControls.js'
+import { SearchLocationText } from '../../TrackingReview.js'
 import type { TrackedRowVm } from './tracked-types.js'
 import { sourceDetailLabel, typeLabel } from './tracked-view-model.js'
 
 type Assignment = QueryTrackingTrackedRow['assignments'][number]
-/** The distinct search location and engines among some stored contexts, in the caller's words for them. */
-export type TrackedContextLabels = (contexts: Assignment['contexts']) => string[]
+/**
+ * The distinct search location and engines among some stored contexts, in the caller's words for them.
+ * A value with more behind it, such as model ids, gives both: the short `label` shown and the `detail` it opens.
+ */
+export type TrackedContextLabels = (contexts: Assignment['contexts']) => (string | { label: string; detail: string })[]
 
 const LINKS_PAGE_SIZE = 25
 // The first column starts at the heading's edge, under "Location links". In a phone-width frame the columns close up.
@@ -48,16 +52,17 @@ export function TrackedRowDetail({ row, workspace, contextLabels }: {
         groups: assignment.groupKeys.map(group),
         markets: assignment.marketKeys.map(market),
         type: typeLabel(assignment.queryClass ?? 'not-set'),
-        searchLocations: contextLabels(assignment.contexts),
+        searchLocations: contextLabels(assignment.contexts).map(named => typeof named === 'string' ? { label: named, detail: named } : named),
       }))
       .sort((left, right) => left.location.localeCompare(right.location, 'en', { sensitivity: 'base', numeric: true }))
   }, [row.tracked.assignments, workspace.targets, workspace.groups, workspace.markets, contextLabels])
   const table = useClientTable({ rows: links, pageSize: LINKS_PAGE_SIZE })
   // One value for every location is said once, under the list.
-  const sharedSearch = links.length > 0 && links.every(link => link.searchLocations.join('\n') === links[0]!.searchLocations.join('\n'))
+  const asked = (link: (typeof links)[number]) => link.searchLocations.map(named => named.detail).join('\n')
+  const sharedSearch = links.length > 0 && links.every(link => asked(link) === asked(links[0]!))
     ? links[0]!.searchLocations
     : null
-  const searchLines = (labels: readonly string[]) => labels.map(label => <span key={label} className="block">{label}</span>)
+  const searchLines = (named: (typeof links)[number]['searchLocations']) => named.map(({ label, detail }) => <span key={detail} className="block"><SearchLocationText label={label} detail={detail} /></span>)
   // Set widths keep the columns in place from one page of locations to the next. A phone-width frame has none to spare, so there each column takes what its words need.
   const width = sharedSearch
     ? { location: '@min-[40rem]:w-[36%]', groups: '@min-[40rem]:w-[26%]', markets: '' }
