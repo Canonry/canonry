@@ -28,7 +28,7 @@ export interface CompetitorSuggestionAnswer {
   citedDomains: readonly string[]
   citedUrls: readonly string[] | null
   recommendedCompetitors?: readonly string[]
-  /** Frozen competitor identities for this answer's Advanced execution scope. */
+  /** Current pins plus frozen identities for this answer's selected landscape scope. */
   competitors?: readonly CompetitorIdentityInput[]
 }
 
@@ -245,6 +245,7 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
       : new Map(answer.competitors.map(competitor => [normalizeCompetitorDomain(competitor.domain), competitor]))
     for (const candidate of candidates.values()) {
       const identity = scoped === undefined ? trackedByDomain.get(candidate.domain) : scoped.get(candidate.domain)
+      if (scoped !== undefined && candidate.tracked && !identity) continue
       const matcher = matcherFor(identity ?? { domain: candidate.domain })
       const occurrences = aliasOccurrencesAsWritten(matcher, prose)
       if (occurrences.size === 0) continue
