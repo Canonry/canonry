@@ -260,7 +260,7 @@ export async function backlinksList(opts: FormatOptions & {
   console.log(formatSummaryAndDomains(opts.project, response))
 }
 
-function formatSourceAvailability(res: BacklinkSourcesResponseDto): string {
+function formatSourceAvailability(project: string, res: BacklinkSourcesResponseDto): string {
   const lines: string[] = []
   lines.push(`Project: ${res.projectId}   Target: ${res.targetDomain}`)
   lines.push('')
@@ -273,8 +273,8 @@ function formatSourceAvailability(res: BacklinkSourcesResponseDto): string {
   }
   if (!res.anyConnected) {
     lines.push('')
-    lines.push('No active backlink source is set up. Enable Common Crawl on the project,')
-    lines.push('then run `canonry backlinks sync`.')
+    lines.push('No active backlink source is set up. Run `canonry backlinks sync` to download a')
+    lines.push(`Common Crawl release, or \`canonry backlinks extract ${project}\` when one is already synced.`)
   }
   return lines.join('\n')
 }
@@ -293,7 +293,7 @@ export async function backlinksSources(opts: FormatOptions & {
     emitJsonl(res.sources.map((s) => ({ project: opts.project, targetDomain: res.targetDomain, ...s })))
     return
   }
-  console.log(formatSourceAvailability(res))
+  console.log(formatSourceAvailability(opts.project, res))
 }
 
 export async function backlinksReleases(opts: FormatOptions = {}): Promise<void> {

@@ -4651,6 +4651,34 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_ga_search_landing_pages_run ON ga_search_landing_pages(sync_run_id)`,
     ],
   },
+  {
+    // The failing set the last DELIVERED health alert reported. A pass that
+    // only clears checks now sends nothing, so the stored signature moves on
+    // without the operator hearing about it; the next alert reads this to say
+    // what cleared since the one they last saw, and an alert no webhook
+    // accepted is sent again. Nullable with no default: existing rows, and
+    // rows an older writer keeps updating, read as "no alert on record" and
+    // fall back to the previous pass.
+    version: 177,
+    name: 'doctor-health-notified-signature',
+    statements: [
+      `ALTER TABLE doctor_health_state ADD COLUMN notified_signature TEXT`,
+    ],
+  },
+  {
+    // The last pass's failing set with check ids (`status:code:id`). A check
+    // changes its code when its severity changes, so without the id a check
+    // easing from fail to warn read as one entry cleared and another gained,
+    // and paged. It sits beside `failing_signature` instead of changing that
+    // column's format: an older binary compares it as a string, and would page
+    // every degraded project after a rollback. Nullable with no default: rows
+    // without it are compared by code for one pass.
+    version: 178,
+    name: 'doctor-health-failing-checks',
+    statements: [
+      `ALTER TABLE doctor_health_state ADD COLUMN failing_checks TEXT`,
+    ],
+  },
 ]
 
 /**
