@@ -53,6 +53,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/competitors': 'included',
   'GET /api/v1/projects/{name}/analytics/competitors': 'included',
   'GET /api/v1/projects/{name}/competitor-suggestions': 'included',
+  'POST /api/v1/projects/{name}/competitor-changes/preview': 'included',
   'PUT /api/v1/projects/{name}/competitors': 'deferred',
   'POST /api/v1/projects/{name}/competitors': 'included',
   'DELETE /api/v1/projects/{name}/competitors': 'included',

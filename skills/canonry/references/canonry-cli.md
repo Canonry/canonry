@@ -501,15 +501,17 @@ cnry query import <project> queries.txt
 cnry query generate <project> --provider gemini --count 10 --save
 
 cnry competitor add <project> competitor1.com competitor2.com
+cnry competitor add <project> competitor1.com --dry-run --format json  # preview latest stored-evidence impact without writing
 cnry competitor add <project> spoketuneworks.example --alias TuneSpoke   # one domain; repeat --alias for more names
 cnry competitor list <project>                       # text shows each competitor's aliases and auto names; JSON rows carry `aliases`, `autoAliases`, `blockedAliases`
 cnry competitor aliases <project> qvx.example                      # read one competitor's curated, auto-detected (with evidence) and blocked names
 cnry competitor aliases <project> qvx.example --set QVX            # exact list (repeat --set); --clear empties it
+cnry competitor aliases <project> qvx.example --set QVX --dry-run --format json  # preview an alias identity change
 cnry competitor aliases <project> qvx.example --add "QVX Stores"   # appends server-side in one call
 cnry competitor aliases <project> qvx.example --remove qvx         # read, edit, write back (a concurrent edit can be overwritten)
 cnry competitor aliases <project> spoketuneworks.example --block "Spoke Crew"   # never auto-apply this name (removes it if auto)
 cnry competitor aliases <project> spoketuneworks.example --unblock "Spoke Crew" # release it to detection again
-cnry competitor aliases detect <project> --format json             # dry run: names the stored answers tie to each site, with evidence
+cnry competitor aliases detect <project> --format json             # dry run: names the stored answers tie to each site, with evidence and impact
 cnry competitor aliases detect <project> --apply                   # run detection now and store it, in any mode (after each sweep the project's mode decides)
 cnry competitor landscape <project> --query-class non-brand --window 30d --format json
 cnry competitor suggest <project> --window 30d --min-answers 3 --query-class non-brand --format json

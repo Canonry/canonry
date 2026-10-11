@@ -29,10 +29,12 @@ import {
   beginMarketNameWrite,
   marketCompetitorDto,
   marketNameAuditFields,
+  readMarketCompetitorNames,
   readMarketCompetitors,
   writeMarketCompetitorNames,
   type MarketCompetitor,
 } from './market-competitor-names.js'
+import { previewCompetitorShareImpact } from './competitor-change-preview.js'
 import {
   applyCompetitorSetPlan,
   competitorAliasAuditFields,
@@ -300,7 +302,23 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
   // provider or any competitor site.
   app.get<{ Params: { name: string } }>('/projects/:name/competitor-auto-aliases', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
-    return reply.send(await previews.request(project.id))
+    const detection = await previews.request(project.id)
+    const tracked = detection.competitors.filter(competitor => competitor.marketKeys === undefined)
+      .map(competitor => ({
+        domain: competitor.domain,
+        aliases: competitor.aliases,
+        autoAliases: competitor.autoAliases,
+        blockedAliases: competitor.blockedAliases,
+      }))
+    const marketNames = readMarketCompetitorNames(app.db, project.id)
+    detection.competitors.filter(competitor => competitor.marketKeys !== undefined).forEach(competitor => {
+      marketNames.set(normalizeCompetitorDomain(competitor.domain), competitor.autoAliases.map(alias => alias.name))
+    })
+    const impact = previewCompetitorShareImpact(app, project.name, tracked, {
+      marketNames,
+      autoAliasRescanPending: detection.changed,
+    })
+    return reply.send({ ...detection, impact })
   })
 
   // POST /projects/:name/competitor-auto-aliases: run detection now and store

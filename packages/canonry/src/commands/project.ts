@@ -235,6 +235,8 @@ export async function updateProjectSettings(
     expectedConfigRevision?: number
     /** Measurement lists changed by one or more measurement flags. */
     measurement?: MeasurementUpdateFlags
+    /** Preview only the detection-mode change and its stored-evidence impact. */
+    dryRun?: boolean
     format?: string
   },
 ): Promise<void> {
@@ -246,6 +248,33 @@ export async function updateProjectSettings(
       message: `Project '${name}' has revision ${project.configRevision}, not the expected ${opts.expectedConfigRevision}.`,
       details: { expected: opts.expectedConfigRevision, actual: project.configRevision },
     })
+  }
+
+  if (opts.dryRun) {
+    const changedKeys = Object.entries(opts).filter(([key, value]) => key !== 'dryRun' && key !== 'format' && value !== undefined)
+    if (opts.competitorAutoAliases === undefined || changedKeys.some(([key]) => key !== 'competitorAutoAliases')) {
+      throw usageError('Error: project update --dry-run supports only --competitor-auto-aliases', {
+        message: '--dry-run supports only --competitor-auto-aliases',
+        details: { command: 'project.update', project: name },
+      })
+    }
+    const detection = await client.previewCompetitorAutoAliases(name)
+    const preview = {
+      dryRun: true,
+      project: name,
+      modeBefore: project.competitorAutoAliases ?? 'preview',
+      modeAfter: opts.competitorAutoAliases,
+      impact: detection.impact,
+    }
+    if (isMachineFormat(opts.format)) {
+      console.log(JSON.stringify(preview, null, 2))
+    } else {
+      console.log(`Competitor auto-alias mode preview: ${preview.modeBefore} -> ${preview.modeAfter}`)
+      const percentBefore = detection.impact?.before.percent
+      const percentAfter = detection.impact?.after.percent
+      console.log(`Mention share ${percentBefore === null || percentBefore === undefined ? 'not measured' : `${percentBefore}%`} -> ${percentAfter === null || percentAfter === undefined ? 'not measured' : `${percentAfter}%`} (stored evidence preview)`)
+    }
+    return
   }
 
   let ownedDomains = opts.ownedDomains ?? project.ownedDomains ?? []

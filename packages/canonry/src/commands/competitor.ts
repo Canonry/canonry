@@ -24,8 +24,13 @@ function getClient() {
  * `canonry competitor add`. With `aliases` (one domain only), the names are
  * added to that competitor's curated alias list, tracked already or not.
  */
-export async function addCompetitors(project: string, domains: string[], format?: string, aliases: string[] = []): Promise<void> {
+export async function addCompetitors(project: string, domains: string[], format?: string, aliases: string[] = [], dryRun = false): Promise<void> {
   const client = getClient()
+  if (dryRun) {
+    const preview = await client.previewCompetitorChange(project, { change: 'add', competitors: aliases.length ? [{ domain: domains[0]!, aliases }] : domains })
+    console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2))
+    return
+  }
   const existing = await client.listCompetitors(project)
   const existingDomains = existing.map(c => c.domain)
   const existingSet = new Set(existingDomains)
@@ -92,6 +97,8 @@ export interface CompetitorAliasesOptions {
   block?: string[]
   /** Release blocked names back to auto-detection. */
   unblock?: string[]
+  /** Preview the resulting alias identity and share impact without writing. */
+  dryRun?: boolean
   format?: string
 }
 
@@ -106,7 +113,43 @@ export interface CompetitorAliasesOptions {
  */
 export async function competitorAliases(project: string, domain: string, options: CompetitorAliasesOptions): Promise<void> {
   const client = getClient()
+  if (options.dryRun && (options.block !== undefined || options.unblock !== undefined)) {
+    throw new CliError({
+      code: 'VALIDATION_ERROR',
+      message: '--dry-run previews curated alias changes only; block and unblock are answer-derived detection controls',
+      displayMessage: 'Error: --dry-run cannot preview --block or --unblock. Use competitor aliases detect for a read-only detection preview.',
+      details: { project, domain },
+    })
+  }
   let result: CompetitorDto
+  if (options.dryRun) {
+    const target = normalizeCompetitorDomain(domain.trim())
+    const matches = (await client.listCompetitors(project)).filter(c => normalizeCompetitorDomain(c.domain) === target)
+    const current = matches.at(0)
+    if (!current) {
+      throw new CliError({
+        code: 'NOT_FOUND',
+        message: `Competitor "${target}" is not tracked by project "${project}"`,
+        displayMessage: `Error: competitor "${target}" is not a project competitor of "${project}".`,
+        details: { project, domain: target },
+      })
+    }
+    const currentAliases = storedAliases(current)
+    const nextAliases = options.set !== undefined || options.clear === true
+      ? (options.clear ? [] : options.set ?? [])
+      : [
+          ...currentAliases.filter(alias => !((options.remove ?? []).some(name => sameAliasName(name, alias)))),
+          ...(options.add ?? []),
+        ]
+    const preview = await client.previewCompetitorChange(project, {
+      change: 'aliases',
+      domain: current.domain,
+      aliases: nextAliases,
+      mode: 'set',
+    })
+    console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2))
+    return
+  }
   if (options.block !== undefined) {
     result = await client.blockCompetitorAliases(project, domain, options.block)
   } else if (options.unblock !== undefined) {
@@ -211,6 +254,8 @@ function printCompetitorNames(competitor: CompetitorDto): void {
 export interface CompetitorAutoAliasDetectOptions {
   /** Store the result now instead of a dry run. */
   apply?: boolean
+  /** Keep the explicit no-write form clear when paired with --apply. */
+  dryRun?: boolean
   format?: string
 }
 
@@ -230,6 +275,14 @@ const CANDIDATE_MARKS: Record<CompetitorAutoAliasCandidate['status'], string> = 
  */
 export async function detectCompetitorAutoAliases(project: string, options: CompetitorAutoAliasDetectOptions): Promise<void> {
   const client = getClient()
+  if (options.dryRun && options.apply) {
+    throw new CliError({
+      code: 'VALIDATION_ERROR',
+      message: '--dry-run and --apply cannot be combined',
+      displayMessage: 'Error: --dry-run and --apply cannot be combined.',
+      details: { project },
+    })
+  }
   const result: CompetitorAutoAliasDetectionDto = options.apply
     ? await client.applyCompetitorAutoAliases(project)
     : await client.previewCompetitorAutoAliases(project)
@@ -273,8 +326,13 @@ export async function detectCompetitorAutoAliases(project: string, options: Comp
   }
 }
 
-export async function removeCompetitors(project: string, domains: string[], format?: string): Promise<void> {
+export async function removeCompetitors(project: string, domains: string[], format?: string, dryRun = false): Promise<void> {
   const client = getClient()
+  if (dryRun) {
+    const preview = await client.previewCompetitorChange(project, { change: 'remove', competitors: domains })
+    console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2))
+    return
+  }
   const existing = await client.listCompetitors(project)
   const existingDomains = existing.map(c => c.domain)
   // The server removes every stored row that is a requested competitor in any

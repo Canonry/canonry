@@ -28,6 +28,7 @@ import {
   adsUnresolvedOperationListQuerySchema,
   competitorAliasBlockRequestSchema,
   competitorAliasesRequestSchema,
+  competitorEntrySchema,
   competitorAppendRequestSchema,
   competitorBatchRequestSchema,
   competitorLandscapeQuerySchema,
@@ -840,6 +841,12 @@ const competitorsAddInputSchema = z.object({
   project: projectNameSchema,
   request: competitorAppendRequestSchema,
 })
+const competitorChangePreviewInputSchema = z.discriminatedUnion('change', [
+  z.object({ project: projectNameSchema, change: z.literal('add'), competitors: z.array(competitorEntrySchema).min(1) }).strict(),
+  z.object({ project: projectNameSchema, change: z.literal('remove'), competitors: z.array(z.string().trim().min(1)).min(1) }).strict(),
+  z.object({ project: projectNameSchema, change: z.literal('replace'), competitors: z.array(competitorEntrySchema) }).strict(),
+  z.object({ project: projectNameSchema, change: z.literal('aliases'), domain: z.string().trim().min(1), aliases: z.array(z.string().trim().min(1)), mode: z.enum(['set', 'add']) }).strict(),
+])
 const competitorDomainInputSchema = z.string().trim().min(1).describe('Tracked competitor domain (any spelling; it resolves to the stored registrable domain).')
 const competitorAliasesInputSchema = competitorAliasesRequestSchema.safeExtend({
   project: projectNameSchema,
@@ -1562,6 +1569,20 @@ export const canonryMcpTools = [
     handler: (client, input) => {
       const { project, ...query } = input
       return client.suggestCompetitors(project, query)
+    },
+  }),
+  defineTool({
+    name: 'canonry_competitors_change_preview',
+    title: 'Preview competitor change impact',
+    description: 'Preview the stored-evidence share impact of one explicit competitor add, remove, replace, or curated alias change. It reads the latest completed or partial sweep and never writes competitors, aliases, history, or provider state. Use this before a separate write when an operator wants the before and after denominator and percentage-point delta. Ordinary competitor writes do not call this implicitly.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: competitorChangePreviewInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['POST /api/v1/projects/{name}/competitor-changes/preview'],
+    handler: (client, input) => {
+      const { project, ...request } = input
+      return client.previewCompetitorChange(project, request)
     },
   }),
   defineTool({
@@ -3311,9 +3332,7 @@ export const canonryMcpTools = [
     inputSchema: competitorsAddInputSchema,
     annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/competitors'],
-    handler: async (client, input) => {
-      await client.appendCompetitors(input.project, input.request.competitors)
-    },
+    handler: (client, input) => client.appendCompetitors(input.project, input.request.competitors),
   }),
   defineTool({
     name: 'canonry_competitors_aliases_set',
@@ -3379,9 +3398,7 @@ export const canonryMcpTools = [
     inputSchema: competitorsInputSchema,
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
     openApiOperations: ['DELETE /api/v1/projects/{name}/competitors'],
-    handler: async (client, input) => {
-      await client.deleteCompetitors(input.project, uniqueStrings(input.request.competitors))
-    },
+    handler: (client, input) => client.deleteCompetitors(input.project, uniqueStrings(input.request.competitors)),
   }),
   defineTool({
     name: 'canonry_schedule_set',

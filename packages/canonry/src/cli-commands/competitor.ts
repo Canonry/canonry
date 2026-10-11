@@ -5,8 +5,8 @@ import { getBoolean, getString, getStringArray, multiStringOption, parseIntegerO
 import { usageError } from '../cli-error.js'
 
 const ADD_USAGE = 'canonry competitor add <project> <domain...> [--alias <name>]... [--format json]'
-const ALIASES_USAGE = 'canonry competitor aliases <project> <domain> [--set <name>]... [--add <name>]... [--remove <name>]... [--clear] [--block <name>]... [--unblock <name>]... [--format json]'
-const DETECT_USAGE = 'canonry competitor aliases detect <project> [--apply] [--format json|jsonl]'
+const ALIASES_USAGE = 'canonry competitor aliases <project> <domain> [--set <name>]... [--add <name>]... [--remove <name>]... [--clear] [--block <name>]... [--unblock <name>]... [--dry-run] [--format json]'
+const DETECT_USAGE = 'canonry competitor aliases detect <project> [--apply] [--dry-run] [--format json|jsonl]'
 
 const LANDSCAPE_USAGE = 'canonry competitor landscape <project> [--window 7d|30d|90d|all] [--group-key <key>|--scope all-markets] [--by-model] [--provider <provider> [--model <id>]] [--query-class all|branded|non-brand] [--answers all|not-mentioned] [--location <label>] [--run-id <id>] [--format json|jsonl]'
 const SUGGEST_USAGE = 'canonry competitor suggest <project> [--window 7d|30d|90d|all] [--min-answers <n>] [--query-class all|branded|non-brand] [--group-key <key>] [--limit <n>] [--format json|jsonl]'
@@ -27,6 +27,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
     options: {
       alias: multiStringOption(),
     },
+    supportsDryRun: true,
     run: async (input) => {
       const project = requireProject(input, 'competitor.add', ADD_USAGE)
       const domains = input.positionals.slice(1)
@@ -46,7 +47,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
           details: { command: 'competitor.add', usage: ADD_USAGE },
         })
       }
-      await addCompetitors(project, domains, input.format, aliases)
+      await addCompetitors(project, domains, input.format, aliases, input.dryRun)
     },
   },
   {
@@ -58,9 +59,10 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
     options: {
       apply: { type: 'boolean' },
     },
+    supportsDryRun: true,
     run: async (input) => {
       const project = requireProject(input, 'competitor.aliases.detect', DETECT_USAGE)
-      await detectCompetitorAutoAliases(project, { apply: getBoolean(input.values, 'apply'), format: input.format })
+      await detectCompetitorAutoAliases(project, { apply: getBoolean(input.values, 'apply'), ...(input.dryRun ? { dryRun: true } : {}), format: input.format })
     },
   },
   {
@@ -74,6 +76,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
       block: multiStringOption(),
       unblock: multiStringOption(),
     },
+    supportsDryRun: true,
     run: async (input) => {
       const project = requireProject(input, 'competitor.aliases', ALIASES_USAGE)
       const domain = requirePositional(input, 1, {
@@ -101,11 +104,12 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
           details: { command: 'competitor.aliases', usage: ALIASES_USAGE },
         })
       }
-      await competitorAliases(project, domain, { set, add, remove, clear, block, unblock, format: input.format })
+      await competitorAliases(project, domain, { set, add, remove, clear, block, unblock, ...(input.dryRun ? { dryRun: true } : {}), format: input.format })
     },
   },
   {
     path: ['competitor', 'remove'],
+    supportsDryRun: true,
     usage: 'canonry competitor remove <project> <domain...> [--format json]',
     run: async (input) => {
       const project = requireProject(input, 'competitor.remove', 'canonry competitor remove <project> <domain...> [--format json]')
@@ -119,11 +123,12 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
           },
         })
       }
-      await removeCompetitors(project, domains, input.format)
+      await removeCompetitors(project, domains, input.format, input.dryRun)
     },
   },
   {
     path: ['competitor', 'delete'],
+    supportsDryRun: true,
     usage: 'canonry competitor delete <project> <domain...> [--format json]',
     run: async (input) => {
       const project = requireProject(input, 'competitor.delete', 'canonry competitor delete <project> <domain...> [--format json]')
@@ -137,7 +142,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
           },
         })
       }
-      await removeCompetitors(project, domains, input.format)
+      await removeCompetitors(project, domains, input.format, input.dryRun)
     },
   },
   {

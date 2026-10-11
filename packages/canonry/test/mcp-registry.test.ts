@@ -47,6 +47,7 @@ const expectedToolNames = [
   'canonry_analytics_sources',
   'canonry_competitor_landscape',
   'canonry_competitors_suggest',
+  'canonry_competitors_change_preview',
   'canonry_search',
   'canonry_doctor',
   'canonry_status',
@@ -773,7 +774,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(canonryMcpTools.filter(tool => tool.access === 'read')).toHaveLength(170)
+    expect(canonryMcpTools.filter(tool => tool.access === 'read')).toHaveLength(171)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -813,7 +814,7 @@ describe('MCP tool registry', () => {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
     expect(counts.get('monitoring')).toBe(61)
-    expect(counts.get('setup')).toBe(68)
+    expect(counts.get('setup')).toBe(69)
     expect(counts.get('gsc')).toBe(11)
     expect(counts.get('ga')).toBe(13)
     expect(counts.get('gbp')).toBe(14)
@@ -1067,9 +1068,14 @@ describe('MCP tool registry', () => {
     const queriesTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_queries_add')
     const keywordsTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_keywords_add')
     const competitorsTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_competitors_add')
+    const competitorPreviewTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_competitors_change_preview')
     expect(queriesTool).toBeTruthy()
     expect(keywordsTool).toBeTruthy()
     expect(competitorsTool).toBeTruthy()
+    expect(competitorPreviewTool).toBeTruthy()
+    expect(competitorPreviewTool!.inputSchema.parse({ project: 'acme', change: 'add', competitors: [' rival.example.com '] })).toEqual({
+      project: 'acme', change: 'add', competitors: ['rival.example.com'],
+    })
 
     expect(queriesTool!.inputSchema.parse({ project: 'acme', request: { queries: [' alpha '] } })).toEqual({
       project: 'acme',

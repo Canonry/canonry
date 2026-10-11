@@ -226,6 +226,7 @@ describe('canonry-mcp stdio', () => {
     expect(names).toContain('canonry_search')
     expect(names).toContain('canonry_competitor_landscape')
     expect(names).toContain('canonry_competitors_suggest')
+    expect(names).toContain('canonry_competitors_change_preview')
     expect(names).toContain('canonry_backlinks_latest_release')
     expect(names).toContain('canonry_traffic_connect_vercel')
     expect(names).toContain('canonry_traffic_referral_assessment')

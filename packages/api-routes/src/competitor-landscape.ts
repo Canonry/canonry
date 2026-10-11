@@ -36,6 +36,7 @@ import {
   windowCutoff,
   type CompetitorLandscapeQueryClass,
   type CompetitorLandscapeQuery,
+  type CompetitorIdentityInput,
   type CompetitorLandscapeModelComparison,
   type CompetitorLandscapeResponse,
 } from '@ainyc/canonry-contracts'
@@ -372,6 +373,7 @@ export function readCompetitorLandscape(
   projectName: string,
   query: RawQuery,
   selection?: { runIds: readonly string[]; snapshotIds?: readonly string[]; autoAdvanced?: boolean },
+  identity?: { projectCompetitors?: readonly CompetitorIdentityInput[]; marketNames?: ReadonlyMap<string, string[]> },
 ): CompetitorLandscapeResponse {
     const project = resolveProject(app.db, projectName)
     const parsed = competitorLandscapeQuerySchema.safeParse({ ...query, ...(query.window !== undefined ? { window: parseWindow(query.window) } : {}) })
@@ -439,12 +441,12 @@ export function readCompetitorLandscape(
 
     // Curated and auto-detected aliases reinterpret stored history at read
     // time, like the pin itself; the generated domain label stays the display label.
-    const projectPins = app.db.select(competitorIdentityColumns)
+    const projectPinInputs = identity?.projectCompetitors ?? app.db.select(competitorIdentityColumns)
       .from(competitors)
       .where(eq(competitors.projectId, project.id))
       .orderBy(competitors.domain)
       .all()
-      .map(row => ({
+    const projectPins = projectPinInputs.map(row => ({
         domain: row.domain,
         label: brandLabelFromDomain(row.domain) || row.domain,
         labelSource: 'domain' as const,
@@ -454,7 +456,9 @@ export function readCompetitorLandscape(
     // Names learned for a competitor only a market pins reinterpret history
     // like a project pin's auto names do, and only on that pin: never a new
     // pin, never a project competitor's.
-    const marketNames = advanced ? readMarketCompetitorNames(app.db, project.id) : new Map<string, string[]>()
+    const marketNames = advanced
+      ? identity?.marketNames ?? readMarketCompetitorNames(app.db, project.id)
+      : new Map<string, string[]>()
     const pinned = marketNames.size === 0 ? marketPinned : mergePins(marketPinned, marketPinned.flatMap((pin) => {
       const learned = marketNames.get(normalizeCompetitorDomain(pin.domain))
       return learned ? [{ domain: pin.domain, label: pin.label, labelSource: 'domain' as const, aliases: learned }] : []

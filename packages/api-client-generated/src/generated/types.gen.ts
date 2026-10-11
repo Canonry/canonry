@@ -3816,6 +3816,49 @@ export type CompetitorAutoAliasDetectionDto = {
             lastSeen: string;
         }>;
     }>;
+    impact?: {
+        instrument: 'competitor-landscape';
+        queryClass: 'non-brand' | 'pooled';
+        scope: 'project' | 'all-markets';
+        runIds: Array<string>;
+        runCount: number;
+        sweepAt: string | null;
+        before: {
+            basis?: 'tracked' | 'observed' | null;
+            availability?: 'measured' | 'not-measured' | 'unavailable';
+            reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
+            measurementScope?: 'project' | 'all-markets';
+            queryClass: 'branded' | 'non-brand' | 'pooled';
+            percent: number | null;
+            competitorCount: number;
+            projectMentions: number;
+            competitorMentions: number;
+            snapshotsWithAnswerText: number;
+            perCompetitor: Array<{
+                domain: string;
+                mentions: number;
+            }>;
+        };
+        after: {
+            basis?: 'tracked' | 'observed' | null;
+            availability?: 'measured' | 'not-measured' | 'unavailable';
+            reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
+            measurementScope?: 'project' | 'all-markets';
+            queryClass: 'branded' | 'non-brand' | 'pooled';
+            percent: number | null;
+            competitorCount: number;
+            projectMentions: number;
+            competitorMentions: number;
+            snapshotsWithAnswerText: number;
+            perCompetitor: Array<{
+                domain: string;
+                mentions: number;
+            }>;
+        };
+        deltaPercent: number | null;
+        restatesHistory: true;
+        caveats: Array<'basis-changed' | 'auto-alias-rescan-pending' | 'no-latest-sweep' | 'pooled'>;
+    };
 };
 
 export type CompetitorDto = {
@@ -4120,6 +4163,89 @@ export type CompetitorSuggestionsResponse = {
         runs: Array<string>;
     };
     truncated: boolean;
+};
+
+export type CompetitorChangePreviewResponse = {
+    project: string;
+    change: {
+        change: 'add';
+        competitors: Array<string | {
+            domain: string;
+            /**
+             * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
+             */
+            aliases?: Array<string>;
+        }>;
+    } | {
+        change: 'remove';
+        competitors: Array<string>;
+    } | {
+        change: 'replace';
+        competitors: Array<string | {
+            domain: string;
+            /**
+             * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
+             */
+            aliases?: Array<string>;
+        }>;
+    } | {
+        change: 'aliases';
+        domain: string;
+        aliases: Array<string>;
+        mode: 'set' | 'add';
+    };
+    plan: {
+        added: Array<string>;
+        alreadyTracked: Array<string>;
+        removed: Array<string>;
+        aliasChanges: Array<unknown>;
+        droppedAliases: Array<unknown>;
+        autoAliasChanges: Array<unknown>;
+        droppedAutoAliases: Array<unknown>;
+    };
+    impact: {
+        instrument: 'competitor-landscape';
+        queryClass: 'non-brand' | 'pooled';
+        scope: 'project' | 'all-markets';
+        runIds: Array<string>;
+        runCount: number;
+        sweepAt: string | null;
+        before: {
+            basis?: 'tracked' | 'observed' | null;
+            availability?: 'measured' | 'not-measured' | 'unavailable';
+            reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
+            measurementScope?: 'project' | 'all-markets';
+            queryClass: 'branded' | 'non-brand' | 'pooled';
+            percent: number | null;
+            competitorCount: number;
+            projectMentions: number;
+            competitorMentions: number;
+            snapshotsWithAnswerText: number;
+            perCompetitor: Array<{
+                domain: string;
+                mentions: number;
+            }>;
+        };
+        after: {
+            basis?: 'tracked' | 'observed' | null;
+            availability?: 'measured' | 'not-measured' | 'unavailable';
+            reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
+            measurementScope?: 'project' | 'all-markets';
+            queryClass: 'branded' | 'non-brand' | 'pooled';
+            percent: number | null;
+            competitorCount: number;
+            projectMentions: number;
+            competitorMentions: number;
+            snapshotsWithAnswerText: number;
+            perCompetitor: Array<{
+                domain: string;
+                mentions: number;
+            }>;
+        };
+        deltaPercent: number | null;
+        restatesHistory: true;
+        caveats: Array<'basis-changed' | 'auto-alias-rescan-pending' | 'no-latest-sweep' | 'pooled'>;
+    };
 };
 
 export type ContentGapsResponseDto = {
@@ -21006,6 +21132,60 @@ export type GetApiV1ProjectsByNameCompetitorSuggestionsResponses = {
 };
 
 export type GetApiV1ProjectsByNameCompetitorSuggestionsResponse = GetApiV1ProjectsByNameCompetitorSuggestionsResponses[keyof GetApiV1ProjectsByNameCompetitorSuggestionsResponses];
+
+export type PostApiV1ProjectsByNameCompetitorChangesPreviewData = {
+    body: {
+        change: unknown;
+        competitors: Array<string | {
+            domain: string;
+            aliases: Array<string>;
+        }>;
+    } | {
+        change: unknown;
+        competitors: Array<string>;
+    } | {
+        change: unknown;
+        competitors: Array<string | {
+            domain: string;
+            aliases: Array<string>;
+        }>;
+    } | {
+        change: unknown;
+        domain: string;
+        aliases: Array<string>;
+        mode: 'set' | 'add';
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/competitor-changes/preview';
+};
+
+export type PostApiV1ProjectsByNameCompetitorChangesPreviewErrors = {
+    /**
+     * Invalid competitor change or stored identity plan.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or competitor not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameCompetitorChangesPreviewError = PostApiV1ProjectsByNameCompetitorChangesPreviewErrors[keyof PostApiV1ProjectsByNameCompetitorChangesPreviewErrors];
+
+export type PostApiV1ProjectsByNameCompetitorChangesPreviewResponses = {
+    /**
+     * Competitor change preview returned.
+     */
+    200: CompetitorChangePreviewResponse;
+};
+
+export type PostApiV1ProjectsByNameCompetitorChangesPreviewResponse = PostApiV1ProjectsByNameCompetitorChangesPreviewResponses[keyof PostApiV1ProjectsByNameCompetitorChangesPreviewResponses];
 
 export type GetApiV1ProjectsByNameRunsData = {
     body?: never;

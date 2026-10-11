@@ -7,6 +7,7 @@ import type { AuditHistoryOptions } from '@ainyc/canonry-contracts'
 import type { ReferralAssessment, ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameTrafficReferralAssessment } from '@ainyc/canonry-api-client'
 import { getApiV1ProjectsByNameCompetitorSuggestions } from '@ainyc/canonry-api-client'
+import { postApiV1ProjectsByNameCompetitorChangesPreview } from '@ainyc/canonry-api-client'
 
 import type { z } from 'zod'
 import type {
@@ -129,6 +130,8 @@ import type {
   CompetitorLandscapeResponse,
   CompetitorSuggestionsQuery,
   CompetitorSuggestionsResponse,
+  CompetitorChangePreviewRequest,
+  CompetitorChangePreviewResponse,
   GapAnalysisDto,
   SourceBreakdownDto,
   VisibilityStatsDto,
@@ -1522,6 +1525,12 @@ export class ApiClient {
         path: { name: project },
         query,
       }),
+    )
+  }
+
+  async previewCompetitorChange(project: string, request: CompetitorChangePreviewRequest): Promise<CompetitorChangePreviewResponse> {
+    return this.invoke<CompetitorChangePreviewResponse>(() =>
+      postApiV1ProjectsByNameCompetitorChangesPreview({ client: this.heyClient, path: { name: project }, body: request as never }),
     )
   }
 
