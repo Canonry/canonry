@@ -555,18 +555,18 @@ function renderSection(
 }
 
 async function reviewSyntheticSitemap() {
-  await screen.findByRole('heading', { name: 'Import Properties' })
+  await screen.findByRole('heading', { name: 'Import locations' })
   fireEvent.change(screen.getByLabelText('Sitemap URL'), {
     target: { value: 'https://portfolio.example/sitemap.xml' },
   })
-  fireEvent.change(screen.getByLabelText('Example Property page'), {
+  fireEvent.change(screen.getByLabelText('Example location page'), {
     target: { value: 'https://portfolio.example/properties/property-001' },
   })
   fireEvent.click(screen.getByRole('button', { name: 'Review sitemap' }))
 }
 
 async function advanceExistingDraftToReview() {
-  await screen.findByRole('heading', { name: 'Properties' })
+  await screen.findByRole('heading', { name: 'Locations' })
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
   await screen.findByRole('heading', { name: 'Groups' })
   fireEvent.click(screen.getByRole('button', { name: /^Continue(?: without groups)?$/ }))
@@ -582,7 +582,7 @@ async function advanceGroupsToQuestions() {
 }
 
 async function advancePropertiesToQuestions() {
-  await screen.findByRole('heading', { name: 'Properties' })
+  await screen.findByRole('heading', { name: 'Locations' })
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
   await advanceGroupsToQuestions()
 }
@@ -624,7 +624,7 @@ test('keeps internal setup terminology out of customer-facing errors', () => {
   expect(assignmentPreviewErrorMessage(new ApiError(ceiling, 400, 'VALIDATION_ERROR', { displayToOperator: true })))
     .toBe(ceiling)
   expect(assignmentPreviewErrorMessage(new ApiError('Invalid "preview-assignments" payload', 400, 'VALIDATION_ERROR')))
-    .toBe('Could not calculate assignment impact.')
+    .toBe('Could not calculate impact.')
 })
 
 test('turns simple path wildcards into deterministic sitemap exclusions', () => {
@@ -646,12 +646,33 @@ test('turns simple path wildcards into deterministic sitemap exclusions', () => 
   ])
 })
 
+test('names the location page in every sitemap rule error', () => {
+  const draft = {
+    sitemapUrl: 'https://portfolio.example/sitemap.xml',
+    examplePropertyUrl: 'https://portfolio.example/properties/example-place',
+    preferredHost: '',
+    propertyPathPattern: '',
+    additionalHost: '',
+    additionalPathPattern: '',
+    excludedPaths: '',
+  }
+
+  expect(() => sitemapImportInput({ ...draft, propertyPathPattern: '/properties/*/units/*' }))
+    .toThrow('Location URL pattern must contain exactly one * or {slug} segment.')
+  expect(() => sitemapImportInput({ ...draft, examplePropertyUrl: '' }))
+    .toThrow('Add one example location page so Canonry can identify the matching URLs.')
+  expect(() => sitemapImportInput({ ...draft, examplePropertyUrl: 'not a web address' }))
+    .toThrow('Example location page must be a valid web address.')
+  expect(() => sitemapImportInput({ ...draft, additionalHost: 'offices.portfolio.example' }))
+    .toThrow('Add both an additional domain and its URL pattern.')
+})
+
 describe('AdvancedMeasurementSection server draft controller', () => {
   test('starts an Advanced draft from Simple with the active revision the setup read supplied', async () => {
     const fake = createFakeService()
     renderSection(fake)
 
-    await screen.findByRole('heading', { name: 'Import Properties' })
+    await screen.findByRole('heading', { name: 'Import locations' })
     expect(fake.service.createDraft).toHaveBeenCalledTimes(1)
     expect(fake.service.createDraft).toHaveBeenCalledWith(PROJECT, null)
     expect(fake.service.loadSetup).toHaveBeenCalledTimes(2)
@@ -668,7 +689,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
 
     expect(await screen.findByText('The sitemap contains no Property URLs matching this rule.')).toBeTruthy()
     expect(screen.queryByText('We could not review this sitemap. Check the URL and try again.')).toBeNull()
-    expect(screen.getByRole('heading', { name: 'Import Properties' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Import locations' })).toBeTruthy()
   })
 
   test('requires an explicit restart when a draft is based on an older published setup', async () => {
@@ -686,7 +707,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
 
     await waitFor(() => expect(fake.service.discard).toHaveBeenCalledWith(PROJECT, '"mpd_7"'))
     await waitFor(() => expect(fake.service.createDraft).toHaveBeenCalledWith(PROJECT, 5))
-    expect(await screen.findByRole('heading', { name: 'Import Properties' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Import locations' })).toBeTruthy()
   })
 
   test('confirms 213 synthetic sitemap proposals with one server selection action', async () => {
@@ -695,8 +716,8 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     renderSection(fake)
 
     await reviewSyntheticSitemap()
-    await screen.findByRole('heading', { name: 'Properties' })
-    expect(screen.getByText('Showing 50 of 213 Properties')).toBeTruthy()
+    await screen.findByRole('heading', { name: 'Locations' })
+    expect(screen.getByText('Showing 50 of 213 locations')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByRole('heading', { name: 'Groups' })
 
@@ -763,22 +784,22 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     renderSection(fake)
 
     await reviewSyntheticSitemap()
-    await screen.findByRole('heading', { name: 'Properties' })
+    await screen.findByRole('heading', { name: 'Locations' })
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await advanceGroupsToQuestions()
     fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'all' } })
     fireEvent.click(screen.getByLabelText(`Select query ${QUERIES[0]!.query}`))
-    await clickReadyAssignment(/Assign 1 query to every location \(4\)/)
+    await clickReadyAssignment(/Apply 1 query to every location \(4\)/)
     await waitFor(() => expect(fake.service.applyAssignments).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByRole('heading', { name: 'Review & publish' })
 
-    expect(screen.getByText('Review a new Property')).toBeTruthy()
-    expect(screen.getByText(`Review Target Stores — ${targetStores.discoveredUrl}. It did not match an existing Property.`)).toBeTruthy()
-    expect(screen.getByText('Review a moved Property')).toBeTruthy()
-    expect(screen.getByText(`Review Moved Store — ${movedStore.discoveredUrl}. It may be the same Property as Original Store.`)).toBeTruthy()
-    expect(screen.getByText('Choose an existing Property')).toBeTruthy()
-    expect(screen.getByText(`Review Ambiguous Store — ${ambiguousStore.discoveredUrl}. It may match Original Store; choose the correct Property.`)).toBeTruthy()
+    expect(screen.getByText('Review a new location')).toBeTruthy()
+    expect(screen.getByText(`Review Target Stores · ${targetStores.discoveredUrl}. It did not match an existing location.`)).toBeTruthy()
+    expect(screen.getByText('Review a moved location')).toBeTruthy()
+    expect(screen.getByText(`Review Moved Store · ${movedStore.discoveredUrl}. It may be the same location as Original Store.`)).toBeTruthy()
+    expect(screen.getByText('Choose an existing location')).toBeTruthy()
+    expect(screen.getByText(`Review Ambiguous Store · ${ambiguousStore.discoveredUrl}. It may match Original Store; choose the correct location.`)).toBeTruthy()
     expect(screen.getByText('Unexpected setup warning')).toBeTruthy()
     expect(screen.getByText('Review the latest setup change before publishing. If this warning remains, contact support.')).toBeTruthy()
     expect(document.body.textContent).not.toContain('matches no existing Target')
@@ -796,10 +817,10 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     renderSection(fake)
 
     await reviewSyntheticSitemap()
-    await screen.findByRole('heading', { name: 'Properties' })
+    await screen.findByRole('heading', { name: 'Locations' })
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    const saving = await screen.findByRole('button', { name: 'Saving Properties…' })
+    const saving = await screen.findByRole('button', { name: 'Saving locations…' })
     expect(saving).toHaveProperty('disabled', true)
     fireEvent.click(saving)
     expect(fake.service.applySitemapSelection).toHaveBeenCalledTimes(1)
@@ -824,11 +845,11 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.click(screen.getByLabelText(`Select query ${QUERIES[0]!.query}`))
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)) })
     expect(fake.service.previewAssignments).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: 'Assign 1 query' })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: 'Apply 1 query' })).toHaveProperty('disabled', true)
     expect(screen.getByText('Choose where to apply first.')).toBeTruthy()
 
     fireEvent.change(applyTo, { target: { value: 'all' } })
-    await clickReadyAssignment(/Assign 1 query to every location \(3\)/)
+    await clickReadyAssignment(/Apply 1 query to every location \(3\)/)
     await waitFor(() => expect(fake.service.applyAssignments).toHaveBeenCalledTimes(1))
     expect(fake.service.previewAssignments).toHaveBeenCalledWith(PROJECT, {
       targetKeys: targets.map(target => target.stableKey),
@@ -844,7 +865,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     await advanceGroupsToQuestions()
     fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'all' } })
     for (const query of QUERIES) fireEvent.click(screen.getByLabelText(`Select query ${query.query}`))
-    await clickReadyAssignment(/Assign 2 queries to every location \(3\)/)
+    await clickReadyAssignment(/Apply 2 queries to every location \(3\)/)
 
     await waitFor(() => expect(fake.service.applyAssignments).toHaveBeenCalledTimes(1))
     expect(fake.service.previewAssignments).toHaveBeenCalledTimes(1)
@@ -857,6 +878,21 @@ describe('AdvancedMeasurementSection server draft controller', () => {
       },
     )
     expect(fake.getDraft()?.authoring.assignments).toHaveLength(targets.length * QUERIES.length)
+    expect((await screen.findByText('6 new location links added. Existing links were kept.')).getAttribute('role')).toBe('status')
+  })
+
+  test('says "1 new location link" after a single query lands on a single location', async () => {
+    const fake = createFakeService({ initialDraft: draftFixture({ targets: [property(1)] }) })
+    renderSection(fake)
+
+    await advanceGroupsToQuestions()
+    fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'all' } })
+    fireEvent.click(screen.getByLabelText(`Select query ${QUERIES[0]!.query}`))
+    // The server's counts, before the click and after it.
+    expect(await screen.findByText('1 query → 1 location link · 1 new, 0 already linked · 1 provider request per full run · 1 new')).toBeTruthy()
+    await clickReadyAssignment(/Apply 1 query to every location \(1\)/)
+
+    expect(await screen.findByText('1 new location link added. Existing links were kept.')).toBeTruthy()
   })
 
   test('previews and applies a selected group through one server-resolved audience', async () => {
@@ -874,7 +910,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     await advanceGroupsToQuestions()
     fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'group:group-dallas' } })
     fireEvent.click(screen.getByLabelText(`Select query ${QUERIES[0]!.query}`))
-    await clickReadyAssignment(/Assign 1 query to Dallas/)
+    await clickReadyAssignment(/Apply 1 query to Dallas/)
 
     await waitFor(() => expect(fake.service.applyAssignments).toHaveBeenCalledTimes(1))
     expect(fake.service.previewAssignments).toHaveBeenLastCalledWith(PROJECT, {
@@ -897,14 +933,14 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.click(screen.getByLabelText('Select Property 003'))
     fireEvent.click(screen.getByLabelText('Select Property 001'))
     fireEvent.click(screen.getByLabelText(`Select query ${QUERIES[0]!.query}`))
-    await clickReadyAssignment(/Assign 1 query to 2 locations/)
+    await clickReadyAssignment(/Apply 1 query to 2 locations/)
 
     await waitFor(() => expect(fake.service.applyAssignments).toHaveBeenCalledTimes(1))
     expect(fake.service.applyAssignments).toHaveBeenCalledWith(PROJECT, '"mpd_7"', {
       targetKeys: ['property-001', 'property-003'],
       queryIds: [QUERIES[0]!.id],
     })
-    expect(screen.queryByText('Review the latest assignment impact before assigning queries.')).toBeNull()
+    expect(screen.queryByText('Review the latest impact before applying queries.')).toBeNull()
   })
 
   test('resets the audience when its selected group is removed', async () => {
@@ -951,7 +987,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add 2 queries' }))
 
     expect(await screen.findByText(
-      'The queries were added, but could not be assigned to their Properties. Try again to pair them.',
+      'The queries were added, but could not be linked to their locations. Try again to pair them.',
     )).toBeTruthy()
     expect((screen.getByLabelText('Query pattern') as HTMLInputElement).value).toBe('events at {property}')
     expect(onCreateQueries).toHaveBeenCalledWith(['events at Property 001', 'events at Property 002'])
@@ -1002,7 +1038,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     renderSection(fake)
 
     await advancePropertiesToQuestions()
-    fireEvent.click(screen.getByRole('button', { name: `Clear query assignments for ${QUERIES[0]!.query}` }))
+    fireEvent.click(screen.getByRole('button', { name: `Clear location links for ${QUERIES[0]!.query}` }))
 
     await waitFor(() => expect(fake.service.removeAssignment).toHaveBeenCalledTimes(1))
     expect(fake.service.removeAssignment).toHaveBeenCalledWith(
@@ -1060,7 +1096,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     await screen.findByRole('heading', { name: 'Groups' })
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    await screen.findByRole('heading', { name: 'Properties' })
+    await screen.findByRole('heading', { name: 'Locations' })
     expect(screen.getByText('194 of 194 selected')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await advanceGroupsToQuestions()
@@ -1130,8 +1166,8 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByRole('heading', { name: 'Review & publish' })
 
-    expect(screen.getByText('Fix group Properties')).toBeTruthy()
-    expect(screen.getByText('This group includes a Property that is not in setup. Remove it or add the Property first. Affected: Target Stores.')).toBeTruthy()
+    expect(screen.getByText('Fix group locations')).toBeTruthy()
+    expect(screen.getByText('This group includes a location that is not in setup. Remove it or add the location first. Affected: Target Stores.')).toBeTruthy()
     expect(document.body.textContent).not.toContain('group-target-stores')
     expect(document.body.textContent).not.toContain('names 1 Target')
   })
@@ -1199,7 +1235,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
         await refreshedPreviewGate
         return preview
       })
-    const assignButtonName = /Assign 1 query to every location \(1\)/
+    const assignButtonName = /Apply 1 query to every location \(1\)/
     renderSection(fake)
     await advanceGroupsToQuestions()
     fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'all' } })
@@ -1228,6 +1264,10 @@ describe('AdvancedMeasurementSection server draft controller', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
     await screen.findByRole('button', { name: 'Publish setup' })
+    // The reviewed changes and the counts table name locations and location links.
+    const reviewed = screen.getByRole('heading', { name: 'Changes ready' }).closest('section')!
+    expect([...reviewed.querySelectorAll('li')].map(item => item.textContent)).toEqual(['1 location change', '1 location link change'])
+    expect(screen.getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Locations', 'Queries', 'Groups', 'Location links', 'Provider requests / run'])
     fireEvent.click(screen.getByRole('button', { name: 'Publish setup' }))
 
     await waitFor(() => expect(fake.service.publish).toHaveBeenCalledTimes(1))
@@ -1236,6 +1276,34 @@ describe('AdvancedMeasurementSection server draft controller', () => {
       expectedCompiledChecksum: COMPILED_CHECKSUM,
     })
     expect(onPublished).toHaveBeenCalledTimes(1)
+  })
+
+  test('tells an older setup to republish in two words, with the reason behind them', async () => {
+    const draft = draftFixture({ targets: [property(1)], assignedQueryIds: ['q-nearby'], baseActiveRevision: 4 })
+    const fake = createFakeService({ initialDraft: draft })
+    vi.mocked(fake.service.loadSetup).mockResolvedValue({
+      ...setupFixture(draft),
+      mode: 'active-v1',
+      activeSchemaVersion: 1,
+    })
+    renderSection(fake)
+
+    await screen.findByRole('heading', { name: 'Locations' })
+    const note = screen.getByRole('button', { name: 'Republish needed. Review and publish this setup to report Branded and Non-brand queries separately.' })
+    expect(note.textContent).toBe('Republish needed')
+    expect(note.closest('[role="status"]')).not.toBeNull()
+  })
+
+  test('asks a setup with no location links to apply a query, in the words of the Queries step', async () => {
+    const fake = createFakeService({ initialDraft: draftFixture({ targets: [property(1)] }) })
+    renderSection(fake, { canEdit: false })
+
+    await screen.findByRole('heading', { name: 'Groups' })
+    fireEvent.click(screen.getByRole('button', { name: 'Review and publish' }))
+    await screen.findByRole('heading', { name: 'Review & publish' })
+
+    expect(screen.getByText('Apply at least one query')).toBeTruthy()
+    expect(screen.getByText('Apply a tracked query to at least one location before publishing.')).toBeTruthy()
   })
 
   test.each([true, false])('pauses Publish setup while a sweep is queued or running (sweepActive=%s)', async (sweepActive) => {
@@ -1322,12 +1390,12 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
 
     expect(await screen.findByText('Choose a provider')).toBeTruthy()
-    expect(screen.getByText('Choose at least one provider before publishing. 194 query assignments need a provider. Affected: Property 001 — event venues nearby, Property 002 — event venues nearby, Property 003 — event venues nearby, and 191 more.')).toBeTruthy()
-    expect(screen.getByText('Add Property aliases')).toBeTruthy()
-    expect(screen.getByText('Add a name or alias to measure mentions. 194 Properties need aliases. Affected: Property 001, Property 002, Property 003, and 191 more.')).toBeTruthy()
-    expect(screen.getByText('Assign queries')).toBeTruthy()
-    expect(screen.getByText('Assign at least one query to measure a Property. 194 Properties need queries. Affected: Property 001, Property 002, Property 003, and 191 more.')).toBeTruthy()
-    expect(screen.getByText('Fix a Property URL')).toBeTruthy()
+    expect(screen.getByText('Choose at least one provider before publishing. 194 location links need a provider. Affected: Property 001 · event venues nearby, Property 002 · event venues nearby, Property 003 · event venues nearby, and 191 more.')).toBeTruthy()
+    expect(screen.getByText('Add location aliases')).toBeTruthy()
+    expect(screen.getByText('Add a name or alias to measure mentions. 194 locations need aliases. Affected: Property 001, Property 002, Property 003, and 191 more.')).toBeTruthy()
+    expect(screen.getByText('Apply queries')).toBeTruthy()
+    expect(screen.getByText('Apply at least one query to measure a location. 194 locations need queries. Affected: Property 001, Property 002, Property 003, and 191 more.')).toBeTruthy()
+    expect(screen.getByText('Fix a location URL')).toBeTruthy()
     expect(screen.getByText('Use a project domain')).toBeTruthy()
     expect(screen.getByText('Showing 5 of 5')).toBeTruthy()
     expect(document.body.textContent).not.toContain('An execution context must name at least one provider.')
@@ -1364,7 +1432,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
       ],
     })
     renderSection(fake)
-    await screen.findByRole('heading', { name: 'Properties' })
+    await screen.findByRole('heading', { name: 'Locations' })
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByRole('heading', { name: 'Groups' })
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
@@ -1374,10 +1442,10 @@ describe('AdvancedMeasurementSection server draft controller', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
 
-    expect(await screen.findByText('Reduce Properties')).toBeTruthy()
-    expect(screen.getByText('This setup exceeds the Properties publishing limit. Remove some Properties, then review again.')).toBeTruthy()
+    expect(await screen.findByText('Reduce locations')).toBeTruthy()
+    expect(screen.getByText('This setup exceeds the location publishing limit. Remove some locations, then review again.')).toBeTruthy()
     expect(screen.getByText('Remove a duplicate competitor')).toBeTruthy()
-    expect(screen.getByText('List each competitor domain only once in a group. Affected: Target Stores — www.rival.com.')).toBeTruthy()
+    expect(screen.getByText('List each competitor domain only once in a group. Affected: Target Stores · www.rival.com.')).toBeTruthy()
     expect(document.body.textContent).not.toContain('Return to the earlier setup steps and review the affected Property or query.')
     expect(document.body.textContent).not.toContain('A draft holds at most 1000 Targets.')
     expect(document.body.textContent).not.toContain('Competitor is listed twice in group group-target-stores: rival.com')
@@ -1397,30 +1465,30 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     }]
     const compilerRules: Array<readonly [string, string, readonly (string | number)[], 'fail' | 'warn']> = [
       ['invalid-project-identity', 'Fix the project domain', ['identities', 'projectBrand', 'canonicalHost'], 'fail'],
-      ['target-limit-exceeded', 'Reduce Properties', ['targets'], 'fail'],
-      ['duplicate-target-key', 'Resolve duplicate Properties', ['targets', 0, 'stableKey'], 'fail'],
-      ['no-included-targets', 'Include a Property', ['targets'], 'fail'],
-      ['target-url-matcher-invalid', 'Fix a Property URL', ['targets', 0, 'urlMatchers', 0], 'fail'],
+      ['target-limit-exceeded', 'Reduce locations', ['targets'], 'fail'],
+      ['duplicate-target-key', 'Resolve duplicate locations', ['targets', 0, 'stableKey'], 'fail'],
+      ['no-included-targets', 'Include a location', ['targets'], 'fail'],
+      ['target-url-matcher-invalid', 'Fix a location URL', ['targets', 0, 'urlMatchers', 0], 'fail'],
       ['target-url-matcher-unowned', 'Use a project domain', ['targets', 0, 'urlMatchers', 0], 'fail'],
-      ['target-url-matcher-ambiguous', 'Separate Property URL coverage', ['targets', 0, 'urlMatchers', 0], 'fail'],
-      ['target-alias-ambiguous', 'Use distinct Property names', ['targets', 0, 'aliases', 0], 'fail'],
-      ['target-without-aliases', 'Add Property aliases', ['targets', 0, 'aliases'], 'warn'],
+      ['target-url-matcher-ambiguous', 'Separate location URLs', ['targets', 0, 'urlMatchers', 0], 'fail'],
+      ['target-alias-ambiguous', 'Use distinct location names', ['targets', 0, 'aliases', 0], 'fail'],
+      ['target-without-aliases', 'Add location aliases', ['targets', 0, 'aliases'], 'warn'],
       ['duplicate-group-key', 'Resolve duplicate groups', ['groups', 0, 'stableKey'], 'fail'],
-      ['group-unknown-target', 'Fix group Properties', ['groups', 0, 'targetKeys', 2], 'fail'],
-      ['group-excluded-target', 'Include or remove a grouped Property', ['groups', 0, 'targetKeys', 1], 'fail'],
+      ['group-unknown-target', 'Fix group locations', ['groups', 0, 'targetKeys', 2], 'fail'],
+      ['group-excluded-target', 'Include or remove a grouped location', ['groups', 0, 'targetKeys', 1], 'fail'],
       ['competitor-invalid-domain', 'Fix a competitor domain', ['groups', 0, 'competitors', 0, 'domain'], 'fail'],
       ['competitor-matches-project', 'Remove a project domain', ['groups', 0, 'competitors', 0, 'domain'], 'fail'],
       ['competitor-duplicate', 'Remove a duplicate competitor', ['groups', 0, 'competitors', 1], 'fail'],
       ['execution-context-no-provider', 'Choose a provider', ['assignments', 0, 'contextOverride', 'providers'], 'fail'],
       ['invalid-provider-model', 'Fix provider settings', ['assignments', 0, 'contextOverride', 'models', 'gemini'], 'fail'],
-      ['invalid-location', 'Fix a location', ['assignments', 0, 'contextOverride', 'locations', 0], 'fail'],
+      ['invalid-location', 'Fix a search location', ['assignments', 0, 'contextOverride', 'locations', 0], 'fail'],
       ['duplicate-assignment', 'Remove a duplicate query', ['assignments', 0], 'fail'],
-      ['assignment-unknown-target', 'Fix a query assignment', ['assignments', 0, 'targetKey'], 'fail'],
-      ['assignment-excluded-target', 'Include or unassign a Property', ['assignments', 0, 'targetKey'], 'fail'],
+      ['assignment-unknown-target', 'Fix a location link', ['assignments', 0, 'targetKey'], 'fail'],
+      ['assignment-excluded-target', 'Include or unlink a location', ['assignments', 0, 'targetKey'], 'fail'],
       ['assignment-unknown-query', 'Remove an unavailable query', ['assignments', 0, 'queryId'], 'fail'],
-      ['assignment-unclassified', 'Classify a query', ['assignments', 0, 'queryClass'], 'fail'],
+      ['assignment-unclassified', 'Set a query type', ['assignments', 0, 'queryClass'], 'fail'],
       ['query-limit-exceeded', 'Reduce queries', ['assignments'], 'fail'],
-      ['target-without-assignments', 'Assign queries', ['targets', 0], 'warn'],
+      ['target-without-assignments', 'Apply queries', ['targets', 0], 'warn'],
       ['invalid-compiled-plan', 'Fix setup details', ['targets', 0, 'label'], 'fail'],
       ['compiled-plan-too-large', 'Reduce setup size', [], 'fail'],
     ]
@@ -1476,9 +1544,9 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
 
     expect(await screen.findByText('Fix provider settings')).toBeTruthy()
-    expect(screen.getByText('Choose the provider that runs this model, or remove the model setting. Affected: Property 001 — event venues nearby — gpt-default.')).toBeTruthy()
-    expect(screen.getByText('Fix a location')).toBeTruthy()
-    expect(screen.getByText('Choose a location configured for this project, or remove it from the query. Affected: Property 001 — event venues nearby — Target Stores.')).toBeTruthy()
+    expect(screen.getByText('Choose the provider that runs this model, or remove the model setting. Affected: Property 001 · event venues nearby · gpt-default.')).toBeTruthy()
+    expect(screen.getByText('Fix a search location')).toBeTruthy()
+    expect(screen.getByText('Choose a search location configured for this project, or remove it from the query. Affected: Property 001 · event venues nearby · Target Stores.')).toBeTruthy()
     expect(document.body.textContent).not.toContain('Internal model error.')
     expect(document.body.textContent).not.toContain('Internal location error.')
   })
@@ -1543,7 +1611,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
   test('discards the server draft only after explicit confirmation', async () => {
     const fake = createFakeService({ initialDraft: draftFixture() })
     renderSection(fake)
-    await screen.findByRole('heading', { name: 'Import Properties' })
+    await screen.findByRole('heading', { name: 'Import locations' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
     expect(fake.service.discard).not.toHaveBeenCalled()
@@ -1557,7 +1625,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
   test('recovers when another session already discarded the draft', async () => {
     const fake = createFakeService({ initialDraft: draftFixture(), discardConflictStatus: 404 })
     renderSection(fake)
-    await screen.findByRole('heading', { name: 'Import Properties' })
+    await screen.findByRole('heading', { name: 'Import locations' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
     fireEvent.click(screen.getByRole('button', { name: 'Discard unpublished changes' }))

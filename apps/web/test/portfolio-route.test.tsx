@@ -1700,6 +1700,7 @@ test('a failed setup read blocks setup instead of looking planless', async () =>
   await waitFor(() => {
     expect(screen.getByText('Could not load advanced measurement setup.')).toBeTruthy()
   })
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Review sitemap' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Publish setup' })).toBeNull()
 })
@@ -1779,7 +1780,7 @@ test('cached setup and queries remain usable when their background refresh fails
     expect(queryClient.getQueryState(planKey)?.status).toBe('error')
     expect(queryClient.getQueryState(queriesKey)?.status).toBe('error')
   })
-  expect(screen.getByRole('heading', { name: 'Properties' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Locations' })).toBeTruthy()
   expect(screen.queryByText('Could not load the active measurement setup.')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
   await waitFor(() => expect(screen.getByRole('heading', { name: 'Groups' })).toBeTruthy())
@@ -3651,7 +3652,7 @@ test('a viewer reads setup on a scope-blind tab only when the URL is scoped', as
 test('a public demo visitor on a scope-blind tab reads the plan once for the Advanced tag, and no setup', async () => {
   window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
   const { observed, page } = await renderScopeRoute('/projects/project_citypoint/technical-aeo', trackingRoute(), { accountRole: 'viewer' })
-  await waitFor(() => expect(contextRow(page.container).querySelector('.project-mode-tag')?.textContent).toBe('Advanced1 location · 1 market'))
+  await waitFor(() => expect(contextRow(page.container).querySelector('.project-mode-tag')?.textContent).toBe('Advanced1 location · 1 group'))
   expect(observed.filter(url => url.pathname.endsWith('/measurement-plan'))).toHaveLength(1)
   expect(observed.some(url => url.pathname.endsWith('/measurement-setup'))).toBe(false)
   expect(contextRow(page.container).querySelector('.project-context-scope')).toBeNull()

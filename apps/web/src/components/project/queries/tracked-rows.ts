@@ -60,8 +60,8 @@ export function assignmentScopeLabel(
     const inGroup = relevantTargetKeys.size
     const shared = Math.max(0, allTargetKeys.size - inGroup)
     return [
-      `${inGroup} ${inGroup === 1 ? 'property' : 'properties'} in this group`,
-      ...(shared ? [`Shared with ${shared} other ${shared === 1 ? 'property' : 'properties'}`] : []),
+      `${inGroup} ${inGroup === 1 ? 'location' : 'locations'} in this group`,
+      ...(shared ? [`Shared with ${shared} other ${shared === 1 ? 'location' : 'locations'}`] : []),
     ].join(' · ')
   }
 
@@ -73,8 +73,8 @@ export function assignmentScopeLabel(
   }
   const propertyScope = selection?.measurementScope === 'property' && allTargetKeys.has(selection.measurementScopeKey ?? '')
   const parts = propertyScope
-    ? allTargetKeys.size === 1 ? ['This property only'] : ['This property', `Shared with ${allTargetKeys.size - 1} other ${allTargetKeys.size === 2 ? 'property' : 'properties'}`]
-    : relevantTargetKeys.size === 1 ? [targetLabels.get([...relevantTargetKeys][0]!) ?? [...relevantTargetKeys][0]!] : [`${relevantTargetKeys.size} properties`]
+    ? allTargetKeys.size === 1 ? ['This location only'] : ['This location', `Shared with ${allTargetKeys.size - 1} other ${allTargetKeys.size === 2 ? 'location' : 'locations'}`]
+    : relevantTargetKeys.size === 1 ? [targetLabels.get([...relevantTargetKeys][0]!) ?? [...relevantTargetKeys][0]!] : [`${relevantTargetKeys.size} locations`]
   const group = groupKeys.size === 1 ? groupLabels.get([...groupKeys][0]!) ?? [...groupKeys][0]! : null
   const market = marketKeys.size === 1 ? marketLabels.get([...marketKeys][0]!) ?? [...marketKeys][0]! : null
   if (group && market && group === market) parts.push(`${group} (group and market)`)

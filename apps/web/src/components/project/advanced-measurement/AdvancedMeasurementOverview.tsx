@@ -455,8 +455,8 @@ function CappedEvidenceList({
 function PropertyDetails({ property, onRetryEvidence }: { property: AdvancedMeasurementProperty; onRetryEvidence?: () => void }) {
   return (
     <div className="space-y-5 py-2">
-      <CappedStringList title="Assigned queries" values={property.assignedQueries} emptyLabel="No queries are assigned." />
-      <CappedStringList title="URLs" values={property.urls} emptyLabel="No URLs are assigned." valueClassName="break-all text-secondary" />
+      <CappedStringList title="Tracked queries" values={property.assignedQueries} emptyLabel="No tracked queries." />
+      <CappedStringList title="URLs" values={property.urls} emptyLabel="No URLs." valueClassName="break-all text-secondary" />
       <CappedEvidenceList evidence={property.evidence} state={property.evidenceState} onRetry={onRetryEvidence} />
     </div>
   )

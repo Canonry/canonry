@@ -1679,6 +1679,6 @@ branded queries` plus favorable / judged); JSON keeps `sentiment.branded`,
 `nonBrand` and `overall` unchanged. A branded summary spanning more than one
 Property carries `criticizedProperties` (`total`, and `keys`: the first 5 property
 breakdown keys, most mixed plus unfavorable first). Text output lists them under
-`Most criticized properties: N of total` with favorable, mixed and unfavorable
+`Most criticized locations: N of total` with favorable, mixed and unfavorable
 counts; read one with `--scope property --scope-key <key> --outcome mixed,unfavorable`
 (in a market view, pass that market as `--market-key`).

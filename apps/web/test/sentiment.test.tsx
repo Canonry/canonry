@@ -544,6 +544,11 @@ describe('sentiment presentation', () => {
       expect(within(simple!).getByText('No location')).toBeTruthy()
       expect(within(simple!).getByText('Target project-1; market None; branded')).toBeTruthy()
       expect(dialog.textContent).not.toMatch(/propert/i)
+      // The Advanced item's provenance names the published setup and its location link; the Simple item keeps its two labels.
+      const terms = (article: HTMLElement) => [...article.querySelectorAll('dt')].map(term => term.textContent)
+      expect(terms(advanced!)).toEqual(['Query', 'Subject', 'Run', 'Setup version', 'Evaluator', 'Evaluation definition', 'Source snapshot', 'Source hash', 'Location link'])
+      expect(terms(simple!)).toEqual(['Query', 'Subject', 'Run', 'Revision', 'Evaluator', 'Evaluation definition', 'Source snapshot', 'Source hash', 'Assignment'])
+      expect(advanced!.textContent).not.toMatch(/revision|assignment/i)
     } finally { page.close() }
   })
 })
@@ -2080,8 +2085,12 @@ describe('sentiment generated SDK and administrator flow', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'Manage sentiment' }))
       const limit = screen.getByRole('checkbox', { name: /Limit to the current view/ }) as HTMLInputElement
       expect(limit.checked).toBe(false)
-      expect(limit.closest('label')!.textContent).toContain('engine openai · model source-model · search location Chicago · location north · market chicago · revision 3')
-      expect(screen.getByText('The backfill covers every engine, search location and query of the chosen sweep for this query class.')).toBeTruthy()
+      expect(limit.closest('label')!.textContent).toContain('engine openai · model source-model · search location Chicago · location north · market chicago · setup version 3')
+      // An Advanced view says Type, and the sentence about what a backfill covers sits behind a short note.
+      expect(screen.getByRole('combobox', { name: 'Type' })).toBeTruthy()
+      expect(screen.queryByRole('combobox', { name: 'Query class' })).toBeNull()
+      expect(screen.getByRole('button', { name: 'Covers the whole sweep. The backfill covers every engine, search location and query of the chosen sweep for this type.' }).textContent).toBe('Covers the whole sweep')
+      expect(screen.queryByText(/of the chosen sweep for this/)).toBeNull()
       fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
       await screen.findByText('Branded queries · whole sweep')
       expect(Object.fromEntries(previews[0]!.searchParams)).toEqual({ mode: 'auto', scope: 'project', queryClass: 'branded', runId: 'run' })
@@ -2091,7 +2100,7 @@ describe('sentiment generated SDK and administrator flow', () => {
 
       fireEvent.click(limit)
       fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
-      await screen.findByText('Branded queries · engine openai · model source-model · search location Chicago · location north · market chicago · revision 3')
+      await screen.findByText('Branded queries · engine openai · model source-model · search location Chicago · location north · market chicago · setup version 3')
       expect(Object.fromEntries(previews[1]!.searchParams)).toMatchObject({ mode: 'advanced', queryClass: 'branded', runId: 'run', provider: 'openai', model: 'source-model', location: 'Chicago', scope: 'property', scopeKey: 'north', marketKey: 'chicago', revision: '3' })
       expect(screen.getByText('No saved answers in this selection can be classified.')).toBeTruthy()
       expect((screen.getByRole('button', { name: 'Confirm sentiment backfill' }) as HTMLButtonElement).disabled).toBe(true)
@@ -2102,16 +2111,16 @@ describe('sentiment generated SDK and administrator flow', () => {
     { name: 'keeps "location" for the engine\'s place in a Simple view, which has no Property to tell it from',
       view: { mode: 'simple' as const, queryClass: 'branded' as const, scope: 'project' as const, provider: 'openai', location: 'Chicago', runId: 'run' },
       echo: { mode: 'simple' as const, revision: null },
-      filters: 'engine openai · location Chicago', covers: 'every engine, location and query' },
+      filters: 'engine openai · location Chicago', advanced: false },
     { name: 'says "search location" beside a Property when the server echoes a run with no plan on an Advanced view',
       view: { mode: 'advanced' as const, queryClass: 'branded' as const, scope: 'property' as const, scopeKey: 'north', provider: 'openai', location: 'Chicago', runId: 'run' },
       echo: { mode: 'simple' as const, revision: null },
-      filters: 'engine openai · search location Chicago · location north', covers: 'every engine, search location and query' },
+      filters: 'engine openai · search location Chicago · location north', advanced: true },
     { name: 'says "no search location" in an Advanced view of answers asked from no place',
       view: { mode: 'advanced' as const, queryClass: 'branded' as const, scope: 'project' as const, provider: 'openai', location: 'none', runId: 'run' },
       echo: { mode: 'advanced' as const, revision: 3 },
-      filters: 'engine openai · no search location', covers: 'every engine, search location and query' },
-  ])('$name', async ({ view, echo, filters, covers }) => {
+      filters: 'engine openai · no search location', advanced: true },
+  ])('$name', async ({ view, echo, filters, advanced }) => {
     const dto = summary(); dto.selection = { ...view, ...echo, evaluationDefinitionId: 'definition-a' }
     const restore = mockFetch(url => {
       const request = new URL(url)
@@ -2124,7 +2133,12 @@ describe('sentiment generated SDK and administrator flow', () => {
       render(<QueryClientProvider client={client}><SentimentSection projectName="project" selection={view} /></QueryClientProvider>)
       fireEvent.click(await screen.findByRole('button', { name: 'Manage sentiment' }))
       expect(screen.getByRole('checkbox', { name: /Limit to the current view/ }).closest('label')!.textContent).toContain(`Limit to the current view${filters}`)
-      expect(screen.getByText(`The backfill covers ${covers} of the chosen sweep for this query class.`)).toBeTruthy()
+      // A Simple view reads as it always did: "Query class" and the sentence. An Advanced view says Type, with the sentence behind a note.
+      const sentence = screen.queryByText('The backfill covers every engine, location and query of the chosen sweep for this query class.')
+      const note = screen.queryByRole('button', { name: 'Covers the whole sweep. The backfill covers every engine, search location and query of the chosen sweep for this type.' })
+      expect([sentence !== null, note !== null]).toEqual([!advanced, advanced])
+      expect(screen.getByRole('combobox', { name: advanced ? 'Type' : 'Query class' })).toBeTruthy()
+      expect(screen.queryByRole('combobox', { name: advanced ? 'Query class' : 'Type' })).toBeNull()
     } finally { cleanup(); client.clear(); restore() }
   })
   it('previews without admission and reuses the request key after an uncertain response', async () => {

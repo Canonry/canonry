@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import { AdvancedMeasurementSetupWizard } from '../src/components/project/advanced-measurement/AdvancedMeasurementSetupWizard.js'
 
 afterEach(cleanup)
+
+// The one sentence about the wizard sits behind the help icon beside its heading.
+const INTRO = 'Choose the locations and queries you want to measure.'
 
 describe('advanced measurement setup shell', () => {
   it('shows the five customer-facing steps in order', () => {
@@ -15,35 +18,39 @@ describe('advanced measurement setup shell', () => {
 
     expect(screen.getAllByRole('listitem').map(item => item.textContent)).toEqual([
       'Import',
-      'Properties',
+      'Locations',
       'Groups',
       'Queries',
       'Review and publish',
     ])
-    expect(screen.getByText('Properties').getAttribute('aria-current')).toBe('step')
+    expect(screen.getByText('Locations').getAttribute('aria-current')).toBe('step')
     expect(screen.getByRole('group', { name: 'Advanced measurement setup progress' })).toBeTruthy()
     expect(screen.queryByRole('navigation', { name: 'Advanced measurement setup progress' })).toBeNull()
 
     const heading = screen.getByRole('heading', { name: 'Advanced measurement setup' })
     expect(heading.parentElement?.parentElement?.className).toContain('flex-wrap')
+    // No sentence under the heading: it is the help icon's name and bubble.
+    expect(screen.getByRole('button', { name: INTRO })).toBeTruthy()
+    expect(screen.queryByText(INTRO)).toBeNull()
+    expect(document.body.textContent).not.toMatch(/propert/i)
   })
 
   it('moves focus to the new step heading after a step change', async () => {
     const view = render(
       <AdvancedMeasurementSetupWizard currentStep="import" hasDraft={false} canEdit>
-        <section><h2>Import Properties</h2><button type="button">Review sitemap</button></section>
+        <section><h2>Import locations</h2><button type="button">Review sitemap</button></section>
       </AdvancedMeasurementSetupWizard>,
     )
     screen.getByRole('button', { name: 'Review sitemap' }).focus()
 
     view.rerender(
       <AdvancedMeasurementSetupWizard currentStep="properties" hasDraft={false} canEdit>
-        <section><h2>Properties</h2><button type="button">Continue</button></section>
+        <section><h2>Locations</h2><button type="button">Continue</button></section>
       </AdvancedMeasurementSetupWizard>,
     )
 
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Properties' })))
-    expect(screen.getByRole('heading', { name: 'Properties' }).getAttribute('tabindex')).toBe('-1')
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Locations' })))
+    expect(screen.getByRole('heading', { name: 'Locations' }).getAttribute('tabindex')).toBe('-1')
   })
 
   it('makes every step an accessible navigation button when step navigation is supplied', () => {
@@ -54,8 +61,11 @@ describe('advanced measurement setup shell', () => {
       </AdvancedMeasurementSetupWizard>,
     )
 
-    expect(screen.getAllByRole('button')).toHaveLength(5)
-    expect(screen.getByRole('button', { name: 'Properties' }).getAttribute('aria-current')).toBe('step')
+    const progress = screen.getByRole('group', { name: 'Advanced measurement setup progress' })
+    expect(within(progress).getAllByRole('button')).toHaveLength(5)
+    // The only button outside the steps is the help icon.
+    expect(screen.getAllByRole('button')).toHaveLength(6)
+    expect(screen.getByRole('button', { name: 'Locations' }).getAttribute('aria-current')).toBe('step')
 
     fireEvent.click(screen.getByRole('button', { name: 'Review and publish' }))
     expect(onStepChange).toHaveBeenCalledWith('review')
@@ -93,6 +103,7 @@ describe('advanced measurement setup shell', () => {
     )
 
     expect(screen.getByText('Unpublished changes')).toBeTruthy()
-    expect(screen.queryByRole('button')).toBeNull()
+    // The help icon is the only button: no step, discard or other control.
+    expect(screen.getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual([INTRO])
   })
 })

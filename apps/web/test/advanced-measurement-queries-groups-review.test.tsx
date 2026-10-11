@@ -158,8 +158,8 @@ test('shows Property scope before dependent query patterns and previews cross-pr
   const creation = screen.getAllByText('Add queries').find(element => element.tagName === 'SUMMARY')?.closest('details')
 
   expect(scope?.compareDocumentPosition(creation!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
-  expect(screen.getByText(/2 new, 0 already assigned/)).toBeTruthy()
-  const apply = screen.getByRole('button', { name: 'Assign 1 query to every location (2)' })
+  expect(screen.getByText(/2 new, 0 already linked/)).toBeTruthy()
+  const apply = screen.getByRole('button', { name: 'Apply 1 query to every location (2)' })
   expect(apply.className).toContain('min-h-11')
   expect(apply.className).toContain('bg-accent')
   expect(screen.getByRole('button', { name: 'Continue' }).className).toContain('border')
@@ -173,7 +173,9 @@ test('shows Property scope before dependent query patterns and previews cross-pr
 test('clears an individual query assignment with explicit wording', () => {
   const { props } = renderQueries()
 
-  fireEvent.click(screen.getByRole('button', { name: 'Clear query assignments for Harbor House events' }))
+  const clear = screen.getByRole('button', { name: 'Clear location links for Harbor House events' })
+  expect(clear.textContent).toBe('Clear location links')
+  fireEvent.click(clear)
 
   expect(props.onRemoveQuery).toHaveBeenCalledWith('q-saved')
 })
@@ -182,11 +184,17 @@ test('offers an explicit replacement editor for an already assigned query', () =
   const onReplaceAssignments = vi.fn()
   renderQueries({ onReplaceAssignments })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Replace query assignments for Harbor House events' }))
-  expect(screen.getByRole('heading', { name: 'Replace assigned Properties' })).toBeTruthy()
+  const replace = screen.getByRole('button', { name: 'Replace location links for Harbor House events' })
+  expect(replace.textContent).toBe('Replace location links')
+  fireEvent.click(replace)
+  expect(screen.getByRole('heading', { name: 'Replace location links' })).toBeTruthy()
+  // What the replacement does is the help icon beside the heading, not a sentence under it.
+  expect(screen.getByRole('button', { name: 'This replaces every location linked to “Harbor House events”.' })).toBeTruthy()
+  expect(screen.getByRole('group', { name: 'Locations for this query' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Keep current location links' })).toBeTruthy()
   fireEvent.click(screen.getAllByRole('button', { name: 'Clear selection' }).at(-1)!)
   fireEvent.click(screen.getAllByLabelText('Select North Hall').at(-1)!)
-  fireEvent.click(screen.getByRole('button', { name: 'Replace with 1 Property' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Replace with 1 location' }))
   expect(onReplaceAssignments).toHaveBeenCalledWith({ queryId: 'q-saved', propertyIds: ['north-hall'] })
 })
 
@@ -205,7 +213,7 @@ test('keeps a missing tracked query visible only for clearing its assignments', 
 
   expect(screen.getAllByText('Unavailable tracked query').length).toBeGreaterThan(0)
   expect(screen.queryByLabelText('Select query Removed event query')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Clear query assignments for Unavailable tracked query' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Clear location links for Unavailable tracked query' }))
   expect(props.onRemoveQuery).toHaveBeenCalledWith('q-missing')
 })
 
@@ -244,10 +252,13 @@ test('uses one audience control for every location, groups, and the Specific loc
   })
 
   expect((screen.getByLabelText('Apply to') as HTMLSelectElement).value).toBe('group:waterfront-venues')
-  expect(screen.getByText('1 query → 1 Property assignment · 1 new, 0 already assigned · 4 provider requests per full run · 2 new · 1 unique Property. Existing assignments stay in place.')).toBeTruthy()
+  // The counts are the line; the one sentence beside them is the help icon.
+  expect(screen.getByText('1 query → 1 location link · 1 new, 0 already linked · 4 provider requests per full run · 2 new · 1 unique location')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Existing location links stay in place.' })).toBeTruthy()
+  expect(screen.getByRole('option', { name: 'Waterfront venues · 1 location' })).toBeTruthy()
   fireEvent.change(screen.getByLabelText('Add another group'), { target: { value: 'downtown' } })
   expect(onAudienceChange).toHaveBeenLastCalledWith({ kind: 'groups', groupIds: ['waterfront-venues', 'downtown'] })
-  fireEvent.click(screen.getByRole('button', { name: 'Assign 1 query to Waterfront venues' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Apply 1 query to Waterfront venues' }))
   expect(onApplySelectedQueries).toHaveBeenCalledWith({
     queryIds: ['q-saved'],
     propertyIds: ['harbor-house'],
@@ -278,7 +289,7 @@ test('shows zero new provider requests when the execution nodes are already reus
     },
   })
 
-  expect(screen.getByText('1 query → 1 Property assignment · 0 new, 1 already assigned · 4 provider requests per full run · 0 new · 1 unique Property. Existing assignments stay in place.')).toBeTruthy()
+  expect(screen.getByText('1 query → 1 location link · 0 new, 1 already linked · 4 provider requests per full run · 0 new · 1 unique location')).toBeTruthy()
 })
 
 test('keeps selected queries visible and disables assignment when the server impact cannot be calculated', () => {
@@ -287,12 +298,12 @@ test('keeps selected queries visible and disables assignment when the server imp
     audience: { kind: 'all' },
     onAudienceChange: vi.fn(),
     assignmentImpact: null,
-    assignmentImpactError: 'Could not calculate assignment impact.',
+    assignmentImpactError: 'Could not calculate impact.',
     onRetryAssignmentImpact,
   })
 
-  expect(screen.getByRole('alert').textContent).toContain('Could not calculate assignment impact.')
-  expect(screen.getByRole('button', { name: 'Assign 1 query to every location (2)' })).toHaveProperty('disabled', true)
+  expect(screen.getByRole('alert').textContent).toContain('Could not calculate impact.')
+  expect(screen.getByRole('button', { name: 'Apply 1 query to every location (2)' })).toHaveProperty('disabled', true)
   expect((screen.getByLabelText('Select query Harbor House events') as HTMLInputElement).checked).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: 'Retry impact' }))
   expect(onRetryAssignmentImpact).toHaveBeenCalledTimes(1)
@@ -328,19 +339,19 @@ test('makes the query Property picker searchable and bounded for large portfolio
     assignmentImpact: null,
   })
 
-  expect(screen.getByText('Showing 50 of 55 Properties')).toBeTruthy()
+  expect(screen.getByText('Showing 50 of 55 locations')).toBeTruthy()
   expect(screen.queryByLabelText('Select Property 51')).toBeNull()
   expect(screen.queryByRole('button', { name: 'Select all shown' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Clear selection' })).toBeNull()
   fireEvent.click(screen.getByLabelText('Select Property 1'))
   expect(onAudienceChange).toHaveBeenCalledWith({ kind: 'specific', propertyIds: ['property-1'] })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Show all Properties' }))
-  expect(screen.getByText('Showing 55 of 55 Properties')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Show all locations' }))
+  expect(screen.getByText('Showing 55 of 55 locations')).toBeTruthy()
   expect(screen.getByLabelText('Select Property 51')).toBeTruthy()
 
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search Properties' }), { target: { value: 'Property 55' } })
-  expect(screen.getByText('Showing 1 of 1 Properties')).toBeTruthy()
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search locations' }), { target: { value: 'Property 55' } })
+  expect(screen.getByText('Showing 1 of 1 locations')).toBeTruthy()
   expect(screen.getByLabelText('Select Property 55')).toBeTruthy()
 
   view.unmount()
@@ -353,11 +364,12 @@ test('shares the bounded, searchable Property picker with group setup', () => {
     groupDraft: emptyGroupDraft,
   })
 
-  fireEvent.click(screen.getByText('0 of 55 Properties selected'))
-  expect(screen.getByText('Showing 50 of 55 Properties')).toBeTruthy()
+  fireEvent.click(screen.getByText('0 of 55 locations selected'))
+  expect(screen.getByRole('group', { name: 'Locations in this group' })).toBeTruthy()
+  expect(screen.getByText('Showing 50 of 55 locations')).toBeTruthy()
   expect(screen.queryByLabelText('Select Property 51')).toBeNull()
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search Properties' }), { target: { value: 'Property 55' } })
-  expect(screen.getByText('Showing 1 of 1 Properties')).toBeTruthy()
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search locations' }), { target: { value: 'Property 55' } })
+  expect(screen.getByText('Showing 1 of 1 locations')).toBeTruthy()
 })
 
 // Previously this asserted the copy "Add queries to this project first. Then
@@ -417,7 +429,7 @@ test('writes one query per selected Property from a pattern, paired to it', () =
   for (const pair of pairs) expect(pair.text.includes('{property}')).toBe(false)
 })
 
-test('states how many assignments the pattern will create', () => {
+test('states how many location links the pattern will create', () => {
   renderQueries({
     queries: [],
     selectedQueryIds: [],
@@ -430,13 +442,54 @@ test('states how many assignments the pattern will create', () => {
   })
 
   // The number nobody saw before a plan was published with 45,369 of them.
-  expect(screen.getByText(/adds \d+ assignments?/)).toBeTruthy()
+  // It is the visible label; the reason is the note's sentence.
+  const note = screen.getByRole('button', { name: 'Adds 2 location links. Each query is measured on the one location it names.' })
+  expect(note.textContent).toBe('Adds 2 location links')
+  expect(screen.getByText('2 queries, one per selected location:')).toBeTruthy()
+})
+
+test('says "1 location link" for a pattern over one location', () => {
+  renderQueries({
+    queries: [],
+    selectedQueryIds: [],
+    audience: { kind: 'specific', propertyIds: ['harbor-house'] },
+    onCreateQueries: vi.fn(),
+    onCreateAndPairQuestions: vi.fn(),
+  })
+
+  fireEvent.change(screen.getByLabelText('Query pattern'), {
+    target: { value: 'apartments near {property}' },
+  })
+
+  expect(screen.getByRole('button', { name: 'Adds 1 location link. Each query is measured on the one location it names.' })).toBeTruthy()
+})
+
+test('asks for a location before a pattern can write queries', () => {
+  renderQueries({
+    queries: [],
+    selectedQueryIds: [],
+    audience: { kind: 'none' },
+    onCreateQueries: vi.fn(),
+    onCreateAndPairQuestions: vi.fn(),
+  })
+
+  fireEvent.change(screen.getByLabelText('Query pattern'), {
+    target: { value: 'apartments near {property}' },
+  })
+
+  expect(screen.getByRole('button', { name: 'No location selected. Select at least one location to write queries for.' }).textContent).toBe('No location selected')
+  // Two Add buttons share the name with nothing to add: the pattern's is the second.
+  expect(screen.getAllByRole('button', { name: 'Add queries' }).at(-1)).toHaveProperty('disabled', true)
 })
 
 test('removes the legacy name-matched recovery banner in favor of the pattern path', () => {
   renderQueries({ onCreateQueries: vi.fn(), onCreateAndPairQuestions: vi.fn() })
   expect(screen.queryByText(/suggested question-to-Property match/)).toBeNull()
-  expect(screen.getByText('Write one query for every Property')).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'One query per location' })).toBeTruthy()
+  // The token is the wire name and stays as typed: in the note's label, its sentence and the example.
+  expect(screen.getByRole('button', { name: 'Use {property}. Put {property} where the location name belongs. You get one query per selected location.' }).textContent).toBe('Use {property}')
+  expect(screen.getByLabelText('Query pattern').getAttribute('placeholder')).toBe('apartments near {property}')
+  expect(screen.getByRole('button', { name: 'One per line. Add them to the project, then apply them to locations.' })).toBeTruthy()
 })
 
 test('does not show a no-op pagination action for a fully shown unapplied filter', () => {
@@ -560,7 +613,8 @@ test('places competitors only in groups and uses one clear continuation action',
 
   const { props } = renderGroups({ groupDraft: emptyGroupDraft })
   expect(screen.getByText('rival.example')).toBeTruthy()
-  expect(screen.getByText(/used only in this group's competitor report/i)).toBeTruthy()
+  expect(screen.getByRole('button', { name: "How groups apply. Competitor domains are used only in this group's competitor report. Membership changes affect future location links only." }).textContent).toBe('How groups apply')
+  expect(screen.getByRole('button', { name: 'Use groups to apply queries by market and compare competitors.' })).toBeTruthy()
 
   expect(screen.queryByRole('button', { name: 'Skip groups' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
@@ -576,7 +630,7 @@ test('collapses group Properties and exposes optional actions for saved groups',
   const onRemoveGroup = vi.fn()
   renderGroups({ onEditGroup, onRemoveGroup })
 
-  const propertyChooser = screen.getByText('1 of 2 Properties selected').closest('details')
+  const propertyChooser = screen.getByText('1 of 2 locations selected').closest('details')
   expect(propertyChooser?.open).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: 'Edit Waterfront venues' }))
   expect(onEditGroup).toHaveBeenCalledWith(groups[0])
@@ -615,9 +669,18 @@ test('reviews CSV group rows before applying only matched memberships', () => {
   })
 
   expect(screen.getByText('1 matched · 1 group ready · 1 needs attention')).toBeTruthy()
-  expect(screen.getByRole('table', { name: 'Groups and memberships ready to apply' }).textContent).toContain('DallasCreate group11')
+  expect(screen.getByRole('button', { name: 'Import group membership once instead of selecting the same locations for every group.' })).toBeTruthy()
+  // The file's header is a wire name: the example and the hint show `property` as typed.
+  expect(screen.getByLabelText('Group membership CSV').getAttribute('placeholder')).toBe('property,group,url\nHarbor House,Dallas,https://example.com/harbor-house')
+  expect(screen.getByText('Use columns named property and group. URL is optional.')).toBeTruthy()
+  const ready = screen.getByRole('table', { name: 'Groups and memberships ready to apply' })
+  expect(ready.textContent).toContain('DallasCreate group11')
+  expect([...ready.querySelectorAll('th')].map(cell => cell.textContent)).toEqual(['Group', 'Change', 'Locations', 'New memberships'])
   fireEvent.click(screen.getByText('Review CSV rows (2)'))
-  expect(screen.getByRole('table', { name: 'CSV group membership review' }).textContent).toContain('Harbor House')
+  const reviewRows = screen.getByRole('table', { name: 'CSV group membership review' })
+  expect(reviewRows.textContent).toContain('Harbor House')
+  expect([...reviewRows.querySelectorAll('th')].map(cell => cell.textContent)).toEqual(['Row', 'Location', 'Group', 'Status'])
+  expect(reviewRows.textContent).toContain('No included location matches this row.')
   fireEvent.click(screen.getByText('Fix 1 row before applying'))
   const apply = screen.getByRole('button', { name: 'Apply 1 matched row' })
   expect((apply as HTMLButtonElement).disabled).toBe(true)
@@ -749,7 +812,9 @@ test('provides a predictable Back action on every step after Properties', () => 
 test('blocks query continuation until an applied query is available', () => {
   renderQueries({ canContinue: false })
 
-  expect(screen.getByText('Apply at least one query to a Property before continuing.')).toBeTruthy()
+  const blocked = screen.getByRole('status')
+  expect(blocked.textContent).toBe('No query applied')
+  expect(screen.getByRole('button', { name: 'No query applied. Apply at least one query to a location before continuing.' })).toBeTruthy()
   expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(true)
 })
 
@@ -810,7 +875,7 @@ test('shows reviewed sitemap URLs behind a concise disclosure before confirming 
     canPublish: false,
   })
 
-  expect(screen.getByText('URLs not added to Properties (1)').closest('details')?.open).toBe(false)
+  expect(screen.getByText('URLs not added to locations (1)').closest('details')?.open).toBe(false)
   expect(screen.getByText('https://example.com/blog')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Confirm sitemap changes' }))
   expect(onResolve).toHaveBeenCalledTimes(1)
@@ -878,20 +943,39 @@ test('leaves the single unpublished-changes banner to the surrounding setup shel
 })
 
 test('viewer access is inspect-only across the three steps', () => {
+  // The help icon beside each step heading is the one button a viewer keeps: it changes nothing.
   const queryView = renderQueries({ access: 'viewer' })
   expect(screen.getByText('Viewer access')).toBeTruthy()
-  expect(queryView.container.querySelectorAll('button, select, textarea, input:not([type="search"])')).toHaveLength(0)
+  expect(queryView.container.querySelectorAll('button:not(.info-tooltip-trigger), select, textarea, input:not([type="search"])')).toHaveLength(0)
+  expect([...queryView.container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Choose queries, then apply them to locations.'])
   expect(screen.getByRole('searchbox', { name: 'Search queries' })).toBeTruthy()
   queryView.unmount()
 
   const groupView = renderGroups({ access: 'viewer' })
   expect(screen.getByText('Viewer access')).toBeTruthy()
-  expect(groupView.container.querySelectorAll('button, input, select, textarea')).toHaveLength(0)
+  expect(groupView.container.querySelectorAll('button:not(.info-tooltip-trigger), input, select, textarea')).toHaveLength(0)
+  expect([...groupView.container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Use groups to apply queries by market and compare competitors.'])
   groupView.unmount()
 
   const reviewView = renderReview({ access: 'viewer' })
   expect(screen.getByText('Viewer access')).toBeTruthy()
-  expect(reviewView.container.querySelectorAll('button, input, select, textarea')).toHaveLength(0)
+  expect(reviewView.container.querySelectorAll('button:not(.info-tooltip-trigger), input, select, textarea')).toHaveLength(0)
+  expect([...reviewView.container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Confirm the setup details before publishing.'])
+})
+
+test('every step heading is one to four words, with its sentence behind the help icon beside it', () => {
+  const queryView = renderQueries()
+  expect(screen.getByRole('heading', { name: 'Queries' }).parentElement?.querySelector('p')).toBeNull()
+  expect(screen.queryByText('Choose queries, then apply them to locations.')).toBeNull()
+  queryView.unmount()
+
+  const groupView = renderGroups()
+  expect(screen.getByRole('heading', { name: 'Groups' }).parentElement?.querySelector('p')).toBeNull()
+  groupView.unmount()
+
+  renderReview()
+  expect(screen.getByRole('heading', { name: 'Review & publish' }).parentElement?.querySelector('p')).toBeNull()
+  expect(screen.queryByText('Confirm the setup details before publishing.')).toBeNull()
 })
 
 test('never renders implementation vocabulary that belongs outside the browser', () => {
@@ -921,7 +1005,7 @@ test('renders an unavailable state without controls', () => {
   expect(container.querySelectorAll('button, input, select, textarea')).toHaveLength(0)
 })
 
-test('review states why assignments outrun queries, and never puts a button name in a number column', () => {
+test('review states why location links outrun queries, and never puts a button name in a number column', () => {
   renderReview({
     counts: { properties: 6, queries: 1, groups: 3, assignments: 3 },
   })
@@ -932,8 +1016,23 @@ test('review states why assignments outrun queries, and never puts a button name
   expect(screen.queryByText('Review changes', { selector: 'td' })).toBeNull()
 
   // One query aimed at a market writes one assignment per Property in it, so
-  // 1 query and 3 assignments is correct and needs saying.
-  expect(screen.getByText(/a query aimed at a market is measured on every Property in it/)).toBeTruthy()
+  // 1 query and 3 location links is correct and needs saying: four words on
+  // screen, the sentence with both counts behind them.
+  const note = screen.getByRole('button', { name: 'More links than queries. 1 query applied to markets and locations makes 3 location links: a query applied to a market is measured on every location in it.' })
+  expect(note.textContent).toBe('More links than queries')
+  expect(screen.getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Locations', 'Queries', 'Groups', 'Location links', 'Provider requests / run'])
+})
+
+test('review says nothing about links when they do not outrun the queries', () => {
+  renderReview({ counts: { properties: 2, queries: 3, groups: 1, assignments: 3 } })
+
+  expect(screen.queryByRole('button', { name: /More links than queries/ })).toBeNull()
+})
+
+test('review words the link count for several queries', () => {
+  renderReview({ counts: { properties: 6, queries: 2, groups: 3, assignments: 9 } })
+
+  expect(screen.getByRole('button', { name: 'More links than queries. 2 queries applied to markets and locations make 9 location links: a query applied to a market is measured on every location in it.' })).toBeTruthy()
 })
 
 test('the assignment impact slot keeps a reserved height so ticking a box cannot move the table', () => {
@@ -946,6 +1045,33 @@ test('the assignment impact slot keeps a reserved height so ticking a box cannot
 
   const slot = container.querySelector('.min-h-\\[2\\.75rem\\]')
   expect(slot).toBeTruthy()
-  // The fallback count lives inside it, so every state shares the reservation.
-  expect(slot!.textContent).toContain('assignments')
+  // The impact line lives inside it, so every state shares the reservation.
+  expect(slot!.textContent).toContain('1 query → 2 location links')
+})
+
+test('counts the location links a selection would make before the server has answered', () => {
+  renderQueries({ assignmentImpact: null })
+
+  expect(screen.getByText('1 query × 2 locations = 2 location links')).toBeTruthy()
+})
+
+// "Property" stays in code, on the wire, in the {property} token and in the CSV header.
+test('says location, never property or assignment, in the copy of all three steps', () => {
+  const copy = (container: HTMLElement) => [
+    container.textContent ?? '',
+    ...[...container.querySelectorAll('[aria-label]')].map(element => element.getAttribute('aria-label') ?? ''),
+  ].join(' ').replaceAll('{property}', '').replace('Use columns named property and group.', '')
+
+  const queryView = renderQueries({ onCreateQueries: vi.fn(), onCreateAndPairQuestions: vi.fn(), onReplaceAssignments: vi.fn(), groups })
+  const queryCopy = copy(queryView.container)
+  queryView.unmount()
+  const groupView = renderGroups({ membershipImport: { csv: '', preview: null, onCsvChange: vi.fn(), onReview: vi.fn(), onApply: vi.fn() } })
+  const groupCopy = copy(groupView.container)
+  groupView.unmount()
+  const reviewView = renderReview({ counts: { properties: 6, queries: 1, groups: 3, assignments: 3 } })
+  const reviewCopy = copy(reviewView.container)
+
+  for (const rendered of [queryCopy, groupCopy, reviewCopy]) {
+    expect(rendered).not.toMatch(/propert|assign|scope|classif|whole site/i)
+  }
 })

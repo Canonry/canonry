@@ -39,7 +39,7 @@ function ratedAnswersLine({ ratedAnswers, eligibleAnswers, ratedAnswerRate }: Se
   return `Rated: ${formatPercent(ratedAnswerRate, RatioUnits.fraction)} · ${ratedAnswers} of ${eligibleAnswers} ${eligibleAnswers === 1 ? 'answer' : 'answers'} rated`
 }
 
-export const CRITICIZED_PROPERTIES_TITLE = 'Most criticized properties'
+export const CRITICIZED_PROPERTIES_TITLE = 'Most criticized locations'
 
 /**
  * The dashboard's branded Details list: the server ranks and cuts `criticizedProperties`

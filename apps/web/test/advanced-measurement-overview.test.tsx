@@ -283,7 +283,7 @@ describe('AdvancedMeasurementOverview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Show details for Downtown Office' }))
 
-    expect(screen.getByText('Assigned queries')).toBeTruthy()
+    expect(screen.getByText('Tracked queries')).toBeTruthy()
     expect(screen.getAllByText('best office space downtown').length).toBeGreaterThan(0)
     expect(screen.getByText('URLs')).toBeTruthy()
     expect(screen.getByText('Matches this location')).toBeTruthy()
@@ -321,7 +321,7 @@ describe('AdvancedMeasurementOverview', () => {
 
     // A click on the link must navigate, not toggle the row it sits in.
     fireEvent.click(link)
-    expect(screen.queryByText('Assigned queries')).toBeNull()
+    expect(screen.queryByText('Tracked queries')).toBeNull()
     expect(screen.getByRole('button', { name: 'Show details for Downtown Office' })).toBeTruthy()
   })
 
@@ -341,7 +341,7 @@ describe('AdvancedMeasurementOverview', () => {
 
     fireEvent.click(row!)
 
-    expect(screen.getByText('Assigned queries')).toBeTruthy()
+    expect(screen.getByText('Tracked queries')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Hide details for Downtown Office' })).toBeTruthy()
   })
 
@@ -367,7 +367,38 @@ describe('AdvancedMeasurementOverview', () => {
 
     expect(screen.getByRole('button', { name: 'Show details for Downtown Office' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Show details for Uptown Office' })).toBeTruthy()
-    expect(screen.queryByText('Assigned queries')).toBeNull()
+    expect(screen.queryByText('Tracked queries')).toBeNull()
+  })
+
+  // A location's details list its tracked queries and its URLs. Neither list, full or empty, says "assigned".
+  it('names a location\'s queries and URLs without "assigned", and says so in two words when it has none', () => {
+    const current = report()
+    const [first, second] = current.classScopes!.nonBrand.aggregate.properties
+    const { container } = renderOverviewReturning({
+      report: {
+        ...current,
+        classScopes: {
+          ...current.classScopes!,
+          nonBrand: {
+            ...current.classScopes!.nonBrand,
+            aggregate: {
+              ...current.classScopes!.nonBrand.aggregate,
+              properties: [first!, { ...second!, assignedQueries: [], urls: [] }],
+            },
+          },
+        },
+      },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show details for Downtown Office' }))
+    expect(within(screen.getByRole('region', { name: 'Tracked queries' })).getByText('best office space downtown')).toBeTruthy()
+    expect(within(screen.getByRole('region', { name: 'URLs' })).getByText('https://example.com/downtown')).toBeTruthy()
+    expect(readerCopy(container)).not.toMatch(/assign/i)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show details for Uptown Office' }))
+    expect(screen.getByRole('region', { name: 'Tracked queries' }).textContent).toBe('Tracked queriesNo tracked queries.')
+    expect(screen.getByRole('region', { name: 'URLs' }).textContent).toBe('URLsNo URLs.')
+    expect(readerCopy(container)).not.toMatch(/assign/i)
   })
 
   it('badges bridged property and evidence rows as Historical', () => {

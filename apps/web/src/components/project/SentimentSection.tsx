@@ -1,11 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Info } from 'lucide-react'
 import type { SentimentEvidenceItem, SentimentJobSummary, SentimentOutcome, SentimentSettings, SentimentSummary, SentimentSelection, SentimentBackfillPreview, SentimentBackfillSelection, SentimentOverview, SentimentHeadline, SentimentAssessmentSummary, SentimentEvidenceSelection } from '@ainyc/canonry-contracts'
 import { describeError, formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { StatusNote } from '../shared/StatusNote.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { formatTimestamp } from '../../lib/format-helpers.js'
@@ -571,13 +572,15 @@ export function SentimentAnswerOutcome({ queryId, sourceSnapshotIds, queryClass,
 function SentimentEvidenceContent({ item }: { item: SentimentEvidenceItem }) {
   // A Property reads "Location" in the provenance, so an item that names one calls the engine's place "search location". A Simple item names none.
   const namesProperty = item.context.usageEdges.some(edge => Boolean(edge.propertyId))
+  // Only an Advanced answer has a published setup behind it. Its provenance says "Setup version" and "Location link"; a Simple item keeps its labels.
+  const advanced = namesProperty || item.context.revision != null
   return <article className="space-y-4 border-b border-default py-5 text-sm text-secondary">
     <div className="flex flex-wrap items-center gap-2"><strong className="text-primary">{item.subject.displayName}</strong><ToneBadge tone={outcomeTone(item.outcome)}>{outcomeLabel(item.outcome)}</ToneBadge><span>{CLASS_LABEL[item.context.queryClass]}</span><span>{item.context.provider}</span><span>{item.context.servedModel ?? 'Source model unavailable'}</span><span>{item.context.location ?? (namesProperty ? 'No search location' : 'No location')}</span></div>
     {item.reason && <p>{item.reason}</p>}
     <section><h3 className="mb-2 text-heading">Conclusion evidence</h3>{item.conclusion.length ? item.conclusion.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No valid conclusion evidence is available.</p>}</section>
     <section><h3 className="mb-2 text-heading">Complaint evidence</h3>{item.complaint?.length ? item.complaint.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No complaint was identified.</p>}</section>
     <details><summary className="cursor-pointer">Original source answer</summary><p className="mt-2 whitespace-pre-wrap break-words text-primary">{item.sourceText}</p></details>
-    <details><summary className="cursor-pointer">Assessment provenance</summary><dl className="mt-3 space-y-2 break-all"><dt>Query</dt><dd>{item.context.queryText}</dd><dt>Subject</dt><dd>{item.subject.displayName} ({item.subject.id})</dd><dt>Run</dt><dd>{item.runId}</dd><dt>Revision</dt><dd>{item.context.revision ?? 'Unavailable'}</dd><dt>Evaluator</dt><dd>{item.returnedModel ?? 'Unavailable'}</dd><dt>Evaluation definition</dt><dd>{item.evaluationDefinitionId}</dd><dt>Source snapshot</dt><dd>{item.sourceSnapshotId}</dd><dt>Source hash</dt><dd>{item.sourceTextHash}</dd>{item.context.usageEdges.map((edge, index) => <div key={index}><dt>Assignment</dt><dd>Target {edge.targetId}; {edge.propertyId ? `Location ${edge.propertyId}; ` : null}market {edge.marketId ?? 'None'}; {edge.queryClass}</dd></div>)}</dl></details>
+    <details><summary className="cursor-pointer">Assessment provenance</summary><dl className="mt-3 space-y-2 break-all"><dt>Query</dt><dd>{item.context.queryText}</dd><dt>Subject</dt><dd>{item.subject.displayName} ({item.subject.id})</dd><dt>Run</dt><dd>{item.runId}</dd><dt>{advanced ? 'Setup version' : 'Revision'}</dt><dd>{item.context.revision ?? 'Unavailable'}</dd><dt>Evaluator</dt><dd>{item.returnedModel ?? 'Unavailable'}</dd><dt>Evaluation definition</dt><dd>{item.evaluationDefinitionId}</dd><dt>Source snapshot</dt><dd>{item.sourceSnapshotId}</dd><dt>Source hash</dt><dd>{item.sourceTextHash}</dd>{item.context.usageEdges.map((edge, index) => <div key={index}><dt>{advanced ? 'Location link' : 'Assignment'}</dt><dd>Target {edge.targetId}; {edge.propertyId ? `Location ${edge.propertyId}; ` : null}market {edge.marketId ?? 'None'}; {edge.queryClass}</dd></div>)}</dl></details>
   </article>
 }
 function SentimentQueryEvidence({ projectName, selection }: { projectName: string; selection: SentimentEvidenceSelection }) {
@@ -622,10 +625,16 @@ function skipReasonLabel(reason: string): string { return SENTIMENT_SKIP_REASON_
  * A Property reads "location", so an Advanced view names the engine's place "search location"; a Simple view has no Property and keeps "location".
  * The server echoes the mode of the resolved run, which can read `simple` on an Advanced view, so a Property in the selection decides too.
  */
-function enginePlaceNoun(selection: Pick<SentimentBackfillSelection, 'mode' | 'scope'>): string {
-  return selection.mode === 'advanced' || selection.scope === 'property' ? 'search location' : 'location'
+function advancedView(selection: Pick<SentimentBackfillSelection, 'mode' | 'scope'>): boolean {
+  return selection.mode === 'advanced' || selection.scope === 'property'
 }
-/** The view filters that would narrow a backfill: engine, model, location, query, revision and a Property, group or market. */
+function enginePlaceNoun(selection: Pick<SentimentBackfillSelection, 'mode' | 'scope'>): string {
+  return advancedView(selection) ? 'search location' : 'location'
+}
+/**
+ * The view filters that would narrow a backfill: engine, model, location, query, revision and a Property, group or market.
+ * Only an Advanced view carries a revision, and it reads "setup version".
+ */
 function viewBackfillFilters(selection: SentimentBackfillSelection): string[] {
   const searchLocation = enginePlaceNoun(selection)
   return [
@@ -635,7 +644,7 @@ function viewBackfillFilters(selection: SentimentBackfillSelection): string[] {
     selection.scope !== 'project' && selection.scopeKey && `${selection.scope === 'property' ? 'location' : selection.scope} ${selection.scopeKey}`,
     selection.marketKey && `market ${selection.marketKey}`,
     selection.queryId && `query ${selection.queryId}`,
-    selection.revision !== undefined && `revision ${selection.revision}`,
+    selection.revision !== undefined && `setup version ${selection.revision}`,
   ].filter((part): part is string => Boolean(part))
 }
 /** The selection a preview actually covered, as the server echoed it. */
@@ -680,8 +689,11 @@ function SentimentSettingsEditor({ projectName, settings, selection, runOptions 
   return <div className="mt-5 space-y-5 text-sm text-secondary">
     <p>{settings.disclosure}</p>{!settings.ready && <p>{settings.readinessReasons.join('; ') || 'An operator must configure sentiment on this installation.'}</p>}
     <form className="space-y-3" onSubmit={event => { event.preventDefault(); save.mutate() }}><label className="flex items-center gap-2"><input type="checkbox" checked={enabled} disabled={pending} onChange={event => { setEnabled(event.target.checked); reset() }} />Enable project sentiment</label><p>Enabling applies to future completed sweeps. Past sweeps require an explicit backfill.</p><WriteButton type="submit" disabled={pending}>{save.isPending ? 'Saving…' : 'Save sentiment settings'}</WriteButton>{save.isError && <p role="alert">{describeError(save.error)}</p>}{save.isSuccess && <p role="status">Sentiment settings saved.</p>}</form>
-    {settings.actions.backfill && <section className="space-y-3"><h3>Backfill a saved sweep</h3><label className="block">Saved sweep<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={runId} disabled={pending} onChange={event => { setRunId(event.target.value); reset() }}><option value="">Select a saved sweep</option>{runOptions.map(run => <option key={run.id} value={run.id}>{run.label}</option>)}</select></label><label className="block">Query class<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={queryClass} disabled={pending} onChange={event => { setQueryClass(event.target.value as QueryClass); reset() }}><option value="non-brand">Non-brand</option><option value="branded">Branded</option></select></label>
-      <p>The backfill covers every engine, {enginePlaceNoun(selection)} and query of the chosen sweep for this query class.</p>
+    {settings.actions.backfill && <section className="space-y-3"><h3>Backfill a saved sweep</h3><label className="block">Saved sweep<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={runId} disabled={pending} onChange={event => { setRunId(event.target.value); reset() }}><option value="">Select a saved sweep</option>{runOptions.map(run => <option key={run.id} value={run.id}>{run.label}</option>)}</select></label><label className="block">{advancedView(selection) ? 'Type' : 'Query class'}<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={queryClass} disabled={pending} onChange={event => { setQueryClass(event.target.value as QueryClass); reset() }}><option value="non-brand">Non-brand</option><option value="branded">Branded</option></select></label>
+      {/* An Advanced view says "type" and keeps the sentence behind a note. A Simple view reads as it did. */}
+      {advancedView(selection)
+        ? <div><StatusNote icon={Info} label="Covers the whole sweep" detail="The backfill covers every engine, search location and query of the chosen sweep for this type." /></div>
+        : <p>The backfill covers every engine, location and query of the chosen sweep for this query class.</p>}
       {viewFilters.length > 0 && <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" checked={limitToView} disabled={pending} onChange={event => { setLimitToView(event.target.checked); reset() }} /><span>Limit to the current view<span className="block">{viewFilters.join(' · ')}</span></span></label>}
       <Button variant="outline" disabled={pending || !runId || !settings.enabled || !settings.ready} onClick={() => { reset(); inspect.mutate() }}>{inspect.isPending ? 'Preparing preview…' : 'Preview sentiment backfill'}</Button>{inspect.isError && <p role="alert">{describeError(inspect.error)}</p>}
       {preview && <div className="space-y-3"><dl className="grid grid-cols-[1fr_auto] gap-2"><dt>Selection</dt><dd className="text-right">{describeSentimentBackfillSelection(preview.selection)}</dd><dt>Eligible assessments</dt><dd>{preview.eligibleAssessments}</dd><dt>Already classified</dt><dd>{preview.alreadyClassified}</dd><dt>Estimated input tokens</dt><dd>{preview.estimatedInputTokens}</dd><dt>Estimated cost (USD)</dt><dd>{preview.estimatedCostUsd ?? 'Unavailable'}</dd></dl><InfoTooltip text={preview.estimateMethod} />

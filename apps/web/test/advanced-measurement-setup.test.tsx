@@ -63,7 +63,7 @@ const review = {
 describe('advanced measurement setup composition', () => {
   it.each([
     ['import', 'Sitemap URL'],
-    ['properties', 'Properties'],
+    ['properties', 'Locations'],
     ['queries', 'Queries'],
     ['groups', 'Group name'],
     ['review', 'Flagged exceptions'],
