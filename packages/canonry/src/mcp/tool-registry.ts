@@ -1,4 +1,4 @@
-import { trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, type OperationAccess } from '@ainyc/canonry-contracts'
+import { trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@ainyc/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
@@ -172,9 +172,9 @@ const writeAnnotations = (opts: { idempotentHint: boolean; destructiveHint?: boo
 export function toolOperationAccess(tool: Pick<CanonryMcpTool, 'openApiOperations' | 'access'>): OperationAccess {
   const derived = maxOperationAccess(tool.openApiOperations.map(operation => {
     const separator = operation.indexOf(' ')
-    return separator < 0 ? 'stored' : operationAccess(operation.slice(0, separator), operation.slice(separator + 1))
+    return separator < 0 ? OperationAccesses.stored : operationAccess(operation.slice(0, separator), operation.slice(separator + 1))
   }))
-  return tool.access === 'write' ? 'write' : derived
+  return tool.access === 'write' ? OperationAccesses.write : derived
 }
 
 function defineTool<TSchema extends z.ZodTypeAny, TName extends string>(
@@ -2286,11 +2286,11 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_bing_coverage',
     title: 'Get Bing coverage',
-    description: 'Read stored Bing index coverage counts and URL inspections for a Canonry project. Preserves indexed, not indexed and unknown evidence, the server percentage and last inspection time. Project-wide for Simple and Advanced portfolios; Property, Target and market attribution are unavailable. Requires the existing Bing connection. Never calls Bing or starts a sync.',
-    access: 'read',
+    description: 'Read Bing index coverage counts and URL inspections for a Canonry project. The route records an idempotent daily coverage snapshot while returning the result, but does not call Bing or start a sync. Preserves indexed, not indexed and unknown evidence, the server percentage and last inspection time. Project-wide for Simple and Advanced portfolios; Property, Target and market attribution are unavailable. Requires the existing Bing connection.',
+    access: 'write',
     tier: 'bing',
     inputSchema: projectInputSchema,
-    annotations: readAnnotations(),
+    annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['GET /api/v1/projects/{name}/bing/coverage'],
     handler: (client, input) => client.bingCoverage(input.project),
   }),
@@ -2493,7 +2493,7 @@ const rawCanonryMcpTools = [
     access: 'write',
     tier: 'gbp',
     inputSchema: gbpDiscoverInputSchema,
-    annotations: writeAnnotations({ idempotentHint: true }),
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/gbp/locations/discover'],
     handler: (client, input) => client.discoverGbpLocations(input.project, {
       selectAllNew: input.selectAllNew,
@@ -2531,7 +2531,7 @@ const rawCanonryMcpTools = [
     access: 'write',
     tier: 'gbp',
     inputSchema: gbpSyncInputSchema,
-    annotations: writeAnnotations({ idempotentHint: true }),
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/gbp/sync'],
     handler: (client, input) => client.triggerGbpSync(input.project, {
       locationNames: input.locationNames,
@@ -2827,7 +2827,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_apply_config_preview',
     title: 'Preview project config apply',
-    description: 'Preview one Canonry config-as-code project document. Returns per-field and child-resource changes with notification hosts only; the server rolls back the transaction before responding, so no database writes, audit rows, or callbacks persist.',
+    description: 'Preview one Canonry config-as-code project document. Returns per-field and child-resource changes with notification hosts only; the server resolves notification DNS to preserve the real apply verdict, then rolls back the transaction before responding, so no database writes, audit rows, or callbacks persist.',
     access: 'read',
     tier: 'core',
     inputSchema: applyConfigInputSchema,
@@ -4447,7 +4447,7 @@ const rawCanonryMcpTools = [
     access: 'write',
     tier: 'ads',
     inputSchema: projectInputSchema,
-    annotations: writeAnnotations({ idempotentHint: true }),
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/ads/sync'],
     handler: (client, input) => client.triggerAdsSync(input.project),
   }),

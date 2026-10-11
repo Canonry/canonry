@@ -19,6 +19,7 @@ import { dispatchRegisteredCommand } from './cli-dispatch.js'
 import type { CliCommandSpec } from './cli-dispatch.js'
 import { REGISTERED_CLI_COMMANDS } from './cli-commands.js'
 import { resolveCliAccess } from './cli-access.js'
+import { OperationAccesses } from '@ainyc/canonry-contracts'
 import { checkLatestVersionForCli, formatUpdateNotice, notePrintedUpdateAvailable, readCachedUpdateAvailable } from './update-check.js'
 import { buildSetupNudgeLine } from './setup-nudge.js'
 import { consumePendingServeHandoff } from './commands/init.js'
@@ -74,7 +75,7 @@ function storedOnlyEarlyRefusal(args: readonly string[]): CliError | null {
     .find(candidate => candidate.path.every((segment, index) => args[index] === segment))
   if (!spec) return null
   const access = resolveCliAccess(spec)
-  if (access === 'stored') return null
+  if (access === OperationAccesses.stored) return null
   return new CliError({
     code: 'STORED_ONLY_REFUSED',
     message: `Command "${spec.path.join(' ')}" is ${access}; --stored-only allows saved-data reads only`,

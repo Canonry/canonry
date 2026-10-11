@@ -69,5 +69,6 @@ describe('CLI and MCP operation access metadata', () => {
     expect(operationAccess('GET', '/api/v1/projects/{name}/bing/performance')).toBe('live')
     expect(operationAccess('GET', '/api/v1/projects/{name}/results/export')).toBe('stored')
     expect(operationAccess('GET', '/api/v1/google/callback')).toBe('write')
+    expect(operationAccess('POST', '/api/v1/projects/{name}/queries/replace-preview')).toBe('stored')
   })
 })

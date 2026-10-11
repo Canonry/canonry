@@ -7,8 +7,11 @@ The CLI is invoked as `cnry` (short form) or `canonry` — both ship with the `@
 `cnry help` lists every command group in this binary. Use `cnry help --format json`
 for the complete catalog, or `cnry help ga --format jsonl` for one command per line
 in a group. `cnry --help --format json` and `cnry ga --help --format json` provide
-the same discovery output. The catalog includes flags, dry-run support and
-supported rolling windows. Help is local and does not contact the server.
+the same discovery output. The catalog includes access, flags, dry-run support and
+supported rolling windows. Contextual help prints `Access: stored`, `Access: live`
+or `Access: write`; live means the command calls a provider now, while write means
+it changes server or local state. `--trace` reports the response access header for
+API calls. Help is local and does not contact the server.
 
 ## Server Management
 

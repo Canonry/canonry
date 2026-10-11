@@ -36,7 +36,7 @@ import { PACKAGE_VERSION } from './package-version.js'
 import { getApiV1ProjectsByNameSchedules, getApiV1NotificationsEvents } from '@ainyc/canonry-api-client'
 import type { LogQuery, OperationalLogListDto, NotificationEvent } from '@ainyc/canonry-contracts'
 import { normalizeTelemetryStatus, type FeedbackAcceptedDto, type FeedbackSubmission, type TelemetryStatusInput } from '@ainyc/canonry-contracts'
-import { OPERATIONAL_LOG_FIELDS_HEADER, OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS, OPERATION_ACCESS_HEADER, STORED_ONLY_HEADER, matchOperationTemplate, operationAccess, operationalLogListReadSchema } from '@ainyc/canonry-contracts'
+import { OPERATIONAL_LOG_FIELDS_HEADER, OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS, OPERATION_ACCESS_HEADER, STORED_ONLY_HEADER, OperationAccesses, matchOperationTemplate, operationAccess, operationalLogListReadSchema } from '@ainyc/canonry-contracts'
 import { getApiV1OperationsLogs } from '@ainyc/canonry-api-client'
 import type {
   VisibilityReportRequest, VisibilityReportResponse,
@@ -886,14 +886,14 @@ export function classifyStoredOnlyRequest(method: string, url: string): { operat
   const separator = operation.indexOf(' ')
   return {
     operation,
-    access: operationAccess(operation.slice(0, separator), operation.slice(separator + 1), 'live'),
+    access: operationAccess(operation.slice(0, separator), operation.slice(separator + 1), OperationAccesses.live),
   }
 }
 
 function storedOnlyRequestHeaders(method: string, url: string): Record<string, string> {
   if (!['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())) return {}
   const { operation, access } = classifyStoredOnlyRequest(method, url)
-  if (access !== 'stored') {
+  if (access !== OperationAccesses.stored) {
     throw new CliError({
       code: 'STORED_ONLY_REFUSED',
       message: `Stored-only mode refuses ${access} operation ${operation}`,

@@ -45,7 +45,6 @@ export const LIVE_READ_OPERATIONS: ReadonlySet<string> = new Set([
 
 /** POST previews that calculate from supplied or draft data without persistence. */
 export const READ_SEMANTIC_OPERATIONS: ReadonlySet<string> = new Set([
-  'POST /api/v1/projects/{name}/competitor-changes/preview',
   'POST /api/v1/projects/{name}/measurement-plan/compile-preview',
   'POST /api/v1/projects/{name}/measurement-plan/diff-preview',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-assignments',
@@ -55,7 +54,7 @@ export const READ_SEMANTIC_OPERATIONS: ReadonlySet<string> = new Set([
 ])
 
 /** GET callbacks and provider-backed reads that have write side effects. */
-export const WRITE_EFFECT_OPERATIONS: ReadonlySet<string> = new Set([
+export const WRITE_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/google/callback',
   'GET /api/v1/projects/{name}/google/callback',
   'GET /api/v1/google-marketing/callback',
@@ -64,6 +63,8 @@ export const WRITE_EFFECT_OPERATIONS: ReadonlySet<string> = new Set([
 
 /** Stored provider-free reads represented by the current OpenAPI and MCP catalog. */
 export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
+  'POST /api/v1/projects/{name}/competitor-changes/preview',
+  'POST /api/v1/projects/{name}/queries/replace-preview',
   'GET /api/v1/projects/{name}/ga/acquisition',
   'GET /api/v1/projects/{name}/traffic/referral-assessment',
   'GET /api/v1/projects/{name}/traffic/samples',
@@ -247,21 +248,21 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
  * newly added route cannot quietly become a free stored read. Callers with a
  * complete local catalog may provide a different fallback explicitly.
  */
-export function operationAccess(method: string, pathTemplate: string, unknownGetAccess: OperationAccess = 'live'): OperationAccess {
+export function operationAccess(method: string, pathTemplate: string, unknownGetAccess: OperationAccess = OperationAccesses.live): OperationAccess {
   const operation = `${method.toUpperCase()} ${pathTemplate}`
-  if (WRITE_EFFECT_OPERATIONS.has(operation)) return 'write'
-  if (method.toUpperCase() !== 'GET' && READ_SEMANTIC_OPERATIONS.has(operation)) return 'stored'
-  if (STORED_READ_OPERATIONS.has(operation)) return 'stored'
-  if (method.toUpperCase() === 'GET' && LIVE_READ_OPERATIONS.has(operation)) return 'live'
-  if (LIVE_READ_OPERATIONS.has(operation)) return 'live'
-  if (method.toUpperCase() !== 'GET') return 'write'
+  if (WRITE_OPERATIONS.has(operation)) return OperationAccesses.write
+  if (method.toUpperCase() !== 'GET' && READ_SEMANTIC_OPERATIONS.has(operation)) return OperationAccesses.stored
+  if (STORED_READ_OPERATIONS.has(operation)) return OperationAccesses.stored
+  if (method.toUpperCase() === 'GET' && LIVE_READ_OPERATIONS.has(operation)) return OperationAccesses.live
+  if (LIVE_READ_OPERATIONS.has(operation)) return OperationAccesses.live
+  if (method.toUpperCase() !== 'GET') return OperationAccesses.write
   return unknownGetAccess
 }
 
 export function maxOperationAccess(accesses: readonly OperationAccess[]): OperationAccess {
-  if (accesses.includes('write')) return 'write'
-  if (accesses.includes('live')) return 'live'
-  return 'stored'
+  if (accesses.includes(OperationAccesses.write)) return OperationAccesses.write
+  if (accesses.includes(OperationAccesses.live)) return OperationAccesses.live
+  return OperationAccesses.stored
 }
 
 function apiPath(pathname: string): string {
@@ -288,7 +289,7 @@ function templateMatches(template: string, pathname: string): boolean {
 export function matchOperationTemplate(method: string, pathname: string): string {
   const path = apiPath(pathname)
   const operationMethod = method.toUpperCase()
-  const known = [...WRITE_EFFECT_OPERATIONS, ...LIVE_READ_OPERATIONS, ...READ_SEMANTIC_OPERATIONS, ...STORED_READ_OPERATIONS]
+  const known = [...WRITE_OPERATIONS, ...LIVE_READ_OPERATIONS, ...READ_SEMANTIC_OPERATIONS, ...STORED_READ_OPERATIONS]
     .find(operation => operation.startsWith(`${operationMethod} `) && templateMatches(operation.slice(operationMethod.length + 1), path))
   return known ?? `${operationMethod} ${path}`
 }
