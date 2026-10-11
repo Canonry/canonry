@@ -110,8 +110,14 @@ describe('project measurement update flags', () => {
   })
 
   it('passes an explicit revision guard through the PATCH request', async () => {
-    await run('project', 'update', 'measurement-project', '--display-name', 'Renamed', '--expect-revision', '12', '--format', 'json')
-    expect(body().expectedConfigRevision).toBe(12)
+    await run('project', 'update', 'measurement-project', '--display-name', 'Renamed', '--expect-revision', '4', '--format', 'json')
+    expect(body().expectedConfigRevision).toBe(4)
+  })
+
+  it('rejects an explicit revision that differs from the initial GET before PATCH', async () => {
+    await expect(run('project', 'update', 'measurement-project', '--display-name', 'Renamed', '--expect-revision', '5'))
+      .rejects.toMatchObject({ code: 'PROJECT_REVISION_CONFLICT', details: { expected: 5, actual: 4 } })
+    expect(mockPatchProject).not.toHaveBeenCalled()
   })
 
   it('uses the full PUT path only when a prior GET is followed by a 404 PATCH', async () => {

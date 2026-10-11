@@ -240,6 +240,13 @@ export async function updateProjectSettings(
 ): Promise<void> {
   const client = getClient()
   const project: ProjectDto = await client.getProject(name)
+  if (opts.expectedConfigRevision !== undefined && opts.expectedConfigRevision !== project.configRevision) {
+    throw new CliError({
+      code: 'PROJECT_REVISION_CONFLICT',
+      message: `Project '${name}' has revision ${project.configRevision}, not the expected ${opts.expectedConfigRevision}.`,
+      details: { expected: opts.expectedConfigRevision, actual: project.configRevision },
+    })
+  }
 
   let ownedDomains = opts.ownedDomains ?? project.ownedDomains ?? []
   if (opts.addOwnedDomain) {
@@ -340,16 +347,16 @@ export async function updateProjectSettings(
   try {
     result = await client.patchProject(name, patch)
   } catch (error) {
-    // A successful GET followed by a NOT_FOUND PATCH identifies an older
-    // server whose API predates PATCH. Preserve the historical full PUT path
-    // only for that transport case; mocked or incomplete clients are not a
-    // compatibility signal.
+    // A route-specific 404 or 405 from PATCH identifies an older server whose
+    // API predates PATCH. Preserve the historical full PUT path only for that
+    // transport case; application NOT_FOUND responses must propagate.
     if (!(error instanceof CliError) || !isEndpointMissing(error) || !/route/i.test(error.message)) throw error
     let latest: ProjectDto
     try {
-      // A concurrent delete can make the PATCH target itself return 404. The
-      // second GET distinguishes that from an older server with no PATCH
-      // route, so the legacy PUT cannot recreate a deleted project.
+      // Re-read before the legacy request so a changed project is rejected.
+      // The legacy GET followed by PUT has no server-side compare-and-swap;
+      // callers still receive the historical fallback semantics after this
+      // best-effort race check.
       latest = await client.getProject(name)
     } catch (readError) {
       throw readError

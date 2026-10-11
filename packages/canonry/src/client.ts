@@ -331,6 +331,7 @@ import {
   getApiV1ProjectsByName,
   getApiV1Status,
   putApiV1ProjectsByName,
+  patchApiV1ProjectsByName,
   deleteApiV1ProjectsByName,
   getApiV1ProjectsByNameDeletePreview,
   getApiV1ProjectsByNameExport,
@@ -1288,41 +1289,9 @@ export class ApiClient {
   }
 
   async patchProject(name: string, body: ProjectPatchRequest): Promise<ProjectDto> {
-    await this.probeBasePath()
-    const url = `${this.originUrl}/api/v1/projects/${encodeURIComponent(name)}`
-    const tags = usageTagStore.getStore()
-    const requestHeaders: Record<string, string> = { ...this.requestHeaders }
-    if (tags?.mcpTool) requestHeaders[USAGE_TELEMETRY_HEADERS.mcpTool] = tags.mcpTool
-    if (tags?.mcpCall) requestHeaders[USAGE_TELEMETRY_HEADERS.mcpCall] = tags.mcpCall
-    const mcpClient = tags?.mcpClient ? normalizeAgentSlug(tags.mcpClient) : undefined
-    if (mcpClient) requestHeaders[USAGE_TELEMETRY_HEADERS.mcpClient] = mcpClient
-    let response: Response
-    try {
-      response = await fetch(url, {
-        method: 'PATCH',
-        headers: {
-          ...requestHeaders,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify(body),
-      })
-    } catch (error) {
-      const message = describeError(error)
-      throw new CliError({ code: 'CONNECTION_ERROR', message: connectionFailureMessage(this.originUrl), exitCode: EXIT_SYSTEM_ERROR, details: { cause: message } })
-    }
-    if (!response.ok) {
-      let errorBody: unknown
-      try { errorBody = await response.json() } catch { errorBody = null }
-      const errorObject = errorBody && typeof errorBody === 'object' && 'error' in errorBody ? errorBody.error as { code?: string; message?: string; details?: Record<string, unknown> } : undefined
-      throw new CliError({
-        code: errorObject?.code ?? 'API_ERROR',
-        message: errorObject?.message ?? `HTTP ${response.status}: ${response.statusText}`,
-        exitCode: response.status >= 500 ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR,
-        details: httpErrorDetails(errorObject?.details, response),
-      })
-    }
-    return await response.json() as ProjectDto
+    return this.invoke<ProjectDto>(() =>
+      patchApiV1ProjectsByName({ client: this.heyClient, path: { name }, body: body as never }),
+    )
   }
 
   async listProjects(): Promise<ProjectDto[]> {

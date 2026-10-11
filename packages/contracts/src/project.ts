@@ -202,7 +202,7 @@ export const projectPatchRequestSchema = z.object({
   negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.nullable().optional(),
   siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
   competitorAutoAliases: competitorAutoAliasModeInputSchema,
-  expectedConfigRevision: z.number().int().nonnegative().optional(),
+  expectedConfigRevision: z.number().int().positive().optional(),
 }).strict()
 
 export type ProjectPatchRequest = z.infer<typeof projectPatchRequestSchema>

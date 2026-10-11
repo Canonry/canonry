@@ -147,10 +147,10 @@ describe('PATCH project', () => {
     const response = await app.inject({
       method: 'PATCH',
       url: '/api/v1/projects/patch-project',
-      payload: { expectedConfigRevision: (before.configRevision as number) - 1, measurement: { brandTerms: ['stale'] } },
+      payload: { expectedConfigRevision: (before.configRevision as number) + 1, measurement: { brandTerms: ['stale'] } },
     })
     expect(response.statusCode).toBe(409)
-    expect(response.json()).toMatchObject({ error: { code: 'PROJECT_REVISION_CONFLICT', details: { expected: 0, actual: before.configRevision } } })
+    expect(response.json()).toMatchObject({ error: { code: 'PROJECT_REVISION_CONFLICT', details: { expected: (before.configRevision as number) + 1, actual: before.configRevision } } })
     expect(db.select().from(projects).where(eq(projects.name, 'patch-project')).get()?.measurement).toEqual(initialProject.measurement)
   })
 })

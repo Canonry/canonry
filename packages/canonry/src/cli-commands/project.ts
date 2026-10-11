@@ -117,8 +117,8 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const providers = getStringArray(input.values, 'provider')
       const expectedRevisionRaw = getString(input.values, 'expect-revision')
       const expectedConfigRevision = expectedRevisionRaw === undefined ? undefined : Number(expectedRevisionRaw)
-      if (expectedConfigRevision !== undefined && (!Number.isInteger(expectedConfigRevision) || expectedConfigRevision < 0)) {
-        throw usageError('Error: --expect-revision must be a non-negative integer')
+      if (expectedConfigRevision !== undefined && (!Number.isInteger(expectedConfigRevision) || expectedConfigRevision < 1)) {
+        throw usageError('Error: --expect-revision must be a positive integer')
       }
       const allProviders = getBoolean(input.values, 'all-providers')
       if (allProviders && providers?.length) throw usageError('Error: --all-providers conflicts with --provider')

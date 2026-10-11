@@ -11652,6 +11652,48 @@ export type ProjectDefaultLocationResponse = {
     defaultLocation: string;
 };
 
+export type ProjectPatchRequest = {
+    displayName?: string;
+    canonicalDomain?: string;
+    ownedDomains?: Array<string>;
+    aliases?: Array<string>;
+    country?: string;
+    language?: string;
+    tags?: Array<string>;
+    labels?: {
+        [key: string]: string;
+    };
+    providers?: Array<string>;
+    providerModels?: {
+        [key: string]: string;
+    };
+    providerDispatchModes?: {
+        [key: string]: 'sync' | 'batch';
+    };
+    locations?: Array<{
+        label: string;
+        city: string;
+        region: string;
+        country: string;
+        timezone?: string;
+    }>;
+    defaultLocation?: string | null;
+    measurement?: {
+        marketingHosts?: Array<string>;
+        brandTerms?: Array<string>;
+        leadEventNames?: Array<string>;
+    };
+    autoExtractBacklinks?: boolean;
+    qualifiedAliases?: Array<string>;
+    negativeReviewMaxStars?: number | null;
+    siteAuditMaxPages?: number | null;
+    /**
+     * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
+     */
+    competitorAutoAliases?: 'off' | 'preview' | 'apply';
+    expectedConfigRevision?: number;
+};
+
 export type ProjectUpsertRequest = {
     displayName: string;
     canonicalDomain: string;
@@ -15801,6 +15843,44 @@ export type GetApiV1ProjectsByNameResponses = {
 };
 
 export type GetApiV1ProjectsByNameResponse = GetApiV1ProjectsByNameResponses[keyof GetApiV1ProjectsByNameResponses];
+
+export type PatchApiV1ProjectsByNameData = {
+    body: ProjectPatchRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}';
+};
+
+export type PatchApiV1ProjectsByNameErrors = {
+    /**
+     * Invalid project patch.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * The project revision is stale.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PatchApiV1ProjectsByNameError = PatchApiV1ProjectsByNameErrors[keyof PatchApiV1ProjectsByNameErrors];
+
+export type PatchApiV1ProjectsByNameResponses = {
+    /**
+     * Project updated.
+     */
+    200: ProjectDto;
+};
+
+export type PatchApiV1ProjectsByNameResponse = PatchApiV1ProjectsByNameResponses[keyof PatchApiV1ProjectsByNameResponses];
 
 export type PutApiV1ProjectsByNameData = {
     body: ProjectUpsertRequest;
