@@ -5,7 +5,7 @@ const catalog = {
   version: '1.0.0', globalOptions: [{ name: 'format', type: 'string', multiple: false }],
   groups: [{ root: 'ga', section: 'Integrations', summary: 'Read stored analytics', commands: [{
     id: 'ga.acquisition', path: ['ga', 'acquisition'], usage: 'canonry ga acquisition <project>',
-    supportsDryRun: false, windows: ['7d', '30d', '90d', 'all'], options: [{ name: 'source', type: 'string', multiple: false }],
+    access: 'stored', supportsDryRun: false, windows: ['7d', '30d', '90d', 'all'], options: [{ name: 'source', type: 'string', multiple: false }],
   }] }],
 }
 describe('CLI catalog public contract', () => {

@@ -95,9 +95,8 @@ describe('MCP server instructions', () => {
       expect(instructions()).not.toMatch(/\breads?\b[^.]+\bsafe\b/i)
     })
 
-    it('names every tool that spends against the advertiser account', () => {
-      const text = instructions()
-      for (const tool of BILLED_TOOLS) expect(text).toContain(tool)
+    it('directs clients to the dynamic billed-tool inventory', () => {
+      expect(instructions()).toContain('liveTools')
     })
 
     it('names only tools that actually exist', () => {
@@ -115,7 +114,7 @@ describe('MCP server instructions', () => {
     })
   })
 
-  it('names every live Google Marketing discovery and sync tool', () => {
+  it('keeps every live Google Marketing discovery and sync tool in the registry', () => {
     const googleMarketingTools = [
       'canonry_google_ads_customers',
       'canonry_gtm_accounts',
@@ -124,14 +123,13 @@ describe('MCP server instructions', () => {
       'canonry_google_ads_sync',
       'canonry_gtm_sync',
     ]
-    const text = instructions()
+    expect(instructions()).toContain('liveTools')
     const registry = fs.readFileSync(
       path.join(path.dirname(url.fileURLToPath(import.meta.url)), '../src/mcp/tool-registry.ts'),
       'utf-8',
     )
 
     for (const tool of googleMarketingTools) {
-      expect(text).toContain(tool)
       expect(registry).toContain(`name: '${tool}'`)
     }
   })

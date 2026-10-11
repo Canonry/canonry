@@ -20,7 +20,7 @@ afterEach(async () => {
   vi.unstubAllGlobals()
 })
 
-async function connect(options: { body?: unknown; status?: number; progressive?: boolean } = {}) {
+async function connect(options: { body?: unknown; status?: number; progressive?: boolean; scope?: 'all' | 'read-only' } = {}) {
   const requests: Request[] = []
   const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     requests.push(input instanceof Request ? input : new Request(input, init))
@@ -31,7 +31,7 @@ async function connect(options: { body?: unknown; status?: number; progressive?:
   })
   vi.stubGlobal('fetch', fetch)
   const server = createCanonryMcpServer({
-    scope: 'read-only',
+    scope: options.scope ?? 'all',
     ...(options.progressive ? {} : { tiers: ['core', 'bing'] }),
     clientFactory: () => new ApiClient('https://canonry.test/canonry', 'cnry_project_read', { skipProbe: true }),
   })

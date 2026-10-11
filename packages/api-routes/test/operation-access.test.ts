@@ -28,7 +28,15 @@ describe('OpenAPI operation access metadata', () => {
     ))
     for (const operation of LIVE_READ_OPERATIONS) expect(operations.has(operation)).toBe(true)
     for (const operation of READ_SEMANTIC_OPERATIONS) expect(operations.has(operation)).toBe(true)
-    for (const operation of WRITE_OPERATIONS) expect(operations.has(operation)).toBe(true)
+    // The legacy root session endpoint is registered by the server adapter and
+    // intentionally has no OpenAPI entry. Keep that exception explicit so a
+    // newly classified operation cannot silently disappear from the document.
+    const legacyNonOpenApi = new Set(['GET /api/v1/session'])
+    const writeOutsideOpenApi = [...WRITE_OPERATIONS].filter(operation => !operations.has(operation))
+    expect(writeOutsideOpenApi).toEqual([...legacyNonOpenApi])
+    for (const operation of WRITE_OPERATIONS) {
+      if (!legacyNonOpenApi.has(operation)) expect(operations.has(operation)).toBe(true)
+    }
     expect([...LIVE_READ_OPERATIONS].some(operation => operation.includes('/ads/'))).toBe(true)
     expect([...LIVE_READ_OPERATIONS].some(operation => operation.includes('/google-ads/'))).toBe(true)
     const paidAdsReads = [
