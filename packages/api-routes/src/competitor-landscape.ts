@@ -103,11 +103,11 @@ export async function competitorLandscapeRoutes(app: FastifyInstance) {
 
 /**
  * The runs of the project's latest sweep: what `runId=latest` reads. With an
- * active measurement plan it is the run the measurement reads display, the
- * newest completed whole-project run of the active revision (or a comparable
- * one). Without a plan it is the newest completed or partial sweep that filled
- * every slot it promised, with one run per location when the sweep fanned out
- * across locations. Empty when no sweep qualifies.
+ * active measurement plan it is the run the measurement reads display by
+ * default, the newest completed whole-project run of the active revision (or a
+ * comparable one). Without a plan it is the newest completed or partial sweep
+ * that filled every slot it promised, with one run per location when the sweep
+ * fanned out across locations. Empty when no sweep qualifies.
  */
 export function latestSweepRuns(db: DatabaseClient, projectId: string): Array<typeof runs.$inferSelect> {
   const active = activeMeasurementPlan(db, projectId)

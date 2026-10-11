@@ -759,6 +759,57 @@ describe('MCP tool registry', () => {
     }
   })
 
+  it('declares the last-sweep fallback on the five location reads, and never sets it for the caller', async () => {
+    const locationReads: Array<[name: string, input: Record<string, unknown>]> = [
+      ['canonry_measurement_overview', { scope: 'property', targetKey: 'harbor-view' }],
+      ['canonry_measurement_property_evidence', { targetKey: 'harbor-view' }],
+      ['canonry_measurement_property_questions', { targetKey: 'harbor-view' }],
+      ['canonry_measurement_question_result', { targetKey: 'harbor-view', resultId: 'result-1' }],
+      ['canonry_measurement_property_competitors', { targetKey: 'harbor-view' }],
+    ]
+    const api = await startCaptureApi()
+    try {
+      const client = new RealApiClient(api.origin, 'cnry_test', { skipProbe: true })
+      for (const [name, input] of locationReads) {
+        const tool = canonryMcpTools.find(candidate => candidate.name === name)!
+        expect(schemaProperty(inputSchemaFor(name), 'fallback'), name).toMatchObject({ type: 'string', enum: ['last-sweep'] })
+        expect(inputSchemaFor(name).required ?? [], name).not.toContain('fallback')
+        expect(tool.inputSchema.safeParse({ project: 'acme', ...input, fallback: 'newest' }).success, name).toBe(false)
+        // What the param does. Answer text refuses an older result by default: it never says not measured.
+        expect(tool.description, name).toContain(name === 'canonry_measurement_question_result'
+          ? 'By default the result must come from a run of the active plan; fallback=last-sweep also opens a result of the last completed sweep after a tracking change'
+          : 'fallback=last-sweep reads the last completed sweep after a tracking change, under the plan that sweep ran with, instead of not measured.')
+        // What to say when the numbers predate the tracking change, and only when a sweep is shown.
+        expect(tool.description, name).toContain(
+          'When measurement.awaitingSweep is true and measuredRevision is not null, say tracking changed on trackingChangedAt and the numbers are from the completedAt sweep. With measuredRevision null there is no sweep yet.',
+        )
+        // An empty page on these two reads carries no reason, so the description says where to find it.
+        expect(tool.description.includes('an empty page can mean the location was not in that sweep'), name)
+          .toBe(name === 'canonry_measurement_property_evidence' || name === 'canonry_measurement_property_questions')
+        // Where the read takes a run id, the param lets it name the last sweep.
+        if (name !== 'canonry_measurement_question_result') {
+          expect(schemaProperty(inputSchemaFor(name), 'fallback').description, name)
+            .toContain('With it, runId may name that sweep; any other run of an older plan is still refused.')
+        }
+
+        await tool.handler(client, tool.inputSchema.parse({ project: 'acme', ...input }))
+        expect(new URL(api.requests.at(-1)!, api.origin).searchParams.has('fallback'), name).toBe(false)
+        await tool.handler(client, tool.inputSchema.parse({ project: 'acme', ...input, fallback: 'last-sweep' }))
+        expect(new URL(api.requests.at(-1)!, api.origin).searchParams.get('fallback'), name).toBe('last-sweep')
+      }
+    } finally {
+      await api.close()
+    }
+
+    // The other measurement reads take no fallback, so they keep saying not measured after a publish.
+    for (const name of ['canonry_measurement_portfolio_summary', 'canonry_measurement_changes', 'canonry_measurement_data_quality']) {
+      expect(inputSchemaFor(name).properties?.fallback, name).toBeUndefined()
+    }
+    // `latest` on the competitor and source reads is the default read's run, not a fallback one.
+    expect(schemaProperty(inputSchemaFor('canonry_analytics_sources'), 'runId').description)
+      .toContain('the run the measurement reads display by default')
+  })
+
   it('ships the curated v1 surface', () => {
     expect(canonryMcpTools.filter(tool => tool.access === 'read')).toHaveLength(166)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)

@@ -1,4 +1,4 @@
-import type { MeasurementEvidenceShape, MeasurementQueryClassFilter } from '@ainyc/canonry-contracts'
+import type { MeasurementEvidenceShape, MeasurementQueryClassFilter, MeasurementReadFallback } from '@ainyc/canonry-contracts'
 import {
   ADVANCED_MEASUREMENT_OPERATIONS,
   applyMeasurementPlanAssignments,
@@ -30,6 +30,7 @@ import { usageError } from '../cli-error.js'
 
 const QUERY_CLASSES: readonly MeasurementQueryClassFilter[] = ['all', 'branded', 'non-brand']
 const EVIDENCE_SHAPES: readonly MeasurementEvidenceShape[] = ['sources', 'answers', 'other-queries']
+const READ_FALLBACKS: readonly MeasurementReadFallback[] = ['last-sweep']
 
 function queryClassOption(input: CliCommandInput): MeasurementQueryClassFilter | undefined {
   const value = getString(input.values, 'query-class')
@@ -47,6 +48,14 @@ function shapeOption(input: CliCommandInput): MeasurementEvidenceShape | undefin
   return match
 }
 
+function fallbackOption(input: CliCommandInput): MeasurementReadFallback | undefined {
+  const value = getString(input.values, 'fallback')
+  if (value === undefined) return undefined
+  const match = READ_FALLBACKS.find(candidate => candidate === value)
+  if (!match) throw usageError(`--fallback must be ${READ_FALLBACKS.join(', ')}`)
+  return match
+}
+
 /** Filters every per-Property read shares, so the two commands cannot drift apart. */
 function propertyScope(input: CliCommandInput, command: string, usage: string) {
   return {
@@ -55,6 +64,7 @@ function propertyScope(input: CliCommandInput, command: string, usage: string) {
     provider: getString(input.values, 'provider'),
     location: getString(input.values, 'location'),
     runId: getString(input.values, 'run-id'),
+    fallback: fallbackOption(input),
     format: input.format,
   }
 }
@@ -65,6 +75,7 @@ const PROPERTY_SCOPE_OPTIONS = {
   provider: stringOption(),
   location: stringOption(),
   'run-id': stringOption(),
+  fallback: stringOption(),
 }
 
 const ASSIGNMENT_AUDIENCE_OPTIONS = {
@@ -244,7 +255,7 @@ export const MEASUREMENT_PLAN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['measurement-plan', 'property'],
-    usage: 'canonry measurement-plan property <project> --target-key <key> [--query-class non-brand|branded|all] [--provider <p>] [--location <l>] [--run-id <id>] [--format json] (default non-brand; all pools both classes)',
+    usage: 'canonry measurement-plan property <project> --target-key <key> [--query-class non-brand|branded|all] [--provider <p>] [--location <l>] [--run-id <id>] [--fallback last-sweep] [--format json] (default non-brand; all pools both classes; --fallback last-sweep reads the last completed sweep after a tracking change)',
     options: PROPERTY_SCOPE_OPTIONS,
     run: input => {
       const usage = 'canonry measurement-plan property <project> --target-key <key>'
@@ -254,7 +265,7 @@ export const MEASUREMENT_PLAN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['measurement-plan', 'property-evidence'],
-    usage: 'canonry measurement-plan property-evidence <project> --target-key <key> [--query-class all|branded|non-brand] [--provider <p>] [--location <l>] [--run-id <id>] [--shape sources|answers|other-queries] [--cursor <c>] [--limit N] [--format json|jsonl]',
+    usage: 'canonry measurement-plan property-evidence <project> --target-key <key> [--query-class all|branded|non-brand] [--provider <p>] [--location <l>] [--run-id <id>] [--fallback last-sweep] [--shape sources|answers|other-queries] [--cursor <c>] [--limit N] [--format json|jsonl] (--fallback last-sweep reads the last completed sweep after a tracking change)',
     options: { ...PROPERTY_SCOPE_OPTIONS, shape: stringOption(), cursor: stringOption(), limit: stringOption() },
     run: input => {
       const usage = 'canonry measurement-plan property-evidence <project> --target-key <key>'

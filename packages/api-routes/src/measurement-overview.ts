@@ -9,7 +9,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
+import { and, desc, eq, getTableColumns, isNull } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   AppError,
@@ -35,6 +35,7 @@ import {
   type MeasurementOutcomeCounts,
   type MeasurementPropertyRow,
   type MeasurementQueryClassFilter,
+  type MeasurementReadFallback,
   type MeasurementState,
   type MetricValue,
   type NamedShareOfVoice,
@@ -70,6 +71,7 @@ import {
 } from './measurement-report-adapter.js'
 import { measurementRunCompleteness } from './measurement-run-completeness.js'
 import { snapshotEvidenceFingerprint } from './snapshot-evidence-fingerprint.js'
+import { storedSweepFilter } from './visibility-report.js'
 
 /** Every state a run can be in and still be the current one. Cancelled runs never are. */
 const CURRENT_RUN_STATUSES: readonly RunStatus[] = [
@@ -84,6 +86,21 @@ export interface ActiveMeasurementPlan {
   version: typeof measurementPlanVersions.$inferSelect
   plan: StoredMeasurementPlan
 }
+
+/**
+ * The plan a location read reads its sweep under. It is the active plan,
+ * unless the request asked for the last-sweep fallback and the only completed
+ * sweep ran with an older plan: then `version` and `plan` are that sweep's own
+ * and `lastSweepRun` is the sweep. `active` is always the active plan.
+ */
+export type MeasurementReading =
+  | (ActiveMeasurementPlan & { active: ActiveMeasurementPlan; lastSweepRun?: undefined })
+  | {
+      version: typeof measurementPlanVersions.$inferSelect
+      plan: MeasurementPlanV2
+      active: ActiveMeasurementPlan
+      lastSweepRun: typeof runs.$inferSelect
+    }
 
 interface ScopeSelection {
   kind: MeasurementOverviewResponse['scope']['kind']
@@ -202,6 +219,10 @@ function parseOverviewQuery(raw: Record<string, unknown>): MeasurementOverviewQu
   if (parsed.data.marketKey !== undefined && parsed.data.scope !== 'market') {
     throw validationError(`"marketKey" is accepted only when scope is "market"; scope "${parsed.data.scope}" does not narrow to a market.`)
   }
+  // A date window already names which past sweep to read.
+  if (parsed.data.fallback !== undefined && (parsed.data.from !== undefined || parsed.data.to !== undefined)) {
+    throw validationError('"fallback" cannot be combined with "from" or "to".')
+  }
   return parsed.data
 }
 
@@ -214,6 +235,88 @@ export function activeMeasurementPlan(db: DatabaseClient, projectId: string): Ac
   )).get()
   if (!version) throw new Error(`Measurement plan ${projectId} points to missing version ${pointer.activeVersionId}`)
   return { version, plan: parseStoredMeasurementPlanAnyVersion(version.canonicalJson) }
+}
+
+/**
+ * The sweep a location read may fall back to after a tracking change.
+ *
+ * The report's default (`defaultSweep`: the newest sweep of the active chain,
+ * else the newest of any v2 plan) with this surface's completed-only rule. The
+ * chain half is `latestMeasurementRun`, so this returns a run only when that
+ * finds none, and a read that displays a sweep today never falls back. The
+ * other half reads the report's own eligible sweeps (`storedSweepFilter`),
+ * narrowed to completed whole-project ones pinned to a schema v2 revision. A
+ * probe, a spot check, a partial sweep and a sweep of a v1 plan are never it.
+ */
+export function lastSweepMeasurementRun(
+  db: DatabaseClient,
+  projectId: string,
+  activeVersionId: string,
+): typeof runs.$inferSelect | undefined {
+  if (latestMeasurementRun(db, projectId, activeVersionId, [RunStatuses.completed])) return undefined
+  return db.select(getTableColumns(runs)).from(runs)
+    .innerJoin(measurementPlanVersions, eq(measurementPlanVersions.id, runs.measurementPlanVersionId))
+    .where(and(
+      storedSweepFilter(projectId, false),
+      eq(runs.status, RunStatuses.completed),
+      isNull(runs.measurementScope),
+      eq(measurementPlanVersions.projectId, projectId),
+      eq(measurementPlanVersions.schemaVersion, MEASUREMENT_PLAN_V2_SCHEMA_VERSION),
+    ))
+    .orderBy(desc(runs.createdAt), desc(runs.id)).get()
+}
+
+/**
+ * Picks the plan one read reads under. Without `fallback` it is the active
+ * plan and no query runs. With it, and with no completed sweep of the active
+ * plan, it is the plan the last completed sweep ran with: the one extra
+ * stored-plan parse. A `runId` (a request's or a cursor's) keeps that reading
+ * only when it names that sweep; any other id reads as it does today.
+ */
+export function measurementReading(
+  db: DatabaseClient,
+  projectId: string,
+  active: ActiveMeasurementPlan,
+  opts: { fallback?: MeasurementReadFallback; runId?: string | null } = {},
+): MeasurementReading {
+  const own = { ...active, active }
+  if (opts.fallback === undefined) return own
+  const lastSweepRun = lastSweepMeasurementRun(db, projectId, active.version.id)
+  if (!lastSweepRun || lastSweepRun.measurementPlanVersionId === null) return own
+  if (opts.runId !== undefined && opts.runId !== lastSweepRun.id) return own
+  const version = db.select().from(measurementPlanVersions).where(and(
+    eq(measurementPlanVersions.projectId, projectId),
+    eq(measurementPlanVersions.id, lastSweepRun.measurementPlanVersionId),
+  )).get()
+  if (!version) throw new Error(`Run ${lastSweepRun.id} points to missing plan version ${lastSweepRun.measurementPlanVersionId}`)
+  const plan = parseStoredMeasurementPlanAnyVersion(version.canonicalJson)
+  if (plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) {
+    throw new Error(`Measurement plan version ${version.id} is not a readable schema-v2 plan`)
+  }
+  return { version, plan, active, lastSweepRun }
+}
+
+/**
+ * What a fallback read says about the sweep it displays. Nothing without the
+ * param, so a default response keeps its bytes. `awaitingSweep` is the
+ * report's rule: the displayed sweep did not run with the active plan.
+ */
+export function lastSweepFields(
+  reading: MeasurementReading,
+  fallback: MeasurementReadFallback | undefined,
+  displayed: typeof runs.$inferSelect | undefined,
+): Pick<MeasurementOverviewResponse['measurement'], 'activeRevision' | 'measuredRevision' | 'awaitingSweep' | 'trackingChangedAt'> {
+  if (fallback === undefined) return {}
+  const activeRevision = reading.active.version.revision
+  const measuredRevision = displayed === undefined
+    ? null
+    : reading.lastSweepRun ? reading.version.revision : activeRevision
+  return {
+    activeRevision,
+    measuredRevision,
+    awaitingSweep: measuredRevision !== activeRevision,
+    trackingChangedAt: reading.active.version.createdAt,
+  }
 }
 
 function metricReason(reason: MeasurementMetricReason): MeasurementMetricUnavailableReason {
@@ -280,6 +383,8 @@ function overviewFilterFingerprint(query: MeasurementOverviewQuery): string {
     to: query.to ?? null,
     search: query.search === undefined ? null : normalizedText(query.search),
     compact: query.compact ?? false,
+    // Added only when set, so a cursor issued before the param existed still matches.
+    ...(query.fallback === undefined ? {} : { fallback: query.fallback }),
   }
   return createHash('sha256').update(JSON.stringify(filters)).digest('base64url')
 }
@@ -300,6 +405,7 @@ function overviewAggregateFingerprint(query: MeasurementOverviewQuery): string {
     location: query.location === undefined ? null : normalizedText(query.location),
     from: query.from ?? null,
     to: query.to ?? null,
+    ...(query.fallback === undefined ? {} : { fallback: query.fallback }),
   }
   return createHash('sha256').update(JSON.stringify(filters)).digest('base64url')
 }
@@ -684,6 +790,21 @@ function resolveMarketScope(plan: StoredMeasurementPlan, marketKey: string | und
 }
 
 /**
+ * The requested place in the plan the last sweep ran with, or null when that
+ * plan did not hold it: a location, group or market added since. The request
+ * was already checked against the active plan, so a missing key here is not
+ * an error.
+ */
+function scopeInSweepPlan(plan: MeasurementPlanV2, query: MeasurementOverviewQuery): ScopeSelection | null {
+  const held = query.scope === 'group'
+    ? plan.groups.some(group => group.stableKey === query.groupKey)
+    : query.scope === 'market'
+      ? plan.reportingScopes?.some(market => market.stableKey === query.marketKey) === true
+      : query.scope !== 'property' || plan.targets.some(target => target.stableKey === query.targetKey)
+  return held ? resolveScope(plan, query) : null
+}
+
+/**
  * Named Share of Voice exists only for a group's Non-brand basket with confirmed
  * competitors. Everywhere else it is absent rather than zeroed: All Properties
  * and a single Property have no comparable set to share a denominator with.
@@ -892,25 +1013,40 @@ function planV2Overview(
   cache: MeasurementOverviewCache,
 ): MeasurementOverviewResponse {
   const queryClass = servedQueryClass(query)
-  const displayed = selectDisplayedRun(db, projectId, active, query)
+  // A cursor pins the run it was issued against, so it decides the reading too.
+  const reading = measurementReading(db, projectId, active, {
+    fallback: query.fallback,
+    runId: query.runId ?? (query.cursor === undefined ? undefined : parseCursor(query.cursor)?.displayedRunId),
+  })
+  const lastSweep = reading.lastSweepRun
+  const displayed = lastSweep ?? selectDisplayedRun(db, projectId, active, query)
   const current = latestMeasurementRun(db, projectId, active.version.id, CURRENT_RUN_STATUSES)
   const currentDto = current ? { currentRunId: current.id } : {}
-  const locate = propertyLocations(plan)
+  // The last sweep is read under the plan it ran with, and so is the place.
+  const sweepPlan = lastSweep ? reading.plan : plan
+  const sweepScope = lastSweep ? scopeInSweepPlan(reading.plan, query) : scope
+  const sweepFields = lastSweepFields(reading, query.fallback, displayed)
 
-  if (!displayed) {
+  if (!displayed || sweepScope === null) {
+    // No sweep at all, or a place the last sweep's plan did not hold. Both list
+    // the active plan's rows with no number, under the reason that applies. The
+    // cursor is pinned to the plan whose rows it pages, so a publish between
+    // two pages is refused here as it is on the default read.
+    const reason = displayed ? 'no_population' : 'no_completed_run'
+    const locate = propertyLocations(plan)
     const { page, outcomes } = pageOf(
       propertyLabels(plan, scope)
         .filter(row => matchesSearch(row, query.search))
         .map(row => ({
           ...row,
           ...metroFields(locate(row.targetKey)),
-          mentionCoverage: unavailable('no_completed_run'),
-          citationCoverage: unavailable('no_completed_run'),
+          mentionCoverage: unavailable(reason),
+          citationCoverage: unavailable(reason),
           providers: [],
           flags: 0,
         })),
       query,
-      null,
+      displayed?.id ?? null,
       active.version.id,
       snapshotEvidenceFingerprint([]),
     )
@@ -919,18 +1055,21 @@ function planV2Overview(
       scope: scopeDto(scope),
       queryClass,
       measurement: {
-        state: 'not_measured',
+        state: displayed ? displayedState(displayed.status) : 'not_measured',
         ...currentDto,
+        ...(displayed ? { displayedRunId: displayed.id } : {}),
         ...runProgress(db, displayed, plan),
+        ...(displayed?.finishedAt ? { completedAt: displayed.finishedAt } : {}),
         includesHistoricalData: false,
+        ...sweepFields,
       },
-      nextAction: nextActionFor(db, projectId, displayed, 0),
+      nextAction: nextActionFor(db, projectId, undefined, 0),
       metrics: {
-        propertiesMentioned: unavailable('no_completed_run'),
-        mentionCoverage: unavailable('no_completed_run'),
-        citationCoverage: unavailable('no_completed_run'),
-        brandPresence: unavailable('no_completed_run'),
-        sov: unavailable('no_completed_run'),
+        propertiesMentioned: unavailable(reason),
+        mentionCoverage: unavailable(reason),
+        citationCoverage: unavailable(reason),
+        brandPresence: unavailable(reason),
+        sov: unavailable(reason),
       },
       properties: page,
       outcomes,
@@ -938,18 +1077,19 @@ function planV2Overview(
     }
   }
 
+  const locate = propertyLocations(sweepPlan)
   const snapshots = db.select().from(querySnapshots).where(eq(querySnapshots.runId, displayed.id)).all()
   const evidenceFingerprint = snapshotEvidenceFingerprint(snapshots)
-  const identities = namedIdentitiesFor(plan, scope, queryClass)
+  const identities = namedIdentitiesFor(sweepPlan, sweepScope, queryClass)
   const overview = cache.getOrBuild({
-    planVersionId: active.version.id,
-    revision: active.version.revision,
+    planVersionId: reading.version.id,
+    revision: reading.version.revision,
     runId: displayed.id,
     aggregateFingerprint: overviewAggregateFingerprint(query),
     evidenceFingerprint,
   }, () => {
-    const manifest = measurementRunExpectedSlots(displayed, plan)
-    const { input, edgeQueryClass } = buildMeasurementPlanV2ReportInput(active.version.revision, plan, manifest, snapshots)
+    const manifest = measurementRunExpectedSlots(displayed, sweepPlan)
+    const { input, edgeQueryClass } = buildMeasurementPlanV2ReportInput(reading.version.revision, sweepPlan, manifest, snapshots)
 
     // Provider, location, question class and a market's own edges narrow the
     // population every metric is taken over, so they are applied before a
@@ -960,14 +1100,14 @@ function planV2Overview(
     ))
     const usageEdges: readonly MeasurementUsageEdgeInput[] = input.usageEdges.filter(edge => (
       (queryClass === 'all' || edgeQueryClass.get(edge.id) === queryClass)
-      && (scope.edgeIds === undefined || scope.edgeIds.has(edge.id))
+      && (sweepScope.edgeIds === undefined || sweepScope.edgeIds.has(edge.id))
     ))
 
     return buildMeasurementOverview({
       ...input,
       expectedSlots,
       usageEdges,
-      scopeTargetIds: scope.targetKeys,
+      scopeTargetIds: sweepScope.targetKeys,
       namedIdentities: identities,
     })
   })
@@ -976,7 +1116,7 @@ function planV2Overview(
     overview.properties.map(row => [row.targetId, row]),
   )
   const { page, outcomes } = pageOf(
-    propertyLabels(plan, scope)
+    propertyLabels(sweepPlan, sweepScope)
       .filter(row => matchesSearch(row, query.search))
       .map(row => {
         const property = measured.get(row.targetKey)
@@ -991,15 +1131,15 @@ function planV2Overview(
       }),
     query,
     displayed.id,
-    active.version.id,
+    reading.version.id,
     evidenceFingerprint,
   )
 
   const credited = new Map((overview.namedShareOfVoice?.entries ?? []).map(entry => [entry.key, entry]))
-  const namedShareOfVoice: NamedShareOfVoice | undefined = overview.namedShareOfVoice === null || scope.key === undefined
+  const namedShareOfVoice: NamedShareOfVoice | undefined = overview.namedShareOfVoice === null || sweepScope.key === undefined
     ? undefined
     : {
-        groupKey: scope.key,
+        groupKey: sweepScope.key,
         queryClass: 'non-brand',
         denominator: overview.namedShareOfVoice.denominator,
         entries: identities.map(identity => ({
@@ -1015,17 +1155,20 @@ function planV2Overview(
   const brandPresence = coverageMetric(overview.brandPresence)
   return {
     mode: 'active-v2',
-    scope: scopeDto(scope),
+    scope: scopeDto(sweepScope),
     queryClass,
     measurement: {
       state: displayedState(displayed.status),
       ...currentDto,
       displayedRunId: displayed.id,
-      ...runProgress(db, displayed, plan),
+      ...runProgress(db, displayed, sweepPlan),
       ...(displayed.finishedAt ? { completedAt: displayed.finishedAt } : {}),
       includesHistoricalData: overview.includesHistoricalData,
+      ...sweepFields,
     },
-    nextAction: nextActionFor(db, projectId, displayed, overview.flags),
+    // The last sweep is not the active plan's: the plan still needs its own
+    // sweep, so the next step stays that (or the open draft), never a review.
+    nextAction: lastSweep ? nextActionFor(db, projectId, undefined, 0) : nextActionFor(db, projectId, displayed, overview.flags),
     metrics: {
       propertiesMentioned: countMetric(overview.propertiesMentioned),
       mentionCoverage: coverageMetric(overview.mentionCoverage),

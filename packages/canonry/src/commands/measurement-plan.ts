@@ -30,6 +30,7 @@ import {
   type MeasurementPlanInput,
   type MeasurementPropertyEvidenceResponse,
   type MeasurementQueryClassFilter,
+  type MeasurementReadFallback,
   type MetricValue,
   type QueryTrackingResultsRequest,
   type QueryTrackingResultsResponse,
@@ -472,16 +473,33 @@ function uncheckedText(metric: MetricValue): string | null {
 }
 
 /** A rate followed by the note naming the answers it left out, when there is one. */
-function metricWithNote(metric: MetricValue, note: string | null): string {
-  return `${metricText(metric)}${note ? ` · ${note}` : ''}`
+function metricWithNote(metric: MetricValue, note: string | null, lastSweep = false): string {
+  return `${metricText(metric, lastSweep)}${note ? ` · ${note}` : ''}`
 }
 
-function metricText(metric: MetricValue): string {
+/**
+ * `lastSweep` is true when the numbers are an older sweep's. Then an empty
+ * population means that sweep asked this location nothing of the type, and the
+ * plan in effect now may well ask it something.
+ */
+function metricText(metric: MetricValue, lastSweep = false): string {
+  if (lastSweep && metric.state === 'unavailable' && metric.reason === 'no_population') return 'not measured (not in last sweep)'
   if (metric.state === 'unavailable') return METRIC_REASONS[metric.reason] ?? `not measured (${metric.reason})`
   const percent = formatPercent(metric.value)
   return metric.numerator === undefined || metric.denominator === undefined
     ? percent
     : `${metric.numerator} of ${metric.denominator} (${percent})`
+}
+
+/**
+ * One line when the numbers shown are from before the last tracking change.
+ * Printed only for a read that asked for the fallback and got an older sweep.
+ */
+function lastSweepLine(measurement: MeasurementOverviewResponse['measurement'] | MeasurementPropertyEvidenceResponse['measurement']): string | null {
+  if (measurement.awaitingSweep !== true || measurement.measuredRevision == null) return null
+  const changed = measurement.trackingChangedAt ? ` ${formatIsoDate(measurement.trackingChangedAt)}` : ''
+  const sweep = measurement.completedAt ? `${formatIsoDate(measurement.completedAt)} sweep` : 'last sweep'
+  return `Tracking changed${changed}. Showing the ${sweep}. New numbers after the next sweep.`
 }
 
 export interface MeasurementPropertyOptions {
@@ -490,6 +508,7 @@ export interface MeasurementPropertyOptions {
   provider?: string
   location?: string
   runId?: string
+  fallback?: MeasurementReadFallback
   format?: string
 }
 
@@ -506,6 +525,7 @@ export async function showMeasurementProperty(project: string, opts: Measurement
     ...(opts.provider === undefined ? {} : { provider: opts.provider }),
     ...(opts.location === undefined ? {} : { location: opts.location }),
     ...(opts.runId === undefined ? {} : { runId: opts.runId }),
+    ...(opts.fallback === undefined ? {} : { fallback: opts.fallback }),
   })
 
   if (isMachineFormat(opts.format)) {
@@ -520,11 +540,14 @@ function printMeasurementProperty(response: MeasurementOverviewResponse): void {
   const lines: string[] = []
   lines.push(`${response.scope.label} · ${queryClassText(response.queryClass)}`)
   lines.push(`Measurement: ${response.measurement.state}${response.measurement.displayedRunId ? ` · run ${response.measurement.displayedRunId}` : ''}`)
+  const lastSweep = lastSweepLine(response.measurement)
+  if (lastSweep) lines.push(lastSweep)
+  const fromLastSweep = lastSweep !== null
   lines.push('')
   const mention = row ? row.mentionCoverage : response.metrics.mentionCoverage
   const citation = row ? row.citationCoverage : response.metrics.citationCoverage
-  lines.push(`Mentioned  ${metricWithNote(mention, unattributedText(mention))}`)
-  lines.push(`Cited      ${metricWithNote(citation, uncheckedText(citation))}`)
+  lines.push(`Mentioned  ${metricWithNote(mention, unattributedText(mention), fromLastSweep)}`)
+  lines.push(`Cited      ${metricWithNote(citation, uncheckedText(citation), fromLastSweep)}`)
   if (row && row.flags > 0) lines.push(`Flagged    ${row.flags} ${row.flags === 1 ? 'result needs' : 'results need'} review`)
 
   if (row && row.providers.length > 0) {
@@ -533,7 +556,7 @@ function printMeasurementProperty(response: MeasurementOverviewResponse): void {
     lines.push('')
     lines.push(`${'Engine'.padEnd(engineWidth)}${'Mentioned'.padEnd(mentionWidth)}Cited`)
     for (const provider of row.providers) {
-      lines.push(`${provider.provider.padEnd(engineWidth)}${metricText(provider.mentionCoverage).padEnd(mentionWidth)}${metricText(provider.citationCoverage)}`)
+      lines.push(`${provider.provider.padEnd(engineWidth)}${metricText(provider.mentionCoverage, fromLastSweep).padEnd(mentionWidth)}${metricText(provider.citationCoverage, fromLastSweep)}`)
       // Each note continues on its own line under its own column (mention
       // under Mentioned, citation under Cited) so the columns stay aligned.
       const providerUnattributed = unattributedText(provider.mentionCoverage)
@@ -617,6 +640,7 @@ export interface MeasurementPropertyEvidenceOptions {
   provider?: string
   location?: string
   runId?: string
+  fallback?: MeasurementReadFallback
   shape?: MeasurementEvidenceShape
   cursor?: string
   limit?: number
@@ -661,6 +685,7 @@ export async function showMeasurementPropertyEvidence(
     ...(opts.provider === undefined ? {} : { provider: opts.provider }),
     ...(opts.location === undefined ? {} : { location: opts.location }),
     ...(opts.runId === undefined ? {} : { runId: opts.runId }),
+    ...(opts.fallback === undefined ? {} : { fallback: opts.fallback }),
     ...(opts.shape === undefined ? {} : { shape: opts.shape }),
     ...(opts.cursor === undefined ? {} : { cursor: opts.cursor }),
     ...(opts.limit === undefined ? {} : { limit: opts.limit }),
@@ -714,6 +739,8 @@ function printMeasurementPropertyEvidence(response: MeasurementPropertyEvidenceR
   const answerShape = page.shape === MeasurementEvidenceShapes.answers
   const otherQueriesShape = page.shape === MeasurementEvidenceShapes['other-queries']
   lines.push(`Measurement: ${response.measurement.state}${response.measurement.displayedRunId ? ` · run ${response.measurement.displayedRunId}` : ''}`)
+  const lastSweep = lastSweepLine(response.measurement)
+  if (lastSweep) lines.push(lastSweep)
   if (page.items.length === 0) {
     // Named for what was looked for. "No source evidence" under the answer
     // shape would report a Property whose answers cited nothing as a Property

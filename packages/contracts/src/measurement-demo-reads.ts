@@ -7,6 +7,7 @@ import {
 import {
   MEASUREMENT_DEFAULT_QUERY_CLASS,
   measurementCountMetricValueSchema,
+  measurementLastSweepFieldsShape,
   measurementMetricUnavailableReasonSchema,
   measurementMetricValueSchema,
   type CountMetricValue,
@@ -14,6 +15,7 @@ import {
   measurementPropertyMetroSchema,
   measurementQueryClassFilterSchema,
   measurementQueryClassSchema,
+  measurementReadFallbackSchema,
   measurementStateSchema,
   measurementV2StableKeySchema,
 } from './measurement-plan-v2.js'
@@ -26,12 +28,16 @@ const measurementDemoLabelSchema = z.string().trim().min(1)
 const measurementDemoLocationSchema = z.string().trim().min(1)
 const measurementDemoCountSchema = z.number().int().nonnegative()
 
-/** Shared, revision-pinned context for every demo read. Nulls describe N/A, never a zero run. */
+/**
+ * Shared, revision-pinned context for every demo read. Nulls describe N/A, never a zero run.
+ * `planRevision` is always the active revision; the last-sweep fields say which plan a displayed sweep ran with.
+ */
 export const measurementDemoRunMetadataSchema = z.object({
   state: measurementStateSchema,
   displayedRunId: measurementDemoIdSchema.nullable(),
   planRevision: z.number().int().positive(),
   completedAt: z.string().datetime().nullable(),
+  ...measurementLastSweepFieldsShape,
 }).strict()
 export type MeasurementDemoRunMetadata = z.output<typeof measurementDemoRunMetadataSchema>
 
@@ -434,6 +440,8 @@ export const measurementPropertyQuestionsQuerySchema = z.object({
   provider: measurementDemoFilterQueryShape.provider,
   location: measurementDemoFilterQueryShape.location,
   queryClass: measurementQueryClassFilterSchema.optional(),
+  /** Read the last completed sweep after a tracking change. */
+  fallback: measurementReadFallbackSchema.optional(),
   offset: z.number().int().nonnegative().optional(),
   limit: z.number().int().positive().max(100).optional(),
 }).strict()
@@ -490,6 +498,8 @@ export type MeasurementPropertyQuestionsResponse = z.output<typeof measurementPr
 export const measurementQuestionResultQuerySchema = z.object({
   targetKey: measurementV2StableKeySchema,
   resultId: measurementDemoIdSchema,
+  /** Open a result of the last completed sweep after a tracking change. */
+  fallback: measurementReadFallbackSchema.optional(),
 }).strict()
 export type MeasurementQuestionResultQuery = z.output<typeof measurementQuestionResultQuerySchema>
 
@@ -541,6 +551,8 @@ export const measurementPropertyCompetitorsQuerySchema = z.object({
   provider: measurementDemoFilterQueryShape.provider,
   location: measurementDemoFilterQueryShape.location,
   queryClass: measurementQueryClassFilterSchema.optional(),
+  /** Read the last completed sweep after a tracking change. */
+  fallback: measurementReadFallbackSchema.optional(),
   limit: z.number().int().positive().max(50).optional(),
 }).strict()
 export type MeasurementPropertyCompetitorsQuery = z.output<typeof measurementPropertyCompetitorsQuerySchema>
