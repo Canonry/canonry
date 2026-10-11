@@ -8,6 +8,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 
 | File | Role |
 |------|------|
+| `src/status.ts` | Stored integration status, scoped to visible projects; shares doctor failure readers and freshness constants without running doctor checks. |
 | `src/index.ts` | Plugin entry point, global error handler, `ApiRoutesOptions` interface |
 | `src/helpers.ts` | `resolveProject()`, `writeAuditLog()`, `incrementUsage()`, `notProbeRun()` Drizzle predicate (see "Probe runs") |
 | `src/auth.ts` | Auth plugin: API key and session validation, scope gates (see "Deployment posture and key authority") |

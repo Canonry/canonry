@@ -13,6 +13,7 @@ const mockTriggerRun = vi.fn()
 vi.mock('../src/client.js', () => ({
   createApiClient: () => ({
     getProject: mockGetProject,
+    getStatus: async () => ({ projects: [] }),
     getLatestRun: mockGetLatestRun,
     triggerRun: mockTriggerRun,
   }),

@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createClient, gbpLocations, measurementPlanVersions, measurementPlans, migrate, projects, runs } from '@ainyc/canonry-db'
+import { createClient, gbpLocations, gscDataWatermarks, measurementPlanVersions, measurementPlans, migrate, projects, runs } from '@ainyc/canonry-db'
 import { GBP_NO_SELECTED_LOCATIONS_ERROR, canonicalMeasurementPlanV2Json, instanceStatusDtoSchema, serializeRunError } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import type { GoogleConnectionStore } from '../src/google.js'
@@ -71,6 +71,31 @@ describe('GET /api/v1/status', () => {
     expect(partial).toMatchObject({ state: 'ok', consecutiveFailures: 0, latestStatus: 'partial' })
     await app.close()
     fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('counts Search Console freshness in Pacific reporting days', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-11T01:00:00.000Z'))
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'status-pacific-'))
+    const db = createClient(path.join(directory, 'test.db'))
+    migrate(db)
+    const now = new Date().toISOString()
+    db.insert(projects).values({ id: 'p', name: 'pacific', displayName: 'Pacific', canonicalDomain: 'pacific.example', country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
+    db.insert(runs).values({ id: 'r', projectId: 'p', kind: 'gsc-sync', status: 'completed', trigger: 'scheduled', createdAt: now, finishedAt: now }).run()
+    db.insert(gscDataWatermarks).values({ projectId: 'p', dataThroughDate: '2026-10-06', updatedAt: now }).run()
+    const googleConnectionStore = { getConnection: (_domain: string, type: string) => type === 'gsc' ? { createdAt: now } : undefined } as unknown as GoogleConnectionStore
+    const app = Fastify()
+    app.register(apiRoutes, { db, skipAuth: true, googleConnectionStore })
+    try {
+      const response = await app.inject({ url: '/api/v1/status?project=pacific' })
+      expect(response.statusCode).toBe(200)
+      expect(response.json().projects[0].integrations[0]).toMatchObject({ state: 'ok', dataThrough: '2026-10-06', dataAgeDays: 4 })
+    } finally {
+      await app.close()
+      db.$client.close()
+      fs.rmSync(directory, { recursive: true, force: true })
+      vi.useRealTimers()
+    }
   })
 
   it('returns a contract-valid stored-only payload without provider probes', async () => {

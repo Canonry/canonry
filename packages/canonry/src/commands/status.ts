@@ -35,12 +35,10 @@ export async function showStatus(project: string | undefined, format?: string, o
   const projectData: ProjectDto = await client.getProject(project)
   const latest = await getLatestRunSummary(client, project)
   let storedStatus: InstanceStatusDto | null = null
-  if (typeof client.getStatus === 'function') {
-    try {
-      storedStatus = await client.getStatus({ project, problems: options.problems })
-    } catch (error) {
-      if (!isEndpointMissing(error)) throw error
-    }
+  try {
+    storedStatus = await client.getStatus({ project, problems: options.problems })
+  } catch (error) {
+    if (!isEndpointMissing(error)) throw error
   }
 
   if (isMachineFormat(format)) {

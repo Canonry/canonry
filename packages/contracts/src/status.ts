@@ -2,9 +2,11 @@ import { z } from 'zod'
 import { runKindSchema, runStatusSchema, runTriggerSchema } from './run.js'
 
 export const statusIntegrationSchema = z.enum(['gsc', 'ga', 'gbp', 'bing', 'ads', 'google-ads', 'gtm', 'traffic'])
+export const StatusIntegrations = statusIntegrationSchema.enum
 export type StatusIntegration = z.infer<typeof statusIntegrationSchema>
 
 export const integrationStateSchema = z.enum(['ok', 'failing', 'stale', 'never-synced'])
+export const IntegrationStates = integrationStateSchema.enum
 export type IntegrationState = z.infer<typeof integrationStateSchema>
 
 const dateTimeSchema = z.string().datetime({ offset: true })

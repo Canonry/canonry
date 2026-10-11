@@ -36,10 +36,11 @@ export const OPERATIONS_GUIDE = {
         "health"
       ],
       "next": [
+        "canonry_status",
         "canonry_projects_list",
         "canonry_project_overview"
       ],
-      "guidance": "Select an accessible project, then read its stored overview. Report freshness and missing evidence; do not start a sweep to fill a gap."
+      "guidance": "Read canonry_status first for stored integration health, freshness, and repeated failures across accessible projects, then inspect a project overview for detail. Report missing evidence; do not start a sweep or sync to fill a gap."
     },
     "diagnose": {
       "keywords": [

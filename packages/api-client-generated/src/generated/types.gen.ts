@@ -4889,7 +4889,7 @@ export type InstanceStatusDto = {
         integrations: Array<{
             integration: 'gsc' | 'ga' | 'gbp' | 'bing' | 'ads' | 'google-ads' | 'gtm' | 'traffic';
             label: string;
-            runKind: string;
+            runKind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
             sourceId: string | null;
             state: 'ok' | 'failing' | 'stale' | 'never-synced';
             lastSuccessAt: string | null;

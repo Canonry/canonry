@@ -31,7 +31,7 @@ import {
   type Connection,
 } from './doctor/checks/integration-sync.js'
 import { GBP_NOTHING_TO_SYNC_ERRORS } from './doctor/checks/integration-sync.js'
-import { GA_DATA_AGING_DAYS, GSC_DATA_AGING_DAYS, SYNC_IDLE_DAYS } from './doctor/checks/data-freshness.js'
+import { GA_DATA_AGING_DAYS, GSC_DATA_AGING_DAYS, GSC_REPORTING_TIME_ZONE, SYNC_IDLE_DAYS, daysSinceDate } from './doctor/checks/data-freshness.js'
 import { ADS_RECENT_SYNC_WARN_DAYS } from './doctor/checks/ads.js'
 import { FRESH_SNAPSHOT_WARN_DAYS } from './doctor/checks/google-marketing.js'
 import { SYNC_LAG_WARN_MS } from './doctor/checks/traffic-source.js'
@@ -50,13 +50,6 @@ export interface StatusRoutesOptions {
 function ageDays(iso: string | null): number | null {
   if (!iso) return null
   const ms = Date.now() - Date.parse(iso)
-  if (!Number.isFinite(ms)) return null
-  return Math.max(0, Math.floor(ms / 86_400_000))
-}
-
-function dateAgeDays(date: string | null): number | null {
-  if (!date) return null
-  const ms = Date.now() - Date.parse(`${date}T00:00:00.000Z`)
   if (!Number.isFinite(ms)) return null
   return Math.max(0, Math.floor(ms / 86_400_000))
 }
@@ -98,7 +91,8 @@ function makeRow(
   doctorChecks: string[] = [],
   dataStaleAfterDays: number | null = staleAfterDays,
 ): IntegrationStatusRow {
-  const throughAge = dateAgeDays(dataThrough)
+  const age = dataThrough ? daysSinceDate(dataThrough, new Date(), integration === 'gsc' ? GSC_REPORTING_TIME_ZONE : undefined) : null
+  const throughAge = age === null ? null : Math.max(0, age)
   return {
     integration,
     label,
