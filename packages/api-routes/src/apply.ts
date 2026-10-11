@@ -205,15 +205,6 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           specCompetitorNames,
         )
 
-    const beforeState = readProjectConfigState(app.db, name, {
-      managed: {
-        queries: managesQueries,
-        competitors: true,
-        schedule: true,
-        notifications: hasNotifications,
-      },
-    })
-
     // All validation done — wrap all writes in a single transaction
     let projectId: string
     const lifecycle = { projectCreated: false, competitorAliasesChanged: false, competitorsAdded: false }
@@ -223,6 +214,9 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
 
     try {
       app.db.transaction((tx) => {
+      const beforeState = mode === 'preview' ? readProjectConfigState(tx, name, {
+        managed: { queries: managesQueries, competitors: true, schedule: true, notifications: hasNotifications },
+      }) : null
       // Upsert project
       const existing = tx.select().from(projects).where(eq(projects.name, name)).get()
       // The spec's identity and competitor set can claim, or release, a name
