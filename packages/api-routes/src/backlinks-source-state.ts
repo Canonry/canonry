@@ -8,6 +8,8 @@ export interface CommonCrawlSourceState {
    * reached `ready` before and is being synced again.
    */
   hasReadyRelease: boolean
+  /** At least one release is currently `ready`, as required for an extract. */
+  hasCurrentReadyRelease: boolean
   /** The project has a stored Common Crawl summary, from any release. */
   hasProjectData: boolean
   /** Both of the above: the source is set up and this project has data from it. */
@@ -36,15 +38,16 @@ export interface CommonCrawlSourceState {
  * read this, so the API and the check cannot disagree.
  */
 export function readCommonCrawlSourceState(db: DatabaseClient, projectId: string): CommonCrawlSourceState {
-  const hasReadyRelease = db
-    .select({ id: ccReleaseSyncs.id })
+  const completedReleases = db
+    .select({ status: ccReleaseSyncs.status })
     .from(ccReleaseSyncs)
     .where(or(
       eq(ccReleaseSyncs.status, CcReleaseSyncStatuses.ready),
       isNotNull(ccReleaseSyncs.queryFinishedAt),
     ))
-    .limit(1)
-    .get() !== undefined
+    .all()
+  const hasReadyRelease = completedReleases.length > 0
+  const hasCurrentReadyRelease = completedReleases.some((release) => release.status === CcReleaseSyncStatuses.ready)
   const hasProjectData = db
     .select({ id: backlinkSummaries.id })
     .from(backlinkSummaries)
@@ -54,5 +57,5 @@ export function readCommonCrawlSourceState(db: DatabaseClient, projectId: string
     ))
     .limit(1)
     .get() !== undefined
-  return { hasReadyRelease, hasProjectData, connected: hasReadyRelease && hasProjectData }
+  return { hasReadyRelease, hasCurrentReadyRelease, hasProjectData, connected: hasReadyRelease && hasProjectData }
 }

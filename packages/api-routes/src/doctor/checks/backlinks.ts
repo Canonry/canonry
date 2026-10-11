@@ -26,7 +26,7 @@ export const BACKLINKS_CHECKS: readonly CheckDefinition[] = [
       if (!ctx.project) return skippedNoProject()
 
       // Graded from stored data, by the rule the sources route reports: a
-      // `ready` release sync plus a Common Crawl summary for this project (no
+      // completed release sync plus a Common Crawl summary for this project (no
       // auth, it is a public dataset). The release sync is workspace-global
       // and writes every project's rows, so the project's
       // `autoExtractBacklinks` flag says nothing about whether data exists.
@@ -47,14 +47,18 @@ export const BACKLINKS_CHECKS: readonly CheckDefinition[] = [
         }
       }
 
-      // A project created after the last release sync: the source is ready but
-      // nothing has been extracted for it yet.
+      // Retained data keeps a source connected through a re-sync, but an
+      // extract still requires a release whose current status is ready.
       if (!state.hasProjectData) {
         return {
           status: CheckStatuses.warn,
           code: 'backlinks.source.none',
-          summary: `A Common Crawl release is synced, but no backlinks have been extracted for ${ctx.project.name} yet.`,
-          remediation: `Run \`canonry backlinks extract ${ctx.project.name}\` to extract this project's backlinks from the synced release.`,
+          summary: state.hasCurrentReadyRelease
+            ? `A Common Crawl release is synced, but no backlinks have been extracted for ${ctx.project.name} yet.`
+            : `No backlinks have been extracted for ${ctx.project.name} yet, and no Common Crawl release is currently ready.`,
+          remediation: state.hasCurrentReadyRelease
+            ? `Run \`canonry backlinks extract ${ctx.project.name}\` to extract this project's backlinks from the synced release.`
+            : 'Run `canonry backlinks sync` to make a Common Crawl release ready and extract the workspace projects.',
           details,
         }
       }

@@ -144,4 +144,16 @@ describe('backlinks.source.connected', () => {
     expect(result.remediation).toMatch(/canonry backlinks extract demo/)
     expect(result.remediation).not.toMatch(/canonry backlinks sync/)
   })
+
+  it('warns to sync when a completed release failed re-sync and the project has no summary', async () => {
+    const project = seedProject(db, false)
+    seedSync(db, 'failed', { completedBefore: true })
+
+    const result = await check.run(ctx(project))
+
+    expect(result.status).toBe('warn')
+    expect(result.code).toBe('backlinks.source.none')
+    expect(result.remediation).toMatch(/canonry backlinks sync/)
+    expect(result.remediation).not.toMatch(/canonry backlinks extract/)
+  })
 })

@@ -398,16 +398,23 @@ export class Notifier {
       ? indexBreaches(parseBreaches(previous.notifiedSignature), by)
       : null
 
-    // New or worse: against the pass before, or against what was last
-    // delivered. The second half is what re-sends an alert no webhook
-    // accepted: the pass is stored before the send, so one pass later the
-    // failure is no longer new to the database while still new to the
-    // operator.
-    const added = before === null
+    // A refused alert owes its triggering checks, even when an earlier alert
+    // already reported the same code before that check cleared and returned.
+    // The delivered set is only the clearance baseline, not a delivery receipt
+    // for a later episode. Drop an owed check if it cleared, eased or was set
+    // aside under its cause; an older writer invalidates the pending ids too.
+    const currentById = indexBreaches(failingNow, 'id')
+    const pending = idsKnown && previous?.pendingSignature != null
+      ? parseBreaches(previous.pendingSignature).flatMap(was => {
+          const now = was.id === null ? undefined : currentById.get(was.id)
+          return now && now.rank >= was.rank ? [now] : []
+        })
+      : []
+    const newBreaches = before === null
       ? null
-      : breachCodes([...current]
-          .filter(([key, now]) => isNews(now, before.get(key)) || (notified !== null && isNews(now, notified.get(key))))
-          .map(([, now]) => now))
+      : [...current].filter(([key, now]) => isNews(now, before.get(key))).map(([, now]) => now)
+    const newsIds = new Set([...(newBreaches ?? []), ...pending].map(b => b.id))
+    const added = newBreaches === null ? null : breachCodes(failingNow.filter(b => newsIds.has(b.id)))
 
     // A check that left the failing set is cleared, unless the runner only set
     // it aside under its failing cause: that symptom is hidden, not fixed.
@@ -462,6 +469,22 @@ export class Notifier {
     // graded nothing cleared nothing, so it reports none.
     const cleared = before === null || noSignal ? null : goneFrom(new Map([...before, ...(notified ?? [])]))
 
+    const notifs = event
+      ? this.db.select().from(notifications)
+          .where(eq(notifications.projectId, projectId)).all().filter(n => n.enabled)
+      : []
+    const willAttempt = notifs.some(n => Boolean((n.config as { url?: string }).url))
+    // Save what this attempt owes before delivering, so a restart during the
+    // send cannot erase the alert. Legacy rows with an unknown earlier set owe
+    // only the changed/worse headline, never unrelated standing checks.
+    const triggerIds = new Set([
+      ...(newBreaches ?? failingNow.filter(b => noSignal || b.id === worst?.id)),
+      ...pending,
+    ].map(b => b.id))
+    const pendingNow = event === 'health.degraded' && willAttempt
+      ? failingNow.filter(b => triggerIds.has(b.id))
+      : null
+
     const now = report.checkedAt
     // Write the observation first so a delivery failure cannot lose it, but
     // leave `notifiedAt` alone until something is actually sent — it previously
@@ -471,6 +494,7 @@ export class Notifier {
     const observation = {
       projectId, status, code, summary, checkedAt: now, failingSignature,
       failingChecks: formatBreaches(failingNow),
+      pendingSignature: pendingNow === null ? null : formatBreaches(pendingNow),
       // A delivered set an older release has written past is no longer what
       // the operator was last told.
       ...(idsKnown ? {} : { notifiedSignature: null }),
@@ -489,9 +513,6 @@ export class Notifier {
       }
       return null
     }
-
-    const notifs = this.db.select().from(notifications)
-      .where(eq(notifications.projectId, projectId)).all().filter(n => n.enabled)
 
     const payload: HealthWebhookPayload = {
       source: 'canonry',
@@ -519,25 +540,15 @@ export class Notifier {
     // dropped at delivery. They are edge-triggered and therefore rare, and
     // `canonry apply` rewriting a project's event list can no longer silence
     // them.
-    let attempted = 0
     let delivered = 0
     for (const notif of notifs) {
       const config = notif.config as { url: string; events?: string[] }
       if (!config.url) continue
-      attempted += 1
       if (await this.sendWebhook(config.url, payload as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)) delivered += 1
     }
     if (delivered > 0) {
       this.db.update(doctorHealthState)
-        .set({ notifiedAt: now, notifiedSignature: formatBreaches(failingNow) })
-        .where(eq(doctorHealthState.projectId, projectId)).run()
-    } else if (event === 'health.degraded' && attempted > 0 && idsKnown && before !== null && notified === null) {
-      // The first alert on record was refused by every webhook. Record what
-      // the operator knew before it, so the next pass still reads this pass's
-      // failures as undelivered and sends them again. With no webhook to try
-      // there is nobody to owe the alert to, and nothing is recorded.
-      this.db.update(doctorHealthState)
-        .set({ notifiedSignature: formatBreaches(before.values()) })
+        .set({ notifiedAt: now, notifiedSignature: formatBreaches(failingNow), pendingSignature: null })
         .where(eq(doctorHealthState.projectId, projectId)).run()
     }
     log.info('health.notified', {

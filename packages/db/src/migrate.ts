@@ -4679,6 +4679,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE doctor_health_state ADD COLUMN failing_checks TEXT`,
     ],
   },
+  {
+    // Delivery debt is separate from the last delivered clearance baseline:
+    // a check can clear quietly and recur with a code that baseline knows.
+    // NULL preserves existing rows without inventing an undelivered alert.
+    version: 179,
+    name: 'doctor-health-pending-signature',
+    statements: [
+      `ALTER TABLE doctor_health_state ADD COLUMN pending_signature TEXT`,
+    ],
+  },
 ]
 
 /**

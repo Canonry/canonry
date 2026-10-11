@@ -978,15 +978,15 @@ export const doctorHealthState = sqliteTable('doctor_health_state', {
    * the set reported by the last health alert a webhook accepted. A pass that
    * only clears checks sends nothing and still advances `failingChecks`, so
    * the next alert compares against this to list what cleared since the alert
-   * the operator last saw. A check that is failing and not in here at that
-   * severity and code was never delivered, so its alert is sent again on the
-   * next pass. When the first alert on record is refused by every webhook,
-   * the set from before it is stored instead. NULL while no alert has been
-   * attempted since this column exists, and reset to NULL when an older
-   * release has written the row since; the notifier then compares against
-   * the previous pass alone.
+   * the operator last saw. Delivery retry state lives in `pendingSignature`:
+   * an earlier delivered set cannot acknowledge a later recurrence. NULL
+   * while no alert has been delivered since this column exists, and reset to
+   * NULL when an older release has written the row since; the notifier then
+   * compares against the previous pass alone.
    */
   notifiedSignature: text('notified_signature'),
+  /** Triggering breaches owed by an unaccepted degraded alert, as `status:code:id`. */
+  pendingSignature: text('pending_signature'),
 })
 
 /**

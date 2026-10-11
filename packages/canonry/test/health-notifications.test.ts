@@ -563,6 +563,52 @@ test('a first alert no webhook accepted is sent again too', async () => {
   expect(sent).toHaveLength(2)
 })
 
+test('a recurring breach whose alert failed is retried after a restart without losing earlier clearances', async () => {
+  const { db, notifier, projectId } = harness()
+  let accepted = true
+  const sent = capture(notifier, { accepted: () => accepted })
+
+  await notifier.onHealthChecked(projectId, { checks: [blip, standing, syncBehind], ...at('2026-09-01T00:00:00.000Z') })
+  expect(await notifier.onHealthChecked(projectId, { checks: [blip], ...at('2026-09-01T06:00:00.000Z') })).toBeNull()
+  accepted = false
+  expect(await notifier.onHealthChecked(projectId, { checks: [blip, standing], ...at('2026-09-01T12:00:00.000Z') })).toBe('health.degraded')
+  expect(sent.at(-1)!.health).toMatchObject({ added: ['ga.data.aging'], cleared: ['traffic.sync-lag.behind'] })
+
+  const restarted = new Notifier(db, 'https://canonry.test')
+  const retried = capture(restarted)
+  expect(await restarted.onHealthChecked(projectId, { checks: [blip, standing], ...at('2026-09-01T18:00:00.000Z') })).toBe('health.degraded')
+  expect(retried).toHaveLength(1)
+  expect(retried[0]!.health).toMatchObject({ added: ['ga.data.aging'], cleared: ['traffic.sync-lag.behind'] })
+  expect(await restarted.onHealthChecked(projectId, { checks: [blip, standing], ...at('2026-09-02T00:00:00.000Z') })).toBeNull()
+  expect(retried).toHaveLength(1)
+})
+
+test.each([
+  { when: 'after upgrading', stale: false },
+  { when: 'after a rollback and return', stale: true },
+])('a refused alert on the first pass $when is retried after a restart', async ({ stale }) => {
+  const { db, notifier, projectId } = harness()
+  let accepted = true
+  capture(notifier, { accepted: () => accepted })
+  await notifier.onHealthChecked(projectId, { checks: [blip], ...at('2026-09-01T00:00:00.000Z') })
+  db.update(doctorHealthState).set({
+    checkedAt: '2026-09-01T06:00:00.000Z',
+    failingSignature: 'fail:gsc.sync.repeated-failures,warn:ga.data.aging',
+    ...(stale ? {} : { failingChecks: null, notifiedSignature: null }),
+  } as never).where(eq(doctorHealthState.projectId, projectId)).run()
+
+  const checks = [blip, standing, syncBehind]
+  accepted = false
+  expect(await notifier.onHealthChecked(projectId, { checks, ...at('2026-09-01T12:00:00.000Z') })).toBe('health.degraded')
+  const restarted = new Notifier(db, 'https://canonry.test')
+  const retried = capture(restarted)
+  expect(await restarted.onHealthChecked(projectId, { checks, ...at('2026-09-01T18:00:00.000Z') })).toBe('health.degraded')
+  expect(retried).toHaveLength(1)
+  expect(retried[0]!.health).toMatchObject({ added: ['traffic.sync-lag.behind'], cleared: [] })
+  expect(await restarted.onHealthChecked(projectId, { checks, ...at('2026-09-02T00:00:00.000Z') })).toBeNull()
+  expect(retried).toHaveLength(1)
+})
+
 test('with no webhook to send to, an alert is not retried on every pass', async () => {
   const { db, notifier, projectId } = harness()
   db.update(notifications).set({ enabled: false } as never)
@@ -574,6 +620,85 @@ test('with no webhook to send to, an alert is not retried on every pass', async 
   expect(logs.map(entry => entry.action)).toEqual(['health.notified', 'health.unchanged'])
 })
 
+test.each([
+  { outcome: 'cleared', after: check('traffic.source.sync-lag', 'ok', 'traffic.sync-lag.current') },
+  { outcome: 'eased', after: syncBehind },
+])('a refused breach that $outcome no longer owes a retry', async ({ after }) => {
+  const { notifier, projectId } = harness()
+  let accepted = true
+  const sent = capture(notifier, { accepted: () => accepted })
+  await notifier.onHealthChecked(projectId, { checks: [standing], ...at('2026-09-01T00:00:00.000Z') })
+  accepted = false
+  await notifier.onHealthChecked(projectId, { checks: [standing, syncDiscarding], ...at('2026-09-01T06:00:00.000Z') })
+
+  expect(await notifier.onHealthChecked(projectId, { checks: [standing, after], ...at('2026-09-01T12:00:00.000Z') })).toBeNull()
+  expect(await notifier.onHealthChecked(projectId, { checks: [standing, after], ...at('2026-09-01T18:00:00.000Z') })).toBeNull()
+  expect(sent).toHaveLength(2)
+})
+
+test('disabling the last webhook cancels delivery debt without retrying every pass', async () => {
+  const { db, notifier, projectId } = harness()
+  let accepted = true
+  const sent = capture(notifier, { accepted: () => accepted })
+  await notifier.onHealthChecked(projectId, { checks: [blip], ...at('2026-09-01T00:00:00.000Z') })
+  accepted = false
+  await notifier.onHealthChecked(projectId, { checks: [blip, standing], ...at('2026-09-01T06:00:00.000Z') })
+  db.update(notifications).set({ enabled: false } as never).where(eq(notifications.projectId, projectId)).run()
+
+  await notifier.onHealthChecked(projectId, { checks: [blip, standing], ...at('2026-09-01T12:00:00.000Z') })
+  expect(await notifier.onHealthChecked(projectId, { checks: [blip, standing], ...at('2026-09-01T18:00:00.000Z') })).toBeNull()
+  expect(sent).toHaveLength(2)
+})
+
+test('a refused legacy headline that clears does not owe unrelated standing checks', async () => {
+  const { db, notifier, projectId } = harness()
+  let accepted = true
+  const sent = capture(notifier, { accepted: () => accepted })
+  await notifier.onHealthChecked(projectId, { checks: [standing], ...at('2026-09-01T00:00:00.000Z') })
+  db.update(doctorHealthState).set({ failingSignature: null, failingChecks: null, notifiedSignature: null } as never)
+    .where(eq(doctorHealthState.projectId, projectId)).run()
+  accepted = false
+  expect(await notifier.onHealthChecked(projectId, { checks: [standing, blip], ...at('2026-09-01T06:00:00.000Z') })).toBe('health.degraded')
+
+  expect(await notifier.onHealthChecked(projectId, { checks: [standing], ...at('2026-09-01T12:00:00.000Z') })).toBeNull()
+  expect(sent).toHaveLength(2)
+})
+
+test('a superseded pending symptom does not join retries of its failing cause', async () => {
+  const { notifier, projectId } = harness()
+  let accepted = true
+  const sent = capture(notifier, { accepted: () => accepted })
+  await notifier.onHealthChecked(projectId, { checks: [standing], ...at('2026-09-01T00:00:00.000Z') })
+  accepted = false
+  await notifier.onHealthChecked(projectId, { checks: [standing, blip], ...at('2026-09-01T06:00:00.000Z') })
+  const cause = check('google.auth.connection', 'fail', 'google.auth.refresh-failed', 'x', 'auth')
+  const setAside = {
+    ...check(blip.id, 'skipped', `${blip.id}.superseded`, 'x', 'integrations'),
+    details: { supersededBy: [cause.id], supersededStatus: 'fail', supersededCode: blip.code },
+  }
+  await notifier.onHealthChecked(projectId, { checks: [standing, cause, setAside], ...at('2026-09-01T12:00:00.000Z') })
+  expect(await notifier.onHealthChecked(projectId, { checks: [standing, cause, setAside], ...at('2026-09-01T18:00:00.000Z') })).toBe('health.degraded')
+  expect(sent.at(-1)!.health).toMatchObject({ added: ['google.auth.refresh-failed'], cleared: [] })
+})
+
+test('a pass recorded by an older writer invalidates stale pending retries', async () => {
+  const { db, notifier, projectId } = harness()
+  let accepted = true
+  const sent = capture(notifier, { accepted: () => accepted })
+  await notifier.onHealthChecked(projectId, { checks: [blip], ...at('2026-09-01T00:00:00.000Z') })
+  accepted = false
+  await notifier.onHealthChecked(projectId, { checks: [blip, syncBehind], ...at('2026-09-01T06:00:00.000Z') })
+  // A rolled-back binary delivered the lag plus a new warning, leaving the ids behind.
+  db.update(doctorHealthState).set({
+    checkedAt: '2026-09-01T12:00:00.000Z',
+    failingSignature: 'fail:gsc.sync.repeated-failures,warn:ga.data.aging,warn:traffic.sync-lag.behind',
+  } as never).where(eq(doctorHealthState.projectId, projectId)).run()
+
+  expect(await notifier.onHealthChecked(projectId, { checks: [blip, standing, syncBehind], ...at('2026-09-01T18:00:00.000Z') })).toBeNull()
+  expect(await notifier.onHealthChecked(projectId, { checks: [blip, standing, syncBehind], ...at('2026-09-02T00:00:00.000Z') })).toBeNull()
+  expect(sent).toHaveLength(2)
+})
+
 test('an alert no webhook accepted does not move what the next one measures cleared from', async () => {
   const { notifier, projectId, db } = harness()
   let accepted = true
@@ -583,15 +708,15 @@ test('an alert no webhook accepted does not move what the next one measures clea
   const delivered = storedState(db, projectId).notifiedSignature
   await notifier.onHealthChecked(projectId, { checks: [blip], ...at('2026-09-01T06:00:00.000Z') })
   accepted = false
-  await notifier.onHealthChecked(projectId, { checks: [blip, syncBehind], ...at('2026-09-01T12:00:00.000Z') })
+  await notifier.onHealthChecked(projectId, { checks: [blip, syncDiscarding], ...at('2026-09-01T12:00:00.000Z') })
   expect(storedState(db, projectId).notifiedSignature).toBe(delivered)
   accepted = true
 
   const another = check('gbp.data.recent-sync', 'warn', 'gbp.data.aging', 'x', 'integrations')
-  await notifier.onHealthChecked(projectId, { checks: [blip, syncBehind, another], ...at('2026-09-01T18:00:00.000Z') })
+  await notifier.onHealthChecked(projectId, { checks: [blip, syncDiscarding, another], ...at('2026-09-01T18:00:00.000Z') })
   // The sync lag is a pass old but its alert never arrived, so it is still new.
   // The GA4 warning cleared before that undelivered alert.
-  expect(sent.at(-1)!.health).toMatchObject({ added: ['gbp.data.aging', 'traffic.sync-lag.behind'], cleared: ['ga.data.aging'] })
+  expect(sent.at(-1)!.health).toMatchObject({ added: ['traffic.sync-lag.discarding', 'gbp.data.aging'], cleared: ['ga.data.aging'] })
 })
 
 test('recovery lists everything that cleared, including checks that cleared on a quiet pass', async () => {
