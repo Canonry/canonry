@@ -886,7 +886,7 @@ export function classifyStoredOnlyRequest(method: string, url: string): { operat
   const separator = operation.indexOf(' ')
   return {
     operation,
-    access: operationAccess(operation.slice(0, separator), operation.slice(separator + 1)),
+    access: operationAccess(operation.slice(0, separator), operation.slice(separator + 1), 'live'),
   }
 }
 

@@ -18,6 +18,7 @@ import { CliError, EXIT_SYSTEM_ERROR, printCliError, usageError } from './cli-er
 import { dispatchRegisteredCommand } from './cli-dispatch.js'
 import type { CliCommandSpec } from './cli-dispatch.js'
 import { REGISTERED_CLI_COMMANDS } from './cli-commands.js'
+import { resolveCliAccess } from './cli-access.js'
 import { checkLatestVersionForCli, formatUpdateNotice, notePrintedUpdateAvailable, readCachedUpdateAvailable } from './update-check.js'
 import { buildSetupNudgeLine } from './setup-nudge.js'
 import { consumePendingServeHandoff } from './commands/init.js'
@@ -36,6 +37,50 @@ function extractFormat(cmdArgs: string[]): CliFormat {
   if (value === 'json') return 'json'
   if (value === 'jsonl') return 'jsonl'
   return 'text'
+}
+
+/** Move global flags placed before the command to the position the dispatcher parses. */
+function normalizeLeadingGlobalOptions(args: readonly string[]): string[] {
+  const leading: string[] = []
+  let index = 0
+  while (index < args.length) {
+    const arg = args[index]
+    if (arg === '--stored-only' || arg === '--dry-run' || arg === '--trace') {
+      leading.push(arg)
+      index += 1
+      continue
+    }
+    if (arg === '--format' || arg === '--access') {
+      const value = args[index + 1]
+      if (value === undefined) break
+      leading.push(arg, value)
+      index += 2
+      continue
+    }
+    break
+  }
+  return leading.length === 0 ? [...args] : [...args.slice(index), ...leading]
+}
+
+function storedOnlyRequested(args: readonly string[]): boolean {
+  return args.includes('--stored-only') || ['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())
+}
+
+function storedOnlyEarlyRefusal(args: readonly string[]): CliError | null {
+  if (!storedOnlyRequested(args)) return null
+  if (args.includes('--help') || args.includes('-h') || args.includes('--version') || args.includes('-v')) return null
+  const spec = [...REGISTERED_CLI_COMMANDS]
+    .sort((a, b) => b.path.length - a.path.length)
+    .find(candidate => candidate.path.every((segment, index) => args[index] === segment))
+  if (!spec) return null
+  const access = resolveCliAccess(spec)
+  if (access === 'stored') return null
+  return new CliError({
+    code: 'STORED_ONLY_REFUSED',
+    message: `Command "${spec.path.join(' ')}" is ${access}; --stored-only allows saved-data reads only`,
+    details: { command: spec.path.join('.'), access },
+    exitCode: 1,
+  })
 }
 
 /**
@@ -97,6 +142,7 @@ function telemetryErrorCode(err: unknown): string {
 }
 
 export async function runCli(args = process.argv.slice(2)): Promise<number> {
+  args = normalizeLeadingGlobalOptions(args)
   const format = extractFormat(args)
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
     printCliCatalog(REGISTERED_CLI_COMMANDS, format)
@@ -106,6 +152,12 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   if (args.includes('--version') || args.includes('-v')) {
     console.log(VERSION)
     return 0
+  }
+
+  const earlyRefusal = storedOnlyEarlyRefusal(args)
+  if (earlyRefusal) {
+    printCliError(earlyRefusal, format)
+    return earlyRefusal.exitCode
   }
 
   const command = args[0]!

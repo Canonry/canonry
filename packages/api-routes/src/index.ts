@@ -613,7 +613,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       const prefix = opts.routePrefix ?? '/api/v1'
       const routePath = canonicalRouteTemplate(route, prefix)
       const pathTemplate = routePath.replace(/:(\w+)/g, '{$1}').replace(/\*/g, '{wildcard}')
-      reply.header(OPERATION_ACCESS_HEADER, operationAccess(request.method, pathTemplate))
+      const operation = matchOperationTemplate(request.method, pathTemplate)
+      const separator = operation.indexOf(' ')
+      reply.header(OPERATION_ACCESS_HEADER, operationAccess(operation.slice(0, separator), operation.slice(separator + 1)))
     })
 
     api.addHook('preHandler', async (request) => {
@@ -621,7 +623,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       if (header !== '1' && header !== 'true') return
       const route = request.routeOptions.url ?? request.url
       const prefix = opts.routePrefix ?? '/api/v1'
-      const routePath = route.startsWith(prefix) ? route : `${prefix}${route.startsWith('/') ? '' : '/'}${route}`
+      const routePath = canonicalRouteTemplate(route, prefix)
       const operation = matchOperationTemplate(request.method, routePath)
       const separator = operation.indexOf(' ')
       const access = operationAccess(operation.slice(0, separator), operation.slice(separator + 1))

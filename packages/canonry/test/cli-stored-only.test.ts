@@ -30,6 +30,7 @@ describe('CLI stored-only guard', () => {
       operation: 'GET /api/v1/projects/{name}/google/gsc/sitemaps',
       access: 'live',
     })
+    expect(classifyStoredOnlyRequest('GET', 'http://localhost/api/v1/projects/acme/new-route')).toMatchObject({ access: 'live' })
   })
 
   it('keeps MCP stored-only scope to stored operations and honors flag and env', () => {

@@ -48,4 +48,17 @@ describe('stored-only HTTP guard', () => {
     expect(discovery.statusCode).toBe(403)
     expect(discovery.json().error.code).toBe('STORED_ONLY_REFUSED')
   })
+
+  it('normalizes a custom route prefix before applying the guard', async () => {
+    const custom = Fastify()
+    await custom.register(apiRoutes, { db, routePrefix: '/operator/api/v1', googleStateSecret: 'test-only-google-state-secret-32', getRunnableProviderNames: () => ['openai'] })
+    await custom.ready()
+    try {
+      const response = await custom.inject({ method: 'GET', url: '/operator/api/v1/projects/acme/competitors', headers: { authorization: `Bearer ${token}`, 'x-canonry-stored-only': '1' } })
+      expect(response.statusCode).toBe(200)
+      expect(response.headers['x-canonry-access']).toBe('stored')
+    } finally {
+      await custom.close()
+    }
+  })
 })
