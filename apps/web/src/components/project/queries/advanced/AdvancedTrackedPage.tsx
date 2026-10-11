@@ -1,13 +1,14 @@
 import { useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, CirclePause, Clock, Inbox, Info, MapPinOff, Plus, SearchX } from 'lucide-react'
+import { AlertTriangle, CirclePause, Clock, Download, Inbox, Info, MapPinOff, Plus, SearchX } from 'lucide-react'
 import type { QueryClass, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameQueryTrackingQueryKey } from '@ainyc/canonry-api-client/react-query'
 
 import { heyClient, isAeroPreview, isEmbed, shouldShowDashboardAgentBar } from '../../../../api.js'
 import { useAccount } from '../../../../contexts/account-context.js'
 import { addToast } from '../../../../lib/toast-store.js'
+import { trackUiAction } from '../../../../lib/ui-telemetry.js'
 import { providerDisplayName } from '../../../../lib/visibility-trend-helpers.js'
 import { WriteButton } from '../../../shared/AccessControls.js'
 import { aeroAllowedFor } from '../../../shared/AeroBar.js'
@@ -25,16 +26,20 @@ import { TrackingAddQueriesSheet } from '../AddQueriesEntry.js'
 import { TrackingComposer } from '../TrackingComposer.js'
 import { assignmentMatchesSelection } from '../tracked-rows.js'
 import { contextInput, contextLabel, contextLabels, uniqueContextInputs } from '../tracking-contexts.js'
+import { defaultTrackingDraft } from '../tracking-draft.js'
 import { useTrackedResults } from '../use-tracked-results.js'
 import type { TrackedQueriesPageProps, TrackingComposerState } from '../use-tracking-composer.js'
 import { TrackedActionSheet, type TrackedSheetAction } from './TrackedActionSheet.js'
 import { TrackedBulkBar, type TrackedBulkAction } from './TrackedBulkBar.js'
+import { TrackedPlaceList } from './TrackedPlaceList.js'
 import type { TrackedContextLabels } from './TrackedRowDetail.js'
 import { TrackedRowMenu } from './TrackedRowMenu.js'
+import { TrackedSavedViews, trackedPlaceView, type TrackedSavedView } from './TrackedSavedViews.js'
 import { TrackedSummaryGrid, type TrackedSummaryPlace } from './TrackedSummaryGrid.js'
 import { TrackedTable, TrackedTableSkeleton } from './TrackedTable.js'
 import { TrackedToolbar } from './TrackedToolbar.js'
 import { TRACKED_BULK_MAX, type TrackedPlace } from './tracked-actions.js'
+import { downloadTrackedCsv, trackedRowsCsv } from './tracked-export.js'
 import { activeFilterCount, DEFAULT_TRACKED_FILTERS, matchesTrackedFilters, type TrackedResultCell } from './tracked-filters.js'
 import type { TrackedFilters, TrackedRowAction, TrackedRowVm, TrackedType } from './tracked-types.js'
 import { DEFAULT_TRACKED_SORT, engineSignal, resultClasses, sortTrackedRows, toTrackedRows, type TrackedCoverage, type TrackedSort } from './tracked-view-model.js'
@@ -112,10 +117,10 @@ function searchParamValue(value: string): string {
 }
 
 /**
- * Tracked queries on an advanced project: the number strip, the toolbar, the
- * table with its row menu, the bulk bar, and the sheets every change goes
- * through. The Add query form and its review stay below the table, reached
- * from the Add queries sheet and from a saved Research result.
+ * Tracked queries on an advanced project: the number strip, the saved views,
+ * the toolbar, the table with its row menu, the bulk bar, and the sheets every
+ * change goes through. The Add query form and its review stay below the
+ * table, reached from the Add queries sheet and from a saved Research result.
  *
  * Rows come from the workspace the gate read. The last sweep's Mentioned and
  * Cited come from one results read for the Place. Every number in the strip is
@@ -123,6 +128,12 @@ function searchParamValue(value: string): string {
  * filters are the URL's own keys, so the query type AI Visibility is set to
  * never narrows this list. A `trackingQueryId` in the URL marks a row: the
  * table opens on its page with its detail open. It never opens a form.
+ *
+ * The saved views are the whole project's, so they show with no Place chosen.
+ * Each prints the server's count. Four of them (the URL's `trackedView`) list
+ * locations, markets or patterns in place of the queries; two set a filter.
+ * A link to a row and a view are never both drawn: the link wins, and
+ * choosing a view drops the link.
  */
 export function AdvancedTrackedPage(props: PageProps) {
   const { onSelectionChange, rootLabel = MARKET_SCOPE_COPY.allLocations } = props
@@ -151,7 +162,7 @@ export function AdvancedTrackedPage(props: PageProps) {
 
 function TrackedPage({
   projectName, workspace, selection, onSelectionChange, trackingQueryId, templates, preview, publishError, isPreviewing, isCommitting, onPreview,
-  trackedFilters: filters, onTrackedFiltersChange, trackingChangedAt, nextSweepDate, rootLabel, actionsSlot, composer, showAll, showingAll,
+  trackedFilters: filters, onTrackedFiltersChange, trackedView, trackingChangedAt, nextSweepDate, rootLabel, actionsSlot, composer, showAll, showingAll,
 }: PageProps & { rootLabel: string; showAll: () => void; showingAll: RefObject<boolean> }) {
   const { action, draft, setDraft, reviewedMutation, setReviewedMutation, addSheetOpen, setAddSheetOpen, editorHeadingRef, openAdd, closeAction, mutation, canReview, sweepActive, commitReviewed } = composer
   const { canWrite, isAdmin, account } = useAccount()
@@ -169,16 +180,33 @@ function TrackedPage({
   const [sheet, setSheet] = useState<{ action: TrackedSheetAction; rows: readonly TrackedRowVm[] } | null>(null)
   // The lines the Add queries sheet opens with, when Track opened it.
   const [addText, setAddText] = useState<string>()
+  // The place it opens on, when a row of a saved view opened it. The Add button opens it on the Place.
+  const [addPlace, setAddPlace] = useState<TrackedPlace>()
   const toolbar = useRef<HTMLDivElement>(null)
   const list = useRef<HTMLDivElement>(null)
   const bulkBarId = useId()
-  const searchField = () => toolbar.current?.querySelector<HTMLInputElement>('input[type="search"]')
+  // The search of whichever list is up: the queries', or a saved view's own.
+  const searchField = () => (toolbar.current ?? list.current)?.querySelector<HTMLInputElement>('input[type="search"]')
   // The list's first control: Select this page, or the first header where there is nothing to select. The page stays where it is scrolled to.
   const focusList = () => list.current?.querySelector<HTMLElement>('input, button')?.focus({ preventScroll: true })
 
   const engines = useMemo(() => [...new Set([...workspace.defaultContexts.flatMap(context => context.providers), ...results.engines])], [workspace.defaultContexts, results.engines])
   const rowContextLabels = useMemo(() => searchLocationNames(workspace), [workspace])
   const allRows = useMemo(() => toTrackedRows(workspace, templates), [workspace, templates])
+
+  // A link opens the table on its row, so no view is drawn over a row the URL names.
+  const linked = trackingQueryId !== undefined && allRows.some(row => row.queryId === trackingQueryId)
+  // The saved views are the whole project's: the server lists them for no place, and a place has its own strip and list.
+  const views = place ? undefined : workspace.views
+  const requestedView = views && !linked ? trackedPlaceView(trackedView) : undefined
+  // Weakest markets comes with the results: it waits while they load and says so when they fail. With no sweep to read there is no such view.
+  const weakPending = requestedView === 'weak-markets' && results.coverage === undefined
+  const view = requestedView === 'weak-markets' && !results.weakMarkets && !weakPending && !results.isError ? undefined : requestedView
+  // A sweep the workspace read already tells of: some query has a result. Only then is Weakest markets expected, so
+  // only then is its place in the Views row held while the results load, or after they fail. Its own open view holds it too.
+  const swept = useMemo(() => workspace.tracked.some(row => row.lastMeasuredAt !== null), [workspace.tracked])
+  const weakButton = results.weakMarkets
+    ?? (!swept && view !== 'weak-markets' ? undefined : results.isError ? 'failed' as const : results.coverage === undefined ? 'pending' as const : undefined)
   // A place lists the queries asked for it. One that is asked nowhere belongs to no place, so it shows for the whole project only.
   // Each is listed under the types it is asked under there, as the results for the place hold them: a query asked both ways
   // across the project and one way here has one pair of chips here, not a second pair no sweep will fill.
@@ -249,6 +277,28 @@ function TrackedPage({
     if (!awaitingResults && selectedRows.length !== selectedIds.size) setSelectedIds(new Set(selectedRows.map(row => row.queryId)))
   }, [awaitingResults, selectedRows, selectedIds])
 
+  // The view leaves the URL too, so it is not waiting behind the linked row.
+  useEffect(() => {
+    if (linked && trackedView !== undefined) onSelectionChange?.({ trackedView: undefined })
+  }, [linked, trackedView, onSelectionChange])
+
+  // A view lists places in place of the queries, so no query stays ticked behind it.
+  useEffect(() => {
+    if (view) setSelectedIds(previous => previous.size === 0 ? previous : new Set<string>())
+  }, [view])
+
+  // "Back to queries" takes its own button off the page: once the queries are back, their search takes the focus it dropped.
+  const closingView = useRef(false)
+  const closeView = () => {
+    closingView.current = true
+    onSelectionChange?.({ trackedView: undefined })
+  }
+  useEffect(() => {
+    if (!closingView.current || view) return
+    closingView.current = false
+    if (document.activeElement === document.body) (searchField() ?? list.current?.querySelector<HTMLElement>('input, button'))?.focus({ preventScroll: true })
+  }, [view])
+
   // "Show all" took its own button off the page: once the place has changed, the search takes the focus it dropped.
   useEffect(() => {
     if (!showingAll.current) return
@@ -296,14 +346,25 @@ function TrackedPage({
   const addLabel = addTo?.kind === 'market' ? 'Add market query' : addTo?.kind === 'location' ? 'Add location query' : 'Add queries'
   const adding = action?.kind === 'add'
   // The Add query form and the sheet are two ways in to one change, so the sheet takes the form's place.
-  function openAddSheet(text?: string) {
+  function openAddSheet(text?: string, to?: TrackedPlace) {
     if (adding) closeAction()
     setAddText(text)
+    setAddPlace(to)
     setAddSheetOpen(true)
+  }
+  const sheetPlace = addPlace ?? addTo
+
+  // The list as it is filtered, searched and sorted, over every page, and named for what narrowed it.
+  // Telemetry hears that a file was taken, and none of its text.
+  function exportCsv() {
+    downloadTrackedCsv(projectName, trackedRowsCsv(sorted, engines, results.coverage), { placeKey: place?.narrow.key, filtered: narrowed })
+    trackUiAction('export.download', { format: 'csv' })
   }
 
   async function copyLink(row: TrackedRowVm) {
     const url = new URL(window.location.href)
+    // The link is to the row, so a view the address still holds is left out of it.
+    url.searchParams.delete('trackedView')
     url.searchParams.set('trackingQueryId', searchParamValue(row.queryId))
     try {
       await navigator.clipboard.writeText(url.toString())
@@ -322,7 +383,8 @@ function TrackedPage({
     else setSheet({ action: rowAction, rows: rows.map(row => allRows.find(whole => whole.queryId === row.queryId) ?? row) })
   }
 
-  const barShown = canEdit && selectedRows.length > 0
+  // Never over a view's list, not even for the frame before the selection clears.
+  const barShown = canEdit && !view && selectedRows.length > 0
   /** A button of the bar that can take the focus: the first is its first action, the last is Clear. */
   const bulkBarButton = (index: number) => [...document.getElementById(bulkBarId)?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? []].at(index)
   // The bar offers what applies to every selected row. Asked and not asked rows share no action.
@@ -342,9 +404,34 @@ function TrackedPage({
     searchField()?.focus()
   }
   // The rows that are not asked, whatever else was filtered: the strip's count of them is for the whole project.
+  // They are queries, so an open view closes for them.
   const showNotAsked = () => {
+    if (view) onSelectionChange?.({ trackedView: undefined })
     setSearch('')
     setFilters({ ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' })
+  }
+
+  // The views that are on: the open one, or each of the two that is a filter while its filter is set.
+  const activeViews: TrackedSavedView[] = view ? [view] : [
+    ...(filters.status === 'not-asked' ? ['not-asked' as const] : []),
+    ...(filters.subject === 'hand-picked' ? ['hand-picked' as const] : []),
+  ]
+  // The view is a key of the URL, which the host patches through `onSelectionChange`. A second press closes a view.
+  function selectView(next: TrackedSavedView) {
+    if (next !== 'not-asked' && next !== 'hand-picked') {
+      // A linked row is not on a view's list, so the link goes as the view opens.
+      onSelectionChange?.({ trackedView: next === view ? undefined : next, ...(trackingQueryId === undefined ? {} : { trackingQueryId: undefined }) })
+      return
+    }
+    // A second press takes its own filter off and leaves the search and the other filters as they are.
+    if (activeViews.includes(next)) {
+      setFilters(next === 'not-asked' ? { ...filters, status: DEFAULT_TRACKED_FILTERS.status } : { ...filters, subject: DEFAULT_TRACKED_FILTERS.subject })
+      return
+    }
+    // These two list queries, on clean filters and a clean search, so their counts are the list's. An open view closes for them.
+    if (view) onSelectionChange?.({ trackedView: undefined })
+    setSearch('')
+    setFilters({ ...DEFAULT_TRACKED_FILTERS, ...(next === 'not-asked' ? { status: 'not-asked' as const } : { subject: 'hand-picked' as const }) })
   }
 
   const { run } = results
@@ -396,12 +483,23 @@ function TrackedPage({
 
   return (
     <div className="query-tracking-workspace space-y-4">
-      {/* A view-only account is offered no way to add: the slot stays empty and closes up. */}
-      {actionsSlot && canEdit ? createPortal(
-        <WriteButton type="button" size="sm" className={TOUCH} onClick={() => openAddSheet()}>
-          <Plus aria-hidden="true" size={14} />
-          {addLabel}
-        </WriteButton>,
+      {/* Every role reads the list, so every role can take it away as a file. A view-only account is offered no way to add. With neither, the slot stays empty and closes up. */}
+      {actionsSlot && !embedded ? createPortal(
+        <>
+          {/* The file holds queries, so it is offered while they are what is listed. Its chips are the results', so it waits for them, and with none read there is no file: the legend says why and offers Retry. */}
+          {workspace.tracked.length > 0 && !view ? (
+            <Button type="button" variant="outline" size="sm" className={TOUCH} disabled={results.coverage === undefined || results.isError} onClick={exportCsv}>
+              <Download aria-hidden="true" size={14} />
+              Export CSV
+            </Button>
+          ) : null}
+          {canEdit ? (
+            <WriteButton type="button" size="sm" className={TOUCH} onClick={() => openAddSheet()}>
+              <Plus aria-hidden="true" size={14} />
+              {addLabel}
+            </WriteButton>
+          ) : null}
+        </>,
         actionsSlot,
       ) : null}
 
@@ -416,8 +514,34 @@ function TrackedPage({
           onShowNotAsked={showNotAsked}
           onRetry={() => { void queryClient.invalidateQueries({ queryKey: getApiV1ProjectsByNameQueryTrackingQueryKey({ client: heyClient, path: { name: projectName } }) }) }}
         />
-        {/* With nothing to list there is nothing to search or filter. */}
-        {placeRows.length > 0 ? (
+        {views ? (
+          <TrackedSavedViews
+            views={views}
+            weakMarkets={weakButton}
+            notAsked={workspace.summary?.notAsked}
+            handPicked={workspace.summary?.byFocus.custom}
+            active={activeViews}
+            onSelect={selectView}
+          />
+        ) : null}
+        {view && views ? (
+          <div ref={list}>
+            <TrackedPlaceList
+              view={view}
+              workspace={workspace}
+              views={views}
+              weakMarkets={results.weakMarkets}
+              pending={weakPending}
+              failed={view === 'weak-markets' && results.isError}
+              onRetry={() => { void results.refetch() }}
+              onBack={closeView}
+              // The sheet opens on the row's market or location, whatever the Place.
+              onAdd={canEdit ? to => openAddSheet(undefined, to) : undefined}
+            />
+          </div>
+        ) : null}
+        {/* With nothing to list there is nothing to search or filter. A view has its own search. */}
+        {!view && placeRows.length > 0 ? (
           <div ref={toolbar}>
             <TrackedToolbar search={search} onSearchChange={setSearch} filters={filters} onFiltersChange={setFilters} shown={awaitingResults ? undefined : sorted.length} total={placeRows.length} legend={legend} />
           </div>
@@ -428,7 +552,7 @@ function TrackedPage({
             <a href={`#${bulkBarId}`} className="tracked-skip" onClick={event => { event.preventDefault(); bulkBarButton(0)?.focus() }}>Selected actions</a>
           </div>
         ) : null}
-        {awaitingResults ? <TrackedTableSkeleton /> : (
+        {view ? null : awaitingResults ? <TrackedTableSkeleton /> : (
           <div ref={list}>
             <TrackedTable
               rows={pageRows}
@@ -519,10 +643,15 @@ function TrackedPage({
           projectName={projectName}
           workspace={workspace}
           sweepActive={sweepActive}
-          defaultMarketKey={addTo?.kind === 'market' ? addTo.key : undefined}
-          defaultLocationKey={addTo?.kind === 'location' ? addTo.key : undefined}
+          defaultMarketKey={sheetPlace?.kind === 'market' ? sheetPlace.key : undefined}
+          defaultLocationKey={sheetPlace?.kind === 'location' ? sheetPlace.key : undefined}
           defaultText={addText}
-          onOpenComposer={({ text }) => { setAddSheetOpen(false); openAdd('manual', text) }}
+          onOpenComposer={({ text }) => {
+            setAddSheetOpen(false)
+            openAdd('manual', text)
+            // The form opens on the Place. A sheet opened from a view's row was on that row's place, so the form is too.
+            if (addPlace) setDraft({ ...defaultTrackingDraft({ measurementScope: addPlace.kind === 'location' ? 'property' : addPlace.kind, measurementScopeKey: addPlace.key, queryClass: 'all' }), text })
+          }}
           onPublished={() => setSelectedIds(new Set<string>())}
           onClose={() => setAddSheetOpen(false)}
         />

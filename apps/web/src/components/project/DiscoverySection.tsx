@@ -60,6 +60,8 @@ export interface QueriesSectionProps {
   /** The Tracked filters as the URL holds them. Left out, the section keeps them itself. */
   trackedFilters?: TrackedFilters
   onTrackedFiltersChange?: (patch: Partial<TrackedFilters>) => void
+  /** The saved view the URL names (`trackedView`). The Tracked page sets it through `onSelectionChange`, the host's URL patch. */
+  trackedView?: string
   /** When tracking last changed, for results that come from an older sweep. */
   trackingChangedAt?: string
   /** The next scheduled sweep as shown ("Oct 21"). Left out when no date should be named. */
@@ -71,7 +73,7 @@ export interface QueriesSectionProps {
 }
 
 /** What the Tracked page gets from this host beside the composer's props. */
-export type TrackedPageHostProps = Pick<QueriesSectionProps, 'trackingChangedAt' | 'nextSweepDate' | 'rootLabel'> & {
+export type TrackedPageHostProps = Pick<QueriesSectionProps, 'trackedView' | 'trackingChangedAt' | 'nextSweepDate' | 'rootLabel'> & {
   trackedFilters: TrackedFilters
   onTrackedFiltersChange: (patch: Partial<TrackedFilters>) => void
   /** Where the page portals its actions: the right of the Tracked | Research row, or the line under it in a narrow frame. Null until the row has mounted. */
@@ -96,6 +98,7 @@ export function QueriesSection({
   publishGuard,
   trackedFilters: controlledTrackedFilters,
   onTrackedFiltersChange,
+  trackedView,
   trackingChangedAt,
   nextSweepDate,
   rootLabel,
@@ -171,6 +174,7 @@ export function QueriesSection({
             publishGuard={publishGuard}
             trackedFilters={trackedFilters}
             onTrackedFiltersChange={changeTrackedFilters}
+            trackedView={trackedView}
             trackingChangedAt={trackingChangedAt}
             nextSweepDate={nextSweepDate}
             rootLabel={rootLabel}
