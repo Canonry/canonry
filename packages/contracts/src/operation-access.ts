@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 export const operationAccessSchema = z.enum(['stored', 'live', 'write'])
 export type OperationAccess = z.infer<typeof operationAccessSchema>
-export const OperationAccesses = Object.freeze({ stored: 'stored', live: 'live', write: 'write' } as const)
+export const OperationAccesses = Object.freeze(operationAccessSchema.enum)
 
 export const OPERATION_ACCESS_HEADER = 'x-canonry-access'
 

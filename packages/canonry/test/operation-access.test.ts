@@ -16,6 +16,14 @@ describe('CLI and MCP operation access metadata', () => {
     expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'traffic.sync')?.access).toBe('write')
     expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'ga.acquisition')?.access).toBe('stored')
     expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'agent.memory.set')?.access).toBe('write')
+    expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'dashboard.reset-password')?.access).toBe('write')
+    expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'demo')?.access).toBe('write')
+    expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'run.list')?.access).toBe('stored')
+    expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'run.show')?.access).toBe('stored')
+    expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'google.set-property')?.access).toBe('write')
+    expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'google.submit-sitemap')?.access).toBe('write')
+    expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'feedback')?.access).toBe('write')
+    expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'settings.provider')?.access).toBe('write')
     const catalog = buildCliCatalog(REGISTERED_CLI_COMMANDS)
     expect(catalog.groups.flatMap(group => group.commands).every(command => command.access)).toBe(true)
   })
@@ -44,7 +52,7 @@ describe('CLI and MCP operation access metadata', () => {
 
   it('exhaustively classifies every registered command without a stored fallback', () => {
     const registered = REGISTERED_CLI_COMMANDS.map(command => command.path.join('.')).sort()
-    expect(cliAccessClassificationIds().sort()).toEqual([...registered, 'competitor.import', 'competitor.suggest'].sort())
+    expect(cliAccessClassificationIds().sort()).toEqual(registered)
     expect(resolveCliAccess({ path: ['schedule', 'set'], usage: 'x', run: () => undefined })).toBe('write')
     expect(resolveCliAccess({ path: ['ga', 'acquisition'], usage: 'x', run: () => undefined })).toBe('stored')
     expect(resolveCliAccess({ path: ['traffic', 'sync'], usage: 'x', run: () => undefined })).toBe('write')
