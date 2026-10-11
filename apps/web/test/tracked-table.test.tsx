@@ -193,13 +193,19 @@ function textLayout(column: number, subject = 400) {
       // The gap a one-line Subject keeps before its count is 4px.
       return { width: (this as HTMLElement).dataset.face === 'gap' ? 4 : width(this) } as DOMRect
     }
+    // The Subject's cell ends where its room for text does.
+    if (this.classList.contains('tracked-cell-subject')) return { width: state.subject, right: state.subject } as DOMRect
     return this.classList.contains('tracked-query') ? { width: state.column, right: state.column } as DOMRect : frame.call(this)
   })
   // A Subject that wraps is reported as a browser does it: a box for each piece of each line, here its two halves, 17px tall on lines 20px apart.
   // One held to a line, or to two with its name cut short, is a box of its own.
   vi.spyOn(Element.prototype, 'getClientRects').mockImplementation(function (this: Element) {
     const wraps = this.parentElement?.classList.contains('tracked-cell-subject') && !this.classList.contains('tracked-subject')
-    return Array.from({ length: wraps ? 2 * lines(this, state.subject) : 1 }, (_, piece) => ({ top: 9 + 20 * Math.floor(piece / 2), height: 17 })) as unknown as DOMRectList
+    const pieces = wraps ? 2 * lines(this, state.subject) : 1
+    // The last piece is the name's last word with its count, which never wrap apart: it ends where its own width puts it, the others inside the cell.
+    const words = this.textContent!.trim().split(' ')
+    const tail = (/^\(\d[\d,]*\)$/.test(words.at(-1)!) && words.length > 1 ? `${words.at(-2)} ${words.at(-1)}` : words.at(-1)!).length * state.char
+    return Array.from({ length: pieces }, (_, piece) => ({ top: 9 + 20 * Math.floor(piece / 2), height: 17, right: wraps && piece === pieces - 1 ? tail : Math.min(width(this), state.subject) })) as unknown as DOMRectList
   })
   Object.defineProperty(Range.prototype, 'getBoundingClientRect', { configurable: true, value(this: Range) {
     const line = this.startContainer as Element
@@ -502,6 +508,25 @@ describe('TrackedTable', () => {
         expect([subjectOf(WAITING).className, subjectOf(WAITING).hasAttribute('data-long')]).toEqual(['', false])
         // The count is the same button throughout, so it keeps the focus.
         expect(document.activeElement).toBe(count)
+      })
+    })
+
+    describe('a Subject whose last word is wider than its column', () => {
+      it('is cut short with its count in the cell, so nothing runs into the next one', () => {
+        const frame = frameWidth(1152)
+        // 68px hold nine characters. "Market · Uptown (3)" takes two lines by length, but "Uptown (3)" cannot wrap and needs 70px.
+        const layout = textLayout(424, 68)
+        setup(FULL)
+        const box = subjectOf(MARKET)
+        expect([box.className, box.hasAttribute('data-long')]).toEqual(['tracked-subject', true])
+        const count = within(rowOf(MARKET)).getByRole('button', { name: '3 locations' })
+        expect(count.parentElement!.textContent).toBe(' (3)')
+        expect((box.firstElementChild as HTMLElement).title).toBe('Uptown')
+
+        // With room for the last word it wraps whole again.
+        layout.subject = 72
+        frame.report(1100)
+        expect([subjectOf(MARKET).className, subjectOf(MARKET).hasAttribute('data-long')]).toEqual(['', false])
       })
     })
 

@@ -538,6 +538,12 @@ function lineCount(box: Element): number {
   return lines
 }
 
+/** Whether a wrapped inline box runs past its cell: a last word wider than the column cannot wrap, as its count holds to it. */
+function pastCell(box: Element): boolean {
+  const edge = box.parentElement?.getBoundingClientRect().right
+  return edge !== undefined && [...box.getClientRects()].some(piece => piece.right > edge)
+}
+
 /**
  * "Market · Uptown (3)": the kind stays on the first line, and the count stays
  * on the last word of the name however the name wraps. The count opens the
@@ -545,9 +551,10 @@ function lineCount(box: Element): number {
  * of the table holds it. On one `line`, a name too long for the column is cut
  * short and the count after it never is. On two `lines`, on a page of
  * two-line rows, it wraps as the open row's does, and nothing clips it or the
- * wider target a finger gets on its count. One that wraps past two lines is
- * found by the lines it is drawn on, once for its text and `room`, and is
- * then cut short on the second with its count beside it. An open or stacked
+ * wider target a finger gets on its count. One that wraps past two lines, or
+ * whose last word is wider than the column and so runs past the cell, is found
+ * by the boxes it is drawn in, once for its text and `room`, and is then cut
+ * short on the second line with its count beside it. An open or stacked
  * row shows the name `whole`. All are one tree of elements, so the count that
  * opens a row keeps the focus.
  */
@@ -558,7 +565,7 @@ function SubjectCell({ subject, discloses, fit, room }: { subject: TrackedSubjec
   const long = fit === 'lines' && longAt === here
   // This runs before the paint, so a third line is never seen.
   useLayoutEffect(() => {
-    if (fit === 'lines' && !long && ref.current && lineCount(ref.current) > 2) setLongAt(here)
+    if (fit === 'lines' && !long && ref.current && (lineCount(ref.current) > 2 || pastCell(ref.current))) setLongAt(here)
   })
   const cut = fit === 'line' || long
   const kind = <span className="font-medium text-strong">{subjectKindLabel(subject.kind)}</span>
