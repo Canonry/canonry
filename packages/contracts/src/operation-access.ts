@@ -39,6 +39,8 @@ export const LIVE_READ_OPERATIONS: ReadonlySet<string> = new Set([
 
 /** POST previews that calculate from supplied or draft data without persistence. */
 export const READ_SEMANTIC_OPERATIONS: ReadonlySet<string> = new Set([
+  'POST /api/v1/apply/preview',
+  'POST /api/v1/projects/{name}/competitor-changes/preview',
   'POST /api/v1/projects/{name}/measurement-plan/compile-preview',
   'POST /api/v1/projects/{name}/measurement-plan/diff-preview',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-assignments',
@@ -47,9 +49,15 @@ export const READ_SEMANTIC_OPERATIONS: ReadonlySet<string> = new Set([
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/diff-preview',
 ])
 
+/** Stored provider-free reads added by the competitor evidence surface. */
+export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
+  'GET /api/v1/projects/{name}/competitor-suggestions',
+])
+
 export function operationAccess(method: string, pathTemplate: string): OperationAccess {
   const operation = `${method.toUpperCase()} ${pathTemplate}`
   if (method.toUpperCase() !== 'GET' && READ_SEMANTIC_OPERATIONS.has(operation)) return 'stored'
+  if (STORED_READ_OPERATIONS.has(operation)) return 'stored'
   if (method.toUpperCase() === 'GET' && LIVE_READ_OPERATIONS.has(operation)) return 'live'
   if (LIVE_READ_OPERATIONS.has(operation)) return 'live'
   if (method.toUpperCase() !== 'GET') return 'write'

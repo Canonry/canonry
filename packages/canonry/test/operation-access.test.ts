@@ -4,6 +4,7 @@ import { buildCliCatalog } from '../src/cli-catalog.js'
 import { toolOperationAccess, canonryMcpTools } from '../src/mcp/tool-registry.js'
 import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
 import { cliAccessClassificationIds, resolveCliAccess } from '../src/cli-access.js'
+import { operationAccess } from '@ainyc/canonry-contracts'
 
 describe('CLI and MCP operation access metadata', () => {
   it('declares access for every CLI command and classifies representative commands', () => {
@@ -43,10 +44,18 @@ describe('CLI and MCP operation access metadata', () => {
 
   it('exhaustively classifies every registered command without a stored fallback', () => {
     const registered = REGISTERED_CLI_COMMANDS.map(command => command.path.join('.')).sort()
-    expect(cliAccessClassificationIds().sort()).toEqual(registered)
+    expect(cliAccessClassificationIds().sort()).toEqual([...registered, 'competitor.import', 'competitor.suggest'].sort())
     expect(resolveCliAccess({ path: ['schedule', 'set'], usage: 'x', run: () => undefined })).toBe('write')
     expect(resolveCliAccess({ path: ['ga', 'acquisition'], usage: 'x', run: () => undefined })).toBe('stored')
     expect(resolveCliAccess({ path: ['traffic', 'sync'], usage: 'x', run: () => undefined })).toBe('write')
     expect(() => resolveCliAccess({ path: ['new', 'unclassified'], usage: 'x', run: () => undefined })).toThrow('Missing CLI operation access classification')
+  })
+
+  it('classifies added route boundaries by actual effect', () => {
+    expect(operationAccess('POST', '/api/v1/apply/preview')).toBe('stored')
+    expect(operationAccess('POST', '/api/v1/projects/{name}/competitor-changes/preview')).toBe('stored')
+    expect(operationAccess('GET', '/api/v1/projects/{name}/competitor-suggestions')).toBe('stored')
+    expect(operationAccess('PATCH', '/api/v1/projects/{name}')).toBe('write')
+    expect(operationAccess('GET', '/api/v1/doctor')).toBe('live')
   })
 })
