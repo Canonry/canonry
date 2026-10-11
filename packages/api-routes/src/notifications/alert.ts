@@ -31,6 +31,8 @@ export const AlertFieldLabels = {
   check: 'Check',
   previously: 'Was',
   remediation: 'What to do',
+  newlyFailing: 'New',
+  cleared: 'Cleared',
   alsoFailing: 'Also failing',
   event: 'Event',
   run: 'Run',
@@ -107,9 +109,30 @@ function healthView(payload: HealthWebhookPayload): AlertView {
   if (health.remediation) {
     fields.push({ label: AlertFieldLabels.remediation, value: health.remediation })
   }
+  // What changed leads the lists, so a reader can tell the new breach from the
+  // standing ones the last alert already reported.
+  const added = health.added ?? []
+  if (added.length > 0) {
+    // `failing` is worst first, so a code two checks report keeps its worse status.
+    const statusOf = new Map<string, string>()
+    for (const check of health.failing) if (!statusOf.has(check.code)) statusOf.set(check.code, check.status)
+    fields.push({
+      label: `${AlertFieldLabels.newlyFailing} (${added.length})`,
+      value: bulletList(added.map(code => `${statusOf.get(code) ?? health.status}: ${code}`)),
+    })
+  }
+  const cleared = health.cleared ?? []
+  if (cleared.length > 0) {
+    fields.push({
+      label: `${AlertFieldLabels.cleared} (${cleared.length})`,
+      value: bulletList(cleared),
+    })
+  }
   // The headline names one check. Without the rest, the ranking decision
-  // silently becomes a filtering decision.
-  const others = health.failing.filter(check => check.code !== health.code)
+  // silently becomes a filtering decision. Checks already listed as new are
+  // left out, so this is the standing set and nothing is listed twice.
+  const newlyFailing = new Set(added)
+  const others = health.failing.filter(check => check.code !== health.code && !newlyFailing.has(check.code))
   if (others.length > 0) {
     fields.push({
       label: `${AlertFieldLabels.alsoFailing} (${others.length})`,

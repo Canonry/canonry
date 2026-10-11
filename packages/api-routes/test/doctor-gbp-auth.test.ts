@@ -60,6 +60,23 @@ function ctx(overrides: Partial<DoctorContext>): DoctorContext {
   }
 }
 
+/** A migrated database holding project `p1` (and a sibling `p2`) with the given GBP locations. */
+function dbWithLocations(rows: Array<{ id: string; selected: boolean; syncedAt: string | null; projectId?: string }>) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-gbp-'))
+  const db = createClient(path.join(tmpDir, 'test.db'))
+  migrate(db)
+  const now = new Date().toISOString()
+  db.insert(projects).values({ id: 'p1', name: 'demo', displayName: 'Demo', canonicalDomain: 'example.com', country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
+  db.insert(projects).values({ id: 'p2', name: 'sibling', displayName: 'Sibling', canonicalDomain: 'sibling.example.com', country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
+  for (const r of rows) {
+    db.insert(gbpLocations).values({
+      id: r.id, projectId: r.projectId ?? 'p1', accountName: 'accounts/123', locationName: `locations/${r.id}`,
+      displayName: r.id, selected: r.selected, syncedAt: r.syncedAt, createdAt: now, updatedAt: now,
+    }).run()
+  }
+  return { db, cleanup: () => fs.rmSync(tmpDir, { recursive: true, force: true }) }
+}
+
 beforeEach(() => {
   refreshAccessTokenMock.mockReset()
   listAccountsMock.mockReset()
@@ -85,10 +102,50 @@ describe('gbp.auth.connection', () => {
     expect(result.status).toBe('fail')
     expect(result.code).toBe('gbp.auth.oauth-not-configured')
   })
-  it('fail when there is no GBP connection', async () => {
-    const result = await check.run(ctx({ googleConnectionStore: buildStore() }))
-    expect(result.status).toBe('fail')
-    expect(result.code).toBe('gbp.auth.no-connection')
+  // GBP is optional. A project that never connected it used to fail this check
+  // on every pass, so every such project was permanently degraded.
+  it('skipped as not-connected when the project has no connection and no selected location', async () => {
+    const { db, cleanup } = dbWithLocations([])
+    try {
+      const result = await check.run(ctx({ db, googleConnectionStore: buildStore() }))
+      expect(result.status).toBe('skipped')
+      expect(result.code).toBe('gbp.auth.not-connected')
+      expect(result.summary).toBe('demo has not connected Google Business Profile.')
+      expect(result.remediation).toContain('canonry gbp connect demo')
+    } finally { cleanup() }
+  })
+  it('skipped as not-connected when its locations are all deselected, or belong to another project', async () => {
+    const { db, cleanup } = dbWithLocations([
+      { id: 'a', selected: false, syncedAt: null },
+      { id: 'b', selected: true, syncedAt: null, projectId: 'p2' },
+    ])
+    try {
+      const result = await check.run(ctx({ db, googleConnectionStore: buildStore() }))
+      expect(result).toMatchObject({ status: 'skipped', code: 'gbp.auth.not-connected' })
+    } finally { cleanup() }
+  })
+  it('skipped as not-connected before the OAuth client is asked for, since an unused integration needs none', async () => {
+    const { db, cleanup } = dbWithLocations([])
+    try {
+      const result = await check.run(ctx({ db, googleConnectionStore: buildStore(), getGoogleAuthConfig: () => ({}) }))
+      expect(result).toMatchObject({ status: 'skipped', code: 'gbp.auth.not-connected' })
+    } finally { cleanup() }
+  })
+  it('fail when the connection is gone but the project still has a selected location', async () => {
+    const { db, cleanup } = dbWithLocations([{ id: 'a', selected: true, syncedAt: null }])
+    try {
+      const result = await check.run(ctx({ db, googleConnectionStore: buildStore() }))
+      expect(result.status).toBe('fail')
+      expect(result.code).toBe('gbp.auth.no-connection')
+      expect(result.remediation).toContain('canonry gbp connect demo')
+    } finally { cleanup() }
+  })
+  it('fail on a missing OAuth client when a lost connection left selected locations', async () => {
+    const { db, cleanup } = dbWithLocations([{ id: 'a', selected: true, syncedAt: null }])
+    try {
+      const result = await check.run(ctx({ db, googleConnectionStore: buildStore(), getGoogleAuthConfig: () => ({}) }))
+      expect(result).toMatchObject({ status: 'fail', code: 'gbp.auth.oauth-not-configured' })
+    } finally { cleanup() }
   })
   it('fail when the connection has no refresh token', async () => {
     const result = await check.run(ctx({ googleConnectionStore: buildStore({ refreshToken: null }) }))
@@ -188,21 +245,6 @@ describe('gbp.account.access', () => {
 
 describe('gbp.data.recent-sync', () => {
   const check = GBP_AUTH_CHECK_BY_ID['gbp.data.recent-sync']!
-
-  function dbWithLocations(rows: Array<{ id: string; selected: boolean; syncedAt: string | null }>) {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-gbp-recent-'))
-    const db = createClient(path.join(tmpDir, 'test.db'))
-    migrate(db)
-    const now = new Date().toISOString()
-    db.insert(projects).values({ id: 'p1', name: 'demo', displayName: 'Demo', canonicalDomain: 'example.com', country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
-    for (const r of rows) {
-      db.insert(gbpLocations).values({
-        id: r.id, projectId: 'p1', accountName: 'accounts/123', locationName: `locations/${r.id}`,
-        displayName: r.id, selected: r.selected, syncedAt: r.syncedAt, createdAt: now, updatedAt: now,
-      }).run()
-    }
-    return { db, cleanup: () => fs.rmSync(tmpDir, { recursive: true, force: true }) }
-  }
 
   function daysAgoIso(days: number): string {
     return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()

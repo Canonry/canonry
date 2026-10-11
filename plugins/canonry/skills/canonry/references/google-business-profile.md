@@ -191,6 +191,7 @@ canonry doctor --project <name> --check 'gbp.*'
 ```
 
 - `gbp.auth.connection` — OAuth creds present + refresh token works.
+  - **Skipped** (`gbp.auth.not-connected`) for a project that never connected GBP: no connection and no selected location. It **fails** (`gbp.auth.no-connection`) only when the connection is gone while the project still has selected locations.
 - `gbp.auth.scopes` — granted scope includes `business.manage`.
 - `gbp.account.access` — the tracked account is still listable. A `gbp.account.quota-pending` **warn** means the API access form is still pending Google approval (0 QPM) — auth is fine, the API just isn't enabled yet.
 - `gbp.places.api-key` — Places API readiness for the listing cross-reference (#648). **Warns** when GBP is connected but no Places key is set, or when no selected location carries a Maps place id (re-run `gbp locations discover`). Skipped when Places is disabled (`places.tier: off`) or GBP isn't connected.
