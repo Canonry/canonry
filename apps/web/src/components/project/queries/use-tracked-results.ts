@@ -33,6 +33,8 @@ export function useTrackedResults(
     engines: data?.engines ?? NO_ENGINES,
     run: data?.run,
     pendingRows: data?.pendingRows,
+    // The whole project's read, after a sweep. Left out for a place, before the first sweep and while the read is in flight.
+    weakMarkets: data?.weakMarkets,
     isError: failed,
     refetch: query.refetch,
   }

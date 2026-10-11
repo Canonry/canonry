@@ -3277,6 +3277,7 @@ function ProjectPageContent({
           publishGuard={{ sweepActive: hasActiveVisibilitySweep }}
           trackedFilters={trackedFilters}
           onTrackedFiltersChange={patch => updateVisibilitySearch(trackedFiltersPatch(patch))}
+          trackedView={typeof projectSearchParams.trackedView === 'string' ? projectSearchParams.trackedView : undefined}
           trackingChangedAt={shownTrackingChangedAt}
           nextSweepDate={shownNextSweepDate}
           rootLabel={placeRootLabel}
