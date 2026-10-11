@@ -22,6 +22,7 @@ import {
   type MeasurementPlanV2,
   type QueryTrackingEngineResult,
   type QueryTrackingResultsResponse,
+  type QueryTrackingWorkspaceResponse,
 } from '@ainyc/canonry-contracts'
 import {
   apiKeys,
@@ -509,6 +510,143 @@ describe('query tracking results: one sweep, every tracked query', () => {
   })
 })
 
+describe('query tracking results: weakest markets', () => {
+  const PLACES: ReadonlyArray<readonly [stableKey: string, label: string]> = [
+    ['harbor', 'Harbor Point'], ['cedar', 'Cedar Court'], ['maple', 'Maple Row'],
+    ['willow', 'Willow Park'], ['summit', 'Summit Place'], ['birch', 'Birch Lane'],
+  ]
+  /** A market's own query: asked once for both of its locations. */
+  const marketQuery = (queryId: string, market: string, targets: [string, string], queryClass: Pairing['queryClass'] = 'non-brand'): Pairing[] => (
+    targets.map(targetKey => ({ queryId, targetKey, queryClass, market }))
+  )
+  const weak = (...marketKeys: string[]) => ({ rule: 'no-mention-latest-sweep', queryClass: 'non-brand', count: marketKeys.length, marketKeys })
+
+  it('lists only the market whose non-brand answers were read and named no location', async () => {
+    const { versionId, plan } = seedPortfolio(planOf({
+      targets: PLACES, groups: [],
+      texts: { 'q-north': 'best homes up north', 'q-south': 'best homes down south', 'q-west': 'best homes out west' },
+      pairings: [
+        ...marketQuery('q-north', 'north', ['harbor', 'cedar']),
+        ...marketQuery('q-south', 'south', ['maple', 'willow']),
+        ...marketQuery('q-west', 'west', ['summit', 'birch']),
+      ],
+    }))
+    seedSweep({
+      versionId, plan, createdAt: LAST_SWEEP,
+      answers: ({ queryId, provider }) => {
+        // One engine of three names a location of North.
+        if (queryId === 'q-north') return provider === 'gemini' ? says('Cedar Court is worth a visit.') : nobody
+        // Every answer for South was read. One cites Maple's page and names nobody: a citation is not a mention.
+        if (queryId === 'q-south') return provider === 'claude' ? says('A few communities stand out.', ['https://northbridge.example/maple/floor-plans']) : nobody
+        // No answer for West was saved.
+        return undefined
+      },
+    })
+
+    const body = await results()
+    expect(engine(body, 'q-south', 'non-brand', 'claude')).toMatchObject({ mentioned: false, cited: true })
+    expect(rowOf(body, 'q-west', 'non-brand')!.engines.map(entry => entry.mentioned)).toEqual([null, null, null])
+    expect(body.weakMarkets).toStrictEqual(weak('south'))
+  })
+
+  it('never lets a branded mention stand in for the non-brand queries of a market', async () => {
+    const { versionId, plan } = seedPortfolio(planOf({
+      texts: { 'q-market': MARKET_TEXT, 'q-brand-market': 'Northbridge homes in uptown', 'q-mixed': 'Harbor Point or Cedar Court', 'q-harbor': HARBOR_TEXT },
+      pairings: [
+        ...marketQuery('q-market', 'uptown', ['harbor', 'cedar']),
+        // Uptown's Branded market query.
+        ...marketQuery('q-brand-market', 'uptown', ['harbor', 'cedar'], 'branded'),
+        // One market query, Branded for Harbor and Non-brand for Cedar.
+        { queryId: 'q-mixed', targetKey: 'harbor', queryClass: 'branded', market: 'uptown' },
+        { queryId: 'q-mixed', targetKey: 'cedar', queryClass: 'non-brand', market: 'uptown' },
+        { queryId: 'q-harbor', targetKey: 'harbor', queryClass: 'branded', market: 'uptown' },
+      ],
+    }))
+    // Every Branded answer names Harbor. The one Non-brand answer set names nobody.
+    seedSweep({ versionId, plan, createdAt: LAST_SWEEP, answers: ({ queryId }) => (queryId === 'q-market' ? nobody : says('Harbor Point is the one to see.')) })
+
+    const body = await results()
+    const mentions = (queryId: string, queryClass: string) => rowOf(body, queryId, queryClass)!.engines.map(entry => entry.mentionedAnswers)
+    expect(mentions('q-brand-market', 'branded')).toEqual([1, 1, 1])
+    expect(mentions('q-mixed', 'branded')).toEqual([1, 1, 1])
+    expect(mentions('q-harbor', 'branded')).toEqual([1, 1, 1])
+    // Cedar's Non-brand half of the mixed query reads the same answers and finds Cedar in none.
+    expect(mentions('q-mixed', 'non-brand')).toEqual([0, 0, 0])
+    expect(mentions('q-market', 'non-brand')).toEqual([0, 0, 0])
+    // Pooled, Uptown would count nine mentions. Its Non-brand rows have none, so it is weak.
+    expect(body.weakMarkets).toStrictEqual(weak('uptown'))
+  })
+
+  it('needs one read answer, and counts neither an answer with no saved text nor a query that is not the market\'s own', async () => {
+    const { versionId, plan } = seedPortfolio(planOf({
+      targets: [...PLACES, ['aspen', 'Aspen Walk'], ['laurel', 'Laurel Green']],
+      groups: [],
+      texts: {
+        'q-partial': 'best homes up north', 'q-unread': 'best homes down south', 'q-brand-west': 'Northbridge homes out west',
+        'q-aspen': 'homes near the aspen trail', 'q-brand-east': 'Northbridge homes out east', 'q-pick': 'homes with covered parking',
+      },
+      pairings: [
+        ...marketQuery('q-partial', 'north', ['harbor', 'cedar']),
+        ...marketQuery('q-unread', 'south', ['maple', 'willow']),
+        // West has a Branded market query only.
+        ...marketQuery('q-brand-west', 'west', ['summit', 'birch'], 'branded'),
+        // East has one too, and its only Non-brand query is Aspen's own.
+        ...marketQuery('q-brand-east', 'east', ['aspen', 'laurel'], 'branded'),
+        { queryId: 'q-aspen', targetKey: 'aspen', queryClass: 'non-brand', market: 'east' },
+        // Hand-picked across two markets.
+        { queryId: 'q-pick', targetKey: 'maple', queryClass: 'non-brand' },
+        { queryId: 'q-pick', targetKey: 'summit', queryClass: 'non-brand' },
+      ],
+    }))
+    seedSweep({
+      versionId, plan, createdAt: LAST_SWEEP,
+      answers: ({ queryId, provider }) => {
+        // One checked no, one answer never saved and one saved without its text.
+        if (queryId === 'q-partial') return provider === 'claude' ? nobody : provider === 'gemini' ? undefined : { text: null }
+        if (queryId === 'q-unread') return { text: null }
+        return nobody
+      },
+    })
+
+    const body = await results()
+    expect(rowOf(body, 'q-partial', 'non-brand')!.engines.map(entry => [entry.answers, entry.mentioned])).toEqual([[1, false], [0, null], [1, null]])
+    expect(rowOf(body, 'q-unread', 'non-brand')!.engines.map(entry => [entry.answers, entry.mentioned])).toEqual([[1, null], [1, null], [1, null]])
+    // Read and named nobody, and still not a market's Non-brand query.
+    for (const [queryId, queryClass] of [['q-brand-west', 'branded'], ['q-brand-east', 'branded'], ['q-aspen', 'non-brand'], ['q-pick', 'non-brand']] as const) {
+      expect(rowOf(body, queryId, queryClass)!.engines.map(entry => entry.mentioned), queryId).toEqual([false, false, false])
+    }
+    expect(body.weakMarkets).toStrictEqual(weak('north'))
+  })
+
+  it('is returned for the project read of a portfolio with a sweep and for nothing else', async () => {
+    const { versionId, plan } = seedPortfolio()
+    expect(await results()).not.toHaveProperty('weakMarkets')
+
+    seedSweep({ versionId, plan, createdAt: LAST_SWEEP, answers: () => nobody })
+    const body = await results()
+    expect(body.weakMarkets).toStrictEqual(weak('uptown'))
+    for (const place of ['scope=market&scopeKey=uptown', 'scope=group&scopeKey=east', 'scope=property&scopeKey=harbor']) {
+      const scoped = await results(place)
+      expect(scoped.rows.length, place).toBeGreaterThan(0)
+      expect(scoped, place).not.toHaveProperty('weakMarkets')
+    }
+    // A response from a server that sends no weakMarkets still parses.
+    const { weakMarkets: _weakMarkets, ...older } = body
+    expect(queryTrackingResultsResponseSchema.parse(older)).toStrictEqual(older)
+  })
+
+  it('leaves a market out once its query is withheld after a tracking change', async () => {
+    const { versionId, plan } = seedPortfolio()
+    seedSweep({ versionId, plan, createdAt: LAST_SWEEP, answers: () => nobody })
+    expect((await results()).weakMarkets).toStrictEqual(weak('uptown'))
+
+    await publish({ edits: [{ queryId: 'q-market', text: 'best new homes in uptown' }] })
+    const body = await results()
+    expect(body.rows.filter(row => row.queryClass === 'non-brand').map(row => row.queryId)).toEqual(['q-parking'])
+    expect(body.weakMarkets).toStrictEqual(weak())
+  })
+})
+
 describe('query tracking results: tracking changed after the sweep', () => {
   it('drops a moved query until the next sweep and keeps every untouched row', async () => {
     const { versionId, plan } = seedPortfolio()
@@ -781,6 +919,8 @@ describe('query tracking results: a simple project', () => {
     ])
     const classes = new Map((await workspace()).tracked.map(row => [row.queryId, row.queryClasses ?? []]))
     for (const row of body.rows) expect(classes.get(row.queryId)).toEqual([row.queryClass])
+    // A simple project has no market to rank.
+    expect(body).not.toHaveProperty('weakMarkets')
   })
 
   it('drops a reworded or newly added query until the next sweep and has no place but the project', async () => {
@@ -1027,7 +1167,10 @@ describe('query tracking results: cost', () => {
 
     // The sweep ran with the active plan: one parse, the active plan's.
     parses.mockClear()
-    expect((await results()).run).toMatchObject({ revision: 1, matchesCurrentTracking: true })
+    const everyday = await results()
+    expect(everyday.run).toMatchObject({ revision: 1, matchesCurrentTracking: true })
+    // The weakest markets come from the same rows: no parse and no table read is added for them.
+    expect(everyday.weakMarkets).toStrictEqual({ rule: 'no-mention-latest-sweep', queryClass: 'non-brand', count: 0, marketKeys: [] })
     expect(parses).toHaveBeenCalledTimes(1)
     expect(count(reads, 'query_snapshots')).toBe(1)
     // The sweep list without manifests, then the chosen sweep's row.
@@ -1049,7 +1192,11 @@ describe('query tracking results: cost', () => {
     // What keeps it fast is pinned exactly below (plans parsed, tables read). At 1 s the wall clock failed
     // whenever other test files shared the box.
     const BUDGET_MS = 5_000
+    // The workspace read of the same portfolio, with its views. As generous: its parses and table reads are pinned below.
+    const WORKSPACE_BUDGET_MS = 10_000
     const large = largePortfolio(190, 137)
+    /** Markets 7, 17 and on to 127: no answer to one of their market queries names a location. */
+    const quietMarket = (queryId: string) => /^q-market-\d*7-/.test(queryId)
     const plan = planOf(large)
     expect(plan.querySnapshots).toHaveLength(940)
     expect(plan.assignments).toHaveLength(2_584)
@@ -1066,22 +1213,22 @@ describe('query tracking results: cost', () => {
         const index = large.order.get(queryId)! + ENGINES.indexOf(provider)
         const target = large.subject.get(queryId)!
         return says(
-          `${index % 3 === 0 ? `${target.label} is a strong option. ` : ''}${filler}`,
+          `${index % 3 === 0 && !quietMarket(queryId) ? `${target.label} is a strong option. ` : ''}${filler}`,
           [index % 5 === 0 ? `https://northbridge.example/${target.stableKey}/floor-plans` : OTHER_SOURCE, ...otherSources],
         )
       },
     })
 
     /** Five reads: the last body, the median time and the best time. */
-    const measure = async () => {
+    const measure = async <Body = QueryTrackingResultsResponse>(suffix = '/query-tracking/results') => {
       const timings: number[] = []
-      let body!: QueryTrackingResultsResponse
+      let body!: Body
       for (let attempt = 0; attempt < 5; attempt++) {
         const started = performance.now()
-        const response = await request('GET', '/query-tracking/results')
+        const response = await request('GET', suffix)
         timings.push(performance.now() - started)
         expect(response.statusCode, response.body.slice(0, 300)).toBe(200)
-        body = response.json() as QueryTrackingResultsResponse
+        body = response.json() as Body
       }
       const sorted = [...timings].sort((left, right) => left - right)
       return { body, median: sorted[2]!, best: sorted[0]! }
@@ -1089,10 +1236,16 @@ describe('query tracking results: cost', () => {
     const answersOf = (body: QueryTrackingResultsResponse, key: 'answers' | 'mentionedAnswers' | 'citedAnswers') => (
       body.rows.reduce((sum, row) => sum + row.engines.reduce((inner, entry) => inner + entry[key], 0), 0)
     )
-    /** How many of a query's three answers the seed marked, summed over the queries that have a row. */
-    const seeded = (every: number, without?: string) => [...large.order]
-      .filter(([queryId]) => queryId !== without)
+    /** How many of a query's three answers the seed marked, summed over the queries that have a row and are not `silent`. */
+    const seeded = (every: number, without?: string, silent: (queryId: string) => boolean = () => false) => [...large.order]
+      .filter(([queryId]) => queryId !== without && !silent(queryId))
       .reduce((sum, [, index]) => sum + ENGINES.filter((_, offset) => (index + offset) % every === 0).length, 0)
+    // Each quiet market's four Non-brand queries were answered and named nobody. Some of those answers cite a
+    // location, and its locations' own Branded queries are named: neither takes a market off the list.
+    const quietMarkets = {
+      rule: 'no-mention-latest-sweep', queryClass: 'non-brand', count: 13,
+      marketKeys: [107, 117, 127, 17, 27, 37, 47, 57, 67, 7, 77, 87, 97].map(market => `market-${market}`),
+    }
 
     // The sweep ran with the active plan: the everyday read.
     const current = await measure()
@@ -1101,8 +1254,26 @@ describe('query tracking results: cost', () => {
     expect(current.body.pendingRows).toBe(0)
     expect(current.body.rows.every(row => row.engines.length === 3 && row.engines.every(entry => entry.expectedAnswers === 1))).toBe(true)
     expect(answersOf(current.body, 'answers')).toBe(940 * 3)
-    expect(answersOf(current.body, 'mentionedAnswers')).toBe(seeded(3))
+    expect(answersOf(current.body, 'mentionedAnswers')).toBe(seeded(3, undefined, quietMarket))
     expect(answersOf(current.body, 'citedAnswers')).toBe(seeded(5))
+    expect(current.body.weakMarkets).toStrictEqual(quietMarkets)
+
+    // The workspace read with its views: one plan parse each time, and no saved pattern read, because no
+    // pattern has a gap.
+    const parses = vi.mocked(parseStoredMeasurementPlanAnyVersion)
+    const reads = recordReads()
+    parses.mockClear()
+    const board = await measure<QueryTrackingWorkspaceResponse>('/query-tracking')
+    expect(parses).toHaveBeenCalledTimes(5)
+    expect(count(reads, 'measurement_query_templates')).toBe(0)
+    vi.mocked(db.select).mockRestore()
+    // Location 0 sits in its own market alone and locations 140 to 189 sit in none, so their two queries are
+    // their own. Every other location's queries leave out a market it belongs to, which makes them hand-picked.
+    expect(board.body.views?.noPropertyQueries.count).toBe(190 - 51)
+    expect(board.body.views?.noPropertyQueries.targetKeys).toHaveLength(190 - 51)
+    // Every market has exactly four market queries: at the floor, so none is thin.
+    expect(board.body.views?.thinMarkets).toStrictEqual({ count: 0, floor: 4, marketKeys: [] })
+    expect(board.body.views?.patternGaps).toStrictEqual({ count: 0, patterns: [] })
 
     // Tracking changed: one query is reworded, so the read parses two large plans and signs every assignment.
     activate(seedVersion(20, planOf({ ...large, texts: { ...large.texts, 'q-loc-0-0': 'Harbor 000 resident reviews' } })))
@@ -1110,10 +1281,14 @@ describe('query tracking results: cost', () => {
     expect(changed.body.run).toMatchObject({ revision: 19, matchesCurrentTracking: false })
     expect(changed.body.rows).toHaveLength(939)
     expect(changed.body.pendingRows).toBe(1)
-    expect(answersOf(changed.body, 'mentionedAnswers')).toBe(seeded(3, 'q-loc-0-0'))
+    expect(answersOf(changed.body, 'mentionedAnswers')).toBe(seeded(3, 'q-loc-0-0', quietMarket))
     expect(answersOf(changed.body, 'citedAnswers')).toBe(seeded(5, 'q-loc-0-0'))
+    // The reworded query is a location's own, so the same markets are weak.
+    expect(changed.body.weakMarkets).toStrictEqual(quietMarkets)
 
     console.info(`query-tracking results, 940 queries x 3 engines over 20 revisions: median ${current.median.toFixed(0)} ms (best ${current.best.toFixed(0)}), ${changed.median.toFixed(0)} ms (best ${changed.best.toFixed(0)}) after a tracking change`)
+    console.info(`query-tracking workspace with views, 940 queries, 190 locations, 137 markets: median ${board.median.toFixed(0)} ms (best ${board.best.toFixed(0)})`)
+    expect(board.best).toBeLessThan(WORKSPACE_BUDGET_MS)
     // The parse and table-read counts above are the cost guard that cannot
     // flake. Time is held on the best of the five reads, because the whole
     // suite running beside this one has slowed the median almost threefold.

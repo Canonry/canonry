@@ -8,6 +8,7 @@
  */
 
 import {
+  QUERY_TRACKING_THIN_MARKET_FLOOR,
   compareText,
   normalizeCompetitorDomain,
   type MeasurementPlanV2,
@@ -19,6 +20,7 @@ import {
   type QueryTrackingSummary,
   type QueryTrackingTargetCounts,
   type QueryTrackingTrackedRow,
+  type QueryTrackingViews,
 } from '@ainyc/canonry-contracts'
 
 /** A tracked row as this server builds it: Subject and Type are always set. */
@@ -214,4 +216,69 @@ export function planPlaceCounts(plan: MeasurementPlanV2, tracked: readonly Summa
     }
   }
   return { targets, markets, groups }
+}
+
+/** A saved pattern as it stands now, by id. A row keeps the text it was expanded from. */
+export type SavedPatterns = ReadonlyMap<string, { name: string; pattern: string }>
+
+/**
+ * The workspace's views, read off the place counts and the tracked rows in
+ * one pass each. A pattern is known by the record a row froze, so a row that
+ * froze none belongs to no pattern. `savedPatterns` is called at most once,
+ * and only when a pattern has a gap.
+ */
+export function trackingViews(
+  tracked: readonly SummarizedRow[],
+  places: PlanPlaceCounts,
+  savedPatterns: () => SavedPatterns,
+): QueryTrackingViews {
+  const targetKeys: string[] = []
+  for (const [targetKey, target] of places.targets) {
+    if (target.counts.propertyQueries === 0) targetKeys.push(targetKey)
+  }
+  const thinMarketKeys: string[] = []
+  // A market with no location takes no addition, so no pattern is missing from it.
+  const openMarketKeys: string[] = []
+  for (const [marketKey, market] of places.markets) {
+    if (market.counts.marketQueries < QUERY_TRACKING_THIN_MARKET_FLOOR) thinMarketKeys.push(marketKey)
+    if (market.targetKeys.length > 0) openMarketKeys.push(marketKey)
+  }
+  openMarketKeys.sort(compareText)
+
+  const used = new Map<string, { version: string; pattern: string; marketKeys: Set<string> }>()
+  for (const row of tracked) {
+    const template = row.provenance?.template
+    if (row.focus.kind !== 'market' || template === undefined) continue
+    const pattern = used.get(template.templateId)
+    if (!pattern) {
+      used.set(template.templateId, { version: template.templateVersion, pattern: template.template, marketKeys: new Set([row.focus.key]) })
+      continue
+    }
+    pattern.marketKeys.add(row.focus.key)
+    // The version is the pattern's save time, so the greater one is the newer text.
+    if (compareText(template.templateVersion, pattern.version) > 0) {
+      pattern.version = template.templateVersion
+      pattern.pattern = template.template
+    }
+  }
+  const gaps = [...used].flatMap(([templateId, pattern]) => {
+    const missingMarketKeys = openMarketKeys.filter(marketKey => !pattern.marketKeys.has(marketKey))
+    return missingMarketKeys.length === 0 ? [] : [{ templateId, frozen: pattern.pattern, usedMarketKeys: sorted(pattern.marketKeys), missingMarketKeys }]
+  }).sort((left, right) => compareText(left.templateId, right.templateId))
+  const saved = gaps.length === 0 ? null : savedPatterns()
+
+  return {
+    noPropertyQueries: { count: targetKeys.length, targetKeys: targetKeys.sort(compareText) },
+    thinMarkets: { count: thinMarketKeys.length, floor: QUERY_TRACKING_THIN_MARKET_FLOOR, marketKeys: thinMarketKeys.sort(compareText) },
+    patternGaps: {
+      count: gaps.length,
+      patterns: gaps.map(({ templateId, frozen, usedMarketKeys, missingMarketKeys }) => ({
+        templateId,
+        name: saved?.get(templateId)?.name ?? null,
+        pattern: saved?.get(templateId)?.pattern ?? frozen,
+        usedMarketKeys,
+        missingMarketKeys,
+      })),
+    },
+  }
 }

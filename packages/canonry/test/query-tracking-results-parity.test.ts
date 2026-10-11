@@ -203,12 +203,16 @@ describe('query tracking results CLI/REST/MCP parity', () => {
         ],
       }],
       pendingRows: 0,
+      // The plan has no market, so none is weak.
+      weakMarkets: { rule: 'no-mention-latest-sweep', queryClass: 'non-brand', count: 0, marketKeys: [] },
     })
     expect(viaCli).toStrictEqual(rest)
     expect(viaMcp).toStrictEqual(rest)
 
+    // Only the project read ranks markets.
+    const { weakMarkets: _weakMarkets, ...rows } = rest
     const location = await readEverywhere({ scope: 'property', scopeKey: 'widgets', runId })
-    expect(location.rest).toStrictEqual({ ...rest, scope: { kind: 'property', key: 'widgets' } })
+    expect(location.rest).toStrictEqual({ ...rows, scope: { kind: 'property', key: 'widgets' } })
     expect(location.viaCli).toStrictEqual(location.rest)
     expect(location.viaMcp).toStrictEqual(location.rest)
   })

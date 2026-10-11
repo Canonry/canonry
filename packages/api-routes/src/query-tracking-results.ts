@@ -11,6 +11,8 @@ import { and, desc, eq, isNull } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
+  QUERY_TRACKING_WEAK_MARKET_CLASS,
+  QUERY_TRACKING_WEAK_MARKET_RULE,
   VisibilityReportScopeErrorReasons,
   compareText,
   compileQueryClassifier,
@@ -27,12 +29,14 @@ import {
   type QueryTrackingResultsQuery,
   type QueryTrackingResultsResponse,
   type QueryTrackingResultsRun,
+  type QueryTrackingWeakMarkets,
   type SimpleMeasurementDefinition,
   type VisibilityReportPopulationClass,
 } from '@ainyc/canonry-contracts'
 import { measurementPlanVersions, projects, queries, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { resolveProject } from './helpers.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
+import { planQueryFocus } from './query-focus.js'
 import {
   currentSimpleExecutionSignature,
   frozenSimpleExecutionSignature,
@@ -109,11 +113,13 @@ function signal(positives: number, unknown: boolean): boolean | null {
  * pending instead, so a lit chip is always a result for pairings still asked.
  * Each engine reads only the answers of the row's own executions, through the
  * report's per-answer rule (`targetValues`). Advanced and simple sweeps share
- * this fold.
+ * this fold. `mentionChecked`, when passed, takes for each returned row how
+ * many of its answers had their text read: a count the wire row does not carry.
  */
 export function foldQueryTrackingResults(
   sweep: VisibilityReportRunInput | null,
   pairings: readonly TrackedPairing[],
+  mentionChecked?: Map<QueryTrackingResultRow, number>,
 ): Pick<QueryTrackingResultsResponse, 'rows' | 'pendingRows'> {
   const pairs = new Map<string, {
     queryId: string
@@ -154,6 +160,7 @@ export function foldQueryTrackingResults(
       continue
     }
     const tallies = new Map<string, EngineTally>()
+    let checkedForMention = 0
     for (const [executionId, edges] of pair.edges) {
       const expected = slots.get(executionId)
       if (!expected || expected.length === 0) throw new Error(`Frozen usage edge ${edges[0]!.id} has no execution slot`)
@@ -169,6 +176,7 @@ export function foldQueryTrackingResults(
         if (observation !== null) tally.answers++
         if (values.mention === true) tally.mentionedAnswers++
         else if (values.mention === null) tally.mentionUnknown = true
+        if (values.mention !== null) checkedForMention++
         // An answer whose sources were only partly saved is not checked, even
         // when a saved link cites the location: the report leaves it out of
         // both sides of its citation rate, and so does this count.
@@ -191,7 +199,9 @@ export function foldQueryTrackingResults(
         mentioned: signal(tally.mentionedAnswers, tally.mentionUnknown),
         cited: signal(tally.citedAnswers, tally.citationUnknown),
       }))
-    rows.push({ queryId: pair.queryId, queryText: pair.queryText, queryClass: pair.queryClass, engines })
+    const row = { queryId: pair.queryId, queryText: pair.queryText, queryClass: pair.queryClass, engines }
+    rows.push(row)
+    mentionChecked?.set(row, checkedForMention)
   }
   rows.sort((left, right) => compareText(left.queryId, right.queryId) || compareText(left.queryClass, right.queryClass))
   return { rows, pendingRows }
@@ -412,6 +422,40 @@ function engines(sweep: VisibilityReportRunInput | null): string[] {
   return sweep === null ? [] : sortedUnique(sweep.definition.slots.map(slot => slot.provider))
 }
 
+/**
+ * The weak-market rule over the rows a project read returns. Only a non-brand
+ * row whose query has a market as its Subject is read, so a market's branded
+ * rows, its locations' own queries and hand-picked queries never count, and a
+ * withheld row counts for nothing. A market is weak when one of its answers had
+ * its text read and none named a location the row covers. With no answer read
+ * it is left out.
+ */
+function weakMarkets(
+  plan: MeasurementPlanV2,
+  rows: readonly QueryTrackingResultRow[],
+  mentionChecked: ReadonlyMap<QueryTrackingResultRow, number>,
+): QueryTrackingWeakMarkets {
+  const focusOf = planQueryFocus(plan)
+  const markets = new Map<string, { checked: number; mentioned: number }>()
+  for (const row of rows) {
+    if (row.queryClass !== QUERY_TRACKING_WEAK_MARKET_CLASS) continue
+    const focus = focusOf(row.queryId)
+    if (focus.kind !== 'market') continue
+    let market = markets.get(focus.key)
+    if (!market) {
+      market = { checked: 0, mentioned: 0 }
+      markets.set(focus.key, market)
+    }
+    market.checked += mentionChecked.get(row) ?? 0
+    for (const engine of row.engines) market.mentioned += engine.mentionedAnswers
+  }
+  const marketKeys = [...markets]
+    .filter(([, market]) => market.checked > 0 && market.mentioned === 0)
+    .map(([marketKey]) => marketKey)
+    .sort(compareText)
+  return { rule: QUERY_TRACKING_WEAK_MARKET_RULE, queryClass: QUERY_TRACKING_WEAK_MARKET_CLASS, count: marketKeys.length, marketKeys }
+}
+
 function advancedResults(
   db: DatabaseClient,
   projectId: string,
@@ -452,10 +496,14 @@ function advancedResults(
     versions,
     false,
   )
+  const mentionChecked = new Map<QueryTrackingResultRow, number>()
+  const folded = foldQueryTrackingResults(sweep, advancedPairings(active.plan, assignments, { sweep, plan: sweepPlan, underActivePlan }), mentionChecked)
   return {
     run: runDto(run, chosen.version.revision, underActivePlan),
     engines: engines(sweep),
-    ...foldQueryTrackingResults(sweep, advancedPairings(active.plan, assignments, { sweep, plan: sweepPlan, underActivePlan })),
+    ...folded,
+    // Only the project read holds every market's pairings, so only it ranks markets.
+    ...(query.scope === 'project' ? { weakMarkets: weakMarkets(active.plan, folded.rows, mentionChecked) } : {}),
   }
 }
 
