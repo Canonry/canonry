@@ -14,7 +14,7 @@ import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 import {
-  active, advancedResetLine, advancedResetNotice, context, installScrollSpy, installWorkspaceApi, listLocations, noteButton, openRowSheet, preview, previewToken,
+  active, advancedResetLine, advancedResetNotice, advancedResetNoticeWords, context, installScrollSpy, installWorkspaceApi, listLocations, noteButton, openRowSheet, preview, previewToken,
   removalDiff, removalWorkload, renderWorkspace, results, reviewNumbers, reviewRemoval, reviewRow, searchLocationModels, sharedSearchLocation, sweepActiveLabel, sweepActiveMessage,
   trackedAfterRemoval, workspace, workspaceVersion,
 } from './support/query-tracking-fixtures.js'
@@ -53,7 +53,9 @@ test('focuses the preview outcome and shows the before and after numbers under t
   expect(screen.getByText('Queries', { selector: 'dt' }).closest('details')).toBeNull()
   // One short caution note; the full notice, sweep sentence included, is the note's own help and not visible text.
   expect(noteButton(advancedResetLine, advancedResetNotice, heading.parentElement!).classList.contains('text-caution')).toBe(true)
-  expect(screen.queryByText(/AI Visibility keeps showing the last sweep/)).toBeNull()
+  // The words are the notice's own, so this check cannot go on passing over a reworded notice.
+  expect(advancedResetNotice).toMatch(advancedResetNoticeWords)
+  expect(screen.queryByText(advancedResetNoticeWords)).toBeNull()
   expect(within(heading.parentElement!).queryByText('Publishing does not run a sweep.')).toBeNull()
 })
 
@@ -193,7 +195,7 @@ test.each([
   expect((await reviewRemoval()).textContent).toBe(heading)
   if (subcopy) expect(screen.getByText(subcopy)).toBeTruthy()
   else expect(screen.queryByText('This request leaves tracking unchanged.')).toBeNull()
-  expect(screen.queryByText(/AI Visibility keeps showing the last sweep/)).toBeNull()
+  expect(screen.queryByText(advancedResetNoticeWords)).toBeNull()
   expect(screen.queryByText(advancedResetLine)).toBeNull()
   expect(screen.queryByRole('button', { name: `${advancedResetLine}. ${advancedResetNotice}` })).toBeNull()
 })

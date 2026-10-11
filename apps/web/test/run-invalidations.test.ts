@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { QueryClient } from '@tanstack/react-query'
+import { afterEach, beforeEach, expect, onTestFinished, test, vi } from 'vitest'
+import { QueryClient, QueryObserver } from '@tanstack/react-query'
 
 import { RunKinds } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey } from '@ainyc/canonry-api-client/react-query'
@@ -88,6 +88,31 @@ test('a completed sweep refreshes every measurement read, so an open location pa
   for (const read of ['Overview', 'PropertyEvidence', 'PropertyCompetitors', 'QuestionResult', 'Plan']) {
     expect(predicateMatches(`getApiV1ProjectsByNameMeasurement${read}`)).toBe(true)
   }
+})
+
+test('a completed sweep reads the plan, the overviews and named instead again, and only marks the reads keyed by a run', async () => {
+  // Location evidence and answer text name the run they show. The overview's new run id changes their keys,
+  // which is the one read needed: asked for again here, each would first read the whole sweep before.
+  const reads: string[] = []
+  const observed = (read: string, query: Record<string, string> = {}) => {
+    const queryKey = [{ _id: `getApiV1ProjectsByNameMeasurement${read}`, path: { name: 'demo' }, query }]
+    const observer = new QueryObserver(queryClient, { queryKey, queryFn: () => { reads.push(read); return read } })
+    onTestFinished(observer.subscribe(() => {}))
+    return queryKey
+  }
+  const refetched = ['Plan', 'Overview', 'PropertyCompetitors'].map(read => observed(read))
+  const marked = [observed('PropertyEvidence', { runId: 'run-before' }), observed('QuestionResult', { resultId: 'answer-1' })]
+  // Each first read has landed: a refetch started over one still in flight would only join it.
+  await vi.waitFor(() => expect([reads.length, queryClient.isFetching()]).toEqual([5, 0]))
+  reads.length = 0
+
+  invalidateQueriesForRunKind(queryClient, RunKinds['answer-visibility'], 'demo')
+
+  await vi.waitFor(() => expect([...reads].sort()).toEqual(['Overview', 'Plan', 'PropertyCompetitors']))
+  await vi.waitFor(() => expect(queryClient.isFetching()).toBe(0))
+  expect([...reads].sort()).toEqual(['Overview', 'Plan', 'PropertyCompetitors'])
+  for (const queryKey of marked) expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(true)
+  for (const queryKey of refetched) expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(false)
 })
 
 test('only a sweep refreshes the measurement reads', () => {

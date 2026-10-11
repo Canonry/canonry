@@ -47,6 +47,27 @@ export function invalidateProjectQueryDomain(
   })
 }
 
+/** Measurement reads keyed by the run they show, or by one answer of it: location evidence and answer text. */
+const RUN_KEYED_MEASUREMENT_READS: readonly string[] = [
+  'getApiV1ProjectsByNameMeasurementPropertyEvidence',
+  'getApiV1ProjectsByNameMeasurementQuestionResult',
+]
+
+/**
+ * A sweep completed, so every measurement read is stale. The plan, the overviews and named instead are
+ * read again now. A read keyed by a run is only marked: the overview's new `displayedRunId` changes its
+ * key, and that is the one read needed. Refetched here it would ask for the sweep before first, a
+ * full-run read on the server, and one the server refuses once the tracking has changed.
+ */
+export function invalidateMeasurementReadsAfterSweep(queryClient: Pick<QueryClient, 'invalidateQueries'>): Promise<void> {
+  const idOf = (query: Query) => (query.queryKey[0] as { _id?: string } | undefined)?._id
+  const runKeyed = (query: Query) => RUN_KEYED_MEASUREMENT_READS.includes(idOf(query) ?? '')
+  const marked = queryClient.invalidateQueries({ predicate: runKeyed, refetchType: 'none' })
+  return queryClient.invalidateQueries({
+    predicate: query => (idOf(query)?.startsWith(PROJECT_QUERY_DOMAINS.measurement) ?? false) && !runKeyed(query),
+  }).then(() => marked)
+}
+
 /** Query publication changes live assignments, the measurement revision and which results still hold. */
 export function invalidateQueryTrackingPublication(
   queryClient: Pick<QueryClient, 'invalidateQueries'>,
