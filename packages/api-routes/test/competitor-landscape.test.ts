@@ -1244,7 +1244,7 @@ describe('GET /projects/:name/analytics/competitors', () => {
     }).run()
     db.insert(querySnapshots).values([
       { ...marketSnapshot('north_alias', 'multi_market_alias_run', 'north-alias-node', 'Northwind and AlphaCo.', 'parentco.com'), model: 'north-model', location: 'North' },
-      { ...marketSnapshot('south_alias', 'multi_market_alias_run', 'south-alias-node', 'Northwind and BetaCo. RegionalName.', 'parentco.com', NOW, 'south-query', 'south homes'), model: 'south-model', location: 'South', citedDomains: ['parentco.com', 'regionalonly.example'] },
+      { ...marketSnapshot('south_alias', 'multi_market_alias_run', 'south-alias-node', 'Northwind and BetaCo. Regionalonly.', 'parentco.com', NOW, 'south-query', 'south homes'), model: 'south-model', location: 'South', citedDomains: ['parentco.com', 'regionalonly.example'] },
     ]).run()
 
     const response = await app.inject({
@@ -1278,6 +1278,13 @@ describe('GET /projects/:name/analytics/competitors', () => {
         ]),
       }), expect.objectContaining({ domain: 'regionalonly.example', tracked: true, namingAnswers: 0, names: [] })],
     })
+    const southLandscapeResponse = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&groupKey=southern&queryClass=all' })
+    const southLandscapeBody = southLandscapeResponse.json()
+    const southLandscapeRow = [...southLandscapeBody.pinned, ...southLandscapeBody.observed, ...southLandscapeBody.otherSources].find((row: { domain: string }) => row.domain === 'regionalonly.example')
+    const southSuggestionResponse = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all&groupKey=southern&queryClass=all' })
+    const southSuggestionRow = southSuggestionResponse.json().candidates.find((row: { domain: string }) => row.domain === 'regionalonly.example')
+    expect(southLandscapeRow).toMatchObject({ mentionCount: 0, citationCount: 1 })
+    expect(southSuggestionRow).toMatchObject({ namingAnswers: 0, citingAnswers: 1 })
     const regionalSuggestions = await app.inject({
       method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all&groupKey=regional',
     })
