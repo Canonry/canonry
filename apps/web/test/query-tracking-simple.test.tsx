@@ -40,34 +40,45 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
     requests.push({ path, method, ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) })
     if (path === '/api/v1/projects/demo') return jsonResponse(project)
     if (path === '/api/v1/projects/demo/query-tracking' && method === 'GET') return jsonResponse({ mode: 'simple', workspaceVersion: 'qtw_viewer', active: null, targets: [], groups: [], markets: [], tracked: [], savedSources: { research: [], discovery: [] }, defaultContexts: [] })
-    if (path === '/api/v1/projects/demo/research/runs' && method === 'GET') return jsonResponse({ runs: [], providers: [
+    // The run the batch saves, as past research reports it once it has finished.
+    const saved = {
+      id: 'research-1', projectId: project.id, status: 'completed', provider: 'gemini', requestedModel: null,
+      resolvedModel: 'gemini-2.5-flash', location: null, totalQueries: 1, completedQueries: 1, failedQueries: 0,
+      error: null, initiatedBy: { kind: 'user', id: 'viewer-user', name: 'viewer', role: 'viewer' },
+      startedAt: null, finishedAt: null, createdAt: '2026-09-08T12:00:00.000Z',
+    }
+    const posted = requests.some(request => request.method === 'POST')
+    if (path === '/api/v1/projects/demo/research/runs' && method === 'GET') return jsonResponse({ runs: posted ? [saved] : [], providers: [
       { name: 'openai', displayName: 'OpenAI', modelConfigurable: true, defaultModel: 'gpt-5-mini', knownModels: [{ id: 'gpt-5-mini', displayName: 'GPT-5 mini' }, { id: 'gpt-5', displayName: 'GPT-5' }] },
       { name: 'gemini', displayName: 'Gemini', modelConfigurable: true, defaultModel: 'gemini-2.5-flash', knownModels: [{ id: 'gemini-2.5-flash', displayName: 'Gemini Flash' }] },
     ] })
+    if (path === '/api/v1/projects/demo/research/runs/research-1' && method === 'GET') return jsonResponse({ ...saved, queries: [{
+      id: 'research-1-query', position: 0, query: 'Which AEO platform fits an agency?', queryClass: 'non-brand', status: 'completed',
+      requestedModel: null, resolvedModel: 'gemini-2.5-flash', servedModel: 'gemini-2.5-flash', answerText: 'Saved answer for the viewer',
+      groundingSources: [], citedDomains: [], searchQueries: [], namedCompetitors: [], citedCompetitorDomains: [],
+      answerMentioned: false, citationState: 'not-cited', error: null, startedAt: null, finishedAt: null, createdAt: saved.createdAt,
+    }] })
     if (path === '/api/v1/projects/demo/research/batches' && method === 'POST') {
-      return jsonResponse({ runs: [{
-        id: 'research-1', projectId: project.id, status: 'queued', provider: 'openai', requestedModel: null,
-        resolvedModel: 'gpt-5-mini', location: null, totalQueries: 1, completedQueries: 0, failedQueries: 0,
-        error: null, initiatedBy: { kind: 'user', id: 'viewer-user', name: 'viewer', role: 'viewer' },
-        startedAt: null, finishedAt: null, createdAt: '2026-09-08T12:00:00.000Z', queries: [],
-      }] }, 202)
+      return jsonResponse({ runs: [{ ...saved, status: 'queued', completedQueries: 0, queries: [] }] }, 202)
     }
     throw new Error(`Unexpected fetch: ${method} ${path}`)
   })
   onTestFinished(restore)
   renderViewerWorkspace({ queryWorkspace: 'research', researchMode: 'find' })
 
-  expect(await screen.findByRole('heading', { name: 'Test queries' })).toBeTruthy()
-  expect(screen.queryByRole('tab', { name: 'Find queries' })).toBeNull()
+  // A viewer starts from Write or Pattern. A link that names Find ideas opens Write, and no row of tabs sits under Tracked | Research.
+  const start = await screen.findByRole('radiogroup', { name: 'Start from' })
+  expect(within(start).getAllByRole('radio').map(radio => [radio.textContent, radio.getAttribute('aria-checked')])).toEqual([['Write', 'true'], ['Pattern', 'false']])
+  expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Tracked', 'Research'])
   expect(await screen.findByLabelText('Engine')).toBeTruthy()
-  expect((screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'Run' }) as HTMLButtonElement).disabled).toBe(true)
   expect((await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · gpt-5-mini` }) as HTMLOptionElement).selected).toBe(true)
   fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'gpt-5' } })
   fireEvent.change(screen.getByLabelText('Engine'), { target: { value: 'gemini' } })
   expect((await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · gemini-2.5-flash` }) as HTMLOptionElement).selected).toBe(true)
 
   fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'Which AEO platform fits an agency?' } })
-  const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
+  const run = screen.getByRole('button', { name: 'Run 1 answer' }) as HTMLButtonElement
   await waitFor(() => expect(run.disabled).toBe(false))
   fireEvent.click(run)
   await waitFor(() => expect(requests.some(request => request.method === 'POST')).toBe(true))
@@ -76,6 +87,8 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
   })
   expect(requests.find(request => request.method === 'POST')?.body).toMatchObject({ runs: [{ provider: 'gemini', model: 'gemini-2.5-flash' }] })
   expect(requests.some(request => request.path === '/api/v1/settings')).toBe(false)
+  // The saved answer shows, and a viewer gets no way from it into tracking.
+  expect(await screen.findByText('Saved answer for the viewer')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Review for tracking' })).toBeNull()
 })
 

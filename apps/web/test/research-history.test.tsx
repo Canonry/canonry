@@ -8,6 +8,9 @@ import { jsonResponse, mockFetch } from './mock-fetch.js'
 
 afterEach(cleanup)
 
+/** A run's date as the page prints it, worked out apart from the page. */
+const shownDate = (value: string) => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value))
+
 function savedRun(id: string, createdAt: string): ResearchRunDetailDto {
   return {
     id, projectId: 'demo', status: 'completed', provider: 'openai', requestedModel: id, resolvedModel: id,
@@ -44,6 +47,13 @@ test('older history pages can be retried without losing the selected answer or l
   onTestFinished(() => client.clear())
   render(<QueryClientProvider client={client}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>)
   await screen.findByText(newest.queries[0]!.answerText!)
+  // Past research is closed until asked for. Its count is the runs loaded, with a plus while an older page is left to load.
+  const history = screen.getByRole('heading', { name: RESEARCH_COPY.historyTitle }).closest('details')!
+  expect(history.open).toBe(false)
+  expect(history.querySelector('summary')!.textContent).toBe('Past research 1+ runs')
+  // It comes after the results a pick in it changes.
+  expect(screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle }).compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  fireEvent.click(history.querySelector('summary')!)
   fireEvent.click(screen.getByRole('button', { name: RESEARCH_COPY.historyMore }))
   // The failed page is one short label with its sentence in the tooltip, and the same button becomes its Retry.
   const failed = await screen.findByRole('button', { name: `${RESEARCH_COPY.loadError}. ${RESEARCH_COPY.historyMoreError}` })
@@ -59,9 +69,16 @@ test('older history pages can be retried without losing the selected answer or l
   expect(screen.queryByRole('button', { name: RESEARCH_COPY.historyMore })).toBeNull()
   expect(screen.queryByRole('alert')).toBeNull()
   expect(screen.getByText(newest.queries[0]!.answerText!)).toBeTruthy()
+  // Both pages are in, and no older one is left.
+  expect(history.querySelector('summary')!.textContent).toBe('Past research 2 runs')
   const row = screen.getAllByRole('row').find(item => item.textContent?.includes(older.resolvedModel))!
+  // Each run is listed by its date, and the Results card names the run in view the same way.
+  expect(row.querySelector('button')!.textContent).toBe(shownDate(older.createdAt))
   fireEvent.click(row.querySelector('button')!)
+  // The pick shows above the list, so focus goes to the Results heading.
+  expect(document.activeElement).toBe(within(screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle })).getByRole('heading'))
   await screen.findByText(older.queries[0]!.answerText!)
+  expect(document.querySelector('[role="region"] dl > div')!.textContent).toBe(`Run${shownDate(older.createdAt)}`)
   expect(cursors).toEqual([null, 'older-page', 'older-page'])
 })
 
@@ -90,16 +107,20 @@ test('past research names each run by engine, Subject and search location, and a
 
   expect(screen.getByRole('heading', { name: RESEARCH_COPY.historyTitle }).textContent).toBe('Past research')
   expect(screen.getByRole('status', { name: 'Loading past research' })).toBeTruthy()
-  expect(within(screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle })).getByRole('heading').textContent).toBe('Loading results…')
+  expect(within(screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle })).getByRole('status', { name: RESEARCH_COPY.resultsLoading })).toBeTruthy()
   const failed = await screen.findByRole('button', { name: `${RESEARCH_COPY.loadError}. ${RESEARCH_COPY.historyError}` })
   expect(failed.textContent).toBe('Could not load')
+  // The failure shows on the Past research row itself, never inside a closed disclosure.
+  expect(failed.closest('details')).toBeNull()
+  expect(failed.closest('[role="alert"]')!.textContent).toBe('Past researchCould not loadRetry')
   // No results card and no table are drawn over a history that did not load.
   expect(screen.queryByRole('table')).toBeNull()
   expect(screen.queryByRole('region', { name: RESEARCH_COPY.resultsTitle })).toBeNull()
   const readsBefore = reads
   fail = false
   fireEvent.click(screen.getByRole('button', { name: 'Retry past research' }))
-  const history = (await screen.findAllByRole('table'))[0]!
+  await screen.findAllByRole('table')
+  const history = screen.getByRole('heading', { name: RESEARCH_COPY.historyTitle }).closest('details')!.querySelector('table')!
   expect(reads).toBe(readsBefore + 1)
   expect(screen.queryByRole('alert')).toBeNull()
   expect(within(history).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Run', 'Engine', 'Subject', 'Search location', 'Progress', 'Status'])
@@ -107,9 +128,13 @@ test('past research names each run by engine, Subject and search location, and a
   expect(cells(market.id)).toEqual([`Gemini${market.id}`, 'Harbor Point', 'Northbridge', '1 of 1', 'Completed'])
   // A run saved under no Subject and asked from no search location says so in those words.
   expect(cells(plain.id)).toEqual([`OpenAI${plain.id}`, RESEARCH_COPY.notSet, RESEARCH_COPY.noSearchLocation, '1 of 1', 'Completed'])
+  // The whole history is loaded, so its count is exact. The table sits in the disclosure, closed until opened.
+  const disclosure = history.closest('details')!
+  expect(disclosure.querySelector('summary')!.textContent).toBe('Past research 2 runs')
+  expect(disclosure.open).toBe(false)
 })
 
-test('with no saved runs the page says No research yet and No run selected', async () => {
+test('with no saved runs the page says No research yet and draws no Results card', async () => {
   const restore = mockFetch((url) => {
     const parsed = new URL(url)
     if (parsed.pathname.endsWith('/research/runs')) return jsonResponse({ runs: [], providers: [], access: { canRun: false, dailyRunLimit: null }, nextCursor: null })
@@ -124,7 +149,9 @@ test('with no saved runs the page says No research yet and No run selected', asy
 
   expect((await screen.findByText(RESEARCH_COPY.emptyHistory)).textContent).toBe('No research yet')
   expect(screen.queryByRole('table')).toBeNull()
-  expect(within(screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle })).getByRole('heading').textContent).toBe('No run selected')
+  // Nothing to open and nothing to show results for: one row says so.
+  expect(screen.getByRole('heading', { name: RESEARCH_COPY.historyTitle }).closest('details')).toBeNull()
+  expect(screen.queryByRole('region', { name: RESEARCH_COPY.resultsTitle })).toBeNull()
 })
 
 test('a run whose results did not load offers Retry and reads them again', async () => {
@@ -147,7 +174,8 @@ test('a run whose results did not load offers Retry and reads them again', async
   expect(failed.textContent).toBe('Could not load')
   // The failure is the body of the Results card, under the run it belongs to, with its Retry beside it.
   const results = screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle })
-  expect(within(results).getByRole('heading').textContent).toBe('Research run only-run')
+  expect(within(results).getByRole('heading').textContent).toBe('Results')
+  expect(within(results).getByRole('alert').textContent).toBe('Run only-runCould not loadRetry')
   expect(within(within(results).getByRole('alert')).getAllByRole('button').map(button => button.textContent)).toEqual(['Could not load', 'Retry'])
   // The run list is still there to pick another run from.
   expect(screen.getAllByRole('table')).toHaveLength(1)
@@ -155,5 +183,7 @@ test('a run whose results did not load offers Retry and reads them again', async
   fireEvent.click(screen.getByRole('button', { name: 'Retry results' }))
   await screen.findByText(run.queries[0]!.answerText!)
   expect(screen.queryByRole('alert')).toBeNull()
-  expect(within(screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle })).getByRole('heading', { level: 3 }).textContent).toBe('Research run only-run')
+  // Loaded, the run is named by its date. Its id shows only on the line of a read that failed.
+  expect(document.querySelector('[role="region"] dl > div')!.textContent).toBe(`Run${shownDate(run.createdAt)}`)
+  expect(screen.getByRole('heading', { name: RESEARCH_COPY.historyTitle }).closest('summary')!.textContent).toBe('Past research 1 run')
 })

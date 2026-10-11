@@ -261,9 +261,11 @@ A legacy publish is accepted only when no plan or a schema v1 plan is active. It
 
 ## Research and operator controls
 
-**Research → Find queries** uses the existing ICP discovery process.
-**Research → Test queries** starts with direct query entry.
-An optional pattern repeats a query across explicit markets, properties, or configured locations.
+**Research** is one page. **Start from** picks its form: **Write**, **Pattern**, or **Find ideas**.
+It opens on **Write**, direct query entry that runs once. The choice is kept in the URL as `researchMode` (`write`, `pattern`, `find`).
+Moving between the three keeps what each form holds: a draft, a preview and the last batch's runs.
+**Find ideas** uses the existing ICP discovery process and needs write access; other Research accounts get Write and Pattern.
+A **Pattern** repeats a query across explicit markets, properties, or configured locations.
 Groups are not research destinations.
 Neither process adds queries to official tracking automatically.
 **Review for tracking** sends selected results through the same assignment preview.
@@ -273,7 +275,7 @@ Neither process adds queries to official tracking automatically.
 The dashboard names a run's market or property its **Subject**, shows a property as a Location, and calls the engine's location the **Search location**.
 The API, CLI, and MCP keep `scope`, `property`, and `location`.
 
-1. Select the run mode: **Repeat across markets**, **Repeat across locations**, or **Repeat across search locations**.
+1. Start from **Pattern**, then choose what it repeats **For each**: **Market**, **Location**, or **Search location**. A project with no plan has Search location only, named with no choice to make.
 2. Select each market, location, or search location yourself.
 3. Enter one **Pattern** per line, such as `Best apartments in {market}`.
 4. Select the **Engine** and **Model**.
@@ -306,7 +308,9 @@ The API saves all destination runs together or saves none.
 The existing runner processes each saved run independently, so individual results can fail.
 Every destination run counts toward the viewer's daily limit.
 Retries with the unchanged request and key return the same saved runs, even after provider, location, or template defaults change.
-Research history loads older runs on demand. API and MCP list responses include an opaque `nextCursor`; pass it as `cursor` to continue.
+**Results** lists each query of the run in view with two chips under the engine's name: **N** for an answer that names the company, **C** for one that cites the project's domain.
+A dashed chip was not checked; it is never a No. After a batch that saved more than one run, a select over the results switches between its runs. It stays for the visit: over a run from outside the batch it reads **Last batch**.
+**Past research** sits under the results, closed until opened, and loads older runs on demand. Picking a run there shows it in **Results**. API and MCP list responses include an opaque `nextCursor`; pass it as `cursor` to continue.
 The CLI accepts `research list --cursor <cursor>`. Its JSON output preserves the full response, including engine choices, access limits, and pagination.
 
 The operator's project-wide **Run AI sweep** remains admin-gated.
