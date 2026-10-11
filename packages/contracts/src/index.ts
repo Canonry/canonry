@@ -1,5 +1,6 @@
 export * from './api-keys.js'
 export * from './config-schema.js'
+export * from './config-diff.js'
 export * from './models.js'
 export * from './measurement.js'
 export * from './measurement-plan.js'

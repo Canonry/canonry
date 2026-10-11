@@ -1953,6 +1953,69 @@ export type AgentProvidersResponseDto = {
     defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai' | null;
 };
 
+export type ApplyPreviewDto = {
+    project: {
+        id: string | null;
+        name: string;
+    };
+    action: 'create' | 'update' | 'none';
+    changed: boolean;
+    configRevision: {
+        before: number | null;
+        after: number;
+    };
+    fields: {
+        [key: string]: {
+            before: unknown;
+            after: unknown;
+        };
+    };
+    queries: {
+        managed: boolean;
+        added: Array<string>;
+        removed: Array<string>;
+        unchangedCount: number;
+        snapshotsDetached: number;
+    };
+    competitors: {
+        managed: boolean;
+        added: Array<string>;
+        removed: Array<string>;
+        aliasChanges: Array<{
+            domain: string;
+            before: Array<string>;
+            after: Array<string>;
+        }>;
+        droppedAliases: Array<unknown>;
+    };
+    schedule: {
+        managed: boolean;
+        action: 'create' | 'update' | 'delete' | 'none';
+        before: unknown;
+        after: unknown;
+    };
+    notifications: {
+        managed: boolean;
+        added: Array<{
+            urlHost: string;
+            events: Array<string>;
+        }>;
+        removed: Array<{
+            urlHost: string;
+            events: Array<string>;
+            id: string;
+        }>;
+        kept: Array<{
+            id: string;
+            urlHost: string;
+            eventsBefore: Array<string>;
+            eventsAfter: Array<string>;
+        }>;
+        secretsRotated: number;
+    };
+    effects: Array<'mention-backfill' | 'competitor-rescore' | 'competitor-auto-alias-rescan' | 'schedule-reload' | 'gsc-property-update'>;
+};
+
 export type AdsAccountDto = {
     id: string;
     name: string;
@@ -20991,6 +21054,34 @@ export type PostApiV1ApplyResponses = {
 };
 
 export type PostApiV1ApplyResponse = PostApiV1ApplyResponses[keyof PostApiV1ApplyResponses];
+
+export type PostApiV1ApplyPreviewData = {
+    /**
+     * Canonry project configuration as JSON.
+     */
+    body: ProjectConfig;
+    path?: never;
+    query?: never;
+    url: '/api/v1/apply/preview';
+};
+
+export type PostApiV1ApplyPreviewErrors = {
+    /**
+     * Invalid config.
+     */
+    400: ErrorEnvelope;
+};
+
+export type PostApiV1ApplyPreviewError = PostApiV1ApplyPreviewErrors[keyof PostApiV1ApplyPreviewErrors];
+
+export type PostApiV1ApplyPreviewResponses = {
+    /**
+     * Apply preview.
+     */
+    200: ApplyPreviewDto;
+};
+
+export type PostApiV1ApplyPreviewResponse = PostApiV1ApplyPreviewResponses[keyof PostApiV1ApplyPreviewResponses];
 
 export type GetApiV1ProjectsByNameHistoryData = {
     body?: never;

@@ -146,6 +146,7 @@ const expectedToolNames = [
   'canonry_snapshot',
   'canonry_project_upsert',
   'canonry_apply_config',
+  'canonry_apply_config_preview',
   'canonry_queries_generate',
   'canonry_keywords_generate',
   'canonry_queries_replace',
@@ -769,7 +770,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(canonryMcpTools.filter(tool => tool.access === 'read')).toHaveLength(167)
+    expect(canonryMcpTools.filter(tool => tool.access === 'read')).toHaveLength(168)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -789,6 +790,7 @@ describe('MCP tool registry', () => {
       'canonry_settings_get',
       'canonry_key_self',
       'canonry_apply_config',
+      'canonry_apply_config_preview',
       'canonry_run_trigger',
       'canonry_feedback',
       'canonry_run_cancel',
@@ -1397,6 +1399,7 @@ describe('Dynamic tool catalog', () => {
       'canonry_settings_get',
       'canonry_key_self',
       'canonry_apply_config',
+      'canonry_apply_config_preview',
       'canonry_run_trigger',
       'canonry_feedback',
       'canonry_run_cancel',

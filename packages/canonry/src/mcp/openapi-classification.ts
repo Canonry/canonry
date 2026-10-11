@@ -150,6 +150,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/runs/{id}/fill': 'included',
   'GET /api/v1/runs/{id}/completeness': 'included',
   'POST /api/v1/apply': 'included',
+  'POST /api/v1/apply/preview': 'included',
   'GET /api/v1/projects/{name}/history': 'included',
   'GET /api/v1/history': 'included',
   'GET /api/v1/projects/{name}/snapshots': 'included',

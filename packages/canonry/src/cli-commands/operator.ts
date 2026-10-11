@@ -188,18 +188,19 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['apply'],
-    usage: 'canonry apply <file...> [--format json]',
+    usage: 'canonry apply <file...> [--dry-run] [--format json]',
+    supportsDryRun: true,
     run: async (input) => {
       if (input.positionals.length === 0) {
         throw usageError('Error: at least one file path is required\nUsage: canonry apply <file...> [--format json]', {
           message: 'at least one file path is required',
           details: {
             command: 'apply',
-            usage: 'canonry apply <file...> [--format json]',
+            usage: 'canonry apply <file...> [--dry-run] [--format json]',
           },
         })
       }
-      await applyConfigs(input.positionals, input.format)
+      await applyConfigs(input.positionals, input.format, { dryRun: input.dryRun })
     },
   },
 ]

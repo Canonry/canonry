@@ -28,6 +28,7 @@ import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
 import { queryTrackingWorkspaceResponseSchema, queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema, queryTrackingCommitRequestSchema, queryTrackingCommitResponseSchema } from '@ainyc/canonry-contracts'
 import {
   agentProvidersResponseDtoSchema,
+  applyPreviewDtoSchema,
   agentPromptRequestSchema,
   agentConversationSchema, agentConversationListSchema, agentConversationCreateSchema, agentConversationDeleteSchema,
   apiKeyDtoSchema,
@@ -348,6 +349,7 @@ const SCHEMA_TABLE = {
   AgentConversationCreate: agentConversationCreateSchema,
   AgentConversationDelete: agentConversationDeleteSchema,
   AgentProvidersResponseDto: agentProvidersResponseDtoSchema,
+  ApplyPreviewDto: applyPreviewDtoSchema,
   AdsAccountDto: adsAccountDtoSchema,
   AdsActivateTreeResponse: adsActivateTreeResponseSchema,
   AdsActivationGrantResponse: adsActivationGrantResponseSchema,

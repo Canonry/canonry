@@ -854,3 +854,14 @@ Stored readers share contracts `parseWindowIn` and `WINDOW_SETS`. Accept lowerca
 Keep endpoint defaults and OpenAPI enums unchanged; failures include `field`,
 `value`, and the precise `allowed` set. Calendar-date and ISO-instant filters
 remain separate contracts.
+
+### Config-as-code apply preview
+
+`POST /apply` and `POST /apply/preview` share one transaction path. Preview runs
+the real validation and writes inside an immediate SQLite transaction, then
+throws its private rollback sentinel as the final transaction statement. The
+wrapper catches only that sentinel and returns `ApplyPreviewDto`; no audit row
+or post-commit callback may run. Keep project-scoped authorization before
+notification planning. Preview output contains notification hosts and event
+changes only, never stored or request webhook URLs. Redacted notification
+sentinels preserve stored IDs, secrets, enabled state, createdAt and source.

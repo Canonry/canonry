@@ -2644,6 +2644,26 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'post',
+    path: '/api/v1/apply/preview',
+    summary: 'Preview a Canonry config document',
+    description: 'Validate and simulate a config apply. The transaction is rolled back before the response and no audit rows, callbacks, or database writes persist.',
+    tags: ['config'],
+    requestBody: {
+      required: true,
+      description: 'Canonry project configuration as JSON.',
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/ProjectConfig' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Apply preview.', 'ApplyPreviewDto'),
+      400: errorResponse('Invalid config.'),
+    },
+  },
+  {
     method: 'get',
     path: '/api/v1/projects/{name}/history',
     summary: 'Get project audit history',

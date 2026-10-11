@@ -1770,3 +1770,17 @@ fail before an API request. Explicit dates retain their existing precedence over
 rolling windows. Google performance `--days` remains a separate span selector.
 These changes do not alter sync/backfill depths, run/history ISO timestamps, or
 calendar-month report selections.
+
+### Applying project configuration
+
+```bash
+canonry apply <file...> --dry-run [--format json]
+canonry apply <file...> [--format json]
+```
+
+`--dry-run` calls the server preview route for every YAML document and reports
+field, query, competitor, schedule and notification changes. It performs no
+database writes and prints `No DB writes performed. Re-run without --dry-run to
+apply.` in text mode. JSON and JSONL emit the same `{ dryRun, files,
+changedCount, errorCount }` document. A server without the preview route exits
+with `APPLY_PREVIEW_UNSUPPORTED`; the command never falls back to apply.

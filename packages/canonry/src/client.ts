@@ -336,6 +336,7 @@ import {
   getApiV1ProjectsByNameTrafficAnalytics,
   getApiV1ProjectsByNameOrganicEvidence,
   postApiV1Apply,
+  postApiV1ApplyPreview,
   // Queries / keywords / competitors
   getApiV1ProjectsByNameQueries,
   putApiV1ProjectsByNameQueries,
@@ -745,6 +746,7 @@ export type SettingsDto = import('@ainyc/canonry-contracts').SettingsDto
 
 /** Apply response */
 export type ApplyResultDto = ProjectDto
+export type ApplyPreviewDto = import('@ainyc/canonry-contracts').ApplyPreviewDto
 
 export interface ProjectDeletePreviewDto {
   project: { id: string; name: string }
@@ -1318,6 +1320,10 @@ export class ApiClient {
 
   async apply(config: ProjectConfig): Promise<ApplyResultDto> {
     return this.invoke<ApplyResultDto>(() => postApiV1Apply({ client: this.heyClient, body: config as never }))
+  }
+
+  async previewApply(config: ProjectConfig): Promise<ApplyPreviewDto> {
+    return this.invoke<ApplyPreviewDto>(() => postApiV1ApplyPreview({ client: this.heyClient, body: config as never }))
   }
 
   async getProjectOverview(
