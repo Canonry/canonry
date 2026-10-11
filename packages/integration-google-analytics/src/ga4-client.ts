@@ -6,12 +6,21 @@ import {
   classifyAiReferralTrafficClass,
   compactDateToIso,
   describeError,
+  describeFetchError,
   escapeRegExp,
   isoDateDaysBeforeInTimeZone,
   parseBoundedRate,
   withRetry,
 } from '@ainyc/canonry-contracts'
 import type { GaSearchLandingWindow } from '@ainyc/canonry-contracts'
+
+async function fetchWithContext(input: string | URL, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init)
+  } catch (error) {
+    throw new Error(describeFetchError(error, input), { cause: error })
+  }
+}
 import {
   GA4_ADMIN_API_BASE,
   GA4_DATA_API_BASE,
@@ -138,7 +147,7 @@ export function createServiceAccountJwt(clientEmail: string, privateKey: string,
 export async function getAccessToken(clientEmail: string, privateKey: string): Promise<string> {
   const jwt = createServiceAccountJwt(clientEmail, privateKey, GA4_SCOPE)
 
-  const res = await fetch(GOOGLE_TOKEN_URL, {
+  const res = await fetchWithContext(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -283,7 +292,7 @@ async function runReport(
   const url = `${GA4_DATA_API_BASE}/properties/${safePropertyId}:runReport`
 
   return withGa4Limit(() => withGa4Retry(async () => {
-    const res = await fetch(url, {
+    const res = await fetchWithContext(url, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -354,7 +363,7 @@ async function batchRunReports(
   const url = `${GA4_DATA_API_BASE}/properties/${propertyId}:batchRunReports`
 
   return withGa4Limit(() => withGa4Retry(async () => {
-    const res = await fetch(url, {
+    const res = await fetchWithContext(url, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -792,7 +801,7 @@ export async function listProperties(accessToken: string): Promise<GA4PropertySu
     if (pageToken) url.searchParams.set('pageToken', pageToken)
 
     const body: GA4AccountSummariesResponse = await withGa4Limit(() => withGa4Retry(async () => {
-      const res = await fetch(url, {
+      const res = await fetchWithContext(url, {
         headers: { 'Authorization': `Bearer ${accessToken}` },
         signal: AbortSignal.timeout(GA4_REQUEST_TIMEOUT_MS),
       })

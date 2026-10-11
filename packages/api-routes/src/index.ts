@@ -219,6 +219,7 @@ export interface ApiRoutesOptions {
   getAgentPin?: DoctorRoutesOptions['getAgentPin']
   /** Offline, secret-free Google Ads/GTM metadata for project Doctor checks. */
   getGoogleMarketingDoctorInput?: DoctorRoutesOptions['getGoogleMarketingDoctorInput']
+  probeApiHost?: DoctorRoutesOptions['probeApiHost']
   /** Adapter metadata for provider validation */
   providerAdapters?: ProviderAdapterInfo[]
   getProviderModels?: SettingsRoutesOptions['getProviderModels']
@@ -877,6 +878,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getAgentPluginState: opts.getAgentPluginState,
       getUpdateStatus: opts.getUpdateStatus,
       getGoogleMarketingDoctorInput: opts.getGoogleMarketingDoctorInput,
+      probeApiHost: opts.probeApiHost,
     })
     await api.register(statusRoutes, {
       db: opts.db,

@@ -1,4 +1,4 @@
-import { withRetry } from '@ainyc/canonry-contracts'
+import { describeFetchError, withRetry } from '@ainyc/canonry-contracts'
 import { GBP_REQUEST_TIMEOUT_MS } from './constants.js'
 import { GbpApiError } from './types.js'
 import type { GbpFetchOptions } from './types.js'
@@ -78,7 +78,12 @@ async function gbpFetchOnce<T>(url: string, accessToken: string, opts: GbpFetchO
     }
     if (opts.quotaProject) headers['x-goog-user-project'] = opts.quotaProject
 
-    const res = await fetch(url, { method: 'GET', headers, signal: controller.signal })
+    let res: Response
+    try {
+      res = await fetch(url, { method: 'GET', headers, signal: controller.signal })
+    } catch (error) {
+      throw new Error(describeFetchError(error, url), { cause: error })
+    }
     const text = await res.text()
     let body: unknown
     try { body = text ? JSON.parse(text) : undefined } catch { body = text }

@@ -370,6 +370,15 @@ describe('verifyConnectionWithToken', () => {
     fetchSpy.mockRestore()
   })
 
+  it('includes the provider host and dialed address for transport failures', async () => {
+    const cause = Object.assign(new Error('connect failed'), {
+      code: 'ECONNREFUSED', syscall: 'connect', address: '203.0.113.8', port: 443,
+    })
+    fetchSpy.mockRejectedValueOnce(Object.assign(new TypeError('fetch failed'), { cause }))
+    await expect(() => verifyConnectionWithToken('token', '123456789'))
+      .rejects.toThrow(/ECONNREFUSED.*analyticsdata\.googleapis\.com.*203\.0\.113\.8:443/)
+  })
+
   it('returns true when a minimal runReport succeeds', async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify({ rows: [], rowCount: 0 }), { status: 200 }),

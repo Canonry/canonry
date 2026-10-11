@@ -214,6 +214,11 @@ describe('monthly report readiness (stored evidence only)', () => {
   })
   it('schedules only checks that can page: no silent advisories and no opt-in checks', () => {
     const ids = scheduledHealthCheckIds()
+    expect(ids).toEqual(expect.arrayContaining([
+      'gsc.api.reachable', 'ga.api.reachable', 'gbp.api.reachable',
+      'google-ads.api.reachable', 'gtm.api.reachable', 'bing.api.reachable', 'ads.api.reachable',
+    ]))
+    expect(ALL_CHECKS.at(-1)?.id).toBe('site.reachability')
     expect(ids.filter(id => id.startsWith('report.'))).toEqual([])
     const projectChecks = ALL_CHECKS.filter(check => check.scope === CheckScopes.project)
     expect(ids).toEqual(projectChecks.filter(check => !check.optIn && check.notificationPolicy !== 'silent').map(check => check.id))

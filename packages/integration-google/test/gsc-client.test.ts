@@ -24,6 +24,14 @@ function expectRequest(
 }
 
 describe('listSites', () => {
+  it('includes the provider host and dialed address for transport failures', async () => {
+    const cause = Object.assign(new Error('connect failed'), {
+      code: 'ECONNREFUSED', syscall: 'connect', address: '203.0.113.8', port: 443,
+    })
+    globalThis.fetch = async () => { throw Object.assign(new TypeError('fetch failed'), { cause }) }
+    await expect(() => listSites('test-token')).rejects.toThrow(/ECONNREFUSED.*www\.googleapis\.com.*203\.0\.113\.8:443/)
+  })
+
   it('returns parsed site entries', async () => {
     const sites = [
       { siteUrl: 'https://example.com/', permissionLevel: 'siteOwner' },

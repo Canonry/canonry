@@ -131,7 +131,7 @@ const SPECS: readonly SyncFailureSpec[] = [
     kind: RunKinds['google-ads-sync'],
     connection: googleMarketingConnection('googleAds'),
     syncCommand: name => `canonry google-ads sync ${name}`,
-    causeCheckIds: ['google-ads.auth.connection', 'google-ads.auth.scopes', 'google-ads.account.context'],
+    causeCheckIds: ['google-ads.auth.connection', 'google-ads.auth.scopes', 'google-ads.account.context', 'google-ads.api.reachable'],
   },
   {
     prefix: 'gtm',
@@ -139,7 +139,7 @@ const SPECS: readonly SyncFailureSpec[] = [
     kind: RunKinds['gtm-sync'],
     connection: googleMarketingConnection('gtm'),
     syncCommand: name => `canonry gtm sync ${name}`,
-    causeCheckIds: ['gtm.auth.connection', 'gtm.auth.scopes', 'gtm.container.context'],
+    causeCheckIds: ['gtm.auth.connection', 'gtm.auth.scopes', 'gtm.container.context', 'gtm.api.reachable'],
   },
   {
     prefix: 'gbp',
@@ -147,7 +147,7 @@ const SPECS: readonly SyncFailureSpec[] = [
     kind: RunKinds['gbp-sync'],
     connection: gbpConnection,
     syncCommand: name => `canonry gbp sync ${name}`,
-    causeCheckIds: ['gbp.auth.connection', 'gbp.auth.scopes', 'gbp.account.access'],
+    causeCheckIds: ['gbp.auth.connection', 'gbp.auth.scopes', 'gbp.account.access', 'gbp.api.reachable'],
     // `gbp_locations` does not record when a location was selected, so the
     // runs from before the selection are recognized by the error they stored.
     nothingToSyncErrors: GBP_NOTHING_TO_SYNC_ERRORS,
@@ -158,7 +158,7 @@ const SPECS: readonly SyncFailureSpec[] = [
     kind: RunKinds['ga-sync'],
     connection: gaConnection,
     syncCommand: name => `canonry ga sync ${name}`,
-    causeCheckIds: ['ga.auth.connection'],
+    causeCheckIds: ['ga.auth.connection', 'ga.api.reachable'],
   },
   {
     prefix: 'gsc',
@@ -166,7 +166,7 @@ const SPECS: readonly SyncFailureSpec[] = [
     kind: RunKinds['gsc-sync'],
     connection: gscConnection,
     syncCommand: name => `canonry google sync ${name}`,
-    causeCheckIds: ['google.auth.connection', 'google.auth.property-access', 'google.auth.scopes'],
+    causeCheckIds: ['google.auth.connection', 'google.auth.property-access', 'google.auth.scopes', 'gsc.api.reachable'],
   },
 ]
 

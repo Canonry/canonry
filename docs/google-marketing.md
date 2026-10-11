@@ -406,3 +406,7 @@ or publish path. A live read never changes that boundary.
 Write support must be proposal-bound. Google Ads mutations require a reviewable
 plan and explicit approval. GTM workspace edits and GTM publish are separate
 approval events; approval to edit a draft never implies approval to publish it.
+
+## Provider host troubleshooting
+
+`canonry doctor --project <project>` includes stored-credential-free API host checks for Google Ads and GTM. The check completes a TLS handshake without sending an HTTP request or credentials. A DNS block fails with the provider host and the sync command to retry; private, connect, and TLS results warn, while a local resolver outage is skipped. Use the check details to correct host filtering or outbound access before re-running the affected sync.
