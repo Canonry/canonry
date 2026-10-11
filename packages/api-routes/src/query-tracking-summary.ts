@@ -10,7 +10,9 @@
 import {
   QUERY_TRACKING_THIN_MARKET_FLOOR,
   compareText,
+  expandQueryTemplate,
   normalizeCompetitorDomain,
+  normalizeIdentityText,
   type MeasurementPlanV2,
   type QueryClass,
   type QueryTrackingFocus,
@@ -219,19 +221,31 @@ export function planPlaceCounts(plan: MeasurementPlanV2, tracked: readonly Summa
 }
 
 /** A saved pattern as it stands now, by id. A row keeps the text it was expanded from. */
-export type SavedPatterns = ReadonlyMap<string, { name: string; pattern: string }>
+export type SavedPatterns = ReadonlyMap<string, { name: string; pattern: string; variables: readonly string[] }>
+
+/**
+ * Only a pattern whose one variable is the market makes a market's own query:
+ * one per market, asked for its locations. A pattern with no variable makes
+ * one query for every place, and one with `{property}` a query per location.
+ */
+function fillsMarket(variables: readonly string[]): boolean {
+  return variables.length === 1 && variables[0] === 'market'
+}
 
 /**
  * The workspace's views, read off the place counts and the tracked rows in
- * one pass each. A pattern is known by the record a row froze, so a row that
- * froze none belongs to no pattern. `savedPatterns` is called at most once,
- * and only when a pattern has a gap.
+ * one pass each. A market asks a pattern when a row whose Subject is the
+ * market froze the pattern's record or has the text the pattern makes for the
+ * market's label: a row added in setup or by hand froze no record, and adding
+ * the pattern where its text is already asked keeps that row as it is.
  */
 export function trackingViews(
+  plan: MeasurementPlanV2,
   tracked: readonly SummarizedRow[],
   places: PlanPlaceCounts,
-  savedPatterns: () => SavedPatterns,
+  savedPatterns: SavedPatterns,
 ): QueryTrackingViews {
+  // A published plan lists its locations and markets in key order, so each list below is built sorted.
   const targetKeys: string[] = []
   for (const [targetKey, target] of places.targets) {
     if (target.counts.propertyQueries === 0) targetKeys.push(targetKey)
@@ -243,42 +257,57 @@ export function trackingViews(
     if (market.counts.marketQueries < QUERY_TRACKING_THIN_MARKET_FLOOR) thinMarketKeys.push(marketKey)
     if (market.targetKeys.length > 0) openMarketKeys.push(marketKey)
   }
-  openMarketKeys.sort(compareText)
 
-  const used = new Map<string, { version: string; pattern: string; marketKeys: Set<string> }>()
+  // Per pattern: every wording it has had (the saved one and those its rows froze),
+  // the newest frozen one, and the markets with a row that froze it.
+  const patterns = new Map<string, { wordings: Set<string>; version: string; frozen: string; marketKeys: Set<string> }>()
+  for (const [templateId, saved] of savedPatterns) {
+    if (fillsMarket(saved.variables)) patterns.set(templateId, { wordings: new Set([saved.pattern]), version: '', frozen: '', marketKeys: new Set() })
+  }
+  const marketTexts = new Map<string, Set<string>>()
   for (const row of tracked) {
+    if (row.focus.kind !== 'market') continue
+    addTo(marketTexts, row.focus.key, row.normalizedText)
     const template = row.provenance?.template
-    if (row.focus.kind !== 'market' || template === undefined) continue
-    const pattern = used.get(template.templateId)
+    if (template === undefined || !fillsMarket(Object.keys(template.bindings))) continue
+    let pattern = patterns.get(template.templateId)
     if (!pattern) {
-      used.set(template.templateId, { version: template.templateVersion, pattern: template.template, marketKeys: new Set([row.focus.key]) })
-      continue
+      // Saved with another variable since, so it no longer makes a market's own query.
+      if (savedPatterns.has(template.templateId)) continue
+      pattern = { wordings: new Set(), version: '', frozen: '', marketKeys: new Set() }
+      patterns.set(template.templateId, pattern)
     }
     pattern.marketKeys.add(row.focus.key)
+    pattern.wordings.add(template.template)
     // The version is the pattern's save time, so the greater one is the newer text.
     if (compareText(template.templateVersion, pattern.version) > 0) {
       pattern.version = template.templateVersion
-      pattern.pattern = template.template
+      pattern.frozen = template.template
     }
   }
-  const gaps = [...used].flatMap(([templateId, pattern]) => {
-    const missingMarketKeys = openMarketKeys.filter(marketKey => !pattern.marketKeys.has(marketKey))
-    return missingMarketKeys.length === 0 ? [] : [{ templateId, frozen: pattern.pattern, usedMarketKeys: sorted(pattern.marketKeys), missingMarketKeys }]
-  }).sort((left, right) => compareText(left.templateId, right.templateId))
-  const saved = gaps.length === 0 ? null : savedPatterns()
+
+  const labels = new Map((plan.reportingScopes ?? []).map(scope => [scope.stableKey, scope.label]))
+  const gaps: QueryTrackingViews['patternGaps']['patterns'] = []
+  for (const [templateId, pattern] of patterns) {
+    const usedMarketKeys: string[] = []
+    const missingMarketKeys: string[] = []
+    for (const marketKey of openMarketKeys) {
+      const texts = marketTexts.get(marketKey)
+      const market = labels.get(marketKey)!
+      const asked = pattern.marketKeys.has(marketKey) || (texts !== undefined
+        && [...pattern.wordings].some(wording => texts.has(normalizeIdentityText(expandQueryTemplate(wording, { market })))))
+      if (asked) usedMarketKeys.push(marketKey)
+      else missingMarketKeys.push(marketKey)
+    }
+    if (usedMarketKeys.length === 0 || missingMarketKeys.length === 0) continue
+    const saved = savedPatterns.get(templateId)
+    gaps.push({ templateId, name: saved?.name ?? null, pattern: saved?.pattern ?? pattern.frozen, usedMarketKeys, missingMarketKeys })
+  }
+  gaps.sort((left, right) => compareText(left.templateId, right.templateId))
 
   return {
-    noPropertyQueries: { count: targetKeys.length, targetKeys: targetKeys.sort(compareText) },
-    thinMarkets: { count: thinMarketKeys.length, floor: QUERY_TRACKING_THIN_MARKET_FLOOR, marketKeys: thinMarketKeys.sort(compareText) },
-    patternGaps: {
-      count: gaps.length,
-      patterns: gaps.map(({ templateId, frozen, usedMarketKeys, missingMarketKeys }) => ({
-        templateId,
-        name: saved?.get(templateId)?.name ?? null,
-        pattern: saved?.get(templateId)?.pattern ?? frozen,
-        usedMarketKeys,
-        missingMarketKeys,
-      })),
-    },
+    noPropertyQueries: { count: targetKeys.length, targetKeys },
+    thinMarkets: { count: thinMarketKeys.length, floor: QUERY_TRACKING_THIN_MARKET_FLOOR, marketKeys: thinMarketKeys },
+    patternGaps: { count: gaps.length, patterns: gaps },
   }
 }

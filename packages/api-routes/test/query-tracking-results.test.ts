@@ -29,6 +29,7 @@ import {
   createClient,
   measurementPlans,
   measurementPlanVersions,
+  measurementQueryTemplates,
   migrate,
   projects,
   queries,
@@ -618,6 +619,70 @@ describe('query tracking results: weakest markets', () => {
     expect(body.weakMarkets).toStrictEqual(weak('north'))
   })
 
+  it('adds up every non-brand query of a market, in any row order, and lists the markets in key order', async () => {
+    const { versionId, plan } = seedPortfolio(planOf({
+      targets: [...PLACES, ['aspen', 'Aspen Walk'], ['laurel', 'Laurel Green']],
+      groups: [],
+      // Rows come back by query id, so West's are read before East's and each market's first row before its second.
+      texts: {
+        'q-a-west-unsaved': 'best homes out west', 'q-b-west-read': 'pet friendly homes out west',
+        'q-c-east-read': 'best homes out east', 'q-d-east-unsaved': 'pet friendly homes out east',
+        'q-e-north-named': 'best homes up north', 'q-f-north-read': 'pet friendly homes up north',
+        'q-g-south-read': 'best homes down south', 'q-h-south-named': 'pet friendly homes down south',
+      },
+      pairings: [
+        ...marketQuery('q-a-west-unsaved', 'west', ['summit', 'birch']),
+        ...marketQuery('q-b-west-read', 'west', ['summit', 'birch']),
+        ...marketQuery('q-c-east-read', 'east', ['aspen', 'laurel']),
+        ...marketQuery('q-d-east-unsaved', 'east', ['aspen', 'laurel']),
+        ...marketQuery('q-e-north-named', 'north', ['harbor', 'cedar']),
+        ...marketQuery('q-f-north-read', 'north', ['harbor', 'cedar']),
+        ...marketQuery('q-g-south-read', 'south', ['maple', 'willow']),
+        ...marketQuery('q-h-south-named', 'south', ['maple', 'willow']),
+      ],
+    }))
+    seedSweep({
+      versionId, plan, createdAt: LAST_SWEEP,
+      answers: ({ queryId, provider }) => {
+        if (queryId.endsWith('-unsaved')) return undefined
+        if (queryId === 'q-e-north-named') return provider === 'gemini' ? says('Cedar Court is worth a visit.') : nobody
+        if (queryId === 'q-h-south-named') return provider === 'openai' ? says('Maple Row stands out.') : nobody
+        return nobody
+      },
+    })
+
+    const body = await results()
+    expect(body.rows.map(row => [row.queryId, row.engines.reduce((sum, entry) => sum + entry.mentionedAnswers, 0), row.engines.reduce((sum, entry) => sum + entry.answers, 0)])).toEqual([
+      ['q-a-west-unsaved', 0, 0], ['q-b-west-read', 0, 3],
+      ['q-c-east-read', 0, 3], ['q-d-east-unsaved', 0, 0],
+      ['q-e-north-named', 1, 3], ['q-f-north-read', 0, 3],
+      ['q-g-south-read', 0, 3], ['q-h-south-named', 1, 3],
+    ])
+    // North and South each have one named query beside a quiet one, first in one and last in the other: neither is weak.
+    // East and West each have one read query beside one with no saved answer, in either order: both are weak.
+    expect(body.weakMarkets).toStrictEqual(weak('east', 'west'))
+  })
+
+  it('reads a query\'s Subject from the active plan, not from the plan the sweep ran with', async () => {
+    const { versionId, plan } = seedPortfolio()
+    seedSweep({ versionId, plan, createdAt: LAST_SWEEP, answers: () => nobody })
+    expect((await results()).weakMarkets).toStrictEqual(weak('uptown'))
+
+    // Revision 2 asks a new Branded query for Maple inside Uptown. Uptown now holds three locations and
+    // q-market still covers two of them, so it is hand-picked now and no longer Uptown's own.
+    activate(seedVersion(2, planOf({
+      texts: { ...TEXTS, 'q-maple': 'Maple Row reviews' },
+      pairings: [...PAIRINGS, { queryId: 'q-maple', targetKey: 'maple', queryClass: 'branded', market: 'uptown' }],
+    })))
+
+    const body = await results()
+    expect(body.run).toMatchObject({ revision: 1, matchesCurrentTracking: false })
+    // The sweep asked q-market exactly as it is asked now, so its row is still returned.
+    expect(rowOf(body, 'q-market', 'non-brand')!.engines.map(entry => entry.mentioned)).toEqual([false, false, false])
+    expect((await workspace()).tracked.find(row => row.queryId === 'q-market')?.focus).toEqual({ kind: 'custom' })
+    expect(body.weakMarkets).toStrictEqual(weak())
+  })
+
   it('is returned for the project read of a portfolio with a sweep and for nothing else', async () => {
     const { versionId, plan } = seedPortfolio()
     expect(await results()).not.toHaveProperty('weakMarkets')
@@ -635,15 +700,48 @@ describe('query tracking results: weakest markets', () => {
     expect(queryTrackingResultsResponseSchema.parse(older)).toStrictEqual(older)
   })
 
-  it('leaves a market out once its query is withheld after a tracking change', async () => {
-    const { versionId, plan } = seedPortfolio()
-    seedSweep({ versionId, plan, createdAt: LAST_SWEEP, answers: () => nobody })
-    expect((await results()).weakMarkets).toStrictEqual(weak('uptown'))
+  it('leaves a market out while one of its non-brand queries is withheld after a tracking change', async () => {
+    const { versionId, plan } = seedPortfolio(planOf({
+      targets: [...PLACES, ['aspen', 'Aspen Walk'], ['laurel', 'Laurel Green']],
+      groups: [],
+      texts: {
+        'q-north-named': 'best homes up north', 'q-north-quiet': 'pet friendly homes up north',
+        'q-south-a': 'best homes down south', 'q-south-b': 'pet friendly homes down south',
+        'q-west': 'best homes out west',
+        'q-east': 'best homes out east', 'q-east-brand': 'Northbridge homes out east',
+      },
+      pairings: [
+        ...marketQuery('q-north-named', 'north', ['harbor', 'cedar']),
+        ...marketQuery('q-north-quiet', 'north', ['harbor', 'cedar']),
+        ...marketQuery('q-south-a', 'south', ['maple', 'willow']),
+        ...marketQuery('q-south-b', 'south', ['maple', 'willow']),
+        ...marketQuery('q-west', 'west', ['summit', 'birch']),
+        ...marketQuery('q-east', 'east', ['aspen', 'laurel']),
+        ...marketQuery('q-east-brand', 'east', ['aspen', 'laurel'], 'branded'),
+      ],
+    }))
+    seedSweep({ versionId, plan, createdAt: LAST_SWEEP, answers: ({ queryId }) => (queryId === 'q-north-named' ? says('Harbor Point is a strong option.') : nobody) })
+    expect((await results()).weakMarkets).toStrictEqual(weak('east', 'south', 'west'))
 
-    await publish({ edits: [{ queryId: 'q-market', text: 'best new homes in uptown' }] })
+    // Reword the one query of North that was named, one of South's two, West's only one and East's Branded one.
+    // No sweep follows.
+    await publish({
+      edits: [
+        { queryId: 'q-north-named', text: 'top homes up north' },
+        { queryId: 'q-south-a', text: 'top homes down south' },
+        { queryId: 'q-west', text: 'top homes out west' },
+        { queryId: 'q-east-brand', text: 'Northbridge houses out east' },
+      ],
+    })
     const body = await results()
-    expect(body.rows.filter(row => row.queryClass === 'non-brand').map(row => row.queryId)).toEqual(['q-parking'])
-    expect(body.weakMarkets).toStrictEqual(weak())
+    expect(body.run?.matchesCurrentTracking).toBe(false)
+    expect(body.pendingRows).toBe(4)
+    expect(rowKeys(body)).toEqual(['q-east non-brand', 'q-north-quiet non-brand', 'q-south-b non-brand'])
+    expect(body.rows.map(row => row.engines.map(entry => entry.mentioned))).toEqual(Array(3).fill([false, false, false]))
+    // North's remaining row names nobody, yet the sweep holds a mention for the query reworded since: it is
+    // not called weak on half its queries. South and West wait for the next sweep the same way.
+    // East's Non-brand query is untouched, and a withheld Branded row never counts: East is still weak.
+    expect(body.weakMarkets).toStrictEqual(weak('east'))
   })
 })
 
@@ -1258,14 +1356,20 @@ describe('query tracking results: cost', () => {
     expect(answersOf(current.body, 'citedAnswers')).toBe(seeded(5))
     expect(current.body.weakMarkets).toStrictEqual(quietMarkets)
 
-    // The workspace read with its views: one plan parse each time, and no saved pattern read, because no
-    // pattern has a gap.
+    // Twenty saved patterns. Four make the market queries, which froze no pattern record, so each is matched
+    // to its markets by text. Sixteen make a text no market asks.
+    db.insert(measurementQueryTemplates).values([
+      ...large.marketPhrases.map((phrase, index) => ({ id: `tpl-${index}`, name: phrase, pattern: `${phrase} in {market}` })),
+      ...Array.from({ length: 16 }, (_, index) => ({ id: `tpl-unused-${index}`, name: `unused ${index}`, pattern: `homes near stop ${index} in {market}` })),
+    ].map(pattern => ({ ...pattern, projectId: PROJECT_ID, description: null, variables: ['market'], createdAt: NOW, updatedAt: NOW }))).run()
+
+    // The workspace read with its views: one plan parse and one read of the saved patterns each time.
     const parses = vi.mocked(parseStoredMeasurementPlanAnyVersion)
     const reads = recordReads()
     parses.mockClear()
     const board = await measure<QueryTrackingWorkspaceResponse>('/query-tracking')
     expect(parses).toHaveBeenCalledTimes(5)
-    expect(count(reads, 'measurement_query_templates')).toBe(0)
+    expect(count(reads, 'measurement_query_templates')).toBe(5)
     vi.mocked(db.select).mockRestore()
     // Location 0 sits in its own market alone and locations 140 to 189 sit in none, so their two queries are
     // their own. Every other location's queries leave out a market it belongs to, which makes them hand-picked.
@@ -1273,7 +1377,15 @@ describe('query tracking results: cost', () => {
     expect(board.body.views?.noPropertyQueries.targetKeys).toHaveLength(190 - 51)
     // Every market has exactly four market queries: at the floor, so none is thin.
     expect(board.body.views?.thinMarkets).toStrictEqual({ count: 0, floor: 4, marketKeys: [] })
-    expect(board.body.views?.patternGaps).toStrictEqual({ count: 0, patterns: [] })
+    // Three patterns are asked in all 137 markets. Market 5 words its parking query another way.
+    const marketKeys = Array.from({ length: 137 }, (_, market) => `market-${market}`).sort()
+    expect(board.body.views?.patternGaps).toStrictEqual({
+      count: 1,
+      patterns: [{
+        templateId: 'tpl-3', name: 'homes with parking', pattern: 'homes with parking in {market}',
+        usedMarketKeys: marketKeys.filter(marketKey => marketKey !== 'market-5'), missingMarketKeys: ['market-5'],
+      }],
+    })
 
     // Tracking changed: one query is reworded, so the read parses two large plans and signs every assignment.
     activate(seedVersion(20, planOf({ ...large, texts: { ...large.texts, 'q-loc-0-0': 'Harbor 000 resident reviews' } })))
@@ -1321,11 +1433,13 @@ function largePortfolio(locations: number, markets: number) {
       subject.set(queryId, { stableKey, label })
     }
   })
+  const marketPhrases = ['best homes', 'pet friendly homes', 'luxury homes', 'homes with parking']
   for (let market = 0; market < markets; market++) {
     const members = Array.from({ length: 4 }, (_, offset) => targets[(market + offset) % locations]!)
     for (let asked = 0; asked < 4; asked++) {
       const queryId = `q-market-${market}-${asked}`
-      texts[queryId] = `${['best homes', 'pet friendly homes', 'luxury homes', 'homes with parking'][asked]} in market ${market}`
+      // The market's label is its key. Market 5 words its last query its own way.
+      texts[queryId] = market === 5 && asked === 3 ? 'homes with a garage in market-5' : `${marketPhrases[asked]} in market-${market}`
       for (const [stableKey] of members) pairings.push({ queryId, targetKey: stableKey, queryClass: 'non-brand', market: `market-${market}` })
       subject.set(queryId, { stableKey: members[asked]![0], label: members[asked]![1] })
     }
@@ -1338,5 +1452,5 @@ function largePortfolio(locations: number, markets: number) {
     subject.set(queryId, { stableKey, label })
   }
   const order = new Map(Object.keys(texts).map((queryId, index) => [queryId, index]))
-  return { targets, texts, pairings, groups: [], subject, order }
+  return { targets, texts, pairings, groups: [], subject, order, marketPhrases }
 }

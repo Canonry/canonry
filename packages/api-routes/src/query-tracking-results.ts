@@ -85,6 +85,14 @@ interface EngineTally {
   citationUnknown: boolean
 }
 
+/** What the weak-market rule needs from a folded sweep and the wire rows do not carry. */
+export interface FoldDetail {
+  /** For each returned row, how many of its answers had their text read. */
+  mentionChecked: Map<QueryTrackingResultRow, number>
+  /** The query and class pairs counted in `pendingRows`. */
+  withheld: Array<Pick<QueryTrackingResultRow, 'queryId' | 'queryClass'>>
+}
+
 function parseQuery(raw: Record<string, unknown>): QueryTrackingResultsQuery {
   const parsed = queryTrackingResultsRequestSchema.safeParse(raw)
   if (!parsed.success) throw validationError('Invalid query tracking results query', { issues: parsed.error.issues })
@@ -113,13 +121,13 @@ function signal(positives: number, unknown: boolean): boolean | null {
  * pending instead, so a lit chip is always a result for pairings still asked.
  * Each engine reads only the answers of the row's own executions, through the
  * report's per-answer rule (`targetValues`). Advanced and simple sweeps share
- * this fold. `mentionChecked`, when passed, takes for each returned row how
- * many of its answers had their text read: a count the wire row does not carry.
+ * this fold. `detail`, when passed, takes what a folded sweep knows beyond the
+ * wire rows.
  */
 export function foldQueryTrackingResults(
   sweep: VisibilityReportRunInput | null,
   pairings: readonly TrackedPairing[],
-  mentionChecked?: Map<QueryTrackingResultRow, number>,
+  detail?: FoldDetail,
 ): Pick<QueryTrackingResultsResponse, 'rows' | 'pendingRows'> {
   const pairs = new Map<string, {
     queryId: string
@@ -157,6 +165,7 @@ export function foldQueryTrackingResults(
   for (const pair of pairs.values()) {
     if (pair.edges === null) {
       pendingRows++
+      detail?.withheld.push({ queryId: pair.queryId, queryClass: pair.queryClass })
       continue
     }
     const tallies = new Map<string, EngineTally>()
@@ -201,7 +210,7 @@ export function foldQueryTrackingResults(
       }))
     const row = { queryId: pair.queryId, queryText: pair.queryText, queryClass: pair.queryClass, engines }
     rows.push(row)
-    mentionChecked?.set(row, checkedForMention)
+    detail?.mentionChecked.set(row, checkedForMention)
   }
   rows.sort((left, right) => compareText(left.queryId, right.queryId) || compareText(left.queryClass, right.queryClass))
   return { rows, pendingRows }
@@ -425,32 +434,38 @@ function engines(sweep: VisibilityReportRunInput | null): string[] {
 /**
  * The weak-market rule over the rows a project read returns. Only a non-brand
  * row whose query has a market as its Subject is read, so a market's branded
- * rows, its locations' own queries and hand-picked queries never count, and a
- * withheld row counts for nothing. A market is weak when one of its answers had
- * its text read and none named a location the row covers. With no answer read
- * it is left out.
+ * rows, its locations' own queries and hand-picked queries never count. A
+ * market is weak when one of its answers had its text read and none named a
+ * location the row covers. With no answer read it is left out, and so it is
+ * with such a row withheld: the sweep may hold a mention for the query as it
+ * was asked then.
  */
 function weakMarkets(
   plan: MeasurementPlanV2,
   rows: readonly QueryTrackingResultRow[],
-  mentionChecked: ReadonlyMap<QueryTrackingResultRow, number>,
+  detail: FoldDetail,
 ): QueryTrackingWeakMarkets {
   const focusOf = planQueryFocus(plan)
+  const marketOf = (pair: Pick<QueryTrackingResultRow, 'queryId' | 'queryClass'>): string | null => {
+    if (pair.queryClass !== QUERY_TRACKING_WEAK_MARKET_CLASS) return null
+    const focus = focusOf(pair.queryId)
+    return focus.kind === 'market' ? focus.key : null
+  }
   const markets = new Map<string, { checked: number; mentioned: number }>()
   for (const row of rows) {
-    if (row.queryClass !== QUERY_TRACKING_WEAK_MARKET_CLASS) continue
-    const focus = focusOf(row.queryId)
-    if (focus.kind !== 'market') continue
-    let market = markets.get(focus.key)
+    const marketKey = marketOf(row)
+    if (marketKey === null) continue
+    let market = markets.get(marketKey)
     if (!market) {
       market = { checked: 0, mentioned: 0 }
-      markets.set(focus.key, market)
+      markets.set(marketKey, market)
     }
-    market.checked += mentionChecked.get(row) ?? 0
+    market.checked += detail.mentionChecked.get(row) ?? 0
     for (const engine of row.engines) market.mentioned += engine.mentionedAnswers
   }
+  const withheld = new Set(detail.withheld.map(marketOf))
   const marketKeys = [...markets]
-    .filter(([, market]) => market.checked > 0 && market.mentioned === 0)
+    .filter(([marketKey, market]) => market.checked > 0 && market.mentioned === 0 && !withheld.has(marketKey))
     .map(([marketKey]) => marketKey)
     .sort(compareText)
   return { rule: QUERY_TRACKING_WEAK_MARKET_RULE, queryClass: QUERY_TRACKING_WEAK_MARKET_CLASS, count: marketKeys.length, marketKeys }
@@ -496,14 +511,14 @@ function advancedResults(
     versions,
     false,
   )
-  const mentionChecked = new Map<QueryTrackingResultRow, number>()
-  const folded = foldQueryTrackingResults(sweep, advancedPairings(active.plan, assignments, { sweep, plan: sweepPlan, underActivePlan }), mentionChecked)
+  const detail: FoldDetail = { mentionChecked: new Map(), withheld: [] }
+  const folded = foldQueryTrackingResults(sweep, advancedPairings(active.plan, assignments, { sweep, plan: sweepPlan, underActivePlan }), detail)
   return {
     run: runDto(run, chosen.version.revision, underActivePlan),
     engines: engines(sweep),
     ...folded,
-    // Only the project read holds every market's pairings, so only it ranks markets.
-    ...(query.scope === 'project' ? { weakMarkets: weakMarkets(active.plan, folded.rows, mentionChecked) } : {}),
+    // Only the project read holds every market's pairings, so only it lists weak markets.
+    ...(query.scope === 'project' ? { weakMarkets: weakMarkets(active.plan, folded.rows, detail) } : {}),
   }
 }
 

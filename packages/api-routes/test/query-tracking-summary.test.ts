@@ -225,12 +225,13 @@ function frozenPattern(templateId: string, templateVersion: string, template: st
 /**
  * Five locations and four markets, each query its own one-answer execution:
  * - Uptown (Harbor, River) has four market queries, exactly the floor.
- * - Downtown (Summit, Cedar) has three, and Lakeside (Lone Pine alone) has two.
+ * - Downtown (Summit, Cedar) and Lakeside (Lone Pine alone) have three each.
  * - Vacant holds no location.
  * The Best pattern is asked in all three markets with a location. The Pets
- * pattern is asked in Uptown only, and the deleted Lofts pattern in Downtown
- * and, under a later wording, Lakeside. Harbor and Cedar each have a query of
- * their own.
+ * pattern is asked in Uptown and, by a row that froze no record, in Lakeside.
+ * Two patterns were deleted since: Lofts is asked in Downtown and, under a
+ * later wording, Lakeside, and Studios in Uptown and, under a later wording,
+ * Downtown. Harbor and Cedar each have a query of their own.
  */
 function viewsPlan(): MeasurementPlanV2 {
   const best = (market: string) => frozenPattern('tpl-best', SAVED_FIRST, 'best apartments in {market}', { market })
@@ -242,26 +243,36 @@ function viewsPlan(): MeasurementPlanV2 {
     { queryId: 'q-up-best', text: 'best apartments in Uptown', targets: ['harbor', 'river'], market: 'uptown', pattern: best('Uptown') },
     { queryId: 'q-up-pets', text: 'pet friendly apartments in Uptown', targets: ['harbor', 'river'], market: 'uptown', pattern: pets('Uptown') },
     { queryId: 'q-up-parking', text: 'apartments with parking uptown', targets: ['harbor', 'river'], market: 'uptown' },
-    { queryId: 'q-up-pool', text: 'apartments with a pool uptown', targets: ['harbor', 'river'], market: 'uptown' },
+    {
+      queryId: 'q-up-studio', text: 'studio apartments in Uptown', targets: ['harbor', 'river'], market: 'uptown',
+      pattern: frozenPattern('tpl-studio', SAVED_FIRST, 'studio apartments in {market}', { market: 'Uptown' }),
+    },
     { queryId: 'q-down-best', text: 'best apartments in Downtown', targets: ['summit', 'cedar'], market: 'downtown', pattern: best('Downtown') },
     {
       queryId: 'q-down-lofts', text: 'luxury lofts in Downtown', targets: ['summit', 'cedar'], market: 'downtown',
       pattern: frozenPattern('tpl-lofts', SAVED_FIRST, 'luxury lofts in {market}', { market: 'Downtown' }),
     },
-    { queryId: 'q-down-parking', text: 'apartments with parking downtown', targets: ['summit', 'cedar'], market: 'downtown' },
+    // Rows are read by text: this later wording of Studios comes after Uptown's, and Lakeside's later Lofts before Downtown's.
+    {
+      queryId: 'q-down-studio', text: 'studios in Downtown', targets: ['summit', 'cedar'], market: 'downtown',
+      pattern: frozenPattern('tpl-studio', SAVED_AGAIN, 'studios in {market}', { market: 'Downtown' }),
+    },
     // A market of one location: Non-brand keeps both queries the market's.
     { queryId: 'q-lake-best', text: 'best apartments in Lakeside', targets: ['lone'], market: 'lakeside', pattern: best('Lakeside') },
     {
       queryId: 'q-lake-lofts', text: 'luxury loft rentals in Lakeside', targets: ['lone'], market: 'lakeside',
       pattern: frozenPattern('tpl-lofts', SAVED_AGAIN, 'luxury loft rentals in {market}', { market: 'Lakeside' }),
     },
+    // Typed by hand: the text the Pets pattern made for Lakeside when Uptown's row froze it.
+    { queryId: 'q-lake-pets', text: 'pet friendly apartments in Lakeside', targets: ['lone'], market: 'lakeside' },
     // Harbor's own query, from a location pattern: a pattern row that is no market's.
     {
       queryId: 'q-harbor', text: 'Harbor Point reviews', targets: ['harbor'], market: 'uptown', queryClass: 'branded',
       pattern: frozenPattern('tpl-reviews', SAVED_FIRST, '{property} reviews', { property: 'Harbor Point' }),
     },
-    // Cedar's own query inside Downtown, and one hand-picked at Summit outside it: neither is Downtown's use of the Pets pattern.
-    { queryId: 'q-cedar-pets', text: 'pet friendly apartments in Cedar', targets: ['cedar'], market: 'downtown', pattern: pets('Cedar') },
+    // The Pets pattern asked for Cedar alone inside Downtown: the text it makes for Downtown, and Cedar's own query.
+    { queryId: 'q-cedar-pets', text: 'pet friendly apartments in Downtown', targets: ['cedar'], market: 'downtown', pattern: pets('Downtown') },
+    // Hand-picked at Summit outside any market. Neither row is Downtown's use of the pattern.
     { queryId: 'q-pick-pets', text: 'pet friendly apartments in Midtown', targets: ['summit'], pattern: pets('Midtown') },
   ]
   const edges = rows.flatMap(row => row.targets.map(targetKey => ({ executionNodeKey: `n-${row.queryId}`, targetKey, queryId: row.queryId, market: row.market })))
@@ -277,7 +288,8 @@ function viewsPlan(): MeasurementPlanV2 {
     assignments: edges.map(row => ({ ...edge(row), queryClass: classes.get(row.queryId)!, classificationSource: 'server' as const })),
     executionNodes: rows.map(row => ({ stableKey: `n-${row.queryId}`, queryId: row.queryId, queryText: row.text, context: ONE_ENGINE, expectedSnapshots: 1 })),
     usageEdges: edges.map(edge),
-    reportingScopes: [['downtown', 'Downtown'], ['lakeside', 'Lakeside'], ['uptown', 'Uptown'], ['vacant', 'Vacant']].map(([stableKey, label]) => ({
+    // Listed out of key order, as the locations are: a published plan sorts both.
+    reportingScopes: [['uptown', 'Uptown'], ['vacant', 'Vacant'], ['lakeside', 'Lakeside'], ['downtown', 'Downtown']].map(([stableKey, label]) => ({
       stableKey: stableKey!, label: label!, kind: 'market' as const, usageEdges: edges.filter(row => row.market === stableKey).map(edge),
     })),
   }))
@@ -288,6 +300,21 @@ function savePattern(id: string, name: string, pattern: string): void {
   db.insert(measurementQueryTemplates).values({
     id, projectId: PROJECT_ID, name, description: null, pattern, variables: ['market'], createdAt: SAVED_FIRST, updatedAt: SAVED_AGAIN,
   }).run()
+}
+
+/** Saves a pattern through the pattern route and returns the addition that asks it for `audience`. */
+async function patternAddition(id: string, name: string, pattern: string, variables: string[]) {
+  const saved = await app.inject({
+    method: 'PUT', url: `/api/v1/projects/northstar/measurement-query-templates/${id}`, headers: { authorization: `Bearer ${ROOT_KEY}` },
+    payload: { name, pattern, variables },
+  })
+  expect([200, 201], saved.body).toContain(saved.statusCode)
+  const { updatedAt } = saved.json() as { updatedAt: string }
+  return (audience: { marketKeys?: string[]; targetKeys?: string[] }, queryClass?: 'branded' | 'non-brand') => ({
+    input: { source: 'template', templateId: id, templateVersion: updatedAt, template: pattern },
+    audience,
+    ...(queryClass ? { queryClass } : {}),
+  })
 }
 
 /** How many times a read selects from `table`. */
@@ -578,6 +605,8 @@ describe('query tracking workspace views', () => {
     savePattern('tpl-best', 'Best', 'best apartments in {market}')
     // Reworded since the rows were added: the view shows the pattern as it is saved now.
     savePattern('tpl-pets', 'Pet friendly', 'pet friendly apartments in {market} with a yard')
+    // Asked in no market, so it is no gap.
+    savePattern('tpl-transit', 'Near transit', 'apartments near transit in {market}')
     const patternReads = countReadsOf('measurement_query_templates')
     const current = await workspace()
 
@@ -588,29 +617,31 @@ describe('query tracking workspace views', () => {
       'q-pick-pets': { kind: 'custom' },
     })
     expect(current.views).toStrictEqual({
-      // Summit's one query is hand-picked and Lone Pine's two are its market's: neither is the location's own.
+      // Summit's one query is hand-picked and Lone Pine's three are its market's: neither is the location's own.
       noPropertyQueries: { count: 3, targetKeys: ['lone', 'river', 'summit'] },
       // Uptown has exactly four market queries, so it is not thin. Downtown is one short.
       thinMarkets: { count: 3, floor: 4, marketKeys: ['downtown', 'lakeside', 'vacant'] },
       patternGaps: {
-        count: 2,
+        count: 3,
         patterns: [
           // Deleted since: no name, and the wording of the newest row that froze it.
           { templateId: 'tpl-lofts', name: null, pattern: 'luxury loft rentals in {market}', usedMarketKeys: ['downtown', 'lakeside'], missingMarketKeys: ['uptown'] },
-          // Cedar's own row and the hand-picked one are not Downtown's. Vacant has no location, so it is never missing.
-          { templateId: 'tpl-pets', name: 'Pet friendly', pattern: 'pet friendly apartments in {market} with a yard', usedMarketKeys: ['uptown'], missingMarketKeys: ['downtown', 'lakeside'] },
+          // Lakeside asks the text of the wording Uptown's row froze. Cedar's own row and the hand-picked one
+          // are not Downtown's. Vacant has no location, so it is never missing.
+          { templateId: 'tpl-pets', name: 'Pet friendly', pattern: 'pet friendly apartments in {market} with a yard', usedMarketKeys: ['lakeside', 'uptown'], missingMarketKeys: ['downtown'] },
+          { templateId: 'tpl-studio', name: null, pattern: 'studios in {market}', usedMarketKeys: ['downtown', 'uptown'], missingMarketKeys: ['lakeside'] },
         ],
       },
     })
     expect(QUERY_TRACKING_THIN_MARKET_FLOOR).toBe(4)
     expect(current.markets.map(market => [market.stableKey, market.counts?.marketQueries])).toStrictEqual([
-      ['downtown', 3], ['lakeside', 2], ['uptown', 4], ['vacant', 0],
+      ['downtown', 3], ['lakeside', 3], ['uptown', 4], ['vacant', 0],
     ])
-    // Two patterns have a gap, and the saved patterns are read once for both.
+    // The saved patterns are read once, whatever the number of patterns and markets.
     expect(patternReads()).toBe(1)
   })
 
-  it('calls a market with no queries thin and reads no saved pattern when none has a gap', async () => {
+  it('calls a market with no queries thin and finds no gap with no saved pattern', async () => {
     seedPortfolio()
     const patternReads = countReadsOf('measurement_query_templates')
     const current = await workspace()
@@ -619,10 +650,86 @@ describe('query tracking workspace views', () => {
       noPropertyQueries: { count: 1, targetKeys: ['river'] },
       // Vacant has no location and no query. Downtown has one query and Uptown two.
       thinMarkets: { count: 3, floor: 4, marketKeys: ['downtown', 'uptown', 'vacant'] },
-      // q-market is a pattern row whose plan froze no pattern record, so it belongs to no pattern.
+      // q-market is a pattern row that froze no pattern record, and no saved pattern makes its text.
       patternGaps: { count: 0, patterns: [] },
     })
-    expect(patternReads()).toBe(0)
+    expect(patternReads()).toBe(1)
+  })
+
+  it('counts a market that already asks the text a pattern makes, though its row froze no record', async () => {
+    seedPortfolio()
+    // A query typed by hand, in another case and spacing than the pattern makes.
+    await publish({ additions: [{ input: { source: 'manual', text: 'Pet friendly apartments  in UPTOWN' }, audience: { marketKeys: ['uptown'] }, queryClass: 'non-brand' }] })
+    const best = await patternAddition('tpl-best', 'Best', 'best apartments {market}', ['market'])
+    const pets = await patternAddition('tpl-pets', 'Pet friendly', 'pet friendly apartments in {market}', ['market'])
+
+    const before = await workspace()
+    const uptown = before.tracked.filter(row => row.focus?.kind === 'market' && row.focus.key === 'uptown')
+    expect(uptown.map(row => [row.queryText, row.provenance?.source, row.provenance?.template])).toStrictEqual([
+      // Published by setup: a pattern row with no frozen record.
+      ['best apartments uptown', 'template', undefined],
+      ['harbor point or river point', 'manual', undefined],
+      ['Pet friendly apartments  in UPTOWN', 'manual', undefined],
+    ])
+    // No row froze either pattern, and both gaps are found: Uptown asks each text and Downtown does not.
+    expect(before.views?.patternGaps).toStrictEqual({
+      count: 2,
+      patterns: [
+        { templateId: 'tpl-best', name: 'Best', pattern: 'best apartments {market}', usedMarketKeys: ['uptown'], missingMarketKeys: ['downtown'] },
+        { templateId: 'tpl-pets', name: 'Pet friendly', pattern: 'pet friendly apartments in {market}', usedMarketKeys: ['uptown'], missingMarketKeys: ['downtown'] },
+      ],
+    })
+
+    // Adding both where they are missing closes both: Uptown is not reported as missing them.
+    await publish({ additions: [best({ marketKeys: ['downtown'] }), pets({ marketKeys: ['downtown'] })] })
+    const after = await workspace()
+    expect(after.views?.patternGaps).toStrictEqual({ count: 0, patterns: [] })
+    expect(after.markets.map(market => [market.stableKey, market.counts?.marketQueries])).toStrictEqual([['downtown', 3], ['uptown', 3], ['vacant', 0]])
+  })
+
+  it('lists no gap for a pattern that cannot make a market\'s own query', async () => {
+    seedPortfolio()
+    const gym = await patternAddition('tpl-gym', 'Gym', 'apartments with a gym', [])
+    const near = await patternAddition('tpl-near', 'Near', 'apartments near {property}', ['property'])
+    const both = await patternAddition('tpl-both', 'Both', '{property} homes in {market}', ['market', 'property'])
+    // Summit is Downtown's one location, so its Non-brand queries are the market's.
+    await publish({
+      additions: [
+        gym({ marketKeys: ['uptown'] }, 'non-brand'),
+        near({ targetKeys: ['summit'], marketKeys: ['downtown'] }, 'non-brand'),
+        both({ targetKeys: ['summit'], marketKeys: ['downtown'] }, 'non-brand'),
+      ],
+    })
+
+    const current = await workspace()
+    const made = current.tracked.filter(row => row.provenance?.template !== undefined)
+    expect(made.map(row => [row.queryText, row.focus, row.provenance?.template?.bindings])).toStrictEqual([
+      ['apartments near Summit Lofts', { kind: 'market', key: 'downtown' }, { property: 'Summit Lofts' }],
+      ['apartments with a gym', { kind: 'market', key: 'uptown' }, {}],
+      ['Summit Lofts homes in Downtown', { kind: 'market', key: 'downtown' }, { market: 'Downtown', property: 'Summit Lofts' }],
+    ])
+    // Each is one market's own query, and none can become another market's:
+    // a pattern with no variable makes one query for every place, and a
+    // location's makes a query per location.
+    expect(current.views?.patternGaps).toStrictEqual({ count: 0, patterns: [] })
+
+    // The rows keep their records once the saved patterns are deleted, and are still no gap.
+    for (const id of ['tpl-gym', 'tpl-near', 'tpl-both']) {
+      const deleted = await app.inject({ method: 'DELETE', url: `/api/v1/projects/northstar/measurement-query-templates/${id}`, headers: { authorization: `Bearer ${ROOT_KEY}` } })
+      expect(deleted.statusCode, deleted.body).toBe(204)
+    }
+    expect((await workspace()).views?.patternGaps).toStrictEqual({ count: 0, patterns: [] })
+  })
+
+  it('drops a gap once the saved pattern takes a location variable', async () => {
+    seedPortfolio()
+    const transit = await patternAddition('tpl-transit', 'Near transit', 'apartments near transit in {market}', ['market'])
+    await publish({ additions: [transit({ marketKeys: ['uptown'] })] })
+    expect((await workspace()).views?.patternGaps.patterns.map(gap => [gap.templateId, gap.missingMarketKeys])).toStrictEqual([['tpl-transit', ['downtown']]])
+
+    // Saved again with a location in it: adding it now makes each location a query, never Downtown's own.
+    await patternAddition('tpl-transit', 'Near transit', '{property} near transit in {market}', ['market', 'property'])
+    expect((await workspace()).views?.patternGaps).toStrictEqual({ count: 0, patterns: [] })
   })
 
   it('finds and closes a gap for a saved pattern added through the pattern and tracking routes', async () => {

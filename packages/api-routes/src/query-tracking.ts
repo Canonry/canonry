@@ -884,6 +884,7 @@ function savedPatterns(db: DbLike, projectId: string): SavedPatterns {
     id: measurementQueryTemplates.id,
     name: measurementQueryTemplates.name,
     pattern: measurementQueryTemplates.pattern,
+    variables: measurementQueryTemplates.variables,
   }).from(measurementQueryTemplates).where(eq(measurementQueryTemplates.projectId, projectId)).all().map(row => [row.id, row]))
 }
 
@@ -913,7 +914,7 @@ function workspaceDto(db: DbLike, state: WorkspaceState, opts: QueryTrackingRout
     // A read changes nothing, so `next` repeats `current`. A simple basket has no limit.
     ...(assigned === null ? {} : { limits: queryLimitCounts(assigned, assigned, MEASUREMENT_DRAFT_MAX_QUERIES) }),
     // A simple basket has no location or market to list.
-    ...(places === null ? {} : { views: trackingViews(tracked, places, () => savedPatterns(db, state.project.id)) }),
+    ...(plan === null || places === null ? {} : { views: trackingViews(plan, tracked, places, savedPatterns(db, state.project.id)) }),
   })
 }
 

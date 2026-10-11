@@ -351,14 +351,21 @@ export type QueryTrackingLimits = z.output<typeof queryTrackingLimitsSchema>
 /** A market with fewer rows whose Subject is the market than this is thin. */
 export const QUERY_TRACKING_THIN_MARKET_FLOOR = 4
 
-/** A saved pattern asked as a market's own query in some markets and in none of another's. */
+/**
+ * A saved pattern asked as a market's own query in at least one market and not
+ * in another market that holds a location. Only a pattern whose one variable
+ * is `{market}` is read: no other pattern makes a market's own query.
+ */
 export const queryTrackingPatternGapSchema = z.object({
   templateId: queryTrackingIdSchema,
   /** The saved pattern's name now. Null once the saved pattern was deleted. */
   name: z.string().trim().min(1).nullable(),
   /** The saved pattern's text now, or the newest text its rows froze once it was deleted. */
   pattern: z.string().trim().min(1),
-  /** Markets with a row whose Subject is the market and whose frozen record names this pattern. */
+  /**
+   * Markets with a row whose Subject is the market and which froze this
+   * pattern's record or has the text the pattern makes for the market's label.
+   */
   usedMarketKeys: z.array(measurementV2StableKeySchema),
   /** Markets with a location and no such row. A market with no location takes no addition, so it is never missing. */
   missingMarketKeys: z.array(measurementV2StableKeySchema),
@@ -366,9 +373,9 @@ export const queryTrackingPatternGapSchema = z.object({
 export type QueryTrackingPatternGap = z.output<typeof queryTrackingPatternGapSchema>
 
 /**
- * Places an advanced workspace lists as views, found by the server from the
- * same rows and place counts. Each `count` is the length of its list, and
- * every key list is sorted.
+ * Locations, markets and patterns an advanced workspace lists as views, found
+ * by the server from the same rows and place counts. Each `count` is the
+ * length of its list, and every key list is sorted.
  */
 export const queryTrackingViewsSchema = z.object({
   /** Locations no row has as its Subject: `counts.propertyQueries` is 0. */
