@@ -232,6 +232,7 @@ export async function updateProjectSettings(
     siteAuditMaxPages?: number | null
     /** Sets the answer-derived competitor alias detection mode; undefined leaves it. */
     competitorAutoAliases?: CompetitorAutoAliasMode
+    expectedConfigRevision?: number
     /** Measurement lists changed by one or more measurement flags. */
     measurement?: MeasurementUpdateFlags
     format?: string
@@ -319,7 +320,7 @@ export async function updateProjectSettings(
   for (const provider of opts.clearDispatchModes ?? []) delete providerDispatchModes[provider]
 
   const patch: ProjectPatchRequest = {
-    expectedConfigRevision: project.configRevision,
+    expectedConfigRevision: opts.expectedConfigRevision ?? project.configRevision,
     ...(opts.displayName !== undefined ? { displayName: nextDisplayName } : {}),
     ...(opts.domain !== undefined ? { canonicalDomain: opts.domain } : {}),
     ...((opts.ownedDomains !== undefined || opts.addOwnedDomain !== undefined || opts.removeOwnedDomain !== undefined) ? { ownedDomains } : {}),
