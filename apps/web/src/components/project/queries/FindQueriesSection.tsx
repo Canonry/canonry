@@ -224,7 +224,8 @@ export function FindQueriesSection({
   const trackItem = (probe: (typeof probeRows)[number]): TrackResearchItem => ({ text: probe.query, input: { source: 'discovery', discoveryProbeId: probe.id } })
   const tickable = tracking?.subjects ? pageRows.filter(probe => worthTracking(probe) && trackedSubjectOf(tracking, probe.query) === null) : []
   const ticked = tickable.filter(probe => picks.pickedIds.has(probe.id)).length
-  const listsResults = probeRows.some(worthTracking)
+  // Any listed result can be a tracked query, whatever its bucket, so one result is enough to read them.
+  const listsResults = probeRows.length > 0
   const onResultsListed = tracking?.onResultsListed
   useEffect(() => {
     if (listsResults) onResultsListed?.()
@@ -433,18 +434,21 @@ export function FindQueriesSection({
               <>
                 {tracking && picks.items.length > 0 ? <SelectedActionsLink barId={barId} /> : null}
                 {/* The table's own frame scrolls both ways: sideways on a phone, and down a long page under a header that stays. Positioned, so the header's screen-reader text scrolls with the table and never widens the page. */}
-                <div ref={resultsFrame} role="group" aria-labelledby={resultsHeadingId} tabIndex={0} className="relative max-h-[36rem] overflow-auto rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
-                  <table className={`${RESEARCH_TABLE} min-w-[40rem]`}>
+                <div ref={resultsFrame} role="group" aria-labelledby={resultsHeadingId} tabIndex={0} className="@container relative max-h-[36rem] overflow-auto rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
+                  {/* The table's floor: a narrower frame scrolls. With boxes, a phone's leaves the Result in view beside the query, since it is why a row has a box or none.
+                      The Tracked column is drawn where the frame has room for it, which is the frame's width and not the window's: beside the form the frame is narrower on a laptop than on a tablet. */}
+                  <table className={`${RESEARCH_TABLE} ${tracking ? 'min-w-[34rem]' : 'min-w-[40rem]'}`}>
                     <thead>
                       <tr>
                         {tracking ? <th scope="col" className={`${RESEARCH_SELECT_TH} ${STICKY}`}>
                           <TrackBox label={FIND_COPY.selectPage} checked={tickable.length > 0 && ticked === tickable.length} indeterminate={ticked > 0 && ticked < tickable.length} disabled={tickable.length === 0} onChange={checked => picks.pick(tickable.map(trackItem), checked)} />
                         </th> : null}
-                        <th scope="col" className={`${RESULT_TH}${tracking ? ' w-2/5' : ''}`}>Question</th>
+                        <th scope="col" className={RESULT_TH}>Query</th>
                         <th scope="col" className={RESULT_TH}>Result</th>
-                        <th scope="col" className={RESULT_TH}>{FIND_COPY.citedSites}</th>
+                        {/* Beside a Tracked column the sites have a set width, which leaves the rest to the query, and break between domains, never inside one. */}
+                        <th scope="col" className={`${RESULT_TH}${tracking ? ' w-56' : ''}`}>{FIND_COPY.citedSites}</th>
                         {tracking
-                          ? <th scope="col" className={`${RESULT_TH} w-40`}>{RESEARCH_RESULTS_COPY.tracked}</th>
+                          ? <th scope="col" className={`${RESULT_TH} hidden w-32 @[44rem]:table-cell`}>{RESEARCH_RESULTS_COPY.tracked}</th>
                           : <th scope="col" className={RESULT_TH}><span className="sr-only">Tracking review</span></th>}
                       </tr>
                     </thead>
@@ -457,14 +461,18 @@ export function FindQueriesSection({
                               {/* A result to skip, and one that is tracked already, keep the cell and have no box. */}
                               {worthTracking(probe) && !trackedFor ? <TrackBox label={`Select ${probe.query}`} checked={picks.pickedIds.has(probe.id)} disabled={trackedFor === undefined} onChange={checked => picks.pick([trackItem(probe)], checked)} /> : null}
                             </td> : null}
-                            <td className={`${RESEARCH_TD} font-medium text-heading`}>{probe.query}</td>
+                            <td className={`${RESEARCH_TD} font-medium text-heading`}>
+                              {probe.query}
+                              {/* Where the frame has no room for the Tracked column, a tracked result says so here: a row with no box has its reason in view. */}
+                              {tracking && trackedFor ? <span className="block text-[13px] font-normal text-secondary @[44rem]:hidden">{RESEARCH_RESULTS_COPY.tracked} · {trackedFor}</span> : null}
+                            </td>
                             <td className={`${RESEARCH_TD} whitespace-nowrap`}>
                               <ToneBadge tone={toneForBucket(probe.bucket)}>{bucketLabel(probe.bucket)}</ToneBadge>
                             </td>
-                            <td className={`${RESEARCH_TD} text-secondary`}>
+                            <td className={`${RESEARCH_TD} text-secondary ${tracking ? '[overflow-wrap:normal]' : ''}`}>
                               {probe.citedDomains.length > 0 ? probe.citedDomains.slice(0, 3).join(', ') : '-'}
                             </td>
-                            {tracking ? <td className={`${RESEARCH_TD} text-secondary`}><TrackedCell tracking={tracking} subject={trackedFor} /></td> : (
+                            {tracking ? <td className={`${RESEARCH_TD} hidden text-secondary @[44rem]:table-cell`}><TrackedCell tracking={tracking} subject={trackedFor} /></td> : (
                               <td className={`${RESEARCH_TD} whitespace-nowrap text-right`}>
                                 {!isEmbed() && onReviewDiscoveryProbe && worthTracking(probe) && (
                                   <WriteButton type="button" variant="ghost" size="sm" onClick={() => onReviewDiscoveryProbe(probe.id)}>
@@ -507,6 +515,7 @@ export function FindQueriesSection({
           sweepActive={tracking.sweepActive}
           nextSweepDate={tracking.nextSweepDate}
           onClear={picks.clear}
+          onRemove={items => picks.pick(items, false)}
           // Track and Clear take the bar off the page: the results take the focus.
           returnFocus={() => (resultsFrame.current?.querySelector<HTMLElement>('input:not(:disabled)') ?? resultsFrame.current)?.focus({ preventScroll: true })}
         />

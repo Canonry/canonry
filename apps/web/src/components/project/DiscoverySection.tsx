@@ -131,7 +131,7 @@ export function QueriesSection({
     if (controlledTrackedFilters === undefined) setUncontrolledTrackedFilters(previous => ({ ...previous, ...patch }))
     onTrackedFiltersChange?.(patch)
   }
-  // A Simple project's way from Research into tracking: an Advanced one tracks from the Research page itself.
+  // A Simple project's way from Research into tracking. An Advanced one tracks from the Research page itself, and comes this way only from Find ideas while its mode is not known.
   const reviewSavedSource = (source: SavedTrackingSource, scope?: ResearchRunScope | null) => {
     // Only a research run's own market or property preselects a destination.
     // A Find result starts at project scope and leaves the Tracked filter alone.

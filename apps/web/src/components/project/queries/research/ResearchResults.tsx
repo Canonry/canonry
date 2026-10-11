@@ -41,6 +41,7 @@ export const RESEARCH_RESULTS_COPY = {
   templateProvenance: 'Pattern details',
   resolvedTextHelp: 'The queries below are the final text sent to the engine, including any edits.',
   reviewHelp: 'Only this saved query text goes to tracking review. Its answer stays research evidence.',
+  trackHelp: "Tick queries, then Track. Only the query text is tracked, for its run's Subject. Its answer stays research evidence. Nothing here starts a sweep.",
   citedCompetitorsHelp: 'Cited as a source, not only named in the answer.',
   noAnswer: 'No answer',
   answerPending: 'Answer pending',
@@ -49,7 +50,8 @@ export const RESEARCH_RESULTS_COPY = {
   untypedQuery: 'Not set',
   tracked: 'Tracked',
   notTracked: 'No',
-  notChecked: 'Not checked',
+  notLoaded: 'Not loaded',
+  trackedNotLoaded: 'Tracked not loaded',
   trackedError: 'Tracked queries did not load, so no row can say whether it is tracked.',
   selectAll: 'Select all rows',
   selectedActions: 'Selected actions',
@@ -86,15 +88,15 @@ export function trackedSubjectOf(tracking: ResearchTracking, query: string): str
 
 /** The Tracked cell of a Research table: the Subject of a tracked query, or No. A read that failed is not a No. */
 export function TrackedCell({ tracking, subject }: { tracking: ResearchTracking; subject: string | null | undefined }) {
-  if (subject === undefined) return tracking.failed ? <span className="text-muted">{RESEARCH_RESULTS_COPY.notChecked}</span> : <span aria-hidden="true" className="skeleton-text block w-12" />
+  if (subject === undefined) return tracking.failed ? <span className="text-muted">{RESEARCH_RESULTS_COPY.notLoaded}</span> : <span aria-hidden="true" className="skeleton-text block w-12" />
   return subject === null ? <span className="text-muted">{RESEARCH_RESULTS_COPY.notTracked}</span> : subject
 }
 
-/** Over a Research table whose tracked queries did not load. */
+/** Over a Research table whose tracked queries did not load. Named for what is missing and in the caution tone: the table's own rows did load. */
 export function TrackedReadFailed({ tracking }: { tracking: ResearchTracking }) {
   return (
     <div role="alert">
-      <StatusNote icon={AlertTriangle} tone="negative" label="Could not load" detail={RESEARCH_RESULTS_COPY.trackedError} action={<Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11 max-md:min-h-11" aria-label="Retry tracked queries" onClick={tracking.onRetry}>Retry</Button>} />
+      <StatusNote icon={AlertTriangle} tone="caution" label={RESEARCH_RESULTS_COPY.trackedNotLoaded} detail={RESEARCH_RESULTS_COPY.trackedError} action={<Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11 max-md:min-h-11" aria-label="Retry tracked queries" onClick={tracking.onRetry}>Retry</Button>} />
     </div>
   )
 }
@@ -232,6 +234,8 @@ export function ResearchRunDetail({
           {/* Lands under the topbar when a pick or a run scrolls the page to it. */}
           <h3 id={headingId} ref={headingRef} tabIndex={-1} className="scroll-mt-[calc(var(--topbar-h)+1.5rem)] rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 focus-visible:ring-offset-2 focus-visible:ring-offset-bg">{RESEARCH_RESULTS_COPY.resultsTitle}</h3>
           {detail && <ToneBadge tone={toneForResearchRun(detail.status)}>{RESEARCH_STATUS_LABEL[detail.status]}</ToneBadge>}
+          {/* What a tick does, where rows have boxes. After the status, close to it, so the heading and its status still read as one. */}
+          {detail && selection ? <span className="-ml-3 flex"><InfoTooltip text={RESEARCH_RESULTS_COPY.trackHelp} placement="bottom" /></span> : null}
         </div>
         {detail && <SignalLegend variant="research" company={company} domain={domain} />}
       </div>
@@ -286,7 +290,7 @@ export function ResearchRunDetail({
               <th scope="col" className={RESULT_TH}>Query</th>
               <th scope="col" className={`${RESULT_TH} w-28 max-sm:hidden`}>Type</th>
               <th scope="col" className={`${RESULT_TH} w-[6.75rem] ${selection ? 'max-sm:hidden' : 'max-sm:w-[5.75rem]'}`}>Status</th>
-              {tracking ? <th scope="col" className={`${RESULT_TH} w-[12.25rem] max-xl:hidden`}>{RESEARCH_RESULTS_COPY.tracked}</th> : null}
+              {tracking ? <th scope="col" className={`${RESULT_TH} w-[16rem] max-xl:hidden`}>{RESEARCH_RESULTS_COPY.tracked}</th> : null}
               <th scope="col" className={`${TH} ${STICKY} w-20 px-1 text-center max-sm:w-16`}>{engine}</th>
             </tr></thead>
             <tbody>

@@ -9,7 +9,8 @@ import {
   renderWorkspace, reviewRow, selectedContext, sharedSearchLocation, workspace, workspaceVersion,
 } from './support/query-tracking-fixtures.js'
 
-// The Add query form of an Advanced project, reached through `openLegacyAdd`, and the way a Simple project reaches it from a saved Research result.
+// The Add query form of an Advanced project, reached through `openLegacyAdd`, and the way into it from a saved Research result:
+// a Simple project's own, and an Advanced project's only from Find ideas while its mode is not known.
 
 afterEach(() => {
   cleanup()
@@ -440,7 +441,8 @@ test('promotes a saved research query as source provenance, never an answer or a
 })
 
 // A Simple project has no Subject to choose, so it keeps this way in: one saved result, handed to the Add query form on Tracked.
-// An Advanced project ticks results on the Research page and tracks them from its own sheet (research-page and track-research-sheet tests).
+// An Advanced project ticks results on the Research page and tracks them from its own sheet (research-page and track-research-sheet tests),
+// except in the one case the test after this one covers.
 test.each(['research', 'discovery'] as const)('a Simple project tracks one saved %s result through Research navigation, the Add query form, review and confirmation', async (source) => {
   const writes: Array<{ path: string; body: unknown }> = []
   const data = { ...workspace(), mode: 'simple' }
@@ -514,7 +516,7 @@ test.each(['research', 'discovery'] as const)('a Simple project tracks one saved
     expect(screen.getByRole('radio', { name: 'Find ideas' }).getAttribute('aria-checked')).toBe('true')
     // By role, because Write stays drawn behind Find ideas, hidden, and its results hold the same text.
     const result = await screen.findByRole('cell', { name: queryText })
-    expect(within(result.closest('table')!).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Question', 'Result', 'Cited sites', 'Tracking review'])
+    expect(within(result.closest('table')!).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Query', 'Result', 'Cited sites', 'Tracking review'])
     fireEvent.click(within(result.closest('tr')!).getByRole('button', { name: 'Review for tracking' }))
   }
   expect(screen.queryByRole('checkbox', { name: /^Select / })).toBeNull()
@@ -542,6 +544,75 @@ test.each(['research', 'discovery'] as const)('a Simple project tracks one saved
   })
   // The new query is in the tracked list, with a Simple row's own Remove button.
   expect(await screen.findByRole('button', { name: `Remove ${queryText}` })).toBeTruthy()
+}, 15_000)
+
+// Find ideas reads nothing of the plan to learn a project's mode. Opened first, by a host that names none, it cannot tell an Advanced project
+// from a Simple one, so it offers the same hand-off and the Add query form asks for the place. This pins what that way in sends for as long as it exists.
+test('an Advanced project whose mode Find ideas has not learned still tracks one result through the Add query form, with its place', async () => {
+  const writes: Array<{ path: string; body: unknown }> = []
+  const data = workspace()
+  const queryText = 'What does Acme cost?'
+  const added = {
+    ...data.tracked[1]!, queryId: 'query-promoted', queryText, normalizedText: queryText.toLowerCase(),
+    provenance: { source: 'discovery', sourceId: 'discovery-probe-1', capturedAt: '2026-09-04T12:00:00.000Z' },
+  }
+  const reviewed = preview({
+    tracked: [...data.tracked, added],
+    diff: { added: [{ queryId: added.queryId, queryText, assignmentCount: 1 }], removed: [], reused: [], unchanged: [], noOp: false },
+  })
+  const session = {
+    id: 'discovery-session-1', projectId: 'project-demo', status: 'completed', icpDescription: 'Operators comparing AEO services',
+    probeCount: 1, citedCount: 0, aspirationalCount: 1, wastedCount: 0, competitorMap: [{ domain: 'rival.example', hits: 1 }],
+    createdAt: '2026-09-04T10:00:00.000Z',
+  }
+  installWorkspaceApi((path, body, method) => {
+    if (method !== 'GET') writes.push({ path, body })
+    if (path === '/api/v1/projects/demo/discover/sessions' && method === 'GET') return jsonResponse([session])
+    if (path === '/api/v1/projects/demo/discover/sessions/discovery-session-1' && method === 'GET') {
+      return jsonResponse({ ...session, probes: [
+        { id: 'discovery-probe-1', sessionId: session.id, projectId: session.projectId, query: queryText, bucket: 'aspirational', citationState: 'not-cited', citedDomains: ['rival.example'], answerMentioned: false, createdAt: session.createdAt },
+      ] })
+    }
+    if (path === '/api/v1/projects/demo/query-tracking/preview' && method === 'POST') return jsonResponse(reviewed)
+    if (path === '/api/v1/projects/demo/query-tracking/commit' && method === 'POST') {
+      return jsonResponse({ committed: true, mode: 'advanced', workspaceVersion, reviewedAt: reviewed.reviewedAt, active, diff: reviewed.diff, workload: reviewed.workload })
+    }
+    throw new Error(`Unexpected ${method}: ${path}`)
+  }, [], data)
+  const selectedProperty = { measurementScope: 'property' as const, measurementScopeKey: 'acme', queryClass: 'all' as const, provider: 'gemini', location: 'Boston' }
+  const onSelectionChange = vi.fn()
+  // The link names Find ideas, and the host no mode: nothing on the way has read the tracked queries.
+  const view = renderWorkspace({ queryWorkspace: 'research', researchMode: 'find', selection: selectedProperty, onSelectionChange })
+
+  const result = await screen.findByRole('cell', { name: queryText })
+  expect(within(result.closest('table')!).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Query', 'Result', 'Cited sites', 'Tracking review'])
+  expect(screen.queryByRole('checkbox', { name: /^Select / })).toBeNull()
+  fireEvent.click(within(result.closest('tr')!).getByRole('button', { name: 'Review for tracking' }))
+  expect(view.onQueryWorkspaceChange).toHaveBeenCalledWith('tracked')
+  view.rerender({ queryWorkspace: 'tracked' })
+
+  expect(await screen.findByRole('heading', { name: 'Add query' })).toBeTruthy()
+  expect((screen.getByLabelText('Discovery query') as HTMLSelectElement).value).toBe('discovery-probe-1')
+  // A Find ideas result leaves the place alone: the form starts with none, and Review waits for one and its search location and engines.
+  expect(onSelectionChange).not.toHaveBeenCalled()
+  expect(screen.getByRole('checkbox', { name: 'Acme, Location' })).toHaveProperty('checked', false)
+  expect((screen.getByLabelText('Search location and engines') as HTMLSelectElement).value).toBe('')
+  expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Location' }))
+  chooseContext()
+  expect(writes).toEqual([])
+  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  await screen.findByText('1 added')
+  expect(writes).toEqual([{
+    path: '/api/v1/projects/demo/query-tracking/preview',
+    body: { expectedWorkspaceVersion: workspaceVersion, additions: [{ input: { source: 'discovery', discoveryProbeId: 'discovery-probe-1' }, audience: { targetKeys: ['acme'] }, contexts: [selectedContext] }], removals: [] },
+  }])
+  fireEvent.click(screen.getByRole('button', { name: 'Publish 1 change' }))
+  await waitFor(() => expect(writes).toHaveLength(2))
+  expect(writes[1]).toEqual({
+    path: '/api/v1/projects/demo/query-tracking/commit',
+    body: { ...(writes[0]!.body as Record<string, unknown>), previewToken, reviewedAt: reviewed.reviewedAt },
+  })
 }, 15_000)
 
 test.each([false, true])('keeps reused-query classifications collapsed until requested (no-op: %s)', async noOp => {

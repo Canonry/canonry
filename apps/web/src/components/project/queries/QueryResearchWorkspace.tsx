@@ -38,7 +38,8 @@ const NO_TEMPLATES: readonly MeasurementQueryTemplate[] = []
  * ticked in several runs go in one publish, each for its own run's Subject.
  * Find ideas reads the tracked queries only once a run lists results. A
  * Simple project keeps "Review for tracking", which hands one result to the
- * Add query form on Tracked.
+ * Add query form on Tracked. So does Find ideas while the project's mode is
+ * not known: it reads nothing of the plan to learn it.
  */
 export function QueryResearchWorkspace({
   projectName,
@@ -97,7 +98,9 @@ export function QueryResearchWorkspace({
   const advanced = (workspace?.mode ?? trackedMode) === 'advanced'
   // Kept once read, so Find ideas goes on following the tracked queries after a publish.
   if (workspace?.mode === 'advanced' && !knownAdvanced) setKnownAdvanced(true)
-  const canTrack = canWrite && !isEmbed() && !isPublicDemo()
+  // An embed keeps the Research page it had: no Tracked column, and so nothing to tick. The public demo reads the column and ticks nothing.
+  const tracksHere = advanced && !isEmbed()
+  const canTrack = canWrite && !isPublicDemo()
   // Every tracked query by its identity text, with its Subject as the Tracked table words it. One that is asked nowhere has no Subject to name.
   const subjects = useMemo(() => workspace?.mode === 'advanced'
     ? new Map(toTrackedRows(workspace, NO_TEMPLATES).map(row => [row.tracked.normalizedText, row.subject.kind === 'none' ? statusLabel('not-asked') : subjectLabel(row.subject)]))
@@ -106,12 +109,12 @@ export function QueryResearchWorkspace({
   const barId = useId()
   const trackedFailed = !workspace && workspaceQuery.isError
   const retryTracked = workspaceQuery.refetch
-  const researchTracking = useMemo<ResearchTracking | null>(() => advanced ? {
+  const researchTracking = useMemo<ResearchTracking | null>(() => tracksHere ? {
     subjects,
     failed: trackedFailed,
     onRetry: () => { void retryTracked() },
     selection: canTrack ? { pickedIds: picks.pickedIds, onPick: picks.pick, barId } : undefined,
-  } : null, [advanced, subjects, trackedFailed, retryTracked, canTrack, picks.pickedIds, picks.pick, barId])
+  } : null, [tracksHere, subjects, trackedFailed, retryTracked, canTrack, picks.pickedIds, picks.pick, barId])
   // Track and Clear take the bar off the page: the results table's first box takes the focus, or the Results heading.
   const focusResults = () => {
     const results = researchPane.current?.querySelector('[role="region"]')
@@ -157,7 +160,7 @@ export function QueryResearchWorkspace({
           startControl={<ResearchStartControl value="find" onChange={changeStart} findIdeas />}
           paused={start !== 'find'}
           onReviewDiscoveryProbe={advanced ? undefined : (discoveryProbeId) => onReviewSavedSource({ source: 'discovery', discoveryProbeId })}
-          tracking={researchTracking && canTrack ? { subjects, failed: researchTracking.failed, onRetry: researchTracking.onRetry, workspace, onResultsListed: onFindResultsListed, sweepActive, nextSweepDate } : undefined}
+          tracking={researchTracking?.selection ? { subjects, failed: researchTracking.failed, onRetry: researchTracking.onRetry, workspace, onResultsListed: onFindResultsListed, sweepActive, nextSweepDate } : undefined}
         />
       </div>}
       {form && <div ref={researchPane} hidden={start === 'find'}>
@@ -173,7 +176,7 @@ export function QueryResearchWorkspace({
           />
         </ResearchTrackingContext.Provider>
         {/* After the page it rides over, so it comes to rest under Past research. */}
-        {workspace && canTrack ? <TrackResearchBar id={barId} projectName={projectName} workspace={workspace} items={picks.items} sweepActive={sweepActive} nextSweepDate={nextSweepDate} onClear={picks.clear} returnFocus={focusResults} /> : null}
+        {workspace && researchTracking?.selection ? <TrackResearchBar id={barId} projectName={projectName} workspace={workspace} items={picks.items} sweepActive={sweepActive} nextSweepDate={nextSweepDate} onClear={picks.clear} onRemove={items => picks.pick(items, false)} returnFocus={focusResults} /> : null}
       </div>}
     </>
   )
