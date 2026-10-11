@@ -102,6 +102,11 @@ describe('project measurement update flags', () => {
     expect(body()).not.toHaveProperty('measurement')
   })
 
+  it('passes an explicit revision guard through the PATCH request', async () => {
+    await run('project', 'update', 'measurement-project', '--display-name', 'Renamed', '--expect-revision', '12', '--format', 'json')
+    expect(body().expectedConfigRevision).toBe(12)
+  })
+
   it('prints measurement lists in human project output', async () => {
     await run('project', 'show', 'measurement-project')
     const text = output.join('\n')
