@@ -50,9 +50,9 @@ Canonry then reuses the checked web output. Keep this dependency when changing b
 ### How to add a CLI command
 
 1. Create or extend a file in `src/commands/` for the domain.
-2. Add a command spec to the `REGISTERED_CLI_COMMANDS` array in `src/cli-commands.ts`:
+2. Add a command spec to the `REGISTERED_CLI_COMMANDS` array in `src/cli-commands.ts` and declare its `access` effect (`stored`, `live`, or `write`):
    ```typescript
-   { path: ['mycommand', 'subcommand'], usage: 'Description', run: myHandler }
+   { path: ['mycommand', 'subcommand'], usage: 'Description', access: 'stored', run: myHandler }
    ```
 3. For a new root, add its section and summary to `CLI_ROOT_SUMMARIES` in `src/cli-catalog.ts`. The catalog drift guard rejects missing and phantom roots.
 4. The CLI dispatches based on `path` matching argv. `help`, top-level help and group help expose the registry as JSON or JSONL; help requests skip API calls, telemetry, skill sync and update checks.

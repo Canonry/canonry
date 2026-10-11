@@ -1,6 +1,7 @@
 import { readWindowOptions, windowOptions, type WindowAliases } from './cli-command-helpers.js'
 import { parseArgs } from 'node:util'
 import type { ParseArgsOptionsConfig } from 'node:util'
+import type { OperationAccess } from '@ainyc/canonry-contracts'
 import { type CliFormat, usageError } from './cli-error.js'
 
 type CliValue = string | boolean | string[] | boolean[] | undefined
@@ -37,6 +38,8 @@ export type CliCommandSpec = {
   /** Canonical rolling windows and legacy option names accepted by this command. */
   windows?: readonly string[]
   windowAliases?: WindowAliases
+  /** Execution boundary shown in help and the generated catalog. */
+  access?: OperationAccess
   run: (input: CliCommandInput) => Promise<void> | void
 }
 
@@ -61,6 +64,7 @@ export function commandUsage(spec: CliCommandSpec): string {
 
 function printCommandHelp(spec: CliCommandSpec): void {
   console.log(`\nUsage:  ${commandUsage(spec)}\n`)
+  console.log(`Access: ${spec.access ?? 'stored'} (${spec.access === 'live' ? 'calls a provider now' : spec.access === 'write' ? 'changes server state' : 'uses stored data'})\n`)
   if (spec.help) console.log(`${spec.help}\n`)
   const aliases = Object.entries(spec.windowAliases ?? {}).map(([canonical, alias]) => `--${alias} for --${canonical}`)
   if (aliases.length) console.log(`Aliases: ${aliases.join('; ')}. Do not combine an alias with its canonical flag.\n`)
@@ -107,7 +111,7 @@ export function printGroupHelp(group: string, specs: readonly CliCommandSpec[]):
   console.log('Subcommands:')
 
   for (const spec of groupSpecs) {
-    console.log(`  ${commandUsage(spec)}`)
+    console.log(`  [${spec.access ?? 'stored'}] ${commandUsage(spec)}`)
   }
 
   console.log()

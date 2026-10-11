@@ -23,6 +23,8 @@ export function operationsHelp(catalog: HelpResult, mode: GuideMode, intent = ''
   const loadToolkits = mode === 'stdio-progressive'
     ? catalog.toolkits.filter(t => !t.loaded && t.tools.some(name => wanted.includes(name))).map(t => t.name)
     : []
+  const liveTools: string[] = [...catalog.liveTools]
+  for (const toolkit of catalog.toolkits) liveTools.push(...toolkit.liveTools)
   return {
     guideVersion: OPERATIONS_GUIDE.guideVersion,
     mode,
@@ -35,6 +37,7 @@ export function operationsHelp(catalog: HelpResult, mode: GuideMode, intent = ''
     approvalBoundary: OPERATIONS_GUIDE.approvalBoundary,
     approvalRule: OPERATIONS_GUIDE.approvalRule,
     authority: OPERATIONS_GUIDE.authority,
+    liveTools: [...new Set(liveTools)].sort(),
     operationsGuideUrl: OPERATIONS_GUIDE.operationsGuideUrl,
     ...(loadToolkits.length ? { loadToolkits } : {}),
     ...(includeCatalog ? catalog : {}),

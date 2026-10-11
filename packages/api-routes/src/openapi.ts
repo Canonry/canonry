@@ -13,6 +13,7 @@ import {
   runKindSchema,
   runStatusSchema,
   sentimentOutcomeSchema,
+  operationAccess,
 } from '@ainyc/canonry-contracts'
 import {
   buildComponentSchemas,
@@ -8036,6 +8037,7 @@ export function buildOpenApiDocument(info: OpenApiInfo = {}) {
       tags: route.tags,
       responses: route.responses,
       operationId: buildOperationId(route.method, route.path),
+      'x-canonry-access': operationAccess(route.method, route.path),
     }
 
     if (route.description) operation.description = route.description

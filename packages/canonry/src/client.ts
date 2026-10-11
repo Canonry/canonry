@@ -36,7 +36,7 @@ import { PACKAGE_VERSION } from './package-version.js'
 import { getApiV1ProjectsByNameSchedules, getApiV1NotificationsEvents } from '@ainyc/canonry-api-client'
 import type { LogQuery, OperationalLogListDto, NotificationEvent } from '@ainyc/canonry-contracts'
 import { normalizeTelemetryStatus, type FeedbackAcceptedDto, type FeedbackSubmission, type TelemetryStatusInput } from '@ainyc/canonry-contracts'
-import { OPERATIONAL_LOG_FIELDS_HEADER, OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS, operationalLogListReadSchema } from '@ainyc/canonry-contracts'
+import { OPERATIONAL_LOG_FIELDS_HEADER, OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS, OPERATION_ACCESS_HEADER, operationalLogListReadSchema } from '@ainyc/canonry-contracts'
 import { getApiV1OperationsLogs } from '@ainyc/canonry-api-client'
 import type {
   VisibilityReportRequest, VisibilityReportResponse,
@@ -1102,7 +1102,7 @@ export class ApiClient {
     if (traceEnabled) {
       const durMs = Date.now() - traceStart
       process.stderr.write(
-        `[trace] ${result.request.method} ${redactRequestTarget(result.request.url)} → ${result.response.status} (${durMs}ms)\n`,
+        `[trace] ${result.request.method} ${redactRequestTarget(result.request.url)} → ${result.response.status} (${durMs}ms) access=${result.response.headers.get(OPERATION_ACCESS_HEADER) ?? 'unknown'}\n`,
       )
     }
 

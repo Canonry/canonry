@@ -1,5 +1,5 @@
 import type { McpServer, RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { CanonryMcpTool } from './tool-registry.js'
+import { toolOperationAccess, type CanonryMcpTool } from './tool-registry.js'
 import {
   CANONRY_MCP_TOOLKITS,
   isCanonryMcpToolkitName,
@@ -29,6 +29,7 @@ export interface ToolkitCatalogEntry {
   whenToLoad: string
   toolCount: number
   tools: string[]
+  liveTools: string[]
   loaded: boolean
 }
 
@@ -37,6 +38,7 @@ export interface HelpResult {
   eager: boolean
   loadedToolkits: CanonryMcpToolkitName[]
   coreTools: string[]
+  liveTools: string[]
   toolkits: ToolkitCatalogEntry[]
   usage: string
 }
@@ -108,6 +110,9 @@ export class DynamicToolCatalog {
       coreTools: this.entries
         .filter(entry => entry.tool.tier === 'core')
         .map(entry => entry.tool.name),
+      liveTools: this.entries
+        .filter(entry => entry.tool.tier === 'core' && toolOperationAccess(entry.tool) === 'live')
+        .map(entry => entry.tool.name),
       toolkits: CANONRY_MCP_TOOLKITS.map(toolkit => this.toolkitEntry(toolkit)).filter(entry => entry.toolCount > 0),
       usage: this.eager
         ? 'All tools available on this connection are already loaded. Use their listed schemas; tool visibility does not grant server permissions.'
@@ -124,6 +129,9 @@ export class DynamicToolCatalog {
       whenToLoad: toolkit.whenToLoad,
       toolCount: tools.length,
       tools,
+      liveTools: this.entries
+        .filter(entry => entry.tool.tier === toolkit.name && toolOperationAccess(entry.tool) === 'live')
+        .map(entry => entry.tool.name),
       loaded: this.loaded.has(toolkit.name),
     }
   }

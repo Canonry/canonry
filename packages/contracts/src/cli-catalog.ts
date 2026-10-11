@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { operationAccessSchema } from './operation-access.js'
 
 export const cliCatalogOptionSchema = z.object({
   name: z.string(),
@@ -12,6 +13,7 @@ export const cliCatalogCommandSchema = z.object({
   supportsDryRun: z.boolean(),
   windows: z.array(z.string()).optional(),
   options: z.array(cliCatalogOptionSchema),
+  access: operationAccessSchema,
 })
 export const cliCatalogSchema = z.object({
   version: z.string(),

@@ -15,6 +15,8 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/keys.ts` | API key management routes: `/keys` list, self, mint, revoke |
 | `src/request-context.ts` / `src/runtime-logger.ts` / `src/operational-logs.ts` | Request-local actor context; shared redacting logger; `GET /operations/logs` reader |
 | `src/openapi.ts` | OpenAPI spec generation, the source of the generated SDK (see "Typed responses") |
+
+Every API operation carries `x-canonry-access` metadata and responses expose the same value in the `x-canonry-access` header. When adding a live provider GET or other live operation, update `LIVE_READ_OPERATIONS` in `@ainyc/canonry-contracts` and its route-map test.
 | `src/projects.ts` / `src/runs.ts` | Project CRUD routes (largest route file); run trigger, status, and list routes |
 | `src/query-replace.ts` | `replaceProjectQueries`, the declarative tracked-query replace (see "Declarative query replacement") |
 | `src/competitor-writes.ts` | The one path that adds competitors or changes their curated aliases: `planCompetitorSet` / `syncCompetitorSet` (see "Competitor aliases") |

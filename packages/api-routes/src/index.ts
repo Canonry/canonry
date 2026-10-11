@@ -9,7 +9,7 @@ export { SentimentService } from './sentiment-service.js'
 export type { SentimentServiceOptions, SentimentInstallState } from './sentiment-service.js'
 export { selectSentimentSources } from './sentiment-source.js'
 export { sentimentClassifierInput, sentimentHash } from './sentiment-input.js'
-import { AppError, runtimeStateMissing, describeError } from '@ainyc/canonry-contracts'
+import { AppError, runtimeStateMissing, describeError, operationAccess, OPERATION_ACCESS_HEADER } from '@ainyc/canonry-contracts'
 import { authPlugin } from './auth.js'
 import { registerRequestContext, type RequestContextOptions } from './request-context.js'
 import { createOutcomeEmitter, type OutcomeTelemetryEvent, type OutcomeTelemetryInput } from './outcome-telemetry.js'
@@ -590,6 +590,18 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
         embedProjectTabs: opts.embedProjectTabs,
       })
     }
+
+    // Make the execution boundary visible to API and CLI callers. Fastify
+    // keeps the registered route template, so parameters never enter this
+    // classification or the response header.
+    api.addHook('onSend', async (request, reply) => {
+      const route = request.routeOptions.url
+      if (!route) return
+      const prefix = opts.routePrefix ?? '/api/v1'
+      const routePath = route.startsWith(prefix) ? route : `${prefix}${route.startsWith('/') ? '' : '/'}${route}`
+      const pathTemplate = routePath.replace(/:(\w+)/g, '{$1}').replace(/\*/g, '{wildcard}')
+      reply.header(OPERATION_ACCESS_HEADER, operationAccess(request.method, pathTemplate))
+    })
 
     // Sign-in surface. Registered inside the authenticated scope so it shares
     // the error handler and prefix, but each of its routes is on the auth

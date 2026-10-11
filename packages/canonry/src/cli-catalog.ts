@@ -4,6 +4,7 @@ import type { CliCatalogDto } from '@ainyc/canonry-contracts'
 import { CLI_GLOBAL_OPTIONS, commandOptions, commandUsage, printGroupHelp, type CliCommandSpec } from './cli-dispatch.js'
 import { type CliFormat, usageError } from './cli-error.js'
 import { emitJsonl } from './cli-output.js'
+import { resolveCliAccess } from './cli-access.js'
 
 const { version } = createRequire(import.meta.url)('../package.json') as { version: string }
 
@@ -286,6 +287,7 @@ export function buildCliCatalog(specs: readonly CliCommandSpec[]): CliCatalogDto
         supportsDryRun: spec.supportsDryRun ?? false,
         ...(spec.windows ? { windows: [...spec.windows] } : {}),
         options: catalogOptions(commandOptions(spec)),
+        access: resolveCliAccess(spec),
       })),
     }
   })

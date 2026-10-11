@@ -1,4 +1,4 @@
-import { trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema } from '@ainyc/canonry-contracts'
+import { trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, type OperationAccess } from '@ainyc/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
@@ -168,6 +168,14 @@ const writeAnnotations = (opts: { idempotentHint: boolean; destructiveHint?: boo
   destructiveHint: Boolean(opts.destructiveHint),
   ...(opts.openWorldHint ? { openWorldHint: opts.openWorldHint } : {}),
 })
+
+export function toolOperationAccess(tool: Pick<CanonryMcpTool, 'openApiOperations' | 'access'>): OperationAccess {
+  const derived = maxOperationAccess(tool.openApiOperations.map(operation => {
+    const separator = operation.indexOf(' ')
+    return separator < 0 ? 'stored' : operationAccess(operation.slice(0, separator), operation.slice(separator + 1))
+  }))
+  return tool.access === 'write' ? 'write' : derived
+}
 
 function defineTool<TSchema extends z.ZodTypeAny, TName extends string>(
   tool: Omit<CanonryMcpTool<TSchema, TName>, 'inputJsonSchema'>,
@@ -1314,7 +1322,7 @@ const sentimentPreviewInputSchema = sentimentBackfillSelectionSchema.safeExtend(
 })
 const sentimentBackfillInputSchema = sentimentBackfillRequestSchema.extend({ project: projectNameSchema })
 
-export const canonryMcpTools = [
+const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_sentiment_settings', title: 'Read sentiment readiness and settings',
     description: 'Read experimental sentiment configuration, evaluator identity, readiness and action permissions. No provider calls or credentials. Install administrators alone can configure or submit backfills.',
@@ -4444,6 +4452,11 @@ export const canonryMcpTools = [
     handler: (client, input) => client.triggerAdsSync(input.project),
   }),
 ] as const
+
+export const canonryMcpTools = rawCanonryMcpTools.map(tool => {
+  if (tool.access !== 'read' || toolOperationAccess(tool) !== 'live') return tool
+  return { ...tool, annotations: { ...tool.annotations, openWorldHint: true } }
+})
 
 export type CanonryMcpRegistryTool = typeof canonryMcpTools[number]
 export type CanonryMcpToolName = CanonryMcpRegistryTool['name']
