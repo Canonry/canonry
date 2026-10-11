@@ -198,7 +198,9 @@ export function installScrollSpy() {
 }
 
 export const advancedResetLine = 'New numbers next sweep'
-export const advancedResetNotice = 'After you publish, location pages and competitor results show no numbers until the next sweep. AI Visibility keeps showing the last sweep. Past answers are kept. Publishing does not run a sweep.'
+export const advancedResetNotice = 'After you publish, AI Visibility and location pages keep showing the last sweep, marked Tracking changed, until the next sweep. Past answers are kept. Publishing does not run a sweep.'
+/** Words of that notice, for a check that it is never visible text. Kept beside it so a reworded notice cannot leave the check matching nothing. */
+export const advancedResetNoticeWords = /keep showing the last sweep/
 export const sweepActiveLabel = 'Sweep running'
 export const sweepActiveMessage = 'A sweep is queued or running. Publish after it finishes.'
 

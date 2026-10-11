@@ -5,7 +5,7 @@ import { RESEARCH_COPY } from '../src/components/project/ResearchQueriesSection.
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 import {
-  active, advancedResetLine, advancedResetNotice, expectNoSentence, installWorkspaceApi, noteButton, preview, previewToken, removalDiff, removalWorkload,
+  active, advancedResetLine, advancedResetNotice, advancedResetNoticeWords, expectNoSentence, installWorkspaceApi, noteButton, preview, previewToken, removalDiff, removalWorkload,
   renderViewerWorkspace, renderWorkspace, workspace, workspaceVersion,
 } from './support/query-tracking-fixtures.js'
 
@@ -103,7 +103,7 @@ test.each([
   expect((await reviewRemoval()).textContent).toBe(heading)
   if (subcopy) expect(screen.getByText(subcopy)).toBeTruthy()
   else expect(screen.queryByText('This request leaves tracking unchanged.')).toBeNull()
-  expect(screen.queryByText(/AI Visibility keeps showing the last sweep/)).toBeNull()
+  expect(screen.queryByText(advancedResetNoticeWords)).toBeNull()
   expect(screen.queryByText(advancedResetLine)).toBeNull()
   expect(screen.queryByRole('button', { name: `${advancedResetLine}. ${advancedResetNotice}` })).toBeNull()
 })

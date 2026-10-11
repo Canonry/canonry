@@ -21,6 +21,8 @@ export const PROJECT_QUERY_DOMAINS = {
   traffic: 'getApiV1ProjectsByNameTraffic',
   discovery: 'getApiV1ProjectsByNameDiscover',
   researchRuns: 'getApiV1ProjectsByNameResearchRuns',
+  // The measurement plan and every read of it: overview, location evidence, answer text, named instead.
+  measurement: 'getApiV1ProjectsByNameMeasurement',
   visibilityReport: 'getApiV1ProjectsByNameVisibilityReport',
   queryTracking: 'getApiV1ProjectsByNameQueryTracking',
   // The results read alone. The `queryTracking` prefix above also matches it.
@@ -43,6 +45,27 @@ export function invalidateProjectQueryDomain(
       return typeof head?._id === 'string' && head._id.startsWith(prefix)
     },
   })
+}
+
+/** Measurement reads keyed by the run they show, or by one answer of it: location evidence and answer text. */
+const RUN_KEYED_MEASUREMENT_READS: readonly string[] = [
+  'getApiV1ProjectsByNameMeasurementPropertyEvidence',
+  'getApiV1ProjectsByNameMeasurementQuestionResult',
+]
+
+/**
+ * A sweep completed, so every measurement read is stale. The plan, the overviews and named instead are
+ * read again now. A read keyed by a run is only marked: the overview's new `displayedRunId` changes its
+ * key, and that is the one read needed. Refetched here it would ask for the sweep before first, a
+ * full-run read on the server, and one the server refuses once the tracking has changed.
+ */
+export function invalidateMeasurementReadsAfterSweep(queryClient: Pick<QueryClient, 'invalidateQueries'>): Promise<void> {
+  const idOf = (query: Query) => (query.queryKey[0] as { _id?: string } | undefined)?._id
+  const runKeyed = (query: Query) => RUN_KEYED_MEASUREMENT_READS.includes(idOf(query) ?? '')
+  const marked = queryClient.invalidateQueries({ predicate: runKeyed, refetchType: 'none' })
+  return queryClient.invalidateQueries({
+    predicate: query => (idOf(query)?.startsWith(PROJECT_QUERY_DOMAINS.measurement) ?? false) && !runKeyed(query),
+  }).then(() => marked)
 }
 
 /** Query publication changes live assignments, the measurement revision and which results still hold. */
