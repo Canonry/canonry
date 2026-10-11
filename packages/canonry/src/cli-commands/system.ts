@@ -34,11 +34,12 @@ function applyServerEnv(values: CliValues): void {
 export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['help'],
-    usage: 'canonry help [<group>] [--format json|jsonl]',
+    usage: 'canonry help [<group>] [--access stored|live|write] [--format json|jsonl]',
+    options: { access: stringOption() },
     run: async input => {
       if (input.positionals.length > 1) throw usageError('Expected at most one command group')
       const [{ printCliCatalog }, { REGISTERED_CLI_COMMANDS }] = await Promise.all([import('../cli-catalog.js'), import('../cli-commands.js')])
-      printCliCatalog(REGISTERED_CLI_COMMANDS, input.format, input.positionals[0])
+      printCliCatalog(REGISTERED_CLI_COMMANDS, input.format, input.positionals[0], getString(input.values, 'access'))
     },
   },
   {

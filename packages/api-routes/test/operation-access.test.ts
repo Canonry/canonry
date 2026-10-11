@@ -36,4 +36,10 @@ describe('OpenAPI operation access metadata', () => {
       expect(operations.has(operation)).toBe(true)
     }
   })
+
+  it('keeps access metadata when the API is mounted below a proxy prefix', () => {
+    const document = buildOpenApiDocument({ routePrefix: '/canonry/api/v1' }) as { paths: Record<string, Record<string, { 'x-canonry-access'?: string }>> }
+    expect(document.paths['/canonry/api/v1/projects/{name}/google/properties']?.get?.['x-canonry-access']).toBe('live')
+    expect(document.paths['/canonry/api/v1/projects/{name}/measurement-plan/compile-preview']?.post?.['x-canonry-access']).toBe('stored')
+  })
 })

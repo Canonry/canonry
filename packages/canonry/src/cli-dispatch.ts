@@ -79,6 +79,7 @@ export const CLI_GLOBAL_OPTIONS: ParseArgsOptionsConfig = {
   format: { type: 'string' },
   'dry-run': { type: 'boolean' },
   trace: { type: 'boolean' },
+  access: { type: 'string' },
 }
 
 export function commandOptions(spec: CliCommandSpec): ParseArgsOptionsConfig {

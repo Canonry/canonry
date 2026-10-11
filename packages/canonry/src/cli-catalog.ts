@@ -313,8 +313,15 @@ export function renderTopLevelHelp(catalog: CliCatalogDto): string {
   return lines.join('\n')
 }
 
-export function printCliCatalog(specs: readonly CliCommandSpec[], format: CliFormat, group?: string): void {
+export function printCliCatalog(specs: readonly CliCommandSpec[], format: CliFormat, group?: string, access?: string): void {
   const catalog = buildCliCatalog(specs)
+  if (access !== undefined && access !== 'stored' && access !== 'live' && access !== 'write') {
+    throw usageError(`Unknown access filter: ${access}`, { details: { access } })
+  }
+  if (access) {
+    for (const entry of catalog.groups) entry.commands = entry.commands.filter(command => command.access === access)
+    catalog.groups = catalog.groups.filter(entry => entry.commands.length > 0)
+  }
   if (group) {
     catalog.groups = catalog.groups.filter(entry => entry.root === group)
     if (!catalog.groups.length) throw usageError(`Unknown command group: ${group}`, { details: { group, usage: 'canonry help [<group>] [--format json|jsonl]' } })
