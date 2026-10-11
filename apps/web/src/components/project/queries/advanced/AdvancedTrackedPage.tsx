@@ -44,11 +44,7 @@ import { activeFilterCount, DEFAULT_TRACKED_FILTERS, matchesTrackedFilters, trac
 import type { TrackedFilters, TrackedRowAction, TrackedRowVm, TrackedType } from './tracked-types.js'
 import { DEFAULT_TRACKED_SORT, engineSignal, resultClasses, sortTrackedRows, toTrackedRows, type TrackedCoverage, type TrackedSort } from './tracked-view-model.js'
 
-type PageProps = TrackedQueriesPageProps & TrackedPageHostProps & {
-  composer: TrackingComposerState
-  /** The host's URL patch. Each one is a new history entry, unless it is told to replace the entry it is on. */
-  onSelectionChange?: (patch: Record<string, unknown>, options?: { replace?: boolean }) => void
-}
+type PageProps = TrackedQueriesPageProps & TrackedPageHostProps & { composer: TrackingComposerState }
 
 const PAGE_SIZES = [25, 50, 100] as const
 /** One page is as many rows as one change takes, so "Select this page" never passes the limit. */

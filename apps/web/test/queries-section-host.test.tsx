@@ -195,15 +195,22 @@ const UPTOWN = { measurementScope: 'market' as const, measurementScopeKey: 'upto
 test.each([
   // The host knows the mode from a plan it already read: the skeleton has the advanced page's strip, Views row and
   // toolbar, and the room of its actions, which take a line of their own in a narrow frame: Export CSV, and Add for a writer.
-  ['an advanced project the host knows', 'advanced' as const, undefined, undefined, 3, 2],
-  ['an advanced project read by a viewer, who gets Export CSV and no Add button', 'advanced' as const, 'viewer' as const, undefined, 3, 1],
+  ['an advanced project the host knows', 'advanced' as const, undefined, undefined, 3, 2, undefined],
+  ['an advanced project read by a viewer, who gets Export CSV and no Add button', 'advanced' as const, 'viewer' as const, undefined, 3, 1, undefined],
   // The Views row is the whole project's: a place has none, so no room is held for one.
-  ['an advanced project opened on a place', 'advanced' as const, undefined, UPTOWN, 2, 2],
+  ['an advanced project opened on a place', 'advanced' as const, undefined, UPTOWN, 2, 2, undefined],
+  // A view's list draws no Export CSV, so a link that opens on one holds no room for it.
+  ['an advanced project a viewer opens on a view', 'advanced' as const, 'viewer' as const, undefined, 3, 0, { trackedView: 'thin-markets' }],
+  ['an advanced project a writer opens on a view', 'advanced' as const, undefined, undefined, 3, 1, { trackedView: 'thin-markets' }],
+  // A link to a row opens the queries, and so does a view named under a place or one the page does not know.
+  ['an advanced project opened on a linked row behind a view', 'advanced' as const, 'viewer' as const, undefined, 3, 1, { trackedView: 'thin-markets', trackingQueryId: 'q-1' }],
+  ['an advanced project opened on a place with a view named', 'advanced' as const, 'viewer' as const, UPTOWN, 2, 1, { trackedView: 'thin-markets' }],
+  ['an advanced project opened on a view the page does not know', 'advanced' as const, 'viewer' as const, undefined, 3, 1, { trackedView: 'no-such-view' }],
   // Until any read says which page this is, a plain list of rows stands for both.
-  ['a project whose mode is not known yet', undefined, undefined, undefined, 0, 0],
-])('while the workspace loads, %s gets a skeleton and no words', async (_label, trackedMode, role, selection, above, actions) => {
+  ['a project whose mode is not known yet', undefined, undefined, undefined, 0, 0, undefined],
+])('while the workspace loads, %s gets a skeleton and no words', async (_label, trackedMode, role, selection, above, actions, link) => {
   onTestFinished(mockFetch(() => new Promise<Response>(() => {})))
-  renderSection({ trackedMode, selection }, role)
+  renderSection({ trackedMode, selection, ...link }, role)
   const rows = await screen.findByRole('status', { name: 'Loading queries' })
   expect(rows.children).toHaveLength(8)
   // What stands above the rows is drawing only: nothing to read and nothing to reach.
@@ -236,6 +243,23 @@ test('the skeleton holds one line of the Views row at the row\'s own height, wit
   expect(shape(row, button).map(value => cssLengthPx(value!, rules))).toEqual([8, 1, 32, 44, 44])
   // One line that never scrolls the page sideways.
   expect([compiledElementProperty(rules, held, 'overflow'), compiledElementProperty(rules, held, 'flex-wrap')]).toEqual(['hidden', undefined])
+})
+
+test.each([
+  // The project's strip is five numbers and ends on links, 44px below md and under a finger.
+  ['the whole project', undefined, 5, [undefined, '44px', '44px']],
+  // A place's strip is four numbers and ends on plain text.
+  ['a place', UPTOWN, 4, [undefined, undefined, undefined]],
+])('the strip skeleton for %s has its numbers and the height its last cell ends on', async (_label, selection, numbers, heights) => {
+  onTestFinished(mockFetch(() => new Promise<Response>(() => {})))
+  renderSection({ trackedMode: 'advanced', selection })
+  const rows = await screen.findByRole('status', { name: 'Loading queries' })
+  const strip = rows.parentElement!.children[0]!.firstElementChild as HTMLElement
+  expect(strip.children).toHaveLength(numbers + 1)
+  const last = strip.lastElementChild!.firstElementChild as HTMLElement
+  const rules = parseCompiledCss(await compileAppStyles([...last.classList]))
+  const frames = [undefined, '@media (width < 48rem)', '@media (pointer: coarse)']
+  expect(frames.map(frame => { const value = compiledElementProperty(rules, last, 'min-height', frame); return value === undefined ? undefined : `${cssLengthPx(value, rules)}px` })).toEqual(heights)
 })
 
 test('a refresh that fails keeps the loaded page and says so, with one Retry that reads again', async () => {

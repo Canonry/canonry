@@ -290,7 +290,8 @@ export function TrackedSummaryGridSkeleton({ cells = 5 }: { cells?: number }) {
           <div className="flex h-7 items-center"><div className="skeleton-text h-4 w-12" /></div>
         </div>
       ))}
-      <div className={lastCellClass(cells, shape)}><div className="skeleton-text w-40 max-w-full" /></div>
+      {/* The project's strip ends on links, 44px under a finger; a place's ends on plain text. */}
+      <div className={lastCellClass(cells, shape)}><div className={`flex items-center ${cells > 4 ? 'pointer-coarse:min-h-11 max-md:min-h-11' : ''}`}><div className="skeleton-text w-40 max-w-full" /></div></div>
     </div></div>
   )
 }
