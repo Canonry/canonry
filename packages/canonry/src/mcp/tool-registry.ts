@@ -6,7 +6,7 @@ import {
   sentimentEvidencePageReadSchema, sentimentComparisonReadSchema, sentimentBackfillPreviewReadSchema, sentimentJobsReadSchema,
   sentimentJobReadSchema, sentimentSummaryIncludeSchema, sentimentEvidenceOutcomeFilterSchema, queryClassSchema, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_MAX,
 } from '@ainyc/canonry-contracts'
-import { agentConversationCreateSchema } from '@ainyc/canonry-contracts'
+import { agentConversationCreateSchema, reportedQueryClasses } from '@ainyc/canonry-contracts'
 import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS } from '@ainyc/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
@@ -1917,7 +1917,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_queries_list',
     title: 'List queries',
-    description: 'List tracked queries for a Canonry project.',
+    description: 'List tracked queries for a Canonry project. Each row carries queryClass as the server classes it: branded, non-brand, or null when no single class exists (no usable brand name, or the active measurement plan holds no single class for the query). A row with no queryClass comes from a server older than the field: the class is unknown, not null. Never infer a class from the query text.',
     access: 'read',
     tier: 'setup',
     inputSchema: projectInputSchema,
@@ -3172,14 +3172,15 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_queries_add',
     title: 'Add queries',
-    description: 'Append tracked queries to a Canonry project; existing queries are skipped by the API.',
+    description: 'Append tracked queries to a Canonry project; existing queries are skipped by the API. Returns queryClasses: each requested query with the class the server gave it (branded, non-brand, or null when no single class exists). An entry with no queryClass means the server did not report one.',
     access: 'write',
     tier: 'setup',
     inputSchema: queriesInputSchema,
     annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/queries'],
     handler: async (client, input) => {
-      await client.appendQueries(input.project, uniqueStrings(input.request.queries))
+      const queries = uniqueStrings(input.request.queries)
+      return { ok: true, queryClasses: reportedQueryClasses(queries, await client.appendQueries(input.project, queries)) }
     },
   }),
   defineTool({

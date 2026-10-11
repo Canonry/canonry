@@ -1430,8 +1430,9 @@ export class ApiClient {
     )
   }
 
-  async appendQueries(project: string, queries: string[]): Promise<void> {
-    await this.invoke<unknown>(() =>
+  /** Appends (existing texts are skipped) and returns the project's full query list, each row with its `queryClass`. */
+  async appendQueries(project: string, queries: string[]): Promise<QueryDto[]> {
+    return this.invoke<QueryDto[]>(() =>
       postApiV1ProjectsByNameQueries({ client: this.heyClient, path: { name: project }, body: { queries } }),
     )
   }

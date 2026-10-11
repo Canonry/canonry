@@ -150,7 +150,9 @@ describe('canonry-mcp stdio', () => {
       arguments: { project: 'acme', request: { queries: ['alpha', 'alpha'] } },
     })
     expect(addQueries.isError).not.toBe(true)
-    expect(jsonText(addQueries)).toEqual({ ok: true })
+    // The class is the API's, read back from the rows the append returns; the
+    // repeated query is reported once.
+    expect(jsonText(addQueries)).toEqual({ ok: true, queryClasses: [{ query: 'alpha', queryClass: 'non-brand' }] })
 
     const invalid = await client.callTool({
       name: 'canonry_queries_add',
@@ -465,7 +467,7 @@ function handleRequest(request: IncomingMessage, response: ServerResponse, onRun
   }
   if (request.method === 'POST' && url.pathname === '/api/v1/projects/acme/queries') {
     request.resume()
-    send(response, [{ id: 'k1', query: 'alpha', createdAt: '2026-04-27T00:00:00Z' }])
+    send(response, [{ id: 'k1', query: 'alpha', createdAt: '2026-04-27T00:00:00Z', queryClass: 'non-brand' }])
     return
   }
   if (request.method === 'GET' && url.pathname === '/api/v1/projects/acme/traffic/sources') {
