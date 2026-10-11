@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createClient, migrate, projects } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { GoogleConnectionRecord, GoogleConnectionStore } from '../src/google.js'
-import { GOOGLE_TOKEN_URL, GSC_API_BASE, URL_INSPECTION_API } from '../../integration-google/src/constants.js'
+import { GOOGLE_TOKEN_URL, GSC_API_BASE, INDEXING_API_BASE, URL_INSPECTION_API } from '../../integration-google/src/constants.js'
 import { GA4_ADMIN_API_BASE, GA4_DATA_API_BASE, GOOGLE_TOKEN_URL as GA_TOKEN_URL } from '../../integration-google-analytics/src/constants.js'
 import { GBP_ACCOUNT_MANAGEMENT_BASE, GBP_BUSINESS_INFO_BASE, GBP_LEGACY_V4_BASE, GBP_LODGING_BASE, GBP_PERFORMANCE_BASE } from '../../integration-google-business-profile/src/constants.js'
 import { BING_WMT_API_BASE } from '../../integration-bing/src/constants.js'
@@ -42,10 +42,14 @@ function result(host: string, kind: 'reachable' | 'null-routed' | 'private-addre
 
 describe('provider API host doctor checks', () => {
   it('keeps the supported provider host table aligned with integration constants', () => {
-    expect(API_HOST_TABLE.gsc).toEqual(expect.arrayContaining([new URL(GSC_API_BASE).hostname, new URL(URL_INSPECTION_API).hostname, new URL(GOOGLE_TOKEN_URL).hostname]))
-    expect(API_HOST_TABLE.ga).toEqual(expect.arrayContaining([new URL(GA4_DATA_API_BASE).hostname, new URL(GA4_ADMIN_API_BASE).hostname, new URL(GA_TOKEN_URL).hostname]))
-    expect(API_HOST_TABLE.gbp).toEqual(expect.arrayContaining([new URL(GBP_ACCOUNT_MANAGEMENT_BASE).hostname, new URL(GBP_BUSINESS_INFO_BASE).hostname, new URL(GBP_LEGACY_V4_BASE).hostname, new URL(GBP_PERFORMANCE_BASE).hostname, new URL(GBP_LODGING_BASE).hostname]))
+    expect(API_HOST_TABLE.gsc).toEqual([new URL(GSC_API_BASE).hostname, new URL(URL_INSPECTION_API).hostname, new URL(GOOGLE_TOKEN_URL).hostname])
+    expect(API_HOST_TABLE.gsc).not.toContain(new URL(INDEXING_API_BASE).hostname)
+    expect(API_HOST_TABLE.ga).toEqual([new URL(GA4_DATA_API_BASE).hostname, new URL(GA4_ADMIN_API_BASE).hostname, new URL(GA_TOKEN_URL).hostname])
+    expect(API_HOST_TABLE.gbp).toEqual([new URL(GBP_ACCOUNT_MANAGEMENT_BASE).hostname, new URL(GBP_BUSINESS_INFO_BASE).hostname, new URL(GBP_PERFORMANCE_BASE).hostname, new URL(GBP_LEGACY_V4_BASE).hostname, new URL(GBP_LODGING_BASE).hostname, new URL(GA_TOKEN_URL).hostname])
     expect(API_HOST_TABLE.bing).toEqual([new URL(BING_WMT_API_BASE).hostname])
+    expect(API_HOST_TABLE['google-ads']).toEqual(['googleads.googleapis.com', 'oauth2.googleapis.com'])
+    expect(API_HOST_TABLE.gtm).toEqual(['tagmanager.googleapis.com', 'oauth2.googleapis.com'])
+    expect(API_HOST_TABLE.ads).toEqual(['api.ads.openai.com'])
   })
 
   it.each([
@@ -57,7 +61,10 @@ describe('provider API host doctor checks', () => {
     expect(response.statusCode).toBe(200)
     const check = JSON.parse(response.payload).checks[0]
     expect(check.code).toBe(`gsc.api.${code}`)
-    expect(check.details.hosts).toHaveLength(3)
+    expect(check.details.hosts).toEqual(API_HOST_TABLE.gsc.map(host => result(host, kind)))
+    expect(check.details.hosts.every((host: { kind: string; addresses: string[]; durationMs: number }) => host.kind === kind && host.addresses.length > 0 && host.durationMs === 1)).toBe(true)
+    if (kind === 'null-routed') expect(check.remediation).toContain('canonry doctor --project demo --check gsc.api.reachable')
+    if (kind === 'null-routed') expect(check.remediation).toContain('canonry google sync demo')
   })
 
   it('names a null-routed host and skips disconnected integrations', async () => {

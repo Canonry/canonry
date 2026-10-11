@@ -18,7 +18,9 @@ async function fetchWithContext(input: string | URL, init?: RequestInit): Promis
   try {
     return await fetch(input, init)
   } catch (error) {
-    throw new Error(describeFetchError(error, input), { cause: error })
+    const contextual = new Error(describeFetchError(error, input), { cause: error })
+    if (error instanceof Error) contextual.name = error.name
+    throw contextual
   }
 }
 import {

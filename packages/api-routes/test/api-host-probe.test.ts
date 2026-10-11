@@ -4,7 +4,7 @@ import { probeApiHost, resetApiHostProbeCacheForTest } from '../src/api-host-pro
 afterEach(() => resetApiHostProbeCacheForTest())
 
 describe('probeApiHost', () => {
-  it.each(['0.0.0.0', '::', '127.0.0.1'])('does not dial null-routed address %s', async address => {
+  it.each(['0.0.0.0', '0.1.2.3', '0.255.255.255', '::', '127.0.0.1'])('does not dial null-routed address %s', async address => {
     let connects = 0
     const result = await probeApiHost('provider.example', { lookup: async () => [{ address, family: address.includes(':') ? 6 : 4 }], connect: async () => { connects++; return 'reachable' } })
     expect(result.kind).toBe('null-routed')
@@ -53,5 +53,38 @@ describe('probeApiHost', () => {
     now = 5 * 60_000 + 1
     await probeApiHost('ttl.example', ttlOptions)
     expect(lookups).toBe(2)
+  })
+
+  it.each(['CERT_HAS_EXPIRED', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'SELF_SIGNED_CERT_IN_CHAIN', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'ERR_TLS_CERT_ALTNAME_INVALID'] as const)('grades certificate error %s as TLS failure without an HTTP dial', async code => {
+    let tlsAttempts = 0
+    const result = await probeApiHost(`tls-${code}.example`, {
+      lookup: async () => [{ address: '192.0.2.30', family: 4 }],
+      connect: async () => {
+        tlsAttempts++
+        throw Object.assign(new Error(code), { code })
+      },
+    })
+    expect(result.kind).toBe('tls-failed')
+    expect(tlsAttempts).toBe(1)
+  })
+
+  it('coalesces concurrent probes before applying the cache', async () => {
+    let lookups = 0
+    let connects = 0
+    let release: (() => void) | undefined
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const options = {
+      lookup: async () => { lookups++; await gate; return [{ address: '192.0.2.20', family: 4 }] },
+      connect: async () => { connects++; return 'reachable' as const },
+    }
+    const first = probeApiHost('concurrent.example', options)
+    const second = probeApiHost('concurrent.example', options)
+    release!()
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { kind: 'reachable', host: 'concurrent.example', addresses: ['192.0.2.20'], durationMs: expect.any(Number) },
+      { kind: 'reachable', host: 'concurrent.example', addresses: ['192.0.2.20'], durationMs: expect.any(Number) },
+    ])
+    expect(lookups).toBe(1)
+    expect(connects).toBe(1)
   })
 })

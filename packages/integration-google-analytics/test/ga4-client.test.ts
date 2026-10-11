@@ -631,6 +631,17 @@ describe('GA4 retry on transient errors', () => {
     expect(callCount).toBe(2)
   })
 
+  it('retries timeout-shaped fetch failures after adding endpoint context', async () => {
+    fetchSpy
+      .mockRejectedValueOnce(Object.assign(new Error('request timed out'), { name: 'AbortError' }))
+      .mockResolvedValueOnce(okResponse())
+
+    const promise = verifyConnectionWithToken('fake-token', '123456')
+    await vi.runAllTimersAsync()
+    await expect(promise).resolves.toBe(true)
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+  })
+
   it('honors Retry-After on a 5xx response', async () => {
     let callCount = 0
     fetchSpy.mockImplementation(async () => {

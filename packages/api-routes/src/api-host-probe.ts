@@ -21,11 +21,26 @@ export interface ApiHostProbeOptions {
   cacheTtlMs?: number
 }
 
+function isTlsProbeError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code ?? ''
+  return code === 'ECONNRESET'
+    || code.startsWith('ERR_SSL_')
+    || code.startsWith('ERR_TLS_')
+    || code.startsWith('CERT_')
+    || code.startsWith('UNABLE_TO_VERIFY_')
+    || code.startsWith('SELF_SIGNED_')
+    || code.startsWith('DEPTH_ZERO_')
+}
+
 const DEFAULT_TIMEOUT_MS = 5_000
 const DEFAULT_CACHE_TTL_MS = 5 * 60_000
 const cache = new Map<string, { at: number; result: ApiHostProbeResult }>()
+const inFlight = new Map<string, Promise<ApiHostProbeResult>>()
 
-export function resetApiHostProbeCacheForTest(): void { cache.clear() }
+export function resetApiHostProbeCacheForTest(): void {
+  cache.clear()
+  inFlight.clear()
+}
 
 function defaultLookup(host: string): Promise<Array<{ address: string; family: number }>> {
   return dns.lookup(host, { all: true })
@@ -44,8 +59,7 @@ function defaultConnect(host: string, address: string, timeoutMs: number): Promi
     socket.once('secureConnect', () => finish('reachable'))
     socket.once('timeout', () => finish('connect-failed'))
     socket.once('error', error => {
-      const code = (error as NodeJS.ErrnoException).code ?? ''
-      finish(code === 'ECONNRESET' || code.startsWith('ERR_SSL_') || code.startsWith('ERR_TLS_') || code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ? 'tls-failed' : 'connect-failed')
+      finish(isTlsProbeError(error) ? 'tls-failed' : 'connect-failed')
     })
   })
 }
@@ -70,12 +84,12 @@ async function lookupWithDeadline(
 
 function classifyBlocked(address: string): 'null-routed' | 'private-address' | null {
   const normalized = address.toLowerCase()
-  if (normalized === '0.0.0.0' || normalized === '::' || isLoopbackAddress(address)) return 'null-routed'
+  if (normalized === '::' || isLoopbackAddress(address) || blockedAddressReason(address) === 'which is unspecified space') return 'null-routed'
   if (blockedAddressReason(address)) return 'private-address'
   return null
 }
 
-export async function probeApiHost(host: string, options: ApiHostProbeOptions = {}): Promise<ApiHostProbeResult> {
+async function probeApiHostUncached(host: string, options: ApiHostProbeOptions): Promise<ApiHostProbeResult> {
   const now = options.now ?? Date.now
   const cached = cache.get(host)
   const ttl = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS
@@ -101,9 +115,31 @@ export async function probeApiHost(host: string, options: ApiHostProbeOptions = 
     cache.set(host, { at: now(), result })
     return result
   }
-  const attempts = await Promise.all(publicAddresses.map(record => connect(host, record.address, options.timeoutMs ?? DEFAULT_TIMEOUT_MS)))
+  const attempts = await Promise.all(publicAddresses.map(async record => {
+    try {
+      return await connect(host, record.address, options.timeoutMs ?? DEFAULT_TIMEOUT_MS)
+    } catch (error) {
+      return isTlsProbeError(error) ? 'tls-failed' as const : 'connect-failed' as const
+    }
+  }))
   const kind: ApiHostProbeKind = attempts.includes('reachable') ? 'reachable' : attempts.includes('tls-failed') ? 'tls-failed' : 'connect-failed'
   const result = { kind, host, addresses, durationMs: now() - started }
   cache.set(host, { at: now(), result })
   return result
+}
+
+export async function probeApiHost(host: string, options: ApiHostProbeOptions = {}): Promise<ApiHostProbeResult> {
+  const now = options.now ?? Date.now
+  const cached = cache.get(host)
+  const ttl = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS
+  if (cached && now() - cached.at < ttl) return cached.result
+  const pending = inFlight.get(host)
+  if (pending) return pending
+  const current = probeApiHostUncached(host, options)
+  inFlight.set(host, current)
+  try {
+    return await current
+  } finally {
+    if (inFlight.get(host) === current) inFlight.delete(host)
+  }
 }
