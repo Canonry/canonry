@@ -301,7 +301,14 @@ Moving between the three keeps what each form holds: a draft, a preview and the 
 A **Pattern** repeats a query across explicit markets, properties, or configured locations.
 Groups are not research destinations.
 Neither process adds queries to official tracking automatically.
-**Review for tracking** sends selected results through the same assignment preview.
+On an Advanced project, tick results and choose **Track**. Results ticked in several runs go in one review, at most 50.
+Each is added for the market or location its run was saved under. A result with none, such as a Find ideas result, takes the Subject chosen in the sheet.
+A result tracked for a location also counts in every market that holds the location, as the Add queries sheet does.
+A query is tracked by its text, for one Subject. The same text ticked twice under one Subject is added once. Ticked under two, both rows are marked and the review waits until one Subject is left.
+Any row can be removed in the sheet, so a location in no market on a project with several search locations does not hold the rest back.
+A query that is already tracked shows its Subject under **Tracked** and cannot be ticked.
+On a Simple project **Review for tracking** sends one result through the same preview. Find ideas offers the same on any project until the page knows the project is Advanced.
+An embed has no Tracked column and nothing to tick.
 
 ### Repeat research across destinations
 

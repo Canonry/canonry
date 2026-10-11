@@ -1,7 +1,8 @@
-import { useEffect, useId, useState, type ReactNode, type Ref } from 'react'
-import { Ban, Clock, Info, MousePointerClick } from 'lucide-react'
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode, type Ref } from 'react'
+import { AlertTriangle, Ban, Clock, Info, MousePointerClick } from 'lucide-react'
 import {
   CitationStates,
+  normalizeIdentityText,
   ResearchQueryStatuses,
   ResearchRunStatuses,
   type ResearchRunDetailDto,
@@ -20,7 +21,9 @@ import { SignalLegend, SignalPair, type EngineSignal } from '../../../shared/Sig
 import { SourceLink } from '../../../shared/SourceLink.js'
 import { StatusNote } from '../../../shared/StatusNote.js'
 import { ToneBadge } from '../../../shared/ToneBadge.js'
+import { Button } from '../../../ui/button.js'
 import { Card } from '../../../ui/card.js'
+import type { TrackResearchItem } from './TrackResearchSheet.js'
 
 /** The words of the Results card. `RESEARCH_COPY` in `ResearchQueriesSection.tsx` holds them with the rest of the Research copy. */
 export const RESEARCH_RESULTS_COPY = {
@@ -38,15 +41,87 @@ export const RESEARCH_RESULTS_COPY = {
   templateProvenance: 'Pattern details',
   resolvedTextHelp: 'The queries below are the final text sent to the engine, including any edits.',
   reviewHelp: 'Only this saved query text goes to tracking review. Its answer stays research evidence.',
+  trackHelp: "Tick queries, then Track. Only the query text is tracked, for its run's Subject. Its answer stays research evidence. Nothing here starts a sweep.",
   citedCompetitorsHelp: 'Cited as a source, not only named in the answer.',
   noAnswer: 'No answer',
   answerPending: 'Answer pending',
   brandedQuery: 'Branded',
   nonBrandQuery: 'Non-brand',
   untypedQuery: 'Not set',
+  tracked: 'Tracked',
+  notTracked: 'No',
+  notLoaded: 'Not loaded',
+  trackedNotLoaded: 'Tracked not loaded',
+  trackedError: 'Tracked queries did not load, so no row can say whether it is tracked.',
+  selectAll: 'Select all rows',
+  selectedActions: 'Selected actions',
 } as const
 
 export type ResearchTrackingSource = { researchRunQueryId: string; scope?: ResearchRunScope | null }
+
+/**
+ * What a Research table needs to mark the queries that are already tracked
+ * and to tick the rest, on an Advanced project. A Simple project gives none,
+ * and keeps "Review for tracking".
+ */
+export type ResearchTracking = {
+  /** Each tracked query's Subject, as the Tracked table words it, by the query's identity text. Undefined until the tracked queries have loaded. */
+  subjects: ReadonlyMap<string, string> | undefined
+  /** The tracked queries did not load: no row is marked or ticked until `onRetry` reads them. */
+  failed: boolean
+  onRetry: () => void
+  /** Left out for an account that cannot track: no row gets a box. */
+  selection?: {
+    pickedIds: ReadonlySet<string>
+    onPick: (items: readonly TrackResearchItem[], picked: boolean) => void
+    /** The id of the bar for the ticked rows, which follows the page: the table holds a link to it. */
+    barId: string
+  }
+}
+/** The Results card reads this from its page, not from props: the form between them only passes a run along. */
+export const ResearchTrackingContext = createContext<ResearchTracking | null>(null)
+
+/** The Subject a tracked query has, or null when the query is not tracked. Undefined until the tracked queries have loaded. */
+export function trackedSubjectOf(tracking: ResearchTracking, query: string): string | null | undefined {
+  return tracking.subjects ? tracking.subjects.get(normalizeIdentityText(query)) ?? null : undefined
+}
+
+/** The Tracked cell of a Research table: the Subject of a tracked query, or No. A read that failed is not a No. */
+export function TrackedCell({ tracking, subject }: { tracking: ResearchTracking; subject: string | null | undefined }) {
+  if (subject === undefined) return tracking.failed ? <span className="text-muted">{RESEARCH_RESULTS_COPY.notLoaded}</span> : <span aria-hidden="true" className="skeleton-text block w-12" />
+  return subject === null ? <span className="text-muted">{RESEARCH_RESULTS_COPY.notTracked}</span> : subject
+}
+
+/** Over a Research table whose tracked queries did not load. Named for what is missing and in the caution tone: the table's own rows did load. */
+export function TrackedReadFailed({ tracking }: { tracking: ResearchTracking }) {
+  return (
+    <div role="alert">
+      <StatusNote icon={AlertTriangle} tone="caution" label={RESEARCH_RESULTS_COPY.trackedNotLoaded} detail={RESEARCH_RESULTS_COPY.trackedError} action={<Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11 max-md:min-h-11" aria-label="Retry tracked queries" onClick={tracking.onRetry}>Retry</Button>} />
+    </div>
+  )
+}
+
+/** A box in a Research table, drawn as the Tracked table draws its own. A dash is some of the rows. */
+export function TrackBox({ label, checked, indeterminate = false, disabled = false, onChange }: { label: string; checked: boolean; indeterminate?: boolean; disabled?: boolean; onChange: (checked: boolean) => void }) {
+  const box = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (box.current) box.current.indeterminate = indeterminate
+  }, [indeterminate])
+  return (
+    <label className="tracked-check">
+      <input ref={box} type="checkbox" className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" aria-label={label} checked={checked} disabled={disabled} onChange={event => onChange(event.target.checked)} />
+    </label>
+  )
+}
+
+/** The way from a table to the bar for its ticked rows, drawn only under focus: the bar follows the whole page. */
+export function SelectedActionsLink({ barId }: { barId: string }) {
+  return (
+    <div className="relative">
+      <a href={`#${barId}`} className="tracked-skip" onClick={event => { event.preventDefault(); document.getElementById(barId)?.querySelector<HTMLElement>('button:not(:disabled)')?.focus() }}>{RESEARCH_RESULTS_COPY.selectedActions}</a>
+    </div>
+  )
+}
 
 export const RESEARCH_STATUS_LABEL: Record<ResearchRunStatus, string> = {
   [ResearchRunStatuses.queued]: 'Queued',
@@ -67,6 +142,10 @@ const STICKY = 'sticky top-(--topbar-h) z-10 bg-bg'
 const RESULT_TH = `${TH} ${STICKY} px-2.5 text-left max-sm:px-1.5`
 const RESULT_TD = `${TD} px-2.5 max-sm:px-1.5`
 const FIELD = 'mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 max-md:min-h-11'
+// The column of boxes: as wide as one box, which is 44px where a finger is the pointer, and with no padding, so a box adds nothing to a row's height.
+const SELECT_COLUMN = 'w-8 p-0 text-center align-middle pointer-coarse:w-11 max-md:w-11'
+export const RESEARCH_SELECT_TH = `border-b border-default ${SELECT_COLUMN}`
+export const RESEARCH_SELECT_TD = `border-b border-subtle ${SELECT_COLUMN}`
 
 /**
  * What tells each run of a batch from the others, in the batch's order: its
@@ -94,6 +173,11 @@ export function formatResearchDate(value: string): string {
  * Research checks the company's names and the project's domain, so the first
  * chip is N. A query still queued or running draws skeleton chips; a signal
  * the engine never returned is a dashed box, never a No.
+ *
+ * On an Advanced project (`ResearchTrackingContext`) a Tracked column says
+ * which queries are tracked already, with their Subject, and an account that
+ * can track gets a box on every other row. A ticked row carries the Subject
+ * its run was saved under, and stays ticked while another run is in view.
  */
 export function ResearchRunDetail({
   detail,
@@ -122,6 +206,8 @@ export function ResearchRunDetail({
 }) {
   const [selectedQueryId, setSelectedQueryId] = useState<string | null>(null)
   const headingId = useId()
+  const tracking = useContext(ResearchTrackingContext)
+  const selection = tracking?.selection
 
   useEffect(() => {
     setSelectedQueryId(detail?.queries[0]?.id ?? null)
@@ -134,6 +220,12 @@ export function ResearchRunDetail({
   const inBatch = batch?.runs.some(run => run.id === batch.selectedRunId) ?? false
   const batchLabel = !batch ? null : !inBatch ? RESEARCH_RESULTS_COPY.lastBatch : bySubject ? RESEARCH_RESULTS_COPY.subject : RESEARCH_RESULTS_COPY.searchLocation
   const batchNames = batch ? batchRunNames(batch.runs, bySubject) : []
+  // A ticked row is tracked for the place its run was saved under. The wire calls a location a property.
+  const runSubject = detail?.scope ? { kind: detail.scope.kind === 'property' ? 'location' as const : 'market' as const, key: detail.scope.key } : undefined
+  const trackItem = (item: ResearchRunQueryDto): TrackResearchItem => ({ text: item.query, input: { source: 'research', researchRunQueryId: item.id }, ...(runSubject ? { subject: runSubject } : {}) })
+  // A query that is tracked already has nothing to tick. Until the tracked queries have loaded, no row can say.
+  const tickable = detail && tracking?.subjects ? detail.queries.filter(item => trackedSubjectOf(tracking, item.query) === null) : []
+  const ticked = selection ? tickable.filter(item => selection.pickedIds.has(item.id)).length : 0
 
   return (
     <Card className="surface-card min-w-0" role="region" aria-labelledby={headingId}>
@@ -142,6 +234,8 @@ export function ResearchRunDetail({
           {/* Lands under the topbar when a pick or a run scrolls the page to it. */}
           <h3 id={headingId} ref={headingRef} tabIndex={-1} className="scroll-mt-[calc(var(--topbar-h)+1.5rem)] rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 focus-visible:ring-offset-2 focus-visible:ring-offset-bg">{RESEARCH_RESULTS_COPY.resultsTitle}</h3>
           {detail && <ToneBadge tone={toneForResearchRun(detail.status)}>{RESEARCH_STATUS_LABEL[detail.status]}</ToneBadge>}
+          {/* What a tick does, where rows have boxes. After the status, close to it, so the heading and its status still read as one. */}
+          {detail && selection ? <span className="-ml-3 flex"><InfoTooltip text={RESEARCH_RESULTS_COPY.trackHelp} placement="bottom" /></span> : null}
         </div>
         {detail && <SignalLegend variant="research" company={company} domain={domain} />}
       </div>
@@ -184,25 +278,40 @@ export function ResearchRunDetail({
       </div>}
       {detail && (
         <div className="mt-3 space-y-4">
-          {/* Fixed columns, so the table fits a phone with no frame to scroll: below sm the Type sits under its query. */}
+          {tracking?.failed ? <TrackedReadFailed tracking={tracking} /> : null}
+          {selection && selection.pickedIds.size > 0 ? <SelectedActionsLink barId={selection.barId} /> : null}
+          {/* Fixed columns, so the table fits a phone with no frame to scroll: below sm the Type sits under its query, and below xl, where the sidebar leaves the Query little room, so does what it is tracked for.
+              Beside a column of boxes a phone has no room for a Status column either, so its badge joins the Type. */}
           <table className={`${RESEARCH_TABLE} table-fixed [&_tbody_tr:last-child_td]:border-b-0`}>
             <thead><tr>
+              {selection ? <th scope="col" className={`${RESEARCH_SELECT_TH} ${STICKY}`}>
+                <TrackBox label={RESEARCH_RESULTS_COPY.selectAll} checked={tickable.length > 0 && ticked === tickable.length} indeterminate={ticked > 0 && ticked < tickable.length} disabled={tickable.length === 0} onChange={checked => selection.onPick(tickable.map(trackItem), checked)} />
+              </th> : null}
               <th scope="col" className={RESULT_TH}>Query</th>
               <th scope="col" className={`${RESULT_TH} w-28 max-sm:hidden`}>Type</th>
-              <th scope="col" className={`${RESULT_TH} w-[6.75rem] max-sm:w-[5.75rem]`}>Status</th>
+              <th scope="col" className={`${RESULT_TH} w-[6.75rem] ${selection ? 'max-sm:hidden' : 'max-sm:w-[5.75rem]'}`}>Status</th>
+              {tracking ? <th scope="col" className={`${RESULT_TH} w-[16rem] max-xl:hidden`}>{RESEARCH_RESULTS_COPY.tracked}</th> : null}
               <th scope="col" className={`${TH} ${STICKY} w-20 px-1 text-center max-sm:w-16`}>{engine}</th>
             </tr></thead>
             <tbody>
               {detail.queries.map(item => {
                 const type = item.queryClass === 'branded' ? RESEARCH_RESULTS_COPY.brandedQuery : item.queryClass === 'non-brand' ? RESEARCH_RESULTS_COPY.nonBrandQuery : RESEARCH_RESULTS_COPY.untypedQuery
+                const trackedFor = tracking ? trackedSubjectOf(tracking, item.query) : null
+                const status = <ToneBadge tone={toneForResearchQuery(item.status)}>{RESEARCH_STATUS_LABEL[item.status]}</ToneBadge>
                 return (
                   <tr key={item.id} className={selected?.id === item.id ? 'bg-bg-elevated/40' : undefined}>
+                    {selection ? <td className={RESEARCH_SELECT_TD}>
+                      {/* A tracked query keeps its cell and has no box. */}
+                      {trackedFor ? null : <TrackBox label={`Select ${item.query}`} checked={selection.pickedIds.has(item.id)} disabled={trackedFor === undefined} onChange={checked => selection.onPick([trackItem(item)], checked)} />}
+                    </td> : null}
                     <td className={RESULT_TD}>
                       <button type="button" className={RESEARCH_ROW_BUTTON} aria-pressed={selected?.id === item.id} onClick={() => setSelectedQueryId(item.id)}>{item.query}</button>
-                      <span className="block text-[13px] text-secondary sm:hidden">{type}</span>
+                      <span className={`${selection ? 'flex flex-wrap items-center gap-x-2 gap-y-1' : 'block'} text-[13px] text-secondary sm:hidden`}>{type}{selection ? status : null}</span>
+                      {trackedFor ? <span className="block text-[13px] text-secondary xl:hidden">{RESEARCH_RESULTS_COPY.tracked} · {trackedFor}</span> : null}
                     </td>
                     <td className={`${RESULT_TD} whitespace-nowrap max-sm:hidden ${item.queryClass ? '' : 'text-muted'}`}>{type}</td>
-                    <td className={`${RESULT_TD} whitespace-nowrap`}><ToneBadge tone={toneForResearchQuery(item.status)}>{RESEARCH_STATUS_LABEL[item.status]}</ToneBadge></td>
+                    <td className={`${RESULT_TD} whitespace-nowrap${selection ? ' max-sm:hidden' : ''}`}>{status}</td>
+                    {tracking ? <td className={`${RESULT_TD} text-secondary max-xl:hidden`}><TrackedCell tracking={tracking} subject={trackedFor} /></td> : null}
                     <td className={`${TD} px-1 text-center`}><SignalPair variant="research" engineLabel={engine} signal={researchSignal(item)} /></td>
                   </tr>
                 )

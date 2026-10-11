@@ -1,20 +1,24 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { QueryTrackingWorkspaceResponse, ResearchRunScope } from '@ainyc/canonry-contracts'
+import type { MeasurementQueryTemplate, QueryTrackingMode, QueryTrackingWorkspaceResponse, ResearchRunScope } from '@ainyc/canonry-contracts'
 import {
   getApiV1ProjectsByNameMeasurementQueryTemplatesOptions,
   getApiV1ProjectsByNameQueryTrackingOptions,
 } from '@ainyc/canonry-api-client/react-query'
 
-import { heyClient } from '../../../api.js'
+import { heyClient, isEmbed, isPublicDemo } from '../../../api.js'
 import type { ViewerResearchConfig } from '../../../api.js'
 import { useAccount } from '../../../contexts/account-context.js'
 // The host imports this file too. Take only types and function declarations from it: those need no load order.
 import type { QueriesSectionProps, ResearchWorkspaceMode, SavedTrackingSource } from '../DiscoverySection.js'
 import { ResearchQueriesSection, ResearchStartControl, type ResearchTemplateOption } from '../ResearchQueriesSection.js'
 import { FindQueriesSection } from './FindQueriesSection.js'
+import { statusLabel, subjectLabel, toTrackedRows } from './advanced/tracked-view-model.js'
+import { ResearchTrackingContext, type ResearchTracking } from './research/ResearchResults.js'
+import { TrackResearchBar, useTrackSelection } from './research/TrackResearchSheet.js'
 
 const NO_SCOPE_OPTIONS: NonNullable<QueryTrackingWorkspaceResponse['scopeOptions']> = []
+const NO_TEMPLATES: readonly MeasurementQueryTemplate[] = []
 
 /**
  * Research is one page under the Tracked | Research row, with no tab row of
@@ -27,6 +31,15 @@ const NO_SCOPE_OPTIONS: NonNullable<QueryTrackingWorkspaceResponse['scopeOptions
  * other shows. An arrow key passes through every choice of "Start from", so a
  * draft, a preview and the last batch's runs have to outlive the trip. A link
  * that names Find ideas still reads nothing of Write or Pattern.
+ *
+ * On an Advanced project a result is tracked from here: a Tracked column says
+ * which queries are tracked already, the rest can be ticked, and the bar for
+ * the ticked rows opens the Track sheet, which ends in the shared review. Rows
+ * ticked in several runs go in one publish, each for its own run's Subject.
+ * Find ideas reads the tracked queries only once a run lists results. A
+ * Simple project keeps "Review for tracking", which hands one result to the
+ * Add query form on Tracked. So does Find ideas while the project's mode is
+ * not known: it reads nothing of the plan to learn it.
  */
 export function QueryResearchWorkspace({
   projectName,
@@ -35,14 +48,23 @@ export function QueryResearchWorkspace({
   onModeChange,
   onReviewSavedSource,
   viewerResearchConfig,
+  trackedMode,
+  sweepActive = false,
+  nextSweepDate,
 }: {
   projectName: string
   selection: NonNullable<QueriesSectionProps['selection']>
   mode?: ResearchWorkspaceMode
   onModeChange: (mode: ResearchWorkspaceMode) => void
   onSelectionChange?: QueriesSectionProps['onSelectionChange']
+  /** A Simple project's way into tracking: one saved result, in the Add query form. */
   onReviewSavedSource: (source: SavedTrackingSource, scope?: ResearchRunScope | null) => void
   viewerResearchConfig: ViewerResearchConfig | null
+  /** The project's mode where the host already knows it. The tracked queries, once read, have the last word. */
+  trackedMode?: QueryTrackingMode
+  /** A sweep is queued or running, so the review holds Publish back. */
+  sweepActive?: boolean
+  nextSweepDate?: string
 }) {
   const { canWrite } = useAccount()
   const start: ResearchWorkspaceMode = mode === 'find' && canWrite ? 'find' : mode === 'pattern' ? 'pattern' : 'write'
@@ -62,13 +84,42 @@ export function QueryResearchWorkspace({
     chosen.current = null
     if (picked) (start === 'find' ? findPane : researchPane).current?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus()
   }, [start])
-  // Find ideas reads neither the plan nor the saved patterns.
+  // Find ideas reads neither the plan nor the saved patterns. On an Advanced project it reads the tracked queries once a run lists results to tick.
   const researchWorkspaceEnabled = start !== 'find'
+  const [findListsResults, setFindListsResults] = useState(false)
+  const onFindResultsListed = useCallback(() => setFindListsResults(true), [])
+  const [knownAdvanced, setKnownAdvanced] = useState(false)
   const workspaceQuery = useQuery({
     ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
-    enabled: researchWorkspaceEnabled,
+    enabled: researchWorkspaceEnabled || (findListsResults && (trackedMode === 'advanced' || knownAdvanced)),
     staleTime: 60_000,
   })
+  const workspace = workspaceQuery.data
+  const advanced = (workspace?.mode ?? trackedMode) === 'advanced'
+  // Kept once read, so Find ideas goes on following the tracked queries after a publish.
+  if (workspace?.mode === 'advanced' && !knownAdvanced) setKnownAdvanced(true)
+  // An embed keeps the Research page it had: no Tracked column, and so nothing to tick. The public demo reads the column and ticks nothing.
+  const tracksHere = advanced && !isEmbed()
+  const canTrack = canWrite && !isPublicDemo()
+  // Every tracked query by its identity text, with its Subject as the Tracked table words it. One that is asked nowhere has no Subject to name.
+  const subjects = useMemo(() => workspace?.mode === 'advanced'
+    ? new Map(toTrackedRows(workspace, NO_TEMPLATES).map(row => [row.tracked.normalizedText, row.subject.kind === 'none' ? statusLabel('not-asked') : subjectLabel(row.subject)]))
+    : undefined, [workspace])
+  const picks = useTrackSelection(subjects)
+  const barId = useId()
+  const trackedFailed = !workspace && workspaceQuery.isError
+  const retryTracked = workspaceQuery.refetch
+  const researchTracking = useMemo<ResearchTracking | null>(() => tracksHere ? {
+    subjects,
+    failed: trackedFailed,
+    onRetry: () => { void retryTracked() },
+    selection: canTrack ? { pickedIds: picks.pickedIds, onPick: picks.pick, barId } : undefined,
+  } : null, [tracksHere, subjects, trackedFailed, retryTracked, canTrack, picks.pickedIds, picks.pick, barId])
+  // Track and Clear take the bar off the page: the results table's first box takes the focus, or the Results heading.
+  const focusResults = () => {
+    const results = researchPane.current?.querySelector('[role="region"]')
+    ;(results?.querySelector<HTMLElement>('table input:not(:disabled)') ?? results?.querySelector<HTMLElement>('h3'))?.focus({ preventScroll: true })
+  }
   const researchTemplatesQuery = useQuery({
     ...getApiV1ProjectsByNameMeasurementQueryTemplatesOptions({ client: heyClient, path: { name: projectName } }),
     enabled: researchWorkspaceEnabled,
@@ -108,19 +159,24 @@ export function QueryResearchWorkspace({
           projectName={projectName}
           startControl={<ResearchStartControl value="find" onChange={changeStart} findIdeas />}
           paused={start !== 'find'}
-          onReviewDiscoveryProbe={(discoveryProbeId) => onReviewSavedSource({ source: 'discovery', discoveryProbeId })}
+          onReviewDiscoveryProbe={advanced ? undefined : (discoveryProbeId) => onReviewSavedSource({ source: 'discovery', discoveryProbeId })}
+          tracking={researchTracking?.selection ? { subjects, failed: researchTracking.failed, onRetry: researchTracking.onRetry, workspace, onResultsListed: onFindResultsListed, sweepActive, nextSweepDate } : undefined}
         />
       </div>}
       {form && <div ref={researchPane} hidden={start === 'find'}>
-        <ResearchQueriesSection
-          {...researchProps}
-          start={form}
-          onStartChange={changeStart}
-          findIdeas={canWrite}
-          paused={start === 'find'}
-          viewerResearchConfig={viewerResearchConfig}
-          onReviewForTracking={canWrite ? ({ researchRunQueryId, scope }) => onReviewSavedSource({ source: 'research', researchRunQueryId }, scope ?? null) : undefined}
-        />
+        <ResearchTrackingContext.Provider value={researchTracking}>
+          <ResearchQueriesSection
+            {...researchProps}
+            start={form}
+            onStartChange={changeStart}
+            findIdeas={canWrite}
+            paused={start === 'find'}
+            viewerResearchConfig={viewerResearchConfig}
+            onReviewForTracking={canWrite && !advanced ? ({ researchRunQueryId, scope }) => onReviewSavedSource({ source: 'research', researchRunQueryId }, scope ?? null) : undefined}
+          />
+        </ResearchTrackingContext.Provider>
+        {/* After the page it rides over, so it comes to rest under Past research. */}
+        {workspace && researchTracking?.selection ? <TrackResearchBar id={barId} projectName={projectName} workspace={workspace} items={picks.items} sweepActive={sweepActive} nextSweepDate={nextSweepDate} onClear={picks.clear} onRemove={items => picks.pick(items, false)} returnFocus={focusResults} /> : null}
       </div>}
     </>
   )
