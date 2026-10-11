@@ -57,7 +57,7 @@ interface AdvancedProjectTagPlan {
 export function advancedProjectTagDetail(plan: AdvancedProjectTagPlan): string {
   const properties = plan.targets.length
   const markets = plan.groups.filter(group => group.parentGroupKey === undefined).length
-  const parts = [`${properties} ${properties === 1 ? 'property' : 'properties'}`]
+  const parts = [`${properties} ${properties === 1 ? 'location' : 'locations'}`]
   if (markets > 0) parts.push(`${markets} ${markets === 1 ? 'market' : 'markets'}`)
   return parts.join(' · ')
 }

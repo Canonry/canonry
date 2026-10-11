@@ -1171,7 +1171,7 @@ describe('most criticized properties', () => {
   }
 
   it('lists the server\'s criticized Properties in its order, each with its counts and a bar of them, and "N of total" when more exist', async () => {
-    expect(SENTIMENT_COPY.properties).toEqual({ title: 'Most criticized properties', evidence: 'unfavorable and mixed', viewAll: 'View all unfavorable and mixed answers', allEvidence: 'Branded queries, unfavorable and mixed' })
+    expect(SENTIMENT_COPY.properties).toEqual({ title: 'Most criticized locations', evidence: 'unfavorable and mixed', viewAll: 'View all unfavorable and mixed answers', allEvidence: 'Branded queries, unfavorable and mixed' })
     const page = renderScope(<SentimentHeadlines />, { branded: withProperties({ total: 7, keys: ['prop-c', 'prop-a', 'prop-b'] }) })
     try {
       const panel = await openBrandedDetails()
@@ -2057,7 +2057,7 @@ describe('sentiment generated SDK and administrator flow', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'Manage sentiment' }))
       const limit = screen.getByRole('checkbox', { name: /Limit to the current view/ }) as HTMLInputElement
       expect(limit.checked).toBe(false)
-      expect(limit.closest('label')!.textContent).toContain('engine openai · model source-model · location Chicago · property north · market chicago · revision 3')
+      expect(limit.closest('label')!.textContent).toContain('engine openai · model source-model · search location Chicago · location north · market chicago · revision 3')
       fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
       await screen.findByText('Branded queries · whole sweep')
       expect(Object.fromEntries(previews[0]!.searchParams)).toEqual({ mode: 'auto', scope: 'project', queryClass: 'branded', runId: 'run' })
@@ -2067,10 +2067,25 @@ describe('sentiment generated SDK and administrator flow', () => {
 
       fireEvent.click(limit)
       fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
-      await screen.findByText('Branded queries · engine openai · model source-model · location Chicago · property north · market chicago · revision 3')
+      await screen.findByText('Branded queries · engine openai · model source-model · search location Chicago · location north · market chicago · revision 3')
       expect(Object.fromEntries(previews[1]!.searchParams)).toMatchObject({ mode: 'advanced', queryClass: 'branded', runId: 'run', provider: 'openai', model: 'source-model', location: 'Chicago', scope: 'property', scopeKey: 'north', marketKey: 'chicago', revision: '3' })
       expect(screen.getByText('No saved answers in this selection can be classified.')).toBeTruthy()
       expect((screen.getByRole('button', { name: 'Confirm sentiment backfill' }) as HTMLButtonElement).disabled).toBe(true)
+    } finally { cleanup(); client.clear(); restore() }
+  })
+  it('keeps "location" for the engine\'s place in a Simple view, which has no Property to tell it from', async () => {
+    const dto = summary(); dto.selection = { mode: 'simple', queryClass: 'branded', scope: 'project', runId: 'run', provider: 'openai', location: 'Chicago', evaluationDefinitionId: 'definition-a' }
+    const restore = mockFetch(url => {
+      const request = new URL(url)
+      if (request.pathname.endsWith('/sentiment/settings')) return jsonResponse(settings(true))
+      if (request.pathname.endsWith('/sentiment/jobs')) return jsonResponse({ jobs: [] })
+      return jsonResponse(dto)
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    try {
+      render(<QueryClientProvider client={client}><SentimentSection projectName="project" selection={{ mode: 'simple', queryClass: 'branded', scope: 'project', provider: 'openai', location: 'Chicago', runId: 'run' }} /></QueryClientProvider>)
+      fireEvent.click(await screen.findByRole('button', { name: 'Manage sentiment' }))
+      expect(screen.getByRole('checkbox', { name: /Limit to the current view/ }).closest('label')!.textContent).toContain('engine openai · location Chicago')
     } finally { cleanup(); client.clear(); restore() }
   })
   it('previews without admission and reuses the request key after an uncertain response', async () => {

@@ -61,7 +61,7 @@ export const SENTIMENT_COPY = {
     help: 'A non-brand answer almost always names you to recommend you, so its favorable share is near 100% and says little. Sentiment is measured on branded queries; unfavorable or mixed answers to non-brand queries are listed here when they happen.',
   },
   /** Branded Details: the server's most criticized Properties in this view. */
-  properties: { title: 'Most criticized properties', evidence: 'unfavorable and mixed', viewAll: 'View all unfavorable and mixed answers', allEvidence: 'Branded queries, unfavorable and mixed' },
+  properties: { title: 'Most criticized locations', evidence: 'unfavorable and mixed', viewAll: 'View all unfavorable and mixed answers', allEvidence: 'Branded queries, unfavorable and mixed' },
   overall: 'Favorable share of ratings in answers to branded queries. Each saved answer-subject assessment counts once. Answers with no opinion, or where it is unclear who they name, are left out.',
   favorable: 'The favorable share of favorable, mixed and unfavorable ratings in answers to branded queries. Each rating covers one subject named in an answer; answers with no opinion are left out.',
 } as const
@@ -575,7 +575,7 @@ function SentimentEvidenceContent({ item }: { item: SentimentEvidenceItem }) {
     <section><h3 className="mb-2 text-heading">Conclusion evidence</h3>{item.conclusion.length ? item.conclusion.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No valid conclusion evidence is available.</p>}</section>
     <section><h3 className="mb-2 text-heading">Complaint evidence</h3>{item.complaint?.length ? item.complaint.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No complaint was identified.</p>}</section>
     <details><summary className="cursor-pointer">Original source answer</summary><p className="mt-2 whitespace-pre-wrap break-words text-primary">{item.sourceText}</p></details>
-    <details><summary className="cursor-pointer">Assessment provenance</summary><dl className="mt-3 space-y-2 break-all"><dt>Query</dt><dd>{item.context.queryText}</dd><dt>Subject</dt><dd>{item.subject.displayName} ({item.subject.id})</dd><dt>Run</dt><dd>{item.runId}</dd><dt>Revision</dt><dd>{item.context.revision ?? 'Unavailable'}</dd><dt>Evaluator</dt><dd>{item.returnedModel ?? 'Unavailable'}</dd><dt>Evaluation definition</dt><dd>{item.evaluationDefinitionId}</dd><dt>Source snapshot</dt><dd>{item.sourceSnapshotId}</dd><dt>Source hash</dt><dd>{item.sourceTextHash}</dd>{item.context.usageEdges.map((edge, index) => <div key={index}><dt>Assignment</dt><dd>Target {edge.targetId}; Property {edge.propertyId ?? 'None'}; market {edge.marketId ?? 'None'}; {edge.queryClass}</dd></div>)}</dl></details>
+    <details><summary className="cursor-pointer">Assessment provenance</summary><dl className="mt-3 space-y-2 break-all"><dt>Query</dt><dd>{item.context.queryText}</dd><dt>Subject</dt><dd>{item.subject.displayName} ({item.subject.id})</dd><dt>Run</dt><dd>{item.runId}</dd><dt>Revision</dt><dd>{item.context.revision ?? 'Unavailable'}</dd><dt>Evaluator</dt><dd>{item.returnedModel ?? 'Unavailable'}</dd><dt>Evaluation definition</dt><dd>{item.evaluationDefinitionId}</dd><dt>Source snapshot</dt><dd>{item.sourceSnapshotId}</dd><dt>Source hash</dt><dd>{item.sourceTextHash}</dd>{item.context.usageEdges.map((edge, index) => <div key={index}><dt>Assignment</dt><dd>Target {edge.targetId}; Location {edge.propertyId ?? 'None'}; market {edge.marketId ?? 'None'}; {edge.queryClass}</dd></div>)}</dl></details>
   </article>
 }
 function SentimentQueryEvidence({ projectName, selection }: { projectName: string; selection: SentimentEvidenceSelection }) {
@@ -616,13 +616,17 @@ const SENTIMENT_SKIP_REASON_LABELS: Readonly<Record<string, string>> = {
   'excluded-non-brand': 'Non-brand answers (backfill that class separately)',
 }
 function skipReasonLabel(reason: string): string { return SENTIMENT_SKIP_REASON_LABELS[reason] ?? outcomeLabel(reason) }
-/** The view filters that would narrow a backfill: engine, model, location, query, revision and a Property, group or market. */
+/**
+ * The view filters that would narrow a backfill: engine, model, location, query, revision and a Property, group or market.
+ * A Property reads "location", so an Advanced view names the engine's place "search location"; a Simple view has no Property and keeps "location".
+ */
 function viewBackfillFilters(selection: SentimentBackfillSelection): string[] {
+  const searchLocation = selection.mode === 'advanced' ? 'search location' : 'location'
   return [
     selection.provider && `engine ${selection.provider}`,
     selection.model && `model ${selection.model}`,
-    selection.location && (selection.location === 'none' ? 'no location' : `location ${selection.location}`),
-    selection.scope !== 'project' && selection.scopeKey && `${selection.scope} ${selection.scopeKey}`,
+    selection.location && (selection.location === 'none' ? `no ${searchLocation}` : `${searchLocation} ${selection.location}`),
+    selection.scope !== 'project' && selection.scopeKey && `${selection.scope === 'property' ? 'location' : selection.scope} ${selection.scopeKey}`,
     selection.marketKey && `market ${selection.marketKey}`,
     selection.queryId && `query ${selection.queryId}`,
     selection.revision !== undefined && `revision ${selection.revision}`,

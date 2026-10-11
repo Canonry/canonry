@@ -22,14 +22,14 @@ const EXTERNAL_LINKS: readonly [string, string][] = [
 
 const EXAMPLE_LINKS: readonly [string, string][] = [
   ['Standard business', '/projects/summit-roofing'],
-  ['Property portfolio', '/projects/harbor-resorts'],
+  ['Location portfolio', '/projects/harbor-resorts'],
 ]
 
 const FEATURE_LINKS: readonly [string, string][] = [
   ['AI visibility', '/projects/summit-roofing'],
   ['Search engines', '/projects/summit-roofing/search-console'],
   ['Traffic & conversions', '/projects/summit-roofing/conversions'],
-  ['Properties & markets', '/projects/harbor-resorts'],
+  ['Locations & markets', '/projects/harbor-resorts'],
   ['Queries & research', '/projects/harbor-resorts/queries'],
   ['Activity', '/projects/harbor-resorts/activity'],
   ['Site health', '/projects/summit-roofing/technical-aeo'],

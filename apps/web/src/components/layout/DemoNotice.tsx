@@ -13,7 +13,7 @@ const FEATURE_GROUPS = [
     ['Traffic & conversions', '/projects/summit-roofing/conversions'],
   ] },
   { title: 'Portfolio', links: [
-    ['Properties & markets', '/projects/harbor-resorts'],
+    ['Locations & markets', '/projects/harbor-resorts'],
     ['Queries & research', '/projects/harbor-resorts/queries'],
     ['Activity', '/projects/harbor-resorts/activity'],
   ] },
@@ -50,7 +50,7 @@ export function DemoNotice() {
             <p className="demo-banner-panel-agent">{AGENT_SENTENCE}</p>
             <nav className="demo-banner-examples" aria-label="Demo examples">
               <a href={`${base}/projects/summit-roofing`}>Standard business</a>
-              <a href={`${base}/projects/harbor-resorts`}>Property portfolio</a>
+              <a href={`${base}/projects/harbor-resorts`}>Location portfolio</a>
             </nav>
             <nav className="demo-banner-features" aria-label="Demo feature directory">
               {FEATURE_GROUPS.map(({ title, links }) => (

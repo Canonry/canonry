@@ -151,7 +151,7 @@ describe('version-two measurement overview adapter', () => {
         />,
       )
 
-      const search = screen.getByRole('searchbox', { name: 'Search properties' }) as HTMLInputElement
+      const search = screen.getByRole('searchbox', { name: 'Search locations' }) as HTMLInputElement
       fireEvent.change(search, { target: { value: 'h' } })
       fireEvent.change(search, { target: { value: 'har' } })
       fireEvent.change(search, { target: { value: 'harbor' } })
@@ -264,7 +264,7 @@ describe('version-two measurement overview adapter', () => {
   it('rejects the API property scope instead of relabeling it as All Properties', () => {
     const { activePlan, overview } = fixture(1)
     overview.scope = { kind: 'property', key: 'property-1', label: 'Property 1' }
-    expect(() => adaptV2MeasurementOverview({ overview, activePlan })).toThrow('All Properties or group scope')
+    expect(() => adaptV2MeasurementOverview({ overview, activePlan })).toThrow('All locations or group scope')
   })
 
   it('keeps server-wide flagged totals visible before the flagged Property page is loaded', () => {
@@ -284,7 +284,7 @@ describe('version-two measurement overview adapter', () => {
     expect(screen.getByText('3 flagged results need review.')).toBeTruthy()
     fireEvent.click(screen.getByText('Flagged results (3)'))
     expect(screen.getByText('Showing details for 0 of 3 flagged results')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Load more Properties' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Load more locations' }))
     expect(onLoadMore).toHaveBeenCalledWith('page-2')
   })
 
@@ -396,24 +396,24 @@ describe('property row detail', () => {
     expect(first!.mentionCoverage).toEqual({ numerator: 1, denominator: 1, unattributed: 9 })
     expect(first!.providers![0]!.mentionCoverage).toEqual({ numerator: 1, denominator: 1, unattributed: 4 })
     // Not "Complete": every answer asked which property was meant.
-    expect(second!.status).toEqual({ label: 'Property identity unverified', tone: 'caution' })
+    expect(second!.status).toEqual({ label: 'Location identity unverified', tone: 'caution' })
 
     render(<AdvancedMeasurementOverview report={report} canEdit onViewChange={vi.fn()} onLoadMore={vi.fn()} onPropertyExpand={vi.fn()} />)
     const row = screen.getByRole('button', { name: 'Show details for Property 1' }).closest('tr')!
     const [, mention, citation] = [...row.querySelectorAll('td')]
     // The left-out answers sit behind a caution icon beside the count, on the row and on each engine.
     expect(mention!.textContent).toBe('1 of 1 (100%)')
-    expectCautionNote(mention!, '9 of 10 answers could not be tied to one property', '1 of 1 (100%)')
+    expectCautionNote(mention!, '9 of 10 answers could not be tied to one location', '1 of 1 (100%)')
     expect(citation!.textContent).toBe('0 of 10 (0%)')
     expect(citation!.querySelector('.info-tooltip-trigger-caution')).toBeNull()
     fireEvent.click(row)
     const openai = screen.getByText('openai').closest('tr')!
     expect(openai.querySelectorAll('td')[1]!.textContent).toBe('1 of 1 (100%)')
-    expectCautionNote(openai.querySelectorAll('td')[1]!, '4 of 5 answers could not be tied to one property', '1 of 1 (100%)')
+    expectCautionNote(openai.querySelectorAll('td')[1]!, '4 of 5 answers could not be tied to one location', '1 of 1 (100%)')
     const gemini = screen.getByText('gemini').closest('tr')!
-    expect(gemini.querySelectorAll('td')[1]!.querySelector('[title]')!.getAttribute('title')).toBe('No answer could be tied to one property.')
+    expect(gemini.querySelectorAll('td')[1]!.querySelector('[title]')!.getAttribute('title')).toBe('No answer could be tied to one location.')
     const ambiguousRow = screen.getByRole('button', { name: 'Show details for Property 2' }).closest('tr')!
-    expect(within(ambiguousRow).getByText('Property identity unverified')).toBeTruthy()
+    expect(within(ambiguousRow).getByText('Location identity unverified')).toBeTruthy()
   })
 
   it('discloses the answers a citation rate could not check on the row and each engine, under Citation only', () => {

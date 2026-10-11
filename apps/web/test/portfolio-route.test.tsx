@@ -3309,7 +3309,7 @@ test('a viewer reads setup on a scope-blind tab only when the URL is scoped', as
 test('a public demo visitor on a scope-blind tab reads the plan once for the Advanced tag, and no setup', async () => {
   window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
   const { observed, page } = await renderScopeRoute('/projects/project_citypoint/technical-aeo', trackingRoute(), { accountRole: 'viewer' })
-  await waitFor(() => expect(contextRow(page.container).querySelector('.project-mode-tag')?.textContent).toBe('Advanced1 property · 1 market'))
+  await waitFor(() => expect(contextRow(page.container).querySelector('.project-mode-tag')?.textContent).toBe('Advanced1 location · 1 market'))
   expect(observed.filter(url => url.pathname.endsWith('/measurement-plan'))).toHaveLength(1)
   expect(observed.some(url => url.pathname.endsWith('/measurement-setup'))).toBe(false)
   expect(contextRow(page.container).querySelector('.project-context-scope')).toBeNull()
