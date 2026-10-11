@@ -1,5 +1,16 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import type { AddressInfo } from 'node:net'
+import tls from 'node:tls'
 import { afterEach, describe, expect, it } from 'vitest'
+import { vi } from 'vitest'
 import { probeApiHost, resetApiHostProbeCacheForTest } from '../src/api-host-probe.js'
+
+const PUBLIC_HOST = 'provider.example'
+const PUBLIC_ADDRESS = '198.51.100.42'
+const fixtureDirectory = path.join(import.meta.dirname, 'fixtures', 'api-host-probe')
+const fixtureCertificate = fs.readFileSync(path.join(fixtureDirectory, 'server-cert.pem'), 'utf8')
+const fixtureKey = fs.readFileSync(path.join(fixtureDirectory, 'server-key.pem'), 'utf8')
 
 afterEach(() => resetApiHostProbeCacheForTest())
 
@@ -86,5 +97,83 @@ describe('probeApiHost', () => {
     ])
     expect(lookups).toBe(1)
     expect(connects).toBe(1)
+  })
+
+  it('performs a validated TLS handshake with SNI and sends no application bytes', async () => {
+    const offeredNames: string[] = []
+    let applicationBytes = 0
+    const server = tls.createServer({
+      key: fixtureKey,
+      cert: fixtureCertificate,
+      SNICallback: (servername, callback) => {
+        offeredNames.push(servername)
+        callback(null, tls.createSecureContext({ key: fixtureKey, cert: fixtureCertificate }))
+      },
+    }, socket => {
+      socket.on('data', chunk => { applicationBytes += chunk.length })
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const observedOptions: Record<string, unknown>[] = []
+    const originalConnect = tls.connect
+    vi.spyOn(tls, 'connect').mockImplementation((...args: Parameters<typeof tls.connect>) => {
+      const options = { ...args[0] }
+      if (options.host !== PUBLIC_ADDRESS) return originalConnect(...args)
+      observedOptions.push(options)
+      return originalConnect({ ...options, host: '127.0.0.1', port, ca: fixtureCertificate })
+    })
+
+    try {
+      const result = await probeApiHost(PUBLIC_HOST, {
+        lookup: async () => [{ address: PUBLIC_ADDRESS, family: 4 }],
+        timeoutMs: 1000,
+      })
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(result.kind).toBe('reachable')
+      expect(observedOptions).toHaveLength(1)
+      expect(observedOptions[0]).toMatchObject({
+        host: PUBLIC_ADDRESS,
+        port: 443,
+        servername: PUBLIC_HOST,
+        rejectUnauthorized: true,
+      })
+      expect(offeredNames).toEqual([PUBLIC_HOST])
+      expect(applicationBytes).toBe(0)
+    } finally {
+      vi.restoreAllMocks()
+      await new Promise<void>(resolve => server.close(() => resolve()))
+    }
+  })
+
+  it('classifies a self-signed TLS fixture as tls-failed while validating the certificate', async () => {
+    const server = tls.createServer({ key: fixtureKey, cert: fixtureCertificate })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const observedOptions: Record<string, unknown>[] = []
+    const originalConnect = tls.connect
+    vi.spyOn(tls, 'connect').mockImplementation((...args: Parameters<typeof tls.connect>) => {
+      const options = { ...args[0] }
+      if (options.host !== PUBLIC_ADDRESS) return originalConnect(...args)
+      observedOptions.push(options)
+      return originalConnect({ ...options, host: '127.0.0.1', port })
+    })
+
+    try {
+      const result = await probeApiHost('self-signed.example', {
+        lookup: async () => [{ address: PUBLIC_ADDRESS, family: 4 }],
+        timeoutMs: 1000,
+      })
+      expect(result.kind).toBe('tls-failed')
+      expect(observedOptions).toHaveLength(1)
+      expect(observedOptions[0]).toMatchObject({
+        host: PUBLIC_ADDRESS,
+        port: 443,
+        servername: 'self-signed.example',
+        rejectUnauthorized: true,
+      })
+    } finally {
+      vi.restoreAllMocks()
+      await new Promise<void>(resolve => server.close(() => resolve()))
+    }
   })
 })
