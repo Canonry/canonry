@@ -77,8 +77,9 @@ function rowState(
   if (state.repeatedFailure) return 'failing'
   if (state.latestStatus === null) return 'never-synced'
   const successAge = state.lastSuccessAt ? ageDays(state.lastSuccessAt) : null
-  const syncAge = freshnessAgeDays ?? successAge
-  if ((staleAfterDays !== null && syncAge !== null && syncAge >= staleAfterDays) || (dataStaleAfterDays !== null && dataAge !== null && dataAge >= dataStaleAfterDays)) return 'stale'
+  const runStale = staleAfterDays !== null && successAge !== null && successAge >= staleAfterDays
+  const freshnessStale = staleAfterDays !== null && freshnessAgeDays !== null && freshnessAgeDays >= staleAfterDays
+  if (runStale || freshnessStale || (dataStaleAfterDays !== null && dataAge !== null && dataAge >= dataStaleAfterDays)) return 'stale'
   return 'ok'
 }
 
@@ -96,12 +97,13 @@ function makeRow(
 ): IntegrationStatusRow {
   const age = dataThrough ? daysSinceDate(dataThrough, new Date(), integration === 'gsc' ? GSC_REPORTING_TIME_ZONE : undefined) : null
   const throughAge = age === null ? null : Math.max(0, age)
+  const freshnessAge = ageDays(freshnessAt)
   return {
     integration,
     label,
     runKind,
     sourceId,
-    state: rowState(state, staleAfterDays, throughAge, dataStaleAfterDays, ageDays(freshnessAt)),
+    state: rowState(state, staleAfterDays, throughAge, dataStaleAfterDays, freshnessAge),
     lastSuccessAt: state.lastSuccessAt,
     latestRunAt: state.latestRunAt,
     latestRunId: state.latestRunId,
@@ -110,7 +112,7 @@ function makeRow(
     consecutiveFailures: state.consecutiveFailures,
     latestError: state.latestError ? truncateUtf16(state.latestError, 300) : null,
     dataThrough,
-    dataAgeDays: throughAge,
+    dataAgeDays: throughAge ?? freshnessAge,
     doctorChecks,
   }
 }
