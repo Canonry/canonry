@@ -134,20 +134,29 @@ describe('POST /api/v1/projects/:name/competitor-changes/preview', () => {
     expect(replaceBody.plan.added).toEqual(['replacement.example'])
   })
 
-  it('preserves exact ten-answer denominators and excludes a probe run', async () => {
+  it('previews the exact 40% to 20% change without writes and excludes a probe run', async () => {
     db.delete(querySnapshots).run()
+    db.insert(queries).values({ id: 'preview_brand_query', projectId: 'project_preview', query: 'Northwind reviews', createdAt: NOW }).run()
     db.insert(runs).values({ id: 'preview_probe', projectId: 'project_preview', kind: 'answer-visibility', status: 'completed', trigger: 'probe', location: null, createdAt: '2026-08-21T12:00:00.000Z' }).run()
     db.insert(querySnapshots).values([
-      ...Array.from({ length: 4 }, (_, index) => ({ id: `north-${index}`, runId: 'preview_run', queryId: 'preview_query', queryText: 'best homes near here', provider: 'openai', citationState: 'not-cited' as const, answerMentioned: true, answerText: `Northwind is useful ${index}.`, citedDomains: ['rival.example'], citedUrls: null, captureStatus: 'complete' as const, competitorOverlap: [], location: null, createdAt: NOW })),
+      ...Array.from({ length: 2 }, (_, index) => ({ id: `north-${index}`, runId: 'preview_run', queryId: 'preview_query', queryText: 'best homes near here', provider: 'openai', citationState: 'not-cited' as const, answerMentioned: true, answerText: `Northwind is useful ${index}.`, citedDomains: ['rival.example'], citedUrls: null, captureStatus: 'complete' as const, competitorOverlap: [], location: null, createdAt: NOW })),
       ...Array.from({ length: 3 }, (_, index) => ({ id: `rival-${index}`, runId: 'preview_run', queryId: 'preview_query', queryText: 'best homes near here', provider: 'openai', citationState: 'not-cited' as const, answerMentioned: false, answerText: `Rival is useful ${index}.`, citedDomains: ['rival.example'], citedUrls: null, captureStatus: 'complete' as const, competitorOverlap: [], location: null, createdAt: NOW })),
-      ...Array.from({ length: 3 }, (_, index) => ({ id: `new-rival-${index}`, runId: 'preview_run', queryId: 'preview_query', queryText: 'best homes near here', provider: 'openai', citationState: 'not-cited' as const, answerMentioned: false, answerText: `Newrival is useful ${index}.`, citedDomains: ['newrival.example'], citedUrls: null, captureStatus: 'complete' as const, competitorOverlap: [], location: null, createdAt: NOW })),
+      ...Array.from({ length: 5 }, (_, index) => ({ id: `new-rival-${index}`, runId: 'preview_run', queryId: 'preview_query', queryText: 'best homes near here', provider: 'openai', citationState: 'not-cited' as const, answerMentioned: false, answerText: `Newrival is useful ${index}.`, citedDomains: ['newrival.example'], citedUrls: null, captureStatus: 'complete' as const, competitorOverlap: [], location: null, createdAt: NOW })),
+      { id: 'brand-only', runId: 'preview_run', queryId: 'preview_brand_query', queryText: 'Northwind reviews', provider: 'openai', citationState: 'not-cited' as const, answerMentioned: true, answerText: 'Northwind and Newrival.', citedDomains: ['newrival.example'], citedUrls: null, captureStatus: 'complete' as const, competitorOverlap: [], location: null, createdAt: NOW },
       { id: 'probe-only', runId: 'preview_probe', queryId: 'preview_query', queryText: 'best homes near here', provider: 'openai', citationState: 'not-cited' as const, answerMentioned: true, answerText: 'Northwind and Newrival probe.', citedDomains: ['newrival.example'], citedUrls: null, captureStatus: 'complete' as const, competitorOverlap: [], location: null, createdAt: '2026-08-21T12:00:00.000Z' },
     ]).run()
     const response = await app.inject({ method: 'POST', url: '/api/v1/projects/preview/competitor-changes/preview', payload: { change: 'add', competitors: ['newrival.example'] } })
     expect(response.statusCode, response.body).toBe(200)
     const body = competitorChangePreviewResponseSchema.parse(response.json())
-    expect(body.impact.before).toMatchObject({ projectMentions: 4, competitorMentions: 3, percent: 57.142857 })
-    expect(body.impact.after).toMatchObject({ projectMentions: 4, competitorMentions: 6, percent: 40 })
+    expect(body.impact.before).toMatchObject({ projectMentions: 2, competitorMentions: 3, percent: 40 })
+    expect(body.impact.after).toMatchObject({ projectMentions: 2, competitorMentions: 8, percent: 20 })
+    expect(db.select().from(competitors).all().map(row => row.domain)).toEqual(['rival.example'])
+    expect(db.select().from(auditLog).all()).toEqual([])
+    expect(callbackCounts).toEqual({ aliases: 0, rescan: 0 })
+    expect(body.impact.deltaPercent).toBe(-20)
+    expect(body.impact.before.competitorCount).toBe(1)
+    expect(body.impact.after.competitorCount).toBe(2)
+    expect(body.impact.before.snapshotsWithAnswerText).toBe(10)
     expect(body.impact.runCount).toBe(1)
   })
 
@@ -172,6 +181,46 @@ describe('POST /api/v1/projects/:name/competitor-changes/preview', () => {
     expect(competitorChangePreviewResponseSchema.parse(response.json()).plan.removed).toEqual([])
     expect(callbackCounts).toEqual({ aliases: 0, rescan: 0 })
     expect(db.select().from(auditLog).all()).toHaveLength(beforeAudit)
+  })
+
+
+  it.each(['add', 'remove', 'set', 'append'] as const)('matches the stored landscape before and after a real %s write', async kind => {
+    const aliases = ['Newrival']
+    const previewRequest = kind === 'add' || kind === 'remove'
+      ? { change: kind, competitors: [kind === 'add' ? 'newrival.example' : 'rival.example'] }
+      : { change: 'aliases', domain: 'rival.example', aliases, mode: kind === 'set' ? 'set' : 'add' }
+    const read = async () => (await app.inject({ method: 'GET', url: '/api/v1/projects/preview/analytics/competitors?queryClass=non-brand&runId=latest' })).json()
+    const before = await read()
+    const preview = await app.inject({ method: 'POST', url: '/api/v1/projects/preview/competitor-changes/preview', payload: previewRequest })
+    expect(preview.statusCode, preview.body).toBe(200)
+    const impact = competitorChangePreviewResponseSchema.parse(preview.json()).impact
+    expect(impact.before.percent).toBe(before.project.shareOfVoice)
+    expect(impact.before.projectMentions + impact.before.competitorMentions).toBe(before.evidence.mentionCredits)
+    const write = kind === 'set'
+      ? await app.inject({ method: 'PUT', url: '/api/v1/projects/preview/competitors/rival.example/aliases', payload: { aliases } })
+      : await app.inject({ method: kind === 'remove' ? 'DELETE' : 'POST', url: '/api/v1/projects/preview/competitors', payload: { competitors: kind === 'append' ? [{ domain: 'rival.example', aliases }] : [kind === 'add' ? 'newrival.example' : 'rival.example'] } })
+    expect(write.statusCode, write.body).toBe(200)
+    const after = await read()
+    expect(impact.after.percent).toBe(after.project.shareOfVoice)
+    expect(impact.after.projectMentions + impact.after.competitorMentions).toBe(after.evidence.mentionCredits)
+    expect(impact.after.competitorCount).toBe(after.comparison.length)
+    if (kind === 'remove') expect(impact.after.percent).toBeNull()
+  })
+
+  it.each(['own-site', 'claimed-name', 'duplicate-rows'] as const)('keeps %s refusal identical to the real write', async kind => {
+    if (kind === 'claimed-name') db.update(competitors).set({ aliases: ['Newrival'] }).run()
+    if (kind === 'duplicate-rows') db.insert(competitors).values({ id: 'duplicate-rival', projectId: 'project_preview', domain: 'www.rival.example', provenance: 'manual', createdAt: NOW }).run()
+    const entry = kind === 'own-site' ? 'northwind.example' : kind === 'claimed-name' ? 'newrival.example' : { domain: 'rival.example', aliases: ['Rival Name'] }
+    const rows = db.select().from(competitors).all()
+    const preview = await app.inject({ method: 'POST', url: '/api/v1/projects/preview/competitor-changes/preview', payload: { change: 'add', competitors: [entry] } })
+    const write = await app.inject({ method: 'POST', url: '/api/v1/projects/preview/competitors', payload: { competitors: [entry] } })
+    expect(preview.statusCode, preview.body).toBe(400)
+    expect(write.statusCode, write.body).toBe(400)
+    expect(preview.json().error.code).toBe(write.json().error.code)
+    expect(preview.json().error.details).toEqual(write.json().error.details)
+    expect(db.select().from(competitors).all()).toEqual(rows)
+    expect(db.select().from(auditLog).all()).toEqual([])
+    expect(callbackCounts).toEqual({ aliases: 0, rescan: 0 })
   })
 
   it('reports an Advanced preview against its frozen non-brand execution', async () => {

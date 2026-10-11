@@ -1530,7 +1530,7 @@ export class ApiClient {
 
   async previewCompetitorChange(project: string, request: CompetitorChangePreviewRequest): Promise<CompetitorChangePreviewResponse> {
     return this.invoke<CompetitorChangePreviewResponse>(() =>
-      postApiV1ProjectsByNameCompetitorChangesPreview({ client: this.heyClient, path: { name: project }, body: request as never }),
+      postApiV1ProjectsByNameCompetitorChangesPreview({ client: this.heyClient, path: { name: project }, body: request }),
     )
   }
 
