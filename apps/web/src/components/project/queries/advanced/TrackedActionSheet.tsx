@@ -16,7 +16,7 @@ import { StatusNote } from '../../../shared/StatusNote.js'
 import { Button } from '../../../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../../../ui/sheet.js'
 import { placesOf } from '../../AddQueriesSheet.js'
-import { TrackingReview, TrackingReviewActions, type TrackingReviewState } from '../../TrackingReview.js'
+import { expectedSubject, TrackingReview, TrackingReviewActions, TYPE_SETS_SUBJECT, type TrackingReviewState } from '../../TrackingReview.js'
 import { VisibilityScopePicker } from '../../VisibilityScopePicker.js'
 import { contextLabels } from '../tracking-contexts.js'
 import {
@@ -74,7 +74,6 @@ const LISTED = 5
 const NAMED_MARKETS = 2
 const NEW_TREND_LINE = 'New wording is tracked as a new query. Its trend starts at the next sweep and its Source becomes Manual. Past answers stay with the old wording.'
 const TYPE_FOLLOWS_SUBJECT = 'Set a market query to Non-brand and a location query to Branded. A hand-picked query takes either.'
-const TYPE_SETS_SUBJECT = 'In a market with one location, the type decides the Subject. Branded reads as a location query and Non-brand as a market query.'
 const COUNTS_IN = "Asked with these markets' engines and search locations."
 const FIELD_LABEL = 'mb-1 block text-sm font-medium text-heading'
 const FIELD_HINT = 'mt-2 text-[13px] leading-5 text-secondary'
@@ -172,6 +171,8 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
     preview,
     error: publish.error,
     isCommitting: publish.isCommitting,
+    // A Subject change and a move name the one place the query is to be tracked for, so the review checks it lands there.
+    expectedSubjects: placed && target ? [expectedSubject(row.queryText, target, workspace)] : undefined,
     onPublish: () => {
       if (preview) publish.commit({
         ...reviewed,
@@ -273,7 +274,8 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
           <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
             <TrackingReview {...reviewState} {...reviewContext} workspace={workspace} contextLabels={contextLabels} showActions={false} />
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-default pt-4">
+          {/* The review's buttons are 44px on a phone. */}
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-default pt-4 max-md:[&>button]:h-11">
             <TrackingReviewActions {...reviewState} {...reviewContext} />
           </div>
         </> : <>
