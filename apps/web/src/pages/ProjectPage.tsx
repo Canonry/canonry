@@ -54,7 +54,6 @@ import { GoogleAdsPerformanceSection } from '../components/project/GoogleAdsPerf
 import { AdvancedMeasurementSection } from '../components/project/advanced-measurement/AdvancedMeasurementSection.js'
 import { AdvancedMeasurementLanding } from '../components/project/advanced-measurement/AdvancedMeasurementLanding.js'
 import {
-  advancedMeasurementSetupActionLabel,
   advancedProjectTagDetail,
   resolveAdvancedMeasurementMode,
 } from '../components/project/advanced-measurement/model.js'
@@ -75,6 +74,8 @@ import { RunAdmissionNoticeView, useRunAdmission } from '../components/project/R
 import { providerDisplayName } from '../lib/visibility-trend-helpers.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
+import { LOCATIONS_MARKETS_COPY, LocationsMarketsSection } from '../components/project/settings/LocationsMarketsSection.js'
+import { ProjectSettingsLayout } from '../components/project/settings/ProjectSettingsNav.js'
 import {
   fetchTimeline,
   deleteProject as apiDeleteProject,
@@ -2130,11 +2131,6 @@ function ProjectPageContent({
     ...postApiV1ProjectsByNameMeasurementPlanDraftActionsPinCompetitorMutation({ client: heyClient }),
     meta: { skipGlobalErrorToast: true },
   })
-  const measurementSetupDisplayState = measurementSetupQuery.data !== undefined
-    ? 'success' as const
-    : measurementSetupQuery.isError
-      ? 'error' as const
-      : 'pending' as const
   const advancedMeasurementOverviewPagesInconsistent = useMemo(() => {
     const pages = advancedMeasurementOverviewQuery.data?.pages
     return pages ? !areV2OverviewPagesCompatible(pages) : false
@@ -3184,78 +3180,88 @@ function ProjectPageContent({
         )}
         </>
       ) : tab === 'settings' ? (
-        <>
-          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={async (name, updates) => { await handleUpdateProject(name, updates) }} />
-          <ProjectEngineSettingsSection project={model.project} onSave={async next => { await handleUpdateProject(model.project.name, next) }} />
-          <SiteHealthScanSettingsSection key={model.project.id} project={model.project} onSave={async siteAuditMaxPages => { await handleUpdateProject(model.project.name, { siteAuditMaxPages }) }} />
-          {canWrite && !isEmbed() ? (
-            <section className="page-section-divider">
-              <h2 className="text-lg font-semibold text-heading">Advanced measurement</h2>
-              <p className="supporting-copy mt-1 mb-3">
-                Measure individual properties, locations, or site sections with separate query sets.
-              </p>
-              {measurementSetupDisplayState === 'pending' ? (
-                <p role="status" className="text-sm text-secondary">Loading setup…</p>
-              ) : measurementSetupDisplayState === 'error' ? (
-                <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-negative">
-                  <span>Could not load advanced measurement setup.</span>
-                  <Button type="button" size="sm" variant="outline" onClick={() => { void measurementSetupQuery.refetch() }}>
-                    Retry
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => { void navigate({ to: '/projects/$projectName/portfolio', params: { projectName } }) }}
-                >
-                  {advancedMeasurementSetupActionLabel(advancedMeasurementMode.setupAction)}
-                </Button>
-              )}
-            </section>
-          ) : null}
-          <ScheduleSection projectName={model.project.name} />
-          <NotificationsSection projectName={model.project.name} />
-          {/* Deleting the project lives here, at the far end of Settings, rather
-              than as an icon in the page header where it sat one misclick from
-              "Run AI sweep". It destroys every query, run and snapshot, and a
-              confirm dialog was the only thing standing between the two. */}
-          {canWrite && !isEmbed() ? (
-            <section className="page-section-divider">
-              <h2 className="text-lg font-semibold text-negative-400">Delete project</h2>
-              <p className="supporting-copy mt-1 mb-3">
-                Permanently deletes this project and all its queries, competitors, runs, and snapshots.
-              </p>
-              {showDeleteConfirm ? (
-                <Card className="surface-card p-6 border-negative-800/60">
-                  <h3 className="text-base font-semibold text-negative-400 mb-2">Delete project?</h3>
-                  <p className="text-sm text-secondary mb-4">
-                    This will permanently delete <strong className="text-strong">{model.project.displayName || model.project.name}</strong> and
-                    all its queries, competitors, runs, and snapshots. This cannot be undone.
+        <ProjectSettingsLayout
+          // An embed keeps the plain stacked page, with no jump list.
+          nav={!isEmbed()}
+          // In page order. A section with nothing to render is left out, so the jump list names what is on the page.
+          sections={[
+            {
+              id: 'settings-general',
+              label: 'General',
+              content: <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={async (name, updates) => { await handleUpdateProject(name, updates) }} />,
+            },
+            // The section renders for an administrator outside an embed, and for no one else.
+            ...(isAdmin && !isEmbed() ? [{
+              id: 'settings-engines',
+              label: 'Engines',
+              content: <ProjectEngineSettingsSection project={model.project} onSave={async next => { await handleUpdateProject(model.project.name, next) }} />,
+            }] : []),
+            {
+              id: 'settings-site-health',
+              label: 'Site Health scans',
+              content: <SiteHealthScanSettingsSection key={model.project.id} project={model.project} onSave={async siteAuditMaxPages => { await handleUpdateProject(model.project.name, { siteAuditMaxPages }) }} />,
+            },
+            ...(!isEmbed() ? [{
+              id: 'settings-locations-markets',
+              label: LOCATIONS_MARKETS_COPY.heading,
+              content: (
+                <LocationsMarketsSection
+                  projectName={projectName}
+                  setup={measurementSetupQuery.data}
+                  plan={activeMeasurementPlanQuery.data}
+                  readFailed={(measurementSetupQuery.isError && measurementSetupQuery.data === undefined) || isActiveMeasurementPlanError}
+                  onRetryReads={() => { void Promise.all([measurementSetupQuery.refetch(), activeMeasurementPlanQuery.refetch()]) }}
+                  onOpenSetup={() => { void navigate({ to: '/projects/$projectName/portfolio', params: { projectName } }) }}
+                />
+              ),
+            }] : []),
+            { id: 'settings-schedule', label: 'Schedule', content: <ScheduleSection projectName={model.project.name} /> },
+            { id: 'settings-notifications', label: 'Notifications', content: <NotificationsSection projectName={model.project.name} /> },
+            // Deleting the project lives here, at the far end of Settings, rather
+            // than as an icon in the page header where it sat one misclick from
+            // "Run AI sweep". It destroys every query, run and snapshot, and a
+            // confirm dialog was the only thing standing between the two.
+            ...(canWrite && !isEmbed() ? [{
+              id: 'settings-delete',
+              label: 'Delete project',
+              content: (
+                <section className="page-section-divider">
+                  <h2 className="text-lg font-semibold text-negative-400">Delete project</h2>
+                  <p className="supporting-copy mt-1 mb-3">
+                    Permanently deletes this project and all its queries, competitors, runs, and snapshots.
                   </p>
-                  <div className="flex items-center gap-3">
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      disabled={deleting}
-                      onClick={asyncHandler(handleDeleteProject)}
-                    >
-                      {deleting ? 'Deleting...' : 'Yes, delete project'}
-                    </Button>
-                    <Button type="button" variant="outline" disabled={deleting} onClick={() => setShowDeleteConfirm(false)}>
-                      Cancel
-                    </Button>
-                  </div>
-                </Card>
-              ) : (
-                <WriteButton type="button" variant="outline" onClick={() => setShowDeleteConfirm(true)}>
-                  <Trash2 className="h-4 w-4 text-secondary" />
-                  Delete project
-                </WriteButton>
-              )}
-            </section>
-          ) : null}
-        </>
+                  {showDeleteConfirm ? (
+                    <Card className="surface-card p-6 border-negative-800/60">
+                      <h3 className="text-base font-semibold text-negative-400 mb-2">Delete project?</h3>
+                      <p className="text-sm text-secondary mb-4">
+                        This will permanently delete <strong className="text-strong">{model.project.displayName || model.project.name}</strong> and
+                        all its queries, competitors, runs, and snapshots. This cannot be undone.
+                      </p>
+                      <div className="flex items-center gap-3">
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          disabled={deleting}
+                          onClick={asyncHandler(handleDeleteProject)}
+                        >
+                          {deleting ? 'Deleting...' : 'Yes, delete project'}
+                        </Button>
+                        <Button type="button" variant="outline" disabled={deleting} onClick={() => setShowDeleteConfirm(false)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </Card>
+                  ) : (
+                    <WriteButton type="button" variant="outline" onClick={() => setShowDeleteConfirm(true)}>
+                      <Trash2 className="h-4 w-4 text-secondary" />
+                      Delete project
+                    </WriteButton>
+                  )}
+                </section>
+              ),
+            }] : []),
+          ]}
+        />
       ) : tab === 'queries' || tab === 'discovery' ? (
         <QueriesSection
           projectName={projectName}
