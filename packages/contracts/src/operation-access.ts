@@ -47,6 +47,8 @@ export const WRITE_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/google/callback',
   'GET /api/v1/projects/{name}/google/callback',
   'GET /api/v1/google-marketing/callback',
+  'GET /api/v1/auth/session',
+  'GET /api/v1/auth/sessions',
 ])
 
 /** POST previews that calculate from supplied or draft data without persistence. */

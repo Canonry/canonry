@@ -39,6 +39,13 @@ describe('mounted operation access headers', () => {
     expect(live.headers['x-canonry-access']).toBe('live')
   })
 
+  it('marks session inspection reads as writes because they renew session rows', async () => {
+    for (const route of ['/custom/auth/session', '/custom/auth/sessions']) {
+      const response = await app.inject({ method: 'GET', url: route, headers: { authorization: `Bearer ${token}` } })
+      expect(response.headers['x-canonry-access'], route).toBe('write')
+    }
+  })
+
   it('canonicalizes a tenant api prefix for stored and live headers', async () => {
     await app.close()
     fs.rmSync(dir, { recursive: true, force: true })
