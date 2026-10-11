@@ -154,7 +154,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "AEO Analysis: Interpreting Canonry Results",
     description: "canonry skill reference: references/aeo-analysis.md",
     entryPoint: false,
-    characters: 19044,
+    characters: 19144,
     content: canonryReferencesAeoAnalysisPart0,
   },
   {
@@ -164,7 +164,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 172454,
+    characters: 175023,
     content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2, canonryReferencesCanonryCliPart3].join(''),
   },
   {
@@ -174,7 +174,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Google Business Profile Integration",
     description: "canonry skill reference: references/google-business-profile.md",
     entryPoint: false,
-    characters: 35976,
+    characters: 36220,
     content: canonryReferencesGoogleBusinessProfilePart0,
   },
   {
@@ -204,7 +204,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Server-side traffic (AI Visibility — Server-Side)",
     description: "canonry skill reference: references/server-side-traffic.md",
     entryPoint: false,
-    characters: 56805,
+    characters: 56851,
     content: canonryReferencesServerSideTrafficPart0,
   },
   {

@@ -2,6 +2,7 @@ import { and, eq, gte, inArray, ne, sql } from 'drizzle-orm'
 import {
   CloudflareTrafficDeliveryModes,
   CheckCategories,
+  CheckNotificationPolicies,
   CheckScopes,
   CheckStatuses,
   TrafficSourceStatuses,
@@ -492,12 +493,17 @@ const scopesCheck: CheckDefinition = {
  * inherent to hook-based capture, not a config error, so it warns whenever a
  * WordPress source is present; log/edge adapters (cloud-run, vercel) are
  * unaffected and skip.
+ *
+ * Silent: the warning can never clear while the source exists, so as a health
+ * check it kept the project permanently degraded and no recovery could ever
+ * be sent. It stays in `canonry doctor` as a standing note.
  */
 const cacheBlindSpotCheck: CheckDefinition = {
   id: 'traffic.source.cache-blindspot',
   category: CheckCategories.integrations,
   scope: CheckScopes.project,
   title: 'WordPress traffic cache blind spot',
+  notificationPolicy: CheckNotificationPolicies.silent,
   run: (ctx) => {
     if (!ctx.project) return skippedNoProject()
     const wpSources = loadProbes(ctx).filter(
