@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { diffProjectConfigState, type ProjectConfigState } from '../src/config-diff.js'
+import { applyPreviewDtoSchema, diffProjectConfigState, projectConfigStateSchema, type ProjectConfigState } from '../src/config-diff.js'
 
 const state = (overrides: Partial<ProjectConfigState> = {}): ProjectConfigState => ({
   project: { id: 'project-1', name: 'example' },
@@ -42,5 +42,22 @@ describe('diffProjectConfigState', () => {
       state({ queries: [{ id: 'q2', text: '  how to repair roofs  ' }] }),
     )
     expect(result.queries).toMatchObject({ added: [], removed: [], unchangedCount: 1 })
+  })
+
+  it('keeps field and schedule values contract typed and accepts lifecycle effects and dropped aliases', () => {
+    const before = state({ fields: { displayName: 'Example' } })
+    const after = state({
+      fields: { displayName: 'Changed', providers: ['gemini'] },
+      schedule: { cron: '0 9 * * *', timezone: 'UTC', providers: ['gemini'], enabled: true },
+    })
+    const result = diffProjectConfigState(before, after, {
+      droppedAliases: [{ domain: 'old.example', alias: 'Old Brand', reason: 'other-competitor' }],
+      effects: ['competitor-rescore', 'schedule-reload'],
+    })
+    expect(projectConfigStateSchema.parse(after)).toEqual(after)
+    expect(applyPreviewDtoSchema.parse(result)).toEqual(result)
+    expect(result.fields).toMatchObject({ displayName: { before: 'Example', after: 'Changed' } })
+    expect(result.competitors.droppedAliases).toEqual([{ domain: 'old.example', alias: 'Old Brand', reason: 'other-competitor' }])
+    expect(result.effects).toEqual(['competitor-rescore', 'schedule-reload'])
   })
 })

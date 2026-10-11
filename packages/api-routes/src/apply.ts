@@ -219,6 +219,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     const lifecycle = { projectCreated: false, competitorAliasesChanged: false, competitorsAdded: false }
     let scheduleAction: 'upsert' | 'delete' | null = null
     let aliasesChanged = false
+    let droppedAliases: ApplyPreviewDto['competitors']['droppedAliases'] = []
 
     try {
       app.db.transaction((tx) => {
@@ -355,6 +356,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         project: specAliasIdentity,
         now,
       })
+      droppedAliases = competitorPlan.droppedAliases
       const marketNamesChanged = existing ? marketNameChanges(marketNamesBefore, readMarketCompetitorNames(tx, projectId)) : []
       lifecycle.competitorAliasesChanged = !lifecycle.projectCreated
         && (competitorIdentityChanged(competitorPlan) || marketNamesChanged.length > 0)
@@ -464,8 +466,13 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           },
         })
         if (!afterState) throw new Error('Applied project state was not readable inside the transaction')
-        const preview = diffProjectConfigState(beforeState, afterState)
-        if ('google' in rawSpec && config.spec.google?.gsc?.propertyUrl) preview.effects.push('gsc-property-update')
+        const effects: ApplyPreviewDto['effects'] = []
+        if (aliasesChanged) effects.push('mention-backfill')
+        if (lifecycle.competitorAliasesChanged) effects.push('competitor-rescore')
+        if (lifecycle.competitorsAdded) effects.push('competitor-auto-alias-rescan')
+        if (scheduleAction) effects.push('schedule-reload')
+        if ('google' in rawSpec && config.spec.google?.gsc?.propertyUrl) effects.push('gsc-property-update')
+        const preview = diffProjectConfigState(beforeState, afterState, { droppedAliases, effects })
         throw new ApplyPreviewRollback(preview)
       }
       }, { behavior: 'immediate' })

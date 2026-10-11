@@ -112,6 +112,8 @@ export async function applyConfigs(filePaths: string[], format?: string, options
           else {
             for (const domain of preview.competitors.added) console.log(`  + competitor: ${domain}`)
             for (const domain of preview.competitors.removed) console.log(`  - competitor: ${domain}`)
+            for (const change of preview.competitors.aliasChanges) console.log(`  ~ competitor aliases ${change.domain}: ${previewValue(change.before)} -> ${previewValue(change.after)}`)
+            for (const dropped of preview.competitors.droppedAliases) console.log(`  - dropped alias: ${dropped.domain} ${dropped.alias} (${dropped.reason})`)
             console.log(`  competitors: +${preview.competitors.added.length} -${preview.competitors.removed.length}`)
           }
           if (!preview.schedule.managed) console.log('  schedule: not managed by this file')
@@ -120,6 +122,7 @@ export async function applyConfigs(filePaths: string[], format?: string, options
           else {
             for (const notification of preview.notifications.added) console.log(`  + notification: ${notification.urlHost} (${notification.events.join(', ')})`)
             for (const notification of preview.notifications.removed) console.log(`  - notification: ${notification.urlHost} (${notification.events.join(', ')})`)
+            for (const notification of preview.notifications.kept) console.log(`  ~ notification ${notification.urlHost}: ${notification.eventsBefore.join(', ')} -> ${notification.eventsAfter.join(', ')}`)
             console.log(`  notifications: +${preview.notifications.added.length} -${preview.notifications.removed.length}`)
           }
         }

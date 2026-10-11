@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { and, eq } from 'drizzle-orm'
-import { auditLog, competitors, createClient, migrate, notifications, projects, queries, schedules } from '@ainyc/canonry-db'
+import { auditLog, competitors, createClient, migrate, notifications, projects, queries, querySnapshots, runs, schedules } from '@ainyc/canonry-db'
 import { SchedulableRunKinds } from '@ainyc/canonry-contracts'
 import { expect, test } from 'vitest'
 import { apiRoutes } from '../src/index.js'
@@ -25,7 +25,7 @@ test('apply preview returns redacted per-resource changes and rolls back all wri
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-apply-preview-test-'))
   const db = createClient(path.join(tmpDir, 'test.db'))
   migrate(db)
-  const callbacks = { projectCreated: 0, schedule: 0, upserted: 0 }
+  const callbacks = { projectCreated: 0, schedule: 0, upserted: 0, aliases: 0, competitorAliases: 0, autoAliasRescan: 0, google: 0 }
   const app = Fastify()
   app.register(apiRoutes, {
     db,
@@ -34,6 +34,10 @@ test('apply preview returns redacted per-resource changes and rolls back all wri
     onProjectCreated: () => { callbacks.projectCreated++ },
     onScheduleUpdated: () => { callbacks.schedule++ },
     onProjectUpserted: () => { callbacks.upserted++ },
+    onAliasesChanged: () => { callbacks.aliases++ },
+    onCompetitorAliasesChanged: () => { callbacks.competitorAliases++ },
+    onCompetitorAutoAliasRescan: () => { callbacks.autoAliasRescan++ },
+    onGoogleConnectionPropertyUpdated: () => { callbacks.google++ },
   })
   await app.ready()
 
@@ -50,6 +54,10 @@ test('apply preview returns redacted per-resource changes and rolls back all wri
     })
     expect(initial.statusCode).toBe(200)
     const project = db.select().from(projects).where(eq(projects.name, 'preview-project')).get()!
+    const query = db.select().from(queries).where(eq(queries.projectId, project.id)).get()!
+    const runId = 'preview-run'
+    db.insert(runs).values({ id: runId, projectId: project.id, kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: new Date().toISOString() }).run()
+    db.insert(querySnapshots).values({ id: 'preview-snapshot', runId, queryId: query.id, queryText: query.query, provider: 'gemini', citationState: 'not-cited', answerText: 'fixture', createdAt: new Date().toISOString() }).run()
     const notificationId = db.select().from(notifications).where(eq(notifications.projectId, project.id)).get()!.id
     const before = {
       project: db.select().from(projects).where(eq(projects.id, project.id)).get(),
@@ -70,6 +78,7 @@ test('apply preview returns redacted per-resource changes and rolls back all wri
         competitors: ['new.example'],
         schedule: { preset: 'weekly', timezone: 'UTC' },
         notifications: [{ id: notificationId, channel: 'webhook', url: `redacted://127.0.0.1/${notificationId}`, events: ['run.failed'] }],
+        google: { gsc: { propertyUrl: 'https://search.example/property' } },
       }),
     })
 
@@ -79,15 +88,17 @@ test('apply preview returns redacted per-resource changes and rolls back all wri
       project: { id: project.id, name: 'preview-project' },
       action: 'update',
       changed: true,
-      queries: { managed: true, added: ['second query'], removed: ['first query'] },
+      queries: { managed: true, added: ['second query'], removed: ['first query'], snapshotsDetached: 1 },
       competitors: { managed: true, added: ['new.example'], removed: ['old.example'] },
       schedule: { managed: true, action: 'update' },
       notifications: { managed: true, kept: [{ id: notificationId, urlHost: '127.0.0.1', eventsBefore: ['run.completed'], eventsAfter: ['run.failed'] }] },
+      effects: ['competitor-auto-alias-rescan', 'schedule-reload', 'gsc-property-update'],
     })
     expect(JSON.stringify(body)).not.toContain('http://127.0.0.1/hook')
     expect(callbacks).toEqual(callbackBefore)
     expect(db.select().from(projects).where(eq(projects.id, project.id)).get()).toEqual(before.project)
     expect(db.select().from(queries).where(eq(queries.projectId, project.id)).all()).toEqual(before.queries)
+    expect(db.select().from(querySnapshots).where(eq(querySnapshots.id, 'preview-snapshot')).get()?.queryId).toBe(query.id)
     expect(db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()).toEqual(before.competitors)
     expect(db.select().from(schedules).where(and(eq(schedules.projectId, project.id), eq(schedules.kind, SchedulableRunKinds['answer-visibility']))).all()).toEqual(before.schedules)
     expect(db.select().from(notifications).where(eq(notifications.projectId, project.id)).all()).toEqual(before.notifications)
