@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectDto } from '@ainyc/canonry-contracts'
 import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
+import { CliError } from '../src/cli-error.js'
 
 const mockGetProject = vi.fn()
 const mockPatchProject = vi.fn()
+const mockPutProject = vi.fn()
 
 vi.mock('../src/client.js', () => ({
   createApiClient: () => ({
     getProject: mockGetProject,
     patchProject: mockPatchProject,
+    putProject: mockPutProject,
   }),
 }))
 
@@ -55,6 +58,7 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {})
   mockGetProject.mockResolvedValue(project)
   mockPatchProject.mockImplementation(async (_name: string, body: Record<string, unknown>) => ({ ...project, ...body }))
+  mockPutProject.mockImplementation(async (_name: string, body: Record<string, unknown>) => ({ ...project, ...body }))
 })
 
 afterEach(() => vi.restoreAllMocks())
@@ -105,6 +109,21 @@ describe('project measurement update flags', () => {
   it('passes an explicit revision guard through the PATCH request', async () => {
     await run('project', 'update', 'measurement-project', '--display-name', 'Renamed', '--expect-revision', '12', '--format', 'json')
     expect(body().expectedConfigRevision).toBe(12)
+  })
+
+  it('uses the full PUT path only when a prior GET is followed by a 404 PATCH', async () => {
+    mockPatchProject.mockRejectedValue(new CliError({ code: 'NOT_FOUND', message: 'PATCH route missing', details: { httpStatus: 404 } }))
+    await run('project', 'update', 'measurement-project', '--add-lead-event', 'book_demo')
+    expect(mockPutProject).toHaveBeenCalledTimes(1)
+    expect(mockPutProject.mock.calls[0]![1]).toMatchObject({
+      displayName: project.displayName,
+      canonicalDomain: project.canonicalDomain,
+      measurement: {
+        marketingHosts: ['offers.measurement.example'],
+        brandTerms: ['Measurement Project'],
+        leadEventNames: ['generate_lead', 'book_demo'],
+      },
+    })
   })
 
   it('prints measurement lists in human project output', async () => {

@@ -1290,11 +1290,21 @@ export class ApiClient {
   async patchProject(name: string, body: ProjectPatchRequest): Promise<ProjectDto> {
     await this.probeBasePath()
     const url = `${this.originUrl}/api/v1/projects/${encodeURIComponent(name)}`
+    const tags = usageTagStore.getStore()
+    const requestHeaders: Record<string, string> = { ...this.requestHeaders }
+    if (tags?.mcpTool) requestHeaders[USAGE_TELEMETRY_HEADERS.mcpTool] = tags.mcpTool
+    if (tags?.mcpCall) requestHeaders[USAGE_TELEMETRY_HEADERS.mcpCall] = tags.mcpCall
+    const mcpClient = tags?.mcpClient ? normalizeAgentSlug(tags.mcpClient) : undefined
+    if (mcpClient) requestHeaders[USAGE_TELEMETRY_HEADERS.mcpClient] = mcpClient
     let response: Response
     try {
       response = await fetch(url, {
         method: 'PATCH',
-        headers: { ...this.requestHeaders, 'Content-Type': 'application/json', Accept: 'application/json' },
+        headers: {
+          ...requestHeaders,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
         body: JSON.stringify(body),
       })
     } catch (error) {

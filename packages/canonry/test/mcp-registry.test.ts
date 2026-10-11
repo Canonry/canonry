@@ -1304,6 +1304,19 @@ describe('MCP tool handlers', () => {
     try {
       const upstreamCases: NativeDispatchCase[] = [
         {
+          caseId: 'main-project-update-patch',
+          tool: 'canonry_project_update',
+          channel: 'mcp',
+          input: { project: 'acme', request: { displayName: 'Acme Updated', expectedConfigRevision: 3 } },
+          requests: [{
+            method: 'PATCH', path: '/native-mcp/api/v1/projects/acme', query: [],
+            body: { displayName: 'Acme Updated', expectedConfigRevision: 3 },
+            status: 200, response: { name: 'acme', displayName: 'Acme Updated', configRevision: 4 },
+          }],
+          expectedText: { name: 'acme', displayName: 'Acme Updated', configRevision: 4 },
+          expectedStructured: { name: 'acme', displayName: 'Acme Updated', configRevision: 4 },
+        },
+        {
           caseId: 'main-feedback',
           tool: 'canonry_feedback',
           channel: 'mcp',

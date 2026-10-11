@@ -1,7 +1,7 @@
-import type { CompetitorAutoAliasMode, MeasurementConfig, ProjectDto, ProjectPatchRequest, ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
+import type { CompetitorAutoAliasMode, MeasurementConfig, ProjectDto, ProjectPatchRequest, ProjectUpsertRequest, ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
 import { DEFAULT_MEASUREMENT_CONFIG, effectiveDomains, measurementConfigSchema, normalizeProjectAliases, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { isMachineFormat, usageError } from '../cli-error.js'
+import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
@@ -336,7 +336,38 @@ export async function updateProjectSettings(
     ...(opts.competitorAutoAliases !== undefined ? { competitorAutoAliases: opts.competitorAutoAliases } : {}),
     ...(opts.measurement !== undefined ? { measurement: resolveMeasurementUpdate(project, opts.measurement) } : {}),
   }
-  const result: ProjectDto = await client.patchProject(name, patch)
+  let result: ProjectDto
+  try {
+    result = await client.patchProject(name, patch)
+  } catch (error) {
+    // A successful GET followed by a NOT_FOUND PATCH identifies an older
+    // server whose API predates PATCH. Preserve the historical full PUT path
+    // only for that transport case; mocked or incomplete clients are not a
+    // compatibility signal.
+    if (!(error instanceof CliError) || error.code !== 'NOT_FOUND') throw error
+    const legacyBody: ProjectUpsertRequest = {
+      displayName: nextDisplayName,
+      canonicalDomain: opts.domain ?? project.canonicalDomain,
+      ownedDomains,
+      aliases: nextAliases,
+      ...(touchesQualified ? { qualifiedAliases } : {}),
+      country: opts.country ?? project.country,
+      language: opts.language ?? project.language,
+      tags: project.tags,
+      labels: project.labels,
+      providers: opts.providers ?? project.providers,
+      providerModels,
+      ...(touchesDispatch ? { providerDispatchModes } : {}),
+      locations: project.locations,
+      defaultLocation: project.defaultLocation,
+      autoExtractBacklinks: project.autoExtractBacklinks,
+      ...(opts.negativeReviewMaxStars !== undefined ? { negativeReviewMaxStars: opts.negativeReviewMaxStars } : {}),
+      ...(opts.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: opts.siteAuditMaxPages } : {}),
+      ...(opts.competitorAutoAliases !== undefined ? { competitorAutoAliases: opts.competitorAutoAliases } : {}),
+      ...(opts.measurement !== undefined ? { measurement: resolveMeasurementUpdate(project, opts.measurement) } : {}),
+    }
+    result = await client.putProject(name, legacyBody)
+  }
 
   // What the server was left holding: the map sent, else the stored one.
   warnDroppedDispatchModes(touchesDispatch ? providerDispatchModes : (project.providerDispatchModes ?? {}), result)

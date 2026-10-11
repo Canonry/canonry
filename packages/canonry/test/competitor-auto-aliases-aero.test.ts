@@ -72,6 +72,20 @@ describe('Aero and the competitor auto-alias mode', () => {
     }
   })
 
+  it('refuses the PATCH project update mode change and keeps omitted mode writable', async () => {
+    const refusedCalls: Call[] = []
+    const update = toolFor('canonry_project_update', 'preview', refusedCalls)
+    await expect(update.execute('call-1', { project: 'demo', request: { displayName: 'Demo', competitorAutoAliases: 'apply' } }))
+      .rejects.toThrow(COMPETITOR_AUTO_ALIAS_MODE_REFUSAL)
+    expect(refusedCalls.map(c => c.method)).toEqual(['getProject'])
+
+    const keptCalls: Call[] = []
+    await toolFor('canonry_project_update', 'preview', keptCalls)
+      .execute('call-2', { project: 'demo', request: { displayName: 'Demo' } })
+    expect(keptCalls.map(c => c.method)).toEqual(['patchProject'])
+    expect(keptCalls[0]!.args).toEqual(['demo', { displayName: 'Demo' }])
+  })
+
   it('lets a project upsert omit the mode or restate the stored one', async () => {
     const omitted: Call[] = []
     await toolFor('canonry_project_upsert', 'preview', omitted)

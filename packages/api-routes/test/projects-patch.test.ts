@@ -4,8 +4,9 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { and, eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
+import { createClient, measurementPlans, measurementPlanVersions, migrate, projects } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
+import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
 const initialProject = {
   displayName: 'Patch Project',
@@ -33,15 +34,18 @@ const initialProject = {
 let tmpDir: string
 let db: ReturnType<typeof createClient>
 let app: ReturnType<typeof Fastify>
+let aliasCallbacks: string[]
 
 beforeEach(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-project-patch-'))
   db = createClient(path.join(tmpDir, 'test.db'))
   migrate(db)
+  aliasCallbacks = []
   app = Fastify()
   app.register(apiRoutes, {
     db,
     skipAuth: true,
+    onAliasesChanged: (_id, name) => aliasCallbacks.push(name),
     providerAdapters: [{ name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true, defaultModel: 'gpt-test', knownModels: [], modelValidationPattern: /^gpt-/, modelValidationHint: 'gpt model' }],
   })
   await app.ready()
@@ -81,6 +85,37 @@ describe('PATCH project', () => {
     })
     expect(updated.configSource).toBe(before.configSource)
     expect(db.select().from(projects).where(eq(projects.name, 'patch-project')).get()?.measurement).toEqual(updated.measurement)
+    expect(aliasCallbacks).toEqual([])
+  })
+
+  it('preserves nested measurement and skips alias callbacks on an active Advanced portfolio', async () => {
+    const before = await seed('advanced-patch-project')
+    const plan = measurementPlanV2Fixture()
+    const versionId = 'advanced-patch-version'
+    const now = new Date().toISOString()
+    db.insert(measurementPlanVersions).values({
+      id: versionId,
+      projectId: before.id as string,
+      revision: 1,
+      canonicalJson: JSON.stringify(plan),
+      checksum: 'a'.repeat(64),
+      schemaVersion: 2,
+      createdAt: now,
+    }).run()
+    db.insert(measurementPlans).values({ projectId: before.id as string, activeVersionId: versionId, createdAt: now, updatedAt: now }).run()
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/projects/advanced-patch-project',
+      payload: { measurement: { brandTerms: ['Advanced Patch'] } },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().measurement).toEqual({
+      marketingHosts: ['offers.patch.example'],
+      brandTerms: ['Advanced Patch'],
+      leadEventNames: ['generate_lead', 'book_demo'],
+    })
+    expect(aliasCallbacks).toEqual([])
   })
 
   it('preserves keep-on-omit fields when aliases are patched', async () => {
