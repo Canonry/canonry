@@ -2551,7 +2551,6 @@ export async function createServer(opts: {
   const serverApiKeyMissing = () =>
     new AppError("AUTH_INVALID", "Server API key not found — run canonry bootstrap", 401);
 
-  const legacySessionRouteConfig = { legacySessionBoundary: true } as const;
   const rejectLegacySessionStoredOnly = async (request: FastifyRequest, reply: FastifyReply) => {
     const header = request.headers[STORED_ONLY_HEADER];
     if (header !== '1' && header !== 'true') return;
@@ -2563,13 +2562,12 @@ export async function createServer(opts: {
     return reply.status(error.statusCode).send(error.toJSON());
   };
   const legacySessionRouteOptions = {
-    config: legacySessionRouteConfig,
+    onSend: async (_request: FastifyRequest, reply: FastifyReply, payload: unknown) => {
+      reply.header(OPERATION_ACCESS_HEADER, OperationAccesses.write);
+      return payload;
+    },
     preHandler: rejectLegacySessionStoredOnly,
   } as const;
-  app.addHook('onSend', async (request, reply) => {
-    const config = request.routeOptions.config as { legacySessionBoundary?: unknown } | undefined;
-    if (config?.legacySessionBoundary === true) reply.header(OPERATION_ACCESS_HEADER, OperationAccesses.write);
-  });
 
   app.get(apiPrefix + "/session", legacySessionRouteOptions, async (request, reply) => {
     if (namedAccountsInUse()) {
