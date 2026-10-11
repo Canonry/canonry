@@ -103,7 +103,7 @@ it('reports retained Google marketing evidence after disconnect as not connected
 
     const report = await doctor('google-ads.*,gtm.*')
 
-    expect(report.checks).toHaveLength(11)
+    expect(report.checks).toHaveLength(13)
     expect(report.checks.every((check) => check.status === 'skipped')).toBe(true)
     expect(report.checks.filter((check) => check.id.startsWith('google-ads.')).map((check) => check.code))
       .toEqual([
@@ -112,6 +112,7 @@ it('reports retained Google marketing evidence after disconnect as not connected
         'google-ads.auth.not-connected',
         'google-ads.auth.not-connected',
         'google-ads.sync.not-connected',
+        'google-ads.api.not-connected',
       ])
     expect(report.checks.filter((check) => check.id.startsWith('gtm.')).map((check) => check.code))
       .toEqual([
@@ -121,6 +122,7 @@ it('reports retained Google marketing evidence after disconnect as not connected
         'gtm.auth.not-connected',
         'gtm.runtime.not-connected',
         'gtm.sync.not-connected',
+        'gtm.api.not-connected',
       ])
   })
 })
