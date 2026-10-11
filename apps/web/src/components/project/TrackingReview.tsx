@@ -201,9 +201,9 @@ function searchLocationReader(all: readonly Context[], contextLabels: ContextLab
   })
 }
 
-/** A few names, then a count of the rest. */
+/** A few names, then a count of the rest. Names hold commas of their own, so a dot parts them. */
 function someNames(names: readonly string[], shown = 5): string {
-  return names.length > shown ? `${names.slice(0, shown).join(', ')} and ${count(names.length - shown)} more` : names.join(', ')
+  return names.length > shown ? `${names.slice(0, shown).join(' · ')} and ${count(names.length - shown)} more` : names.join(' · ')
 }
 
 /**
@@ -637,7 +637,7 @@ function SearchLocationButton({ label, detail }: { label: string; detail: string
 /** Each location a query is asked for, with its type, groups and markets, and with `searchLocations` where it is asked, in the table's words. */
 function RowLocations({ assignments, workspace, searchLocations }: { assignments: readonly Assignment[]; workspace: QueryTrackingWorkspaceResponse; searchLocations: ((contexts: readonly Context[]) => SearchLocation[]) | null }) {
   const named = (prefix: string, scopes: readonly { stableKey: string; label: string }[], keys: readonly string[]) =>
-    keys.length > 0 ? `${prefix}: ${keys.map(key => scopes.find(scope => scope.stableKey === key)?.label ?? key).join(', ')}` : null
+    keys.length > 0 ? `${prefix}: ${keys.map(key => scopes.find(scope => scope.stableKey === key)?.label ?? key).join('; ')}` : null
   return (
     <ul className="max-h-60 space-y-2 overflow-y-auto break-words text-sm leading-5">
       {assignments.map((assignment, index) => <li key={`${assignment.targetKey}:${index}`}>{[

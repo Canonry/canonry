@@ -644,7 +644,7 @@ test('adds a location query to every market that location is in, with no context
   fillLocation(sheet, 'Acme', 'Acme reviews\n\nAcme parking\nacme  reviews')
   expect(sheet.getByText('Acme · Location')).toBeTruthy()
   // Boston holds only Cedar Court, and Remote searches is listed once for its two Acme queries.
-  helpBeside(sheet.getByText('Counts in: New York, Remote searches'), marketsHelp)
+  helpBeside(sheet.getByText('Counts in: New York · Remote searches'), marketsHelp)
   expect(sheet.queryByText(/^Engines and search locations come from/)).toBeNull()
   expect(sheet.queryByText('In no market')).toBeNull()
   expect(sheet.queryByText(/^Search location and engines/)).toBeNull()
@@ -776,7 +776,7 @@ test('lists groups and locations for Location, never markets, and calls them loc
 
 test.each([
   // One location in two markets is asked from each market's search location: two assignments on one location.
-  { subject: 'Location', targetKeys: ['acme'], marketKeys: ['new-york', 'remote'], contexts: [context, bostonContext], markets: 'New York, Remote searches', locations: ['Acme'], classifications: '1 location', asked: 'New York · OpenAI; Boston · OpenAI, Gemini', models: 'New York · openai (gpt-5); Boston · openai (gpt-5), gemini (gemini-3)' },
+  { subject: 'Location', targetKeys: ['acme'], marketKeys: ['new-york', 'remote'], contexts: [context, bostonContext], markets: 'New York; Remote searches', locations: ['Acme'], classifications: '1 location', asked: 'New York · OpenAI; Boston · OpenAI, Gemini', models: 'New York · openai (gpt-5); Boston · openai (gpt-5), gemini (gemini-3)' },
   { subject: 'Market', targetKeys: ['acme', 'cedar'], marketKeys: ['new-york'], contexts: [context], markets: 'New York', locations: ['Acme', 'Cedar Court'], classifications: '2 locations', asked: 'New York · OpenAI', models: 'New York · openai (gpt-5)' },
 ])('calls a location a location in the review of a $subject add', async ({ subject, targetKeys, marketKeys, contexts, markets, locations, classifications, asked, models }) => {
   // As the server answers a review: `tracked` holds the added query, on every location its markets hold.
@@ -909,7 +909,7 @@ test('starts on the location the Tracked view is filtered to', async () => {
   const sheet = within(screen.getByRole('dialog', { name: 'Add queries' }))
   expect(sheet.getByRole('radio', { name: 'Location' }).getAttribute('aria-checked')).toBe('true')
   expect(sheet.getByText('Acme · Location')).toBeTruthy()
-  expect(sheet.getByText('Counts in: New York, Remote searches')).toBeTruthy()
+  expect(sheet.getByText('Counts in: New York · Remote searches')).toBeTruthy()
   // Tracked has the Add query form, so its link stays.
   expect(sheet.getByRole('button', { name: handPickedLink })).toBeTruthy()
   fireEvent.change(queriesField(sheet), { target: { value: 'Acme reviews' } })

@@ -156,7 +156,7 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
   const target = chosen ? { kind: subject, key: chosen.id } : null
   // The markets a location's queries already count in: those with a usage edge for it.
   const locationMarkets = subject === 'location' && chosen ? marketsHolding(workspace, chosen.id) : []
-  const marketNames = locationMarkets.map(market => market.label).join(', ')
+  const marketNames = locationMarkets.map(market => market.label).join(' · ')
   // The same pairings read as the market's or the location's query there, whichever Subject was picked.
   const landsByType = target !== null && typeSetsSubject(target, workspace)
   // A project with one search location and engines choice needs no pick.

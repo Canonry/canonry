@@ -434,7 +434,7 @@ describe('Change Subject', () => {
     // A query has one Subject, so the market is dropped and Review waits for a location.
     expect(reviewButton(sheet).disabled).toBe(true)
     pick(sheet, 'Choose a location', 'Harbor Point')
-    expect(sheet.getByText('Counts in: Uptown, Downtown')).toBeTruthy()
+    expect(sheet.getByText('Counts in: Uptown · Downtown')).toBeTruthy()
     expect(sheet.getByRole('button', { name: "Asked with these markets' engines and search locations." })).toBeTruthy()
     expect(sheet.queryByText('Type sets Subject')).toBeNull()
     expect(await review(sheet, writes)).toStrictEqual({
@@ -504,7 +504,7 @@ describe('Change Subject', () => {
     choose(sheet, 'Subject', 'Location')
     pick(sheet, 'Choose a location', 'River Point')
     expect(sheet.getByText('Counts in 3 markets')).toBeTruthy()
-    expect(sheet.getByRole('button', { name: "Uptown, Downtown, Solo. Asked with these markets' engines and search locations." })).toBeTruthy()
+    expect(sheet.getByRole('button', { name: "Uptown · Downtown · Solo. Asked with these markets' engines and search locations." })).toBeTruthy()
   })
 
   it.each([

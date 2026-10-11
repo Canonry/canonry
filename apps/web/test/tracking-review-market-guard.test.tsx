@@ -92,7 +92,7 @@ test('lists each market that loses locations and keeps Publish off until the cha
   expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Market', 'Locations', 'Change'])
   // The locations that leave are named behind each note, with the sentence.
   expect(noteButton('Market emptied', 'Leaves this market: Acme Homes Court. A market with no locations takes no new queries.', table).classList.contains('text-negative')).toBe(true)
-  expect(noteButton('Loses 2\u00a0locations', "Leaves this market: Acme Homes Court, Acme Homes Lofts. After you publish, this market's queries are no longer asked for them.", table).classList.contains('text-caution')).toBe(true)
+  expect(noteButton('Loses 2\u00a0locations', "Leaves this market: Acme Homes Court · Acme Homes Lofts. After you publish, this market's queries are no longer asked for them.", table).classList.contains('text-caution')).toBe(true)
   // The table sits above the list of changes.
   expect(table.compareDocumentPosition(screen.getByRole('table', { name: 'Changes' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expectNoSentence(screen.getByRole('region', { name: 'Review' }))
@@ -133,7 +133,7 @@ test('names one location that leaves in the singular, and the first five of many
   const table = screen.getByRole('table', { name: 'Market changes' })
   noteButton('Loses 1\u00a0location', "Leaves this market: Acme Homes Court. After you publish, this market's queries are no longer asked for it.", table)
   // Five names, then how many more.
-  noteButton('Loses 7\u00a0locations', "Leaves this market: Acme Homes A, Acme Homes B, Acme Homes C, Acme Homes D, Acme Homes E and 2 more. After you publish, this market's queries are no longer asked for them.", table)
+  noteButton('Loses 7\u00a0locations', "Leaves this market: Acme Homes A · Acme Homes B · Acme Homes C · Acme Homes D · Acme Homes E and 2 more. After you publish, this market's queries are no longer asked for them.", table)
 })
 
 test('clears the confirmation when another review arrives', () => {

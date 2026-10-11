@@ -114,7 +114,7 @@ describe('TrackResearchSheet', () => {
     expect(listed(sheet)).toEqual([
       ['apartments with a dog park in Uptown', 'Market · Uptown'],
       ['quiet apartments in Downtown', 'Market · Downtown'],
-      ['Is Harbor Point pet friendly?', 'Location · Harbor PointCounts in: Uptown, Downtown'],
+      ['Is Harbor Point pet friendly?', 'Location · Harbor PointCounts in: Uptown · Downtown'],
       ['best apartments for remote workers in Uptown', 'Market · Uptown'],
     ])
     expect(sheet.getAllByRole('row').slice(1).map(row => within(row).getAllByRole('button').map(button => button.getAttribute('aria-label')))).toEqual(items.map(item => [`Remove ${item.text}`]))
@@ -172,7 +172,7 @@ describe('TrackResearchSheet', () => {
     expect(reviewButton(sheet).disabled).toBe(true)
     pick(sheet, 'Choose a location', 'Harbor Point')
     // The markets the location's queries count in, with the sentence behind the help beside them.
-    expect(sheet.getByText('Counts in: Uptown, Downtown')).toBeTruthy()
+    expect(sheet.getByText('Counts in: Uptown · Downtown')).toBeTruthy()
     expect(sheet.getByRole('button', { name: "Asked with these markets' engines and search locations." })).toBeTruthy()
     const location = { targetKeys: ['harbor'], marketKeys: ['uptown', 'downtown'] }
     // The rows that take the chosen location say nothing more: the line under the picker speaks for them.
@@ -249,7 +249,7 @@ describe('TrackResearchSheet', () => {
     pick(sheet, 'Summit Lofts · Location', 'Harbor Point')
     // Under the picker and under the row that keeps its own run's location.
     expect(sheet.getAllByText('Counts in 3 markets')).toHaveLength(2)
-    expect(sheet.getByRole('button', { name: "Uptown, Downtown, Solo. Asked with these markets' engines and search locations." })).toBeTruthy()
+    expect(sheet.getByRole('button', { name: "Uptown · Downtown · Solo. Asked with these markets' engines and search locations." })).toBeTruthy()
   })
 
   it('lists a query ticked twice under one Subject once, and sends it once', async () => {

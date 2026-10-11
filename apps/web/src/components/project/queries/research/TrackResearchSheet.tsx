@@ -256,7 +256,7 @@ function TrackSheet({ projectName, workspace, contextChoices, sweepActive, nextS
       placement,
       counts: !markets ? null
         : markets.length > NAMED_MARKETS ? `Counts in ${count(markets.length)} markets`
-          : markets.length > 0 ? `Counts in: ${markets.map(market => market.label).join(', ')}`
+          : markets.length > 0 ? `Counts in: ${markets.map(market => market.label).join(' · ')}`
             : placement ? 'In no market' : null,
       // The same text under another Subject: the server would track one query for both.
       clash: placed !== null && subjectsOf.get(identity)! > 1,
@@ -389,9 +389,9 @@ function TrackSheet({ projectName, workspace, contextChoices, sweepActive, nextS
                   <div className={`${FIELD_HINT} flex items-center`}>
                     {locationMarkets.length > NAMED_MARKETS ? <>
                       <p>Counts in {count(locationMarkets.length)} markets</p>
-                      <InfoTooltip text={`${locationMarkets.map(market => market.label).join(', ')}. ${COUNTS_IN}`} placement="bottom" />
+                      <InfoTooltip text={`${locationMarkets.map(market => market.label).join(' · ')}. ${COUNTS_IN}`} placement="bottom" />
                     </> : <>
-                      <p>Counts in: {locationMarkets.map(market => market.label).join(', ')}</p>
+                      <p>Counts in: {locationMarkets.map(market => market.label).join(' · ')}</p>
                       <InfoTooltip text={COUNTS_IN} placement="bottom" />
                     </>}
                   </div>

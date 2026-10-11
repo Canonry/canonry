@@ -126,7 +126,7 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
   const place = places.find(option => option.kind === placing.kind && option.id === placeKey)
   // The markets a location's queries already count in: those with a usage edge for it.
   const locationMarkets = subject === 'location' && place ? workspace.markets.filter(market => market.usageEdges.some(edge => edge.targetKey === place.id)) : []
-  const marketNames = locationMarkets.map(market => market.label).join(', ')
+  const marketNames = locationMarkets.map(market => market.label).join(' · ')
   // A project with one search location and engines choice needs no pick.
   const context = contextChoices.length === 1 ? contextChoices[0] : contextChoices.find(choice => choice.label === contextLabel)
   // What every line is added with, or null until the place (and, outside a market, its context) is chosen.
