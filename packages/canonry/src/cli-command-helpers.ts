@@ -120,7 +120,9 @@ export function windowOptions(config: { window?: boolean; dates?: boolean; alias
   const options: ParseArgsOptionsConfig = {}
   if (config.window) options.window = stringOption()
   if (config.dates) { options.start = stringOption(); options.end = stringOption() }
-  for (const alias of Object.values(config.aliases ?? {})) options[alias] = stringOption()
+  for (const alias of [config.aliases?.window, config.aliases?.start, config.aliases?.end]) {
+    if (alias !== undefined) options[alias] = stringOption()
+  }
   return options
 }
 
