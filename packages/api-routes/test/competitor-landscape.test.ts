@@ -1217,6 +1217,7 @@ describe('GET /projects/:name/analytics/competitors', () => {
       stableKey: 'southern', label: 'Southern', targetKeys: ['south-target'],
       competitors: [{ stableKey: 'parentco-south', label: 'BetaCo', domain: 'parentco.com', aliases: ['BetaCo'] }],
     })
+    plan.groups[0]!.competitors.push({ stableKey: 'regional-only', label: 'RegionalName', domain: 'regionalonly.example', aliases: ['RegionalName'] })
     plan.querySnapshots.push({
       queryId: 'south-query', queryText: 'south homes',
       provenance: { source: 'manual', sourceId: null, capturedAt: NOW },
@@ -1243,7 +1244,7 @@ describe('GET /projects/:name/analytics/competitors', () => {
     }).run()
     db.insert(querySnapshots).values([
       { ...marketSnapshot('north_alias', 'multi_market_alias_run', 'north-alias-node', 'Northwind and AlphaCo.', 'parentco.com'), model: 'north-model', location: 'North' },
-      { ...marketSnapshot('south_alias', 'multi_market_alias_run', 'south-alias-node', 'Northwind and BetaCo.', 'parentco.com', NOW, 'south-query', 'south homes'), model: 'south-model', location: 'South' },
+      { ...marketSnapshot('south_alias', 'multi_market_alias_run', 'south-alias-node', 'Northwind and BetaCo. RegionalName.', 'parentco.com', NOW, 'south-query', 'south homes'), model: 'south-model', location: 'South', citedDomains: ['parentco.com', 'regionalonly.example'] },
     ]).run()
 
     const response = await app.inject({
@@ -1275,7 +1276,7 @@ describe('GET /projects/:name/analytics/competitors', () => {
           expect.objectContaining({ name: 'AlphaCo', answerCount: 1, pairedAnswers: 1 }),
           expect.objectContaining({ name: 'BetaCo', answerCount: 1, pairedAnswers: 1 }),
         ]),
-      })],
+      }), expect.objectContaining({ domain: 'regionalonly.example', tracked: true, namingAnswers: 0, names: [] })],
     })
     const regionalSuggestions = await app.inject({
       method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all&groupKey=regional',
