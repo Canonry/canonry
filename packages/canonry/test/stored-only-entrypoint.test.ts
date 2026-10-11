@@ -27,7 +27,7 @@ function runCliEntrypoint(args: string[], configDir: string, port: number): Prom
   })
 }
 
-describe('built CLI stored-only boundary', () => {
+describe('source CLI stored-only boundary', () => {
   it('refuses a write before config, telemetry, autosync, or HTTP access', async () => {
     const configDir = mkdtempSync(path.join(tmpdir(), 'canonry-stored-only-cli-'))
     const configPath = path.join(configDir, 'config.yaml')

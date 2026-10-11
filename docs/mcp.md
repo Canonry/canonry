@@ -31,8 +31,9 @@ accepts `--stored-only` or `CANONRY_STORED_ONLY=1`; the MCP adapter accepts
 same stored-only environment variable. MCP stored-only removes live and write
 tools from its stdio catalog; CLI stored-only refuses provider operations before
 a handler or network request with
-`STORED_ONLY_REFUSED` (CLI exit 1), and send
-`x-canonry-stored-only: 1` on permitted API reads. Stored semantic previews
+`STORED_ONLY_REFUSED` (CLI exit 1), and sends
+`x-canonry-stored-only: 1` on permitted API reads. CLI and API clients refuse
+live and write operations; stored semantic previews
 remain available when they do not call a provider or mutate state.
 Writing a requested results export to the operator's chosen output is still a
 stored read; stored-only blocks provider work and Canonry state changes. Doctor

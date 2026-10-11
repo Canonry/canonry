@@ -35,6 +35,15 @@ describe('CLI and MCP operation access metadata', () => {
       if (tool.access === 'write') expect(derived).toBe('write')
     }
     expect(toolOperationAccess(canonryMcpTools.find(tool => tool.name === 'canonry_ga_properties')!)).toBe('live')
+    const applyPreview = canonryMcpTools.find(tool => tool.name === 'canonry_apply_config_preview')!
+    expect(toolOperationAccess(applyPreview)).toBe('live')
+    expect(applyPreview.annotations.openWorldHint).toBe(true)
+    const bingCoverage = canonryMcpTools.find(tool => tool.name === 'canonry_bing_coverage')!
+    expect(bingCoverage.access).toBe('write')
+    expect(Boolean(bingCoverage.annotations.openWorldHint)).toBe(false)
+    for (const name of ['canonry_gbp_locations_discover', 'canonry_gbp_sync', 'canonry_ads_sync']) {
+      expect(canonryMcpTools.find(tool => tool.name === name)?.annotations.openWorldHint, name).toBe(true)
+    }
   })
 
   it('shows access in contextual help while leaving catalog command output typed', async () => {
@@ -69,6 +78,8 @@ describe('CLI and MCP operation access metadata', () => {
     expect(operationAccess('GET', '/api/v1/projects/{name}/bing/performance')).toBe('live')
     expect(operationAccess('GET', '/api/v1/projects/{name}/results/export')).toBe('stored')
     expect(operationAccess('GET', '/api/v1/google/callback')).toBe('write')
+    expect(operationAccess('GET', '/api/v1/projects/{name}/google/callback')).toBe('write')
+    expect(operationAccess('GET', '/api/v1/google-marketing/callback')).toBe('write')
     expect(operationAccess('POST', '/api/v1/projects/{name}/queries/replace-preview')).toBe('stored')
   })
 
@@ -82,5 +93,27 @@ describe('CLI and MCP operation access metadata', () => {
     expect(operationAccess('GET', '/api/v1/auth/session')).toBe('write')
     expect(operationAccess('GET', '/api/v1/auth/sessions')).toBe('write')
     expect(operationAccess('GET', '/api/v1/projects/{name}/unknown-future-read')).toBe('live')
+  })
+
+  it('keeps provider and write-capable CLI paths out of stored-only mode', () => {
+    const expected: Record<string, 'stored' | 'live' | 'write'> = {
+      'bing.inspect': 'write',
+      'bing.inspect-sitemap': 'write',
+      'bing.refresh': 'write',
+      'cdp.status': 'live',
+      'content.brief': 'write',
+      'content.dismissals': 'stored',
+      'discover.harvest': 'live',
+      'discover.probe': 'stored',
+      'gbp.locations': 'stored',
+      'google.inspect': 'write',
+      'google.inspect-sitemap': 'write',
+      'google.refresh': 'write',
+      'search': 'stored',
+      'competitor.aliases.detect': 'write',
+    }
+    for (const [id, access] of Object.entries(expected)) {
+      expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === id)?.access, id).toBe(access)
+    }
   })
 })

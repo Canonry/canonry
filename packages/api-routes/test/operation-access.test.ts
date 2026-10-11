@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { buildOpenApiDocument } from '../src/openapi.js'
-import { LIVE_READ_OPERATIONS, READ_SEMANTIC_OPERATIONS, WRITE_OPERATIONS } from '@ainyc/canonry-contracts'
+import { LIVE_READ_OPERATIONS, READ_SEMANTIC_OPERATIONS, STORED_READ_OPERATIONS, WRITE_OPERATIONS } from '@ainyc/canonry-contracts'
 import { apiRoutes, canonicalRouteTemplate } from '../src/index.js'
 
 describe('OpenAPI operation access metadata', () => {
@@ -42,6 +42,15 @@ describe('OpenAPI operation access metadata', () => {
       expect(LIVE_READ_OPERATIONS.has(operation)).toBe(true)
       expect(operations.has(operation)).toBe(true)
     }
+  })
+
+  it('classifies every OpenAPI GET in an explicit access set', () => {
+    const document = buildOpenApiDocument() as { paths: Record<string, Record<string, unknown>> }
+    const explicit = new Set([...LIVE_READ_OPERATIONS, ...WRITE_OPERATIONS, ...STORED_READ_OPERATIONS])
+    const gets = Object.entries(document.paths).flatMap(([path, methods]) =>
+      Object.keys(methods).filter(method => method.toLowerCase() === 'get').map(method => `${method.toUpperCase()} ${path}`),
+    )
+    expect(gets.filter(operation => !explicit.has(operation))).toEqual([])
   })
 
   it('checks semantic and paid-read tables against actual registered route config', async () => {

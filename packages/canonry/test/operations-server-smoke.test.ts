@@ -21,9 +21,6 @@ it('keeps health responsive when runtime capture encounters a database writer lo
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-log-lock-smoke-'))
   vi.stubEnv('CANONRY_CONFIG_DIR', dir)
   vi.stubEnv('CANONRY_TELEMETRY_DISABLED', '1')
-  vi.stubEnv('CI', '')
-  vi.stubEnv('DO_NOT_TRACK', '')
-  vi.stubEnv('CANONRY_DISABLE_UPDATE_CHECK', '')
   const config = { apiUrl: 'http://localhost:4100', apiKey: 'cnry_lock_fixture', database: path.join(dir, 'test.db'), telemetry: false }
   saveConfig(config)
   const db = createClient(config.database)
@@ -85,6 +82,8 @@ it('keeps flagged health probes cached-only at every mounted health route', asyn
     await awaitPendingServerRefresh()
   } finally {
     await app?.close()
+    await awaitPendingServerRefresh()
+    await resetServerUpdateCheckCache()
     db.$client.close()
     fs.rmSync(dir, { recursive: true, force: true })
   }
