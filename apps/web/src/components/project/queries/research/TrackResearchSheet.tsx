@@ -361,7 +361,8 @@ function TrackSheet({ projectName, workspace, contextChoices, sweepActive, nextS
           <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
             <TrackingReview {...reviewState} {...reviewContext} workspace={workspace} contextLabels={contextLabels} showActions={false} />
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-default pt-4">
+          {/* The review's buttons are 44px on a phone. */}
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-default pt-4 max-md:[&>button]:h-11">
             <TrackingReviewActions {...reviewState} {...reviewContext} />
           </div>
         </> : <>

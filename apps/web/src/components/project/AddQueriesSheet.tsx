@@ -220,7 +220,8 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
         </SheetHeader>
         {reviewStep ? <>
           <div className="mt-4 min-h-0 flex-1 overflow-y-auto">{reviewStep.changes}</div>
-          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-default pt-4">{reviewStep.actions}</div>
+          {/* The review's buttons are 44px on a phone. */}
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-default pt-4 max-md:[&>button]:h-11">{reviewStep.actions}</div>
         </> : <>
           <div className="-mx-1 mt-4 min-h-0 flex-1 space-y-5 overflow-y-auto px-1">
             <div>

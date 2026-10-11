@@ -53,7 +53,8 @@ export type TrackingReviewState = {
   /**
    * The Subject each query was asked to be tracked for. With these, and a server that sends
    * `changes`, the review checks each one against the Subject and the locations the server
-   * would give it, and Publish stays off while one differs.
+   * would give it, shows the server's room under its query limit, and keeps Publish off
+   * while one differs.
    */
   expectedSubjects?: readonly ExpectedSubject[]
   onPublish: () => void
@@ -70,11 +71,15 @@ type TrackingReviewSweeps = {
   nextSweepDate?: string | null
 }
 
+/** The sentence behind "Type sets Subject": on the action sheet's form, and on a review row the server words as the other Subject of the two. */
+export const TYPE_SETS_SUBJECT = 'In a market with one location, the type decides the Subject. Branded reads as a location query and Non-brand as a market query.'
+
 const CHANGE_TONE = { Added: 'positive', Reused: 'neutral', Removed: 'caution', Unchanged: 'neutral' } as const
 const CHANGE_NAME = { added: 'Added', reused: 'Reused', removed: 'Removed' } as const
 /** One row of a review table: a query can be listed under more than one change. */
 const changeKey = (change: Change, queryId: string) => `${change}:${queryId}`
 const count = (value: number) => value.toLocaleString('en-US')
+const queryCount = (value: number) => `${count(value)} ${value === 1 ? 'query' : 'queries'}`
 /** A change in answers per sweep; none reads as a plain zero. */
 const signed = (sign: '+' | '−', value: number) => value === 0 ? '0' : `${sign}${count(value)}`
 
@@ -106,42 +111,46 @@ function shrunkMarkets(preview: QueryTrackingPreviewResponse | null): MarketChan
   return preview?.marketChanges?.filter(change => change.removedTargetKeys.length > 0) ?? []
 }
 
-/** One checked change: what was asked, and whether the server's Subject and locations for the query are that. */
-type SubjectVerdict = { expected: ExpectedSubject; subject: boolean; locations: boolean }
+/**
+ * One checked change: what was asked, and whether the server's Subject and locations for the query are that.
+ * `byType` when both hold and the server words the Subject as the other of the two a one-location market has.
+ */
+type SubjectVerdict = { expected: ExpectedSubject; subject: boolean; byType: boolean; locations: boolean }
 type SubjectCheck = {
   /** Each change's locations before and after, as the server lists them, by `changeKey`. */
   placements: ReadonlyMap<string, QueryChange>
   /** By `changeKey`. A change nobody stated a Subject for has none. */
   verdicts: ReadonlyMap<string, SubjectVerdict>
-  subjects: boolean
-  locations: boolean
-  /** Queries that would not land where they were asked to. One the server lists no change for counts. */
+  /** Queries that would get another Subject than the one asked for. One the server lists no change for counts. */
+  subjectMisses: number
+  /** Queries that would be asked for other locations than the Subject asked for holds. */
+  locationMisses: number
+  /** Queries that would not land where they were asked to, each counted once. */
   mismatched: number
 }
 
 /**
- * True when the server's Subject for a query is the one asked for. A market of one location reads as
- * the market's query or as the location's by type alone, so either is the Subject asked for there,
- * as long as the query is asked for that one location and no other.
+ * How the server's Subject for a query compares with the one asked for. A market of one location reads as
+ * the market's query or as the location's by type alone, so there the other of the two is the Subject asked
+ * for as well (`by-type`), as long as the query is asked for that one location and no other.
  */
-function landsOn(focus: QueryTrackingTrackedRow['focus'], expected: ExpectedSubject, holds: ReadonlySet<string>, locations: boolean): boolean {
-  if (focus?.kind !== 'market' && focus?.kind !== 'property') return false
-  if ((focus.kind === 'market') === (expected.kind === 'market')) return focus.key === expected.key
-  return holds.size === 1 && locations
+function landing(focus: QueryTrackingTrackedRow['focus'], expected: ExpectedSubject, locations: boolean): 'same' | 'by-type' | 'other' {
+  if (focus?.kind !== 'market' && focus?.kind !== 'property') return 'other'
+  if ((focus.kind === 'market') === (expected.kind === 'market')) return focus.key === expected.key ? 'same' : 'other'
+  return expected.locationKeys.length === 1 && locations ? 'by-type' : 'other'
 }
 
 /**
  * Checks each change against the Subject its caller asked for. The server says where a query would
  * be asked (`changes[].after`) and what Subject that makes it (the post-change row's `focus`). A
- * market is asked for the locations it held when the change was drafted, less any this publish takes
- * from it, so a query that lands on more is caught and a market that shrinks is not. Null with
- * nothing to check: no Subject was stated, the server predates `changes`, or the review changes nothing.
+ * market is asked for the locations it held when the change was drafted: a query that lands on more,
+ * or on fewer, is caught. Null with nothing to check: no Subject was stated, the server predates
+ * `changes`, or the review changes nothing.
  */
 function subjectCheck(preview: QueryTrackingPreviewResponse | null, expectedSubjects: readonly ExpectedSubject[] | undefined): SubjectCheck | null {
   if (!preview?.changes || preview.diff.noOp || !expectedSubjects?.length) return null
   const asked = new Map(expectedSubjects.map(expected => [normalizeIdentityText(expected.queryText), expected]))
   const tracked = new Map(preview.tracked.map(row => [row.queryId, row]))
-  const leaving = new Map(preview.marketChanges?.map(change => [change.marketKey, new Set(change.removedTargetKeys)]))
   const placements = new Map<string, QueryChange>()
   const verdicts = new Map<string, SubjectVerdict>()
   const found = new Set<ExpectedSubject>()
@@ -151,11 +160,11 @@ function subjectCheck(preview: QueryTrackingPreviewResponse | null, expectedSubj
     const expected = asked.get(normalizeIdentityText(change.queryText))
     if (!expected) continue
     found.add(expected)
-    const gone = expected.kind === 'market' ? leaving.get(expected.key) : undefined
-    const holds = new Set(expected.locationKeys.filter(locationKey => !gone?.has(locationKey)))
+    const holds = new Set(expected.locationKeys)
     const after = change.after.targetKeys
     const locations = after.length === holds.size && after.every(locationKey => holds.has(locationKey))
-    verdicts.set(key, { expected, locations, subject: landsOn(tracked.get(change.queryId)?.focus, expected, holds, locations) })
+    const landed = landing(tracked.get(change.queryId)?.focus, expected, locations)
+    verdicts.set(key, { expected, locations, subject: landed !== 'other', byType: landed === 'by-type' })
   }
   const checked = [...verdicts.values()]
   // A query asked for and listed under no change cannot be checked, so it counts against the publish.
@@ -163,8 +172,8 @@ function subjectCheck(preview: QueryTrackingPreviewResponse | null, expectedSubj
   return {
     placements,
     verdicts,
-    subjects: missing === 0 && checked.every(verdict => verdict.subject),
-    locations: checked.every(verdict => verdict.locations),
+    subjectMisses: missing + checked.filter(verdict => !verdict.subject).length,
+    locationMisses: checked.filter(verdict => !verdict.locations).length,
     mismatched: missing + checked.filter(verdict => !verdict.subject || !verdict.locations).length,
   }
 }
@@ -245,24 +254,25 @@ export function TrackingReview({ workspace, contextLabels, showActions = true, .
   const shrunk = shrunkMarkets(preview)
   const table = { tracked, workspace, marketChanges: preview.marketChanges, contextLabels }
   const check = subjectCheck(preview, review.expectedSubjects)
-  // The server's room under its query limit, now and after. An older server sends none.
-  const left = preview.limits?.queries.left
+  // The server's room under its query limit, now and after. It comes with the check: a review that states no Subject keeps its four numbers.
+  const left = check ? preview.limits?.queries.left : undefined
   return (
     <>
       <h3 ref={headingRef} tabIndex={-1} className="text-sm font-semibold text-strong">
         {diff.noOp ? 'No tracking changes' : changed > 0 ? `Review ${count(changed)} ${changed === 1 ? 'change' : 'changes'}` : 'Review tracking changes'}
+        {/* The heading takes focus, so a screen reader hears the block with it. */}
+        {check && check.mismatched > 0 ? <span className="sr-only">, publish blocked</span> : null}
       </h3>
-      {/* Five numbers pass the width of a sheet in one row, so there they sit three to a row: the query counts, then the answers. */}
-      <div className="@container mt-3">
-        <dl className={`grid grid-cols-2 gap-x-6 gap-y-3 ${left ? 'sm:grid-cols-3 @5xl:grid-cols-5' : 'sm:grid-cols-4'}`}>
-          <ReviewNumber label="Queries" value={`${count(queries.current)} → ${count(queries.next)}`} />
-          {left ? <ReviewNumber label="Left under limit" value={`${count(left.current)} → ${count(left.next)}`} /> : null}
-          <ReviewNumber label="Answers per sweep" value={`${count(workload.existingProviderCalls)} → ${count(workload.nextSweepProviderCalls)}`} />
-          {/* One provider call is one answer; added and removed answers stay separate. */}
-          <ReviewNumber label="Answers added" value={signed('+', workload.addedProviderCalls)} />
-          <ReviewNumber label="Answers removed" value={signed('−', workload.removedProviderCalls)} />
-        </dl>
-      </div>
+      {/* Five numbers pass the width of a sheet in one row, so they sit three to a row: the query counts, then the answers. */}
+      <dl className={`mt-3 grid grid-cols-2 gap-x-6 gap-y-3 ${left ? 'sm:grid-cols-3' : 'sm:grid-cols-4'}`}>
+        <ReviewNumber label="Queries" value={`${count(queries.current)} → ${count(queries.next)}`} />
+        {left ? <ReviewNumber label="Left under limit" value={`${count(left.current)} → ${count(left.next)}`} /> : null}
+        {/* Of five, the widest takes a row of its own on a phone, which keeps the two answer changes side by side. */}
+        <ReviewNumber label="Answers per sweep" className={left ? 'max-sm:col-span-2' : undefined} value={`${count(workload.existingProviderCalls)} → ${count(workload.nextSweepProviderCalls)}`} />
+        {/* One provider call is one answer; added and removed answers stay separate. */}
+        <ReviewNumber label="Answers added" value={signed('+', workload.addedProviderCalls)} />
+        <ReviewNumber label="Answers removed" value={signed('−', workload.removedProviderCalls)} />
+      </dl>
       {/* A publish writes a new revision with no continuity link, so location and competitor reads blank while AI Visibility falls back. */}
       {diff.noOp ? null : <div className="mt-3">
         <StatusNote icon={Clock} tone="caution" label="New numbers next sweep" detail="After you publish, location pages and competitor results show no numbers until the next sweep. AI Visibility keeps showing the last sweep. Past answers are kept. Publishing does not run a sweep." />
@@ -274,8 +284,8 @@ export function TrackingReview({ workspace, contextLabels, showActions = true, .
           {/* The two stay side by side where the line is too narrow to hold them beside the counts. */}
           {check ? (
             <div className="flex flex-wrap gap-x-5">
-              <ReviewCheck met={check.subjects} label="One Subject each" />
-              <ReviewCheck met={check.locations} label="Locations match" />
+              <ReviewCheck label="One Subject each" missed={check.subjectMisses} miss="Subject" detail="would get a different Subject than the one you chose" />
+              <ReviewCheck label="Locations match" missed={check.locationMisses} miss="location" detail="would be asked for other locations than your Subject holds" />
             </div>
           ) : null}
         </div>
@@ -320,14 +330,14 @@ export function TrackingReviewActions({ preview, isCommitting, expectedSubjects,
         </label>
       ) : null}
       {preview ? (
-        <WriteButton type="button" size="sm" className="max-md:h-11" disabled={!hasChanges || isCommitting || sweepActive || blocked || (guarded && !confirmed)} onClick={onPublish}>
+        <WriteButton type="button" size="sm" disabled={!hasChanges || isCommitting || sweepActive || blocked || (guarded && !confirmed)} onClick={onPublish}>
           {isCommitting ? 'Publishing…' : changed > 0 ? `Publish ${count(changed)} ${changed === 1 ? 'change' : 'changes'}` : 'Publish changes'}
         </WriteButton>
       ) : (
-        <WriteButton type="button" size="sm" className="max-md:h-11" onClick={onReviewAgain}>Review again</WriteButton>
+        <WriteButton type="button" size="sm" onClick={onReviewAgain}>Review again</WriteButton>
       )}
       {/* A publish in flight ends the review when it lands, so the draft stays out of reach until then. */}
-      {onBack ? <Button type="button" variant="ghost" size="sm" className="max-md:h-11" disabled={isCommitting} onClick={onBack}>Back</Button> : null}
+      {onBack ? <Button type="button" variant="ghost" size="sm" disabled={isCommitting} onClick={onBack}>Back</Button> : null}
       {/* Only a publish that asks something new has first answers to wait for. */}
       {hasChanges && !sweepActive && !blocked && nextSweepDate && preview.workload.addedProviderCalls > 0 ? <StatusNote icon={CalendarClock} label={`First answers ${nextSweepDate}`} /> : null}
       {blocked ? (
@@ -336,7 +346,7 @@ export function TrackingReviewActions({ preview, isCommitting, expectedSubjects,
             icon={Ban}
             tone="negative"
             label="Publish blocked"
-            detail={`${count(mismatched)} ${mismatched === 1 ? 'query' : 'queries'} would not be tracked for the Subject you chose.${onBack ? ` Go back and change ${mismatched === 1 ? 'it' : 'them'}.` : ''}`}
+            detail={`${queryCount(mismatched)} would not be tracked for the Subject you chose.${onBack ? ` Go back and remove ${mismatched === 1 ? 'it, or change its' : 'them, or change their'} Subject from the Tracked list.` : ''}`}
           />
         </span>
       ) : null}
@@ -378,19 +388,19 @@ function MarketChanges({ changes, workspace }: { changes: readonly MarketChange[
   )
 }
 
-/** One check over every change with a stated Subject. Met and not met differ to the eye by icon and tone alone, so a screen reader hears which. */
-function ReviewCheck({ met, label }: { met: boolean; label: string }) {
-  return (
-    <span>
-      <StatusNote icon={met ? Check : X} tone={met ? 'positive' : 'negative'} label={label} />
-      {met ? null : <span className="sr-only"> not met</span>}
-    </span>
-  )
+/**
+ * One check over every change with a stated Subject. While it holds it is its name. When it does not, it is
+ * the count of queries that miss it (`missed`, "2 Subject mismatches"), with what that means behind it.
+ */
+function ReviewCheck({ label, missed, miss, detail }: { label: string; missed: number; miss: string; detail: string }) {
+  return missed === 0
+    ? <StatusNote icon={Check} tone="positive" label={label} />
+    : <StatusNote icon={X} tone="negative" label={`${count(missed)} ${miss} ${missed === 1 ? 'mismatch' : 'mismatches'}`} detail={`${queryCount(missed)} ${detail}.`} />
 }
 
-function ReviewNumber({ label, value }: { label: string; value: string }) {
+function ReviewNumber({ label, value, className }: { label: string; value: string; className?: string }) {
   return (
-    <div>
+    <div className={className}>
       <dt className="text-sm text-secondary">{label}</dt>
       <dd className="mt-1 font-mono text-lg font-semibold tabular-nums text-heading">{value}</dd>
     </div>
@@ -403,7 +413,7 @@ type ReviewTableProps = {
   workspace: QueryTrackingWorkspaceResponse
   marketChanges: QueryTrackingPreviewResponse['marketChanges']
   contextLabels: ContextLabels
-  /** With it, each row shows its locations before and after, and a row that misses its stated Subject says so. Only the table of changes takes one. */
+  /** With it, each row shows its locations before and after, and a row that misses its stated Subject, or takes the other one by its type, says so. Only the table of changes takes one. */
   check?: SubjectCheck | null
 }
 
@@ -448,6 +458,7 @@ function ReviewTable({ label, rows, tracked, workspace, marketChanges, contextLa
         const key = changeKey(change, row.queryId)
         const placement = check?.placements.get(key)
         const verdict = check?.verdicts.get(key)
+        const chosen = verdict ? chosenLabel(verdict.expected, workspace) : ''
         return {
           key,
           change,
@@ -459,18 +470,19 @@ function ReviewTable({ label, rows, tracked, workspace, marketChanges, contextLa
           searchKey: search.map(searchLocation => searchLocation.detail).sort().join('\n'),
           locations: new Set(assignments.map(assignment => assignment.targetKey)).size,
           placement,
-          // What was chosen, then what the server would do instead.
-          mismatch: placement && verdict && !(verdict.subject && verdict.locations)
-            ? `You chose ${chosenLabel(verdict.expected, workspace)}. After you publish, ${verdict.subject
-              ? `this query would be asked for ${locationCountLabel(placement.after.targetKeys.length)}`
-              : `its Subject would be ${landedLabel(tracked.get(row.queryId), placesAfter)}`}.`
-            : null,
+          missed: verdict !== undefined && !(verdict.subject && verdict.locations),
+          // What was chosen, then what the server would do instead. A Subject that holds can still be worded as the other of a one-location market's two.
+          note: !verdict || !placement ? null
+            : !verdict.subject ? { label: 'Subject mismatch', detail: `You chose ${chosen}. After you publish, its Subject would be ${landedLabel(tracked.get(row.queryId), placesAfter)}.` }
+              : !verdict.locations ? { label: 'Locations differ', detail: `You chose ${chosen}. After you publish, this query would be asked for ${locationCountLabel(placement.after.targetKeys.length)}.` }
+                : verdict.byType ? { label: 'Type sets Subject', detail: `You chose ${chosen}. ${TYPE_SETS_SUBJECT}` }
+                  : null,
         }
       }),
     }
   }, [rows, tracked, workspace, marketChanges, contextLabels, check])
   // A row that misses its Subject leads the table, so it is in view however long the list is.
-  const ordered = lines.some(line => line.mismatch) ? [...lines.filter(line => line.mismatch), ...lines.filter(line => !line.mismatch)] : lines
+  const ordered = lines.some(line => line.missed) ? [...lines.filter(line => line.missed), ...lines.filter(line => !line.missed)] : lines
   const showSubject = lines.some(line => line.subject !== null)
   const showLocations = lines.some(line => line.placement)
   // One value for every row that names one is said once, above the table. A column is for rows that differ.
@@ -479,7 +491,7 @@ function ReviewTable({ label, rows, tracked, workspace, marketChanges, contextLa
   const showSearch = named.length > 0 && sharedSearch === null
   // Six columns pass the width of a sheet, so beside a search location or a Locations column the Type sits under its Subject.
   const stackType = showSubject && (showSearch || showLocations)
-  // With both, a sixth column is still one too many: a query's location links sit under its locations.
+  // With both, a sixth column is still one too many: a query's location links sit under its locations, with their unit.
   const stackLinks = showSearch && showLocations
   return (
     <>
@@ -497,53 +509,52 @@ function ReviewTable({ label, rows, tracked, workspace, marketChanges, contextLa
               <th>Query</th>
               {showSubject ? <th>{stackType ? 'Subject and type' : 'Subject'}</th> : null}
               {stackType ? null : <th>Type</th>}
-              {showLocations ? <th>{stackLinks ? 'Locations and links' : 'Locations'}</th> : null}
+              {showLocations ? <th>Locations</th> : null}
               {stackLinks ? null : <th>Location links</th>}
               {showSearch ? <th>Search location and engines</th> : null}
             </tr>
           </thead>
           <tbody>
-            {ordered.map(({ key, change, row, assignments, subject, type, search, locations, placement, mismatch }) => {
+            {ordered.map(({ key, change, row, assignments, subject, type, search, locations, placement, missed, note }) => {
               const open = listed.has(key)
               // The server's `assignmentCount`: one link per location and search location the query is asked for, so it can pass the number of locations. A removal counts what it takes away.
               const links = `${change === 'Removed' ? '−' : ''}${count(row.assignmentCount)}`
               // The lengths of the server's two location lists for the query: where it is asked now, and after the publish.
               const moved = placement ? `${count(placement.before.targetKeys.length)} → ${count(placement.after.targetKeys.length)}` : null
-              const subjectCell = <>
-                {subject ? <SubjectLabel label={subject} /> : null}
-                {mismatch ? <span className="block"><StatusNote icon={X} tone="negative" label="Subject mismatch" detail={mismatch} /></span> : null}
-              </>
+              const flag = note ? <StatusNote icon={missed ? X : AlertTriangle} tone={missed ? 'negative' : 'caution'} label={note.label} detail={note.detail} /> : null
+              const locationList = locations > 0 ? (
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  aria-controls={open ? `${listId}-${key}` : undefined}
+                  className="flex min-h-11 items-center gap-1 text-left text-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500"
+                  onClick={() => toggle(key)}
+                >
+                  <ChevronRight size={14} aria-hidden="true" className={open ? 'rotate-90' : ''} />
+                  {count(locations)} {locations === 1 ? 'location' : 'locations'}
+                </button>
+              ) : null
               return (
                 <Fragment key={key}>
-                  <tr className={mismatch ? 'bg-negative-soft hover:bg-negative-soft' : undefined}>
+                  <tr className={missed ? 'bg-negative-soft hover:bg-negative-soft' : undefined}>
                     <td className="whitespace-nowrap"><ToneBadge tone={CHANGE_TONE[change]}>{change}</ToneBadge></td>
                     <td className="min-w-44 break-words">
                       <span className="font-medium text-heading">{row.queryText}</span>
-                      {locations > 0 ? (
-                        <button
-                          type="button"
-                          aria-expanded={open}
-                          aria-controls={open ? `${listId}-${key}` : undefined}
-                          className="flex min-h-11 items-center gap-1 text-left text-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500"
-                          onClick={() => toggle(key)}
-                        >
-                          <ChevronRight size={14} aria-hidden="true" className={open ? 'rotate-90' : ''} />
-                          {count(locations)} {locations === 1 ? 'location' : 'locations'}
-                        </button>
-                      ) : null}
+                      {/* A row's note sits with its query, the column a phone keeps in view, and leaves the Subject and its Type together. */}
+                      {flag ? <span className="flex flex-wrap items-center gap-x-4">{locationList}{flag}</span> : locationList}
                     </td>
                     {showSubject ? (
                       <td className={`${stackLinks ? 'min-w-42' : showSearch ? 'min-w-32' : showLocations ? 'min-w-44' : 'min-w-40'} break-words text-secondary`}>
                         {stackType
-                          ? <><span className="block">{subjectCell}</span><span className="block">{type}</span></>
-                          : subjectCell}
+                          ? <><span className="block">{subject ? <SubjectLabel label={subject} /> : null}</span><span className="block">{type}</span></>
+                          : subject ? <SubjectLabel label={subject} /> : null}
                       </td>
                     ) : null}
                     {stackType ? null : <td className="whitespace-nowrap text-secondary">{type}</td>}
                     {showLocations ? (
                       <td className="whitespace-nowrap tabular-nums text-secondary">
-                        <span className="block font-mono">{moved}</span>
-                        {stackLinks ? <span className="block">{links}</span> : null}
+                        <span className="block">{moved}</span>
+                        {stackLinks ? <span className="block">{links} {row.assignmentCount === 1 ? 'link' : 'links'}</span> : null}
                       </td>
                     ) : null}
                     {stackLinks ? null : <td className="whitespace-nowrap tabular-nums text-secondary">{links}</td>}
@@ -580,9 +591,9 @@ function landedLabel(row: QueryTrackingTrackedRow | undefined, places: Parameter
   return subjectLabel(row?.focus ? trackedSubject(row, places) : { kind: 'none' })
 }
 
-/** A Subject as `subjectLabel` words it. A market's location count stays on the line of the word before it. */
+/** A Subject as `subjectLabel` words it. A market's location count stays on the line of the word before it, and a hand-picked query's on the line of its noun. */
 function SubjectLabel({ label }: { label: string }) {
-  const counted = /\S+ \(\d[\d,]*\)$/.exec(label)
+  const counted = /(?:\S+ \(\d[\d,]*\)|\d[\d,]* locations?)$/.exec(label)
   return counted ? <>{label.slice(0, counted.index)}<span className="whitespace-nowrap">{counted[0]}</span></> : label
 }
 
