@@ -108,7 +108,10 @@ Before anything else, separate the two signals. `cnry analytics <project> --feat
 citation evidence only. They do not run a provider sweep. Treat `namingAnswers`
 and `citingAnswers` as separate answer counts, and use `pairedAnswers`
 only when the name and source occur in the same answer. Probe and non-terminal
-runs are reported as excluded evidence and do not enter candidate counts.
+runs are reported as excluded evidence and do not enter candidate counts. An
+exact suggestion read refuses with `VALIDATION_ERROR` above 10,000 eligible
+answer rows instead of sampling; narrow the window or select one Advanced
+market with `groupKey`.
 
 Suggestions preserve the selected query class and Advanced market scope. Keep
 branded and non-brand results separate; never pool their shares into one

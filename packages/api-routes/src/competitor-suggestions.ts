@@ -20,7 +20,7 @@ import { readMarketCompetitorPins } from './plan-competitors.js'
 import { readMarketCompetitorNames } from './market-competitor-names.js'
 import { resolveProject } from './helpers.js'
 import { projectQueryClassifier } from './mention-share-inputs.js'
-import { selectLandscapePinnedIdentities, selectLandscapePopulation } from './competitor-landscape.js'
+import { COMPETITOR_SUGGESTION_MAX_ANSWER_ROWS, selectLandscapePinnedIdentities, selectLandscapePopulation } from './competitor-landscape.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 
 type RawQuery = {
@@ -59,7 +59,7 @@ export async function competitorSuggestionRoutes(app: FastifyInstance) {
       queryClass,
       ...(filters.groupKey ? { groupKey: filters.groupKey } : {}),
       ...(advancedScope ? { scope: advancedScope } : {}),
-    })
+    }, { answerTextCap: COMPETITOR_SUGGESTION_MAX_ANSWER_ROWS })
     const {
       advanced,
       eligibleSnapshots: answers,

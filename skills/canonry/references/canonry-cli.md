@@ -541,7 +541,7 @@ cnry competitor landscape <project> --query-class non-brand --window 30d --forma
 cnry competitor suggest <project> --window 30d --min-answers 3 --query-class non-brand --format json
 ```
 
-`competitor suggest` reads stored answer and citation evidence and ranks possible competitors. It never starts a sweep or writes data. Use `--format jsonl` for one candidate per line. The response keeps naming counts separate from citation counts and includes the query class, answer floor, run IDs, sample URLs, exclusions, and count units. A Simple project without a usable brand alias uses the pooled `all` class unless an explicit class filter is requested.
+`competitor suggest` reads stored answer and citation evidence and ranks possible competitors. It never starts a sweep or writes data. Use `--format jsonl` for one candidate per line. The response keeps naming counts separate from citation counts and includes the query class, answer floor, run IDs, sample URLs, exclusions, and count units. An exact suggestion read refuses with `VALIDATION_ERROR` above 10,000 eligible answer rows instead of sampling; narrow `--window` or use `--group-key` for one Advanced market. A Simple project without a usable brand alias uses the pooled `all` class unless an explicit class filter is requested.
 
 ### Competitor aliases
 
