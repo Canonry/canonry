@@ -135,12 +135,14 @@ const headers = () => within(table()).getAllByRole('columnheader').slice(0, with
 const headerNames = () => headers().map(header => header.textContent)
 const query = (text: string) => screen.getByRole('button', { name: text })
 const rowOf = (text: string) => query(text).closest('tr')!
-const ENGINE_PAIR = /^(OpenAI|Gemini)[,:]/
+const ENGINE_PAIR = /^(OpenAI|Gemini|Claude|Local)[,:]/
 /** A row's cells as read, engine cells aside: their chips are read by name. */
 const cells = (text: string) => [...rowOf(text).children]
   .filter(cell => within(cell as HTMLElement).queryAllByRole('button', { name: ENGINE_PAIR }).length === 0)
   .map(cell => cell.textContent)
-const queryOrder = () => within(table()).getAllByRole('button', { expanded: false }).filter(button => button.title !== '').map(button => button.title)
+const queryOrder = () => within(table()).getAllByRole('button', { expanded: false }).filter(button => button.classList.contains('tracked-query')).map(button => button.textContent)
+/** Each column's set width in px, in order. Query has none: it takes what the others leave. */
+const columnWidths = () => [...table().querySelectorAll('col')].map(column => column.style.width)
 
 /**
  * A frame of this width, as a browser gives it: measured when asked, and
@@ -158,6 +160,27 @@ function frameWidth(width: number) {
   return { report: (next = width) => act(() => observed!([{ contentRect: { width: next } }])) }
 }
 
+/**
+ * Text as a browser lays it out, which jsdom does not: 7px a character on one
+ * line in a Query column `column` px wide, and three lines where a stacked row
+ * shows two. An open row wraps, so nothing runs past its edge.
+ */
+function textLayout(column: number) {
+  const state = { column }
+  const line = (element: Element) => element.parentElement?.classList.contains('tracked-query') ? element.closest('tr')! : null
+  vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) { return this.classList.contains('tracked-query') ? state.column : 0 })
+  vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockImplementation(function (this: Element) {
+    const row = line(this)
+    return row && !row.hasAttribute('data-open') && row.closest('table')!.getAttribute('data-layout') === 'table' ? this.textContent!.length * 7 : 0
+  })
+  vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) { return line(this) ? 40 : 0 })
+  vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockImplementation(function (this: Element) {
+    const row = line(this)
+    return row && row.closest('table')!.getAttribute('data-layout') === 'stacked' && this.textContent!.length * 7 > 2 * state.column ? 60 : row ? 40 : 0
+  })
+  return state
+}
+
 function scrollSpy(onScroll?: () => void) {
   const scrollIntoView = vi.fn(onScroll)
   const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')
@@ -173,10 +196,11 @@ describe('TrackedTable', () => {
   it('draws a column per engine and a row per query, with its Subject, Type, last sweep, Status and Source', () => {
     setup()
     expect(headerNames()).toEqual(['Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Last measured', 'Status', 'Source'])
-    // The market's count is the server's member list (3), not the one location this row links.
-    expect(cells(MARKET)).toEqual([MARKET, 'Market · Uptown (3)', 'Non-brand', 'Oct 7', 'Measured', 'Pattern: Best'])
+    // The market's count is the server's member list (3), not the one location this row links. Status carries the row's own date.
+    expect(cells(MARKET)).toEqual([MARKET, 'Market · Uptown (3)', 'Non-brand', 'Oct 7', 'Measured Oct 7', 'Pattern: Best'])
     expect(cells(LOCATION).slice(1, 3)).toEqual(['Location · Acme Homes Harbor Point', 'Branded'])
-    expect(cells(HAND_PICKED)).toEqual([HAND_PICKED, 'Hand-picked · 12 locations', 'Branded', 'Oct 7', 'Measured', 'Research'])
+    expect(cells(HAND_PICKED)).toEqual([HAND_PICKED, 'Hand-picked · 12 locations', 'Branded', 'Oct 7', 'Measured Oct 7', 'Research'])
+    // A row never measured names no date of its own: a waiting one names the next sweep's.
     expect(cells(WAITING)).toEqual([WAITING, 'Market · Old Mill District (4)', 'Non-brand', 'Never', 'First answers Oct 21', 'Setup'])
     expect(cells(NOT_ASKED)).toEqual([NOT_ASKED, 'None', 'Not set', 'Never', 'Not asked', 'Older list'])
     // Under a header, a cell holds the chips alone.
@@ -186,7 +210,7 @@ describe('TrackedTable', () => {
   it('tones the Status badge by status', () => {
     setup()
     const badge = (text: string, label: string) => within(rowOf(text)).getByText(label).className.split(' ')
-    expect(badge(MARKET, 'Measured')).toContain('text-positive')
+    expect(badge(MARKET, 'Measured Oct 7')).toContain('text-positive')
     expect(badge(WAITING, 'First answers Oct 21')).toEqual(expect.arrayContaining(['border-info-500/30', 'bg-info-500/10', 'text-info-300']))
     expect(badge(WAITING, 'First answers Oct 21')).not.toContain('text-neutral')
     expect(badge(NOT_ASKED, 'Not asked')).toContain('text-neutral')
@@ -217,6 +241,76 @@ describe('TrackedTable', () => {
   it('names no date on a waiting row when no sweep date is known', () => {
     setup({ nextSweepDate: undefined })
     expect(cells(WAITING)[4]).toBe('First answers')
+  })
+
+  it('carries each measured row\'s own date in its Status, with its year only for a sweep over a year old', () => {
+    const source = workspace()
+    // Today is Oct 10, 2026. Dec 28 was last year and under twelve months ago; Oct 7, 2025 is over them.
+    const dates: Record<string, string | null> = { market: '2025-12-28T12:00:00.000Z', location: '2026-09-23T12:00:00.000Z', 'hand-picked': '2025-10-07T12:00:00.000Z', mixed: null }
+    source.tracked = source.tracked.map(row => row.queryId in dates ? { ...row, lastMeasuredAt: dates[row.queryId]! } : row)
+    setup({}, source)
+    expect([MARKET, LOCATION, HAND_PICKED].map(text => cells(text).slice(3, 5))).toEqual([
+      // Last measured prints the year of any other year. Status has room for a month and a day.
+      ['Dec 28, 2025', 'Measured Dec 28'],
+      ['Sep 23', 'Measured Sep 23'],
+      ['Oct 7, 2025', 'Measured Oct 7, 2025'],
+    ])
+    // Tracked, with no sweep on record yet.
+    expect(cells(MIXED).at(-2)).toBe('Measured')
+    // One badge on one line: no second element holds the date.
+    const status = rowOf(LOCATION).querySelector('.tracked-cell-status')!
+    expect([status.children.length, status.firstElementChild!.children.length]).toEqual([1, 0])
+  })
+
+  describe('a query cut short', () => {
+    const LONG = 'apartments with in unit washer dryer Northbridge Heights, Lakeshore metro'
+    const long = () => {
+      const source = workspace()
+      source.tracked = [...source.tracked, tracked('long', LONG, { focus: { kind: 'market', key: 'uptown' }, queryClasses: ['non-brand'], assignments: [assignment('harbor-point', 'non-brand', ['uptown'])] })]
+      return source
+    }
+    const titled = () => within(table()).getAllByRole('button').filter(button => button.hasAttribute('title') && button.classList.contains('tracked-query')).map(button => button.title)
+
+    it('carries its whole text as a title only while it is cut short', () => {
+      frameWidth(1152)
+      // 72 characters are 504px here. Every other query is under 60 characters.
+      const layout = textLayout(424)
+      setup({ engines: ['openai', 'gemini', 'claude'], onSelectedIdsChange: vi.fn() }, long())
+      expect(titled()).toEqual([LONG])
+      expect([query(LONG), query(WAITING)].map(button => button.hasAttribute('data-clipped'))).toEqual([true, false])
+      // The name is the text either way, so the title adds nothing to it.
+      expect(query(LONG).getAttribute('aria-label')).toBeNull()
+
+      // The open row shows the text whole.
+      fireEvent.click(query(LONG))
+      expect(titled()).toEqual([])
+      fireEvent.click(query(LONG))
+      expect(titled()).toEqual([LONG])
+
+      // The edge moves with no draw, as when a font arrives: the pointer and the focus each measure again.
+      layout.column = 300
+      fireEvent.pointerEnter(query(WAITING))
+      expect(titled()).toEqual([WAITING, LONG])
+      fireEvent.focus(query(LOCATION))
+      expect(titled()).toEqual([LOCATION, WAITING, LONG])
+      layout.column = 600
+      fireEvent.focus(query(LONG))
+      expect(titled()).toEqual([LOCATION, WAITING])
+    })
+
+    it('carries it in a stacked row cut short after two lines', () => {
+      frameWidth(358)
+      textLayout(250)
+      setup({}, long())
+      expect(table().getAttribute('data-layout')).toBe('stacked')
+      // 504px is over two lines of 250px. 51 characters are under them.
+      expect(titled()).toEqual([LONG])
+    })
+
+    it('has no title where nothing is measured', () => {
+      setup({}, long())
+      expect(titled()).toEqual([])
+    })
   })
 
   it('joins chips on query and type: a result under the other type draws Not checked', () => {
@@ -330,6 +424,29 @@ describe('TrackedTable', () => {
       fireEvent.click(within(table()).getByRole('button', { name: 'OpenAI' }))
       expect(sortOf('OpenAI')).toBe('descending')
       expect(queryOrder().slice(0, 2)).toEqual([MARKET, MIXED])
+    })
+
+    it('sorts by status and then by date from the Status header, where Last measured is no column', () => {
+      frameWidth(1152)
+      const source = workspace()
+      source.tracked = source.tracked.map(row => row.queryId === 'market' ? { ...row, lastMeasuredAt: '2026-09-23T12:00:00.000Z' } : row)
+      const all = toTrackedRows(source, [])
+      function Sorted() {
+        const [sort, setSort] = useState<TrackedSort>(DEFAULT_TRACKED_SORT)
+        return <TrackedTable rows={sortTrackedRows(all, sort)} engines={['openai', 'gemini', 'claude']} coverage={undefined} sort={sort} onSortChange={setSort} selectedIds={new Set()} onSelectedIdsChange={() => {}} workspace={source} contextLabels={contextLabels} />
+      }
+      render(<Sorted />)
+      expect(headerNames()).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Claude', 'Status'])
+
+      fireEvent.click(within(table()).getByRole('button', { name: 'Status' }))
+      expect(['Subject', 'Status'].map(sortOf)).toEqual(['none', 'ascending'])
+      // Measured first, the newest sweep leading: the market row of Sep 23 follows the three of Oct 7 though it leads the default order.
+      expect(queryOrder()).toEqual([LOCATION, MIXED, HAND_PICKED, MARKET, WAITING, NOT_ASKED])
+      expect(cells(MARKET).at(-1)).toBe('Measured Sep 23')
+
+      fireEvent.click(within(table()).getByRole('button', { name: 'Status' }))
+      expect(sortOf('Status')).toBe('descending')
+      expect(queryOrder()).toEqual([NOT_ASKED, WAITING, MARKET, LOCATION, MIXED, HAND_PICKED])
     })
 
     it('draws plain headers when the caller takes no sort', () => {
@@ -545,12 +662,13 @@ describe('TrackedTable', () => {
     })
 
     it('folds Source and Last measured into the row detail in a narrow frame', () => {
-      // 900px with two engines and no checkboxes leaves Query 228px with Source gone, and 336px with both gone.
+      // 900px with two engines and no checkboxes: with both gone and Subject at its 192px floor, Query has 324px.
       frameWidth(900)
       setup({ renderRowMenu: menu })
       expect(table().getAttribute('data-layout')).toBe('table')
       expect(headerNames()).toEqual(['Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Status', 'Actions'])
-      expect(cells(MARKET)).toEqual([MARKET, 'Market · Uptown (3)', 'Non-brand', 'Measured', `Menu for ${MARKET}`])
+      expect(columnWidths()).toEqual(['', '192px', '80px', '62px', '62px', '148px', '32px'])
+      expect(cells(MARKET)).toEqual([MARKET, 'Market · Uptown (3)', 'Non-brand', 'Measured Oct 7', `Menu for ${MARKET}`])
       fireEvent.click(query(MARKET))
       const detail = within(rowOf(MARKET).nextElementSibling as HTMLElement)
       expect(detail.getByText('Pattern: Best')).toBeTruthy()
@@ -559,19 +677,46 @@ describe('TrackedTable', () => {
       expect((rowOf(MARKET).nextElementSibling!.firstElementChild as HTMLTableCellElement).colSpan).toBe(7)
     })
 
-    it('shows every column in the full-width frame', () => {
+    it('gives the 1152px content column to Query, Subject, Type, the engines and Status', () => {
       frameWidth(1152)
-      setup({ renderRowMenu: menu, onSelectedIdsChange: vi.fn() })
-      expect(headerNames()).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Last measured', 'Status', 'Source', 'Actions'])
-      // The detail runs under the checkbox column too.
+      setup({ engines: ['openai', 'gemini', 'claude'], renderRowMenu: menu, onSelectedIdsChange: vi.fn() })
+      expect(headerNames()).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Claude', 'Status', 'Actions'])
+      // Query takes the 424px the others leave.
+      expect(columnWidths()).toEqual(['32px', '', '250px', '80px', '62px', '62px', '62px', '148px', '32px'])
+      expect(cells(MARKET)).toEqual(['', MARKET, 'Market · Uptown (3)', 'Non-brand', 'Measured Oct 7', `Menu for ${MARKET}`])
+      // The detail runs under the checkbox column too, and holds the two columns that are not drawn.
       fireEvent.click(query(MARKET))
-      expect((rowOf(MARKET).nextElementSibling!.firstElementChild as HTMLTableCellElement).colSpan).toBe(10)
+      const detail = rowOf(MARKET).nextElementSibling as HTMLElement
+      expect((detail.firstElementChild as HTMLTableCellElement).colSpan).toBe(9)
+      expect([...detail.querySelectorAll('dl > div')].map(fact => fact.textContent)).toEqual(['Search location and enginesLakeshore · openai, gemini', 'SourcePattern: Bestbest apartments in {market}', 'Last measuredOct 7'])
+    })
+
+    it('narrows Subject for a fourth engine, before Query', () => {
+      frameWidth(1152)
+      setup({ engines: ['openai', 'gemini', 'claude', 'local'], renderRowMenu: menu, onSelectedIdsChange: vi.fn() })
+      expect(headerNames()).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Claude', 'Local', 'Status', 'Actions'])
+      // The set widths come to 732px, so Query keeps 420.
+      expect(columnWidths()).toEqual(['32px', '', '192px', '80px', '62px', '62px', '62px', '62px', '148px', '32px'])
+    })
+
+    it('shows Last measured and Source in a frame wide enough for them, and the date in Status all the same', () => {
+      frameWidth(1400)
+      setup({ engines: ['openai', 'gemini', 'claude'], renderRowMenu: menu, onSelectedIdsChange: vi.fn(), sort: DEFAULT_TRACKED_SORT, onSortChange: vi.fn() })
+      expect(headerNames()).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Claude', 'Last measured', 'Status', 'Source', 'Actions'])
+      expect(columnWidths()).toEqual(['32px', '', '250px', '80px', '62px', '62px', '62px', '108px', '148px', '98px', '32px'])
+      expect(cells(MARKET)).toEqual(['', MARKET, 'Market · Uptown (3)', 'Non-brand', 'Oct 7', 'Measured Oct 7', 'Pattern: Best', `Menu for ${MARKET}`])
+      // Last measured keeps its own sort beside Status.
+      expect(['Last measured', 'Status'].map(name => headers().find(header => header.textContent === name)!.getAttribute('aria-sort'))).toEqual(['none', 'none'])
+      fireEvent.click(query(MARKET))
+      expect((rowOf(MARKET).nextElementSibling!.firstElementChild as HTMLTableCellElement).colSpan).toBe(11)
     })
 
     it('follows the frame when it is resized', () => {
-      const frame = frameWidth(1152)
+      const frame = frameWidth(1400)
       setup({ renderRowMenu: menu })
       expect(headerNames()).toContain('Source')
+      frame.report(1152)
+      expect(headerNames()).toEqual(['Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Status', 'Actions'])
       frame.report(900)
       expect(headerNames()).toEqual(['Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Status', 'Actions'])
       frame.report(358)
@@ -587,6 +732,8 @@ describe('TrackedTable', () => {
         expect(within(table()).queryAllByRole('columnheader')).toEqual([])
         // The menu follows the query, as it does on the row's first line. Source and Last measured wait in the row detail.
         expect(cells(WAITING)).toEqual([WAITING, `Menu for ${WAITING}`, 'Market · Old Mill District (4)', 'Non-brand', 'First answers Oct 21'])
+        // Status carries the date here as it does under a header.
+        expect(cells(MARKET).at(-1)).toBe('Measured Oct 7')
         // No header to read an engine from, so each cell carries its name.
         const engine = within(rowOf(WAITING).children[4] as HTMLElement)
         expect(engine.getByText('OpenAI')).toBeTruthy()
@@ -707,6 +854,39 @@ describe('tracked table styles', () => {
       expect([check.width, check.height], context).toEqual([TOUCH, TOUCH])
       expect(compiledDeclarations(rules, '.tracked-query', context)['min-height'], context).toBe(TOUCH)
     }
+  })
+
+  it('sets the table\'s query a size down and closer to its column\'s edges, so 420px hold a long one', async () => {
+    const rules = await compiled()
+    const TABLE = ".tracked-table[data-layout='table']"
+    expect(compiledDeclarations(rules, `${TABLE} .tracked-query`)['font-size']).toBe('13px')
+    // Of Query's 424px beside the checkbox column, 4px are padding and 14px the mark's: 406px are the text's.
+    expect(compiledDeclarations(rules, `${TABLE} .tracked-cell-query`)['padding-right']).toBe('0.25rem')
+    expect(compiledDeclarations(rules, `${TABLE}[data-selectable] .tracked-cell-query`)['padding-left']).toBe('0')
+    const line = compiledDeclarations(rules, `${TABLE} .tracked-query > span`)
+    expect([line['padding-left'], line['text-indent']]).toEqual(['0.875rem', '-0.875rem'])
+    // The 12px mark and its gap fill that indent.
+    expect(compiledDeclarations(rules, `${TABLE} .tracked-query-mark`)['margin-right']).toBe('0.125rem')
+    expect(compiledDeclarations(rules, '.tracked-query-mark').width).toBe('calc(var(--spacing) * 3)')
+    // Subject runs as close to Type.
+    expect(compiledDeclarations(rules, `${TABLE} .tracked-cell-subject`)['padding-right']).toBe('0.25rem')
+    // The open row's detail starts where the query does, past the 32px checkbox column.
+    expect(compiledDeclarations(rules, '.tracked-table[data-selectable] .tracked-detail-row > td')['padding-left']).toBe('2rem')
+    // A stacked row keeps the table's own type size and the mark's 16px: no rule of its own sets either.
+    expect(rules.filter(rule => rule.selector.includes('.tracked-query') && rule.declarations.some(([property]) => property === 'font-size' || property === 'text-indent')).map(rule => rule.selector))
+      .toEqual(['.tracked-query > span', `${TABLE} .tracked-query`, `${TABLE} .tracked-query > span`])
+  })
+
+  it('shows a query cut short whole under keyboard focus, on its line and inside the frame', async () => {
+    const rules = await compiled()
+    const selector = ".tracked-table[data-layout='table'] .tracked-row:not([data-open]) .tracked-query[data-clipped]:focus-visible > span"
+    // Wherever the query's button is not a finger's 44px one, which keeps its shape: a mouse, or a keyboard alone.
+    const KEYBOARD = '@media not all and (pointer: coarse)'
+    const line = compiledDeclarations(rules, selector, KEYBOARD)
+    // Over the cells beside it, so the row keeps its height. The frame is the container the width is taken from.
+    expect([line.position, line['z-index'], line.width, line['max-width']]).toEqual(['relative', '1', 'max-content', 'calc(100cqi - 3.5rem)'])
+    expect(compiledDeclarations(rules, '.tracked-table-frame').container).toBe('tracked-table / inline-size')
+    expect(rules.filter(rule => rule.selector === selector).map(rule => rule.context.filter(value => value.startsWith('@media')))).toEqual([[KEYBOARD]])
   })
 
   it('gives Status a line of its own in a phone-width frame', async () => {

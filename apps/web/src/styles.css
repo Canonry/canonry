@@ -3201,10 +3201,11 @@
 
   /* ── Tracked queries table ── */
   /* Fixed layout: every column but Query has a width (`TRACKED_COLUMN_WIDTH`
-     in tracked-view-model.ts), set on its <col>, and Query takes the rest.
-     `trackedLayout` folds columns away, and then stacks the rows, before Query
-     gets too narrow, so the frame never scrolls sideways and the header can
-     stick under the topbar. */
+     in tracked-view-model.ts, and `trackedLayout` for Subject's), set on its
+     <col>, and Query takes the rest. `trackedLayout` keeps that wide enough
+     for a long query: it leaves Last measured and Source to the row detail,
+     narrows Subject, and then stacks the rows, so the frame never scrolls
+     sideways and the header can stick under the topbar. */
   .tracked-table-frame {
     container: tracked-table / inline-size;
   }
@@ -3348,6 +3349,48 @@
     -webkit-line-clamp: unset;
   }
 
+  /* The query is the row's identity, so in the table it is set a size down
+     and runs closer to its column's edges: the 420px `trackedLayout` keeps
+     for it hold a 64-character query whole. The next column's own padding
+     keeps the two apart, as it does after Subject, and beside the checkbox
+     column Query needs none on the left. Its header follows. */
+  .tracked-table[data-layout='table'] .tracked-cell-query,
+  .tracked-table[data-layout='table'] .tracked-cell-subject {
+    padding-right: 0.25rem;
+  }
+
+  .tracked-table[data-layout='table'][data-selectable] .tracked-cell-query {
+    padding-left: 0;
+  }
+
+  .tracked-table[data-layout='table'] .tracked-query {
+    @apply text-[13px];
+  }
+
+  .tracked-table[data-layout='table'] .tracked-query > span {
+    padding-left: 0.875rem;
+    text-indent: -0.875rem;
+  }
+
+  .tracked-table[data-layout='table'] .tracked-query-mark {
+    margin-right: 0.125rem;
+  }
+
+  /* Under keyboard focus a query cut short shows whole on its line, over the
+     cells beside it and never past the frame, so no row changes height. The
+     line takes the button's ring with it. A finger's 44px button keeps its
+     shape. */
+  @media not all and (pointer: coarse) {
+    .tracked-table[data-layout='table'] .tracked-row:not([data-open]) .tracked-query[data-clipped]:focus-visible > span {
+      position: relative;
+      z-index: 1;
+      width: max-content;
+      max-width: calc(100cqi - 3.5rem);
+      padding-right: 0.375rem;
+      @apply rounded-sm bg-bg ring-2 ring-mono-400;
+    }
+  }
+
   .tracked-row[data-open] .tracked-query > span {
     @apply line-clamp-none;
   }
@@ -3425,8 +3468,9 @@
     @apply whitespace-nowrap tabular-nums text-secondary;
   }
 
-  /* The widest label, "First answers" and a month and day, fills the cell to
-     its right edge. A longer one is cut short there. */
+  /* Status carries the row's date. The widest label, "First answers" and a
+     month and day, fills the cell to its right edge. A longer one, a date
+     with its year, is cut short there. */
   .tracked-table .tracked-cell-status {
     overflow: hidden;
     padding-right: 0;
@@ -3477,9 +3521,9 @@
     @apply border-b border-subtle bg-surface-subtle px-2.5 pb-3 pt-1;
   }
 
-  /* The detail starts under the query text, past the checkbox column. */
+  /* The detail starts under the query, past the checkbox column. */
   .tracked-table[data-selectable] .tracked-detail-row > td {
-    padding-left: 2.625rem;
+    padding-left: 2rem;
   }
 
   .tracked-table-skeleton {
@@ -3525,8 +3569,8 @@
 
   /* Stacked: each row is a block. The query, Status and the menu share the
      first line; Subject, Type and each engine by name follow, Subject and Type
-     at their table widths so the engines line up down the list. Source and
-     Last measured are in the row detail. */
+     at set widths so the engines line up down the list. Source and Last
+     measured are in the row detail. */
   .tracked-table[data-layout='stacked'] {
     display: block;
 

@@ -2,7 +2,7 @@ import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type Rea
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, ChevronsUpDown } from 'lucide-react'
 import type { QueryClass, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
 
-import { formatSweepDay } from '../../../../lib/format-helpers.js'
+import { formatMonthDay, formatSweepDay } from '../../../../lib/format-helpers.js'
 import { providerDisplayName } from '../../../../lib/visibility-trend-helpers.js'
 import { SignalPair } from '../../../shared/SignalCells.js'
 import { ToneBadge } from '../../../shared/ToneBadge.js'
@@ -53,10 +53,21 @@ function useFrameWidth() {
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
 
 /**
+ * A row's last sweep as its Status names it. The column holds a month and a
+ * day, and a sweep of the last twelve months needs no more: it is the latest
+ * such day. An older one keeps its year, as Last measured prints it.
+ */
+function measuredDay(iso: string): string {
+  const yearAgo = new Date()
+  yearAgo.setFullYear(yearAgo.getFullYear() - 1)
+  return new Date(iso) > yearAgo ? formatMonthDay(iso) : formatSweepDay(iso)
+}
+
+/**
  * The Tracked queries table: one row per query with its Subject, Type, one
- * `SignalPair` per engine, Last measured, Status and Source. The caller sorts,
- * filters and pages the rows; this draws them in the order given and reports
- * a header click through `onSortChange`.
+ * `SignalPair` per engine and a Status that carries the row's date. The caller
+ * sorts, filters and pages the rows; this draws them in the order given and
+ * reports a header click through `onSortChange`.
  *
  * Results join on query and type. A row asked both ways stacks one pair per
  * type in each engine cell, each named with its type, and a result under the
@@ -69,12 +80,15 @@ const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:rin
  * the row a link points at: it is marked, opened and, once the frame is
  * measured and the rows are in their layout, scrolled into view.
  *
- * The frame's width decides the layout (`trackedLayout`): Source and then Last
- * measured fold into the row detail before Query gets narrow, and a frame too
- * narrow for a table stacks each row. Nothing scrolls sideways, so the header
- * can stick under the topbar. Stacked rows have no header, so while there are
- * rows a line above them holds what the header did: Select this page and the
- * sort.
+ * The frame's width decides the layout (`trackedLayout`). The query is the
+ * row's identity, so Query keeps the width of a long one: Last measured and
+ * Source are columns only in a frame wide enough for that and stay in the row
+ * detail otherwise, then Subject narrows, and a frame too narrow for a table
+ * stacks each row. A closed row's query is one line, and one cut short there
+ * carries its whole text as its `title`. Nothing scrolls sideways, so the
+ * header can stick under the topbar. Stacked rows have no header, so while
+ * there are rows a line above them holds what the header did: Select this page
+ * and the sort.
  */
 export function TrackedTable({
   rows, engines, coverage, sort, onSortChange, selectedIds, onSelectedIdsChange, highlightedId, renderRowMenu, nextSweepDate, workspace, contextLabels,
@@ -100,7 +114,12 @@ export function TrackedTable({
   nextSweepDate?: string
   workspace: Pick<QueryTrackingWorkspaceResponse, 'targets' | 'groups' | 'markets'>
   contextLabels: TrackedContextLabels
-  /** The columns the caller wants, all of them by default. A narrow frame can still fold Source and Last measured away. */
+  /**
+   * The columns the caller wants, all of them by default. `status` carries the
+   * row's date ("Measured Oct 7"). `lastMeasured` and `source` are wide-only:
+   * wanted or not, they show only in a frame that keeps Query at its full
+   * width beside them, and the row detail lists both at any width.
+   */
   columns?: readonly TrackedColumn[]
   /** The table's accessible name. */
   label?: string
@@ -239,7 +258,7 @@ export function TrackedTable({
           <colgroup>
             {selectable ? <col style={{ width: TRACKED_COLUMN_WIDTH.select }} /> : null}
             <col />
-            {shown.has('subject') ? <col style={{ width: TRACKED_COLUMN_WIDTH.subject }} /> : null}
+            {shown.has('subject') ? <col style={{ width: layout.subjectWidth }} /> : null}
             {shown.has('type') ? <col style={{ width: TRACKED_COLUMN_WIDTH.type }} /> : null}
             {shown.has('engines') ? engineColumns.map(engine => <col key={engine.key} style={{ width: engine.width }} />) : null}
             {shown.has('lastMeasured') ? <col style={{ width: TRACKED_COLUMN_WIDTH.lastMeasured }} /> : null}
@@ -252,7 +271,7 @@ export function TrackedTable({
           <thead>
             <tr>
               {selectable ? <th scope="col" className="tracked-cell-select"><label className="tracked-check">{pageBox}</label></th> : null}
-              {header('query', 'Query')}
+              {header('query', 'Query', 'tracked-cell-query')}
               {shown.has('subject') ? header('subject', 'Subject') : null}
               {shown.has('type') ? <th scope="col">Type</th> : null}
               {shown.has('engines') ? engineColumns.map(engine => <Fragment key={engine.key}>{header(engineSortKey(engine.key), engine.label, 'tracked-cell-engine')}</Fragment>) : null}
@@ -295,11 +314,7 @@ export function TrackedTable({
                       </label>
                     </td>
                   ) : null}
-                  <td className="tracked-cell-query">
-                    <button type="button" className={`tracked-query ${FOCUS}`} title={row.queryText} {...discloses}>
-                      <span><ChevronRight aria-hidden="true" className="tracked-query-mark" />{row.queryText}</span>
-                    </button>
-                  </td>
+                  <td className="tracked-cell-query"><QueryButton text={row.queryText} discloses={discloses} /></td>
                   {/* Stacked, the menu is on the first line beside the query, so it is the next stop after it. */}
                   {layout.stacked ? menuCell : null}
                   {shown.has('subject') ? <td className="tracked-cell-subject"><SubjectCell subject={row.subject} discloses={discloses} clip={!layout.stacked && !open} /></td> : null}
@@ -333,7 +348,7 @@ export function TrackedTable({
                         // One line of 16px, so a one-line row is as tall as its text. A label too long for the column is cut short, never drawn over Source.
                         className={`block w-fit max-w-full truncate leading-4 ${row.status === 'first-answers' ? 'border-info-500/30 bg-info-500/10 text-info-300' : ''}`}
                       >
-                        {statusLabel(row.status, nextSweepDate)}
+                        {statusLabel(row.status, nextSweepDate, row.lastMeasuredAt ? measuredDay(row.lastMeasuredAt) : undefined)}
                       </ToneBadge>
                     </td>
                   ) : null}
@@ -355,6 +370,30 @@ export function TrackedTable({
 }
 
 type Discloses = { 'aria-expanded': boolean; 'aria-controls': string | undefined; onClick: () => void }
+
+/**
+ * The query, which opens its row. A closed row cuts a long one short at the
+ * column's edge, and a stacked row after two lines. Only then is the whole
+ * text the button's `title`, and under keyboard focus the stylesheet shows the
+ * line whole (`data-clipped`). The line is measured against the button, whose
+ * width that leaves alone, after each draw and again under the pointer and on
+ * focus: a late font moves the edge without a draw.
+ */
+function QueryButton({ text, discloses }: { text: string; discloses: Discloses }) {
+  const ref = useRef<HTMLButtonElement>(null)
+  const [clipped, setClipped] = useState(false)
+  const measure = () => {
+    const button = ref.current
+    const line = button?.firstElementChild
+    if (button && line) setClipped(line.scrollWidth > button.clientWidth || line.scrollHeight > line.clientHeight)
+  }
+  useLayoutEffect(measure)
+  return (
+    <button ref={ref} type="button" className={`tracked-query ${FOCUS}`} title={clipped ? text : undefined} data-clipped={clipped ? '' : undefined} onPointerEnter={measure} onFocus={measure} {...discloses}>
+      <span><ChevronRight aria-hidden="true" className="tracked-query-mark" />{text}</span>
+    </button>
+  )
+}
 
 /**
  * "Market · Uptown (3)": the kind stays on the first line, and the count stays

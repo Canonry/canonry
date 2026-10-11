@@ -33,13 +33,14 @@ const context = {
   models: { openai: 'gpt-5', gemini: 'gemini-3' },
   location: { label: 'Lakeshore', city: 'Lakeshore', region: 'IL', country: 'US' },
 }
+const MEASURED_AT = '2026-10-07T12:10:00.000Z'
 const pairing = (targetKey: string, marketKeys: string[], queryClass: QueryClass | null, groupKeys: string[] = []): Assignment =>
   ({ targetKey, groupKeys, marketKeys, queryClass, classificationSource: 'server', contexts: [context] }) as Assignment
 function tracked(queryId: string, queryText: string, focus: QueryTrackingTrackedRow['focus'], assignments: Assignment[], overrides: Record<string, unknown> = {}) {
   return {
     queryId, queryText, normalizedText: queryText.toLowerCase(),
     provenance: { source: 'manual', sourceId: null, capturedAt: '2026-09-04T12:00:00.000Z' },
-    state: 'tracked', lastMeasuredAt: '2026-10-07T12:10:00.000Z',
+    state: 'tracked', lastMeasuredAt: MEASURED_AT,
     assignments, focus,
     queryClasses: [...new Set(assignments.map(assignment => assignment.queryClass).filter((value): value is QueryClass => value !== null))].sort(),
     ...overrides,
@@ -178,6 +179,15 @@ const ALL_STATUS = { ...DEFAULT_TRACKED_FILTERS, status: 'all' as const }
 const longPortfolio = () => portfolio({ tracked: Array.from({ length: 60 }, (_, index) => tracked(`q-${index}`, `apartments query ${String(index + 1).padStart(2, '0')}`, { kind: 'market', key: 'uptown' }, uptown())) })
 const UPTOWN_PLACE = { measurementScope: 'market' as const, measurementScopeKey: 'uptown', queryClass: 'all' as const }
 const PROJECT = { measurementScope: 'project' as const, measurementScopeKey: undefined, queryClass: 'all' as const }
+/** A table frame of this width, as a browser measures and reports it. jsdom lays nothing out and has no observer. */
+function frameWidth(width: number) {
+  const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ width } as DOMRect)
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
+  onTestFinished(() => {
+    rect.mockRestore()
+    vi.unstubAllGlobals()
+  })
+}
 /** Stands in for the clipboard, which jsdom has none of. */
 function stubClipboard(writeText: (text: string) => Promise<void>) {
   const descriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
@@ -213,6 +223,8 @@ test('draws the Add button beside the tabs, then the number strip, the toolbar a
   // The clean view lists what is asked, by Subject: markets, then locations, then hand-picked.
   expect(listed()).toEqual([DOWNTOWN, UPTOWN_BEST, UPTOWN_PETS, HARBOR, PIER_NEW, PICKED])
   expect(within(rowOf(UPTOWN_BEST)).getByText('Pattern: Best')).toBeTruthy()
+  // Status carries the row's own last sweep.
+  expect(within(rowOf(UPTOWN_BEST)).getByText(`Measured ${day(MEASURED_AT)}`)).toBeTruthy()
   expect(rowOf(UPTOWN_BEST).textContent).toContain('Market · Uptown (3)')
   expect(rowOf(HARBOR).textContent).toContain('Location · Harbor Point')
 
@@ -221,6 +233,34 @@ test('draws the Add button beside the tabs, then the number strip, the toolbar a
   // None of the old page's words.
   expect(document.body.textContent).not.toMatch(/Scope|Class|Whole site|Assigned relationships|Awaiting sweep|Not in current plan|Legacy|Template|Unclassified|propert|question|—/)
   expectNoSentence(region())
+})
+
+test('in the 1152px content column the table keeps Query wide: Status carries the date, and Last measured and Source wait in the row detail', async () => {
+  frameWidth(1152)
+  installApi()
+  renderWorkspace({ nextSweepDate: 'Oct 21' })
+  await screen.findByText(UPTOWN_BEST)
+  await waitFor(() => expect(chips(UPTOWN_BEST)).toHaveLength(3))
+  const header = (name: string) => within(table()).getAllByRole('columnheader').find(cell => cell.textContent === name)!
+
+  expect(within(table()).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Perplexity', 'Status', 'Actions'])
+  // Perplexity's header needs 88px, so Subject gives Query 22 of its 250 and Query keeps 420.
+  expect([...table().querySelectorAll('col')].map(column => column.style.width)).toEqual(['32px', '', '228px', '80px', '62px', '62px', '88px', '148px', '32px'])
+  expect(within(rowOf(UPTOWN_BEST)).getByText(`Measured ${day(MEASURED_AT)}`)).toBeTruthy()
+  expect(within(rowOf(PIER_NEW)).getByText('First answers Oct 21')).toBeTruthy()
+  // No filter went with the columns.
+  expect(within(screen.getByRole('group', { name: 'Filters' })).getAllByRole('combobox').map(filter => filter.getAttribute('aria-label'))).toEqual(['Subject', 'Type', 'Status', 'Source', 'Result'])
+
+  // Status sorts by status: the row that waits for its first answers goes after every measured one.
+  expect(listed()).toEqual([DOWNTOWN, UPTOWN_BEST, UPTOWN_PETS, HARBOR, PIER_NEW, PICKED])
+  fireEvent.click(within(table()).getByRole('button', { name: 'Status' }))
+  expect([header('Subject'), header('Status')].map(cell => cell.getAttribute('aria-sort'))).toEqual(['none', 'ascending'])
+  expect(listed()).toEqual([DOWNTOWN, UPTOWN_BEST, UPTOWN_PETS, HARBOR, PICKED, PIER_NEW])
+
+  // The row detail holds both columns that are not drawn.
+  fireEvent.click(within(table()).getByRole('button', { name: UPTOWN_BEST }))
+  const facts = [...rowOf(UPTOWN_BEST).nextElementSibling!.querySelectorAll('dl > div')].map(fact => [...fact.children].map(part => part.textContent))
+  expect(facts.slice(-2)).toEqual([['Source', 'Pattern: Bestbest apartments {market}'], ['Last measured', day(MEASURED_AT)]])
 })
 
 test('prints the server\'s numbers in the strip, for the project and for a place, never a count of its rows', async () => {
