@@ -1,6 +1,5 @@
 import { usePublishAeroView } from '../contexts/aero-view-context.js'
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { AlertTriangle, ArrowLeft, Clock, Info } from 'lucide-react'
@@ -35,9 +34,9 @@ import { providerDisplayName } from '../lib/visibility-trend-helpers.js'
 import type { VisibilitySelectionState } from '../lib/measurement-view-url.js'
 import { MARKET_SCOPE_COPY } from '../components/project/VisibilityScopePicker.js'
 import { useAccount } from '../contexts/account-context.js'
-import { matcherLabel } from '../components/project/advanced-measurement/v2-overview-adapter.js'
-import { PropertyNamesSection } from '../components/project/advanced-measurement/PropertyNamesEditor.js'
 import { AddLocationQueryButton } from '../components/project/DiscoverySection.js'
+import { LocationSidePanel } from '../components/project/location/LocationSidePanel.js'
+import { LocationPlaces, LocationTrackedSection } from '../components/project/location/LocationTrackedSection.js'
 
 type QueryClass = 'branded' | 'non-brand'
 type MetricValue = MeasurementOverviewResponse['metrics']['mentionCoverage']
@@ -217,7 +216,8 @@ function AnswerSources({ row }: { row: AnswerRow }) {
  * `resultId` this read takes — both are the stored snapshot id — so no new
  * plumbing is needed to line them up.
  */
-function AnswerText({ project, targetKey, resultId }: { project: string; targetKey: string; resultId: string }) {
+/** `headingLevel` is the level of the answer's own top headings: one below the heading the answer is read under. */
+function AnswerText({ project, targetKey, resultId, headingLevel }: { project: string; targetKey: string; resultId: string; headingLevel: 4 | 5 }) {
   const query = useQuery({
     ...getApiV1ProjectsByNameMeasurementQuestionResultOptions({
       client: heyClient,
@@ -247,7 +247,7 @@ function AnswerText({ project, targetKey, resultId }: { project: string; targetK
   }
   return (
     <div className="py-2">
-      <AnswerMarkdown headingLevel={4} copyable>{answer}</AnswerMarkdown>
+      <AnswerMarkdown headingLevel={headingLevel} copyable>{answer}</AnswerMarkdown>
     </div>
   )
 }
@@ -384,7 +384,7 @@ function MarketLink({
     <section aria-labelledby="property-market" className="page-section-divider">
       <div className="section-head section-head-inline flex-wrap">
         <div className="flex items-center gap-1">
-          <h2 id="property-market" className="text-base font-semibold text-heading">Competitors by market</h2>
+          <h3 id="property-market" className="text-base font-semibold text-heading">Competitors by market</h3>
           <InfoTooltip placement="bottom" text="Competitors are attached to a market rather than to a single location, because one location has nobody to be compared against. Share of voice and competitor pressure are reported for the market this location sits in." />
         </div>
         <Button asChild type="button" size="sm" variant="outline">
@@ -546,7 +546,7 @@ function BrandContrast({
     <section aria-labelledby="property-brand-contrast">
       <div className="section-head section-head-inline">
         <div className="flex items-center gap-1">
-          <h2 id="property-brand-contrast" className="text-base font-semibold text-heading">By type</h2>
+          <h3 id="property-brand-contrast" className="text-base font-semibold text-heading">By type</h3>
           <InfoTooltip placement="bottom" text="Branded queries already contain your name, so an answer engine has an easy path back to you. Non-brand queries describe the need instead, and that is the demand you have to earn. Each row is measured only over this location's queries of that type. A type with no query reads Not measured rather than 0%." />
         </div>
       </div>
@@ -602,7 +602,7 @@ function ProviderBreakdown({ row, queryClass, isError, onRetry }: { row: Propert
     <section aria-labelledby="property-providers" className="page-section-divider">
       <div className="section-head section-head-inline">
         <div className="flex items-center gap-1">
-          <h2 id="property-providers" className="text-base font-semibold text-heading">By engine</h2>
+          <h3 id="property-providers" className="text-base font-semibold text-heading">By engine</h3>
           <InfoTooltip placement="bottom" text="Each row is measured over the queries that engine actually answered for this location, so the rows are a split of the same population rather than parts that add up to the location total. An engine that answered nothing for this location is absent instead of shown at 0%." />
         </div>
       </div>
@@ -689,7 +689,7 @@ function NamedInstead({ project, targetKey, queryClass }: { project: string; tar
     <section aria-labelledby="property-named-instead" className="page-section-divider">
       <div className="section-head section-head-inline">
         <div className="flex items-center gap-1">
-          <h2 id="property-named-instead" className="text-base font-semibold text-heading">Named instead</h2>
+          <h3 id="property-named-instead" className="text-base font-semibold text-heading">Named instead</h3>
           <InfoTooltip placement="bottom" text="Counted from the answers that did not name this location, so a name here is one an engine recommended in its place. Occurrences count answers, not positions: an engine naming the same rival in two answers counts twice, and one naming it twice in a single answer counts once." />
         </div>
         {competitors.length > 0 ? <p className="supporting-copy">{query.data?.total ?? competitors.length} named</p> : null}
@@ -745,59 +745,6 @@ function NamedInstead({ project, targetKey, queryClass }: { project: string; tar
             </div>
           ) : null}
         </>
-      )}
-    </section>
-  )
-}
-
-function AssignedQuestions({ questions, queryClass, action, notice }: { questions: readonly string[]; queryClass: QueryClass; action?: ReactNode; notice?: ReactNode }) {
-  return (
-    <section aria-labelledby="property-questions" className="page-section-divider">
-      <div className="section-head section-head-inline flex-wrap">
-        <div>
-          <h2 id="property-questions" className="text-base font-semibold text-heading">{CLASS_LABELS[queryClass]} queries</h2>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <p className="supporting-copy">{questions.length} tracked</p>
-          {action}
-        </div>
-      </div>
-      {notice}
-      {questions.length === 0 ? (
-        <StatusNote icon={Info} label={`No ${classQueries(queryClass)}`} />
-      ) : (
-        <div className="overflow-x-auto rounded-md border border-default">
-          <table className="evidence-table min-w-[420px]">
-            <caption className="sr-only">Queries tracked for this location</caption>
-            <thead><tr><th>Query</th></tr></thead>
-            <tbody>{questions.map(question => <tr key={question}><td className="text-secondary">{question}</td></tr>)}</tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  )
-}
-
-function PropertyUrls({ urls, emptyAction }: { urls: readonly string[]; emptyAction?: ReactNode }) {
-  return (
-    <section aria-labelledby="property-urls" className="page-section-divider">
-      <div className="section-head section-head-inline">
-        <div className="flex items-center gap-1">
-          <h2 id="property-urls" className="text-base font-semibold text-heading">Site pages we match</h2>
-          <InfoTooltip placement="bottom" text="A cited source URL is credited to this location when it matches one of these. The most specific match wins, so a URL covered by two locations at the same specificity is flagged for review instead of being credited to either." />
-        </div>
-        <p className="supporting-copy">{urls.length} {urls.length === 1 ? 'page' : 'pages'}</p>
-      </div>
-      {urls.length === 0 ? (
-        <StatusNote icon={Info} label="No site pages" action={emptyAction} />
-      ) : (
-        <div className="overflow-x-auto rounded-md border border-default">
-          <table className="evidence-table min-w-[420px]">
-            <caption className="sr-only">Site pages matched to this location</caption>
-            <thead><tr><th>URL</th></tr></thead>
-            <tbody>{urls.map(url => <tr key={url}><td className="break-all text-secondary">{url}</td></tr>)}</tbody>
-          </table>
-        </div>
       )}
     </section>
   )
@@ -869,7 +816,7 @@ function CitedOnOtherQueries({
     <section aria-labelledby="property-other-queries" className="page-section-divider">
       <div className="section-head section-head-inline flex-wrap">
         <div className="flex items-center gap-1">
-          <h2 id="property-other-queries" className="text-base font-semibold text-heading">{OTHER_QUERIES_COPY.heading}</h2>
+          <h3 id="property-other-queries" className="text-base font-semibold text-heading">{OTHER_QUERIES_COPY.heading}</h3>
           <InfoTooltip placement="bottom" text={OTHER_QUERIES_COPY.help} />
         </div>
         {query.data ? (
@@ -960,7 +907,7 @@ function CitedOnOtherQueries({
                       {open ? (
                         <tr>
                           <td id={detailId} colSpan={4} className="bg-surface-subtle px-4">
-                            <AnswerText project={project} targetKey={row.assignedTargetKeys[0]!} resultId={row.observationId} />
+                            <AnswerText project={project} targetKey={row.assignedTargetKeys[0]!} resultId={row.observationId} headingLevel={4} />
                           </td>
                         </tr>
                       ) : null}
@@ -1014,8 +961,6 @@ export function MeasurementPropertyPage() {
   const urlSearch = useSearch({ strict: false }) as Record<string, unknown>
   const selection = useMemo(() => parseVisibilitySelection(urlSearch), [urlSearch])
   const [expandedAnswers, setExpandedAnswers] = useState<ReadonlySet<string>>(new Set<string>())
-  // The queries the last publish from this page's sheet touched, with where it was made.
-  const [published, setPublished] = useState<{ property: string; queryClass: QueryClass; revision: number; queryIds: readonly string[] } | null>(null)
   const project = projectName ?? ''
   const property = targetKey ?? ''
   const hasRouteParams = Boolean(project) && Boolean(property)
@@ -1116,31 +1061,6 @@ export function MeasurementPropertyPage() {
   const target = planV2?.targets.find(candidate => candidate.stableKey === property) ?? null
   const filterHelp = carriedFilterHelp(selection, planV2?.reportingScopes?.find(scope => scope.stableKey === selection.marketKey)?.label)
 
-  const questions = useMemo(() => {
-    if (!planV2) return []
-    const textById = new Map(planV2.querySnapshots.map(snapshot => [snapshot.queryId, snapshot.queryText]))
-    return [...new Set(planV2.assignments
-      .filter(assignment => assignment.targetKey === property && assignment.queryClass === queryClass)
-      .flatMap(assignment => {
-        const text = textById.get(assignment.queryId)
-        return text === undefined ? [] : [text]
-      }))].sort((left, right) => left.localeCompare(right))
-  }, [planV2, property, queryClass])
-
-  // The server files a query that names this location as Branded, so a query
-  // added from this page can land under the Query type the list is not showing.
-  // Counted once the page holds the published setup, and only on the location
-  // and Query type it was added from.
-  const otherClass: QueryClass = queryClass === 'branded' ? 'non-brand' : 'branded'
-  const addedElsewhere = useMemo(() => {
-    if (!planV2 || !activePlan || !published || published.property !== property || published.queryClass !== queryClass) return 0
-    if (activePlan.revision < published.revision) return 0
-    return new Set(planV2.assignments
-      .filter(assignment => assignment.targetKey === property && assignment.queryClass === otherClass && published.queryIds.includes(assignment.queryId))
-      .map(assignment => assignment.queryId)).size
-  }, [planV2, activePlan, published, property, queryClass, otherClass])
-
-  const urls = useMemo(() => target?.urlMatchers.map(matcherLabel) ?? [], [target])
   const targetLabels = useMemo(
     () => new Map((planV2?.targets ?? []).map(candidate => [candidate.stableKey, candidate.label])),
     [planV2],
@@ -1274,21 +1194,27 @@ export function MeasurementPropertyPage() {
 
   return (
     <div className="page-container space-y-8">
-      <div className="page-header">
-        <div className="page-header-left">
+      {/* From sm the name takes the room the badges and the button leave. In a frame too narrow for both they go under it. */}
+      <div className="page-header @container sm:flex-wrap">
+        <div className="page-header-left sm:flex-1 sm:basis-80">
           {backLink}
-          <h1 className="page-title mt-2">{target.label}</h1>
-          <p className="page-subtitle">
-            Location in {project}
+          {/* The badge is a sibling of the heading, so the page is named by the location alone. */}
+          <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <h1 className="page-title">{target.label}</h1>
+            <ToneBadge tone="neutral">Location</ToneBadge>
+          </div>
+          {/* The header's width from sm, not the name's column: the line runs on under the badges and the button, which end above it. */}
+          <div className="page-subtitle flex min-h-5 flex-wrap items-center gap-x-4 gap-y-0.5 sm:w-[100cqw]">
+            <LocationPlaces projectName={project} targetKey={property} />
             {filterHelp ? (
-              <>
-                {' · Filters not applied '}
+              <span className="inline-flex items-center">
+                Filters not applied
                 <InfoTooltip placement="bottom" text={filterHelp} />
-              </>
+              </span>
             ) : null}
-          </p>
+          </div>
         </div>
-        <div className="page-header-right">
+        <div className="page-header-right flex-wrap">
           {selected ? (
             <ToneBadge tone={MEASUREMENT_STATES[selected.measurement.state].tone}>
               {MEASUREMENT_STATES[selected.measurement.state].label}
@@ -1300,6 +1226,12 @@ export function MeasurementPropertyPage() {
               <InfoTooltip variant="caution" text="Cited links that match more than one location. They are marked Several locations under Answers." />
             </span>
           ) : null}
+          {/* The page's one primary action, for writers only, so a viewer sees no dead button. This render is past
+              the setup checks above: the plan is advanced and holds this location. Keyed, because the router keeps
+              this page mounted from one location to the next. */}
+          {canWrite ? (
+            <AddLocationQueryButton key={property} projectName={project} locationKey={property} variant="default" className="pointer-coarse:min-h-11 max-md:min-h-11" />
+          ) : null}
         </div>
       </div>
 
@@ -1310,13 +1242,35 @@ export function MeasurementPropertyPage() {
         nonBrandFailed={nonBrandUnavailable}
       />
 
-      <BrandContrast
-        branded={brandedRow}
-        nonBrand={nonBrandRow}
-        brandedError={brandedQuery.isError}
-        nonBrandError={nonBrandQuery.isError}
-        onRetry={retryClass}
-      />
+      {/* What the location is tracked for, with what it is matched by beside it from a 68rem frame. The side panel
+          sits beside this section only: a narrower column would fold the answers table below into its phone layout. */}
+      <div className="@container">
+        <div className="grid gap-x-6 gap-y-8 @[68rem]:grid-cols-[minmax(0,1fr)_20rem]">
+          {/* A managed dashboard dates no tracking change, here as on AI Visibility and Queries. */}
+          <LocationTrackedSection key={property} projectName={project} targetKey={property} canWrite={canWrite} trackingChangedAt={isDashboardManagedSweeps() ? undefined : activePlan!.createdAt} />
+          <div className="min-w-0 @[68rem]:border-l @[68rem]:border-default @[68rem]:pl-6">
+            <LocationSidePanel
+              projectName={project}
+              target={target}
+              activeRevision={activePlan!.revision}
+              publishedBrandNames={planV2.identities.projectBrand.names}
+              setupAction={canWrite ? setupLink('Open measurement setup') : undefined}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Every section from here to the end of the page is under this heading. */}
+      <div className="space-y-4 border-t border-default pt-6">
+        <h2 className="text-lg font-semibold text-heading">Results</h2>
+        <BrandContrast
+          branded={brandedRow}
+          nonBrand={nonBrandRow}
+          brandedError={brandedQuery.isError}
+          nonBrandError={nonBrandQuery.isError}
+          onRetry={retryClass}
+        />
+      </div>
 
       {needsMeasurement ? (
         <section className="flex flex-wrap items-center justify-between gap-3 border-y border-default py-4" aria-label="Measurement next step">
@@ -1361,54 +1315,12 @@ export function MeasurementPropertyPage() {
       {/* Directly under coverage, because it is what coverage raises and cannot
           answer. The evidence table below is the receipts; this is the finding. */}
       <NamedInstead project={project} targetKey={property} queryClass={queryClass} />
-      {/* The button is for writers only, so a viewer sees no dead one. This render
-          is past the setup checks above: the plan is advanced and holds this
-          location. Keyed, because the router keeps this page mounted from one
-          location to the next. */}
-      <AssignedQuestions
-        questions={questions}
-        queryClass={queryClass}
-        action={canWrite ? (
-          <AddLocationQueryButton
-            key={property}
-            projectName={project}
-            locationKey={property}
-            className="h-11 px-4 text-sm md:h-11"
-            onPublished={result => {
-              if (!result.committed || !result.active) return
-              setPublished({ property, queryClass, revision: result.active.revision, queryIds: [...result.diff.added, ...result.diff.reused].map(row => row.queryId) })
-            }}
-          />
-        ) : null}
-        notice={addedElsewhere > 0 ? (
-          <div className="mb-3 flex flex-wrap items-center gap-3">
-            <span role="status">
-              <StatusNote
-                icon={Info}
-                label={`${addedElsewhere} added under ${CLASS_LABELS[otherClass]}`}
-                detail={`${addedElsewhere === 1 ? '1 query you added is' : `${addedElsewhere} queries you added are`} listed under ${CLASS_LABELS[otherClass]} queries.`}
-              />
-            </span>
-            <Button type="button" size="sm" variant="outline" className="h-11 px-4 text-sm md:h-11" onClick={() => showQueryClass(otherClass)}>
-              Show {classQueries(otherClass)}
-            </Button>
-          </div>
-        ) : null}
-      />
-      <PropertyNamesSection
-        projectName={project}
-        targetKey={property}
-        published={target}
-        activeRevision={activePlan!.revision}
-        publishedBrandNames={planV2.identities.projectBrand.names}
-      />
-      <PropertyUrls urls={urls} emptyAction={canWrite ? setupLink('Open measurement setup') : undefined} />
       <MarketLink project={project} groups={memberGroups} />
 
       <section aria-labelledby="property-evidence" className="page-section-divider">
         <div className="section-head section-head-inline">
           <div className="flex items-center gap-1">
-            <h2 id="property-evidence" className="text-base font-semibold text-heading">Answers</h2>
+            <h3 id="property-evidence" className="text-base font-semibold text-heading">Answers</h3>
             <InfoTooltip placement="bottom" text="One row per answer an engine gave for this location's queries in the displayed measurement. Mentioned and cited are independent: an answer can name this location without linking it, or link it without naming it. Where the answer text was not stored the mention reads Not measured, never a zero. Open a row to read what the engine actually said, followed by the source URLs it returned, this location's own first." />
           </div>
           {evidenceRows.length > 0 ? <p className="supporting-copy">{evidenceRows.length} of {evidenceTotal}</p> : null}
@@ -1464,7 +1376,7 @@ export function MeasurementPropertyPage() {
                       <Fragment key={key}>
                         <tr className="property-answer-summary">
                           <td className="text-secondary">
-                            <h3 className="text-sm font-medium text-heading">{item.queryText}</h3>
+                            <h4 className="text-sm font-medium text-heading">{item.queryText}</h4>
                             <span className="mt-1 block text-xs text-muted">
                               {[providerDisplayName(item.provider), item.location].filter(Boolean).join(' · ')}
                             </span>
@@ -1500,7 +1412,7 @@ export function MeasurementPropertyPage() {
                               {/* The answer leads. The source list is the supporting
                                   detail, not the point: a reader who opened this row
                                   wants to know what was said before who was linked. */}
-                              <AnswerText project={project} targetKey={property} resultId={item.observationId} />
+                              <AnswerText project={project} targetKey={property} resultId={item.observationId} headingLevel={5} />
                               <AnswerSources row={item} />
                             </td>
                           </tr>

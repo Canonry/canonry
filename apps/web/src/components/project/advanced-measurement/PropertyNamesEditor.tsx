@@ -116,12 +116,13 @@ function withNames(target: DraftTarget, aliases: string[], identityAliases: stri
   return identityAliases.length > 0 ? { ...rest, aliases, identityAliases } : { ...rest, aliases }
 }
 
-function NameList({ label, names }: { label: string; names: readonly string[] }) {
+/** `solo` is the only list shown: the section's heading names it, so its own label is for a screen reader. */
+function NameList({ label, names, solo = false }: { label: string; names: readonly string[]; solo?: boolean }) {
   return (
     <div className="space-y-1">
-      <h3 className="text-sm font-medium text-heading">{label}</h3>
-      <ul className="space-y-1">
-        {names.map(name => <li key={name} className="text-sm text-secondary">{name}</li>)}
+      <h3 className={solo ? 'sr-only' : 'text-[13px] leading-5 text-muted'}>{label}</h3>
+      <ul className="flex flex-wrap gap-1.5">
+        {names.map(name => <li key={name} className="rounded-md border border-default px-2 py-0.5 text-[13px] leading-5 text-strong">{name}</li>)}
       </ul>
     </div>
   )
@@ -326,20 +327,19 @@ export function PropertyNamesSection({
   const nameCount = published.aliases.length + publishedQualified.length
 
   return (
-    <section aria-labelledby="property-names" className="page-section-divider">
-      <div className="section-head section-head-inline">
+    <section aria-labelledby="property-names" className="min-w-0">
+      {/* One line in the location page's side panel: the heading, its count, and the button at the far end. */}
+      <div className="section-head section-head-inline flex-wrap items-center">
         <div className="flex items-center gap-1">
-          <h2 id="property-names" className="text-base font-semibold text-heading">{PROPERTY_NAMES_COPY.heading}</h2>
+          <h2 id="property-names" className="text-sm font-medium text-secondary">{PROPERTY_NAMES_COPY.heading}</h2>
           <InfoTooltip placement="bottom" text={PROPERTY_NAMES_COPY.help} />
+          <span className="ml-1 text-sm tabular-nums text-secondary">{nameCount}<span className="sr-only"> {nameCount === 1 ? 'name' : 'names'}</span></span>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <p className="supporting-copy">{nameCount} {nameCount === 1 ? 'name' : 'names'}</p>
-          {canWrite && !editing ? (
-            <Button type="button" size="sm" variant="outline" className="h-11 px-4 text-sm md:h-11" disabled={!ready} onClick={openEditor}>
-              {PROPERTY_NAMES_COPY.edit}
-            </Button>
-          ) : null}
-        </div>
+        {canWrite && !editing ? (
+          <Button type="button" size="sm" variant="outline" className="pointer-coarse:min-h-11 max-md:min-h-11" disabled={!ready} onClick={openEditor}>
+            {PROPERTY_NAMES_COPY.edit}
+          </Button>
+        ) : null}
       </div>
 
       {notice ? (
@@ -405,8 +405,8 @@ export function PropertyNamesSection({
       ) : nameCount === 0 ? (
         <StatusNote icon={AlertTriangle} tone="caution" label={PROPERTY_NAMES_COPY.noNames} detail={PROPERTY_NAMES_COPY.noNamesDetail} />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {published.aliases.length > 0 ? <NameList label={PROPERTY_NAMES_COPY.names} names={published.aliases} /> : null}
+        <div className="space-y-3">
+          {published.aliases.length > 0 ? <NameList label={PROPERTY_NAMES_COPY.names} names={published.aliases} solo={publishedQualified.length === 0} /> : null}
           {publishedQualified.length > 0 ? <NameList label={PROPERTY_NAMES_COPY.qualifiedNames} names={publishedQualified} /> : null}
         </div>
       )}
