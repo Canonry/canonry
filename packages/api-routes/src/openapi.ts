@@ -2450,14 +2450,7 @@ const routeCatalog: OpenApiOperation[] = [
       required: true,
       content: {
         'application/json': {
-          schema: {
-            oneOf: [
-              { type: 'object', required: ['change', 'competitors'], properties: { change: { const: 'add' }, competitors: { type: 'array', minItems: 1, items: { oneOf: [{ type: 'string', minLength: 1 }, { type: 'object', required: ['domain', 'aliases'], properties: { domain: { type: 'string', minLength: 1 }, aliases: { type: 'array', items: { type: 'string', minLength: 1 } } } }] } } } },
-              { type: 'object', required: ['change', 'competitors'], properties: { change: { const: 'remove' }, competitors: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } } } },
-              { type: 'object', required: ['change', 'competitors'], properties: { change: { const: 'replace' }, competitors: { type: 'array', items: { oneOf: [{ type: 'string', minLength: 1 }, { type: 'object', required: ['domain', 'aliases'], properties: { domain: { type: 'string', minLength: 1 }, aliases: { type: 'array', items: { type: 'string', minLength: 1 } } } }] } } } },
-              { type: 'object', required: ['change', 'domain', 'aliases', 'mode'], properties: { change: { const: 'aliases' }, domain: { type: 'string', minLength: 1 }, aliases: { type: 'array', items: { type: 'string', minLength: 1 } }, mode: { type: 'string', enum: ['set', 'add'] } } },
-            ],
-          },
+          schema: { $ref: '#/components/schemas/CompetitorChangePreviewRequest' },
         },
       },
     },
