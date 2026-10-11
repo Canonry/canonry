@@ -5,9 +5,21 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { RunKinds, RunStatuses, RunTriggers, type ContentTargetsResponseDto, type QueryTrackingResultsResponse, type VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import {
+  canonicalMeasurementPlanV2Json,
+  RunKinds,
+  RunStatuses,
+  RunTriggers,
+  type ContentTargetsResponseDto,
+  type MeasurementOverviewResponse,
+  type MeasurementPlanV2,
+  type QueryTrackingResultsResponse,
+  type VisibilityReportResponse,
+} from '@ainyc/canonry-contracts'
 import {
   createClient,
+  measurementPlans,
+  measurementPlanVersions,
   migrate,
   projects,
   queries as queriesTable,
@@ -16,6 +28,8 @@ import {
   querySnapshots,
 } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
+import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
+import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
 /**
  * Probe runs (`runs.trigger = 'probe'`) write snapshots so an operator can
@@ -338,6 +352,60 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
     const pinned = await get<{ error: { message: string } }>(`/api/v1/projects/probe-excl/query-tracking/results?runId=${ctx.probeRunId}`)
     expect(pinned.status).toBe(400)
     expect(pinned.body.error.message).toBe(`Run "${ctx.probeRunId}" is not a completed whole-project sweep of this project.`)
+  })
+
+  it('the last-sweep fallback of the location reads is the real sweep, never a newer probe or spot check', async () => {
+    const at = (minutes: number) => new Date(Date.UTC(2026, 9, 7, 12, minutes)).toISOString()
+    const plan = measurementPlanV2Fixture()
+    const seedVersion = (id: string, revision: number, doc: MeasurementPlanV2) => ctx.db.insert(measurementPlanVersions).values({
+      id, projectId: ctx.projectId, revision, canonicalJson: canonicalMeasurementPlanV2Json(doc),
+      checksum: String(revision).repeat(64), schemaVersion: 2, compiledChecksum: doc.compiledChecksum, createdAt: at(revision),
+    }).run()
+    seedVersion('plan-swept', 1, plan)
+    // A tracking change with no sweep of its own: the only way these reads show a run is the fallback.
+    seedVersion('plan-active', 2, measurementPlanV2Fixture({ groups: [], compiledChecksum: 'c'.repeat(64) }))
+    ctx.db.insert(measurementPlans).values({
+      projectId: ctx.projectId, activeVersionId: 'plan-active', createdAt: at(2), updatedAt: at(2),
+    }).run()
+    const node = plan.executionNodes.find(candidate => candidate.stableKey === 'exec-nearby')!
+    const seedPlanRun = (id: string, createdAt: string, answerText: string, values: Partial<typeof runs.$inferInsert>) => {
+      ctx.db.insert(runs).values({
+        id, projectId: ctx.projectId, kind: RunKinds['answer-visibility'], status: RunStatuses.completed, trigger: RunTriggers.manual,
+        measurementPlanVersionId: 'plan-swept', measurementManifest: buildMeasurementPlanV2Manifest(plan),
+        createdAt, finishedAt: createdAt, ...values,
+      }).run()
+      ctx.db.insert(querySnapshots).values({
+        id: `${id}-answer`, runId: id, queryId: null, queryText: node.queryText, provider: 'openai',
+        citationState: 'not-cited', answerMentioned: null, answerText, citedDomains: [], citedUrls: [], captureStatus: 'complete',
+        competitorOverlap: [], recommendedCompetitors: [], measurementExecutionId: node.stableKey,
+        requestedContext: node.context.location, supportedContext: { status: 'applied', resolved: node.context.location },
+        location: node.context.location?.label ?? null, createdAt,
+      }).run()
+    }
+    seedPlanRun('plan-sweep', at(10), 'Harbor Homes is a strong option.', {})
+    seedPlanRun('plan-probe', at(20), 'Another option is worth a look.', { trigger: RunTriggers.probe })
+    seedPlanRun('plan-spot-check', at(30), 'Another option is worth a look.', {
+      measurementScope: { groups: [], targets: ['harbor'], queries: [], resolvedTargets: ['harbor'] },
+    })
+
+    const { status, body } = await get<MeasurementOverviewResponse>(
+      '/api/v1/projects/probe-excl/measurement-overview?scope=property&targetKey=harbor&fallback=last-sweep',
+    )
+    expect(status).toBe(200)
+    expect(body.measurement).toMatchObject({ displayedRunId: 'plan-sweep', measuredRevision: 1, awaitingSweep: true })
+    // The real sweep named Harbor Homes in its one saved answer. The probe and the spot check did not.
+    expect(body.properties.items[0]!.providers.find(row => row.provider === 'openai')).toEqual({
+      provider: 'openai',
+      mentionCoverage: { state: 'available', value: 1, numerator: 1, denominator: 1 },
+      citationCoverage: { state: 'available', value: 0, numerator: 0, denominator: 1 },
+    })
+    for (const route of ['measurement-property-evidence', 'measurement-property-questions', 'measurement-property-competitors']) {
+      const read = await get<{ measurement: { displayedRunId: string | null } }>(
+        `/api/v1/projects/probe-excl/${route}?targetKey=harbor&fallback=last-sweep`,
+      )
+      expect(read.status, route).toBe(200)
+      expect(read.body.measurement.displayedRunId, route).toBe('plan-sweep')
+    }
   })
 
   it('competitor auto-alias detection scans the real run only', async () => {

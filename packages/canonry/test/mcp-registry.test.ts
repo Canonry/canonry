@@ -759,6 +759,46 @@ describe('MCP tool registry', () => {
     }
   })
 
+  it('declares the last-sweep fallback on the five location reads, and never sets it for the caller', async () => {
+    const locationReads: Array<[name: string, input: Record<string, unknown>]> = [
+      ['canonry_measurement_overview', { scope: 'property', targetKey: 'harbor-view' }],
+      ['canonry_measurement_property_evidence', { targetKey: 'harbor-view' }],
+      ['canonry_measurement_property_questions', { targetKey: 'harbor-view' }],
+      ['canonry_measurement_question_result', { targetKey: 'harbor-view', resultId: 'result-1' }],
+      ['canonry_measurement_property_competitors', { targetKey: 'harbor-view' }],
+    ]
+    const api = await startCaptureApi()
+    try {
+      const client = new RealApiClient(api.origin, 'cnry_test', { skipProbe: true })
+      for (const [name, input] of locationReads) {
+        const tool = canonryMcpTools.find(candidate => candidate.name === name)!
+        expect(schemaProperty(inputSchemaFor(name), 'fallback'), name).toMatchObject({ type: 'string', enum: ['last-sweep'] })
+        expect(inputSchemaFor(name).required ?? [], name).not.toContain('fallback')
+        expect(tool.inputSchema.safeParse({ project: 'acme', ...input, fallback: 'newest' }).success, name).toBe(false)
+        // What the param does, and what to say when the numbers predate the tracking change.
+        expect(tool.description, name).toContain('fallback=last-sweep reads the last completed sweep after a tracking change')
+        expect(tool.description, name).toContain(
+          'When measurement.awaitingSweep is true, say tracking changed on trackingChangedAt and the numbers are the completedAt sweep\'s.',
+        )
+
+        await tool.handler(client, tool.inputSchema.parse({ project: 'acme', ...input }))
+        expect(new URL(api.requests.at(-1)!, api.origin).searchParams.has('fallback'), name).toBe(false)
+        await tool.handler(client, tool.inputSchema.parse({ project: 'acme', ...input, fallback: 'last-sweep' }))
+        expect(new URL(api.requests.at(-1)!, api.origin).searchParams.get('fallback'), name).toBe('last-sweep')
+      }
+    } finally {
+      await api.close()
+    }
+
+    // The other measurement reads take no fallback, so they keep saying not measured after a publish.
+    for (const name of ['canonry_measurement_portfolio_summary', 'canonry_measurement_changes', 'canonry_measurement_data_quality']) {
+      expect(inputSchemaFor(name).properties?.fallback, name).toBeUndefined()
+    }
+    // `latest` on the competitor and source reads is the default read's run, not a fallback one.
+    expect(schemaProperty(inputSchemaFor('canonry_analytics_sources'), 'runId').description)
+      .toContain('the run the measurement reads display by default')
+  })
+
   it('ships the curated v1 surface', () => {
     expect(canonryMcpTools.filter(tool => tool.access === 'read')).toHaveLength(166)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)

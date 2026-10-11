@@ -499,7 +499,7 @@ const competitorLandscapeRunIdParameter: OpenApiParameter = {
 const sourcesRunIdParameter: OpenApiParameter = {
   name: 'runId',
   in: 'query',
-  description: 'Read one stored answer-visibility run instead of pooling every run in the window. An unknown id is 404; a probe, unfinished, partially measured, or out-of-window run is 400. Pass latest to read the latest sweep: with an active measurement plan, the run the measurement reads display; otherwise the newest completed or partial sweep, every location included. A latest sweep older than the window is 400.',
+  description: 'Read one stored answer-visibility run instead of pooling every run in the window. An unknown id is 404; a probe, unfinished, partially measured, or out-of-window run is 400. Pass latest to read the latest sweep: with an active measurement plan, the run the measurement reads display by default; otherwise the newest completed or partial sweep, every location included. A latest sweep older than the window is 400.',
   schema: stringSchema,
 }
 
@@ -712,6 +712,13 @@ const measurementPropertyEvidenceCursorParameter: OpenApiParameter = {
   in: 'query',
   description: 'Opaque cursor from the previous page. It pins pagination to the active revision, displayed run, evidence snapshot, same filters, and the shape it was issued for; a mismatch or newly appended evidence is rejected rather than silently paged across. An answer page is keyed on the slot, so a boundary never falls between one answer and its own cited URLs.',
   schema: stringSchema,
+}
+
+const measurementFallbackParameter: OpenApiParameter = {
+  name: 'fallback',
+  in: 'query',
+  description: 'Omit it and the read needs a completed sweep of the active plan, answering not measured after a tracking change until one exists. last-sweep reads the newest completed whole-project sweep instead, under the plan that sweep ran with, when the active plan has no completed sweep yet. The response measurement then carries activeRevision, measuredRevision, awaitingSweep and trackingChangedAt: awaitingSweep true means the numbers are from before the tracking change. A place the last sweep did not hold reads no_population, never zero. On the overview it is refused (400) together with from or to.',
+  schema: { type: 'string', enum: ['last-sweep'] },
 }
 
 const measurementLimitParameter: OpenApiParameter = {
@@ -1311,7 +1318,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-overview',
     summary: 'Get the scoped measurement overview',
-    description: 'Aggregates one revision-pinned run snapshot for All Properties, a group, a market, or a single Property. A group reads every query its Properties are assigned; a market reads only its own frozen queries, the population the dashboard\'s market view reads, and the response scope names which kind was read. Rates are taken over one query class, non-brand unless queryClass names another; all pools branded with non-brand and is served only when asked for. This is snapshot ranking only: it never infers a trend or compares evidence across revisions. Without runId the most recent completed run pinned to the active revision is used; once paging begins, the cursor pins that revision, displayed run, evidence snapshot, and result filters. A run pinned to another revision is refused rather than joined, and appended evidence on a mutable named run invalidates its cursor. On a schema v2 plan every Property row carries its metro (the top-level group holding it, or null) and, when it sits in several top-level groups, otherMetros. Metrics are computed before search is applied, and a metric with no evidence is unavailable rather than zero. For coverage sorts, unavailable rows form the first bucket in either direction before available numeric rates follow the requested direction.',
+    description: 'Aggregates one revision-pinned run snapshot for All Properties, a group, a market, or a single Property. A group reads every query its Properties are assigned; a market reads only its own frozen queries, the population the dashboard\'s market view reads, and the response scope names which kind was read. Rates are taken over one query class, non-brand unless queryClass names another; all pools branded with non-brand and is served only when asked for. This is snapshot ranking only: it never infers a trend or compares evidence across revisions. Without runId the most recent completed run pinned to the active revision is used; once paging begins, the cursor pins that revision, displayed run, evidence snapshot, and result filters. A run pinned to another revision is refused rather than joined, and appended evidence on a mutable named run invalidates its cursor. On a schema v2 plan every Property row carries its metro (the top-level group holding it, or null) and, when it sits in several top-level groups, otherMetros. Metrics are computed before search is applied, and a metric with no evidence is unavailable rather than zero. For coverage sorts, unavailable rows form the first bucket in either direction before available numeric rates follow the requested direction. By default it needs a completed sweep of the active plan; fallback=last-sweep reads the last completed sweep after a tracking change.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
@@ -1326,6 +1333,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'from', in: 'query', description: 'Inclusive start of the window (YYYY-MM-DD).', schema: stringSchema },
       { name: 'to', in: 'query', description: 'Inclusive end of the window (YYYY-MM-DD).', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'Display this run. It must be pinned to the active revision. This is also the only way to display a scoped spot check.', schema: stringSchema },
+      measurementFallbackParameter,
       measurementSearchParameter,
       measurementOverviewSortParameter,
       measurementOverviewCursorParameter,
@@ -1417,7 +1425,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-property-evidence',
     summary: 'Page one Property\'s evidence',
-    description: 'Returns the evidence rows for exactly one Property out of one revision-pinned run, optionally narrowed to a question class, provider, or location. shape chooses what a row is: sources (the default) is one row per cited URL, answers is one row per measured answer with its cited URLs nested inside, other-queries is one row per answer to a query not assigned to this Property that cited its pages (outside its rates). Prefer answers to explain a gap — an answer that mentioned the Property without linking it, or that named nobody, has no URL to hang a source row on and is invisible in the default shape. Run selection matches the overview: the most recent completed run pinned to the active revision unless runId names another. Use this rather than GET /measurement-report when you want one Property — the report reconstructs every group and Target for a revision and does not paginate. Not available for a schema v1 revision, which records no question class to scope by. An empty page under measurement.state = not_measured means the Property has not been measured, which is not the same statement as a measured Property with no evidence.',
+    description: 'Returns the evidence rows for exactly one Property out of one revision-pinned run, optionally narrowed to a question class, provider, or location. shape chooses what a row is: sources (the default) is one row per cited URL, answers is one row per measured answer with its cited URLs nested inside, other-queries is one row per answer to a query not assigned to this Property that cited its pages (outside its rates). Prefer answers to explain a gap — an answer that mentioned the Property without linking it, or that named nobody, has no URL to hang a source row on and is invisible in the default shape. Run selection matches the overview: the most recent completed run pinned to the active revision unless runId names another. Use this rather than GET /measurement-report when you want one Property — the report reconstructs every group and Target for a revision and does not paginate. Not available for a schema v1 revision, which records no question class to scope by. An empty page under measurement.state = not_measured means the Property has not been measured, which is not the same statement as a measured Property with no evidence. By default it needs a completed sweep of the active plan; fallback=last-sweep reads the last completed sweep after a tracking change.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
@@ -1426,6 +1434,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'provider', in: 'query', description: 'Restrict to one answer provider.', schema: stringSchema },
       { name: 'location', in: 'query', description: 'Restrict to one execution location label.', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'Display this run. It must be pinned to the active revision.', schema: stringSchema },
+      measurementFallbackParameter,
       measurementPropertyEvidenceShapeParameter,
       measurementPropertyEvidenceCursorParameter,
       measurementLimitParameter,
@@ -1468,7 +1477,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-property-questions',
     summary: 'List one Property’s measured questions',
-    description: 'Returns compact provider-expanded question rows from one immutable plan and stored run. Missing answers and incomplete citation capture remain null rather than false. Full answer text and sources are deliberately omitted; use the returned resultId with the question-result read. It never starts provider work.',
+    description: 'Returns compact provider-expanded question rows from one immutable plan and stored run. Missing answers and incomplete citation capture remain null rather than false. Full answer text and sources are deliberately omitted; use the returned resultId with the question-result read. It never starts provider work. By default it needs a completed sweep of the active plan; fallback=last-sweep reads the last completed sweep after a tracking change.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
@@ -1477,6 +1486,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'provider', in: 'query', description: 'Restrict to one answer provider.', schema: stringSchema },
       { name: 'location', in: 'query', description: 'Restrict to one execution location label.', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'Read this completed or partial active-revision run, including a named spot check.', schema: stringSchema },
+      measurementFallbackParameter,
       { name: 'offset', in: 'query', description: 'Zero-based row offset for paging through the full question population.', schema: { type: 'integer', minimum: 0 } },
       measurementLimitParameter,
     ],
@@ -1491,12 +1501,13 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-question-result',
     summary: 'Get one full stored question result',
-    description: 'Expands one resultId returned by the Property-question read into the full stored answer and source attribution for that Property. Raw provider payloads are never returned. It never starts provider work.',
+    description: 'Expands one resultId returned by the Property-question read into the full stored answer and source attribution for that Property. Raw provider payloads are never returned. It never starts provider work. By default the result must come from a run of the active plan; fallback=last-sweep also opens a result of the last completed sweep after a tracking change.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
       { name: 'targetKey', in: 'query', required: true, description: 'Property stable key used for mention and citation attribution.', schema: stringSchema },
       { name: 'resultId', in: 'query', required: true, description: 'Stored result ID returned by measurement-property-questions.', schema: stringSchema },
+      measurementFallbackParameter,
     ],
     responses: {
       200: jsonResponse('Full stored question result returned.', 'MeasurementQuestionResultResponse'),
@@ -1509,7 +1520,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-property-competitors',
     summary: 'Get repeated replacements for one Property',
-    description: 'Counts stored recommended names only for answered slots where the Property was neither mentioned nor assigned a complete citation. citedDomains, citedDomainsTotal and citedDomainsAnswers are the domains cited by the Property\'s own measured answers in the requested run, class and filters, counted by answer; they are sources, never names written instead, and are left out when nothing was measured. It never reparses an answer or starts provider work.',
+    description: 'Counts stored recommended names only for answered slots where the Property was neither mentioned nor assigned a complete citation. citedDomains, citedDomainsTotal and citedDomainsAnswers are the domains cited by the Property\'s own measured answers in the requested run, class and filters, counted by answer; they are sources, never names written instead, and are left out when nothing was measured. It never reparses an answer or starts provider work. By default it needs a completed sweep of the active plan; fallback=last-sweep reads the last completed sweep after a tracking change.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
@@ -1518,6 +1529,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'provider', in: 'query', description: 'Restrict to one answer provider.', schema: stringSchema },
       { name: 'location', in: 'query', description: 'Restrict to one execution location label.', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'Read this completed or partial active-revision run, including a named spot check.', schema: stringSchema },
+      measurementFallbackParameter,
       { name: 'limit', in: 'query', description: 'Maximum competitor rows. Defaults to 10, maximum 50.', schema: { type: 'integer', minimum: 1, maximum: 50 } },
     ],
     responses: {

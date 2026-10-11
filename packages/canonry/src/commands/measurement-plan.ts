@@ -30,6 +30,7 @@ import {
   type MeasurementPlanInput,
   type MeasurementPropertyEvidenceResponse,
   type MeasurementQueryClassFilter,
+  type MeasurementReadFallback,
   type MetricValue,
   type QueryTrackingResultsRequest,
   type QueryTrackingResultsResponse,
@@ -484,12 +485,24 @@ function metricText(metric: MetricValue): string {
     : `${metric.numerator} of ${metric.denominator} (${percent})`
 }
 
+/**
+ * One line when the numbers shown are from before the last tracking change.
+ * Printed only for a read that asked for the fallback and got an older sweep.
+ */
+function lastSweepLine(measurement: MeasurementOverviewResponse['measurement'] | MeasurementPropertyEvidenceResponse['measurement']): string | null {
+  if (measurement.awaitingSweep !== true || measurement.measuredRevision == null) return null
+  const changed = measurement.trackingChangedAt ? ` ${formatIsoDate(measurement.trackingChangedAt)}` : ''
+  const sweep = measurement.completedAt ? `${formatIsoDate(measurement.completedAt)} sweep` : 'last sweep'
+  return `Tracking changed${changed}. Showing the ${sweep}. New numbers after the next sweep.`
+}
+
 export interface MeasurementPropertyOptions {
   targetKey: string
   queryClass?: MeasurementQueryClassFilter
   provider?: string
   location?: string
   runId?: string
+  fallback?: MeasurementReadFallback
   format?: string
 }
 
@@ -506,6 +519,7 @@ export async function showMeasurementProperty(project: string, opts: Measurement
     ...(opts.provider === undefined ? {} : { provider: opts.provider }),
     ...(opts.location === undefined ? {} : { location: opts.location }),
     ...(opts.runId === undefined ? {} : { runId: opts.runId }),
+    ...(opts.fallback === undefined ? {} : { fallback: opts.fallback }),
   })
 
   if (isMachineFormat(opts.format)) {
@@ -520,6 +534,8 @@ function printMeasurementProperty(response: MeasurementOverviewResponse): void {
   const lines: string[] = []
   lines.push(`${response.scope.label} · ${queryClassText(response.queryClass)}`)
   lines.push(`Measurement: ${response.measurement.state}${response.measurement.displayedRunId ? ` · run ${response.measurement.displayedRunId}` : ''}`)
+  const lastSweep = lastSweepLine(response.measurement)
+  if (lastSweep) lines.push(lastSweep)
   lines.push('')
   const mention = row ? row.mentionCoverage : response.metrics.mentionCoverage
   const citation = row ? row.citationCoverage : response.metrics.citationCoverage
@@ -617,6 +633,7 @@ export interface MeasurementPropertyEvidenceOptions {
   provider?: string
   location?: string
   runId?: string
+  fallback?: MeasurementReadFallback
   shape?: MeasurementEvidenceShape
   cursor?: string
   limit?: number
@@ -661,6 +678,7 @@ export async function showMeasurementPropertyEvidence(
     ...(opts.provider === undefined ? {} : { provider: opts.provider }),
     ...(opts.location === undefined ? {} : { location: opts.location }),
     ...(opts.runId === undefined ? {} : { runId: opts.runId }),
+    ...(opts.fallback === undefined ? {} : { fallback: opts.fallback }),
     ...(opts.shape === undefined ? {} : { shape: opts.shape }),
     ...(opts.cursor === undefined ? {} : { cursor: opts.cursor }),
     ...(opts.limit === undefined ? {} : { limit: opts.limit }),
@@ -714,6 +732,8 @@ function printMeasurementPropertyEvidence(response: MeasurementPropertyEvidenceR
   const answerShape = page.shape === MeasurementEvidenceShapes.answers
   const otherQueriesShape = page.shape === MeasurementEvidenceShapes['other-queries']
   lines.push(`Measurement: ${response.measurement.state}${response.measurement.displayedRunId ? ` · run ${response.measurement.displayedRunId}` : ''}`)
+  const lastSweep = lastSweepLine(response.measurement)
+  if (lastSweep) lines.push(lastSweep)
   if (page.items.length === 0) {
     // Named for what was looked for. "No source evidence" under the answer
     // shape would report a Property whose answers cited nothing as a Property

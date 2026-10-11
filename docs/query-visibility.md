@@ -178,6 +178,20 @@ Unknown or incomplete evidence is not a measured zero.
 The Advanced Measurement overview (`GET /measurement-overview`, `canonry measurement-plan property`, `canonry_measurement_overview`), measurement changes (`GET /measurement-changes`) and the revision report (`GET /measurement-report`) also read one query class: non-brand when the request names none. Branded is a separate read. `queryClass=all` pools both classes into one rate and is served only when requested; the response echoes `queryClass: all` and the CLI heading says the queries were pooled. A schema v1 revision records no class, so its report covers every answer and echoes `queryClass: null`.
 The overview reads a market with `scope=market&marketKey=<key>`: only that market's queries, the same population this page shows for the market. A `marketKey` sent with any other scope is refused (400), never ignored. A group with the same name reads every query its Properties carry, so its figure is not the market's. The response `scope` names the kind and label it read.
 
+After a tracking change, the overview and the four location reads (`GET /measurement-property-evidence`, `/measurement-property-competitors`, `/measurement-property-questions` and `/measurement-question-result`) answer `not_measured` until a sweep of the new plan completes. That is the default, so a script can start a sweep on it.
+Send `fallback=last-sweep` to read the last completed sweep instead: `--fallback last-sweep` on `canonry measurement-plan property` and `property-evidence`, `"fallback":"last-sweep"` in a `measurement-plan advanced` input, or `fallback` on the five MCP tools.
+The sweep is read under the plan it ran with, so its numbers are the ones it had before the change. The response `measurement` then carries four more fields:
+
+| Field | Meaning |
+| --- | --- |
+| `activeRevision` | The plan in effect now. |
+| `measuredRevision` | The plan the shown sweep ran with. Null when no sweep is shown. |
+| `awaitingSweep` | True when the two differ, or no sweep is shown. |
+| `trackingChangedAt` | When the plan in effect now was published. |
+
+When `awaitingSweep` is true the numbers are from the `completedAt` sweep. Queries removed since still count, queries added since do not, and a location or type that sweep did not ask reads `no_population`, never zero. The human CLI output adds one line with both dates.
+The param is refused (400) with `from` or `to`. Probe runs, spot checks and partial sweeps are never the last sweep. Portfolio summary, measurement changes, data quality and `runId=latest` do not take the param and still answer not measured after a tracking change.
+
 Each population also carries `comparison`, its change since the previous eligible sweep.
 That sweep is the whole-project sweep immediately before the selected run. Spot checks and probe runs never qualify.
 The date window and a selected run do not limit it, so the previous sweep can predate the date window.

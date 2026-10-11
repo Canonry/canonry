@@ -21,6 +21,7 @@ import {
   notFound,
   validationError,
   type MeasurementPlanV2,
+  type MeasurementReadFallback,
   compareText,
   normalizeIdentityText as normalizeText,
 } from '@ainyc/canonry-contracts'
@@ -34,8 +35,11 @@ import { resolveProject } from './helpers.js'
 import {
   activeMeasurementPlan,
   displayedState,
+  lastSweepFields,
+  measurementReading,
   runRevisionMismatch,
   type ActiveMeasurementPlan,
+  type MeasurementReading,
 } from './measurement-overview.js'
 import {
   buildMeasurementEvidence,
@@ -95,14 +99,16 @@ function parseQuestionResultQuery(raw: Record<string, unknown>) {
 }
 
 function measurementDto(
-  active: ActiveMeasurementPlan,
+  reading: MeasurementReading,
   run: typeof runs.$inferSelect | undefined,
+  fallback?: MeasurementReadFallback,
 ) {
   return {
     state: run === undefined ? 'not_measured' : displayedState(run.status),
     displayedRunId: run?.id ?? null,
-    planRevision: active.version.revision,
+    planRevision: reading.active.version.revision,
     completedAt: run?.finishedAt ?? null,
+    ...lastSweepFields(reading, fallback, run),
   }
 }
 
@@ -480,14 +486,21 @@ export async function measurementQuestionReadRoutes(app: FastifyInstance) {
     async request => {
       const project = resolveProject(app.db, request.params.name)
       const query = parsePropertyQuestionsQuery(request.query)
-      const { active, plan } = activeV2Plan(app.db, project.id)
-      const target = requireTarget(plan, query.targetKey)
-      const run = selectMeasurementQuestionRun(app.db, project.id, active, query.runId)
+      const { active, plan: activePlan } = activeV2Plan(app.db, project.id)
+      const activeTarget = requireTarget(activePlan, query.targetKey)
+      const reading = measurementReading(app.db, project.id, active, { fallback: query.fallback, runId: query.runId })
+      const run = reading.lastSweepRun ?? selectMeasurementQuestionRun(app.db, project.id, active, query.runId)
+      // The last sweep is read under the plan it ran with, which may not hold
+      // a location added since.
+      const plan = reading.lastSweepRun ? reading.plan : activePlan
+      const target = reading.lastSweepRun
+        ? plan.targets.find(candidate => candidate.stableKey === query.targetKey)
+        : activeTarget
       const queryClass = query.queryClass ?? 'all'
-      if (run === undefined) {
+      if (run === undefined || target === undefined) {
         return measurementPropertyQuestionsResponseSchema.parse({
-          property: propertyDto(target),
-          measurement: measurementDto(active, undefined),
+          property: propertyDto(activeTarget),
+          measurement: measurementDto(reading, run, query.fallback),
           queryClass,
           questions: [],
           total: 0,
@@ -496,7 +509,7 @@ export async function measurementQuestionReadRoutes(app: FastifyInstance) {
       }
       assertMeasurementQuestionTargetScope(plan, run, target.stableKey)
 
-      const materialized = materializeMeasurementQuestionRun(app.db, active, plan, run, {
+      const materialized = materializeMeasurementQuestionRun(app.db, reading, plan, run, {
         executionIds: targetExecutionIds(plan, target.stableKey, queryClass),
         provider: query.provider,
         location: query.location,
@@ -510,7 +523,7 @@ export async function measurementQuestionReadRoutes(app: FastifyInstance) {
       const offset = query.offset ?? 0
       return measurementPropertyQuestionsResponseSchema.parse({
         property: propertyDto(target),
-        measurement: measurementDto(active, run),
+        measurement: measurementDto(reading, run, query.fallback),
         queryClass,
         questions: rows.slice(offset, offset + limit).map(compactQuestion),
         total: rows.length,
@@ -524,8 +537,13 @@ export async function measurementQuestionReadRoutes(app: FastifyInstance) {
     async request => {
       const project = resolveProject(app.db, request.params.name)
       const query = parseQuestionResultQuery(request.query)
-      const { active, plan } = activeV2Plan(app.db, project.id)
-      const target = requireTarget(plan, query.targetKey)
+      const { active, plan: activePlan } = activeV2Plan(app.db, project.id)
+      // The last sweep's plan can hold a location the active plan dropped, so
+      // a key is refused only when neither plan holds it.
+      const lastSweep = measurementReading(app.db, project.id, active, { fallback: query.fallback })
+      const inLastSweepPlan = lastSweep.lastSweepRun !== undefined
+        && lastSweep.plan.targets.some(candidate => candidate.stableKey === query.targetKey)
+      if (!inLastSweepPlan) requireTarget(activePlan, query.targetKey)
 
       const snapshot = app.db.select(measurementQuestionSnapshotColumns)
         .from(querySnapshots).where(eq(querySnapshots.id, query.resultId)).get()
@@ -535,12 +553,21 @@ export async function measurementQuestionReadRoutes(app: FastifyInstance) {
         eq(runs.projectId, project.id),
       )).get()
       if (!run) throw notFound('Measurement question result', query.resultId)
+      // The reading comes from the result's own run: the last sweep's plan for
+      // a result of that sweep, the active plan for any other.
+      const reading: MeasurementReading = lastSweep.lastSweepRun?.id === run.id ? lastSweep : { ...active, active }
       // The shared selector owns the cross-revision and terminal-policy checks.
-      const selected = selectMeasurementQuestionRun(app.db, project.id, active, run.id)
+      const selected = reading.lastSweepRun ?? selectMeasurementQuestionRun(app.db, project.id, active, run.id)
       if (!selected) throw notFound('Measurement question result', query.resultId)
+      const plan = reading.lastSweepRun ? reading.plan : activePlan
+      const target = reading.lastSweepRun
+        ? plan.targets.find(candidate => candidate.stableKey === query.targetKey)
+        : requireTarget(activePlan, query.targetKey)
+      // A location added since the last sweep has no result in it.
+      if (!target) throw notFound('Measurement question result', query.resultId)
       assertMeasurementQuestionTargetScope(plan, selected, target.stableKey)
 
-      const materialized = materializeMeasurementQuestionRun(app.db, active, plan, selected, {
+      const materialized = materializeMeasurementQuestionRun(app.db, reading, plan, selected, {
         executionIds: snapshot.measurementExecutionId === null ? [] : [snapshot.measurementExecutionId],
         provider: snapshot.provider,
       })
@@ -552,7 +579,7 @@ export async function measurementQuestionReadRoutes(app: FastifyInstance) {
 
       return measurementQuestionResultResponseSchema.parse({
         property: propertyDto(target),
-        measurement: measurementDto(active, selected),
+        measurement: measurementDto(reading, selected, query.fallback),
         question: {
           resultId: query.resultId,
           queryId: row.queryId,

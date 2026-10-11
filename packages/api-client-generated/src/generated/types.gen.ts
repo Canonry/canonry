@@ -8201,6 +8201,10 @@ export type MeasurementChangesResponse = {
         displayedRunId: string | null;
         planRevision: number;
         completedAt: string | null;
+        activeRevision?: number;
+        measuredRevision?: number | null;
+        awaitingSweep?: boolean;
+        trackingChangedAt?: string;
         executionIdentity: string | null;
         measurementScope: 'full' | 'spot_check' | null;
     };
@@ -8565,6 +8569,10 @@ export type MeasurementDataQualityResponse = {
         displayedRunId: string | null;
         planRevision: number;
         completedAt: string | null;
+        activeRevision?: number;
+        measuredRevision?: number | null;
+        awaitingSweep?: boolean;
+        trackingChangedAt?: string;
         executionIdentity: string | null;
         measurementScope: 'full' | 'spot_check' | null;
     };
@@ -8857,6 +8865,10 @@ export type MeasurementOverviewResponse = {
         expected: number;
         completedAt?: string;
         includesHistoricalData?: boolean;
+        activeRevision?: number;
+        measuredRevision?: number | null;
+        awaitingSweep?: boolean;
+        trackingChangedAt?: string;
     };
     nextAction: {
         kind: 'run_measurement' | 'review_flags' | 'complete_setup' | 'republish_setup' | 'none';
@@ -9022,6 +9034,10 @@ export type MeasurementPortfolioSummaryResponse = {
         displayedRunId: string | null;
         planRevision: number;
         completedAt: string | null;
+        activeRevision?: number;
+        measuredRevision?: number | null;
+        awaitingSweep?: boolean;
+        trackingChangedAt?: string;
     };
     queryClass: 'all' | 'branded' | 'non-brand';
     engines: Array<string>;
@@ -10511,6 +10527,10 @@ export type MeasurementPropertyCompetitorsResponse = {
         displayedRunId: string | null;
         planRevision: number;
         completedAt: string | null;
+        activeRevision?: number;
+        measuredRevision?: number | null;
+        awaitingSweep?: boolean;
+        trackingChangedAt?: string;
     };
     queryClass: 'all' | 'branded' | 'non-brand';
     basis: {
@@ -10552,6 +10572,10 @@ export type MeasurementPropertyEvidenceResponse = {
         state: 'not_measured' | 'queued' | 'running' | 'complete' | 'partial' | 'failed';
         displayedRunId?: string;
         completedAt?: string;
+        activeRevision?: number;
+        measuredRevision?: number | null;
+        awaitingSweep?: boolean;
+        trackingChangedAt?: string;
     };
     evidence?: {
         items: Array<{
@@ -10638,6 +10662,10 @@ export type MeasurementPropertyQuestionsResponse = {
         displayedRunId: string | null;
         planRevision: number;
         completedAt: string | null;
+        activeRevision?: number;
+        measuredRevision?: number | null;
+        awaitingSweep?: boolean;
+        trackingChangedAt?: string;
     };
     queryClass: 'all' | 'branded' | 'non-brand';
     questions: Array<{
@@ -10683,6 +10711,10 @@ export type MeasurementQuestionResultResponse = {
         displayedRunId: string | null;
         planRevision: number;
         completedAt: string | null;
+        activeRevision?: number;
+        measuredRevision?: number | null;
+        awaitingSweep?: boolean;
+        trackingChangedAt?: string;
     };
     question: {
         resultId: string;
@@ -17780,6 +17812,10 @@ export type GetApiV1ProjectsByNameMeasurementOverviewData = {
          */
         runId?: string;
         /**
+         * Omit it and the read needs a completed sweep of the active plan, answering not measured after a tracking change until one exists. last-sweep reads the newest completed whole-project sweep instead, under the plan that sweep ran with, when the active plan has no completed sweep yet. The response measurement then carries activeRevision, measuredRevision, awaitingSweep and trackingChangedAt: awaitingSweep true means the numbers are from before the tracking change. A place the last sweep did not hold reads no_population, never zero. On the overview it is refused (400) together with from or to.
+         */
+        fallback?: 'last-sweep';
+        /**
          * Case-insensitive filter over the returned rows. It never changes a metric denominator.
          */
         search?: string;
@@ -18549,6 +18585,10 @@ export type GetApiV1ProjectsByNameMeasurementPropertyEvidenceData = {
          */
         runId?: string;
         /**
+         * Omit it and the read needs a completed sweep of the active plan, answering not measured after a tracking change until one exists. last-sweep reads the newest completed whole-project sweep instead, under the plan that sweep ran with, when the active plan has no completed sweep yet. The response measurement then carries activeRevision, measuredRevision, awaitingSweep and trackingChangedAt: awaitingSweep true means the numbers are from before the tracking change. A place the last sweep did not hold reads no_population, never zero. On the overview it is refused (400) together with from or to.
+         */
+        fallback?: 'last-sweep';
+        /**
          * What one row is. sources (the default) returns one row per cited URL under evidence, which is what a caller written before this parameter existed reads. answers returns one row per measured answer under answers, with the cited URLs nested inside it, so the answers that cited nothing at all are present rather than missing. other-queries returns, under otherQueries, one row per answer to a query NOT assigned to this Property that cited one of its own pages, per assignment class; those answers are outside its rates. Exactly one of the keys is returned; the others are absent, not empty.
          */
         shape?: 'sources' | 'answers' | 'other-queries';
@@ -18703,6 +18743,10 @@ export type GetApiV1ProjectsByNameMeasurementPropertyQuestionsData = {
          */
         runId?: string;
         /**
+         * Omit it and the read needs a completed sweep of the active plan, answering not measured after a tracking change until one exists. last-sweep reads the newest completed whole-project sweep instead, under the plan that sweep ran with, when the active plan has no completed sweep yet. The response measurement then carries activeRevision, measuredRevision, awaitingSweep and trackingChangedAt: awaitingSweep true means the numbers are from before the tracking change. A place the last sweep did not hold reads no_population, never zero. On the overview it is refused (400) together with from or to.
+         */
+        fallback?: 'last-sweep';
+        /**
          * Zero-based row offset for paging through the full question population.
          */
         offset?: number;
@@ -18757,6 +18801,10 @@ export type GetApiV1ProjectsByNameMeasurementQuestionResultData = {
          * Stored result ID returned by measurement-property-questions.
          */
         resultId: string;
+        /**
+         * Omit it and the read needs a completed sweep of the active plan, answering not measured after a tracking change until one exists. last-sweep reads the newest completed whole-project sweep instead, under the plan that sweep ran with, when the active plan has no completed sweep yet. The response measurement then carries activeRevision, measuredRevision, awaitingSweep and trackingChangedAt: awaitingSweep true means the numbers are from before the tracking change. A place the last sweep did not hold reads no_population, never zero. On the overview it is refused (400) together with from or to.
+         */
+        fallback?: 'last-sweep';
     };
     url: '/api/v1/projects/{name}/measurement-question-result';
 };
@@ -18816,6 +18864,10 @@ export type GetApiV1ProjectsByNameMeasurementPropertyCompetitorsData = {
          * Read this completed or partial active-revision run, including a named spot check.
          */
         runId?: string;
+        /**
+         * Omit it and the read needs a completed sweep of the active plan, answering not measured after a tracking change until one exists. last-sweep reads the newest completed whole-project sweep instead, under the plan that sweep ran with, when the active plan has no completed sweep yet. The response measurement then carries activeRevision, measuredRevision, awaitingSweep and trackingChangedAt: awaitingSweep true means the numbers are from before the tracking change. A place the last sweep did not hold reads no_population, never zero. On the overview it is refused (400) together with from or to.
+         */
+        fallback?: 'last-sweep';
         /**
          * Maximum competitor rows. Defaults to 10, maximum 50.
          */
@@ -21308,7 +21360,7 @@ export type GetApiV1ProjectsByNameAnalyticsSourcesData = {
          */
         limit?: number;
         /**
-         * Read one stored answer-visibility run instead of pooling every run in the window. An unknown id is 404; a probe, unfinished, partially measured, or out-of-window run is 400. Pass latest to read the latest sweep: with an active measurement plan, the run the measurement reads display; otherwise the newest completed or partial sweep, every location included. A latest sweep older than the window is 400.
+         * Read one stored answer-visibility run instead of pooling every run in the window. An unknown id is 404; a probe, unfinished, partially measured, or out-of-window run is 400. Pass latest to read the latest sweep: with an active measurement plan, the run the measurement reads display by default; otherwise the newest completed or partial sweep, every location included. A latest sweep older than the window is 400.
          */
         runId?: string;
         /**

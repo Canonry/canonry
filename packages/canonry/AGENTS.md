@@ -577,6 +577,7 @@ Every field after `version` is optional and is omitted rather than nulled, so co
 `src/commands/measurement-plan.ts` — Advanced Measurement plan commands: `measurement-plan show` / `versions` / `publish` / `retire` / `discover` / `report`, plus the two per-Property reads:
 
 - `measurement-plan property <project> --target-key <key>` (one Property out of `GET /measurement-overview?scope=property`, rendering mention/citation coverage and the per-answer-engine split; non-brand unless `--query-class` names another, and the heading says when `all` pooled both classes)
+- Both take `--fallback last-sweep`: after a tracking change they read the last completed sweep instead of "not measured". The human output then adds one line naming the change date and the sweep date (`lastSweepLine`); `--format json` stays the endpoint body. The flag is never sent unless given.
 - `measurement-plan property-evidence <project> --target-key <key>` (cursor-paged `GET /measurement-property-evidence`):
   - `--shape answers` switches a row from one cited URL to one measured ANSWER with its cited URLs nested and both signals on the row — the only shape that shows the answers a Property was not cited in
   - `--shape other-queries` lists answers to queries NOT assigned to the Property that cited its own pages, one row per answer and assignment class (`assignedTargetKeys` names who the query was asked for). They are outside the Property's rates and must never be added to them
