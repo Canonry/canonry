@@ -29,21 +29,24 @@ export function TrackingAddQueriesSheet({ workspace, sweepActive, ...sheet }: Om
 
 /**
  * "Add query about this location" on the location page: the button, and the
- * Add queries sheet it opens on Location with that location chosen. The
- * tracking workspace is read only once the button is pressed, so loading the
- * page makes no extra request. The sheet opens only when that press's read
- * comes back holding this location. A failed read, or a workspace the page's
- * setup is behind, shows a note instead and the button reads Retry, and a later
- * refresh of the read never opens the sheet without a press. That page has no
- * Add query form, so the sheet links to none. It reads no runs either, so
- * Publish is not paused here: the server refuses a publish during a sweep and
- * the sheet shows the reason.
+ * Add queries sheet it opens on Location with that location chosen. The press
+ * reads the tracking workspace itself, under the key the page's tracked
+ * section reads, so the button depends on no read the page made before it.
+ * The sheet opens only when that press's read comes back holding this
+ * location. A failed read, or a workspace the page's setup is behind, shows a
+ * note instead and the button reads Retry, and a later refresh of the read
+ * never opens the sheet without a press. That page has no Add query form, so
+ * the sheet links to none. It reads no runs either, so Publish is not paused
+ * here: the server refuses a publish during a sweep and the sheet shows the
+ * reason.
  */
-export function AddLocationQueryButton({ projectName, locationKey, className, onPublished }: {
+export function AddLocationQueryButton({ projectName, locationKey, className, variant = 'outline', onPublished }: {
   projectName: string
   locationKey: string
   className?: string
-  /** What the server published, so the page can say where a new query went. */
+  /** The page's one primary action passes `default`. */
+  variant?: ComponentProps<typeof WriteButton>['variant']
+  /** What the server published, for a caller that acts on it. */
   onPublished?: ComponentProps<typeof AddQueriesSheet>['onPublished']
 }) {
   const queryClient = useQueryClient()
@@ -68,7 +71,7 @@ export function AddLocationQueryButton({ projectName, locationKey, className, on
     <>
       {state === 'failed' ? <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label="Could not load" detail="Tracked queries did not load." /></span> : null}
       {state === 'missing' ? <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label="Location not found" detail="This location was not found in tracked queries." /></span> : null}
-      <WriteButton type="button" variant="outline" size="sm" className={className} aria-label={retry ? 'Retry adding a query about this location' : undefined} onClick={() => { void press() }}>
+      <WriteButton type="button" variant={variant} size="sm" className={className} aria-label={retry ? 'Retry adding a query about this location' : undefined} onClick={() => { void press() }}>
         {retry ? null : <Plus aria-hidden="true" size={14} />}
         {state === 'opening' ? 'Opening…' : retry ? 'Retry' : 'Add query about this location'}
       </WriteButton>
