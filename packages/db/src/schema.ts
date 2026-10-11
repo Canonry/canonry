@@ -985,7 +985,7 @@ export const notifications = sqliteTable('notifications', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   channel: text('channel').notNull(),
-  config: text('config', { mode: 'json' }).$type<{ url: string; events: string[] }>().notNull(),
+  config: text('config', { mode: 'json' }).$type<{ url: string; events: string[]; source?: string }>().notNull(),
   webhookSecret: text('webhook_secret'),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull(),

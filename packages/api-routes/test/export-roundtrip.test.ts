@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { test, expect } from 'vitest'
 import Fastify from 'fastify'
-import { createClient, gscDailyTotals, migrate, projects, schedules } from '@ainyc/canonry-db'
+import { createClient, gscDailyTotals, migrate, notifications, projects, schedules } from '@ainyc/canonry-db'
 import { eq } from 'drizzle-orm'
 import { apiRoutes } from '../src/index.js'
 
@@ -20,7 +20,7 @@ function buildApp(opts?: { onProjectDeleted?: (projectId: string) => void }) {
 }
 
 test('project export includes schedule and notifications for round-tripping', async () => {
-  const { app, tmpDir } = buildApp()
+  const { app, db, tmpDir } = buildApp()
   await app.ready()
 
   try {
@@ -66,7 +66,7 @@ test('project export includes schedule and notifications for round-tripping', as
       spec: {
         ownedDomains: string[]
         schedule?: { preset?: string; cron?: string; timezone: string; providers: string[]; enabled: boolean }
-        notifications: Array<{ channel: string; url: string; events: string[] }>
+        notifications: Array<{ id?: string; channel: string; url: string; events: string[] }>
       }
     }
 
@@ -77,7 +77,21 @@ test('project export includes schedule and notifications for round-tripping', as
       providers: ['gemini'],
       enabled: true,
     })
+    const storedNotification = db.select().from(notifications).get()!
     expect(body.spec.notifications).toEqual([{
+      id: storedNotification.id,
+      channel: 'webhook',
+      url: `redacted://8.8.8.8/${storedNotification.id}`,
+      events: ['run.completed'],
+    }])
+
+    const secretExportRes = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/exportable/export?includeSecrets=true',
+    })
+    expect(secretExportRes.statusCode).toBe(200)
+    expect(secretExportRes.json().spec.notifications).toEqual([{
+      id: storedNotification.id,
       channel: 'webhook',
       url: 'https://8.8.8.8/hook',
       events: ['run.completed'],

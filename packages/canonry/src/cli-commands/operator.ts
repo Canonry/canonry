@@ -123,14 +123,16 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['export'],
-    usage: 'canonry export <project> [--include-results] [--format json]',
+    usage: 'canonry export <project> [--include-results] [--include-secrets] [--format json]',
     options: {
       'include-results': { type: 'boolean', default: false },
+      'include-secrets': { type: 'boolean', default: false },
     },
     run: async (input) => {
-      const project = requireProject(input, 'export', 'canonry export <project> [--include-results] [--format json]')
+      const project = requireProject(input, 'export', 'canonry export <project> [--include-results] [--include-secrets] [--format json]')
       await exportProject(project, {
         includeResults: getBoolean(input.values, 'include-results'),
+        includeSecrets: getBoolean(input.values, 'include-secrets'),
         format: input.format,
       })
     },

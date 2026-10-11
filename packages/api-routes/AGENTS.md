@@ -455,6 +455,8 @@ Locations are project-scoped via `spec.locations` and `spec.defaultLocation`. Ru
 
 `spec.siteAuditMaxPages` (the Site Health page budget for scans that set none, 1 to 50,000) follows the same rule: present sets it, `null` resets it to the full site, absent keeps the stored value. Project `PUT` keeps an omitted value too, because the dashboard and CLI resend the whole project. A new project (POST, PUT create, or apply) starts at the given value or `null`. Project reads and the apply response always carry it (`null` = full site); export emits it only when non-null.
 
+Notification entries in an exported config carry their stable `id` and a `redacted://host/id` URL. Apply matches those entries by ID and preserves the stored webhook secret, source, enabled state and creation time. An unmatched redacted ID fails before any write. Export includes real webhook URLs only with the explicit `includeSecrets=true` query and administrator or wildcard authority; MCP never exposes that query.
+
 Multiple projects can be defined in one file using `---` document separators. Apply with `canonry apply <file...>` (accepts multiple files) or `POST /api/v1/apply`. Applied project YAML is declarative input; runtime project/run data lives in the DB, while local authentication credentials live in `~/.canonry/config.yaml`.
 
 ### Schedules

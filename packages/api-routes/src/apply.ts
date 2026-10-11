@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { projects, schedules, notifications, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
-import { competitorAliasProjectIdentity, DEFAULT_COMPETITOR_AUTO_ALIAS_MODE, forbidden, nextScheduleUpdatedAt, normalizeProjectAliases, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
+import { competitorAliasProjectIdentity, DEFAULT_COMPETITOR_AUTO_ALIAS_MODE, forbidden, isRedactedNotificationUrl, nextScheduleUpdatedAt, normalizeProjectAliases, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
 import { competitorSetChangeAuditFields, competitorAliasAuditFields, competitorIdentityChanged, competitorNames, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
 import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
@@ -14,6 +14,7 @@ import { assertQueryReplacementAllowed, replaceProjectQueries } from './query-re
 import { activeRevisionProviders } from './run-queue.js'
 import { nextRunFromSchedule, resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
 import { resolveWebhookTarget } from './webhooks.js'
+import { notificationAuditDiff, planNotificationSet, syncNotificationSet, type NotificationSetPlan } from './notification-writes.js'
 
 export interface ApplyRoutesOptions {
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: import('@ainyc/canonry-contracts').SchedulableRunKind) => void
@@ -127,6 +128,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     const hasNotifications = 'notifications' in rawSpec
     if (hasNotifications) {
       for (const notif of config.spec.notifications) {
+        if (isRedactedNotificationUrl(notif.url)) continue
         const urlCheck = await resolveWebhookTarget(notif.url ?? '', { allowLoopback })
         if (!urlCheck.ok) throw validationError(`Notification URL invalid: ${urlCheck.message}`)
       }
@@ -148,6 +150,14 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       .from(projects)
       .where(eq(projects.name, name))
       .get()
+
+    let notificationPlan: NotificationSetPlan | undefined
+    if (hasNotifications) {
+      const storedNotifications = target
+        ? app.db.select().from(notifications).where(eq(notifications.projectId, target.id)).all()
+        : []
+      notificationPlan = planNotificationSet(storedNotifications, config.spec.notifications)
+    }
 
     // A project-scoped key may only apply to ITS OWN project — never create a
     // new project or overwrite a sibling. The target must already exist and
@@ -416,26 +426,14 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
 
       // Handle notifications
       if (hasNotifications) {
-        tx.delete(notifications).where(eq(notifications.projectId, projectId)).run()
-        for (const notif of config.spec.notifications) {
-          tx.insert(notifications).values({
-            id: crypto.randomUUID(),
-            projectId,
-            channel: notif.channel,
-            config: { url: notif.url, events: notif.events },
-            webhookSecret: crypto.randomBytes(32).toString('hex'),
-            enabled: true,
-            createdAt: now,
-            updatedAt: now,
-          }).run()
-        }
+        syncNotificationSet(tx, projectId, notificationPlan!, now)
 
         writeAuditLog(tx, {
           projectId,
           actor: 'api',
           action: 'notifications.replaced',
           entityType: 'notification',
-          diff: { notifications: config.spec.notifications },
+          diff: { notifications: notificationAuditDiff(notificationPlan!) },
         })
       }
     }, { behavior: 'immediate' })

@@ -1565,7 +1565,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_project_export',
     title: 'Export project config',
-    description: 'Export a Canonry project in config-as-code format.',
+    description: 'Export a Canonry project in config-as-code format. Notification webhook URLs are always redacted for MCP.',
     access: 'read',
     tier: 'setup',
     inputSchema: projectInputSchema,

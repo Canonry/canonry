@@ -24,9 +24,10 @@ import {
   DEFAULT_MEASUREMENT_CONFIG,
   PROJECTS_WRITE_SCOPE,
   SchedulableRunKinds,
+  buildRedactedNotificationUrl,
 } from '@ainyc/canonry-contracts'
 import type { CompetitorAliasRejection, CompetitorAutoAliasDrop, CompetitorAutoAliasMode, ConfigNotification, LocationContext, MeasurementConfig, ProjectConfigExport, ProjectCreateRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
-import { requireAdminSession, requireScope } from './auth.js'
+import { requireAdminSession, requireScope, requireSecretExportScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { withFeatureOutcome } from './feature-outcome.js'
 import { competitorIdentityChanged, competitorIdentityColumns, competitorNames, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
@@ -37,6 +38,7 @@ import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
 import { activeRevisionProviders } from './run-queue.js'
 import { readProjectRunsWithOutstandingProviderBatch } from './provider-batches.js'
+import { redactNotificationUrl } from './notification-redaction.js'
 
 export interface ProjectRoutesOptions {
   /**
@@ -702,8 +704,10 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
   })
 
   // GET /projects/:name/export — export as canonry.yaml format
-  app.get<{ Params: { name: string } }>('/projects/:name/export', async (request, reply) => withFeatureOutcome(app, { feature: 'exports', operation: 'export' }, async (settle) => {
+  app.get<{ Params: { name: string }; Querystring: { includeSecrets?: string } }>('/projects/:name/export', async (request, reply) => withFeatureOutcome(app, { feature: 'exports', operation: 'export' }, async (settle) => {
     const project = resolveProject(app.db, request.params.name)
+    const includeSecrets = request.query.includeSecrets === 'true'
+    if (includeSecrets) requireSecretExportScope(request)
     const negativeReviewMaxStars = readNegativeReviewMaxStars(app.db, project.id)
 
     const qs = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
@@ -755,9 +759,11 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           const cfg = row.config
           // Text and JSON columns; both write paths validate them against
           // configNotificationSchema's channel and events.
+          const redacted = redactNotificationUrl(cfg.url)
           return {
+            id: row.id,
             channel: row.channel as ConfigNotification['channel'],
-            url: cfg.url,
+            url: includeSecrets ? cfg.url : buildRedactedNotificationUrl(redacted.urlHost, row.id),
             events: cfg.events as ConfigNotification['events'],
           }
         }),

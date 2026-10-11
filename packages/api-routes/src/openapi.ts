@@ -1868,9 +1868,15 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/export',
     summary: 'Export a project as config',
     tags: ['projects'],
-    parameters: [nameParameter],
+    parameters: [nameParameter, {
+      name: 'includeSecrets',
+      in: 'query',
+      description: 'Include webhook URLs. Requires administrator authority or a wildcard API key.',
+      schema: booleanSchema,
+    }],
     responses: {
       200: jsonResponse('Project configuration returned.', 'ProjectConfigExport'),
+      403: errorResponse('Webhook URLs require administrator authority.'),
       404: errorResponse('Project not found.'),
     },
   },

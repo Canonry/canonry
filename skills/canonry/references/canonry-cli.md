@@ -264,6 +264,7 @@ cnry history <project>                         # audit trail
 cnry history <project> --entity-type competitor --format json
 cnry history <project> --action-prefix competitors. --exclude-entity-type traffic_source --since 2026-10-01T00:00:00Z --until 2026-10-02T00:00:00Z
 cnry export <project> --include-results        # export as YAML
+cnry export <project> --include-secrets        # include webhook URLs; requires administrator authority or a wildcard key
 cnry backfill answer-mentions                  # recompute answerMentioned (primary) from stored answers (honors aliases)
 cnry backfill answer-mentions --dry-run
 cnry backfill answer-visibility                # recompute citationState (secondary) from stored answers
@@ -280,6 +281,10 @@ reject invalid values. `--actor api` includes legacy API, API-key, and user
 actors; other actors match exactly. Human output shows actor and client origin.
 New competitor replacement records include `added`, `removed`, and any discarded
 aliases beside the resulting `competitors` list. Older records remain unchanged.
+
+Project exports redact notification webhook URLs by default as `redacted://<host>/<notification-id>`.
+Applying that export preserves the existing notification ID, signing secret, source, enabled state and creation time.
+Use `--include-secrets` only when the credential has administrator authority. The CLI prints a redaction note to stderr when URLs remain redacted.
 
 Output uses a two-glyph cell per (query × provider): `[C/c][M/m]` — uppercase = present, lowercase = absent, `–` = no snapshot. **C/c = cited** (secondary), **M/m = mentioned** (primary). Always print the legend before the table; never collapse the two signals into one cell.
 

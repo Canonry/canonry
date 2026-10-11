@@ -11473,6 +11473,7 @@ export type ProjectConfig = {
             enabled?: boolean;
         };
         notifications?: Array<{
+            id?: string;
             channel: 'webhook';
             url: string;
             events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'review.negative' | 'review.rating-dropped'>;
@@ -11555,6 +11556,7 @@ export type ProjectConfigExport = {
             enabled: boolean;
         };
         notifications: Array<{
+            id?: string;
             channel: 'webhook';
             url: string;
             events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'review.negative' | 'review.rating-dropped'>;
@@ -19720,11 +19722,20 @@ export type GetApiV1ProjectsByNameExportData = {
          */
         name: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Include webhook URLs. Requires administrator authority or a wildcard API key.
+         */
+        includeSecrets?: boolean;
+    };
     url: '/api/v1/projects/{name}/export';
 };
 
 export type GetApiV1ProjectsByNameExportErrors = {
+    /**
+     * Webhook URLs require administrator authority.
+     */
+    403: ErrorEnvelope;
     /**
      * Project not found.
      */

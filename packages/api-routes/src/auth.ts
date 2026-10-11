@@ -250,6 +250,20 @@ export function requireAdminSession(request: FastifyRequest): void {
   throw forbidden(ADMIN_ONLY_MESSAGE)
 }
 
+/**
+ * Gate the opt-in export of notification URLs. A project-scoped wildcard key
+ * is allowed after the route's project scope check; named and read-only keys
+ * never receive webhook URL material.
+ */
+export function requireSecretExportScope(request: FastifyRequest): void {
+  requireAdminSession(request)
+  const principal = request.principal
+  if (!principal) return
+  if (principal.kind === 'user') return
+  if (principal.kind === 'api-key' && principal.scopes.includes(WILDCARD_SCOPE)) return
+  throw forbidden(NARROW_KEY_DENIED_MESSAGE)
+}
+
 /** What a key narrower than the install is told on an administrator surface. */
 export const NARROW_KEY_DENIED_MESSAGE =
   'This API key is narrower than the install, so it cannot use an administrator surface.'

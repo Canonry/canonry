@@ -1303,9 +1303,13 @@ export class ApiClient {
     )
   }
 
-  async getExport(project: string): Promise<ExportDto> {
+  async getExport(project: string, opts?: { includeSecrets?: boolean }): Promise<ExportDto> {
     return this.invoke<ExportDto>(() =>
-      getApiV1ProjectsByNameExport({ client: this.heyClient, path: { name: project } }),
+      getApiV1ProjectsByNameExport({
+        client: this.heyClient,
+        path: { name: project },
+        query: { includeSecrets: opts?.includeSecrets },
+      }),
     )
   }
 

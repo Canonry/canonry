@@ -281,6 +281,14 @@ const expectedToolNames = [
 ] as const
 
 describe('MCP tool registry', () => {
+  it('keeps project export redacted and without a secret opt-in', () => {
+    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_project_export')!
+    expect(tool.description).toMatch(/webhook URLs are always redacted/i)
+    const schema = z.toJSONSchema(tool.inputSchema)
+    expect(schema.properties?.includeSecrets).toBeUndefined()
+    expect(tool.inputSchema.parse({ project: 'acme', includeSecrets: true })).toEqual({ project: 'acme' })
+  })
+
   it('exposes snapshot selection as a quota-spending tool with optional selectors', () => {
     const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_snapshot')!
     expect(tool).toMatchObject({ access: 'write', tier: 'discovery', annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true } })

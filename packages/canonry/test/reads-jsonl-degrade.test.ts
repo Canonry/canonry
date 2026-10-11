@@ -384,4 +384,13 @@ describe('canonry export — jsonl degrades to the json document', () => {
     expect(text).toContain('apiVersion: canonry/v1')
     expect(() => JSON.parse(text)).toThrow()
   })
+
+  it('forwards the explicit secret export opt-in', async () => {
+    mockGetExport.mockResolvedValue({
+      ...data,
+      spec: { ...data.spec, notifications: [{ channel: 'webhook', url: 'https://hooks.example/export', events: ['run.completed'] }] },
+    })
+    await exportProject('demo', { includeSecrets: true, format: 'json' })
+    expect(mockGetExport).toHaveBeenCalledWith('demo', { includeSecrets: true })
+  })
 })
