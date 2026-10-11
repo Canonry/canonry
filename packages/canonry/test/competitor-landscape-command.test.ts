@@ -99,6 +99,38 @@ describe('showCompetitorLandscape', () => {
 
   beforeEach(() => vi.clearAllMocks())
 
+  it('uses the server restatement flag for the exact selected population with no second request', async () => {
+    const response = fixture()
+    response.competitorSetChangedAt = '2026-09-15T00:00:00.000Z'
+    response.competitorListRestated = true
+    response.runCount = 2
+    response.runIds = ['run-old', 'run-new']
+    mockGetCompetitorLandscape.mockResolvedValue(response)
+    let output = await captureLog(() => showCompetitorLandscape('acme', { runId: 'latest' }))
+    expect(output).toContain('Competitor list changed 2026-09-15T00:00:00.000Z: earlier periods were restated')
+    expect(mockGetCompetitorLandscape).toHaveBeenCalledWith('acme', expect.objectContaining({ runId: 'latest' }))
+
+    response.competitorListRestated = false
+    mockGetCompetitorLandscape.mockResolvedValue(response)
+    output = await captureLog(() => showCompetitorLandscape('acme', {}))
+    expect(output).not.toContain('Competitor list changed')
+
+    response.competitorSetChangedAt = null
+    response.competitorIdentityChangedAt = '2026-09-15T00:00:00.000Z'
+    response.competitorListRestated = true
+    mockGetCompetitorLandscape.mockResolvedValue(response)
+    output = await captureLog(() => showCompetitorLandscape('acme', {}))
+    expect(output).toContain('Competitor list changed 2026-09-15T00:00:00.000Z: earlier periods were restated')
+
+    // Older servers may omit the additive flag. The CLI preserves their data
+    // and does not make a capped or differently filtered second request.
+    response.competitorListRestated = undefined
+    mockGetCompetitorLandscape.mockResolvedValue(response)
+    output = await captureLog(() => showCompetitorLandscape('acme', {}))
+    expect(output).not.toContain('Competitor list changed')
+    expect(mockGetCompetitorLandscape).toHaveBeenCalledTimes(4)
+  })
+
   it('forwards explicit Advanced all-markets filters and prints the whole response for machine formats', async () => {
     const response = fixture()
     mockGetCompetitorLandscape.mockResolvedValue(response)

@@ -3631,6 +3631,10 @@ export type BrandMetricsDto = {
      * When the names the project's competitors are matched by last changed: a tracked competitor's curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass that stored or removed a market-only competitor's learned names, a write that claimed, released or dropped a market-only competitor's learned names, or a published revision that renamed a market pin; null if never. The competitor landscape reads every period with the current names, so a figure for any period quoted before this time was restated at this time. Analytics mention share and project-frame visibility-compare share of voice read only tracked competitors' names, so a market pin or learned-name change moves this time without changing them. Adding or removing a competitor or a pin is a names change only when it moves a stored or learned name.
      */
     competitorIdentityChangedAt?: string | null;
+    /**
+     * When the tracked competitor set last changed: a non-empty competitor add, removal, replacement, or discovery promotion. Older replacement audit rows without added/removed fields count conservatively; an identical replacement with both arrays empty does not. Null when the set never changed.
+     */
+    competitorSetChangedAt?: string | null;
 };
 
 export type CcAvailableRelease = {
@@ -4097,6 +4101,11 @@ export type CompetitorLandscapeResponse = {
      * When the names the project's competitors are matched by last changed: a tracked competitor's curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass that stored or removed a market-only competitor's learned names, a write that claimed, released or dropped a market-only competitor's learned names, or a published revision that renamed a market pin; null if never. The competitor landscape reads every period with the current names, so a figure for any period quoted before this time was restated at this time. Analytics mention share and project-frame visibility-compare share of voice read only tracked competitors' names, so a market pin or learned-name change moves this time without changing them. Adding or removing a competitor or a pin is a names change only when it moves a stored or learned name.
      */
     competitorIdentityChangedAt?: string | null;
+    /**
+     * When the tracked competitor set last changed: a non-empty competitor add, removal, replacement, or discovery promotion. Older replacement audit rows without added/removed fields count conservatively; an identical replacement with both arrays empty does not. Null when the set never changed.
+     */
+    competitorSetChangedAt?: string | null;
+    competitorListRestated?: boolean;
 };
 
 export type CompetitorSuggestionsResponse = {
@@ -15578,6 +15587,10 @@ export type VisibilityCompareDto = {
      * When the names the project's competitors are matched by last changed: a tracked competitor's curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass that stored or removed a market-only competitor's learned names, a write that claimed, released or dropped a market-only competitor's learned names, or a published revision that renamed a market pin; null if never. The competitor landscape reads every period with the current names, so a figure for any period quoted before this time was restated at this time. Analytics mention share and project-frame visibility-compare share of voice read only tracked competitors' names, so a market pin or learned-name change moves this time without changing them. Adding or removing a competitor or a pin is a names change only when it moves a stored or learned name.
      */
     competitorIdentityChangedAt?: string | null;
+    /**
+     * When the tracked competitor set last changed: a non-empty competitor add, removal, replacement, or discovery promotion. Older replacement audit rows without added/removed fields count conservatively; an identical replacement with both arrays empty does not. Null when the set never changed.
+     */
+    competitorSetChangedAt?: string | null;
 };
 
 export type VisibilityStatsDto = {

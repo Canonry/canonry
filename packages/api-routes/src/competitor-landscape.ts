@@ -357,6 +357,36 @@ export function readCompetitorIdentityChangedAt(db: Pick<DatabaseClient, 'select
   return renamed !== null && renamed > audited ? renamed : audited
 }
 
+/**
+ * When the tracked competitor set last changed, or null when it never did.
+ * Replacements written by older servers had no added/removed arrays, so those
+ * rows are changes conservatively. A current no-op replacement carries both
+ * arrays as empty lists and is deliberately ignored.
+ */
+export function readCompetitorSetChangedAt(db: Pick<DatabaseClient, 'select'>, projectId: string): string | null {
+  const diff = auditLog.diff
+  const row = db.select({ at: sql<string | null>`max(${auditLog.createdAt})` })
+    .from(auditLog)
+    .where(and(
+      eq(auditLog.projectId, projectId),
+      or(
+        sql`(${auditLog.action} = 'competitors.appended' AND json_type(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.added') = 'array' AND json_array_length(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.added') > 0)`,
+        sql`(${auditLog.action} = 'competitors.deleted' AND json_type(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.deleted') = 'array' AND json_array_length(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.deleted') > 0)`,
+        sql`(${auditLog.action} = 'discovery.promoted' AND json_type(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.competitors') = 'array' AND json_array_length(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.competitors') > 0)`,
+        sql`(${auditLog.action} = 'competitors.replaced' AND (
+          json_type(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.added') IS NULL
+          OR json_type(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.removed') IS NULL
+          OR json_type(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.added') <> 'array'
+          OR json_type(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.removed') <> 'array'
+          OR json_array_length(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.added') > 0
+          OR json_array_length(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.removed') > 0
+        ))`,
+      ),
+    ))
+    .get()
+  return row?.at ?? null
+}
+
 /** Run ids newest first (id DESC within one timestamp), capped for the response. */
 export function pooledRunIds(pooled: ReadonlyArray<Pick<typeof runs.$inferSelect, 'id' | 'createdAt'>>): string[] {
   return [...pooled]
@@ -568,6 +598,16 @@ export function readCompetitorLandscape(
       }
     }
 
+    const competitorIdentityChangedAt = readCompetitorIdentityChangedAt(app.db, project.id)
+    const competitorSetChangedAt = readCompetitorSetChangedAt(app.db, project.id)
+    const oldestCountedRunAt = countedRuns.reduce<string | null>((oldest, run) => (
+      oldest === null || run.createdAt < oldest ? run.createdAt : oldest
+    ), null)
+    const competitorListRestated = oldestCountedRunAt !== null
+      && [competitorIdentityChangedAt, competitorSetChangedAt].some(changedAt => (
+        changedAt !== null && changedAt > oldestCountedRunAt
+      ))
+
     const response: CompetitorLandscapeResponse = {
       window,
       scope: advanced?.kind === 'group'
@@ -602,7 +642,9 @@ export function readCompetitorLandscape(
       runCount: countedRuns.length,
       runIds: pooledRunIds(countedRuns),
       countUnits: COMPETITOR_LANDSCAPE_COUNT_UNITS,
-      competitorIdentityChangedAt: readCompetitorIdentityChangedAt(app.db, project.id),
+      competitorIdentityChangedAt,
+      competitorSetChangedAt,
+      competitorListRestated,
       ...(filters.answers !== 'not-mentioned' ? {} : {
         answerSelection: { answers: filters.answers, populationSize: eligibleSnapshots.length, answerCount: snapshots.length, unknownMentionAnswers },
       }),

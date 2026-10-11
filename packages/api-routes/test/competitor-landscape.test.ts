@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished } from 'vitest'
 import {
+  auditLog,
   apiKeys,
   competitors,
   createClient,
@@ -297,6 +298,24 @@ describe('GET /projects/:name/analytics/competitors', () => {
       shareOfVoice: null,
       citationCount: 1,
     })])
+
+    db.insert(auditLog).values({
+      id: 'set-marker-query-class', projectId: 'project_northwind', actor: 'api', action: 'competitors.appended', entityType: 'competitor',
+      diff: JSON.stringify({ added: ['marker.example'] }), createdAt: '2026-08-21T00:00:00.000Z',
+    }).run()
+    const allClass = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&queryClass=all' })
+    const nonBrand = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&queryClass=non-brand' })
+    expect(allClass.statusCode, allClass.body).toBe(200)
+    expect(nonBrand.statusCode, nonBrand.body).toBe(200)
+    expect(allClass.json().competitorSetChangedAt).toBe('2026-08-21T00:00:00.000Z')
+    expect(nonBrand.json().competitorSetChangedAt).toBe('2026-08-21T00:00:00.000Z')
+    // The server computes this against the exact filtered counted-run set.
+    expect(allClass.json().competitorListRestated).toBe(true)
+    // This fixture has no usable query text for the non-brand class, so its
+    // exact counted population is empty and no restatement is claimed.
+    expect(nonBrand.json().competitorListRestated).toBe(false)
+    expect(allClass.json().evidence.excludedProbeResults).toBe(1)
+    expect(nonBrand.json().evidence.excludedProbeResults).toBe(0)
   })
 
   it.each([null, '', ' \t '])('keeps an unavailable Simple question (%j) only in All, including model groups', async unavailableQuery => {
@@ -522,6 +541,7 @@ describe('GET /projects/:name/analytics/competitors', () => {
       evidence: { answeredResults: 3, excludedProbeResults: 1, excludedNonCompletedResults: 1 },
       modelComparison: { totalGroups: 1, groups: [{ provider: 'openai', model: 'shared', snapshotCount: 3 }] },
     })
+
   })
 
   it('filters exact requested model before aggregate totals, exclusions, and optional groups', async () => {
@@ -612,7 +632,7 @@ describe('GET /projects/:name/analytics/competitors', () => {
     expect(pooled.countUnits?.distinctNames).toEqual(['observedNamesTotal'])
 
     const latest = await read('&runId=latest')
-    expect(latest).toMatchObject({ runCount: 1, runIds: ['run_normal'], evidence: { answeredResults: 1 } })
+    expect(latest).toMatchObject({ runCount: 1, runIds: ['run_normal'], evidence: { answeredResults: 1 }, competitorListRestated: false })
     expect(latest.filters.runId).toBe('latest')
     expect((await read('&runId=run_older')).runIds).toEqual(['run_older'])
   })
