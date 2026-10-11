@@ -1,3 +1,4 @@
+import { WINDOW_SETS } from '@ainyc/canonry-contracts'
 import {
   trafficBackfill,
   trafficActivate,
@@ -21,23 +22,26 @@ import { DEFAULT_CLOUDFLARE_QUEUE_RETENTION_SECONDS } from '../commands/traffic.
 export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['traffic', 'analytics'],
+    windows: WINDOW_SETS.trafficAnalytics,
+    windowAliases: { window: 'period' },
     usage: 'canonry traffic analytics <project> [--period 7|14|30|90] [--format json]',
     help: 'Complete stored traffic totals and breakdowns for the selected window. Project-wide for Simple and Advanced portfolios; no provider calls or sync.',
     options: { period: stringOption() },
     run: async input => {
       const project = requireProject(input, 'traffic.analytics', 'canonry traffic analytics <project> [--period 7|14|30|90]')
-      await trafficAnalytics(project, { period: getString(input.values, 'period'), format: input.format })
+      await trafficAnalytics(project, { period: getString(input.values, 'window') ?? getString(input.values, 'period'), format: input.format })
     },
   },
   {
     path: ['traffic', 'referral-assessment'],
+    windowAliases: { start: 'start-date', end: 'end-date' },
     usage: 'canonry traffic referral-assessment <project> --start-date YYYY-MM-DD --end-date YYYY-MM-DD [--source <id>] [--burst-threshold 100] [--ratio-threshold 3] [--limit 100] [--format json]',
     help: 'DB-only diagnostic. Raw headlines stay unchanged. Candidate bursts are not confirmed automation; adjusted counts are estimates. Property, Target and market attribution are unavailable. The observed GA quotient has unknown comparable coverage.',
     options: { 'start-date': stringOption(), 'end-date': stringOption(), source: stringOption(), 'burst-threshold': stringOption(), 'ratio-threshold': stringOption(), limit: stringOption() },
     run: async input => {
       const project = requireProject(input, 'traffic.referral-assessment', 'canonry traffic referral-assessment <project> --start-date YYYY-MM-DD --end-date YYYY-MM-DD')
       await trafficReferralAssessment(project, {
-        startDate: getString(input.values, 'start-date'), endDate: getString(input.values, 'end-date'), sourceId: getString(input.values, 'source'),
+        startDate: getString(input.values, 'start') ?? getString(input.values, 'start-date'), endDate: getString(input.values, 'end') ?? getString(input.values, 'end-date'), sourceId: getString(input.values, 'source'),
         burstThreshold: getString(input.values, 'burst-threshold') === undefined ? undefined : Number(getString(input.values, 'burst-threshold')),
         ratioThreshold: getString(input.values, 'ratio-threshold') === undefined ? undefined : Number(getString(input.values, 'ratio-threshold')),
         limit: getString(input.values, 'limit') === undefined ? undefined : Number(getString(input.values, 'limit')),

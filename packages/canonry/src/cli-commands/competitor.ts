@@ -1,3 +1,4 @@
+import { WINDOW_SETS } from '@ainyc/canonry-contracts'
 import { competitorLandscapeQuerySchema } from '@ainyc/canonry-contracts'
 import { addCompetitors, competitorAliases, detectCompetitorAutoAliases, listCompetitors, removeCompetitors, showCompetitorLandscape } from '../commands/competitor.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
@@ -149,6 +150,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['competitor', 'landscape'],
+    windows: WINDOW_SETS.metrics,
     usage: LANDSCAPE_USAGE,
     options: {
       window: stringOption(),

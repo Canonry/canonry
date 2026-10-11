@@ -980,3 +980,13 @@ count shown by `traffic status`.
 `ga acquisition` reads grouped stored sessions through `gaAcquisition`. Explicit
 dates follow `resolveDateRange`; omitted window means all history. JSON preserves
 the API envelope and JSONL stamps each grouped row with project and window bounds.
+
+### Stored read window grammar
+
+`CliCommandSpec.windows` selects a tuple from contracts `WINDOW_SETS`.
+`windowOptions` and `readWindowOptions` normalize positive bare day counts or
+lowercase `Nd` before creating an API client. The allowed sets stay specific to
+the stored source. `windowAliases` retains period/from/to/start-date/end-date
+flags and rejects mixed alias/canonical input. `commandUsage` renders each full
+set for contextual help. Calendar dates retain `resolveDateRange` validation;
+Google performance `--days` remains a separate span from `--window`.

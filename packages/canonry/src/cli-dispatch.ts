@@ -1,3 +1,4 @@
+import { readWindowOptions, windowOptions, type WindowAliases } from './cli-command-helpers.js'
 import { parseArgs } from 'node:util'
 import type { ParseArgsOptionsConfig } from 'node:util'
 import { type CliFormat, usageError } from './cli-error.js'
@@ -33,6 +34,9 @@ export type CliCommandSpec = {
    * ignored, which would risk writes when the agent thought it was previewing).
    */
   supportsDryRun?: boolean
+  /** Canonical rolling windows and legacy option names accepted by this command. */
+  windows?: readonly string[]
+  windowAliases?: WindowAliases
   run: (input: CliCommandInput) => Promise<void> | void
 }
 
@@ -40,9 +44,26 @@ function commandId(spec: CliCommandSpec): string {
   return spec.path.join('.')
 }
 
+export function commandUsage(spec: CliCommandSpec): string {
+  let usage = spec.usage
+  if (spec.windows) {
+    const selection = `[--window ${spec.windows.join('|')}]`
+    if (usage.includes('[--window ')) usage = usage.replace(/\[--window [^\]]+\]/, selection)
+    else if (spec.windowAliases?.window === 'period') usage = usage.replace(/\[--period [^\]]+\]/, selection)
+    else usage += ` ${selection}`
+  }
+  for (const key of ['start', 'end'] as const) {
+    const alias = spec.windowAliases?.[key]
+    if (alias) usage = usage.replace(`--${alias} `, `--${key} `)
+  }
+  return usage
+}
+
 function printCommandHelp(spec: CliCommandSpec): void {
-  console.log(`\nUsage:  ${spec.usage}\n`)
+  console.log(`\nUsage:  ${commandUsage(spec)}\n`)
   if (spec.help) console.log(`${spec.help}\n`)
+  const aliases = Object.entries(spec.windowAliases ?? {}).map(([canonical, alias]) => `--${alias} for --${canonical}`)
+  if (aliases.length) console.log(`Aliases: ${aliases.join('; ')}. Do not combine an alias with its canonical flag.\n`)
 }
 
 function matchesPath(args: readonly string[], path: readonly string[]): boolean {
@@ -82,13 +103,13 @@ function printGroupHelp(group: string, specs: readonly CliCommandSpec[]): void {
   console.log(`\nUsage:  canonry ${group} <command> [options]\n`)
 
   if (parentSpec) {
-    console.log(`  ${parentSpec.usage}\n`)
+    console.log(`  ${commandUsage(parentSpec)}\n`)
   }
 
   console.log('Subcommands:')
 
   for (const spec of groupSpecs) {
-    console.log(`  ${spec.usage}`)
+    console.log(`  ${commandUsage(spec)}`)
   }
 
   console.log()
@@ -146,7 +167,7 @@ export async function dispatchRegisteredCommand(
   try {
     const parsed = parseArgs({
       args: remainingArgs,
-      options: withGlobalOptions(spec.options),
+      options: withGlobalOptions({ ...spec.options, ...windowOptions({ window: Boolean(spec.windows), dates: Boolean(spec.options?.start || spec.windowAliases?.start), aliases: spec.windowAliases }) }),
       allowPositionals: spec.allowPositionals ?? true,
     })
     values = parsed.values as CliValues
@@ -180,6 +201,13 @@ export async function dispatchRegisteredCommand(
         details: { command: commandId(spec), usage: spec.usage },
       },
     )
+  }
+
+  if (spec.windows || spec.windowAliases) {
+    const selection = readWindowOptions({ positionals, values, format: toFormat(values.format, fallbackFormat), dryRun: dryRunRequested }, { allowed: spec.windows, aliases: spec.windowAliases, command: commandId(spec), usage: commandUsage(spec) })
+    values.window = selection.window
+    values.start = selection.startDate
+    values.end = selection.endDate
   }
 
   await spec.run({

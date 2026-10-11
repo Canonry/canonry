@@ -1,3 +1,4 @@
+import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CliCommandSpec } from '../src/cli-dispatch.js'
 
@@ -44,6 +45,13 @@ describe('canonry google performance CLI', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     gscPerformance.mockResolvedValue(EMPTY_RESPONSE)
+  })
+
+  it('forwards the window label independently of the legacy span parameter', async () => {
+    await captureLog(() => dispatchRegisteredCommand(['google', 'performance', 'demo', '--window', '30', '--format', 'json'], 'text', GOOGLE_CLI_COMMANDS).then(() => {}))
+    expect(gscPerformance).toHaveBeenLastCalledWith('demo', { window: '30d' })
+    await captureLog(() => runSpec({ days: '30' }))
+    expect(gscPerformance).toHaveBeenLastCalledWith('demo', { days: '30' })
   })
 
   it('errors when both --days and --start are passed instead of silently picking one', async () => {

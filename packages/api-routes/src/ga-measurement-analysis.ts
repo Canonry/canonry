@@ -18,7 +18,7 @@ import {
   classifyAiReferralTrafficClass,
   filterBrandedSeedCandidates,
   gaMeasurementAnalysisDtoSchema,
-  gaMeasurementAnalysisWindowSchema,
+  WINDOW_SETS, parseWindowIn,
   gaMeasurementHostScopeSchema,
   hostOf,
   hostMatchesAnyDomain,
@@ -470,10 +470,7 @@ export function buildGaMeasurementAnalysis(
   projectName: string,
   options: GaMeasurementAnalysisOptions = {},
 ): GaMeasurementAnalysisDto {
-  const parsedWindow = gaMeasurementAnalysisWindowSchema.safeParse(options.window ?? '90d')
-  if (!parsedWindow.success) {
-    throw validationError('"window" must be one of: 30d, 60d, 90d')
-  }
+  const window = parseWindowIn(options.window, WINDOW_SETS.gaMeasurementAnalysis, { fallback: '90d' })
   const parsedHostScope = gaMeasurementHostScopeSchema.safeParse(
     options.hostScope ?? 'marketing',
   )
@@ -486,7 +483,7 @@ export function buildGaMeasurementAnalysis(
   }
 
   const project = resolveProject(db, projectName)
-  const days = windowDays(parsedWindow.data)
+  const days = windowDays(window)
   const pathPrefix = normalizePathPrefix(options.pathPrefix)
   const marketingHosts = stableUnique(
     [
@@ -739,7 +736,7 @@ export function buildGaMeasurementAnalysis(
   )
 
   return gaMeasurementAnalysisDtoSchema.parse({
-    window: parsedWindow.data,
+    window,
     bucketDays: 30,
     filters: {
       hostScope: parsedHostScope.data,

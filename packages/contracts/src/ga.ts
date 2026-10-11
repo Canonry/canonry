@@ -1,5 +1,7 @@
 import { metricsWindowSchema } from './analytics.js'
 import { gaMeasurementComponentStatusSchema } from './measurement.js'
+
+import { WINDOW_SETS } from './time-window.js'
 import { z } from 'zod'
 import { fraction, percent } from './ratio-unit.js'
 import { aiReferralTrafficClassSchema } from './traffic-class.js'
@@ -286,7 +288,7 @@ export type GA4PropertiesDto = z.infer<typeof ga4PropertiesDtoSchema>
  * zone, exactly as GA4's own "Last N days" ranges are, so `28d` is the window
  * GA4's report opens on. Not the rolling `7d | 30d | 90d` of `/ga/traffic`.
  */
-export const gaSearchLandingWindowSchema = z.enum(['7d', '28d', '90d'])
+export const gaSearchLandingWindowSchema = z.enum(WINDOW_SETS.gaSearchLanding)
 export type GaSearchLandingWindow = z.infer<typeof gaSearchLandingWindowSchema>
 export const GA_SEARCH_LANDING_WINDOWS: readonly GaSearchLandingWindow[] = gaSearchLandingWindowSchema.options
 export const GA_SEARCH_LANDING_WINDOW_DAYS: Readonly<Record<GaSearchLandingWindow, number>> = {

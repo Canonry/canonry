@@ -1,17 +1,17 @@
 import { and, asc, count, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaAcquisitionDaily as acquisition, gaMeasurementSyncStates } from '@ainyc/canonry-db'
-import { gaAcquisitionDimensionSchema, gaAcquisitionQuerySchema, GaAcquisitionDimensions, normalizePathPrefix, resolveDateRange, validationError, type GaAcquisitionDimension, type GaAcquisitionResponse } from '@ainyc/canonry-contracts'
+import { gaAcquisitionDimensionSchema, gaAcquisitionQuerySchema, GaAcquisitionDimensions, normalizePathPrefix, parseWindow, resolveDateRange, validationError, type GaAcquisitionDimension, type GaAcquisitionResponse } from '@ainyc/canonry-contracts'
 import { resolveProject } from './helpers.js'
 import { literalPathPrefixCondition } from './path-prefix-condition.js'
 
 /** SQL aggregation keeps both totals and grouped pagination independent of the page cap. */
 export async function gaAcquisitionRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>('/projects/:name/ga/acquisition', async request => {
+  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> & { window?: string } }>('/projects/:name/ga/acquisition', async request => {
     const project = resolveProject(app.db, request.params.name)
     const input = { ...request.query }
     for (const key of ['limit', 'offset']) if (input[key] !== undefined) input[key] = Number(input[key])
-    const parsed = gaAcquisitionQuerySchema.safeParse(input)
+    const parsed = gaAcquisitionQuerySchema.safeParse({ ...input, window: parseWindow(input.window) })
     if (!parsed.success) throw validationError(parsed.error.message)
     const query = parsed.data
     const range = resolveDateRange(query)

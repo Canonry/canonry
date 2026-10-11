@@ -1,3 +1,4 @@
+import { WINDOW_SETS } from '@ainyc/canonry-contracts'
 import { applyConfigs } from '../commands/apply.js'
 import { showAnalytics } from '../commands/analytics.js'
 import { SOURCES_USAGE, parseSourcesIncludeByQuery, parseSourcesQueryClass, showSources } from '../commands/sources.js'
@@ -139,6 +140,7 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['analytics'],
+    windows: WINDOW_SETS.metrics,
     usage: 'canonry analytics <project> [--feature metrics|gaps|sources] [--window 7d|30d|90d|all] [--format json]',
     options: {
       feature: stringOption(),
@@ -155,6 +157,7 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['sources'],
+    windows: WINDOW_SETS.metrics,
     usage: SOURCES_USAGE,
     options: {
       rank: { type: 'boolean', default: false },

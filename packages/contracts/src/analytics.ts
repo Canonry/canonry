@@ -1,3 +1,4 @@
+import { WINDOW_SETS, parseWindowIn, windowDays } from './time-window.js'
 import { shareOfVoiceContextFields } from './share-of-voice.js'
 import { z } from 'zod'
 import { fraction, percent } from './ratio-unit.js'
@@ -8,7 +9,7 @@ import { queryClassFilterSchema } from './query-class.js'
 import { sourceCategorySchema } from './source-categories.js'
 import { surfaceClassSchema } from './surface-class.js'
 
-export const metricsWindowSchema = z.enum(['7d', '30d', '90d', 'all'])
+export const metricsWindowSchema = z.enum(WINDOW_SETS.metrics)
 export type MetricsWindow = z.infer<typeof metricsWindowSchema>
 export const trendDirectionSchema = z.enum(['improving', 'declining', 'stable'])
 export type TrendDirection = z.infer<typeof trendDirectionSchema>
@@ -893,19 +894,12 @@ export type CompetitorLandscapeResponse = z.infer<typeof competitorLandscapeResp
  * loudly is the only way the caller can tell.
  */
 export function parseWindow(value?: string): MetricsWindow {
-  if (value === undefined || value === '') return 'all'
-  const parsed = metricsWindowSchema.safeParse(value)
-  if (!parsed.success) {
-    throw validationError(
-      `Invalid window "${value}". Must be one of: ${metricsWindowSchema.options.join(', ')}.`,
-    )
-  }
-  return parsed.data
+  return parseWindowIn(value, WINDOW_SETS.metrics, { fallback: 'all' })
 }
 
 export function windowCutoff(window: MetricsWindow): string | null {
   if (window === 'all') return null
-  const days = window === '7d' ? 7 : window === '30d' ? 30 : 90
+  const days = windowDays(window)
   const d = new Date()
   d.setDate(d.getDate() - days)
   return d.toISOString()

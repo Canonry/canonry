@@ -1,3 +1,4 @@
+import { WINDOW_SETS, parseWindowIn } from '@ainyc/canonry-contracts'
 import crypto from 'node:crypto'
 import { and, desc, eq, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
@@ -2077,7 +2078,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
     Querystring: { window?: string }
   }>('/projects/:name/google-ads/performance', async (request) => {
     const project = resolveProject(app.db, request.params.name)
-    const query = parseBody(googleAdsPerformanceQuerySchema, request.query, 'Google Ads performance')
+    const query = parseBody(googleAdsPerformanceQuerySchema, { ...request.query, window: parseWindowIn(request.query.window, WINDOW_SETS.googleAdsMetrics, { fallback: GOOGLE_ADS_PERFORMANCE_DEFAULT_WINDOW }) }, 'Google Ads performance')
     return googleAdsPerformance(app, project.id, query.window ?? GOOGLE_ADS_PERFORMANCE_DEFAULT_WINDOW)
   })
 

@@ -30,7 +30,8 @@ describe('traffic analytics period', () => {
       expect(() => parseTrafficAnalyticsPeriod(input)).toThrowError(
         expect.objectContaining({
           code: 'VALIDATION_ERROR',
-          message: '"period" must be one of 7, 14, 30, 90',
+          message: `Invalid window "${input}". Must be one of: 7d, 14d, 30d, 90d.`,
+          details: { field: 'period', value: input, allowed: ['7d', '14d', '30d', '90d'] },
         }),
       )
       expect(trafficAnalyticsPeriodSchema.safeParse(input).success).toBe(false)

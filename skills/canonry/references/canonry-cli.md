@@ -1737,3 +1737,28 @@ descendants, treating percent and underscore literally. Group keys are date,
 channel, source, medium, host, landing-page (API names are also accepted). Default
 grouping uses all six. `totalSessions` covers every filtered row, independent of
 grouping and pagination; `totalRows` counts groups. Maximum page size is 1000.
+
+### Stored read windows and calendar dates
+
+Stored reads accept a positive day count such as `30` or its lowercase token
+`30d`, restricted to the command's available stored windows:
+
+| Read | Windows |
+| --- | --- |
+| Analytics, sources, competitor landscape, GA acquisition, traffic and referral/session histories, Google performance reads | `7d`, `30d`, `90d`, `all` |
+| GA measurement analysis | `30d`, `60d`, `90d` |
+| GA search landing pages | `7d`, `28d`, `90d` |
+| Google Ads performance | `7d`, `14d`, `30d` |
+| Traffic analytics | `7d`, `14d`, `30d`, `90d` |
+| Organic evidence | `60d`, `90d` |
+
+Defaults remain specific to each command. `--help` prints its full set. Traffic
+analytics and organic evidence accept `--window`; `--period` remains an alias.
+For reads with calendar bounds, use inclusive `--start` and `--end` in
+`YYYY-MM-DD` form. Traffic referral assessment retains `--start-date` and
+`--end-date`; ads insights retains `--from` and `--to`. Supplying an alias and its
+canonical flag together is an error. Invalid calendar dates or reversed ranges
+fail before an API request. Explicit dates retain their existing precedence over
+rolling windows. Google performance `--days` remains a separate span selector.
+These changes do not alter sync/backfill depths, run/history ISO timestamps, or
+calendar-month report selections.

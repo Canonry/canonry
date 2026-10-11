@@ -281,7 +281,7 @@ export function readCompetitorLandscape(
   selection?: { runIds: readonly string[]; snapshotIds?: readonly string[]; autoAdvanced?: boolean },
 ): CompetitorLandscapeResponse {
     const project = resolveProject(app.db, projectName)
-    const parsed = competitorLandscapeQuerySchema.safeParse(query)
+    const parsed = competitorLandscapeQuerySchema.safeParse({ ...query, ...(query.window !== undefined ? { window: parseWindow(query.window) } : {}) })
     if (!parsed.success) {
       throw validationError('Invalid competitor landscape query', { issues: parsed.error.issues })
     }

@@ -846,3 +846,11 @@ counting the full selection. It never requires a live GA connection. The normali
 page keeps meaningful query parameters; only the path-prefix filter ignores them.
 `literalPathPrefixCondition` shares boundary-safe, escaped SQL matching with the
 measurement analysis reader. Project-only scope cannot identify older GA properties.
+
+### Window parsing
+
+Stored readers share contracts `parseWindowIn` and `WINDOW_SETS`. Accept lowercase
+`Nd` or bare positive days only when the endpoint supports that stored window.
+Keep endpoint defaults and OpenAPI enums unchanged; failures include `field`,
+`value`, and the precise `allowed` set. Calendar-date and ISO-instant filters
+remain separate contracts.
