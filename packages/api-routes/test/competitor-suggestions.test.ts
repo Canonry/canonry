@@ -3,10 +3,11 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiKeys, auditLog, competitors, createClient, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
+import { selectLandscapePopulation } from '../src/competitor-landscape.js'
 
 const NOW = '2026-08-20T12:00:00.000Z'
 let tempDir: string
@@ -136,5 +137,65 @@ describe('GET competitor suggestions', () => {
     const landscape = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/analytics/competitors?window=all&queryClass=non-brand' })
     expect(landscape.statusCode, landscape.body).toBe(200)
     expect(landscape.json().pinned.find((row: { domain: string }) => row.domain === 'rival.example').mentionCount).toBe(beforeCandidate.namingAnswers)
+  })
+
+  it('refuses an exact suggestion read above the answer-text cap with narrowing guidance', async () => {
+    const rows = Array.from({ length: 10_001 }, (_, index) => ({
+      id: `snapshot_cap_${index}`,
+      runId: 'run_complete',
+      queryId: 'query_demo',
+      provider: 'openai',
+      citationState: 'not-cited' as const,
+      answerMentioned: false,
+      answerText: 'Rival House is a useful choice.',
+      rawResponse: 'raw provider response must not be hydrated for the refused read',
+      citedDomains: ['rival.example'],
+      citedUrls: null,
+      captureStatus: 'complete' as const,
+      competitorOverlap: [],
+      location: null,
+      createdAt: NOW,
+    }))
+    for (let offset = 0; offset < rows.length; offset += 500) db.insert(querySnapshots).values(rows.slice(offset, offset + 500)).run()
+
+    const prepareSpy = vi.spyOn(db.$client, 'prepare')
+    try {
+      const response = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/competitor-suggestions?window=all&minAnswers=2' })
+      expect(response.statusCode).toBe(400)
+      expect(response.json()).toMatchObject({
+        error: {
+          code: 'VALIDATION_ERROR',
+          details: {
+            reason: 'competitor-suggestions-answer-cap',
+            eligibleAnswers: 10_005,
+            maxAnswers: 10_000,
+            window: 'all',
+            groupKey: null,
+          },
+        },
+      })
+      expect(response.body).not.toContain('raw provider response')
+      const snapshotReads = prepareSpy.mock.calls
+        .map(([sql]) => sql)
+        .filter(sql => /from\s+["`]query_snapshots["`]/i.test(sql))
+      expect(snapshotReads.length).toBeGreaterThan(0)
+      expect(snapshotReads.every(sql => !/["`]query_snapshots["`]\s*\.\s*["`]answer_text["`]/i.test(sql))).toBe(true)
+      expect(snapshotReads.every(sql => !/["`]query_snapshots["`]\s*\.\s*["`]raw_response["`]/i.test(sql))).toBe(true)
+    } finally {
+      prepareSpy.mockRestore()
+    }
+  })
+
+  it('hydrates only eligible rows after filtering and preserves exact within-cap counts', () => {
+    const population = selectLandscapePopulation({ db }, 'demo', { window: 'all', queryClass: 'all' }, {
+      runIds: ['run_complete', 'run_probe', 'run_partial', 'run_failed'],
+      answerTextCap: 4,
+    })
+    expect(population.eligibleSnapshots).toHaveLength(4)
+    expect(population.excludedProbeResults).toBe(1)
+    expect(population.excludedNonCompletedResults).toBe(1)
+    expect(population.eligibleSnapshots.every(snapshot => snapshot.answerText !== null)).toBe(true)
+    expect(population.inScope.filter(snapshot => snapshot.runId === 'run_probe' || snapshot.runId === 'run_failed').every(snapshot => snapshot.answerText === null)).toBe(true)
+    expect(population.eligibleSnapshots.every(snapshot => snapshot.rawResponse === null)).toBe(true)
   })
 })

@@ -25,7 +25,7 @@ export async function showStatus(project: string | undefined, format?: string, o
       console.log(`  State: ${item.state}`)
       if (item.health) console.log(`  Health: ${item.health.status} ${item.health.summary}`)
       for (const row of item.integrations) {
-        console.log(`  ${row.label}: ${row.state} (last success: ${row.lastSuccessAt ?? 'never'}; streak: ${row.consecutiveFailures}; data through: ${row.dataThrough ?? 'unknown'}; latest error: ${row.latestError ?? 'none'})`)
+        console.log(`  ${row.label}: ${row.state} (last success: ${row.lastSuccessAt ?? 'never'}; streak: ${row.consecutiveFailures}; data through: ${row.dataThrough ?? 'unknown'}; data age: ${row.dataAgeDays === null ? 'unknown' : `${row.dataAgeDays} days`}; latest error: ${row.latestError ?? 'none'})`)
       }
       console.log('')
     }
