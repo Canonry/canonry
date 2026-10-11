@@ -154,6 +154,38 @@ describe('buildCompetitorSuggestions', () => {
     expect(result.candidates.find(candidate => candidate.domain === 'rival.example')).toMatchObject({ reason: 'shared-host' })
   })
 
+  it('counts repeated anchored names per answer and excludes a canonical label from other-name counts', () => {
+    const result = buildCompetitorSuggestions({
+      project,
+      minAnswers: 1,
+      answers: [
+        answer('a1', 'run-1', 'Try [Blue Harbor](https://rival.example/).', ['rival.example']),
+        answer('a2', 'run-2', 'Try [Blue Harbor](https://rival.example/).', ['rival.example']),
+        answer('a3', 'run-3', 'Try [Rival](https://rival.example/).', ['rival.example']),
+      ],
+      classifications: new Map(),
+      tracked: [],
+      claimedCompetitorAdds: new Set(),
+    })
+    expect(result.candidates[0]).toMatchObject({ namedByOtherNameAnswers: 2 })
+    expect(result.candidates[0]?.names).toEqual(expect.arrayContaining([
+      { name: 'Blue Harbor', answerCount: 2, pairedAnswers: 2 },
+      { name: 'Rival', answerCount: 1, pairedAnswers: 1 },
+    ]))
+  })
+
+  it('treats apex and www as one host form', () => {
+    const result = buildCompetitorSuggestions({
+      project,
+      minAnswers: 1,
+      answers: [answer('a1', 'run-1', 'Rival is useful.', ['www.rival.example', 'rival.example'])],
+      classifications: new Map(),
+      tracked: [],
+      claimedCompetitorAdds: new Set(),
+    })
+    expect(result.candidates[0]).toMatchObject({ domain: 'rival.example', reason: null })
+  })
+
   it('honors tracked, claimed, own-site, and marketplace exclusions', () => {
     const result = buildCompetitorSuggestions({
       project,
