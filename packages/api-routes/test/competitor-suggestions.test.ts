@@ -179,8 +179,8 @@ describe('GET competitor suggestions', () => {
         .map(([sql]) => sql)
         .filter(sql => /from\s+["`]query_snapshots["`]/i.test(sql))
       expect(snapshotReads.length).toBeGreaterThan(0)
-      expect(snapshotReads.every(sql => !/["`]query_snapshots["`]\s*\.\s*["`]answer_text["`]/i.test(sql))).toBe(true)
-      expect(snapshotReads.every(sql => !/["`]query_snapshots["`]\s*\.\s*["`]raw_response["`]/i.test(sql))).toBe(true)
+      expect(snapshotReads.every(sql => !/\banswer_text\b/i.test(sql))).toBe(true)
+      expect(snapshotReads.every(sql => !/\braw_response\b/i.test(sql))).toBe(true)
     } finally {
       prepareSpy.mockRestore()
     }
