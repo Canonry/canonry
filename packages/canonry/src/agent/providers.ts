@@ -236,6 +236,15 @@ export function resolveModelForCapability(
     const baseUrl = base.endsWith('/v1beta') ? base : `${base}/v1beta`
     return { ...model, baseUrl }
   }
+  // Z.ai (GLM) rides pi-ai's OpenAI-compatible completions API, so the same
+  // proxied-deployment pattern applies as a plain base-URL swap: no `/v1beta`
+  // suffix juggling, just trim the trailing slash. An unset ZAI_BASE_URL
+  // leaves the default api.z.ai host untouched, so non-proxied installs are
+  // byte-for-byte unchanged.
+  if (provider === AgentProviderIds.zai && process.env.ZAI_BASE_URL) {
+    const baseUrl = process.env.ZAI_BASE_URL.replace(/\/+$/, '')
+    return { ...model, baseUrl }
+  }
   return model
 }
 
