@@ -7,6 +7,7 @@ import {
   competitorAliasProjectIdentity,
   competitorIdentityAliases,
   hostOf,
+  normalizeCompetitorDomain,
   parseWindow,
   surfaceClassFromCompetitorType,
   type CompetitorSuggestionsResponse,
@@ -15,7 +16,7 @@ import {
 import { domainClassifications } from '@ainyc/canonry-db'
 import { buildCompetitorSuggestions, type CompetitorLandscapeSurfaceClass } from '@ainyc/canonry-intelligence'
 import { claimedCompetitorAdds, readStoredCompetitors } from './competitor-writes.js'
-import { createRunCompetitorResolver, readMarketCompetitorPins } from './plan-competitors.js'
+import { readMarketCompetitorPins } from './plan-competitors.js'
 import { readMarketCompetitorNames } from './market-competitor-names.js'
 import { resolveProject } from './helpers.js'
 import { projectQueryClassifier } from './mention-share-inputs.js'
@@ -92,27 +93,29 @@ export async function competitorSuggestionRoutes(app: FastifyInstance) {
       })),
       advanced ? marketNames : new Map(),
     )
-    const pooledByDomain = new Map<string, { domain: string; aliases: string[] }>(pooledPins.map(pin => [pin.domain, {
-      domain: pin.domain,
-      aliases: [...new Set([pin.label, ...pin.aliases])],
-    }]))
-    const resolveRunCompetitors = createRunCompetitorResolver(app.db, storedTracked, marketNames)
+    const identitiesByRun = new Map<string, Array<{ domain: string; aliases: string[] }>>()
     const scopedAnswers = answers.map(answer => {
-      const run = population.runById.get(answer.runId)
-      const scoped = resolveRunCompetitors(run?.measurementPlanVersionId, answer.measurementExecutionId)
-      const scopedByDomain = new Map(scoped.domains.map(domain => [domain, {
-        domain,
-        aliases: scoped.aliases.get(domain) ?? [],
-      }] as const))
-      if (advanced?.kind === 'all-markets') {
-        for (const [domain, identity] of pooledByDomain) {
-          if (!scopedByDomain.has(domain)) scopedByDomain.set(domain, identity)
+      let identities = identitiesByRun.get(answer.runId)
+      if (!identities) {
+        const byDomain = new Map<string, { domain: string; aliases: string[] }>()
+        // Current pins reinterpret the selected history. Frozen pins add only
+        // the names available in this run's selected market or pooled scope.
+        // Use the same union as the landscape, including aliases on a domain
+        // already present in the current pin set.
+        for (const pin of [...pooledPins, ...(advanced?.runScopes.get(answer.runId)?.competitors ?? [])]) {
+          const domain = normalizeCompetitorDomain(pin.domain)
+          const existing = byDomain.get(domain)
+          const aliases = [
+            ...(existing?.aliases ?? []),
+            ...(pin.labelSource === 'domain' ? [] : [pin.label]),
+            ...pin.aliases,
+          ]
+          byDomain.set(domain, { domain, aliases: [...new Set(aliases)] })
         }
+        identities = [...byDomain.values()]
+        identitiesByRun.set(answer.runId, identities)
       }
-      return {
-        ...answer,
-        competitors: [...scopedByDomain.values()],
-      }
+      return { ...answer, competitors: identities }
     })
     const claimed = claimedCompetitorAdds(
       stored,

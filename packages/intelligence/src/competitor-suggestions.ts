@@ -28,7 +28,7 @@ export interface CompetitorSuggestionAnswer {
   citedDomains: readonly string[]
   citedUrls: readonly string[] | null
   recommendedCompetitors?: readonly string[]
-  /** Frozen competitor identities for this answer's Advanced execution scope. */
+  /** Current pins plus frozen identities for this answer's selected landscape scope. */
   competitors?: readonly CompetitorIdentityInput[]
 }
 
