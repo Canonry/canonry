@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle } from 'lucide-react'
 import type { MeasurementQueryTemplate, QueryTrackingMode, ResearchRunScope } from '@ainyc/canonry-contracts'
 
-import { getViewerResearchConfig, heyClient } from '../../api.js'
+import { getViewerResearchConfig, heyClient, isEmbed } from '../../api.js'
 import {
   getApiV1ProjectsByNameMeasurementQueryTemplatesOptions,
   getApiV1ProjectsByNameQueryTrackingOptions,
@@ -197,7 +198,7 @@ export function WorkspaceTab({ active, label, onClick }: { active: boolean; labe
       type="button"
       role="tab"
       aria-selected={active}
-      className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500 focus-visible:ring-inset ${active ? 'border-mono-400 text-heading' : 'border-transparent text-muted hover:border-strong hover:text-strong'}`}
+      className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors pointer-coarse:min-h-11 max-md:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500 focus-visible:ring-inset ${active ? 'border-mono-400 text-heading' : 'border-transparent text-muted hover:border-strong hover:text-strong'}`}
       onClick={onClick}
     >
       {label}
@@ -220,6 +221,7 @@ function TrackedQueriesSection({
   pendingTrackingSource: PendingTrackingSource | null
   onPendingTrackingSourceHandled: () => void
 }) {
+  const { canWrite } = useAccount()
   const publish = useQueryTrackingPublish(projectName, { onCommitted: () => onTrackingQueryIdChange?.(undefined) })
   const workspaceQuery = useQuery({
     ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
@@ -234,6 +236,8 @@ function TrackedQueriesSection({
     return (
       <div className="query-tracking-workspace">
         {trackedMode === 'advanced' ? <>
+          {/* The page's Add button takes a line of its own in a narrow frame, so a writer's page holds that line too. */}
+          {host.actionsSlot && canWrite && !isEmbed() ? createPortal(<div aria-hidden="true" className="skeleton-text h-8 w-28 pointer-coarse:h-11 max-md:h-11" />, host.actionsSlot) : null}
           <TrackedSummaryGridSkeleton />
           <div aria-hidden="true" className="py-3">
             <div className="skeleton-text h-8 w-full max-md:h-11" />
@@ -244,9 +248,11 @@ function TrackedQueriesSection({
       </div>
     )
   }
-  if (workspaceQuery.isError || !workspaceQuery.data) {
+  // Only a read that left nothing to show: a refresh that failed keeps the page, with its search, selection and open sheet, on the last read.
+  if (!workspaceQuery.data) {
     return (
-      <div role="alert" className="py-4">
+      // Centred, as the page's empty states are.
+      <div role="alert" className="py-8 text-center">
         <StatusNote
           icon={AlertTriangle}
           tone="negative"
@@ -257,7 +263,18 @@ function TrackedQueriesSection({
     )
   }
 
-  return (
+  return <>
+    {workspaceQuery.isRefetchError ? (
+      <div role="status" className="pb-3">
+        <StatusNote
+          icon={AlertTriangle}
+          tone="caution"
+          label="Could not refresh"
+          detail="The latest tracked queries did not load, so this list may be out of date."
+          action={<Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11 max-md:min-h-11" aria-label="Retry tracked queries" onClick={() => void workspaceQuery.refetch()}>Retry</Button>}
+        />
+      </div>
+    ) : null}
     <TrackedQueriesGate
       {...host}
       projectName={projectName}
@@ -277,7 +294,7 @@ function TrackedQueriesSection({
       onPreview={(mutation) => publish.requestPreview({ ...mutation, expectedWorkspaceVersion: workspaceQuery.data.workspaceVersion })}
       onCommit={publish.commit}
     />
-  )
+  </>
 }
 
 /** One list while the saved patterns load, so a page can key its rows on it. */

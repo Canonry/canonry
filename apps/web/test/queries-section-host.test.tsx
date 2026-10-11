@@ -1,7 +1,7 @@
 import React from 'react'
 import { createPortal } from 'react-dom'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { AccountProvider } from '../src/contexts/account-context.js'
@@ -57,7 +57,7 @@ function renderSection(props: Partial<QueriesSectionProps> = {}, role?: 'viewer'
     </AccountProvider>
   )
   const view = render(section(props))
-  return { rerender: (next: Partial<QueriesSectionProps>) => view.rerender(section(next)) }
+  return { queryClient, rerender: (next: Partial<QueriesSectionProps>) => view.rerender(section(next)) }
 }
 
 const researchMode = () => screen.getByRole('status', { name: 'Research mode' }).textContent
@@ -190,23 +190,66 @@ test('a failed workspace read keeps the tabs and offers one action, which reads 
 })
 
 test.each([
-  // The host knows the mode from a plan it already read: the skeleton has the advanced page's strip and toolbar.
-  ['an advanced project the host knows', 'advanced' as const, 2],
+  // The host knows the mode from a plan it already read: the skeleton has the advanced page's strip and toolbar,
+  // and for a writer the room of the Add button, which takes a line of its own in a narrow frame.
+  ['an advanced project the host knows', 'advanced' as const, undefined, 2, 1],
+  ['an advanced project read by a viewer, who gets no Add button', 'advanced' as const, 'viewer' as const, 2, 0],
   // Until any read says which page this is, a plain list of rows stands for both.
-  ['a project whose mode is not known yet', undefined, 0],
-])('while the workspace loads, %s gets a skeleton and no words', async (_label, trackedMode, above) => {
+  ['a project whose mode is not known yet', undefined, undefined, 0, 0],
+])('while the workspace loads, %s gets a skeleton and no words', async (_label, trackedMode, role, above, actions) => {
   onTestFinished(mockFetch(() => new Promise<Response>(() => {})))
-  renderSection({ trackedMode })
+  renderSection({ trackedMode }, role)
   const rows = await screen.findByRole('status', { name: 'Loading queries' })
   expect(rows.children).toHaveLength(8)
   // What stands above the rows is drawing only: nothing to read and nothing to reach.
   const before = [...rows.parentElement!.children].slice(0, -1)
   expect(before).toHaveLength(above)
-  for (const block of before) expect(block.getAttribute('aria-hidden')).toBe('true')
+  for (const block of [...before, ...actionsSlot().children]) expect(block.getAttribute('aria-hidden')).toBe('true')
   const body = screen.getByRole('region', { name: 'Queries' }).lastElementChild as HTMLElement
   expect(body.textContent).toBe('')
   expect(within(body).queryAllByRole('button')).toEqual([])
-  expect(actionsSlot().childElementCount).toBe(0)
+  expect(actionsSlot().childElementCount).toBe(actions)
+  expect(actionsSlot().textContent).toBe('')
+})
+
+test('a refresh that fails keeps the loaded page and says so, with one Retry that reads again', async () => {
+  let fail = false
+  let reads = 0
+  onTestFinished(mockFetch((url) => {
+    const path = new URL(url).pathname
+    if (path === '/api/v1/projects/demo/measurement-query-templates') return jsonResponse({ templates: [] })
+    if (path !== '/api/v1/projects/demo/query-tracking') throw new Error(`Unexpected fetch: ${path}`)
+    reads += 1
+    if (fail) return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'unavailable' } }, 500)
+    return jsonResponse({
+      mode: 'advanced', workspaceVersion: `qtw_${'a'.repeat(64)}`, active: { revision: 4, compiledChecksum: 'c'.repeat(64) },
+      defaultContexts: [], targets: [], groups: [], markets: [], tracked: [], savedSources: { research: [], discovery: [] },
+    })
+  }))
+  const { queryClient } = renderSection()
+  // The page holds a choice of its own, which a remount would lose.
+  fireEvent.click(await screen.findByRole('button', { name: 'Choose branded' }))
+  expect(await trackedFilters()).toEqual({ ...DEFAULT_TRACKED_FILTERS, type: 'branded' })
+  expect(screen.queryByRole('status', { name: /^Could not refresh/ })).toBeNull()
+
+  // Every publish and every refused review reads the workspace again. This one fails.
+  fail = true
+  await act(() => queryClient.invalidateQueries())
+  expect(reads).toBe(2)
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(await trackedFilters()).toEqual({ ...DEFAULT_TRACKED_FILTERS, type: 'branded' })
+  expect(screen.getByRole('button', { name: 'Page action' })).toBeTruthy()
+  const note = screen.getByText('Could not refresh').closest('[role="status"]') as HTMLElement
+  expect(note.textContent).toBe('Could not refreshRetry')
+  expect(within(note).getByRole('button', { name: 'Could not refresh. The latest tracked queries did not load, so this list may be out of date.' }).textContent).toBe('Could not refresh')
+  // Above the page it is about.
+  expect(note.compareDocumentPosition(screen.getByRole('status', { name: 'Tracked filters' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+  fail = false
+  fireEvent.click(within(note).getByRole('button', { name: 'Retry tracked queries' }))
+  await waitFor(() => expect(screen.queryByText('Could not refresh')).toBeNull())
+  expect(reads).toBe(3)
+  expect(await trackedFilters()).toEqual({ ...DEFAULT_TRACKED_FILTERS, type: 'branded' })
 })
 
 test.each(['advanced', undefined] as const)('a failed workspace read says Could not load with one Retry, whatever the mode (hint: %s)', async trackedMode => {
@@ -219,6 +262,20 @@ test.each(['advanced', undefined] as const)('a failed workspace read says Could 
   const retry = within(alert).getByRole('button', { name: 'Retry tracked queries' })
   expect(retry.textContent).toBe('Retry')
   expect(within(alert).getAllByRole('button')).toEqual([retry])
+  // Centred under the tabs, where the page's empty states sit.
+  const rules = parseCompiledCss(await compileAppStyles([...alert.classList]))
+  expect(compiledElementProperty(rules, alert, 'text-align')).toBe('center')
+})
+
+test('the tabs are 44px tall under a finger and on a phone, inside the row height they already hold', async () => {
+  renderSection({ queryWorkspace: 'research' })
+  const tab = screen.getByRole('tab', { name: 'Tracked' })
+  const rules = parseCompiledCss(await compileAppStyles([...tab.classList, ...tab.parentElement!.classList]))
+  for (const context of ['@media (width < 48rem)', '@media (pointer: coarse)']) {
+    expect(cssLengthPx(compiledElementProperty(rules, tab, 'min-height', context)!, rules), context).toBe(44)
+  }
+  expect(compiledElementProperty(rules, tab, 'min-height')).toBeUndefined()
+  expect(cssLengthPx(compiledElementProperty(rules, tab.parentElement!, 'min-height')!, rules)).toBe(48)
 })
 
 test('the Queries heading names the section and is drawn for assistive tech only', async () => {

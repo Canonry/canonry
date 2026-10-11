@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Clock, Inbox, Info, MapPinOff, Plus, SearchX } from 'lucide-react'
+import { AlertTriangle, CirclePause, Clock, Inbox, Info, MapPinOff, Plus, SearchX } from 'lucide-react'
 import type { QueryClass, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameQueryTrackingQueryKey } from '@ainyc/canonry-api-client/react-query'
 
@@ -32,11 +32,11 @@ import { TrackedBulkBar, type TrackedBulkAction } from './TrackedBulkBar.js'
 import type { TrackedContextLabels } from './TrackedRowDetail.js'
 import { TrackedRowMenu } from './TrackedRowMenu.js'
 import { TrackedSummaryGrid, type TrackedSummaryPlace } from './TrackedSummaryGrid.js'
-import { TrackedTable } from './TrackedTable.js'
+import { TrackedTable, TrackedTableSkeleton } from './TrackedTable.js'
 import { TrackedToolbar } from './TrackedToolbar.js'
 import { TRACKED_BULK_MAX, type TrackedPlace } from './tracked-actions.js'
-import { DEFAULT_TRACKED_FILTERS, matchesTrackedFilters, type TrackedResultCell } from './tracked-filters.js'
-import type { TrackedFilters, TrackedRowAction, TrackedRowVm } from './tracked-types.js'
+import { activeFilterCount, DEFAULT_TRACKED_FILTERS, matchesTrackedFilters, type TrackedResultCell } from './tracked-filters.js'
+import type { TrackedFilters, TrackedRowAction, TrackedRowVm, TrackedType } from './tracked-types.js'
 import { DEFAULT_TRACKED_SORT, engineSignal, resultClasses, sortTrackedRows, toTrackedRows, type TrackedCoverage, type TrackedSort } from './tracked-view-model.js'
 
 type PageProps = TrackedQueriesPageProps & TrackedPageHostProps & { composer: TrackingComposerState }
@@ -126,26 +126,33 @@ function searchParamValue(value: string): string {
  */
 export function AdvancedTrackedPage(props: PageProps) {
   const { onSelectionChange, rootLabel = MARKET_SCOPE_COPY.allLocations } = props
+  // "Show all" takes its own button off the page, so it leaves word for the list that follows to take the focus.
+  const showingAll = useRef(false)
+  const showAll = () => {
+    showingAll.current = true
+    onSelectionChange?.({ measurementScope: 'project', measurementScopeKey: undefined })
+  }
   if (props.composer.unavailableScope) {
     return (
-      <div className="query-tracking-workspace"><section aria-label="Tracked queries" className="py-4">
+      // Centred, as the page's empty states are.
+      <div className="query-tracking-workspace"><section aria-label="Tracked queries" className="py-8 text-center">
         <StatusNote
           icon={AlertTriangle}
           tone="caution"
           label={VISIBILITY_SCOPE_RECOVERY_COPY.retiredScope}
           detail={VISIBILITY_SCOPE_RECOVERY_COPY.retiredScopeHelp(rootLabel)}
-          action={<Button type="button" variant="outline" size="sm" className={TOUCH} aria-label={VISIBILITY_SCOPE_RECOVERY_COPY.showRoot(rootLabel)} onClick={() => onSelectionChange?.({ measurementScope: 'project', measurementScopeKey: undefined })}>{VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite}</Button>}
+          action={<Button type="button" variant="outline" size="sm" className={TOUCH} aria-label={VISIBILITY_SCOPE_RECOVERY_COPY.showRoot(rootLabel)} onClick={showAll}>{VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite}</Button>}
         />
       </section></div>
     )
   }
-  return <TrackedPage {...props} rootLabel={rootLabel} />
+  return <TrackedPage {...props} rootLabel={rootLabel} showAll={showAll} showingAll={showingAll} />
 }
 
 function TrackedPage({
   projectName, workspace, selection, onSelectionChange, trackingQueryId, templates, preview, publishError, isPreviewing, isCommitting, onPreview,
-  trackedFilters: filters, onTrackedFiltersChange, trackingChangedAt, nextSweepDate, rootLabel, actionsSlot, composer,
-}: PageProps & { rootLabel: string }) {
+  trackedFilters: filters, onTrackedFiltersChange, trackingChangedAt, nextSweepDate, rootLabel, actionsSlot, composer, showAll, showingAll,
+}: PageProps & { rootLabel: string; showAll: () => void; showingAll: RefObject<boolean> }) {
   const { action, draft, setDraft, reviewedMutation, setReviewedMutation, addSheetOpen, setAddSheetOpen, editorHeadingRef, openAdd, closeAction, mutation, canReview, sweepActive, commitReviewed } = composer
   const { canWrite, isAdmin, account } = useAccount()
   const queryClient = useQueryClient()
@@ -163,17 +170,33 @@ function TrackedPage({
   // The lines the Add queries sheet opens with, when Track opened it.
   const [addText, setAddText] = useState<string>()
   const toolbar = useRef<HTMLDivElement>(null)
+  const list = useRef<HTMLDivElement>(null)
+  const bulkBarId = useId()
+  const searchField = () => toolbar.current?.querySelector<HTMLInputElement>('input[type="search"]')
+  // The list's first control: Select this page, or the first header where there is nothing to select. The page stays where it is scrolled to.
+  const focusList = () => list.current?.querySelector<HTMLElement>('input, button')?.focus({ preventScroll: true })
 
   const engines = useMemo(() => [...new Set([...workspace.defaultContexts.flatMap(context => context.providers), ...results.engines])], [workspace.defaultContexts, results.engines])
   const rowContextLabels = useMemo(() => searchLocationNames(workspace), [workspace])
   const allRows = useMemo(() => toTrackedRows(workspace, templates), [workspace, templates])
   // A place lists the queries asked for it. One that is asked nowhere belongs to no place, so it shows for the whole project only.
+  // Each is listed under the types it is asked under there, as the results for the place hold them: a query asked both ways
+  // across the project and one way here has one pair of chips here, not a second pair no sweep will fill.
   const placeRows = useMemo(() => {
     if (!place) return allRows
     const within = { measurementScope, measurementScopeKey, queryClass: 'all' as const }
-    return allRows.filter(row => row.tracked.assignments.some(assignment => assignmentMatchesSelection(assignment, within)))
+    return allRows.flatMap(row => {
+      const here = row.tracked.assignments.filter(assignment => assignmentMatchesSelection(assignment, within))
+      if (here.length === 0) return []
+      const queryClasses = [...new Set(here.flatMap(assignment => assignment.queryClass ?? []))].sort()
+      if (queryClasses.length === row.queryClasses.length) return [row]
+      const type: TrackedType = queryClasses.length === 0 ? 'not-set' : queryClasses.length === 1 ? queryClasses[0]! : 'mixed'
+      return [{ ...row, queryClasses, type }]
+    })
   }, [allRows, place, measurementScope, measurementScopeKey])
   const tokens = useMemo(() => search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean), [search])
+  // A Result filter lists by the chips, so until the results are read there is no list yet: neither rows nor an empty state.
+  const awaitingResults = filters.result !== 'any' && results.coverage === undefined
   const listed = useMemo(() => {
     const matches = (row: TrackedRowVm, by: TrackedFilters) => matchesTrackedFilters(row, by, by.result === 'any' ? [] : resultCells(row, engines, results.coverage))
       && (tokens.length === 0 || tokens.every(token => searchText(row).includes(token)))
@@ -193,23 +216,57 @@ function TrackedPage({
   const pageRows = useMemo(() => sorted.slice((page - 1) * pageSize, page * pageSize), [sorted, page, pageSize])
 
   // A linked row opens on its own page, once per link: after that the pages are the reader's.
+  // A link to a row the place, the filters or the search leave out widens them first, once per link, so the row is listed:
+  // a copied link outlives the status its row had.
   const linkedIndex = trackingQueryId ? sorted.findIndex(row => row.queryId === trackingQueryId) : -1
   const shownLink = useRef<string | null>(null)
+  const widenedLink = useRef<string | null>(null)
   useEffect(() => {
     if (!trackingQueryId) {
       shownLink.current = null
+      widenedLink.current = null
       return
     }
-    if (linkedIndex < 0 || shownLink.current === trackingQueryId) return
-    shownLink.current = trackingQueryId
-    setPaging({ key: listKey, page: Math.floor(linkedIndex / pageSize) + 1 })
-  }, [trackingQueryId, linkedIndex, listKey, pageSize])
+    if (shownLink.current === trackingQueryId) return
+    if (linkedIndex >= 0) {
+      shownLink.current = trackingQueryId
+      setPaging({ key: listKey, page: Math.floor(linkedIndex / pageSize) + 1 })
+      return
+    }
+    if (awaitingResults || widenedLink.current === trackingQueryId) return
+    const linked = allRows.find(row => row.queryId === trackingQueryId)
+    if (!linked) return
+    widenedLink.current = trackingQueryId
+    setSearch('')
+    onTrackedFiltersChange({ ...DEFAULT_TRACKED_FILTERS, status: linked.status === 'not-asked' ? 'all' : DEFAULT_TRACKED_FILTERS.status })
+    if (!placeRows.some(row => row.queryId === trackingQueryId)) onSelectionChange?.({ measurementScope: 'project', measurementScopeKey: undefined })
+  }, [trackingQueryId, linkedIndex, listKey, pageSize, awaitingResults, allRows, placeRows, onTrackedFiltersChange, onSelectionChange])
 
   // A row the search or the filters no longer list leaves the selection, so no change reaches a row out of sight.
+  // While a Result filter waits for the results nothing is listed yet, and the selection waits with it.
   const selectedRows = useMemo(() => sorted.filter(row => selectedIds.has(row.queryId)), [sorted, selectedIds])
   useEffect(() => {
-    if (selectedRows.length !== selectedIds.size) setSelectedIds(new Set(selectedRows.map(row => row.queryId)))
-  }, [selectedRows, selectedIds])
+    if (!awaitingResults && selectedRows.length !== selectedIds.size) setSelectedIds(new Set(selectedRows.map(row => row.queryId)))
+  }, [awaitingResults, selectedRows, selectedIds])
+
+  // "Show all" took its own button off the page: once the place has changed, the search takes the focus it dropped.
+  useEffect(() => {
+    if (!showingAll.current) return
+    showingAll.current = false
+    if (document.activeElement === document.body) searchField()?.focus()
+  }, [showingAll, measurementScope, measurementScopeKey])
+
+  // A sheet hands the focus back to what opened it. When that has left the page, as the bar does once its rows are changed, the list takes it.
+  const sheetOpen = sheet !== null || addSheetOpen
+  const sheetWasOpen = useRef(false)
+  useEffect(() => {
+    const closed = sheetWasOpen.current && !sheetOpen
+    sheetWasOpen.current = sheetOpen
+    if (!closed) return
+    // After the sheet's own hand-back, which waits a tick.
+    const timer = setTimeout(() => { if (document.activeElement === document.body) focusList() })
+    return () => clearTimeout(timer)
+  }, [sheetOpen])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -218,17 +275,21 @@ function TrackedPage({
       // A key typed into a field, or pressed in a sheet or a menu, is theirs.
       if (target?.closest('input:not([type="checkbox"]), textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) return
       if (event.key === '/') {
-        const field = toolbar.current?.querySelector<HTMLInputElement>('input[type="search"]')
+        const field = searchField()
         if (!field) return
         event.preventDefault()
         field.focus()
       }
       // Escape in the toolbar closes its filters panel.
-      if (event.key === 'Escape' && !toolbar.current?.contains(target)) setSelectedIds(previous => previous.size === 0 ? previous : new Set<string>())
+      if (event.key === 'Escape' && !toolbar.current?.contains(target)) {
+        // The bar goes with the selection, so focus inside it moves to the list.
+        if (target && document.getElementById(bulkBarId)?.contains(target)) focusList()
+        setSelectedIds(previous => previous.size === 0 ? previous : new Set<string>())
+      }
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [bulkBarId])
 
   // The sheet opens on the Place when it is one market or one location. A market with no location left takes no query, so it is not offered.
   const addTo = place?.summary.kind === 'location' || (place?.summary.kind === 'market' && place.summary.market.targetKeys?.length !== 0) ? place.narrow : undefined
@@ -257,52 +318,68 @@ function TrackedPage({
     if (!first) return
     if (rowAction === 'copy-link') void copyLink(first)
     else if (rowAction === 'track') openAddSheet(rows.map(row => row.queryText).join('\n'))
-    else setSheet({ action: rowAction, rows })
+    // A sheet changes the query, so it takes the whole row, with every type it is asked under, not the place's reading of it.
+    else setSheet({ action: rowAction, rows: rows.map(row => allRows.find(whole => whole.queryId === row.queryId) ?? row) })
   }
 
+  const barShown = canEdit && selectedRows.length > 0
+  /** A button of the bar that can take the focus: the first is its first action, the last is Clear. */
+  const bulkBarButton = (index: number) => [...document.getElementById(bulkBarId)?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? []].at(index)
   // The bar offers what applies to every selected row. Asked and not asked rows share no action.
   const askedSelected = selectedRows.filter(row => row.subject.kind !== 'none').length
   const bulkActions: TrackedBulkAction[] = selectedRows.length === 0 ? [] : askedSelected === selectedRows.length ? ['change-type', 'stop'] : askedSelected === 0 ? ['track', 'remove'] : []
 
   const setFilters = (next: TrackedFilters) => onTrackedFiltersChange(next)
-  const clearFilters = () => {
+  const narrowed = tokens.length > 0 || activeFilterCount(filters) > 0
+  // An empty state's action takes its own button off the page, so the search holds the focus for it.
+  const clearAll = () => {
     setSearch('')
     setFilters(DEFAULT_TRACKED_FILTERS)
+    searchField()?.focus()
+  }
+  const showHidden = () => {
+    setFilters({ ...filters, status: 'not-asked' })
+    searchField()?.focus()
   }
   // The rows that are not asked, whatever else was filtered: the strip's count of them is for the whole project.
   const showNotAsked = () => {
     setSearch('')
     setFilters({ ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' })
   }
-  const showAll = () => onSelectionChange?.({ measurementScope: 'project', measurementScopeKey: undefined })
 
   const { run } = results
+  // The Add button beside the tabs is the page's one primary action, so this one is outlined.
   const emptyState = workspace.tracked.length === 0 ? (
-    <StatusNote icon={Inbox} label="No queries yet" action={canEdit ? <WriteButton type="button" size="sm" className={TOUCH} onClick={() => openAddSheet()}>{addLabel}</WriteButton> : undefined} />
+    <StatusNote icon={Inbox} label="No queries yet" action={canEdit ? <WriteButton type="button" variant="outline" size="sm" className={TOUCH} onClick={() => openAddSheet()}>{addLabel}</WriteButton> : undefined} />
   ) : placeRows.length === 0 ? (
     <StatusNote icon={MapPinOff} label="No queries here" action={<Button type="button" variant="outline" size="sm" className={TOUCH} aria-label={VISIBILITY_SCOPE_RECOVERY_COPY.showRoot(rootLabel)} onClick={showAll}>{VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite}</Button>} />
+  ) : !narrowed ? (
+    // Nothing is narrowed, so every query here is one the clean Status leaves out.
+    <StatusNote icon={CirclePause} label="None asked" action={<Button type="button" variant="outline" size="sm" className={TOUCH} onClick={showHidden}>Show not asked</Button>} />
   ) : (
     <StatusNote
       icon={SearchX}
       label="No queries match"
-      // Both in one box, so on a phone they wrap under the label together.
+      // Both in one box, so on a phone they wrap under the label together. Clear all clears the search too, which the toolbar's Clear filters does not.
       action={<span className="inline-flex flex-wrap justify-center gap-2">
-        <Button type="button" variant="outline" size="sm" className={TOUCH} onClick={clearFilters}>Clear filters</Button>
-        {listed.hiddenNotAsked ? <Button type="button" variant="outline" size="sm" className={TOUCH} onClick={() => setFilters({ ...filters, status: 'not-asked' })}>Show not asked</Button> : null}
+        <Button type="button" variant="outline" size="sm" className={TOUCH} onClick={clearAll}>Clear all</Button>
+        {listed.hiddenNotAsked ? <Button type="button" variant="outline" size="sm" className={TOUCH} onClick={showHidden}>Show not asked</Button> : null}
       </span>}
     />
   )
   const legend = (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 md:justify-end">
       {results.isError ? (
-        <StatusNote
-          icon={AlertTriangle}
-          tone="caution"
-          label="Results unavailable"
-          detail={COPY.resultsUnavailable}
-          // Set into the legend's line with a mouse, so a failed read does not move the table.
-          action={<Button type="button" variant="outline" size="sm" className={`-my-1.5 pointer-coarse:my-0 max-md:my-0 ${TOUCH}`} aria-label="Retry results" onClick={() => { void results.refetch() }}>Retry</Button>}
-        />
+        <div role="status">
+          <StatusNote
+            icon={AlertTriangle}
+            tone="caution"
+            label="Results unavailable"
+            detail={COPY.resultsUnavailable}
+            // Set into the legend's line with a mouse, so a failed read does not move the table.
+            action={<Button type="button" variant="outline" size="sm" className={`-my-1.5 pointer-coarse:my-0 max-md:my-0 ${TOUCH}`} aria-label="Retry results" onClick={() => { void results.refetch() }}>Retry</Button>}
+          />
+        </div>
       ) : null}
       {/* The chips are the last sweep's: a query changed since has none until the next one. */}
       {run && !run.matchesCurrentTracking ? (
@@ -342,44 +419,59 @@ function TrackedPage({
         {/* With nothing to list there is nothing to search or filter. */}
         {placeRows.length > 0 ? (
           <div ref={toolbar}>
-            <TrackedToolbar search={search} onSearchChange={setSearch} filters={filters} onFiltersChange={setFilters} shown={sorted.length} total={placeRows.length} legend={legend} />
+            <TrackedToolbar search={search} onSearchChange={setSearch} filters={filters} onFiltersChange={setFilters} shown={awaitingResults ? undefined : sorted.length} total={placeRows.length} legend={legend} />
           </div>
         ) : null}
-        <TrackedTable
-          rows={pageRows}
-          engines={engines}
-          coverage={results.coverage}
-          sort={sort}
-          onSortChange={setSort}
-          selectedIds={canEdit ? selectedIds : undefined}
-          onSelectedIdsChange={canEdit ? setSelectedIds : undefined}
-          highlightedId={trackingQueryId}
-          renderRowMenu={embedded ? undefined : row => <TrackedRowMenu row={row} workspace={workspace} onAction={(rowAction, chosen) => act(rowAction, [chosen])} />}
-          nextSweepDate={nextSweepDate}
-          workspace={workspace}
-          contextLabels={rowContextLabels}
-          emptyState={emptyState}
-        />
-        <DataTablePagination
-          page={page}
-          pageSize={pageSize}
-          visibleRows={pageRows.length}
-          totalRows={sorted.length}
-          itemLabel="queries"
-          onPageChange={next => setPaging({ key: listKey, page: next })}
-          pageSizeOptions={PAGE_SIZES}
-          onPageSizeChange={setPageSize}
-        />
-        {canEdit && selectedRows.length > 0 ? (
+        {/* The bar follows the list and its pages, a long way off by keyboard. This is the way there, drawn only under focus. */}
+        {barShown ? (
+          <div className="relative">
+            <a href={`#${bulkBarId}`} className="tracked-skip" onClick={event => { event.preventDefault(); bulkBarButton(0)?.focus() }}>Selected actions</a>
+          </div>
+        ) : null}
+        {awaitingResults ? <TrackedTableSkeleton /> : (
+          <div ref={list}>
+            <TrackedTable
+              rows={pageRows}
+              engines={engines}
+              coverage={results.coverage}
+              sort={sort}
+              onSortChange={setSort}
+              // With no row to tick there is no box to draw.
+              selectedIds={canEdit && sorted.length > 0 ? selectedIds : undefined}
+              onSelectedIdsChange={canEdit && sorted.length > 0 ? setSelectedIds : undefined}
+              highlightedId={trackingQueryId}
+              renderRowMenu={embedded ? undefined : row => <TrackedRowMenu row={row} workspace={workspace} onAction={(rowAction, chosen) => act(rowAction, [chosen])} />}
+              nextSweepDate={nextSweepDate}
+              workspace={workspace}
+              contextLabels={rowContextLabels}
+              // The section is Tracked queries, so the table inside it has a name of its own.
+              label="Queries"
+              emptyState={emptyState}
+            />
+            <DataTablePagination
+              page={page}
+              pageSize={pageSize}
+              visibleRows={pageRows.length}
+              totalRows={sorted.length}
+              itemLabel="queries"
+              onPageChange={next => setPaging({ key: listKey, page: next })}
+              pageSizeOptions={PAGE_SIZES}
+              onPageSizeChange={setPageSize}
+            />
+          </div>
+        )}
+        {barShown ? (
           <TrackedBulkBar
+            id={bulkBarId}
             selectedCount={selectedRows.length}
             maxRows={TRACKED_BULK_MAX}
             actions={bulkActions}
             onAction={bulkAction => act(bulkAction, selectedRows)}
             note={bulkActions.length === 0 ? <StatusNote icon={Info} label="Mixed selection" detail={COPY.mixedSelection} /> : undefined}
             selectAllCount={sorted.length}
-            onSelectAll={selectedRows.length < sorted.length ? () => setSelectedIds(new Set(sorted.map(row => row.queryId))) : undefined}
-            onClear={() => setSelectedIds(new Set<string>())}
+            // Select all leaves the bar once every row is ticked, and Clear takes the bar with it: each hands its focus on.
+            onSelectAll={selectedRows.length < sorted.length ? () => { setSelectedIds(new Set(sorted.map(row => row.queryId))); bulkBarButton(-1)?.focus() } : undefined}
+            onClear={() => { setSelectedIds(new Set<string>()); focusList() }}
             aeroBarVisible={isAeroPreview() || (shouldShowDashboardAgentBar() && aeroAllowedFor({ isAdmin, account }))}
           />
         ) : null}

@@ -3336,6 +3336,22 @@
     @apply line-clamp-2 break-words;
   }
 
+  /* In the table a closed row is one line, so every row is one height: a
+     query, a Subject or a Source too long for its column is cut short at the
+     column's edge. The open row shows all three whole. */
+  .tracked-table[data-layout='table'] .tracked-row:not([data-open]) .tracked-query > span,
+  .tracked-table[data-layout='table'] .tracked-row:not([data-open]) .tracked-cell-source > span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    -webkit-line-clamp: unset;
+  }
+
+  .tracked-row[data-open] .tracked-query > span {
+    @apply line-clamp-none;
+  }
+
   /* Says the row opens: it points right, and down while the row is open. */
   .tracked-query-mark {
     margin-right: 0.25rem;
@@ -3349,6 +3365,19 @@
 
   .tracked-cell-subject {
     @apply break-words text-[13px] leading-[1.35] text-secondary;
+  }
+
+  /* A closed row's Subject: the name gives way to the column's edge and the count after it keeps its place. */
+  .tracked-subject {
+    @apply flex min-w-0 items-baseline gap-x-1;
+  }
+
+  .tracked-subject-name {
+    @apply min-w-0 truncate;
+  }
+
+  .tracked-subject > :not(.tracked-subject-name) {
+    flex: none;
   }
 
   /* A count is a few characters wide. Where a finger is the pointer it takes taps 14px past its box on every side. */
@@ -3407,9 +3436,8 @@
     @apply text-[13px] leading-[1.35] text-secondary;
   }
 
-  /* A pattern's name goes to a second line before it is cut. */
   .tracked-cell-source > span {
-    @apply line-clamp-2 break-words;
+    @apply break-words;
   }
 
   /* No padding above or below: a menu button is taller than a line of text and must not set the row's height. */
@@ -3419,6 +3447,30 @@
 
   .tracked-empty {
     @apply px-2.5 py-8 text-center;
+  }
+
+  /* A note whose action wraps under its label fills the cell, and stays centred in it. */
+  .tracked-empty > span {
+    justify-content: center;
+  }
+
+  /* The way from the list to the bar for its ticked rows, which follows the
+     last page of rows. Drawn only while it holds the focus, over the table's
+     first line, so it moves nothing. */
+  .tracked-skip {
+    @apply sr-only;
+  }
+
+  .tracked-skip:focus-visible {
+    top: 0.25rem;
+    left: 0;
+    z-index: 20;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip-path: none;
+    @apply rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium leading-5 text-accent-fg outline-none ring-2 ring-mono-400 ring-offset-2 ring-offset-bg;
   }
 
   .tracked-detail-row > td {

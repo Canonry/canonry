@@ -1426,6 +1426,55 @@ test('the Queries route reads the workspace and the results once, lists every ty
   expect(page.queryByRole('heading', { name: /^(Edit|Remove) query$/ })).toBeNull()
 })
 
+test('a row link whose query the URL\'s place and filters leave out lands on the row: the URL is widened once and keeps the link', async () => {
+  const base = queryTrackingWorkspaceResponse()
+  // The linked query was stopped after its link was copied: it is asked nowhere, so it is in no place and under no clean Status.
+  const workspace = queryTrackingWorkspaceResponse({
+    tracked: [base.tracked[0]!, { ...base.tracked[0]!, queryId: 'query-stopped', queryText: 'Dentist open late', normalizedText: 'dentist open late', state: 'awaiting-sweep', lastMeasuredAt: null, assignments: [] }],
+  })
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin)
+    if (url.pathname.endsWith('/runs')) return jsonResponse([])
+    if (url.pathname.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (url.pathname.endsWith('/measurement-setup')) return jsonResponse({ state: 'unconfigured', nextAction: 'configure', mode: 'none', activeRevision: null, activeSchemaVersion: null, draft: null })
+    if (url.pathname.endsWith('/query-tracking')) return jsonResponse(workspace)
+    if (url.pathname.endsWith('/query-tracking/results')) return jsonResponse(queryTrackingResultsResponse())
+    if (url.pathname.endsWith('/measurement-query-templates')) return jsonResponse({ templates: [] })
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const fixture = createDashboardFixture({})
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/queries?measurementScope=group&measurementScopeKey=north&trackedSubject=location&trackingQueryId=query-stopped'] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  const linked = (await page.findByRole('button', { name: 'Actions for Dentist open late' })).closest('tr')!
+  expect(linked.hasAttribute('data-highlighted')).toBe(true)
+  expect(within(linked).getByRole('button', { name: 'Dentist open late' }).getAttribute('aria-expanded')).toBe('true')
+  // Both changes land: the filters and the place are two writes to one URL.
+  expect(router.state.location.search).toMatchObject({ trackingQueryId: 'query-stopped', trackedStatus: 'all', measurementScope: 'project' })
+  expect(router.state.location.search.trackedSubject).toBeUndefined()
+  expect(router.state.location.search.measurementScopeKey).toBeUndefined()
+  expect((page.getByRole('combobox', { name: 'Status' }) as HTMLSelectElement).value).toBe('all')
+  expect(page.getByText('Citypoint dentist')).toBeTruthy()
+  expect(page.queryByRole('dialog')).toBeNull()
+
+  // After that the filters are the reader's: hiding the row again is not undone.
+  fireEvent.change(page.getByRole('combobox', { name: 'Status' }), { target: { value: 'asked' } })
+  await waitFor(() => expect(page.queryByText('Dentist open late')).toBeNull())
+  expect(router.state.location.search.trackedStatus).toBeUndefined()
+  expect(router.state.location.search.trackingQueryId).toBe('query-stopped')
+})
+
 // The fixture's Citypoint project has a queued AI sweep; dropping it leaves only the completed one.
 function dashboardFixture(sweepActive: boolean) {
   const fixture = createDashboardFixture({})

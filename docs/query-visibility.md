@@ -65,8 +65,8 @@ An advanced project's Tracked table lists each query with its Subject, its type,
 3. Under a place, check **Applies to**. It starts on **Only {place}**; **Everywhere** changes the whole query. A query asked nowhere else has no such choice.
 4. Select **Review**, check the proposed changes, then select **Publish N changes**.
 
-Ticking rows opens a bar with the actions every ticked row can take: **Change type** and **Stop tracking**, or **Track** and **Remove query** for queries that are asked nowhere. One change takes at most 50 rows.
-**Copy link** in the menu copies a link that opens the table on that row, marked and open. A link never opens a form.
+Ticking rows opens a bar with the actions every ticked row can take: **Change type** and **Stop tracking**, or **Track** and **Remove query** for queries that are asked nowhere. One change takes at most 50 rows. By keyboard, **Selected actions** just before the table jumps to the bar.
+**Copy link** in the menu copies a link that opens the table on that row, marked and open. A link never opens a form. Where the link's place or filters would leave the row out, such as a query stopped since the link was copied, the table clears them once so the row is listed.
 A view-only account sees the table, each row's locations and **Copy link**, and no way to change tracking.
 The chips come from `GET /query-tracking/results` (see "Results per query and engine"). A query changed or added since the last sweep reads **Not checked** until the next one, and **Tracking changed** shows beside the legend.
 

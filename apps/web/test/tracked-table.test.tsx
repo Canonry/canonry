@@ -193,11 +193,20 @@ describe('TrackedTable', () => {
     expect(badge(NOT_ASKED, 'Not asked')).not.toContain('text-info-300')
   })
 
-  it('keeps a market\'s count on the last word of its name', () => {
+  it('keeps a market\'s count after its name in a closed row, and on the last word of the name where the name wraps', () => {
     setup()
     const count = within(rowOf(WAITING)).getByRole('button', { name: '4 locations' })
+    // A closed row is one line: the name is cut short as one piece, and the count stands outside it.
+    const name = count.parentElement!.previousElementSibling as HTMLElement
+    expect([name.className, name.textContent, name.title]).toEqual(['tracked-subject-name', 'Market · Old Mill District', 'Old Mill District'])
+    expect(count.parentElement!.textContent).toBe(' (4)')
+    // The open row wraps. The count is the same button, so it keeps the focus that opened the row.
+    count.focus()
+    fireEvent.click(count)
+    expect(document.activeElement).toBe(count)
     expect(count.parentElement!.textContent).toBe('District (4)')
     expect(count.parentElement!.className).toContain('whitespace-nowrap')
+    expect(rowOf(WAITING).querySelector('.tracked-subject-name')).toBeNull()
   })
 
   it('marks the query as something that opens', () => {
