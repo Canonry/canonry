@@ -10946,6 +10946,7 @@ export type UiTelemetryEvent = {
     event: 'ui.vitals';
     metric: 'LCP' | 'INP' | 'CLS' | 'FCP' | 'TTFB';
     rating: 'good' | 'needs-improvement' | 'poor';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
 };
 
 export type OrganicEvidenceDto = {

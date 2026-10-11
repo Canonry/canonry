@@ -24,6 +24,19 @@ describe('uiTelemetryEventSchema', () => {
     }
   })
 
+  it('accepts the project tab on every event, since the dashboard adds it on every project page', () => {
+    const onProjectPage = { ...ids, page: '/projects/:projectName', tab: 'overview' }
+    for (const event of [
+      { ...onProjectPage, event: 'ui.page_viewed' },
+      { ...onProjectPage, event: 'ui.action', action: 'sweep.launch' },
+      { ...onProjectPage, event: 'ui.error', kind: 'render' },
+      { ...onProjectPage, event: 'ui.vitals', metric: 'TTFB', rating: 'good' },
+    ]) {
+      expect(uiTelemetryEventSchema.safeParse(event).success, JSON.stringify(event)).toBe(true)
+    }
+    expect(uiTelemetryEventSchema.safeParse({ ...onProjectPage, event: 'ui.vitals', metric: 'TTFB', rating: 'good', tab: 'acme-co' }).success).toBe(false)
+  })
+
   it('rejects free text, real paths, unknown keys and unknown enums', () => {
     for (const event of [
       { ...ids, event: 'ui.page_viewed', page: '/projects/acme-co/report' },
