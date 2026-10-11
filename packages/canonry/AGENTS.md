@@ -100,7 +100,7 @@ Rules for `canonry-mcp`, hosted MCP catalogs, guidance generation, MCP parity, a
 File-level rules for the MCP pieces in this package:
 
 - `src/mcp/server.ts` — `createCanonryMcpServer` registers all API tools, then disables non-core tiers unless `--eager`.
-- `src/mcp/tool-registry.ts` - all 256 API tools, including the config apply preview, Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
+- `src/mcp/tool-registry.ts` - all 257 API tools, including the config apply preview, Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
 - `src/mcp/cli.ts` — `canonry-mcp` stdio entrypoint; parses `--read-only`, `--eager`, `--scope`, plus `CANONRY_MCP_*` env. `resolveEffectiveScope()` best-effort probes `GET /keys/self` at startup and forces `read-only` when the configured key is read-only (auto-restricts the catalog to read tools; falls back to the flag scope on any probe failure).
 - `src/mcp/operations-guide.ts` — compact intent routing filtered against the connection's loaded tools; generated source is `docs/agent-operations/v1.md`. No provider calls or permission grants.
 - `src/commands/mcp.ts` — MCP client install helpers: `mcp install`, `mcp config` (writes to client config files only — separate from the `canonry-mcp` stdio bin). `src/mcp-clients.ts` is the registry of supported MCP clients (Claude Desktop, Cursor, Codex) — config-path resolvers and format hints used by `mcp install`/`mcp config`.
@@ -998,3 +998,7 @@ Google performance `--days` remains a separate span from `--window`.
 document and reports the typed per-field diff. It never falls back to a write
 route when preview is unavailable. `canonry_apply_config_preview` is the
 read-only MCP twin; call it before `canonry_apply_config`.
+
+### Targeted project writes
+
+Project update flags use ApiClient PATCH with the loaded revision. Preserve omitted fields and validate explicit revision guards before writing. The legacy route-unavailable fallback re-reads before full PUT but cannot promise atomic conflict detection. Measurement flags normalize through the shared config schema. Native MCP `canonry_project_update` uses the same PATCH route.

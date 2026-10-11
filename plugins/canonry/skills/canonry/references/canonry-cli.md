@@ -92,6 +92,10 @@ cnry project list                              # list all projects
 cnry project create <name> --domain <url> --country US --language en
 cnry project show <name>                       # project detail
 cnry project update <name>                     # update project settings
+cnry project update <name> --add-lead-event book_demo --remove-lead-event old_event
+cnry project update <name> --brand-term "Sample Brand" --add-brand-term "Sample Pro"
+cnry project update <name> --marketing-host offers.example --remove-marketing-host old.example
+cnry project update <name> --display-name "Sample Brand" --expect-revision 4
 cnry project update <name> --dispatch-mode claude=batch   # scheduled sweeps batch this provider (repeatable; see Batch mode below)
 cnry project update <name> --clear-dispatch-mode claude   # back to sync
 cnry project update <name> --negative-review-max-stars 2   # review.negative for 1-2 star Google reviews only (1-4, or "default" for 3)
@@ -104,6 +108,19 @@ cnry project delete <name> --dry-run           # preview cascade impact (GET /de
 cnry status <project>                          # stored run, integration and health status for one project
 cnry status --all [--problems]                 # stored status for every project and connected integration
 ```
+
+Project updates use PATCH and preserve omitted settings and config source. Measurement
+flags are repeatable: `--lead-event`, `--brand-term`, and `--marketing-host` replace
+only their named list; `--add-*` and `--remove-*` adjust it. Lead event matching is
+case-sensitive; brand-term and host removals ignore case. Values use the shared
+measurement validation. `project show` includes these lists in human output.
+
+The CLI sends the revision it read, or validates an explicit positive
+`--expect-revision`. A stale revision returns `PROJECT_REVISION_CONFLICT` without
+writing. A server whose PATCH route is unavailable uses the legacy full PUT after
+a second read confirms the revision is unchanged. That old-server fallback cannot
+provide atomic compare-and-swap protection; upgrade the server for that guarantee.
+The native MCP tool `canonry_project_update` accepts the same partial request.
 
 ### Brand aliases
 

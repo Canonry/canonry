@@ -350,17 +350,13 @@ export async function updateProjectSettings(
     // A route-specific 404 or 405 from PATCH identifies an older server whose
     // API predates PATCH. Preserve the historical full PUT path only for that
     // transport case; application NOT_FOUND responses must propagate.
-    if (!(error instanceof CliError) || !isEndpointMissing(error) || !/route/i.test(error.message)) throw error
-    let latest: ProjectDto
-    try {
-      // Re-read before the legacy request so a changed project is rejected.
-      // The legacy GET followed by PUT has no server-side compare-and-swap;
-      // callers still receive the historical fallback semantics after this
-      // best-effort race check.
-      latest = await client.getProject(name)
-    } catch (readError) {
-      throw readError
-    }
+    if (!(error instanceof CliError) || !isEndpointMissing(error)) throw error
+    if (error.details?.httpStatus !== 405 && !/route/i.test(error.message)) throw error
+    // Re-read before the legacy request so a changed project is rejected.
+    // The legacy GET followed by PUT has no server-side compare-and-swap;
+    // callers still receive the historical fallback semantics after this
+    // best-effort race check.
+    const latest = await client.getProject(name)
     if (latest.configRevision !== project.configRevision) {
       throw new CliError({
         code: 'PROJECT_REVISION_CONFLICT',

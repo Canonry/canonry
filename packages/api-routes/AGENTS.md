@@ -866,3 +866,7 @@ or post-commit callback may run. Keep project-scoped authorization before
 notification planning. Preview output contains notification hosts and event
 changes only, never stored or request webhook URLs. Redacted notification
 sentinels preserve stored IDs, secrets, enabled state, createdAt and source.
+
+### Partial project updates
+
+PATCH `/projects/:name` is existing-project-only and validates the strict `projectPatchRequestSchema`. It shares preparation and transaction logic with PUT, merges measurement one level, preserves config source, and audits patched field names. Empty or revision-only patches are refused. Match `configRevision` in the update predicate before any audit or callback; stale updates return `PROJECT_REVISION_CONFLICT`. Keep project and provider-model authority identical to PUT.

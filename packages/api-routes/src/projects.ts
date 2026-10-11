@@ -510,7 +510,12 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       })
     }
     const patch = parsedBody.data
-    if (Object.keys(patch).length === 0) throw validationError('Project patch must name at least one field.')
+    const patchedFields = Object.keys(patch)
+      .filter(field => field !== 'expectedConfigRevision')
+      .flatMap(field => field === 'measurement'
+        ? Object.keys(patch.measurement ?? {}).map(child => `measurement.${child}`)
+        : [field])
+    if (patchedFields.length === 0) throw validationError('Project patch must name at least one field to update.')
     const { name } = request.params
     const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()
     if (!existing) throw notFound('Project', name)
@@ -543,11 +548,6 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       ...(patch.competitorAutoAliases !== undefined ? { competitorAutoAliases: patch.competitorAutoAliases } : {}),
     }
     const prepared = prepareProjectUpdate(request, body, existing)
-    const patchedFields = Object.keys(patch)
-      .filter(field => field !== 'expectedConfigRevision')
-      .flatMap(field => field === 'measurement'
-        ? Object.keys(patch.measurement ?? {}).map(child => `measurement.${child}`)
-        : [field])
     return updateExistingProject(reply, name, existing, body, prepared, {
       preserveConfigSource: true,
       expectedConfigRevision: patch.expectedConfigRevision,

@@ -48,7 +48,7 @@ describe('updateProjectSettings — provider model overrides', () => {
 
   it('narrows the engine set without stripping the map client-side', async () => {
     // The API owns the prune (one implementation, one semantics). The CLI
-    // echoes the stored map back; sending a pruned copy would put the same rule
+    // omits an untouched map; sending a pruned copy would put the same rule
     // in two places, and the old client-side strip is what turned an ordinary
     // narrowing into an unexplained settings.write 403.
     mockPatchProject.mockResolvedValue({ ...project, providers: ['gemini'], providerModels: { gemini: 'gemini-2.5-pro' } })

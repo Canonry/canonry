@@ -135,6 +135,13 @@ describe('project measurement update flags', () => {
     })
   })
 
+  it('uses the legacy fallback when an older server rejects PATCH with HTTP 405', async () => {
+    mockPatchProject.mockRejectedValue(new CliError({ code: 'API_ERROR', message: 'Method Not Allowed', details: { httpStatus: 405 } }))
+    await run('project', 'update', 'measurement-project', '--add-lead-event', 'book_demo')
+    expect(mockGetProject).toHaveBeenCalledTimes(2)
+    expect(mockPutProject).toHaveBeenCalledTimes(1)
+  })
+
   it('does not turn a project NOT_FOUND response into a creating PUT', async () => {
     mockGetProject
       .mockResolvedValueOnce(project)

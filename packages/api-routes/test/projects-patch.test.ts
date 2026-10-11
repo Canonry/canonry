@@ -2,9 +2,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClient, measurementPlans, measurementPlanVersions, migrate, projects } from '@ainyc/canonry-db'
+import { auditLog, createClient, measurementPlans, measurementPlanVersions, migrate, projects } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
@@ -140,6 +140,18 @@ describe('PATCH project', () => {
     const missing = await app.inject({ method: 'PATCH', url: '/api/v1/projects/missing-patch-project', payload: { measurement: { brandTerms: ['x'] } } })
     expect(missing.statusCode).toBe(404)
     expect(db.select().from(projects).where(eq(projects.name, 'missing-patch-project')).get()).toBeUndefined()
+  })
+
+  it('rejects revision-only and empty nested patches without auditing or incrementing the revision', async () => {
+    const before = await seed()
+    const auditBefore = db.select().from(auditLog).all()
+    for (const payload of [{ expectedConfigRevision: before.configRevision }, { measurement: {} }]) {
+      const response = await app.inject({ method: 'PATCH', url: '/api/v1/projects/patch-project', payload })
+      expect(response.statusCode).toBe(400)
+      expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } })
+      expect(db.select().from(projects).where(eq(projects.id, before.id as string)).get()?.configRevision).toBe(before.configRevision)
+      expect(db.select().from(auditLog).all()).toEqual(auditBefore)
+    }
   })
 
   it('rejects a stale revision without changing the row', async () => {
