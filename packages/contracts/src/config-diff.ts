@@ -249,7 +249,7 @@ export function diffProjectConfigState(before: ProjectConfigState | null, after:
     || notifications.added.length > 0 || notifications.removed.length > 0 || notifications.kept.length > 0
     || queries.snapshotsDetached > 0
   return {
-    project: { id: after.project.id, name: after.project.name },
+    project: { id: before?.project.id ?? null, name: after.project.name },
     action: before ? (changed ? 'update' : 'none') : 'create',
     changed,
     configRevision: { before: before?.configRevision ?? null, after: after.configRevision },

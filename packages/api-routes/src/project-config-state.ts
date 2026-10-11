@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, count, eq, isNull } from 'drizzle-orm'
 import { competitors, notifications, projects, queries, querySnapshots, runs, schedules, readNegativeReviewMaxStars, type DatabaseClient } from '@ainyc/canonry-db'
 import { redactNotificationUrl } from './notification-redaction.js'
 import { SchedulableRunKinds, type ProjectConfigState } from '@ainyc/canonry-contracts'
@@ -28,11 +28,11 @@ export function readProjectConfigState(
     eq(schedules.kind, SchedulableRunKinds['answer-visibility']),
   )).get()
   const projectNotifications = db.select().from(notifications).where(eq(notifications.projectId, project.id)).all()
-  const detachedSnapshotCount = db.select({ id: querySnapshots.id })
+  const detachedSnapshotCount = db.select({ count: count(querySnapshots.id) })
     .from(querySnapshots)
     .innerJoin(runs, eq(querySnapshots.runId, runs.id))
     .where(and(eq(runs.projectId, project.id), isNull(querySnapshots.queryId)))
-    .all().length
+    .get()?.count ?? 0
 
   return {
     project: { id: project.id, name: project.name },

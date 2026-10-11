@@ -30,6 +30,7 @@ describe('diffProjectConfigState', () => {
     }))
     expect(result).toMatchObject({
       action: 'create',
+      project: { id: null, name: 'created' },
       changed: true,
       queries: { added: ['new query'], removed: [] },
       competitors: { added: ['new.example'], removed: [] },

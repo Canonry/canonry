@@ -74,6 +74,7 @@ test('apply preview returns redacted per-resource changes and rolls back all wri
       url: '/api/v1/apply/preview',
       payload: config('preview-project', {
         displayName: 'Preview project changed',
+        aliases: ['Preview Alias'],
         queries: ['second query'],
         competitors: ['new.example'],
         schedule: { preset: 'weekly', timezone: 'UTC' },
@@ -92,7 +93,7 @@ test('apply preview returns redacted per-resource changes and rolls back all wri
       competitors: { managed: true, added: ['new.example'], removed: ['old.example'] },
       schedule: { managed: true, action: 'update' },
       notifications: { managed: true, kept: [{ id: notificationId, urlHost: '127.0.0.1', eventsBefore: ['run.completed'], eventsAfter: ['run.failed'] }] },
-      effects: ['competitor-auto-alias-rescan', 'schedule-reload', 'gsc-property-update'],
+      effects: ['mention-backfill', 'competitor-auto-alias-rescan', 'schedule-reload', 'gsc-property-update'],
     })
     expect(JSON.stringify(body)).not.toContain('http://127.0.0.1/hook')
     expect(callbacks).toEqual(callbackBefore)

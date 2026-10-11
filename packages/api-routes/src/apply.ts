@@ -468,7 +468,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         if (!afterState) throw new Error('Applied project state was not readable inside the transaction')
         const effects: ApplyPreviewDto['effects'] = []
         if (aliasesChanged) effects.push('mention-backfill')
-        if (lifecycle.competitorAliasesChanged) effects.push('competitor-rescore')
+        else if (lifecycle.competitorAliasesChanged) effects.push('competitor-rescore')
         if (lifecycle.competitorsAdded) effects.push('competitor-auto-alias-rescan')
         if (scheduleAction) effects.push('schedule-reload')
         if ('google' in rawSpec && config.spec.google?.gsc?.propertyUrl) effects.push('gsc-property-update')
