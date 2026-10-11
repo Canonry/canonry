@@ -29,6 +29,7 @@ import {
 } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
+import { selectLandscapePopulation } from '../src/competitor-landscape.js'
 import { readVisibilityReport } from '../src/visibility-report.js'
 import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
 
@@ -907,6 +908,15 @@ describe('GET /projects/:name/analytics/competitors', () => {
       marketSnapshot('market_current_snapshot', 'market_current_run', 'current-node', 'Northwind and Current Rival are alternatives.', 'current-rival.example'),
       marketSnapshot('market_out_of_scope', 'market_current_run', 'not-a-market-node', 'Northwind and Rival are alternatives.', 'rival.example'),
     ]).run()
+
+    const regionalPopulation = selectLandscapePopulation({ db }, 'northwind', {
+      window: 'all', groupKey: 'regional', queryClass: 'non-brand',
+    }, { answerTextCap: 2 })
+    expect(regionalPopulation.eligibleSnapshots.map(snapshot => snapshot.id).sort()).toEqual([
+      'market_current_snapshot', 'market_old_snapshot',
+    ])
+    expect(regionalPopulation.eligibleSnapshots.every(snapshot => snapshot.answerText !== null)).toBe(true)
+    expect(regionalPopulation.eligibleSnapshots.every(snapshot => snapshot.rawResponse === null)).toBe(true)
 
     const groupResponse = await app.inject({
       method: 'GET',
