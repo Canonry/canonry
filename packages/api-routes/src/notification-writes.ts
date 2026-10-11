@@ -35,9 +35,15 @@ export function planNotificationSet(
         continue
       }
       if (isRedactedNotificationUrl(entry.url)) {
-        throw validationError(`Redacted notification ${entry.id} does not match a stored notification.`, {
-          issues: [{ path: `spec.notifications.${index}.url`, message: 'Redacted URL does not match a stored notification.' }],
+        throw validationError(`Redacted notification ${entry.id} does not match a stored notification. Re-export it, use --include-secrets, or provide a real URL.`, {
+          issues: [{ path: `spec.notifications.${index}.url`, message: 'Redacted URL does not match a stored notification. Re-export it, use --include-secrets, or provide a real URL.' }],
         })
+      }
+      const existingByUrl = stored.find(row => !claimed.has(row.id) && row.config.url === entry.url)
+      if (existingByUrl) {
+        claimed.add(existingByUrl.id)
+        kept.push({ stored: existingByUrl, desired: entry })
+        continue
       }
       added.push(entry)
       continue
@@ -66,20 +72,24 @@ export function planNotificationSet(
 
 type NotificationTransaction = Parameters<Parameters<DatabaseClient['transaction']>[0]>[0]
 
+export interface NotificationSyncResult {
+  added: Array<{ id: string; entry: ConfigNotification }>
+}
+
 /** Apply a prevalidated plan while preserving IDs, secrets, source, and state. */
 export function syncNotificationSet(
   tx: NotificationTransaction,
   projectId: string,
   plan: NotificationSetPlan,
   now: string,
-): void {
+): NotificationSyncResult {
+  const added: NotificationSyncResult['added'] = []
   for (const item of plan.kept) {
-    const source = item.stored.config.source
     tx.update(notifications).set({
       config: {
+        ...item.stored.config,
         url: isRedactedNotificationUrl(item.desired.url) ? item.stored.config.url : item.desired.url,
         events: item.desired.events,
-        ...(source ? { source } : {}),
       },
       updatedAt: now,
     }).where(eq(notifications.id, item.stored.id)).run()
@@ -90,8 +100,9 @@ export function syncNotificationSet(
   }
 
   for (const entry of plan.added) {
+    const id = crypto.randomUUID()
     tx.insert(notifications).values({
-      id: crypto.randomUUID(),
+      id,
       projectId,
       channel: entry.channel,
       config: { url: entry.url, events: entry.events },
@@ -100,13 +111,16 @@ export function syncNotificationSet(
       createdAt: now,
       updatedAt: now,
     }).run()
+    added.push({ id, entry })
   }
+
+  return { added }
 }
 
-export function notificationAuditDiff(plan: NotificationSetPlan): unknown {
+export function notificationAuditDiff(plan: NotificationSetPlan, sync: NotificationSyncResult): unknown {
   return {
     kept: plan.kept.map(item => item.stored.id),
-    added: plan.added.map(entry => entry.id ?? 'new'),
+    added: sync.added.map(item => item.id),
     removed: plan.removed.map(row => row.id),
   }
 }

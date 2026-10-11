@@ -151,14 +151,6 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       .where(eq(projects.name, name))
       .get()
 
-    let notificationPlan: NotificationSetPlan | undefined
-    if (hasNotifications) {
-      const storedNotifications = target
-        ? app.db.select().from(notifications).where(eq(notifications.projectId, target.id)).all()
-        : []
-      notificationPlan = planNotificationSet(storedNotifications, config.spec.notifications)
-    }
-
     // A project-scoped key may only apply to ITS OWN project — never create a
     // new project or overwrite a sibling. The target must already exist and
     // resolve to the key's project (this global route is not under the
@@ -168,6 +160,14 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       if (!target || target.id !== scopedProjectId) {
         throw forbidden('This API key is scoped to a single project and cannot apply this config.')
       }
+    }
+
+    let notificationPlan: NotificationSetPlan | undefined
+    if (hasNotifications) {
+      const storedNotifications = target
+        ? app.db.select().from(notifications).where(eq(notifications.projectId, target.id)).all()
+        : []
+      notificationPlan = planNotificationSet(storedNotifications, config.spec.notifications)
     }
 
     // Same instance-level gate as PUT /projects/:name — apply may not be a
@@ -426,14 +426,14 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
 
       // Handle notifications
       if (hasNotifications) {
-        syncNotificationSet(tx, projectId, notificationPlan!, now)
+        const notificationSync = syncNotificationSet(tx, projectId, notificationPlan!, now)
 
         writeAuditLog(tx, {
           projectId,
           actor: 'api',
           action: 'notifications.replaced',
           entityType: 'notification',
-          diff: { notifications: notificationAuditDiff(notificationPlan!) },
+          diff: { notifications: notificationAuditDiff(notificationPlan!, notificationSync) },
         })
       }
     }, { behavior: 'immediate' })

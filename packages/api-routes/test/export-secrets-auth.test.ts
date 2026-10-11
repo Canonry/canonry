@@ -129,6 +129,32 @@ test('includeSecrets requires wildcard authority and an administrator session', 
     expect(normalExport.statusCode).toBe(200)
     expect(normalExport.body).not.toContain('/secret/export')
     expect(normalExport.json().spec.notifications[0].url).toBe('redacted://hooks.example.com/secret-export-notification')
+
+    const scopedApply = await app.inject({
+      method: 'POST',
+      url: '/api/v1/apply',
+      headers: auth(SCOPED_WILDCARD_KEY),
+      payload: {
+        apiVersion: 'canonry/v1',
+        kind: 'Project',
+        metadata: { name: 'other-project' },
+        spec: {
+          displayName: 'Other project',
+          canonicalDomain: 'other-project.example',
+          country: 'US',
+          language: 'en',
+          notifications: [{
+            id: 'hidden-notification-id',
+            channel: 'webhook',
+            url: 'redacted://hooks.example.com/hidden-notification-id',
+            events: ['run.completed'],
+          }],
+        },
+      },
+    })
+    expect(scopedApply.statusCode).toBe(403)
+    expect(scopedApply.body).not.toContain('hidden-notification-id')
+    expect(scopedApply.body).not.toContain('redacted://')
   } finally {
     await app.close()
     db.$client.close()
