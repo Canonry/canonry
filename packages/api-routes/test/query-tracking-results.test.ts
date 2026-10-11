@@ -1045,7 +1045,10 @@ describe('query tracking results: cost', () => {
 
   it('reads 940 queries, 3 engines and 20 revisions inside its budget', { timeout: 120_000 }, async () => {
     // For answers of about 4,000 characters: the read's time grows with answer length.
-    const BUDGET_MS = 1_000
+    // A ceiling for a loaded machine, not the target: alone this read takes about a quarter of a second.
+    // What keeps it fast is pinned exactly below (plans parsed, tables read). At 1 s the wall clock failed
+    // whenever other test files shared the box.
+    const BUDGET_MS = 5_000
     const large = largePortfolio(190, 137)
     const plan = planOf(large)
     expect(plan.querySnapshots).toHaveLength(940)
