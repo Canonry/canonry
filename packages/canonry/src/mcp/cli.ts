@@ -60,9 +60,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   // person who is not reading it is noise on every single launch. The heal
   // itself still happens; only the narration is dropped.
   //
-  // Fire-and-forget: the server must not wait on a filesystem refresh, and the
-  // sync swallows its own errors.
-  void autoSyncSkills()
+  // Stored-only mode keeps startup free of local skill writes and update
+  // checks. The sync swallows its own errors in ordinary MCP modes.
+  if (options.scope !== 'stored-only') void autoSyncSkills()
 
   // Build the client once, auto-detect a read-only key, then reuse the same
   // client for the server (keeps one client per server instance).
@@ -73,7 +73,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   // MCP-only agent never runs the CLI, so this is the only place it can learn
   // that the install is behind. Best-effort, opt-out aware, and refreshed
   // hourly for hosts that keep this process alive for days.
-  const updateNotice = createUpdateNoticeSource(client)
+  const updateNotice = options.scope === 'stored-only'
+    ? { refresh: async () => undefined, get: () => null }
+    : createUpdateNoticeSource(client)
   const [authorization] = await Promise.all([
     resolveEffectiveAuthorization(client, options.scope),
     updateNotice.refresh(),
@@ -138,16 +140,18 @@ export function parseCliOptions(
     throw new HelpRequested()
   }
   let scope = normalizeScope(env.CANONRY_MCP_SCOPE)
-  if (['1', 'true'].includes((env.CANONRY_STORED_ONLY ?? '').toLowerCase())) scope = 'stored-only'
+  let storedOnlyRequested = ['1', 'true'].includes((env.CANONRY_STORED_ONLY ?? '').toLowerCase()) || scope === 'stored-only'
+  if (storedOnlyRequested) scope = 'stored-only'
   let eager = parseEagerEnv(env.CANONRY_MCP_EAGER)
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === '--read-only') {
-      scope = 'read-only'
+      if (!storedOnlyRequested) scope = 'read-only'
       continue
     }
     if (arg === '--stored-only') {
+      storedOnlyRequested = true
       scope = 'stored-only'
       continue
     }
@@ -158,17 +162,21 @@ export function parseCliOptions(
     if (arg === '--scope') {
       const next = argv[i + 1]
       if (!next) throw new Error('Missing value for --scope')
-      scope = normalizeScope(next)
+      const requestedScope = normalizeScope(next)
+      if (requestedScope === 'stored-only') storedOnlyRequested = true
+      if (!storedOnlyRequested) scope = requestedScope
       i += 1
       continue
     }
     if (arg?.startsWith('--scope=')) {
-      scope = normalizeScope(arg.slice('--scope='.length))
+      const requestedScope = normalizeScope(arg.slice('--scope='.length))
+      if (requestedScope === 'stored-only') storedOnlyRequested = true
+      if (!storedOnlyRequested) scope = requestedScope
       continue
     }
     throw new Error(`Unknown canonry-mcp argument: ${arg}`)
   }
-  return { scope, eager }
+  return { scope: storedOnlyRequested || scope === 'stored-only' ? 'stored-only' : scope, eager }
 }
 
 function normalizeScope(value: string | undefined): CanonryMcpScope {

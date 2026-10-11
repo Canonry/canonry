@@ -890,6 +890,26 @@ export function classifyStoredOnlyRequest(method: string, url: string): { operat
   }
 }
 
+function storedOnlyRequestHeaders(method: string, url: string): Record<string, string> {
+  if (!['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())) return {}
+  const { operation, access } = classifyStoredOnlyRequest(method, url)
+  if (access !== 'stored') {
+    throw new CliError({
+      code: 'STORED_ONLY_REFUSED',
+      message: `Stored-only mode refuses ${access} operation ${operation}`,
+      details: { operation, access },
+      exitCode: EXIT_USER_ERROR,
+    })
+  }
+  return { [STORED_ONLY_HEADER]: '1' }
+}
+
+function storedOnlyProbeHeaders(): Record<string, string> {
+  return ['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())
+    ? { [STORED_ONLY_HEADER]: '1' }
+    : {}
+}
+
 const SAFE_CLIENT_NAME = /^\w[\w./-]{0,127}$/
 const SAFE_ACTOR_SESSION = /^\w[\w.:-]{0,127}$/
 
@@ -1024,18 +1044,7 @@ export class ApiClient {
     }
     this.heyClient = createHeyClient({ baseUrl: this.originUrl, apiKey: this.apiKey, headers: this.requestHeaders })
     this.heyClient.interceptors.request.use((request) => {
-      if (['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())) {
-        const { operation, access } = classifyStoredOnlyRequest(request.method, request.url.toString())
-        if (access !== 'stored') {
-          throw new CliError({
-            code: 'STORED_ONLY_REFUSED',
-            message: `Stored-only mode refuses ${access} operation ${operation}`,
-            details: { operation, access },
-            exitCode: EXIT_USER_ERROR,
-          })
-        }
-        request.headers.set(STORED_ONLY_HEADER, '1')
-      }
+      for (const [key, value] of Object.entries(storedOnlyRequestHeaders(request.method, request.url.toString()))) request.headers.set(key, value)
       const tags = usageTagStore.getStore()
       if (tags?.mcpTool) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpTool, tags.mcpTool)
       if (tags?.mcpCall) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpCall, tags.mcpCall)
@@ -1060,6 +1069,7 @@ export class ApiClient {
         try {
           const origin = new URL(this.originUrl).origin
           const res = await fetch(`${origin}/health`, {
+            headers: storedOnlyProbeHeaders(),
             signal: AbortSignal.timeout(2000),
           })
           if (res.ok) {
@@ -1264,10 +1274,12 @@ export class ApiClient {
    * and releases the response when done.
    */
   async streamPost(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
-    await this.probeBasePath()
     const url = `${this.originUrl}/api/v1${path}`
+    const storedOnlyHeaders = storedOnlyRequestHeaders('POST', url)
+    await this.probeBasePath()
     const headers: Record<string, string> = {
       ...this.requestHeaders,
+      ...storedOnlyHeaders,
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     }
@@ -1411,13 +1423,14 @@ export class ApiClient {
     if (opts.until) params.set('until', opts.until)
     if (opts.includeProbes) params.set('includeProbes', 'true')
     const url = `${this.originUrl}/api/v1/projects/${encodeURIComponent(project)}/results/export?${params.toString()}`
+    const storedOnlyHeaders = storedOnlyRequestHeaders('GET', url)
 
     let res: Response
     try {
       // The shared headers carry the surface label; without them a CLI export
       // is indistinguishable from a raw API caller in usage telemetry.
       res = await fetch(url, {
-        headers: { ...this.requestHeaders },
+        headers: { ...this.requestHeaders, ...storedOnlyHeaders },
       })
     } catch (err) {
       const message = describeError(err)
@@ -2534,6 +2547,7 @@ export class ApiClient {
    * never run the CLI about a newer release.
    */
   async getServerUpdateAvailable(): Promise<ServerUpdateAvailable | null> {
+    if (storedOnlyProbeHeaders()[STORED_ONLY_HEADER]) return null
     try {
       await this.probeBasePath()
       const res = await fetch(`${this.originUrl}/health`, { signal: AbortSignal.timeout(2000) })

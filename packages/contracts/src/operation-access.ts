@@ -14,6 +14,8 @@ export const LIVE_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/gbp/accounts',
   'GET /api/v1/projects/{name}/ga/properties',
   'GET /api/v1/projects/{name}/bing/sites',
+  // Performance reads query Bing directly rather than the local snapshot.
+  'GET /api/v1/projects/{name}/bing/performance',
   'GET /api/v1/projects/{name}/doctor',
   'GET /api/v1/doctor',
   'GET /api/v1/backlinks/latest-release',
@@ -37,12 +39,12 @@ export const LIVE_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/wordpress/staging/status',
   'GET /api/v1/projects/{name}/discover/sessions/{id}/harvest',
   'GET /api/v1/cdp/status',
+  'POST /api/v1/apply/preview',
   'POST /api/v1/projects/{name}/measurement-discovery',
 ])
 
 /** POST previews that calculate from supplied or draft data without persistence. */
 export const READ_SEMANTIC_OPERATIONS: ReadonlySet<string> = new Set([
-  'POST /api/v1/apply/preview',
   'POST /api/v1/projects/{name}/competitor-changes/preview',
   'POST /api/v1/projects/{name}/measurement-plan/compile-preview',
   'POST /api/v1/projects/{name}/measurement-plan/diff-preview',
@@ -50,6 +52,14 @@ export const READ_SEMANTIC_OPERATIONS: ReadonlySet<string> = new Set([
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-group-membership',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/compile-preview',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/diff-preview',
+])
+
+/** GET callbacks and provider-backed reads that have write side effects. */
+export const WRITE_EFFECT_OPERATIONS: ReadonlySet<string> = new Set([
+  'GET /api/v1/google/callback',
+  'GET /api/v1/projects/{name}/google/callback',
+  'GET /api/v1/google-marketing/callback',
+  'GET /api/v1/projects/{name}/bing/coverage',
 ])
 
 /** Stored provider-free reads represented by the current OpenAPI and MCP catalog. */
@@ -70,6 +80,7 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/delete-preview',
   'GET /api/v1/projects/{name}/locations',
   'GET /api/v1/projects/{name}/export',
+  'GET /api/v1/projects/{name}/results/export',
   'GET /api/v1/projects/{name}/queries',
   'GET /api/v1/projects/{name}/keywords',
   'GET /api/v1/projects/{name}/competitors',
@@ -164,10 +175,8 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/conversion-tracking/contracts/{contractId}',
   'GET /api/v1/projects/{name}/conversion-tracking/contracts/{contractId}/integrity',
   'GET /api/v1/projects/{name}/bing/status',
-  'GET /api/v1/projects/{name}/bing/coverage',
   'GET /api/v1/projects/{name}/bing/coverage/history',
   'GET /api/v1/projects/{name}/bing/inspections',
-  'GET /api/v1/projects/{name}/bing/performance',
   'GET /api/v1/projects/{name}/traffic/sources',
   'GET /api/v1/projects/{name}/traffic/status',
   'GET /api/v1/projects/{name}/traffic/analytics',
@@ -240,6 +249,7 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
  */
 export function operationAccess(method: string, pathTemplate: string, unknownGetAccess: OperationAccess = 'live'): OperationAccess {
   const operation = `${method.toUpperCase()} ${pathTemplate}`
+  if (WRITE_EFFECT_OPERATIONS.has(operation)) return 'write'
   if (method.toUpperCase() !== 'GET' && READ_SEMANTIC_OPERATIONS.has(operation)) return 'stored'
   if (STORED_READ_OPERATIONS.has(operation)) return 'stored'
   if (method.toUpperCase() === 'GET' && LIVE_READ_OPERATIONS.has(operation)) return 'live'
@@ -278,7 +288,7 @@ function templateMatches(template: string, pathname: string): boolean {
 export function matchOperationTemplate(method: string, pathname: string): string {
   const path = apiPath(pathname)
   const operationMethod = method.toUpperCase()
-  const known = [...LIVE_READ_OPERATIONS, ...READ_SEMANTIC_OPERATIONS, ...STORED_READ_OPERATIONS]
+  const known = [...WRITE_EFFECT_OPERATIONS, ...LIVE_READ_OPERATIONS, ...READ_SEMANTIC_OPERATIONS, ...STORED_READ_OPERATIONS]
     .find(operation => operation.startsWith(`${operationMethod} `) && templateMatches(operation.slice(operationMethod.length + 1), path))
   return known ?? `${operationMethod} ${path}`
 }

@@ -143,6 +143,7 @@ function telemetryErrorCode(err: unknown): string {
 
 export async function runCli(args = process.argv.slice(2)): Promise<number> {
   args = normalizeLeadingGlobalOptions(args)
+  const storedOnlyMode = storedOnlyRequested(args)
   const format = extractFormat(args)
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
     printCliCatalog(REGISTERED_CLI_COMMANDS, format)
@@ -189,13 +190,14 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   // First-run telemetry notice (shown once, to stderr).
   // Skip for the `telemetry` command itself — the user may be about to disable it,
   // and we should not create an anonymousId before they get the chance to opt out.
-  if (!isHelpRequest && command !== 'telemetry' && command !== 'init' && isTelemetryEnabled() && isFirstRun()) {
+  if (!storedOnlyMode && !isHelpRequest && command !== 'telemetry' && command !== 'init' && isTelemetryEnabled() && isFirstRun()) {
     showFirstRunNotice()
     getOrCreateAnonymousId()
   }
 
   const resolvedCommand = resolveCommandIdentifier(args, REGISTERED_CLI_COMMANDS)
   const shouldTrackCommand =
+    !storedOnlyMode &&
     !isHelpRequest &&
     command !== 'telemetry' &&
     isTelemetryEnabled()
@@ -212,10 +214,12 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   // correctness behaviour, and tying it to an analytics opt-in would give the
   // users who opt out a quietly worse product. Never throws, never overwrites a
   // local edit, and prints only when it left one alone.
-  void autoSyncSkills().then((result) => {
-    const notice = formatAutoSyncNotice(result)
-    if (notice && process.stderr.isTTY) console.error(notice)
-  })
+  if (!storedOnlyMode) {
+    void autoSyncSkills().then((result) => {
+      const notice = formatAutoSyncNotice(result)
+      if (notice && process.stderr.isTTY) console.error(notice)
+    })
+  }
 
   if (shouldTrackCommandStart) {
     // Emit `cli.upgraded` once per version bump, before `cli.command`, so
@@ -237,7 +241,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   // the 24h TTL live in `update-check.ts`. The shape follows the caller:
   // banner on a terminal, one plain line when captured, one JSON line for
   // `--format json|jsonl`.
-  if (!isHelpRequest && command !== 'telemetry') {
+  if (!storedOnlyMode && !isHelpRequest && command !== 'telemetry') {
     const update = readCachedUpdateAvailable()
     notePrintedUpdateAvailable(update)
     if (update) {

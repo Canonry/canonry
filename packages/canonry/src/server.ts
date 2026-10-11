@@ -4015,8 +4015,9 @@ export async function createServer(opts: {
   // so resolve them once here; each is omitted, not nulled, when unknown.
   const buildCommit = resolveBuildCommit();
   const instance = resolveInstanceIdentity();
-  const healthHandler = () => {
-    const update = checkLatestVersionForServer();
+  const healthHandler = (request: FastifyRequest) => {
+    const storedOnly = request.headers['x-canonry-stored-only'] === '1' || request.headers['x-canonry-stored-only'] === 'true';
+    const update = checkLatestVersionForServer({ storedOnly });
     return {
       status: "ok",
       service: "canonry",

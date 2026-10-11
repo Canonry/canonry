@@ -60,10 +60,14 @@ describe('CLI and MCP operation access metadata', () => {
   })
 
   it('classifies added route boundaries by actual effect', () => {
-    expect(operationAccess('POST', '/api/v1/apply/preview')).toBe('stored')
+    expect(operationAccess('POST', '/api/v1/apply/preview')).toBe('live')
     expect(operationAccess('POST', '/api/v1/projects/{name}/competitor-changes/preview')).toBe('stored')
     expect(operationAccess('GET', '/api/v1/projects/{name}/competitor-suggestions')).toBe('stored')
     expect(operationAccess('PATCH', '/api/v1/projects/{name}')).toBe('write')
     expect(operationAccess('GET', '/api/v1/doctor')).toBe('live')
+    expect(operationAccess('GET', '/api/v1/projects/{name}/bing/coverage')).toBe('write')
+    expect(operationAccess('GET', '/api/v1/projects/{name}/bing/performance')).toBe('live')
+    expect(operationAccess('GET', '/api/v1/projects/{name}/results/export')).toBe('stored')
+    expect(operationAccess('GET', '/api/v1/google/callback')).toBe('write')
   })
 })
