@@ -3760,6 +3760,12 @@ test('the Tracked filter keys survive a reload and reach the Queries section, an
   const { router } = await renderScopeRoute(`/projects/project_citypoint/queries?${new URLSearchParams({ ...opened, queryClass: 'branded' })}`, trackingRoute())
   expect(router.state.location.search).toMatchObject({ ...opened, queryClass: 'branded' })
   expect(queriesSectionProps().trackedFilters).toEqual({ subject: 'market', type: 'non-brand', status: 'not-asked', source: 'manual', result: 'not-cited' })
+  // The saved view reaches the section too, and the section's own URL patch changes it.
+  expect(queriesSectionProps().trackedView).toBe('thin-markets')
+  act(() => queriesSectionProps().onSelectionChange!({ trackedView: 'pattern-gaps' }))
+  await waitFor(() => expect(queriesSectionProps().trackedView).toBe('pattern-gaps'))
+  act(() => queriesSectionProps().onSelectionChange!({ trackedView: 'thin-markets' }))
+  await waitFor(() => expect(queriesSectionProps().trackedView).toBe('thin-markets'))
 
   // A filter back on its default leaves the URL; every other key stays, the shared query type included.
   act(() => queriesSectionProps().onTrackedFiltersChange!({ type: 'mixed', status: 'asked' }))

@@ -26,6 +26,7 @@ import { TrackingAddQueriesSheet } from '../AddQueriesEntry.js'
 import { TrackingComposer } from '../TrackingComposer.js'
 import { assignmentMatchesSelection } from '../tracked-rows.js'
 import { contextInput, contextLabel, contextLabels, uniqueContextInputs } from '../tracking-contexts.js'
+import { defaultTrackingDraft } from '../tracking-draft.js'
 import { useTrackedResults } from '../use-tracked-results.js'
 import type { TrackedQueriesPageProps, TrackingComposerState } from '../use-tracking-composer.js'
 import { TrackedActionSheet, type TrackedSheetAction } from './TrackedActionSheet.js'
@@ -131,6 +132,8 @@ function searchParamValue(value: string): string {
  * The saved views are the whole project's, so they show with no Place chosen.
  * Each prints the server's count. Four of them (the URL's `trackedView`) list
  * locations, markets or patterns in place of the queries; two set a filter.
+ * A link to a row and a view are never both drawn: the link wins, and
+ * choosing a view drops the link.
  */
 export function AdvancedTrackedPage(props: PageProps) {
   const { onSelectionChange, rootLabel = MARKET_SCOPE_COPY.allLocations } = props
@@ -187,16 +190,23 @@ function TrackedPage({
   // The list's first control: Select this page, or the first header where there is nothing to select. The page stays where it is scrolled to.
   const focusList = () => list.current?.querySelector<HTMLElement>('input, button')?.focus({ preventScroll: true })
 
-  // The saved views are the whole project's: the server lists them for no place, and a place has its own strip and list.
-  const views = place ? undefined : workspace.views
-  const requestedView = views ? trackedPlaceView(trackedView) : undefined
-  // Weakest markets comes with the results: it waits while they load and says so when they fail. With no sweep to read there is no such view.
-  const weakPending = requestedView === 'weak-markets' && results.coverage === undefined
-  const view = requestedView === 'weak-markets' && !results.weakMarkets && !weakPending && !results.isError ? undefined : requestedView
-
   const engines = useMemo(() => [...new Set([...workspace.defaultContexts.flatMap(context => context.providers), ...results.engines])], [workspace.defaultContexts, results.engines])
   const rowContextLabels = useMemo(() => searchLocationNames(workspace), [workspace])
   const allRows = useMemo(() => toTrackedRows(workspace, templates), [workspace, templates])
+
+  // A link opens the table on its row, so no view is drawn over a row the URL names.
+  const linked = trackingQueryId !== undefined && allRows.some(row => row.queryId === trackingQueryId)
+  // The saved views are the whole project's: the server lists them for no place, and a place has its own strip and list.
+  const views = place ? undefined : workspace.views
+  const requestedView = views && !linked ? trackedPlaceView(trackedView) : undefined
+  // Weakest markets comes with the results: it waits while they load and says so when they fail. With no sweep to read there is no such view.
+  const weakPending = requestedView === 'weak-markets' && results.coverage === undefined
+  const view = requestedView === 'weak-markets' && !results.weakMarkets && !weakPending && !results.isError ? undefined : requestedView
+  // A sweep the workspace read already tells of: some query has a result. Only then is Weakest markets expected, so
+  // only then is its place in the Views row held while the results load, or after they fail. Its own open view holds it too.
+  const swept = useMemo(() => workspace.tracked.some(row => row.lastMeasuredAt !== null), [workspace.tracked])
+  const weakButton = results.weakMarkets
+    ?? (!swept && view !== 'weak-markets' ? undefined : results.isError ? 'failed' as const : results.coverage === undefined ? 'pending' as const : undefined)
   // A place lists the queries asked for it. One that is asked nowhere belongs to no place, so it shows for the whole project only.
   // Each is listed under the types it is asked under there, as the results for the place hold them: a query asked both ways
   // across the project and one way here has one pair of chips here, not a second pair no sweep will fill.
@@ -266,6 +276,11 @@ function TrackedPage({
   useEffect(() => {
     if (!awaitingResults && selectedRows.length !== selectedIds.size) setSelectedIds(new Set(selectedRows.map(row => row.queryId)))
   }, [awaitingResults, selectedRows, selectedIds])
+
+  // The view leaves the URL too, so it is not waiting behind the linked row.
+  useEffect(() => {
+    if (linked && trackedView !== undefined) onSelectionChange?.({ trackedView: undefined })
+  }, [linked, trackedView, onSelectionChange])
 
   // A view lists places in place of the queries, so no query stays ticked behind it.
   useEffect(() => {
@@ -339,14 +354,17 @@ function TrackedPage({
   }
   const sheetPlace = addPlace ?? addTo
 
-  // The list as it is filtered, searched and sorted, over every page. Telemetry hears that a file was taken, and none of its text.
+  // The list as it is filtered, searched and sorted, over every page, and named for what narrowed it.
+  // Telemetry hears that a file was taken, and none of its text.
   function exportCsv() {
-    downloadTrackedCsv(projectName, trackedRowsCsv(sorted, engines, results.coverage))
+    downloadTrackedCsv(projectName, trackedRowsCsv(sorted, engines, results.coverage), { placeKey: place?.narrow.key, filtered: narrowed })
     trackUiAction('export.download', { format: 'csv' })
   }
 
   async function copyLink(row: TrackedRowVm) {
     const url = new URL(window.location.href)
+    // The link is to the row, so a view the address still holds is left out of it.
+    url.searchParams.delete('trackedView')
     url.searchParams.set('trackingQueryId', searchParamValue(row.queryId))
     try {
       await navigator.clipboard.writeText(url.toString())
@@ -386,7 +404,9 @@ function TrackedPage({
     searchField()?.focus()
   }
   // The rows that are not asked, whatever else was filtered: the strip's count of them is for the whole project.
+  // They are queries, so an open view closes for them.
   const showNotAsked = () => {
+    if (view) onSelectionChange?.({ trackedView: undefined })
     setSearch('')
     setFilters({ ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' })
   }
@@ -399,14 +419,19 @@ function TrackedPage({
   // The view is a key of the URL, which the host patches through `onSelectionChange`. A second press closes a view.
   function selectView(next: TrackedSavedView) {
     if (next !== 'not-asked' && next !== 'hand-picked') {
-      onSelectionChange?.({ trackedView: next === view ? undefined : next })
+      // A linked row is not on a view's list, so the link goes as the view opens.
+      onSelectionChange?.({ trackedView: next === view ? undefined : next, ...(trackingQueryId === undefined ? {} : { trackingQueryId: undefined }) })
+      return
+    }
+    // A second press takes its own filter off and leaves the search and the other filters as they are.
+    if (activeViews.includes(next)) {
+      setFilters(next === 'not-asked' ? { ...filters, status: DEFAULT_TRACKED_FILTERS.status } : { ...filters, subject: DEFAULT_TRACKED_FILTERS.subject })
       return
     }
     // These two list queries, on clean filters and a clean search, so their counts are the list's. An open view closes for them.
-    const on = activeViews.includes(next)
     if (view) onSelectionChange?.({ trackedView: undefined })
     setSearch('')
-    setFilters(on ? DEFAULT_TRACKED_FILTERS : { ...DEFAULT_TRACKED_FILTERS, ...(next === 'not-asked' ? { status: 'not-asked' as const } : { subject: 'hand-picked' as const }) })
+    setFilters({ ...DEFAULT_TRACKED_FILTERS, ...(next === 'not-asked' ? { status: 'not-asked' as const } : { subject: 'hand-picked' as const }) })
   }
 
   const { run } = results
@@ -461,9 +486,9 @@ function TrackedPage({
       {/* Every role reads the list, so every role can take it away as a file. A view-only account is offered no way to add. With neither, the slot stays empty and closes up. */}
       {actionsSlot && !embedded ? createPortal(
         <>
-          {/* The file holds queries, so it is offered while they are what is listed. Its chips are the results', so it waits for them. */}
+          {/* The file holds queries, so it is offered while they are what is listed. Its chips are the results', so it waits for them, and with none read there is no file: the legend says why and offers Retry. */}
           {workspace.tracked.length > 0 && !view ? (
-            <Button type="button" variant="outline" size="sm" className={TOUCH} disabled={results.coverage === undefined} onClick={exportCsv}>
+            <Button type="button" variant="outline" size="sm" className={TOUCH} disabled={results.coverage === undefined || results.isError} onClick={exportCsv}>
               <Download aria-hidden="true" size={14} />
               Export CSV
             </Button>
@@ -492,8 +517,7 @@ function TrackedPage({
         {views ? (
           <TrackedSavedViews
             views={views}
-            // Its place is held while the results load, so the row does not move when they land.
-            weakMarkets={results.weakMarkets ?? (results.coverage === undefined ? 'pending' : undefined)}
+            weakMarkets={weakButton}
             notAsked={workspace.summary?.notAsked}
             handPicked={workspace.summary?.byFocus.custom}
             active={activeViews}
@@ -503,8 +527,6 @@ function TrackedPage({
         {view && views ? (
           <div ref={list}>
             <TrackedPlaceList
-              // Each view starts on its own first page, with a clean search.
-              key={view}
               view={view}
               workspace={workspace}
               views={views}
@@ -624,7 +646,12 @@ function TrackedPage({
           defaultMarketKey={sheetPlace?.kind === 'market' ? sheetPlace.key : undefined}
           defaultLocationKey={sheetPlace?.kind === 'location' ? sheetPlace.key : undefined}
           defaultText={addText}
-          onOpenComposer={({ text }) => { setAddSheetOpen(false); openAdd('manual', text) }}
+          onOpenComposer={({ text }) => {
+            setAddSheetOpen(false)
+            openAdd('manual', text)
+            // The form opens on the Place. A sheet opened from a view's row was on that row's place, so the form is too.
+            if (addPlace) setDraft({ ...defaultTrackingDraft({ measurementScope: addPlace.kind === 'location' ? 'property' : addPlace.kind, measurementScopeKey: addPlace.key, queryClass: 'all' }), text })
+          }}
           onPublished={() => setSelectedIds(new Set<string>())}
           onClose={() => setAddSheetOpen(false)}
         />

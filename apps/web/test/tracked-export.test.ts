@@ -103,9 +103,17 @@ describe('trackedRowsCsv', () => {
 })
 
 describe('trackedCsvFileName', () => {
+  const day = new Date('2026-10-10T23:30:00.000Z')
+
   test('names the file for the project and the day, with nothing a file name cannot hold', () => {
-    const day = new Date('2026-10-10T23:30:00.000Z')
-    expect(trackedCsvFileName('acme-homes', day)).toBe('canonry-tracked-queries-acme-homes-2026-10-10.csv')
-    expect(trackedCsvFileName('acme homes/north', day)).toBe('canonry-tracked-queries-acme_homes_north-2026-10-10.csv')
+    expect(trackedCsvFileName('acme-homes', {}, day)).toBe('canonry-tracked-queries-acme-homes-2026-10-10.csv')
+    expect(trackedCsvFileName('acme homes/north', undefined, day)).toBe('canonry-tracked-queries-acme_homes_north-2026-10-10.csv')
+  })
+
+  test('a file of one place carries its key, and a file of a searched or filtered list says filtered, so neither reads as the whole project', () => {
+    expect(trackedCsvFileName('acme-homes', { placeKey: 'uptown' }, day)).toBe('canonry-tracked-queries-acme-homes-uptown-2026-10-10.csv')
+    expect(trackedCsvFileName('acme-homes', { filtered: true }, day)).toBe('canonry-tracked-queries-acme-homes-filtered-2026-10-10.csv')
+    expect(trackedCsvFileName('acme-homes', { placeKey: 'north side/2', filtered: true }, day)).toBe('canonry-tracked-queries-acme-homes-north_side_2-filtered-2026-10-10.csv')
+    expect(trackedCsvFileName('acme-homes', { placeKey: undefined, filtered: false }, day)).toBe('canonry-tracked-queries-acme-homes-2026-10-10.csv')
   })
 })

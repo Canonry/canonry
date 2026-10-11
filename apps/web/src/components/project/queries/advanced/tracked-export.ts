@@ -52,17 +52,28 @@ export function trackedRowsCsv(rows: readonly TrackedRowVm[], engines: readonly 
   return `${[header, ...lines].map(line => line.map(cell).join(',')).join('\r\n')}\r\n`
 }
 
-/** "canonry-tracked-queries-acme-2026-10-10.csv": the project and the day, as the results export names its file. */
-export function trackedCsvFileName(projectName: string, now = new Date()): string {
-  return `canonry-tracked-queries-${projectName.replace(/[^\w.-]+/g, '_')}-${now.toISOString().slice(0, 10)}.csv`
+/** What narrowed the list a file holds: the Place's key, and whether a search or a filter was on. */
+export type TrackedCsvNarrowing = { placeKey?: string; filtered?: boolean }
+
+const fileNamePart = (value: string) => value.replace(/[^\w.-]+/g, '_')
+
+/**
+ * "canonry-tracked-queries-acme-2026-10-10.csv": the project and the day, as
+ * the results export names its file. A file of one place carries that place's
+ * key, and one of a searched or filtered list says "filtered", so neither is
+ * taken for the whole project's.
+ */
+export function trackedCsvFileName(projectName: string, { placeKey, filtered }: TrackedCsvNarrowing = {}, now = new Date()): string {
+  const parts = [fileNamePart(projectName), ...(placeKey ? [fileNamePart(placeKey)] : []), ...(filtered ? ['filtered'] : []), now.toISOString().slice(0, 10)]
+  return `canonry-tracked-queries-${parts.join('-')}.csv`
 }
 
 /** Hands the CSV to the browser as a file. It is built from what the page has read: nothing is requested. */
-export function downloadTrackedCsv(projectName: string, csv: string): void {
+export function downloadTrackedCsv(projectName: string, csv: string, narrowing?: TrackedCsvNarrowing): void {
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
   const link = document.createElement('a')
   link.href = url
-  link.download = trackedCsvFileName(projectName)
+  link.download = trackedCsvFileName(projectName, narrowing)
   document.body.appendChild(link)
   link.click()
   link.remove()
