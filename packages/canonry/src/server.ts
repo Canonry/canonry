@@ -85,6 +85,7 @@ import {
   describeError,
   OutcomeTriggers,
   STORED_ONLY_HEADER,
+  storedOnlyRefused,
   type OutcomeTrigger,
   type RunKind,
 } from "@ainyc/canonry-contracts";
@@ -2551,12 +2552,26 @@ export async function createServer(opts: {
     new AppError("AUTH_INVALID", "Server API key not found — run canonry bootstrap", 401);
 
   const legacySessionRouteConfig = { legacySessionBoundary: true } as const;
+  const rejectLegacySessionStoredOnly = async (request: FastifyRequest, reply: FastifyReply) => {
+    const header = request.headers[STORED_ONLY_HEADER];
+    if (header !== '1' && header !== 'true') return;
+    const route = request.routeOptions.url ?? request.url;
+    const operation = route.endsWith('/session/setup')
+      ? 'POST /api/v1/session/setup'
+      : `${request.method.toUpperCase()} /api/v1/session`;
+    const error = storedOnlyRefused('Stored-only mode refuses this operation', { operation, access: OperationAccesses.write });
+    return reply.status(error.statusCode).send(error.toJSON());
+  };
+  const legacySessionRouteOptions = {
+    config: legacySessionRouteConfig,
+    preHandler: rejectLegacySessionStoredOnly,
+  } as const;
   app.addHook('onSend', async (request, reply) => {
     const config = request.routeOptions.config as { legacySessionBoundary?: unknown } | undefined;
     if (config?.legacySessionBoundary === true) reply.header(OPERATION_ACCESS_HEADER, OperationAccesses.write);
   });
 
-  app.get(apiPrefix + "/session", { config: legacySessionRouteConfig }, async (request, reply) => {
+  app.get(apiPrefix + "/session", legacySessionRouteOptions, async (request, reply) => {
     if (namedAccountsInUse()) {
       return reply.send({ authenticated: false, setupRequired: false });
     }
@@ -2573,7 +2588,7 @@ export async function createServer(opts: {
   // One-time password setup — only works when no password is configured yet.
   app.post<{
     Body: { password?: string };
-  }>(apiPrefix + "/session/setup", { config: legacySessionRouteConfig }, async (request, reply) => {
+  }>(apiPrefix + "/session/setup", legacySessionRouteOptions, async (request, reply) => {
     if (namedAccountsInUse()) {
       const err = forbidden(NAMED_ACCOUNTS_MESSAGE);
       return reply.status(err.statusCode).send(err.toJSON());
@@ -2660,7 +2675,7 @@ export async function createServer(opts: {
   // Login with dashboard password or API key.
   app.post<{
     Body: { password?: string; apiKey?: string };
-  }>(apiPrefix + "/session", { config: legacySessionRouteConfig }, async (request, reply) => {
+  }>(apiPrefix + "/session", legacySessionRouteOptions, async (request, reply) => {
     if (namedAccountsInUse()) {
       const err = forbidden(NAMED_ACCOUNTS_MESSAGE);
       return reply.status(err.statusCode).send(err.toJSON());
@@ -2735,7 +2750,7 @@ export async function createServer(opts: {
     return reply.status(err.statusCode).send(err.toJSON());
   });
 
-  app.delete(apiPrefix + "/session", { config: legacySessionRouteConfig }, async (request, reply) => {
+  app.delete(apiPrefix + "/session", legacySessionRouteOptions, async (request, reply) => {
     const sessionId = parseCookieHeader(request.headers.cookie)[SESSION_COOKIE_NAME];
     clearSession(sessionId);
     reply.header(
