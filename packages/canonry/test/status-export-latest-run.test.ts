@@ -121,6 +121,23 @@ describe('latest-run command usage', () => {
     expect(output).toContain('latest error: DNS blocked')
   })
 
+  it('status --all human output includes stored freshness age without a date watermark', async () => {
+    mockGetStatus.mockResolvedValue({
+      generatedAt: '2026-10-11T00:00:00.000Z',
+      summary: { projects: 1, ok: 0, failing: 0, stale: 1, neverSynced: 0 },
+      projects: [{ project: 'demo', displayName: 'Demo', state: 'stale', health: null, integrations: [{ integration: 'google-ads', label: 'Google Ads', runKind: 'google-ads-sync', sourceId: null, state: 'stale', lastSuccessAt: '2026-10-11T00:00:00.000Z', latestRunAt: '2026-10-11T00:00:00.000Z', latestRunId: 'run', latestStatus: 'completed', latestTrigger: 'scheduled', consecutiveFailures: 0, latestError: null, dataThrough: null, dataAgeDays: 8, doctorChecks: [] }] }],
+    })
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await showStatus(undefined, undefined, { all: true })
+    } finally {
+      console.log = origLog
+    }
+    expect(logs.join('\n')).toContain('data age: 8 days')
+  })
+
   it('exportProject --include-results pulls results from the latest-run endpoint', async () => {
     mockGetExport.mockResolvedValue({
       apiVersion: 'canonry/v1',
