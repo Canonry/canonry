@@ -104,12 +104,13 @@ export const OPERATIONS_GUIDE = {
         "gtm"
       ],
       "next": [
+        "canonry_status",
         "canonry_projects_list",
         "canonry_project_get",
         "canonry_ga_status",
         "canonry_google_ads_status"
       ],
-      "guidance": "Inspect stored connection status and snapshot freshness. Use the currently listed specialist tools for stored evidence. Connecting, selecting resources, syncing, and live provider reads require scoped approval; never request credentials in chat."
+      "guidance": "Read canonry_status first for the stored instance or project health view, then use specialist tools for detail. Connecting, selecting resources, syncing, and live provider reads require scoped approval; never request credentials in chat."
     },
     "reports": {
       "keywords": [

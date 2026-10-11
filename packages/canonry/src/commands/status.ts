@@ -1,6 +1,7 @@
 import type { InstanceStatusDto, LatestProjectRunDto, ProjectDto, RunDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isEndpointMissing, isMachineFormat } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 import { runAdmissionLines } from './run.js'
 
 function getClient() {
@@ -12,7 +13,7 @@ export async function showStatus(project: string | undefined, format?: string, o
   if (options.all) {
     const status = await client.getStatus({ problems: options.problems })
     if (format === 'jsonl') {
-      for (const item of status.projects) for (const row of item.integrations) console.log(JSON.stringify({ project: item.project, displayName: item.displayName, health: item.health, row }))
+      emitJsonl(status.projects.flatMap(item => item.integrations.map(row => ({ project: item.project, ...row }))))
       return
     }
     if (isMachineFormat(format)) {
@@ -23,7 +24,9 @@ export async function showStatus(project: string | undefined, format?: string, o
       console.log(`Status: ${item.displayName} (${item.project})`)
       console.log(`  State: ${item.state}`)
       if (item.health) console.log(`  Health: ${item.health.status} ${item.health.summary}`)
-      for (const row of item.integrations) console.log(`  ${row.label}: ${row.state} (last success: ${row.lastSuccessAt ?? 'never'})`)
+      for (const row of item.integrations) {
+        console.log(`  ${row.label}: ${row.state} (last success: ${row.lastSuccessAt ?? 'never'}; streak: ${row.consecutiveFailures}; data through: ${row.dataThrough ?? 'unknown'}; latest error: ${row.latestError ?? 'none'})`)
+      }
       console.log('')
     }
     return

@@ -4,10 +4,11 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
-import { instanceStatusDtoSchema } from '@ainyc/canonry-contracts'
+import { createClient, gbpLocations, measurementPlanVersions, measurementPlans, migrate, projects, runs } from '@ainyc/canonry-db'
+import { GBP_NO_SELECTED_LOCATIONS_ERROR, canonicalMeasurementPlanV2Json, instanceStatusDtoSchema, serializeRunError } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import type { GoogleConnectionStore } from '../src/google.js'
+import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
 const cleanups: Array<() => void> = []
 afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup() })
@@ -37,14 +38,21 @@ describe('GET /api/v1/status', () => {
       id: projectId, name: 'advanced-demo', displayName: 'Advanced Demo', canonicalDomain: 'advanced.example', country: 'US', language: 'en',
       ownedDomains: '[]', tags: '[]', providers: JSON.stringify(['advanced']), createdAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString(),
     }).run()
-    const addRun = (status: 'completed' | 'failed', daysAgo: number, error: string | null = null) => {
+    const plan = measurementPlanV2Fixture()
+    db.insert(measurementPlanVersions).values({ id: 'advanced-plan-v2', projectId, revision: 1, schemaVersion: 2, canonicalJson: canonicalMeasurementPlanV2Json(plan), checksum: 'advanced-plan-checksum', compiledChecksum: plan.compiledChecksum, createdAt: new Date(now - 20 * 86_400_000).toISOString() }).run()
+    db.insert(measurementPlans).values({ projectId, activeVersionId: 'advanced-plan-v2', createdAt: new Date(now - 20 * 86_400_000).toISOString(), updatedAt: new Date(now - 20 * 86_400_000).toISOString() }).run()
+    const addRun = (kind: 'gsc-sync' | 'ga-sync' | 'gbp-sync', status: 'completed' | 'partial' | 'failed', daysAgo: number, error: string | null = null) => {
       const createdAt = new Date(now - daysAgo * 86_400_000).toISOString()
-      db.insert(runs).values({ id: crypto.randomUUID(), projectId, kind: 'gsc-sync', status, trigger: 'scheduled', createdAt, finishedAt: createdAt, error }).run()
+      db.insert(runs).values({ id: crypto.randomUUID(), projectId, kind, status, trigger: 'scheduled', createdAt, finishedAt: createdAt, error }).run()
     }
-    addRun('completed', 10)
-    for (const daysAgo of [4, 3, 2, 1]) addRun('failed', daysAgo, 'DNS blocked')
+    addRun('gsc-sync', 'completed', 10)
+    for (const daysAgo of [4, 3, 2, 1]) addRun('gsc-sync', 'failed', daysAgo, 'DNS blocked')
+    addRun('ga-sync', 'failed', 10, 'before connection')
+    addRun('ga-sync', 'failed', 1, 'after connection')
+    db.insert(gbpLocations).values({ id: 'selected-location', projectId, accountName: 'accounts/1', locationName: 'locations/1', displayName: 'Selected', selected: true, createdAt: new Date(now - 30 * 86_400_000).toISOString(), updatedAt: new Date(now - 30 * 86_400_000).toISOString() }).run()
+    for (const daysAgo of [3, 2, 1]) addRun('gbp-sync', 'failed', daysAgo, serializeRunError({ message: GBP_NO_SELECTED_LOCATIONS_ERROR }))
     const googleConnectionStore = {
-      getConnection: (_domain: string, type: string) => type === 'gsc' ? ({ createdAt: new Date(now - 30 * 86_400_000).toISOString() }) : undefined,
+      getConnection: (_domain: string, type: string) => ['gsc', 'gbp'].includes(type) ? ({ createdAt: new Date(now - 30 * 86_400_000).toISOString() }) : type === 'ga4' ? ({ createdAt: new Date(now - 5 * 86_400_000).toISOString() }) : undefined,
     } as unknown as GoogleConnectionStore
     const app = Fastify()
     app.register(apiRoutes, { db, skipAuth: true, googleConnectionStore })
@@ -52,8 +60,15 @@ describe('GET /api/v1/status', () => {
     const response = await app.inject({ method: 'GET', url: '/api/v1/status?project=advanced-demo' })
     const body = JSON.parse(response.payload) as { projects: Array<{ integrations: Array<Record<string, unknown>> }> }
     const gsc = body.projects[0]!.integrations.find(row => row.integration === 'gsc')!
+    const ga = body.projects[0]!.integrations.find(row => row.integration === 'ga')!
+    const gbp = body.projects[0]!.integrations.find(row => row.integration === 'gbp')!
     expect(gsc).toMatchObject({ state: 'failing', consecutiveFailures: 4, latestStatus: 'failed', latestError: 'DNS blocked' })
     expect(gsc.lastSuccessAt).toBe(new Date(now - 10 * 86_400_000).toISOString())
+    expect(ga).toMatchObject({ state: 'ok', consecutiveFailures: 1, latestStatus: 'failed', latestError: 'after connection' })
+    expect(gbp).toMatchObject({ state: 'never-synced', consecutiveFailures: 0, latestStatus: null })
+    addRun('gsc-sync', 'partial', 0)
+    const partial = JSON.parse((await app.inject({ method: 'GET', url: '/api/v1/status?project=advanced-demo' })).payload).projects[0].integrations.find((row: { integration: string }) => row.integration === 'gsc')
+    expect(partial).toMatchObject({ state: 'ok', consecutiveFailures: 0, latestStatus: 'partial' })
     await app.close()
     fs.rmSync(dir, { recursive: true, force: true })
   })

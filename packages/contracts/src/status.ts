@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { runStatusSchema, runTriggerSchema } from './run.js'
+import { runKindSchema, runStatusSchema, runTriggerSchema } from './run.js'
 
 export const statusIntegrationSchema = z.enum(['gsc', 'ga', 'gbp', 'bing', 'ads', 'google-ads', 'gtm', 'traffic'])
 export type StatusIntegration = z.infer<typeof statusIntegrationSchema>
@@ -13,7 +13,7 @@ const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 export const integrationStatusRowSchema = z.object({
   integration: statusIntegrationSchema,
   label: z.string(),
-  runKind: z.string(),
+  runKind: runKindSchema,
   sourceId: z.string().nullable(),
   state: integrationStateSchema,
   lastSuccessAt: dateTimeSchema.nullable(),

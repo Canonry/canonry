@@ -101,7 +101,8 @@ cnry project update <name> --add-qualified-alias "Acme NYC"      # sentiment tre
 cnry project update <name> --remove-qualified-alias "Acme NYC"   # repeatable; create takes --qualified-alias
 cnry project delete <name>                     # delete a project
 cnry project delete <name> --dry-run           # preview cascade impact (GET /delete-preview) without writing
-cnry status <project>                          # mention + citation summary + domain info; says when the next sweep is refused or skips providers
+cnry status <project>                          # stored run, integration and health status for one project
+cnry status --all [--problems]                 # stored status for every project and connected integration
 ```
 
 ### Brand aliases

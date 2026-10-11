@@ -4,6 +4,8 @@ import {
   instanceStatusDtoSchema,
   forbidden,
   RunKinds,
+  truncateUtf16,
+  type RunKind,
   type InstanceStatusDto,
   type IntegrationStatusRow,
 } from '@ainyc/canonry-contracts'
@@ -88,7 +90,7 @@ function rowState(
 function makeRow(
   integration: IntegrationStatusRow['integration'],
   label: string,
-  runKind: string,
+  runKind: RunKind,
   state: ReturnType<typeof readSyncRunState>,
   staleAfterDays: number | null,
   dataThrough: string | null = null,
@@ -109,7 +111,7 @@ function makeRow(
     latestStatus: state.latestStatus,
     latestTrigger: state.latestTrigger as IntegrationStatusRow['latestTrigger'],
     consecutiveFailures: state.consecutiveFailures,
-    latestError: state.latestError && state.latestError.length > 300 ? `${state.latestError.slice(0, 297)}...` : state.latestError,
+    latestError: state.latestError ? truncateUtf16(state.latestError, 300) : null,
     dataThrough,
     dataAgeDays: throughAge,
     doctorChecks,
