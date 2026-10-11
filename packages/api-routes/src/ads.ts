@@ -51,7 +51,6 @@ import {
   OutcomeTriggers,
   RunKinds,
   RunStatuses,
-  RunTriggers,
   runStatusSchema,
   describeError,
 } from '@ainyc/canonry-contracts'
@@ -110,7 +109,8 @@ import type {
   AdsLiveEntityObservation,
   AdsStoredMetricRow,
 } from './ads-live-delivery.js'
-import { resolveProject, writeAuditLog, auditFromRequest } from './helpers.js'
+import { resolveProject, syncRunTrigger, writeAuditLog, auditFromRequest } from './helpers.js'
+import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute } from './connection-telemetry.js'
 import { startRouteOutcome, upstreamFailure } from './feature-outcome.js'
 
@@ -212,6 +212,7 @@ export interface AdsLiveDeliveryReader {
 }
 
 export interface AdsRoutesOptions {
+  claimScheduledSync?: ScheduledSyncClaim
   adsCredentialStore?: AdsCredentialStore
   /** Validates an SDK key against the upstream ad account (host wires this to the integration client). */
   verifyAdsAccount?: (apiKey: string) => Promise<VerifiedAdsAccount>
@@ -3040,7 +3041,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       projectId: project.id,
       kind: RunKinds['ads-sync'],
       status: RunStatuses.queued,
-      trigger: RunTriggers.manual,
+      trigger: syncRunTrigger(opts.claimScheduledSync, project.name, RunKinds['ads-sync']),
       createdAt: new Date().toISOString(),
     }).run()
 

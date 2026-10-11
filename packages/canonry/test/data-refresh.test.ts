@@ -1,6 +1,8 @@
 import { describe, expect, test, vi } from 'vitest'
 
 import { gaRefreshDays, refreshAllIntegrations, type DataRefreshClient } from '../src/data-refresh.js'
+import { RunKinds } from '@ainyc/canonry-contracts'
+import { syncRunClaimKey } from '@ainyc/canonry-api-routes'
 import { addLogListener, type LogEntry } from '../src/logger.js'
 
 function makeClient(overrides: Partial<DataRefreshClient> = {}): DataRefreshClient {
@@ -35,6 +37,50 @@ describe('gaRefreshDays', () => {
 })
 
 describe('refreshAllIntegrations', () => {
+  test('holds one claim per integration while its scheduled call is pending and clears every claim', async () => {
+    const claims = new Set<string>()
+    const pending = Array.from({ length: 7 }, () => deferred<void>())
+    const client = makeClient({
+      gscSync: vi.fn(async () => { await pending[0]!.promise; return { id: 'gsc-run', status: 'queued' } }),
+      bingInspectSitemap: vi.fn(async () => { await pending[1]!.promise; return { id: 'bing-run', status: 'queued' } }),
+      gaSync: vi.fn(async () => { await pending[2]!.promise; return { synced: true } }),
+      triggerGbpSync: vi.fn(async () => { await pending[3]!.promise; return { runId: 'gbp-run', status: 'running' } }),
+      triggerAdsSync: vi.fn(async () => { await pending[4]!.promise; return { runId: 'ads-run', status: 'queued' } }),
+      triggerGoogleAdsSync: vi.fn(async () => { await pending[5]!.promise; return { id: 'google-ads-run', status: 'queued' } }),
+      triggerGtmSync: vi.fn(async () => { await pending[6]!.promise; return { id: 'gtm-run', status: 'queued' } }),
+    })
+
+    const refresh = refreshAllIntegrations(client, 'proj', new Date('2026-09-28T12:00:00Z'), {
+      add: (key) => claims.add(key),
+      delete: (key) => claims.delete(key),
+    })
+    await vi.waitFor(() => expect(claims.has(syncRunClaimKey('proj', RunKinds['gsc-sync']))).toBe(true))
+    expect(claims).toEqual(new Set([
+      syncRunClaimKey('proj', RunKinds['gsc-sync']),
+      syncRunClaimKey('proj', RunKinds['bing-inspect-sitemap']),
+      syncRunClaimKey('proj', RunKinds['ga-sync']),
+      syncRunClaimKey('proj', RunKinds['gbp-sync']),
+      syncRunClaimKey('proj', RunKinds['ads-sync']),
+      syncRunClaimKey('proj', RunKinds['google-ads-sync']),
+      syncRunClaimKey('proj', RunKinds['gtm-sync']),
+    ]))
+    pending.forEach(item => item.resolve())
+    await refresh
+    expect(claims).toHaveLength(0)
+  })
+
+  test('clears a claim when an endpoint refuses before inserting a run', async () => {
+    const claims = new Set<string>()
+    const client = makeClient({
+      gscSync: vi.fn(async () => { throw new Error('No GSC connection') }),
+    })
+
+    await refreshAllIntegrations(client, 'proj', new Date('2026-09-28T12:00:00Z'), {
+      add: (key) => claims.add(key),
+      delete: (key) => claims.delete(key),
+    })
+    expect(claims).toHaveLength(0)
+  })
   test('fans out every integration sync for the project with explicit Google provider calls', async () => {
     const client = makeClient()
 
@@ -116,3 +162,10 @@ describe('refreshAllIntegrations', () => {
     expect(entries).toHaveLength(7)
   })
 })
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
+}

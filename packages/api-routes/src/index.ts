@@ -112,6 +112,7 @@ import type { TechnicalAeoRoutesOptions } from './technical-aeo.js'
 import { researchRoutes } from './research.js'
 import type { ResearchRoutesOptions } from './research.js'
 import { CheckStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
+import type { ScheduledSyncClaim } from './helpers.js'
 import type { AgentPluginState, BundledSkillSnapshot } from '@ainyc/canonry-contracts'
 import type { CheckOutput, DoctorUpdateStatus, TrafficSourceProbe, TrafficSourceValidator } from './doctor/types.js'
 
@@ -125,6 +126,8 @@ declare module 'fastify' {
 
 export { registerOAuthRoutes, registerOAuthAdminRoutes, resolveOAuthAccessToken } from './oauth.js'
 export { hashApiKey } from './auth.js'
+export { syncRunClaimKey, syncRunTrigger } from './helpers.js'
+export type { ScheduledSyncClaim } from './helpers.js'
 export {
   mergeGscQueryTotalsWithFallback,
   readGscQueryDailyRows,
@@ -144,6 +147,8 @@ export * from './notifications/destinations.js'
 export { resolveVercelSyncDeadlineMs, VERCEL_MAX_SYNC_WINDOW_MS, DEFAULT_VERCEL_SYNC_DEADLINE_MS, TRAFFIC_SOURCE_MAX_CATCHUP_MS } from './traffic-limits.js'
 export interface ApiRoutesOptions {
   db: DatabaseClient
+  /** Consumes a host-owned scheduler claim at a sync run insert. */
+  claimScheduledSync?: ScheduledSyncClaim
   /** Host-approved direct bearer IDs, never inferred from customer roles or scopes. */
   operatorApiKeyIds?: readonly string[]
   /**
@@ -730,6 +735,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       adsLiveDeliveryMinIntervalMs: opts.adsLiveDeliveryMinIntervalMs,
       adsLiveDeliveryMaxPagesPerReaderCall: opts.adsLiveDeliveryMaxPagesPerReaderCall,
       onAdsSyncRequested: opts.onAdsSyncRequested,
+      claimScheduledSync: opts.claimScheduledSync,
       adsOperator: opts.adsOperator,
       adsReconcileSweepIntervalMs: opts.adsReconcileSweepIntervalMs,
       adsReconcilePendingStaleMs: opts.adsReconcilePendingStaleMs,
@@ -742,6 +748,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(bingRoutes, {
       bingConnectionStore: opts.bingConnectionStore,
       onInspectSitemapRequested: opts.onBingInspectSitemapRequested,
+      claimScheduledSync: opts.claimScheduledSync,
     } satisfies BingRoutesOptions)
     await api.register(googleRoutes, {
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
@@ -752,6 +759,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onGscSyncRequested: opts.onGscSyncRequested,
       onInspectSitemapRequested: opts.onInspectSitemapRequested,
       onGbpSyncRequested: opts.onGbpSyncRequested,
+      claimScheduledSync: opts.claimScheduledSync,
     } satisfies GoogleRoutesOptions)
     await api.register(googleMarketingRoutes, {
       googleMarketingCredentialStore: opts.googleMarketingCredentialStore,
@@ -761,6 +769,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       assessConversionTrackingIntegrity: opts.assessConversionTrackingIntegrity,
       onGoogleAdsSyncRequested: opts.onGoogleAdsSyncRequested,
       onGtmSyncRequested: opts.onGtmSyncRequested,
+      claimScheduledSync: opts.claimScheduledSync,
       googleStateSecret: opts.googleStateSecret,
       publicUrl: opts.publicUrl,
       routePrefix: opts.routePrefix,
@@ -780,6 +789,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       ga4CredentialStore: opts.ga4CredentialStore,
       googleConnectionStore: opts.googleConnectionStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
+      claimScheduledSync: opts.claimScheduledSync,
     } satisfies GA4RoutesOptions)
     await api.register(gaMeasurementAnalysisRoutes)
     await api.register(gaAcquisitionRoutes)
@@ -808,6 +818,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       defaultSampleLimit: opts.defaultTrafficSampleLimit,
       onTrafficSynced: opts.onTrafficSynced,
       onTrafficIngested: opts.onTrafficIngested,
+      claimScheduledSync: opts.claimScheduledSync,
       onScheduleUpdated: opts.onScheduleUpdated,
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
     } satisfies TrafficRoutesOptions)

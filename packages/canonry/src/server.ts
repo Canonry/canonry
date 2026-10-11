@@ -19,7 +19,7 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { SetHeadersResponse } from "@fastify/static";
-import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, writeAuditLog, type ApiRoutesOptions } from "@ainyc/canonry-api-routes";
+import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, syncRunClaimKey, writeAuditLog, type ApiRoutesOptions } from "@ainyc/canonry-api-routes";
 import {
   apiKeys,
   auditLog,
@@ -83,6 +83,7 @@ import {
   describeError,
   OutcomeTriggers,
   type OutcomeTrigger,
+  type RunKind,
 } from "@ainyc/canonry-contracts";
 import type {
   CanonryConfig,
@@ -1137,6 +1138,9 @@ export async function createServer(opts: {
   // Releases the backlinks schedule asked POST /backlinks/syncs for, so the
   // release sync that request starts reports a scheduled trigger.
   const scheduledBacklinkReleases = new Set<string>();
+  const scheduledSyncClaims = new Set<string>();
+  const claimScheduledSync = (projectName: string, kind: RunKind, sourceId?: string): boolean =>
+    scheduledSyncClaims.delete(syncRunClaimKey(projectName, kind, sourceId));
   // Built-in Aero agent kill-switch. When disabled (config `agent.mode:
   // 'disabled'` or env CANONRY_AGENT_DISABLED=1) we skip the SessionRegistry,
   // the proactive wake on run completion, and the interactive agent routes —
@@ -1898,7 +1902,10 @@ export async function createServer(opts: {
       // Reuse the in-process scheduler API client. The traffic-sync
       // endpoint owns run-row creation, dedupe, rollup writes, and emits
       // the `traffic.synced` telemetry — the scheduler only triggers it.
-      schedulerClient.trafficSync(projectName, sourceId).catch((err: unknown) => {
+      scheduledSyncClaims.add(syncRunClaimKey(projectName, RunKinds['traffic-sync'], sourceId));
+      schedulerClient.trafficSync(projectName, sourceId).finally(() => {
+        scheduledSyncClaims.delete(syncRunClaimKey(projectName, RunKinds['traffic-sync'], sourceId));
+      }).catch((err: unknown) => {
         app.log.error(
           {
             projectName,
@@ -1953,7 +1960,7 @@ export async function createServer(opts: {
       // Fan out to every connected data integration (GSC, Bing, GA, GBP) via
       // the same in-process client. refreshAllIntegrations isolates each
       // integration's failure with Promise.allSettled and never rejects.
-      void refreshAllIntegrations(schedulerClient, projectName);
+      void refreshAllIntegrations(schedulerClient, projectName, new Date(), scheduledSyncClaims);
     },
     onBacklinksSyncRequested: (projectName) => {
       void syncLatestReleaseOnSchedule(projectName, {
@@ -2988,6 +2995,7 @@ export async function createServer(opts: {
     // Outcome telemetry reported from route code (`app.emitOutcome`).
     onOutcome: handleRouteOutcome,
     db: opts.db,
+    claimScheduledSync,
     sentiment: {
       install: () => { const configuration = loadSentimentInstallConfig(); return { ...sentimentInstallReadiness(configuration), model: configuration.model }; },
       previewSecret: opts.config.apiKey,

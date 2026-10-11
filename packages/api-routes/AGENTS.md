@@ -296,7 +296,7 @@ incrementally.
 
 ### Event callbacks
 
-Routes fire lifecycle hooks via `opts` callbacks — `onRunCreated`, `onProviderUpdate`, `onScheduleUpdated`, `onProjectDeleted`. Fire these **after** the database transaction commits, not inside it.
+Routes fire lifecycle hooks via `opts` callbacks: `onRunCreated`, `onProviderUpdate`, `onScheduleUpdated`, `onProjectDeleted`. Fire these **after** the database transaction commits, not inside it. The optional `claimScheduledSync(projectName, kind, sourceId?)` callback is a narrow host-owned claim for scheduler initiated sync requests. Consume it immediately before the run insert, after route validation. It returns true only for the matching in-flight scheduler call and removes that claim; absent or unmatched claims store `trigger: manual`. Request bodies and caller headers never select the stored trigger.
 
 ### Probe runs
 
