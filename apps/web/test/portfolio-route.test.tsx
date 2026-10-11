@@ -3853,7 +3853,7 @@ test('a published Property scope opens the Property page, and every return keeps
   expect(hrefOf(back).pathname).toBe(projectPath)
   expect(Object.fromEntries(hrefOf(back).searchParams)).toEqual(Object.fromEntries(reportSearch))
   // The market section compares markets, so its overview link returns to the whole site.
-  const marketOverview = hrefOf(page.getByRole('link', { name: 'Open measurement overview' }))
+  const marketOverview = hrefOf(page.getByRole('link', { name: 'Open AI Visibility' }))
   expect(marketOverview.pathname).toBe(projectPath)
   expect(Object.fromEntries(marketOverview.searchParams)).toEqual({ measurementScope: 'project', queryClass: 'branded', measurementRunId: 'run-synthetic' })
 
