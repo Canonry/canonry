@@ -570,6 +570,8 @@ Available events: `citation.lost`, `citation.gained`, `run.completed`, `run.fail
 
 `insight.critical` and `insight.high` fire when the intelligence engine generates critical- or high-severity insights after a sweep completes.
 
+**Health alerts** (`health.degraded`, `health.recovered`) report on the measurement itself, not on findings, and reach every enabled webhook whether or not it subscribes to them. A doctor pass runs every 6 hours per project. `health.degraded` is sent only when something is new or worse: the project stops being healthy, the worst status rises, or a check starts failing, gets more severe, or reports a different code at the same severity. A pass that finds the same problems, or fewer, sends nothing, so a check clearing, or easing from fail to warn, never produces a second "degraded" alert. An alert that no webhook accepted is sent again on the next pass. `health.recovered` is sent when every check passes again. The payload's `health.failing` lists every failing check; `health.added` lists the codes that are new or worse and `health.cleared` the codes of the checks that stopped failing since the last delivered alert. Discord and Slack cards show them as `New (n)` and `Cleared (n)`, ahead of `Also failing`. Silent advisories (`report.*`, `content.winnability.coverage`, `traffic.source.cache-blindspot`) appear in `cnry doctor` with `notificationPolicy: "silent"` but never page. An optional integration the project does not use is `skipped`, not failed (`gbp.auth.not-connected`, `bing.auth.not-connected`), so it does not page either. Run `cnry doctor --project <project>` to see the current state at any time.
+
 > **No mention events yet.** Notification events cover the citation signal only — there are **no** `mention.lost` / `mention.gained` events today. For mention-first monitoring, read `scores.mentionCoverage` / `scores.mentionShare` via `cnry overview` (or the `insight.*` events, which can be driven by mention-side insights); do not wire automation to mention events that aren't emitted.
 
 ## Provider Settings & Quotas
@@ -754,6 +756,8 @@ cnry bing request-indexing <project> <url>    # submit URL for indexing
 cnry bing request-indexing <project> --all-unindexed  # submit all unindexed
 cnry bing performance <project>               # search performance data
 ```
+
+Bing is optional. `cnry doctor --project <project> --check 'bing.*'` reports `bing.auth.connection` as **skipped** (`bing.auth.not-connected`) for a project that never connected Bing, or whose domain's connection was removed with `cnry bing disconnect` (projects on one domain share the connection). It **fails** (`bing.auth.no-connection`) only when the connection is gone while the project still holds Bing data from an earlier connection.
 
 ## WordPress Integration
 
@@ -1401,6 +1405,8 @@ cnry backlinks cache prune --release <id>      # delete cached release files fro
 ```
 
 All commands support `--format json`; collection commands (`list`, `sources`, `releases`) also support `--format jsonl`. A Common Crawl release sync has statuses `queued` → `downloading` → `querying` → `ready` / `failed`. Per-project extracts use the standard run statuses (`queued` → `running` → `completed` / `failed`). Projects with `autoExtractBacklinks` enabled get an extract enqueued automatically when a release sync transitions to `ready`.
+
+`backlinks sources` reports Common Crawl as `connected` when a release sync has completed and the project has stored Common Crawl data. Syncing the same release again keeps it connected while the download runs. The release sync writes every project's rows, so no project setting is needed. The `backlinks.source.connected` doctor check grades the same rule and warns `backlinks.source.none` otherwise: run `cnry backlinks extract <project>` when a release is currently `ready` but the project has no data yet, or `cnry backlinks sync` when no release is currently ready. Historical completion preserves existing project data through a re-sync but does not make that release available for extraction.
 
 **`jsonl` output schema:** `backlinks list` streams `rows` (each `{ project, release, targetDomain, linkingDomain, numHosts, source }`); `backlinks sources` streams the per-source availability list (`{ project, targetDomain, source, connected, hasData, latestRelease, totalLinkingDomains, lastSyncedAt }`); `backlinks releases` streams cached-release rows bare.
 
