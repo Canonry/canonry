@@ -190,7 +190,7 @@ describe('competitor alias CLI', () => {
     expect(observedPaths.filter(path => path.includes('/competitor-changes/preview'))).toHaveLength(4)
 
     observedPaths = []
-    const ordinary = await invokeCli(['competitor', 'add', 'rotorwise', 'ordinary.example', '--format', 'json'])
+    const ordinary = await invokeCli(['competitor', 'add', 'rotorwise', 'ordinary.example', '--acknowledge-bulk-add', '--format', 'json'])
     expect(ordinary.exitCode, ordinary.stderr).toBeUndefined()
     expect(observedPaths.some(path => path.includes('/competitor-changes/preview'))).toBe(false)
     expect((await client.listCompetitors('rotorwise')).some(row => row.domain === 'ordinary.example')).toBe(true)
