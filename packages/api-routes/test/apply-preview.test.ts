@@ -69,18 +69,19 @@ test('apply preview returns redacted per-resource changes and rolls back all wri
     }
     const callbackBefore = { ...callbacks }
 
+    const changedConfig = config('preview-project', {
+      displayName: 'Preview project changed',
+      aliases: ['Preview Alias'],
+      queries: ['second query'],
+      competitors: ['new.example'],
+      schedule: { preset: 'weekly', timezone: 'UTC' },
+      notifications: [{ id: notificationId, channel: 'webhook', url: `redacted://127.0.0.1/${notificationId}`, events: ['run.failed'] }],
+      google: { gsc: { propertyUrl: 'https://search.example/property' } },
+    })
     const preview = await app.inject({
       method: 'POST',
       url: '/api/v1/apply/preview',
-      payload: config('preview-project', {
-        displayName: 'Preview project changed',
-        aliases: ['Preview Alias'],
-        queries: ['second query'],
-        competitors: ['new.example'],
-        schedule: { preset: 'weekly', timezone: 'UTC' },
-        notifications: [{ id: notificationId, channel: 'webhook', url: `redacted://127.0.0.1/${notificationId}`, events: ['run.failed'] }],
-        google: { gsc: { propertyUrl: 'https://search.example/property' } },
-      }),
+      payload: changedConfig,
     })
 
     expect(preview.statusCode).toBe(200)
@@ -104,6 +105,15 @@ test('apply preview returns redacted per-resource changes and rolls back all wri
     expect(db.select().from(schedules).where(and(eq(schedules.projectId, project.id), eq(schedules.kind, SchedulableRunKinds['answer-visibility']))).all()).toEqual(before.schedules)
     expect(db.select().from(notifications).where(eq(notifications.projectId, project.id)).all()).toEqual(before.notifications)
     expect(db.select().from(auditLog).where(eq(auditLog.projectId, project.id)).all()).toEqual(before.audits)
+
+    const applied = await app.inject({ method: 'POST', url: '/api/v1/apply', payload: changedConfig })
+    expect(applied.statusCode).toBe(200)
+    const exported = await app.inject({ method: 'GET', url: '/api/v1/projects/preview-project/export' })
+    expect(exported.statusCode).toBe(200)
+    const exportedPreview = await app.inject({ method: 'POST', url: '/api/v1/apply/preview', payload: exported.json() })
+    expect(exportedPreview.statusCode).toBe(200)
+    expect(exportedPreview.json()).toMatchObject({ action: 'none', changed: false })
+    expect(exportedPreview.body).not.toContain('http://127.0.0.1/hook')
   } finally {
     await app.close()
     db.$client.close()
