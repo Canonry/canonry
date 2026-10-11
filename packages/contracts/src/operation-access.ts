@@ -55,6 +55,7 @@ export const READ_SEMANTIC_OPERATIONS: ReadonlySet<string> = new Set([
 
 /** GET callbacks and provider-backed reads that have write side effects. */
 export const WRITE_OPERATIONS: ReadonlySet<string> = new Set([
+  'GET /api/v1/session',
   'GET /api/v1/auth/session',
   'GET /api/v1/auth/sessions',
   'GET /api/v1/google/callback',
