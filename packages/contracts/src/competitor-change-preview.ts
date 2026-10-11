@@ -11,6 +11,31 @@ export const competitorChangePreviewRequestSchema = z.discriminatedUnion('change
 ])
 export type CompetitorChangePreviewRequest = z.infer<typeof competitorChangePreviewRequestSchema>
 
+const competitorAliasChangeSchema = z.object({
+  domain: z.string(),
+  before: z.array(z.string()),
+  after: z.array(z.string()),
+}).strict()
+
+const competitorAliasRejectionSchema = z.object({
+  domain: z.string(),
+  alias: z.string(),
+  reason: z.enum(['too-long', 'too-short', 'project-brand', 'other-competitor', 'market-competitor', 'claimed-by-alias']),
+  conflictsWith: z.string().optional(),
+  conflictingName: z.string().optional(),
+  markets: z.array(z.string()).optional(),
+  supersededRevision: z.number().int().optional(),
+}).strict()
+
+const competitorAutoAliasDropSchema = z.object({
+  domain: z.string(),
+  alias: z.string(),
+  reason: z.enum(['too-long', 'too-short', 'blocked', 'already-matched', 'subsumed', 'project-brand', 'other-competitor', 'over-limit']),
+  stored: z.boolean(),
+  conflictsWith: z.string().optional(),
+  conflictingName: z.string().optional(),
+}).strict()
+
 export const competitorShareImpactSchema = z.object({
   instrument: z.literal('competitor-landscape'),
   queryClass: z.enum(['non-brand', 'pooled']),
@@ -28,15 +53,15 @@ export type CompetitorShareImpact = z.infer<typeof competitorShareImpactSchema>
 
 export const competitorChangePreviewResponseSchema = z.object({
   project: z.string().trim().min(1),
-  change: competitorChangePreviewRequestSchema,
+  change: z.enum(['add', 'remove', 'replace', 'aliases']),
   plan: z.object({
     added: z.array(z.string()),
     alreadyTracked: z.array(z.string()),
     removed: z.array(z.string()),
-    aliasChanges: z.array(z.unknown()),
-    droppedAliases: z.array(z.unknown()),
-    autoAliasChanges: z.array(z.unknown()),
-    droppedAutoAliases: z.array(z.unknown()),
+    aliasChanges: z.array(competitorAliasChangeSchema),
+    droppedAliases: z.array(competitorAliasRejectionSchema),
+    autoAliasChanges: z.array(competitorAliasChangeSchema),
+    droppedAutoAliases: z.array(competitorAutoAliasDropSchema),
   }).strict(),
   impact: competitorShareImpactSchema,
 }).strict()

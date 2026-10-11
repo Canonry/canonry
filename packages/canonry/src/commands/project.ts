@@ -251,7 +251,13 @@ export async function updateProjectSettings(
   }
 
   if (opts.dryRun) {
-    const changedKeys = Object.entries(opts).filter(([key, value]) => key !== 'dryRun' && key !== 'format' && value !== undefined)
+    const hasValue = (value: unknown): boolean => {
+      if (value === undefined || value === null) return false
+      if (Array.isArray(value)) return value.length > 0
+      if (typeof value === 'object') return Object.keys(value).length > 0
+      return true
+    }
+    const changedKeys = Object.entries(opts).filter(([key, value]) => key !== 'dryRun' && key !== 'format' && hasValue(value))
     if (opts.competitorAutoAliases === undefined || changedKeys.some(([key]) => key !== 'competitorAutoAliases')) {
       throw usageError('Error: project update --dry-run supports only --competitor-auto-aliases', {
         message: '--dry-run supports only --competitor-auto-aliases',

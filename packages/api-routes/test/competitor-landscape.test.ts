@@ -1274,6 +1274,14 @@ describe('GET /projects/:name/analytics/competitors', () => {
     })
     expect(marketSuggestions.statusCode, marketSuggestions.body).toBe(200)
     expect(marketSuggestions.json()).toMatchObject({ scope: { kind: 'group', groupKey: 'southern' }, evidence: { answeredResults: 1 } })
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/northwind/competitor-changes/preview',
+      payload: { change: 'add', competitors: ['preview-rival.example'] },
+    })
+    expect(preview.statusCode, preview.body).toBe(200)
+    expect(preview.json().impact).toMatchObject({ scope: 'all-markets', queryClass: 'non-brand', runCount: 1 })
+    expect(preview.json().impact.restatesHistory).toBe(true)
     const grouped = await app.inject({
       method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&scope=all-markets&groupBy=model',
     })
@@ -1353,6 +1361,11 @@ describe('GET /projects/:name/analytics/competitors', () => {
       id: 'model-reader-key', name: 'Model reader', keyHash: hashApiKey(key), keyPrefix: key.slice(0, 9),
       scopes: ['read'], projectId: 'project_northwind', createdAt: NOW,
     }).run()
+    const writeKey = 'cnry_competitor_model_writer'
+    db.insert(apiKeys).values({
+      id: 'model-writer-key', name: 'Model writer', keyHash: hashApiKey(writeKey), keyPrefix: writeKey.slice(0, 9),
+      scopes: ['write'], projectId: 'project_northwind', createdAt: NOW,
+    }).run()
     await app.close()
     app = Fastify()
     app.register(apiRoutes, { db })
@@ -1377,6 +1390,24 @@ describe('GET /projects/:name/analytics/competitors', () => {
       method: 'GET', headers, url: '/api/v1/projects/foreign/analytics/competitors?window=all&groupBy=model',
     })
     expect(foreign.statusCode, foreign.body).toBe(403)
+    const previewWithReadKey = await app.inject({
+      method: 'POST', headers,
+      url: '/api/v1/projects/northwind/competitor-changes/preview',
+      payload: { change: 'add', competitors: ['preview-rival.example'] },
+    })
+    expect(previewWithReadKey.statusCode, previewWithReadKey.body).toBe(403)
+    const previewWithWriteKey = await app.inject({
+      method: 'POST', headers: { authorization: `Bearer ${writeKey}` },
+      url: '/api/v1/projects/northwind/competitor-changes/preview',
+      payload: { change: 'add', competitors: ['preview-rival.example'] },
+    })
+    expect(previewWithWriteKey.statusCode, previewWithWriteKey.body).toBe(200)
+    const previewForeign = await app.inject({
+      method: 'POST', headers,
+      url: '/api/v1/projects/foreign/competitor-changes/preview',
+      payload: { change: 'add', competitors: ['preview-rival.example'] },
+    })
+    expect(previewForeign.statusCode, previewForeign.body).toBe(403)
     expect({
       snapshots: db.select().from(querySnapshots).all(),
       competitors: db.select().from(competitors).all(),

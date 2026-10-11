@@ -4167,41 +4167,38 @@ export type CompetitorSuggestionsResponse = {
 
 export type CompetitorChangePreviewResponse = {
     project: string;
-    change: {
-        change: 'add';
-        competitors: Array<string | {
-            domain: string;
-            /**
-             * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
-             */
-            aliases?: Array<string>;
-        }>;
-    } | {
-        change: 'remove';
-        competitors: Array<string>;
-    } | {
-        change: 'replace';
-        competitors: Array<string | {
-            domain: string;
-            /**
-             * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
-             */
-            aliases?: Array<string>;
-        }>;
-    } | {
-        change: 'aliases';
-        domain: string;
-        aliases: Array<string>;
-        mode: 'set' | 'add';
-    };
+    change: 'add' | 'remove' | 'replace' | 'aliases';
     plan: {
         added: Array<string>;
         alreadyTracked: Array<string>;
         removed: Array<string>;
-        aliasChanges: Array<unknown>;
-        droppedAliases: Array<unknown>;
-        autoAliasChanges: Array<unknown>;
-        droppedAutoAliases: Array<unknown>;
+        aliasChanges: Array<{
+            domain: string;
+            before: Array<string>;
+            after: Array<string>;
+        }>;
+        droppedAliases: Array<{
+            domain: string;
+            alias: string;
+            reason: 'too-long' | 'too-short' | 'project-brand' | 'other-competitor' | 'market-competitor' | 'claimed-by-alias';
+            conflictsWith?: string;
+            conflictingName?: string;
+            markets?: Array<string>;
+            supersededRevision?: number;
+        }>;
+        autoAliasChanges: Array<{
+            domain: string;
+            before: Array<string>;
+            after: Array<string>;
+        }>;
+        droppedAutoAliases: Array<{
+            domain: string;
+            alias: string;
+            reason: 'too-long' | 'too-short' | 'blocked' | 'already-matched' | 'subsumed' | 'project-brand' | 'other-competitor' | 'over-limit';
+            stored: boolean;
+            conflictsWith?: string;
+            conflictingName?: string;
+        }>;
     };
     impact: {
         instrument: 'competitor-landscape';

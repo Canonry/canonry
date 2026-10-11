@@ -5,6 +5,9 @@ import {
   competitorAliasProjectIdentity,
   competitorEntryParts,
   normalizeCompetitorDomain,
+  notFound,
+  roundRatio,
+  RatioUnits,
   type CompetitorIdentityInput,
   type CompetitorShareImpact,
   validationError,
@@ -18,7 +21,7 @@ import { readMarketCompetitorPins } from './plan-competitors.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 
 function delta(before: number | null, after: number | null): number | null {
-  return before === null || after === null ? null : after - before
+  return before === null || after === null ? null : roundRatio(after - before, RatioUnits.percent)
 }
 
 export function previewCompetitorShareImpact(
@@ -69,6 +72,9 @@ export async function competitorChangePreviewRoutes(app: FastifyInstance) {
     const stored = readStoredCompetitors(app.db, project.id)
     const marketPins = readMarketCompetitorPins(app.db, project.id)
     const change = parsed.data
+    if (change.change === 'aliases' && !stored.some(row => normalizeCompetitorDomain(row.domain) === normalizeCompetitorDomain(change.domain))) {
+      throw notFound('Competitor', normalizeCompetitorDomain(change.domain))
+    }
     let plan
     if (change.change === 'remove') {
       const remove = new Set(change.competitors.map(normalizeCompetitorDomain))
@@ -83,6 +89,6 @@ export async function competitorChangePreviewRoutes(app: FastifyInstance) {
     const impact = previewCompetitorShareImpact(app, project.name, after)
     const alreadyTracked = change.change === 'add' ? change.competitors.map(competitorEntryParts).map(entry => normalizeCompetitorDomain(entry.domain)).filter(domain => stored.some(row => normalizeCompetitorDomain(row.domain) === domain)) : []
     const { final: _final, ...planSummary } = plan
-    return { project: project.name, change, plan: { ...planSummary, alreadyTracked }, impact }
+    return { project: project.name, change: change.change, plan: { ...planSummary, alreadyTracked }, impact }
   })
 }

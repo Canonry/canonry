@@ -14,10 +14,26 @@ import {
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import type { CompetitorLandscapeQuery, CompetitorLandscapeResponse, CompetitorSuggestionsQuery, CompetitorSuggestionsResponse, ModelEvidenceState } from '@ainyc/canonry-contracts'
+import type { CompetitorChangePreviewResponse, CompetitorLandscapeQuery, CompetitorLandscapeResponse, CompetitorSuggestionsQuery, CompetitorSuggestionsResponse, ModelEvidenceState } from '@ainyc/canonry-contracts'
 
 function getClient() {
   return createApiClient()
+}
+
+function printCompetitorPreviewImpact(preview: CompetitorChangePreviewResponse): void {
+  const { impact } = preview
+  const before = impact.before
+  const after = impact.after
+  const frame = impact.runIds.length > 0
+    ? `latest stored sweep, ${impact.runIds.length} run${impact.runIds.length === 1 ? '' : 's'}`
+    : shareOfVoiceReason(before.reason) || 'no latest stored sweep'
+  const classLabel = impact.queryClass === 'pooled' ? 'pooled queries' : `${impact.queryClass} queries`
+  console.log(`Mention share ${formatPercent(before.percent, RatioUnits.percent)} -> ${formatPercent(after.percent, RatioUnits.percent)} (${frame}, ${classLabel}): project mentions ${before.projectMentions}, tracked competitor mentions ${before.competitorMentions} -> ${after.competitorMentions}; tracked competitors ${before.competitorCount} -> ${after.competitorCount}. Restates every stored period.`)
+  for (const caveat of impact.caveats) {
+    if (caveat === 'basis-changed') console.log('Caveat: the tracked competitor basis changed.')
+    if (caveat === 'auto-alias-rescan-pending') console.log('Caveat: answer-derived aliases are pending a rescan.')
+    if (caveat === 'pooled') console.log('Caveat: branded and non-brand queries are pooled because no usable project brand was configured.')
+  }
 }
 
 /**
@@ -28,7 +44,8 @@ export async function addCompetitors(project: string, domains: string[], format?
   const client = getClient()
   if (dryRun) {
     const preview = await client.previewCompetitorChange(project, { change: 'add', competitors: aliases.length ? [{ domain: domains[0]!, aliases }] : domains })
-    console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2))
+    if (isMachineFormat(format)) console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2))
+    else printCompetitorPreviewImpact(preview)
     return
   }
   const existing = await client.listCompetitors(project)
@@ -147,7 +164,8 @@ export async function competitorAliases(project: string, domain: string, options
       aliases: nextAliases,
       mode: 'set',
     })
-    console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2))
+    if (isMachineFormat(options.format)) console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2))
+    else printCompetitorPreviewImpact(preview)
     return
   }
   if (options.block !== undefined) {
@@ -303,6 +321,12 @@ export async function detectCompetitorAutoAliases(project: string, options: Comp
   console.log(`Scanned ${scan.runs} runs, ${scan.snapshots} snapshots, ${scan.answers} answers (newest ${scan.maxRuns} runs, up to ${scan.maxSnapshots} snapshots; provider citations ${scan.providerCitations ? 'read' : 'unavailable, answer-text pairings only'})`)
   console.log(`Applies a name paired with the site in ${thresholds.minDirectPairs}+ answers over ${thresholds.minRuns}+ sweeps, named in ${thresholds.minNamingAnswers}+ answers, precision ${formatPercent(thresholds.minPrecision, RatioUnits.fraction)}+, cited ${thresholds.minLift}x+ more often when named than otherwise, written as a name in ${formatPercent(thresholds.minNameCasedShare, RatioUnits.fraction)}+ of them, ${thresholds.dominanceMultiple}x any other competitor's pairings, ${thresholds.minKeyLength}+ letters or digits, and visibly tied to the domain`)
   console.log('Legend: + added  = kept  - removed  ? review only  x rejected')
+  if (result.impact) printCompetitorPreviewImpact({
+    project: result.project,
+    change: 'aliases',
+    plan: { added: [], alreadyTracked: [], removed: [], aliasChanges: [], droppedAliases: [], autoAliasChanges: [], droppedAutoAliases: [] },
+    impact: result.impact,
+  })
   if (result.competitors.length === 0) {
     console.log(`\nNo competitors tracked for "${result.project}".`)
     return
@@ -330,7 +354,8 @@ export async function removeCompetitors(project: string, domains: string[], form
   const client = getClient()
   if (dryRun) {
     const preview = await client.previewCompetitorChange(project, { change: 'remove', competitors: domains })
-    console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2))
+    if (isMachineFormat(format)) console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2))
+    else printCompetitorPreviewImpact(preview)
     return
   }
   const existing = await client.listCompetitors(project)

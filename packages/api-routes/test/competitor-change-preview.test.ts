@@ -52,7 +52,7 @@ describe('POST /api/v1/projects/:name/competitor-changes/preview', () => {
     })
     expect(response.statusCode, response.body).toBe(200)
     const body = competitorChangePreviewResponseSchema.parse(response.json())
-    expect(body.change).toEqual({ change: 'add', competitors: ['newrival.example'] })
+    expect(body.change).toBe('add')
     expect(body.plan.added).toEqual(['newrival.example'])
     expect(body.impact.before.percent).toBe(50)
     expect(body.impact.after.percent).toBeCloseTo(33.333333, 5)
@@ -70,5 +70,15 @@ describe('POST /api/v1/projects/:name/competitor-changes/preview', () => {
     expect(response.statusCode, response.body).toBe(200)
     expect(response.json().plan.aliasChanges).toEqual([{ domain: 'rival.example', before: [], after: ['Rival Co'] }])
     expect(db.select().from(competitors).get()?.aliases).toEqual([])
+  })
+
+  it('refuses an alias preview for an untracked competitor like the write route', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/preview/competitor-changes/preview',
+      payload: { change: 'aliases', domain: 'missing.example', aliases: ['Missing'], mode: 'set' },
+    })
+    expect(response.statusCode).toBe(404)
+    expect(db.select().from(competitors).all()).toHaveLength(1)
   })
 })
