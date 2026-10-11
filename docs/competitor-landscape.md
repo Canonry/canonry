@@ -112,7 +112,7 @@ The read-only MCP equivalent is `canonry_competitor_landscape`. Advanced market 
 canonry competitor suggest <project> --window 30d --min-answers 3 --query-class non-brand --format json
 ```
 
-The result keeps naming and citation counts separate, pairs a name with a domain only through the canonical answer matcher and stored answer anchors, excludes cited-only domains, own sites, listing and marketplace surfaces, probes, and failed runs, and includes at most three sample URLs per candidate. `candidates[].status` is `suggested`, `tracked`, or `excluded`; `reason` explains an excluded candidate. `evidence`, `runIds`, `countUnits`, and `truncated` describe the denominator. This read performs no provider, classifier, discovery, or write operation. The MCP equivalent is `canonry_competitors_suggest`.
+The result keeps naming and citation counts separate, pairs a name with a domain only through the canonical answer matcher and stored answer anchors, excludes cited-only domains, own sites, listing and marketplace surfaces, probes, and failed runs, and includes at most three sample URLs per candidate. `candidates[].status` is `suggested`, `tracked`, or `excluded`; `reason` explains an excluded candidate. `evidence`, `runIds`, `countUnits`, and `truncated` describe the denominator. This read performs no provider, classifier, discovery, or write operation. The exact read refuses with `VALIDATION_ERROR` when the eligible population exceeds 10,000 answer rows instead of sampling; narrow `--window` or use `--group-key` for one Advanced market. The MCP equivalent is `canonry_competitors_suggest`.
 
 ## Optional model comparison for agents
 

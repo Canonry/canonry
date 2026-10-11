@@ -87,9 +87,12 @@ export interface AdvancedScope {
 }
 
 export interface LandscapePopulationSelection {
-  runIds: readonly string[]
+  runIds?: readonly string[]
   snapshotIds?: readonly string[]
+  answerTextCap?: number
 }
+
+export const COMPETITOR_SUGGESTION_MAX_ANSWER_ROWS = 10_000
 
 /** The pooled pin identity used by the landscape and suggestion readers. */
 export function selectLandscapePinnedIdentities(
@@ -119,7 +122,7 @@ export function selectLandscapePopulation(
   const candidateRuns = app.db.select().from(runs).where(and(
     eq(runs.projectId, project.id),
     eq(runs.kind, RunKinds['answer-visibility']),
-    selection ? inArray(runs.id, [...selection.runIds]) : undefined,
+    selection?.runIds ? inArray(runs.id, [...selection.runIds]) : undefined,
     latestRunIds ? inArray(runs.id, latestRunIds) : filters.runId ? eq(runs.id, filters.runId) : undefined,
     cutoff ? gte(runs.createdAt, cutoff) : undefined,
   )).all()
@@ -145,12 +148,14 @@ export function selectLandscapePopulation(
       model: querySnapshots.model,
       servedModel: querySnapshots.servedModel,
       answerMentioned: querySnapshots.answerMentioned,
-      answerText: querySnapshots.answerText,
+      answerText: selection?.answerTextCap === undefined
+        ? querySnapshots.answerText
+        : sql<string | null>`null`,
       recommendedCompetitors: querySnapshots.recommendedCompetitors,
       citedDomains: querySnapshots.citedDomains,
       citedUrls: querySnapshots.citedUrls,
       captureStatus: querySnapshots.captureStatus,
-      rawResponse: advanced && filters.answers === 'not-mentioned'
+      rawResponse: selection?.answerTextCap === undefined && advanced && filters.answers === 'not-mentioned'
         ? sql<string | null>`case when ${querySnapshots.citedUrls} is null then ${querySnapshots.rawResponse} else null end`
         : sql<string | null>`null`,
       location: querySnapshots.location,
@@ -169,6 +174,33 @@ export function selectLandscapePopulation(
   const eligibleRuns = new Set(candidateRuns
     .filter(run => run.trigger !== RunTriggers.probe && (run.status === RunStatuses.completed || run.status === RunStatuses.partial))
     .map(run => run.id))
+  const eligibleSnapshots = inScope.filter(snapshot => eligibleRuns.has(snapshot.runId))
+  if (selection?.answerTextCap !== undefined && eligibleSnapshots.length > selection.answerTextCap) {
+    throw validationError(
+      `Competitor suggestions cover ${eligibleSnapshots.length} eligible answer rows, exceeding the ${selection.answerTextCap}-row exact-read limit. Narrow the window or select one Advanced market with groupKey and try again.`,
+      {
+        reason: 'competitor-suggestions-answer-cap',
+        eligibleAnswers: eligibleSnapshots.length,
+        maxAnswers: selection.answerTextCap,
+        window: filters.window ?? 'all',
+        queryClass: filters.queryClass ?? 'all',
+        groupKey: filters.groupKey ?? null,
+        guidance: ['narrow the window', 'use groupKey for one Advanced market'],
+      },
+    )
+  }
+  const hydratedInScope = selection?.answerTextCap === undefined || eligibleSnapshots.length === 0
+    ? inScope
+    : (() => {
+      const answerTextById = new Map(app.db.select({ id: querySnapshots.id, answerText: querySnapshots.answerText })
+        .from(querySnapshots)
+        .where(inArray(querySnapshots.id, eligibleSnapshots.map(snapshot => snapshot.id)))
+        .all()
+        .map(row => [row.id, row.answerText]))
+      return inScope.map(snapshot => eligibleRuns.has(snapshot.runId)
+        ? { ...snapshot, answerText: answerTextById.get(snapshot.id) ?? null }
+        : snapshot)
+    })()
   return {
     project,
     filters,
@@ -178,7 +210,7 @@ export function selectLandscapePopulation(
     queryClassifier,
     allSnapshots,
     runById,
-    inScope,
+    inScope: hydratedInScope,
     eligibleRuns,
     excludedProbeResults: inScope.filter(snapshot => runById.get(snapshot.runId)?.trigger === RunTriggers.probe).length,
     excludedNonCompletedResults: inScope.filter(snapshot => {
@@ -186,7 +218,7 @@ export function selectLandscapePopulation(
       return run !== undefined && run.trigger !== RunTriggers.probe
         && run.status !== RunStatuses.completed && run.status !== RunStatuses.partial
     }).length,
-    eligibleSnapshots: inScope.filter(snapshot => eligibleRuns.has(snapshot.runId)),
+    eligibleSnapshots: hydratedInScope.filter(snapshot => eligibleRuns.has(snapshot.runId)),
   }
 }
 
