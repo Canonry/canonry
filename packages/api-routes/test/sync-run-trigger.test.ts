@@ -16,10 +16,12 @@ describe('scheduled sync trigger provenance', () => {
     expect(claim).toHaveBeenNthCalledWith(2, 'project', RunKinds['gsc-sync'], undefined)
   })
 
-  it('keeps traffic source claims independent', () => {
-    expect(syncRunClaimKey('project', RunKinds['traffic-sync'], 'source-a'))
-      .not.toBe(syncRunClaimKey('project', RunKinds['traffic-sync'], 'source-b'))
-    expect(syncRunClaimKey('project', RunKinds['traffic-sync'], 'source-a'))
-      .toBe('project\u0000traffic-sync\u0000source-a')
+  it('keeps a claim for one traffic source from labeling another source', () => {
+    const claims = new Set([syncRunClaimKey('project', RunKinds['traffic-sync'], 'source-a')])
+    const claim = (projectName: string, kind: RunKinds[keyof typeof RunKinds], sourceId?: string) =>
+      claims.delete(syncRunClaimKey(projectName, kind, sourceId))
+
+    expect(syncRunTrigger(claim, 'project', RunKinds['traffic-sync'], 'source-b')).toBe(RunTriggers.manual)
+    expect(syncRunTrigger(claim, 'project', RunKinds['traffic-sync'], 'source-a')).toBe(RunTriggers.scheduled)
   })
 })
