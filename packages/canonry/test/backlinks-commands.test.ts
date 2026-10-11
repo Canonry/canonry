@@ -179,6 +179,10 @@ describe('formatSourceAvailability', () => {
     expect(out).toContain('bing-webmaster')
     expect(out).toContain('No active backlink source is set up')
     expect(out).toContain('canonry backlinks sync')
+    // A synced release with no project data is fixed by an extract, and no
+    // project setting gates the source any more.
+    expect(out).toContain('canonry backlinks extract roots')
+    expect(out).not.toContain('Enable Common Crawl on the project')
     expect(out).not.toContain('canonry bing connect')
   })
 

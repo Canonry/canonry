@@ -1167,7 +1167,8 @@ Cache exclusions for the selected AI agents can recover crawler and user-fetch
 coverage, but they do not recover ordinary browser referrals served from cache.
 Use GA4 for landed browser visits or edge/access logs for cache-independent
 request coverage. The `traffic.source.cache-blindspot` doctor check is a static
-warning; it does not request or impersonate traffic against the public origin.
+warning; it does not request or impersonate traffic against the public origin,
+and it never sends a `health.degraded` alert.
 
 ### Inspect stored samples
 

@@ -54,7 +54,7 @@ export const checkResultSchema = z.object({
   scope: checkScopeSchema,
   title: z.string(),
   status: checkStatusSchema,
-  notificationPolicy: checkNotificationPolicySchema.optional().describe('Health checks page by default. Silent report advisories remain visible but never affect health alert state.'),
+  notificationPolicy: checkNotificationPolicySchema.optional().describe('Health checks page by default. Silent checks (report advisories and standing advisories) remain visible but never affect health alert state.'),
   code: z.string().describe('Stable machine-readable code (e.g. "google.token.refresh-failed"). Use this for filtering and remediation logic.'),
   summary: z.string(),
   remediation: z.string().nullable().optional().describe('Operator-facing next step. Null when status is "ok" or no specific remediation applies.'),
