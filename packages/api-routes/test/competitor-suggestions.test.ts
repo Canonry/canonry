@@ -4,8 +4,9 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { auditLog, competitors, createClient, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { apiKeys, auditLog, competitors, createClient, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
+import { hashApiKey } from '../src/auth.js'
 
 const NOW = '2026-08-20T12:00:00.000Z'
 let tempDir: string
@@ -85,5 +86,43 @@ describe('GET competitor suggestions', () => {
     expect(body.candidates[0]).toMatchObject({ domain: 'rival.example', status: 'suggested' })
     expect(body.truncated).toBe(true)
     expect(body.excludedCounts['not-named']).toBeGreaterThan(0)
+  })
+
+  it('allows a read-only key on its project and refuses a foreign project', async () => {
+    const key = 'cnry_suggestions_reader'
+    db.insert(projects).values({
+      id: 'project_foreign', name: 'foreign', displayName: 'Foreign', canonicalDomain: 'foreign.example', ownedDomains: [],
+      country: 'US', language: 'en', providers: ['openai'], locations: [], createdAt: NOW, updatedAt: NOW,
+    }).run()
+    db.insert(apiKeys).values({
+      id: 'suggestions-reader', name: 'Suggestions reader', keyHash: hashApiKey(key), keyPrefix: key.slice(0, 9),
+      scopes: ['read'], projectId: 'project_demo', createdAt: NOW,
+    }).run()
+    await app.close()
+    app = Fastify()
+    app.register(apiRoutes, { db })
+    await app.ready()
+    const headers = { authorization: `Bearer ${key}` }
+    const own = await app.inject({ method: 'GET', headers, url: '/api/v1/projects/demo/competitor-suggestions?window=all' })
+    expect(own.statusCode, own.body).toBe(200)
+    const foreign = await app.inject({ method: 'GET', headers, url: '/api/v1/projects/foreign/competitor-suggestions?window=all' })
+    expect(foreign.statusCode, foreign.body).toBe(403)
+  })
+
+  it('keeps minAnswers=4 metrics byte-equivalent when a bare competitor is tracked', async () => {
+    const before = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/competitor-suggestions?window=all&minAnswers=4' })
+    expect(before.statusCode, before.body).toBe(200)
+    const beforeCandidate = before.json().candidates.find((candidate: { domain: string }) => candidate.domain === 'rival.example')
+    expect(beforeCandidate).toMatchObject({ namingAnswers: 4, citingAnswers: 4, bothAnswers: 4, pairedAnswers: 4 })
+    db.insert(competitors).values({ id: 'bare-rival', projectId: 'project_demo', domain: 'rival.example', aliases: [], provenance: 'manual', createdAt: NOW }).run()
+    const after = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/competitor-suggestions?window=all&minAnswers=4' })
+    expect(after.statusCode, after.body).toBe(200)
+    const afterCandidate = after.json().candidates.find((candidate: { domain: string }) => candidate.domain === 'rival.example')
+    const comparable = (candidate: Record<string, unknown>) => {
+      const { tracked: _tracked, status: _status, ...metrics } = candidate
+      return metrics
+    }
+    expect(comparable(afterCandidate)).toEqual(comparable(beforeCandidate))
+    expect(afterCandidate.tracked).toBe(true)
   })
 })

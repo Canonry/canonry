@@ -1253,6 +1253,17 @@ describe('GET /projects/:name/analytics/competitors', () => {
     expect(response.json().pinned).toEqual(expect.arrayContaining([
       expect.objectContaining({ domain: 'parentco.com', mentionCount: 2, citationCount: 2 }),
     ]))
+    const suggestions = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all',
+    })
+    expect(suggestions.statusCode, suggestions.body).toBe(200)
+    expect(suggestions.json()).toMatchObject({
+      scope: { kind: 'all-markets' },
+      filters: { queryClass: 'non-brand' },
+      evidence: { answeredResults: 2, excludedProbeResults: 0, excludedNonCompletedResults: 0 },
+      runIds: ['multi_market_alias_run'],
+      candidates: [expect.objectContaining({ domain: 'parentco.com', marketKeys: expect.arrayContaining(['regional', 'southern']) })],
+    })
     const grouped = await app.inject({
       method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&scope=all-markets&groupBy=model',
     })
