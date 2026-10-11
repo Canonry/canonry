@@ -128,12 +128,22 @@ function expectNoImplementationLanguage(container: HTMLElement) {
   }
 }
 
+/** Everything a reader sees or hears: the text, and the names that only a screen reader or a tooltip carries. */
+function readerCopy(container: HTMLElement): string {
+  const named = [...container.querySelectorAll('[aria-label], [placeholder]')]
+    .map(element => `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('placeholder') ?? ''}`)
+  return [container.textContent ?? '', ...named].join(' ')
+}
+
+// One note tells a viewer so on every step of the setup.
+const VIEW_ONLY = 'View only. Your account cannot change this setup.'
+
 afterEach(() => {
   cleanup()
 })
 
 describe('SetupImportProperties import step', () => {
-  test('requires a sitemap and either an example Property page or an explicit path pattern', () => {
+  test('requires a sitemap and either an example location page or an explicit path pattern', () => {
     const onReviewSitemap = vi.fn()
     render(<ImportHarness onReviewSitemap={onReviewSitemap} />)
 
@@ -142,28 +152,33 @@ describe('SetupImportProperties import step', () => {
 
     fireEvent.change(screen.getByLabelText('Sitemap URL'), { target: { value: 'https://example.com/sitemap.xml' } })
     expect(reviewButton).toHaveProperty('disabled', true)
-    expect(screen.getByText('This shows Canonry the Property URL pattern. Or enter the pattern under More import options.')).toBeTruthy()
+    // The field's help is the icon beside its label, never a line under the input.
+    const help = 'This shows Canonry the location URL pattern. Or enter the pattern under More import options.'
+    expect(screen.getByRole('button', { name: help })).toBeTruthy()
+    expect(screen.queryByText(help)).toBeNull()
 
-    fireEvent.change(screen.getByLabelText('Example Property page'), { target: { value: 'https://example.com/offices/north' } })
+    fireEvent.change(screen.getByLabelText('Example location page'), { target: { value: 'https://example.com/offices/north' } })
     expect(reviewButton).toHaveProperty('disabled', false)
   })
 
-  test('keeps the sitemap and an example Property page primary, with advanced rules behind a compact disclosure', () => {
+  test('keeps the sitemap and an example location page primary, with advanced rules behind a compact disclosure', () => {
     const onReviewSitemap = vi.fn()
     const { container } = render(<ImportHarness onReviewSitemap={onReviewSitemap} />)
 
-    expect(screen.getByRole('heading', { name: 'Import Properties' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Import locations' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Review sitemap entries before choosing the locations to measure.' })).toBeTruthy()
     expect(screen.getByLabelText('Sitemap URL')).toBeTruthy()
-    const examplePropertyPage = screen.getByLabelText('Example Property page')
+    const examplePropertyPage = screen.getByLabelText('Example location page')
     expect(examplePropertyPage.closest('details')).toBeNull()
     expect(screen.getByRole('button', { name: 'Review sitemap' })).toBeTruthy()
 
     const rules = screen.getByText('More import options').closest('details')
     expect(rules).not.toBeNull()
     expect(rules?.open).toBe(false)
-    expect(within(rules!).queryByLabelText('Example Property page')).toBeNull()
+    expect(within(rules!).queryByLabelText('Example location page')).toBeNull()
     expect(within(rules!).getByLabelText('Use URLs from this domain')).toBeTruthy()
-    expect(within(rules!).getByLabelText('Property URL pattern')).toBeTruthy()
+    expect(within(rules!).getByLabelText('Location URL pattern')).toBeTruthy()
+    expect(within(rules!).getByRole('button', { name: 'Use both fields. Fill in both when each location also has a matching page on another domain.' })).toBeTruthy()
     expect(within(rules!).getByLabelText('Additional URL domain')).toBeTruthy()
     expect(within(rules!).getByLabelText('Additional URL pattern')).toBeTruthy()
     expect(within(rules!).getByLabelText('Ignore these URL paths')).toBeTruthy()
@@ -171,7 +186,7 @@ describe('SetupImportProperties import step', () => {
     fireEvent.change(screen.getByLabelText('Sitemap URL'), { target: { value: 'https://example.com/sitemap.xml' } })
     fireEvent.change(examplePropertyPage, { target: { value: 'https://example.com/offices/north' } })
     fireEvent.change(within(rules!).getByLabelText('Use URLs from this domain'), { target: { value: 'example.com' } })
-    fireEvent.change(within(rules!).getByLabelText('Property URL pattern'), { target: { value: '/offices/*' } })
+    fireEvent.change(within(rules!).getByLabelText('Location URL pattern'), { target: { value: '/offices/*' } })
     fireEvent.change(within(rules!).getByLabelText('Additional URL domain'), { target: { value: 'offices.example.com' } })
     fireEvent.change(within(rules!).getByLabelText('Additional URL pattern'), { target: { value: '/*' } })
     fireEvent.change(within(rules!).getByLabelText('Ignore these URL paths'), { target: { value: '/offices/archive' } })
@@ -188,20 +203,23 @@ describe('SetupImportProperties import step', () => {
     })
     expect(screen.queryByRole('button', { name: /publish|create/i })).toBeNull()
     expectNoImplementationLanguage(container)
+    expect(readerCopy(container)).not.toMatch(/propert/i)
   })
 })
 
-describe('SetupImportProperties Properties step', () => {
+describe('SetupImportProperties Locations step', () => {
   test('uses a table, lets users revise every Property, and confirms the whole selection on Continue', () => {
     const onContinue = vi.fn()
     const { container } = render(<PropertiesHarness onContinue={onContinue} />)
 
-    expect(screen.getByRole('heading', { name: 'Properties' })).toBeTruthy()
-    expect(screen.getByRole('table', { name: 'Properties to review' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Locations' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Choose the locations to include, then continue.' })).toBeTruthy()
+    expect(screen.getByRole('table', { name: 'Locations to review' })).toBeTruthy()
+    expect(screen.getByRole('columnheader', { name: 'Location' })).toBeTruthy()
     expect(screen.getByText('New')).toBeTruthy()
     expect(screen.getByText('Included')).toBeTruthy()
     expect(screen.getByText('Excluded')).toBeTruthy()
-    expect(screen.getByText('Showing 3 of 3 Properties')).toBeTruthy()
+    expect(screen.getByText('Showing 3 of 3 locations')).toBeTruthy()
     expect(screen.getByText('1 of 3 selected')).toBeTruthy()
     const urlCoverage = screen.getByText('2 URLs').closest('details')
     expect(urlCoverage?.open).toBe(false)
@@ -215,6 +233,7 @@ describe('SetupImportProperties Properties step', () => {
 
     expect(onContinue).toHaveBeenCalledWith(['north-office', 'central-office', 'south-office'])
     expectNoImplementationLanguage(container)
+    expect(readerCopy(container)).not.toMatch(/propert/i)
   })
 
   test('supports going back and clearing a prior selection before continuing', () => {
@@ -234,12 +253,12 @@ describe('SetupImportProperties Properties step', () => {
     const onReturnToImport = vi.fn()
     render(<PropertiesHarness isContinuing onReturnToImport={onReturnToImport} />)
 
-    expect(screen.getByRole('searchbox', { name: 'Search Properties' })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('searchbox', { name: 'Search' })).toHaveProperty('disabled', true)
     expect(screen.getByRole('button', { name: 'Select all shown' })).toHaveProperty('disabled', true)
     expect(screen.getByRole('button', { name: 'Clear selection' })).toHaveProperty('disabled', true)
     expect(screen.getByLabelText('Select North Office')).toHaveProperty('disabled', true)
     expect(screen.getByRole('button', { name: 'Back' })).toHaveProperty('disabled', true)
-    expect(screen.getByRole('button', { name: 'Saving Properties…' })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: 'Saving locations…' })).toHaveProperty('disabled', true)
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(onReturnToImport).not.toHaveBeenCalled()
   })
@@ -247,9 +266,9 @@ describe('SetupImportProperties Properties step', () => {
   test('filters with compact search and gives every limited list a Showing N of M count', () => {
     render(<PropertiesHarness maxVisibleProperties={2} />)
 
-    expect(screen.getByText('Showing 2 of 3 Properties')).toBeTruthy()
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search Properties' }), { target: { value: 'South' } })
-    expect(screen.getByText('Showing 1 of 1 Properties')).toBeTruthy()
+    expect(screen.getByText('Showing 2 of 3 locations')).toBeTruthy()
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search' }), { target: { value: 'South' } })
+    expect(screen.getByText('Showing 1 of 1 locations')).toBeTruthy()
     expect(screen.getByText('South Office')).toBeTruthy()
     expect(screen.queryByText('North Office')).toBeNull()
   })
@@ -263,13 +282,13 @@ describe('SetupImportProperties Properties step', () => {
     }))
     render(<PropertiesHarness rows={manyProperties} maxVisibleProperties={50} />)
 
-    expect(screen.getByText('Showing 50 of 55 Properties')).toBeTruthy()
+    expect(screen.getByText('Showing 50 of 55 locations')).toBeTruthy()
     expect(screen.queryByLabelText('Select Office 51')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Show all Properties' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Show all locations' })).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show all Properties' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Show all locations' }))
 
-    expect(screen.getByText('Showing 55 of 55 Properties')).toBeTruthy()
+    expect(screen.getByText('Showing 55 of 55 locations')).toBeTruthy()
     expect(screen.getByLabelText('Select Office 51')).toBeTruthy()
   })
 
@@ -277,10 +296,19 @@ describe('SetupImportProperties Properties step', () => {
     render(<PropertiesHarness canEdit={false} />)
 
     expect(screen.getByText('North Office')).toBeTruthy()
-    expect(screen.getByText('Viewing only. Property changes are unavailable.')).toBeTruthy()
+    // An icon and two words; the sentence is the note's name and bubble.
+    expect(screen.getByRole('button', { name: VIEW_ONLY }).textContent).toBe('View only')
     expect(screen.queryByRole('button', { name: 'Select all shown' })).toBeNull()
     expect(screen.queryByRole('checkbox')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
+  })
+
+  test('tells a viewer so with the same note on the Import step', () => {
+    render(<SetupImportProperties {...buildProps({ canEdit: false })} />)
+
+    expect(screen.getByRole('button', { name: VIEW_ONLY }).textContent).toBe('View only')
+    expect(screen.queryByText('Viewer access')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Review sitemap' })).toHaveProperty('disabled', true)
   })
 
   test('allows an existing confirmed setup to continue without new proposals', () => {
@@ -302,8 +330,9 @@ describe('SetupImportProperties Properties step', () => {
       />,
     )
 
-    expect(screen.getByText('Loading Properties…')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh Properties' }))
+    // A label and one action in each state, with no helper sentence under the label.
+    expect(screen.getByRole('status').parentElement!.textContent).toBe('Loading locations…Refresh locations')
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh locations' }))
     expect(onRetryProperties).toHaveBeenCalledTimes(1)
     loading.unmount()
 
@@ -314,7 +343,8 @@ describe('SetupImportProperties Properties step', () => {
         onRetryProperties={onRetryProperties}
       />,
     )
-    expect(screen.getByRole('alert').textContent).toContain('Could not load Properties.')
+    // An icon, a label and one action.
+    expect(screen.getByRole('alert').textContent).toBe('Could not loadRetry')
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(onRetryProperties).toHaveBeenCalledTimes(2)
     cleanup()
@@ -325,8 +355,15 @@ describe('SetupImportProperties Properties step', () => {
         onReturnToImport={onReturnToImport}
       />,
     )
-    expect(screen.getByText('No Properties were found.')).toBeTruthy()
+    expect(screen.getByText('No locations found.').parentElement!.textContent).toBe('No locations found.Review sitemap')
     fireEvent.click(screen.getByRole('button', { name: 'Review sitemap' }))
     expect(onReturnToImport).toHaveBeenCalledTimes(1)
+    cleanup()
+
+    render(<PropertiesHarness onReturnToImport={onReturnToImport} />)
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search' }), { target: { value: 'no such office' } })
+    expect(screen.getByText('No locations match this search.').parentElement!.textContent).toBe('No locations match this search.Review sitemap')
+    fireEvent.click(screen.getByRole('button', { name: 'Review sitemap' }))
+    expect(onReturnToImport).toHaveBeenCalledTimes(2)
   })
 })

@@ -175,7 +175,7 @@ export function setupErrorMessage(error: unknown, fallback: string): string {
 
 /** Exposes only validation messages the API explicitly marks as operator-safe. */
 export function assignmentPreviewErrorMessage(error: unknown): string {
-  const fallback = 'Could not calculate assignment impact.'
+  const fallback = 'Could not calculate impact.'
   if (!(error instanceof ApiError) || error.code !== 'VALIDATION_ERROR') return fallback
   const message = error.message.trim()
   return error.details?.displayToOperator === true && message ? message : fallback

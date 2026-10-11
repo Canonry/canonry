@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { Info, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { QueryTrackingPreviewResponse, QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
 
 import { isEmbed } from '../../../api.js'
 import { WriteButton } from '../../shared/AccessControls.js'
 import { DataTablePagination, DataTableSearch } from '../../shared/DataTableControls.js'
+import { StatusNote } from '../../shared/StatusNote.js'
 import { ToneBadge } from '../../shared/ToneBadge.js'
 import { Button } from '../../ui/button.js'
 import { Card } from '../../ui/card.js'
@@ -50,7 +51,11 @@ export function SimpleTrackedQueries(props: TrackedQueriesPageProps & { composer
         <p className="mt-2 text-xs leading-5 text-secondary">
           {table.totalRows.toLocaleString('en-US')} {table.totalRows === 1 ? 'query' : 'queries'}
         </p>
-        {selection.measurementScope === 'group' ? <p className="mt-1 text-xs leading-5 text-secondary">Queries belong to properties, so a shared query can also cover other groups.</p> : null}
+        {selection.measurementScope === 'group' ? (
+          <div className="mt-1">
+            <StatusNote icon={Info} label="Shared queries" detail="Queries belong to locations, so a shared query can also cover other groups." />
+          </div>
+        ) : null}
 
         {!workspace.active ? <p className="mt-3 text-sm text-caution">No published measurement yet.</p> : null}
 

@@ -84,9 +84,13 @@ describe('sentiment CLI transport contract', () => {
     const fixture = sentimentSummarySchema.parse({ ...sentimentFixtureSummary, breakdowns: [propertyA, propertyB, propertyC], criticizedProperties: { total: 7, keys: ['property-b', 'property-a', 'property-gone'] } })
     const lines = (await invoke(['demo'], fixture, 'getSentiment', 'text')).split('\n')
     const title = lines.indexOf(`${CRITICIZED_PROPERTIES_TITLE}: 2 of 7`)
-    expect(title).toBeGreaterThan(lines.indexOf('property Property C · branded: 100% favorable · 2 of 2 judged'))
+    // The breakdown rows above the title say "location" too; only JSON keeps the wire name `property`.
+    const breakdown = lines.indexOf('location Property C · branded: 100% favorable · 2 of 2 judged')
+    expect(breakdown).toBeGreaterThanOrEqual(0)
+    expect(title).toBeGreaterThan(breakdown)
+    expect(lines.some(line => line.startsWith('property '))).toBe(false)
     expect(lines.slice(title, title + 3)).toEqual([
-      'Most criticized properties: 2 of 7',
+      'Most criticized locations: 2 of 7',
       '  Property B (property-b): 1 favorable · 2 mixed · 0 unfavorable · 3 judged',
       '  Property A (property-a): 0 favorable · 1 mixed · 3 unfavorable · 4 judged',
     ])

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
+import { InfoTooltip } from '../../shared/InfoTooltip.js'
 import { ToneBadge } from '../../shared/ToneBadge.js'
 import { Button } from '../../ui/button.js'
 
@@ -7,7 +8,7 @@ export type AdvancedMeasurementSetupStep = 'import' | 'properties' | 'groups' | 
 
 const setupSteps: readonly { id: AdvancedMeasurementSetupStep; label: string }[] = [
   { id: 'import', label: 'Import' },
-  { id: 'properties', label: 'Properties' },
+  { id: 'properties', label: 'Locations' },
   { id: 'groups', label: 'Groups' },
   { id: 'queries', label: 'Queries' },
   { id: 'review', label: 'Review and publish' },
@@ -64,11 +65,9 @@ export function AdvancedMeasurementSetupWizard({
   return (
     <div className="space-y-6">
       <div className="mb-3 flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:justify-between">
-        <div className="min-w-0 w-full sm:flex-1">
+        <div className="flex min-w-0 w-full items-center gap-1 sm:flex-1">
           <h2>Advanced measurement setup</h2>
-          <p className="mt-1 max-w-2xl text-sm text-secondary">
-            Choose the Properties and queries you want to measure.
-          </p>
+          <InfoTooltip placement="bottom" text="Choose the locations and queries you want to measure." />
         </div>
         {hasDraft ? (
           <div className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end">
