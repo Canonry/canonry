@@ -28,6 +28,8 @@ export interface CompetitorSuggestionAnswer {
   citedDomains: readonly string[]
   citedUrls: readonly string[] | null
   recommendedCompetitors?: readonly string[]
+  /** Frozen competitor identities for this answer's Advanced execution scope. */
+  competitors?: readonly CompetitorIdentityInput[]
 }
 
 export interface CompetitorSuggestionClassification {
@@ -230,7 +232,10 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
     const prose = answerProseForMentions(answer.answerText)
     const resolvedNameKeys = resolvedNameKeysByAnswer.get(answer.id)!
     for (const candidate of candidates.values()) {
-      const matcher = matchers.get(candidate.domain)!
+      const scoped = answer.competitors?.find(competitor => normalizeCompetitorDomain(competitor.domain) === candidate.domain)
+      const matcher = scoped
+        ? compileBrandAliases(competitorBrandAliases(scoped))
+        : matchers.get(candidate.domain)!
       const occurrences = aliasOccurrencesAsWritten(matcher, prose)
       if (occurrences.size === 0) continue
       const cited = candidate.citing.has(answer.id)

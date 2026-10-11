@@ -2430,7 +2430,7 @@ const routeCatalog: OpenApiOperation[] = [
       analyticsWindowParameter,
       { name: 'minAnswers', in: 'query', description: 'Minimum answer count for a suggested candidate. Defaults to 3.', schema: { type: 'integer', minimum: 1, maximum: 1000 } },
       { name: 'queryClass', in: 'query', description: 'One query population. Defaults to non-brand when the project can classify queries, otherwise all pooled.', schema: { type: 'string', enum: ['non-brand', 'branded', 'all'] } },
-      competitorLandscapeGroupKeyParameter,
+      { ...competitorLandscapeGroupKeyParameter, description: 'Select one Advanced market by group key. Omit for all markets; Simple projects use project scope.' },
       { name: 'limit', in: 'query', description: 'Maximum candidate rows returned. Defaults to 25 and is capped at 100.', schema: { type: 'integer', minimum: 1, maximum: 100 } },
     ],
     responses: {
