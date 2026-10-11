@@ -1310,6 +1310,16 @@ describe('GET /projects/:name/analytics/competitors', () => {
     expect(bareAllSuggestionRow).toMatchObject({ namingAnswers: 1, citingAnswers: 1, names: [expect.objectContaining({ name: 'Regionalonly', answerCount: 1 })] })
     expect(bareSouthLandscapeRow).toMatchObject({ mentionCount: 0, citationCount: 1 })
     expect(bareSouthSuggestionRow).toMatchObject({ namingAnswers: 0, citingAnswers: 1 })
+
+    db.update(querySnapshots).set({ answerText: 'Northwind and AlphaCo. Regionalonly.' }).where(eq(querySnapshots.id, 'south_alias')).run()
+    const crossMarketLandscape = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&scope=all-markets&queryClass=all' })
+    const crossMarketParent = crossMarketLandscape.json().pinned.find((row: { domain: string }) => row.domain === 'parentco.com')
+    const crossMarketSuggestion = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all&queryClass=all' })
+    const crossMarketCandidate = crossMarketSuggestion.json().candidates.find((row: { domain: string }) => row.domain === 'parentco.com')
+    expect(crossMarketParent).toMatchObject({ mentionCount: 2, citationCount: 2 })
+    expect(crossMarketCandidate).toMatchObject({ namingAnswers: 2, citingAnswers: 2, names: [
+      expect.objectContaining({ name: 'AlphaCo', answerCount: 2 }),
+    ] })
     const regionalSuggestions = await app.inject({
       method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all&groupKey=regional',
     })
@@ -1367,7 +1377,7 @@ describe('GET /projects/:name/analytics/competitors', () => {
       { id: 'frozen_name_current_run', projectId: 'project_northwind', kind: 'answer-visibility', status: 'completed', trigger: 'manual', measurementPlanVersionId: 'frozen_name_current', location: null, createdAt: NOW },
     ]).run()
     db.insert(querySnapshots).values([
-      { ...marketSnapshot('frozen_name_old_answer', 'frozen_name_old_run', 'frozen-name-old-node', 'Northwind recommends AlphaCo.', 'sharedbrand.example', '2026-08-10T12:00:00.000Z') },
+      { ...marketSnapshot('frozen_name_old_answer', 'frozen_name_old_run', 'frozen-name-old-node', 'Northwind recommends BetaCo.', 'sharedbrand.example', '2026-08-10T12:00:00.000Z') },
       { ...marketSnapshot('frozen_name_current_answer', 'frozen_name_current_run', 'frozen-name-current-node', 'Northwind recommends BetaCo.', 'sharedbrand.example') },
       { ...marketSnapshot('frozen_name_current_old_word', 'frozen_name_current_run', 'frozen-name-current-node', 'Northwind mentions AlphaCo.', 'sharedbrand.example'), provider: 'anthropic' },
     ]).run()
@@ -1384,11 +1394,15 @@ describe('GET /projects/:name/analytics/competitors', () => {
         namingAnswers: 2,
         citingAnswers: 3,
         names: expect.arrayContaining([
-          expect.objectContaining({ name: 'AlphaCo', answerCount: 1 }),
-          expect.objectContaining({ name: 'BetaCo', answerCount: 1 }),
+          expect.objectContaining({ name: 'BetaCo', answerCount: 2 }),
         ]),
       })],
     })
+    const frozenLandscape = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&scope=all-markets&queryClass=all',
+    })
+    const frozenLandscapeCandidate = frozenLandscape.json().pinned.find((row: { domain: string }) => row.domain === 'sharedbrand.example')
+    expect(frozenLandscapeCandidate).toMatchObject({ mentionCount: 2, citationCount: 3 })
   })
 
   it('scopes classes to Target usages when two markets share one execution', async () => {
