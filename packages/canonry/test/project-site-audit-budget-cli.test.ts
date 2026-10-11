@@ -85,18 +85,20 @@ describe('project --site-audit-max-pages against the API', () => {
   it('saves a budget, keeps it through an edit that does not name it, and resets it with "full"', async () => {
     const { db, api } = await harness()
     const put = vi.spyOn(api, 'putProject')
+    const patch = vi.spyOn(api, 'patchProject')
 
     expect((await cli(['project', 'update', PROJECT, '--site-audit-max-pages', '2500'])).error).toBeUndefined()
-    expect(put.mock.calls.at(-1)![1].siteAuditMaxPages).toBe(2_500)
+    expect(put).not.toHaveBeenCalled()
+    expect(patch.mock.calls.at(-1)![1].siteAuditMaxPages).toBe(2_500)
     expect(stored(db).siteAuditMaxPages).toBe(2_500)
 
-    // The update re-sends the project it read; the budget must not ride along as a stale value or a null.
+    // The patch carries only changed fields; an omitted budget stays stored.
     expect((await cli(['project', 'update', PROJECT, '--country', 'GB'])).error).toBeUndefined()
-    expect(put.mock.calls.at(-1)![1]).not.toHaveProperty('siteAuditMaxPages')
+    expect(patch.mock.calls.at(-1)![1]).not.toHaveProperty('siteAuditMaxPages')
     expect(stored(db)).toMatchObject({ country: 'GB', siteAuditMaxPages: 2_500 })
 
     expect((await cli(['project', 'update', PROJECT, '--site-audit-max-pages', 'full'])).error).toBeUndefined()
-    expect(put.mock.calls.at(-1)![1].siteAuditMaxPages).toBeNull()
+    expect(patch.mock.calls.at(-1)![1].siteAuditMaxPages).toBeNull()
     expect(stored(db).siteAuditMaxPages).toBeNull()
   })
 
@@ -125,6 +127,7 @@ describe('project --site-audit-max-pages against the API', () => {
   it('rejects anything but a whole number from 1 to 50,000 or "full" before any request', async () => {
     const { db, api } = await harness()
     const put = vi.spyOn(api, 'putProject')
+    const patch = vi.spyOn(api, 'patchProject')
     for (const [command, value] of [
       ['update', '0'], ['update', '50001'], ['update', 'abc'], ['update', '2.5'], ['update', '1e3'], ['update', ''], ['create', '0'],
     ] as const) {
@@ -138,6 +141,7 @@ describe('project --site-audit-max-pages against the API', () => {
       })
     }
     expect(put).not.toHaveBeenCalled()
+    expect(patch).not.toHaveBeenCalled()
     expect(stored(db).siteAuditMaxPages).toBeNull()
   })
 

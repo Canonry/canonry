@@ -21097,7 +21097,7 @@ export type GetApiV1ProjectsByNameCompetitorSuggestionsData = {
          */
         queryClass?: 'non-brand' | 'branded' | 'all';
         /**
-         * Advanced Measurement market (v2 group stable key). Omit for the project-wide landscape.
+         * Select one Advanced market by group key. Omit for all markets; Simple projects use project scope.
          */
         groupKey?: string;
         /**

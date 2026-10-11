@@ -1262,7 +1262,28 @@ describe('GET /projects/:name/analytics/competitors', () => {
       filters: { queryClass: 'non-brand' },
       evidence: { answeredResults: 2, excludedProbeResults: 0, excludedNonCompletedResults: 0 },
       runIds: ['multi_market_alias_run'],
-      candidates: [expect.objectContaining({ domain: 'parentco.com', marketKeys: expect.arrayContaining(['regional', 'southern']) })],
+      candidates: [expect.objectContaining({
+        domain: 'parentco.com',
+        tracked: true,
+        status: 'tracked',
+        namingAnswers: 2,
+        citingAnswers: 2,
+        bothAnswers: 2,
+        pairedAnswers: 2,
+        marketKeys: expect.arrayContaining(['regional', 'southern']),
+        names: expect.arrayContaining([
+          expect.objectContaining({ name: 'AlphaCo', answerCount: 1, pairedAnswers: 1 }),
+          expect.objectContaining({ name: 'BetaCo', answerCount: 1, pairedAnswers: 1 }),
+        ]),
+      })],
+    })
+    const regionalSuggestions = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all&groupKey=regional',
+    })
+    expect(regionalSuggestions.statusCode, regionalSuggestions.body).toBe(200)
+    expect(regionalSuggestions.json()).toMatchObject({
+      scope: { kind: 'group', groupKey: 'regional' },
+      candidates: [expect.objectContaining({ domain: 'parentco.com', namingAnswers: 1, names: [expect.objectContaining({ name: 'AlphaCo', answerCount: 1 })] })],
     })
     const allClassSuggestions = await app.inject({
       method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all&queryClass=all',
@@ -1306,6 +1327,43 @@ describe('GET /projects/:name/analytics/competitors', () => {
     expect(frozenClassSuggestions.statusCode, frozenClassSuggestions.body).toBe(200)
     expect(frozenClassSuggestions.json()).toMatchObject({ scope: { kind: 'all-markets' }, filters: { queryClass: 'non-brand' }, evidence: { answeredResults: 2 } })
 
+  })
+
+  it('keeps a market-only name frozen to the revision that measured the answer', async () => {
+    const oldPlan = marketPlan('frozen-name-old-node', 'sharedbrand.example', 'AlphaCo')
+    const currentPlan = marketPlan('frozen-name-current-node', 'sharedbrand.example', 'BetaCo')
+    seedVersion('frozen_name_old', 1, oldPlan)
+    seedVersion('frozen_name_current', 2, currentPlan)
+    db.insert(measurementPlans).values({
+      projectId: 'project_northwind', activeVersionId: 'frozen_name_current', createdAt: NOW, updatedAt: NOW,
+    }).run()
+    db.insert(runs).values([
+      { id: 'frozen_name_old_run', projectId: 'project_northwind', kind: 'answer-visibility', status: 'completed', trigger: 'manual', measurementPlanVersionId: 'frozen_name_old', location: null, createdAt: '2026-08-10T12:00:00.000Z' },
+      { id: 'frozen_name_current_run', projectId: 'project_northwind', kind: 'answer-visibility', status: 'completed', trigger: 'manual', measurementPlanVersionId: 'frozen_name_current', location: null, createdAt: NOW },
+    ]).run()
+    db.insert(querySnapshots).values([
+      { ...marketSnapshot('frozen_name_old_answer', 'frozen_name_old_run', 'frozen-name-old-node', 'Northwind recommends AlphaCo.', 'sharedbrand.example', '2026-08-10T12:00:00.000Z') },
+      { ...marketSnapshot('frozen_name_current_answer', 'frozen_name_current_run', 'frozen-name-current-node', 'Northwind recommends BetaCo.', 'sharedbrand.example') },
+      { ...marketSnapshot('frozen_name_current_old_word', 'frozen_name_current_run', 'frozen-name-current-node', 'Northwind mentions AlphaCo.', 'sharedbrand.example'), provider: 'anthropic' },
+    ]).run()
+
+    const response = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all',
+    })
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json()).toMatchObject({
+      scope: { kind: 'all-markets' },
+      candidates: [expect.objectContaining({
+        domain: 'sharedbrand.example',
+        tracked: true,
+        namingAnswers: 2,
+        citingAnswers: 3,
+        names: expect.arrayContaining([
+          expect.objectContaining({ name: 'AlphaCo', answerCount: 1 }),
+          expect.objectContaining({ name: 'BetaCo', answerCount: 1 }),
+        ]),
+      })],
+    })
   })
 
   it('scopes classes to Target usages when two markets share one execution', async () => {

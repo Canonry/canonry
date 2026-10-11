@@ -15,7 +15,8 @@ import {
 import { domainClassifications } from '@ainyc/canonry-db'
 import { buildCompetitorSuggestions, type CompetitorLandscapeSurfaceClass } from '@ainyc/canonry-intelligence'
 import { claimedCompetitorAdds, readStoredCompetitors } from './competitor-writes.js'
-import { readMarketCompetitorPins } from './plan-competitors.js'
+import { createRunCompetitorResolver, readMarketCompetitorPins } from './plan-competitors.js'
+import { readMarketCompetitorNames } from './market-competitor-names.js'
 import { resolveProject } from './helpers.js'
 import { projectQueryClassifier } from './mention-share-inputs.js'
 import { selectLandscapePopulation } from './competitor-landscape.js'
@@ -65,16 +66,33 @@ export async function competitorSuggestionRoutes(app: FastifyInstance) {
       excludedNonCompletedResults,
     } = population
     const stored = readStoredCompetitors(app.db, project.id)
-    const tracked = stored.map(row => ({
+    const storedTracked = stored.map(row => ({
       domain: row.domain,
       aliases: competitorIdentityAliases(row),
       autoAliases: row.autoAliases,
       blockedAliases: row.blockedAliases,
     }))
     const pins = readMarketCompetitorPins(app.db, project.id)
+    const trackedByDomain = new Map<string, { domain: string; aliases: string[] }>()
+    for (const competitor of storedTracked) trackedByDomain.set(competitor.domain, { domain: competitor.domain, aliases: [...competitor.aliases] })
+    for (const pin of pins) {
+      const existing = trackedByDomain.get(pin.domain)
+      if (existing) existing.aliases = [...new Set([...existing.aliases, ...pin.names])]
+      else trackedByDomain.set(pin.domain, { domain: pin.domain, aliases: [...pin.names] })
+    }
+    const tracked = [...trackedByDomain.values()]
+    const resolveRunCompetitors = createRunCompetitorResolver(app.db, storedTracked, readMarketCompetitorNames(app.db, project.id))
+    const scopedAnswers = answers.map(answer => {
+      const run = population.runById.get(answer.runId)
+      const scoped = resolveRunCompetitors(run?.measurementPlanVersionId, answer.measurementExecutionId)
+      return {
+        ...answer,
+        competitors: scoped.domains.map(domain => ({ domain, aliases: scoped.aliases.get(domain) ?? [] })),
+      }
+    })
     const claimed = claimedCompetitorAdds(
       stored,
-      answers.flatMap(answer => [...answer.citedDomains, ...(answer.citedUrls ?? [])]),
+      scopedAnswers.flatMap(answer => [...answer.citedDomains, ...(answer.citedUrls ?? [])]),
       competitorAliasProjectIdentity(project),
       pins,
     )
@@ -88,7 +106,7 @@ export async function competitorSuggestionRoutes(app: FastifyInstance) {
     }
     const built = buildCompetitorSuggestions({
       project: { domain: project.canonicalDomain, label: project.displayName ?? project.name, domains: project.ownedDomains },
-      answers,
+      answers: scopedAnswers,
       minAnswers,
       classifications,
       tracked,
