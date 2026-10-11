@@ -164,6 +164,23 @@ Every place also has `counts.answersPerSweep`: the answers of the distinct execu
 An execution shared by two locations counts once in each, so place values do not add up to `summary.answersPerSweep`.
 `markets[].counts.marketQueries` add up to `byFocus.market`, and `targets[].counts.propertyQueries` add up to `byFocus.property`.
 
+An advanced portfolio's read also returns `views`: locations, markets and patterns worth a look, found from the same rows and counts.
+Each view has a `count` and the sorted list it counts, so `count` is always the list's length.
+
+| View | Lists |
+| --- | --- |
+| `noPropertyQueries` | `targetKeys`: locations no row has as its Subject (`counts.propertyQueries` is 0). A market query or a hand-picked query at the location does not count as its own. |
+| `thinMarkets` | `marketKeys`: markets whose `counts.marketQueries` is under `floor`. The floor is 4. A market with no query, or with no location left, is thin. |
+| `patternGaps` | `patterns[]`: each is a saved pattern asked as a market's own query in at least one market and not in another market that holds a location. Each has `templateId`, `name`, `pattern`, `usedMarketKeys` and `missingMarketKeys`. `count` is the number of patterns. |
+
+Only a pattern whose one variable is `{market}` is read: it makes one query per market, the market's own.
+A pattern with no variable makes one query for every place, and one with `{property}` makes a query per location, so neither can fill another market and neither is listed.
+A market asks a pattern when a row whose Subject is that market froze the pattern's record when it was added, or has the text the pattern makes for the market's label (compared as query identity, so case and spacing do not matter).
+The text match covers a query added in setup or typed by hand, which froze no record, and every wording the pattern has had counts.
+A location's own query and a hand-picked query made from the pattern are not the market's use of it.
+A market with no location left takes no addition, so it is never in `missingMarketKeys`.
+`name` and `pattern` are the saved pattern's as it stands now. Once the saved pattern is deleted, `name` is null and `pattern` is the newest wording a row froze.
+
 A plan published before query control froze pattern records keeps only the source. Such a row reads `provenance.source: template` with no `template` record.
 Adding the query to another place keeps that source.
 
@@ -259,11 +276,22 @@ Each `engines[]` entry reads only the answers of that row's own executions:
 In a place, a row covers only the locations it is paired with there, so a market query read for one location counts an answer only when it names or cites that location.
 A simple project is read at project scope only: one row per tracked query, measured when the sweep asked that query with the same text under the same class.
 
+The project read of an advanced portfolio with a sweep also returns `weakMarkets`: `rule` (`no-mention-latest-sweep`), `queryClass` (`non-brand`), `count` and `marketKeys`.
+A market is listed when, in the sweep `run` names, at least one answer to its own non-brand queries had its text read and none named a location of the market.
+The rule name is fixed: with `runId` the rule reads that named sweep, and `run` always says which sweep was read.
+`marketKeys` are in key order, not ranked: every listed market has no mention.
+Only the returned non-brand rows whose query has the market as its Subject are read. A market's branded rows never count, so a market named only for its branded queries is still listed. A location's own query, a hand-picked query and a citation do not count either.
+A market with no such answer read is left out, never listed: its queries were not asked or were not answered.
+A market is also left out while any of its own non-brand queries has no row: a query added, moved, re-typed or reworded since the sweep. The sweep did not measure every such query as it is asked now, and may hold a mention for one as it was asked then, so the market is not called weak until the next sweep.
+`weakMarkets` is absent for a group, market or location read, for a simple project, and before the first sweep.
+
 The CLI table prints two glyphs per engine, the mention first, under this legend:
 
 ```text
 M mentioned · m not mentioned · C cited · c not cited · - not checked
 ```
+
+The table does not print `weakMarkets`; `--format json` returns it.
 
 ## Revision continuity
 

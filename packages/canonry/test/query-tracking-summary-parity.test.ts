@@ -118,6 +118,12 @@ describe('query tracking workspace numbers CLI/REST/MCP parity', () => {
       counts: { propertyQueries: 1, marketQueries: 0, customQueries: 0, answersPerSweep: 2 },
     }])
     expect(rest.tracked.map(row => [row.queryId, row.queryClasses])).toStrictEqual([['q-supplier', ['non-brand']], ['q-brand', []]])
+    // The one location has a query of its own, and the plan has no market.
+    expect(rest.views).toStrictEqual({
+      noPropertyQueries: { count: 0, targetKeys: [] },
+      thinMarkets: { count: 0, floor: 4, marketKeys: [] },
+      patternGaps: { count: 0, patterns: [] },
+    })
     expect(viaCli).toStrictEqual([rest, rest])
     expect(viaMcp).toStrictEqual(rest)
   })
@@ -134,6 +140,7 @@ describe('query tracking workspace numbers CLI/REST/MCP parity', () => {
       structure: { targets: 0, markets: 0, groups: 0, topLevelGroups: 0, competitors: 0 },
     })
     expect(rest).not.toHaveProperty('limits')
+    expect(rest).not.toHaveProperty('views')
     expect(rest.tracked.map(row => [row.queryId, row.queryClasses])).toStrictEqual([['q-supplier', ['non-brand']], ['q-brand', ['branded']]])
     expect(viaCli).toStrictEqual([rest, rest])
     expect(viaMcp).toStrictEqual(rest)

@@ -1697,6 +1697,27 @@ export type QueryTrackingWorkspaceResponse = {
             };
         };
     };
+    views?: {
+        noPropertyQueries: {
+            count: number;
+            targetKeys: Array<string>;
+        };
+        thinMarkets: {
+            count: number;
+            floor: number;
+            marketKeys: Array<string>;
+        };
+        patternGaps: {
+            count: number;
+            patterns: Array<{
+                templateId: string;
+                name: string | null;
+                pattern: string;
+                usedMarketKeys: Array<string>;
+                missingMarketKeys: Array<string>;
+            }>;
+        };
+    };
 };
 
 export type QueryTrackingPreviewRequest = {
@@ -2016,6 +2037,12 @@ export type QueryTrackingResultsResponse = {
         }>;
     }>;
     pendingRows: number;
+    weakMarkets?: {
+        rule: 'no-mention-latest-sweep';
+        queryClass: 'non-brand';
+        count: number;
+        marketKeys: Array<string>;
+    };
 };
 
 export type AgentPromptRequest = {

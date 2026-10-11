@@ -96,7 +96,15 @@ import {
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
 import { planScopeOptions, simpleScopeOptions } from './measurement-scope-options.js'
 import { planQueryFocus } from './query-focus.js'
-import { distinctQueryClasses, planPlaceCounts, queryLimitCounts, trackingSummary, type SummarizedRow } from './query-tracking-summary.js'
+import {
+  distinctQueryClasses,
+  planPlaceCounts,
+  queryLimitCounts,
+  trackingSummary,
+  trackingViews,
+  type SavedPatterns,
+  type SummarizedRow,
+} from './query-tracking-summary.js'
 import { assertNoActivePlanlessSweep, assertNoActiveSweep, preserveSnapshotQueryText, replaceProjectQueries } from './query-replace.js'
 import { resolveRunProviderSelection } from './run-queue.js'
 import type { ProviderSummaryEntry } from './settings.js'
@@ -870,6 +878,16 @@ function savedSources(db: DbLike, projectId: string) {
   return { research, discovery }
 }
 
+/** The project's saved patterns, in one read. */
+function savedPatterns(db: DbLike, projectId: string): SavedPatterns {
+  return new Map(db.select({
+    id: measurementQueryTemplates.id,
+    name: measurementQueryTemplates.name,
+    pattern: measurementQueryTemplates.pattern,
+    variables: measurementQueryTemplates.variables,
+  }).from(measurementQueryTemplates).where(eq(measurementQueryTemplates.projectId, projectId)).all().map(row => [row.id, row]))
+}
+
 function workspaceDto(db: DbLike, state: WorkspaceState, opts: QueryTrackingRoutesOptions): QueryTrackingWorkspaceResponse {
   const plan = state.active?.plan ?? null
   const rows = new Map(state.queryRows.map(row => [row.id, row]))
@@ -895,6 +913,8 @@ function workspaceDto(db: DbLike, state: WorkspaceState, opts: QueryTrackingRout
     summary: trackingSummary(tracked, plan, plan ? advancedWorkload(plan) : simpleWorkload(state.project, rows, opts)),
     // A read changes nothing, so `next` repeats `current`. A simple basket has no limit.
     ...(assigned === null ? {} : { limits: queryLimitCounts(assigned, assigned, MEASUREMENT_DRAFT_MAX_QUERIES) }),
+    // A simple basket has no location or market to list.
+    ...(plan === null || places === null ? {} : { views: trackingViews(plan, tracked, places, savedPatterns(db, state.project.id)) }),
   })
 }
 

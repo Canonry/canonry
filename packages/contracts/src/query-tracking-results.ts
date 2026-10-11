@@ -86,6 +86,29 @@ export const queryTrackingResultsRunSchema = z.object({
 }).strict()
 export type QueryTrackingResultsRun = z.output<typeof queryTrackingResultsRunSchema>
 
+/** The rule's fixed name. The sweep it read is the one `run` names, also when `runId` picked an older one. */
+export const QUERY_TRACKING_WEAK_MARKET_RULE = 'no-mention-latest-sweep'
+/** The one class the weak-market rule reads. */
+export const QUERY_TRACKING_WEAK_MARKET_CLASS = 'non-brand'
+
+/**
+ * Markets the sweep in `run` found weak, by one rule over the returned rows:
+ * of the non-brand rows whose query has the market as its Subject, at least
+ * one answer had its text read and none named a member location. A market
+ * with no such answer read is left out, never listed, and so is one with such
+ * a query withheld since a tracking change. Branded rows never count, so a
+ * market named only for its branded queries is still weak.
+ */
+export const queryTrackingWeakMarketsSchema = z.object({
+  rule: z.literal(QUERY_TRACKING_WEAK_MARKET_RULE),
+  queryClass: z.literal(QUERY_TRACKING_WEAK_MARKET_CLASS),
+  /** The length of `marketKeys`. */
+  count: countSchema,
+  /** In key order, not ranked: every listed market has no mention. */
+  marketKeys: z.array(nonBlankIdSchema),
+}).strict()
+export type QueryTrackingWeakMarkets = z.output<typeof queryTrackingWeakMarketsSchema>
+
 export const queryTrackingResultsResponseSchema = z.object({
   mode: queryTrackingModeSchema,
   /** The place read. `key` is null for the whole project. */
@@ -107,5 +130,10 @@ export const queryTrackingResultsResponseSchema = z.object({
   rows: z.array(queryTrackingResultRowSchema),
   /** Query and class pairs asked in the place now that the sweep did not measure. */
   pendingRows: countSchema,
+  /**
+   * An advanced portfolio read at project scope with a sweep. Absent for any
+   * other place, a simple project, no sweep, and a server that predates it.
+   */
+  weakMarkets: queryTrackingWeakMarketsSchema.optional(),
 }).strict()
 export type QueryTrackingResultsResponse = z.output<typeof queryTrackingResultsResponseSchema>

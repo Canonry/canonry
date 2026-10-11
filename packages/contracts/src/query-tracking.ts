@@ -348,6 +348,55 @@ export const queryTrackingLimitsSchema = z.object({
 }).strict()
 export type QueryTrackingLimits = z.output<typeof queryTrackingLimitsSchema>
 
+/** A market with fewer rows whose Subject is the market than this is thin. */
+export const QUERY_TRACKING_THIN_MARKET_FLOOR = 4
+
+/**
+ * A saved pattern asked as a market's own query in at least one market and not
+ * in another market that holds a location. Only a pattern whose one variable
+ * is `{market}` is read: no other pattern makes a market's own query.
+ */
+export const queryTrackingPatternGapSchema = z.object({
+  templateId: queryTrackingIdSchema,
+  /** The saved pattern's name now. Null once the saved pattern was deleted. */
+  name: z.string().trim().min(1).nullable(),
+  /** The saved pattern's text now, or the newest text its rows froze once it was deleted. */
+  pattern: z.string().trim().min(1),
+  /**
+   * Markets with a row whose Subject is the market and which froze this
+   * pattern's record or has the text the pattern makes for the market's label.
+   */
+  usedMarketKeys: z.array(measurementV2StableKeySchema),
+  /** Markets with a location and no such row. A market with no location takes no addition, so it is never missing. */
+  missingMarketKeys: z.array(measurementV2StableKeySchema),
+}).strict()
+export type QueryTrackingPatternGap = z.output<typeof queryTrackingPatternGapSchema>
+
+/**
+ * Locations, markets and patterns an advanced workspace lists as views, found
+ * by the server from the same rows and place counts. Each `count` is the
+ * length of its list, and every key list is sorted.
+ */
+export const queryTrackingViewsSchema = z.object({
+  /** Locations no row has as its Subject: `counts.propertyQueries` is 0. */
+  noPropertyQueries: z.object({
+    count: countSchema,
+    targetKeys: z.array(measurementV2StableKeySchema),
+  }).strict(),
+  /** Markets whose `counts.marketQueries` is under `floor`, a market with none included. */
+  thinMarkets: z.object({
+    count: countSchema,
+    floor: z.number().int().positive(),
+    marketKeys: z.array(measurementV2StableKeySchema),
+  }).strict(),
+  /** `count` is the number of patterns, sorted by `templateId`. */
+  patternGaps: z.object({
+    count: countSchema,
+    patterns: z.array(queryTrackingPatternGapSchema),
+  }).strict(),
+}).strict()
+export type QueryTrackingViews = z.output<typeof queryTrackingViewsSchema>
+
 export const queryTrackingWorkspaceResponseSchema = z.object({
   mode: queryTrackingModeSchema,
   workspaceVersion: queryTrackingWorkspaceVersionSchema,
@@ -373,6 +422,8 @@ export const queryTrackingWorkspaceResponseSchema = z.object({
   summary: queryTrackingSummarySchema.optional(),
   /** Advanced portfolios only, with `next` equal to `current`. Optional like `summary`. */
   limits: queryTrackingLimitsSchema.optional(),
+  /** Advanced portfolios only. Optional like `summary`. */
+  views: queryTrackingViewsSchema.optional(),
 }).strict()
 export type QueryTrackingWorkspaceResponse = z.output<typeof queryTrackingWorkspaceResponseSchema>
 
