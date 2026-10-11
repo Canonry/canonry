@@ -72,9 +72,86 @@ describe('buildCompetitorSuggestions', () => {
     })
     expect(result.candidates[0]).toMatchObject({
       domain: 'rival.example', namingAnswers: 0, pairedAnswers: 1,
-      namedByOtherNameAnswers: [{ name: 'Blue Harbor', answerCount: 1, pairedAnswers: 0 }],
+      namedByOtherNameAnswers: 1,
+      names: [{ name: 'Blue Harbor', answerCount: 1, pairedAnswers: 1 }],
     })
     expect(result.unresolvedNames).toEqual([])
+  })
+
+  it('keeps anchored names on their own domains and leaves unrelated names unresolved', () => {
+    const result = buildCompetitorSuggestions({
+      project,
+      minAnswers: 1,
+      answers: [answer(
+        'a1',
+        'run-1',
+        'Try [Blue Harbor](https://blue.example/) or [Red Peak](https://red.example/).',
+        ['blue.example', 'red.example'],
+      )],
+      classifications: new Map(),
+      tracked: [],
+      claimedCompetitorAdds: new Set(),
+    })
+    expect(result.candidates.find(candidate => candidate.domain === 'blue.example')?.names).toEqual(expect.arrayContaining([
+      { name: 'Blue Harbor', answerCount: 1, pairedAnswers: 1 },
+    ]))
+    expect(result.candidates.find(candidate => candidate.domain === 'blue.example')?.names).not.toEqual(expect.arrayContaining([
+      { name: 'Red Peak', answerCount: 1, pairedAnswers: 1 },
+    ]))
+    expect(result.candidates.find(candidate => candidate.domain === 'red.example')?.names).toEqual(expect.arrayContaining([
+      { name: 'Red Peak', answerCount: 1, pairedAnswers: 1 },
+    ]))
+    expect(result.candidates.find(candidate => candidate.domain === 'red.example')?.names).not.toEqual(expect.arrayContaining([
+      { name: 'Blue Harbor', answerCount: 1, pairedAnswers: 1 },
+    ]))
+    expect(result.unresolvedNames).toEqual([])
+
+    const withUnresolved = buildCompetitorSuggestions({
+      project,
+      minAnswers: 1,
+      answers: [{ ...answer('a2', 'run-1', 'Try [Blue Harbor](https://blue.example/).', ['blue.example']), recommendedCompetitors: ['Loose Name'] }],
+      classifications: new Map(),
+      tracked: [],
+      claimedCompetitorAdds: new Set(),
+    })
+    expect(withUnresolved.unresolvedNames).toEqual([{ name: 'Loose Name', answerCount: 1 }])
+  })
+
+  it('uses the canonical domain-label floor and normalizes tracked subdomains', () => {
+    const shortLabel = buildCompetitorSuggestions({
+      project,
+      minAnswers: 1,
+      answers: [answer('a1', 'run-1', 'QVX is a useful choice.', ['qvx.example'])],
+      classifications: new Map(),
+      tracked: [],
+      claimedCompetitorAdds: new Set(),
+    })
+    expect(shortLabel.candidates[0]).toMatchObject({ domain: 'qvx.example', namingAnswers: 0, reason: 'not-named' })
+
+    const tracked = buildCompetitorSuggestions({
+      project,
+      minAnswers: 1,
+      answers: [answer('a2', 'run-1', 'Rival is a useful choice.', ['offers.rival.example'])],
+      classifications: new Map(),
+      tracked: [{ domain: 'www.rival.example', aliases: ['Rival'] }],
+      claimedCompetitorAdds: new Set(),
+    })
+    expect(tracked.candidates[0]).toMatchObject({ domain: 'rival.example', tracked: true, namingAnswers: 1 })
+  })
+
+  it('records shared hosts when sources use multiple subdomains', () => {
+    const result = buildCompetitorSuggestions({
+      project,
+      minAnswers: 1,
+      answers: [
+        answer('a1', 'run-1', 'Rival is useful.', ['offers.rival.example']),
+        answer('a2', 'run-1', 'Rival is useful.', ['booking.rival.example']),
+      ],
+      classifications: new Map(),
+      tracked: [],
+      claimedCompetitorAdds: new Set(),
+    })
+    expect(result.candidates.find(candidate => candidate.domain === 'rival.example')).toMatchObject({ reason: 'shared-host' })
   })
 
   it('honors tracked, claimed, own-site, and marketplace exclusions', () => {

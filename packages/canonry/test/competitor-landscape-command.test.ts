@@ -238,7 +238,7 @@ describe('competitor suggestion CLI', () => {
     const response: CompetitorSuggestionsResponse = {
       project: 'acme', window: '30d', scope: { kind: 'project' },
       filters: { queryClass: 'non-brand', groupKey: null, limit: 2, minAnswers: 3 }, thresholds: { minAnswers: 3 },
-      candidates: [{ domain: 'rival.example', label: 'Rival', names: [], namingAnswers: 3, citingAnswers: 3, bothAnswers: 3, pairedAnswers: 3, namedByOtherNameAnswers: [], sweeps: 1, firstSeenAt: null, lastSeenAt: null, surfaceClass: 'direct-competitor', tracked: false, status: 'suggested', reason: null, sampleUrls: [] }],
+      candidates: [{ domain: 'rival.example', label: 'Rival', names: [], namingAnswers: 3, citingAnswers: 3, bothAnswers: 3, pairedAnswers: 3, namedByOtherNameAnswers: 0, sweeps: 1, firstSeenAt: null, lastSeenAt: null, surfaceClass: 'direct-competitor', tracked: false, status: 'suggested', reason: null, sampleUrls: [] }],
       candidatesTotal: 1, excludedCounts: {}, unresolvedNames: [], evidence: { answeredResults: 3, sourceResults: 3, excludedProbeResults: 0, excludedNonCompletedResults: 0 }, runCount: 1, runIds: ['run-1'], countUnits: { answers: [], distinctNames: [], runs: [] }, truncated: false,
     }
     mockSuggestCompetitors.mockResolvedValue(response)

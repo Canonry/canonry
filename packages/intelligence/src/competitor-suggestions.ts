@@ -1,12 +1,12 @@
 import {
   answerProseForMentions,
+  aliasOccurrencesAsWritten,
   brandLabelFromDomain,
   brandKeyFromText,
   competitorBrandAliases,
+  competitorDomainProjectClaim,
   extractAnswerTextAnchors,
-  hostMatchesAnyDomain,
   isListingMarketplace,
-  matcherMatchesText,
   normalizeCompetitorDomain,
   hostOf,
   registrableDomain,
@@ -86,17 +86,6 @@ function addName(candidate: MutableCandidate, name: string, answerId: string, pa
   candidate.names.set(brandKeyFromText(trimmed), { name: trimmed, answers: new Set([answerId]), paired: paired ? new Set([answerId]) : new Set() })
 }
 
-function displayNameForDomain(text: string, domain: string): string | null {
-  const label = brandLabelFromDomain(domain)
-  if (!label) return null
-  const words = label.split(/[^\p{L}\p{N}]+/u).filter(Boolean)
-  if (words.length === 0) return null
-  const regexMeta = new Set(['\\', '^', '$', '*', '+', '?', '.', '(', ')', '[', ']', '{', '}', '|'])
-  const escapedWords = words.map(word => [...word].map(character => regexMeta.has(character) ? `\\${character}` : character).join(''))
-  const expression = new RegExp(`\\b(${escapedWords.join('[\\s-]*')})\\b`, 'iu')
-  return text.match(expression)?.[1] ?? null
-}
-
 function candidateDto(candidate: MutableCandidate, options: BuildCompetitorSuggestionsOptions): CompetitorSuggestion {
   const names = [...candidate.names.entries()]
     .map(([, entry]) => ({
@@ -106,10 +95,7 @@ function candidateDto(candidate: MutableCandidate, options: BuildCompetitorSugge
     }))
     .sort((left, right) => right.answerCount - left.answerCount || left.name.localeCompare(right.name))
     .slice(0, 5)
-  const namedByOtherNameAnswers = [...candidate.namedByOtherName.entries()]
-    .map(([name, answers]) => ({ name, answerCount: answers.size, pairedAnswers: 0 }))
-    .sort((left, right) => right.answerCount - left.answerCount || left.name.localeCompare(right.name))
-    .slice(0, 20)
+  const namedByOtherNameAnswers = new Set([...candidate.namedByOtherName.values()].flatMap(answers => [...answers])).size
   const reason = candidateReason(candidate, options)
   return {
     domain: candidate.domain,
@@ -147,10 +133,13 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
   const trackedByDomain = new Map(options.tracked.map(competitor => [normalizeCompetitorDomain(competitor.domain), competitor]))
   const candidates = new Map<string, MutableCandidate>()
   const unresolved = new Map<string, { name: string; answers: Set<string> }>()
+  const resolvedNameKeysByAnswer = new Map<string, Set<string>>()
   let answeredResults = 0
   let sourceResults = 0
 
   for (const answer of options.answers) {
+    const resolvedNameKeys = new Set<string>()
+    resolvedNameKeysByAnswer.set(answer.id, resolvedNameKeys)
     const prose = answerProseForMentions(answer.answerText)
     if (prose) answeredResults++
     const sourceValues = [...answer.citedDomains, ...(answer.citedUrls ?? [])]
@@ -175,14 +164,10 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
       namesForDomain.add(anchor.text)
       anchoredDomains.set(domain, namesForDomain)
     }
-    const namedDomainKeys = new Set<string>()
-    const answerCandidates = new Set<string>()
     for (const domain of sourceDomains) {
-      if (hostMatchesAnyDomain(domain, ownDomains) || isListingMarketplace(domain)) continue
+      if (competitorDomainProjectClaim(domain, ownDomains) || isListingMarketplace(domain)) continue
       const tracked = trackedByDomain.get(domain)
       const label = brandLabelFromDomain(domain) || domain
-      const matcherAliases = tracked ? competitorBrandAliases(tracked) : [label, domain]
-      const namedByLabel = Boolean(prose && matcherMatchesText(compileBrandAliases(matcherAliases), prose))
       const domainAnchors = anchoredDomains.get(domain) ?? new Set<string>()
       const pairedByAnchor = domainAnchors.size > 0
       const candidate = candidates.get(domain) ?? {
@@ -213,51 +198,53 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
       for (const url of answer.citedUrls ?? []) {
         if (normalizeSource(url) === domain && /^https?:\/\//iu.test(url) && !candidate.sampleUrls.includes(url)) candidate.sampleUrls.push(url)
       }
-      if (namedByLabel) {
-        candidate.naming.add(answer.id)
-        candidate.both.add(answer.id)
-        const displayName = displayNameForDomain(prose!, domain) ?? label
-        addName(candidate, displayName, answer.id, true)
-        namedDomainKeys.add(domain)
-      }
       if (pairedByAnchor) {
         candidate.paired.add(answer.id)
         for (const name of domainAnchors) {
           if (candidate.names.has(brandKeyFromText(name))) continue
+          addName(candidate, name, answer.id, true)
           const existing = candidate.namedByOtherName.get(name) ?? new Set<string>()
           existing.add(answer.id)
           candidate.namedByOtherName.set(name, existing)
+          resolvedNameKeys.add(brandKeyFromText(name))
         }
-        answerCandidates.add(domain)
       }
-      if (namedByLabel) answerCandidates.add(domain)
     }
+  }
+
+  // Count canonical identity matches across every selected answer after the
+  // candidate universe is known. This preserves the bare-add invariant when a
+  // source is first cited in a later answer, including the domain-label floor.
+  for (const answer of options.answers) {
+    const prose = answerProseForMentions(answer.answerText)
+    const resolvedNameKeys = resolvedNameKeysByAnswer.get(answer.id)!
+    for (const candidate of candidates.values()) {
+      const tracked = trackedByDomain.get(candidate.domain)
+      const matcher = compileBrandAliases(competitorBrandAliases(tracked ?? { domain: candidate.domain }))
+      const occurrences = aliasOccurrencesAsWritten(matcher, prose)
+      if (occurrences.size === 0) continue
+      const cited = candidate.citing.has(answer.id)
+      candidate.naming.add(answer.id)
+      if (cited) {
+        candidate.both.add(answer.id)
+        candidate.paired.add(answer.id)
+      }
+      for (const writtenWords of occurrences.values()) {
+        for (const words of writtenWords) {
+          const name = words.join(' ')
+          addName(candidate, name, answer.id, cited)
+          resolvedNameKeys.add(brandKeyFromText(name))
+        }
+      }
+    }
+    const names = new Set<string>(answer.recommendedCompetitors ?? [])
+    for (const anchor of extractAnswerTextAnchors(answer.answerText)) names.add(anchor.text)
     for (const name of names) {
       const key = brandKeyFromText(name)
-      if (!key || [...answerCandidates].some(domain => {
-        const candidate = candidates.get(domain)
-        return candidate
-          ? [...candidate.names.values()].some(entry => [...entry.answers].includes(answer.id))
-            || [...candidate.namedByOtherName.values()].some(answerIds => answerIds.has(answer.id))
-          : false
-      })) continue
+      if (!key || resolvedNameKeys.has(key)) continue
       const unresolvedAnswers = unresolved.get(key) ?? { name: name.trim(), answers: new Set<string>() }
       unresolvedAnswers.answers.add(answer.id)
       unresolved.set(key, unresolvedAnswers)
-    }
-    for (const domain of answerCandidates) {
-      const candidate = candidates.get(domain)!
-      for (const name of names) {
-        if (!candidate.names.has(brandKeyFromText(name))) {
-          const existing = candidate.namedByOtherName.get(name) ?? new Set<string>()
-          existing.add(answer.id)
-          candidate.namedByOtherName.set(name, existing)
-        }
-      }
-    }
-    for (const domain of namedDomainKeys) {
-      const candidate = candidates.get(domain)!
-      candidate.paired.add(answer.id)
     }
   }
 

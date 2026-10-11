@@ -28,12 +28,14 @@ import {
   registrableDomain,
   RunKinds,
   RunStatuses,
+  RunTriggers,
   measurementDraftEtag,
   normalizeCompetitorDomain,
   surfaceClassFromCompetitorType,
   validationError,
   windowCutoff,
   type CompetitorLandscapeQueryClass,
+  type CompetitorLandscapeQuery,
   type CompetitorLandscapeModelComparison,
   type CompetitorLandscapeResponse,
 } from '@ainyc/canonry-contracts'
@@ -82,6 +84,97 @@ export interface AdvancedScope {
   activeRevision: number
   draft: { etag: string; pendingCompetitorDomains: string[] } | null
   runScopes: Map<string, FrozenPlanScope>
+}
+
+export interface LandscapePopulationSelection {
+  runIds: readonly string[]
+  snapshotIds?: readonly string[]
+}
+
+/** Shared stored run and snapshot population used by landscape and suggestions. */
+export function selectLandscapePopulation(
+  app: Pick<FastifyInstance, 'db'>,
+  projectName: string,
+  filters: CompetitorLandscapeQuery,
+  selection?: LandscapePopulationSelection,
+) {
+  const project = resolveProject(app.db, projectName)
+  const cutoff = windowCutoff(parseWindow(filters.window))
+  const latestRunIds = filters.runId === LATEST_RUN_ID
+    ? latestSweepRuns(app.db, project.id).map(run => run.id)
+    : null
+  const candidateRuns = app.db.select().from(runs).where(and(
+    eq(runs.projectId, project.id),
+    eq(runs.kind, RunKinds['answer-visibility']),
+    selection ? inArray(runs.id, [...selection.runIds]) : undefined,
+    latestRunIds ? inArray(runs.id, latestRunIds) : filters.runId ? eq(runs.id, filters.runId) : undefined,
+    cutoff ? gte(runs.createdAt, cutoff) : undefined,
+  )).all()
+  const advanced = filters.groupKey || filters.scope === 'all-markets'
+    ? resolveAdvancedScope(app, project.id, filters.groupKey ? 'group' : 'all-markets', filters.groupKey, candidateRuns)
+    : null
+  const queryTextById = new Map(app.db.select({ id: queries.id, query: queries.query })
+    .from(queries).where(eq(queries.projectId, project.id)).all().map(row => [row.id, row.query]))
+  const queryClassifier = projectQueryClassifier(project)
+  if (!advanced && filters.queryClass && filters.queryClass !== 'all' && !queryClassifier) {
+    throw validationError(
+      `Query class "${filters.queryClass}" needs a brand name or alias on this project. Add one, or omit queryClass for a pooled landscape.`,
+    )
+  }
+  const allSnapshots = candidateRuns.length === 0
+    ? []
+    : app.db.select({
+      id: querySnapshots.id,
+      runId: querySnapshots.runId,
+      queryId: querySnapshots.queryId,
+      queryText: querySnapshots.queryText,
+      provider: querySnapshots.provider,
+      model: querySnapshots.model,
+      servedModel: querySnapshots.servedModel,
+      answerMentioned: querySnapshots.answerMentioned,
+      answerText: querySnapshots.answerText,
+      recommendedCompetitors: querySnapshots.recommendedCompetitors,
+      citedDomains: querySnapshots.citedDomains,
+      citedUrls: querySnapshots.citedUrls,
+      captureStatus: querySnapshots.captureStatus,
+      rawResponse: advanced && filters.answers === 'not-mentioned'
+        ? sql<string | null>`case when ${querySnapshots.citedUrls} is null then ${querySnapshots.rawResponse} else null end`
+        : sql<string | null>`null`,
+      location: querySnapshots.location,
+      measurementExecutionId: querySnapshots.measurementExecutionId,
+      createdAt: querySnapshots.createdAt,
+    }).from(querySnapshots).where(inArray(querySnapshots.runId, candidateRuns.map(run => run.id))).all()
+  const runById = new Map(candidateRuns.map(run => [run.id, run]))
+  const selectedIds = selection?.snapshotIds ? new Set(selection.snapshotIds) : null
+  const inScope = allSnapshots.filter(snapshot => (!selectedIds || selectedIds.has(snapshot.id)) && snapshotMatchesFilters({
+    snapshot,
+    filters,
+    advanced,
+    queryTextById,
+    queryClassifier,
+  }))
+  const eligibleRuns = new Set(candidateRuns
+    .filter(run => run.trigger !== RunTriggers.probe && (run.status === RunStatuses.completed || run.status === RunStatuses.partial))
+    .map(run => run.id))
+  return {
+    project,
+    filters,
+    candidateRuns,
+    advanced,
+    queryTextById,
+    queryClassifier,
+    allSnapshots,
+    runById,
+    inScope,
+    eligibleRuns,
+    excludedProbeResults: inScope.filter(snapshot => runById.get(snapshot.runId)?.trigger === RunTriggers.probe).length,
+    excludedNonCompletedResults: inScope.filter(snapshot => {
+      const run = runById.get(snapshot.runId)
+      return run !== undefined && run.trigger !== RunTriggers.probe
+        && run.status !== RunStatuses.completed && run.status !== RunStatuses.partial
+    }).length,
+    eligibleSnapshots: inScope.filter(snapshot => eligibleRuns.has(snapshot.runId)),
+  }
 }
 
 /** Pins are always complete; ranked historical discovery/source lists are bounded. */
@@ -296,85 +389,18 @@ export function readCompetitorLandscape(
     if ((selection?.autoAdvanced || classSplitByDefault)
       && activeMeasurementPlan(app.db, project.id)?.plan.schemaVersion === 2) filters.scope = 'all-markets'
     const window = parseWindow(filters.window)
-    const cutoff = windowCutoff(window)
-    // `latest` names the sweep the measurement reads display, so a class read
-    // no longer has to pool every sweep in the window to avoid guessing an id.
-    const latestRunIds = filters.runId === LATEST_RUN_ID
-      ? latestSweepRuns(app.db, project.id).map(run => run.id)
-      : null
-
-    // Pull the selected run population before deciding which observations count.
-    // The explicit excluded counts below make probe and non-terminal omission
-    // auditable without letting either kind pollute competitive metrics.
-    const candidateRuns = app.db.select().from(runs).where(and(
-      eq(runs.projectId, project.id),
-      eq(runs.kind, RunKinds['answer-visibility']),
-      selection ? inArray(runs.id, [...selection.runIds]) : undefined,
-      latestRunIds ? inArray(runs.id, latestRunIds) : filters.runId ? eq(runs.id, filters.runId) : undefined,
-      cutoff ? gte(runs.createdAt, cutoff) : undefined,
-    )).all()
-    const advanced = filters.groupKey || filters.scope === 'all-markets'
-      ? resolveAdvancedScope(app, project.id, filters.groupKey ? 'group' : 'all-markets', filters.groupKey, candidateRuns)
-      : null
-
-    const queryTextById = new Map(app.db.select({ id: queries.id, query: queries.query })
-      .from(queries)
-      .where(eq(queries.projectId, project.id))
-      .all()
-      .map(row => [row.id, row.query]))
-    const queryClassifier = projectQueryClassifier(project)
-    // Simple projects split classes from the query text. Without a usable brand
-    // alias there is no split, and every result would silently fail the class
-    // filter and read as an empty landscape rather than as an unanswerable one.
-    if (!advanced && filters.queryClass && filters.queryClass !== 'all' && !queryClassifier) {
-      throw validationError(
-        `Query class "${filters.queryClass}" needs a brand name or alias on this project. Add one, or omit queryClass for a pooled landscape.`,
-      )
-    }
-
-    const allSnapshots = candidateRuns.length === 0
-      ? []
-      : app.db.select({
-        id: querySnapshots.id,
-        runId: querySnapshots.runId,
-        queryId: querySnapshots.queryId,
-        queryText: querySnapshots.queryText,
-        provider: querySnapshots.provider,
-        model: querySnapshots.model,
-        servedModel: querySnapshots.servedModel,
-        answerMentioned: querySnapshots.answerMentioned,
-        answerText: querySnapshots.answerText,
-        recommendedCompetitors: querySnapshots.recommendedCompetitors,
-        citedDomains: querySnapshots.citedDomains,
-        citedUrls: querySnapshots.citedUrls,
-        captureStatus: querySnapshots.captureStatus,
-        rawResponse: advanced && filters.answers === 'not-mentioned'
-          ? sql<string | null>`case when ${querySnapshots.citedUrls} is null then ${querySnapshots.rawResponse} else null end`
-          : sql<string | null>`null`,
-        location: querySnapshots.location,
-        measurementExecutionId: querySnapshots.measurementExecutionId,
-        createdAt: querySnapshots.createdAt,
-      }).from(querySnapshots).where(inArray(querySnapshots.runId, candidateRuns.map(run => run.id))).all()
-
-    const runById = new Map(candidateRuns.map(run => [run.id, run]))
-    const selectedIds = selection?.snapshotIds ? new Set(selection.snapshotIds) : null
-    const inScope = allSnapshots.filter(snapshot => (!selectedIds || selectedIds.has(snapshot.id)) && snapshotMatchesFilters({
-      snapshot,
-      filters,
+    const population = selectLandscapePopulation(app, projectName, filters, selection)
+    const {
+      candidateRuns,
       advanced,
       queryTextById,
-      queryClassifier,
-    }))
-    const eligibleRuns = new Set(candidateRuns
-      .filter(run => run.trigger !== 'probe' && (run.status === RunStatuses.completed || run.status === RunStatuses.partial))
-      .map(run => run.id))
-    const excludedProbeResults = inScope.filter(snapshot => runById.get(snapshot.runId)?.trigger === 'probe').length
-    const excludedNonCompletedResults = inScope.filter(snapshot => {
-      const run = runById.get(snapshot.runId)
-      return run !== undefined && run.trigger !== 'probe'
-        && run.status !== RunStatuses.completed && run.status !== RunStatuses.partial
-    }).length
-    const eligibleSnapshots = inScope.filter(snapshot => eligibleRuns.has(snapshot.runId))
+      runById,
+      inScope,
+      eligibleRuns,
+      eligibleSnapshots,
+      excludedProbeResults,
+      excludedNonCompletedResults,
+    } = population
     let unknownMentionAnswers = 0
     const simpleMentionInputs = !advanced && filters.answers === 'not-mentioned'
       ? buildMentionShareInputs({ project, competitors: [], snapshots: eligibleSnapshots, queryTextById })

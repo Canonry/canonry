@@ -72,4 +72,18 @@ describe('GET competitor suggestions', () => {
     const explicit = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/competitor-suggestions?queryClass=branded' })
     expect(explicit.statusCode).toBe(400)
   })
+
+  it('ranks suggestions before exclusions when the result is limited', async () => {
+    db.insert(querySnapshots).values([
+      { id: 'snapshot_other_a', runId: 'run_complete', queryId: 'query_demo', provider: 'openai', citationState: 'not-cited', answerMentioned: false, answerText: 'A source list only.', citedDomains: ['other.example'], citedUrls: null, captureStatus: 'complete', competitorOverlap: [], location: null, createdAt: NOW },
+      { id: 'snapshot_other_b', runId: 'run_partial', queryId: 'query_demo', provider: 'openai', citationState: 'not-cited', answerMentioned: false, answerText: 'A source list only.', citedDomains: ['other.example'], citedUrls: null, captureStatus: 'complete', competitorOverlap: [], location: null, createdAt: NOW },
+    ]).run()
+    const response = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/competitor-suggestions?window=all&minAnswers=4&limit=1' })
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(body.candidatesTotal).toBeGreaterThan(1)
+    expect(body.candidates[0]).toMatchObject({ domain: 'rival.example', status: 'suggested' })
+    expect(body.truncated).toBe(true)
+    expect(body.excludedCounts['not-named']).toBeGreaterThan(0)
+  })
 })

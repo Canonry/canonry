@@ -415,3 +415,19 @@ describe("POST /projects/:name/runs accepts trigger='probe' end-to-end", () => {
     expect(res.statusCode).toBe(400)
   })
 })
+
+describe('GET /projects/:name/competitor-suggestions excludes probe evidence', () => {
+  it('reports the probe exclusion without admitting its candidate', async () => {
+    const response = await ctx.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/probe-excl/competitor-suggestions?window=all&minAnswers=1',
+    })
+    expect(response.statusCode).toBe(200)
+    const body = response.json() as {
+      candidates: Array<{ domain: string }>
+      evidence: { excludedProbeResults: number }
+    }
+    expect(body.evidence.excludedProbeResults).toBe(1)
+    expect(body.candidates).toEqual([])
+  })
+})
