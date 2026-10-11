@@ -17,6 +17,7 @@ import {
   validationError,
   type AppError,
   type CompetitorAliasMarketPin,
+  type CompetitorAliasChange,
   type CompetitorAliasPlanEntry,
   type CompetitorAliasProjectIdentity,
   type CompetitorAliasRejection,
@@ -141,11 +142,7 @@ export const competitorIdentityColumns = {
   blockedAliases: competitors.blockedAliases,
 }
 
-export interface CompetitorAliasChange {
-  domain: string
-  before: string[]
-  after: string[]
-}
+export type { CompetitorAliasChange } from '@ainyc/canonry-contracts'
 
 export interface CompetitorSetPlan {
   /** Every competitor after the write, existing rows first (by domain, as `readStoredCompetitors` returns them). */

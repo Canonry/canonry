@@ -871,3 +871,11 @@ sentinels preserve stored IDs, secrets, enabled state, createdAt and source.
 ### Partial project updates
 
 PATCH `/projects/:name` is existing-project-only and validates the strict `projectPatchRequestSchema`. It shares preparation and transaction logic with PUT, merges measurement one level, preserves config source, and audits patched field names. Empty or revision-only patches are refused. Match `configRevision` in the update predicate before any audit or callback; stale updates return `PROJECT_REVISION_CONFLICT`. Keep project and provider-model authority identical to PUT.
+
+### Competitor change preview
+
+`competitor-change-preview.ts` plans add/replace/aliases through the shared
+writer planner; removal preserves retained identity exactly as DELETE does.
+It passes hypothetical identity and recomputed learned market names to the same
+landscape reader as share of voice. It writes no rows and invokes no hooks.
+The preview POST retains write-key authorization; detection GET remains a read.

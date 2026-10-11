@@ -237,3 +237,10 @@ coverage, frozen scope, and per-query source evidence before interpreting a scor
 The feature is default-off, has no theme setup, and has not passed independent
 human evaluation for either query class. Native Aero reads these scores but
 cannot enable sentiment or submit a backfill; client reports do not consume them.
+
+Competitor impact previews use the latest stored landscape and its exact run
+IDs, query population and tracked basis. Compare project and competitor mention
+counts before comparing percentages. A competitor change restates every stored
+period; an apply-mode add may move again after alias detection. Use an explicit
+preview before a separate curated write, and do not substitute its result for
+the overview card's separate instrument.

@@ -501,15 +501,17 @@ cnry query import <project> queries.txt
 cnry query generate <project> --provider gemini --count 10 --save
 
 cnry competitor add <project> competitor1.com competitor2.com
+cnry competitor add <project> rival.example --dry-run --format json  # preview latest stored-evidence impact without writing
 cnry competitor add <project> spoketuneworks.example --alias TuneSpoke   # one domain; repeat --alias for more names
 cnry competitor list <project>                       # text shows each competitor's aliases and auto names; JSON rows carry `aliases`, `autoAliases`, `blockedAliases`
 cnry competitor aliases <project> qvx.example                      # read one competitor's curated, auto-detected (with evidence) and blocked names
 cnry competitor aliases <project> qvx.example --set QVX            # exact list (repeat --set); --clear empties it
+cnry competitor aliases <project> qvx.example --set QVX --dry-run --format json  # preview an alias identity change
 cnry competitor aliases <project> qvx.example --add "QVX Stores"   # appends server-side in one call
 cnry competitor aliases <project> qvx.example --remove qvx         # read, edit, write back (a concurrent edit can be overwritten)
 cnry competitor aliases <project> spoketuneworks.example --block "Spoke Crew"   # never auto-apply this name (removes it if auto)
 cnry competitor aliases <project> spoketuneworks.example --unblock "Spoke Crew" # release it to detection again
-cnry competitor aliases detect <project> --format json             # dry run: names the stored answers tie to each site, with evidence
+cnry competitor aliases detect <project> --format json             # dry run: names the stored answers tie to each site, with evidence and impact
 cnry competitor aliases detect <project> --apply                   # run detection now and store it, in any mode (after each sweep the project's mode decides)
 cnry competitor landscape <project> --query-class non-brand --window 30d --format json
 cnry competitor suggest <project> --window 30d --min-answers 3 --query-class non-brand --format json
@@ -1806,3 +1808,19 @@ database writes and prints `No DB writes performed. Re-run without --dry-run to
 apply.` in text mode. JSON and JSONL emit the same `{ dryRun, files,
 changedCount, errorCount }` document. A server without the preview route exits
 with `APPLY_PREVIEW_UNSUPPORTED`; the command never falls back to apply.
+
+### Preview competitor impact
+
+Add, remove/delete and curated alias set/add/remove/clear accept `--dry-run`.
+JSON and JSONL include `dryRun`, the planned changes and the server's `impact`;
+text prints before/after mention share and counts. No competitors, names or
+audit rows change. The latest stored landscape is the estimate, while a real
+change restates every stored period. Advanced scope includes all markets; the
+response names its exact runs and query class. This is not the overview card.
+
+`project update <project> --competitor-auto-aliases apply --dry-run` previews
+the mode and detected-name impact. Other change flags are refused. Detection
+is a stored read; `competitor aliases detect --dry-run --apply` is invalid.
+Block/unblock, market pin writes, project identity edits, apply and discovery
+promotion are not covered. Ordinary writes keep their request count and output.
+Preview POSTs require a write-capable key; the detection GET accepts read keys.

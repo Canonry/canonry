@@ -337,6 +337,10 @@ describe('competitorIdentityChangedAt after competitor and pin writes that move 
     expect(JSON.parse(latestAudit('competitors.appended').diff!)).not.toHaveProperty('marketNameChanges')
     expect(await identityChangedAt()).toBeNull()
 
+    // The preview must re-evaluate learned market names against the proposed tracked identity.
+    const addPreview = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitor-changes/preview', payload: { change: 'add', competitors: ['loftgear.example'] } })
+    expect(addPreview.statusCode, addPreview.body).toBe(200)
+    expect(addPreview.json().impact.after.percent).toBe(50)
     // loftgear.example's domain label is "LoftGear": it claims the learned name.
     const added = await addCompetitors(['loftgear.example'])
     expect(added.statusCode, added.body).toBe(200)
@@ -348,6 +352,9 @@ describe('competitorIdentityChangedAt after competitor and pin writes that move 
     })
     expect(await identityChangedAt()).toBe(appended.createdAt)
 
+    const removePreview = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitor-changes/preview', payload: { change: 'remove', competitors: ['loftgear.example'] } })
+    expect(removePreview.statusCode, removePreview.body).toBe(200)
+    expect(removePreview.json().impact.after.percent).toBe(50)
     const removed = await app.inject({
       method: 'DELETE',
       url: '/api/v1/projects/rotorwise/competitors',

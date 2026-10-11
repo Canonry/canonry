@@ -28,7 +28,7 @@ import {
   adsUnresolvedOperationListQuerySchema,
   competitorAliasBlockRequestSchema,
   competitorAliasesRequestSchema,
-  competitorEntrySchema,
+  competitorChangePreviewRequestSchema,
   competitorAppendRequestSchema,
   competitorBatchRequestSchema,
   competitorLandscapeQuerySchema,
@@ -842,10 +842,10 @@ const competitorsAddInputSchema = z.object({
   request: competitorAppendRequestSchema,
 })
 const competitorChangePreviewInputSchema = z.discriminatedUnion('change', [
-  z.object({ project: projectNameSchema, change: z.literal('add'), competitors: z.array(competitorEntrySchema).min(1) }).strict(),
-  z.object({ project: projectNameSchema, change: z.literal('remove'), competitors: z.array(z.string().trim().min(1)).min(1) }).strict(),
-  z.object({ project: projectNameSchema, change: z.literal('replace'), competitors: z.array(competitorEntrySchema) }).strict(),
-  z.object({ project: projectNameSchema, change: z.literal('aliases'), domain: z.string().trim().min(1), aliases: z.array(z.string().trim().min(1)), mode: z.enum(['set', 'add']) }).strict(),
+  competitorChangePreviewRequestSchema.options[0].extend({ project: projectNameSchema }),
+  competitorChangePreviewRequestSchema.options[1].extend({ project: projectNameSchema }),
+  competitorChangePreviewRequestSchema.options[2].extend({ project: projectNameSchema }),
+  competitorChangePreviewRequestSchema.options[3].extend({ project: projectNameSchema }),
 ])
 const competitorDomainInputSchema = z.string().trim().min(1).describe('Tracked competitor domain (any spelling; it resolves to the stored registrable domain).')
 const competitorAliasesInputSchema = competitorAliasesRequestSchema.safeExtend({
@@ -3326,7 +3326,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_add',
     title: 'Add competitors',
-    description: 'Add tracked competitor domains to a Canonry project. Each entry is a domain, or `{ domain, aliases }` to also add curated answer-text names to that competitor (tracked already or not; existing aliases are kept, the same rules as canonry_competitors_aliases_set apply). A new domain whose name overlaps another competitor\'s curated alias, or the label or a curated alias of a competitor an Advanced market pins (one brand key contains the other, so the alias "Tune" claims tunespoke.example), is rejected until that name is removed, and so is the project\'s own site. Already tracked domains (any spelling) are skipped.',
+    description: 'Use canonry_competitors_change_preview to inspect the stored share impact before this separate write. Add tracked competitor domains to a Canonry project. Each entry is a domain, or `{ domain, aliases }` to also add curated answer-text names to that competitor (tracked already or not; existing aliases are kept, the same rules as canonry_competitors_aliases_set apply). A new domain whose name overlaps another competitor\'s curated alias, or the label or a curated alias of a competitor an Advanced market pins (one brand key contains the other, so the alias "Tune" claims tunespoke.example), is rejected until that name is removed, and so is the project\'s own site. Already tracked domains (any spelling) are skipped.',
     access: 'write',
     tier: 'setup',
     inputSchema: competitorsAddInputSchema,
@@ -3337,7 +3337,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_aliases_set',
     title: 'Set competitor aliases',
-    description: 'Set one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the brand names it goes by in answer text when they differ from its domain, e.g. "TuneSpoke" for spoketuneworks.example or a 3-letter brand the domain label floor drops. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) uses them on stored answers at read time. Rejected: aliases under 3 letters or digits, over 80 characters, more than 10, or whose brand key contains, or sits inside, one of the project\'s own names or hosts or a name another tracked competitor answers to (its aliases, domain label or written host), because answers may split or join the words: "Tune" cannot belong to one competitor while another answers to "Tune Spoke", "TuneSpoke" or tunespoke.example, and joined-word lookalikes ("Tune" and "Tuner") are refused too. A competitor an Advanced market pins (active revision, pending draft, or a superseded revision the project\'s runs were measured under) counts as another competitor. Names detected automatically from stored answers (`autoAliases`) are matched the same way; a curated alias always wins, so an auto name the new list overlaps is dropped. Idempotent; returns the competitor.',
+    description: 'Use canonry_competitors_change_preview to inspect the stored share impact before this separate write. Set one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the brand names it goes by in answer text when they differ from its domain, e.g. "TuneSpoke" for spoketuneworks.example or a 3-letter brand the domain label floor drops. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) uses them on stored answers at read time. Rejected: aliases under 3 letters or digits, over 80 characters, more than 10, or whose brand key contains, or sits inside, one of the project\'s own names or hosts or a name another tracked competitor answers to (its aliases, domain label or written host), because answers may split or join the words: "Tune" cannot belong to one competitor while another answers to "Tune Spoke", "TuneSpoke" or tunespoke.example, and joined-word lookalikes ("Tune" and "Tuner") are refused too. A competitor an Advanced market pins (active revision, pending draft, or a superseded revision the project\'s runs were measured under) counts as another competitor. Names detected automatically from stored answers (`autoAliases`) are matched the same way; a curated alias always wins, so an auto name the new list overlaps is dropped. Idempotent; returns the competitor.',
     access: 'write',
     tier: 'setup',
     inputSchema: competitorAliasesInputSchema,
@@ -3359,7 +3359,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_auto_aliases_apply',
     title: 'Apply competitor auto-aliases',
-    description: 'Run automatic competitor alias detection now from the project\'s stored answers and store the result, whatever the project\'s competitorAutoAliases mode (a one-off apply; a project in `apply` mode also gets this pass after every completed or partial sweep, a competitor add, an unblock and a market pin write that changes the pins). Stored names restate history at read time: every period\'s competitor counts change, and so does share of voice for a tracked competitor; competitorIdentityChangedAt on the landscape, project-frame visibility-compare and analytics metrics marks when. Idempotent: unchanged answers write nothing. Curated aliases and blocked names always win. A change is audited as the system pass plus competitors.auto-aliases-apply-requested naming who asked. Not available to the built-in Aero agent. Returns what was stored, per competitor, with evidence.',
+    description: 'Use canonry_competitors_auto_aliases_detect first to preview names and their stored share impact. Run automatic competitor alias detection now from the project\'s stored answers and store the result, whatever the project\'s competitorAutoAliases mode (a one-off apply; a project in `apply` mode also gets this pass after every completed or partial sweep, a competitor add, an unblock and a market pin write that changes the pins). Stored names restate history at read time: every period\'s competitor counts change, and so does share of voice for a tracked competitor; competitorIdentityChangedAt on the landscape, project-frame visibility-compare and analytics metrics marks when. Idempotent: unchanged answers write nothing. Curated aliases and blocked names always win. A change is audited as the system pass plus competitors.auto-aliases-apply-requested naming who asked. Not available to the built-in Aero agent. Returns what was stored, per competitor, with evidence.',
     access: 'write',
     tier: 'setup',
     inputSchema: projectInputSchema,
@@ -3392,7 +3392,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_remove',
     title: 'Remove competitors',
-    description: 'Remove tracked competitor domains from a Canonry project.',
+    description: 'Use canonry_competitors_change_preview to inspect the stored share impact before this separate write. Remove tracked competitor domains from a Canonry project.',
     access: 'write',
     tier: 'setup',
     inputSchema: competitorsInputSchema,

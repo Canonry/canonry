@@ -44,6 +44,18 @@ afterEach(async () => {
 })
 
 describe('POST /api/v1/projects/:name/competitor-changes/preview', () => {
+  it('removes only requested rows without pruning retained legacy aliases', async () => {
+    db.update(competitors).set({ aliases: ['Northwind'] }).run()
+    const preview = await app.inject({ method: 'POST', url: '/api/v1/projects/preview/competitor-changes/preview', payload: { change: 'remove', competitors: ['missing.example'] } })
+    expect(preview.statusCode, preview.body).toBe(200)
+    const body = competitorChangePreviewResponseSchema.parse(preview.json())
+    expect(body.plan).toMatchObject({ added: [], removed: [], aliasChanges: [], droppedAliases: [], autoAliasChanges: [], droppedAutoAliases: [] })
+    expect(body.impact.after).toEqual(body.impact.before)
+    const write = await app.inject({ method: 'DELETE', url: '/api/v1/projects/preview/competitors', payload: { competitors: ['missing.example'] } })
+    expect(write.statusCode, write.body).toBe(200)
+    expect(write.json()[0].aliases).toEqual(['Northwind'])
+  })
+
   it('returns a typed before and after impact without writing an add', async () => {
     const response = await app.inject({
       method: 'POST',

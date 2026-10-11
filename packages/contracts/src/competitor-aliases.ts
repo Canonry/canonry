@@ -176,13 +176,9 @@ function overlapRelation(alias: string, name: string): string {
   return foundIn(identityName(alias), identityName(name)) ? `is found inside "${name}"` : `contains "${name}"`
 }
 
-export type CompetitorAliasRejectionReason =
-  | 'too-long'
-  | 'too-short'
-  | 'project-brand'
-  | 'other-competitor'
-  | 'market-competitor'
-  | 'claimed-by-alias'
+export const competitorAliasRejectionReasonSchema = z.enum(['too-long', 'too-short', 'project-brand', 'other-competitor', 'market-competitor', 'claimed-by-alias'])
+export type CompetitorAliasRejectionReason = z.infer<typeof competitorAliasRejectionReasonSchema>
+export const CompetitorAliasRejectionReasons = competitorAliasRejectionReasonSchema.enum
 
 export interface CompetitorAliasRejection {
   /**
@@ -712,15 +708,9 @@ export function requireCompetitorAliasPlan(
   })
 }
 
-export type CompetitorAutoAliasDropReason =
-  | 'too-long'
-  | 'too-short'
-  | 'blocked'
-  | 'already-matched'
-  | 'subsumed'
-  | 'project-brand'
-  | 'other-competitor'
-  | 'over-limit'
+export const competitorAutoAliasDropReasonSchema = z.enum(['too-long', 'too-short', 'blocked', 'already-matched', 'subsumed', 'project-brand', 'other-competitor', 'over-limit'])
+export type CompetitorAutoAliasDropReason = z.infer<typeof competitorAutoAliasDropReasonSchema>
+export const CompetitorAutoAliasDropReasons = competitorAutoAliasDropReasonSchema.enum
 
 export interface CompetitorAutoAliasPlanEntry {
   domain: string
@@ -1054,3 +1044,30 @@ export function competitorEntryParts(entry: CompetitorEntry): { domain: string; 
     ? { domain: entry, aliases: undefined }
     : { domain: entry.domain, aliases: entry.aliases }
 }
+
+export const competitorAliasChangeSchema = z.object({
+  domain: z.string(),
+  before: z.array(z.string()),
+  after: z.array(z.string()),
+}).strict()
+
+export const competitorAliasRejectionSchema: z.ZodType<CompetitorAliasRejection> = z.object({
+  domain: z.string(),
+  alias: z.string(),
+  reason: competitorAliasRejectionReasonSchema,
+  conflictsWith: z.string().optional(),
+  conflictingName: z.string().optional(),
+  markets: z.array(z.string()).optional(),
+  supersededRevision: z.number().int().optional(),
+}).strict()
+
+export const competitorAutoAliasDropSchema: z.ZodType<CompetitorAutoAliasDrop> = z.object({
+  domain: z.string(),
+  alias: z.string(),
+  reason: competitorAutoAliasDropReasonSchema,
+  stored: z.boolean(),
+  conflictsWith: z.string().optional(),
+  conflictingName: z.string().optional(),
+}).strict()
+
+export type CompetitorAliasChange = z.infer<typeof competitorAliasChangeSchema>

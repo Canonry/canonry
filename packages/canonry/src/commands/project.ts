@@ -1,5 +1,5 @@
 import type { CompetitorAutoAliasMode, MeasurementConfig, ProjectDto, ProjectPatchRequest, ProjectUpsertRequest, ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
-import { DEFAULT_MEASUREMENT_CONFIG, effectiveDomains, measurementConfigSchema, normalizeProjectAliases, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases } from '@ainyc/canonry-contracts'
+import { DEFAULT_MEASUREMENT_CONFIG, formatPercent, RatioUnits, effectiveDomains, measurementConfigSchema, normalizeProjectAliases, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, isEndpointMissing, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -251,16 +251,17 @@ export async function updateProjectSettings(
   }
 
   if (opts.dryRun) {
-    const hasValue = (value: unknown): boolean => {
-      if (value === undefined || value === null) return false
-      if (Array.isArray(value)) return value.length > 0
+    const hasValue = (key: string, value: unknown): boolean => {
+      if (value === undefined) return false
+      if (value === null) return true
+      if (Array.isArray(value)) return key === 'providers' || value.length > 0
       if (typeof value === 'object') return Object.keys(value).length > 0
       return true
     }
-    const changedKeys = Object.entries(opts).filter(([key, value]) => key !== 'dryRun' && key !== 'format' && hasValue(value))
-    if (opts.competitorAutoAliases === undefined || changedKeys.some(([key]) => key !== 'competitorAutoAliases')) {
-      throw usageError('Error: project update --dry-run supports only --competitor-auto-aliases', {
-        message: '--dry-run supports only --competitor-auto-aliases',
+    const changedKeys = Object.entries(opts).filter(([key, value]) => key !== 'dryRun' && key !== 'format' && hasValue(key, value))
+    if (opts.competitorAutoAliases !== 'apply' || changedKeys.some(([key]) => key !== 'competitorAutoAliases')) {
+      throw usageError('Error: project update --dry-run supports only --competitor-auto-aliases apply', {
+        message: '--dry-run supports only --competitor-auto-aliases apply',
         details: { command: 'project.update', project: name },
       })
     }
@@ -278,7 +279,7 @@ export async function updateProjectSettings(
       console.log(`Competitor auto-alias mode preview: ${preview.modeBefore} -> ${preview.modeAfter}`)
       const percentBefore = detection.impact?.before.percent
       const percentAfter = detection.impact?.after.percent
-      console.log(`Mention share ${percentBefore === null || percentBefore === undefined ? 'not measured' : `${percentBefore}%`} -> ${percentAfter === null || percentAfter === undefined ? 'not measured' : `${percentAfter}%`} (stored evidence preview)`)
+      console.log(`Mention share ${percentBefore === null || percentBefore === undefined ? 'not measured' : formatPercent(percentBefore, RatioUnits.percent)} -> ${percentAfter === null || percentAfter === undefined ? 'not measured' : formatPercent(percentAfter, RatioUnits.percent)} (stored evidence preview)`)
     }
     return
   }

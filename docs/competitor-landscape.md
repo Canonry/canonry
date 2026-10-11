@@ -182,3 +182,19 @@ The web table displays stored sample URLs for the selected window. It does not l
 ## Shared readers
 
 `visibility-stats --share-of-voice` uses this landscape reader and comparison policy. Its existing run windows still apply. Simple visibility stats retain the current tracked-query basket. Advanced portfolio stats select all markets through frozen execution/Target assignments. Their query classes remain fixed even when query text suggests another class. Branded and non-brand shares retain separate denominators. Overview and trend mention-share instruments retain their explicitly tracked comparison sets.
+
+## Previewing competitor changes
+
+`POST /api/v1/projects/{name}/competitor-changes/preview` uses this landscape
+reader for both stored identity and a proposed add, remove, replacement or alias
+change. It selects the latest eligible sweep, non-brand answers (pooled only
+when a Simple project has no usable brand), and all Advanced markets. The
+response names the run IDs, counts and competitor basis alongside percentages.
+Learned market names are recalculated against the hypothetical identity, just
+as they are after a real write. Nothing is persisted by the preview.
+
+The estimate is for one stored sweep; the eventual identity change restates
+all stored periods. Automatic alias detection can move an apply-mode add again.
+This instrument can differ from the overview card's population. Block/unblock,
+market pins, project identity edits, apply and discovery promotion are outside
+this preview endpoint.
