@@ -2457,7 +2457,10 @@ function ProjectPageContent({
       let failure: unknown = err
       const details = apiErrorDetails(err)
       if (details?.reason === COMPETITOR_BULK_ADD_REFUSAL_REASON) {
-        const accepted = window.confirm(`This add would grow tracked competitors from ${String(details.trackedBefore ?? '?')} to ${String(details.trackedAfter ?? '?')} within ${String(details.windowHours ?? COMPETITOR_BULK_ADD_WINDOW_HOURS)} hours. Continue?`)
+        const trackedBefore = typeof details.trackedBefore === 'number' ? details.trackedBefore : '?'
+        const trackedAfter = typeof details.trackedAfter === 'number' ? details.trackedAfter : '?'
+        const windowHours = typeof details.windowHours === 'number' ? details.windowHours : COMPETITOR_BULK_ADD_WINDOW_HOURS
+        const accepted = window.confirm(`This add would grow tracked competitors from ${trackedBefore} to ${trackedAfter} within ${windowHours} hours. Continue?`)
         if (accepted) {
           try {
             await apiAppendCompetitors(projectName, [domain], { acknowledgeBulkAdd: true })
