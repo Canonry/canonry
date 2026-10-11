@@ -233,11 +233,43 @@ test('preview and apply share the active planless sweep refusal', async () => {
     const changed = config('active-preview', { queries: ['changed query'] })
     const preview = await app.inject({ method: 'POST', url: '/api/v1/apply/preview', payload: changed })
     const applied = await app.inject({ method: 'POST', url: '/api/v1/apply', payload: changed })
+    expect(preview.statusCode).toBe(409)
+    expect(preview.json()).toMatchObject({ error: { code: 'RUN_IN_PROGRESS' } })
     expect(preview.statusCode).toBe(applied.statusCode)
     expect(preview.json().error.code).toBe(applied.json().error.code)
   } finally {
     await app.close()
     db.$client.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+const rejectedDocuments = [
+  { providers: ['missing-provider'] },
+  { schedule: { cron: 'not a cron', timezone: 'UTC' } },
+  { schedule: { cron: '0 1 * * *', timezone: 'Unknown/Timezone' } },
+  { aliases: ['Rival Brand'], qualifiedAliases: ['Rival Brand'], competitors: [{ domain: 'rival.example', aliases: ['Rival Brand'] }] },
+]
+
+test.each(rejectedDocuments)('preview preserves the apply verdict for invalid configuration %j', async overrides => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'apply-preview-verdict-'))
+  const db = createClient(path.join(directory, 'test.db'))
+  migrate(db)
+  const app = Fastify()
+  app.register(apiRoutes, { db, skipAuth: true, providerAdapters: [{ name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: false, defaultModel: 'gpt-test', knownModels: [] }] })
+  await app.ready()
+  try {
+    const payload = config('verdict-preview', overrides)
+    const before = db.select().from(projects).all()
+    const preview = await app.inject({ method: 'POST', url: '/api/v1/apply/preview', payload })
+    const commit = await app.inject({ method: 'POST', url: '/api/v1/apply', payload })
+    expect(preview.statusCode).toBe(400)
+    expect(preview.statusCode).toBe(commit.statusCode)
+    expect(preview.json().error.code).toBe(commit.json().error.code)
+    expect(db.select().from(projects).all()).toEqual(before)
+  } finally {
+    await app.close()
+    db.$client.close()
+    fs.rmSync(directory, { recursive: true, force: true })
   }
 })

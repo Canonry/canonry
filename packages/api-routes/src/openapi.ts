@@ -2647,7 +2647,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'post',
     path: '/api/v1/apply/preview',
     summary: 'Preview a Canonry config document',
-    description: 'Validate and simulate a config apply. The transaction is rolled back before the response and no audit rows, callbacks, or database writes persist.',
+    description: 'Validate and simulate a config apply. The transaction is rolled back before the response and no audit rows, callbacks, or database writes persist. Webhook validation still resolves DNS to preserve the real apply verdict.',
     tags: ['config'],
     requestBody: {
       required: true,

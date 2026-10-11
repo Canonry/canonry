@@ -188,6 +188,7 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['apply'],
+    help: 'Each document is previewed independently against current stored state; earlier previews do not change later ones. Webhook URL validation can resolve DNS.',
     usage: 'canonry apply <file...> [--dry-run] [--format json]',
     supportsDryRun: true,
     run: async (input) => {

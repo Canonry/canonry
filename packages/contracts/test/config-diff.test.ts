@@ -45,6 +45,12 @@ describe('diffProjectConfigState', () => {
     expect(result.queries).toMatchObject({ added: [], removed: [], unchangedCount: 1 })
   })
 
+  it('deduplicates query identity while retaining exact additions and removals', () => {
+    const before = state({ queries: [{ id: 'a', text: 'Unchanged' }, { id: 'b', text: 'Removed' }] })
+    const after = state({ queries: [{ id: 'c', text: ' unchanged ' }, { id: 'd', text: 'UNCHANGED' }, { id: 'e', text: 'Added' }], detachedSnapshotCount: 2 })
+    expect(diffProjectConfigState(before, after).queries).toEqual({ managed: true, added: ['Added'], removed: ['Removed'], unchangedCount: 1, snapshotsDetached: 2 })
+  })
+
   it('keeps field and schedule values contract typed and accepts lifecycle effects and dropped aliases', () => {
     const before = state({ fields: { displayName: 'Example' } })
     const after = state({

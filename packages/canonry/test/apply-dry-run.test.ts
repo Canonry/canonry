@@ -62,6 +62,27 @@ describe('apply --dry-run', () => {
     expect(mockApply).not.toHaveBeenCalled()
   })
 
+  it('retains successful previews and numbered errors across multiple documents and files', async () => {
+    fs.writeFileSync(tmpFile, `${YAML}---\n${YAML.replace('name: demo', 'name: refused')}---\n${YAML.replace('name: demo', 'name: last')}`)
+    mockPreviewApply.mockResolvedValueOnce(PREVIEW)
+      .mockRejectedValueOnce(new CliError({ code: 'VALIDATION_ERROR', message: 'Queries belong to an active plan' }))
+      .mockResolvedValueOnce({ ...PREVIEW, project: { id: 'last', name: 'last' }, changed: false })
+    const logs: string[] = []
+    const spy = vi.spyOn(console, 'log').mockImplementation(value => { logs.push(String(value)) })
+    try {
+      await expect(applyConfigs([tmpFile, `${tmpFile}.missing`], 'json', { dryRun: true })).rejects.toMatchObject({
+        code: 'APPLY_FAILED', exitCode: 1,
+        details: { dryRun: true, changedCount: 1, errorCount: 2, files: [
+          { previews: [expect.objectContaining({ project: { id: 'project-1', name: 'demo' } }), expect.objectContaining({ project: { id: 'last', name: 'last' } })], errors: ['Document 2: Queries belong to an active plan'] },
+          { previews: [], errors: [expect.stringContaining('File not found')] },
+        ] },
+      })
+      expect(JSON.parse(logs.join(''))).toMatchObject({ dryRun: true, changedCount: 1, errorCount: 2 })
+      expect(mockPreviewApply).toHaveBeenCalledTimes(3)
+      expect(mockApply).not.toHaveBeenCalled()
+    } finally { spy.mockRestore() }
+  })
+
   it('maps a missing preview route without falling back to apply', async () => {
     mockPreviewApply.mockRejectedValue(new CliError({ code: 'HTTP_ERROR', message: 'Not found', details: { httpStatus: 404 } }))
     await expect(applyConfigs([tmpFile], 'json', { dryRun: true })).rejects.toMatchObject({ code: 'APPLY_PREVIEW_UNSUPPORTED' })

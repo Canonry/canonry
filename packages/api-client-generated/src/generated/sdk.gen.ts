@@ -2405,7 +2405,7 @@ export const postApiV1Apply = <ThrowOnError extends boolean = false>(options: Op
 /**
  * Preview a Canonry config document
  *
- * Validate and simulate a config apply. The transaction is rolled back before the response and no audit rows, callbacks, or database writes persist.
+ * Validate and simulate a config apply. The transaction is rolled back before the response and no audit rows, callbacks, or database writes persist. Webhook validation still resolves DNS to preserve the real apply verdict.
  */
 export const postApiV1ApplyPreview = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ApplyPreviewData, ThrowOnError>) => {
     return (options.client ?? client).post<PostApiV1ApplyPreviewResponses, PostApiV1ApplyPreviewErrors, ThrowOnError>({

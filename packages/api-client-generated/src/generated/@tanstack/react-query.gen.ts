@@ -2790,7 +2790,7 @@ export const postApiV1ApplyMutation = (options?: Partial<Options<PostApiV1ApplyD
 /**
  * Preview a Canonry config document
  *
- * Validate and simulate a config apply. The transaction is rolled back before the response and no audit rows, callbacks, or database writes persist.
+ * Validate and simulate a config apply. The transaction is rolled back before the response and no audit rows, callbacks, or database writes persist. Webhook validation still resolves DNS to preserve the real apply verdict.
  */
 export const postApiV1ApplyPreviewMutation = (options?: Partial<Options<PostApiV1ApplyPreviewData>>): UseMutationOptions<PostApiV1ApplyPreviewResponse, PostApiV1ApplyPreviewError, Options<PostApiV1ApplyPreviewData>> => {
     const mutationOptions: UseMutationOptions<PostApiV1ApplyPreviewResponse, PostApiV1ApplyPreviewError, Options<PostApiV1ApplyPreviewData>> = {

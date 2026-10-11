@@ -1965,9 +1965,113 @@ export type ApplyPreviewDto = {
         after: number;
     };
     fields: {
-        [key: string]: {
-            before: unknown;
-            after: unknown;
+        displayName?: {
+            before: string | null;
+            after: string | null;
+        };
+        canonicalDomain?: {
+            before: string | null;
+            after: string | null;
+        };
+        ownedDomains?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        aliases?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        qualifiedAliases?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        country?: {
+            before: string | null;
+            after: string | null;
+        };
+        language?: {
+            before: string | null;
+            after: string | null;
+        };
+        labels?: {
+            before: {
+                [key: string]: string;
+            } | null;
+            after: {
+                [key: string]: string;
+            } | null;
+        };
+        providers?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        providerModels?: {
+            before: {
+                [key: string]: string;
+            } | null;
+            after: {
+                [key: string]: string;
+            } | null;
+        };
+        providerDispatchModes?: {
+            before: {
+                [key: string]: 'sync' | 'batch';
+            } | null;
+            after: {
+                [key: string]: 'sync' | 'batch';
+            } | null;
+        };
+        'measurement.marketingHosts'?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        'measurement.brandTerms'?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        'measurement.leadEventNames'?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        locations?: {
+            before: Array<{
+                label: string;
+                city: string;
+                region: string;
+                country: string;
+                timezone?: string;
+            }> | null;
+            after: Array<{
+                label: string;
+                city: string;
+                region: string;
+                country: string;
+                timezone?: string;
+            }> | null;
+        };
+        defaultLocation?: {
+            before: string | null;
+            after: string | null;
+        };
+        autoExtractBacklinks?: {
+            before: boolean | null;
+            after: boolean | null;
+        };
+        negativeReviewMaxStars?: {
+            before: number | null;
+            after: number | null;
+        };
+        siteAuditMaxPages?: {
+            before: number | null;
+            after: number | null;
+        };
+        competitorAutoAliases?: {
+            before: 'off' | 'preview' | 'apply' | null;
+            after: 'off' | 'preview' | 'apply' | null;
+        };
+        configSource?: {
+            before: 'cli' | 'api' | 'config-file' | null;
+            after: 'cli' | 'api' | 'config-file' | null;
         };
     };
     queries: {
@@ -1986,13 +2090,42 @@ export type ApplyPreviewDto = {
             before: Array<string>;
             after: Array<string>;
         }>;
-        droppedAliases: Array<unknown>;
+        droppedAliases: Array<{
+            domain: string;
+            alias: string;
+            reason: 'too-long' | 'too-short' | 'project-brand' | 'other-competitor' | 'market-competitor' | 'claimed-by-alias';
+            conflictsWith?: string;
+            conflictingName?: string;
+            markets?: Array<string>;
+        }>;
     };
     schedule: {
         managed: boolean;
         action: 'create' | 'update' | 'delete' | 'none';
-        before: unknown;
-        after: unknown;
+        before: {
+            cron?: string;
+            preset?: string;
+            recurrence?: {
+                everyDays: number;
+                startDate: string;
+                time: string;
+            };
+            timezone: string;
+            providers: Array<string>;
+            enabled: boolean;
+        } | null;
+        after: {
+            cron?: string;
+            preset?: string;
+            recurrence?: {
+                everyDays: number;
+                startDate: string;
+                time: string;
+            };
+            timezone: string;
+            providers: Array<string>;
+            enabled: boolean;
+        } | null;
     };
     notifications: {
         managed: boolean;
