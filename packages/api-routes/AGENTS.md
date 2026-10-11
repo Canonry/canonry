@@ -731,7 +731,7 @@ WordPress backfill is forbidden while either continuation field is set.
 `src/backlinks.ts` (Common Crawl sync + per-project extract):
 
 - Summary/domains/history default to `source=commoncrawl`; the source discriminator remains readable for inert historical rows from older versions.
-- `GET /projects/:name/backlinks/sources` reports Common Crawl readiness plus retained-source data availability.
+- `GET /projects/:name/backlinks/sources` reports Common Crawl readiness plus retained-source data availability. Common Crawl is `connected` when a release sync has completed AND the project has a Common Crawl summary (`readCommonCrawlSourceState` in `src/backlinks-source-state.ts`). Completed means `ready`, or `query_finished_at` set: syncing a release again re-queues its row while the stored rows stay intact, so the status alone would report every project disconnected for the length of the download. The `backlinks.source.connected` doctor check reads the same function, so the two cannot disagree; change the rule there, never in one caller. For a project without a summary, the check recommends `backlinks extract` only when a release is currently `ready`; historical completion alone requires `backlinks sync`. `autoExtractBacklinks` only queues a re-extract after a sync and is not part of it.
 
 ### Technical AEO crawl (Site Health)
 
