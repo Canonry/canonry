@@ -5,35 +5,46 @@ import crypto from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { backlinkSummaries, ccReleaseSyncs, createClient, migrate, projects } from '@ainyc/canonry-db'
 import type { DatabaseClient } from '@ainyc/canonry-db'
+import type { CcReleaseSyncStatus } from '@ainyc/canonry-contracts'
 import { BACKLINKS_CHECKS } from '../src/doctor/checks/backlinks.js'
 import type { DoctorContext, ProjectInfo } from '../src/doctor/types.js'
 
 const check = BACKLINKS_CHECKS.find((c) => c.id === 'backlinks.source.connected')!
 
-function seedProject(db: DatabaseClient, autoExtract: boolean): ProjectInfo {
+function seedProject(db: DatabaseClient, autoExtract: boolean, name = 'demo'): ProjectInfo {
   const now = new Date().toISOString()
   const id = crypto.randomUUID()
   db.insert(projects).values({
-    id, name: 'roots', displayName: 'Roots', canonicalDomain: 'roots.io',
+    id, name, displayName: 'Demo', canonicalDomain: 'example.com',
     country: 'US', language: 'en', autoExtractBacklinks: autoExtract,
     createdAt: now, updatedAt: now,
   }).run()
-  return { id, name: 'roots', canonicalDomain: 'roots.io', displayName: 'Roots' }
+  return { id, name, canonicalDomain: 'example.com', displayName: 'Demo' }
 }
 
-function seedReadySync(db: DatabaseClient): void {
+/**
+ * A release sync row. `completedBefore` is a row that reached `ready` once:
+ * the executor stamps `queryFinishedAt` then, and neither a re-queue nor a
+ * later failure clears it.
+ */
+function seedSync(db: DatabaseClient, status: CcReleaseSyncStatus, opts: { completedBefore?: boolean } = {}): void {
   const now = new Date().toISOString()
   db.insert(ccReleaseSyncs).values({
-    id: crypto.randomUUID(), release: 'cc-main-2026-jan-feb-mar', status: 'ready',
+    id: crypto.randomUUID(), release: 'cc-main-2026-jan-feb-mar', status,
+    queryFinishedAt: status === 'ready' || opts.completedBefore ? now : null,
     createdAt: now, updatedAt: now,
   }).run()
 }
 
-function seedCcSummary(db: DatabaseClient, projectId: string): void {
+function seedReadySync(db: DatabaseClient): void {
+  seedSync(db, 'ready')
+}
+
+function seedCcSummary(db: DatabaseClient, projectId: string, source: 'commoncrawl' | 'bing-webmaster' = 'commoncrawl'): void {
   const now = new Date().toISOString()
   db.insert(backlinkSummaries).values({
-    id: crypto.randomUUID(), projectId, releaseSyncId: null, source: 'commoncrawl',
-    release: 'cc-main-2026-jan-feb-mar', targetDomain: 'roots.io',
+    id: crypto.randomUUID(), projectId, releaseSyncId: null, source,
+    release: 'cc-main-2026-jan-feb-mar', targetDomain: 'example.com',
     totalLinkingDomains: 5, totalHosts: 9, top10HostsShare: '1.000000',
     queriedAt: now, createdAt: now,
   }).run()
@@ -63,50 +74,86 @@ describe('backlinks.source.connected', () => {
     expect(result.code).toBe('backlinks.source.no-project')
   })
 
-  it('warns when Common Crawl is not set up', async () => {
-    const project = seedProject(db, false)
-    const result = await check.run(ctx(project))
-    expect(result.status).toBe('warn')
-    expect(result.code).toBe('backlinks.source.none')
-    expect(result.details).toMatchObject({ commoncrawl: false })
-    expect(result.remediation).toMatch(/canonry backlinks sync/)
-  })
-
-  it('reports OK when Common Crawl is fully set up (autoExtract + ready sync)', async () => {
-    const project = seedProject(db, true)
-    seedReadySync(db)
-    const result = await check.run(ctx(project))
-    expect(result.status).toBe('ok')
-    expect(result.code).toBe('backlinks.source.connected')
-    expect(result.details).toMatchObject({ commoncrawl: true })
-    expect(result.details!.connected).toEqual(['commoncrawl'])
-  })
-
-  it('nudges to extract when Common Crawl is ready but the project has no data', async () => {
-    const project = seedProject(db, true)
-    seedReadySync(db)
-    // Workspace sync is ready, but no per-project extract has run.
-    const result = await check.run(ctx(project))
-    expect(result.status).toBe('ok')
-    expect(result.remediation).toMatch(/canonry backlinks extract roots/)
-    expect(result.details).toMatchObject({ commoncrawlHasData: false })
-  })
-
-  it('drops the extract nudge once the project has Common Crawl data', async () => {
-    const project = seedProject(db, true)
+  // The release sync is workspace-global and writes every project's rows, so
+  // `autoExtractBacklinks` (which only queues a re-extract) says nothing about
+  // whether data exists. Gating on it warned on projects with current data.
+  it.each([false, true])('reports OK from a ready release plus stored project data, with autoExtractBacklinks=%s', async (autoExtract) => {
+    const project = seedProject(db, autoExtract)
     seedReadySync(db)
     seedCcSummary(db, project.id)
     const result = await check.run(ctx(project))
     expect(result.status).toBe('ok')
+    expect(result.code).toBe('backlinks.source.connected')
     expect(result.remediation).toBeNull()
-    expect(result.details).toMatchObject({ commoncrawlHasData: true })
+    expect(result.details).toEqual({
+      commoncrawl: true,
+      commoncrawlReadyRelease: true,
+      commoncrawlHasData: true,
+      connected: ['commoncrawl'],
+    })
   })
 
-  it('stays a warning when autoExtract is on but no ready sync exists', async () => {
-    const project = seedProject(db, true)
-    // No ready cc_release_sync seeded.
+  it.each([false, true])('warns to sync when no release is ready, with autoExtractBacklinks=%s', async (autoExtract) => {
+    const project = seedProject(db, autoExtract)
     const result = await check.run(ctx(project))
     expect(result.status).toBe('warn')
     expect(result.code).toBe('backlinks.source.none')
+    expect(result.details).toEqual({ commoncrawl: false, commoncrawlReadyRelease: false, commoncrawlHasData: false })
+    expect(result.remediation).toMatch(/canonry backlinks sync/)
+    // The old text named a project setting that no command sets.
+    expect(result.remediation).not.toMatch(/autoExtractBacklinks/)
+  })
+
+  // Re-running `canonry backlinks sync` on the newest release re-queues its
+  // row, and the stored rows stay untouched until the sync's final write.
+  // Reading only `ready` warned on every project for as long as the download
+  // ran, or for good when it failed.
+  it.each(['queued', 'downloading', 'querying', 'failed'] as const)('stays OK when a release that completed before is synced again and its row is %s', async (status) => {
+    const project = seedProject(db, false)
+    seedSync(db, status, { completedBefore: true })
+    seedCcSummary(db, project.id)
+    const result = await check.run(ctx(project))
+    expect(result.status).toBe('ok')
+    expect(result.code).toBe('backlinks.source.connected')
+    expect(result.details).toMatchObject({ commoncrawl: true, commoncrawlReadyRelease: true, commoncrawlHasData: true })
+  })
+
+  it('warns to sync when the only release sync has never completed, even with older project data', async () => {
+    const project = seedProject(db, true)
+    seedSync(db, 'downloading')
+    seedCcSummary(db, project.id)
+    const result = await check.run(ctx(project))
+    expect(result.status).toBe('warn')
+    expect(result.code).toBe('backlinks.source.none')
+    expect(result.details).toEqual({ commoncrawl: false, commoncrawlReadyRelease: false, commoncrawlHasData: true })
+    expect(result.remediation).toMatch(/canonry backlinks sync/)
+  })
+
+  it('warns to extract when a release is ready but this project has no summary yet', async () => {
+    // A project created after the last sync. Another project's summary and
+    // this project's retired-source rows are not its Common Crawl data.
+    const project = seedProject(db, true)
+    const other = seedProject(db, true, 'other')
+    seedReadySync(db)
+    seedCcSummary(db, other.id)
+    seedCcSummary(db, project.id, 'bing-webmaster')
+    const result = await check.run(ctx(project))
+    expect(result.status).toBe('warn')
+    expect(result.code).toBe('backlinks.source.none')
+    expect(result.details).toEqual({ commoncrawl: false, commoncrawlReadyRelease: true, commoncrawlHasData: false })
+    expect(result.remediation).toMatch(/canonry backlinks extract demo/)
+    expect(result.remediation).not.toMatch(/canonry backlinks sync/)
+  })
+
+  it('warns to sync when a completed release failed re-sync and the project has no summary', async () => {
+    const project = seedProject(db, false)
+    seedSync(db, 'failed', { completedBefore: true })
+
+    const result = await check.run(ctx(project))
+
+    expect(result.status).toBe('warn')
+    expect(result.code).toBe('backlinks.source.none')
+    expect(result.remediation).toMatch(/canonry backlinks sync/)
+    expect(result.remediation).not.toMatch(/canonry backlinks extract/)
   })
 })

@@ -38,6 +38,7 @@ import {
 import { isValidReleaseId } from '@ainyc/canonry-integration-commoncrawl'
 import { resolveProject } from './helpers.js'
 import { backlinkCrawlerExclusionClause } from './backlinks-filter.js'
+import { readCommonCrawlSourceState } from './backlinks-source-state.js'
 import { withFeatureOutcome } from './feature-outcome.js'
 
 export interface BacklinksRoutesOptions {
@@ -273,16 +274,11 @@ function buildSourceAvailability(
 
 function computeSourceAvailability(
   db: DatabaseClient,
-  project: { id: string; canonicalDomain: string; autoExtractBacklinks: boolean },
+  project: { id: string; canonicalDomain: string },
   excludeCrawlers: boolean,
 ): BacklinkSourcesResponseDto {
-  const ccReadySync = db
-    .select({ id: ccReleaseSyncs.id })
-    .from(ccReleaseSyncs)
-    .where(eq(ccReleaseSyncs.status, CcReleaseSyncStatuses.ready))
-    .limit(1)
-    .get()
-  const ccConnected = project.autoExtractBacklinks === true && !!ccReadySync
+  // The same rule the `backlinks.source.connected` doctor check grades.
+  const ccConnected = readCommonCrawlSourceState(db, project.id).connected
 
   const sources = [
     buildSourceAvailability(db, project.id, BacklinkSources.commoncrawl, ccConnected, excludeCrawlers),

@@ -14,9 +14,10 @@ export const notificationEventSchema = z.enum([
    * trustworthy at all. They exist because a degraded pipeline keeps emitting
    * `run.completed` — a success signal — while producing wrong numbers.
    *
-   * Edge-triggered: emitted when the worst check status changes, never on every
-   * scheduled pass, so a persistent warning does not train the operator to
-   * ignore the channel.
+   * Edge-triggered: `health.degraded` is emitted when a check starts failing
+   * or gets worse, and `health.recovered` when every check passes again. A
+   * scheduled pass that finds the same problems, or fewer, sends nothing, so
+   * a persistent warning does not train the operator to ignore the channel.
    */
   'health.degraded',
   'health.recovered',
@@ -98,6 +99,25 @@ export interface HealthWebhookPayload {
     previousStatus: 'ok' | 'warn' | 'fail' | null
     /** Every non-ok check on this pass, worst first. */
     failing: Array<{ id: string; status: string; code: string; summary: string }>
+    /**
+     * Codes of the checks that are new or worse, worst first: a check that
+     * started failing, got more severe, or reports a different problem at the
+     * same severity, on this pass or since the last alert a webhook accepted.
+     * They are what a `health.degraded` alert is about; every other entry in
+     * `failing` is one the operator has already been told about. Absent on
+     * website liveness alerts, and when the earlier failing set is unknown.
+     */
+    added?: string[]
+    /**
+     * Codes of the checks that were failing when the last alert was
+     * delivered, or on the pass before this one, and are not failing now. A
+     * pass that only clears checks sends no alert, so the next alert reports
+     * what cleared since. A check that still fails under another code, or
+     * that was set aside under its failing cause, has not cleared. Absent on
+     * website liveness alerts, when the earlier set is unknown, and on a pass
+     * where no check could be graded.
+     */
+    cleared?: string[]
   }
   dashboardUrl: string
 }
