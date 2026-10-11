@@ -1091,14 +1091,17 @@ export function MeasurementPropertyPage() {
   // Set when that sweep has no number of either type for a location the setup now asks queries: it did
   // not hold the location. The sweep's own state would then read "Measured" over a page of "Not
   // measured", and an empty list under Cited on other queries would read as a sweep that found none.
-  const locationNotInLastSweep: UnavailableReason | undefined = showsLastSweep
+  // It takes both types' reads to say so: a type still being read, or one whose read failed, may hold numbers.
+  const mayBeOutOfLastSweep = showsLastSweep
     && [brandedRow, nonBrandRow].every(row => row === undefined || notAsked(row))
     && (isAssigned('branded') || isAssigned('non-brand'))
+  const bothTypesRead = brandedRow !== undefined && nonBrandRow !== undefined
+  const locationNotInLastSweep: UnavailableReason | undefined = mayBeOutOfLastSweep && bothTypesRead
     ? { icon: Clock, label: 'Not in last sweep', detail: `This location was not in the ${sweptOn ?? 'last'} sweep. First numbers after the next sweep.` }
     : undefined
-  // The state is the sweep's, or "Not measured" for a location it did not hold. While the other type is
-  // still being read that is not known, and the header shows no state it may have to take back.
-  const headerState = !selected || (locationNotInLastSweep && (brandedQuery.isPending || nonBrandQuery.isPending))
+  // The state is the sweep's, or "Not measured" for a location it did not hold. Until both types are
+  // read that is not known, and the header shows no state it may have to take back.
+  const headerState = !selected || (mayBeOutOfLastSweep && !bothTypesRead)
     ? null
     : MEASUREMENT_STATES[locationNotInLastSweep ? 'not_measured' : selected.measurement.state]
 

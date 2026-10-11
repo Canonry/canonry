@@ -3232,6 +3232,31 @@ describe('After a tracking change', () => {
     expect(within(page).getAllByRole('button', { name: 'Not in last sweep. No queries of this type were asked for this location in the last sweep. First numbers after the next sweep.' })).toHaveLength(2)
   })
 
+  it('claims nothing about the location while one type cannot be read: no state, and no reason under Cited on other queries', async () => {
+    // Non-brand, the type on screen, has no number from that sweep. Branded fails to load, so whether the
+    // sweep held the location is not known: it may have branded numbers.
+    const { header, page } = await renderAfterChange({
+      account: VIEWER,
+      plan: planWithBothTypes(),
+      overviews: { nonBrand: notAsked('non-brand'), branded: measured.branded },
+      first: url => {
+        const path = pathOf(url)
+        if (path.includes('/measurement-overview') && new URL(url).searchParams.get('queryClass') === 'branded') return serverError()
+        if (path.includes('/measurement-property-evidence')) return jsonResponse(new URL(url).searchParams.get('shape') === 'answers' ? evidenceResponse([]) : otherQueriesResponse([]))
+        return undefined
+      },
+    })
+    const other = await screen.findByRole('region', { name: OTHER_QUERIES_COPY.heading })
+    await within(other).findByText(OTHER_QUERIES_COPY.empty)
+
+    expect(visibleText(header.querySelector<HTMLElement>('.page-header-right')!)).toBe(`Tracking changed ${CHANGED_ON}`)
+    for (const state of ['Measured', 'Not measured']) expect(within(header).queryByText(state)).toBeNull()
+    expect(within(other).queryByText('Not in last sweep')).toBeNull()
+    expect(within(other).queryByRole('button', { name: LOCATION_NOT_IN_LAST_SWEEP })).toBeNull()
+    // The type on screen still says why it has no number.
+    expect(heroRows(page).slice(0, 2)).toEqual([['Not measured', 'Not in last sweep'], ['Not measured', '']])
+  })
+
   it('keeps the note in the header when the type on screen fails to load and the other type did', async () => {
     // Non-brand is the type on screen. Branded loaded from the last sweep, and its numbers show in the rows above.
     const { header, page } = await renderAfterChange({
