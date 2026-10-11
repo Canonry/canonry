@@ -68,12 +68,14 @@ describe('project --competitor-auto-aliases against the API', () => {
       .toContain('  Competitor auto aliases: preview (detected after each sweep and logged; nothing stored)')
 
     const put = vi.spyOn(api, 'putProject')
+    const patch = vi.spyOn(api, 'patchProject')
     expect((await cli(['project', 'update', PROJECT, '--competitor-auto-aliases', 'APPLY'])).error).toBeUndefined()
-    expect(put.mock.calls.at(-1)![1].competitorAutoAliases).toBe('apply')
+    expect(put).not.toHaveBeenCalled()
+    expect(patch.mock.calls.at(-1)![1].competitorAutoAliases).toBe('apply')
     expect(storedMode(db)).toBe('apply')
 
     expect((await cli(['project', 'update', PROJECT, '--country', 'GB'])).error).toBeUndefined()
-    expect(put.mock.calls.at(-1)![1]).not.toHaveProperty('competitorAutoAliases')
+    expect(patch.mock.calls.at(-1)![1]).not.toHaveProperty('competitorAutoAliases')
     expect(storedMode(db)).toBe('apply')
 
     expect((await cli(['project', 'show', PROJECT])).lines)
@@ -87,10 +89,12 @@ describe('project --competitor-auto-aliases against the API', () => {
   it('rejects an unknown mode before any request', async () => {
     const { db, api } = await harness()
     const put = vi.spyOn(api, 'putProject')
+    const patch = vi.spyOn(api, 'patchProject')
     const { error } = await cli(['project', 'update', PROJECT, '--competitor-auto-aliases', 'auto'])
     expect(error).toBeInstanceOf(CliError)
     expect((error as CliError).message).toContain('--competitor-auto-aliases must be off, preview or apply')
     expect(put).not.toHaveBeenCalled()
+    expect(patch).not.toHaveBeenCalled()
     expect(storedMode(db)).toBe('preview')
   })
 })
