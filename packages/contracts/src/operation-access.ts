@@ -43,6 +43,7 @@ export const LIVE_READ_OPERATIONS: ReadonlySet<string> = new Set([
 
 /** GET operations with a write side effect, including OAuth callbacks and derived snapshots. */
 export const WRITE_OPERATIONS: ReadonlySet<string> = new Set([
+  'GET /api/v1/session',
   'GET /api/v1/projects/{name}/bing/coverage',
   'GET /api/v1/google/callback',
   'GET /api/v1/projects/{name}/google/callback',
