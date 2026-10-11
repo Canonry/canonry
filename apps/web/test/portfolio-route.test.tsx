@@ -27,6 +27,7 @@ import { mapInsightDtosToVms } from '../src/mappers/insight-mapper.js'
 import { AdvancedMeasurementSection } from '../src/components/project/advanced-measurement/AdvancedMeasurementSection.js'
 import { QueriesSection } from '../src/components/project/DiscoverySection.js'
 import { TRACKED_FILTER_KEYS } from '../src/components/project/queries/advanced/tracked-filters.js'
+import { LOCATIONS_MARKETS_COPY } from '../src/components/project/settings/LocationsMarketsSection.js'
 import { configureUiTelemetry, recordUiSearchParamsChange, resetUiTelemetryForTests, UI_FILTER_DEBOUNCE_MS } from '../src/lib/ui-telemetry.js'
 import {
   getApiV1CdpStatusQueryKey,
@@ -37,6 +38,7 @@ import {
   getApiV1ProjectsByNameMeasurementSetupQueryKey,
   getApiV1ProjectsByNameMeasurementReportQueryKey,
   getApiV1ProjectsByNameQueriesQueryKey,
+  getApiV1ProjectsByNameQueryTrackingQueryKey,
   getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey,
   getApiV1ProjectsByNameCitationsVisibilityQueryKey,
   getApiV1ProjectsByNameSchedulesQueryKey,
@@ -102,6 +104,8 @@ async function renderAt(
       scope?: 'all-markets'
     }
     visibilityReport?: VisibilityReportResponse
+    /** GET /query-tracking, which Settings reads for a published setup's locations and markets. */
+    tracking?: ReturnType<typeof queryTrackingWorkspaceResponse>
   },
   /**
    * `seedPlan: false` leaves the measurement-plan query unseeded, which is the
@@ -230,6 +234,9 @@ async function renderAt(
       getApiV1ProjectsByNameMeasurementSetupQueryKey({ client: heyClient, path: { name: projectName } }),
       settledSetup,
     )
+  }
+  if (measurement?.tracking) {
+    queryClient.setQueryData(getApiV1ProjectsByNameQueryTrackingQueryKey({ client: heyClient, path: { name: projectName } }), measurement.tracking)
   }
   if (measurement?.report && measurement.plan.active) {
     queryClient.setQueryData(
@@ -510,6 +517,33 @@ function queryTrackingWorkspaceResponse(overrides: Record<string, unknown> = {})
     }],
     savedSources: { research: [], discovery: [] },
     ...overrides,
+  })
+}
+
+/** Workspace totals as the server counts them. No number here is the length of a list in a response of this file. */
+const STRUCTURE_SUMMARY = {
+  asked: 12, notAsked: 1,
+  byClass: { branded: 5, nonBrand: 6, mixed: 1, unknown: 0 },
+  byFocus: { market: 6, property: 5, company: 0, custom: 1 },
+  assignments: { total: 30, branded: 12, nonBrand: 18, unknown: 0 },
+  answersPerSweep: 90,
+  structure: { targets: 192, markets: 137, groups: 157, topLevelGroups: 20, competitors: 4 },
+}
+
+/** The published setup of `measurementPlanV2Response` as the workspace read lists it, with one market over its location. */
+function settingsWorkspaceResponse() {
+  return queryTrackingWorkspaceResponse({
+    targets: [{ stableKey: 'harbor-house', label: 'Harbor House', marketKeys: ['north-market'], counts: { propertyQueries: 3, marketQueries: 5, customQueries: 0, answersPerSweep: 8 } }],
+    groups: [{ stableKey: 'north', label: 'North', targetKeys: ['harbor-house'], counts: { queries: 8, markets: 1, answersPerSweep: 8 } }],
+    markets: [{ stableKey: 'north-market', label: 'North Market', groupKey: 'north', usageEdges: [], targetKeys: ['harbor-house'], counts: { marketQueries: 5, propertyQueries: 3, answersPerSweep: 8 } }],
+    scopeOptions: [
+      { id: 'project', label: 'Project', kind: 'project', targetCount: 1 },
+      { id: 'north', label: 'North', kind: 'group', targetCount: 1 },
+      { id: 'north-market', label: 'North Market', kind: 'market', targetCount: 1, parentGroupIds: ['north'] },
+      { id: 'harbor-house', label: 'Harbor House', kind: 'property', targetCount: 1, parentGroupIds: ['north'] },
+    ],
+    tracked: [],
+    summary: STRUCTURE_SUMMARY,
   })
 }
 
@@ -2828,15 +2862,24 @@ test('deleting the project is still offered, at the end of the Settings tab', as
   expect(html).toContain('Permanently deletes this project and all its queries, competitors, runs, and snapshots.')
 })
 
+/** The "Locations & markets" section of a rendered Settings page. */
+function locationsMarketsSection(html: string) {
+  return within(renderedPage(html)).getByRole('heading', { level: 2, name: LOCATIONS_MARKETS_COPY.heading }).closest('section')!
+}
+
 test('Settings is the only discoverable entry to advanced measurement for a Simple project', async () => {
   const html = await renderAt('/projects/project_citypoint/settings', undefined, {
     plan: { active: null },
     setup: simpleMeasurementSetupResponse(),
   })
 
-  expect(html).toContain('Advanced measurement')
-  expect(html).toContain('Measure individual properties, locations, or site sections with separate query sets.')
-  expect(html).toContain('Set up advanced measurement')
+  // Was the "Advanced measurement" block: a title, a sentence and "Set up advanced measurement".
+  // Now the title, one button, and the sentence behind the info icon beside the title.
+  const section = locationsMarketsSection(html)
+  expect(section.textContent).toBe('Locations & marketsAdd locations')
+  expect(within(section).getByRole('button', { name: 'Measure individual locations or site sections with separate query sets.' })).toBeTruthy()
+  expect(html).not.toContain('Set up advanced measurement')
+  expect(within(renderedPage(html)).queryByRole('heading', { name: 'Advanced measurement' })).toBeNull()
 })
 
 test('Settings resumes an unfinished advanced measurement draft', async () => {
@@ -2845,27 +2888,239 @@ test('Settings resumes an unfinished advanced measurement draft', async () => {
     setup: measurementSetupResponse(),
   })
 
-  expect(html).toContain('Continue setup')
-  expect(html).not.toContain('Set up advanced measurement')
+  expect(locationsMarketsSection(html).textContent).toBe('Locations & marketsContinue setup')
+  expect(html).not.toContain('Add locations')
 })
 
-test('Settings edits a published advanced measurement setup', async () => {
+test('Settings opens the wizard for a published advanced measurement setup', async () => {
   const html = await renderAt('/projects/project_citypoint/settings', undefined, {
     plan: measurementPlanV2Response(4),
     setup: activeMeasurementSetupResponse(4),
+    tracking: queryTrackingWorkspaceResponse(),
   })
 
-  expect(html).toContain('Edit setup')
+  // Was "Edit setup". The structure is read on the page now, and the wizard is the bulk way to change it.
+  const section = locationsMarketsSection(html)
+  expect(within(section).getByRole('button', { name: 'Bulk setup' })).toBeTruthy()
+  expect(within(section).getByRole('table', { name: 'Locations' })).toBeTruthy()
+  expect(html).not.toContain('Edit setup')
 })
 
 test('Settings resumes an unpublished draft over an active advanced setup', async () => {
   const html = await renderAt('/projects/project_citypoint/settings', undefined, {
     plan: measurementPlanV2Response(4),
     setup: measurementSetupResponse(4),
+    tracking: queryTrackingWorkspaceResponse({ summary: STRUCTURE_SUMMARY }),
   })
 
-  expect(html).toContain('Continue setup')
+  // Was "Continue setup" in place of "Edit setup". The draft is one of the section's numbers, with its own way in.
+  const section = locationsMarketsSection(html)
+  expect(within(section).getByText('Open drafts').closest('div')!.querySelector('dd')!.textContent).toBe('1Open draft')
+  expect(within(section).getByRole('button', { name: 'Open draft' })).toBeTruthy()
+  expect(within(section).getByRole('button', { name: 'Bulk setup' })).toBeTruthy()
   expect(html).not.toContain('Edit setup')
+  expect(html).not.toContain('Continue setup')
+})
+
+// Settings is one stacked page with a jump list beside it. The list is built from the sections the
+// page renders, so an entry never points at a section the account does not have.
+const SETTINGS_ENTRIES = {
+  general: ['General', 'settings-general'],
+  engines: ['Engines', 'settings-engines'],
+  siteHealth: ['Site Health scans', 'settings-site-health'],
+  locationsMarkets: ['Locations & markets', 'settings-locations-markets'],
+  schedule: ['Schedule', 'settings-schedule'],
+  notifications: ['Notifications', 'settings-notifications'],
+  remove: ['Delete project', 'settings-delete'],
+} as const
+
+function settingsMeasurement(mode: 'simple' | 'advanced') {
+  return mode === 'advanced'
+    ? { plan: measurementPlanV2Response(4), setup: activeMeasurementSetupResponse(4), tracking: settingsWorkspaceResponse() }
+    : { plan: { active: null }, setup: simpleMeasurementSetupResponse() }
+}
+
+/** The jump list's entries as links and as the select's options, and each anchor on the page with its headings. */
+function settingsJumpList(html: string) {
+  const page = renderedPage(html)
+  const nav = within(page).getByRole('navigation', { name: 'Settings sections' })
+  return {
+    page,
+    links: within(nav).getAllByRole('link').map(link => [link.textContent, link.getAttribute('href')]),
+    options: [...within(nav).getByRole<HTMLSelectElement>('combobox', { name: 'Settings section' }).options].map(option => [option.textContent, option.value]),
+    anchors: [...page.querySelectorAll('[id^="settings-"]')].map(anchor => [anchor.id, [...anchor.querySelectorAll('h2')].map(heading => heading.textContent)]),
+  }
+}
+
+test.each(['simple', 'advanced'] as const)('%s Settings names every section on the page in its jump list, in the page\'s order', async mode => {
+  const html = await renderAt('/projects/project_citypoint/settings', undefined, settingsMeasurement(mode), { accountRole: 'admin' })
+  const { page, links, options, anchors } = settingsJumpList(html)
+  const entries = Object.values(SETTINGS_ENTRIES)
+
+  expect(links).toEqual(entries.map(([label, id]) => [label, `/projects/project_citypoint/settings#${id}`]))
+  expect(options).toEqual(entries.map(([label, id]) => [label, id]))
+  // Today's sections in today's order, one anchor each. The answer engines draw their heading once their settings load.
+  expect(anchors).toEqual([
+    ['settings-general', ['Project settings', 'Tracking results']],
+    ['settings-engines', []],
+    ['settings-site-health', ['Site Health scans']],
+    ['settings-locations-markets', ['Locations & markets']],
+    ['settings-schedule', ['Scheduled runs']],
+    ['settings-notifications', ['Notifications']],
+    ['settings-delete', ['Delete project']],
+  ])
+  expect(page.querySelector('#settings-engines > .project-engine-settings')).not.toBeNull()
+  // No section stands outside the list.
+  expect([...page.querySelectorAll('h2')].filter(heading => heading.closest('[id^="settings-"]') === null).map(heading => heading.textContent)).toEqual([])
+  // General keeps its "Search Locations" row, the engines' locations. The structure tables' search box is plain "Search".
+  expect(within(page.querySelector<HTMLElement>('#settings-general')!).getByText('Search Locations')).toBeTruthy()
+  expect(within(page).queryAllByRole('searchbox').map(box => box.getAttribute('aria-label'))).toEqual(mode === 'advanced' ? ['Search'] : [])
+})
+
+test.each(['simple', 'advanced'] as const)('%s Settings leaves the sections a viewer does not have out of the jump list', async mode => {
+  const html = await renderAt('/projects/project_citypoint/settings', undefined, settingsMeasurement(mode), { accountRole: 'viewer' })
+  const { page, links, anchors } = settingsJumpList(html)
+  const { general, siteHealth, locationsMarkets, schedule, notifications } = SETTINGS_ENTRIES
+
+  expect(links.map(([label]) => label)).toEqual([general, siteHealth, locationsMarkets, schedule, notifications].map(([label]) => label))
+  expect(anchors.map(([id]) => id)).toEqual([general, siteHealth, locationsMarkets, schedule, notifications].map(([, id]) => id))
+  expect(page.querySelector('.project-engine-settings h2')?.textContent).toBe('Site Health scans')
+  expect(html).not.toContain('Delete project')
+  // The section is a viewer's to read: no way into the wizard, and the label that says so.
+  const section = locationsMarketsSection(html)
+  expect(within(section).queryByRole('button', { name: /^(Bulk setup|Open draft|Add locations|Continue setup)$/ })).toBeNull()
+  expect(within(section).getByRole('button', { name: 'View only. Your account cannot change this setup.' })).toBeTruthy()
+  if (mode === 'advanced') expect(within(section).getByRole('table', { name: 'Locations' })).toBeTruthy()
+})
+
+// A key for this one project writes and is no administrator: the one account where the two gates differ.
+test.each(['simple', 'advanced'] as const)('%s Settings lists Delete project and no Engines for a writer who is not an administrator', async mode => {
+  const html = await renderAt('/projects/project_citypoint/settings', undefined, settingsMeasurement(mode), {
+    apiKey: { id: 'key-project-writer', scopes: ['*'], projectId: 'project_citypoint', readOnly: false },
+  })
+  const { page, links, options, anchors } = settingsJumpList(html)
+  const { general, siteHealth, locationsMarkets, schedule, notifications, remove } = SETTINGS_ENTRIES
+  const entries = [general, siteHealth, locationsMarkets, schedule, notifications, remove]
+
+  expect(links.map(([label]) => label)).toEqual(entries.map(([label]) => label))
+  expect(options).toEqual(entries.map(([label, id]) => [label, id]))
+  // Every entry has its section on the page, with a heading in it. Engines draws nothing for this account, so it has no entry.
+  expect(anchors).toEqual([
+    ['settings-general', ['Project settings', 'Tracking results']],
+    ['settings-site-health', ['Site Health scans']],
+    ['settings-locations-markets', ['Locations & markets']],
+    ['settings-schedule', ['Scheduled runs']],
+    ['settings-notifications', ['Notifications']],
+    ['settings-delete', ['Delete project']],
+  ])
+  expect(page.querySelector('.project-engine-settings h2')?.textContent).toBe('Site Health scans')
+  // A writer gets the way into the wizard.
+  expect(within(locationsMarketsSection(html)).getByRole('button', { name: mode === 'advanced' ? 'Bulk setup' : 'Add locations' })).toBeTruthy()
+})
+
+test.each(['simple', 'advanced'] as const)('an embedded %s Settings has no jump list and no Locations & markets section', async mode => {
+  const html = await renderAt('/projects/project_citypoint/settings', { enabled: true, projectTabs: ['settings'] }, settingsMeasurement(mode))
+  const page = renderedPage(html)
+
+  expect(within(page).queryByRole('navigation', { name: 'Settings sections' })).toBeNull()
+  expect(page.querySelector('[id^="settings-"]')).toBeNull()
+  expect(html).not.toContain('Locations &amp; markets')
+  // The sections an embed had are the ones it has, as siblings on one stacked page.
+  const headings = [...page.querySelectorAll('h2')].map(heading => heading.textContent)
+  expect(headings).toEqual(expect.arrayContaining(['Project settings', 'Site Health scans', 'Scheduled runs', 'Notifications']))
+  expect(within(page).getByText('Search Locations')).toBeTruthy()
+})
+
+test('a published setup is read on Settings: its numbers, its rows and the ways on from them', async () => {
+  const structure = trackingRoute(settingsWorkspaceResponse())
+  const { page, router, observed, projectName } = await renderScopeRoute(
+    '/projects/project_citypoint/settings',
+    // A project with no schedule and no webhook yet, as the onboarding tiles find it.
+    url => url.pathname.endsWith('/schedules') || url.pathname.endsWith('/notifications') ? jsonResponse([]) : structure(url),
+    { accountRole: 'admin' },
+  )
+  const section = (await page.findByRole('table', { name: 'Locations' })).closest('section')!
+  const number = (label: string) => within(section).getByText(label, { selector: 'dt' }).closest('div')!.querySelector('dd')!.textContent
+
+  // The server's totals, though the page lists one location, one market and one group.
+  expect([number('Locations'), number('Markets'), number('Groups'), number('Competitors'), number('Open drafts')]).toEqual(['192', '137', '15720 top-level', '4', '0'])
+  // A location's names and site pages come from the published plan, its counts from the workspace read.
+  const row = within(section).getByRole('link', { name: 'Harbor House' }).closest('tr')!
+  expect([...row.querySelectorAll('td')].map(cell => cell.textContent)).toEqual(['Harbor House', 'North Market', '1', '1', '3', '5'])
+  // Rows link by the project's name, the canonical form of a project URL.
+  expect(within(section).getByRole('link', { name: 'Harbor House' }).getAttribute('href')).toBe(`/projects/${encodeURIComponent(projectName)}/properties/harbor-house`)
+  // One workspace read, on the key the Queries tab reads.
+  expect(observed.filter(url => url.pathname.endsWith('/query-tracking'))).toHaveLength(1)
+
+  // The onboarding tiles "Set a schedule" and "Add a notification" link here: both controls are on this page.
+  expect(await within(page.container.querySelector<HTMLElement>('#settings-schedule')!).findByRole('button', { name: '+ Set schedule' })).toBeTruthy()
+  expect(within(page.container.querySelector<HTMLElement>('#settings-notifications')!).getByRole('button', { name: '+ Add webhook' })).toBeTruthy()
+
+  // Bulk setup opens the wizard the old button opened.
+  fireEvent.click(within(section).getByRole('button', { name: 'Bulk setup' }))
+  await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${projectName}/portfolio`))
+})
+
+test('a market row on Settings opens Queries on that market', async () => {
+  vi.mocked(QueriesSection).mockClear()
+  const { page, router, projectName } = await renderScopeRoute('/projects/project_citypoint/settings?measurementProvider=openai', trackingRoute(settingsWorkspaceResponse()), { accountRole: 'viewer' })
+  await page.findByRole('table', { name: 'Locations' })
+  fireEvent.click(page.getByRole('tab', { name: 'Markets' }))
+  fireEvent.click(within(await page.findByRole('table', { name: 'Markets' })).getByRole('link', { name: 'North Market' }))
+
+  await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${projectName}/queries`))
+  expect(router.state.location.search).toMatchObject({ measurementScope: 'market', measurementScopeKey: 'north-market', queryWorkspace: 'tracked', measurementProvider: 'openai' })
+  // The Queries tab opens on Tracked with that market as its Place.
+  await waitFor(() => expect(queriesSectionProps().selection).toMatchObject({ measurementScope: 'market', measurementScopeKey: 'north-market' }))
+  expect(queriesSectionProps().queryWorkspace).toBe('tracked')
+})
+
+// The section's setup and plan reads are the page's: a failed one shows in the section, and its Retry is the page's.
+const settingsReadFailure = () => jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'unavailable' } }, 500)
+
+test.each([
+  ['setup', '/measurement-setup'],
+  ['plan', '/measurement-plan'],
+] as const)('a failed %s read on Settings says so in Locations & markets, and Retry reads the setup and the plan again', async (_read, failingPath) => {
+  let failing = true
+  const structure = trackingRoute(settingsWorkspaceResponse())
+  const { page, observed } = await renderScopeRoute(
+    '/projects/project_citypoint/settings',
+    url => failing && decodeURIComponent(url.pathname).endsWith(failingPath) ? settingsReadFailure() : structure(url),
+    { accountRole: 'admin' },
+  )
+  const section = page.container.querySelector<HTMLElement>('#settings-locations-markets')!
+  const alert = await within(section).findByRole('alert')
+  expect(alert.textContent).toBe('Could not loadRetry')
+  expect(within(section).queryByRole('table')).toBeNull()
+  const reads = (path: string) => observed.filter(url => decodeURIComponent(url.pathname).endsWith(path)).length
+  const before = { setup: reads('/measurement-setup'), plan: reads('/measurement-plan') }
+
+  failing = false
+  fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
+  expect(await within(section).findByRole('table', { name: 'Locations' })).toBeTruthy()
+  expect(within(section).queryByRole('alert')).toBeNull()
+  expect({ setup: reads('/measurement-setup'), plan: reads('/measurement-plan') }).toEqual({ setup: before.setup + 1, plan: before.plan + 1 })
+})
+
+test('a failed plan read leaves a Simple project its setup button: the section reads no plan there', async () => {
+  const { page, router, queryClient, projectName } = await renderScopeRoute(
+    '/projects/project_citypoint/settings',
+    url => {
+      const path = decodeURIComponent(url.pathname)
+      if (path.endsWith('/measurement-plan')) return settingsReadFailure()
+      if (path.endsWith('/measurement-setup')) return jsonResponse(simpleMeasurementSetupResponse())
+      return undefined
+    },
+    { accountRole: 'admin' },
+  )
+  const section = page.container.querySelector<HTMLElement>('#settings-locations-markets')!
+  const button = await within(section).findByRole('button', { name: 'Add locations' })
+  // The plan read has failed by now, and the button is still the section's one action.
+  await waitFor(() => expect(queryClient.getQueryState(getApiV1ProjectsByNameMeasurementPlanQueryKey({ client: heyClient, path: { name: projectName } }))?.status).toBe('error'))
+  expect(within(section).queryByRole('alert')).toBeNull()
+  fireEvent.click(button)
+  await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${projectName}/portfolio`))
 })
 
 // Restored: these two shipped in #953 and were dropped when a later branch's
@@ -4255,10 +4510,13 @@ test.each(['simple', 'advanced'] as const)('%s Settings shows the saved Site Hea
     expect(select.value, String(saved)).toBe(choice)
     expect((within(section).queryByRole('spinbutton', { name: 'Custom page budget' }) as HTMLInputElement | null)?.value ?? null, String(saved)).toBe(custom)
     expect(within(section).getByRole('button', { name: 'Save page budget' }).hasAttribute('disabled')).toBe(true)
-    // It sits right after the answer engine settings.
-    const engines = section.parentElement!.querySelector('.project-engine-settings')!
+    // It sits right after the answer engine settings. Each Settings section now has an anchor of its own
+    // for the jump list, so the two sections are the only content of two neighbouring anchors.
+    const engines = section.parentElement!.previousElementSibling!.querySelector('.project-engine-settings')!
     expect(engines).not.toBe(section)
-    expect(engines.nextElementSibling).toBe(section)
+    expect([engines.parentElement!.id, engines.parentElement!.children.length]).toEqual(['settings-engines', 1])
+    expect([section.parentElement!.id, section.parentElement!.children.length]).toEqual(['settings-site-health', 1])
+    expect(engines.parentElement!.nextElementSibling).toBe(section.parentElement)
   }
 })
 
