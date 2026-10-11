@@ -223,7 +223,17 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
     }
   }
 
-  const matchers = new Map([...candidates.keys()].map(domain => [domain, compileBrandAliases(competitorBrandAliases(trackedByDomain.get(domain) ?? { domain }))]))
+  const matchers = new Map<string, ReturnType<typeof compileBrandAliases>>()
+  const matcherFor = (identity: CompetitorIdentityInput) => {
+    const aliases = competitorBrandAliases(identity)
+    const key = JSON.stringify(aliases)
+    let matcher = matchers.get(key)
+    if (!matcher) {
+      matcher = compileBrandAliases(aliases)
+      matchers.set(key, matcher)
+    }
+    return matcher
+  }
 
   // Count canonical identity matches across every selected answer after the
   // candidate universe is known. This preserves the bare-add invariant when a
@@ -231,11 +241,11 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
   for (const answer of options.answers) {
     const prose = answerProseForMentions(answer.answerText)
     const resolvedNameKeys = resolvedNameKeysByAnswer.get(answer.id)!
+    const scoped = answer.competitors === undefined ? undefined
+      : new Map(answer.competitors.map(competitor => [normalizeCompetitorDomain(competitor.domain), competitor]))
     for (const candidate of candidates.values()) {
-      const scoped = answer.competitors?.find(competitor => normalizeCompetitorDomain(competitor.domain) === candidate.domain)
-      const matcher = scoped
-        ? compileBrandAliases(competitorBrandAliases(scoped))
-        : matchers.get(candidate.domain)!
+      const identity = scoped === undefined ? trackedByDomain.get(candidate.domain) : scoped.get(candidate.domain)
+      const matcher = matcherFor(identity ?? { domain: candidate.domain })
       const occurrences = aliasOccurrencesAsWritten(matcher, prose)
       if (occurrences.size === 0) continue
       const cited = candidate.citing.has(answer.id)
