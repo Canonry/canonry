@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import { PROVIDER_NAMES, type QueryTrackingTrackedRow, type QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
 
 import {
   coverageByQuery,
@@ -22,6 +22,7 @@ import {
   visibleTrackedColumns,
   type TrackedResults,
 } from '../src/components/project/queries/advanced/tracked-view-model.js'
+import { providerDisplayName } from '../src/lib/visibility-trend-helpers.js'
 
 type Row = QueryTrackingTrackedRow
 type Assignment = Row['assignments'][number]
@@ -148,6 +149,18 @@ describe('toTrackedRows', () => {
     expect(vm.addedAt).toBe(addedAt)
   })
 
+  it.each([
+    { name: 'the day it was written', capturedAt: '2026-09-04T12:00:00.000Z', addedAt: '2026-09-04T12:00:00.000Z' },
+    { name: 'the first day a query could have been added', capturedAt: '2020-01-01T00:00:00.000Z', addedAt: '2020-01-01T00:00:00.000Z' },
+    // Setup writes the epoch where it has no time to record: "Added Jan 1, 1970" is no fact about the query.
+    { name: 'the epoch setup writes as a placeholder', capturedAt: '1970-01-01T00:00:00.000Z', addedAt: null },
+    { name: 'a time before any query was tracked', capturedAt: '2019-12-31T23:59:59.999Z', addedAt: null },
+    { name: 'a time that is no date', capturedAt: 'not recorded', addedAt: null },
+    { name: 'an empty time', capturedAt: '', addedAt: null },
+  ])('reads when a hand-written query was added from $name', ({ capturedAt, addedAt }) => {
+    expect(only(row('query', { provenance: { source: 'manual', sourceId: null, capturedAt } })).addedAt).toBe(addedAt)
+  })
+
   it('carries the query, its last sweep and the workspace row behind it', () => {
     const tracked = row('query-1', { queryText: 'best apartments in Uptown', lastMeasuredAt: null, state: 'awaiting-sweep' })
     expect(only(tracked)).toMatchObject({ queryId: 'query-1', queryText: 'best apartments in Uptown', lastMeasuredAt: null, tracked })
@@ -160,6 +173,16 @@ describe('statusLabel', () => {
     expect(statusLabel('first-answers', 'Oct 21')).toBe('First answers Oct 21')
     expect(statusLabel('first-answers')).toBe('First answers')
     expect(statusLabel('not-asked', 'Oct 21')).toBe('Not asked')
+  })
+
+  it('carries a measured row\'s own date, and none for a row never measured', () => {
+    expect(statusLabel('measured', 'Oct 21', 'Oct 7')).toBe('Measured Oct 7')
+    expect(statusLabel('measured', undefined, 'Oct 7')).toBe('Measured Oct 7')
+    expect(statusLabel('measured')).toBe('Measured')
+    // A last sweep is not the date of a row that waits, or of one that is not asked.
+    expect(statusLabel('first-answers', 'Oct 21', 'Oct 7')).toBe('First answers Oct 21')
+    expect(statusLabel('first-answers', undefined, 'Oct 7')).toBe('First answers')
+    expect(statusLabel('not-asked', 'Oct 21', 'Oct 7')).toBe('Not asked')
   })
 })
 
@@ -226,6 +249,22 @@ describe('sortTrackedRows', () => {
     expect(ids(sortTrackedRows(rows, { key: 'lastMeasured', direction: 'desc' }))).toEqual(['market-u1', 'market-u2', 'market-d', 'location-b', 'location-a', 'company', 'hand-picked', 'none'])
   })
 
+  it('orders Status by status and then by last sweep, newest first, and the other way round when reversed', () => {
+    const dated = toTrackedRows(workspace([
+      row('older', { lastMeasuredAt: '2026-09-23T12:00:00.000Z' }),
+      row('not-asked', { focus: { kind: 'not-asked' }, assignments: [], state: 'awaiting-sweep', lastMeasuredAt: null }),
+      // Measured once and waiting again. Its sweep is the newest of all, and it stays with the rows that wait.
+      row('waiting', { state: 'awaiting-sweep', lastMeasuredAt: '2026-10-08T12:00:00.000Z' }),
+      row('never', { lastMeasuredAt: null }),
+      row('newer', { lastMeasuredAt: '2026-10-07T12:00:00.000Z' }),
+    ]), [])
+    expect(ids(sortTrackedRows(dated, { key: 'status', direction: 'asc' }))).toEqual(['newer', 'older', 'never', 'waiting', 'not-asked'])
+    // Never measured is last in its status both ways.
+    expect(ids(sortTrackedRows(dated, { key: 'status', direction: 'desc' }))).toEqual(['not-asked', 'waiting', 'older', 'newer', 'never'])
+    // Last measured alone ignores the status.
+    expect(ids(sortTrackedRows(dated, { key: 'lastMeasured', direction: 'desc' }))).toEqual(['waiting', 'newer', 'older', 'never', 'not-asked'])
+  })
+
   it('puts not mentioned first on an engine column, then not cited, and not checked last both ways', () => {
     const engine = (mentioned: boolean | null, cited: boolean | null) => [{ provider: 'openai', mentioned, cited }]
     const coverage = coverageByQuery({
@@ -278,15 +317,25 @@ describe('nextTrackedSort', () => {
 describe('visibleTrackedColumns', () => {
   const without = (...hidden: string[]) => TRACKED_COLUMNS.filter(column => !hidden.includes(column))
 
-  it('shows every column in the 1152px content column with three engines', () => {
-    expect(visibleTrackedColumns(1152, 3)).toEqual([...TRACKED_COLUMNS])
-    // Query is 288px there and may lose 16px, to a scrollbar or to padding around the table, before Source folds away.
-    expect(visibleTrackedColumns(1136, 3)).toEqual([...TRACKED_COLUMNS])
-    expect(visibleTrackedColumns(1135, 3)).toEqual(without('source'))
+  it('leaves Last measured and Source to the row detail in the 1152px content column', () => {
+    expect(visibleTrackedColumns(1152, 3)).toEqual(without('source', 'lastMeasured'))
   })
 
-  it('folds Source away for a fourth engine', () => {
-    expect(visibleTrackedColumns(1152, 4)).toEqual(without('source'))
+  it('shows both only in a frame that keeps Query at 420px beside them', () => {
+    // Checkboxes, Subject at 250px, three engines and the rest take 934px.
+    expect(visibleTrackedColumns(1400, 3)).toEqual([...TRACKED_COLUMNS])
+    expect(visibleTrackedColumns(1354, 3)).toEqual([...TRACKED_COLUMNS])
+    expect(visibleTrackedColumns(1353, 3)).toEqual(without('source'))
+  })
+
+  it('folds Source first, then Last measured', () => {
+    expect(visibleTrackedColumns(1256, 3)).toEqual(without('source'))
+    expect(visibleTrackedColumns(1255, 3)).toEqual(without('source', 'lastMeasured'))
+  })
+
+  it('needs 62px more for a fourth engine', () => {
+    expect(visibleTrackedColumns(1415, 4)).toEqual(without('source'))
+    expect(visibleTrackedColumns(1416, 4)).toEqual([...TRACKED_COLUMNS])
   })
 
   it('folds Last measured away too at 900px', () => {
@@ -297,17 +346,67 @@ describe('visibleTrackedColumns', () => {
 describe('trackedLayout', () => {
   const engines = [62, 62, 62]
   const full = { selectable: true }
+  /** Query's width: what the frame leaves beside the columns shown. */
+  const queryWidth = (frame: number, engineWidths: readonly number[], options: { selectable?: boolean } = full) => {
+    const layout = trackedLayout(frame, engineWidths, options)
+    const fixed = (options.selectable ? 32 : 0) + layout.subjectWidth + 80 + engineWidths.reduce((sum, width) => sum + width, 0) + 148 + 32
+    return frame - fixed - (layout.columns.includes('lastMeasured') ? 108 : 0) - (layout.columns.includes('source') ? 98 : 0)
+  }
 
   it('shows every wanted column, unstacked, where no width is measured', () => {
-    expect(trackedLayout(undefined, engines, full)).toEqual({ columns: TRACKED_COLUMNS, stacked: false })
+    expect(trackedLayout(undefined, engines, full)).toEqual({ columns: TRACKED_COLUMNS, stacked: false, subjectWidth: 250 })
+  })
+
+  it('gives Query 424px and Subject 250px in the 1152px content column with three engines', () => {
+    expect(trackedLayout(1152, engines, full)).toEqual({ columns: ['query', 'subject', 'type', 'engines', 'status', 'menu'], stacked: false, subjectWidth: 250 })
+    expect(queryWidth(1152, engines)).toBe(424)
+  })
+
+  it('keeps Subject at 250px beside the wide-only columns, which fold before it narrows', () => {
+    expect(trackedLayout(1400, engines, full)).toEqual({ columns: TRACKED_COLUMNS, stacked: false, subjectWidth: 250 })
+    expect(queryWidth(1400, engines)).toBe(466)
+    // 1px short of both: Source folds and Subject keeps its width.
+    expect(trackedLayout(1353, engines, full).subjectWidth).toBe(250)
+    expect(queryWidth(1353, engines)).toBe(517)
+  })
+
+  it('narrows Subject to keep Query at 420px, down to 182px', () => {
+    // Three engines: Query is at its 420px in a frame of 1148px, and 4px short of it at 1144.
+    expect(trackedLayout(1148, engines, full).subjectWidth).toBe(250)
+    expect(trackedLayout(1144, engines, full).subjectWidth).toBe(246)
+    expect(queryWidth(1144, engines)).toBe(420)
+    // A fourth engine in the content column takes 62px: Subject gives 58 of them and Query holds.
+    const four = [62, 62, 62, 62]
+    expect(trackedLayout(1152, four, full)).toEqual({ columns: ['query', 'subject', 'type', 'engines', 'status', 'menu'], stacked: false, subjectWidth: 192 })
+    expect(queryWidth(1152, four)).toBe(420)
+    // Engine columns of 258px in all are the most Query keeps its floor beside there: Subject is at its own.
+    const widest = [62, 62, 62, 72]
+    expect(trackedLayout(1152, widest, full)).toEqual({ columns: ['query', 'subject', 'type', 'engines', 'status', 'menu'], stacked: false, subjectWidth: 182 })
+    expect(queryWidth(1152, widest)).toBe(420)
+    // Perplexity's column is 88px. As the fourth it takes Subject to its floor and 16px from Query, and the rows stay a table.
+    const withPerplexity = [62, 62, 62, trackedEngineColumnWidth('Perplexity')]
+    expect(trackedLayout(1152, withPerplexity, full)).toEqual({ columns: ['query', 'subject', 'type', 'engines', 'status', 'menu'], stacked: false, subjectWidth: 182 })
+    expect(queryWidth(1152, withPerplexity)).toBe(404)
+    // As one of three it costs Subject 22px and Query nothing.
+    expect(trackedLayout(1152, [62, 62, 88], full).subjectWidth).toBe(228)
+    expect(queryWidth(1152, [62, 62, 88])).toBe(420)
+    // Past Subject's floor Query narrows.
+    expect(trackedLayout(1100, four, full).subjectWidth).toBe(182)
+    expect(queryWidth(1100, four)).toBe(378)
+    // A viewer has no checkbox column, so Subject keeps 32px more.
+    expect(trackedLayout(1152, four).subjectWidth).toBe(224)
   })
 
   it('stacks each row under a 40rem frame, and wider when Query would be too narrow to read', () => {
     expect(trackedLayout(639, [62], { columns: ['query', 'engines'] }).stacked).toBe(true)
     expect(trackedLayout(640, [62], { columns: ['query', 'engines'] }).stacked).toBe(false)
-    // Three engines with checkboxes: the columns that never fold take 658px, and Query needs 224px beside them.
-    expect(trackedLayout(882, engines, full).stacked).toBe(false)
-    expect(trackedLayout(881, engines, full).stacked).toBe(true)
+    // Three engines with checkboxes: the columns that never fold take 660px with Subject at its 182px floor, and Query needs 224px beside them.
+    expect(trackedLayout(884, engines, full)).toMatchObject({ stacked: false, subjectWidth: 182 })
+    expect(trackedLayout(883, engines, full).stacked).toBe(true)
+    // With no Subject column there is no room to take from one: Type, three engines, Status and the menu take 446px.
+    const noSubject = { columns: ['query', 'type', 'engines', 'status', 'menu'] as const }
+    expect(trackedLayout(670, engines, noSubject).stacked).toBe(false)
+    expect(trackedLayout(669, engines, noSubject).stacked).toBe(true)
   })
 
   it('leaves Source and Last measured to the row detail when stacked', () => {
@@ -315,18 +414,51 @@ describe('trackedLayout', () => {
   })
 
   it('gives the checkbox column width back to Query for a viewer', () => {
-    expect(trackedLayout(1130, engines, full).columns).not.toContain('source')
-    expect(trackedLayout(1130, engines).columns).toContain('source')
+    expect(trackedLayout(1340, engines, full).columns).not.toContain('source')
+    expect(trackedLayout(1340, engines).columns).toContain('source')
   })
 
   it('only folds columns the caller wanted', () => {
     const columns = ['query', 'type', 'engines', 'lastMeasured', 'menu'] as const
-    expect(trackedLayout(800, engines, { columns })).toEqual({ columns, stacked: false })
+    // Type, three engines, Last measured and the menu take 406px.
+    expect(trackedLayout(826, engines, { columns })).toEqual({ columns, stacked: false, subjectWidth: 250 })
+    expect(trackedLayout(825, engines, { columns }).columns).toEqual(['query', 'type', 'engines', 'menu'])
   })
 
   it('widens an engine column for a longer name, and counts it', () => {
     expect(trackedEngineColumnWidth('OpenAI')).toBe(62)
     expect(trackedEngineColumnWidth('Perplexity')).toBe(88)
-    expect(trackedLayout(1152, [62, 62, 88], full).columns).not.toContain('source')
+    expect(trackedLayout(1360, [62, 62, 62], full).columns).toContain('source')
+    expect(trackedLayout(1360, [62, 62, 88], full).columns).not.toContain('source')
+  })
+
+  describe('an engine column', () => {
+    /** Each engine's name in its header, 13px medium, as Chrome measures it, in px. A new engine needs its own before this passes. */
+    const NAME_WIDTH: Record<string, number> = { Gemini: 42, OpenAI: 46, Claude: 43, Perplexity: 61, Muse: 34, Local: 34, 'Cdp:chatgpt': 76 }
+    const columns = PROVIDER_NAMES.map(provider => {
+      const name = providerDisplayName(provider)
+      return { name, text: NAME_WIDTH[name]!, width: trackedEngineColumnWidth(name) }
+    })
+    /** What a centred name leaves on each side of it, the cell's 4px of padding included. */
+    const side = (column: (typeof columns)[number]) => (column.width - column.text) / 2
+    /** The sort mark is 12px wide and starts 1px after the name. */
+    const MARK = 13
+
+    it('is measured for every engine there is', () => {
+      expect(columns.map(column => column.name).sort()).toEqual(Object.keys(NAME_WIDTH).sort())
+      expect(Object.fromEntries(columns.map(column => [column.name, column.width]))).toEqual({ Gemini: 62, OpenAI: 62, Claude: 62, Perplexity: 88, Muse: 62, Local: 62, 'Cdp:chatgpt': 95 })
+    })
+
+    it.each(columns)('holds $name inside its padding', ({ text, width }) => {
+      expect(width - 8).toBeGreaterThanOrEqual(text)
+    })
+
+    it.each(columns)('keeps the sort mark after $name off the next header\'s name, whichever engine or column that is', column => {
+      // The mark runs past the cell by what the name's side leaves it short. The next engine's name starts its own side in,
+      // and at least 4px, a cell's padding, stay between the two.
+      for (const next of columns.filter(other => other !== column)) expect(side(column) + side(next) - MARK, next.name).toBeGreaterThanOrEqual(4)
+      // After the last engine comes Last measured or Status, whose name starts 10px in.
+      expect(side(column) + 10 - MARK).toBeGreaterThanOrEqual(4)
+    })
   })
 })

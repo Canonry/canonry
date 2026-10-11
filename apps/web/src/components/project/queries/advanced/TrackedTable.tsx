@@ -1,8 +1,8 @@
-import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, ChevronsUpDown } from 'lucide-react'
 import type { QueryClass, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
 
-import { formatSweepDay } from '../../../../lib/format-helpers.js'
+import { formatMonthDay, formatSweepDay } from '../../../../lib/format-helpers.js'
 import { providerDisplayName } from '../../../../lib/visibility-trend-helpers.js'
 import { SignalPair } from '../../../shared/SignalCells.js'
 import { ToneBadge } from '../../../shared/ToneBadge.js'
@@ -18,6 +18,7 @@ import {
   sourceLabel,
   statusLabel,
   subjectKindLabel,
+  subjectLabel,
   TRACKED_COLUMN_WIDTH,
   TRACKED_COLUMNS,
   trackedEngineColumnWidth,
@@ -50,13 +51,132 @@ function useFrameWidth() {
   return [ref, width] as const
 }
 
+/** Counts the page's font loads: text measured before a font arrives is measured again after it. */
+function useFontLoads() {
+  const [loads, setLoads] = useState(0)
+  useEffect(() => {
+    // Typed as optional: a DOM without layout has no font set.
+    const page: { fonts?: FontFaceSet } = document
+    const fonts = page.fonts
+    if (!fonts) return
+    const loaded = () => setLoads(count => count + 1)
+    fonts.addEventListener('loadingdone', loaded)
+    return () => fonts.removeEventListener('loadingdone', loaded)
+  }, [])
+  return loads
+}
+
+/**
+ * A piece of a line as the ruler sets it: text in the weight of a query and a
+ * Subject's kind, in a name's or in a count's figures, or the gap a one-line
+ * Subject keeps before its count.
+ */
+type Ruled = readonly [face: 'strong' | 'plain' | 'count' | 'gap', text: string]
+const ruledKey = ([face, text]: Ruled) => `${face}\n${text}`
+const px = (length: string) => Number.parseFloat(length) || 0
+
+/** A closed row's Subject on one line, in the pieces `SubjectCell` draws it in. Company and None are one word and always fit. */
+function subjectLine(subject: TrackedSubject): Ruled[] {
+  const kind: Ruled = ['strong', `${subjectKindLabel(subject.kind)} ·`]
+  const gap: Ruled = ['gap', '']
+  switch (subject.kind) {
+    case 'market': return [kind, ['plain', ` ${subject.label}`], gap, ['count', `(${subject.locationCount.toLocaleString('en-US')})`]]
+    case 'location': return [kind, ['plain', ` ${subject.label}`]]
+    case 'hand-picked': return [kind, gap, ['count', locationCountLabel(subject.locationCount)]]
+    case 'company':
+    case 'none': return []
+  }
+}
+
+/**
+ * Measures each text not yet in `widths`: set on one line of a ruler in the
+ * frame, in the table's own type, and never drawn (`.tracked-ruler`). A text
+ * is set once, and its width does not depend on how the rows are laid out.
+ */
+function rule(frame: HTMLElement, texts: readonly Ruled[], widths: Map<string, number>) {
+  const fresh = new Map(texts.filter(text => !widths.has(ruledKey(text))).map(text => [ruledKey(text), text]))
+  if (fresh.size === 0) return
+  const ruler = document.createElement('div')
+  ruler.className = 'tracked-ruler'
+  for (const [face, text] of fresh.values()) {
+    const line = document.createElement('span')
+    line.dataset.face = face
+    line.textContent = text
+    ruler.append(line)
+  }
+  frame.append(ruler)
+  ;[...fresh.keys()].forEach((key, index) => widths.set(key, ruler.children[index]!.getBoundingClientRect().width))
+  ruler.remove()
+}
+
+/**
+ * The lines every closed row of the page takes: 1 where each row's query and
+ * Subject fit their columns on one line, and 2 where any does not. It is one
+ * answer for the rows shown, so they keep one height, and it is taken again
+ * when the rows, the frame or the fonts change. It is taken before the paint,
+ * from each text's width on one line (`rule`) against the room its column
+ * has, and neither depends on the answer, so it cannot go back and forth.
+ * `page` names the rows and the columns wanted. Undecided, where the rows
+ * stack or nothing is laid out, it stays as it was.
+ */
+function useRowLines(frameRef: RefObject<HTMLDivElement | null>, rows: readonly TrackedRowVm[], page: string, frameWidth: number | undefined, active: boolean, fontLoads: number): 1 | 2 {
+  const [lines, setLines] = useState<1 | 2>(1)
+  const measured = useRef({ fontLoads, widths: new Map<string, number>() })
+  const held = useRef<{ page: string; width: number }>(undefined)
+  useLayoutEffect(() => {
+    const frame = frameRef.current
+    const button = frame?.querySelector('.tracked-query')
+    const line = button?.firstElementChild
+    if (!frame || !active || !button || !line) return
+    const column = button.getBoundingClientRect().width
+    // A DOM without layout has no room to compare with.
+    if (column <= 0) return
+    // Query's room is its button less the indent its mark hangs in, and Subject's is its cell less the padding. Both are the same at either height.
+    const queryRoom = column - px(getComputedStyle(line).paddingLeft)
+    const cell = frame.querySelector('td.tracked-cell-subject')
+    const padding = cell ? getComputedStyle(cell) : undefined
+    const subjectRoom = cell && padding ? cell.clientWidth - px(padding.paddingLeft) - px(padding.paddingRight) : 0
+    if (measured.current.fontLoads !== fontLoads) measured.current = { fontLoads, widths: new Map() }
+    const { widths } = measured.current
+    const texts = rows.map(row => ({ query: [['strong', row.queryText]] as Ruled[], subject: subjectRoom > 0 ? subjectLine(row.subject) : [] }))
+    rule(frame, texts.flatMap(text => [...text.query, ...text.subject]), widths)
+    // A line fits with a pixel to spare, so one the ruler and the cell round a fraction apart is never cut short.
+    const past = (line: Ruled[], room: number) => line.length > 0 && line.reduce((width, text) => width + widths.get(ruledKey(text))!, 1) > room
+    const two = texts.some(text => past(text.query, queryRoom) || past(text.subject, subjectRoom))
+    // Two lines make the page taller, and a scrollbar that brings narrows the frame. Where that folds a column away the
+    // rows could fit one line again, which would bring the column back. So two lines hold for the same page in a narrower frame.
+    const width = frameWidth ?? 0
+    const chosen = held.current?.page === page ? held.current.width : undefined
+    const holds = chosen !== undefined && width < chosen
+    if (two) held.current = { page, width: holds ? chosen : width }
+    else if (!holds) held.current = undefined
+    setLines(two || holds ? 2 : 1)
+  })
+  return lines
+}
+
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
 
 /**
+ * A row's last sweep as its Status names it. The badge holds a month and one
+ * part more: the day for a sweep of this year or of the last six months,
+ * where a month and a day name one date, and the year for an older one ("Dec
+ * 2025"). Last measured and the row detail print the date whole.
+ */
+function measuredDay(iso: string): string {
+  const date = new Date(iso)
+  const now = new Date()
+  const halfYearAgo = new Date(now)
+  halfYearAgo.setMonth(now.getMonth() - 6)
+  if (date.getFullYear() === now.getFullYear() || date > halfYearAgo) return formatMonthDay(iso)
+  return Number.isNaN(date.getTime()) ? iso : date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+}
+
+/**
  * The Tracked queries table: one row per query with its Subject, Type, one
- * `SignalPair` per engine, Last measured, Status and Source. The caller sorts,
- * filters and pages the rows; this draws them in the order given and reports
- * a header click through `onSortChange`.
+ * `SignalPair` per engine and a Status that carries the row's date. The caller
+ * sorts, filters and pages the rows; this draws them in the order given and
+ * reports a header click through `onSortChange`.
  *
  * Results join on query and type. A row asked both ways stacks one pair per
  * type in each engine cell, each named with its type, and a result under the
@@ -69,12 +189,21 @@ const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:rin
  * the row a link points at: it is marked, opened and, once the frame is
  * measured and the rows are in their layout, scrolled into view.
  *
- * The frame's width decides the layout (`trackedLayout`): Source and then Last
- * measured fold into the row detail before Query gets narrow, and a frame too
- * narrow for a table stacks each row. Nothing scrolls sideways, so the header
- * can stick under the topbar. Stacked rows have no header, so while there are
- * rows a line above them holds what the header did: Select this page and the
- * sort.
+ * The frame's width decides the layout (`trackedLayout`). The query is the
+ * row's identity, so Query keeps the width of a long one: Last measured and
+ * Source are columns only in a frame wide enough for that and stay in the row
+ * detail otherwise, then Subject narrows, and a frame too narrow for a table
+ * stacks each row. A sort by last sweep shows on Status where Last measured
+ * is no column. Nothing scrolls sideways, so the header can stick under the
+ * topbar. Stacked rows have no header, so while there are rows a line above
+ * them holds what the header did: Select this page and the sort.
+ *
+ * The rows of a page are one height (`data-lines`, from `useRowLines`). Where
+ * every query and Subject shown fits its column, each closed row is one line.
+ * Where any does not, each takes two: the query and the Subject's name wrap,
+ * and a row with less to say is as tall as the rest. A row asked both ways is
+ * taller in either. Text too long for two lines is cut short on the second,
+ * and a query cut short carries its whole text as its `title`.
  */
 export function TrackedTable({
   rows, engines, coverage, sort, onSortChange, selectedIds, onSelectedIdsChange, highlightedId, renderRowMenu, nextSweepDate, workspace, contextLabels,
@@ -100,7 +229,12 @@ export function TrackedTable({
   nextSweepDate?: string
   workspace: Pick<QueryTrackingWorkspaceResponse, 'targets' | 'groups' | 'markets'>
   contextLabels: TrackedContextLabels
-  /** The columns the caller wants, all of them by default. A narrow frame can still fold Source and Last measured away. */
+  /**
+   * The columns the caller wants, all of them by default. `status` carries the
+   * row's date ("Measured Oct 7"). `lastMeasured` and `source` are wide-only:
+   * wanted or not, they show only in a frame that keeps Query at its full
+   * width beside them, and the row detail lists both at any width.
+   */
   columns?: readonly TrackedColumn[]
   /** The table's accessible name. */
   label?: string
@@ -111,6 +245,7 @@ export function TrackedTable({
   const [frameRef, frameWidth] = useFrameWidth()
   // Where there is an observer the width arrives one render late, and until then the rows are not in their layout.
   const measured = frameWidth !== undefined || typeof ResizeObserver === 'undefined'
+  const fontLoads = useFontLoads()
   const selectable = onSelectedIdsChange !== undefined
   const engineColumns: Engine[] = engines.map(key => {
     const name = providerDisplayName(key)
@@ -120,6 +255,7 @@ export function TrackedTable({
   const wanted = (columns ?? TRACKED_COLUMNS).filter(column => column !== 'menu' || renderRowMenu !== undefined)
   const layout = trackedLayout(frameWidth, engineColumns.map(engine => engine.width), { columns: wanted, selectable })
   const shown = new Set(layout.columns)
+  const lines = useRowLines(frameRef, rows, JSON.stringify([rows.map(row => row.queryId), engineColumns.map(engine => engine.width), wanted, selectable]), frameWidth, measured && !layout.stacked, fontLoads)
   const columnCount = (selectable ? 1 : 0) + [...shown].reduce((count, column) => count + (column === 'engines' ? engineColumns.length : 1), 0)
   // What a header sorts by, in header order. Stacked rows have no header, so their Sort select lists the same.
   const sortChoices = wanted.flatMap((column): [TrackedSortKey, string][] => {
@@ -186,7 +322,8 @@ export function TrackedTable({
   }
 
   const header = (column: TrackedSortKey, text: string, className?: string) => {
-    const active = sort?.key === column
+    // Status carries the date: where Last measured is no column, a sort by last sweep shows on Status.
+    const active = sort?.key === column || (column === 'status' && sort?.key === 'lastMeasured' && !shown.has('lastMeasured'))
     return (
       <th scope="col" className={className} aria-sort={!onSortChange ? undefined : !active ? 'none' : sort.direction === 'asc' ? 'ascending' : 'descending'}>
         {onSortChange ? (
@@ -234,12 +371,12 @@ export function TrackedTable({
           ) : null}
         </div>
       ) : null}
-      <table aria-label={label} className="tracked-table" data-layout={layout.stacked ? 'stacked' : 'table'} data-selectable={selectable ? '' : undefined}>
+      <table aria-label={label} className="tracked-table" data-layout={layout.stacked ? 'stacked' : 'table'} data-lines={layout.stacked ? undefined : lines} data-selectable={selectable ? '' : undefined}>
         {layout.stacked ? null : (
           <colgroup>
             {selectable ? <col style={{ width: TRACKED_COLUMN_WIDTH.select }} /> : null}
             <col />
-            {shown.has('subject') ? <col style={{ width: TRACKED_COLUMN_WIDTH.subject }} /> : null}
+            {shown.has('subject') ? <col style={{ width: layout.subjectWidth }} /> : null}
             {shown.has('type') ? <col style={{ width: TRACKED_COLUMN_WIDTH.type }} /> : null}
             {shown.has('engines') ? engineColumns.map(engine => <col key={engine.key} style={{ width: engine.width }} />) : null}
             {shown.has('lastMeasured') ? <col style={{ width: TRACKED_COLUMN_WIDTH.lastMeasured }} /> : null}
@@ -252,7 +389,7 @@ export function TrackedTable({
           <thead>
             <tr>
               {selectable ? <th scope="col" className="tracked-cell-select"><label className="tracked-check">{pageBox}</label></th> : null}
-              {header('query', 'Query')}
+              {header('query', 'Query', 'tracked-cell-query')}
               {shown.has('subject') ? header('subject', 'Subject') : null}
               {shown.has('type') ? <th scope="col">Type</th> : null}
               {shown.has('engines') ? engineColumns.map(engine => <Fragment key={engine.key}>{header(engineSortKey(engine.key), engine.label, 'tracked-cell-engine')}</Fragment>) : null}
@@ -295,14 +432,10 @@ export function TrackedTable({
                       </label>
                     </td>
                   ) : null}
-                  <td className="tracked-cell-query">
-                    <button type="button" className={`tracked-query ${FOCUS}`} title={row.queryText} {...discloses}>
-                      <span><ChevronRight aria-hidden="true" className="tracked-query-mark" />{row.queryText}</span>
-                    </button>
-                  </td>
+                  <td className="tracked-cell-query"><QueryButton text={row.queryText} discloses={discloses} /></td>
                   {/* Stacked, the menu is on the first line beside the query, so it is the next stop after it. */}
                   {layout.stacked ? menuCell : null}
-                  {shown.has('subject') ? <td className="tracked-cell-subject"><SubjectCell subject={row.subject} discloses={discloses} clip={!layout.stacked && !open} /></td> : null}
+                  {shown.has('subject') ? <td className="tracked-cell-subject"><SubjectCell subject={row.subject} discloses={discloses} fit={layout.stacked || open ? 'whole' : lines === 2 ? 'lines' : 'line'} room={`${layout.subjectWidth}:${fontLoads}`} /></td> : null}
                   {shown.has('type') ? <td className="tracked-cell-type"><TypeCell type={row.type} classes={row.queryClasses} /></td> : null}
                   {shown.has('engines') ? engineColumns.map(engine => (
                     <td key={engine.key} className="tracked-cell-engine">
@@ -333,7 +466,7 @@ export function TrackedTable({
                         // One line of 16px, so a one-line row is as tall as its text. A label too long for the column is cut short, never drawn over Source.
                         className={`block w-fit max-w-full truncate leading-4 ${row.status === 'first-answers' ? 'border-info-500/30 bg-info-500/10 text-info-300' : ''}`}
                       >
-                        {statusLabel(row.status, nextSweepDate)}
+                        {statusLabel(row.status, nextSweepDate, row.lastMeasuredAt ? measuredDay(row.lastMeasuredAt) : undefined)}
                       </ToneBadge>
                     </td>
                   ) : null}
@@ -357,35 +490,105 @@ export function TrackedTable({
 type Discloses = { 'aria-expanded': boolean; 'aria-controls': string | undefined; onClick: () => void }
 
 /**
+ * The query, which opens its row. A closed row cuts a long one short: at the
+ * column's edge on a page of one-line rows, and after two lines on a page of
+ * two-line rows, where it stacks or under a finger. Only then is the whole
+ * text the button's `title`, and under keyboard focus the stylesheet shows
+ * the line whole (`data-clipped`). The line is measured against the button,
+ * whose width that leaves alone, after each draw and again under the pointer
+ * and on focus: a late font moves the edge without a draw. The edges are
+ * unrounded: a line a fraction of a pixel too long is cut short too, and in
+ * whole pixels it fits.
+ */
+function QueryButton({ text, discloses }: { text: string; discloses: Discloses }) {
+  const ref = useRef<HTMLButtonElement>(null)
+  const [clipped, setClipped] = useState(false)
+  const measure = () => {
+    const button = ref.current
+    const line = button?.firstElementChild
+    if (!button || !line) return
+    const range = document.createRange()
+    range.selectNodeContents(line)
+    // Typed as optional: a DOM without layout has no such method, and whole pixels are all it has.
+    const drawn: { getBoundingClientRect?: () => DOMRect } = range
+    const past = drawn.getBoundingClientRect ? drawn.getBoundingClientRect().right > button.getBoundingClientRect().right : line.scrollWidth > button.clientWidth
+    setClipped(past || line.scrollHeight > line.clientHeight)
+  }
+  useLayoutEffect(measure)
+  return (
+    <button ref={ref} type="button" className={`tracked-query ${FOCUS}`} title={clipped ? text : undefined} data-clipped={clipped ? '' : undefined} onPointerEnter={measure} onFocus={measure} {...discloses}>
+      <span><ChevronRight aria-hidden="true" className="tracked-query-mark" />{text}</span>
+    </button>
+  )
+}
+
+/**
+ * The lines a wrapped inline box is drawn on. A browser reports a box for
+ * each piece of each line, so the lines are counted by where they start: the
+ * pieces of one line start level, and the next line a line's height under.
+ */
+function lineCount(box: Element): number {
+  let lines = 0
+  let top = Number.NEGATIVE_INFINITY
+  for (const piece of [...box.getClientRects()].sort((first, second) => first.top - second.top)) {
+    if (piece.top - top <= piece.height / 2) continue
+    lines += 1
+    top = piece.top
+  }
+  return lines
+}
+
+/** Whether a wrapped inline box runs past its cell: a last word wider than the column cannot wrap, as its count holds to it. */
+function pastCell(box: Element): boolean {
+  const edge = box.parentElement?.getBoundingClientRect().right
+  return edge !== undefined && [...box.getClientRects()].some(piece => piece.right > edge)
+}
+
+/**
  * "Market · Uptown (3)": the kind stays on the first line, and the count stays
  * on the last word of the name however the name wraps. The count opens the
- * row detail, which lists the locations it counts. `clip` is a closed row of
- * the table, which is one line: a name too long for the column is cut short
- * and the count after it never is. The open row shows the name whole. Both
- * are one tree of elements, so the count that opens a row keeps the focus.
+ * row detail, which lists the locations it counts. `fit` is how a closed row
+ * of the table holds it. On one `line`, a name too long for the column is cut
+ * short and the count after it never is. On two `lines`, on a page of
+ * two-line rows, it wraps as the open row's does, and nothing clips it or the
+ * wider target a finger gets on its count. One that wraps past two lines, or
+ * whose last word is wider than the column and so runs past the cell, is found
+ * by the boxes it is drawn in, once for its text and `room`, and is then cut
+ * short on the second line with its count beside it. An open or stacked
+ * row shows the name `whole`. All are one tree of elements, so the count that
+ * opens a row keeps the focus.
  */
-function SubjectCell({ subject, discloses, clip }: { subject: TrackedSubject; discloses: Discloses; clip: boolean }) {
+function SubjectCell({ subject, discloses, fit, room }: { subject: TrackedSubject; discloses: Discloses; fit: 'line' | 'lines' | 'whole'; room: string }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const here = `${room}:${subjectLabel(subject)}`
+  const [longAt, setLongAt] = useState<string>()
+  const long = fit === 'lines' && longAt === here
+  // This runs before the paint, so a third line is never seen.
+  useLayoutEffect(() => {
+    if (fit === 'lines' && !long && ref.current && (lineCount(ref.current) > 2 || pastCell(ref.current))) setLongAt(here)
+  })
+  const cut = fit === 'line' || long
   const kind = <span className="font-medium text-strong">{subjectKindLabel(subject.kind)}</span>
   // The dot stays with the kind, so a line never starts with it.
   const lead = <><span className="whitespace-nowrap">{kind} <span aria-hidden="true">·</span></span>{' '}</>
-  const box = clip ? 'tracked-subject' : undefined
-  const name = clip ? 'tracked-subject-name' : undefined
+  const box = { ref, className: cut ? 'tracked-subject' : undefined, 'data-long': long ? '' : undefined }
+  const name = cut ? 'tracked-subject-name' : undefined
   switch (subject.kind) {
     case 'market': {
-      const cut = clip ? subject.label.length : subject.label.lastIndexOf(' ') + 1
+      const split = cut ? subject.label.length : subject.label.lastIndexOf(' ') + 1
       return (
-        <span className={box}>
-          <span className={name} title={clip ? subject.label : undefined}>{lead}{subject.label.slice(0, cut)}</span>
+        <span {...box}>
+          <span className={name} title={cut ? subject.label : undefined}>{lead}{subject.label.slice(0, split)}</span>
           <span className="whitespace-nowrap">
-            {subject.label.slice(cut)}{' '}
+            {subject.label.slice(split)}{' '}
             <button type="button" className={`tracked-count ${FOCUS}`} aria-label={locationCountLabel(subject.locationCount)} {...discloses}>({subject.locationCount.toLocaleString('en-US')})</button>
           </span>
         </span>
       )
     }
-    case 'location': return <span className={box}><span className={name} title={clip ? subject.label : undefined}>{lead}{subject.label}</span></span>
+    case 'location': return <span {...box}><span className={name} title={cut ? subject.label : undefined}>{lead}{subject.label}</span></span>
     case 'hand-picked': return (
-      <span className={box}>
+      <span {...box}>
         <span className={name}>{lead}</span>
         <button type="button" className={`tracked-count whitespace-nowrap ${FOCUS}`} {...discloses}>{locationCountLabel(subject.locationCount)}</button>
       </span>

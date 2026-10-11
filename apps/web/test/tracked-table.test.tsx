@@ -80,13 +80,14 @@ function workspace(handPicked = 12): QueryTrackingWorkspaceResponse {
       ...Array.from({ length: handPicked }, (_, index) => ({ stableKey: `location-${index}`, label: `Acme Homes Residence ${handPicked - index}` })),
     ],
     groups: [
-      { stableKey: 'metro', label: 'Lakeshore Metro Area', targetKeys: ['location-0'] },
+      // Names hold commas, as real ones do.
+      { stableKey: 'metro', label: 'Lakeshore, Metro Area', targetKeys: ['location-0'] },
       { stableKey: 'north', label: 'North side', targetKeys: ['location-0'] },
     ],
     markets: [
       // Three locations in the server's list, one in the row's own links: the count shown is the server's.
       { stableKey: 'uptown', label: 'Uptown', usageEdges: [], targetKeys: ['harbor-point', 'location-0', 'location-1'] },
-      { stableKey: 'downtown', label: 'Downtown', usageEdges: [], targetKeys: ['location-0'] },
+      { stableKey: 'downtown', label: 'Downtown, Lakeshore metro', usageEdges: [], targetKeys: ['location-0'] },
       { stableKey: 'old-mill', label: 'Old Mill District', usageEdges: [], targetKeys: ['location-2', 'location-3', 'location-4', 'location-5'] },
     ],
     tracked: [
@@ -135,27 +136,96 @@ const headers = () => within(table()).getAllByRole('columnheader').slice(0, with
 const headerNames = () => headers().map(header => header.textContent)
 const query = (text: string) => screen.getByRole('button', { name: text })
 const rowOf = (text: string) => query(text).closest('tr')!
-const ENGINE_PAIR = /^(OpenAI|Gemini)[,:]/
+const ENGINE_PAIR = /^(OpenAI|Gemini|Claude|Local)[,:]/
 /** A row's cells as read, engine cells aside: their chips are read by name. */
 const cells = (text: string) => [...rowOf(text).children]
   .filter(cell => within(cell as HTMLElement).queryAllByRole('button', { name: ENGINE_PAIR }).length === 0)
   .map(cell => cell.textContent)
-const queryOrder = () => within(table()).getAllByRole('button', { expanded: false }).filter(button => button.title !== '').map(button => button.title)
+const queryOrder = () => within(table()).getAllByRole('button', { expanded: false }).filter(button => button.classList.contains('tracked-query')).map(button => button.textContent)
+/** Each column's set width in px, in order. Query has none: it takes what the others leave. */
+const columnWidths = () => [...table().querySelectorAll('col')].map(column => column.style.width)
 
 /**
  * A frame of this width, as a browser gives it: measured when asked, and
  * reported by the observer only after `observe` has returned. `report` is that
- * later report, of the same width or of a new one.
+ * later report, of the same width or of a new one. Nothing inside the frame
+ * has a size: jsdom lays nothing out (`textLayout` does).
  */
 function frameWidth(width: number) {
   let observed: ((entries: { contentRect: { width: number } }[]) => void) | undefined
-  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ width } as DOMRect)
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) { return { width: this.classList.contains('tracked-table-frame') ? width : 0 } as DOMRect })
   vi.stubGlobal('ResizeObserver', class {
     constructor(callback: NonNullable<typeof observed>) { observed = callback }
     observe() {}
     disconnect() {}
   })
   return { report: (next = width) => act(() => observed!([{ contentRect: { width: next } }])) }
+}
+
+/**
+ * Text as a browser lays it out, which jsdom does not: `char` px a character
+ * (7 to start), in a Query column `column` px wide and a Subject cell with
+ * `subject` px for its text, inside jsdom's own 1px of cell padding. A closed
+ * row of the table holds its query on as many lines as the page gives its
+ * rows (`data-lines`), a stacked row on two and an open row on all it needs;
+ * a line is 20px. The ruler sets any text on one line, and `ruled` lists each
+ * text it was asked for. Edges are reported unrounded and widths in whole
+ * pixels, as a browser does both. Call it before the table is drawn and
+ * after `frameWidth`, whose measure it keeps.
+ */
+function textLayout(column: number, subject = 400) {
+  const state = { column, subject, char: 7, ruled: [] as string[] }
+  const frame = vi.mocked(Element.prototype.getBoundingClientRect).getMockImplementation()!
+  const width = (element: Element) => element.textContent!.length * state.char
+  const lines = (element: Element, room: number) => Math.max(1, Math.ceil(width(element) / room))
+  /** A query's line: the lines it may take and the lines it needs. */
+  const set = (element: Element) => {
+    if (!element.parentElement?.classList.contains('tracked-query')) return null
+    const row = element.closest('tr')!
+    const table = row.closest('table')!
+    const allowed = row.hasAttribute('data-open') ? Infinity : table.getAttribute('data-layout') === 'stacked' || table.getAttribute('data-lines') === '2' ? 2 : 1
+    return { allowed, needed: lines(element, state.column) }
+  }
+  const oneLine = (element: Element) => set(element)?.allowed === 1 ? width(element) : 0
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    if (this.parentElement?.classList.contains('tracked-ruler')) {
+      state.ruled.push(this.textContent!)
+      // The gap a one-line Subject keeps before its count is 4px.
+      return { width: (this as HTMLElement).dataset.face === 'gap' ? 4 : width(this) } as DOMRect
+    }
+    // The Subject's cell ends where its room for text does.
+    if (this.classList.contains('tracked-cell-subject')) return { width: state.subject, right: state.subject } as DOMRect
+    return this.classList.contains('tracked-query') ? { width: state.column, right: state.column } as DOMRect : frame.call(this)
+  })
+  // A Subject that wraps is reported as a browser does it: a box for each piece of each line, here its two halves, 17px tall on lines 20px apart.
+  // One held to a line, or to two with its name cut short, is a box of its own.
+  vi.spyOn(Element.prototype, 'getClientRects').mockImplementation(function (this: Element) {
+    const wraps = this.parentElement?.classList.contains('tracked-cell-subject') && !this.classList.contains('tracked-subject')
+    const pieces = wraps ? 2 * lines(this, state.subject) : 1
+    // The last piece is the name's last word with its count, which never wrap apart: it ends where its own width puts it, the others inside the cell.
+    const words = this.textContent!.trim().split(' ')
+    const tail = (/^\(\d[\d,]*\)$/.test(words.at(-1)!) && words.length > 1 ? `${words.at(-2)} ${words.at(-1)}` : words.at(-1)!).length * state.char
+    return Array.from({ length: pieces }, (_, piece) => ({ top: 9 + 20 * Math.floor(piece / 2), height: 17, right: wraps && piece === pieces - 1 ? tail : Math.min(width(this), state.subject) })) as unknown as DOMRectList
+  })
+  Object.defineProperty(Range.prototype, 'getBoundingClientRect', { configurable: true, value(this: Range) {
+    const line = this.startContainer as Element
+    // Wrapped, a line ends at the column's edge or before it.
+    return { right: oneLine(line) || Math.min(width(line), state.column) } as DOMRect
+  } })
+  onTestFinished(() => { Reflect.deleteProperty(Range.prototype, 'getBoundingClientRect') })
+  vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) {
+    return this.classList.contains('tracked-query') ? Math.round(state.column) : this.classList.contains('tracked-cell-subject') ? state.subject + 2 : 0
+  })
+  vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockImplementation(function (this: Element) { return oneLine(this) })
+  vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
+    const text = set(this)
+    return text ? 20 * Math.min(text.needed, text.allowed) : 0
+  })
+  vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockImplementation(function (this: Element) {
+    const text = set(this)
+    return text ? 20 * (text.allowed === 1 ? 1 : text.needed) : 0
+  })
+  return state
 }
 
 function scrollSpy(onScroll?: () => void) {
@@ -173,10 +243,11 @@ describe('TrackedTable', () => {
   it('draws a column per engine and a row per query, with its Subject, Type, last sweep, Status and Source', () => {
     setup()
     expect(headerNames()).toEqual(['Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Last measured', 'Status', 'Source'])
-    // The market's count is the server's member list (3), not the one location this row links.
-    expect(cells(MARKET)).toEqual([MARKET, 'Market · Uptown (3)', 'Non-brand', 'Oct 7', 'Measured', 'Pattern: Best'])
+    // The market's count is the server's member list (3), not the one location this row links. Status carries the row's own date.
+    expect(cells(MARKET)).toEqual([MARKET, 'Market · Uptown (3)', 'Non-brand', 'Oct 7', 'Measured Oct 7', 'Pattern: Best'])
     expect(cells(LOCATION).slice(1, 3)).toEqual(['Location · Acme Homes Harbor Point', 'Branded'])
-    expect(cells(HAND_PICKED)).toEqual([HAND_PICKED, 'Hand-picked · 12 locations', 'Branded', 'Oct 7', 'Measured', 'Research'])
+    expect(cells(HAND_PICKED)).toEqual([HAND_PICKED, 'Hand-picked · 12 locations', 'Branded', 'Oct 7', 'Measured Oct 7', 'Research'])
+    // A row never measured names no date of its own: a waiting one names the next sweep's.
     expect(cells(WAITING)).toEqual([WAITING, 'Market · Old Mill District (4)', 'Non-brand', 'Never', 'First answers Oct 21', 'Setup'])
     expect(cells(NOT_ASKED)).toEqual([NOT_ASKED, 'None', 'Not set', 'Never', 'Not asked', 'Older list'])
     // Under a header, a cell holds the chips alone.
@@ -186,7 +257,7 @@ describe('TrackedTable', () => {
   it('tones the Status badge by status', () => {
     setup()
     const badge = (text: string, label: string) => within(rowOf(text)).getByText(label).className.split(' ')
-    expect(badge(MARKET, 'Measured')).toContain('text-positive')
+    expect(badge(MARKET, 'Measured Oct 7')).toContain('text-positive')
     expect(badge(WAITING, 'First answers Oct 21')).toEqual(expect.arrayContaining(['border-info-500/30', 'bg-info-500/10', 'text-info-300']))
     expect(badge(WAITING, 'First answers Oct 21')).not.toContain('text-neutral')
     expect(badge(NOT_ASKED, 'Not asked')).toContain('text-neutral')
@@ -217,6 +288,305 @@ describe('TrackedTable', () => {
   it('names no date on a waiting row when no sweep date is known', () => {
     setup({ nextSweepDate: undefined })
     expect(cells(WAITING)[4]).toBe('First answers')
+  })
+
+  describe('the date in Status', () => {
+    const dated = (dates: Record<string, string | null>) => {
+      const source = workspace()
+      source.tracked = source.tracked.map(row => row.queryId in dates ? { ...row, lastMeasuredAt: dates[row.queryId]! } : row)
+      setup({}, source)
+      return [MARKET, LOCATION, HAND_PICKED].map(text => cells(text).slice(3, 5))
+    }
+
+    it('is each measured row\'s own: its day for a sweep of this year, its year for an older one', () => {
+      // Today is Oct 10, 2026. Nov 15 was eleven months ago: its day alone would read as a day next month.
+      expect(dated({ market: '2025-12-28T12:00:00.000Z', location: '2026-01-05T12:00:00.000Z', 'hand-picked': '2025-11-15T12:00:00.000Z', mixed: null })).toEqual([
+        // Last measured prints the date whole. Status has room for a month and one part more.
+        ['Dec 28, 2025', 'Measured Dec 2025'],
+        ['Jan 5', 'Measured Jan 5'],
+        ['Nov 15, 2025', 'Measured Nov 2025'],
+      ])
+      // Tracked, with no sweep on record yet.
+      expect(cells(MIXED).at(-2)).toBe('Measured')
+      // One badge on one line: no second element holds the date.
+      const status = rowOf(LOCATION).querySelector('.tracked-cell-status')!
+      expect([status.children.length, status.firstElementChild!.children.length]).toEqual([1, 0])
+    })
+
+    it('keeps its day across a new year for six months', () => {
+      vi.setSystemTime(new Date('2027-01-15T12:00:00.000Z'))
+      // Dec 28 and Aug 3 are inside the six months before Jan 15. Jul 10 is five days outside them.
+      expect(dated({ market: '2026-12-28T12:00:00.000Z', location: '2026-08-03T12:00:00.000Z', 'hand-picked': '2026-07-10T12:00:00.000Z' })).toEqual([
+        ['Dec 28, 2026', 'Measured Dec 28'],
+        ['Aug 3, 2026', 'Measured Aug 3'],
+        ['Jul 10, 2026', 'Measured Jul 2026'],
+      ])
+    })
+  })
+
+  describe('long text', () => {
+    // 73 characters: 511px at 7px each, so one line of a 424px column cannot hold it and two can.
+    const LONG = 'apartments with in unit washer dryer Northbridge Heights, Lakeshore metro'
+    // 140 characters: 980px, past two lines of 424px.
+    const LONGEST = 'two bedroom apartments under 2000 with in unit washer dryer, covered parking and a dog park near the lakefront trail in Northbridge Heights'
+    const market = (id: string, text: string) => tracked(id, text, { focus: { kind: 'market', key: 'uptown' }, queryClasses: ['non-brand'], assignments: [assignment('harbor-point', 'non-brand', ['uptown'])] })
+    const withRows = (...added: Row[]) => {
+      const source = workspace()
+      source.tracked = [...source.tracked, ...added]
+      return source
+    }
+    const long = () => withRows(market('long', LONG))
+    const FULL = { engines: ['openai', 'gemini', 'claude'], onSelectedIdsChange: vi.fn() }
+    const titled = () => within(table()).getAllByRole('button').filter(button => button.hasAttribute('title') && button.classList.contains('tracked-query')).map(button => button.title)
+    /** The lines every closed row of the page takes: the table's one answer, which the stylesheet turns into each row's height. */
+    const pageLines = () => table().getAttribute('data-lines')
+    const subjectOf = (text: string) => rowOf(text).querySelector('.tracked-cell-subject')!.firstElementChild as HTMLElement
+
+    describe('the lines of a page', () => {
+      it('are one where every query and Subject fits its column', () => {
+        frameWidth(1152)
+        // The longest query here is 51 characters, 357px, and the longest Subject 34, 238px.
+        const layout = textLayout(424, 240)
+        setup(FULL)
+        expect(pageLines()).toBe('1')
+        // No row has a height of its own, and nothing is cut short.
+        expect([...table().querySelectorAll('tr')].filter(row => row.hasAttribute('data-lines') || row.hasAttribute('style'))).toEqual([])
+        expect(titled()).toEqual([])
+        // Each Subject is on one line, its count after its name.
+        expect([subjectOf(WAITING).className, subjectOf(WAITING).textContent]).toEqual(['tracked-subject', 'Market · Old Mill District (4)'])
+        // The ruler took each text's width and is gone.
+        expect(layout.ruled).toContain(WAITING)
+        expect(document.querySelector('.tracked-ruler')).toBeNull()
+      })
+
+      it('are two for every row where one query does not fit, and one again when that row leaves the page', () => {
+        frameWidth(1152)
+        textLayout(424, 240)
+        const { rows, rerender } = setup(FULL, long())
+        expect(pageLines()).toBe('2')
+        // The one answer is the table's: every row reads it, the short ones too, and none carries another.
+        expect([...table().querySelectorAll('tr')].filter(row => row.hasAttribute('data-lines') || row.hasAttribute('style'))).toEqual([])
+        // Two lines hold the long query whole, so it has no title.
+        expect(titled()).toEqual([])
+        expect(query(LONG).hasAttribute('data-clipped')).toBe(false)
+        // A Subject wraps as the open row's does: the count is on the last word of the name.
+        const count = within(rowOf(WAITING)).getByRole('button', { name: '4 locations' })
+        expect([subjectOf(WAITING).className, count.parentElement!.textContent, count.parentElement!.className]).toEqual(['', 'District (4)', 'whitespace-nowrap'])
+        expect(rowOf(WAITING).querySelector('.tracked-subject-name')).toBeNull()
+
+        // Another page, a filter or a search: the rows shown decide again.
+        rerender({ rows: rows.filter(row => row.queryId !== 'long') })
+        expect(pageLines()).toBe('1')
+        expect(subjectOf(WAITING).className).toBe('tracked-subject')
+        rerender({ rows: [...rows].reverse() })
+        expect(pageLines()).toBe('2')
+      })
+
+      it('are two where a Subject does not fit, though every query does', () => {
+        frameWidth(1152)
+        // "Location · Acme Homes Harbor Point" is 238px. A line is asked to fit with a pixel to spare, so 238px of room are too few.
+        textLayout(424, 238)
+        setup(FULL)
+        expect(pageLines()).toBe('2')
+        // Wrapped, it has no box of its own to clip it.
+        expect(subjectOf(LOCATION).className).toBe('')
+        // One pixel more and it fits.
+        cleanup()
+        textLayout(424, 239)
+        setup(FULL)
+        expect(pageLines()).toBe('1')
+      })
+
+      it('stay as they are when a row opens or closes', () => {
+        frameWidth(1152)
+        textLayout(424, 240)
+        const { rerender, rows } = setup(FULL, long())
+        // The long row open shows its text whole and no longer needs two lines. The page keeps them all the same.
+        fireEvent.click(query(LONG))
+        expect([query(LONG).getAttribute('aria-expanded'), pageLines()]).toEqual(['true', '2'])
+        fireEvent.click(query(MARKET))
+        fireEvent.click(query(LONG))
+        expect(pageLines()).toBe('2')
+        // A page of one-line rows keeps one line with a row open.
+        rerender({ rows: rows.filter(row => row.queryId !== 'long') })
+        expect([query(MARKET).getAttribute('aria-expanded'), pageLines()]).toEqual(['true', '1'])
+        fireEvent.click(query(WAITING))
+        expect(pageLines()).toBe('1')
+      })
+
+      it('measure each text once', () => {
+        frameWidth(1152)
+        const layout = textLayout(424, 240)
+        const { rows, rerender } = setup(FULL)
+        const first = [...layout.ruled]
+        expect(new Set(first).size).toBe(first.length)
+        // Six queries, and each Subject's pieces: the kind, the name, the gap before the count and the count.
+        expect(first).toEqual(expect.arrayContaining([MARKET, NOT_ASKED, 'Market ·', ' Uptown', '', '(3)', 'Location ·', ' Acme Homes Harbor Point', 'Hand-picked ·', '12 locations']))
+        // Opening a row, ticking one and drawing the same rows again measure nothing.
+        fireEvent.click(query(MARKET))
+        rerender({ selectedIds: new Set(['market']) })
+        expect(layout.ruled).toEqual(first)
+        // A row new to the page is measured, and only its own text: its Subject's pieces are known.
+        rerender({ rows: [...rows, ...toTrackedRows(long(), []).filter(row => row.queryId === 'long')] })
+        expect(layout.ruled.slice(first.length)).toEqual([LONG])
+      })
+
+      it('are taken again when a font arrives, which changes every width', () => {
+        const fonts = new EventTarget()
+        Object.defineProperty(document, 'fonts', { configurable: true, value: fonts })
+        onTestFinished(() => { Reflect.deleteProperty(document, 'fonts') })
+        frameWidth(1152)
+        const layout = textLayout(424, 400)
+        setup(FULL)
+        expect(pageLines()).toBe('1')
+        // In the font that arrives the 51-character query is 459px.
+        layout.char = 9
+        act(() => { fonts.dispatchEvent(new Event('loadingdone')) })
+        expect(pageLines()).toBe('2')
+        expect(layout.ruled.filter(text => text === WAITING)).toHaveLength(2)
+      })
+
+      it('hold at two for the same rows in a narrower frame, where a folded column would bring one line back', () => {
+        const frame = frameWidth(1152)
+        const layout = textLayout(424, 240)
+        const { rows, rerender } = setup(FULL, long())
+        expect(pageLines()).toBe('2')
+        // Taller rows bring a scrollbar, the frame narrows by it, and a column folding there leaves Query more room than before.
+        layout.column = 600
+        frame.report(1137)
+        expect(pageLines()).toBe('2')
+        // Other rows decide for themselves, in whatever frame.
+        rerender({ rows: rows.slice(0, 3) })
+        expect(pageLines()).toBe('1')
+        // So does a frame as wide as the one two lines were chosen in.
+        layout.column = 424
+        rerender({ rows })
+        expect(pageLines()).toBe('2')
+        layout.column = 600
+        frame.report(1137)
+        frame.report(1152)
+        expect(pageLines()).toBe('1')
+      })
+
+      it('are not counted where the rows stack or nothing is laid out', () => {
+        setup({}, long())
+        // No layout: the rows are one line, as the table draws them before it is measured.
+        expect(pageLines()).toBe('1')
+        cleanup()
+        frameWidth(358)
+        textLayout(250)
+        setup({}, long())
+        expect([table().getAttribute('data-layout'), pageLines()]).toEqual(['stacked', null])
+        // A stacked row shows its Subject whole.
+        expect(subjectOf(WAITING).className).toBe('')
+      })
+    })
+
+    describe('a Subject on a page of two-line rows', () => {
+      it('is cut short on the second line when it is too long for two, with its count beside it', () => {
+        const frame = frameWidth(1152)
+        // 100px hold 14 characters: "Market · Old Mill District (4)" needs three lines, "Market · Uptown (3)" two.
+        const layout = textLayout(424, 100)
+        setup(FULL)
+        const count = within(rowOf(WAITING)).getByRole('button', { name: '4 locations' })
+        const box = subjectOf(WAITING)
+        expect([box.className, box.hasAttribute('data-long')]).toEqual(['tracked-subject', true])
+        // The name is one piece again, cut short as one, and the count stands outside it. Its whole text is its title.
+        const name = box.firstElementChild as HTMLElement
+        expect([name.className, name.textContent, name.title]).toEqual(['tracked-subject-name', 'Market · Old Mill District', 'Old Mill District'])
+        expect(count.parentElement!.textContent).toBe(' (4)')
+        // One that fits two lines wraps, with nothing to say in a title.
+        expect([subjectOf(MARKET).className, subjectOf(MARKET).hasAttribute('data-long'), subjectOf(MARKET).querySelector('[title]')]).toEqual(['', false, null])
+        // A location has no count: it is cut short the same way.
+        expect([subjectOf(LOCATION).hasAttribute('data-long'), (subjectOf(LOCATION).firstElementChild as HTMLElement).title]).toEqual([true, 'Acme Homes Harbor Point'])
+
+        // It is found again in a column of another width: here one with room for it on two lines.
+        count.focus()
+        layout.subject = 120
+        frame.report(1100)
+        expect(columnWidths()[2]).toBe('234px')
+        expect([subjectOf(WAITING).className, subjectOf(WAITING).hasAttribute('data-long')]).toEqual(['', false])
+        // The count is the same button throughout, so it keeps the focus.
+        expect(document.activeElement).toBe(count)
+      })
+    })
+
+    describe('a Subject whose last word is wider than its column', () => {
+      it('is cut short with its count in the cell, so nothing runs into the next one', () => {
+        const frame = frameWidth(1152)
+        // 68px hold nine characters. "Market · Uptown (3)" takes two lines by length, but "Uptown (3)" cannot wrap and needs 70px.
+        const layout = textLayout(424, 68)
+        setup(FULL)
+        const box = subjectOf(MARKET)
+        expect([box.className, box.hasAttribute('data-long')]).toEqual(['tracked-subject', true])
+        const count = within(rowOf(MARKET)).getByRole('button', { name: '3 locations' })
+        expect(count.parentElement!.textContent).toBe(' (3)')
+        expect((box.firstElementChild as HTMLElement).title).toBe('Uptown')
+
+        // With room for the last word it wraps whole again.
+        layout.subject = 72
+        frame.report(1100)
+        expect([subjectOf(MARKET).className, subjectOf(MARKET).hasAttribute('data-long')]).toEqual(['', false])
+      })
+    })
+
+    describe('a query cut short', () => {
+      it('carries its whole text as a title only while it is cut short', () => {
+        frameWidth(1152)
+        const layout = textLayout(424)
+        setup(FULL, withRows(market('long', LONG), market('longest', LONGEST)))
+        // Two lines of 424px hold the 511px query whole and cut the 980px one short.
+        expect(table().getAttribute('data-lines')).toBe('2')
+        expect(titled()).toEqual([LONGEST])
+        expect([query(LONGEST), query(LONG), query(WAITING)].map(button => button.hasAttribute('data-clipped'))).toEqual([true, false, false])
+        // The name is the text either way, so the title adds nothing to it.
+        expect(query(LONGEST).getAttribute('aria-label')).toBeNull()
+
+        // The open row shows the text whole.
+        fireEvent.click(query(LONGEST))
+        expect(titled()).toEqual([])
+        fireEvent.click(query(LONGEST))
+        expect(titled()).toEqual([LONGEST])
+
+        // The edge moves with no draw, as when a font arrives: the pointer and the focus each measure again.
+        layout.column = 200
+        fireEvent.pointerEnter(query(LONG))
+        expect(titled()).toEqual([LONG, LONGEST])
+        // 357px fit two lines of 200.
+        fireEvent.focus(query(WAITING))
+        expect(titled()).toEqual([LONG, LONGEST])
+        layout.column = 600
+        fireEvent.focus(query(LONGEST))
+        expect(titled()).toEqual([LONG])
+      })
+
+      it('is one that runs a fraction of a pixel past its edge too, where whole pixels call it a fit', () => {
+        frameWidth(1152)
+        const layout = textLayout(600)
+        setup(FULL, long())
+        expect([table().getAttribute('data-lines'), titled()]).toEqual(['1', []])
+        // The edge moves with no draw. 73 characters end at 511px, 0.3px past the button's edge now. Both round to 511.
+        layout.column = 510.7
+        fireEvent.pointerEnter(query(LONG))
+        expect([query(LONG).firstElementChild!.scrollWidth, query(LONG).clientWidth]).toEqual([511, 511])
+        expect(titled()).toEqual([LONG])
+        expect(query(LONG).hasAttribute('data-clipped')).toBe(true)
+      })
+
+      it('carries it in a stacked row cut short after two lines', () => {
+        frameWidth(358)
+        textLayout(250)
+        setup({}, long())
+        expect(table().getAttribute('data-layout')).toBe('stacked')
+        // 511px is over two lines of 250px. 51 characters are under them.
+        expect(titled()).toEqual([LONG])
+      })
+
+      it('has no title where nothing is measured', () => {
+        setup({}, long())
+        expect(titled()).toEqual([])
+      })
+    })
   })
 
   it('joins chips on query and type: a result under the other type draws Not checked', () => {
@@ -332,6 +702,41 @@ describe('TrackedTable', () => {
       expect(queryOrder().slice(0, 2)).toEqual([MARKET, MIXED])
     })
 
+    it('sorts by status and then by date from the Status header, where Last measured is no column', () => {
+      const frame = frameWidth(1152)
+      const source = workspace()
+      source.tracked = source.tracked.map(row => row.queryId === 'market' ? { ...row, lastMeasuredAt: '2026-09-23T12:00:00.000Z' } : row)
+      const all = toTrackedRows(source, [])
+      function Sorted() {
+        const [sort, setSort] = useState<TrackedSort>(DEFAULT_TRACKED_SORT)
+        return <TrackedTable rows={sortTrackedRows(all, sort)} engines={['openai', 'gemini', 'claude']} coverage={undefined} sort={sort} onSortChange={setSort} selectedIds={new Set()} onSelectedIdsChange={() => {}} workspace={source} contextLabels={contextLabels} />
+      }
+      render(<Sorted />)
+      expect(headerNames()).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Claude', 'Status'])
+
+      fireEvent.click(within(table()).getByRole('button', { name: 'Status' }))
+      expect(['Subject', 'Status'].map(sortOf)).toEqual(['none', 'ascending'])
+      // Measured first, the newest sweep leading: the market row of Sep 23 follows the three of Oct 7 though it leads the default order.
+      expect(queryOrder()).toEqual([LOCATION, MIXED, HAND_PICKED, MARKET, WAITING, NOT_ASKED])
+      expect(cells(MARKET).at(-1)).toBe('Measured Sep 23')
+
+      fireEvent.click(within(table()).getByRole('button', { name: 'Status' }))
+      expect(sortOf('Status')).toBe('descending')
+      expect(queryOrder()).toEqual([NOT_ASKED, WAITING, MARKET, LOCATION, MIXED, HAND_PICKED])
+
+      // A sort by last sweep, picked where the rows stack, outlives the stack. Status carries the date, so it shows there.
+      frame.report(358)
+      fireEvent.change(screen.getByRole('combobox', { name: 'Sort' }), { target: { value: 'lastMeasured' } })
+      frame.report(1152)
+      expect(['Query', 'Subject', 'OpenAI', 'Gemini', 'Claude', 'Status'].map(sortOf)).toEqual(['none', 'none', 'none', 'none', 'none', 'ascending'])
+      expect(headers().find(header => header.textContent === 'Status')!.querySelector('svg')!.classList.contains('tracked-sort-hint')).toBe(false)
+      // The oldest sweep first, whatever the status.
+      expect(queryOrder()[0]).toBe(MARKET)
+      // Where Last measured is a column the sort is its own again.
+      frame.report(1400)
+      expect(['Last measured', 'Status'].map(sortOf)).toEqual(['ascending', 'none'])
+    })
+
     it('draws plain headers when the caller takes no sort', () => {
       setup()
       expect(headers().every(header => header.getAttribute('aria-sort') === null && within(header).queryByRole('button') === null)).toBe(true)
@@ -417,7 +822,8 @@ describe('TrackedTable', () => {
       // A location with no type of its own, under a row that has one.
       expect(rows[9]).toEqual(['Acme Homes Residence 10', 'None', 'None', 'Not set', 'Lakeshore · openai, gemini'])
       expect(rows[10]![4]).toBe('Lakeshore · openai, geminiNo search location · openai, gemini')
-      expect(rows[11]).toEqual(['Acme Homes Residence 12', 'Lakeshore Metro Area, North side', 'Uptown, Downtown', 'Branded', 'Lakeshore · openai, gemini'])
+      // Two groups and two markets, each name whole: a name's own comma parts nothing.
+      expect(rows[11]).toEqual(['Acme Homes Residence 12', 'Lakeshore, Metro Area · North side', 'Uptown · Downtown, Lakeshore metro', 'Branded', 'Lakeshore · openai, gemini'])
       expect(facts(HAND_PICKED).map(fact => fact[0])).toEqual(['Source', 'Last measured'])
       // Twelve fit one page.
       expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
@@ -463,6 +869,16 @@ describe('TrackedTable', () => {
       setup()
       fireEvent.click(query(LOCATION))
       expect(facts(LOCATION).slice(1)).toEqual([['Source', 'Manual'], ['Last measured', 'Oct 7'], ['Added', 'Sep 4']])
+    })
+
+    it('names no Added date where the time on record is no real one', () => {
+      const source = workspace()
+      // Setup writes the epoch for a time it does not have.
+      source.tracked = source.tracked.map(row => row.queryId === 'location' ? { ...row, provenance: { source: 'manual' as const, sourceId: null, capturedAt: '1970-01-01T00:00:00.000Z' } } : row)
+      setup({}, source)
+      fireEvent.click(query(LOCATION))
+      expect(facts(LOCATION).slice(1)).toEqual([['Source', 'Manual'], ['Last measured', 'Oct 7']])
+      expect(rowOf(LOCATION).nextElementSibling!.textContent).not.toMatch(/Added|1970/)
     })
 
     it('tells a query found by Find queries from saved research, in the detail only', () => {
@@ -545,12 +961,13 @@ describe('TrackedTable', () => {
     })
 
     it('folds Source and Last measured into the row detail in a narrow frame', () => {
-      // 900px with two engines and no checkboxes leaves Query 228px with Source gone, and 336px with both gone.
+      // 900px with two engines and no checkboxes: with both gone and Subject at its 182px floor, Query has 334px.
       frameWidth(900)
       setup({ renderRowMenu: menu })
       expect(table().getAttribute('data-layout')).toBe('table')
       expect(headerNames()).toEqual(['Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Status', 'Actions'])
-      expect(cells(MARKET)).toEqual([MARKET, 'Market · Uptown (3)', 'Non-brand', 'Measured', `Menu for ${MARKET}`])
+      expect(columnWidths()).toEqual(['', '182px', '80px', '62px', '62px', '148px', '32px'])
+      expect(cells(MARKET)).toEqual([MARKET, 'Market · Uptown (3)', 'Non-brand', 'Measured Oct 7', `Menu for ${MARKET}`])
       fireEvent.click(query(MARKET))
       const detail = within(rowOf(MARKET).nextElementSibling as HTMLElement)
       expect(detail.getByText('Pattern: Best')).toBeTruthy()
@@ -559,19 +976,53 @@ describe('TrackedTable', () => {
       expect((rowOf(MARKET).nextElementSibling!.firstElementChild as HTMLTableCellElement).colSpan).toBe(7)
     })
 
-    it('shows every column in the full-width frame', () => {
+    it('gives the 1152px content column to Query, Subject, Type, the engines and Status', () => {
       frameWidth(1152)
-      setup({ renderRowMenu: menu, onSelectedIdsChange: vi.fn() })
-      expect(headerNames()).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Last measured', 'Status', 'Source', 'Actions'])
-      // The detail runs under the checkbox column too.
+      setup({ engines: ['openai', 'gemini', 'claude'], renderRowMenu: menu, onSelectedIdsChange: vi.fn() })
+      expect(headerNames()).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Claude', 'Status', 'Actions'])
+      // Query takes the 424px the others leave.
+      expect(columnWidths()).toEqual(['32px', '', '250px', '80px', '62px', '62px', '62px', '148px', '32px'])
+      // Its header takes the cells' padding by their class, so it starts where they do.
+      expect(headers()[1]!.classList.contains('tracked-cell-query')).toBe(true)
+      expect(cells(MARKET)).toEqual(['', MARKET, 'Market · Uptown (3)', 'Non-brand', 'Measured Oct 7', `Menu for ${MARKET}`])
+      // The detail runs under the checkbox column too, and holds the two columns that are not drawn.
       fireEvent.click(query(MARKET))
-      expect((rowOf(MARKET).nextElementSibling!.firstElementChild as HTMLTableCellElement).colSpan).toBe(10)
+      const detail = rowOf(MARKET).nextElementSibling as HTMLElement
+      expect((detail.firstElementChild as HTMLTableCellElement).colSpan).toBe(9)
+      expect([...detail.querySelectorAll('dl > div')].map(fact => fact.textContent)).toEqual(['Search location and enginesLakeshore · openai, gemini', 'SourcePattern: Bestbest apartments in {market}', 'Last measuredOct 7'])
+    })
+
+    it('narrows Subject for a fourth engine, before Query', () => {
+      frameWidth(1152)
+      setup({ engines: ['openai', 'gemini', 'claude', 'local'], renderRowMenu: menu, onSelectedIdsChange: vi.fn() })
+      expect(headerNames()).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Claude', 'Local', 'Status', 'Actions'])
+      // The set widths come to 732px, so Query keeps 420.
+      expect(columnWidths()).toEqual(['32px', '', '192px', '80px', '62px', '62px', '62px', '62px', '148px', '32px'])
+      // Perplexity's header takes 88px. Subject gives 10 of them and is at its floor, so Query is left 404.
+      cleanup()
+      setup({ engines: ['openai', 'gemini', 'claude', 'perplexity'], renderRowMenu: menu, onSelectedIdsChange: vi.fn() })
+      expect(headerNames().slice(4, 8)).toEqual(['OpenAI', 'Gemini', 'Claude', 'Perplexity'])
+      expect(columnWidths()).toEqual(['32px', '', '182px', '80px', '62px', '62px', '62px', '88px', '148px', '32px'])
+    })
+
+    it('shows Last measured and Source in a frame wide enough for them, and the date in Status all the same', () => {
+      frameWidth(1400)
+      setup({ engines: ['openai', 'gemini', 'claude'], renderRowMenu: menu, onSelectedIdsChange: vi.fn(), sort: DEFAULT_TRACKED_SORT, onSortChange: vi.fn() })
+      expect(headerNames()).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Claude', 'Last measured', 'Status', 'Source', 'Actions'])
+      expect(columnWidths()).toEqual(['32px', '', '250px', '80px', '62px', '62px', '62px', '108px', '148px', '98px', '32px'])
+      expect(cells(MARKET)).toEqual(['', MARKET, 'Market · Uptown (3)', 'Non-brand', 'Oct 7', 'Measured Oct 7', 'Pattern: Best', `Menu for ${MARKET}`])
+      // Last measured keeps its own sort beside Status.
+      expect(['Last measured', 'Status'].map(name => headers().find(header => header.textContent === name)!.getAttribute('aria-sort'))).toEqual(['none', 'none'])
+      fireEvent.click(query(MARKET))
+      expect((rowOf(MARKET).nextElementSibling!.firstElementChild as HTMLTableCellElement).colSpan).toBe(11)
     })
 
     it('follows the frame when it is resized', () => {
-      const frame = frameWidth(1152)
+      const frame = frameWidth(1400)
       setup({ renderRowMenu: menu })
       expect(headerNames()).toContain('Source')
+      frame.report(1152)
+      expect(headerNames()).toEqual(['Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Status', 'Actions'])
       frame.report(900)
       expect(headerNames()).toEqual(['Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Status', 'Actions'])
       frame.report(358)
@@ -587,6 +1038,8 @@ describe('TrackedTable', () => {
         expect(within(table()).queryAllByRole('columnheader')).toEqual([])
         // The menu follows the query, as it does on the row's first line. Source and Last measured wait in the row detail.
         expect(cells(WAITING)).toEqual([WAITING, `Menu for ${WAITING}`, 'Market · Old Mill District (4)', 'Non-brand', 'First answers Oct 21'])
+        // Status carries the date here as it does under a header.
+        expect(cells(MARKET).at(-1)).toBe('Measured Oct 7')
         // No header to read an engine from, so each cell carries its name.
         const engine = within(rowOf(WAITING).children[4] as HTMLElement)
         expect(engine.getByText('OpenAI')).toBeTruthy()
@@ -665,6 +1118,8 @@ describe('tracked table styles', () => {
   const compiled = async () => parseCompiledCss(await compileAppStyles(['tracked-table', 'topbar']))
   const PHONE = '@media (width < 48rem)'
   const FINGER = '@media (pointer: coarse)'
+  /** Wherever the pointer is not a finger: a mouse, or a keyboard alone. */
+  const KEYBOARD = '@media not all and (pointer: coarse)'
   const TOUCH = 'calc(var(--spacing) * 11)'
 
   it('sticks the header under the topbar by the height the topbar itself is held to', async () => {
@@ -698,6 +1153,12 @@ describe('tracked table styles', () => {
     // A header's sort hint shows under the pointer and under focus.
     expect(compiledDeclarations(rules, '.tracked-sort-hint').opacity).toBe('0')
     expect(compiledDeclarations(rules, '.tracked-sort:focus-visible > .tracked-sort-hint').opacity).toBe('0.4')
+    // The mark hangs after the name, past a column as narrow as its name. A header that shows one is drawn over the next.
+    expect(compiledDeclarations(rules, '.tracked-sort-mark').left).toBe('calc(100% + 1px)')
+    expect(compiledDeclarations(rules, '.tracked-table > thead th')['z-index']).toBe('10')
+    for (const shown of [':hover', ':focus-within', "[aria-sort='ascending']", "[aria-sort='descending']"]) {
+      expect(compiledDeclarations(rules, `.tracked-table > thead th${shown}`)['z-index'], shown).toBe('11')
+    }
   })
 
   it('gives the checkbox and the query a 44px target under a finger and below md', async () => {
@@ -707,6 +1168,119 @@ describe('tracked table styles', () => {
       expect([check.width, check.height], context).toEqual([TOUCH, TOUCH])
       expect(compiledDeclarations(rules, '.tracked-query', context)['min-height'], context).toBe(TOUCH)
     }
+  })
+
+  it('sets the table\'s query a size down and closer to its column\'s edges, so 420px hold a long one', async () => {
+    const rules = await compiled()
+    const TABLE = ".tracked-table[data-layout='table']"
+    expect(compiledDeclarations(rules, `${TABLE} .tracked-query`)['font-size']).toBe('13px')
+    // Of Query's 424px beside the checkbox column, 4px are padding and 14px the mark's: 406px are the text's.
+    expect(compiledDeclarations(rules, `${TABLE} .tracked-cell-query`)['padding-right']).toBe('0.25rem')
+    // A finger's 44px checkbox runs 12px past its 32px column, so there Query keeps its 10px on the left.
+    expect(compiledDeclarations(rules, `${TABLE}[data-selectable] .tracked-cell-query`, KEYBOARD)['padding-left']).toBe('0')
+    expect(rules.filter(rule => rule.selector === `${TABLE}[data-selectable] .tracked-cell-query`).map(rule => rule.context.filter(value => value.startsWith('@media')))).toEqual([[KEYBOARD]])
+    const line = compiledDeclarations(rules, `${TABLE} .tracked-query > span`)
+    expect([line['padding-left'], line['text-indent']]).toEqual(['0.875rem', '-0.875rem'])
+    // The 12px mark and its gap fill that indent.
+    expect(compiledDeclarations(rules, `${TABLE} .tracked-query-mark`)['margin-right']).toBe('0.125rem')
+    expect(compiledDeclarations(rules, '.tracked-query-mark').width).toBe('calc(var(--spacing) * 3)')
+    // Subject runs as close to Type, which is set at the size of the two.
+    expect(compiledDeclarations(rules, `${TABLE} .tracked-cell-subject`)['padding-right']).toBe('0.25rem')
+    expect([compiledDeclarations(rules, '.tracked-cell-subject')['font-size'], compiledDeclarations(rules, `${TABLE} .tracked-cell-type`)['font-size']]).toEqual(['13px', '13px'])
+    // The open row's detail starts where the query does: past the 32px checkbox column, and past the query's 10px too where a finger keeps them.
+    const DETAIL = '.tracked-detail-row > td'
+    expect(compiledDeclarations(rules, `${TABLE}[data-selectable] ${DETAIL}`, KEYBOARD)['padding-left']).toBe('2rem')
+    expect(rules.filter(rule => rule.selector === `${TABLE}[data-selectable] ${DETAIL}`).map(rule => rule.context.filter(value => value.startsWith('@media')))).toEqual([[KEYBOARD]])
+    expect(compiledDeclarations(rules, `.tracked-table[data-selectable] ${DETAIL}`)['padding-left']).toBe('2.625rem')
+    expect(compiledDeclarations(rules, '.tracked-row > td')['padding-inline']).toBe('calc(var(--spacing) * 2.5)')
+    // A stacked row keeps the table's own type size and the mark's 16px: no rule of its own sets either.
+    expect(rules.filter(rule => rule.selector.includes('.tracked-query') && rule.declarations.some(([property]) => property === 'font-size' || property === 'text-indent')).map(rule => rule.selector))
+      .toEqual(['.tracked-query > span', `${TABLE} .tracked-query`, `${TABLE} .tracked-query > span`])
+  })
+
+  it('shows a query cut short whole under keyboard focus, on its line and inside the frame', async () => {
+    const rules = await compiled()
+    const ROW = ".tracked-table[data-layout='table'] .tracked-row"
+    const LINE = '.tracked-query[data-clipped]:focus-visible > span'
+    const selector = `${ROW}:not([data-open]) ${LINE}`
+    const line = compiledDeclarations(rules, selector, KEYBOARD)
+    // Over the cells beside it, so the row keeps its height. The frame is the container the width is taken from.
+    expect([line.position, line['z-index'], line.width, line['max-width']]).toEqual(['relative', '1', 'max-content', 'calc(100cqi - 3.5rem)'])
+    expect(compiledDeclarations(rules, '.tracked-table-frame').container).toBe('tracked-table / inline-size')
+    expect(rules.filter(rule => rule.selector === selector).map(rule => rule.context.filter(value => value.startsWith('@media')))).toEqual([[KEYBOARD]])
+    // Its ring stands a cell's 10px off its text.
+    expect(line['padding-right']).toBe('0.625rem')
+    // A click on the cells it covers reaches them, not the query under the line.
+    expect(line['pointer-events']).toBe('none')
+    // Its own ground hides the text under it, and a tinted row's tint goes over that ground, so the line is the row's colour.
+    expect(line['background-color']).toBe('var(--color-bg)')
+    const tint = (color: string) => `linear-gradient(var(${color}), var(${color}))`
+    expect(compiledDeclarations(rules, `${ROW}:not([data-open]):hover ${LINE}`, KEYBOARD)['background-image']).toBe(tint('--color-surface'))
+    for (const state of ['data-selected', 'data-highlighted']) {
+      expect(compiledDeclarations(rules, `${ROW}[${state}]:not([data-open]) ${LINE}`, KEYBOARD)['background-image'], state).toBe(tint('--color-surface-active'))
+    }
+    // The same two tints the row's cells wear.
+    expect([compiledDeclarations(rules, '.tracked-row:hover > td')['background-color'], compiledDeclarations(rules, '.tracked-row[data-selected] > td')['background-color']]).toEqual(['var(--color-surface)', 'var(--color-surface-active)'])
+    // On a page of two-line rows the line keeps the height of two, so it covers both lines of the cells it is drawn over.
+    expect(compiledDeclarations(rules, `.tracked-table[data-layout='table'][data-lines='2'] .tracked-row:not([data-open]) ${LINE}`, KEYBOARD)['min-height']).toBe('2.5rem')
+  })
+
+  it('gives a closed row\'s query two lines under a finger, inside the 44px its button already has', async () => {
+    const rules = await compiled()
+    const selector = ".tracked-table[data-layout='table'] .tracked-row:not([data-open]) .tracked-query > span"
+    // One line under a mouse, so a row is as tall as its text.
+    expect(compiledDeclarations(rules, selector)['white-space']).toBe('nowrap')
+    const line = compiledDeclarations(rules, selector, FINGER)
+    expect([line.display, line['white-space'], line['-webkit-line-clamp']]).toEqual(['-webkit-box', 'normal', '2'])
+    // Two lines of the table's 20px.
+    expect(compiledDeclarations(rules, '.tracked-table')['line-height']).toBe('calc(var(--spacing) * 5)')
+    expect(compiledDeclarations(rules, '.tracked-query', FINGER)['min-height']).toBe(TOUCH)
+  })
+
+  it('gives every row of a two-line page one height, with the query and the Subject wrapped on its two lines', async () => {
+    const rules = await compiled()
+    const PAGE = ".tracked-table[data-layout='table'][data-lines='2']"
+    // Two of the table's 20px lines, the cell's 8px above and below them and its 1px border: 57px.
+    expect(compiledDeclarations(rules, `${PAGE} .tracked-row > td`).height).toBe('3.5625rem')
+    const cell = compiledDeclarations(rules, '.tracked-row > td')
+    expect([compiledDeclarations(rules, '.tracked-table')['line-height'], cell['padding-block'], cell['border-bottom-width']]).toEqual(['calc(var(--spacing) * 5)', 'calc(var(--spacing) * 2)', '1px'])
+    // It is every row's, the open one's too, and the only height any row is given: the page's one answer sets them all.
+    expect(rules.filter(rule => rule.selector.includes('.tracked-row') && rule.declarations.some(([property]) => property === 'height')).map(rule => rule.selector)).toEqual([`${PAGE} .tracked-row > td`])
+    // Chips, Status and the menu sit on the middle of the taller row.
+    expect(cell['vertical-align']).toBe('middle')
+
+    // The query wraps and stops after the second line.
+    const line = compiledDeclarations(rules, `${PAGE} .tracked-row:not([data-open]) .tracked-query > span`)
+    expect([line.display, line['white-space'], line['-webkit-line-clamp']]).toEqual(['-webkit-box', 'normal', '2'])
+    // So does the Subject, on lines as tall as the query's, so the two read level.
+    expect(compiledDeclarations(rules, `${PAGE} .tracked-cell-subject`)['line-height']).toBe('calc(var(--spacing) * 5)')
+    // Nothing clips it there: the only Subject boxes that hide what runs over are the name cut short and no other.
+    expect(rules.filter(rule => rule.selector.includes('.tracked-subject') && rule.declarations.some(([property, value]) => property === 'overflow' && value !== 'visible')).map(rule => rule.selector)).toEqual(['.tracked-subject-name', '.tracked-subject[data-long] > .tracked-subject-name'])
+    // Wrapped, closed or open, neither leaves a word alone on its last line.
+    const TABLE = ".tracked-table[data-layout='table']"
+    expect(rules.filter(rule => rule.selector.includes('.tracked-') && rule.declarations.some(([property, value]) => property === 'text-wrap' && value === 'pretty')).map(rule => rule.selector)).toEqual([`${TABLE} .tracked-cell-query, ${TABLE} .tracked-cell-subject`])
+    // One too long for two lines: its name stops on the second, and its count sits on that line.
+    const name = compiledDeclarations(rules, '.tracked-subject[data-long] > .tracked-subject-name')
+    expect([name.display, name['-webkit-line-clamp'], name['white-space']]).toEqual(['-webkit-box', '2', 'normal'])
+    expect(compiledDeclarations(rules, '.tracked-subject[data-long]')['align-items']).toBe('flex-end')
+    expect(compiledDeclarations(rules, '.tracked-subject > :not(.tracked-subject-name)').flex).toBe('none')
+  })
+
+  it('sets the ruler in the type of the text it measures, and never draws it', async () => {
+    const rules = await compiled()
+    const ruler = compiledDeclarations(rules, '.tracked-ruler')
+    // Out of the flow, with no box and nothing to see. Each text stays on one line, its spaces counted.
+    expect([ruler.position, ruler.width, ruler.height, ruler.overflow, ruler.visibility, ruler['white-space']]).toEqual(['absolute', '0', '0', 'hidden', 'hidden', 'pre'])
+    // The size of a query and of a Subject in the table.
+    expect([ruler['font-size'], compiledDeclarations(rules, ".tracked-table[data-layout='table'] .tracked-query")['font-size'], compiledDeclarations(rules, '.tracked-cell-subject')['font-size']]).toEqual(['13px', '13px', '13px'])
+    // The weight of a query, which a Subject's kind shares, and the figures of a count.
+    expect(compiledDeclarations(rules, ".tracked-ruler > [data-face='strong']")['font-weight']).toBe(compiledDeclarations(rules, '.tracked-query')['font-weight'])
+    expect(compiledDeclarations(rules, ".tracked-ruler > [data-face='count']")['--tw-numeric-spacing']).toBe(compiledDeclarations(rules, '.tracked-count')['--tw-numeric-spacing'])
+    expect(compiledDeclarations(rules, '.tracked-count')['--tw-numeric-spacing']).toBe('tabular-nums')
+    // And the gap a one-line Subject keeps before its count: one length, set once on the frame.
+    const gap = compiledDeclarations(rules, ".tracked-ruler > [data-face='gap']")
+    expect([gap.display, gap.width, compiledDeclarations(rules, '.tracked-subject')['column-gap']]).toEqual(['inline-block', 'var(--tracked-subject-gap)', 'var(--tracked-subject-gap)'])
+    expect(compiledDeclarations(rules, '.tracked-table-frame')['--tracked-subject-gap']).toBe('0.25rem')
   })
 
   it('gives Status a line of its own in a phone-width frame', async () => {

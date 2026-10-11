@@ -72,6 +72,15 @@ function sourceOf(row: QueryTrackingTrackedRow, templateNames: ReadonlyMap<strin
   }
 }
 
+/** No query was added before this: setup writes the epoch where it has no time to record. */
+const EARLIEST_ADDED = Date.UTC(2020, 0, 1)
+
+/** When a hand-written query was added, or null where that is not on record: a missing time, one that is no date, or setup's placeholder. */
+function addedAtOf(capturedAt: string | null | undefined): string | null {
+  const time = capturedAt ? Date.parse(capturedAt) : Number.NaN
+  return capturedAt && time >= EARLIEST_ADDED ? capturedAt : null
+}
+
 /** Workspace rows as the Tracked table shows them, in the server's order. */
 export function toTrackedRows(workspace: QueryTrackingWorkspaceResponse, templates: readonly Pick<MeasurementQueryTemplate, 'id' | 'name'>[]): TrackedRowVm[] {
   const targetLabels = new Map(workspace.targets.map(target => [target.stableKey, target.label]))
@@ -92,7 +101,7 @@ export function toTrackedRows(workspace: QueryTrackingWorkspaceResponse, templat
       source: sourceOf(row, templateNames),
       lastMeasuredAt: row.lastMeasuredAt,
       // Only a hand-written row records when it was added. A pattern row carries its pattern's last edit, and a research row when its research ran.
-      addedAt: row.provenance?.source === 'manual' ? row.provenance.capturedAt : null,
+      addedAt: row.provenance?.source === 'manual' ? addedAtOf(row.provenance.capturedAt) : null,
       tracked: row,
     }
   })
@@ -138,10 +147,14 @@ export function sourceDetailLabel(row: Pick<TrackedRowVm, 'source' | 'tracked'>)
   return row.tracked.provenance?.source === 'discovery' ? `${label} · Find queries` : label
 }
 
-/** `nextSweepDate` is the date as shown, month and day ("Oct 21"). Without one, a waiting row names no date. */
-export function statusLabel(status: TrackedStatus, nextSweepDate?: string): string {
+/**
+ * A row's Status with its date: "Measured Oct 7", "First answers Oct 21". Both
+ * dates are as shown. `measuredDate` is the row's last sweep and
+ * `nextSweepDate` the one coming; without its date a status names none.
+ */
+export function statusLabel(status: TrackedStatus, nextSweepDate?: string, measuredDate?: string): string {
   switch (status) {
-    case 'measured': return 'Measured'
+    case 'measured': return measuredDate ? `Measured ${measuredDate}` : 'Measured'
     case 'first-answers': return nextSweepDate ? `First answers ${nextSweepDate}` : 'First answers'
     case 'not-asked': return 'Not asked'
   }
@@ -241,10 +254,18 @@ function byState(left: boolean | null, right: boolean | null, sign: 1 | -1): num
   return (Number(left) - Number(right)) * sign
 }
 
+/** By last sweep, oldest first under a sign of 1. A row never measured sorts last whichever way the column runs. */
+function byLastMeasured(left: TrackedRowVm, right: TrackedRowVm, sign: 1 | -1): number {
+  if (left.lastMeasuredAt === right.lastMeasuredAt) return 0
+  if (left.lastMeasuredAt === null) return 1
+  if (right.lastMeasuredAt === null) return -1
+  return (left.lastMeasuredAt < right.lastMeasuredAt ? -1 : 1) * sign
+}
+
 /**
  * Rows in the order a header asks for. An engine column puts not mentioned
- * first, then not cited. Ties fall back to the default order, so a sort is
- * stable across pages.
+ * first, then not cited. Status orders by status and then by last sweep. Ties
+ * fall back to the default order, so a sort is stable across pages.
  */
 export function sortTrackedRows(rows: readonly TrackedRowVm[], sort: TrackedSort = DEFAULT_TRACKED_SORT, coverage?: TrackedCoverage): TrackedRowVm[] {
   const sign = sort.direction === 'asc' ? 1 : -1
@@ -252,13 +273,9 @@ export function sortTrackedRows(rows: readonly TrackedRowVm[], sort: TrackedSort
   const primary = (left: TrackedRowVm, right: TrackedRowVm): number => {
     if (key === 'query') return collator.compare(left.queryText, right.queryText) * sign
     if (key === 'subject') return bySubject(left, right) * sign
-    if (key === 'status') return (STATUS_ORDER[left.status] - STATUS_ORDER[right.status]) * sign
-    if (key === 'lastMeasured') {
-      if (left.lastMeasuredAt === right.lastMeasuredAt) return 0
-      if (left.lastMeasuredAt === null) return 1
-      if (right.lastMeasuredAt === null) return -1
-      return (left.lastMeasuredAt < right.lastMeasuredAt ? -1 : 1) * sign
-    }
+    // Status carries the date, so its order does too: within a status the newest sweep first, and the oldest first when reversed.
+    if (key === 'status') return (STATUS_ORDER[left.status] - STATUS_ORDER[right.status]) * sign || byLastMeasured(left, right, sign === 1 ? -1 : 1)
+    if (key === 'lastMeasured') return byLastMeasured(left, right, sign)
     const provider = key.slice('engine:'.length)
     return byState(sortState(left, coverage, provider, 'mentioned'), sortState(right, coverage, provider, 'mentioned'), sign)
       || byState(sortState(left, coverage, provider, 'cited'), sortState(right, coverage, provider, 'cited'), sign)
@@ -272,44 +289,66 @@ export const TRACKED_COLUMNS = ['query', 'subject', 'type', 'engines', 'lastMeas
 export type TrackedColumn = (typeof TRACKED_COLUMNS)[number]
 
 /**
- * Column widths in px. Query takes what is left: 288px in the 1152px content
- * column with three engines. Status holds its widest label, "First answers"
+ * Column widths in px. Query takes what is left: 424px in the 1152px content
+ * column with three engines. Subject's is its widest: it narrows before Query
+ * gets short (`trackedLayout`). Status holds its widest label, "First answers"
  * and a month and day.
  */
-export const TRACKED_COLUMN_WIDTH = { select: 32, subject: 180, type: 80, engine: 62, lastMeasured: 108, status: 148, source: 98, menu: 32 } as const
+export const TRACKED_COLUMN_WIDTH = { select: 32, subject: 250, type: 80, engine: 62, lastMeasured: 108, status: 148, source: 98, menu: 32 } as const
 /**
- * Under this, Query gives up Source and then Last measured. Both stay in the
- * row detail. 16px under Query's width in the full content column, so a
- * scrollbar or a little padding around the table does not fold Source away.
+ * The query is the row's identity. At this width its line holds 60 to 64
+ * characters, by their letters, and a page with a longer one gives every row
+ * two lines (`TrackedTable`). Under it Query takes Source and then Last
+ * measured, which stay in the row detail, and then room from Subject.
  */
-const TRACKED_QUERY_FLOOR = 272
-/** Under this with both folded away, or in a frame under 40rem, each row stacks. */
+const TRACKED_QUERY_FLOOR = 420
+/**
+ * As narrow as Subject gets: two lines there hold "Market", a count and a
+ * name of about 30 characters. In the 1152px content column Query keeps its
+ * floor beside engine columns of up to 258px in all, four of the default
+ * width with 10px to spare. Wider ones narrow Query, and four with Perplexity
+ * leave it 404px. Narrower than `TRACKED_QUERY_STACK_FLOOR`, the rows stack.
+ */
+const TRACKED_SUBJECT_FLOOR = 182
+/** Under this with Subject at its floor, or in a frame under 40rem, each row stacks. */
 const TRACKED_QUERY_STACK_FLOOR = 224
 /** 40rem, the width the stylesheet's phone rules for a stacked row also turn on. */
 const TRACKED_STACK_WIDTH = 640
 
-/** An engine column is as wide as its header needs: two chips, or a longer name and the gap to the next one. */
+/**
+ * An engine column is as wide as its header needs: two chips, or a longer
+ * name at 7px a character, the cell's 8px of padding and 10px for the sort
+ * mark. The name is centred, so the 13px mark after it ends in the next
+ * header's padding, where the stylesheet draws it over that header, and
+ * never on that header's name.
+ */
 export function trackedEngineColumnWidth(label: string): number {
-  return Math.max(TRACKED_COLUMN_WIDTH.engine, Math.ceil(label.length * 7.2) + 16)
+  return Math.max(TRACKED_COLUMN_WIDTH.engine, Math.ceil(label.length * 7) + 18)
 }
 
 export interface TrackedLayout {
   columns: readonly TrackedColumn[]
   /** Each row is a block under no header: the query and its menu, then Subject, Type, the engines by name and Status. */
   stacked: boolean
+  /** Subject's column in px: its widest, less what Query is short of. */
+  subjectWidth: number
 }
 
 /**
- * What fits in a frame `containerWidth` wide. Without a width (no
- * `ResizeObserver`) every wanted column shows. `engineWidths` is one width per
- * engine column.
+ * What fits in a frame `containerWidth` wide. Source and Last measured show
+ * only where Query keeps its floor beside them with Subject at its widest: a
+ * frame of 1354px with three engines and checkboxes, so not the 1152px content
+ * column. Narrower, Subject gives Query what it is short of, down to its own
+ * floor, and after that the rows stack. Without a width (no `ResizeObserver`)
+ * every wanted column shows. `engineWidths` is one width per engine column.
  */
 export function trackedLayout(
   containerWidth: number | undefined,
   engineWidths: readonly number[],
   { columns = TRACKED_COLUMNS, selectable = false }: { columns?: readonly TrackedColumn[]; selectable?: boolean } = {},
 ): TrackedLayout {
-  if (containerWidth === undefined) return { columns, stacked: false }
+  const subjectWidth = TRACKED_COLUMN_WIDTH.subject
+  if (containerWidth === undefined) return { columns, stacked: false, subjectWidth }
   const fixedWidth = (shown: readonly TrackedColumn[]) => shown.reduce((width, column) => {
     if (column === 'query') return width
     if (column === 'engines') return width + engineWidths.reduce((sum, engine) => sum + engine, 0)
@@ -321,9 +360,11 @@ export function trackedLayout(
     if (queryWidth(shown) >= TRACKED_QUERY_FLOOR) break
     shown = shown.filter(column => column !== optional)
   }
-  if (containerWidth >= TRACKED_STACK_WIDTH && queryWidth(shown) >= TRACKED_QUERY_STACK_FLOOR) return { columns: shown, stacked: false }
+  const short = Math.max(0, TRACKED_QUERY_FLOOR - queryWidth(shown))
+  const given = shown.includes('subject') ? Math.min(short, subjectWidth - TRACKED_SUBJECT_FLOOR) : 0
+  if (containerWidth >= TRACKED_STACK_WIDTH && queryWidth(shown) + given >= TRACKED_QUERY_STACK_FLOOR) return { columns: shown, stacked: false, subjectWidth: subjectWidth - given }
   // A stacked row has no place for the two optional columns; the row detail holds them.
-  return { columns: columns.filter(column => column !== 'source' && column !== 'lastMeasured'), stacked: true }
+  return { columns: columns.filter(column => column !== 'source' && column !== 'lastMeasured'), stacked: true, subjectWidth }
 }
 
 /**
