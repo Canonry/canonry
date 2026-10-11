@@ -531,7 +531,7 @@ describe('shared production visibility view', () => {
       for (const group of [harbor, marina]) expect(within(group).getByRole('button', { name }).textContent).not.toContain('%')
       for (const [group, location] of [[harbor, 'Harbor'], [marina, 'Marina']] as const) {
         fireEvent.click(within(group).getByRole('button', { name }))
-        await screen.findByText('No stored sentiment evidence for this query and scope.')
+        await screen.findByText('No stored evidence')
         expect(evidenceReads.at(-1)!.searchParams.get('location')).toBe(location)
         expect(evidenceReads.at(-1)!.searchParams.get('runId')).toBe('run-2')
         expect(evidenceReads.at(-1)!.searchParams.get('queryId')).toBe(first.queryId)

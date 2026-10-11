@@ -106,12 +106,7 @@ function ImportStep({
         <InfoTooltip placement="bottom" text="Review sitemap entries before choosing the locations to measure." />
       </div>
 
-      {!canEdit ? (
-        <div className="mt-4 flex items-center gap-2 text-sm text-secondary">
-          <ToneBadge tone="neutral">Viewer access</ToneBadge>
-          <span>You can inspect this setup.</span>
-        </div>
-      ) : null}
+      {!canEdit ? <div className="mt-4"><StatusNote icon={Eye} label="View only" detail="Your account cannot change this setup." /></div> : null}
 
       <form
         className="mt-5 space-y-4"
@@ -290,12 +285,11 @@ function PropertiesStep({
         <InfoTooltip placement="bottom" text="Choose the locations to include, then continue." />
       </div>
 
-      {!canEdit ? <div className="mt-4"><StatusNote icon={Eye} label="View only" detail="Location changes are unavailable." /></div> : null}
+      {!canEdit ? <div className="mt-4"><StatusNote icon={Eye} label="View only" detail="Your account cannot change this setup." /></div> : null}
 
       {propertiesState === 'loading' ? (
         <div className="mt-5 rounded-md border border-default bg-surface-subtle p-4">
           <p role="status" className="text-sm text-secondary">Loading locations…</p>
-          <p className="mt-1 text-sm text-secondary">If this does not finish, refresh the list.</p>
           <Button type="button" variant="outline" size="sm" className="mt-3" onClick={onRetryProperties}>Refresh locations</Button>
         </div>
       ) : null}
@@ -314,7 +308,6 @@ function PropertiesStep({
       {propertiesState === 'ready' && properties.length === 0 ? (
         <div className="mt-5 rounded-md border border-default bg-surface-subtle p-4">
           <p className="text-sm text-secondary">No locations found.</p>
-          <p className="mt-1 text-sm text-secondary">Check the sitemap and review it again.</p>
           <Button type="button" variant="outline" size="sm" className="mt-3" disabled={!canEdit} onClick={onReturnToImport}>Review sitemap</Button>
         </div>
       ) : null}
@@ -323,7 +316,7 @@ function PropertiesStep({
         <div className="mt-5">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <label className="block min-w-48 flex-1">
-              <span className="text-sm font-medium text-heading">Search locations</span>
+              <span className="text-sm font-medium text-heading">Search</span>
               <input
                 type="search"
                 value={propertiesSearch}
@@ -343,7 +336,6 @@ function PropertiesStep({
           {filteredProperties.length === 0 ? (
             <div className="mt-4 rounded-md border border-default bg-surface-subtle p-4">
               <p className="text-sm text-secondary">No locations match this search.</p>
-              <p className="mt-1 text-sm text-secondary">Clear the search or review the sitemap again.</p>
               <Button type="button" variant="outline" size="sm" className="mt-3" disabled={!canEdit} onClick={onReturnToImport}>Review sitemap</Button>
             </div>
           ) : (

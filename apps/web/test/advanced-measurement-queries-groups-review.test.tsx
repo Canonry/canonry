@@ -266,6 +266,36 @@ test('uses one audience control for every location, groups, and the Specific loc
   })
 })
 
+test('warns with an alert, in four words, when the chosen group holds no location', () => {
+  renderQueries({
+    groups: [{ id: 'empty', name: 'Empty', propertyIds: [], competitors: [] }],
+    audience: { kind: 'groups', groupIds: ['empty'] },
+    assignmentImpact: null,
+  })
+
+  const alert = screen.getByRole('alert')
+  expect(alert.textContent).toBe('No locations in group')
+  expect(alert.querySelector('button')!.getAttribute('aria-label')).toBe('No locations in group. This group has no included locations. Add locations to the group, then try again.')
+})
+
+test('names up to three locations in a query row and counts more than three', () => {
+  const four = manyProperties.slice(0, 4)
+  renderQueries({
+    properties: four,
+    queries: [
+      { id: 'q-three', text: 'three places', source: 'saved-project-queries', propertyIds: four.slice(0, 3).map(property => property.id) },
+      { id: 'q-four', text: 'four places', source: 'saved-project-queries', propertyIds: four.map(property => property.id) },
+      { id: 'q-none', text: 'no place', source: 'saved-project-queries' },
+    ],
+    selectedQueryIds: [],
+  })
+
+  const cell = (query: string) => screen.getByText(query).closest('tr')!.querySelectorAll('td')[2]!.textContent
+  expect(cell('three places')).toBe('Property 1, Property 2, Property 3')
+  expect(cell('four places')).toBe('4 locations')
+  expect(cell('no place')).toBe('Not applied')
+})
+
 test('returns Apply to to nothing chosen when its last group is removed', () => {
   const onAudienceChange = vi.fn()
   renderQueries({ groups, audience: { kind: 'groups', groupIds: ['waterfront-venues'] }, onAudienceChange })
@@ -350,7 +380,7 @@ test('makes the query Property picker searchable and bounded for large portfolio
   expect(screen.getByText('Showing 55 of 55 locations')).toBeTruthy()
   expect(screen.getByLabelText('Select Property 51')).toBeTruthy()
 
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search locations' }), { target: { value: 'Property 55' } })
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search' }), { target: { value: 'Property 55' } })
   expect(screen.getByText('Showing 1 of 1 locations')).toBeTruthy()
   expect(screen.getByLabelText('Select Property 55')).toBeTruthy()
 
@@ -368,7 +398,7 @@ test('shares the bounded, searchable Property picker with group setup', () => {
   expect(screen.getByRole('group', { name: 'Locations in this group' })).toBeTruthy()
   expect(screen.getByText('Showing 50 of 55 locations')).toBeTruthy()
   expect(screen.queryByLabelText('Select Property 51')).toBeNull()
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search locations' }), { target: { value: 'Property 55' } })
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search' }), { target: { value: 'Property 55' } })
   expect(screen.getByText('Showing 1 of 1 locations')).toBeTruthy()
 })
 
@@ -489,7 +519,7 @@ test('removes the legacy name-matched recovery banner in favor of the pattern pa
   // The token is the wire name and stays as typed: in the note's label, its sentence and the example.
   expect(screen.getByRole('button', { name: 'Use {property}. Put {property} where the location name belongs. You get one query per selected location.' }).textContent).toBe('Use {property}')
   expect(screen.getByLabelText('Query pattern').getAttribute('placeholder')).toBe('apartments near {property}')
-  expect(screen.getByRole('button', { name: 'One per line. Add them to the project, then apply them to locations.' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'One per line. Queries are added to the project, then you apply them to locations.' })).toBeTruthy()
 })
 
 test('does not show a no-op pagination action for a fully shown unapplied filter', () => {
@@ -689,6 +719,36 @@ test('reviews CSV group rows before applying only matched memberships', () => {
   expect(onApply).toHaveBeenCalledWith([1])
 })
 
+test('says location in every CSV row status and repair line', () => {
+  const row = (dataRow: number, status: 'proposed' | 'excluded' | 'ambiguous' | 'unmatched' | 'invalid') => ({ dataRow, property: `Row ${dataRow}`, group: 'Dallas', url: null, status })
+  renderGroups({
+    membershipImport: {
+      csv: 'property,group\nRow 1,Dallas',
+      preview: {
+        draftEtag: '"mpd_7"',
+        sourceChecksum: 'a'.repeat(64),
+        previewChecksum: 'b'.repeat(64),
+        rows: [row(1, 'proposed'), row(2, 'excluded'), row(3, 'ambiguous'), row(4, 'unmatched'), row(5, 'invalid')],
+        groupChanges: [],
+        counts: { dataRows: 5, matchedRows: 0, needsAttention: 5, groupsReady: 0 },
+      },
+      onCsvChange: vi.fn(),
+      onReview: vi.fn(),
+      onApply: vi.fn(),
+    },
+  })
+
+  fireEvent.click(screen.getByText('Fix 5 rows before applying'))
+  const issues = screen.getByRole('table', { name: 'CSV rows that need attention' })
+  expect([...issues.querySelectorAll('tbody tr')].map(line => line.querySelectorAll('td')[3]!.textContent)).toEqual([
+    'Location needs reviewReview this proposed location before importing it.',
+    'Location excludedInclude this location before importing it.',
+    'AmbiguousMore than one location matches this row. Add an exact URL to choose one.',
+    'Not matchedNo included location matches this row.',
+    'Invalid rowCheck the location, group, and optional URL fields.',
+  ])
+})
+
 test('gives group-specific repair guidance for ambiguous labels and stable-key conflicts', () => {
   renderGroups({
     membershipImport: {
@@ -881,6 +941,37 @@ test('shows reviewed sitemap URLs behind a concise disclosure before confirming 
   expect(onResolve).toHaveBeenCalledTimes(1)
 })
 
+test('states the sitemap review as counts, with each sentence behind a help icon or a note', () => {
+  const sitemapReview = {
+    exceptionCount: 3,
+    coverageReviewCount: 2,
+    coverageResolution: 'keep-existing' as const,
+    onCoverageResolutionChange: vi.fn(),
+    onResolve: vi.fn(),
+  }
+  const many = renderReview({ sitemapReview, canPublish: false })
+  const block = screen.getByRole('region', { name: 'Sitemap changes need review' })
+  // Two count lines under the heading, never a sentence.
+  expect([...block.querySelectorAll('h4 ~ p')].map(line => line.textContent)).toEqual(['3 sitemap entries to review', '2 locations with URL changes'])
+  expect(screen.getByText('URLs not added to locations (3)')).toBeTruthy()
+  expect(screen.getByText('Review location URL changes (2)')).toBeTruthy()
+  const choice = screen.getByRole('radio', { name: 'Keep existing location URLs' }).closest('fieldset')!
+  expect(choice.querySelector('legend')!.textContent).toBe('For changed location URLs')
+  expect(choice.querySelector('legend button')!.getAttribute('aria-label')).toBe('This choice applies to all 2 changed locations.')
+  expect(screen.getByRole('radio', { name: 'Use current sitemap URLs' })).toBeTruthy()
+  // Neither list was sent: each disclosure says so in three words, with its sentence behind them.
+  expect(screen.getByRole('button', { name: 'Review before confirming. Review the affected sitemap URLs before confirming.' }).textContent).toBe('Review before confirming')
+  expect(screen.getByRole('button', { name: 'Review before confirming. Review the affected locations before confirming.' }).textContent).toBe('Review before confirming')
+  expect(block.querySelectorAll('p')).toHaveLength(2)
+  many.unmount()
+
+  renderReview({ sitemapReview: { ...sitemapReview, exceptionCount: 1, coverageReviewCount: 1, coverageItems: [{ property: 'Harbor House', savedUrls: ['https://example.com/saved'], currentSitemapUrls: [] }] }, canPublish: false })
+  const one = screen.getByRole('region', { name: 'Sitemap changes need review' })
+  expect([...one.querySelectorAll('h4 ~ p')].map(line => line.textContent)).toEqual(['1 sitemap entry to review', '1 location with URL changes'])
+  expect(one.querySelector('legend button')!.getAttribute('aria-label')).toBe('This choice applies to the 1 changed location.')
+  expect(screen.getByRole('region', { name: 'Harbor House URL changes' }).textContent).toBe('Harbor HouseSaved URLshttps://example.com/savedCurrent sitemap URLsNo matching URL was found.')
+})
+
 test('keeps large review lists bounded and reveals them fifty at a time', () => {
   const count = 75
   renderReview({
@@ -943,24 +1034,27 @@ test('leaves the single unpublished-changes banner to the surrounding setup shel
 })
 
 test('viewer access is inspect-only across the three steps', () => {
-  // The help icon beside each step heading is the one button a viewer keeps: it changes nothing.
+  // A viewer keeps two buttons that change nothing: the help icon beside the step heading, and the "View only" note,
+  // which is the same icon, two words and sentence on every step.
+  const viewOnly = 'View only. Your account cannot change this setup.'
   const queryView = renderQueries({ access: 'viewer' })
-  expect(screen.getByText('Viewer access')).toBeTruthy()
-  expect(queryView.container.querySelectorAll('button:not(.info-tooltip-trigger), select, textarea, input:not([type="search"])')).toHaveLength(0)
-  expect([...queryView.container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Choose queries, then apply them to locations.'])
+  expect(screen.getByRole('button', { name: viewOnly }).textContent).toBe('View only')
+  expect(queryView.container.querySelectorAll('select, textarea, input:not([type="search"])')).toHaveLength(0)
+  expect([...queryView.container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Choose queries, then apply them to locations.', viewOnly])
   expect(screen.getByRole('searchbox', { name: 'Search queries' })).toBeTruthy()
   queryView.unmount()
 
   const groupView = renderGroups({ access: 'viewer' })
-  expect(screen.getByText('Viewer access')).toBeTruthy()
-  expect(groupView.container.querySelectorAll('button:not(.info-tooltip-trigger), input, select, textarea')).toHaveLength(0)
-  expect([...groupView.container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Use groups to apply queries by market and compare competitors.'])
+  expect(screen.getByRole('button', { name: viewOnly }).textContent).toBe('View only')
+  expect(groupView.container.querySelectorAll('input, select, textarea')).toHaveLength(0)
+  expect([...groupView.container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Use groups to apply queries by market and compare competitors.', viewOnly])
   groupView.unmount()
 
   const reviewView = renderReview({ access: 'viewer' })
-  expect(screen.getByText('Viewer access')).toBeTruthy()
-  expect(reviewView.container.querySelectorAll('button:not(.info-tooltip-trigger), input, select, textarea')).toHaveLength(0)
-  expect([...reviewView.container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Confirm the setup details before publishing.'])
+  expect(screen.getByRole('button', { name: viewOnly }).textContent).toBe('View only')
+  expect(reviewView.container.querySelectorAll('input, select, textarea')).toHaveLength(0)
+  expect([...reviewView.container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Confirm the setup details before publishing.', viewOnly])
+  expect(document.body.textContent).not.toContain('Viewer access')
 })
 
 test('every step heading is one to four words, with its sentence behind the help icon beside it', () => {
@@ -1015,10 +1109,11 @@ test('review states why location links outrun queries, and never puts a button n
   // a value rather than as "not computed yet".
   expect(screen.queryByText('Review changes', { selector: 'td' })).toBeNull()
 
-  // One query aimed at a market writes one assignment per Property in it, so
+  // One query applied to a group writes one assignment per Property in it, so
   // 1 query and 3 location links is correct and needs saying: four words on
-  // screen, the sentence with both counts behind them.
-  const note = screen.getByRole('button', { name: 'More links than queries. 1 query applied to markets and locations makes 3 location links: a query applied to a market is measured on every location in it.' })
+  // screen, the sentence with both counts behind them. The sentence names what
+  // Apply to offers: groups and locations. The wizard has no market control.
+  const note = screen.getByRole('button', { name: 'More links than queries. 1 query applied to groups and locations makes 3 location links: a query applied to a group is measured on every location in it.' })
   expect(note.textContent).toBe('More links than queries')
   expect(screen.getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Locations', 'Queries', 'Groups', 'Location links', 'Provider requests / run'])
 })
@@ -1032,7 +1127,7 @@ test('review says nothing about links when they do not outrun the queries', () =
 test('review words the link count for several queries', () => {
   renderReview({ counts: { properties: 6, queries: 2, groups: 3, assignments: 9 } })
 
-  expect(screen.getByRole('button', { name: 'More links than queries. 2 queries applied to markets and locations make 9 location links: a query applied to a market is measured on every location in it.' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'More links than queries. 2 queries applied to groups and locations make 9 location links: a query applied to a group is measured on every location in it.' })).toBeTruthy()
 })
 
 test('the assignment impact slot keeps a reserved height so ticking a box cannot move the table', () => {
@@ -1050,9 +1145,17 @@ test('the assignment impact slot keeps a reserved height so ticking a box cannot
 })
 
 test('counts the location links a selection would make before the server has answered', () => {
-  renderQueries({ assignmentImpact: null })
-
+  const two = renderQueries({ assignmentImpact: null })
   expect(screen.getByText('1 query × 2 locations = 2 location links')).toBeTruthy()
+  two.unmount()
+
+  // No query ticked asks the server for nothing, so this line stays. Each noun agrees with its own count.
+  const none = renderQueries({ assignmentImpact: null, selectedQueryIds: [], properties: [properties[0]!] })
+  expect(screen.getByText('0 queries × 1 location = 0 location links')).toBeTruthy()
+  none.unmount()
+
+  renderQueries({ assignmentImpact: null, properties: [properties[0]!] })
+  expect(screen.getByText('1 query × 1 location = 1 location link')).toBeTruthy()
 })
 
 // "Property" stays in code, on the wire, in the {property} token and in the CSV header.

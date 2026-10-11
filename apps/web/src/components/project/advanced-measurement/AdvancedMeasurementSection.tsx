@@ -1165,7 +1165,7 @@ export function AdvancedMeasurementSection({
     )
     if (next) {
       setSelectedQueryIds([])
-      setAssignmentNotice(`${assignmentPreview.assignments.added} new location link${assignmentPreview.assignments.added === 1 ? '' : 's'} added. Existing links were kept.`)
+      setAssignmentNotice(`${assignmentPreview.assignments.added} location link${assignmentPreview.assignments.added === 1 ? '' : 's'} added`)
     }
   }
 

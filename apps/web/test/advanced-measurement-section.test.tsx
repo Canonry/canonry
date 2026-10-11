@@ -878,10 +878,11 @@ describe('AdvancedMeasurementSection server draft controller', () => {
       },
     )
     expect(fake.getDraft()?.authoring.assignments).toHaveLength(targets.length * QUERIES.length)
-    expect((await screen.findByText('6 new location links added. Existing links were kept.')).getAttribute('role')).toBe('status')
+    // The count is the notice. That existing links stay is said before the click, behind the impact line's help icon.
+    expect((await screen.findByText('6 location links added')).getAttribute('role')).toBe('status')
   })
 
-  test('says "1 new location link" after a single query lands on a single location', async () => {
+  test('says "1 location link" after a single query lands on a single location', async () => {
     const fake = createFakeService({ initialDraft: draftFixture({ targets: [property(1)] }) })
     renderSection(fake)
 
@@ -892,7 +893,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     expect(await screen.findByText('1 query → 1 location link · 1 new, 0 already linked · 1 provider request per full run · 1 new')).toBeTruthy()
     await clickReadyAssignment(/Apply 1 query to every location \(1\)/)
 
-    expect(await screen.findByText('1 new location link added. Existing links were kept.')).toBeTruthy()
+    expect(await screen.findByText('1 location link added')).toBeTruthy()
   })
 
   test('previews and applies a selected group through one server-resolved audience', async () => {
@@ -1179,7 +1180,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     renderSection(fake, { canEdit: false })
 
     await screen.findByRole('heading', { name: 'Review & publish' })
-    expect(screen.getByText('Viewer access')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'View only. Your account cannot change this setup.' }).textContent).toBe('View only')
     for (const action of [
       'Discard changes',
       'Review changes',

@@ -135,6 +135,9 @@ function readerCopy(container: HTMLElement): string {
   return [container.textContent ?? '', ...named].join(' ')
 }
 
+// One note tells a viewer so on every step of the setup.
+const VIEW_ONLY = 'View only. Your account cannot change this setup.'
+
 afterEach(() => {
   cleanup()
 })
@@ -250,7 +253,7 @@ describe('SetupImportProperties Locations step', () => {
     const onReturnToImport = vi.fn()
     render(<PropertiesHarness isContinuing onReturnToImport={onReturnToImport} />)
 
-    expect(screen.getByRole('searchbox', { name: 'Search locations' })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('searchbox', { name: 'Search' })).toHaveProperty('disabled', true)
     expect(screen.getByRole('button', { name: 'Select all shown' })).toHaveProperty('disabled', true)
     expect(screen.getByRole('button', { name: 'Clear selection' })).toHaveProperty('disabled', true)
     expect(screen.getByLabelText('Select North Office')).toHaveProperty('disabled', true)
@@ -264,7 +267,7 @@ describe('SetupImportProperties Locations step', () => {
     render(<PropertiesHarness maxVisibleProperties={2} />)
 
     expect(screen.getByText('Showing 2 of 3 locations')).toBeTruthy()
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search locations' }), { target: { value: 'South' } })
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search' }), { target: { value: 'South' } })
     expect(screen.getByText('Showing 1 of 1 locations')).toBeTruthy()
     expect(screen.getByText('South Office')).toBeTruthy()
     expect(screen.queryByText('North Office')).toBeNull()
@@ -294,10 +297,18 @@ describe('SetupImportProperties Locations step', () => {
 
     expect(screen.getByText('North Office')).toBeTruthy()
     // An icon and two words; the sentence is the note's name and bubble.
-    expect(screen.getByRole('button', { name: 'View only. Location changes are unavailable.' }).textContent).toBe('View only')
+    expect(screen.getByRole('button', { name: VIEW_ONLY }).textContent).toBe('View only')
     expect(screen.queryByRole('button', { name: 'Select all shown' })).toBeNull()
     expect(screen.queryByRole('checkbox')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
+  })
+
+  test('tells a viewer so with the same note on the Import step', () => {
+    render(<SetupImportProperties {...buildProps({ canEdit: false })} />)
+
+    expect(screen.getByRole('button', { name: VIEW_ONLY }).textContent).toBe('View only')
+    expect(screen.queryByText('Viewer access')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Review sitemap' })).toHaveProperty('disabled', true)
   })
 
   test('allows an existing confirmed setup to continue without new proposals', () => {
@@ -319,7 +330,8 @@ describe('SetupImportProperties Locations step', () => {
       />,
     )
 
-    expect(screen.getByText('Loading locations…')).toBeTruthy()
+    // A label and one action in each state, with no helper sentence under the label.
+    expect(screen.getByRole('status').parentElement!.textContent).toBe('Loading locations…Refresh locations')
     fireEvent.click(screen.getByRole('button', { name: 'Refresh locations' }))
     expect(onRetryProperties).toHaveBeenCalledTimes(1)
     loading.unmount()
@@ -343,8 +355,15 @@ describe('SetupImportProperties Locations step', () => {
         onReturnToImport={onReturnToImport}
       />,
     )
-    expect(screen.getByText('No locations found.')).toBeTruthy()
+    expect(screen.getByText('No locations found.').parentElement!.textContent).toBe('No locations found.Review sitemap')
     fireEvent.click(screen.getByRole('button', { name: 'Review sitemap' }))
     expect(onReturnToImport).toHaveBeenCalledTimes(1)
+    cleanup()
+
+    render(<PropertiesHarness onReturnToImport={onReturnToImport} />)
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search' }), { target: { value: 'no such office' } })
+    expect(screen.getByText('No locations match this search.').parentElement!.textContent).toBe('No locations match this search.Review sitemap')
+    fireEvent.click(screen.getByRole('button', { name: 'Review sitemap' }))
+    expect(onReturnToImport).toHaveBeenCalledTimes(2)
   })
 })

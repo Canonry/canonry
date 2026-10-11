@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Info } from 'lucide-react'
+import { AlertTriangle, Eye, Info } from 'lucide-react'
 
 import { InfoTooltip } from '../../shared/InfoTooltip.js'
 import { StatusNote } from '../../shared/StatusNote.js'
@@ -386,7 +386,7 @@ function PropertyChecklist({
       <legend className="text-sm font-medium text-heading">{legend}</legend>
       <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
         <label className="block min-w-48 flex-1">
-          <span className="text-sm font-medium text-heading">Search locations</span>
+          <span className="text-sm font-medium text-heading">Search</span>
           <input
             type="search"
             value={search}
@@ -430,7 +430,7 @@ function PropertyChecklist({
 }
 
 function ViewerNotice() {
-  return <div className="flex items-center gap-2 text-sm text-secondary"><ToneBadge tone="neutral">Viewer access</ToneBadge><span>You can inspect this setup.</span></div>
+  return <div><StatusNote icon={Eye} label="View only" detail="Your account cannot change this setup." /></div>
 }
 
 function UnavailableState({ message }: { message: string }) {
@@ -845,7 +845,7 @@ export function AdvancedMeasurementQueriesStep({
               {queries.length === 0 ? 'Add the queries you want to track' : 'Add more queries'}
             </h4>
             <div className="mt-1 mb-2">
-              <StatusNote icon={Info} label="One per line" detail="Add them to the project, then apply them to locations." />
+              <StatusNote icon={Info} label="One per line" detail="Queries are added to the project, then you apply them to locations." />
             </div>
             <textarea
               aria-label="New queries, one per line"
@@ -1016,7 +1016,7 @@ export function AdvancedMeasurementQueriesStep({
             ) : activeAudience.kind === 'none' ? (
               <p className="text-sm text-secondary">Choose where to apply first.</p>
             ) : (
-              <p className="text-sm text-secondary">{selectedQueryIds.length} {selectedQueryIds.length === 1 ? 'query' : 'queries'} × {selectedPropertyCount} locations = {selectedQueryIds.length * selectedPropertyCount} location links</p>
+              <p className="text-sm text-secondary">{selectedQueryIds.length} {selectedQueryIds.length === 1 ? 'query' : 'queries'} × {selectedPropertyCount} {selectedPropertyCount === 1 ? 'location' : 'locations'} = {selectedQueryIds.length * selectedPropertyCount} location link{selectedQueryIds.length * selectedPropertyCount === 1 ? '' : 's'}</p>
             )}
             </div>
             {assignmentNotice ? <p role="status" className="text-sm text-secondary">{assignmentNotice}</p> : null}
@@ -1360,8 +1360,8 @@ export function AdvancedMeasurementReviewStep({
           <div className="max-w-2xl space-y-3">
             <div>
               <h4 id="advanced-measurement-sitemap-review-title" className="text-sm font-medium text-heading">Sitemap changes need review</h4>
-              {sitemapReview.exceptionCount > 0 ? <p className="mt-1 text-sm text-secondary">{sitemapReview.exceptionCount} sitemap {sitemapReview.exceptionCount === 1 ? 'entry needs' : 'entries need'} review.</p> : null}
-              {sitemapReview.coverageReviewCount > 0 ? <p className="mt-1 text-sm text-secondary">{sitemapReview.coverageReviewCount} {sitemapReview.coverageReviewCount === 1 ? 'location has' : 'locations have'} URL coverage changes.</p> : null}
+              {sitemapReview.exceptionCount > 0 ? <p className="mt-1 text-sm text-secondary">{sitemapReview.exceptionCount} sitemap {sitemapReview.exceptionCount === 1 ? 'entry' : 'entries'} to review</p> : null}
+              {sitemapReview.coverageReviewCount > 0 ? <p className="mt-1 text-sm text-secondary">{sitemapReview.coverageReviewCount} {sitemapReview.coverageReviewCount === 1 ? 'location' : 'locations'} with URL changes</p> : null}
             </div>
             {sitemapReview.exceptionCount > 0 ? (
               <details className="border-y border-caution-800/30 py-3">
@@ -1375,7 +1375,7 @@ export function AdvancedMeasurementReviewStep({
                       </li>
                     ))}
                   </ul>
-                ) : <p className="mt-2 text-sm text-secondary">Review the affected sitemap URLs before confirming.</p>}
+                ) : <div className="mt-2"><StatusNote icon={Info} label="Review before confirming" detail="Review the affected sitemap URLs before confirming." /></div>}
                 <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-secondary">
                   <span>Showing {shownSitemapItems.length} of {sitemapItems.length}</span>
                   {shownSitemapItems.length < sitemapItems.length ? (
@@ -1388,8 +1388,10 @@ export function AdvancedMeasurementReviewStep({
               <>
                 {sitemapReview.coverageReviewCount > 0 ? (
                   <fieldset className="space-y-3">
-                    <legend className="text-sm font-medium text-heading">For changed location URLs</legend>
-                    <p className="text-sm text-secondary">This choice applies to all {sitemapReview.coverageReviewCount} changed {sitemapReview.coverageReviewCount === 1 ? 'location' : 'locations'}.</p>
+                    <legend className="text-sm font-medium text-heading">
+                      For changed location URLs
+                      <InfoTooltip placement="bottom" text={`This choice applies to ${sitemapReview.coverageReviewCount === 1 ? 'the 1 changed location' : `all ${sitemapReview.coverageReviewCount} changed locations`}.`} />
+                    </legend>
                     <details className="border-y border-caution-800/30 py-3">
                       <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium text-heading">Review location URL changes ({sitemapReview.coverageReviewCount})</summary>
                       {shownCoverageItems.length > 0 ? (
@@ -1410,7 +1412,7 @@ export function AdvancedMeasurementReviewStep({
                             ) : null}
                           </div>
                         </div>
-                      ) : <p className="mt-2 text-sm text-secondary">Review the affected locations before confirming.</p>}
+                      ) : <div className="mt-2"><StatusNote icon={Info} label="Review before confirming" detail="Review the affected locations before confirming." /></div>}
                     </details>
                     <label className="flex min-h-11 items-center gap-2 text-sm text-primary">
                       <input
@@ -1457,14 +1459,14 @@ export function AdvancedMeasurementReviewStep({
         </p>
       ) : null}
       {counts.assignments !== undefined && counts.assignments > counts.queries ? (
-        // Aiming one query at a market writes one assignment per Property in
+        // Applying one query to a group writes one assignment per Property in
         // it, so this number outruns the query count and looks wrong without
         // the reason beside it.
         <div>
           <StatusNote
             icon={Info}
             label="More links than queries"
-            detail={`${counts.queries} ${counts.queries === 1 ? 'query' : 'queries'} applied to markets and locations ${counts.queries === 1 ? 'makes' : 'make'} ${counts.assignments} location ${counts.assignments === 1 ? 'link' : 'links'}: a query applied to a market is measured on every location in it.`}
+            detail={`${counts.queries} ${counts.queries === 1 ? 'query' : 'queries'} applied to groups and locations ${counts.queries === 1 ? 'makes' : 'make'} ${counts.assignments} location ${counts.assignments === 1 ? 'link' : 'links'}: a query applied to a group is measured on every location in it.`}
           />
         </div>
       ) : null}

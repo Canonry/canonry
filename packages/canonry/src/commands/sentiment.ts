@@ -84,7 +84,8 @@ function printSummary(value: SentimentSummaryRead): void {
       if (assessment.reason) console.log(`    ${assessment.reason}`)
     }
   }
-  for (const row of value.breakdowns) if (row.dimension !== 'query') console.log(`${row.dimension} ${row.label} · ${row.queryClass}: ${row.score.favorableDisplay} favorable · ${row.coverage.judged} of ${row.coverage.selected} judged`)
+  // Text calls a Property "location", as the title under these rows does. JSON keeps the wire name `property`.
+  for (const row of value.breakdowns) if (row.dimension !== 'query') console.log(`${row.dimension === 'property' ? 'location' : row.dimension} ${row.label} · ${row.queryClass}: ${row.score.favorableDisplay} favorable · ${row.coverage.judged} of ${row.coverage.selected} judged`)
   printCriticizedProperties(value)
   if (value.queryPage) console.log(`Query rows: ${value.queries.length} of ${value.queryPage.total}`)
   if (value.queryPage?.nextCursor) console.log(`Next query cursor: ${value.queryPage.nextCursor}`)
