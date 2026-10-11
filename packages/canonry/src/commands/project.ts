@@ -160,6 +160,9 @@ export async function showProject(name: string, format?: string): Promise<void> 
     console.log(`  Brand terms:      ${project.measurement.brandTerms.length > 0 ? project.measurement.brandTerms.join(', ') : '(none)'}`)
     console.log(`  Lead events:      ${project.measurement.leadEventNames.length > 0 ? project.measurement.leadEventNames.join(', ') : '(none)'}`)
   }
+  if (project.answerFieldsRecompute !== undefined && project.answerFieldsRecompute !== null) {
+    console.log(`  Answer fields recompute: ${project.answerFieldsRecompute}`)
+  }
   console.log(`  Tags:             ${project.tags.length > 0 ? project.tags.join(', ') : '(none)'}`)
   const labelEntries = Object.entries(project.labels)
   console.log(`  Labels:           ${labelEntries.length > 0 ? labelEntries.map(([k, v]) => `${k}=${v}`).join(', ') : '(none)'}`)
