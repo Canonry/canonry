@@ -67,6 +67,13 @@ describe('provider API host doctor checks', () => {
     if (kind === 'null-routed') expect(check.remediation).toContain('canonry google sync demo')
   })
 
+  it('does not report complete reachability when one host could not be resolved', async () => {
+    const app = buildApp(async host => result(host, host === 'oauth2.googleapis.com' ? 'resolver-unavailable' : 'reachable'))
+    const response = await app.inject({ url: '/api/v1/projects/demo/doctor?check=gsc.api.reachable' })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().checks[0]).toMatchObject({ status: 'skipped', code: 'gsc.api.probe-unavailable' })
+  })
+
   it('names a null-routed host and skips disconnected integrations', async () => {
     const app = buildApp(async host => result(host, host === 'www.googleapis.com' ? 'null-routed' : 'reachable', host === 'www.googleapis.com' ? ['0.0.0.0'] : ['192.0.2.10']))
     await app.ready()

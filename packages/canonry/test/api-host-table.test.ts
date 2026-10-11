@@ -3,11 +3,7 @@ import { GOOGLE_ADS_API_HOST } from '../../integration-google-ads/src/constants.
 import { GTM_API_BASE } from '../../integration-google-tag-manager/src/constants.js'
 import { OPENAI_ADS_API_BASE } from '../../integration-openai-ads/src/constants.js'
 
-const table = {
-  'google-ads': ['googleads.googleapis.com', 'oauth2.googleapis.com'],
-  gtm: ['tagmanager.googleapis.com', 'oauth2.googleapis.com'],
-  ads: ['api.ads.openai.com'],
-} as const
+import { API_HOST_TABLE as table } from '../../api-routes/src/doctor/checks/api-hosts.js'
 
 describe('provider API host table', () => {
   it('matches the integration base host constants', () => {

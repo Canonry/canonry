@@ -73,7 +73,7 @@ async function grade(prefix: ApiHostPrefix, ctx: DoctorContext): Promise<CheckOu
   if (tlsFailure) return { status: CheckStatuses.warn, code: `${id}.tls-failed`, summary: `TLS handshake failed for ${tlsFailure.host}.`, remediation: `Check outbound TLS access to ${tlsFailure.host}.`, details }
   const connectFailure = results.find(result => result.kind === 'connect-failed')
   if (connectFailure) return { status: CheckStatuses.warn, code: `${id}.connect-failed`, summary: `Connection failed for ${connectFailure.host}.`, remediation: `Check outbound network access to ${connectFailure.host}.`, details }
-  if (results.every(result => result.kind === 'resolver-unavailable')) return { status: CheckStatuses.skipped, code: `${id}.probe-unavailable`, summary: 'The server resolver was unavailable; provider reachability was not graded.', remediation: null, details }
+  if (results.some(result => result.kind === 'resolver-unavailable')) return { status: CheckStatuses.skipped, code: `${id}.probe-unavailable`, summary: 'The server resolver was unavailable for one or more hosts; complete provider reachability could not be verified.', remediation: null, details }
   return { status: CheckStatuses.ok, code: `${id}.ok`, summary: `Provider hosts for ${prefix} resolved and completed TLS handshakes.`, remediation: null, details }
 }
 
