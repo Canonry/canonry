@@ -2241,6 +2241,7 @@ const routeCatalog: OpenApiOperation[] = [
             required: ['competitors'],
             properties: {
               competitors: stringArraySchema,
+              acknowledgeBulkAdd: { type: 'boolean', description: 'Acknowledge a measured project bulk-add guard when the trailing 24-hour growth exceeds the contract threshold.' },
             },
           },
         },

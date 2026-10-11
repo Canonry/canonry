@@ -1,8 +1,11 @@
 import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
-import { competitors, marketCompetitorNames, type DatabaseClient } from '@ainyc/canonry-db'
+import { competitors, marketCompetitorNames, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { and as dbAnd, eq as dbEq, inArray as dbInArray, ne as dbNe } from 'drizzle-orm'
 import {
   brandKeyFromText,
+  COMPETITOR_BULK_ADD_THRESHOLD,
+  COMPETITOR_BULK_ADD_WINDOW_HOURS,
   competitorDomainProjectClaim,
   competitorEntryParts,
   competitorIdentityAliases,
@@ -157,6 +160,60 @@ export interface CompetitorSetPlan {
   autoAliasChanges: CompetitorAliasChange[]
   /** The auto names those changes dropped, with the rule each failed. */
   droppedAutoAliases: CompetitorAutoAliasDrop[]
+}
+
+export interface BulkCompetitorAddSummary {
+  acknowledged: boolean
+  limit: number
+  windowHours: number
+  wouldAdd: string[]
+  recentlyAdded: number
+  trackedBefore: number
+  trackedAfter: number
+}
+
+export function requireBulkCompetitorAddAcknowledged(
+  db: Pick<DatabaseClient, 'select'>,
+  projectId: string,
+  plan: Pick<CompetitorSetPlan, 'added' | 'final'>,
+  options: { acknowledged?: boolean; now: string; trackedBefore: number; projectName?: string },
+): BulkCompetitorAddSummary | null {
+  const wouldAdd = [...plan.added]
+  if (wouldAdd.length === 0) return null
+  const measured = db.select({ id: runs.id }).from(runs).where(dbAnd(
+    dbEq(runs.projectId, projectId),
+    dbEq(runs.kind, 'answer-visibility'),
+    dbInArray(runs.status, ['completed', 'partial']),
+    dbNe(runs.trigger, 'probe'),
+  )).limit(1).get()
+  const trackedAfter = plan.final.length
+  const addedSet = new Set(wouldAdd)
+  const cutoff = Date.parse(options.now) - COMPETITOR_BULK_ADD_WINDOW_HOURS * 60 * 60 * 1000
+  const recentlyAdded = measured
+    ? db.select({ domain: competitors.domain, createdAt: competitors.createdAt }).from(competitors)
+      .where(dbEq(competitors.projectId, projectId)).all()
+      .filter(row => !addedSet.has(row.domain) && Date.parse(row.createdAt) >= cutoff).length
+    : 0
+  const summary: BulkCompetitorAddSummary = {
+    acknowledged: options.acknowledged === true,
+    limit: COMPETITOR_BULK_ADD_THRESHOLD,
+    windowHours: COMPETITOR_BULK_ADD_WINDOW_HOURS,
+    wouldAdd,
+    recentlyAdded,
+    trackedBefore: options.trackedBefore,
+    trackedAfter,
+  }
+  if (!measured || wouldAdd.length + recentlyAdded <= COMPETITOR_BULK_ADD_THRESHOLD || options.acknowledged === true) return summary
+  throw validationError(
+    `Adding ${wouldAdd.length} competitors would grow the tracked list from ${options.trackedBefore} to ${trackedAfter} within ${COMPETITOR_BULK_ADD_WINDOW_HOURS} hours. Review the stored evidence with canonry competitor suggest ${options.projectName ?? '<project>'} or canonry competitor add ${options.projectName ?? '<project>'} <domain...> --dry-run before acknowledging the bulk add.`,
+    { reason: 'bulk-add-unacknowledged', ...summary, suggest: `canonry competitor suggest ${options.projectName ?? '<project>'}`, preview: `canonry competitor add ${options.projectName ?? '<project>'} <domain...> --dry-run` },
+  )
+}
+
+export function bulkCompetitorAddAuditFields(summary: BulkCompetitorAddSummary | null): Record<string, unknown> {
+  return summary && summary.acknowledged && summary.wouldAdd.length > 0
+    ? { bulkAddAcknowledged: true, bulkAddLimit: summary.limit, bulkAddWindowHours: summary.windowHours, bulkAddCount: summary.wouldAdd.length, bulkAddRecentlyAdded: summary.recentlyAdded }
+    : {}
 }
 
 /** True when a plan changes any name a competitor answers to (curated or auto). */

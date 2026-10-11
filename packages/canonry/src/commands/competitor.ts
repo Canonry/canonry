@@ -42,6 +42,21 @@ function printCompetitorPreviewImpact(impact: CompetitorShareImpact): void {
 export interface CompetitorCompletionOptions {
   wait?: boolean
   waitTimeout?: string
+  acknowledgeBulkAdd?: boolean
+}
+
+function printCompetitorPreviewImpact(preview: CompetitorChangePreviewResponse): void {
+  const { impact } = preview
+  const before = impact.before
+  const after = impact.after
+  const frame = impact.runIds.length > 0 ? `latest stored sweep, ${impact.runIds.length} run${impact.runIds.length === 1 ? '' : 's'}` : shareOfVoiceReason(before.reason ?? null) || 'no latest stored sweep'
+  const classLabel = impact.queryClass === 'pooled' ? 'pooled queries' : `${impact.queryClass} queries`
+  console.log(`Mention share ${formatPercent(before.percent, RatioUnits.percent)} -> ${formatPercent(after.percent, RatioUnits.percent)} (${frame}, ${classLabel}): project mentions ${before.projectMentions}, tracked competitor mentions ${before.competitorMentions} -> ${after.competitorMentions}; tracked competitors ${before.competitorCount} -> ${after.competitorCount}. Restates every stored period.`)
+  for (const caveat of impact.caveats) {
+    if (caveat === 'basis-changed') console.log('Caveat: the tracked competitor basis changed.')
+    if (caveat === 'auto-alias-rescan-pending') console.log('Caveat: answer-derived aliases are pending a rescan.')
+    if (caveat === 'pooled') console.log('Caveat: branded and non-brand queries are pooled because no usable project brand was configured.')
+  }
 }
 
 function completionTimeout(options: CompetitorCompletionOptions, dryRun = false): number | undefined {
@@ -107,7 +122,9 @@ export async function importCompetitors(project: string, filePath: string, forma
   const client = getClient()
   const existing = new Set((await client.listCompetitors(project)).map(row => row.domain))
   const requested = new Set(parsed.data.map(entry => normalizeCompetitorDomain(typeof entry === 'string' ? entry : entry.domain)))
-  const current = await client.appendCompetitors(project, parsed.data)
+  const current = completion.acknowledgeBulkAdd
+    ? await client.appendCompetitors(project, parsed.data, { acknowledgeBulkAdd: true })
+    : await client.appendCompetitors(project, parsed.data)
   await waitForCompetitorFields(client, project, timeout)
   const domains = current.map(row => row.domain)
   const addedDomains = domains.filter(domain => requested.has(domain) && !existing.has(domain))
@@ -136,10 +153,10 @@ export async function addCompetitors(project: string, domains: string[], format?
   // Compare in the stored (registrable) form, so `www.rival.example` counts as
   // the `rival.example` row it creates.
   const requested = new Set(uniqueStrings(domains).map(domain => normalizeCompetitorDomain(domain.trim())))
-  const current = await client.appendCompetitors(
-    project,
-    aliases.length > 0 ? domains.map(domain => ({ domain, aliases })) : domains,
-  )
+  const entries = aliases.length > 0 ? domains.map(domain => ({ domain, aliases })) : domains
+  const current = completion.acknowledgeBulkAdd
+    ? await client.appendCompetitors(project, entries, { acknowledgeBulkAdd: true })
+    : await client.appendCompetitors(project, entries)
   await waitForCompetitorFields(client, project, timeout)
   const currentDomains = current.map(c => c.domain)
   const addedDomains = currentDomains.filter(domain => requested.has(domain) && !existingSet.has(domain))

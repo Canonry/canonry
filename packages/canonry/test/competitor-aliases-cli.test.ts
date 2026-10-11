@@ -203,6 +203,6 @@ describe('competitor alias CLI', () => {
     const detect = await invokeCli(['competitor', 'aliases', 'detect', '--help'])
     expect(detect.stdout).toContain('canonry competitor aliases detect <project> [--apply] [--dry-run] [--format json|jsonl]')
     const add = await invokeCli(['competitor', 'add', '--help'])
-    expect(add.stdout).toContain('canonry competitor add <project> <domain...> [--alias <name>]... [--wait [--wait-timeout <seconds>]] [--format json]')
+    expect(add.stdout).toContain('canonry competitor add <project> <domain...> [--alias <name>]... [--acknowledge-bulk-add] [--wait [--wait-timeout <seconds>]] [--format json]')
   })
 })

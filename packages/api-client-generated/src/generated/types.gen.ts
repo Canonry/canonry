@@ -3745,6 +3745,7 @@ export type CompetitorAppendRequest = {
          */
         aliases?: Array<string>;
     }>;
+    acknowledgeBulkAdd?: boolean;
 };
 
 export type CompetitorAutoAliasDetectionDto = {
@@ -20774,6 +20775,10 @@ export type PostApiV1ProjectsByNameCompetitorsResponse = PostApiV1ProjectsByName
 export type PutApiV1ProjectsByNameCompetitorsData = {
     body: {
         competitors: Array<string>;
+        /**
+         * Acknowledge a measured project bulk-add guard when the trailing 24-hour growth exceeds the contract threshold.
+         */
+        acknowledgeBulkAdd?: boolean;
     };
     path: {
         /**

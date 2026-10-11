@@ -391,9 +391,16 @@ export type CompetitorBatchRequest = z.infer<typeof competitorBatchRequestSchema
  */
 export const competitorAppendRequestSchema = z.object({
   competitors: z.array(competitorEntrySchema).min(1),
+  acknowledgeBulkAdd: z.boolean().optional(),
 })
 
 export type CompetitorAppendRequest = z.infer<typeof competitorAppendRequestSchema>
+
+export const competitorReplaceRequestSchema = z.object({
+  competitors: z.array(z.string().trim().min(1)),
+  acknowledgeBulkAdd: z.boolean().optional(),
+})
+export type CompetitorReplaceRequest = z.infer<typeof competitorReplaceRequestSchema>
 
 /** Returns deduplicated list of all domains owned by the project. */
 export function effectiveDomains(project: { canonicalDomain: string; ownedDomains?: string[] }): string[] {

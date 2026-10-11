@@ -2454,9 +2454,22 @@ function ProjectPageContent({
       await apiAppendCompetitors(projectName, [domain])
       return true
     } catch (err) {
+      let failure: unknown = err
+      const details = apiErrorDetails(err)
+      if (details?.reason === 'bulk-add-unacknowledged') {
+        const accepted = window.confirm(`This add would grow tracked competitors from ${String(details.trackedBefore ?? '?')} to ${String(details.trackedAfter ?? '?')} within ${String(details.windowHours ?? 24)} hours. Continue?`)
+        if (accepted) {
+          try {
+            await apiAppendCompetitors(projectName, [domain], { acknowledgeBulkAdd: true })
+            return true
+          } catch (retryError) {
+            failure = retryError
+          }
+        }
+      }
       addToast({
         title: 'Could not add competitor',
-        detail: err instanceof Error ? err.message : `Failed to add ${domain}`,
+        detail: failure instanceof Error ? failure.message : `Failed to add ${domain}`,
         tone: 'negative',
         dedupeKey: 'competitor:add',
         dedupeMode: 'replace',

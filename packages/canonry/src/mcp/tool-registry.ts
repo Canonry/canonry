@@ -3326,13 +3326,13 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_add',
     title: 'Add competitors',
-    description: 'Use canonry_competitors_change_preview to inspect the stored share impact before this separate write. Add tracked competitor domains to a Canonry project. Each entry is a domain, or `{ domain, aliases }` to also add curated answer-text names to that competitor (tracked already or not; existing aliases are kept, the same rules as canonry_competitors_aliases_set apply). A new domain whose name overlaps another competitor\'s curated alias, or the label or a curated alias of a competitor an Advanced market pins (one brand key contains the other, so the alias "Tune" claims tunespoke.example), is rejected until that name is removed, and so is the project\'s own site. Already tracked domains (any spelling) are skipped.',
+    description: 'Use canonry_competitors_change_preview to inspect the stored share impact before this separate write. Measured projects require `acknowledgeBulkAdd: true` when new domains plus recent additions exceed the shared five-domain, 24-hour guard. Review with canonry_competitors_suggest or canonry_competitors_change_preview first; the built-in agent cannot acknowledge bulk growth. Add tracked competitor domains to a Canonry project. Each entry is a domain, or `{ domain, aliases }` to also add curated answer-text names to that competitor (tracked already or not; existing aliases are kept, the same rules as canonry_competitors_aliases_set apply). A new domain whose name overlaps another competitor\'s curated alias, or the label or a curated alias of a competitor an Advanced market pins (one brand key contains the other, so the alias "Tune" claims tunespoke.example), is rejected until that name is removed, and so is the project\'s own site. Already tracked domains (any spelling) are skipped.',
     access: 'write',
     tier: 'setup',
     inputSchema: competitorsAddInputSchema,
     annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/competitors'],
-    handler: (client, input) => client.appendCompetitors(input.project, input.request.competitors),
+    handler: (client, input) => client.appendCompetitors(input.project, input.request.competitors, { acknowledgeBulkAdd: input.request.acknowledgeBulkAdd }),
   }),
   defineTool({
     name: 'canonry_competitors_aliases_set',

@@ -1535,12 +1535,12 @@ export class ApiClient {
   }
 
   /** Each entry is a domain or `{ domain, aliases }`; stated aliases are added to that competitor's list. */
-  async appendCompetitors(project: string, competitors: CompetitorEntry[]): Promise<CompetitorDto[]> {
+  async appendCompetitors(project: string, competitors: CompetitorEntry[], options?: { acknowledgeBulkAdd?: boolean }): Promise<CompetitorDto[]> {
     return this.invoke<CompetitorDto[]>(() =>
       postApiV1ProjectsByNameCompetitors({
         client: this.heyClient,
         path: { name: project },
-        body: { competitors },
+        body: { competitors, ...(options?.acknowledgeBulkAdd !== undefined ? { acknowledgeBulkAdd: options.acknowledgeBulkAdd } : {}) },
       }),
     )
   }

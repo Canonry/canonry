@@ -844,22 +844,22 @@ export function removeQueries(projectName: string, queries: string[]): Promise<A
   )
 }
 
-export function setCompetitors(projectName: string, competitors: string[]): Promise<ApiCompetitor[]> {
+export function setCompetitors(projectName: string, competitors: string[], options?: { acknowledgeBulkAdd?: boolean }): Promise<ApiCompetitor[]> {
   return invokeWeb<ApiCompetitor[]>(() =>
     putApiV1ProjectsByNameCompetitors({
       client: heyClient,
       path: { name: projectName },
-      body: { competitors },
+      body: { competitors, ...(options?.acknowledgeBulkAdd !== undefined ? { acknowledgeBulkAdd: options.acknowledgeBulkAdd } : {}) },
     }),
   )
 }
 
-export function appendCompetitors(projectName: string, competitors: string[]): Promise<ApiCompetitor[]> {
+export function appendCompetitors(projectName: string, competitors: string[], options?: { acknowledgeBulkAdd?: boolean }): Promise<ApiCompetitor[]> {
   return invokeWeb<ApiCompetitor[]>(() =>
     postApiV1ProjectsByNameCompetitors({
       client: heyClient,
       path: { name: projectName },
-      body: { competitors },
+      body: { competitors, ...(options?.acknowledgeBulkAdd !== undefined ? { acknowledgeBulkAdd: options.acknowledgeBulkAdd } : {}) },
     }),
   )
 }

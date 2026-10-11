@@ -5,10 +5,10 @@ import { getBoolean, getString, getStringArray, multiStringOption, parseIntegerO
 import { usageError } from '../cli-error.js'
 
 const WAIT_USAGE = '[--wait [--wait-timeout <seconds>]]'
-const IMPORT_USAGE = `canonry competitor import <project> <file> ${WAIT_USAGE} [--format json|jsonl]`
+const IMPORT_USAGE = `canonry competitor import <project> <file> [--acknowledge-bulk-add] ${WAIT_USAGE} [--format json|jsonl]`
 const WAIT_OPTIONS = { wait: { type: 'boolean' as const }, 'wait-timeout': stringOption() }
 
-const ADD_USAGE = 'canonry competitor add <project> <domain...> [--alias <name>]... [--wait [--wait-timeout <seconds>]] [--format json]'
+const ADD_USAGE = 'canonry competitor add <project> <domain...> [--alias <name>]... [--acknowledge-bulk-add] [--wait [--wait-timeout <seconds>]] [--format json]'
 const ALIASES_USAGE = 'canonry competitor aliases <project> <domain> [--set <name>]... [--add <name>]... [--remove <name>]... [--clear] [--block <name>]... [--unblock <name>]... [--dry-run] [--wait [--wait-timeout <seconds>]] [--format json]'
 const DETECT_USAGE = 'canonry competitor aliases detect <project> [--apply] [--dry-run] [--format json|jsonl]'
 
@@ -31,6 +31,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
     help: 'Several domains in one call are one write. Use import to batch per-domain aliases. --wait covers stored answer-field recomputation, not alias detection.',
     options: {
       alias: multiStringOption(),
+      'acknowledge-bulk-add': { type: 'boolean' },
       ...WAIT_OPTIONS,
     },
     supportsDryRun: true,
@@ -53,17 +54,17 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
           details: { command: 'competitor.add', usage: ADD_USAGE },
         })
       }
-      await addCompetitors(project, domains, input.format, aliases, input.dryRun, { wait: getBoolean(input.values, 'wait'), waitTimeout: getString(input.values, 'wait-timeout') })
+      await addCompetitors(project, domains, input.format, aliases, input.dryRun, { acknowledgeBulkAdd: getBoolean(input.values, 'acknowledge-bulk-add'), wait: getBoolean(input.values, 'wait'), waitTimeout: getString(input.values, 'wait-timeout') })
     },
   },
   {
     path: ['competitor', 'import'],
     usage: IMPORT_USAGE,
-    options: WAIT_OPTIONS,
+    options: { 'acknowledge-bulk-add': { type: 'boolean' }, ...WAIT_OPTIONS },
     run: async input => {
       const project = requireProject(input, 'competitor.import', IMPORT_USAGE)
       const file = requirePositional(input, 1, { command: 'competitor.import', usage: IMPORT_USAGE, message: 'input file is required' })
-      await importCompetitors(project, file, input.format, { wait: getBoolean(input.values, 'wait'), waitTimeout: getString(input.values, 'wait-timeout') })
+      await importCompetitors(project, file, input.format, { acknowledgeBulkAdd: getBoolean(input.values, 'acknowledge-bulk-add'), wait: getBoolean(input.values, 'wait'), waitTimeout: getString(input.values, 'wait-timeout') })
     },
   },
   {

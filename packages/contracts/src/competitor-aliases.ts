@@ -23,6 +23,8 @@ import { brandLabelFromDomain, hostMatchesDomain, hostOf, normalizeCompetitorDom
 
 /** Most curated aliases one competitor may carry. */
 export const COMPETITOR_ALIAS_LIMIT = 10
+export const COMPETITOR_BULK_ADD_THRESHOLD = 5
+export const COMPETITOR_BULK_ADD_WINDOW_HOURS = 24
 /** Longest curated alias, in characters after trimming. */
 export const COMPETITOR_ALIAS_MAX_LENGTH = 80
 

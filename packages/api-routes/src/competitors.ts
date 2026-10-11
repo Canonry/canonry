@@ -9,6 +9,7 @@ import {
   competitorAliasesRequestSchema,
   competitorAppendRequestSchema,
   competitorBatchRequestSchema,
+  competitorReplaceRequestSchema,
   competitorAliasProjectIdentity,
   normalizeCompetitorAliases,
   normalizeCompetitorDomain,
@@ -37,6 +38,7 @@ import {
 import { previewCompetitorShareImpact } from './competitor-change-preview.js'
 import {
   applyCompetitorSetPlan,
+  bulkCompetitorAddAuditFields,
   competitorAliasAuditFields,
   competitorSetChangeAuditFields,
   deletedAliasesDiff,
@@ -47,6 +49,7 @@ import {
   normalizeCompetitorList,
   planCompetitorSet,
   readStoredCompetitors,
+  requireBulkCompetitorAddAcknowledged,
   syncCompetitorSet,
 } from './competitor-writes.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
@@ -137,25 +140,24 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
   // keep their row, so their curated aliases survive a domain-only replace.
   app.put<{
     Params: { name: string }
-    Body: { competitors: string[] }
+    Body: { competitors: string[]; acknowledgeBulkAdd?: boolean }
   }>('/projects/:name/competitors', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
-    const body = request.body
-    if (!body || !Array.isArray(body.competitors)) {
-      throw validationError('Body must contain a "competitors" array')
-    }
+    const body = parseBody(competitorReplaceRequestSchema, request.body, 'Body must contain a "competitors" array')
 
     const now = new Date().toISOString()
     const normalizedCompetitors = normalizeCompetitorList(body.competitors)
 
     const changes = app.db.transaction((tx) => {
+      const trackedBefore = readStoredCompetitors(tx, project.id).length
       const marketNames = beginMarketNameWrite(tx, project.id)
       const plan = syncCompetitorSet(tx, project.id, normalizedCompetitors.map(domain => ({ domain })), {
         replace: true,
         project: competitorAliasProjectIdentity(project),
         now,
       })
+      const bulkAdd = requireBulkCompetitorAddAcknowledged(tx, project.id, plan, { acknowledged: body.acknowledgeBulkAdd, now, trackedBefore, projectName: project.name })
       const droppedQualifiedAliases = pruneQualifiedAliasesForCompetitors(tx, project.id, now)
       const marketNamesChanged = marketNames.finish()
 
@@ -168,6 +170,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
           competitors: normalizedCompetitors,
           ...competitorSetChangeAuditFields(plan),
           ...competitorAliasAuditFields(plan),
+          ...bulkCompetitorAddAuditFields(bulkAdd),
           ...marketNameAuditFields(marketNamesChanged),
           ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}),
         },
@@ -175,6 +178,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
       return {
         identityChanged: competitorIdentityChanged(plan) || marketNamesChanged.length > 0,
         added: plan.added.length > 0,
+        bulkAdd,
       }
     })
 
@@ -196,12 +200,14 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
     const writes = competitorWritesFromEntries(body.competitors, 'add')
 
     const changes = app.db.transaction((tx) => {
+      const trackedBefore = readStoredCompetitors(tx, project.id).length
       const marketNames = beginMarketNameWrite(tx, project.id)
       const plan = syncCompetitorSet(tx, project.id, writes, {
         replace: false,
         project: competitorAliasProjectIdentity(project),
         now,
       })
+      const bulkAdd = requireBulkCompetitorAddAcknowledged(tx, project.id, plan, { acknowledged: body.acknowledgeBulkAdd, now, trackedBefore, projectName: project.name })
       if (plan.added.length === 0 && !competitorIdentityChanged(plan)) return { identityChanged: false, added: false }
       const droppedQualifiedAliases = pruneQualifiedAliasesForCompetitors(tx, project.id, now)
       // A new domain's label or curated alias can claim a name learned for a
@@ -217,6 +223,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
         diff: {
           added: plan.added,
           ...competitorAliasAuditFields(plan),
+          ...bulkCompetitorAddAuditFields(bulkAdd),
           ...marketNameAuditFields(marketNamesChanged),
           ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}),
         },
@@ -224,6 +231,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
       return {
         identityChanged: competitorIdentityChanged(plan) || marketNamesChanged.length > 0,
         added: plan.added.length > 0,
+        bulkAdd,
       }
     })
 
