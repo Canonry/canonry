@@ -625,7 +625,7 @@ describe('measurement-plan CLI commands', () => {
     })
 
     log.mockRestore()
-    expect(text).toContain('Mentioned  9 of 11 (81.8%) · 1 of 12 answers could not be tied to one property')
+    expect(text).toContain('Mentioned  9 of 11 (81.8%) · 1 of 12 answers could not be tied to one location')
     // Citation reads its own denominator; the note belongs to the mention rate only.
     expect(text).toMatch(/^Cited {6}3 of 12 \(25\.0%\)$/m)
     expect(JSON.parse(logged.join('\n')).properties.items[0].mentionCoverage).toEqual(partial)
@@ -657,13 +657,13 @@ describe('measurement-plan CLI commands', () => {
 
     log.mockRestore()
     const lines = logged.join('\n').split('\n')
-    expect(lines).toContain('Mentioned  1 of 1 (100%) · 9 of 10 answers could not be tied to one property')
+    expect(lines).toContain('Mentioned  1 of 1 (100%) · 9 of 10 answers could not be tied to one location')
     const gemini = lines.findIndex(line => line.startsWith('gemini'))
     expect(lines[gemini]).toBe(`${'gemini'.padEnd(14)}${'1 of 1 (100%)'.padEnd(34)}0 of 5 (0%)`)
     // The note continues under the Mentioned column so the table stays aligned.
-    expect(lines[gemini + 1]).toBe(`${''.padEnd(14)}4 of 5 answers could not be tied to one property`)
+    expect(lines[gemini + 1]).toBe(`${''.padEnd(14)}4 of 5 answers could not be tied to one location`)
     const openai = lines.findIndex(line => line.startsWith('openai'))
-    expect(lines[openai]).toBe(`${'openai'.padEnd(14)}${'not measured (no answer could be tied to one property)'.padEnd(34)}0 of 5 (0%)`)
+    expect(lines[openai]).toBe(`${'openai'.padEnd(14)}${'not measured (no answer could be tied to one location)'.padEnd(34)}0 of 5 (0%)`)
     expect(lines[openai + 1]).toBeUndefined()
   })
 
@@ -702,13 +702,13 @@ describe('measurement-plan CLI commands', () => {
 
     log.mockRestore()
     const lines = logged.join('\n').split('\n')
-    expect(lines).toContain('Mentioned  2 of 3 (66.7%) · 1 of 4 answers could not be tied to one property')
+    expect(lines).toContain('Mentioned  2 of 3 (66.7%) · 1 of 4 answers could not be tied to one location')
     expect(lines).toContain('Cited      1 of 2 (50.0%) · 2 of 4 answers had sources that could not be checked')
     const gemini = lines.findIndex(line => line.startsWith('gemini'))
     expect(lines.slice(gemini)).toEqual([
       `${'gemini'.padEnd(14)}${'1 of 1 (100%)'.padEnd(34)}0 of 1 (0%)`,
       // Each note continues under its own column: mention under Mentioned, citation under Cited.
-      `${''.padEnd(14)}1 of 2 answers could not be tied to one property`,
+      `${''.padEnd(14)}1 of 2 answers could not be tied to one location`,
       `${''.padEnd(48)}1 of 2 answers had sources that could not be checked`,
       `${'openai'.padEnd(14)}${'1 of 2 (50.0%)'.padEnd(34)}1 of 1 (100%)`,
       `${''.padEnd(48)}1 of 2 answers had sources that could not be checked`,
@@ -729,7 +729,7 @@ describe('measurement-plan CLI commands', () => {
     })
 
     log.mockRestore()
-    expect(logged.join('\n')).toContain('Mentioned  not measured (no answer could be tied to one property)')
+    expect(logged.join('\n')).toContain('Mentioned  not measured (no answer could be tied to one location)')
   })
 
   it.each([

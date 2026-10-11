@@ -47,14 +47,14 @@ describe('advanced project tag', () => {
     expect(advancedProjectTagDetail({
       targets: [{}, {}, {}, {}],
       groups: [{}, {}, { parentGroupKey: 'east' }],
-    })).toBe('4 properties · 2 markets')
+    })).toBe('4 locations · 2 markets')
   })
 
   it('uses singular nouns for one property and one market', () => {
-    expect(advancedProjectTagDetail({ targets: [{}], groups: [{}] })).toBe('1 property · 1 market')
+    expect(advancedProjectTagDetail({ targets: [{}], groups: [{}] })).toBe('1 location · 1 market')
   })
 
   it('omits markets when the setup has none', () => {
-    expect(advancedProjectTagDetail({ targets: [{}, {}], groups: [] })).toBe('2 properties')
+    expect(advancedProjectTagDetail({ targets: [{}, {}], groups: [] })).toBe('2 locations')
   })
 })

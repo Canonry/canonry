@@ -289,7 +289,7 @@ function modeTag(doc: Document): string | null {
 test.each(PROJECT_PAGE_TABS)('the public demo tags an advanced project on the %s tab', async tab => {
   const path = tab === 'overview' ? '/projects/project_citypoint' : `/projects/project_citypoint/${tab}`
   const { doc } = await renderAt(path, { demo: true, plan: advancedPlan() })
-  expect(modeTag(doc)).toBe('Advanced|1 property · 1 market')
+  expect(modeTag(doc)).toBe('Advanced|1 location · 1 market')
 })
 
 test('the public demo renders no tag for a project without an advanced setup', async () => {

@@ -895,7 +895,7 @@ describe('Property page', () => {
     })
 
     // Each count keeps its left-out answers behind a caution icon beside it, never as a line of its own.
-    const line = '9 of 10 answers could not be tied to one property'
+    const line = '9 of 10 answers could not be tied to one location'
     const hero = await screen.findByRole('region', { name: 'Coverage for this location' })
     const nonBrandMention = within(hero).getAllByText('Mentioned')[0]!.closest<HTMLElement>('.aeo-hero-row')!
     expect(nonBrandMention.querySelector('.aeo-hero-row-detail')!.textContent).toBe('1 of 1')
@@ -916,7 +916,7 @@ describe('Property page', () => {
     const providers = screen.getByRole('table', { name: 'Per-engine mention and citation coverage' })
     const gemini = within(providers).getByText('Gemini').closest('tr')!
     expect(gemini.querySelectorAll('td')[1]!.textContent).toBe('100%1 of 1')
-    expectCautionNote(gemini.querySelectorAll('td')[1]!, '4 of 5 answers could not be tied to one property', '1 of 1')
+    expectCautionNote(gemini.querySelectorAll('td')[1]!, '4 of 5 answers could not be tied to one location', '1 of 1')
     const openai = within(providers).getByText('OpenAI').closest('tr')!
     expect(within(openai).getByText('Unclear answers')).toBeTruthy()
     expect(within(openai).getByRole('button', { name: UNCLEAR_ANSWERS })).toBeTruthy()

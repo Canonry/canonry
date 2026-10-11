@@ -296,7 +296,7 @@ describe('headline strip', () => {
       [`92.5% · ${REPORT_CLASS_NOUN.branded}`, 'report-headline-value'],
       ['1055 of 1140 answers', DETAIL_CLASS],
     ])
-    expectCautionNote(tile(MENTION_LABEL, 'branded'), '12 of 1152 answers could not be tied to one property', '1055 of 1140 answers')
+    expectCautionNote(tile(MENTION_LABEL, 'branded'), '12 of 1152 answers could not be tied to one location', '1055 of 1140 answers')
     expect(visibleText(tile(MENTION_LABEL, 'branded'))).not.toContain(VISIBILITY_DISPLAY_COPY.ambiguous)
     // Cited is a separate signal with its own denominator and no such note.
     expect(cell(CITATION_LABEL, 'branded')).toEqual(figure(CITATION_LABEL, 'branded'))
@@ -465,7 +465,7 @@ describe('headline strip', () => {
     fireEvent.click(within(breakdown).getByRole('button', { name: 'Locations' }))
     const [, , mentioned, cited] = [...within(breakdown).getByRole('button', { name: 'Harbor House' }).closest('tr')!.querySelectorAll('td')]
     expect(mentioned!.textContent).toBe('75.0%3 of 4')
-    await expectCautionNoteOnOneLine(expectCautionNote(mentioned!, '1 of 5 answers could not be tied to one property', '3 of 4'))
+    await expectCautionNoteOnOneLine(expectCautionNote(mentioned!, '1 of 5 answers could not be tied to one location', '3 of 4'))
     expect(cited!.textContent).toBe('50.0%2 of 4')
     expect(cautionNotes(cited!)).toEqual([])
   })

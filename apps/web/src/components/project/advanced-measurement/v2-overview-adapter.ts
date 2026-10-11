@@ -167,7 +167,7 @@ export function adaptV2MeasurementOverview({
     throw new Error('The current overview requires an active version-two setup.')
   }
   if (overview.scope.kind !== 'all' && overview.scope.kind !== 'group') {
-    throw new Error('The current overview requires an All Properties or group scope.')
+    throw new Error('The overview needs all locations or one group.')
   }
 
   const plan = activePlan.plan

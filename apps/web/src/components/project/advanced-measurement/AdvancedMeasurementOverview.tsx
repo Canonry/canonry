@@ -14,7 +14,7 @@ import { Button } from '../../ui/button.js'
  * property's own pages; the older site-wide "domain in the sources" reading
  * would contradict the counts beside it.
  */
-export const ADVANCED_PROPERTIES_SIGNAL_HELP = 'Mentioned = the property\u2019s name in the answer. Cited = one of the property\u2019s own pages in the sources. Neither implies the other.'
+export const ADVANCED_PROPERTIES_SIGNAL_HELP = 'Mentioned = the location\u2019s name in the answer. Cited = one of the location\u2019s own pages in the sources. Neither implies the other.'
 
 /**
  * `all` is what the API has always accepted and the dashboard never offered, so
@@ -203,7 +203,7 @@ export interface AdvancedMeasurementOverviewProps {
 }
 
 const SORTABLE_COLUMNS: readonly { key: 'label' | 'mentionCoverage' | 'citationCoverage'; label: string; numeric: boolean }[] = [
-  { key: 'label', label: 'Property', numeric: false },
+  { key: 'label', label: 'Location', numeric: false },
   { key: 'mentionCoverage', label: 'Mention', numeric: true },
   { key: 'citationCoverage', label: 'Citation', numeric: true },
 ]
@@ -234,11 +234,11 @@ const QUERY_CLASS_OPTIONS: readonly { value: AdvancedMeasurementClass; label: st
 ]
 
 const evidenceLabels: Record<AdvancedMeasurementEvidenceKind, string> = {
-  'this-property': 'Matches this Property',
-  'another-property': 'Matches another Property',
-  'owned-unassigned': 'Site URL not included in a Property',
+  'this-property': 'Matches this location',
+  'another-property': 'Matches another location',
+  'owned-unassigned': 'Site URL not included in a location',
   external: 'External URL',
-  'multiple-properties': 'Matches multiple Properties',
+  'multiple-properties': 'Matches multiple locations',
   'invalid-url': 'Invalid URL',
 }
 
@@ -567,7 +567,7 @@ function SegmentedControl<T extends string>({
  * recommended somebody else; mentioned-but-not-cited means the opposite. A
  * label that averages them tells the reader nothing they can act on.
  *
- * The unit is stated ONCE, as "N properties" on the heading line this row sits
+ * The unit is stated ONCE, as "N locations" on the heading line this row sits
  * under, and every number here counts the same thing — so there is nothing to
  * reconcile. That is why the assignment-denominated rates were removed: two
  * populations side by side, with the unit printed on neither, is what made the
@@ -591,7 +591,7 @@ function OutcomeCounts({ outcomes }: {
       : []),
   ]
   return (
-    <div aria-label="Property outcomes" className="flex flex-wrap gap-x-8 gap-y-3 py-3">
+    <div aria-label="Location outcomes" className="flex flex-wrap gap-x-8 gap-y-3 py-3">
       {entries.map(entry => (
         <div key={entry.key} className="whitespace-nowrap">
           <p className={`font-mono text-xl font-semibold leading-none tabular-nums ${entry.tone}`}>{entry.count}</p>
@@ -720,7 +720,7 @@ export function AdvancedMeasurementOverview({
     ? metricReasons.plan_v1
     : report.nextActionText ?? headlineUnavailableReason
       ?? (unavailableProperties > 0
-        ? `${unavailableProperties} ${unavailableProperties === 1 ? 'property is' : 'properties are'} unavailable.`
+        ? `${unavailableProperties} ${unavailableProperties === 1 ? 'location is' : 'locations are'} unavailable.`
         : flaggedResultsTotal > 0
           ? `${flaggedResultsTotal} flagged ${flaggedResultsTotal === 1 ? 'result needs' : 'results need'} review.`
           : null)
@@ -746,7 +746,7 @@ export function AdvancedMeasurementOverview({
     : null
   const measurementDate = availableLabel(report.latestMeasurement.date)
   const groupSegmentOptions = [
-    { value: ALL_PROPERTIES, label: 'All properties' },
+    { value: ALL_PROPERTIES, label: 'All locations' },
     ...groupOptions.map(group => ({ value: group.id, label: group.label })),
   ]
   const useGroupSelect = groupOptions.length > GROUP_SEGMENTED_CONTROL_LIMIT
@@ -830,13 +830,13 @@ export function AdvancedMeasurementOverview({
           />
         </div>
         <div className="ml-auto min-w-52 max-w-xs flex-1 space-y-1">
-          <label htmlFor="advanced-measurement-search" className="block text-sm font-medium text-heading">Search properties</label>
+          <label htmlFor="advanced-measurement-search" className="block text-sm font-medium text-heading">Search locations</label>
           <input
             id="advanced-measurement-search"
             type="search"
             value={search}
             onChange={event => setSearch(event.target.value)}
-            placeholder="Search properties"
+            placeholder="Search locations"
             className="h-9 w-full rounded-md border border-default bg-surface px-3 text-sm text-primary placeholder-mono-600 focus:outline-none focus:ring-2 focus:ring-mono-400"
           />
         </div>
@@ -847,17 +847,17 @@ export function AdvancedMeasurementOverview({
       {!isViewLoading ? <section aria-labelledby="advanced-measurement-properties-title">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 id="advanced-measurement-properties-title" className="text-base font-semibold text-heading">
-            Properties
+            Locations
             <InfoTooltip text={ADVANCED_PROPERTIES_SIGNAL_HELP} />
           </h2>
-          <span className="text-sm text-secondary">{report.currentView?.propertyTotal ?? filteredProperties.length} {(report.currentView?.propertyTotal ?? filteredProperties.length) === 1 ? 'property' : 'properties'}</span>
+          <span className="text-sm text-secondary">{report.currentView?.propertyTotal ?? filteredProperties.length} {(report.currentView?.propertyTotal ?? filteredProperties.length) === 1 ? 'location' : 'locations'}</span>
         </div>
         {/* Directly under the count it partitions, so the unit is stated once
             and the row visibly sums to it. */}
         {report.currentView?.outcomes ? <OutcomeCounts outcomes={report.currentView.outcomes} /> : null}
         <div className="overflow-x-auto rounded-md border border-default">
           <table className="evidence-table min-w-[720px]">
-            <caption className="sr-only">Property measurement results</caption>
+            <caption className="sr-only">Location measurement results</caption>
             <thead>
               <tr>
                 {SORTABLE_COLUMNS.map(column => {
@@ -942,16 +942,16 @@ export function AdvancedMeasurementOverview({
                   </Fragment>
                 )
               })}
-              {shownProperties.length === 0 ? <tr><td colSpan={4} className="py-8 text-center text-sm text-secondary">No properties match this search.</td></tr> : null}
+              {shownProperties.length === 0 ? <tr><td colSpan={4} className="py-8 text-center text-sm text-secondary">No locations match this search.</td></tr> : null}
             </tbody>
           </table>
         </div>
         {usesServerView && report.currentView!.nextCursor && onLoadMore ? (
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-secondary">
             <span>Showing {shownProperties.length} of {report.currentView!.propertyTotal}</span>
-            {isLoadMoreError ? <span role="alert">Could not load more properties.</span> : null}
+            {isLoadMoreError ? <span role="alert">Could not load more locations.</span> : null}
             <Button size="sm" variant="outline" disabled={isLoadingMore} onClick={() => onLoadMore(report.currentView!.nextCursor!)}>
-              {isLoadingMore ? 'Loading…' : isLoadMoreError ? 'Retry loading more properties' : 'Show 50 more'}
+              {isLoadingMore ? 'Loading…' : isLoadMoreError ? 'Retry loading more locations' : 'Show 50 more'}
             </Button>
           </div>
         ) : usesServerView ? (
@@ -962,11 +962,11 @@ export function AdvancedMeasurementOverview({
           <Truncation
             shown={shownProperties.length}
             total={filteredProperties.length}
-            itemLabel="properties"
+            itemLabel="locations"
             onShowAll={() => setPropertyLimit(Number.MAX_SAFE_INTEGER)}
           />
         )}
-      </section> : <div className="h-44 animate-pulse rounded-md bg-surface-subtle" aria-label="Updating Property results" />}
+      </section> : <div className="h-44 animate-pulse rounded-md bg-surface-subtle" aria-label="Updating location results" />}
 
       {!isViewLoading && !normalizedSearch && flaggedResultsTotal > 0 ? (
         <section aria-label="Flagged results" className="border-t border-default pt-4">
@@ -991,7 +991,7 @@ export function AdvancedMeasurementOverview({
                 <span>Showing details for {loadedFlaggedCount} of {flaggedResultsTotal} flagged results</span>
                 {usesServerView && report.currentView!.nextCursor && onLoadMore ? (
                   <Button size="sm" variant="outline" disabled={isLoadingMore} onClick={() => onLoadMore(report.currentView!.nextCursor!)}>
-                    {isLoadingMore ? 'Loading…' : isLoadMoreError ? 'Retry loading more Properties' : 'Load more Properties'}
+                    {isLoadingMore ? 'Loading…' : isLoadMoreError ? 'Retry loading more locations' : 'Load more locations'}
                   </Button>
                 ) : null}
               </div>

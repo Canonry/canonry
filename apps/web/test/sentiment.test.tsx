@@ -523,6 +523,29 @@ describe('sentiment presentation', () => {
       expect(Object.fromEntries(requests[0]!.searchParams)).toEqual({ mode: 'advanced', queryClass: 'branded', scope: 'property', scopeKey: 'north', marketKey: 'chicago', runId: 'run', revision: '3', location: 'Chicago', evaluationDefinitionId: 'definition-a', queryId: 'q', assessmentId: 'a', provider: 'openai', model: 'source-model', limit: '50' })
     } finally { page.close() }
   })
+  it('calls a Property "Location" and the engine\'s place "search location" in an Advanced evidence item, and names neither in a Simple one', async () => {
+    const context = evidenceItem().context
+    const edge = { queryId: 'q', executionNodeKey: null, targetId: 'north', propertyId: 'north', groupId: null, marketId: 'chicago', queryClass: 'branded' as const, location: null }
+    const page = renderScope(<SentimentAnswerOutcome queryId="q" sourceSnapshotIds={['snapshot']} queryClass="branded" provider="openai" location="Chicago" />, {
+      branded: summaryWithAssessments([assessment({ assessmentId: 'a', sourceSnapshotId: 'snapshot' })]),
+      evidence: [
+        evidenceItem({ context: { ...context, location: null, usageEdges: [edge] } }),
+        // A Simple answer as the server sends it: one edge with no Property, and no plan revision.
+        evidenceItem({ assessmentId: 'b', context: { ...context, location: null, revision: null, usageEdges: [{ ...edge, targetId: 'project-1', propertyId: null, marketId: null }] } }),
+      ],
+    })
+    try {
+      fireEvent.click(await screen.findByRole('button', { name: 'View openai sentiment evidence for North Hall: Favorable' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Sentiment evidence: Is North Hall good? · openai · North Hall' })
+      await within(dialog).findAllByText('definition-a')
+      const [advanced, simple] = [...dialog.querySelectorAll('article')] as HTMLElement[]
+      expect(within(advanced!).getByText('No search location')).toBeTruthy()
+      expect(within(advanced!).getByText('Target north; Location north; market chicago; branded')).toBeTruthy()
+      expect(within(simple!).getByText('No location')).toBeTruthy()
+      expect(within(simple!).getByText('Target project-1; market None; branded')).toBeTruthy()
+      expect(dialog.textContent).not.toMatch(/propert/i)
+    } finally { page.close() }
+  })
 })
 describe('per-engine sentiment', () => {
   it('shows opposite stored engine outcomes in expanded rows and opens only the chosen assessment', async () => {
@@ -1171,7 +1194,7 @@ describe('most criticized properties', () => {
   }
 
   it('lists the server\'s criticized Properties in its order, each with its counts and a bar of them, and "N of total" when more exist', async () => {
-    expect(SENTIMENT_COPY.properties).toEqual({ title: 'Most criticized properties', evidence: 'unfavorable and mixed', viewAll: 'View all unfavorable and mixed answers', allEvidence: 'Branded queries, unfavorable and mixed' })
+    expect(SENTIMENT_COPY.properties).toEqual({ title: 'Most criticized locations', evidence: 'unfavorable and mixed', viewAll: 'View all unfavorable and mixed answers', allEvidence: 'Branded queries, unfavorable and mixed' })
     const page = renderScope(<SentimentHeadlines />, { branded: withProperties({ total: 7, keys: ['prop-c', 'prop-a', 'prop-b'] }) })
     try {
       const panel = await openBrandedDetails()
@@ -2057,7 +2080,8 @@ describe('sentiment generated SDK and administrator flow', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'Manage sentiment' }))
       const limit = screen.getByRole('checkbox', { name: /Limit to the current view/ }) as HTMLInputElement
       expect(limit.checked).toBe(false)
-      expect(limit.closest('label')!.textContent).toContain('engine openai · model source-model · location Chicago · property north · market chicago · revision 3')
+      expect(limit.closest('label')!.textContent).toContain('engine openai · model source-model · search location Chicago · location north · market chicago · revision 3')
+      expect(screen.getByText('The backfill covers every engine, search location and query of the chosen sweep for this query class.')).toBeTruthy()
       fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
       await screen.findByText('Branded queries · whole sweep')
       expect(Object.fromEntries(previews[0]!.searchParams)).toEqual({ mode: 'auto', scope: 'project', queryClass: 'branded', runId: 'run' })
@@ -2067,10 +2091,40 @@ describe('sentiment generated SDK and administrator flow', () => {
 
       fireEvent.click(limit)
       fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
-      await screen.findByText('Branded queries · engine openai · model source-model · location Chicago · property north · market chicago · revision 3')
+      await screen.findByText('Branded queries · engine openai · model source-model · search location Chicago · location north · market chicago · revision 3')
       expect(Object.fromEntries(previews[1]!.searchParams)).toMatchObject({ mode: 'advanced', queryClass: 'branded', runId: 'run', provider: 'openai', model: 'source-model', location: 'Chicago', scope: 'property', scopeKey: 'north', marketKey: 'chicago', revision: '3' })
       expect(screen.getByText('No saved answers in this selection can be classified.')).toBeTruthy()
       expect((screen.getByRole('button', { name: 'Confirm sentiment backfill' }) as HTMLButtonElement).disabled).toBe(true)
+    } finally { cleanup(); client.clear(); restore() }
+  })
+  // The engine's place reads "search location" only where a Property ("location") can sit beside it.
+  it.each([
+    { name: 'keeps "location" for the engine\'s place in a Simple view, which has no Property to tell it from',
+      view: { mode: 'simple' as const, queryClass: 'branded' as const, scope: 'project' as const, provider: 'openai', location: 'Chicago', runId: 'run' },
+      echo: { mode: 'simple' as const, revision: null },
+      filters: 'engine openai · location Chicago', covers: 'every engine, location and query' },
+    { name: 'says "search location" beside a Property when the server echoes a run with no plan on an Advanced view',
+      view: { mode: 'advanced' as const, queryClass: 'branded' as const, scope: 'property' as const, scopeKey: 'north', provider: 'openai', location: 'Chicago', runId: 'run' },
+      echo: { mode: 'simple' as const, revision: null },
+      filters: 'engine openai · search location Chicago · location north', covers: 'every engine, search location and query' },
+    { name: 'says "no search location" in an Advanced view of answers asked from no place',
+      view: { mode: 'advanced' as const, queryClass: 'branded' as const, scope: 'project' as const, provider: 'openai', location: 'none', runId: 'run' },
+      echo: { mode: 'advanced' as const, revision: 3 },
+      filters: 'engine openai · no search location', covers: 'every engine, search location and query' },
+  ])('$name', async ({ view, echo, filters, covers }) => {
+    const dto = summary(); dto.selection = { ...view, ...echo, evaluationDefinitionId: 'definition-a' }
+    const restore = mockFetch(url => {
+      const request = new URL(url)
+      if (request.pathname.endsWith('/sentiment/settings')) return jsonResponse(settings(true))
+      if (request.pathname.endsWith('/sentiment/jobs')) return jsonResponse({ jobs: [] })
+      return jsonResponse(dto)
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    try {
+      render(<QueryClientProvider client={client}><SentimentSection projectName="project" selection={view} /></QueryClientProvider>)
+      fireEvent.click(await screen.findByRole('button', { name: 'Manage sentiment' }))
+      expect(screen.getByRole('checkbox', { name: /Limit to the current view/ }).closest('label')!.textContent).toContain(`Limit to the current view${filters}`)
+      expect(screen.getByText(`The backfill covers ${covers} of the chosen sweep for this query class.`)).toBeTruthy()
     } finally { cleanup(); client.clear(); restore() }
   })
   it('previews without admission and reuses the request key after an uncertain response', async () => {

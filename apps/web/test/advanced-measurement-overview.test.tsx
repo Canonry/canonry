@@ -154,6 +154,13 @@ function renderOverview(overrides: Partial<AdvancedMeasurementOverviewProps> = {
   return { onRunMeasurement, onRepublishSetup }
 }
 
+/** Every string a reader sees or hears: text, accessible names, placeholders and hover titles. Ids and class names are not copy. */
+function readerCopy(root: Element): string {
+  const attributes = [...root.querySelectorAll('[aria-label], [placeholder], [title]')]
+    .flatMap(element => ['aria-label', 'placeholder', 'title'].map(name => element.getAttribute(name) ?? ''))
+  return [root.textContent ?? '', ...attributes].join('\n')
+}
+
 describe('AdvancedMeasurementOverview', () => {
   // The section counts Properties and nothing else. An assignment-denominated
   // rate beside a Property count is what made the two rows irreconcilable, so
@@ -172,9 +179,9 @@ describe('AdvancedMeasurementOverview', () => {
 
   it('defines Cited in the Properties table as the property\u2019s own pages, not the site-wide domain flag', () => {
     renderOverview()
-    const heading = screen.getByRole('heading', { name: /^Properties/ })
+    const heading = screen.getByRole('heading', { name: /^Locations/ })
     expect(within(heading).getByRole('button', { name: ADVANCED_PROPERTIES_SIGNAL_HELP })).toBeTruthy()
-    expect(ADVANCED_PROPERTIES_SIGNAL_HELP).toBe('Mentioned = the property\u2019s name in the answer. Cited = one of the property\u2019s own pages in the sources. Neither implies the other.')
+    expect(ADVANCED_PROPERTIES_SIGNAL_HELP).toBe('Mentioned = the location\u2019s name in the answer. Cited = one of the location\u2019s own pages in the sources. Neither implies the other.')
   })
 
   it('keeps unavailable measurements unavailable instead of rendering zero or repeating their reason', () => {
@@ -237,31 +244,38 @@ describe('AdvancedMeasurementOverview', () => {
 
   it('swaps to the selected group precomputed aggregate', () => {
     renderOverview()
+    expect(screen.getByText('2 locations')).toBeTruthy()
 
     fireEvent.click(within(screen.getByLabelText('Group')).getByRole('radio', { name: 'Metro offices' }))
 
     // The group holds only Downtown, so the row set is what proves the swap.
     expect(screen.getByRole('button', { name: 'Show details for Downtown Office' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Show details for Uptown Office' })).toBeNull()
+    expect(screen.getByText('1 location')).toBeTruthy()
   })
 
   it('filters only table rows when searching', () => {
     renderOverview()
 
-    fireEvent.change(screen.getByLabelText('Search properties'), { target: { value: 'uptown' } })
+    fireEvent.change(screen.getByLabelText('Search locations'), { target: { value: 'uptown' } })
 
     expect(screen.getByRole('button', { name: 'Show details for Uptown Office' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Show details for Downtown Office' })).toBeNull()
     expect(screen.queryByText('Flagged results (1)')).toBeNull()
+
+    fireEvent.change(screen.getByLabelText('Search locations'), { target: { value: 'harbor' } })
+    expect(within(screen.getByRole('table', { name: 'Location measurement results' })).getByText('No locations match this search.')).toBeTruthy()
   })
 
   it('withholds stale report content while a server view changes', () => {
     renderOverview({ isViewLoading: true })
 
     expect(screen.getByText('Updating results…')).toBeTruthy()
+    expect(screen.getByLabelText('Updating location results')).toBeTruthy()
     expect(screen.queryByText('Complete')).toBeNull()
     expect(screen.queryByText('No action needed.')).toBeNull()
     expect(screen.queryByText('Downtown Office')).toBeNull()
+    expect(readerCopy(document.body)).not.toMatch(/propert/i)
   })
 
   it('reveals inline drill-down evidence with customer-facing labels', () => {
@@ -272,15 +286,25 @@ describe('AdvancedMeasurementOverview', () => {
     expect(screen.getByText('Assigned queries')).toBeTruthy()
     expect(screen.getAllByText('best office space downtown').length).toBeGreaterThan(0)
     expect(screen.getByText('URLs')).toBeTruthy()
-    expect(screen.getByText('Matches this Property')).toBeTruthy()
-    expect(screen.getByText('Matches another Property')).toBeTruthy()
-    expect(screen.getByText('Site URL not included in a Property')).toBeTruthy()
+    expect(screen.getByText('Matches this location')).toBeTruthy()
+    expect(screen.getByText('Matches another location')).toBeTruthy()
+    expect(screen.getByText('Site URL not included in a location')).toBeTruthy()
     expect(screen.getByText('External URL')).toBeTruthy()
-    expect(screen.getByText('Matches multiple Properties')).toBeTruthy()
+    expect(screen.getByText('Matches multiple locations')).toBeTruthy()
     expect(screen.getByText('Invalid URL')).toBeTruthy()
     expect(document.body.textContent).not.toContain('Sibling')
     expect(document.body.textContent).not.toContain('owned-unassigned')
     expect(document.body.textContent).not.toContain('Owned URL without an assignment')
+  })
+
+  // The table's unit is a location. "Property" stays on the wire and in code.
+  it('says location, never property, in every string a reader sees or hears', () => {
+    const { container } = renderOverviewReturning()
+    expect(screen.getByRole('columnheader', { name: 'Location' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show details for Downtown Office' }))
+
+    expect(readerCopy(container)).not.toMatch(/propert/i)
   })
 
   it('links a Property name to its own page without losing the inline expansion', () => {
@@ -571,7 +595,7 @@ describe('AdvancedMeasurementOverview', () => {
     })
 
     expect(screen.getByText('Showing 50 of 51')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Show all 51 properties' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Show all 51 locations' })).toBeTruthy()
   })
 })
 
@@ -700,7 +724,7 @@ describe('status strip (defect 1)', () => {
         },
       },
     })
-    expect(screen.getByText('2 properties are unavailable.')).toBeTruthy()
+    expect(screen.getByText('2 locations are unavailable.')).toBeTruthy()
 
     cleanup()
     renderOverview({
@@ -716,7 +740,7 @@ describe('status strip (defect 1)', () => {
         },
       },
     })
-    expect(screen.getByText('1 property is unavailable.')).toBeTruthy()
+    expect(screen.getByText('1 location is unavailable.')).toBeTruthy()
   })
 
   it('renders the flagged-results count with correct singular/plural agreement', () => {
@@ -840,7 +864,7 @@ describe('control row (defect 2)', () => {
     const control = screen.getByLabelText('Group')
     expect(control.getAttribute('role')).toBe('radiogroup')
     const radios = within(control).getAllByRole('radio')
-    expect(radios.map(radio => radio.textContent)).toEqual(['All properties', 'Metro offices'])
+    expect(radios.map(radio => radio.textContent)).toEqual(['All locations', 'Metro offices'])
   })
 
   it('selecting a Group segment issues the same server-view request a select would have', () => {
@@ -863,16 +887,35 @@ describe('control row (defect 2)', () => {
     const control = screen.getByLabelText('Group')
     expect(control.tagName).toBe('SELECT')
     expect([...(control as HTMLSelectElement).options].map(option => option.textContent)).toEqual([
-      'All properties', 'Group 1', 'Group 2', 'Group 3', 'Group 4', 'Group 5', 'Group 6',
+      'All locations', 'Group 1', 'Group 2', 'Group 3', 'Group 4', 'Group 5', 'Group 6',
     ])
 
     fireEvent.change(control, { target: { value: 'group-3' } })
     expect(onViewChange).toHaveBeenCalledWith({ scope: 'group', groupKey: 'group-3', queryClass: 'non-brand' })
   })
 
+  // Flags for locations on a later page load with that page, so a failed page is retried from the flags too.
+  it('retries a failed page of locations from the flagged results', () => {
+    const onLoadMore = vi.fn()
+    const base = serverViewReport()
+    renderOverview({
+      report: { ...base, flaggedResultsTotal: 3, currentView: { ...base.currentView!, propertyTotal: 60, nextCursor: 'page-2' } },
+      onLoadMore,
+      isLoadMoreError: true,
+    })
+
+    fireEvent.click(screen.getByText('Flagged results (3)'))
+    const flagged = screen.getByRole('region', { name: 'Flagged results' })
+    expect(within(flagged).getByText('Showing details for 1 of 3 flagged results')).toBeTruthy()
+    fireEvent.click(within(flagged).getByRole('button', { name: 'Retry loading more locations' }))
+
+    expect(onLoadMore).toHaveBeenCalledWith('page-2')
+    expect(readerCopy(document.body)).not.toMatch(/propert/i)
+  })
+
   it('moves Search out of the filter cluster to the right side of the row (ml-auto)', () => {
     renderOverview()
-    const search = screen.getByLabelText('Search properties')
+    const search = screen.getByLabelText('Search locations')
     const searchWrapper = search.closest('div')
     expect(searchWrapper?.className).toContain('ml-auto')
   })
@@ -883,7 +926,7 @@ describe('control row (defect 2)', () => {
       const onViewChange = vi.fn()
       renderOverview({ report: serverViewReport(), onViewChange })
 
-      fireEvent.change(screen.getByLabelText('Search properties'), { target: { value: 'up' } })
+      fireEvent.change(screen.getByLabelText('Search locations'), { target: { value: 'up' } })
       expect(onViewChange).not.toHaveBeenCalled()
 
       vi.advanceTimersByTime(249)
@@ -1030,7 +1073,7 @@ describe('outcome count row', () => {
       bothSignals: 14, mentionedOnly: 11, citedOnly: 6, neither: 9, notMeasured: 7, total: 47,
     }) })
 
-    const row = screen.getByLabelText('Property outcomes')
+    const row = screen.getByLabelText('Location outcomes')
     expect(within(row).getByText('14')).toBeTruthy()
     expect(within(row).getByText('11')).toBeTruthy()
     expect(within(row).getByText('6')).toBeTruthy()
@@ -1049,18 +1092,18 @@ describe('outcome count row', () => {
     const { unmount } = renderOverviewReturning({ report: withOutcomes({
       bothSignals: 1, mentionedOnly: 0, citedOnly: 1, neither: 4, notMeasured: 0, total: 6,
     }) })
-    expect(screen.getByLabelText('Property outcomes').textContent).not.toContain('not measured')
+    expect(screen.getByLabelText('Location outcomes').textContent).not.toContain('not measured')
     unmount()
 
     renderOverview({ report: withOutcomes({
       bothSignals: 1, mentionedOnly: 0, citedOnly: 1, neither: 3, notMeasured: 1, total: 6,
     }) })
-    expect(screen.getByLabelText('Property outcomes').textContent).toContain('not measured')
+    expect(screen.getByLabelText('Location outcomes').textContent).toContain('not measured')
   })
 
   it('renders nothing at all when the server sent no outcomes, rather than zeroes', () => {
     renderOverview()
-    expect(screen.queryByLabelText('Property outcomes')).toBeNull()
+    expect(screen.queryByLabelText('Location outcomes')).toBeNull()
   })
 
   // The parent trims the term before storing it, so a pause after a space
@@ -1073,7 +1116,7 @@ describe('outcome count row', () => {
       report: { ...report(), currentView: undefined },
       viewSearch: '',
     })
-    const box = screen.getByPlaceholderText('Search properties') as HTMLInputElement
+    const box = screen.getByPlaceholderText('Search locations') as HTMLInputElement
 
     fireEvent.change(box, { target: { value: 'Downtown ' } })
     expect(box.value).toBe('Downtown ')
@@ -1100,7 +1143,7 @@ describe('outcome count row', () => {
       }),
     })
 
-    expect(screen.queryByLabelText('Property outcomes')).toBeNull()
+    expect(screen.queryByLabelText('Location outcomes')).toBeNull()
   })
 
   // The unit is stated once, on the heading line the row sits under, and the
@@ -1110,8 +1153,8 @@ describe('outcome count row', () => {
       bothSignals: 1, mentionedOnly: 0, citedOnly: 1, neither: 4, notMeasured: 0, total: 6,
     }) })
 
-    expect(screen.getByText('6 properties')).toBeTruthy()
-    const row = screen.getByLabelText('Property outcomes')
+    expect(screen.getByText('6 locations')).toBeTruthy()
+    const row = screen.getByLabelText('Location outcomes')
     // 1 + 0 + 1 + 4 = 6, visibly.
     expect(row.textContent).not.toContain('assignment')
     expect(screen.queryByRole('button', { name: /Sums to/ })).toBeNull()
@@ -1141,6 +1184,12 @@ describe('sorting and status', () => {
   it('sorts by a column, and toggles direction on a second click', () => {
     const onViewChange = vi.fn()
     renderOverview({ report: serverView(), onViewChange })
+
+    // The name column opens sorted A to Z, so its first click reverses it.
+    const location = screen.getByRole('button', { name: 'Sort by location' })
+    expect(location.textContent).toBe('Location')
+    fireEvent.click(location)
+    expect(onViewChange).toHaveBeenLastCalledWith(expect.objectContaining({ sort: 'label-desc' }))
 
     const mention = screen.getByRole('button', { name: /sort by mention/i })
     fireEvent.click(mention)
@@ -1184,7 +1233,7 @@ describe('sorting and status', () => {
     })
 
     expect(screen.queryByRole('columnheader', { name: 'Status' })).toBeNull()
-    const table = screen.getByRole('table', { name: /property measurement results/i })
+    const table = screen.getByRole('table', { name: /location measurement results/i })
     // The unremarkable case earns no badge at all. (The run's own "Complete"
     // status lives in the header, outside this table.)
     expect(within(table).queryByText('Complete')).toBeNull()
