@@ -225,6 +225,22 @@ describe('monthly report readiness (stored evidence only)', () => {
     expect(projectChecks.some(check => check.optIn)).toBe(true)
     expect(ids.length).toBeGreaterThan(0)
   })
+  it('keeps the standing advisories in a doctor run and out of the scheduled health pass', async () => {
+    // Neither reports a broken instrument, and each stays non-ok for as long as
+    // its condition holds. As health checks they held every affected project
+    // degraded for good, so no recovery could ever be sent.
+    const standing = ['content.winnability.coverage', 'traffic.source.cache-blindspot']
+    const everything = await runChecks({ db, project }, ALL_CHECKS, {})
+    expect(everything.checks.filter(check => standing.includes(check.id)).map(check => [check.id, check.notificationPolicy]).sort()).toEqual([
+      ['content.winnability.coverage', 'silent'],
+      ['traffic.source.cache-blindspot', 'silent'],
+    ])
+    const scheduled = await runChecks({ db, project }, ALL_CHECKS, { checkIds: scheduledHealthCheckIds() })
+    expect(scheduled.checks.length).toBeGreaterThan(0)
+    expect(scheduled.checks.filter(check => standing.includes(check.id))).toEqual([])
+    // The other traffic checks still page: only the note that cannot clear is silent.
+    expect(scheduled.checks.map(check => check.id)).toEqual(expect.arrayContaining(['traffic.source.connected', 'traffic.source.sync-lag', 'backlinks.source.connected']))
+  })
 
   /** A Simple run whose dispatch froze exactly these queries and engines, as the runner records it. */
   function frozenRun(date: string, basket: Array<{ id: string; text: string }>, engines: string[], answers: Array<[string, string]>, opts: Partial<typeof runs.$inferInsert> = {}) {
