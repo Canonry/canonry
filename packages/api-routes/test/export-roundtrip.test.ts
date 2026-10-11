@@ -14,7 +14,7 @@ function buildApp(opts?: { onProjectDeleted?: (projectId: string) => void }) {
   migrate(db)
 
   const app = Fastify()
-  app.register(apiRoutes, { db, skipAuth: true, onProjectDeleted: opts?.onProjectDeleted })
+  app.register(apiRoutes, { db, skipAuth: true, allowLoopbackWebhooks: true, onProjectDeleted: opts?.onProjectDeleted })
 
   return { app, db, tmpDir }
 }
@@ -53,6 +53,7 @@ test('project export includes schedule and notifications for round-tripping', as
         channel: 'webhook',
         url: 'https://8.8.8.8/hook',
         events: ['run.completed'],
+        source: 'agent',
       },
     })
 
@@ -85,6 +86,22 @@ test('project export includes schedule and notifications for round-tripping', as
       events: ['run.completed'],
     }])
 
+    const beforeRoundTrip = db.select().from(notifications).where(eq(notifications.id, storedNotification.id)).get()!
+    const applied = await app.inject({ method: 'POST', url: '/api/v1/apply', payload: body })
+    expect(applied.statusCode).toBe(200)
+    const afterRoundTrip = db.select().from(notifications).where(eq(notifications.id, storedNotification.id)).get()!
+    expect(afterRoundTrip).toMatchObject({
+      id: beforeRoundTrip.id,
+      projectId: beforeRoundTrip.projectId,
+      webhookSecret: beforeRoundTrip.webhookSecret,
+      enabled: beforeRoundTrip.enabled,
+      createdAt: beforeRoundTrip.createdAt,
+      config: { url: beforeRoundTrip.config.url, source: 'agent', events: ['run.completed'] },
+    })
+    const listed = await app.inject({ method: 'GET', url: '/api/v1/projects/exportable/notifications' })
+    expect(listed.statusCode).toBe(200)
+    expect(listed.json()[0].source).toBe('agent')
+
     const secretExportRes = await app.inject({
       method: 'GET',
       url: '/api/v1/projects/exportable/export?includeSecrets=true',
@@ -96,6 +113,9 @@ test('project export includes schedule and notifications for round-tripping', as
       url: 'https://8.8.8.8/hook',
       events: ['run.completed'],
     }])
+    const detached = await app.inject({ method: 'DELETE', url: `/api/v1/projects/exportable/notifications/${storedNotification.id}` })
+    expect(detached.statusCode).toBe(204)
+    expect(db.select().from(notifications).where(eq(notifications.id, storedNotification.id)).get()).toBeUndefined()
   } finally {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
