@@ -287,21 +287,27 @@ export type TrackedColumn = (typeof TRACKED_COLUMNS)[number]
  */
 export const TRACKED_COLUMN_WIDTH = { select: 32, subject: 250, type: 80, engine: 62, lastMeasured: 108, status: 148, source: 98, menu: 32 } as const
 /**
- * The query is the row's identity, and at this width a 64-character one shows
- * whole. Under it Query takes Source and then Last measured, which stay in the
- * row detail, and then room from Subject.
+ * The query is the row's identity. At this width its line holds 60 to 64
+ * characters, by their letters; a longer query is cut short there and shows
+ * whole in the open row. Under it Query takes Source and then Last measured,
+ * which stay in the row detail, and then room from Subject.
  */
 const TRACKED_QUERY_FLOOR = 420
-/** As narrow as Subject gets: what the 1152px content column leaves it beside four engines once Query has its floor. */
-const TRACKED_SUBJECT_FLOOR = 192
+/** As narrow as Subject gets: what the 1152px content column leaves it beside four engines, Perplexity among them, once Query has its floor. */
+const TRACKED_SUBJECT_FLOOR = 182
 /** Under this with Subject at its floor, or in a frame under 40rem, each row stacks. */
 const TRACKED_QUERY_STACK_FLOOR = 224
 /** 40rem, the width the stylesheet's phone rules for a stacked row also turn on. */
 const TRACKED_STACK_WIDTH = 640
 
-/** An engine column is as wide as its header needs: two chips, or a longer name and the gap to the next one. */
+/**
+ * An engine column is as wide as its header needs: two chips, or a longer
+ * name at 6.4px a character and the cell's 8px of padding. The sort mark
+ * after the name hangs in the next header's padding, where the stylesheet
+ * draws it over that header.
+ */
 export function trackedEngineColumnWidth(label: string): number {
-  return Math.max(TRACKED_COLUMN_WIDTH.engine, Math.ceil(label.length * 7.2) + 16)
+  return Math.max(TRACKED_COLUMN_WIDTH.engine, Math.ceil(label.length * 6.4) + 8)
 }
 
 export interface TrackedLayout {

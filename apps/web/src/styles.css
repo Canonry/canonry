@@ -3249,6 +3249,15 @@
     opacity: 0.4;
   }
 
+  /* The mark of a name as wide as its column hangs in the next header's
+     padding. While it shows, its own header is drawn over that one. */
+  .tracked-table > thead th:hover,
+  .tracked-table > thead th:focus-within,
+  .tracked-table > thead th[aria-sort='ascending'],
+  .tracked-table > thead th[aria-sort='descending'] {
+    z-index: 11;
+  }
+
   .tracked-row > td {
     @apply border-b border-subtle px-2.5 py-2 align-middle;
   }
@@ -3349,18 +3358,31 @@
     -webkit-line-clamp: unset;
   }
 
+  /* A finger's 44px button holds two lines, so there the closed row's query
+     takes both and no row is taller for it. */
+  @media (pointer: coarse) {
+    .tracked-table[data-layout='table'] .tracked-row:not([data-open]) .tracked-query > span {
+      display: -webkit-box;
+      white-space: normal;
+      -webkit-line-clamp: 2;
+    }
+  }
+
   /* The query is the row's identity, so in the table it is set a size down
      and runs closer to its column's edges: the 420px `trackedLayout` keeps
-     for it hold a 64-character query whole. The next column's own padding
-     keeps the two apart, as it does after Subject, and beside the checkbox
-     column Query needs none on the left. Its header follows. */
+     for it hold 60 to 64 characters. The next column's own padding keeps the
+     two apart, as it does after Subject. Its header follows. */
   .tracked-table[data-layout='table'] .tracked-cell-query,
   .tracked-table[data-layout='table'] .tracked-cell-subject {
     padding-right: 0.25rem;
   }
 
-  .tracked-table[data-layout='table'][data-selectable] .tracked-cell-query {
-    padding-left: 0;
+  /* Beside the checkbox column Query needs no padding on the left. A finger's
+     44px checkbox is wider than its column, so there the padding stays. */
+  @media not all and (pointer: coarse) {
+    .tracked-table[data-layout='table'][data-selectable] .tracked-cell-query {
+      padding-left: 0;
+    }
   }
 
   .tracked-table[data-layout='table'] .tracked-query {
@@ -3378,16 +3400,28 @@
 
   /* Under keyboard focus a query cut short shows whole on its line, over the
      cells beside it and never past the frame, so no row changes height. The
-     line takes the button's ring with it. A finger's 44px button keeps its
-     shape. */
+     line takes the button's ring with it, ends a cell's padding before the
+     text it stops at, and lets a click through to the cells under it. On a
+     tinted row it wears the row's tint over its own ground. A finger's 44px
+     button keeps its shape. */
   @media not all and (pointer: coarse) {
     .tracked-table[data-layout='table'] .tracked-row:not([data-open]) .tracked-query[data-clipped]:focus-visible > span {
       position: relative;
       z-index: 1;
       width: max-content;
       max-width: calc(100cqi - 3.5rem);
-      padding-right: 0.375rem;
+      padding-right: 0.625rem;
+      pointer-events: none;
       @apply rounded-sm bg-bg ring-2 ring-mono-400;
+    }
+
+    .tracked-table[data-layout='table'] .tracked-row:not([data-open]):hover .tracked-query[data-clipped]:focus-visible > span {
+      background-image: linear-gradient(var(--color-surface), var(--color-surface));
+    }
+
+    .tracked-table[data-layout='table'] .tracked-row[data-selected]:not([data-open]) .tracked-query[data-clipped]:focus-visible > span,
+    .tracked-table[data-layout='table'] .tracked-row[data-highlighted]:not([data-open]) .tracked-query[data-clipped]:focus-visible > span {
+      background-image: linear-gradient(var(--color-surface-active), var(--color-surface-active));
     }
   }
 
@@ -3432,6 +3466,11 @@
 
   .tracked-cell-type {
     @apply whitespace-nowrap;
+  }
+
+  /* In the table Type is set at the size of the query and the Subject beside it. */
+  .tracked-table[data-layout='table'] .tracked-cell-type {
+    @apply text-[13px];
   }
 
   .tracked-table .tracked-cell-engine {

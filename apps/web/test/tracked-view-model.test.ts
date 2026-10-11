@@ -357,7 +357,7 @@ describe('trackedLayout', () => {
     expect(queryWidth(1353, engines)).toBe(517)
   })
 
-  it('narrows Subject to keep Query at 420px, down to 192px', () => {
+  it('narrows Subject to keep Query at 420px, down to 182px', () => {
     // Three engines: Query is at its 420px in a frame of 1148px, and 4px short of it at 1144.
     expect(trackedLayout(1148, engines, full).subjectWidth).toBe(250)
     expect(trackedLayout(1144, engines, full).subjectWidth).toBe(246)
@@ -366,9 +366,16 @@ describe('trackedLayout', () => {
     const four = [62, 62, 62, 62]
     expect(trackedLayout(1152, four, full)).toEqual({ columns: ['query', 'subject', 'type', 'engines', 'status', 'menu'], stacked: false, subjectWidth: 192 })
     expect(queryWidth(1152, four)).toBe(420)
+    // Perplexity's column is 72px. As the fourth it takes Subject to its floor, and Query still holds.
+    const withPerplexity = [62, 62, 62, 72]
+    expect(trackedLayout(1152, withPerplexity, full)).toEqual({ columns: ['query', 'subject', 'type', 'engines', 'status', 'menu'], stacked: false, subjectWidth: 182 })
+    expect(queryWidth(1152, withPerplexity)).toBe(420)
+    // As one of three it costs Subject 6px.
+    expect(trackedLayout(1152, [62, 62, 72], full).subjectWidth).toBe(244)
+    expect(queryWidth(1152, [62, 62, 72])).toBe(420)
     // Past Subject's floor Query narrows.
-    expect(trackedLayout(1100, four, full).subjectWidth).toBe(192)
-    expect(queryWidth(1100, four)).toBe(368)
+    expect(trackedLayout(1100, four, full).subjectWidth).toBe(182)
+    expect(queryWidth(1100, four)).toBe(378)
     // A viewer has no checkbox column, so Subject keeps 32px more.
     expect(trackedLayout(1152, four).subjectWidth).toBe(224)
   })
@@ -376,9 +383,13 @@ describe('trackedLayout', () => {
   it('stacks each row under a 40rem frame, and wider when Query would be too narrow to read', () => {
     expect(trackedLayout(639, [62], { columns: ['query', 'engines'] }).stacked).toBe(true)
     expect(trackedLayout(640, [62], { columns: ['query', 'engines'] }).stacked).toBe(false)
-    // Three engines with checkboxes: the columns that never fold take 670px with Subject at its 192px floor, and Query needs 224px beside them.
-    expect(trackedLayout(894, engines, full)).toMatchObject({ stacked: false, subjectWidth: 192 })
-    expect(trackedLayout(893, engines, full).stacked).toBe(true)
+    // Three engines with checkboxes: the columns that never fold take 660px with Subject at its 182px floor, and Query needs 224px beside them.
+    expect(trackedLayout(884, engines, full)).toMatchObject({ stacked: false, subjectWidth: 182 })
+    expect(trackedLayout(883, engines, full).stacked).toBe(true)
+    // With no Subject column there is no room to take from one: Type, three engines, Status and the menu take 446px.
+    const noSubject = { columns: ['query', 'type', 'engines', 'status', 'menu'] as const }
+    expect(trackedLayout(670, engines, noSubject).stacked).toBe(false)
+    expect(trackedLayout(669, engines, noSubject).stacked).toBe(true)
   })
 
   it('leaves Source and Last measured to the row detail when stacked', () => {
@@ -399,8 +410,8 @@ describe('trackedLayout', () => {
 
   it('widens an engine column for a longer name, and counts it', () => {
     expect(trackedEngineColumnWidth('OpenAI')).toBe(62)
-    expect(trackedEngineColumnWidth('Perplexity')).toBe(88)
+    expect(trackedEngineColumnWidth('Perplexity')).toBe(72)
     expect(trackedLayout(1360, [62, 62, 62], full).columns).toContain('source')
-    expect(trackedLayout(1360, [62, 62, 88], full).columns).not.toContain('source')
+    expect(trackedLayout(1360, [62, 62, 72], full).columns).not.toContain('source')
   })
 })

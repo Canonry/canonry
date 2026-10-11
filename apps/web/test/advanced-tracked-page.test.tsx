@@ -244,8 +244,8 @@ test('in the 1152px content column the table keeps Query wide: Status carries th
   const header = (name: string) => within(table()).getAllByRole('columnheader').find(cell => cell.textContent === name)!
 
   expect(within(table()).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Perplexity', 'Status', 'Actions'])
-  // Perplexity's header needs 88px, so Subject gives Query 22 of its 250 and Query keeps 420.
-  expect([...table().querySelectorAll('col')].map(column => column.style.width)).toEqual(['32px', '', '228px', '80px', '62px', '62px', '88px', '148px', '32px'])
+  // Perplexity's header needs 72px, so Subject gives Query 6 of its 250 and Query keeps 420.
+  expect([...table().querySelectorAll('col')].map(column => column.style.width)).toEqual(['32px', '', '244px', '80px', '62px', '62px', '72px', '148px', '32px'])
   expect(within(rowOf(UPTOWN_BEST)).getByText(`Measured ${day(MEASURED_AT)}`)).toBeTruthy()
   expect(within(rowOf(PIER_NEW)).getByText('First answers Oct 21')).toBeTruthy()
   // No filter went with the columns.

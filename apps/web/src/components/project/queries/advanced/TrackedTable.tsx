@@ -53,14 +53,18 @@ function useFrameWidth() {
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
 
 /**
- * A row's last sweep as its Status names it. The column holds a month and a
- * day, and a sweep of the last twelve months needs no more: it is the latest
- * such day. An older one keeps its year, as Last measured prints it.
+ * A row's last sweep as its Status names it. The badge holds a month and one
+ * part more: the day for a sweep of this year or of the last six months,
+ * where a month and a day name one date, and the year for an older one ("Dec
+ * 2025"). Last measured and the row detail print the date whole.
  */
 function measuredDay(iso: string): string {
-  const yearAgo = new Date()
-  yearAgo.setFullYear(yearAgo.getFullYear() - 1)
-  return new Date(iso) > yearAgo ? formatMonthDay(iso) : formatSweepDay(iso)
+  const date = new Date(iso)
+  const now = new Date()
+  const halfYearAgo = new Date(now)
+  halfYearAgo.setMonth(now.getMonth() - 6)
+  if (date.getFullYear() === now.getFullYear() || date > halfYearAgo) return formatMonthDay(iso)
+  return Number.isNaN(date.getTime()) ? iso : date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
 }
 
 /**
@@ -84,11 +88,12 @@ function measuredDay(iso: string): string {
  * row's identity, so Query keeps the width of a long one: Last measured and
  * Source are columns only in a frame wide enough for that and stay in the row
  * detail otherwise, then Subject narrows, and a frame too narrow for a table
- * stacks each row. A closed row's query is one line, and one cut short there
- * carries its whole text as its `title`. Nothing scrolls sideways, so the
- * header can stick under the topbar. Stacked rows have no header, so while
- * there are rows a line above them holds what the header did: Select this page
- * and the sort.
+ * stacks each row. A closed row's query is one line, two under a finger, and
+ * one cut short there carries its whole text as its `title`. A sort by last
+ * sweep shows on Status where Last measured is no column. Nothing scrolls
+ * sideways, so the header can stick under the topbar. Stacked rows have no
+ * header, so while there are rows a line above them holds what the header
+ * did: Select this page and the sort.
  */
 export function TrackedTable({
   rows, engines, coverage, sort, onSortChange, selectedIds, onSelectedIdsChange, highlightedId, renderRowMenu, nextSweepDate, workspace, contextLabels,
@@ -205,7 +210,8 @@ export function TrackedTable({
   }
 
   const header = (column: TrackedSortKey, text: string, className?: string) => {
-    const active = sort?.key === column
+    // Status carries the date: where Last measured is no column, a sort by last sweep shows on Status.
+    const active = sort?.key === column || (column === 'status' && sort?.key === 'lastMeasured' && !shown.has('lastMeasured'))
     return (
       <th scope="col" className={className} aria-sort={!onSortChange ? undefined : !active ? 'none' : sort.direction === 'asc' ? 'ascending' : 'descending'}>
         {onSortChange ? (
@@ -373,11 +379,13 @@ type Discloses = { 'aria-expanded': boolean; 'aria-controls': string | undefined
 
 /**
  * The query, which opens its row. A closed row cuts a long one short at the
- * column's edge, and a stacked row after two lines. Only then is the whole
- * text the button's `title`, and under keyboard focus the stylesheet shows the
- * line whole (`data-clipped`). The line is measured against the button, whose
- * width that leaves alone, after each draw and again under the pointer and on
- * focus: a late font moves the edge without a draw.
+ * column's edge, and after two lines where it stacks or sits under a finger.
+ * Only then is the whole text the button's `title`, and under keyboard focus
+ * the stylesheet shows the line whole (`data-clipped`). The line is measured
+ * against the button, whose width that leaves alone, after each draw and
+ * again under the pointer and on focus: a late font moves the edge without a
+ * draw. The edges are unrounded: a line a fraction of a pixel too long is cut
+ * short too, and in whole pixels it fits.
  */
 function QueryButton({ text, discloses }: { text: string; discloses: Discloses }) {
   const ref = useRef<HTMLButtonElement>(null)
@@ -385,7 +393,13 @@ function QueryButton({ text, discloses }: { text: string; discloses: Discloses }
   const measure = () => {
     const button = ref.current
     const line = button?.firstElementChild
-    if (button && line) setClipped(line.scrollWidth > button.clientWidth || line.scrollHeight > line.clientHeight)
+    if (!button || !line) return
+    const range = document.createRange()
+    range.selectNodeContents(line)
+    // Typed as optional: a DOM without layout has no such method, and whole pixels are all it has.
+    const drawn: { getBoundingClientRect?: () => DOMRect } = range
+    const past = drawn.getBoundingClientRect ? drawn.getBoundingClientRect().right > button.getBoundingClientRect().right : line.scrollWidth > button.clientWidth
+    setClipped(past || line.scrollHeight > line.clientHeight)
   }
   useLayoutEffect(measure)
   return (
