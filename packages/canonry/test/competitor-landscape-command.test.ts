@@ -248,7 +248,7 @@ describe('competitor suggestion CLI', () => {
       return true
     }) as typeof process.stdout.write)
     await captureLog(() => dispatchRegisteredCommand([
-      'competitor', 'suggest', 'acme', '--window', '30d', '--min-answers', '3', '--query-class', 'non-brand', '--limit', '2',
+      'competitor', 'suggest', 'acme', '--window', '30', '--min-answers', '3', '--query-class', 'non-brand', '--limit', '2',
     ], 'jsonl', COMPETITOR_CLI_COMMANDS).then(() => {}))
     stdoutWrite.mockRestore()
     expect(mockSuggestCompetitors).toHaveBeenCalledWith('acme', { window: '30d', minAnswers: 3, queryClass: 'non-brand', groupKey: undefined, limit: 2 })

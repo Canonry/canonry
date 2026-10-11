@@ -2423,7 +2423,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/competitor-suggestions',
     summary: 'Suggest competitors from stored evidence',
-    description: 'Returns evidence-backed competitor candidates from stored answer text and same-answer cited domains. This is a stored-evidence read: it never calls a provider, discovery, live classification, or write path. A cited domain without answer naming is excluded as a source, and queryClass defaults to non-brand when the project has a usable brand alias or pooled all when it does not.',
+    description: 'Returns evidence-backed competitor candidates from stored answer text and same-answer cited domains. This is a stored-evidence read: it never calls a provider, discovery, live classification, or write path. A cited domain without answer naming is excluded as a source, and queryClass defaults to non-brand for Advanced frozen assignments or a usable Simple project brand alias, and pooled all otherwise. Advanced scope defaults to all markets; groupKey selects one market.',
     tags: ['competitors'],
     parameters: [
       nameParameter,

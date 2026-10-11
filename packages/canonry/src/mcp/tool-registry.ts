@@ -1553,7 +1553,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_suggest',
     title: 'Suggest competitors from stored evidence',
-    description: 'Read stored completed and partial answer evidence and rank possible direct competitors. Candidate naming and citation counts are separate, cited-only domains are excluded, listing and marketplace surfaces are excluded, and the response discloses the answer and sweep denominator. No provider, discovery, classifier, or write operation runs. A project without a usable brand alias pools all query classes and echoes queryClass=all. Use the returned evidence and sample URLs to review a candidate before tracking it.',
+    description: 'Read stored completed and partial answer evidence and rank possible direct competitors. Candidate naming and citation counts are separate, cited-only domains are excluded, listing and marketplace surfaces are excluded, and the response discloses the answer and sweep denominator. No provider, discovery, classifier, or write operation runs. A Simple project without a usable brand alias pools all query classes and echoes queryClass=all. Use the returned evidence and sample URLs to review a candidate before tracking it.',
     access: 'read',
     tier: 'setup',
     inputSchema: competitorSuggestionsInputSchema,

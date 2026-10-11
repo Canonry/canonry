@@ -201,6 +201,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['competitor', 'suggest'],
+    windows: WINDOW_SETS.metrics,
     usage: SUGGEST_USAGE,
     options: {
       window: stringOption(),

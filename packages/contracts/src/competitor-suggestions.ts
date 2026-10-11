@@ -31,6 +31,10 @@ export const competitorSuggestionReasonSchema = z.enum([
   'shared-host',
 ])
 export type CompetitorSuggestionReason = z.infer<typeof competitorSuggestionReasonSchema>
+export const CompetitorSuggestionReasons = competitorSuggestionReasonSchema.enum
+
+export const competitorSuggestionStatusSchema = z.enum(['suggested', 'tracked', 'excluded'])
+export const CompetitorSuggestionStatuses = competitorSuggestionStatusSchema.enum
 
 export const competitorSuggestionSchema = z.object({
   domain: z.string().trim().min(1),
@@ -47,7 +51,7 @@ export const competitorSuggestionSchema = z.object({
   surfaceClass: competitorLandscapeSurfaceClassSchema,
   tracked: z.boolean(),
   marketKeys: z.array(z.string().trim().min(1)).optional(),
-  status: z.enum(['suggested', 'tracked', 'excluded']),
+  status: competitorSuggestionStatusSchema,
   reason: competitorSuggestionReasonSchema.nullable(),
   sampleUrls: z.array(z.string().url()).max(3),
 }).strict()

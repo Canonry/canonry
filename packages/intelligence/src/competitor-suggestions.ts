@@ -1,5 +1,7 @@
 import {
   answerProseForMentions,
+  CompetitorSuggestionReasons,
+  CompetitorSuggestionStatuses,
   aliasOccurrencesAsWritten,
   brandLabelFromDomain,
   brandKeyFromText,
@@ -16,6 +18,7 @@ import {
   type CompetitorSuggestion,
   type CompetitorSuggestionReason,
 } from '@ainyc/canonry-contracts'
+import { groupStoredCompetitorClassifications, type CompetitorLandscapeSurfaceClass } from './competitor-landscape-history.js'
 
 export interface CompetitorSuggestionAnswer {
   id: string
@@ -28,14 +31,14 @@ export interface CompetitorSuggestionAnswer {
 }
 
 export interface CompetitorSuggestionClassification {
-  surfaceClass: CompetitorSuggestion['surfaceClass']
+  surfaceClass: CompetitorLandscapeSurfaceClass
 }
 
 export interface BuildCompetitorSuggestionsOptions {
   project: { domain: string; label: string; domains?: readonly string[] }
   answers: readonly CompetitorSuggestionAnswer[]
   minAnswers: number
-  classifications: ReadonlyMap<string, CompetitorSuggestion['surfaceClass'] | CompetitorSuggestionClassification>
+  classifications: ReadonlyMap<string, CompetitorLandscapeSurfaceClass | CompetitorSuggestionClassification>
   tracked: readonly CompetitorIdentityInput[]
   claimedCompetitorAdds: ReadonlySet<string>
   marketKeys?: ReadonlyMap<string, readonly string[]>
@@ -64,10 +67,10 @@ interface MutableCandidate {
 function candidateReason(candidate: MutableCandidate, options: BuildCompetitorSuggestionsOptions): CompetitorSuggestionReason | null {
   if (candidate.tracked) return null
   if (candidate.reason) return candidate.reason
-  if (options.claimedCompetitorAdds.has(candidate.domain)) return 'claimed-by-alias'
-  if (candidate.hostForms.size > 1) return 'shared-host'
-  if (candidate.surfaceClass !== 'unknown' && candidate.surfaceClass !== 'direct-competitor') return 'non-competitor-surface'
-  if (candidate.naming.size < options.minAnswers) return candidate.naming.size === 0 ? 'not-named' : 'below-min-answers'
+  if (options.claimedCompetitorAdds.has(candidate.domain)) return CompetitorSuggestionReasons['claimed-by-alias']
+  if (candidate.hostForms.size > 1) return CompetitorSuggestionReasons['shared-host']
+  if (candidate.surfaceClass !== 'unknown' && candidate.surfaceClass !== 'direct-competitor') return CompetitorSuggestionReasons['non-competitor-surface']
+  if (candidate.naming.size < options.minAnswers) return candidate.naming.size === 0 ? CompetitorSuggestionReasons['not-named'] : CompetitorSuggestionReasons['below-min-answers']
   return null
 }
 
@@ -113,7 +116,7 @@ function candidateDto(candidate: MutableCandidate, options: BuildCompetitorSugge
     surfaceClass: candidate.surfaceClass,
     tracked: candidate.tracked,
     ...(candidate.marketKeys && candidate.marketKeys.length > 0 ? { marketKeys: candidate.marketKeys } : {}),
-    status: candidate.tracked ? 'tracked' : reason === null ? 'suggested' : 'excluded',
+    status: candidate.tracked ? CompetitorSuggestionStatuses.tracked : reason === null ? CompetitorSuggestionStatuses.suggested : CompetitorSuggestionStatuses.excluded,
     reason,
     sampleUrls: candidate.sampleUrls.slice(0, 3),
   }
@@ -137,6 +140,7 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
     const registrable = registrableDomain(competitor.domain)
     if (registrable) trackedByDomain.set(registrable, competitor)
   }
+  const classifications = groupStoredCompetitorClassifications(new Map([...options.classifications].map(([host, value]) => [host, unwrapClass(value)!])))
   const candidates = new Map<string, MutableCandidate>()
   const unresolved = new Map<string, { name: string; answers: Set<string> }>()
   const resolvedNameKeysByAnswer = new Map<string, Set<string>>()
@@ -161,8 +165,6 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
     }
     if (sourceDomains.length > 0) sourceResults++
     const anchors = extractAnswerTextAnchors(answer.answerText)
-    const names = new Set<string>(answer.recommendedCompetitors ?? [])
-    for (const anchor of anchors) names.add(anchor.text)
     const anchoredDomains = new Map<string, Set<string>>()
     for (const anchor of anchors) {
       const domain = normalizeSource(anchor.source)
@@ -179,7 +181,7 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
       const candidate = candidates.get(domain) ?? {
         domain,
         label,
-        surfaceClass: (unwrapClass(options.classifications.get(domain)) ?? 'unknown') as CompetitorSuggestion['surfaceClass'],
+        surfaceClass: (classifications.get(domain) ?? 'unknown') as CompetitorSuggestion['surfaceClass'],
         tracked: Boolean(tracked),
         ...(options.marketKeys?.get(domain) ? { marketKeys: [...options.marketKeys.get(domain)!] } : {}),
         naming: new Set<string>(),
@@ -202,7 +204,7 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
       if (answer.createdAt > (candidate.lastSeenAt ?? '')) candidate.lastSeenAt = answer.createdAt
       if (candidate.firstSeenAt === null || answer.createdAt < candidate.firstSeenAt) candidate.firstSeenAt = answer.createdAt
       for (const url of answer.citedUrls ?? []) {
-        if (normalizeSource(url) === domain && /^https?:\/\//iu.test(url) && !candidate.sampleUrls.includes(url)) candidate.sampleUrls.push(url)
+        if (normalizeSource(url) === domain && /^https?:\/\//iu.test(url) && candidate.sampleUrls.length < 3 && !candidate.sampleUrls.includes(url)) candidate.sampleUrls.push(url)
       }
       if (pairedByAnchor) {
         candidate.paired.add(answer.id)
@@ -219,6 +221,8 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
     }
   }
 
+  const matchers = new Map([...candidates.keys()].map(domain => [domain, compileBrandAliases(competitorBrandAliases(trackedByDomain.get(domain) ?? { domain }))]))
+
   // Count canonical identity matches across every selected answer after the
   // candidate universe is known. This preserves the bare-add invariant when a
   // source is first cited in a later answer, including the domain-label floor.
@@ -226,12 +230,14 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
     const prose = answerProseForMentions(answer.answerText)
     const resolvedNameKeys = resolvedNameKeysByAnswer.get(answer.id)!
     for (const candidate of candidates.values()) {
-      const tracked = trackedByDomain.get(candidate.domain)
-      const matcher = compileBrandAliases(competitorBrandAliases(tracked ?? { domain: candidate.domain }))
+      const matcher = matchers.get(candidate.domain)!
       const occurrences = aliasOccurrencesAsWritten(matcher, prose)
       if (occurrences.size === 0) continue
       const cited = candidate.citing.has(answer.id)
       candidate.naming.add(answer.id)
+      candidate.sweeps.add(answer.runId)
+      if (candidate.firstSeenAt === null || answer.createdAt < candidate.firstSeenAt) candidate.firstSeenAt = answer.createdAt
+      if (candidate.lastSeenAt === null || answer.createdAt > candidate.lastSeenAt) candidate.lastSeenAt = answer.createdAt
       if (cited) {
         candidate.both.add(answer.id)
         candidate.paired.add(answer.id)
@@ -262,6 +268,6 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
   return { candidates: result, unresolvedNames, answeredResults, sourceResults }
 }
 
-function unwrapClass(value: CompetitorSuggestion['surfaceClass'] | CompetitorSuggestionClassification | undefined): CompetitorSuggestion['surfaceClass'] | undefined {
+function unwrapClass(value: CompetitorLandscapeSurfaceClass | CompetitorSuggestionClassification | undefined): CompetitorLandscapeSurfaceClass | undefined {
   return typeof value === 'string' ? value : value?.surfaceClass
 }

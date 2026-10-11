@@ -106,7 +106,7 @@ The read-only MCP equivalent is `canonry_competitor_landscape`. Advanced market 
 
 ## Stored competitor suggestions
 
-`GET /api/v1/projects/{name}/competitor-suggestions` ranks possible direct competitors from stored answer text and source lists. It defaults to the 30-day window, a three-answer naming floor, and non-brand queries when the project has a usable brand identity. A project without a usable brand alias falls back to `queryClass=all`; an explicit branded or non-brand filter then returns a validation error.
+`GET /api/v1/projects/{name}/competitor-suggestions` ranks possible direct competitors from stored answer text and source lists. It defaults to the 30-day window, a three-answer naming floor, and non-brand queries when the project has a usable brand identity. A Simple project without a usable brand alias falls back to `queryClass=all`; an explicit branded or non-brand filter then returns a validation error. Advanced projects default to all markets and use frozen assignment classes, including when the project has no usable brand alias. `groupKey` selects one market.
 
 ```bash
 canonry competitor suggest <project> --window 30d --min-answers 3 --query-class non-brand --format json

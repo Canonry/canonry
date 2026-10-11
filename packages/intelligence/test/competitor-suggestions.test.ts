@@ -12,6 +12,25 @@ function answer(id: string, runId: string, text: string, citedDomains: string[],
 }
 
 describe('buildCompetitorSuggestions', () => {
+  it('uses stored subdomain classifications and includes naming-only sweeps in the evidence span', () => {
+    const result = buildCompetitorSuggestions({
+      project, minAnswers: 1, tracked: [], claimedCompetitorAdds: new Set(),
+      classifications: new Map([['news.publisher.example', 'editorial-media']]),
+      answers: [
+        answer('early', 'early-run', 'Rival is recommended.', [], '2026-01-01T00:00:00.000Z'),
+        answer('middle', 'middle-run', 'Rival and Publisher are recommended.', ['rival.example', 'news.publisher.example'], '2026-01-02T00:00:00.000Z'),
+        answer('late', 'late-run', 'Rival is recommended.', [], '2026-01-03T00:00:00.000Z'),
+      ],
+    })
+    expect(result.candidates.find(row => row.domain === 'publisher.example')).toMatchObject({
+      surfaceClass: 'editorial-media', status: 'excluded', reason: 'non-competitor-surface',
+    })
+    expect(result.candidates.find(row => row.domain === 'rival.example')).toMatchObject({
+      namingAnswers: 3, citingAnswers: 1, bothAnswers: 1, sweeps: 3,
+      firstSeenAt: '2026-01-01T00:00:00.000Z', lastSeenAt: '2026-01-03T00:00:00.000Z',
+    })
+  })
+
   it('joins named answer text to same-answer sources and counts answers exactly', () => {
     const result = buildCompetitorSuggestions({
       project,

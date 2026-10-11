@@ -102,6 +102,20 @@ Before anything else, separate the two signals. `cnry analytics <project> --feat
 
 > **Known gap:** `cnry health` is citation-only today (no mention dimension). For the mention-first read, use `cnry overview` / `cnry get <project> scores.mentionCoverage.value` / `cnry get <project> scores.mentionShare.value` until health is extended.
 
+### Stored competitor suggestions
+
+`competitor suggest` and the competitor suggestions API read stored answer and
+citation evidence only. They do not run a provider sweep. Treat `namingAnswers`
+and `citingAnswers` as separate answer counts, and use `pairedAnswers`
+only when the name and source occur in the same answer. Probe and non-terminal
+runs are reported as excluded evidence and do not enter candidate counts.
+
+Suggestions preserve the selected query class and Advanced market scope. Keep
+branded and non-brand results separate; never pool their shares into one
+percentage. Review `unresolvedNames` and answer samples before adding an alias
+because a recommended name can be a partner, place, service, or unrelated
+entity.
+
 ### Step 1: Check indexing
 Not mentioned / not cited ≠ bad content. Often the page isn't indexed yet, which starves both signals.
 ```bash

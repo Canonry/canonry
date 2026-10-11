@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   competitorSuggestionsQuerySchema,
+  CompetitorSuggestionStatuses,
   COMPETITOR_SUGGESTION_COUNT_UNITS,
   competitorAliasProjectIdentity,
   competitorIdentityAliases,
@@ -12,7 +13,7 @@ import {
   validationError,
 } from '@ainyc/canonry-contracts'
 import { domainClassifications } from '@ainyc/canonry-db'
-import { buildCompetitorSuggestions } from '@ainyc/canonry-intelligence'
+import { buildCompetitorSuggestions, type CompetitorLandscapeSurfaceClass } from '@ainyc/canonry-intelligence'
 import { claimedCompetitorAdds, readStoredCompetitors } from './competitor-writes.js'
 import { readMarketCompetitorPins } from './plan-competitors.js'
 import { resolveProject } from './helpers.js'
@@ -35,19 +36,20 @@ export async function competitorSuggestionRoutes(app: FastifyInstance) {
     Querystring: RawQuery
   }>('/projects/:name/competitor-suggestions', async request => {
     const project = resolveProject(app.db, request.params.name)
-    const parsed = competitorSuggestionsQuerySchema.safeParse(request.query)
+    const parsed = competitorSuggestionsQuerySchema.safeParse({ ...request.query, ...(request.query.window !== undefined ? { window: parseWindow(request.query.window) } : {}) })
     if (!parsed.success) throw validationError('Invalid competitor suggestion query', { issues: parsed.error.issues })
     const filters = parsed.data
     const window = parseWindow(filters.window ?? '30d')
     const minAnswers = filters.minAnswers ?? 3
     const limit = filters.limit ?? 25
     const classifier = projectQueryClassifier(project)
-    const queryClass = filters.queryClass ?? (classifier ? 'non-brand' : 'all')
-    if (queryClass !== 'all' && !classifier) {
+    const activeV2 = activeMeasurementPlan(app.db, project.id)?.plan.schemaVersion === 2
+    const queryClass = filters.queryClass ?? (classifier || activeV2 ? 'non-brand' : 'all')
+    if (queryClass !== 'all' && !classifier && !activeV2) {
       throw validationError(`Query class "${queryClass}" needs a brand name or alias on this project. Add one, or omit queryClass for a pooled landscape.`)
     }
     const advancedScope = filters.groupKey ? undefined
-      : activeMeasurementPlan(app.db, project.id)?.plan.schemaVersion === 2 && queryClass !== 'all'
+      : activeV2
         ? 'all-markets'
         : undefined
     const population = selectLandscapePopulation(app, request.params.name, {
@@ -76,12 +78,13 @@ export async function competitorSuggestionRoutes(app: FastifyInstance) {
       competitorAliasProjectIdentity(project),
       pins,
     )
-    const classifications = new Map<string, 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown'>()
+    const classifications = new Map<string, CompetitorLandscapeSurfaceClass>()
     for (const row of app.db.select({ domain: domainClassifications.domain, type: domainClassifications.competitorType })
       .from(domainClassifications).where(eq(domainClassifications.projectId, project.id)).all()) {
       const domain = hostOf(row.domain)
       if (!domain) continue
-      classifications.set(domain, surfaceClassFromCompetitorType(row.type) ?? 'unknown')
+      const surfaceClass = surfaceClassFromCompetitorType(row.type)
+      classifications.set(domain, surfaceClass === 'own' ? 'unknown' : surfaceClass ?? 'unknown')
     }
     const built = buildCompetitorSuggestions({
       project: { domain: project.canonicalDomain, label: project.displayName ?? project.name, domains: project.ownedDomains },
@@ -93,8 +96,8 @@ export async function competitorSuggestionRoutes(app: FastifyInstance) {
       marketKeys: new Map(pins.map(pin => [pin.domain, pin.markets] as const)),
     })
     const candidates = built.candidates.sort((left, right) => (
-      (left.status === 'suggested' ? 0 : left.status === 'tracked' ? 1 : 2)
-      - (right.status === 'suggested' ? 0 : right.status === 'tracked' ? 1 : 2)
+      (left.status === CompetitorSuggestionStatuses.suggested ? 0 : left.status === CompetitorSuggestionStatuses.tracked ? 1 : 2)
+      - (right.status === CompetitorSuggestionStatuses.suggested ? 0 : right.status === CompetitorSuggestionStatuses.tracked ? 1 : 2)
       || right.namingAnswers - left.namingAnswers
       || left.domain.localeCompare(right.domain)
     ))

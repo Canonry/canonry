@@ -17,7 +17,7 @@ describe('competitor suggestion contracts', () => {
       citingAnswers: 3,
       bothAnswers: 3,
       pairedAnswers: 3,
-      namedByOtherNameAnswers: [],
+      namedByOtherNameAnswers: 0,
       sweeps: 2,
       firstSeenAt: '2026-01-01T00:00:00.000Z',
       lastSeenAt: '2026-01-02T00:00:00.000Z',

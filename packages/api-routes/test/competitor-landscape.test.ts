@@ -1264,6 +1264,16 @@ describe('GET /projects/:name/analytics/competitors', () => {
       runIds: ['multi_market_alias_run'],
       candidates: [expect.objectContaining({ domain: 'parentco.com', marketKeys: expect.arrayContaining(['regional', 'southern']) })],
     })
+    const allClassSuggestions = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all&queryClass=all',
+    })
+    expect(allClassSuggestions.statusCode, allClassSuggestions.body).toBe(200)
+    expect(allClassSuggestions.json()).toMatchObject({ scope: { kind: 'all-markets' }, evidence: { answeredResults: 2 } })
+    const marketSuggestions = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all&groupKey=southern',
+    })
+    expect(marketSuggestions.statusCode, marketSuggestions.body).toBe(200)
+    expect(marketSuggestions.json()).toMatchObject({ scope: { kind: 'group', groupKey: 'southern' }, evidence: { answeredResults: 1 } })
     const grouped = await app.inject({
       method: 'GET', url: '/api/v1/projects/northwind/analytics/competitors?window=all&scope=all-markets&groupBy=model',
     })
@@ -1281,6 +1291,13 @@ describe('GET /projects/:name/analytics/competitors', () => {
       evidence: { answeredResults: 1 },
       modelComparison: { totalGroups: 1, groups: [{ model: 'south-model', snapshotCount: 1 }] },
     })
+    db.update(projects).set({ displayName: '', canonicalDomain: '', aliases: [] }).where(eq(projects.id, 'project_northwind')).run()
+    const frozenClassSuggestions = await app.inject({
+      method: 'GET', url: '/api/v1/projects/northwind/competitor-suggestions?window=all&queryClass=non-brand',
+    })
+    expect(frozenClassSuggestions.statusCode, frozenClassSuggestions.body).toBe(200)
+    expect(frozenClassSuggestions.json()).toMatchObject({ scope: { kind: 'all-markets' }, filters: { queryClass: 'non-brand' }, evidence: { answeredResults: 2 } })
+
   })
 
   it('scopes classes to Target usages when two markets share one execution', async () => {

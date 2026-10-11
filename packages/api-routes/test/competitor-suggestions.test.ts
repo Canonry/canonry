@@ -49,6 +49,15 @@ afterEach(async () => {
 })
 
 describe('GET competitor suggestions', () => {
+  it('normalizes bare day windows and rejects unsupported windows with allowed choices', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/competitor-suggestions?window=90' })
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().window).toBe('90d')
+    const rejected = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/competitor-suggestions?window=60' })
+    expect(rejected.statusCode).toBe(400)
+    expect(rejected.json().error.message).toContain('7d, 30d, 90d, all')
+  })
+
   it('uses the canonical matcher and excludes probe and non-completed evidence', async () => {
     const before = { competitors: db.select().from(competitors).all().length, audit: db.select().from(auditLog).all().length }
     const response = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/competitor-suggestions?window=all&minAnswers=2' })
@@ -124,5 +133,8 @@ describe('GET competitor suggestions', () => {
     }
     expect(comparable(afterCandidate)).toEqual(comparable(beforeCandidate))
     expect(afterCandidate.tracked).toBe(true)
+    const landscape = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/analytics/competitors?window=all&queryClass=non-brand' })
+    expect(landscape.statusCode, landscape.body).toBe(200)
+    expect(landscape.json().pinned.find((row: { domain: string }) => row.domain === 'rival.example').mentionCount).toBe(beforeCandidate.namingAnswers)
   })
 })

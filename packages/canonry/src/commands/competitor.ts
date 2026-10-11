@@ -406,7 +406,8 @@ export async function suggestCompetitors(project: string, options: CompetitorSug
 
 function printCompetitorSuggestions(data: CompetitorSuggestionsResponse): void {
   console.log(`Competitor suggestions for "${data.project}" (${data.window})`)
-  console.log(`Counting ${data.filters.queryClass} queries, requiring ${data.thresholds.minAnswers} answer(s).`)
+  const population = data.filters.queryClass === 'all' ? 'pooled (all)' : data.filters.queryClass
+  console.log(`Counting ${population} queries, requiring ${data.thresholds.minAnswers} answer(s).`)
   if (data.candidates.length === 0) {
     console.log('No stored candidates met the threshold.')
   } else {

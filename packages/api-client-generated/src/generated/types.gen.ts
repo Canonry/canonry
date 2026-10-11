@@ -4087,11 +4087,7 @@ export type CompetitorSuggestionsResponse = {
         citingAnswers: number;
         bothAnswers: number;
         pairedAnswers: number;
-        namedByOtherNameAnswers: Array<{
-            name: string;
-            answerCount: number;
-            pairedAnswers: number;
-        }>;
+        namedByOtherNameAnswers: number;
         sweeps: number;
         firstSeenAt: string | null;
         lastSeenAt: string | null;
