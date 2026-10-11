@@ -1,7 +1,7 @@
 import type { CompetitorAutoAliasMode, MeasurementConfig, ProjectDto, ProjectPatchRequest, ProjectUpsertRequest, ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
 import { DEFAULT_MEASUREMENT_CONFIG, effectiveDomains, measurementConfigSchema, normalizeProjectAliases, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { CliError, isMachineFormat, usageError } from '../cli-error.js'
+import { CliError, isEndpointMissing, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
@@ -344,7 +344,23 @@ export async function updateProjectSettings(
     // server whose API predates PATCH. Preserve the historical full PUT path
     // only for that transport case; mocked or incomplete clients are not a
     // compatibility signal.
-    if (!(error instanceof CliError) || error.code !== 'NOT_FOUND') throw error
+    if (!(error instanceof CliError) || !isEndpointMissing(error) || !/route/i.test(error.message)) throw error
+    let latest: ProjectDto
+    try {
+      // A concurrent delete can make the PATCH target itself return 404. The
+      // second GET distinguishes that from an older server with no PATCH
+      // route, so the legacy PUT cannot recreate a deleted project.
+      latest = await client.getProject(name)
+    } catch (readError) {
+      throw readError
+    }
+    if (latest.configRevision !== project.configRevision) {
+      throw new CliError({
+        code: 'PROJECT_REVISION_CONFLICT',
+        message: `Project '${name}' changed while the PATCH endpoint was unavailable. Re-read it and retry.`,
+        details: { expected: project.configRevision, actual: latest.configRevision },
+      })
+    }
     const legacyBody: ProjectUpsertRequest = {
       displayName: nextDisplayName,
       canonicalDomain: opts.domain ?? project.canonicalDomain,

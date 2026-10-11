@@ -53,6 +53,9 @@ let output: string[]
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockGetProject.mockReset()
+  mockPatchProject.mockReset()
+  mockPutProject.mockReset()
   output = []
   vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { output.push(args.join(' ')) })
   vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -124,6 +127,15 @@ describe('project measurement update flags', () => {
         leadEventNames: ['generate_lead', 'book_demo'],
       },
     })
+  })
+
+  it('does not turn a project NOT_FOUND response into a creating PUT', async () => {
+    mockGetProject
+      .mockResolvedValueOnce(project)
+      .mockRejectedValueOnce(new CliError({ code: 'NOT_FOUND', message: "Project 'measurement-project' not found", details: { httpStatus: 404 } }))
+    mockPatchProject.mockRejectedValue(new CliError({ code: 'NOT_FOUND', message: "Project 'measurement-project' not found", details: { httpStatus: 404 } }))
+    await expect(run('project', 'update', 'measurement-project', '--display-name', 'Deleted')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(mockPutProject).not.toHaveBeenCalled()
   })
 
   it('prints measurement lists in human project output', async () => {
