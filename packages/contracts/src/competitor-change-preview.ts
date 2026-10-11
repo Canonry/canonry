@@ -6,7 +6,7 @@ import { visibilityStatsShareOfVoiceSchema } from './visibility-stats.js'
 export const competitorChangePreviewRequestSchema = z.discriminatedUnion('change', [
   z.object({ change: z.literal('add'), competitors: z.array(competitorEntrySchema).min(1) }).strict(),
   z.object({ change: z.literal('remove'), competitors: z.array(z.string().trim().min(1)).min(1) }).strict(),
-  z.object({ change: z.literal('replace'), competitors: z.array(competitorEntrySchema) }).strict(),
+  z.object({ change: z.literal('replace'), competitors: z.array(z.string().trim().min(1)) }).strict(),
   z.object({ change: z.literal('aliases'), domain: z.string().trim().min(1), aliases: z.array(z.string().trim().min(1)), mode: z.enum(['set', 'add']) }).strict(),
 ])
 export type CompetitorChangePreviewRequest = z.infer<typeof competitorChangePreviewRequestSchema>

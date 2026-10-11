@@ -78,17 +78,30 @@ export async function competitorChangePreviewRoutes(app: FastifyInstance) {
     let plan
     if (change.change === 'remove') {
       const remove = new Set(change.competitors.map(normalizeCompetitorDomain))
-      plan = planCompetitorSet(stored, stored.filter(row => !remove.has(normalizeCompetitorDomain(row.domain))).map(row => ({ domain: row.domain, aliases: row.aliases })), { replace: true, project: competitorAliasProjectIdentity(project), marketPins })
+      plan = planCompetitorSet(stored, stored.filter(row => !remove.has(normalizeCompetitorDomain(row.domain))).map(row => ({ domain: row.domain })), { replace: true, project: competitorAliasProjectIdentity(project), marketPins })
     } else {
       const writes = change.change === 'aliases'
         ? [{ domain: change.domain, aliases: change.aliases, aliasMode: change.mode }]
-        : competitorWritesFromEntries(change.competitors, change.change === 'replace' ? 'set' : 'add')
+        : change.change === 'replace'
+          ? change.competitors.map(domain => ({ domain, aliasMode: 'set' as const }))
+          : competitorWritesFromEntries(change.competitors, 'add')
       plan = planCompetitorSet(stored, writes, { replace: change.change === 'replace', project: competitorAliasProjectIdentity(project), marketPins })
     }
     const after = plan.final.map(row => ({ domain: row.domain, aliases: row.aliases, autoAliases: row.autoAliases, blockedAliases: row.blockedAliases }))
-    const impact = previewCompetitorShareImpact(app, project.name, after)
+    const impact = previewCompetitorShareImpact(app, project.name, after, {
+      autoAliasRescanPending: project.competitorAutoAliases === 'apply' && plan.added.length > 0,
+    })
     const alreadyTracked = change.change === 'add' ? change.competitors.map(competitorEntryParts).map(entry => normalizeCompetitorDomain(entry.domain)).filter(domain => stored.some(row => normalizeCompetitorDomain(row.domain) === domain)) : []
     const { final: _final, ...planSummary } = plan
-    return { project: project.name, change: change.change, plan: { ...planSummary, alreadyTracked }, impact }
+    return {
+      project: project.name,
+      change: change.change,
+      plan: {
+        ...planSummary,
+        removed: plan.removed.map(row => row.domain),
+        alreadyTracked,
+      },
+      impact,
+    }
   })
 }

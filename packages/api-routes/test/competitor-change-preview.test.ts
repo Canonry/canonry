@@ -61,6 +61,17 @@ describe('POST /api/v1/projects/:name/competitor-changes/preview', () => {
     expect(db.select().from(competitors).all().map(row => row.domain)).toEqual(['rival.example'])
   })
 
+  it('marks a measured apply-mode add as awaiting the automatic alias rescan', async () => {
+    db.update(projects).set({ competitorAutoAliases: 'apply' }).run()
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/preview/competitor-changes/preview',
+      payload: { change: 'add', competitors: ['newrival.example'] },
+    })
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().impact.caveats).toContain('auto-alias-rescan-pending')
+  })
+
   it('previews a curated alias set without an implicit write', async () => {
     const response = await app.inject({
       method: 'POST',
@@ -80,5 +91,26 @@ describe('POST /api/v1/projects/:name/competitor-changes/preview', () => {
     })
     expect(response.statusCode).toBe(404)
     expect(db.select().from(competitors).all()).toHaveLength(1)
+  })
+
+  it('keeps remove and replace previews aligned with their domain-only writes', async () => {
+    const remove = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/preview/competitor-changes/preview',
+      payload: { change: 'remove', competitors: ['rival.example'] },
+    })
+    expect(remove.statusCode, remove.body).toBe(200)
+    const removeBody = competitorChangePreviewResponseSchema.parse(remove.json())
+    expect(removeBody.plan.removed).toEqual(['rival.example'])
+
+    const replace = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/preview/competitor-changes/preview',
+      payload: { change: 'replace', competitors: ['replacement.example'] },
+    })
+    expect(replace.statusCode, replace.body).toBe(200)
+    const replaceBody = competitorChangePreviewResponseSchema.parse(replace.json())
+    expect(replaceBody.plan.removed).toEqual(['rival.example'])
+    expect(replaceBody.plan.added).toEqual(['replacement.example'])
   })
 })
