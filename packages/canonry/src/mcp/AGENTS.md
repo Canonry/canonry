@@ -87,6 +87,8 @@ MCP workflows (agent): inspect → diagnose → act. Inspect: get-project / visi
 
 ## Kept out of MCP on purpose
 
+- `canonry help` describes the local CLI binary and has no API route. MCP discovery remains `canonry_help({ includeCatalog: true })`, which describes the tool catalog.
+
 - MCP/Aero expose task-shaped Site Health overview/page-audit/subgraph/path/changes reads; the 20k/50k Sigma layout payload stays API/dashboard-only. CLI aliases: `canonry site-health overview|pages|page-audit|structure|links|neighbors|dead-links|subgraph|path|changes`.
 - Ads archive is classified `deferred`: it is irreversible and stays a human API surface.
 - `canonry serve --embed` is not an `/api/v1` operation, so it has no MCP tool (same precedent as `--base-path`).

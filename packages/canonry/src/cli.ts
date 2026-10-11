@@ -1,4 +1,5 @@
 #!/usr/bin/env node --import tsx
+import { printCliCatalog } from './cli-catalog.js'
 import { pathToFileURL } from 'node:url'
 import {
   trackEvent,
@@ -22,69 +23,7 @@ import { buildSetupNudgeLine } from './setup-nudge.js'
 import { consumePendingServeHandoff } from './commands/init.js'
 import { serveCommand } from './commands/serve.js'
 
-const USAGE = `
-cnry — Page Health and AI visibility CLI   ('canonry' also works)
 
-Usage:  cnry <command> [options]
-
-Setup:
-  bootstrap             Create local config/database (no provider required)
-  serve                 Start the local server (foreground)
-  demo                  Serve a public view-only sample dashboard
-  start / stop          Start/stop as a background daemon
-  init                  Optional interactive provider/OAuth provisioning
-  skills                List or install bundled agent skills (claude/codex)
-
-Page Health:
-  technical-aeo         Crawl, score, and inspect site health evidence
-  doctor                Diagnose runtime and integration health
-
-Projects:
-  project               Create, update, list, show, delete projects
-  query                 Add, replace, remove, list, import, generate queries
-  competitor            Add, remove, list competitors and their aliases
-
-Monitoring:
-  run                   Trigger visibility sweeps
-  runs <project>        List runs (filter by --kind, --status, --since)
-  snapshot              One-shot AI perception report
-  status <project>      Show project summary
-  evidence <project>    Show per-query results
-  analytics <project>   Show analytics (metrics, gaps, sources)
-  organic-evidence      Reconcile 60/90d search, GA4, and server AI evidence
-  insights <project>    Show intelligence insights
-  health <project>      Show citation health
-
-Config-as-Code:
-  apply <file...>       Apply declarative config (YAML)
-  export <project>      Export project as YAML
-
-Integrations:
-  google                Google Search Console / Analytics
-  bing                  Bing Webmaster Tools
-  wordpress             WordPress REST API
-  traffic               Server-side traffic ingestion (Cloud Run)
-
-Automation:
-  schedule              Manage scheduled runs
-  notify                Manage webhook notifications
-
-Admin:
-  settings              Show/update provider and quota settings
-  dashboard             Reset the dashboard password
-  backfill              Backfill answer visibility or insights
-  telemetry             Manage anonymous telemetry
-  history <project>     Show audit trail
-  support               Get help: Canonry Discord and issue tracker
-
-Global options:
-  --format json         Machine-readable output: one JSON document (all commands)
-  --format jsonl        Machine-readable output: one record per line, no jq needed
-  --help, -h            Show help (use with any command group)
-  --version, -v         Show version
-
-Run 'cnry <command> --help' for details on a specific command.
-`.trim()
 
 import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
@@ -93,7 +32,7 @@ const { version: VERSION } = _require('../package.json') as { version: string }
 /** Extract --format flag from args. Returns 'json', 'jsonl', or 'text' (default). */
 function extractFormat(cmdArgs: string[]): CliFormat {
   const idx = cmdArgs.indexOf('--format')
-  const value = idx !== -1 ? cmdArgs[idx + 1] : undefined
+  const value = idx !== -1 ? cmdArgs[idx + 1] : cmdArgs.find(arg => arg.startsWith('--format='))?.slice('--format='.length)
   if (value === 'json') return 'json'
   if (value === 'jsonl') return 'jsonl'
   return 'text'
@@ -157,8 +96,9 @@ function telemetryErrorCode(err: unknown): string {
 }
 
 export async function runCli(args = process.argv.slice(2)): Promise<number> {
+  const format = extractFormat(args)
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
-    console.log(USAGE)
+    printCliCatalog(REGISTERED_CLI_COMMANDS, format)
     return 0
   }
 
@@ -168,7 +108,16 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   }
 
   const command = args[0]!
-  const format = extractFormat(args)
+  const isHelpRequest = command === 'help' || args.includes('--help') || args.includes('-h')
+  if (isHelpRequest) {
+    try {
+      if (!await dispatchRegisteredCommand(args, format, REGISTERED_CLI_COMMANDS)) throw usageError(`Unknown command group: ${command}`)
+      return 0
+    } catch (error) {
+      printCliError(error, format)
+      return error instanceof CliError ? error.exitCode : EXIT_SYSTEM_ERROR
+    }
+  }
 
   // Demo startup must not read a personal config, send telemetry, refresh
   // installed skills, or start an update check on the hosting machine.
@@ -183,7 +132,6 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   }
 
   // Skip telemetry entirely for help requests — the user is just reading usage
-  const isHelpRequest = args.includes('--help') || args.includes('-h')
 
   // First-run telemetry notice (shown once, to stderr).
   // Skip for the `telemetry` command itself — the user may be about to disable it,

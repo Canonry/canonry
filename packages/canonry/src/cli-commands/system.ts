@@ -1,3 +1,4 @@
+import { usageError } from '../cli-error.js'
 import { bootstrapCommand } from '../commands/bootstrap.js'
 import { supportCommand } from '../commands/support.js'
 import { startDaemon, stopDaemon } from '../commands/daemon.js'
@@ -31,6 +32,15 @@ function applyServerEnv(values: CliValues): void {
 }
 
 export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  {
+    path: ['help'],
+    usage: 'canonry help [<group>] [--format json|jsonl]',
+    run: async input => {
+      if (input.positionals.length > 1) throw usageError('Expected at most one command group')
+      const [{ printCliCatalog }, { REGISTERED_CLI_COMMANDS }] = await Promise.all([import('../cli-catalog.js'), import('../cli-commands.js')])
+      printCliCatalog(REGISTERED_CLI_COMMANDS, input.format, input.positionals[0])
+    },
+  },
   {
     path: ['logs'],
     usage: 'canonry logs [--level trace|debug|info|warn|error|fatal] [--module <name>] [--run-id <id>] [--project-id <id>] [--actor <user:id|api-key:id>] [--request-id <id>] [--since <ISO>] [--until <ISO>] [--limit <1..200>] [--cursor <cursor>] [--format json|jsonl]',

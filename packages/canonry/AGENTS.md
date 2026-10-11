@@ -54,7 +54,8 @@ Canonry then reuses the checked web output. Keep this dependency when changing b
    ```typescript
    { path: ['mycommand', 'subcommand'], usage: 'Description', run: myHandler }
    ```
-3. The CLI dispatches based on `path` matching argv.
+3. For a new root, add its section and summary to `CLI_ROOT_SUMMARIES` in `src/cli-catalog.ts`. The catalog drift guard rejects missing and phantom roots.
+4. The CLI dispatches based on `path` matching argv. `help`, top-level help and group help expose the registry as JSON or JSONL; help requests skip API calls, telemetry, skill sync and update checks.
 
 ### ApiClient usage (Critical)
 

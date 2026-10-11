@@ -249,3 +249,5 @@ Available factories: `validationError()`, `notFound()`, `alreadyExists()`, `auth
 exclude from notification grading, not exclude from doctor output. Project
 reports expose selected `reportMonths`; the previous month stays selected through
 UTC day 3 unless the caller supplies one explicit month.
+
+`cli-catalog.ts` defines the public JSON contract for local CLI discovery: version, global options, root groups and command identity, usage, dry-run support, window choices and option cardinality. It has no API endpoint.

@@ -71,19 +71,14 @@ function matchesPath(args: readonly string[], path: readonly string[]): boolean 
   return path.every((segment, index) => args[index] === segment)
 }
 
-function withGlobalOptions(options?: ParseArgsOptionsConfig): ParseArgsOptionsConfig {
-  const base = options ? { ...options } : {}
-  if (!('format' in base)) base.format = { type: 'string' }
-  // --dry-run is always parsed so the dispatcher can validate its use against
-  // the spec's `supportsDryRun` flag. Commands that don't opt in get a usage
-  // error before `run` is called.
-  if (!('dry-run' in base)) base['dry-run'] = { type: 'boolean' }
-  // --trace is a universal agent-debug flag — every command supports it.
-  // When set, the ApiClient logs each HTTP round-trip to stderr (method,
-  // URL, status, duration) so an operator/agent can see which endpoint a
-  // CLI call hit. Stays on stderr so --format json stdout stays clean.
-  if (!('trace' in base)) base.trace = { type: 'boolean' }
-  return base
+export const CLI_GLOBAL_OPTIONS: ParseArgsOptionsConfig = {
+  format: { type: 'string' },
+  'dry-run': { type: 'boolean' },
+  trace: { type: 'boolean' },
+}
+
+export function commandOptions(spec: CliCommandSpec): ParseArgsOptionsConfig {
+  return { ...CLI_GLOBAL_OPTIONS, ...spec.options, ...windowOptions({ window: Boolean(spec.windows), dates: Boolean(spec.options?.start || spec.windowAliases?.start), aliases: spec.windowAliases }) }
 }
 
 function toFormat(value: CliValue, fallbackFormat: CliFormat): CliFormat {
@@ -92,13 +87,16 @@ function toFormat(value: CliValue, fallbackFormat: CliFormat): CliFormat {
   return fallbackFormat
 }
 
-function printGroupHelp(group: string, specs: readonly CliCommandSpec[]): void {
+export function printGroupHelp(group: string, specs: readonly CliCommandSpec[]): void {
   const parentSpec = specs.find(s => s.path.length === 1 && s.path[0] === group)
   const groupSpecs = specs
     .filter(s => s.path[0] === group && s.path.length > 1)
     .sort((a, b) => a.path.join(' ').localeCompare(b.path.join(' ')))
 
-  if (groupSpecs.length === 0) return
+  if (groupSpecs.length === 0) {
+    if (parentSpec) printCommandHelp(parentSpec)
+    return
+  }
 
   console.log(`\nUsage:  canonry ${group} <command> [options]\n`)
 
@@ -124,6 +122,12 @@ export async function dispatchRegisteredCommand(
   if (args.length >= 1 && (args.includes('--help') || args.includes('-h'))) {
     // Strip --help/-h from args for path matching
     const argsWithoutHelp = args.filter(a => a !== '--help' && a !== '-h')
+
+    if (fallbackFormat !== 'text') {
+      const { printCliCatalog } = await import('./cli-catalog.js')
+      printCliCatalog(specs, fallbackFormat, argsWithoutHelp[0])
+      return true
+    }
 
     // Try longest-path match first so `canonry run show --help` shows the
     // specific subcommand usage, not the group help.
@@ -167,7 +171,7 @@ export async function dispatchRegisteredCommand(
   try {
     const parsed = parseArgs({
       args: remainingArgs,
-      options: withGlobalOptions({ ...spec.options, ...windowOptions({ window: Boolean(spec.windows), dates: Boolean(spec.options?.start || spec.windowAliases?.start), aliases: spec.windowAliases }) }),
+      options: commandOptions(spec),
       allowPositionals: spec.allowPositionals ?? true,
     })
     values = parsed.values as CliValues
