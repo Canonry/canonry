@@ -348,7 +348,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   // GET /projects/:name/runs — list runs for project
   app.get<{
     Params: { name: string }
-    Querystring: { limit?: string; kind?: string; excludeKind?: string; excludeKinds?: string | string[]; status?: string }
+    Querystring: { limit?: string; since?: string; kind?: string; excludeKind?: string; excludeKinds?: string | string[]; status?: string }
   }>('/projects/:name/runs', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -362,6 +362,8 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     // ?status= scopes to the one status (e.g. `running` for in-flight work).
     const { kind, excludeKind, excludeKinds, status } = parseListFilters(request.query)
     const filters = [eq(runs.projectId, project.id)]
+    const since = parseListSince(request.query.since)
+    if (since) filters.push(gte(runs.createdAt, since))
     if (kind) filters.push(eq(runs.kind, kind))
     if (excludeKind) filters.push(ne(runs.kind, excludeKind))
     if (excludeKinds?.length) filters.push(notInArray(runs.kind, excludeKinds))
@@ -481,7 +483,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     Querystring: { limit?: string; since?: string; includeProbe?: string; kind?: string; excludeKind?: string; excludeKinds?: string | string[]; status?: string }
   }>('/runs', async (request, reply) => {
     const limit = parseListLimit(request.query.limit, 500, 5000)
-    const since = parseListSince(request.query.since)
+    const since = parseListSince(request.query.since, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
     const includeProbe = request.query.includeProbe === '1' || request.query.includeProbe === 'true'
     const { kind, excludeKind, excludeKinds, status } = parseListFilters(request.query)
 
@@ -869,16 +871,11 @@ function parseListFilters(query: { kind?: string; excludeKind?: string; excludeK
   throw validationError(message, { invalid: Object.fromEntries(invalid.map(field => [field, query[field]])) })
 }
 
-/**
- * Parse the `?since=` query param. Accepts an ISO 8601 timestamp; defaults
- * to 30 days ago. SQLite text comparisons on `created_at` work because the
- * column is consistently ISO 8601 UTC ("YYYY-MM-DDTHH:MM:SS.SSSZ").
- */
-function parseListSince(raw: string | undefined): string {
-  if (raw === undefined) {
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-    return thirtyDaysAgo.toISOString()
-  }
+/** Normalize timestamps before comparing the stored UTC ISO strings. */
+function parseListSince(raw: string | undefined, fallback: string): string
+function parseListSince(raw: string | undefined): string | undefined
+function parseListSince(raw: string | undefined, fallback?: string): string | undefined {
+  if (raw === undefined) return fallback
   const date = new Date(raw)
   if (Number.isNaN(date.getTime())) {
     throw validationError('"since" must be a valid ISO 8601 timestamp')
@@ -904,6 +901,7 @@ export function formatRun(row: {
   measurementExecutionIdentity?: MeasurementExecutionIdentity | null
   providerDispatchModes?: RunDispatchModes | null
   skippedProviders?: Record<string, ProviderAccountStreak> | null
+  sourceId?: string | null
 }) {
   const measurementManifest = row.measurementManifest !== null
     && typeof row.measurementManifest === 'object'
@@ -925,6 +923,7 @@ export function formatRun(row: {
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
     error: parseRunError(row.error),
+    ...(row.sourceId != null ? { sourceId: row.sourceId } : {}),
     ...(hasMeasurementProvenance
       ? {
           measurementPlanVersionId: row.measurementPlanVersionId ?? null,

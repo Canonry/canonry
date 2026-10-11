@@ -7046,6 +7046,7 @@ export type KeywordGenerateResponse = {
 export type LatestProjectRunDto = {
     totalRuns: number;
     run: {
+        sourceId?: string | null;
         id: string;
         projectId: string;
         kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
@@ -11894,6 +11895,7 @@ export type ProjectOverviewDto = {
     latestRun: {
         totalRuns: number;
         run: {
+            sourceId?: string | null;
             id: string;
             projectId: string;
             kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
@@ -12697,6 +12699,7 @@ export type RunCompletenessDto = {
 };
 
 export type RunDetailDto = {
+    sourceId?: string | null;
     id: string;
     projectId: string;
     kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
@@ -12895,6 +12898,7 @@ export type RunFillResponseDto = {
 };
 
 export type RunDto = {
+    sourceId?: string | null;
     id: string;
     projectId: string;
     kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
@@ -20474,6 +20478,10 @@ export type GetApiV1ProjectsByNameRunsData = {
          * Restrict results to a single run status, e.g. "running" to find in-flight work or "failed" to triage. Unknown values are rejected with 400 rather than returning an empty list.
          */
         status?: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+        /**
+         * Only return runs created at or after this ISO 8601 timestamp. Omitted means no lower bound.
+         */
+        since?: string;
     };
     url: '/api/v1/projects/{name}/runs';
 };

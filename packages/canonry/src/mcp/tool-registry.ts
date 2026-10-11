@@ -349,6 +349,7 @@ const measurementDraftActionOpenApiOperations = [
 ]
 
 const runsListInputSchema = z.object({
+  since: z.string().optional().describe('Inclusive ISO 8601 lower bound on creation time. Omit to read all dates.'),
   project: projectNameSchema,
   limit: z.number().int().positive().max(500).optional(),
   kind: runListFilterQuerySchema.shape.kind.describe('Restrict to a single run kind (e.g. "answer-visibility"). Unknown values are rejected.'),
@@ -1618,13 +1619,13 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_runs_list',
     title: 'List project runs',
-    description: "List runs for a Canonry project. Includes both real runs (trigger='manual'/'scheduled'/'config-apply'/'backfill') AND probe runs (trigger='probe'). Probe runs are operator/agent test runs that don't influence dashboard, analytics, intelligence, or notifications — filter by `trigger !== 'probe'` if you only want runs that feed project metrics. Narrow with `kind` and/or `status` (e.g. status='running' lists only in-flight work). Use `excludeKind` or `excludeKinds` to remove kinds before applying the limit.",
+    description: "List runs for a Canonry project. Includes both real runs (trigger='manual'/'scheduled'/'config-apply'/'backfill') AND probe runs (trigger='probe'). Probe runs are operator/agent test runs that don't influence dashboard, analytics, intelligence, or notifications; filter by `trigger !== 'probe'` if you only want runs that feed project metrics. Narrow with `kind` and/or `status` (e.g. status='running' lists only in-flight work). Use `excludeKind` or `excludeKinds` to remove kinds before applying the limit. `since` bounds creation time; omitting limit returns every matching run.",
     access: 'read',
     tier: 'monitoring',
     inputSchema: runsListInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/runs'],
-    handler: (client, input) => client.listRuns(input.project, input.limit, input.kind, input.status, input.excludeKind, input.excludeKinds),
+    handler: (client, input) => client.listRuns(input.project, input.limit, input.kind, input.status, input.excludeKind, input.excludeKinds, input.since),
   }),
   defineTool({
     name: 'canonry_runs_latest',

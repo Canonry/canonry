@@ -256,6 +256,7 @@ export const runUsageSummaryRowSchema = z.object({
 export type RunUsageSummaryRow = z.infer<typeof runUsageSummaryRowSchema>
 
 export const runDtoSchema = z.object({
+  sourceId: z.string().nullable().optional(),
   id: z.string(),
   projectId: z.string(),
   kind: runKindSchema,

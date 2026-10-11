@@ -206,7 +206,6 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'dto',
     dto: runDtoSchema,
     internal: {
-      sourceId: 'Set for traffic-sync runs; consumed by traffic routes, not the user-facing run DTO.',
       providerDispatchModes: 'Exposed as `dispatchModes` on the run DTO ({} when null).',
       pendingProviderErrors: 'Sync-provider errors held while finalization waits on a provider batch; folded into `error` at finalize.',
     },

@@ -117,6 +117,13 @@ response is 204; CLI and MCP acknowledge it with `{ targetRef, restored: true }`
 Their MCP equivalents live in monitoring: `canonry_content_dismissals` (read),
 `canonry_content_dismiss` and `canonry_content_restore` (write).
 
+### Stored run history
+
+`run list <project>` aliases `runs <project>` with one handler and option table.
+The optional `--since` forwards an inclusive timestamp without imposing a default
+window or limit. Both forms include probes; traffic rows expose stored `sourceId`.
+With no project positional, `run list` retains the sweep of a project named `list`.
+
 ### Command output
 
 All commands that produce output must support `--format json` for machine-parseable output. Use the format flag to switch between human-friendly tables and JSON.

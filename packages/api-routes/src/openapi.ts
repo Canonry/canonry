@@ -415,6 +415,13 @@ const runsListSinceQueryParameter: OpenApiParameter = {
   schema: stringSchema,
 }
 
+const projectRunsSinceQueryParameter: OpenApiParameter = {
+  name: 'since',
+  in: 'query',
+  description: 'Only return runs created at or after this ISO 8601 timestamp. Omitted means no lower bound.',
+  schema: stringSchema,
+}
+
 const runsListIncludeProbeQueryParameter: OpenApiParameter = {
   name: 'includeProbe',
   in: 'query',
@@ -2450,7 +2457,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/runs',
     summary: 'List project runs',
     tags: ['runs'],
-    parameters: [nameParameter, limitQueryParameter, runsListKindQueryParameter, runsListExcludeKindQueryParameter, runsListExcludeKindsQueryParameter, runsListStatusQueryParameter],
+    parameters: [nameParameter, limitQueryParameter, runsListKindQueryParameter, runsListExcludeKindQueryParameter, runsListExcludeKindsQueryParameter, runsListStatusQueryParameter, projectRunsSinceQueryParameter],
     responses: {
       200: jsonArrayResponse('Runs returned.', 'RunDto'),
     },

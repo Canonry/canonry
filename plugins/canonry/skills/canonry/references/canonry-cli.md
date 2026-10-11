@@ -154,9 +154,19 @@ cnry run cancel <project> [run-id]             # force-cancel stuck runs
 cnry run completeness <run-id>                 # answered vs missing answers per provider, and whether a fill is allowed
 cnry run fill <run-id> --dry-run               # what a fill would record, without spending quota
 cnry run fill <run-id> [--provider claude] --wait  # record a partial run's missing answers under the SAME run id
-cnry runs <project> --limit 10                 # list recent runs (includes both real and probe runs; filter on `trigger` if you only want one)
+cnry runs <project> --limit 10                 # list recent runs, including probes
+cnry run list <project> --kind traffic-sync --status failed --since 2026-10-01T00:00:00Z --limit 20 --format json
 cnry run show <id>                             # show run details
 ```
+
+`run list <project>` and `runs <project>` read the same stored history. Filters
+include `--kind`, `--status`, `--since`, `--exclude-kind`, and repeatable or
+comma-separated `--exclude-kinds`. The inclusive `--since` timestamp accepts
+UTC or an offset. Omit it for all dates; omit `--limit` for all matching runs.
+The newest limited rows retain chronological order. Traffic sync rows include
+`sourceId` when stored, and human output shows failed and partial errors.
+JSON is the API array; JSONL emits each run with its project. With no second
+positional, `run list` retains the sweep shorthand for a project named `list`.
 
 Run statuses: `queued` → `running` → `completed` / `failed` / `partial`
 

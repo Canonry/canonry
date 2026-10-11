@@ -1,10 +1,12 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 
 const mockListRuns = vi.fn()
+const mockTriggerRun = vi.fn()
 
 vi.mock('../src/client.js', () => ({
   createApiClient: () => ({
     listRuns: mockListRuns,
+    triggerRun: mockTriggerRun,
   }),
 }))
 
@@ -101,5 +103,57 @@ describe('listRuns --format jsonl', () => {
     expect(JSON.parse(logs.join(''))).toEqual(runRows)
     // The json branch pretty-prints with 2-space indentation, unchanged.
     expect(logs.join('')).toBe(JSON.stringify(runRows, null, 2))
+  })
+})
+
+const { runCli } = await import('../src/cli.js')
+
+async function captureCli(args: string[]) {
+  const output: string[] = []
+  const log = vi.spyOn(console, 'log').mockImplementation((...parts: unknown[]) => output.push(parts.join(' ')))
+  try {
+    const exitCode = await runCli(args)
+    return { exitCode, text: output.join('\n') }
+  } finally { log.mockRestore() }
+}
+
+describe('run list discovery and filtering', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('dispatches run list and runs to the same saved-run read including since', async () => {
+    mockListRuns.mockResolvedValue(runRows)
+    const args = ['sample', '--kind', 'traffic-sync', '--status', 'failed', '--since', '2026-10-01T00:00:00Z', '--limit', '20', '--format', 'json']
+    const alias = await captureCli(['run', 'list', ...args])
+    const existing = await captureCli(['runs', ...args])
+    expect(alias.exitCode).toBe(0)
+    expect(existing.exitCode).toBe(0)
+    expect(JSON.parse(alias.text)).toEqual(runRows)
+    expect(alias.text).toBe(existing.text)
+    expect(mockListRuns).toHaveBeenNthCalledWith(1, 'sample', 20, 'traffic-sync', 'failed', undefined, undefined, '2026-10-01T00:00:00Z')
+    expect(mockListRuns).toHaveBeenNthCalledWith(2, 'sample', 20, 'traffic-sync', 'failed', undefined, undefined, '2026-10-01T00:00:00Z')
+  })
+
+  it('keeps a project literally named list runnable without a second positional', async () => {
+    mockTriggerRun.mockResolvedValue({ id: 'queued-1', status: 'queued', kind: 'answer-visibility' })
+    const result = await captureCli(['run', 'list', '--format', 'json'])
+    expect(result.exitCode).toBe(0)
+    expect(mockTriggerRun).toHaveBeenCalledWith('list', {})
+    expect(mockListRuns).not.toHaveBeenCalled()
+  })
+
+  it('shows the stored list in root and run help', async () => {
+    expect((await captureCli(['--help'])).text).toContain('runs <project>')
+    expect((await captureCli(['run', '--help'])).text).toContain('canonry run list <project>')
+  })
+
+  it('prints stored failed and partial errors beside their rows', async () => {
+    mockListRuns.mockResolvedValue([
+      { ...runRows[0], status: 'failed', error: { message: 'Connection refused' } },
+      { ...runRows[1], status: 'partial', error: { message: 'One page unavailable' } },
+    ])
+    const result = await captureCli(['runs', 'sample'])
+    expect(result.exitCode).toBe(0)
+    expect(result.text).toContain('error: Connection refused')
+    expect(result.text).toContain('error: One page unavailable')
   })
 })

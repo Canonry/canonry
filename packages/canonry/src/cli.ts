@@ -46,6 +46,7 @@ Projects:
 
 Monitoring:
   run                   Trigger visibility sweeps
+  runs <project>        List runs (filter by --kind, --status, --since)
   snapshot              One-shot AI perception report
   status <project>      Show project summary
   evidence <project>    Show per-query results
