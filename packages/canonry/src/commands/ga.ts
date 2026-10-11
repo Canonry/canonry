@@ -1,6 +1,7 @@
 import type { AiEngineLeadRateUnavailableReason, GaConnectResponse, GA4PropertiesDto, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaMeasurementAnalysisDto, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GaSourceMover, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaSearchLandingMetrics, GaSearchLandingPagesResponse } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { CliError, isMachineFormat } from '../cli-error.js'
+import { gaAcquisitionQuerySchema, type GaAcquisitionQuery } from '@ainyc/canonry-contracts'
+import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 import { GA_SEARCH_LANDING_WINDOW_DAYS, GaMoverChangeBases, describeError, formatPercent, gaSearchLandingHasSearchData, gaSearchLandingPageLabel } from '@ainyc/canonry-contracts'
 
@@ -33,6 +34,23 @@ function rangeParams(opts?: GaRangeOptions, extra?: Record<string, string>): Rec
 /** True when the read was scoped at all, so an empty result can say why. */
 function isRangeScoped(opts?: GaRangeOptions): boolean {
   return Boolean(opts?.window || opts?.startDate || opts?.endDate)
+}
+
+export async function gaAcquisition(project: string, opts: Omit<GaAcquisitionQuery, 'window'> & { window?: string; format?: string }): Promise<void> {
+  const { format, ...input } = opts
+  const parsed = gaAcquisitionQuerySchema.safeParse(input)
+  if (!parsed.success) throw usageError(parsed.error.message)
+  const result = await createApiClient().gaAcquisition(project, parsed.data)
+  if (isMachineFormat(format)) {
+    if (format === 'jsonl') emitJsonl(result.rows.map(row => ({ project, windowStart: result.window.startDate, windowEnd: result.window.endDate, ...row })))
+    else console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  console.log(`Stored GA4 acquisition for "${project}": ${result.rows.length} of ${result.totalRows} rows, ${result.totalSessions} sessions in window`)
+  console.log(`Status: ${result.status}; synced: ${result.syncedAt ?? 'never'}; coverage: ${result.coverage.earliestDate ?? '-'} to ${result.coverage.latestDate ?? '-'}`)
+  if (result.error) console.log(`Stored sync error: ${result.error}`)
+  console.log([...result.groupBy, 'sessions'].join('  '))
+  for (const row of result.rows) console.log([...result.groupBy.map(key => row[key] ?? '-'), row.sessions].join('  '))
 }
 
 export async function gaConnect(project: string, opts: {

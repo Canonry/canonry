@@ -1720,3 +1720,20 @@ prefixes are literal. Limit is 1 to 500; offset starts at zero. Project/source
 attribution applies equally to Simple and Advanced portfolios; Property, Target,
 and market attribution is unavailable. No provider call or write. Signed-in
 viewers and embeds cannot read samples; API read keys retain project scope.
+
+### Stored GA acquisition
+
+```bash
+cnry ga acquisition <project> --start 2026-09-01 --end 2026-09-30 --channel "Organic Search" --landing-page /pricing --format json
+cnry ga acquisition <project> --group-by source,medium --limit 100 --offset 100 --format jsonl
+```
+
+Reads stored GA4 sessions only, with no Google call. `--window 7d|30d|90d|all`
+defaults to all history; explicit `--start` and `--end` follow the existing GA
+date-range rules. `--source` and `--medium` match exactly; `--channel` and `--host`
+match exactly without case sensitivity. `--landing-page` matches the normalized
+page including meaningful query parameters. `--path-prefix` matches a path or its
+descendants, treating percent and underscore literally. Group keys are date,
+channel, source, medium, host, landing-page (API names are also accepted). Default
+grouping uses all six. `totalSessions` covers every filtered row, independent of
+grouping and pagination; `totalRows` counts groups. Maximum page size is 1000.

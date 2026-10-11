@@ -5027,6 +5027,50 @@ export type GaAttributionTrendResponse = {
     } | null;
 };
 
+export type GaAcquisitionResponse = {
+    source: 'ga4-acquisition';
+    status: 'never-synced' | 'ready' | 'error';
+    error: string | null;
+    syncedAt: string | null;
+    scope: {
+        project: string;
+        attribution: 'project-only';
+        unavailableDimensions: Array<'property' | 'target' | 'market'>;
+    };
+    window: {
+        startDate: string | null;
+        endDate: string | null;
+        window: '7d' | '30d' | '90d' | 'all';
+    };
+    coverage: {
+        earliestDate: string | null;
+        latestDate: string | null;
+    };
+    filters: {
+        channel: string | null;
+        source: string | null;
+        medium: string | null;
+        hostName: string | null;
+        landingPage: string | null;
+        pathPrefix: string | null;
+    };
+    groupBy: Array<'date' | 'channelGroup' | 'source' | 'medium' | 'hostName' | 'landingPage'>;
+    channelGroups: Array<string>;
+    totalSessions: number;
+    totalRows: number;
+    limit: number;
+    offset: number;
+    rows: Array<{
+        date?: string;
+        channelGroup?: string;
+        source?: string;
+        medium?: string;
+        hostName?: string;
+        landingPage?: string;
+        sessions: number;
+    }>;
+};
+
 export type GaSearchLandingPagesResponse = {
     source: 'ga4-search-console-link';
     status: 'never-synced' | 'ready' | 'unavailable' | 'error';
@@ -28076,6 +28120,89 @@ export type GetApiV1ProjectsByNameGaPropertiesResponses = {
 };
 
 export type GetApiV1ProjectsByNameGaPropertiesResponse = GetApiV1ProjectsByNameGaPropertiesResponses[keyof GetApiV1ProjectsByNameGaPropertiesResponses];
+
+export type GetApiV1ProjectsByNameGaAcquisitionData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Rolling window, default all; explicit dates take precedence.
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Inclusive calendar date.
+         */
+        startDate?: string;
+        /**
+         * Inclusive calendar date.
+         */
+        endDate?: string;
+        /**
+         * Case-insensitive exact channel group.
+         */
+        channel?: string;
+        /**
+         * Exact source.
+         */
+        source?: string;
+        /**
+         * Exact medium.
+         */
+        medium?: string;
+        /**
+         * Case-insensitive exact hostname.
+         */
+        hostName?: string;
+        /**
+         * Exact stored normalized page, including meaningful query parameters.
+         */
+        landingPage?: string;
+        /**
+         * Literal boundary-safe normalized path prefix; page query parameters do not affect this filter.
+         */
+        pathPrefix?: string;
+        /**
+         * Comma list: date,channelGroup,source,medium,hostName,landingPage. Default all six.
+         */
+        groupBy?: string;
+        /**
+         * Page size, default 100.
+         */
+        limit?: number;
+        /**
+         * Rows to skip, default 0.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/ga/acquisition';
+};
+
+export type GetApiV1ProjectsByNameGaAcquisitionErrors = {
+    /**
+     * Invalid selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGaAcquisitionError = GetApiV1ProjectsByNameGaAcquisitionErrors[keyof GetApiV1ProjectsByNameGaAcquisitionErrors];
+
+export type GetApiV1ProjectsByNameGaAcquisitionResponses = {
+    /**
+     * Stored grouped acquisition rows and filtered totals.
+     */
+    200: GaAcquisitionResponse;
+};
+
+export type GetApiV1ProjectsByNameGaAcquisitionResponse = GetApiV1ProjectsByNameGaAcquisitionResponses[keyof GetApiV1ProjectsByNameGaAcquisitionResponses];
 
 export type GetApiV1ProjectsByNameGaMeasurementAnalysisData = {
     body?: never;

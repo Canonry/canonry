@@ -1,4 +1,4 @@
-import { trafficSamplesQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema } from '@ainyc/canonry-contracts'
+import { trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema } from '@ainyc/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
@@ -2268,6 +2268,14 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/ga/properties'],
     handler: (client, input) => client.gaProperties(input.project),
+  }),
+  defineTool({
+    name: 'canonry_ga_acquisition',
+    title: 'Read stored GA4 acquisition',
+    description: 'Read stored GA4 sessions by day, channel, source/medium, host and normalized landing page. Sessions only; totalSessions is the full filtered total, independent of grouping and pagination. No Google calls. Project-only attribution; stored rows cannot distinguish an older connected GA4 property. Meaningful page query parameters remain distinct.',
+    access: 'read', tier: 'ga', inputSchema: gaAcquisitionQuerySchema.extend({ project: projectNameSchema, limit: z.number().int().min(1).max(500).optional() }), annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/ga/acquisition'],
+    handler: (client, input) => { const { project, ...query } = input; return client.gaAcquisition(project, query) },
   }),
   defineTool({
     name: 'canonry_ga_measurement_analysis',

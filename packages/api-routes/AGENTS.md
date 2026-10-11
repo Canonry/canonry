@@ -26,6 +26,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/visibility-attribution.ts` | `buildQueryAttribution` + `resolveCurrentQuery`: historical query attribution |
 | `src/google.ts` | Google Search Console and Google Business Profile (GBP) routes |
 | `src/gsc-period-comparison.ts` / `src/gbp-summary.ts` | Pure calculations behind the GSC performance tiles and `/gbp/summary` |
+| `src/ga-acquisition.ts` | Stored grouped acquisition sessions, filters, and paging. |
 | `src/ga.ts` | Google Analytics 4 routes |
 | `src/ga-source-mover.ts` | Pure biggest-mover calculation behind `/ga/social-referral-trend` and `/ga/attribution-trend` (see "GA4 trend movers") |
 | `src/ga-search-landing-pages.ts` | GA4's Search Console landing-page snapshot: the sync's persist / failure writers, the connect / disconnect clears, `resolveCurrentGa4PropertyId` and `GET /ga/search-landing-pages` (see "GA4 Search Console landing pages") |
@@ -837,3 +838,11 @@ Keep unknown traffic out of the default, require admin session authority, and
 never allow embed access. Select public fields explicitly and parse classifier
 evidence through the tolerant, stripping schema. No IP hashes, provider calls,
 retention writes, or rollup changes belong in this route.
+
+### Stored acquisition rows
+
+`ga-acquisition.ts` aggregates stored sessions in SQL and pages grouped rows after
+counting the full selection. It never requires a live GA connection. The normalized
+page keeps meaningful query parameters; only the path-prefix filter ignores them.
+`literalPathPrefixCondition` shares boundary-safe, escaped SQL matching with the
+measurement analysis reader. Project-only scope cannot identify older GA properties.

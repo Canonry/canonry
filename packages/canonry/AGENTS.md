@@ -976,3 +976,7 @@ factual and unjudged assessments.
 JSON is the API DTO; JSONL streams samples with project and window context. Human
 output must distinguish sample rows from visits and the all-kind 24-hour sample
 count shown by `traffic status`.
+
+`ga acquisition` reads grouped stored sessions through `gaAcquisition`. Explicit
+dates follow `resolveDateRange`; omitted window means all history. JSON preserves
+the API envelope and JSONL stamps each grouped row with project and window bounds.

@@ -26,6 +26,7 @@ import {
   researchRunSummarySchema,
   ga4AiReferralDtoSchema,
   ga4ConnectionDtoSchema,
+  gaAcquisitionRowSchema,
   ga4SocialReferralDtoSchema,
   ga4TrafficSnapshotDtoSchema,
   ga4TrafficSummaryDtoSchema,
@@ -698,8 +699,8 @@ const COVERAGE: Record<string, CoverageEntry> = {
     internal: {},
   },
   gaAcquisitionDaily: {
-    kind: 'internal-only',
-    reason: 'Typed GA4 acquisition foundation; its public read model lands in the follow-up measurement API PR.',
+    kind: 'dto', dto: gaAcquisitionRowSchema,
+    internal: { id: 'Grouped rows have no single stored identity.', projectId: 'Route scope.', landingPageNormalized: 'Exposed as landingPage.', syncedAt: 'Reported on the envelope.', syncRunId: 'Internal sync provenance.', createdAt: 'Ingest bookkeeping.' },
   },
   gaLeadEventsDaily: {
     kind: 'internal-only',

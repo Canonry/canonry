@@ -1,5 +1,8 @@
 import type { TrafficSamplesQuery, TrafficSamplesResponse } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameTrafficSamples } from '@ainyc/canonry-api-client'
+
+import type { GaAcquisitionQuery, GaAcquisitionResponse } from '@ainyc/canonry-contracts'
+import { getApiV1ProjectsByNameGaAcquisition } from '@ainyc/canonry-api-client'
 import type { AuditHistoryOptions } from '@ainyc/canonry-contracts'
 import type { ReferralAssessment, ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameTrafficReferralAssessment } from '@ainyc/canonry-api-client'
@@ -3725,6 +3728,10 @@ export class ApiClient {
     return this.invoke<GA4PropertiesDto>(() =>
       getApiV1ProjectsByNameGaProperties({ client: this.heyClient, path: { name: project } }),
     )
+  }
+
+  async gaAcquisition(project: string, query?: GaAcquisitionQuery): Promise<GaAcquisitionResponse> {
+    return this.invoke<GaAcquisitionResponse>(() => getApiV1ProjectsByNameGaAcquisition({ client: this.heyClient, path: { name: project }, query }))
   }
 
   async gaMeasurementAnalysis(

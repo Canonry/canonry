@@ -1,3 +1,4 @@
+import { literalPathPrefixCondition } from './path-prefix-condition.js'
 import { and, eq, gte, lte, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
@@ -23,6 +24,7 @@ import {
   hostMatchesAnyDomain,
   isGa4AiAssistantChannel,
   normalizeUrlPath,
+  normalizePathPrefix,
   RatioUnits,
   roundRatio,
   validationError,
@@ -437,13 +439,6 @@ function normalizeLandingPage(value: string | null | undefined): string {
   return normalizeUrlPath(value) ?? UNKNOWN_LANDING_PAGE
 }
 
-function normalizePathPrefix(value: string | undefined): string | null {
-  if (!value) return null
-  const normalized = normalizeUrlPath(value)
-  if (!normalized) return null
-  return normalized.startsWith('/') ? normalized : `/${normalized}`
-}
-
 function matchesPathPrefix(value: string, prefix: string | null): boolean {
   if (!prefix) return true
   const pathname = value.split('?')[0] ?? value
@@ -529,7 +524,7 @@ export function buildGaMeasurementAnalysis(
     if (pathPrefix && pathPrefix !== '/') {
       const rawPath = sql`case when instr(${rawPathColumn}, '?') = 0 then ${rawPathColumn} else substr(${rawPathColumn}, 1, instr(${rawPathColumn}, '?') - 1) end`
       const landingPath = sql`case when trim(coalesce(${normalizedPathColumn}, '')) = '' then ${rawPath} else ${normalizedPathColumn} end`
-      conditions.push(or(sql`${landingPath} = ${pathPrefix}`, sql`${landingPath} like ${`${pathPrefix}/%`}`))
+      conditions.push(literalPathPrefixCondition(landingPath, pathPrefix))
     }
     return conditions
   }

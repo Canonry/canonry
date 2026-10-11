@@ -1,5 +1,6 @@
 import {
   gaAiReferralDaily,
+  gaAcquisition,
   gaAiReferralHistory,
   gaAttribution,
   gaConnect,
@@ -16,7 +17,7 @@ import {
   gaTraffic,
 } from '../commands/ga.js'
 import type { CliCommandSpec, CliValues } from '../cli-dispatch.js'
-import { getString, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
+import { getString, parseIntegerOption, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
 /**
  * `--window` is rolling from now and can never name a calendar month, so every
@@ -40,6 +41,19 @@ function rangeValues(values: CliValues): { window?: string; startDate?: string; 
 }
 
 export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  {
+    path: ['ga', 'acquisition'],
+    usage: 'canonry ga acquisition <project> [--window 7d|30d|90d|all] [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--channel <group>] [--source <source>] [--medium <medium>] [--host <hostname>] [--landing-page <page>] [--path-prefix <prefix>] [--group-by date,channel,source,medium,host,landing-page] [--limit 100] [--offset 0] [--format json|jsonl]',
+    help: 'Stored GA4 sessions only, with filtered totals independent of grouping and paging. Never calls Google. Meaningful page query parameters remain distinct.',
+    options: { ...RANGE_OPTIONS, channel: stringOption(), source: stringOption(), medium: stringOption(), host: stringOption(), 'landing-page': stringOption(), 'path-prefix': stringOption(), 'group-by': stringOption(), limit: stringOption(), offset: stringOption() },
+    run: async input => {
+      const project = requireProject(input, 'ga.acquisition', 'canonry ga acquisition <project>')
+      const aliases: Record<string, string> = { channel: 'channelGroup', host: 'hostName', 'landing-page': 'landingPage' }
+      const groupBy = getString(input.values, 'group-by')?.split(',').map(key => aliases[key.trim()] ?? key.trim()).join(',')
+      const integer = (name: string) => parseIntegerOption(input, name, { command: 'ga.acquisition', usage: 'canonry ga acquisition <project>', message: `--${name} must be an integer` })
+      await gaAcquisition(project, { ...rangeValues(input.values), channel: getString(input.values, 'channel'), source: getString(input.values, 'source'), medium: getString(input.values, 'medium'), hostName: getString(input.values, 'host'), landingPage: getString(input.values, 'landing-page'), pathPrefix: getString(input.values, 'path-prefix'), groupBy, limit: integer('limit'), offset: integer('offset'), format: input.format })
+    },
+  },
   {
     path: ['ga', 'connect'],
     usage: 'canonry ga connect <project> --property-id <id> [--key-file <path>] [--key-json <json>] [--format json]',
@@ -254,7 +268,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
       unknownSubcommand(input.positionals[0], {
         command: 'ga',
         usage: 'canonry ga <subcommand> <project> [args]',
-        available: ['connect', 'disconnect', 'status', 'properties', 'sync', 'measurement-analysis', 'search-landing-pages', 'traffic', 'coverage', 'ai-referral-history', 'ai-referral-daily', 'social-referral-history', 'session-history', 'social-referral-summary', 'attribution'],
+        available: ['connect', 'disconnect', 'status', 'properties', 'sync', 'acquisition', 'measurement-analysis', 'search-landing-pages', 'traffic', 'coverage', 'ai-referral-history', 'ai-referral-daily', 'social-referral-history', 'session-history', 'social-referral-summary', 'attribution'],
       })
     },
   },
