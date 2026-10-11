@@ -264,7 +264,7 @@ describe('version-two measurement overview adapter', () => {
   it('rejects the API property scope instead of relabeling it as All Properties', () => {
     const { activePlan, overview } = fixture(1)
     overview.scope = { kind: 'property', key: 'property-1', label: 'Property 1' }
-    expect(() => adaptV2MeasurementOverview({ overview, activePlan })).toThrow('All locations or group scope')
+    expect(() => adaptV2MeasurementOverview({ overview, activePlan })).toThrow('The overview needs all locations or one group.')
   })
 
   it('keeps server-wide flagged totals visible before the flagged Property page is loaded', () => {
