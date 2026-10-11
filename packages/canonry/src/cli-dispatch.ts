@@ -112,7 +112,7 @@ export function printGroupHelp(group: string, specs: readonly CliCommandSpec[]):
   console.log('Subcommands:')
 
   for (const spec of groupSpecs) {
-    console.log(`  [${spec.access ?? 'stored'}] ${commandUsage(spec)}`)
+    console.log(`  [${spec.access ?? OperationAccesses.stored}] ${commandUsage(spec)}`)
   }
 
   console.log()
