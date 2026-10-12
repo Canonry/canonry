@@ -125,6 +125,19 @@ describe('CLI and MCP operation access metadata', () => {
     expect(output.join('\n')).toContain('Usage:  canonry overview <project>')
   })
 
+  it('applies access filters to parent-only contextual help', async () => {
+    const output: string[] = []
+    const original = console.log
+    console.log = (...args: unknown[]) => output.push(args.join(' '))
+    try {
+      await dispatchRegisteredCommand(['overview', '--help', '--access', 'write'], 'text', REGISTERED_CLI_COMMANDS)
+    } finally {
+      console.log = original
+    }
+    expect(output.join('\n')).toContain('No commands in group "overview" match access "write".')
+    expect(output.join('\n')).not.toContain('Usage:  canonry overview')
+  })
+
   it('filters top-level --help and rejects --access on normal commands', async () => {
     const output: string[] = []
     const original = console.log

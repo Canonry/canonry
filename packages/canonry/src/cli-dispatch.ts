@@ -181,7 +181,11 @@ export async function dispatchRegisteredCommand(
       // Single command — show its usage string
       const single = specs.find(s => s.path.length === 1 && s.path[0] === group)
       if (single) {
-        printCommandHelp(single)
+        const accessValue = accessFilterFromArgs(argsWithoutHelp)
+        if (accessValue !== undefined && accessValue !== OperationAccesses.stored && accessValue !== OperationAccesses.live && accessValue !== OperationAccesses.write) {
+          throw usageError(`Unknown access filter: ${accessValue}`, { details: { access: accessValue } })
+        }
+        printGroupHelp(group, specs, accessValue as OperationAccess | undefined)
         return true
       }
     }
