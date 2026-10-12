@@ -432,7 +432,7 @@ jobs:
           {
             echo "labels<<EOF"
             echo "org.opencontainers.image.title=canonry"
-            echo "org.opencontainers.image.description=Open-source AEO monitoring for your domain."
+            echo "org.opencontainers.image.description=Self-hosted AI visibility (AEO) platform: track how ChatGPT, Claude, Gemini, and Perplexity cite your domain, join it with Search Console, GA4, server-side traffic, and paid media, and fix what you find through agent tools (CLI, REST, MCP). Local SQLite."
             echo "org.opencontainers.image.source=https://github.com/Canonry/canonry"
             echo "org.opencontainers.image.url=https://github.com/Canonry/canonry"
             echo "org.opencontainers.image.revision=$GITHUB_SHA"
