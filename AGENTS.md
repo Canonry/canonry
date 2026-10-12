@@ -41,9 +41,10 @@ Key types, scope gates, read-only keys, `keys.write`, and what a multi-tenant mi
 
 ## Local validation and merging (Critical)
 
-- Before push or handoff, run `pnpm check`, affected package **tests, typechecks, and type-aware lint**. Run `pnpm verify` for workspace-wide runtime, contract, dependency, DB, or auth changes.
+- During local iteration, do not run tests, test watchers, or `pnpm verify`. Run tests only after changes are finalized and ready for push or review.
+- At final validation, run `pnpm check`, affected package **tests, typechecks, and type-aware lint**. Include dependent packages for shared runtime, contract, dependency, DB, or auth changes. Reuse passing results while their inputs remain unchanged. `pnpm verify` is optional locally, not a per-push requirement.
 - Build and smoke affected CLI/API/MCP/UI surfaces; smoke installed tarballs for packaging changes. Check SDK/plugin/Val drift; fix its source.
-- Fetch and integrate the latest target, resolve conflicts, review the full PR diff, and rerun affected checks. Recheck release versions against the target tip and npm.
+- Fetch and integrate the latest target, resolve conflicts, and review the full PR diff. At final validation, rerun only checks whose inputs changed. Recheck release versions against the target tip and npm.
 - After pushing, match the tested SHA to the remote branch and PR head; require GitHub `MERGEABLE` before handoff or merge. Report commands, results, SHA, and blockers; failed or unrun required checks block readiness. Skipped owner CI proves nothing.
 - Outside work runs full CI; `arberx` validation is local. All releases stay enabled. Hooks remain staged lint and drift only. Docs/config: diff/live checks; no new tests needed.
 - Vals remain manual; see [Val kit rules](packages/val-kit/AGENTS.md).
@@ -269,7 +270,7 @@ Canonry can run behind a reverse proxy sub-path (e.g. `/canonry/`); code that ig
 
 - Test the public API of each module, not internals. Cover the happy path plus meaningful edge cases (invalid input, env var overrides, error handling).
 - CLI tests capture stdout/stderr and assert on the output, not only side effects. File-system tests use `os.tmpdir()` and clean up in `afterEach`.
-- Run focused tests locally before pushing code; owner changes rely on this validation. Outside contributions also run the full suite in CI. Hooks never run tests or builds.
+- Run focused tests only when changes are finalized and ready for push or review. Do not run tests during local iteration. Owner changes rely on this validation. Outside contributions also run the full suite in CI. Hooks never run tests or builds.
 - **Test boundary matchers with data as STORED, not idealized.** Check how a column is actually populated before matching on it (project upsert/apply store `canonicalDomain` raw — full URLs and mixed case included) and use the canonical helpers (`hostOf`, `normalizeQueryText`). A clean-fixture-only suite passes while production values miss the match.
 - **Test default-value propagation end-to-end.** When a stored default (e.g. a project's `defaultLocation`) feeds another feature (run creation), exercise the full path with no explicit override — not just "the default is stored" and "the consumer accepts a value".
 

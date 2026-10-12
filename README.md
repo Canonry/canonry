@@ -255,10 +255,11 @@ Join the [Canonry Discord](https://discord.gg/8K9yY7GywJ) for support and questi
 
 ```bash
 git clone https://github.com/Canonry/canonry.git && cd canonry
-pnpm install && pnpm run typecheck && pnpm run test && pnpm run lint
+pnpm install
 ```
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md).
+For local agent work, run tests only after changes are finalized and ready for push or review.
+`pnpm verify` is optional locally. See [CONTRIBUTING.md](./CONTRIBUTING.md) and the [testing guide](docs/testing.md).
 
 ## License
 

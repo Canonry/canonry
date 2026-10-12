@@ -63,11 +63,16 @@ Use [`docs/README.md`](docs/README.md) as the entrypoint for the current referen
 
 ## Before Submitting a PR
 
+During local iteration, do not run tests, test watchers, or `pnpm verify`.
+When changes are finalized and ready for push or review, run the final checks:
+
 ```bash
 pnpm check
 ```
 
-Run relevant tests and package typechecks for behavior changes. After another edit or rebase, rerun only the affected checks.
+Run affected package tests, typechecks, and type-aware lint for behavior changes.
+Reuse passing results while their inputs remain unchanged.
+After another edit or rebase, defer affected checks until the changes are ready again.
 CI runs full typechecks, lint, tests, generated-file checks, builds, and release guards.
 `pnpm verify` remains available for a full local check. It is not required before each commit or push.
 
