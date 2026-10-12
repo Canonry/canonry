@@ -73,6 +73,7 @@ function candidateReason(candidate: MutableCandidate, options: BuildCompetitorSu
   if (candidate.hostForms.size > 1) return CompetitorSuggestionReasons['shared-host']
   if (candidate.surfaceClass !== 'unknown' && candidate.surfaceClass !== 'direct-competitor') return CompetitorSuggestionReasons['non-competitor-surface']
   if (candidate.naming.size < options.minAnswers) return candidate.naming.size === 0 ? CompetitorSuggestionReasons['not-named'] : CompetitorSuggestionReasons['below-min-answers']
+  if (candidate.paired.size === 0 && candidate.surfaceClass !== 'direct-competitor') return CompetitorSuggestionReasons['unpaired-name']
   return null
 }
 
@@ -126,15 +127,16 @@ function candidateDto(candidate: MutableCandidate, options: BuildCompetitorSugge
 
 /**
  * Build competitor candidates from stored answer text and source evidence.
- * This function is deliberately pure. The route supplies stored rows,
+ * Output depends only on the supplied evidence; scheduling yields keep the host responsive.
+ * The route supplies stored rows,
  * classifications, tracked identities, and the claimed alias set.
  */
-export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOptions): {
+export async function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOptions): Promise<{
   candidates: CompetitorSuggestion[]
   unresolvedNames: Array<{ name: string; answerCount: number }>
   answeredResults: number
   sourceResults: number
-} {
+}> {
   const ownDomains = [options.project.domain, ...(options.project.domains ?? [])]
   const trackedByDomain = new Map<string, CompetitorIdentityInput>()
   for (const competitor of options.tracked) {
@@ -148,33 +150,50 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
   const resolvedNameKeysByAnswer = new Map<string, Set<string>>()
   let answeredResults = 0
   let sourceResults = 0
+  let nextYield = performance.now() + 8
+  const yieldToEventLoop = async (): Promise<void> => {
+    if (performance.now() < nextYield) return
+    await new Promise<void>(resolve => setTimeout(resolve, 0))
+    nextYield = performance.now() + 8
+  }
 
   for (const answer of options.answers) {
+    await yieldToEventLoop()
     const resolvedNameKeys = new Set<string>()
     resolvedNameKeysByAnswer.set(answer.id, resolvedNameKeys)
     const prose = answerProseForMentions(answer.answerText)
     if (prose) answeredResults++
     const sourceValues = [...answer.citedDomains, ...(answer.citedUrls ?? [])]
-    const sourceDomains = [...new Set(sourceValues.map(normalizeSource).filter(Boolean))]
+    const sourceDomains = new Set<string>()
+    const sourceUrls = new Map<string, string[]>()
     const sourceHosts = new Map<string, Set<string>>()
     for (const source of sourceValues) {
+      await yieldToEventLoop()
       const domain = normalizeSource(source)
+      if (domain) sourceDomains.add(domain)
+      if (/^https?:\/\//iu.test(source)) {
+        const urls = sourceUrls.get(domain) ?? []
+        if (urls.length < 3 && !urls.includes(source)) urls.push(source)
+        sourceUrls.set(domain, urls)
+      }
       const host = hostOf(source)
       if (!domain || !host) continue
       const hosts = sourceHosts.get(domain) ?? new Set<string>()
       hosts.add(host)
       sourceHosts.set(domain, hosts)
     }
-    if (sourceDomains.length > 0) sourceResults++
+    if (sourceDomains.size > 0) sourceResults++
     const anchors = extractAnswerTextAnchors(answer.answerText)
     const anchoredDomains = new Map<string, Set<string>>()
     for (const anchor of anchors) {
+      await yieldToEventLoop()
       const domain = normalizeSource(anchor.source)
       const namesForDomain = anchoredDomains.get(domain) ?? new Set<string>()
       namesForDomain.add(anchor.text)
       anchoredDomains.set(domain, namesForDomain)
     }
     for (const domain of sourceDomains) {
+      await yieldToEventLoop()
       if (competitorDomainProjectClaim(domain, ownDomains) || isListingMarketplace(domain)) continue
       const tracked = trackedByDomain.get(domain)
       const label = brandLabelFromDomain(domain) || domain
@@ -205,8 +224,8 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
       for (const host of sourceHosts.get(domain) ?? [domain]) candidate.hostForms.add(normalizeProjectDomain(host))
       if (answer.createdAt > (candidate.lastSeenAt ?? '')) candidate.lastSeenAt = answer.createdAt
       if (candidate.firstSeenAt === null || answer.createdAt < candidate.firstSeenAt) candidate.firstSeenAt = answer.createdAt
-      for (const url of answer.citedUrls ?? []) {
-        if (normalizeSource(url) === domain && /^https?:\/\//iu.test(url) && candidate.sampleUrls.length < 3 && !candidate.sampleUrls.includes(url)) candidate.sampleUrls.push(url)
+      for (const url of sourceUrls.get(domain) ?? []) {
+        if (candidate.sampleUrls.length < 3 && !candidate.sampleUrls.includes(url)) candidate.sampleUrls.push(url)
       }
       if (pairedByAnchor) {
         candidate.paired.add(answer.id)
@@ -223,44 +242,69 @@ export function buildCompetitorSuggestions(options: BuildCompetitorSuggestionsOp
     }
   }
 
-  const matchers = new Map<string, ReturnType<typeof compileBrandAliases>>()
-  const matcherFor = (identity: CompetitorIdentityInput) => {
-    const aliases = competitorBrandAliases(identity)
-    const key = JSON.stringify(aliases)
-    let matcher = matchers.get(key)
-    if (!matcher) {
-      matcher = compileBrandAliases(aliases)
-      matchers.set(key, matcher)
+  type MatcherIndex = {
+    matcher: ReturnType<typeof compileBrandAliases>
+    candidatesByAlias: Map<string, string[]>
+  }
+  const matcherIndexes = new Map<string, MatcherIndex>()
+  const matcherIndexFor = async (scoped: Map<string, CompetitorIdentityInput> | undefined): Promise<MatcherIndex> => {
+    // Answers in one frozen scope share the same identity selection. One
+    // matcher for that selection avoids repeating the word walk for every
+    // candidate while retaining all candidate owners for overlapping aliases.
+    const scopeEntries: Array<[string, string[]]> = scoped === undefined
+      ? []
+      : [...scoped.entries()].map(([domain, identity]) => [domain, competitorBrandAliases(identity)])
+    const scopeKey = scoped === undefined
+      ? 'default'
+      : JSON.stringify(scopeEntries.sort(([left], [right]) => left.localeCompare(right)))
+    const cached = matcherIndexes.get(scopeKey)
+    if (cached) return cached
+
+    const candidatesByAlias = new Map<string, string[]>()
+    for (const candidate of candidates.values()) {
+      await yieldToEventLoop()
+      const identity = scoped === undefined ? trackedByDomain.get(candidate.domain) : scoped.get(candidate.domain)
+      if (scoped !== undefined && candidate.tracked && !identity) continue
+      for (const alias of competitorBrandAliases(identity ?? { domain: candidate.domain })) {
+        const key = brandKeyFromText(alias)
+        if (!key) continue
+        const owners = candidatesByAlias.get(key) ?? []
+        if (!owners.includes(candidate.domain)) owners.push(candidate.domain)
+        candidatesByAlias.set(key, owners)
+      }
     }
-    return matcher
+    const index = { matcher: compileBrandAliases([...candidatesByAlias.keys()]), candidatesByAlias }
+    matcherIndexes.set(scopeKey, index)
+    return index
   }
 
   // Count canonical identity matches across every selected answer after the
   // candidate universe is known. This preserves the bare-add invariant when a
   // source is first cited in a later answer, including the domain-label floor.
   for (const answer of options.answers) {
+    await yieldToEventLoop()
     const prose = answerProseForMentions(answer.answerText)
     const resolvedNameKeys = resolvedNameKeysByAnswer.get(answer.id)!
     const scoped = answer.competitors === undefined ? undefined
       : new Map(answer.competitors.map(competitor => [normalizeCompetitorDomain(competitor.domain), competitor]))
-    for (const candidate of candidates.values()) {
-      const identity = scoped === undefined ? trackedByDomain.get(candidate.domain) : scoped.get(candidate.domain)
-      if (scoped !== undefined && candidate.tracked && !identity) continue
-      const matcher = matcherFor(identity ?? { domain: candidate.domain })
-      const occurrences = aliasOccurrencesAsWritten(matcher, prose)
-      if (occurrences.size === 0) continue
-      const cited = candidate.citing.has(answer.id)
-      candidate.naming.add(answer.id)
-      candidate.sweeps.add(answer.runId)
-      if (candidate.firstSeenAt === null || answer.createdAt < candidate.firstSeenAt) candidate.firstSeenAt = answer.createdAt
-      if (candidate.lastSeenAt === null || answer.createdAt > candidate.lastSeenAt) candidate.lastSeenAt = answer.createdAt
-      if (cited) {
-        candidate.both.add(answer.id)
-        candidate.paired.add(answer.id)
-      }
-      for (const writtenWords of occurrences.values()) {
-        for (const words of writtenWords) {
-          const name = words.join(' ')
+    const index = await matcherIndexFor(scoped)
+    const occurrences = aliasOccurrencesAsWritten(index.matcher, prose)
+    for (const [aliasKey, writtenOccurrences] of occurrences) {
+      for (const domain of index.candidatesByAlias.get(aliasKey) ?? []) {
+        await yieldToEventLoop()
+        const candidate = candidates.get(domain)
+        if (!candidate) continue
+        const cited = candidate.citing.has(answer.id)
+        candidate.naming.add(answer.id)
+        candidate.sweeps.add(answer.runId)
+        if (candidate.firstSeenAt === null || answer.createdAt < candidate.firstSeenAt) candidate.firstSeenAt = answer.createdAt
+        if (candidate.lastSeenAt === null || answer.createdAt > candidate.lastSeenAt) candidate.lastSeenAt = answer.createdAt
+        if (cited) {
+          candidate.both.add(answer.id)
+          candidate.paired.add(answer.id)
+        }
+        for (const writtenWords of writtenOccurrences) {
+          const name = writtenWords.join(' ')
           addName(candidate, name, answer.id, cited)
           resolvedNameKeys.add(brandKeyFromText(name))
         }

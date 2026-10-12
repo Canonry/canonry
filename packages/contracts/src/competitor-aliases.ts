@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { MIN_BRAND_ALIAS_KEY_LENGTH, MIN_DOMAIN_BRAND_KEY_LENGTH, usableBrandAliases } from './answer-visibility.js'
 import { brandKeyFromText, textContainsAnyBrandAlias, textContainsBrandAlias } from './brand-matching.js'
 import { validationError } from './errors.js'
-import { brandLabelFromDomain, hostMatchesDomain, hostOf, normalizeCompetitorDomain } from './url-normalize.js'
+import { brandLabelFromDomain, hostMatchesDomain, hostOf, normalizeCompetitorDomain, registrableDomain } from './url-normalize.js'
 
 /**
  * OPERATOR-CURATED COMPETITOR ALIASES.
@@ -1027,8 +1027,12 @@ export const competitorAliasesRequestSchema = z.object({
 export type CompetitorAliasesRequest = z.infer<typeof competitorAliasesRequestSchema>
 
 /** A competitor entry that states its aliases: on add, and in config-as-code. */
+export const competitorDomainSchema = z.string().trim().min(1).refine(value => Boolean(registrableDomain(value)), {
+  message: 'Competitor domain must be a valid domain or URL',
+})
+
 export const competitorWithAliasesSchema = z.object({
-  domain: z.string().trim().min(1),
+  domain: competitorDomainSchema,
   aliases: competitorAliasListSchema.optional(),
 })
 
@@ -1039,7 +1043,7 @@ export type CompetitorWithAliases = z.infer<typeof competitorWithAliasesSchema>
  * spec: a bare domain, or `{ domain, aliases }`. A bare domain (or an object
  * without `aliases`) states nothing about aliases, so stored ones are kept.
  */
-export const competitorEntrySchema = z.union([z.string().trim().min(1), competitorWithAliasesSchema])
+export const competitorEntrySchema = z.union([competitorDomainSchema, competitorWithAliasesSchema])
 
 export type CompetitorEntry = z.infer<typeof competitorEntrySchema>
 

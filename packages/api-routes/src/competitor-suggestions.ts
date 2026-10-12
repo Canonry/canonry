@@ -66,6 +66,26 @@ export async function competitorSuggestionRoutes(app: FastifyInstance) {
       excludedProbeResults,
       excludedNonCompletedResults,
     } = population
+    // Row count alone does not bound a stored read: long prose and wide source
+    // lists also consume CPU. Refuse the exact read, never silently sample it.
+    const maxAnswerCharacters = 200_000
+    const maxEvidenceCharacters = 20_000_000
+    const maxSourceReferences = 200_000
+    let evidenceCharacters = 0
+    let sourceReferences = 0
+    for (const answer of answers) {
+      const answerCharacters = answer.answerText?.length ?? 0
+      evidenceCharacters += answerCharacters
+      const sources = [...answer.citedDomains, ...(answer.citedUrls ?? [])]
+      sourceReferences += sources.length
+      for (const source of sources) evidenceCharacters += source.length
+      if (answerCharacters > maxAnswerCharacters || evidenceCharacters > maxEvidenceCharacters || sourceReferences > maxSourceReferences) {
+        throw validationError('Competitor suggestions exceed the exact-read work limit. Narrow the window or select one Advanced market with groupKey and try again.', {
+          reason: 'competitor-suggestions-work-limit', maxAnswerCharacters, maxEvidenceCharacters, maxSourceReferences,
+          window, groupKey: filters.groupKey ?? null,
+        })
+      }
+    }
     const stored = readStoredCompetitors(app.db, project.id)
     const storedTracked = stored.map(row => ({
       domain: row.domain,
@@ -131,7 +151,7 @@ export async function competitorSuggestionRoutes(app: FastifyInstance) {
       const surfaceClass = surfaceClassFromCompetitorType(row.type)
       classifications.set(domain, surfaceClass === 'own' ? 'unknown' : surfaceClass ?? 'unknown')
     }
-    const built = buildCompetitorSuggestions({
+    const built = await buildCompetitorSuggestions({
       project: { domain: project.canonicalDomain, label: project.displayName ?? project.name, domains: project.ownedDomains },
       answers: scopedAnswers,
       minAnswers,

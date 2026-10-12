@@ -65,6 +65,14 @@ run outside stored-only mode. The local client refuses live and write operations
 before any network call on older servers; newer servers also honor
 `x-canonry-stored-only: 1` before their handlers run.
 
+Access follows the invocation: competitor change previews, alias reads, and
+alias detection without `--apply` work in stored-only mode. The corresponding
+writes remain refused. `get --from doctor` is a live diagnostic; other stored
+evidence sources and the settings read are allowed. Use `cnry help <group>
+--access stored` or `<group> --help --access stored` to filter help. A known
+group with no matching commands returns an empty result; `--access` is only a
+help/catalog option.
+
 Results exports are allowed because they read stored evidence; writing the
 requested export artifact is not a Canonry state mutation. Ordinary server
 request and authentication accounting remains separate from caller business
@@ -327,12 +335,12 @@ exact; `--action-prefix` matches a literal prefix. Repeat `--exclude-entity-type
 or supply a comma list to remove noisy entity types before paging. `--entity-id`
 selects one entity. Time bounds are inclusive, normalize offsets to UTC, and
 reject invalid values. `--actor api` includes legacy API, API-key, and user
-actors; other actors match exactly. Human output shows actor and client origin.
+actors; other actors match exactly. Empty filters are rejected. Human output shows actor and client origin; instance-wide rows include the project name. Select either a project or `--all`.
 New competitor replacement records include `added`, `removed`, and any discarded
 aliases beside the resulting `competitors` list. Older records remain unchanged.
 
 Project exports redact notification webhook URLs by default as `redacted://<host>/<notification-id>`.
-Applying that export preserves the existing notification ID, signing secret, source, enabled state and creation time.
+Applying that export preserves the existing notification ID, signing secret, source, enabled state and creation time. The HTTPS `/redacted` placeholder from notification listings also preserves the matched stored destination. A real URL change appears in preview and audit as a URL-change marker without exposing its path or secret.
 Use `--include-secrets` only when the credential has administrator authority. The CLI prints a redaction note to stderr when URLs remain redacted.
 
 Output uses a two-glyph cell per (query × provider): `[C/c][M/m]` — uppercase = present, lowercase = absent, `–` = no snapshot. **C/c = cited** (secondary), **M/m = mentioned** (primary). Always print the legend before the table; never collapse the two signals into one cell.
@@ -541,7 +549,7 @@ cnry competitor landscape <project> --query-class non-brand --window 30d --forma
 cnry competitor suggest <project> --window 30d --min-answers 3 --query-class non-brand --format json
 ```
 
-`competitor suggest` reads stored answer and citation evidence and ranks possible competitors. It never starts a sweep or writes data. Use `--format jsonl` for one candidate per line. The response keeps naming counts separate from citation counts and includes the query class, answer floor, run IDs, sample URLs, exclusions, and count units. An exact suggestion read refuses with `VALIDATION_ERROR` above 10,000 eligible answer rows instead of sampling; narrow `--window` or use `--group-key` for one Advanced market. A Simple project without a usable brand alias uses the pooled `all` class unless an explicit class filter is requested.
+`competitor suggest` reads stored answer and citation evidence and ranks possible competitors. It never starts a sweep or writes data. Use `--format jsonl` for one candidate per line. The response keeps naming counts separate from citation counts and includes the query class, answer floor, run IDs, sample URLs, exclusions, and count units. An exact suggestion read refuses with `VALIDATION_ERROR` above 10,000 eligible answer rows instead of sampling; narrow `--window` or use `--group-key` for one Advanced market. A Simple project without a usable brand alias uses the pooled `all` class unless an explicit class filter is requested. Exact reads also refuse more than 200,000 characters in one answer, 20 million evidence characters, or 200,000 source references with narrowing guidance. Scans yield so other requests remain responsive. Unknown untracked candidates with only unpaired prose matches are excluded as `unpaired-name`; mention counts stay unchanged for comparison with a bare-add preview. Human output shows both-answer and paired-answer counts and exclusion reasons.
 
 ### Query class
 
@@ -1696,7 +1704,7 @@ Compact reference for the composite / keyed commands agents read most (shapes ca
 
 | Command | JSON output shape (top-level keys → DTO) | `jsonl` |
 |---|---|---|
-| `cnry status --all [--problems]` | `InstanceStatusDto` @ `contracts/status.ts`: `{ generatedAt, summary{projects,ok,failing,stale,neverSynced}, projects[{project,displayName,state,health,integrations[]}] }`. Stored reads only; a successful read exits 0 even when rows are failing. | One integration per line as `{project, ...row}`. Single-project `status <p>` keeps its existing JSON document and adds `integrations` and `health`. |
+| `cnry status --all [--problems]` | `InstanceStatusDto` @ `contracts/status.ts`: `{ generatedAt, summary{projects,ok,failing,warning,stale,neverSynced}, projects[{project,displayName,state,health,integrations[]}] }`. Stored reads only; a successful read exits 0 even when rows are failing. | One integration per line as `{project, health, ...row}`; a project without integration rows emits `{project,state,health}`. Single-project `status <p>` keeps its JSON envelope and emits one compact record for JSONL. Stored health failures and warnings affect project state, summary and `--problems`; explicit project reads always retain health. |
 | `cnry doctor [--project p] [--all] [--report-month YYYY-MM]` | `{ scope, project, reportMonths?, generatedAt, durationMs, summary{total,ok,warn,fail,skipped}, checks[] }` — `DoctorReportDto` @ `contracts/doctor.ts`. `checks[]` = `CheckResultDto{ id, category, scope, title, status(ok\|warn\|fail\|skipped), notificationPolicy?(health\|silent), code, summary, remediation?, details?, durationMs }`. `report.*` checks are silent report-readiness advisories: they never page or change health state. `--report-month` picks the month they grade (default: the current month, plus the closed month through day 3, when only the closed month is graded). With `--all`: an object keyed by `__global__` + each project name, each value a full report. | ✅ one check / line as `{project, …check}`; still exits non-zero if any `fail` |
 | `cnry analytics <p> [--feature metrics\|gaps\|sources] [--window 7d\|30d\|90d\|all]` | Object **keyed by feature**: `{ metrics?, gaps?, sources? }` (all three present with no `--feature`; one with `--feature X`). `metrics`=`BrandMetricsDto{ window, buckets[], overall, byProvider, trend, mentionTrend, queryChanges[] }`; `gaps`=`GapAnalysisDto{ cited[], gap[], uncited[], mentionedQueries[], mentionGap[], notMentioned[], runId, window }` (each `[]`=`GapQuery`); `sources`=`SourceBreakdownDto` (same shape as `cnry sources`, below). @ `contracts/analytics.ts` | → degrades to the `json` document |
 | `cnry sources <p> [--rank] [--limit N] [--by-provider] [--window …]` | `SourceBreakdownDto{ overall[], byQuery, ranked, byProvider, runId, window, limit }` @ `contracts/analytics.ts`. `ranked`/each `byProvider[name]` = `RankedSourceList{ totalCitedSlots, domainTotal, entries[], truncatedDomainCount, truncatedCitedSlots, bySurfaceClass[] }`; `entries[]`=`SourceRankEntry{ domain, count, percentage, category, label, surfaceClass }`; `bySurfaceClass[]`=`SurfaceClassCount{ surfaceClass, label, count, percentage, domainCount }`. `surfaceClass` ∈ own \| direct-competitor \| ota-aggregator \| editorial-media \| other. | ✅ streams `ranked.entries` one / line as `{project, …entry}` |
@@ -1790,7 +1798,7 @@ cnry traffic samples <project> --source <id> --path /blog --limit 100 --offset 1
 A stored sampled tail with 30-day retention, not visits or sessions. Use `traffic
 events` for totals. Default `--kind all` includes crawler, AI user-fetch, and AI
 referral samples; unknown requests require `--kind unknown`. Time bounds are
-inclusive ISO timestamps, defaulting to the last 24 hours. `--since-minutes`
+inclusive ISO timestamps or `YYYY-MM-DD` dates (midnight UTC), defaulting to the last 24 hours. `--since-minutes`
 selects a positive relative duration and cannot be combined with `--since`. Path
 prefixes are literal. Limit is 1 to 500; offset starts at zero. Project/source
 attribution applies equally to Simple and Advanced portfolios; Property, Target,
@@ -1805,10 +1813,8 @@ cnry ga acquisition <project> --group-by source,medium --limit 100 --offset 100 
 ```
 
 Reads stored GA4 sessions only, with no Google call. `--window 7d|30d|90d|all`
-defaults to all history; explicit `--start` and `--end` follow the existing GA
-date-range rules. `--source` and `--medium` match exactly; `--channel` and `--host`
-match exactly without case sensitivity. `--landing-page` matches the normalized
-page including meaningful query parameters. `--path-prefix` matches a path or its
+defaults to all history. Use either a rolling window or explicit `--start` and `--end`; combining them is rejected. `--source` and `--medium` match exactly; `--channel` and `--host`
+match exactly without case sensitivity. `--landing-page` normalizes the supplied path like stored pages, removing trailing slashes and tracking parameters while retaining meaningful query parameters. `--path-prefix` matches a path or its
 descendants, treating percent and underscore literally. Group keys are date,
 channel, source, medium, host, landing-page (API names are also accepted). Default
 grouping uses all six. `totalSessions` covers every filtered row, independent of
@@ -1830,6 +1836,7 @@ Stored reads accept a positive day count such as `30` or its lowercase token
 
 Defaults remain specific to each command. `--help` prints its full set. Traffic
 analytics and organic evidence accept `--window`; `--period` remains an alias.
+Use either `--window` or explicit calendar bounds, never both.
 For reads with calendar bounds, use inclusive `--start` and `--end` in
 `YYYY-MM-DD` form. Traffic referral assessment retains `--start-date` and
 `--end-date`; ads insights retains `--from` and `--to`. Supplying an alias and its

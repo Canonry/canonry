@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { competitorEntrySchema, competitorAliasChangeSchema, competitorAliasRejectionSchema, competitorAutoAliasDropSchema } from './competitor-aliases.js'
+import { competitorDomainSchema, competitorEntrySchema, competitorAliasChangeSchema, competitorAliasRejectionSchema, competitorAutoAliasDropSchema } from './competitor-aliases.js'
 import { percent } from './ratio-unit.js'
 import { visibilityStatsShareOfVoiceSchema } from './visibility-stats.js'
 
@@ -13,9 +13,11 @@ export const CompetitorShareImpactCaveats = competitorShareImpactCaveatSchema.en
 
 export const competitorChangePreviewRequestSchema = z.discriminatedUnion('change', [
   z.object({ change: z.literal(CompetitorChangeKinds.add), competitors: z.array(competitorEntrySchema).min(1) }).strict(),
+  // Removal accepts legacy rows written before domain validation so operators
+  // can clean them up instead of making invalid stored data permanent.
   z.object({ change: z.literal(CompetitorChangeKinds.remove), competitors: z.array(z.string().trim().min(1)).min(1) }).strict(),
-  z.object({ change: z.literal(CompetitorChangeKinds.replace), competitors: z.array(z.string().trim().min(1)) }).strict(),
-  z.object({ change: z.literal(CompetitorChangeKinds.aliases), domain: z.string().trim().min(1), aliases: z.array(z.string().trim().min(1)), mode: z.enum(['set', 'add']) }).strict(),
+  z.object({ change: z.literal(CompetitorChangeKinds.replace), competitors: z.array(competitorDomainSchema) }).strict(),
+  z.object({ change: z.literal(CompetitorChangeKinds.aliases), domain: competitorDomainSchema, aliases: z.array(z.string().trim().min(1)), mode: z.enum(['set', 'add']) }).strict(),
 ])
 export type CompetitorChangePreviewRequest = z.infer<typeof competitorChangePreviewRequestSchema>
 

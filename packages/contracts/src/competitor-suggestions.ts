@@ -24,6 +24,7 @@ export const competitorSuggestionNameSchema = z.object({
 export const competitorSuggestionReasonSchema = z.enum([
   'below-min-answers',
   'not-named',
+  'unpaired-name',
   'own-site',
   'listing-marketplace',
   'non-competitor-surface',

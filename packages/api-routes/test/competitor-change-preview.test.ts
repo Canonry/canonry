@@ -113,6 +113,43 @@ describe('POST /api/v1/projects/:name/competitor-changes/preview', () => {
     expect(db.select().from(competitors).all()).toHaveLength(1)
   })
 
+  it('rejects non-domain competitor entries in preview and append without writing', async () => {
+    const before = db.select().from(competitors).all()
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/preview/competitor-changes/preview',
+      payload: { change: 'add', competitors: ['not a domain'] },
+    })
+    const write = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/preview/competitors',
+      payload: { competitors: ['not a domain'] },
+    })
+    expect(preview.statusCode, preview.body).toBe(400)
+    expect(write.statusCode, write.body).toBe(400)
+    expect(preview.json().error.code).toBe('VALIDATION_ERROR')
+    expect(write.json().error.code).toBe('VALIDATION_ERROR')
+    expect(db.select().from(competitors).all()).toEqual(before)
+  })
+
+  it('allows removal of a legacy invalid stored domain', async () => {
+    db.insert(competitors).values({ id: 'preview_legacy_invalid', projectId: 'project_preview', domain: 'not a domain', provenance: 'legacy', createdAt: NOW }).run()
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/preview/competitor-changes/preview',
+      payload: { change: 'remove', competitors: ['not a domain'] },
+    })
+    expect(preview.statusCode, preview.body).toBe(200)
+    expect(preview.json().plan.removed).toContain('not a domain')
+    const write = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/projects/preview/competitors',
+      payload: { competitors: ['not a domain'] },
+    })
+    expect(write.statusCode, write.body).toBe(200)
+    expect(db.select().from(competitors).all().some(row => row.domain === 'not a domain')).toBe(false)
+  })
+
   it('keeps remove and replace previews aligned with their domain-only writes', async () => {
     const remove = await app.inject({
       method: 'POST',

@@ -285,5 +285,7 @@ describe('competitor suggestion CLI', () => {
     stdoutWrite.mockRestore()
     expect(mockSuggestCompetitors).toHaveBeenCalledWith('acme', { window: '30d', minAnswers: 3, queryClass: 'non-brand', groupKey: undefined, limit: 2 })
     expect(JSON.parse(writes.join(''))).toMatchObject({ project: 'acme', domain: 'rival.example', filters: response.filters })
+    const text = await captureLog(() => dispatchRegisteredCommand(['competitor', 'suggest', 'acme'], 'text', COMPETITOR_CLI_COMMANDS).then(() => {}))
+    expect(text).toContain('both in 3, paired in 3')
   })
 })

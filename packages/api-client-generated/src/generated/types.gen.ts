@@ -2141,6 +2141,7 @@ export type ApplyPreviewDto = {
         kept: Array<{
             id: string;
             urlHost: string;
+            urlChanged: boolean;
             eventsBefore: Array<string>;
             eventsAfter: Array<string>;
         }>;
@@ -3178,6 +3179,7 @@ export type ApiKeyListDto = {
 
 export type AuditLogEntry = {
     id: string;
+    project?: string | null;
     projectId?: string | null;
     actor: string;
     action: string;
@@ -4148,7 +4150,7 @@ export type CompetitorSuggestionsResponse = {
         tracked: boolean;
         marketKeys?: Array<string>;
         status: 'suggested' | 'tracked' | 'excluded';
-        reason: 'below-min-answers' | 'not-named' | 'own-site' | 'listing-marketplace' | 'non-competitor-surface' | 'claimed-by-alias' | 'shared-host' | null;
+        reason: 'below-min-answers' | 'not-named' | 'unpaired-name' | 'own-site' | 'listing-marketplace' | 'non-competitor-surface' | 'claimed-by-alias' | 'shared-host' | null;
         sampleUrls: Array<string>;
     }>;
     candidatesTotal: number;
@@ -5099,13 +5101,14 @@ export type InstanceStatusDto = {
         projects: number;
         ok: number;
         failing: number;
+        warning?: number;
         stale: number;
         neverSynced: number;
     };
     projects: Array<{
         project: string;
         displayName: string;
-        state: 'ok' | 'failing' | 'stale' | 'never-synced';
+        state: 'ok' | 'failing' | 'stale' | 'never-synced' | 'warning';
         health: {
             status: 'ok' | 'warn' | 'fail';
             code: string;

@@ -21,7 +21,7 @@ Every API operation carries `x-canonry-access` metadata and responses expose the
 | `src/query-replace.ts` | `replaceProjectQueries`, the declarative tracked-query replace (see "Declarative query replacement") |
 | `src/competitor-writes.ts` | The one path that adds competitors or changes their curated aliases: `planCompetitorSet` / `syncCompetitorSet` (see "Competitor aliases") |
 | `src/competitor-auto-aliases.ts` | Answer-derived competitor aliases over stored answers: the bounded scan, dry run and apply (see "Competitor aliases") |
-| `src/competitor-suggestions.ts` | Read-only candidate ranking from stored answer and source evidence; uses the pure intelligence builder and route-owned claimed alias set |
+| `src/competitor-suggestions.ts` | Read-only candidate ranking from stored answer and source evidence; awaits the yielding intelligence builder and route-owned claimed alias set |
 | `src/market-pin-writes.ts` | What a market pin write does to answer-derived names: `beginMarketPinWrite` drops the tracked auto names the write's pins claim and reports whether the answer identity or the pins moved; `notifyMarketPinWrite` fires the hooks (see "Competitor aliases") |
 | `src/snapshot-competitor-refresh.ts` | `backfillProjectAnswerMentions` / `backfillProjectAnswerMentionsInChunks`: rescores stored answer-visibility snapshots from their stored answer text, cited domains and grounding sources (`competitorFieldsOnly` for a competitor names change, `runId` for one run, `dryRun` for a preview; the chunked form yields between chunks, and each of its chunks re-reads the identity, `readAnswerIdentity` in `src/answer-identity.ts`, starting over when it changed; the one-call form reads it once). Shared by local serve, Cloud, the job runner and `canonry backfill answer-mentions`. |
 | `src/results-export.ts` | `GET /projects/:name/results/export` bulk observation export (JSON or CSV) |
@@ -893,3 +893,24 @@ The project DTO exposes optional `answerFieldsRecompute` (`full`, `competitors`,
 or null). It reads the existing persisted mark and does not start work. Local
 serve clears it after the latest requested pass; Cloud completes its existing
 synchronous backfill before responding. Auto-alias detection is not covered.
+
+### Stored operator read corrections
+
+`status.ts` combines stored doctor health with integration state. Health fail
+maps to failing and warn to warning; summaries and problem filters use that
+aggregate. An explicitly selected project retains its health envelope even when
+its integration list filters to empty. Host probes cache only successful results
+so a corrected DNS or TLS failure can be rechecked immediately.
+
+History rows include the current project name from the same scoped selection;
+empty audit/run filters are invalid. Traffic samples accept timestamp or date-only
+bounds (UTC midnight). Acquisition normalizes a landing-page filter with the same
+`normalizeUrlPath` used when storing rows, retaining meaningful query parameters,
+and refuses a rolling window combined with explicit date bounds.
+
+Suggestion reads refuse oversized exact workloads before matching: at most
+200,000 characters in one answer, 20 million evidence characters total, and
+200,000 source references, in addition to the 10,000 eligible-answer cap. Return
+`competitor-suggestions-work-limit` with narrowing guidance, never a sampled
+result presented as exact. Add/replace competitor inputs validate registrable
+domains; removals stay permissive so legacy invalid rows can be cleaned up.

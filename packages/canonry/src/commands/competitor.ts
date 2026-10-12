@@ -18,22 +18,41 @@ import {
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import type { CompetitorShareImpact, CompetitorLandscapeQuery, CompetitorLandscapeResponse, CompetitorSuggestionsQuery, CompetitorSuggestionsResponse, ModelEvidenceState } from '@ainyc/canonry-contracts'
+import type { CompetitorChangePreviewResponse, CompetitorShareImpact, CompetitorLandscapeQuery, CompetitorLandscapeResponse, CompetitorSuggestionsQuery, CompetitorSuggestionsResponse, ModelEvidenceState } from '@ainyc/canonry-contracts'
 
 function getClient() {
   return createApiClient()
 }
 
-function printCompetitorPreviewImpact(impact: CompetitorShareImpact): void {
+function printCompetitorPreviewImpact(impact: CompetitorShareImpact, preview?: CompetitorChangePreviewResponse): void {
   const before = impact.before
   const after = impact.after
+  const beforeBasis = before.basis === 'tracked' ? 'tracked competitor' : 'observed competitor'
+  const afterBasis = after.basis === 'tracked' ? 'tracked competitor' : 'observed competitor'
   const frame = impact.runIds.length > 0
     ? `latest stored sweep, ${impact.runIds.length} run${impact.runIds.length === 1 ? '' : 's'}`
     : shareOfVoiceReason(before.reason ?? null) || 'no latest stored sweep'
   const classLabel = impact.queryClass === 'pooled' ? 'pooled queries' : `${impact.queryClass} queries`
-  console.log(`Mention share ${formatPercent(before.percent, RatioUnits.percent)} -> ${formatPercent(after.percent, RatioUnits.percent)} (${frame}, ${classLabel}): project mentions ${before.projectMentions}, tracked competitor mentions ${before.competitorMentions} -> ${after.competitorMentions}; tracked competitors ${before.competitorCount} -> ${after.competitorCount}. Restates every stored period.`)
+  console.log(`Mention share ${formatPercent(before.percent, RatioUnits.percent)} -> ${formatPercent(after.percent, RatioUnits.percent)} (${frame}, ${classLabel}): project mentions ${before.projectMentions}, ${beforeBasis} mentions ${before.competitorMentions} -> ${afterBasis} mentions ${after.competitorMentions}; ${beforeBasis} competitors ${before.competitorCount} -> ${afterBasis} competitors ${after.competitorCount}. Restates every stored period.`)
+  if (preview) {
+    console.log('Dry run: no changes written.')
+    const plan = preview.plan
+    const planParts = [
+      ...(plan.added.length > 0 ? [`add ${plan.added.join(', ')}`] : []),
+      ...(plan.removed.length > 0 ? [`remove ${plan.removed.join(', ')}`] : []),
+      ...(plan.aliasChanges.length > 0 ? [`change aliases for ${plan.aliasChanges.map(change => change.domain).join(', ')}`] : []),
+      ...(plan.droppedAliases.length > 0 ? [`reject ${plan.droppedAliases.length} aliases`] : []),
+    ]
+    console.log(`Plan: ${planParts.length > 0 ? planParts.join('; ') : 'no stored changes'}.`)
+    if (preview.change === CompetitorChangeKinds.add) {
+      const requirement = preview.bulkAdd.acknowledgementRequired
+        ? 'requires --acknowledge-bulk-add for the real write'
+        : 'does not require bulk acknowledgement'
+      console.log(`Bulk add: ${plan.added.length} requested; ${preview.bulkAdd.count} additions in the trailing 24 hours, with a limit of ${preview.bulkAdd.limit}; ${requirement}.`)
+    }
+  }
   for (const caveat of impact.caveats) {
-    if (caveat === CompetitorShareImpactCaveats['basis-changed']) console.log('Caveat: the tracked competitor basis changed.')
+    if (caveat === CompetitorShareImpactCaveats['basis-changed']) console.log(`Caveat: the competitor basis changed from ${beforeBasis} to ${afterBasis}.`)
     if (caveat === CompetitorShareImpactCaveats['auto-alias-rescan-pending']) console.log('Caveat: answer-derived aliases are pending a rescan.')
     if (caveat === CompetitorShareImpactCaveats['pooled']) console.log('Caveat: branded and non-brand queries are pooled because no usable project brand was configured.')
   }
@@ -133,7 +152,7 @@ export async function addCompetitors(project: string, domains: string[], format?
   if (dryRun) {
     const preview = await client.previewCompetitorChange(project, { change: CompetitorChangeKinds.add, competitors: aliases.length ? [{ domain: domains[0]!, aliases }] : domains })
     if (isMachineFormat(format)) console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2))
-    else printCompetitorPreviewImpact(preview.impact)
+    else printCompetitorPreviewImpact(preview.impact, preview)
     return
   }
   const existing = await client.listCompetitors(project)
@@ -258,7 +277,7 @@ export async function competitorAliases(project: string, domain: string, options
       mode: 'set',
     })
     if (isMachineFormat(options.format)) console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2))
-    else printCompetitorPreviewImpact(preview.impact)
+    else printCompetitorPreviewImpact(preview.impact, preview)
     return
   }
   if (options.block !== undefined) {
@@ -444,7 +463,7 @@ export async function removeCompetitors(project: string, domains: string[], form
   if (dryRun) {
     const preview = await client.previewCompetitorChange(project, { change: CompetitorChangeKinds.remove, competitors: domains })
     if (isMachineFormat(format)) console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2))
-    else printCompetitorPreviewImpact(preview.impact)
+    else printCompetitorPreviewImpact(preview.impact, preview)
     return
   }
   const existing = await client.listCompetitors(project)
@@ -585,7 +604,7 @@ function printCompetitorSuggestions(data: CompetitorSuggestionsResponse): void {
   } else {
     for (const candidate of data.candidates) {
       const names = candidate.names.length > 0 ? `; names: ${candidate.names.map(name => `${name.name} (${name.answerCount})`).join(', ')}` : ''
-      console.log(`  ${candidate.domain}  ${candidate.status}, named in ${candidate.namingAnswers} answer(s), cited in ${candidate.citingAnswers}${names}`)
+      console.log(`  ${candidate.domain}  ${candidate.status}, named in ${candidate.namingAnswers} answer(s), cited in ${candidate.citingAnswers}, both in ${candidate.bothAnswers}, paired in ${candidate.pairedAnswers}${candidate.reason ? `; reason: ${candidate.reason}` : ''}${names}`)
     }
   }
   console.log(`Evidence: ${data.evidence.answeredResults} answer(s), ${data.evidence.sourceResults} source result(s), ${data.runCount} sweep(s).`)

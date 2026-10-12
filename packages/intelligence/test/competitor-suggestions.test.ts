@@ -12,8 +12,58 @@ function answer(id: string, runId: string, text: string, citedDomains: string[],
 }
 
 describe('buildCompetitorSuggestions', () => {
-  it('uses stored subdomain classifications and includes naming-only sweeps in the evidence span', () => {
-    const result = buildCompetitorSuggestions({
+  it.each(['energy', 'Energy', 'ENERGY'])('does not suggest unpaired domain-word matches such as %s', async name => {
+    const result = await buildCompetitorSuggestions({
+      project,
+      minAnswers: 3,
+      answers: [
+        answer('energy-source', 'run-1', 'A source list only.', ['energy.gov']),
+        ...Array.from({ length: 3 }, (_, index) => answer(
+          `energy-${index}`,
+          'run-1',
+          `${name} is a broad category in this answer.`,
+          [],
+        )),
+      ],
+      classifications: new Map(),
+      tracked: [],
+      claimedCompetitorAdds: new Set(),
+    })
+
+    expect(result.candidates[0]).toMatchObject({
+      domain: 'energy.gov',
+      namingAnswers: 3,
+      pairedAnswers: 0,
+      status: 'excluded',
+      reason: 'unpaired-name',
+    })
+  })
+
+  it('keeps a wide stored suggestion scan bounded while preserving candidate output', async () => {
+    const domains = Array.from({ length: 600 }, (_, index) => `stored-rival-${index}.example`)
+    const answers = Array.from({ length: 96 }, (_, index) => answer(
+      `wide-${index}`,
+      `run-${index}`,
+      'Stored answer prose contains no candidate business name.',
+      domains,
+    ))
+    const started = Date.now()
+    const result = await buildCompetitorSuggestions({
+      project,
+      minAnswers: 3,
+      answers,
+      classifications: new Map(),
+      tracked: [],
+      claimedCompetitorAdds: new Set(),
+    })
+
+    expect(result.candidates).toHaveLength(domains.length)
+    expect(result.candidates.every(candidate => candidate.namingAnswers === 0)).toBe(true)
+    expect(Date.now() - started).toBeLessThan(3_000)
+  })
+
+  it('uses stored subdomain classifications and includes naming-only sweeps in the evidence span', async () => {
+    const result = await buildCompetitorSuggestions({
       project, minAnswers: 1, tracked: [], claimedCompetitorAdds: new Set(),
       classifications: new Map([['news.publisher.example', 'editorial-media']]),
       answers: [
@@ -31,8 +81,8 @@ describe('buildCompetitorSuggestions', () => {
     })
   })
 
-  it('joins named answer text to same-answer sources and counts answers exactly', () => {
-    const result = buildCompetitorSuggestions({
+  it('joins named answer text to same-answer sources and counts answers exactly', async () => {
+    const result = await buildCompetitorSuggestions({
       project,
       minAnswers: 3,
       answers: [
@@ -63,8 +113,8 @@ describe('buildCompetitorSuggestions', () => {
     expect(result.unresolvedNames).toEqual([])
   })
 
-  it('does not treat a citation alone as a competitor and reports unresolved names', () => {
-    const result = buildCompetitorSuggestions({
+  it('does not treat a citation alone as a competitor and reports unresolved names', async () => {
+    const result = await buildCompetitorSuggestions({
       project,
       minAnswers: 1,
       answers: [
@@ -80,8 +130,8 @@ describe('buildCompetitorSuggestions', () => {
     expect(result.unresolvedNames).toEqual([{ name: 'North Star', answerCount: 1 }])
   })
 
-  it('keeps an anchored alias on the cited domain for operator review', () => {
-    const result = buildCompetitorSuggestions({
+  it('keeps an anchored alias on the cited domain for operator review', async () => {
+    const result = await buildCompetitorSuggestions({
       project,
       minAnswers: 1,
       answers: [answer('a1', 'run-1', 'A provider recommends [Blue Harbor](https://rival.example/home).', ['rival.example'])],
@@ -97,8 +147,8 @@ describe('buildCompetitorSuggestions', () => {
     expect(result.unresolvedNames).toEqual([])
   })
 
-  it('keeps anchored names on their own domains and leaves unrelated names unresolved', () => {
-    const result = buildCompetitorSuggestions({
+  it('keeps anchored names on their own domains and leaves unrelated names unresolved', async () => {
+    const result = await buildCompetitorSuggestions({
       project,
       minAnswers: 1,
       answers: [answer(
@@ -125,7 +175,7 @@ describe('buildCompetitorSuggestions', () => {
     ]))
     expect(result.unresolvedNames).toEqual([])
 
-    const withUnresolved = buildCompetitorSuggestions({
+    const withUnresolved = await buildCompetitorSuggestions({
       project,
       minAnswers: 1,
       answers: [{ ...answer('a2', 'run-1', 'Try [Blue Harbor](https://blue.example/).', ['blue.example']), recommendedCompetitors: ['Loose Name'] }],
@@ -136,8 +186,8 @@ describe('buildCompetitorSuggestions', () => {
     expect(withUnresolved.unresolvedNames).toEqual([{ name: 'Loose Name', answerCount: 1 }])
   })
 
-  it('uses the canonical domain-label floor and normalizes tracked subdomains', () => {
-    const shortLabel = buildCompetitorSuggestions({
+  it('uses the canonical domain-label floor and normalizes tracked subdomains', async () => {
+    const shortLabel = await buildCompetitorSuggestions({
       project,
       minAnswers: 1,
       answers: [answer('a1', 'run-1', 'QVX is a useful choice.', ['qvx.example'])],
@@ -147,7 +197,7 @@ describe('buildCompetitorSuggestions', () => {
     })
     expect(shortLabel.candidates[0]).toMatchObject({ domain: 'qvx.example', namingAnswers: 0, reason: 'not-named' })
 
-    const tracked = buildCompetitorSuggestions({
+    const tracked = await buildCompetitorSuggestions({
       project,
       minAnswers: 1,
       answers: [answer('a2', 'run-1', 'Rival is a useful choice.', ['offers.rival.example'])],
@@ -158,8 +208,8 @@ describe('buildCompetitorSuggestions', () => {
     expect(tracked.candidates[0]).toMatchObject({ domain: 'rival.example', tracked: true, namingAnswers: 1 })
   })
 
-  it('keeps bare-add matching for untracked domains inside a frozen scope', () => {
-    const result = buildCompetitorSuggestions({
+  it('keeps bare-add matching for untracked domains inside a frozen scope', async () => {
+    const result = await buildCompetitorSuggestions({
       project,
       minAnswers: 1,
       answers: [{
@@ -177,8 +227,8 @@ describe('buildCompetitorSuggestions', () => {
     })
   })
 
-  it('records shared hosts when sources use multiple subdomains', () => {
-    const result = buildCompetitorSuggestions({
+  it('records shared hosts when sources use multiple subdomains', async () => {
+    const result = await buildCompetitorSuggestions({
       project,
       minAnswers: 1,
       answers: [
@@ -192,8 +242,8 @@ describe('buildCompetitorSuggestions', () => {
     expect(result.candidates.find(candidate => candidate.domain === 'rival.example')).toMatchObject({ reason: 'shared-host' })
   })
 
-  it('counts repeated anchored names per answer and excludes a canonical label from other-name counts', () => {
-    const result = buildCompetitorSuggestions({
+  it('counts repeated anchored names per answer and excludes a canonical label from other-name counts', async () => {
+    const result = await buildCompetitorSuggestions({
       project,
       minAnswers: 1,
       answers: [
@@ -212,8 +262,8 @@ describe('buildCompetitorSuggestions', () => {
     ]))
   })
 
-  it('treats apex and www as one host form', () => {
-    const result = buildCompetitorSuggestions({
+  it('treats apex and www as one host form', async () => {
+    const result = await buildCompetitorSuggestions({
       project,
       minAnswers: 1,
       answers: [answer('a1', 'run-1', 'Rival is useful.', ['www.rival.example', 'rival.example'])],
@@ -224,8 +274,8 @@ describe('buildCompetitorSuggestions', () => {
     expect(result.candidates[0]).toMatchObject({ domain: 'rival.example', reason: null })
   })
 
-  it('honors tracked, claimed, own-site, and marketplace exclusions', () => {
-    const result = buildCompetitorSuggestions({
+  it('honors tracked, claimed, own-site, and marketplace exclusions', async () => {
+    const result = await buildCompetitorSuggestions({
       project,
       minAnswers: 1,
       answers: [

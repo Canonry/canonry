@@ -40,6 +40,7 @@ beforeEach(async () => {
     { id: 'snapshot_failed', runId: 'run_failed', queryId: 'query_demo', provider: 'openai', citationState: 'not-cited', answerMentioned: false, answerText: 'Rival House failed', citedDomains: ['rival.example'], citedUrls: null, captureStatus: 'complete', competitorOverlap: [], location: null, createdAt: NOW },
   ]).run()
   app = Fastify()
+  app.get('/health', async () => ({ ok: true }))
   app.register(apiRoutes, { db, skipAuth: true })
   await app.ready()
 })
@@ -137,6 +138,58 @@ describe('GET competitor suggestions', () => {
     const landscape = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/analytics/competitors?window=all&queryClass=non-brand' })
     expect(landscape.statusCode, landscape.body).toBe(200)
     expect(landscape.json().pinned.find((row: { domain: string }) => row.domain === 'rival.example').mentionCount).toBe(beforeCandidate.namingAnswers)
+  })
+
+  it('keeps health responsive during a wide stored suggestion read', async () => {
+    const domains = Array.from({ length: 505 }, (_, index) => `wide-rival-${index}.example`)
+    const rows = Array.from({ length: 96 }, (_, index) => ({
+      id: `wide-snapshot-${index}`,
+      runId: 'run_complete',
+      queryId: 'query_demo',
+      provider: 'openai',
+      citationState: 'not-cited' as const,
+      answerMentioned: false,
+      answerText: 'Stored answer prose discusses product choices, local service, pricing, and support. '.repeat(75),
+      citedDomains: domains,
+      citedUrls: null,
+      captureStatus: 'complete' as const,
+      competitorOverlap: [],
+      location: null,
+      createdAt: NOW,
+    }))
+    for (let offset = 0; offset < rows.length; offset += 24) db.insert(querySnapshots).values(rows.slice(offset, offset + 24)).run()
+
+    const started = performance.now()
+    let healthFinishedAt = Number.POSITIVE_INFINITY
+    let suggestionsFinishedAt = Number.POSITIVE_INFINITY
+    const suggestionPromise = app.inject({ method: 'GET', url: '/api/v1/projects/demo/competitor-suggestions?window=all&minAnswers=2&limit=1' }).then(response => {
+      suggestionsFinishedAt = performance.now()
+      return response
+    })
+    // Let the suggestion handler enter its bounded async scan before the
+    // liveness request starts. A synchronous scan makes health wait behind it.
+    await new Promise<void>(resolve => setImmediate(resolve))
+    const healthPromise = app.inject({ method: 'GET', url: '/health' }).then(response => {
+      healthFinishedAt = performance.now()
+      return response
+    })
+    const suggestions = await suggestionPromise
+    const health = await healthPromise
+    expect(suggestions.statusCode, suggestions.body).toBe(200)
+    expect(health.statusCode, health.body).toBe(200)
+    expect(healthFinishedAt).toBeLessThan(suggestionsFinishedAt)
+    expect(healthFinishedAt - started).toBeLessThan(5_000)
+  }, 30_000)
+
+  it('refuses oversized stored prose before an exact scan with narrowing guidance', async () => {
+    db.update(querySnapshots).set({ answerText: 'x'.repeat(200_001) }).where(eq(querySnapshots.id, 'snapshot_a')).run()
+    const response = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/competitor-suggestions?window=all' })
+    expect(response.statusCode, response.body).toBe(400)
+    expect(response.json().error).toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { reason: 'competitor-suggestions-work-limit', maxAnswerCharacters: 200_000 },
+    })
+    expect(response.json().error.message).toContain('Narrow the window')
   })
 
   it('refuses an exact suggestion read above the answer-text cap with narrowing guidance', async () => {

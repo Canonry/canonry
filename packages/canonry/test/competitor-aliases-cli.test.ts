@@ -180,14 +180,21 @@ describe('competitor alias CLI', () => {
     expect(JSON.parse(jsonl.stdout)).toMatchObject({ dryRun: true, change: 'add' })
     const human = await invokeCli(['competitor', 'remove', 'rotorwise', 'recent-0.example', '--dry-run'])
     expect(human.exitCode, human.stderr).toBeUndefined()
+    expect(human.stdout).toContain('Dry run: no changes written.')
+    expect(human.stdout).toContain('Plan:')
     expect(human.stdout).toContain('Mention share')
-    expect(human.stdout).toContain('Caveat: the tracked competitor basis changed.')
+    expect(human.stdout).toContain('Caveat: the competitor basis changed')
+    const bulkHuman = await invokeCli(['competitor', 'add', 'rotorwise', 'bulk-a.example', 'bulk-b.example', 'bulk-c.example', 'bulk-d.example', 'bulk-e.example', 'bulk-f.example', '--dry-run'])
+    expect(bulkHuman.exitCode, bulkHuman.stderr).toBeUndefined()
+    expect(bulkHuman.stdout).toContain('Dry run: no changes written.')
+    expect(bulkHuman.stdout).toContain('Bulk add: 6 requested')
+    expect(bulkHuman.stdout).toContain('--acknowledge-bulk-add')
     const alias = await invokeCli(['competitor', 'aliases', 'rotorwise', 'recent-0.example', '--set', 'Recent Rival', '--dry-run', '--format', 'json'])
     expect(alias.exitCode, alias.stderr).toBeUndefined()
     expect(JSON.parse(alias.stdout)).toMatchObject({ dryRun: true, change: 'aliases' })
     expect(db.select().from(competitors).all()).toEqual(beforeRows)
     expect(db.select().from(auditLog).all()).toHaveLength(beforeAudit)
-    expect(observedPaths.filter(path => path.includes('/competitor-changes/preview'))).toHaveLength(4)
+    expect(observedPaths.filter(path => path.includes('/competitor-changes/preview'))).toHaveLength(5)
 
     observedPaths = []
     const ordinary = await invokeCli(['competitor', 'add', 'rotorwise', 'ordinary.example', '--acknowledge-bulk-add', '--format', 'json'])
@@ -195,6 +202,20 @@ describe('competitor alias CLI', () => {
     expect(observedPaths.some(path => path.includes('/competitor-changes/preview'))).toBe(false)
     expect((await client.listCompetitors('rotorwise')).some(row => row.domain === 'ordinary.example')).toBe(true)
   }, 60000)
+
+  it('labels an observed competitor basis in human preview output', async () => {
+    db.delete(competitors).run()
+    const project = db.select().from(projects).where(eq(projects.name, 'rotorwise')).get()!
+    const measuredAt = new Date().toISOString()
+    const run = crypto.randomUUID()
+    db.insert(runs).values({ id: run, projectId: project.id, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: null, createdAt: measuredAt }).run()
+    db.insert(querySnapshots).values({ id: crypto.randomUUID(), runId: run, queryId: null, provider: 'openai', citationState: 'not-cited', answerMentioned: true, answerText: 'Rival is useful.', citedDomains: ['rival.example'], citedUrls: null, captureStatus: 'complete', competitorOverlap: [], location: null, createdAt: measuredAt }).run()
+
+    const result = await invokeCli(['competitor', 'add', 'rotorwise', 'newrival.example', '--dry-run'])
+    expect(result.exitCode, result.stderr).toBeUndefined()
+    expect(result.stdout).toContain('observed competitor mentions')
+    expect(result.stdout).toContain('tracked competitor mentions')
+  })
 
   it('refuses a competitor stored as two rows with a remove-then-add hint that restates its aliases', async () => {
     const project = db.select().from(projects).where(eq(projects.name, 'rotorwise')).get()!

@@ -8,7 +8,7 @@ import { brandKeyFromText } from './brand-matching.js'
 import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
 import { siteAuditPageBudgetSchema } from './technical-aeo.js'
 import { MIN_DOMAIN_BRAND_KEY_LENGTH } from './answer-visibility.js'
-import { competitorEntrySchema, type CompetitorAliasProjectIdentity } from './competitor-aliases.js'
+import { competitorDomainSchema, competitorEntrySchema, type CompetitorAliasProjectIdentity } from './competitor-aliases.js'
 import { competitorAutoAliasSchema } from './competitor-auto-aliases.js'
 import { queryClassSchema } from './query-class.js'
 
@@ -394,6 +394,8 @@ export const competitorDtoSchema = z.object({
 export type CompetitorDto = z.infer<typeof competitorDtoSchema>
 
 export const competitorBatchRequestSchema = z.object({
+  // Removal accepts legacy rows written before domain validation so operators
+  // can clean them up instead of making invalid stored data permanent.
   competitors: z.array(z.string().trim().min(1)).min(1),
 })
 
@@ -412,7 +414,7 @@ export const competitorAppendRequestSchema = z.object({
 export type CompetitorAppendRequest = z.infer<typeof competitorAppendRequestSchema>
 
 export const competitorReplaceRequestSchema = z.object({
-  competitors: z.array(z.string().trim().min(1)),
+  competitors: z.array(competitorDomainSchema),
   acknowledgeBulkAdd: z.boolean().optional(),
 })
 export type CompetitorReplaceRequest = z.infer<typeof competitorReplaceRequestSchema>

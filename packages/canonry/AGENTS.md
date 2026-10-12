@@ -137,7 +137,7 @@ canonry doctor --check 'google.auth.*' --format jsonl
 
 directly — no `2>/dev/null`, no `| jq '(.checks // .results // [])[] | ...'`, no guessing the envelope key. Each line stands alone for `grep`/`head`/per-line `jq`.
 
-`jsonl` is wired into **every collection command** (a command whose primary output is a list) — `insights`, `runs`, `evidence`, `history`, `query/keyword/competitor list`, `notify list/events`, the `google`/`bing`/`ga` reads, `ads geo search`, `ads conversions pixels/event-settings`, `traffic events/sources/status`, `discover list/show`, `content targets/sources/gaps`, `backlinks list/releases`, `project list/locations`, `agent memory list`, `agent providers`, `status --all`, and `doctor`. The per-command primary collection + the context each line carries is catalogued in `skills/canonry/references/canonry-cli.md` ("Output schema per command" + "Output Formats"). Composite/object commands (`status`, `ads account`, `analytics`, `ga traffic`/`attribution`, `gbp summary`, index `coverage`) have **no** `jsonl` — they stay `json`.
+`jsonl` is wired into **every collection command** (a command whose primary output is a list) — `insights`, `runs`, `evidence`, `history`, `query/keyword/competitor list`, `notify list/events`, the `google`/`bing`/`ga` reads, `ads geo search`, `ads conversions pixels/event-settings`, `traffic events/sources/status`, `discover list/show`, `content targets/sources/gaps`, `backlinks list/releases`, `project list/locations`, `agent memory list`, `agent providers`, `status --all`, and `doctor`. The per-command primary collection + the context each line carries is catalogued in `skills/canonry/references/canonry-cli.md` ("Output schema per command" + "Output Formats"). Composite/object commands (`ads account`, `analytics`, `ga traffic`/`attribution`, `gbp summary`, index `coverage`) have **no** `jsonl` — they stay `json`.
 
 Conventions when adding `jsonl` to a command:
 
@@ -1015,3 +1015,22 @@ request, retaining each entry's aliases. Add, import and alias edits accept
 The optional project DTO mark is not an alias-detection completion signal.
 An omitted mark from an older server is reported after the committed write;
 it must not be treated as completed.
+
+### Stored operator read diagnostics
+
+Project status includes stored health in its aggregate state: fail is failing,
+warn is warning unless an integration is worse. Single-project JSONL emits one
+compact envelope; instance JSONL retains health-only rows. Explicit project
+`--problems` reads retain health and filter only integration rows.
+
+History errors reject empty filters before HTTP, instance rows retain their API
+project name, and `--all` cannot accompany a project. Stored sample/acquisition
+validation uses field-aware single-line errors. Sample dates mean UTC midnight.
+Calendar bounds and rolling windows are mutually exclusive CLI selections.
+
+Invocation-dependent commands use `CliCommandSpec.accessFor` for stored-only
+dispatch: competitor previews and alias reads/detection stay stored; actual
+mutations stay write. `get --from doctor` remains live. Access filters apply to
+both help forms, including parent-only roots, and are rejected on normal
+execution. A registered group with no matching access remains a valid empty
+catalog, not an unknown command.
