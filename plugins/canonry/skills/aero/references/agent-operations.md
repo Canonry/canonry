@@ -87,6 +87,15 @@ Ports and database settings still need a restart.
 changed separately from why it might have changed. A hypothesis is not a
 measured cause. Propose bounded verification if stored evidence is insufficient.
 
+**Site Health:** read `canonry_site_health_issues` for stored technical findings,
+affected-page counts and example URLs, then `canonry_site_health_issue_pages`
+for a selected issue's remaining pages. Pin subsequent reads to the returned
+run. Inspect coverage and omissions: a passing score can still have findings,
+an older scan may lack cross-page evidence, and a partial scan cannot establish
+site-wide absence. Advisory findings require judgment before proposing a repair.
+Audit evidence informs technical repairs and existing-page recommendations;
+it does not itself establish a new-blog opportunity or authorize any edit.
+
 **Prospecting:** generate a one-shot company snapshot without creating a project.
 Inspect stored provider settings first. Agree on the company, domain, selected
 providers, and queries before starting the quota-spending snapshot action.

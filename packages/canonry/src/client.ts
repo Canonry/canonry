@@ -105,6 +105,8 @@ import type {
   LatestProjectRunDto,
   SiteAuditScoreDto,
   SiteAuditPagesResponseDto,
+  SiteAuditIssuesResponseDto,
+  SiteAuditIssuePagesResponseDto,
   SiteAuditTrendResponseDto,
   SiteAuditRunResponseDto,
   SiteAuditRunProgressDto,
@@ -574,6 +576,8 @@ import {
   // Technical AEO (site-audit)
   getApiV1ProjectsByNameTechnicalAeo,
   getApiV1ProjectsByNameTechnicalAeoPages,
+  getApiV1ProjectsByNameTechnicalAeoIssues,
+  getApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPages,
   getApiV1ProjectsByNameTechnicalAeoTrend,
   getApiV1ProjectsByNameTechnicalAeoCrawl,
   getApiV1ProjectsByNameTechnicalAeoChanges,
@@ -4275,6 +4279,35 @@ export class ApiClient {
         client: this.heyClient,
         path: { name: project },
         query: { runId: opts?.runId, date: opts?.date },
+      }),
+    )
+  }
+
+  /** Stored findings across audited pages, including score-independent duplicate groups. */
+  async getSiteAuditIssues(
+    project: string,
+    opts?: { runId?: string; cursor?: string; limit?: number },
+  ): Promise<SiteAuditIssuesResponseDto> {
+    return this.invoke<SiteAuditIssuesResponseDto>(() =>
+      getApiV1ProjectsByNameTechnicalAeoIssues({
+        client: this.heyClient,
+        path: { name: project },
+        query: { runId: opts?.runId, cursor: opts?.cursor, limit: opts?.limit },
+      }),
+    )
+  }
+
+  /** Page evidence for one stored audit issue; continuation stays pinned to its crawl. */
+  async getSiteAuditIssuePages(
+    project: string,
+    issueId: string,
+    opts?: { runId?: string; cursor?: string; limit?: number },
+  ): Promise<SiteAuditIssuePagesResponseDto> {
+    return this.invoke<SiteAuditIssuePagesResponseDto>(() =>
+      getApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPages({
+        client: this.heyClient,
+        path: { name: project, issueId },
+        query: { runId: opts?.runId, cursor: opts?.cursor, limit: opts?.limit },
       }),
     )
   }

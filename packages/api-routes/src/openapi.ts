@@ -7630,6 +7630,43 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/technical-aeo/issues',
+    summary: 'List stored audit issue groups and representative URLs',
+    description: 'Read-only retained evidence, without provider calls. Includes coded findings and independent critical defects at every page score and retained cross-page groups; mirrored duplicate annotations appear once. Returns stored run/date/attempt, crawl completeness, and separate page-finding/cross-page coverage so legacy absence and malformed evidence cannot imply a clean site. Disposition is a prioritization hint, not permission to edit or proof of score impact. Recommendations distinguish whole-factor guidance from independently issue-scoped critical-defect guidance. Page-finding identities use factor/code/type; duplicate metadata identities use the full exact metadata value. Unknown cross-page identities are run-local. Reads fail explicitly above 128 MiB evidence or 4096 groups; they never sample an apparently complete total.',
+    tags: ['technical-aeo'],
+    parameters: [
+      nameParameter,
+      { name: 'runId', in: 'query', description: 'Stored non-probe audit run. Omit for the standard latest crawl selection.', schema: stringSchema },
+      { name: 'cursor', in: 'query', description: 'Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.', schema: { type: 'string', maxLength: 2048 } },
+      { name: 'limit', in: 'query', description: 'Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
+    ],
+    responses: {
+      200: jsonResponse('Stored issue groups and coverage returned.', 'SiteAuditIssuesResponseDto'),
+      400: errorResponse('Invalid query/cursor or evidence/response read budget exceeded.'),
+      404: errorResponse('Project or explicitly selected non-probe audit run not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages',
+    summary: 'List affected URLs for one stored audit issue',
+    description: 'Read-only bounded membership of one issue in the selected published audit attempt. Preserve runId from the issue list when following historical evidence. Messages and factor-scoped recommendations expose explicit truncation; URLs are preserved. Missing legacy evidence remains unavailable, never a measured empty result.',
+    tags: ['technical-aeo'],
+    parameters: [
+      nameParameter,
+      { name: 'runId', in: 'query', description: 'Stored non-probe audit run. Omit for the standard latest crawl selection.', schema: stringSchema },
+      { name: 'cursor', in: 'query', description: 'Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.', schema: { type: 'string', maxLength: 2048 } },
+      { name: 'limit', in: 'query', description: 'Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
+      { name: 'issueId', in: 'path', required: true, description: 'Exact issue ID from the stored issue list.', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Stored affected page evidence and coverage returned.', 'SiteAuditIssuePagesResponseDto'),
+      400: errorResponse('Invalid query/cursor or evidence/response read budget exceeded.'),
+      404: errorResponse('Project, selected non-probe audit run, or issue not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/technical-aeo/crawl/pages/audit',
     summary: 'Get exact audit evidence for one persisted crawl page',
     description: 'Returns one page score with the exact weighted-factor findings, recommendations, applicability, and independent critical defects persisted for the selected crawl. Exactly one of nodeKey or url is required. The discriminated state preserves crawl completeness and termination provenance, distinguishes a page that was not audited from one that was not found, and marks legacy score-only rows without fabricating missing evidence. This one-page read keeps verbose evidence out of the bounded interactive graph projection.',

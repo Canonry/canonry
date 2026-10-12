@@ -227,6 +227,8 @@ const expectedToolNames = [
   'canonry_discover_promote_preview',
   'canonry_discover_promote',
   'canonry_site_health_overview',
+  'canonry_site_health_issues',
+  'canonry_site_health_issue_pages',
   'canonry_site_health_page_audit',
   'canonry_site_health_subgraph',
   'canonry_site_health_path',
@@ -470,6 +472,8 @@ describe('MCP tool registry', () => {
   it('exposes bounded Site Health reads as read-only monitoring tools', () => {
     const expected = [
       ['canonry_site_health_overview', 'GET /api/v1/projects/{name}/technical-aeo/crawl'],
+      ['canonry_site_health_issues', 'GET /api/v1/projects/{name}/technical-aeo/issues'],
+      ['canonry_site_health_issue_pages', 'GET /api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages'],
       ['canonry_site_health_page_audit', 'GET /api/v1/projects/{name}/technical-aeo/crawl/pages/audit'],
       ['canonry_site_health_subgraph', 'GET /api/v1/projects/{name}/technical-aeo/subgraph'],
       ['canonry_site_health_path', 'GET /api/v1/projects/{name}/technical-aeo/path'],
@@ -781,7 +785,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(170)
+    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(172)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -820,7 +824,7 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
-    expect(counts.get('monitoring')).toBe(61)
+    expect(counts.get('monitoring')).toBe(63)
     expect(counts.get('setup')).toBe(69)
     expect(counts.get('gsc')).toBe(11)
     expect(counts.get('ga')).toBe(13)

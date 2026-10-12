@@ -6,6 +6,7 @@ import Fastify from 'fastify'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, describe, expect, it } from 'vitest'
+import { siteAuditIssuesResponseSchema } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
 import {
   createClient,
@@ -32,7 +33,7 @@ afterEach(async () => {
  * cap (`partial`, with a crawl), and its only `completed` run is an older
  * scorecard-only audit that never published a crawl.
  */
-async function cappedSiteServer(): Promise<{ origin: string; newestPartial: string }> {
+async function cappedSiteServer(): Promise<{ origin: string; newestPartial: string; auditedAt: string }> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-mcp-site-health-'))
   const db = createClient(path.join(dir, 'test.db'))
   migrate(db)
@@ -91,12 +92,12 @@ async function cappedSiteServer(): Promise<{ origin: string; newestPartial: stri
   await app.listen({ host: '127.0.0.1', port: 0 })
   const address = app.server.address()
   if (!address || typeof address === 'string') throw new Error('Missing test address')
-  return { origin: `http://127.0.0.1:${address.port}`, newestPartial }
+  return { origin: `http://127.0.0.1:${address.port}`, newestPartial, auditedAt: createdAt }
 }
 
-async function connect(origin: string): Promise<Client> {
+async function connect(origin: string, scope: 'all' | 'stored-only' = 'all', eager = true): Promise<Client> {
   const api = new ApiClient(origin, 'cnry_site_health_test', { skipProbe: true })
-  const server = createCanonryMcpServer({ eager: true, clientFactory: () => api })
+  const server = createCanonryMcpServer({ eager, scope, clientFactory: () => api })
   const client = new Client({ name: 'site-health-default-run-test', version: '1' })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
@@ -107,6 +108,34 @@ async function connect(origin: string): Promise<Client> {
 }
 
 describe('Site Health MCP reads without a runId', () => {
+  it('reads retained issue groups and their pages through MCP with the same scan provenance', async () => {
+    const { origin, newestPartial, auditedAt } = await cappedSiteServer()
+    const mcp = await connect(origin, 'stored-only', false)
+    const loaded = await mcp.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'monitoring' } })
+    expect(loaded.isError).not.toBe(true)
+    const response = await mcp.callTool({ name: 'canonry_site_health_issues', arguments: { project: PROJECT, limit: 1 } })
+    expect(response.isError).not.toBe(true)
+    const issues = siteAuditIssuesResponseSchema.parse(response.structuredContent)
+    expect(issues).toMatchObject({
+      project: PROJECT, runId: newestPartial, auditedAt, runStatus: 'partial', state: 'partial',
+      complete: false, termination: 'max-pages', total: 1, nextCursor: null,
+      coverage: { pageFindings: 'available', crossPage: 'unavailable', auditedPages: 1, pagesWithFindingEvidence: 1 },
+      issues: [{ code: 'content-depth.word-count.low', affectedPages: 1, examples: [{ url: PAGE_URL }] }],
+    })
+    expect(issues.attemptId).toEqual(expect.any(String))
+    const issue = issues.issues[0]!
+    const pages = await mcp.callTool({ name: 'canonry_site_health_issue_pages', arguments: {
+      project: PROJECT, runId: newestPartial, issueId: issue.id, limit: 1,
+    } })
+    expect(pages.isError).not.toBe(true)
+    expect(pages.structuredContent).toMatchObject({
+      project: PROJECT, runId: newestPartial, attemptId: issues.attemptId, auditedAt: issues.auditedAt,
+      issueId: issue.id, complete: false, state: 'partial', total: 1, nextCursor: null,
+      pages: [{ nodeKey: 'pricing', url: PAGE_URL, message: 'Low content depth.',
+        recommendations: ['Expand the page.'], recommendationsScope: 'factor' }],
+    })
+  })
+
   it('audits a page from the newest page-capped scan instead of answering no-crawl', async () => {
     const { origin, newestPartial } = await cappedSiteServer()
     const mcp = await connect(origin)

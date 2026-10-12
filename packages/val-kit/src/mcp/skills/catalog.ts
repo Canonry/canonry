@@ -54,7 +54,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry Operations Guide v1",
     description: "Shared Canonry vocabulary, evidence scope, comparison rules, and authority boundaries. Read when interpreting unfamiliar data or checking an operation.",
     entryPoint: false,
-    characters: 15239,
+    characters: 15867,
     content: aeroReferencesAgentOperationsPart0,
   },
   {
@@ -114,7 +114,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Site Health diagnosis",
     description: "Diagnose Site Health scores, page findings, crawl coverage, internal links, and scan changes while preserving run provenance and incomplete-data limits.",
     entryPoint: false,
-    characters: 6191,
+    characters: 7165,
     content: aeroReferencesSiteHealthPart0,
   },
   {
@@ -144,7 +144,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "canonry skill",
     description: "Navigate Canonry through connected MCP tools or the `cnry` CLI to inspect evidence, diagnose changes, plan measurement, review integrations, and report results. Use this optional host-native skill for CLI workflows and detailed references; connected MCP users can operate through canonry_help without installing a local runtime or skill.",
     entryPoint: true,
-    characters: 15457,
+    characters: 16085,
     content: canonrySkillPart0,
   },
   {
@@ -164,7 +164,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 178575,
+    characters: 179462,
     content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2, canonryReferencesCanonryCliPart3].join(''),
   },
   {

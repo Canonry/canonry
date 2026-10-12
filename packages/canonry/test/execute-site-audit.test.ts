@@ -146,6 +146,7 @@ async function emitCompleteGraph(
   options: { onEvent?: (event: unknown) => Promise<void> | void },
   complete = true,
   rootUrl = 'https://example.com/',
+  summaryOverrides: Record<string, unknown> = {},
 ) {
   const childUrl = new URL('/a', rootUrl).href
   await options.onEvent?.({
@@ -170,6 +171,7 @@ async function emitCompleteGraph(
     rootUrl,
     finalRootUrl: rootUrl,
     ...(complete ? {} : { complete: false, terminationReason: 'max-pages' }),
+    ...summaryOverrides,
   })
   await options.onEvent?.({ type: 'summary', sequence: 4, batchId: 'summary-1', checksum: complete ? 'summary-ok' : 'summary-partial', summary: endSummary })
   return { mode: 'summary', summary: endSummary, deadLinks: { state: 'disabled', findings: [], unverified: [] } }
@@ -272,6 +274,98 @@ describe('executeSiteAudit', () => {
     })
     expect(db.select().from(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, runId)).get()).toMatchObject({ aggregateScore: 88 })
     expect(db.select().from(siteAuditPages).where(eq(siteAuditPages.runId, runId)).all()).toHaveLength(2)
+  })
+
+  it.each([
+    { name: 'omitted', summaryFields: {}, expected: null },
+    { name: 'measured empty', summaryFields: { siteIssues: [] }, expected: { schemaVersion: '1.0', groupIdentityVersion: 'duplicate-metadata-v1', siteIssues: [] } },
+  ])('persists $name cross-page issue evidence distinctly', async ({ summaryFields, expected }) => {
+    vi.mocked(runSiteCrawl).mockImplementation(async (url, options) => emitCompleteGraph(options, true, url, summaryFields))
+    const runId = seedRun()
+    await executeSiteAudit(db, runId, projectId)
+    expect(db.select().from(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.runId, runId)).get()?.issueEvidence).toEqual(expected)
+  })
+
+  it.each([true, false])('retains updated issue findings and final depths with complete=%s provenance', async (complete) => {
+    const rootUrl = 'https://example.com/'
+    const urls = [rootUrl, `${rootUrl}bridge`, `${rootUrl}child`, `${rootUrl}orphan`]
+    const title = 'A shared page title for these observed pages'
+    const advisory = 'Review this title for useful page-specific context.'
+    const message = '4 pages share the same title word for word.'
+    vi.mocked(runSiteCrawl).mockImplementation(async (_url, options) => {
+      const pages = urls.map((url, index) => {
+        const original = page(index === 0 ? 'page:root' : `page:${index}`, url)
+        return {
+          ...original,
+          depth: 0,
+          provenance: { ...original.provenance, sitemapSources: [`${rootUrl}sitemap.xml`] },
+          audit: {
+            ...original.audit,
+            metadata: { pageTitle: title, metaDescription: null },
+            factors: [{
+              ...scoredFactor('entity-consistency', 'Entity Consistency', 8, 88),
+              recommendations: [advisory],
+              advisoryRecommendations: [advisory],
+            }],
+          },
+          metrics: { ...original.metrics, shortestFollowableAnchorDepth: index === 3 ? null : index },
+        }
+      })
+      await options.onEvent?.({ type: 'pages', sequence: 1, batchId: 'initial-pages', checksum: 'initial-pages', rows: pages })
+      await options.onEvent?.({
+        type: 'edges', sequence: 2, batchId: 'edges', checksum: 'edges',
+        rows: [0, 1].map((index) => ({
+          key: `edge:${index}`, from: urls[index], to: urls[index + 1], type: 'anchor', classification: 'internal',
+          totalOccurrences: 1, followableOccurrences: 1, nofollowOccurrences: 0, anchorSummaries: [{ text: 'Next', occurrences: 1 }],
+        })),
+      })
+      const updatedPages = pages.map((observation) => ({
+        ...observation,
+        audit: {
+          ...observation.audit,
+          factors: observation.audit.factors.map((factor) => ({
+            ...factor,
+            findings: [...factor.findings, { type: 'info', code: 'site.duplicate-title', message }],
+          })),
+        },
+      }))
+      await options.onEvent?.({ type: 'pages', sequence: 3, batchId: 'duplicate-pages', checksum: 'duplicate-pages', rows: updatedPages })
+      await options.onEvent?.({
+        type: 'metrics', sequence: 4, batchId: 'final-metrics', checksum: 'final-metrics',
+        rows: pages.map((observation) => ({ key: observation.key, metrics: observation.metrics })),
+      })
+      const endSummary = summary({
+        engineVersion: '7.3.0', complete, terminationReason: complete ? null : 'max-pages',
+        pagesDiscovered: 4, pagesFetched: 4, pagesObserved: 4, edgesObserved: 2,
+        auditRollup: { auditedPages: 4, aggregateScore: 88, factors: [] },
+        siteIssues: [{ code: 'site.duplicate-title', message, affectedUrls: [urls[3], urls[1], urls[0], urls[2], urls[1]] }],
+      })
+      await options.onEvent?.({ type: 'summary', sequence: 5, batchId: 'summary', checksum: 'summary', summary: endSummary })
+      return { mode: 'summary', summary: endSummary, deadLinks: { state: 'disabled', findings: [], unverified: [] } }
+    })
+
+    const runId = seedRun()
+    await executeSiteAudit(db, runId, projectId)
+    const snapshot = db.select().from(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.runId, runId)).get()!
+    expect(snapshot).toMatchObject({ complete, termination: complete ? 'complete' : 'max-pages', engineVersion: '7.3.0' })
+    expect(snapshot.issueEvidence).toEqual({
+      schemaVersion: '1.0', groupIdentityVersion: 'duplicate-metadata-v1',
+      siteIssues: [{ key: expect.stringMatching(/^site-issue:[a-f0-9]{64}$/), code: 'site.duplicate-title', message, affectedUrls: urls }],
+    })
+    const retainedPages = db.select().from(siteCrawlPages).where(eq(siteCrawlPages.runId, runId)).all()
+    expect(retainedPages).toHaveLength(4)
+    expect(retainedPages.find((row) => row.url === urls[2])?.depth).toBe(2)
+    expect(retainedPages.find((row) => row.url === urls[3])?.depth).toBeNull()
+    for (const retained of retainedPages) {
+      expect(retained.auditScore).toBe(88)
+      expect(retained.auditFields).toMatchObject({
+        factors: [{
+          id: 'entity-consistency', score: 88, status: 'pass',
+          advisoryRecommendations: [advisory],
+          findings: expect.arrayContaining([{ type: 'info', code: 'site.duplicate-title', message }]),
+        }],
+      })
+    }
   })
 
   it('persists the crawler placement report, and the ruleset version that produced it', async () => {

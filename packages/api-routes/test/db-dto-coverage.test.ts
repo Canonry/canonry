@@ -292,6 +292,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
       pagesErrored: 'Diagnostic count not surfaced in the graph summary.',
       edgesDiscovered: 'Nested in counts as edges.',
       findingsCount: 'Nested in counts as findings.',
+      issueEvidence: 'Retained cross-page groups are projected through the bounded /technical-aeo/issues and /issues/:issueId/pages DTOs; the raw envelope is not part of the crawl summary.',
       deadLinkState: 'Represented by the discriminated deadLinks state.',
       deadLinksChecked: 'Represented by the discriminated deadLinks state.',
       deadLinksFound: 'Represented by the discriminated deadLinks state.',

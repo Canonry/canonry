@@ -40,6 +40,7 @@ Every API operation carries `x-canonry-access` metadata and responses expose the
 | `src/traffic-analytics.ts` | Full-window stored crawler, user-fetch and referral aggregates, exposed through `/traffic/analytics`; detail-row caps do not limit totals, operator/path/product breakdowns or history. `period` is read-selection identity, not execution tuning. |
 | `src/referral-assessment.ts` | DB-only project/source burst diagnostic. Raw headlines unchanged; grouped candidate counts and separate adjusted estimate, with GA quotient coverage limits. |
 | `src/technical-aeo.ts` | Site Health / Technical AEO routes |
+| `src/technical-aeo-issues.ts` | Stored coded-finding, independent-defect, and cross-page issue aggregation with bounded examples and cursor-paged membership |
 | `src/measurement-property-evidence.ts` | `GET /projects/:name/measurement-property-evidence`: one Property's cursor-paged evidence |
 | `src/discovery/routes.ts` / `src/discovery/orchestrate.ts` | Tracked-basket discovery routes; `executeDiscovery` orchestration (rules: `src/discovery/AGENTS.md`) |
 | `src/doctor.ts` / `src/doctor/registry.ts` / `src/doctor/runner.ts` | `GET /doctor`, `GET /projects/:name/doctor` → `DoctorReport`; `ALL_CHECKS`; `runChecks()`, `matchesCheckId()` |
@@ -752,6 +753,12 @@ WordPress backfill is forbidden while either continuation field is set.
 - Powered by the `site-audit` run kind and `@canonry/aeo-audit`'s `runSiteCrawl`. A run crawls the sitemap plus internal-link discoveries. Page budget: the request's `maxPages`, else the project's saved `siteAuditMaxPages`, else the full site (the 50,000-page hard limit), for manual and scheduled scans alike; edges derived by the engine from the page count (pages × 50, floor 100,000) unless `--max-edges` is set. Hard limits: 50,000 pages / 1,000,000 edges. Dead-link analysis is off unless requested.
 - Progress reports the exact durable phase and raw pages found / checked / failed counters — never a synthesized percentage.
 - Dead-link reports are disabled unless the run used `--check-dead-links`. A listed dead link ALWAYS has a real 4xx/5xx status: an internal target the crawler could not fetch at all (timeout, reset connection, throttling under crawl concurrency) is counted separately as `unverified` and is never listed, because a failed fetch is a fact about the crawl and not about the link. `found` and `checked` both exclude unverified targets, so "0 found, 6 unverified" reads as "nothing broken, six we could not check" rather than as a clean bill of health.
+
+#### Stored audit issues
+
+`GET /technical-aeo/issues` and `/technical-aeo/issues/:issueId/pages` read the selected published non-probe attempt only. The helper batches retained audit fields, groups findings independently of scores, keeps independent critical defects actionable with their stored severity, and prefers retained cross-page groups over mirrored duplicate annotations. Page-finding recommendations are factor-scoped; defect recommendations are issue-scoped. Known informational title/metadata advice is advisory; other information is not a defect. Legacy/malformed absence has explicit coverage and cannot yield an available clean result. Null cross-page identities remain run-local.
+
+Responses are capped at 16 KiB of pretty JSON (including provenance and cursor), with whole-row continuation and exact retained totals. A row that cannot fit fails explicitly. Reads also reject more than 128 MiB of retained evidence or 4096 distinct groups. Cursors bind project, run, attempt, endpoint/issue and all retained evidence; limit may change between pages. These are stored reads in operation-access; no provider or crawl action is permitted.
 
 #### Routes (`src/technical-aeo.ts`)
 
