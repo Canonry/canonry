@@ -4,6 +4,8 @@ import {
   technicalAeoChanges,
   technicalAeoDeadLinks,
   technicalAeoInternalLinks,
+  technicalAeoIssues,
+  technicalAeoIssuePages,
   technicalAeoLinkNeighbors,
   technicalAeoPageAudit,
   technicalAeoPath,
@@ -15,6 +17,7 @@ import {
   technicalAeoSubgraph,
   technicalAeoTrend,
 } from '../commands/technical-aeo.js'
+import { siteAuditIssueListQuerySchema } from '@ainyc/canonry-contracts'
 import { CliError, usageError } from '../cli-error.js'
 import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import {
@@ -49,7 +52,53 @@ function isSiteHealthChange(value: string | undefined): value is 'all' | 'added'
   return value === 'all' || value === 'added' || value === 'removed' || value === 'changed'
 }
 
+function auditIssueSelection(input: CliCommandInput, command: string, usage: string) {
+  const limit = getString(input.values, 'limit')
+  const selection = siteAuditIssueListQuerySchema.safeParse({
+    runId: getString(input.values, 'run-id'),
+    cursor: getString(input.values, 'cursor'),
+    limit: limit === undefined ? undefined : Number(limit),
+  })
+  if (!selection.success) {
+    throw usageError(`Error: invalid saved audit selection\nUsage: ${usage}`, {
+      message: 'Use non-empty run and cursor IDs, and an integer --limit from 1 to 100.',
+      details: { command, usage },
+    })
+  }
+  return selection.data
+}
+
 const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
+  {
+    path: ['technical-aeo', 'issues'],
+    usage: 'canonry technical-aeo issues <project> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
+    access: 'stored',
+    options: { 'run-id': stringOption(), cursor: stringOption(), limit: stringOption() },
+    run: async (input) => {
+      const usage = 'canonry technical-aeo issues <project> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
+      const project = requireProject(input, 'technical-aeo.issues', usage)
+      await technicalAeoIssues(project, {
+        ...auditIssueSelection(input, 'technical-aeo.issues', usage),
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['technical-aeo', 'issue-pages'],
+    usage: 'canonry technical-aeo issue-pages <project> --issue-id <id> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
+    access: 'stored',
+    options: { 'issue-id': stringOption(), 'run-id': stringOption(), cursor: stringOption(), limit: stringOption() },
+    run: async (input) => {
+      const usage = 'canonry technical-aeo issue-pages <project> --issue-id <id> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
+      const project = requireProject(input, 'technical-aeo.issue-pages', usage)
+      const issueId = requireStringOption(input, 'issue-id', { command: 'technical-aeo.issue-pages', usage, message: '--issue-id is required' })
+      await technicalAeoIssuePages(project, {
+        issueId,
+        ...auditIssueSelection(input, 'technical-aeo.issue-pages', usage),
+        format: input.format,
+      })
+    },
+  },
   {
     path: ['technical-aeo', 'score'],
     usage: 'canonry technical-aeo score <project> [--run-id <id>] [--format json]',
@@ -444,6 +493,16 @@ function siteHealthAlias(
 }
 
 const SITE_HEALTH_COMPATIBILITY_COMMANDS: readonly CliCommandSpec[] = [
+  siteHealthAlias(
+    ['technical-aeo', 'issues'],
+    ['site-health', 'issues'],
+    'canonry site-health issues <project> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
+  ),
+  siteHealthAlias(
+    ['technical-aeo', 'issue-pages'],
+    ['site-health', 'issue-pages'],
+    'canonry site-health issue-pages <project> --issue-id <id> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
+  ),
   siteHealthAlias(
     ['technical-aeo', 'crawl'],
     ['site-health', 'overview'],

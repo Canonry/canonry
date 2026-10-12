@@ -30,6 +30,8 @@ receive the selected graph node, so resolve the requested page or ask for it.
 
 | Question | Read |
 |---|---|
+| Which technical issues need investigation, including on passing pages? | `canonry_site_health_issues` for grouped findings, counts, example URLs and coverage |
+| Which pages have a selected issue? | `canonry_site_health_issue_pages`; pin the list's run and follow the affected-page cursor |
 | Which URLs were discovered and audited? | `canonry_technical_aeo_crawl_pages`; filter audit/fetch/indexability state and follow its cursor |
 | How is the site organized? | `canonry_technical_aeo_structure` for one path level |
 | What links to/from this page? | `canonry_technical_aeo_link_neighbors`; inbound and outbound truncation are independent |
@@ -46,6 +48,12 @@ are 25 nodes and 50 edges; a bounded neighborhood is not the whole site.
 
 ## Interpret states before findings
 
+- Issue reads preserve separate page-finding and cross-page coverage. Older
+  scans may expose page findings while cross-page evidence is unavailable.
+  Unavailable is not zero; incomplete coverage cannot establish site-wide
+  absence. A bounded issue list and its example URLs are samples until their
+  corresponding cursors are exhausted. Advisory findings, including short
+  titles and duplicate metadata, need context before selecting a repair.
 - `hasData: false`, no crawl, details unavailable, page not found, and page
   not audited are different states. None means a zero score or a passing
   page. `scores-only` permits discussing scores but not inventing findings.
@@ -68,6 +76,10 @@ are 25 nodes and 50 edges; a bounded neighborhood is not the whole site.
   Different classification rules are not equivalent measurements.
 
 ## Compare scans and prioritize
+
+The page/link changes tool does not compare audit finding codes or duplicate
+metadata groups. Do not interpret absence from its output as an issue being
+fixed. Inspect each scan's issue evidence and compatible coverage separately.
 
 Use the changes tool's resolved run IDs and filters; keep them fixed when
 paging. Its first page carries the exact summary; continuation pages omit

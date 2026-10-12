@@ -240,6 +240,18 @@ can inspect. Path reads follow persisted internal links. Run-change reads
 compare two immutable complete snapshots by stable page and edge identity at
 query time; ForceAtlas2 coordinates are never considered a website change.
 
+Migration 180 adds nullable `site_crawl_snapshots.issue_evidence`, a versioned
+record of the crawler's cross-page findings. NULL means the scan did not record
+that source; an envelope with an empty `siteIssues` list means no groups were
+observed within that scan's coverage. Existing scans are not backfilled.
+Duplicate metadata groups retain sorted, distinct affected URLs. Their stable
+keys use the full exact trimmed metadata value, issue code and identity version,
+so a changing page count or a truncated display message cannot change identity.
+If the original metadata cannot establish that identity, the group survives
+with a null key. Stored issue reads combine these groups with recorded page
+findings, independently of the score, and expose source coverage and pagination.
+The existing page/link comparison does not establish issue resolution.
+
 #### `projects.provider_models`
 
 `projects.provider_models` is a JSON map of provider name to a model ID used

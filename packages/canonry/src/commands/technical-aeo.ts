@@ -1,10 +1,85 @@
-import { formatPercent, RatioUnits, type SiteCrawlAvailableScanDatesDto, type SiteCrawlInventorySummaryDto, type SiteHealthChangeRecordDto } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits, SiteAuditIssueRecommendationScopes, type SiteAuditIssuesResponseDto, type SiteCrawlAvailableScanDatesDto, type SiteCrawlInventorySummaryDto, type SiteHealthChangeRecordDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
+}
+
+/** Stored issues are evidence from a selected scan, not a new crawl or an edit request. */
+export async function technicalAeoIssues(
+  project: string,
+  opts: { runId?: string; cursor?: string; limit?: number; format?: string },
+): Promise<void> {
+  const res = await getClient().getSiteAuditIssues(project, opts)
+  if (opts.format === 'jsonl') {
+    const { issues, ...context } = res
+    emitJsonl([{ kind: 'site-health-issues-header', ...context }])
+    emitJsonl(issues.map((issue) => ({ kind: 'site-health-issue', ...context, ...issue })))
+    return
+  }
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify(res, null, 2))
+    return
+  }
+  const lines = [`Stored audit issues for "${project}":`, ...issueEvidenceProvenance(res)]
+  if (res.issues.length === 0) lines.push('No issue groups returned; use the evidence coverage above when interpreting this result.')
+  for (const issue of res.issues) {
+    const severity = issue.severity === null ? '' : ` · ${issue.severity}`
+    lines.push('', `[${issue.disposition}${severity}] ${issue.code} · ${issue.affectedPages} page(s)`, issue.message)
+    lines.push(`Issue: ${issue.id}${issue.stableIdentity ? '' : ' (identity is specific to this scan)'}`)
+    for (const example of issue.examples) lines.push(`  ${example.url}`)
+    if (issue.examplesTruncated) lines.push('More affected pages are available with site-health issue-pages.')
+    if (issue.messageTruncated) lines.push('The saved message is shortened; inspect the affected pages for context.')
+  }
+  if (res.nextCursor) lines.push('', `Next cursor: ${res.nextCursor}`)
+  console.log(lines.join('\n'))
+}
+
+/** Cursor-paged affected URLs for one issue in the same saved scan. */
+export async function technicalAeoIssuePages(
+  project: string,
+  opts: { issueId: string; runId?: string; cursor?: string; limit?: number; format?: string },
+): Promise<void> {
+  const res = await getClient().getSiteAuditIssuePages(project, opts.issueId, opts)
+  if (opts.format === 'jsonl') {
+    const { pages, ...context } = res
+    emitJsonl([{ kind: 'site-health-issue-pages-header', ...context }])
+    emitJsonl(pages.map((page) => ({ kind: 'site-health-issue-page', ...context, ...page })))
+    return
+  }
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify(res, null, 2))
+    return
+  }
+  const lines = [`Pages for audit issue ${res.issueId}:`, ...issueEvidenceProvenance(res)]
+  if (res.pages.length === 0) lines.push('No affected pages returned; unavailable or partial evidence does not establish a clean site.')
+  for (const page of res.pages) {
+    lines.push('', page.url, page.message)
+    if (page.messageTruncated) lines.push('The saved message is shortened.')
+    if (page.recommendations.length > 0) {
+      lines.push(page.recommendationsScope === SiteAuditIssueRecommendationScopes.issue
+        ? 'Guidance for this issue:'
+        : 'Guidance for this page’s whole factor (not issue-specific):')
+      for (const recommendation of page.recommendations) lines.push(`  ${recommendation}`)
+    }
+    if (page.recommendationsTruncated) lines.push('Additional guidance was omitted from this bounded result.')
+  }
+  if (res.nextCursor) lines.push('', `Next cursor: ${res.nextCursor}`)
+  console.log(lines.join('\n'))
+}
+
+function issueEvidenceProvenance(
+  res: Pick<SiteAuditIssuesResponseDto, 'runId' | 'attemptId' | 'auditedAt' | 'runStatus' | 'complete' | 'termination' | 'state' | 'coverage' | 'total'>,
+): string[] {
+  return [
+    `Scan: ${res.runId ?? 'none'} · attempt ${res.attemptId ?? 'unknown'} · audited ${res.auditedAt ?? 'unknown'} · status ${res.runStatus ?? 'unknown'}`,
+    `Evidence: ${res.state} · crawl ${res.runId === null ? 'unavailable' : res.complete ? 'complete' : 'partial'}${res.termination ? ` (${res.termination})` : ''}`,
+    `Page findings: ${res.coverage.pageFindings}; cross-page checks: ${res.coverage.crossPage}. Finding evidence for ${res.coverage.pagesWithFindingEvidence}/${res.coverage.auditedPages} audited page(s).`,
+    `${res.coverage.pagesWithoutFindingEvidence} audited page(s) lack finding evidence; ${res.coverage.omittedFindings} malformed or uncoded finding(s) omitted.`,
+    `Total in this stored selection: ${res.total ?? 'unknown'}.`,
+  ]
 }
 
 /** `canonry technical-aeo score <project>` — site-level scorecard. Composite → json (not jsonl). */

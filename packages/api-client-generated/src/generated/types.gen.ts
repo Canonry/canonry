@@ -13581,6 +13581,107 @@ export type SettingsDto = {
     };
 };
 
+export type SiteAuditIssuePagesResponseDto = {
+    project: string;
+    runId: string | null;
+    attemptId: string | null;
+    auditedAt: string | null;
+    runStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | null;
+    complete: boolean;
+    termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
+    state: 'no-crawl' | 'unavailable' | 'partial' | 'available';
+    coverage: {
+        pageFindings: 'available' | 'partial' | 'unavailable';
+        crossPage: 'available' | 'unavailable';
+        auditedPages: number;
+        pagesWithFindingEvidence: number;
+        pagesWithoutFindingEvidence: number;
+        omittedFindings: number;
+    };
+    total: number | null;
+    nextCursor: string | null;
+    issueId: string;
+    pages: Array<{
+        nodeKey: string | null;
+        url: string;
+        message: string;
+        messageTruncated: boolean;
+        recommendations: Array<string>;
+        recommendationsScope: 'factor' | 'issue' | 'none';
+        recommendationsTruncated: boolean;
+    }>;
+};
+
+export type SiteAuditIssuesResponseDto = {
+    project: string;
+    runId: string | null;
+    attemptId: string | null;
+    auditedAt: string | null;
+    runStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | null;
+    complete: boolean;
+    termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
+    state: 'no-crawl' | 'unavailable' | 'partial' | 'available';
+    coverage: {
+        pageFindings: 'available' | 'partial' | 'unavailable';
+        crossPage: 'available' | 'unavailable';
+        auditedPages: number;
+        pagesWithFindingEvidence: number;
+        pagesWithoutFindingEvidence: number;
+        omittedFindings: number;
+    };
+    total: number | null;
+    nextCursor: string | null;
+    issues: Array<{
+        id: string;
+        stableIdentity: boolean;
+        code: string;
+        source: 'page-finding' | 'cross-page' | 'critical-defect';
+        severity: 'critical' | 'warning' | null;
+        factorId: string | null;
+        findingType: 'found' | 'missing' | 'info' | 'timeout' | 'unreachable';
+        disposition: 'actionable' | 'advisory' | 'unverified' | 'informational';
+        message: string;
+        messageTruncated: boolean;
+        affectedPages: number;
+        examples: Array<{
+            nodeKey: string | null;
+            url: string;
+            message: string;
+            messageTruncated: boolean;
+            recommendations: Array<string>;
+            recommendationsScope: 'factor' | 'issue' | 'none';
+            recommendationsTruncated: boolean;
+        }>;
+        examplesTruncated: boolean;
+    }>;
+};
+
 export type SiteAuditLivePageHealthDto = {
     project: string;
     runId: string;
@@ -14106,6 +14207,7 @@ export type SiteCrawlPageAuditDto = {
             message: string;
         }>;
         recommendations: Array<string>;
+        advisoryRecommendations?: Array<string>;
     }>;
     criticalDefects: Array<{
         id: string;
@@ -14151,6 +14253,7 @@ export type SiteCrawlPageAuditDto = {
             message: string;
         }>;
         recommendations: Array<string>;
+        advisoryRecommendations?: Array<string>;
     }>;
     criticalDefects: Array<{
         id: string;
@@ -31973,6 +32076,104 @@ export type GetApiV1ProjectsByNameTechnicalAeoChangesResponses = {
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoChangesResponse = GetApiV1ProjectsByNameTechnicalAeoChangesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoChangesResponses];
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Stored non-probe audit run. Omit for the standard latest crawl selection.
+         */
+        runId?: string;
+        /**
+         * Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.
+         */
+        cursor?: string;
+        /**
+         * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/technical-aeo/issues';
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesErrors = {
+    /**
+     * Invalid query/cursor or evidence/response read budget exceeded.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or explicitly selected non-probe audit run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesError = GetApiV1ProjectsByNameTechnicalAeoIssuesErrors[keyof GetApiV1ProjectsByNameTechnicalAeoIssuesErrors];
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesResponses = {
+    /**
+     * Stored issue groups and coverage returned.
+     */
+    200: SiteAuditIssuesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesResponse = GetApiV1ProjectsByNameTechnicalAeoIssuesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoIssuesResponses];
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact issue ID from the stored issue list.
+         */
+        issueId: string;
+    };
+    query?: {
+        /**
+         * Stored non-probe audit run. Omit for the standard latest crawl selection.
+         */
+        runId?: string;
+        /**
+         * Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.
+         */
+        cursor?: string;
+        /**
+         * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages';
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesErrors = {
+    /**
+     * Invalid query/cursor or evidence/response read budget exceeded.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project, selected non-probe audit run, or issue not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesError = GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesErrors[keyof GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesErrors];
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponses = {
+    /**
+     * Stored affected page evidence and coverage returned.
+     */
+    200: SiteAuditIssuePagesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponse = GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditData = {
     body?: never;

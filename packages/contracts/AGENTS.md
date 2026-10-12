@@ -253,3 +253,7 @@ reports expose selected `reportMonths`; the previous month stays selected throug
 UTC day 3 unless the caller supplies one explicit month.
 
 `cli-catalog.ts` defines the public JSON contract for local CLI discovery: version, global options, root groups and command identity, usage, dry-run support, window choices and option cardinality. It has no API endpoint.
+
+### Stored Site Health issue feed
+
+`technical-aeo.ts` exports `siteCrawlIssueEvidenceSchema` for nullable persisted cross-page evidence and the `siteAuditIssuesResponseSchema` / `siteAuditIssuePagesResponseSchema` bounded read DTOs. Null evidence differs from a measured empty list. The shared strict query schema accepts optional runId/cursor and integer limit 1–100; only HTTP/CLI normalize numeric text. Group disposition is a prioritization hint; severity is retained only for independent critical defects. Recommendation scope distinguishes whole-factor guidance from a defect's own guidance. Responses preserve run/date/attempt, crawl completeness, page/cross-page coverage, omission counts and explicit truncation. The API may return fewer than limit to honor its serialized byte budget; consumers follow nextCursor.

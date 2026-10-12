@@ -4689,6 +4689,13 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE doctor_health_state ADD COLUMN pending_signature TEXT`,
     ],
   },
+  {
+    version: 180,
+    name: 'site-crawl-issue-evidence',
+    statements: [
+      `ALTER TABLE site_crawl_snapshots ADD COLUMN issue_evidence TEXT`,
+    ],
+  },
 ]
 
 /**

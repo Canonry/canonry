@@ -64,6 +64,9 @@ import {
   scheduleUpsertRequestSchema,
   scheduleDtoSchema,
   siteAuditPageBudgetSchema,
+  siteAuditIssueListQuerySchema,
+  siteAuditIssuesResponseSchema,
+  siteAuditIssuePagesResponseSchema,
   settingsDtoSchema,
   telemetryStatusDtoSchema,
   feedbackSubmissionSchema,
@@ -1153,6 +1156,16 @@ const technicalAeoCrawlInputSchema = z.object({
   project: projectNameSchema,
   runId: crawlRunIdSchema,
   date: calendarDateSchema.optional().describe('Exact UTC scan date YYYY-MM-DD, mutually exclusive with runId. A dated no-data result may include availableScanDates. When the user omitted the year, resolve it from matchingMonthDayDates and request that exact returned date before concluding the scan is missing. Never silently select another date.'),
+})
+
+const siteHealthIssuesInputSchema = siteAuditIssueListQuerySchema.extend({
+  project: projectNameSchema,
+  runId: siteAuditIssueListQuerySchema.shape.runId.describe('Select an exact saved scan. Omit for the default scan; use its returned runId for subsequent pages and issue details.'),
+  cursor: siteAuditIssueListQuerySchema.shape.cursor.describe('Opaque nextCursor from this same scan and issue feed.'),
+})
+
+const siteHealthIssuePagesInputSchema = siteHealthIssuesInputSchema.extend({
+  issueId: z.string().min(1).describe('Exact issue ID from canonry_site_health_issues. Keep the returned runId when inspecting affected pages.'),
 })
 
 const siteHealthPageAuditInputSchema = z.object({
@@ -3706,6 +3719,34 @@ const rawCanonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/crawl'],
     handler: (client, input) => client.getTechnicalAeoCrawl(input.project, { runId: input.runId, date: input.date }),
+  }),
+  defineTool({
+    name: 'canonry_site_health_issues',
+    title: 'List stored Site Health issues',
+    description: 'Read paginated finding groups from a saved audit, including duplicate metadata and critical defects regardless of aggregate score. Never starts a crawl. Preserve scan date, run/attempt identity, coverage and partial/unavailable states: an empty result does not prove the site is clean. Disposition separates actionable findings, advisory guidance, unverified checks and information; severity retains the recorded critical-defect level. recommendationsScope distinguishes issue-specific defect guidance from whole-factor advice. stableIdentity=false means the ID cannot establish continuity across scans. Follow nextCursor with the returned runId, or inspect one issue with canonry_site_health_issue_pages.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: siteHealthIssuesInputSchema,
+    outputSchema: siteAuditIssuesResponseSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/issues'],
+    handler: (client, input) => client.getSiteAuditIssues(input.project, {
+      runId: input.runId, cursor: input.cursor, limit: input.limit,
+    }),
+  }),
+  defineTool({
+    name: 'canonry_site_health_issue_pages',
+    title: 'Read pages affected by a saved audit issue',
+    description: 'Read paginated affected URLs and saved messages for one issue in the selected audit. Use the issue ID and runId from canonry_site_health_issues; continue with nextCursor without changing the selection. Null node keys and unavailable/partial coverage remain explicit. recommendationsScope identifies issue-specific defect guidance or broader factor advice; do not present factor advice as an exact fix for this finding. This stored read never crawls, changes content or authorizes edits.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: siteHealthIssuePagesInputSchema,
+    outputSchema: siteAuditIssuePagesResponseSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages'],
+    handler: (client, input) => client.getSiteAuditIssuePages(input.project, input.issueId, {
+      runId: input.runId, cursor: input.cursor, limit: input.limit,
+    }),
   }),
   defineTool({
     name: 'canonry_site_health_page_audit',

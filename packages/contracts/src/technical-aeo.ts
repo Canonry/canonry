@@ -1240,6 +1240,8 @@ export const siteCrawlAuditFactorSchema = siteAuditPageFactorSchema.extend({
   applicable: z.boolean().nullable(),
   findings: z.array(siteCrawlAuditFindingSchema).default([]),
   recommendations: z.array(z.string()).default([]),
+  /** Optional review advice, also present in recommendations; absent on older evidence. */
+  advisoryRecommendations: z.array(z.string()).optional(),
 })
 export type SiteCrawlAuditFactorDto = z.infer<typeof siteCrawlAuditFactorSchema>
 
@@ -1986,3 +1988,100 @@ export const siteAuditLivePageHealthSchema = z.object({
   examples: z.array(siteAuditLivePageHealthExampleSchema).max(12).default([]),
 })
 export type SiteAuditLivePageHealthDto = z.infer<typeof siteAuditLivePageHealthSchema>
+
+/** Stored cross-page evidence. Null storage means the engine did not report this check. */
+export const siteCrawlIssueEvidenceSchema = z.object({
+  schemaVersion: z.literal('1.0'),
+  groupIdentityVersion: z.literal('duplicate-metadata-v1'),
+  siteIssues: z.array(z.object({
+    /** Null preserves unfamiliar evidence without inventing cross-run identity. */
+    key: z.string().min(1).nullable(),
+    code: z.string().min(1),
+    message: z.string(),
+    affectedUrls: z.array(z.string().min(1)),
+  })),
+})
+export type SiteCrawlIssueEvidence = z.infer<typeof siteCrawlIssueEvidenceSchema>
+
+export const SITE_AUDIT_ISSUES_DEFAULT_LIMIT = 25
+export const SITE_AUDIT_ISSUES_MAX_LIMIT = 100
+/** Plain schema shared with MCP; HTTP callers normalize only the numeric limit. */
+export const siteAuditIssueListQuerySchema = z.object({
+  runId: z.string().min(1).max(128).optional(),
+  cursor: z.string().min(1).max(2048).optional(),
+  limit: z.number().int().min(1).max(SITE_AUDIT_ISSUES_MAX_LIMIT).optional(),
+}).strict()
+
+export type SiteAuditIssueListQuery = z.infer<typeof siteAuditIssueListQuerySchema>
+
+export const SiteAuditIssueDispositions = {
+  actionable: 'actionable', advisory: 'advisory', unverified: 'unverified', informational: 'informational',
+} as const
+export const siteAuditIssueDispositionSchema = z.enum(['actionable', 'advisory', 'unverified', 'informational'])
+
+export const SiteAuditIssueRecommendationScopes = { factor: 'factor', issue: 'issue', none: 'none' } as const
+
+export const siteAuditIssuePageSchema = z.object({
+  nodeKey: z.string().nullable(),
+  url: z.string(),
+  message: z.string().max(400),
+  messageTruncated: z.boolean(),
+  /** Scope identifies whole-factor guidance versus the critical defect's own recommendation. */
+  recommendations: z.array(z.string().max(400)).max(3),
+  recommendationsScope: z.enum(['factor', 'issue', 'none']),
+  recommendationsTruncated: z.boolean(),
+})
+export type SiteAuditIssuePageDto = z.infer<typeof siteAuditIssuePageSchema>
+export const siteAuditIssueSchema = z.object({
+  id: z.string(),
+  stableIdentity: z.boolean(),
+  code: z.string(),
+  source: z.enum(['page-finding', 'cross-page', 'critical-defect']),
+  /** Independent critical-defect severity; page findings do not invent a severity from scores. */
+  severity: z.enum(['critical', 'warning']).nullable(),
+  factorId: z.string().nullable(),
+  findingType: siteCrawlAuditFindingSchema.shape.type,
+  /** Prioritization hint, not a score penalty, permission to edit, or proof of ranking impact. */
+  disposition: siteAuditIssueDispositionSchema,
+  message: z.string().max(400),
+  messageTruncated: z.boolean(),
+  affectedPages: z.number().int().nonnegative(),
+  examples: z.array(siteAuditIssuePageSchema).max(3),
+  examplesTruncated: z.boolean(),
+})
+export type SiteAuditIssueDto = z.infer<typeof siteAuditIssueSchema>
+const siteAuditIssueCoverageSchema = z.object({
+  pageFindings: z.enum(['available', 'partial', 'unavailable']),
+  crossPage: z.enum(['available', 'unavailable']),
+  /** Pages with a stored score or a versioned audit-evidence envelope. */
+  auditedPages: z.number().int().nonnegative(),
+  pagesWithFindingEvidence: z.number().int().nonnegative(),
+  pagesWithoutFindingEvidence: z.number().int().nonnegative(),
+  /** Malformed or uncoded records omitted from grouping; positive values preclude a clean verdict. */
+  omittedFindings: z.number().int().nonnegative(),
+})
+const siteAuditIssueProvenanceSchema = z.object({
+  project: z.string(),
+  runId: z.string().nullable(),
+  attemptId: z.string().nullable(),
+  /** Stored observation time, never the time of this read. */
+  auditedAt: z.string().nullable(),
+  runStatus: nullableRunStatusSchema,
+  complete: z.boolean(),
+  termination: z.string().nullable(),
+  runSelection: siteAuditRunSelectionSchema.optional(),
+  state: z.enum(['no-crawl', 'unavailable', 'partial', 'available']),
+  coverage: siteAuditIssueCoverageSchema,
+  /** Exact groups/members among retained evidence. Null means no usable evidence was retained. */
+  total: z.number().int().nonnegative().nullable(),
+  nextCursor: z.string().nullable(),
+})
+export const siteAuditIssuesResponseSchema = siteAuditIssueProvenanceSchema.extend({
+  issues: z.array(siteAuditIssueSchema).max(SITE_AUDIT_ISSUES_MAX_LIMIT),
+})
+export type SiteAuditIssuesResponseDto = z.infer<typeof siteAuditIssuesResponseSchema>
+export const siteAuditIssuePagesResponseSchema = siteAuditIssueProvenanceSchema.extend({
+  issueId: z.string(),
+  pages: z.array(siteAuditIssuePageSchema).max(SITE_AUDIT_ISSUES_MAX_LIMIT),
+})
+export type SiteAuditIssuePagesResponseDto = z.infer<typeof siteAuditIssuePagesResponseSchema>
