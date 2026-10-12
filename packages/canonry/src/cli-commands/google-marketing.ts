@@ -1,4 +1,5 @@
-import { googleAdsMetricsWindowSchema, type GoogleAdsMetricsWindow } from '@ainyc/canonry-contracts'
+import { WINDOW_SETS, parseWindowIn, AppError } from '@ainyc/canonry-contracts'
+import { type GoogleAdsMetricsWindow } from '@ainyc/canonry-contracts'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getString,
@@ -67,14 +68,11 @@ function performanceWindow(
 ): GoogleAdsMetricsWindow | undefined {
   const raw = getString(input.values, 'window')
   if (raw === undefined) return undefined
-  const parsed = googleAdsMetricsWindowSchema.safeParse(raw)
-  if (!parsed.success) {
-    throw usageError(`Error: --window must be one of 7d, 14d, 30d\nUsage: ${usage}`, {
-      message: '--window must be one of 7d, 14d, 30d',
-      details: { command: 'google-ads.performance', usage, option: 'window', value: raw },
-    })
+  try { return parseWindowIn(raw, WINDOW_SETS.googleAdsMetrics, { fallback: '14d' }) }
+  catch (error) {
+    if (error instanceof AppError) throw usageError(error.message, { details: { ...error.details, command: 'google-ads.performance', usage } })
+    throw error
   }
-  return parsed.data
 }
 
 /**
@@ -136,6 +134,7 @@ export function createGoogleMarketingCliCommands(
     },
     {
       path: ['google-ads', 'performance'],
+      windows: WINDOW_SETS.googleAdsMetrics,
       usage: 'canonry google-ads performance <project> [--window 7d|14d|30d] [--format json]',
       options: { window: stringOption() },
       run: async (input) => {

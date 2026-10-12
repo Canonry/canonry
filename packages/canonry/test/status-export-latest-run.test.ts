@@ -5,6 +5,7 @@ const mockGetLatestRun = vi.fn()
 const mockListRuns = vi.fn()
 const mockGetExport = vi.fn()
 const mockGetRun = vi.fn()
+const mockGetStatus = vi.fn()
 
 vi.mock('../src/client.js', () => ({
   createApiClient: () => ({
@@ -13,6 +14,7 @@ vi.mock('../src/client.js', () => ({
     listRuns: mockListRuns,
     getExport: mockGetExport,
     getRun: mockGetRun,
+    getStatus: mockGetStatus,
   }),
 }))
 
@@ -60,6 +62,108 @@ describe('latest-run command usage', () => {
     expect(mockListRuns).not.toHaveBeenCalled()
     expect(logs.join('\n')).toContain('run_latest')
     expect(logs.join('\n')).toContain('Total runs: 3')
+  })
+
+  it('status --all json prints the stored status DTO unchanged', async () => {
+    const status = {
+      generatedAt: '2026-10-11T00:00:00.000Z',
+      summary: { projects: 1, ok: 1, failing: 0, stale: 0, neverSynced: 0 },
+      projects: [{ project: 'demo', displayName: 'Demo', state: 'ok', health: null, integrations: [] }],
+    }
+    mockGetStatus.mockResolvedValue(status)
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await showStatus(undefined, 'json', { all: true })
+    } finally {
+      console.log = origLog
+    }
+    expect(mockGetStatus).toHaveBeenCalledWith({ problems: undefined })
+    expect(JSON.parse(logs.join('\n'))).toEqual(status)
+  })
+
+  it('status --all jsonl emits flat project integration rows', async () => {
+    mockGetStatus.mockResolvedValue({
+      generatedAt: '2026-10-11T00:00:00.000Z',
+      summary: { projects: 1, ok: 0, failing: 1, stale: 0, neverSynced: 0 },
+      projects: [{ project: 'demo', displayName: 'Demo', state: 'failing', health: null, integrations: [{ integration: 'gsc', label: 'Search Console', runKind: 'gsc-sync', sourceId: null, state: 'failing', lastSuccessAt: null, latestRunAt: null, latestRunId: null, latestStatus: null, latestTrigger: null, consecutiveFailures: 3, latestError: 'blocked', dataThrough: null, dataAgeDays: null, doctorChecks: [] }] }],
+    })
+    const writes: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => { writes.push(String(chunk)); return true }) as typeof process.stdout.write)
+    try {
+      await showStatus(undefined, 'jsonl', { all: true })
+    } finally {
+      write.mockRestore()
+    }
+    const row = JSON.parse(writes.join('').trim()) as Record<string, unknown>
+    expect(row).toMatchObject({ project: 'demo', integration: 'gsc', latestError: 'blocked' })
+    expect(row.row).toBeUndefined()
+  })
+
+  it('single-project jsonl is one compact record with stored health', async () => {
+    mockGetProject.mockResolvedValue({ name: 'demo' })
+    mockGetLatestRun.mockResolvedValue({ run: null, totalRuns: 0 })
+    mockListRuns.mockResolvedValue([])
+    mockGetStatus.mockResolvedValue({ projects: [{ health: { status: 'fail' }, integrations: [] }] })
+    const output: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { output.push(args.join(' ') + '\n') })
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => { output.push(String(chunk)); return true }) as typeof process.stdout.write)
+    try {
+      await showStatus('demo', 'jsonl', { problems: true })
+    } finally {
+      log.mockRestore()
+      write.mockRestore()
+    }
+    const lines = output.join('').trim().split('\n')
+    expect(lines).toHaveLength(1)
+    expect(JSON.parse(lines[0]!)).toMatchObject({ project: { name: 'demo' }, health: { status: 'fail' }, integrations: [] })
+  })
+
+  it('status --all jsonl preserves a health problem with no integration rows', async () => {
+    mockGetStatus.mockResolvedValue({ projects: [{ project: 'demo', state: 'failing', health: { status: 'fail' }, integrations: [] }] })
+    const output: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => { output.push(String(chunk)); return true }) as typeof process.stdout.write)
+    try { await showStatus(undefined, 'jsonl', { all: true, problems: true }) } finally { write.mockRestore() }
+    expect(output.join('').trim()).not.toBe('')
+    expect(JSON.parse(output.join('').trim())).toMatchObject({ project: 'demo', state: 'failing', health: { status: 'fail' } })
+  })
+
+  it('status --all human output includes streak, data watermark, and latest error', async () => {
+    mockGetStatus.mockResolvedValue({
+      generatedAt: '2026-10-11T00:00:00.000Z',
+      summary: { projects: 1, ok: 0, failing: 1, stale: 0, neverSynced: 0 },
+      projects: [{ project: 'demo', displayName: 'Demo', state: 'failing', health: { status: 'fail', code: 'gsc.api.dns-blocked', summary: 'DNS blocked', checkedAt: '2026-10-11T00:00:00.000Z', notifiedAt: null }, integrations: [{ integration: 'gsc', label: 'Search Console', runKind: 'gsc-sync', sourceId: null, state: 'failing', lastSuccessAt: '2026-10-01T00:00:00.000Z', latestRunAt: '2026-10-11T00:00:00.000Z', latestRunId: 'run', latestStatus: 'failed', latestTrigger: 'scheduled', consecutiveFailures: 4, latestError: 'DNS blocked', dataThrough: '2026-10-01', dataAgeDays: 10, doctorChecks: [] }] }],
+    })
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await showStatus(undefined, undefined, { all: true })
+    } finally {
+      console.log = origLog
+    }
+    const output = logs.join('\n')
+    expect(output).toContain('streak: 4')
+    expect(output).toContain('data through: 2026-10-01')
+    expect(output).toContain('latest error: DNS blocked')
+  })
+
+  it('status --all human output includes stored freshness age without a date watermark', async () => {
+    mockGetStatus.mockResolvedValue({
+      generatedAt: '2026-10-11T00:00:00.000Z',
+      summary: { projects: 1, ok: 0, failing: 0, stale: 1, neverSynced: 0 },
+      projects: [{ project: 'demo', displayName: 'Demo', state: 'stale', health: null, integrations: [{ integration: 'google-ads', label: 'Google Ads', runKind: 'google-ads-sync', sourceId: null, state: 'stale', lastSuccessAt: '2026-10-11T00:00:00.000Z', latestRunAt: '2026-10-11T00:00:00.000Z', latestRunId: 'run', latestStatus: 'completed', latestTrigger: 'scheduled', consecutiveFailures: 0, latestError: null, dataThrough: null, dataAgeDays: 8, doctorChecks: [] }] }],
+    })
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await showStatus(undefined, undefined, { all: true })
+    } finally {
+      console.log = origLog
+    }
+    expect(logs.join('\n')).toContain('data age: 8 days')
   })
 
   it('exportProject --include-results pulls results from the latest-run endpoint', async () => {

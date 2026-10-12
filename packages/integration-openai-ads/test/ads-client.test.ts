@@ -137,6 +137,14 @@ const CREATE_AD_REQUEST: OpenAiAdsCreateAdRequest = {
 }
 
 describe('getAdAccount', () => {
+  it('includes the provider host and dialed address for transport failures', async () => {
+    const cause = Object.assign(new Error('connect failed'), {
+      code: 'ECONNREFUSED', syscall: 'connect', address: '203.0.113.8', port: 443,
+    })
+    globalThis.fetch = async () => { throw Object.assign(new TypeError('fetch failed'), { cause }) }
+    await expect(() => getAdAccount('test-key')).rejects.toThrow(/ECONNREFUSED.*api\.ads\.openai\.com.*203\.0\.113\.8:443/)
+  })
+
   it('sends a Bearer Authorization header and parses the account', async () => {
     const calls = mockFetchOnce(FIXTURE_AD_ACCOUNT)
 

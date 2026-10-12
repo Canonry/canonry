@@ -92,6 +92,12 @@ describe('project mutations — jsonl degrades to the json document', () => {
       expect(out).toContain('Name:             demo')
       expect(() => JSON.parse(out)).toThrow()
     })
+
+    it('human text exposes a pending stored answer-field recompute', async () => {
+      mockGetProject.mockResolvedValue({ ...project, answerFieldsRecompute: 'competitors' })
+      const out = await captureLog(() => showProject('demo', undefined))
+      expect(out).toContain('Answer fields recompute: competitors')
+    })
   })
 
   describe('removeLocation', () => {

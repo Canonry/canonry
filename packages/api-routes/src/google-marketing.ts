@@ -1,3 +1,4 @@
+import { WINDOW_SETS, parseWindowIn } from '@ainyc/canonry-contracts'
 import crypto from 'node:crypto'
 import { and, desc, eq, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
@@ -22,7 +23,6 @@ import {
   GtmSnapshotKinds,
   RunKinds,
   RunStatuses,
-  RunTriggers,
   alreadyExists,
   canonicalizeGoogleAdsCustomerSelection,
   canonicalizeGtmAccountId,
@@ -83,7 +83,8 @@ import {
   AppError,
 } from '@ainyc/canonry-contracts'
 import { assertNotProjectScoped, requireAdminSession, requireBroadInstanceKey, requireScope } from './auth.js'
-import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
+import { auditFromRequest, resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
+import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute, startConnectionAttempt, telemetryRead, unverifiedOAuthStateField, type ConnectionSubject } from './connection-telemetry.js'
 import { assertSameOriginWrite } from './same-origin.js'
 import {
@@ -172,6 +173,7 @@ export interface ConversionTrackingIntegrityInput {
 }
 
 export interface GoogleMarketingRoutesOptions {
+  claimScheduledSync?: ScheduledSyncClaim
   /** Private OAuth tokens/developer token. Never Canonry DB storage. */
   googleMarketingCredentialStore?: GoogleMarketingCredentialStore
   /** Provider-specific OAuth URL + code exchange implementation. */
@@ -796,14 +798,19 @@ function gtmStatus(
   }
 }
 
-function queuedRun(projectId: string, kind: typeof RunKinds['google-ads-sync'] | typeof RunKinds['gtm-sync']) {
+function queuedRun(
+  projectId: string,
+  kind: typeof RunKinds['google-ads-sync'] | typeof RunKinds['gtm-sync'],
+  projectName: string,
+  claimScheduledSync?: ScheduledSyncClaim,
+) {
   const createdAt = new Date().toISOString()
   return {
     id: crypto.randomUUID(),
     projectId,
     kind,
     status: RunStatuses.queued,
-    trigger: RunTriggers.manual,
+    trigger: syncRunTrigger(claimScheduledSync, projectName, kind),
     createdAt,
   }
 }
@@ -1876,7 +1883,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
     // Two rapid selections therefore queue two runs. That is correct rather than
     // wasteful: each one is a distinct generation and the earlier run cannot
     // satisfy the later selection.
-    const run = queuedRun(projectId, RunKinds[kind])
+    const run = queuedRun(projectId, RunKinds[kind], projectId)
     app.db.transaction((tx) => {
       tx.insert(runs).values(run).run()
       writeAuditLog(tx, auditFromRequest(request, {
@@ -2002,7 +2009,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
     const connection = app.db.select().from(googleAdsConnections)
       .where(eq(googleAdsConnections.projectId, project.id)).get()
     if (!connection) throw validationError('Connect Google Ads before starting a sync.')
-    const candidateRun = queuedRun(project.id, RunKinds['google-ads-sync'])
+    const candidateRun = queuedRun(project.id, RunKinds['google-ads-sync'], project.name, opts.claimScheduledSync)
     let run: typeof runs.$inferSelect | typeof candidateRun = candidateRun
     let queued = false
     app.db.transaction((tx) => {
@@ -2037,7 +2044,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
     const connection = app.db.select().from(gtmConnections)
       .where(eq(gtmConnections.projectId, project.id)).get()
     if (!connection) throw validationError('Connect Google Tag Manager before starting a sync.')
-    const candidateRun = queuedRun(project.id, RunKinds['gtm-sync'])
+    const candidateRun = queuedRun(project.id, RunKinds['gtm-sync'], project.name, opts.claimScheduledSync)
     let run: typeof runs.$inferSelect | typeof candidateRun = candidateRun
     let queued = false
     app.db.transaction((tx) => {
@@ -2071,7 +2078,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
     Querystring: { window?: string }
   }>('/projects/:name/google-ads/performance', async (request) => {
     const project = resolveProject(app.db, request.params.name)
-    const query = parseBody(googleAdsPerformanceQuerySchema, request.query, 'Google Ads performance')
+    const query = parseBody(googleAdsPerformanceQuerySchema, { ...request.query, window: parseWindowIn(request.query.window, WINDOW_SETS.googleAdsMetrics, { fallback: GOOGLE_ADS_PERFORMANCE_DEFAULT_WINDOW }) }, 'Google Ads performance')
     return googleAdsPerformance(app, project.id, query.window ?? GOOGLE_ADS_PERFORMANCE_DEFAULT_WINDOW)
   })
 

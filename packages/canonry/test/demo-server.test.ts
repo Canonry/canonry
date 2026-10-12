@@ -57,6 +57,14 @@ describe('populated demo integration', () => {
     expect(integrity.json().assessment.contract.id).toBe(contracts[0].id)
     expect(network).not.toHaveBeenCalled()
   })
+  it('denies webhook secret exports to the public demo viewer', async () => {
+    const normal = await app.inject('/api/v1/projects/summit-roofing/export')
+    expect(normal.statusCode).toBe(200)
+    const secret = await app.inject('/api/v1/projects/summit-roofing/export?includeSecrets=true')
+    expect(secret.statusCode).toBe(403)
+    expect(secret.json().error.code).toBe('FORBIDDEN')
+    expect(network).not.toHaveBeenCalled()
+  })
   it.each(['report', 'report.html'])('retires the dedicated %s endpoint', async endpoint => {
     const response = await app.inject(`/api/v1/projects/harbor-resorts/${endpoint}`)
     expect(response.statusCode).toBe(403)

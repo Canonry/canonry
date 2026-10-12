@@ -620,7 +620,7 @@ describe('GA4 Search Console landing pages', () => {
   })
 
   it.each([
-    ['?window=30d', '"window" must be one of: 7d, 28d, 90d'],
+    ['?window=30d', 'Invalid window "30d". Must be one of: 7d, 28d, 90d.'],
     ['?limit=0', '"limit" must be an integer between 1 and 1000'],
     ['?limit=1001', '"limit" must be an integer between 1 and 1000'],
     ['?limit=2.5', '"limit" must be an integer between 1 and 1000'],

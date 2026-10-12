@@ -9,7 +9,7 @@ export { SentimentService } from './sentiment-service.js'
 export type { SentimentServiceOptions, SentimentInstallState } from './sentiment-service.js'
 export { selectSentimentSources } from './sentiment-source.js'
 export { sentimentClassifierInput, sentimentHash } from './sentiment-input.js'
-import { AppError, runtimeStateMissing, describeError } from '@ainyc/canonry-contracts'
+import { AppError, runtimeStateMissing, describeError, operationAccess, OperationAccesses, OPERATION_ACCESS_HEADER, STORED_ONLY_HEADER, matchOperationTemplate, storedOnlyRefused } from '@ainyc/canonry-contracts'
 import { authPlugin } from './auth.js'
 import { registerRequestContext, type RequestContextOptions } from './request-context.js'
 import { createOutcomeEmitter, type OutcomeTelemetryEvent, type OutcomeTelemetryInput } from './outcome-telemetry.js'
@@ -22,6 +22,8 @@ import type { QueryRoutesOptions } from './queries.js'
 import { competitorRoutes, type CompetitorRoutesOptions } from './competitors.js'
 import type { AppliedCompetitorAutoAliases, CompetitorAnswerAnchorReader } from './competitor-auto-aliases.js'
 import { competitorLandscapeRoutes } from './competitor-landscape.js'
+import { competitorSuggestionRoutes } from './competitor-suggestions.js'
+import { competitorChangePreviewRoutes } from './competitor-change-preview.js'
 import { runRoutes } from './runs.js'
 import type { RunRoutesOptions } from './runs.js'
 import { measurementPlanRoutes } from './measurement-plan.js'
@@ -43,6 +45,7 @@ import { historyRoutes } from './history.js'
 import { analyticsRoutes } from './analytics.js'
 import { intelligenceRoutes } from './intelligence.js'
 import { trafficAnalyticsRoutes } from './traffic-analytics.js'
+import { trafficSamplesRoutes } from './traffic-samples.js'
 import { referralAssessmentRoutes } from './referral-assessment.js'
 import { organicEvidenceRoutes } from './organic-evidence.js'
 import { citationRoutes } from './citations.js'
@@ -81,6 +84,7 @@ import type { CDPRoutesOptions } from './cdp.js'
 import { ga4Routes } from './ga.js'
 import type { GA4RoutesOptions, Ga4CredentialStore } from './ga.js'
 import { gaMeasurementAnalysisRoutes } from './ga-measurement-analysis.js'
+import { gaAcquisitionRoutes } from './ga-acquisition.js'
 import { gaSearchLandingPagesRoutes } from './ga-search-landing-pages.js'
 import type { GaSearchLandingRoutesOptions } from './ga-search-landing-pages.js'
 import { wordpressRoutes } from './wordpress.js'
@@ -103,6 +107,7 @@ import {
   VercelLogsApiError,
 } from '@ainyc/canonry-integration-vercel'
 import { doctorRoutes, type DoctorRoutesOptions } from './doctor.js'
+import { statusRoutes } from './status.js'
 import { discoveryRoutes } from './discovery/index.js'
 import type { DiscoveryRoutesOptions } from './discovery/index.js'
 import { technicalAeoRoutes } from './technical-aeo.js'
@@ -110,6 +115,7 @@ import type { TechnicalAeoRoutesOptions } from './technical-aeo.js'
 import { researchRoutes } from './research.js'
 import type { ResearchRoutesOptions } from './research.js'
 import { CheckStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
+import type { ScheduledSyncClaim } from './helpers.js'
 import type { AgentPluginState, BundledSkillSnapshot } from '@ainyc/canonry-contracts'
 import type { CheckOutput, DoctorUpdateStatus, TrafficSourceProbe, TrafficSourceValidator } from './doctor/types.js'
 
@@ -123,6 +129,8 @@ declare module 'fastify' {
 
 export { registerOAuthRoutes, registerOAuthAdminRoutes, resolveOAuthAccessToken } from './oauth.js'
 export { hashApiKey } from './auth.js'
+export { syncRunClaimKey, syncRunTrigger } from './helpers.js'
+export type { ScheduledSyncClaim } from './helpers.js'
 export {
   mergeGscQueryTotalsWithFallback,
   readGscQueryDailyRows,
@@ -142,6 +150,8 @@ export * from './notifications/destinations.js'
 export { resolveVercelSyncDeadlineMs, VERCEL_MAX_SYNC_WINDOW_MS, DEFAULT_VERCEL_SYNC_DEADLINE_MS, TRAFFIC_SOURCE_MAX_CATCHUP_MS } from './traffic-limits.js'
 export interface ApiRoutesOptions {
   db: DatabaseClient
+  /** Consumes a host-owned scheduler claim at a sync run insert. */
+  claimScheduledSync?: ScheduledSyncClaim
   /** Host-approved direct bearer IDs, never inferred from customer roles or scopes. */
   operatorApiKeyIds?: readonly string[]
   /**
@@ -211,6 +221,7 @@ export interface ApiRoutesOptions {
   getAgentPin?: DoctorRoutesOptions['getAgentPin']
   /** Offline, secret-free Google Ads/GTM metadata for project Doctor checks. */
   getGoogleMarketingDoctorInput?: DoctorRoutesOptions['getGoogleMarketingDoctorInput']
+  probeApiHost?: DoctorRoutesOptions['probeApiHost']
   /** Adapter metadata for provider validation */
   providerAdapters?: ProviderAdapterInfo[]
   getProviderModels?: SettingsRoutesOptions['getProviderModels']
@@ -471,6 +482,22 @@ export interface ApiRoutesOptions {
   onOutcome?: (event: OutcomeTelemetryEvent) => void
 }
 
+export function canonicalRouteTemplate(route: string, prefix: string): string {
+  const trimmedPrefix = prefix.replace(/^\/+|\/+$/g, '')
+  const configuredPrefix = trimmedPrefix ? `/${trimmedPrefix}` : '/api/v1'
+  const normalizedRoute = route.startsWith('/') ? route : `/${route}`
+  const suffix = normalizedRoute === configuredPrefix
+    ? ''
+    : normalizedRoute.startsWith(`${configuredPrefix}/`)
+      ? normalizedRoute.slice(configuredPrefix.length)
+      : normalizedRoute === '/api/v1'
+        ? ''
+        : normalizedRoute.startsWith('/api/v1/')
+          ? normalizedRoute.slice('/api/v1'.length)
+          : normalizedRoute
+  return `/api/v1${suffix}`
+}
+
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
   // Decorate with db
   app.decorate('db', opts.db)
@@ -580,6 +607,32 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       })
     }
 
+    // Make the execution boundary visible to API and CLI callers. Fastify
+    // keeps the registered route template, so parameters never enter this
+    // classification or the response header.
+    api.addHook('onSend', async (request, reply) => {
+      const route = request.routeOptions.url
+      if (!route) return
+      const prefix = opts.routePrefix ?? '/api/v1'
+      const routePath = canonicalRouteTemplate(route, prefix)
+      const pathTemplate = routePath.replace(/:(\w+)/g, '{$1}').replace(/\*/g, '{wildcard}')
+      const operation = matchOperationTemplate(request.method, pathTemplate)
+      const separator = operation.indexOf(' ')
+      reply.header(OPERATION_ACCESS_HEADER, operationAccess(operation.slice(0, separator), operation.slice(separator + 1)))
+    })
+
+    api.addHook('preHandler', async (request) => {
+      const header = request.headers[STORED_ONLY_HEADER]
+      if (header !== '1' && header !== 'true') return
+      const route = request.routeOptions.url ?? request.url
+      const prefix = opts.routePrefix ?? '/api/v1'
+      const routePath = canonicalRouteTemplate(route, prefix)
+      const operation = matchOperationTemplate(request.method, routePath)
+      const separator = operation.indexOf(' ')
+      const access = operationAccess(operation.slice(0, separator), operation.slice(separator + 1))
+      if (access !== OperationAccesses.stored) throw storedOnlyRefused('Stored-only mode refuses this operation', { operation, access })
+    })
+
     // Sign-in surface. Registered inside the authenticated scope so it shares
     // the error handler and prefix, but each of its routes is on the auth
     // skip-list — a sign-in screen cannot present a credential it has not been
@@ -620,6 +673,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       runCompetitorAutoAliasPass: opts.runCompetitorAutoAliasPass,
     } satisfies CompetitorRoutesOptions)
     await api.register(competitorLandscapeRoutes)
+    await api.register(competitorSuggestionRoutes)
+    await api.register(competitorChangePreviewRoutes)
     await api.register(runRoutes, {
       onRunCreated: opts.onRunCreated,
       onRunCancelled: opts.onRunCancelled,
@@ -677,6 +732,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(trafficAnalyticsRoutes)
     await api.register(organicEvidenceRoutes)
     await api.register(referralAssessmentRoutes)
+    await api.register(trafficSamplesRoutes)
     await api.register(citationRoutes)
     await api.register(visibilityStatsRoutes)
     await api.register(resultsExportRoutes)
@@ -727,6 +783,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       adsLiveDeliveryMinIntervalMs: opts.adsLiveDeliveryMinIntervalMs,
       adsLiveDeliveryMaxPagesPerReaderCall: opts.adsLiveDeliveryMaxPagesPerReaderCall,
       onAdsSyncRequested: opts.onAdsSyncRequested,
+      claimScheduledSync: opts.claimScheduledSync,
       adsOperator: opts.adsOperator,
       adsReconcileSweepIntervalMs: opts.adsReconcileSweepIntervalMs,
       adsReconcilePendingStaleMs: opts.adsReconcilePendingStaleMs,
@@ -739,6 +796,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(bingRoutes, {
       bingConnectionStore: opts.bingConnectionStore,
       onInspectSitemapRequested: opts.onBingInspectSitemapRequested,
+      claimScheduledSync: opts.claimScheduledSync,
     } satisfies BingRoutesOptions)
     await api.register(googleRoutes, {
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
@@ -749,6 +807,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onGscSyncRequested: opts.onGscSyncRequested,
       onInspectSitemapRequested: opts.onInspectSitemapRequested,
       onGbpSyncRequested: opts.onGbpSyncRequested,
+      claimScheduledSync: opts.claimScheduledSync,
     } satisfies GoogleRoutesOptions)
     await api.register(googleMarketingRoutes, {
       googleMarketingCredentialStore: opts.googleMarketingCredentialStore,
@@ -758,6 +817,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       assessConversionTrackingIntegrity: opts.assessConversionTrackingIntegrity,
       onGoogleAdsSyncRequested: opts.onGoogleAdsSyncRequested,
       onGtmSyncRequested: opts.onGtmSyncRequested,
+      claimScheduledSync: opts.claimScheduledSync,
       googleStateSecret: opts.googleStateSecret,
       publicUrl: opts.publicUrl,
       routePrefix: opts.routePrefix,
@@ -777,8 +837,10 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       ga4CredentialStore: opts.ga4CredentialStore,
       googleConnectionStore: opts.googleConnectionStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
+      claimScheduledSync: opts.claimScheduledSync,
     } satisfies GA4RoutesOptions)
     await api.register(gaMeasurementAnalysisRoutes)
+    await api.register(gaAcquisitionRoutes)
     await api.register(gaSearchLandingPagesRoutes, {
       ga4CredentialStore: opts.ga4CredentialStore,
       googleConnectionStore: opts.googleConnectionStore,
@@ -804,6 +866,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       defaultSampleLimit: opts.defaultTrafficSampleLimit,
       onTrafficSynced: opts.onTrafficSynced,
       onTrafficIngested: opts.onTrafficIngested,
+      claimScheduledSync: opts.claimScheduledSync,
       onScheduleUpdated: opts.onScheduleUpdated,
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
     } satisfies TrafficRoutesOptions)
@@ -860,6 +923,14 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       bundledSkills: opts.bundledSkills,
       getAgentPluginState: opts.getAgentPluginState,
       getUpdateStatus: opts.getUpdateStatus,
+      getGoogleMarketingDoctorInput: opts.getGoogleMarketingDoctorInput,
+      probeApiHost: opts.probeApiHost,
+    })
+    await api.register(statusRoutes, {
+      db: opts.db,
+      googleConnectionStore: opts.googleConnectionStore,
+      bingConnectionStore: opts.bingConnectionStore,
+      ga4CredentialStore: opts.ga4CredentialStore,
       getGoogleMarketingDoctorInput: opts.getGoogleMarketingDoctorInput,
     })
     // Local-only extension hook: canonry passes the Aero agent routes here

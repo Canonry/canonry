@@ -1,3 +1,5 @@
+import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
+import { ORGANIC_EVIDENCE_CLI_COMMANDS } from '../src/cli-commands/organic-evidence.js'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockGetOrganicEvidence = vi.fn()
@@ -32,6 +34,14 @@ describe('organic-evidence — jsonl degrades to the composite JSON document', (
     const jsonl = await captureLog(() => show('jsonl'))
     expect(JSON.parse(jsonl)).toEqual(JSON.parse(json))
     expect(JSON.parse(jsonl)).toMatchObject(evidence)
+  })
+
+  it('maps --window 90d to the same stored period and output as --period 90', async () => {
+    const invoke = (flags: string[]) => dispatchRegisteredCommand(['organic-evidence', 'demo', ...flags, '--format', 'json'], 'text', ORGANIC_EVIDENCE_CLI_COMMANDS).then(() => {})
+    const canonical = await captureLog(() => invoke(['--window', '90d']))
+    const legacy = await captureLog(() => invoke(['--period', '90']))
+    expect(JSON.parse(canonical)).toEqual(JSON.parse(legacy))
+    expect(mockGetOrganicEvidence.mock.calls).toEqual([['demo', 90], ['demo', 90]])
   })
 
   it('forwards the selected period', async () => {

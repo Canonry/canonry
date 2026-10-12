@@ -1,3 +1,4 @@
+import { WINDOW_SETS } from '@ainyc/canonry-contracts'
 import {
   trafficBackfill,
   trafficActivate,
@@ -7,6 +8,7 @@ import {
   trafficConnectVercel,
   trafficConnectWordpress,
   trafficEvents,
+  trafficSamples,
   trafficReferralAssessment,
   trafficReset,
   trafficSources,
@@ -20,23 +22,26 @@ import { DEFAULT_CLOUDFLARE_QUEUE_RETENTION_SECONDS } from '../commands/traffic.
 export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['traffic', 'analytics'],
+    windows: WINDOW_SETS.trafficAnalytics,
+    windowAliases: { window: 'period' },
     usage: 'canonry traffic analytics <project> [--period 7|14|30|90] [--format json]',
     help: 'Complete stored traffic totals and breakdowns for the selected window. Project-wide for Simple and Advanced portfolios; no provider calls or sync.',
     options: { period: stringOption() },
     run: async input => {
       const project = requireProject(input, 'traffic.analytics', 'canonry traffic analytics <project> [--period 7|14|30|90]')
-      await trafficAnalytics(project, { period: getString(input.values, 'period'), format: input.format })
+      await trafficAnalytics(project, { period: getString(input.values, 'window') ?? getString(input.values, 'period'), format: input.format })
     },
   },
   {
     path: ['traffic', 'referral-assessment'],
+    windowAliases: { start: 'start-date', end: 'end-date' },
     usage: 'canonry traffic referral-assessment <project> --start-date YYYY-MM-DD --end-date YYYY-MM-DD [--source <id>] [--burst-threshold 100] [--ratio-threshold 3] [--limit 100] [--format json]',
     help: 'DB-only diagnostic. Raw headlines stay unchanged. Candidate bursts are not confirmed automation; adjusted counts are estimates. Property, Target and market attribution are unavailable. The observed GA quotient has unknown comparable coverage.',
     options: { 'start-date': stringOption(), 'end-date': stringOption(), source: stringOption(), 'burst-threshold': stringOption(), 'ratio-threshold': stringOption(), limit: stringOption() },
     run: async input => {
       const project = requireProject(input, 'traffic.referral-assessment', 'canonry traffic referral-assessment <project> --start-date YYYY-MM-DD --end-date YYYY-MM-DD')
       await trafficReferralAssessment(project, {
-        startDate: getString(input.values, 'start-date'), endDate: getString(input.values, 'end-date'), sourceId: getString(input.values, 'source'),
+        startDate: getString(input.values, 'start') ?? getString(input.values, 'start-date'), endDate: getString(input.values, 'end') ?? getString(input.values, 'end-date'), sourceId: getString(input.values, 'source'),
         burstThreshold: getString(input.values, 'burst-threshold') === undefined ? undefined : Number(getString(input.values, 'burst-threshold')),
         ratioThreshold: getString(input.values, 'ratio-threshold') === undefined ? undefined : Number(getString(input.values, 'ratio-threshold')),
         limit: getString(input.values, 'limit') === undefined ? undefined : Number(getString(input.values, 'limit')),
@@ -323,6 +328,17 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['traffic', 'samples'],
+    usage: 'canonry traffic samples <project> [--kind crawler|ai-user-fetch|ai-referral|unknown|all] [--source <id>] [--since <ISO>] [--until <ISO>] [--since-minutes <n>] [--path <prefix>] [--limit 100] [--offset 0] [--format json|jsonl]',
+    help: 'Stored sampled tail with 30-day retention, not visits. Unknown traffic is excluded by default. No provider calls.',
+    options: { kind: stringOption(), source: stringOption(), since: stringOption(), until: stringOption(), 'since-minutes': stringOption(), path: stringOption(), limit: stringOption(), offset: stringOption() },
+    run: async input => {
+      const project = requireProject(input, 'traffic.samples', 'canonry traffic samples <project>')
+      const integer = (name: string) => parseIntegerOption(input, name, { command: 'traffic.samples', usage: 'canonry traffic samples <project>', message: `--${name} must be an integer` })
+      await trafficSamples(project, { kind: getString(input.values, 'kind'), sourceId: getString(input.values, 'source'), since: getString(input.values, 'since'), until: getString(input.values, 'until'), sinceMinutes: integer('since-minutes'), path: getString(input.values, 'path'), limit: integer('limit'), offset: integer('offset'), format: input.format })
+    },
+  },
+  {
     path: ['traffic', 'events'],
     usage: 'canonry traffic events <project> [--kind crawler|ai-user-fetch|ai-referral|all] [--source <id>] [--since-minutes 1440] [--since <iso>] [--until <iso>] [--limit 500] [--granularity hour|day] [--format json]',
     options: {
@@ -370,7 +386,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       unknownSubcommand(input.positionals[0], {
         command: 'traffic',
         usage: 'canonry traffic <subcommand> <project> [args]',
-        available: ['connect', 'activate', 'sync', 'backfill', 'reset', 'status', 'sources', 'events', 'analytics', 'referral-assessment'],
+        available: ['connect', 'activate', 'sync', 'backfill', 'reset', 'status', 'sources', 'events', 'samples', 'analytics', 'referral-assessment'],
       })
     },
   },

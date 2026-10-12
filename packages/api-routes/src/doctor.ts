@@ -49,6 +49,7 @@ export interface DoctorRoutesOptions {
   getUpdateStatus?: () => DoctorUpdateStatus
   /** Synchronous, secret-free metadata resolver. It must not call Google APIs. */
   getGoogleMarketingDoctorInput?: GoogleMarketingDoctorInputResolver
+  probeApiHost?: DoctorContext['probeApiHost']
 }
 
 function parseReportMonth(raw: string | undefined): string | undefined {
@@ -103,6 +104,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       getAgentPluginState: opts.getAgentPluginState,
       getUpdateStatus: opts.getUpdateStatus,
       getGoogleMarketingDoctorInput: opts.getGoogleMarketingDoctorInput,
+      probeApiHost: opts.probeApiHost,
     }
     return runChecks(ctx, ALL_CHECKS, { checkIds })
   })
@@ -142,6 +144,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       getAgentPluginState: opts.getAgentPluginState,
       getUpdateStatus: opts.getUpdateStatus,
       getGoogleMarketingDoctorInput: opts.getGoogleMarketingDoctorInput,
+      probeApiHost: opts.probeApiHost,
     }
     return runChecks(ctx, ALL_CHECKS, { checkIds })
   })

@@ -9,6 +9,8 @@ import {
   mentionStateFromAnswerMentioned,
   notFound,
   RunTriggers,
+  type RunKind,
+  type RunTrigger,
   visibilityStateFromAnswerMentioned,
   type MentionState,
   type VisibilityState,
@@ -30,6 +32,24 @@ import { getRequestContext, requestAuditIdentity, sanitizeRequestContext } from 
  */
 export function notProbeRun(): SQL {
   return ne(runs.trigger, RunTriggers.probe)
+}
+
+/** The host-only claim consumed when its scheduler calls a sync endpoint. */
+export type ScheduledSyncClaim = (projectName: string, kind: RunKind, sourceId?: string) => boolean
+
+/** Stable in-process key for one scheduled sync request. */
+export function syncRunClaimKey(projectName: string, kind: RunKind, sourceId?: string): string {
+  return [projectName, kind, sourceId].filter((part): part is string => part !== undefined).join('\u0000')
+}
+
+/** A scheduled trigger is server-owned; every unclaimed request stays manual. */
+export function syncRunTrigger(
+  claim: ScheduledSyncClaim | undefined,
+  projectName: string,
+  kind: RunKind,
+  sourceId?: string,
+): RunTrigger {
+  return claim?.(projectName, kind, sourceId) ? RunTriggers.scheduled : RunTriggers.manual
 }
 
 export function resolveProject(db: DatabaseClient, name: string) {

@@ -9,6 +9,7 @@ export const MCP_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['mcp', 'install'],
     usage: `canonry mcp install --client ${CLIENT_LIST} [--name <server>] [--read-only] [--dry-run] [--config-path <path>] [--format json]`,
+    supportsDryRun: true,
     options: {
       client: stringOption(),
       name: stringOption(),

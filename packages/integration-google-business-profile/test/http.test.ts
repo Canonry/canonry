@@ -16,6 +16,15 @@ describe('gbpFetchGet', () => {
     globalThis.fetch = originalFetch
   })
 
+  it('includes the provider host and dialed address for transport failures', async () => {
+    const cause = Object.assign(new Error('connect failed'), {
+      code: 'ECONNREFUSED', syscall: 'connect', address: '203.0.113.8', port: 443,
+    })
+    fetchSpy.mockRejectedValueOnce(Object.assign(new TypeError('fetch failed'), { cause }))
+    await expect(gbpFetchGet('https://businessprofileperformance.googleapis.com/v1/test', 'tok', { retry: { maxRetries: 0 } }))
+      .rejects.toThrow(/ECONNREFUSED.*businessprofileperformance\.googleapis\.com.*203\.0\.113\.8:443/)
+  })
+
   it('returns parsed JSON on 200', async () => {
     fetchSpy.mockResolvedValueOnce({
       ok: true,

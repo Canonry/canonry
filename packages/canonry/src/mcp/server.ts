@@ -1,17 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { isReadOnlyKey, restrictedWriteScopes, RESEARCH_RUN_SCOPE, upgradeCaveatFor } from '@ainyc/canonry-contracts'
+import { isReadOnlyKey, restrictedWriteScopes, RESEARCH_RUN_SCOPE, OperationAccesses, upgradeCaveatFor } from '@ainyc/canonry-contracts'
 import { createApiClient, runWithUsageTags, type ApiClient, type ServerUpdateAvailable } from '../client.js'
 import { PACKAGE_VERSION } from '../package-version.js'
-import { canonryMcpTools, type CanonryMcpTool } from './tool-registry.js'
+import { canonryMcpTools, toolOperationAccess, type CanonryMcpTool } from './tool-registry.js'
 import { errorToolResult, jsonToolResult, withToolErrors } from './results.js'
 import { DynamicToolCatalog, type DynamicCatalogEntry } from './dynamic-catalog.js'
 import { CANONRY_MCP_TOOLKIT_NAMES, type CanonryMcpTier } from './toolkits.js'
 import { operationsHelp, type GuideMode } from './operations-guide.js'
 import { OPERATIONS_GUIDE } from './operations-guide.generated.js'
 
-export type CanonryMcpScope = 'all' | 'read-only'
+export type CanonryMcpScope = 'all' | 'read-only' | 'stored-only'
 
 export interface CanonryMcpServerOptions {
   clientFactory?: () => ApiClient
@@ -219,7 +219,9 @@ export function getCanonryMcpTools(
   const readOnly = scope === 'read-only' || (credentialScopes !== undefined && isReadOnlyKey(credentialScopes))
   const restricted = credentialScopes && restrictedWriteScopes(credentialScopes)
   const authorized = canonryMcpTools.filter(tool => !tool.requiresOperator || operator)
-  const byScope = readOnly
+  const byScope = scope === 'stored-only'
+    ? authorized.filter(tool => toolOperationAccess(tool) === OperationAccesses.stored)
+    : readOnly
     ? authorized.filter(tool => tool.access === 'read')
     : authorized.filter(tool => {
       if (!restricted || tool.access === 'read') return true

@@ -525,6 +525,7 @@ export async function googleQueryTotals(project: string, opts: {
 }
 
 export async function googlePerformance(project: string, opts: {
+  window?: string
   days?: number
   startDate?: string
   endDate?: string
@@ -552,6 +553,7 @@ export async function googlePerformance(project: string, opts: {
     // the span against the same frontier every other window uses.
     params.days = String(opts.days)
   }
+  if (opts.window) params.window = opts.window
   if (opts.keyword) params.query = opts.keyword
   if (opts.page) params.page = opts.page
   if (opts.limit !== undefined) params.limit = String(opts.limit)

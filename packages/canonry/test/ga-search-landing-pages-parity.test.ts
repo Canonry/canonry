@@ -309,7 +309,7 @@ describe('ga search-landing-pages parity', () => {
 
     expect(error).toBeInstanceOf(CliError)
     expect((error as CliError).exitCode).toBe(1)
-    expect((error as CliError).message).toContain('"window" must be one of: 7d, 28d, 90d')
+    expect((error as CliError).message).toContain('Invalid window "30d". Must be one of: 7d, 28d, 90d.')
   })
 
   it('serves the MCP tool from the same read with the same parameters', async () => {

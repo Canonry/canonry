@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { MIN_BRAND_ALIAS_KEY_LENGTH, MIN_DOMAIN_BRAND_KEY_LENGTH, usableBrandAliases } from './answer-visibility.js'
 import { brandKeyFromText, textContainsAnyBrandAlias, textContainsBrandAlias } from './brand-matching.js'
 import { validationError } from './errors.js'
-import { brandLabelFromDomain, hostMatchesDomain, hostOf, normalizeCompetitorDomain } from './url-normalize.js'
+import { brandLabelFromDomain, hostMatchesDomain, hostOf, normalizeCompetitorDomain, registrableDomain } from './url-normalize.js'
 
 /**
  * OPERATOR-CURATED COMPETITOR ALIASES.
@@ -23,6 +23,11 @@ import { brandLabelFromDomain, hostMatchesDomain, hostOf, normalizeCompetitorDom
 
 /** Most curated aliases one competitor may carry. */
 export const COMPETITOR_ALIAS_LIMIT = 10
+export const COMPETITOR_BULK_ADD_THRESHOLD = 5
+export const COMPETITOR_BULK_ADD_WINDOW_HOURS = 24
+export const COMPETITOR_BULK_ADD_REFUSAL_REASON = 'bulk-add-unacknowledged' as const
+export const competitorBulkAddRefusalReasonSchema = z.enum([COMPETITOR_BULK_ADD_REFUSAL_REASON])
+export type CompetitorBulkAddRefusalReason = z.infer<typeof competitorBulkAddRefusalReasonSchema>
 /** Longest curated alias, in characters after trimming. */
 export const COMPETITOR_ALIAS_MAX_LENGTH = 80
 
@@ -176,13 +181,9 @@ function overlapRelation(alias: string, name: string): string {
   return foundIn(identityName(alias), identityName(name)) ? `is found inside "${name}"` : `contains "${name}"`
 }
 
-export type CompetitorAliasRejectionReason =
-  | 'too-long'
-  | 'too-short'
-  | 'project-brand'
-  | 'other-competitor'
-  | 'market-competitor'
-  | 'claimed-by-alias'
+export const competitorAliasRejectionReasonSchema = z.enum(['too-long', 'too-short', 'project-brand', 'other-competitor', 'market-competitor', 'claimed-by-alias'])
+export type CompetitorAliasRejectionReason = z.infer<typeof competitorAliasRejectionReasonSchema>
+export const CompetitorAliasRejectionReasons = competitorAliasRejectionReasonSchema.enum
 
 export interface CompetitorAliasRejection {
   /**
@@ -712,15 +713,9 @@ export function requireCompetitorAliasPlan(
   })
 }
 
-export type CompetitorAutoAliasDropReason =
-  | 'too-long'
-  | 'too-short'
-  | 'blocked'
-  | 'already-matched'
-  | 'subsumed'
-  | 'project-brand'
-  | 'other-competitor'
-  | 'over-limit'
+export const competitorAutoAliasDropReasonSchema = z.enum(['too-long', 'too-short', 'blocked', 'already-matched', 'subsumed', 'project-brand', 'other-competitor', 'over-limit'])
+export type CompetitorAutoAliasDropReason = z.infer<typeof competitorAutoAliasDropReasonSchema>
+export const CompetitorAutoAliasDropReasons = competitorAutoAliasDropReasonSchema.enum
 
 export interface CompetitorAutoAliasPlanEntry {
   domain: string
@@ -1032,8 +1027,12 @@ export const competitorAliasesRequestSchema = z.object({
 export type CompetitorAliasesRequest = z.infer<typeof competitorAliasesRequestSchema>
 
 /** A competitor entry that states its aliases: on add, and in config-as-code. */
+export const competitorDomainSchema = z.string().trim().min(1).refine(value => Boolean(registrableDomain(value)), {
+  message: 'Competitor domain must be a valid domain or URL',
+})
+
 export const competitorWithAliasesSchema = z.object({
-  domain: z.string().trim().min(1),
+  domain: competitorDomainSchema,
   aliases: competitorAliasListSchema.optional(),
 })
 
@@ -1044,7 +1043,7 @@ export type CompetitorWithAliases = z.infer<typeof competitorWithAliasesSchema>
  * spec: a bare domain, or `{ domain, aliases }`. A bare domain (or an object
  * without `aliases`) states nothing about aliases, so stored ones are kept.
  */
-export const competitorEntrySchema = z.union([z.string().trim().min(1), competitorWithAliasesSchema])
+export const competitorEntrySchema = z.union([competitorDomainSchema, competitorWithAliasesSchema])
 
 export type CompetitorEntry = z.infer<typeof competitorEntrySchema>
 
@@ -1054,3 +1053,30 @@ export function competitorEntryParts(entry: CompetitorEntry): { domain: string; 
     ? { domain: entry, aliases: undefined }
     : { domain: entry.domain, aliases: entry.aliases }
 }
+
+export const competitorAliasChangeSchema = z.object({
+  domain: z.string(),
+  before: z.array(z.string()),
+  after: z.array(z.string()),
+}).strict()
+
+export const competitorAliasRejectionSchema: z.ZodType<CompetitorAliasRejection> = z.object({
+  domain: z.string(),
+  alias: z.string(),
+  reason: competitorAliasRejectionReasonSchema,
+  conflictsWith: z.string().optional(),
+  conflictingName: z.string().optional(),
+  markets: z.array(z.string()).optional(),
+  supersededRevision: z.number().int().optional(),
+}).strict()
+
+export const competitorAutoAliasDropSchema: z.ZodType<CompetitorAutoAliasDrop> = z.object({
+  domain: z.string(),
+  alias: z.string(),
+  reason: competitorAutoAliasDropReasonSchema,
+  stored: z.boolean(),
+  conflictsWith: z.string().optional(),
+  conflictingName: z.string().optional(),
+}).strict()
+
+export type CompetitorAliasChange = z.infer<typeof competitorAliasChangeSchema>

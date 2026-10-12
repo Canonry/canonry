@@ -16,5 +16,7 @@
     "test": "vitest run --config ../../vitest.package.config.ts",
     "lint": "eslint src/ test/"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@ainyc/canonry-contracts": "workspace:*"
+  }
 }

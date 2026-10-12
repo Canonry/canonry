@@ -80,6 +80,16 @@ describe('referral assessment authenticated HTTP, CLI and MCP parity', () => {
     expect(JSON.parse(String(log.mock.calls[0]?.[0])).comparison).toMatchObject({ serverCountable: 100, gaSessions: 30, observedRatio: 3.33, observedRatioAboveThreshold: true })
   })
 
+  it('canonical date flags and legacy aliases select identical stored evidence', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    for (const flags of [['--start', '--end'], ['--start-date', '--end-date']]) {
+      await dispatchRegisteredCommand(['traffic', 'referral-assessment', 'example', flags[0]!, input.startDate, flags[1]!, input.endDate, '--format', 'json'], 'text', TRAFFIC_CLI_COMMANDS)
+    }
+    expect(log).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(String(log.mock.calls[0]![0]))).toEqual(JSON.parse(String(log.mock.calls[1]![0])))
+    expect(JSON.parse(String(log.mock.calls[0]![0])).totals).toBeDefined()
+  })
+
   it('enforces missing authentication, project boundaries and unsupported Advanced attribution', async () => {
     expect((await app.inject({ method: 'GET', url: path })).statusCode).toBe(401)
     expect((await app.inject({ method: 'GET', url: path.replace('/example/', '/other/'), headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(403)

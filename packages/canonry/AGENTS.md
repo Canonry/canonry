@@ -50,11 +50,12 @@ Canonry then reuses the checked web output. Keep this dependency when changing b
 ### How to add a CLI command
 
 1. Create or extend a file in `src/commands/` for the domain.
-2. Add a command spec to the `REGISTERED_CLI_COMMANDS` array in `src/cli-commands.ts`:
+2. Add a command spec to the `REGISTERED_CLI_COMMANDS` array in `src/cli-commands.ts` and declare its `access` effect (`stored`, `live`, or `write`):
    ```typescript
-   { path: ['mycommand', 'subcommand'], usage: 'Description', run: myHandler }
+   { path: ['mycommand', 'subcommand'], usage: 'Description', access: 'stored', run: myHandler }
    ```
-3. The CLI dispatches based on `path` matching argv.
+3. For a new root, add its section and summary to `CLI_ROOT_SUMMARIES` in `src/cli-catalog.ts`. The catalog drift guard rejects missing and phantom roots.
+4. The CLI dispatches based on `path` matching argv. `help`, top-level help and group help expose the registry as JSON or JSONL; help requests skip API calls, telemetry, skill sync and update checks.
 
 ### ApiClient usage (Critical)
 
@@ -99,8 +100,8 @@ Rules for `canonry-mcp`, hosted MCP catalogs, guidance generation, MCP parity, a
 File-level rules for the MCP pieces in this package:
 
 - `src/mcp/server.ts` — `createCanonryMcpServer` registers all API tools, then disables non-core tiers unless `--eager`.
-- `src/mcp/tool-registry.ts` — all 252 API tools, including Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
-- `src/mcp/cli.ts` — `canonry-mcp` stdio entrypoint; parses `--read-only`, `--eager`, `--scope`, plus `CANONRY_MCP_*` env. `resolveEffectiveScope()` best-effort probes `GET /keys/self` at startup and forces `read-only` when the configured key is read-only (auto-restricts the catalog to read tools; falls back to the flag scope on any probe failure).
+- `src/mcp/tool-registry.ts` - all 259 API tools, including stored competitor suggestions, the config apply preview, Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
+- `src/mcp/cli.ts` - `canonry-mcp` stdio entrypoint; parses `--read-only`, `--eager`, `--scope`, plus `CANONRY_MCP_*` env. `resolveEffectiveScope()` best-effort probes `GET /keys/self` at startup and forces `read-only` when the configured key is read-only (auto-restricts the catalog to read tools; falls back to the flag scope on any probe failure). Stored-only scope from `--stored-only`, `--scope=stored-only`, `CANONRY_MCP_SCOPE=stored-only`, or `CANONRY_STORED_ONLY=1` narrows monotonically and suppresses client housekeeping; hosted catalogs remain fixed.
 - `src/mcp/operations-guide.ts` — compact intent routing filtered against the connection's loaded tools; generated source is `docs/agent-operations/v1.md`. No provider calls or permission grants.
 - `src/commands/mcp.ts` — MCP client install helpers: `mcp install`, `mcp config` (writes to client config files only — separate from the `canonry-mcp` stdio bin). `src/mcp-clients.ts` is the registry of supported MCP clients (Claude Desktop, Cursor, Codex) — config-path resolvers and format hints used by `mcp install`/`mcp config`.
 
@@ -117,6 +118,13 @@ response is 204; CLI and MCP acknowledge it with `{ targetRef, restored: true }`
 Their MCP equivalents live in monitoring: `canonry_content_dismissals` (read),
 `canonry_content_dismiss` and `canonry_content_restore` (write).
 
+### Stored run history
+
+`run list <project>` aliases `runs <project>` with one handler and option table.
+The optional `--since` forwards an inclusive timestamp without imposing a default
+window or limit. Both forms include probes; traffic rows expose stored `sourceId`.
+With no project positional, `run list` retains the sweep of a project named `list`.
+
 ### Command output
 
 All commands that produce output must support `--format json` for machine-parseable output. Use the format flag to switch between human-friendly tables and JSON.
@@ -129,7 +137,7 @@ canonry doctor --check 'google.auth.*' --format jsonl
 
 directly — no `2>/dev/null`, no `| jq '(.checks // .results // [])[] | ...'`, no guessing the envelope key. Each line stands alone for `grep`/`head`/per-line `jq`.
 
-`jsonl` is wired into **every collection command** (a command whose primary output is a list) — `insights`, `runs`, `evidence`, `history`, `query/keyword/competitor list`, `notify list/events`, the `google`/`bing`/`ga` reads, `ads geo search`, `ads conversions pixels/event-settings`, `traffic events/sources/status`, `discover list/show`, `content targets/sources/gaps`, `backlinks list/releases`, `project list/locations`, `agent memory list`, `agent providers`, and `doctor`. The per-command primary collection + the context each line carries is catalogued in `skills/canonry/references/canonry-cli.md` ("Output schema per command" + "Output Formats"). Composite/object commands (`status`, `ads account`, `analytics`, `ga traffic`/`attribution`, `gbp summary`, index `coverage`) have **no** `jsonl` — they stay `json`.
+`jsonl` is wired into **every collection command** (a command whose primary output is a list) — `insights`, `runs`, `evidence`, `history`, `query/keyword/competitor list`, `notify list/events`, the `google`/`bing`/`ga` reads, `ads geo search`, `ads conversions pixels/event-settings`, `traffic events/sources/status`, `discover list/show`, `content targets/sources/gaps`, `backlinks list/releases`, `project list/locations`, `agent memory list`, `agent providers`, `status --all`, and `doctor`. The per-command primary collection + the context each line carries is catalogued in `skills/canonry/references/canonry-cli.md` ("Output schema per command" + "Output Formats"). Composite/object commands (`ads account`, `analytics`, `ga traffic`/`attribution`, `gbp summary`, index `coverage`) have **no** `jsonl` — they stay `json`.
 
 Conventions when adding `jsonl` to a command:
 
@@ -427,7 +435,7 @@ insights <project>` — add `--dry-run` first to see the delta.
 
 `gscUrlInspections` (the index-coverage dashboard's source of truth) is populated **only** by an `inspect-sitemap` run. `gsc-sync` does not inspect URLs at all: each URL Inspection call costs ~7.1s (Google's own live-index-lookup latency plus the ~1.1s pacing its 1 req/sec soft limit needs) and one unit of a 2000/property/day quota, so inspecting inline made the sync scale with the site — measured at 240.9s of a 241.9s run for 31 URLs while the search-analytics work took 1.07s, past the dashboard's 120s poll window. `server.ts` chains a full GSC `inspect-sitemap` off the **success** of both `executeGscSync` (`gsc-sync`) and `executeBingInspectSitemap` (`bing-inspect-sitemap` — Bing's coverage sync, which has no separate `bing-sync` kind). `packages/canonry/test/gsc-sync-no-inspection.test.ts` guards the split. The chaining lives in the `onGscSyncRequested` / `onBingInspectSitemapRequested` callbacks, so it covers UI and CLI uniformly (both hit the same endpoints) and the dashboard "Refresh search data" button.
 
-`maybeRefreshGscCoverage` (`src/coverage-refresh.ts`) owns the decision: it no-ops when GSC isn't connected for the project (so the Bing → GSC chain is silent on Bing-only projects), always skips while an `inspect-sitemap` run is `queued`/`running` (the in-flight guard, which is what collapses the GSC and Bing arms of "Refresh search data" into one sweep), and otherwise applies a spacing window sized by **who asked**:
+`maybeRefreshGscCoverage` (`src/coverage-refresh.ts`) owns the decision: it no-ops when GSC isn't connected for the project (so the Bing → GSC chain is silent on Bing-only projects), always skips while an `inspect-sitemap` run is `queued`/`running` (the in-flight guard, which is what collapses the GSC and Bing arms of "Refresh search data" into one sweep), and otherwise applies a spacing window sized by **who asked**. Scheduled GSC sync rows carry `trigger: scheduled`, so this classification uses the stored run trigger rather than a caller label:
 
 | Caller | Window | Constant |
 |---|---|---|
@@ -454,7 +462,7 @@ That is not a style preference. The gate used to be a `let` inside `inspectUrlsP
 
 ### Data refresh
 
-`src/data-refresh.ts`: `refreshAllIntegrations` fires GSC + Bing + GA + GBP + ads syncs for a project via the in-process API client, `Promise.allSettled` for per-integration isolation. Wired to the scheduler's `data-refresh` kind in `server.ts`. Only GA syncs before its endpoint answers, so only GA logs `integration.refreshed`; every other endpoint only queues a run and logs `integration.queued` with its `runId`, and its real outcome lands on that run row. The `<integration>.sync.recent-failures` doctor checks grade the run rows of Google Ads, GTM, GBP, GSC and GA. Bing `bing-inspect-sitemap` runs are not graded, and OpenAI Ads is covered only by `ads.data.recent-sync`. A refused endpoint logs `integration.refresh-failed`.
+`src/data-refresh.ts`: `refreshAllIntegrations` fires GSC + Bing + GA + GBP + ads syncs for a project via the in-process API client, `Promise.allSettled` for per-integration isolation. Wired to the scheduler's `data-refresh` kind in `server.ts`. The host claims each scheduled integration before calling its endpoint and clears the claim in `finally`; the route consumes the claim when it inserts the run, so scheduled data-refresh and traffic-sync rows store `trigger: scheduled` while ordinary CLI and API calls remain manual. Only GA syncs before its endpoint answers, so only GA logs `integration.refreshed`; every other endpoint only queues a run and logs `integration.queued` with its `runId`, and its real outcome lands on that run row. The `<integration>.sync.recent-failures` doctor checks grade the run rows of Google Ads, GTM, GBP, GSC and GA. Bing `bing-inspect-sitemap` runs are not graded, and OpenAI Ads is covered only by `ads.data.recent-sync`. A refused endpoint logs `integration.refresh-failed` and releases its claim.
 
 ### Backfill behavior
 
@@ -808,6 +816,7 @@ attribution and no provider calls or sync.
 
 - `competitor aliases <project> <domain>` reads or edits one competitor's curated answer-text names: `--set`/`--clear` write the exact list (`PUT .../aliases`); `--add` alone appends server-side in one call (`POST /competitors` with `{ domain, aliases }`), so concurrent adds never overwrite each other; `--remove` reads, edits and writes the list back, so an edit another client makes between that read and write is lost (documented in the CLI reference). `competitor add --alias` (one domain only) adds names on create; its JSON carries the aliased competitor as `competitor` (a `CompetitorDto`). `aliases` JSON output is the API's `CompetitorDto`. MCP twins: `canonry_competitors_aliases_set`, and `canonry_competitors_add` with `{ domain, aliases }` entries.
 - Answer-derived auto aliases: the read form of `competitor aliases <project> <domain>` prints curated names, auto-detected names with their evidence, and blocked names; `--block <name>` / `--unblock <name>` (repeatable, never combined with curated edits) call `POST .../aliases/block` / `.../unblock`. `competitor aliases detect <project> [--apply]` is the stored-evidence dry run (`GET /competitor-auto-aliases`) or the apply-now pass (`POST`, which stores in every `competitorAutoAliases` mode); `project update --competitor-auto-aliases <off|preview|apply>` sets the mode and `project show` prints it; `jsonl` streams one competitor per line with `project` and `applied`. `detect` is a reserved first positional (longest path wins), so a project literally named "detect" reads its names through `competitor list`. MCP twins: `canonry_competitors_auto_aliases_detect` (read), `canonry_competitors_auto_aliases_apply`, `canonry_competitors_aliases_block`, `canonry_competitors_aliases_unblock`.
+- Measured competitor growth over five new or recent domains in 24 hours is refused unless the operator sends `--acknowledge-bulk-add` or the equivalent REST or MCP field. The shared guard counts only new retained domains, reports its `limit`, `count` and `acknowledgementRequired` fields in explicit change previews, and bypasses projects with no completed or partial non-probe answer-visibility run. Apply and discovery promote are outside this guard.
 - `competitor landscape --by-model` reads stored requested-model groups.
   Keep served identity separate. A model filter requires a provider.
   JSONL preserves the complete response as one compact document.
@@ -968,3 +977,60 @@ identity. Summary and evidence accept repeatable `--run-ids` for the exact group
 location runs, mutually exclusive with `--run-id`; backfill keeps its existing
 repeatable `--run-id` syntax. Favorable % uses favorable / (favorable + mixed + unfavorable), excluding
 factual and unjudged assessments.
+
+`traffic samples` reads stored diagnostic evidence through `trafficListSamples`.
+JSON is the API DTO; JSONL streams samples with project and window context. Human
+output must distinguish sample rows from visits and the all-kind 24-hour sample
+count shown by `traffic status`.
+
+`ga acquisition` reads grouped stored sessions through `gaAcquisition`. Explicit
+dates follow `resolveDateRange`; omitted window means all history. JSON preserves
+the API envelope and JSONL stamps each grouped row with project and window bounds.
+
+### Stored read window grammar
+
+`CliCommandSpec.windows` selects a tuple from contracts `WINDOW_SETS`.
+`windowOptions` and `readWindowOptions` normalize positive bare day counts or
+lowercase `Nd` before creating an API client. The allowed sets stay specific to
+the stored source. `windowAliases` retains period/from/to/start-date/end-date
+flags and rejects mixed alias/canonical input. `commandUsage` renders each full
+set for contextual help. Calendar dates retain `resolveDateRange` validation;
+Google performance `--days` remains a separate span from `--window`.
+
+### Config apply preview
+
+`canonry apply --dry-run` calls only `POST /api/v1/apply/preview` for each YAML
+document and reports the typed per-field diff. It never falls back to a write
+route when preview is unavailable. `canonry_apply_config_preview` is the
+read-only MCP twin; call it before `canonry_apply_config`.
+
+### Targeted project writes
+
+Project update flags use ApiClient PATCH with the loaded revision. Preserve omitted fields and validate explicit revision guards before writing. The legacy route-unavailable fallback re-reads before full PUT but cannot promise atomic conflict detection. Measurement flags normalize through the shared config schema. Native MCP `canonry_project_update` uses the same PATCH route.
+### Competitor import and completion
+
+`competitor import` validates curated JSON entries or line files before one append
+request, retaining each entry's aliases. Add, import and alias edits accept
+`--wait [--wait-timeout seconds]` for stored answer-field recomputation only.
+The optional project DTO mark is not an alias-detection completion signal.
+An omitted mark from an older server is reported after the committed write;
+it must not be treated as completed.
+
+### Stored operator read diagnostics
+
+Project status includes stored health in its aggregate state: fail is failing,
+warn is warning unless an integration is worse. Single-project JSONL emits one
+compact envelope; instance JSONL retains health-only rows. Explicit project
+`--problems` reads retain health and filter only integration rows.
+
+History errors reject empty filters before HTTP, instance rows retain their API
+project name, and `--all` cannot accompany a project. Stored sample/acquisition
+validation uses field-aware single-line errors. Sample dates mean UTC midnight.
+Calendar bounds and rolling windows are mutually exclusive CLI selections.
+
+Invocation-dependent commands use `CliCommandSpec.accessFor` for stored-only
+dispatch: competitor previews and alias reads/detection stay stored; actual
+mutations stay write. `get --from doctor` remains live. Access filters apply to
+both help forms, including parent-only roots, and are rejected on normal
+execution. A registered group with no matching access remains a valid empty
+catalog, not an unknown command.

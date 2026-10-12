@@ -1953,6 +1953,203 @@ export type AgentProvidersResponseDto = {
     defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai' | null;
 };
 
+export type ApplyPreviewDto = {
+    project: {
+        id: string | null;
+        name: string;
+    };
+    action: 'create' | 'update' | 'none';
+    changed: boolean;
+    configRevision: {
+        before: number | null;
+        after: number;
+    };
+    fields: {
+        displayName?: {
+            before: string | null;
+            after: string | null;
+        };
+        canonicalDomain?: {
+            before: string | null;
+            after: string | null;
+        };
+        ownedDomains?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        aliases?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        qualifiedAliases?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        country?: {
+            before: string | null;
+            after: string | null;
+        };
+        language?: {
+            before: string | null;
+            after: string | null;
+        };
+        labels?: {
+            before: {
+                [key: string]: string;
+            } | null;
+            after: {
+                [key: string]: string;
+            } | null;
+        };
+        providers?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        providerModels?: {
+            before: {
+                [key: string]: string;
+            } | null;
+            after: {
+                [key: string]: string;
+            } | null;
+        };
+        providerDispatchModes?: {
+            before: {
+                [key: string]: 'sync' | 'batch';
+            } | null;
+            after: {
+                [key: string]: 'sync' | 'batch';
+            } | null;
+        };
+        'measurement.marketingHosts'?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        'measurement.brandTerms'?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        'measurement.leadEventNames'?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        locations?: {
+            before: Array<{
+                label: string;
+                city: string;
+                region: string;
+                country: string;
+                timezone?: string;
+            }> | null;
+            after: Array<{
+                label: string;
+                city: string;
+                region: string;
+                country: string;
+                timezone?: string;
+            }> | null;
+        };
+        defaultLocation?: {
+            before: string | null;
+            after: string | null;
+        };
+        autoExtractBacklinks?: {
+            before: boolean | null;
+            after: boolean | null;
+        };
+        negativeReviewMaxStars?: {
+            before: number | null;
+            after: number | null;
+        };
+        siteAuditMaxPages?: {
+            before: number | null;
+            after: number | null;
+        };
+        competitorAutoAliases?: {
+            before: 'off' | 'preview' | 'apply' | null;
+            after: 'off' | 'preview' | 'apply' | null;
+        };
+        configSource?: {
+            before: 'cli' | 'api' | 'config-file' | null;
+            after: 'cli' | 'api' | 'config-file' | null;
+        };
+    };
+    queries: {
+        managed: boolean;
+        added: Array<string>;
+        removed: Array<string>;
+        unchangedCount: number;
+        snapshotsDetached: number;
+    };
+    competitors: {
+        managed: boolean;
+        added: Array<string>;
+        removed: Array<string>;
+        aliasChanges: Array<{
+            domain: string;
+            before: Array<string>;
+            after: Array<string>;
+        }>;
+        droppedAliases: Array<{
+            domain: string;
+            alias: string;
+            reason: 'too-long' | 'too-short' | 'project-brand' | 'other-competitor' | 'market-competitor' | 'claimed-by-alias';
+            conflictsWith?: string;
+            conflictingName?: string;
+            markets?: Array<string>;
+        }>;
+    };
+    schedule: {
+        managed: boolean;
+        action: 'create' | 'update' | 'delete' | 'none';
+        before: {
+            cron?: string;
+            preset?: string;
+            recurrence?: {
+                everyDays: number;
+                startDate: string;
+                time: string;
+            };
+            timezone: string;
+            providers: Array<string>;
+            enabled: boolean;
+        } | null;
+        after: {
+            cron?: string;
+            preset?: string;
+            recurrence?: {
+                everyDays: number;
+                startDate: string;
+                time: string;
+            };
+            timezone: string;
+            providers: Array<string>;
+            enabled: boolean;
+        } | null;
+    };
+    notifications: {
+        managed: boolean;
+        added: Array<{
+            urlHost: string;
+            events: Array<string>;
+        }>;
+        removed: Array<{
+            urlHost: string;
+            events: Array<string>;
+            id: string;
+        }>;
+        kept: Array<{
+            id: string;
+            urlHost: string;
+            urlChanged: boolean;
+            eventsBefore: Array<string>;
+            eventsAfter: Array<string>;
+        }>;
+        secretsRotated: number;
+    };
+    effects: Array<'mention-backfill' | 'competitor-rescore' | 'competitor-auto-alias-rescan' | 'schedule-reload' | 'gsc-property-update'>;
+};
+
 export type AdsAccountDto = {
     id: string;
     name: string;
@@ -2982,6 +3179,7 @@ export type ApiKeyListDto = {
 
 export type AuditLogEntry = {
     id: string;
+    project?: string | null;
     projectId?: string | null;
     actor: string;
     action: string;
@@ -3435,6 +3633,10 @@ export type BrandMetricsDto = {
      * When the names the project's competitors are matched by last changed: a tracked competitor's curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass that stored or removed a market-only competitor's learned names, a write that claimed, released or dropped a market-only competitor's learned names, or a published revision that renamed a market pin; null if never. The competitor landscape reads every period with the current names, so a figure for any period quoted before this time was restated at this time. Analytics mention share and project-frame visibility-compare share of voice read only tracked competitors' names, so a market pin or learned-name change moves this time without changing them. Adding or removing a competitor or a pin is a names change only when it moves a stored or learned name.
      */
     competitorIdentityChangedAt?: string | null;
+    /**
+     * When the tracked competitor set last changed: a non-empty competitor add, removal, replacement, or discovery promotion. Older replacement audit rows without added/removed fields count conservatively; an identical replacement with both arrays empty does not. Null when the set never changed.
+     */
+    competitorSetChangedAt?: string | null;
 };
 
 export type CcAvailableRelease = {
@@ -3549,6 +3751,7 @@ export type CompetitorAppendRequest = {
          */
         aliases?: Array<string>;
     }>;
+    acknowledgeBulkAdd?: boolean;
 };
 
 export type CompetitorAutoAliasDetectionDto = {
@@ -3620,6 +3823,49 @@ export type CompetitorAutoAliasDetectionDto = {
             lastSeen: string;
         }>;
     }>;
+    impact?: {
+        instrument: 'competitor-landscape';
+        queryClass: 'non-brand' | 'pooled';
+        scope: 'project' | 'all-markets';
+        runIds: Array<string>;
+        runCount: number;
+        sweepAt: string | null;
+        before: {
+            basis?: 'tracked' | 'observed' | null;
+            availability?: 'measured' | 'not-measured' | 'unavailable';
+            reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
+            measurementScope?: 'project' | 'all-markets';
+            queryClass: 'branded' | 'non-brand' | 'pooled';
+            percent: number | null;
+            competitorCount: number;
+            projectMentions: number;
+            competitorMentions: number;
+            snapshotsWithAnswerText: number;
+            perCompetitor: Array<{
+                domain: string;
+                mentions: number;
+            }>;
+        };
+        after: {
+            basis?: 'tracked' | 'observed' | null;
+            availability?: 'measured' | 'not-measured' | 'unavailable';
+            reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
+            measurementScope?: 'project' | 'all-markets';
+            queryClass: 'branded' | 'non-brand' | 'pooled';
+            percent: number | null;
+            competitorCount: number;
+            projectMentions: number;
+            competitorMentions: number;
+            snapshotsWithAnswerText: number;
+            perCompetitor: Array<{
+                domain: string;
+                mentions: number;
+            }>;
+        };
+        deltaPercent: number | null;
+        restatesHistory: true;
+        caveats: Array<'basis-changed' | 'auto-alias-rescan-pending' | 'no-latest-sweep' | 'pooled'>;
+    };
 };
 
 export type CompetitorDto = {
@@ -3857,6 +4103,185 @@ export type CompetitorLandscapeResponse = {
      * When the names the project's competitors are matched by last changed: a tracked competitor's curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass that stored or removed a market-only competitor's learned names, a write that claimed, released or dropped a market-only competitor's learned names, or a published revision that renamed a market pin; null if never. The competitor landscape reads every period with the current names, so a figure for any period quoted before this time was restated at this time. Analytics mention share and project-frame visibility-compare share of voice read only tracked competitors' names, so a market pin or learned-name change moves this time without changing them. Adding or removing a competitor or a pin is a names change only when it moves a stored or learned name.
      */
     competitorIdentityChangedAt?: string | null;
+    /**
+     * When the tracked competitor set last changed: a non-empty competitor add, removal, replacement, or discovery promotion. Older replacement audit rows without added/removed fields count conservatively; an identical replacement with both arrays empty does not. Null when the set never changed.
+     */
+    competitorSetChangedAt?: string | null;
+    competitorListRestated?: boolean;
+};
+
+export type CompetitorSuggestionsResponse = {
+    project: string;
+    window: '7d' | '30d' | '90d' | 'all';
+    scope: {
+        kind: 'project';
+    } | {
+        kind: 'group';
+        groupKey: string;
+    } | {
+        kind: 'all-markets';
+    };
+    filters: {
+        queryClass: 'non-brand' | 'branded' | 'all';
+        groupKey: string | null;
+        limit: number;
+        minAnswers: number;
+    };
+    thresholds: {
+        minAnswers: number;
+    };
+    candidates: Array<{
+        domain: string;
+        label: string;
+        names: Array<{
+            name: string;
+            answerCount: number;
+            pairedAnswers: number;
+        }>;
+        namingAnswers: number;
+        citingAnswers: number;
+        bothAnswers: number;
+        pairedAnswers: number;
+        namedByOtherNameAnswers: number;
+        sweeps: number;
+        firstSeenAt: string | null;
+        lastSeenAt: string | null;
+        surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        tracked: boolean;
+        marketKeys?: Array<string>;
+        status: 'suggested' | 'tracked' | 'excluded';
+        reason: 'below-min-answers' | 'not-named' | 'unpaired-name' | 'own-site' | 'listing-marketplace' | 'non-competitor-surface' | 'claimed-by-alias' | 'shared-host' | null;
+        sampleUrls: Array<string>;
+    }>;
+    candidatesTotal: number;
+    excludedCounts: {
+        [key: string]: number;
+    };
+    unresolvedNames: Array<{
+        name: string;
+        answerCount: number;
+    }>;
+    evidence: {
+        answeredResults: number;
+        sourceResults: number;
+        excludedProbeResults: number;
+        excludedNonCompletedResults: number;
+    };
+    runCount: number;
+    runIds: Array<string>;
+    countUnits: {
+        answers: Array<string>;
+        distinctNames: Array<string>;
+        runs: Array<string>;
+    };
+    truncated: boolean;
+};
+
+export type CompetitorChangePreviewRequest = {
+    change: 'add';
+    competitors: Array<string | {
+        domain: string;
+        /**
+         * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
+         */
+        aliases?: Array<string>;
+    }>;
+} | {
+    change: 'remove';
+    competitors: Array<string>;
+} | {
+    change: 'replace';
+    competitors: Array<string>;
+} | {
+    change: 'aliases';
+    domain: string;
+    aliases: Array<string>;
+    mode: 'set' | 'add';
+};
+
+export type CompetitorChangePreviewResponse = {
+    project: string;
+    change: 'add' | 'remove' | 'replace' | 'aliases';
+    plan: {
+        added: Array<string>;
+        alreadyTracked: Array<string>;
+        removed: Array<string>;
+        aliasChanges: Array<{
+            domain: string;
+            before: Array<string>;
+            after: Array<string>;
+        }>;
+        droppedAliases: Array<{
+            domain: string;
+            alias: string;
+            reason: 'too-long' | 'too-short' | 'project-brand' | 'other-competitor' | 'market-competitor' | 'claimed-by-alias';
+            conflictsWith?: string;
+            conflictingName?: string;
+            markets?: Array<string>;
+            supersededRevision?: number;
+        }>;
+        autoAliasChanges: Array<{
+            domain: string;
+            before: Array<string>;
+            after: Array<string>;
+        }>;
+        droppedAutoAliases: Array<{
+            domain: string;
+            alias: string;
+            reason: 'too-long' | 'too-short' | 'blocked' | 'already-matched' | 'subsumed' | 'project-brand' | 'other-competitor' | 'over-limit';
+            stored: boolean;
+            conflictsWith?: string;
+            conflictingName?: string;
+        }>;
+    };
+    bulkAdd: {
+        limit: number;
+        count: number;
+        acknowledgementRequired: boolean;
+    };
+    impact: {
+        instrument: 'competitor-landscape';
+        queryClass: 'non-brand' | 'pooled';
+        scope: 'project' | 'all-markets';
+        runIds: Array<string>;
+        runCount: number;
+        sweepAt: string | null;
+        before: {
+            basis?: 'tracked' | 'observed' | null;
+            availability?: 'measured' | 'not-measured' | 'unavailable';
+            reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
+            measurementScope?: 'project' | 'all-markets';
+            queryClass: 'branded' | 'non-brand' | 'pooled';
+            percent: number | null;
+            competitorCount: number;
+            projectMentions: number;
+            competitorMentions: number;
+            snapshotsWithAnswerText: number;
+            perCompetitor: Array<{
+                domain: string;
+                mentions: number;
+            }>;
+        };
+        after: {
+            basis?: 'tracked' | 'observed' | null;
+            availability?: 'measured' | 'not-measured' | 'unavailable';
+            reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
+            measurementScope?: 'project' | 'all-markets';
+            queryClass: 'branded' | 'non-brand' | 'pooled';
+            percent: number | null;
+            competitorCount: number;
+            projectMentions: number;
+            competitorMentions: number;
+            snapshotsWithAnswerText: number;
+            perCompetitor: Array<{
+                domain: string;
+                mentions: number;
+            }>;
+        };
+        deltaPercent: number | null;
+        restatesHistory: true;
+        caveats: Array<'basis-changed' | 'auto-alias-rescan-pending' | 'no-latest-sweep' | 'pooled'>;
+    };
 };
 
 export type ContentGapsResponseDto = {
@@ -4670,6 +5095,47 @@ export type DoctorReportDto = {
     }>;
 };
 
+export type InstanceStatusDto = {
+    generatedAt: string;
+    summary: {
+        projects: number;
+        ok: number;
+        failing: number;
+        warning?: number;
+        stale: number;
+        neverSynced: number;
+    };
+    projects: Array<{
+        project: string;
+        displayName: string;
+        state: 'ok' | 'failing' | 'stale' | 'never-synced' | 'warning';
+        health: {
+            status: 'ok' | 'warn' | 'fail';
+            code: string;
+            summary: string;
+            checkedAt: string;
+            notifiedAt: string | null;
+        } | null;
+        integrations: Array<{
+            integration: 'gsc' | 'ga' | 'gbp' | 'bing' | 'ads' | 'google-ads' | 'gtm' | 'traffic';
+            label: string;
+            runKind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
+            sourceId: string | null;
+            state: 'ok' | 'failing' | 'stale' | 'never-synced';
+            lastSuccessAt: string | null;
+            latestRunAt: string | null;
+            latestRunId: string | null;
+            latestStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | null;
+            latestTrigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe' | null;
+            consecutiveFailures: number;
+            latestError: string | null;
+            dataThrough: string | null;
+            dataAgeDays: number | null;
+            doctorChecks: Array<string>;
+        }>;
+    }>;
+};
+
 export type Ga4AiReferralDailyDto = {
     days: Array<{
         date: string;
@@ -5025,6 +5491,50 @@ export type GaAttributionTrendResponse = {
         changePct: number | null;
         changeBasis: 'new' | 'small-base' | 'percent';
     } | null;
+};
+
+export type GaAcquisitionResponse = {
+    source: 'ga4-acquisition';
+    status: 'never-synced' | 'ready' | 'error';
+    error: string | null;
+    syncedAt: string | null;
+    scope: {
+        project: string;
+        attribution: 'project-only';
+        unavailableDimensions: Array<'property' | 'target' | 'market'>;
+    };
+    window: {
+        startDate: string | null;
+        endDate: string | null;
+        window: '7d' | '30d' | '90d' | 'all';
+    };
+    coverage: {
+        earliestDate: string | null;
+        latestDate: string | null;
+    };
+    filters: {
+        channel: string | null;
+        source: string | null;
+        medium: string | null;
+        hostName: string | null;
+        landingPage: string | null;
+        pathPrefix: string | null;
+    };
+    groupBy: Array<'date' | 'channelGroup' | 'source' | 'medium' | 'hostName' | 'landingPage'>;
+    channelGroups: Array<string>;
+    totalSessions: number;
+    totalRows: number;
+    limit: number;
+    offset: number;
+    rows: Array<{
+        date?: string;
+        channelGroup?: string;
+        source?: string;
+        medium?: string;
+        hostName?: string;
+        landingPage?: string;
+        sessions: number;
+    }>;
 };
 
 export type GaSearchLandingPagesResponse = {
@@ -7046,6 +7556,7 @@ export type KeywordGenerateResponse = {
 export type LatestProjectRunDto = {
     totalRuns: number;
     run: {
+        sourceId?: string | null;
         id: string;
         projectId: string;
         kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
@@ -11361,6 +11872,7 @@ export type ProjectDto = {
      * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project's default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period's competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.
      */
     competitorAutoAliases?: 'off' | 'preview' | 'apply';
+    answerFieldsRecompute?: 'full' | 'competitors' | null;
     configSource: 'cli' | 'api' | 'config-file';
     configRevision: number;
     createdAt?: string;
@@ -11369,6 +11881,48 @@ export type ProjectDto = {
 
 export type ProjectDefaultLocationResponse = {
     defaultLocation: string;
+};
+
+export type ProjectPatchRequest = {
+    displayName?: string;
+    canonicalDomain?: string;
+    ownedDomains?: Array<string>;
+    aliases?: Array<string>;
+    country?: string;
+    language?: string;
+    tags?: Array<string>;
+    labels?: {
+        [key: string]: string;
+    };
+    providers?: Array<string>;
+    providerModels?: {
+        [key: string]: string;
+    };
+    providerDispatchModes?: {
+        [key: string]: 'sync' | 'batch';
+    };
+    locations?: Array<{
+        label: string;
+        city: string;
+        region: string;
+        country: string;
+        timezone?: string;
+    }>;
+    defaultLocation?: string | null;
+    measurement?: {
+        marketingHosts?: Array<string>;
+        brandTerms?: Array<string>;
+        leadEventNames?: Array<string>;
+    };
+    autoExtractBacklinks?: boolean;
+    qualifiedAliases?: Array<string>;
+    negativeReviewMaxStars?: number | null;
+    siteAuditMaxPages?: number | null;
+    /**
+     * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
+     */
+    competitorAutoAliases?: 'off' | 'preview' | 'apply';
+    expectedConfigRevision?: number;
 };
 
 export type ProjectUpsertRequest = {
@@ -11472,6 +12026,7 @@ export type ProjectConfig = {
             enabled?: boolean;
         };
         notifications?: Array<{
+            id?: string;
             channel: 'webhook';
             url: string;
             events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'review.negative' | 'review.rating-dropped'>;
@@ -11554,6 +12109,7 @@ export type ProjectConfigExport = {
             enabled: boolean;
         };
         notifications: Array<{
+            id?: string;
             channel: 'webhook';
             url: string;
             events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'review.negative' | 'review.rating-dropped'>;
@@ -11886,6 +12442,7 @@ export type ProjectOverviewDto = {
          * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project's default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period's competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.
          */
         competitorAutoAliases?: 'off' | 'preview' | 'apply';
+        answerFieldsRecompute?: 'full' | 'competitors' | null;
         configSource: 'cli' | 'api' | 'config-file';
         configRevision: number;
         createdAt?: string;
@@ -11894,6 +12451,7 @@ export type ProjectOverviewDto = {
     latestRun: {
         totalRuns: number;
         run: {
+            sourceId?: string | null;
             id: string;
             projectId: string;
             kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
@@ -12698,6 +13256,7 @@ export type RunCompletenessDto = {
 };
 
 export type RunDetailDto = {
+    sourceId?: string | null;
     id: string;
     projectId: string;
     kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
@@ -12896,6 +13455,7 @@ export type RunFillResponseDto = {
 };
 
 export type RunDto = {
+    sourceId?: string | null;
     id: string;
     projectId: string;
     kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
@@ -14661,6 +15221,71 @@ export type TrafficEventsResponse = {
     }>;
 };
 
+export type TrafficSamplesResponse = {
+    scope: {
+        project: string;
+        sourceId: string | null;
+        attribution: 'project-source-only';
+        unavailableDimensions: Array<'property' | 'target' | 'market'>;
+    };
+    windowStart: string;
+    windowEnd: string;
+    retentionDays: 30;
+    sampling: {
+        complete: false;
+        perSync: 100;
+        perBackfill: 500;
+        perPushHour: 100;
+    };
+    totalRows: number;
+    limit: number;
+    offset: number;
+    samples: Array<{
+        id: string;
+        sourceId: string;
+        ts: string;
+        kind: 'crawler' | 'ai-user-fetch' | 'ai-referral' | 'unknown';
+        pathNormalized: string;
+        status: number | null;
+        refererHost: string | null;
+        userAgent: string | null;
+        classifier: {
+            crawler: {
+                botId?: string | null;
+                operator?: string | null;
+                product?: string | null;
+                verificationStatus?: 'verified' | 'claimed_unverified' | 'unknown_ai_like' | null;
+                verificationManifest?: {
+                    id?: string | null;
+                    source?: string | null;
+                    version?: string | null;
+                } | null;
+                matchedUserAgent?: string | null;
+                purpose?: string | null;
+            } | null;
+            aiUserFetch: {
+                botId?: string | null;
+                operator?: string | null;
+                product?: string | null;
+                verificationStatus?: 'verified' | 'claimed_unverified' | 'unknown_ai_like' | null;
+                verificationManifest?: {
+                    id?: string | null;
+                    source?: string | null;
+                    version?: string | null;
+                } | null;
+                matchedUserAgent?: string | null;
+            } | null;
+            aiReferral: {
+                operator?: string | null;
+                product?: string | null;
+                sourceDomain?: string | null;
+                evidenceType?: 'referer' | 'utm' | 'referer-utm' | null;
+                trafficClass?: 'organic' | 'paid' | null;
+            } | null;
+        };
+    }>;
+};
+
 export type TrafficSourceDetailDto = {
     id: string;
     projectId: string;
@@ -14988,6 +15613,10 @@ export type VisibilityCompareDto = {
      * When the names the project's competitors are matched by last changed: a tracked competitor's curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass that stored or removed a market-only competitor's learned names, a write that claimed, released or dropped a market-only competitor's learned names, or a published revision that renamed a market pin; null if never. The competitor landscape reads every period with the current names, so a figure for any period quoted before this time was restated at this time. Analytics mention share and project-frame visibility-compare share of voice read only tracked competitors' names, so a market pin or learned-name change moves this time without changing them. Adding or removing a competitor or a pin is a names change only when it moves a stored or learned name.
      */
     competitorIdentityChangedAt?: string | null;
+    /**
+     * When the tracked competitor set last changed: a non-empty competitor add, removal, replacement, or discovery promotion. Older replacement audit rows without added/removed fields count conservatively; an identical replacement with both arrays empty does not. Null when the set never changed.
+     */
+    competitorSetChangedAt?: string | null;
 };
 
 export type VisibilityStatsDto = {
@@ -15451,6 +16080,44 @@ export type GetApiV1ProjectsByNameResponses = {
 };
 
 export type GetApiV1ProjectsByNameResponse = GetApiV1ProjectsByNameResponses[keyof GetApiV1ProjectsByNameResponses];
+
+export type PatchApiV1ProjectsByNameData = {
+    body: ProjectPatchRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}';
+};
+
+export type PatchApiV1ProjectsByNameErrors = {
+    /**
+     * Invalid project patch.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * The project revision is stale.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PatchApiV1ProjectsByNameError = PatchApiV1ProjectsByNameErrors[keyof PatchApiV1ProjectsByNameErrors];
+
+export type PatchApiV1ProjectsByNameResponses = {
+    /**
+     * Project updated.
+     */
+    200: ProjectDto;
+};
+
+export type PatchApiV1ProjectsByNameResponse = PatchApiV1ProjectsByNameResponses[keyof PatchApiV1ProjectsByNameResponses];
 
 export type PutApiV1ProjectsByNameData = {
     body: ProjectUpsertRequest;
@@ -19652,11 +20319,20 @@ export type GetApiV1ProjectsByNameExportData = {
          */
         name: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Include webhook URLs. Requires administrator authority or a wildcard API key.
+         */
+        includeSecrets?: boolean;
+    };
     url: '/api/v1/projects/{name}/export';
 };
 
 export type GetApiV1ProjectsByNameExportErrors = {
+    /**
+     * Webhook URLs require administrator authority.
+     */
+    403: ErrorEnvelope;
     /**
      * Project not found.
      */
@@ -20143,6 +20819,10 @@ export type PostApiV1ProjectsByNameCompetitorsResponse = PostApiV1ProjectsByName
 export type PutApiV1ProjectsByNameCompetitorsData = {
     body: {
         competitors: Array<string>;
+        /**
+         * Acknowledge a measured project bulk-add guard when the trailing 24-hour growth exceeds the contract threshold.
+         */
+        acknowledgeBulkAdd?: boolean;
     };
     path: {
         /**
@@ -20446,6 +21126,95 @@ export type GetApiV1ProjectsByNameAnalyticsCompetitorsResponses = {
 
 export type GetApiV1ProjectsByNameAnalyticsCompetitorsResponse = GetApiV1ProjectsByNameAnalyticsCompetitorsResponses[keyof GetApiV1ProjectsByNameAnalyticsCompetitorsResponses];
 
+export type GetApiV1ProjectsByNameCompetitorSuggestionsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Minimum answer count for a suggested candidate. Defaults to 3.
+         */
+        minAnswers?: number;
+        /**
+         * One query population. Defaults to non-brand when the project can classify queries, otherwise all pooled.
+         */
+        queryClass?: 'non-brand' | 'branded' | 'all';
+        /**
+         * Select one Advanced market by group key. Omit for all markets; Simple projects use project scope.
+         */
+        groupKey?: string;
+        /**
+         * Maximum candidate rows returned. Defaults to 25 and is capped at 100.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/competitor-suggestions';
+};
+
+export type GetApiV1ProjectsByNameCompetitorSuggestionsErrors = {
+    /**
+     * Invalid suggestion filters or query class.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameCompetitorSuggestionsError = GetApiV1ProjectsByNameCompetitorSuggestionsErrors[keyof GetApiV1ProjectsByNameCompetitorSuggestionsErrors];
+
+export type GetApiV1ProjectsByNameCompetitorSuggestionsResponses = {
+    /**
+     * Stored-evidence competitor suggestions returned.
+     */
+    200: CompetitorSuggestionsResponse;
+};
+
+export type GetApiV1ProjectsByNameCompetitorSuggestionsResponse = GetApiV1ProjectsByNameCompetitorSuggestionsResponses[keyof GetApiV1ProjectsByNameCompetitorSuggestionsResponses];
+
+export type PostApiV1ProjectsByNameCompetitorChangesPreviewData = {
+    body: CompetitorChangePreviewRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/competitor-changes/preview';
+};
+
+export type PostApiV1ProjectsByNameCompetitorChangesPreviewErrors = {
+    /**
+     * Invalid competitor change or stored identity plan.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or competitor not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameCompetitorChangesPreviewError = PostApiV1ProjectsByNameCompetitorChangesPreviewErrors[keyof PostApiV1ProjectsByNameCompetitorChangesPreviewErrors];
+
+export type PostApiV1ProjectsByNameCompetitorChangesPreviewResponses = {
+    /**
+     * Competitor change preview returned.
+     */
+    200: CompetitorChangePreviewResponse;
+};
+
+export type PostApiV1ProjectsByNameCompetitorChangesPreviewResponse = PostApiV1ProjectsByNameCompetitorChangesPreviewResponses[keyof PostApiV1ProjectsByNameCompetitorChangesPreviewResponses];
+
 export type GetApiV1ProjectsByNameRunsData = {
     body?: never;
     path: {
@@ -20475,6 +21244,10 @@ export type GetApiV1ProjectsByNameRunsData = {
          * Restrict results to a single run status, e.g. "running" to find in-flight work or "failed" to triage. Unknown values are rejected with 400 rather than returning an empty list.
          */
         status?: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+        /**
+         * Only return runs created at or after this ISO 8601 timestamp. Omitted means no lower bound.
+         */
+        since?: string;
     };
     url: '/api/v1/projects/{name}/runs';
 };
@@ -20865,6 +21638,34 @@ export type PostApiV1ApplyResponses = {
 
 export type PostApiV1ApplyResponse = PostApiV1ApplyResponses[keyof PostApiV1ApplyResponses];
 
+export type PostApiV1ApplyPreviewData = {
+    /**
+     * Canonry project configuration as JSON.
+     */
+    body: ProjectConfig;
+    path?: never;
+    query?: never;
+    url: '/api/v1/apply/preview';
+};
+
+export type PostApiV1ApplyPreviewErrors = {
+    /**
+     * Invalid config.
+     */
+    400: ErrorEnvelope;
+};
+
+export type PostApiV1ApplyPreviewError = PostApiV1ApplyPreviewErrors[keyof PostApiV1ApplyPreviewErrors];
+
+export type PostApiV1ApplyPreviewResponses = {
+    /**
+     * Apply preview.
+     */
+    200: ApplyPreviewDto;
+};
+
+export type PostApiV1ApplyPreviewResponse = PostApiV1ApplyPreviewResponses[keyof PostApiV1ApplyPreviewResponses];
+
 export type GetApiV1ProjectsByNameHistoryData = {
     body?: never;
     path: {
@@ -20883,15 +21684,31 @@ export type GetApiV1ProjectsByNameHistoryData = {
          */
         offset?: number;
         /**
-         * ISO 8601 lower bound.
+         * Inclusive ISO 8601 lower bound, normalized to UTC.
          */
         since?: string;
+        /**
+         * Inclusive ISO 8601 upper bound, normalized to UTC.
+         */
+        until?: string;
+        /**
+         * Literal audit action prefix.
+         */
+        actionPrefix?: string;
+        /**
+         * Exact entity identity filter.
+         */
+        entityId?: string;
+        /**
+         * Exclude entity types before paging; repeated or comma-separated.
+         */
+        excludeEntityTypes?: Array<string>;
         /**
          * Exact audit action filter.
          */
         action?: string;
         /**
-         * Exact actor filter.
+         * Exact actor, or api for legacy API, API-key, and user actors.
          */
         actor?: string;
         /**
@@ -20924,15 +21741,31 @@ export type GetApiV1HistoryData = {
          */
         offset?: number;
         /**
-         * ISO 8601 lower bound.
+         * Inclusive ISO 8601 lower bound, normalized to UTC.
          */
         since?: string;
+        /**
+         * Inclusive ISO 8601 upper bound, normalized to UTC.
+         */
+        until?: string;
+        /**
+         * Literal audit action prefix.
+         */
+        actionPrefix?: string;
+        /**
+         * Exact entity identity filter.
+         */
+        entityId?: string;
+        /**
+         * Exclude entity types before paging; repeated or comma-separated.
+         */
+        excludeEntityTypes?: Array<string>;
         /**
          * Exact audit action filter.
          */
         action?: string;
         /**
-         * Exact actor filter.
+         * Exact actor, or api for legacy API, API-key, and user actors.
          */
         actor?: string;
         /**
@@ -27962,6 +28795,89 @@ export type GetApiV1ProjectsByNameGaPropertiesResponses = {
 
 export type GetApiV1ProjectsByNameGaPropertiesResponse = GetApiV1ProjectsByNameGaPropertiesResponses[keyof GetApiV1ProjectsByNameGaPropertiesResponses];
 
+export type GetApiV1ProjectsByNameGaAcquisitionData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Rolling window, default all; explicit dates take precedence.
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Inclusive calendar date.
+         */
+        startDate?: string;
+        /**
+         * Inclusive calendar date.
+         */
+        endDate?: string;
+        /**
+         * Case-insensitive exact channel group.
+         */
+        channel?: string;
+        /**
+         * Exact source.
+         */
+        source?: string;
+        /**
+         * Exact medium.
+         */
+        medium?: string;
+        /**
+         * Case-insensitive exact hostname.
+         */
+        hostName?: string;
+        /**
+         * Exact stored normalized page, including meaningful query parameters.
+         */
+        landingPage?: string;
+        /**
+         * Literal boundary-safe normalized path prefix; page query parameters do not affect this filter.
+         */
+        pathPrefix?: string;
+        /**
+         * Comma list: date,channelGroup,source,medium,hostName,landingPage. Default all six.
+         */
+        groupBy?: string;
+        /**
+         * Page size, default 100.
+         */
+        limit?: number;
+        /**
+         * Rows to skip, default 0.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/ga/acquisition';
+};
+
+export type GetApiV1ProjectsByNameGaAcquisitionErrors = {
+    /**
+     * Invalid selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGaAcquisitionError = GetApiV1ProjectsByNameGaAcquisitionErrors[keyof GetApiV1ProjectsByNameGaAcquisitionErrors];
+
+export type GetApiV1ProjectsByNameGaAcquisitionResponses = {
+    /**
+     * Stored grouped acquisition rows and filtered totals.
+     */
+    200: GaAcquisitionResponse;
+};
+
+export type GetApiV1ProjectsByNameGaAcquisitionResponse = GetApiV1ProjectsByNameGaAcquisitionResponses[keyof GetApiV1ProjectsByNameGaAcquisitionResponses];
+
 export type GetApiV1ProjectsByNameGaMeasurementAnalysisData = {
     body?: never;
     path: {
@@ -29254,6 +30170,44 @@ export type GetApiV1DoctorResponses = {
 
 export type GetApiV1DoctorResponse = GetApiV1DoctorResponses[keyof GetApiV1DoctorResponses];
 
+export type GetApiV1StatusData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Optional project name.
+         */
+        project?: string;
+        /**
+         * When true, return only projects and integrations with a problem.
+         */
+        problems?: boolean;
+    };
+    url: '/api/v1/status';
+};
+
+export type GetApiV1StatusErrors = {
+    /**
+     * Project is outside the API key scope.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1StatusError = GetApiV1StatusErrors[keyof GetApiV1StatusErrors];
+
+export type GetApiV1StatusResponses = {
+    /**
+     * Stored status returned.
+     */
+    200: InstanceStatusDto;
+};
+
+export type GetApiV1StatusResponse = GetApiV1StatusResponses[keyof GetApiV1StatusResponses];
+
 export type GetApiV1ProjectsByNameDoctorData = {
     body?: never;
     path: {
@@ -30241,6 +31195,73 @@ export type GetApiV1ProjectsByNameTrafficReferralAssessmentResponses = {
 };
 
 export type GetApiV1ProjectsByNameTrafficReferralAssessmentResponse = GetApiV1ProjectsByNameTrafficReferralAssessmentResponses[keyof GetApiV1ProjectsByNameTrafficReferralAssessmentResponses];
+
+export type GetApiV1ProjectsByNameTrafficSamplesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Default all includes classified samples only.
+         */
+        kind?: 'crawler' | 'ai-user-fetch' | 'ai-referral' | 'unknown' | 'all';
+        /**
+         * Restrict to a traffic source in this project.
+         */
+        sourceId?: string;
+        /**
+         * Inclusive ISO timestamp, default 24 hours before until.
+         */
+        since?: string;
+        /**
+         * Inclusive ISO timestamp, default now.
+         */
+        until?: string;
+        /**
+         * Literal normalized path prefix.
+         */
+        path?: string;
+        /**
+         * Page size, default 100.
+         */
+        limit?: number;
+        /**
+         * Rows to skip, default 0.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/traffic/samples';
+};
+
+export type GetApiV1ProjectsByNameTrafficSamplesErrors = {
+    /**
+     * Invalid selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Samples are unavailable to this principal.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTrafficSamplesError = GetApiV1ProjectsByNameTrafficSamplesErrors[keyof GetApiV1ProjectsByNameTrafficSamplesErrors];
+
+export type GetApiV1ProjectsByNameTrafficSamplesResponses = {
+    /**
+     * Stored sample page and sampling limits.
+     */
+    200: TrafficSamplesResponse;
+};
+
+export type GetApiV1ProjectsByNameTrafficSamplesResponse = GetApiV1ProjectsByNameTrafficSamplesResponses[keyof GetApiV1ProjectsByNameTrafficSamplesResponses];
 
 export type GetApiV1ProjectsByNameTrafficEventsData = {
     body?: never;

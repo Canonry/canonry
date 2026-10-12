@@ -345,6 +345,28 @@ describe('update-check', () => {
       expect(fetchSpy).not.toHaveBeenCalled()
     })
 
+    it('stored-only health checks never refresh a cold or stale cache', async () => {
+      const fetchSpy = vi.fn(async () => new Response(
+        JSON.stringify({ latest: '999.0.0' }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as unknown as typeof fetch
+      globalThis.fetch = fetchSpy
+
+      const { checkLatestVersionForServer, resetServerUpdateCheckCache, awaitPendingServerRefresh } = await import('../src/update-check.js')
+      await resetServerUpdateCheckCache()
+      expect(checkLatestVersionForServer({ storedOnly: true, now: () => 1_000_000 })).toBe(null)
+      expect(fetchSpy).not.toHaveBeenCalled()
+
+      expect(checkLatestVersionForServer({ now: () => 1_000_000 })).toBe(null)
+      await awaitPendingServerRefresh()
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+
+      const trap = vi.fn(async () => { throw new Error('stored-only health attempted refresh') }) as unknown as typeof fetch
+      globalThis.fetch = trap
+      expect(checkLatestVersionForServer({ storedOnly: true, ttlMs: 1, now: () => 1_000_002 })?.latest).toBe('999.0.0')
+      expect(trap).not.toHaveBeenCalled()
+    })
+
     it('never awaits the npm round-trip — returns synchronously even when fetch takes seconds', async () => {
       // Critical for /health probe budgets: the function must return
       // immediately even when the upstream registry is slow or hung.

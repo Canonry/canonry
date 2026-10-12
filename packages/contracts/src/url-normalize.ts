@@ -253,3 +253,12 @@ export function normalizeUrlPath(input: string | null | undefined): string | nul
   if (pairs.length === 0) return pathPart
   return `${pathPart}?${encodeQuery(pairs)}`
 }
+
+
+/** Normalize a landing-page prefix using the same URL identity as stored GA rows. */
+export function normalizePathPrefix(value: string | undefined): string | null {
+  if (!value) return null
+  const normalized = normalizeUrlPath(value)
+  if (!normalized) return null
+  return normalized.startsWith('/') ? normalized : `/${normalized}`
+}

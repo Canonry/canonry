@@ -542,7 +542,11 @@ importers:
         specifier: 1.4.4-r.3
         version: 1.4.4-r.3
 
-  packages/integration-google: {}
+  packages/integration-google:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/integration-google-ads:
     dependencies:

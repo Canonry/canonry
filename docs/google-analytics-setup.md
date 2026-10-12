@@ -186,3 +186,15 @@ You haven't connected GA4 to this project yet.
 **UI:** Navigate to the **Traffic** tab and use the connect form.
 
 **CLI:** Run `canonry ga connect` with your property ID and key file.
+
+### Stored acquisition detail
+
+`canonry ga acquisition <project>` exposes stored GA4 sessions by date, channel,
+source, medium, host and normalized landing page. Tracking-only query variants
+merge; meaningful query parameters stay distinct. Grouping and filtered totals
+run in SQL, with bounded pagination afterward. This read never calls Google.
+A never-synced project returns an empty result; a failed sync keeps old rows and
+reports its stored error. Coverage and sync timestamps describe stored evidence.
+Rows have no GA property identity, so older property data cannot be separated
+after changing a connection. GA4 can threshold or fold long tails into `(other)`;
+these are reported sessions, not a reconciliation with other GA totals.

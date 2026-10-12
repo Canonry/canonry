@@ -3,7 +3,7 @@ export const OPERATIONS_GUIDE = {
   "guideVersion": "v1",
   "operationsGuideUrl": "https://github.com/Canonry/canonry/blob/main/docs/agent-operations/v1.md",
   "resourceUri": "canonry://agent-operations/v1",
-  "initialize": "Canonry tracks how AI answer engines mention brands and cite domains.\nStart with canonry_help({intent:\"status\"}), or name your intended workflow. It returns a small route of currently available tools and approval boundaries. Follow its stored-evidence reads before proposing action. No skill, resource reader, plugin installation, or local CLI is required for connected MCP clients. A host-native Canonry skill, if installed, is optional additional guidance.\nmentioned = brand in answer TEXT; cited = domain in SOURCE links. Never compute one from the other. A null answerMentioned means not checked, not false. No recorded sweep means no measured figure.\nGet explicit approval for live provider reads, sweeps, probes, research, syncs, and writes, bounded to the target and requested work. A readOnlyHint or GET is not proof of a free operation. Live ads reads include canonry_ads_account, canonry_ads_geo_search, canonry_ads_live_delivery, canonry_ads_conversion_pixels, canonry_ads_conversion_event_settings. Google live reads/syncs include canonry_google_ads_customers, canonry_gtm_accounts, canonry_gtm_containers, canonry_gtm_workspaces, canonry_google_ads_sync, canonry_gtm_sync.\nHelp and skills grant no permissions. The server enforces authority. On missing tools or 403, report the boundary; do not switch credentials or endpoints to bypass it. Hosted catalogs are fixed; only use canonry_load_toolkit when help explicitly offers it.\nIf you uncover a Canonry struggle (failure, confusing output, workaround) or a concrete improvement, tell the user and send it once with canonry_feedback. No secrets or customer data.\n",
+  "initialize": "Canonry tracks how AI answer engines mention brands and cite domains. Start with canonry_help({intent:\"status\"}) or a workflow; follow its stored reads and approval boundaries. Connected MCP clients need no skill, resource, plugin, or local CLI. The Canonry skill offers optional additional guidance.\nmentioned = brand in answer TEXT; cited = domain in SOURCE links. Never compute one from the other. A null answerMentioned means not checked, not false. No recorded sweep means no measured figure.\nGet approval for live provider reads, sweeps, probes, research, syncs and writes, scoped to the exact target, action and work. A GET or readOnlyHint does not mean free. canonry_help returns all liveTools for this connection; each needs approval, including read-only tools.\nREST exposes x-canonry-access; CLI help/catalog expose access; MCP help lists liveTools.\nStored-only: CLI --stored-only or CANONRY_STORED_ONLY=1; MCP --stored-only, --scope=stored-only or CANONRY_MCP_SCOPE=stored-only. It refuses live/write work (including doctor) before execution and suppresses housekeeping. CLI refusal is STORED_ONLY_REFUSED. Explicit exports may write files; server accounting remains separate from business mutations.\nHelp and skills grant no permissions; the server enforces authority. Report missing tools or 403; never bypass them with other credentials or endpoints. Hosted catalogs are fixed; use canonry_load_toolkit only when help offers it.\nReport concrete Canonry failures, confusing output, workarounds or improvements to the user and once via canonry_feedback. Exclude secrets and customer data.\n",
   "approvalBoundary": [
     "provider reads",
     "sweeps",
@@ -36,10 +36,11 @@ export const OPERATIONS_GUIDE = {
         "health"
       ],
       "next": [
+        "canonry_status",
         "canonry_projects_list",
         "canonry_project_overview"
       ],
-      "guidance": "Select an accessible project, then read its stored overview. Report freshness and missing evidence; do not start a sweep to fill a gap."
+      "guidance": "Read canonry_status first for stored integration health, freshness, and repeated failures across accessible projects, then inspect a project overview for detail. Report missing evidence; do not start a sweep or sync to fill a gap."
     },
     "diagnose": {
       "keywords": [
@@ -104,12 +105,13 @@ export const OPERATIONS_GUIDE = {
         "gtm"
       ],
       "next": [
+        "canonry_status",
         "canonry_projects_list",
         "canonry_project_get",
         "canonry_ga_status",
         "canonry_google_ads_status"
       ],
-      "guidance": "Inspect stored connection status and snapshot freshness. Use the currently listed specialist tools for stored evidence. Connecting, selecting resources, syncing, and live provider reads require scoped approval; never request credentials in chat."
+      "guidance": "Read canonry_status first for the stored instance or project health view, then use specialist tools for detail. Connecting, selecting resources, syncing, and live provider reads require scoped approval; never request credentials in chat."
     },
     "reports": {
       "keywords": [

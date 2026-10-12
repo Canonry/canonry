@@ -13,6 +13,7 @@ import {
   runKindSchema,
   runStatusSchema,
   sentimentOutcomeSchema,
+  operationAccess,
 } from '@ainyc/canonry-contracts'
 import {
   buildComponentSchemas,
@@ -43,7 +44,7 @@ export interface OpenApiInfo {
   includeCanonryLocal?: boolean
 }
 
-type HttpMethod = 'get' | 'post' | 'put' | 'delete'
+type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete'
 
 interface OpenApiParameter {
   name: string
@@ -412,6 +413,13 @@ const runsListSinceQueryParameter: OpenApiParameter = {
   name: 'since',
   in: 'query',
   description: 'Only return runs with created_at >= this ISO 8601 timestamp. Defaults to 30 days ago.',
+  schema: stringSchema,
+}
+
+const projectRunsSinceQueryParameter: OpenApiParameter = {
+  name: 'since',
+  in: 'query',
+  description: 'Only return runs created at or after this ISO 8601 timestamp. Omitted means no lower bound.',
   schema: stringSchema,
 }
 
@@ -893,6 +901,28 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Project updated.', 'ProjectDto'),
       201: jsonResponse('Project created.', 'ProjectDto'),
+    },
+  },
+  {
+    method: 'patch',
+    path: '/api/v1/projects/{name}',
+    summary: 'Update named project fields',
+    description: 'Updates only the named project fields. Omitted fields keep their stored values, measurement lists merge one level, and expectedConfigRevision provides compare-and-swap protection.',
+    tags: ['projects'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/ProjectPatchRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Project updated.', 'ProjectDto'),
+      400: errorResponse('Invalid project patch.'),
+      404: errorResponse('Project not found.'),
+      409: errorResponse('The project revision is stale.'),
     },
   },
   {
@@ -1861,9 +1891,15 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/export',
     summary: 'Export a project as config',
     tags: ['projects'],
-    parameters: [nameParameter],
+    parameters: [nameParameter, {
+      name: 'includeSecrets',
+      in: 'query',
+      description: 'Include webhook URLs. Requires administrator authority or a wildcard API key.',
+      schema: booleanSchema,
+    }],
     responses: {
       200: jsonResponse('Project configuration returned.', 'ProjectConfigExport'),
+      403: errorResponse('Webhook URLs require administrator authority.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -2206,6 +2242,7 @@ const routeCatalog: OpenApiOperation[] = [
             required: ['competitors'],
             properties: {
               competitors: stringArraySchema,
+              acknowledgeBulkAdd: { type: 'boolean', description: 'Acknowledge a measured project bulk-add guard when the trailing 24-hour growth exceeds the contract threshold.' },
             },
           },
         },
@@ -2385,6 +2422,47 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/projects/{name}/competitor-suggestions',
+    summary: 'Suggest competitors from stored evidence',
+    description: 'Returns evidence-backed competitor candidates from stored answer text and same-answer cited domains. This is a stored-evidence read: it never calls a provider, discovery, live classification, or write path. A cited domain without answer naming is excluded as a source, and queryClass defaults to non-brand for Advanced frozen assignments or a usable Simple project brand alias, and pooled all otherwise. Advanced scope defaults to all markets; groupKey selects one market.',
+    tags: ['competitors'],
+    parameters: [
+      nameParameter,
+      analyticsWindowParameter,
+      { name: 'minAnswers', in: 'query', description: 'Minimum answer count for a suggested candidate. Defaults to 3.', schema: { type: 'integer', minimum: 1, maximum: 1000 } },
+      { name: 'queryClass', in: 'query', description: 'One query population. Defaults to non-brand when the project can classify queries, otherwise all pooled.', schema: { type: 'string', enum: ['non-brand', 'branded', 'all'] } },
+      { ...competitorLandscapeGroupKeyParameter, description: 'Select one Advanced market by group key. Omit for all markets; Simple projects use project scope.' },
+      { name: 'limit', in: 'query', description: 'Maximum candidate rows returned. Defaults to 25 and is capped at 100.', schema: { type: 'integer', minimum: 1, maximum: 100 } },
+    ],
+    responses: {
+      200: jsonResponse('Stored-evidence competitor suggestions returned.', 'CompetitorSuggestionsResponse'),
+      400: errorResponse('Invalid suggestion filters or query class.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/competitor-changes/preview',
+    summary: 'Preview competitor identity impact',
+    description: 'Read-only preview of the stored competitor identity and the resulting latest-sweep competitor landscape share. It performs no write, audit, provider, or discovery operation.',
+    tags: ['competitors'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/CompetitorChangePreviewRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Competitor change preview returned.', 'CompetitorChangePreviewResponse'),
+      400: errorResponse('Invalid competitor change or stored identity plan.'),
+      404: errorResponse('Project or competitor not found.'),
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/projects/{name}/runs',
     summary: 'Trigger a project run',
@@ -2450,7 +2528,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/runs',
     summary: 'List project runs',
     tags: ['runs'],
-    parameters: [nameParameter, limitQueryParameter, runsListKindQueryParameter, runsListExcludeKindQueryParameter, runsListExcludeKindsQueryParameter, runsListStatusQueryParameter],
+    parameters: [nameParameter, limitQueryParameter, runsListKindQueryParameter, runsListExcludeKindQueryParameter, runsListExcludeKindsQueryParameter, runsListStatusQueryParameter, projectRunsSinceQueryParameter],
     responses: {
       200: jsonArrayResponse('Runs returned.', 'RunDto'),
     },
@@ -2631,6 +2709,26 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'post',
+    path: '/api/v1/apply/preview',
+    summary: 'Preview a Canonry config document',
+    description: 'Validate and simulate a config apply. The transaction is rolled back before the response and no audit rows, callbacks, or database writes persist. Webhook validation still resolves DNS to preserve the real apply verdict.',
+    tags: ['config'],
+    requestBody: {
+      required: true,
+      description: 'Canonry project configuration as JSON.',
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/ProjectConfig' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Apply preview.', 'ApplyPreviewDto'),
+      400: errorResponse('Invalid config.'),
+    },
+  },
+  {
     method: 'get',
     path: '/api/v1/projects/{name}/history',
     summary: 'Get project audit history',
@@ -2639,9 +2737,13 @@ const routeCatalog: OpenApiOperation[] = [
       nameParameter,
       limitQueryParameter,
       offsetQueryParameter,
-      { name: 'since', in: 'query', description: 'ISO 8601 lower bound.', schema: stringSchema },
+      { name: 'since', in: 'query', description: 'Inclusive ISO 8601 lower bound, normalized to UTC.', schema: stringSchema },
+      { name: 'until', in: 'query', description: 'Inclusive ISO 8601 upper bound, normalized to UTC.', schema: stringSchema },
+      { name: 'actionPrefix', in: 'query', description: 'Literal audit action prefix.', schema: stringSchema },
+      { name: 'entityId', in: 'query', description: 'Exact entity identity filter.', schema: stringSchema },
+      { name: 'excludeEntityTypes', in: 'query', description: 'Exclude entity types before paging; repeated or comma-separated.', style: 'form', explode: true, schema: { type: 'array', items: stringSchema } },
       { name: 'action', in: 'query', description: 'Exact audit action filter.', schema: stringSchema },
-      { name: 'actor', in: 'query', description: 'Exact actor filter.', schema: stringSchema },
+      { name: 'actor', in: 'query', description: 'Exact actor, or api for legacy API, API-key, and user actors.', schema: stringSchema },
       { name: 'entityType', in: 'query', description: 'Exact entity type filter.', schema: stringSchema },
     ],
     responses: {
@@ -2656,9 +2758,13 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [
       limitQueryParameter,
       offsetQueryParameter,
-      { name: 'since', in: 'query', description: 'ISO 8601 lower bound.', schema: stringSchema },
+      { name: 'since', in: 'query', description: 'Inclusive ISO 8601 lower bound, normalized to UTC.', schema: stringSchema },
+      { name: 'until', in: 'query', description: 'Inclusive ISO 8601 upper bound, normalized to UTC.', schema: stringSchema },
+      { name: 'actionPrefix', in: 'query', description: 'Literal audit action prefix.', schema: stringSchema },
+      { name: 'entityId', in: 'query', description: 'Exact entity identity filter.', schema: stringSchema },
+      { name: 'excludeEntityTypes', in: 'query', description: 'Exclude entity types before paging; repeated or comma-separated.', style: 'form', explode: true, schema: { type: 'array', items: stringSchema } },
       { name: 'action', in: 'query', description: 'Exact audit action filter.', schema: stringSchema },
-      { name: 'actor', in: 'query', description: 'Exact actor filter.', schema: stringSchema },
+      { name: 'actor', in: 'query', description: 'Exact actor, or api for legacy API, API-key, and user actors.', schema: stringSchema },
       { name: 'entityType', in: 'query', description: 'Exact entity type filter.', schema: stringSchema },
     ],
     responses: {
@@ -5988,6 +6094,29 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/ga/acquisition',
+    summary: 'Read stored GA4 acquisition sessions with grouping and paging',
+    description: 'Stored GA4 reported sessions only; no Google call. Default grain is date, channel, source, medium, host and normalized landing page. Only tracking query variants merge; meaningful query parameters remain. totalSessions covers the full filtered set, independent of grouping and pagination. Rows lack property identity, so older property data cannot be separated after a connection change. Project-only for Simple and Advanced portfolios. GA4 may threshold or fold long tails into (other); no reconciliation against other GA totals is implied.',
+    tags: ['ga4'],
+    parameters: [
+      nameParameter,
+      { name: 'window', in: 'query', description: 'Rolling window, default all; explicit dates take precedence.', schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] } },
+      { name: 'startDate', in: 'query', description: 'Inclusive calendar date.', schema: stringSchema },
+      { name: 'endDate', in: 'query', description: 'Inclusive calendar date.', schema: stringSchema },
+      { name: 'channel', in: 'query', description: 'Case-insensitive exact channel group.', schema: stringSchema },
+      { name: 'source', in: 'query', description: 'Exact source.', schema: stringSchema },
+      { name: 'medium', in: 'query', description: 'Exact medium.', schema: stringSchema },
+      { name: 'hostName', in: 'query', description: 'Case-insensitive exact hostname.', schema: stringSchema },
+      { name: 'landingPage', in: 'query', description: 'Exact stored normalized page, including meaningful query parameters.', schema: stringSchema },
+      { name: 'pathPrefix', in: 'query', description: 'Literal boundary-safe normalized path prefix; page query parameters do not affect this filter.', schema: stringSchema },
+      { name: 'groupBy', in: 'query', description: 'Comma list: date,channelGroup,source,medium,hostName,landingPage. Default all six.', schema: stringSchema },
+      { name: 'limit', in: 'query', description: 'Page size, default 100.', schema: { type: 'integer', minimum: 1, maximum: 1000 } },
+      { name: 'offset', in: 'query', description: 'Rows to skip, default 0.', schema: { type: 'integer', minimum: 0 } },
+    ],
+    responses: { 200: jsonResponse('Stored grouped acquisition rows and filtered totals.', 'GaAcquisitionResponse'), 400: errorResponse('Invalid selection.'), 404: errorResponse('Project not found.') },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/ga/measurement-analysis',
     summary: 'Get GA4 measurement analysis',
     tags: ['ga4'],
@@ -6590,6 +6719,22 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/status',
+    summary: 'Read stored integration status',
+    description: 'Reads stored synchronization state for every visible project. This endpoint performs no provider calls and does not run or write doctor checks.',
+    tags: ['status'],
+    parameters: [
+      { name: 'project', in: 'query', description: 'Optional project name.', schema: stringSchema },
+      { name: 'problems', in: 'query', description: 'When true, return only projects and integrations with a problem.', schema: booleanSchema },
+    ],
+    responses: {
+      200: jsonResponse('Stored status returned.', 'InstanceStatusDto'),
+      403: errorResponse('Project is outside the API key scope.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/doctor',
     summary: 'Run project health checks',
     description:
@@ -7140,6 +7285,24 @@ const routeCatalog: OpenApiOperation[] = [
       400: errorResponse('Invalid or unsupported selection.'),
       404: errorResponse('Project or source not found.'),
     },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/traffic/samples',
+    summary: 'Read a stored sampled tail of server-side traffic evidence',
+    description: 'Stored rows only, with 30-day retention. Samples are not visits or sessions. Default kind excludes unknown traffic. Project/source attribution only for Simple and Advanced projects. Signed-in viewers and embedded dashboards cannot read samples. API read keys retain normal project scope. No provider calls or writes.',
+    tags: ['traffic'],
+    parameters: [
+      nameParameter,
+      { name: 'kind', in: 'query', description: 'Default all includes classified samples only.', schema: { type: 'string', enum: ['crawler', 'ai-user-fetch', 'ai-referral', 'unknown', 'all'] } },
+      { name: 'sourceId', in: 'query', description: 'Restrict to a traffic source in this project.', schema: stringSchema },
+      { name: 'since', in: 'query', description: 'Inclusive ISO timestamp, default 24 hours before until.', schema: stringSchema },
+      { name: 'until', in: 'query', description: 'Inclusive ISO timestamp, default now.', schema: stringSchema },
+      { name: 'path', in: 'query', description: 'Literal normalized path prefix.', schema: stringSchema },
+      { name: 'limit', in: 'query', description: 'Page size, default 100.', schema: { type: 'integer', minimum: 1, maximum: 500 } },
+      { name: 'offset', in: 'query', description: 'Rows to skip, default 0.', schema: { type: 'integer', minimum: 0 } },
+    ],
+    responses: { 200: jsonResponse('Stored sample page and sampling limits.', 'TrafficSamplesResponse'), 400: errorResponse('Invalid selection.'), 403: errorResponse('Samples are unavailable to this principal.'), 404: errorResponse('Project not found.') },
   },
   {
     method: 'get',
@@ -7874,6 +8037,7 @@ export function buildOpenApiDocument(info: OpenApiInfo = {}) {
       tags: route.tags,
       responses: route.responses,
       operationId: buildOperationId(route.method, route.path),
+      'x-canonry-access': operationAccess(route.method, route.path),
     }
 
     if (route.description) operation.description = route.description

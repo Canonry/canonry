@@ -10,9 +10,16 @@ catalog is split across a small **core tier** (always loaded) and the
 loads on demand via `canonry_load_toolkit`. The catalog coalesces enable
 side effects so each `canonry_load_toolkit` call emits exactly one
 `notifications/tools/list_changed`. Pass `--read-only` to surface
-only the read tools, or `--eager` (or `CANONRY_MCP_EAGER=1`) to register
+only the read tools, `--stored-only` or `--scope=stored-only` to expose only
+stored evidence reads, or `--eager` (or `CANONRY_MCP_EAGER=1`) to register
 every tool at startup like the previous flat catalog. Auth is inherited
 from `~/.canonry/config.yaml`.
+
+Stored-only is also selected by `CANONRY_STORED_ONLY=1` or
+`CANONRY_MCP_SCOPE=stored-only` and is monotonic if later options request a
+wider scope. Provider and write tools are refused before an HTTP request, with
+`STORED_ONLY_REFUSED` on CLI surfaces; hosted catalogs remain fixed and server
+startup or autonomous jobs are unchanged.
 
 Key files:
 - `packages/canonry/src/mcp/server.ts` — `createCanonryMcpServer` (one client per server instance, registers core tier + meta tools)
@@ -86,6 +93,8 @@ canonry mcp config  --client codex                   # print snippet for clients
 MCP workflows (agent): inspect → diagnose → act. Inspect: get-project / visibility-report / property / property-evidence / visibility-stats / bing coverage ; diagnose: doctor / coverage-refresh / technical-aeo score ; act: query add/replace, measurement-plan publish, gsc sitemap submit (gsc-sitemap-submission), discovery promote. Start with canonry_help(intent); native skills are optional. Only progressive stdio offers canonry_load_toolkit. Permissions remain server-enforced.
 
 ## Kept out of MCP on purpose
+
+- `canonry help` describes the local CLI binary and has no API route. MCP discovery remains `canonry_help({ includeCatalog: true })`, which describes the tool catalog.
 
 - MCP/Aero expose task-shaped Site Health overview/page-audit/subgraph/path/changes reads; the 20k/50k Sigma layout payload stays API/dashboard-only. CLI aliases: `canonry site-health overview|pages|page-audit|structure|links|neighbors|dead-links|subgraph|path|changes`.
 - Ads archive is classified `deferred`: it is irreversible and stays a human API surface.

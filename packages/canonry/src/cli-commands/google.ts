@@ -1,3 +1,4 @@
+import { WINDOW_SETS } from '@ainyc/canonry-contracts'
 import {
   googleConnect,
   googleCoverage,
@@ -35,7 +36,7 @@ import {
 import { usageError } from '../cli-error.js'
 
 const GOOGLE_PERFORMANCE_USAGE =
-  'canonry google performance <project> [--days <n> | --start <YYYY-MM-DD> --end <YYYY-MM-DD>] [--keyword <kw>] [--page <url>] [--limit <n>] [--offset <n>] [--order-by clicks|impressions|date] [--format json]'
+  'canonry google performance <project> [--window 7d|30d|90d|all] [--days <n> | --start <YYYY-MM-DD> --end <YYYY-MM-DD>] [--keyword <kw>] [--page <url>] [--limit <n>] [--offset <n>] [--order-by clicks|impressions|date] [--format json]'
 
 const GOOGLE_QUERY_TOTALS_USAGE =
   'canonry google query-totals <project> [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--window 7d|30d|90d|all] [--limit <n>] [--offset <n>] [--format json]'
@@ -179,6 +180,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['google', 'performance'],
+    windows: WINDOW_SETS.metrics,
     usage: GOOGLE_PERFORMANCE_USAGE,
     options: {
       days: stringOption(),
@@ -211,6 +213,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
         )
       }
       await googlePerformance(project, {
+        window: getString(input.values, 'window'),
         days,
         startDate,
         endDate,
@@ -233,6 +236,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['google', 'performance-daily'],
+    windows: WINDOW_SETS.metrics,
     usage: 'canonry google performance-daily <project> [--window 7d|30d|90d|all] [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--format json]',
     options: {
       window: stringOption(),
@@ -251,6 +255,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['google', 'top-pages'],
+    windows: WINDOW_SETS.metrics,
     usage: 'canonry google top-pages <project> [--window 7d|30d|90d|all] [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--limit <n>] [--format json]',
     options: {
       window: stringOption(),
@@ -276,6 +281,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['google', 'query-totals'],
+    windows: WINDOW_SETS.metrics,
     usage: GOOGLE_QUERY_TOTALS_USAGE,
     options: {
       window: stringOption(),

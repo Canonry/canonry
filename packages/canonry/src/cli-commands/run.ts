@@ -7,7 +7,30 @@ import { providerDispatchModeSchema, type ProviderDispatchMode } from '@ainyc/ca
 const RUN_TRIGGER_USAGE = 'canonry run trigger <project> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--force] [--wait] [--format json]'
 const RUN_USAGE = 'canonry run <project|--all> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--force] [--wait] [--format json]'
 const RUN_FILL_USAGE = 'canonry run fill <run-id> [--provider <name>[,<name>]] [--dry-run] [--wait] [--format json]'
-const RUNS_USAGE = 'canonry runs <project> [--limit <n>] [--kind <kind>] [--exclude-kind <kind>] [--exclude-kinds <kind>[,<kind>]]... [--status <status>] [--format json]'
+const RUNS_USAGE = 'canonry runs <project> [--limit <n>] [--kind <kind>] [--exclude-kind <kind>] [--exclude-kinds <kind>[,<kind>]]... [--status <status>] [--since <ISO>] [--format json|jsonl]'
+
+const RUN_LIST_USAGE = RUNS_USAGE.replace('canonry runs', 'canonry run list')
+const RUN_LIST_OPTIONS = {
+  limit: stringOption(),
+  kind: stringOption(),
+  'exclude-kind': stringOption(),
+  'exclude-kinds': multiStringOption(),
+  status: stringOption(),
+  since: stringOption(),
+}
+
+async function listRunsCommand(input: CliCommandInput): Promise<void> {
+  const project = requireProject(input, 'runs', RUNS_USAGE)
+  await listRuns(project, {
+    format: input.format,
+    limit: parseIntegerOption(input, 'limit', { command: 'runs', usage: RUNS_USAGE, message: '--limit must be an integer' }),
+    kind: getString(input.values, 'kind'),
+    excludeKind: getString(input.values, 'exclude-kind'),
+    excludeKinds: getStringArray(input.values, 'exclude-kinds'),
+    status: getString(input.values, 'status'),
+    since: getString(input.values, 'since'),
+  })
+}
 
 const RUN_TRIGGER_OPTIONS = {
   provider: stringOption(),
@@ -205,31 +228,17 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
     run: (input) => triggerRunCommand(input, 'run'),
   },
   {
+    path: ['run', 'list'],
+    usage: RUN_LIST_USAGE,
+    options: RUN_LIST_OPTIONS,
+    run: (input) => input.positionals.length === 0
+      ? triggerRunCommand({ ...input, positionals: ['list'] }, 'run')
+      : listRunsCommand(input),
+  },
+  {
     path: ['runs'],
     usage: RUNS_USAGE,
-    options: {
-      limit: stringOption(),
-      kind: stringOption(),
-      'exclude-kind': stringOption(),
-      'exclude-kinds': multiStringOption(),
-      status: stringOption(),
-    },
-    run: async (input) => {
-      const project = requireProject(input, 'runs', RUNS_USAGE)
-      // Filters pass through as typed; the server validates them against
-      // the run enums and its 400 names the allowed values.
-      await listRuns(project, {
-        format: input.format,
-        limit: parseIntegerOption(input, 'limit', {
-          command: 'runs',
-          usage: RUNS_USAGE,
-          message: '--limit must be an integer',
-        }),
-        kind: getString(input.values, 'kind'),
-        excludeKind: getString(input.values, 'exclude-kind'),
-        excludeKinds: getStringArray(input.values, 'exclude-kinds'),
-        status: getString(input.values, 'status'),
-      })
-    },
+    options: RUN_LIST_OPTIONS,
+    run: listRunsCommand,
   },
 ]

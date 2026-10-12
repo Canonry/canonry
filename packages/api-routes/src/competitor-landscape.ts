@@ -28,12 +28,15 @@ import {
   registrableDomain,
   RunKinds,
   RunStatuses,
+  RunTriggers,
   measurementDraftEtag,
   normalizeCompetitorDomain,
   surfaceClassFromCompetitorType,
   validationError,
   windowCutoff,
   type CompetitorLandscapeQueryClass,
+  type CompetitorLandscapeQuery,
+  type CompetitorIdentityInput,
   type CompetitorLandscapeModelComparison,
   type CompetitorLandscapeResponse,
 } from '@ainyc/canonry-contracts'
@@ -63,18 +66,18 @@ type RawQuery = {
   answers?: string
 }
 
-interface LandscapePin extends CompetitorLandscapeIdentity {
+export interface LandscapePin extends CompetitorLandscapeIdentity {
   aliases: string[]
 }
 
-interface FrozenPlanScope {
+export interface FrozenPlanScope {
   executionNodeKeys: Set<string>
   queryClassesByExecution: Map<string, Set<'branded' | 'non-brand'>>
   competitors: LandscapePin[]
   mentioned: (answerText: string | null, executionId: string | null, citedUrls: readonly string[]) => boolean | null
 }
 
-interface AdvancedScope {
+export interface AdvancedScope {
   kind: 'group' | 'all-markets'
   groupKey?: string
   activePinned: LandscapePin[]
@@ -82,6 +85,142 @@ interface AdvancedScope {
   activeRevision: number
   draft: { etag: string; pendingCompetitorDomains: string[] } | null
   runScopes: Map<string, FrozenPlanScope>
+}
+
+export interface LandscapePopulationSelection {
+  runIds?: readonly string[]
+  snapshotIds?: readonly string[]
+  answerTextCap?: number
+}
+
+export const COMPETITOR_SUGGESTION_MAX_ANSWER_ROWS = 10_000
+
+/** The pooled pin identity used by the landscape and suggestion readers. */
+export function selectLandscapePinnedIdentities(
+  advanced: AdvancedScope | null,
+  projectPins: readonly LandscapePin[],
+  marketNames: ReadonlyMap<string, readonly string[]>,
+): LandscapePin[] {
+  const marketPinned = mergePins(advanced?.pendingPins ?? [], advanced?.activePinned ?? [], projectPins)
+  return marketNames.size === 0 ? marketPinned : mergePins(marketPinned, marketPinned.flatMap((pin) => {
+    const learned = marketNames.get(normalizeCompetitorDomain(pin.domain))
+    return learned ? [{ domain: pin.domain, label: pin.label, labelSource: 'domain' as const, aliases: [...learned] }] : []
+  }))
+}
+
+/** Shared stored run and snapshot population used by landscape and suggestions. */
+export function selectLandscapePopulation(
+  app: Pick<FastifyInstance, 'db'>,
+  projectName: string,
+  filters: CompetitorLandscapeQuery,
+  selection?: LandscapePopulationSelection,
+) {
+  const project = resolveProject(app.db, projectName)
+  const cutoff = windowCutoff(parseWindow(filters.window))
+  const latestRunIds = filters.runId === LATEST_RUN_ID
+    ? latestSweepRuns(app.db, project.id).map(run => run.id)
+    : null
+  const candidateRuns = app.db.select().from(runs).where(and(
+    eq(runs.projectId, project.id),
+    eq(runs.kind, RunKinds['answer-visibility']),
+    selection?.runIds ? inArray(runs.id, [...selection.runIds]) : undefined,
+    latestRunIds ? inArray(runs.id, latestRunIds) : filters.runId ? eq(runs.id, filters.runId) : undefined,
+    cutoff ? gte(runs.createdAt, cutoff) : undefined,
+  )).all()
+  const advanced = filters.groupKey || filters.scope === 'all-markets'
+    ? resolveAdvancedScope(app, project.id, filters.groupKey ? 'group' : 'all-markets', filters.groupKey, candidateRuns)
+    : null
+  const queryTextById = new Map(app.db.select({ id: queries.id, query: queries.query })
+    .from(queries).where(eq(queries.projectId, project.id)).all().map(row => [row.id, row.query]))
+  const queryClassifier = projectQueryClassifier(project)
+  if (!advanced && filters.queryClass && filters.queryClass !== 'all' && !queryClassifier) {
+    throw validationError(
+      `Query class "${filters.queryClass}" needs a brand name or alias on this project. Add one, or omit queryClass for a pooled landscape.`,
+    )
+  }
+  const allSnapshots = candidateRuns.length === 0
+    ? []
+    : app.db.select({
+      id: querySnapshots.id,
+      runId: querySnapshots.runId,
+      queryId: querySnapshots.queryId,
+      queryText: querySnapshots.queryText,
+      provider: querySnapshots.provider,
+      model: querySnapshots.model,
+      servedModel: querySnapshots.servedModel,
+      answerMentioned: querySnapshots.answerMentioned,
+      answerText: selection?.answerTextCap === undefined
+        ? querySnapshots.answerText
+        : sql<string | null>`null`,
+      recommendedCompetitors: querySnapshots.recommendedCompetitors,
+      citedDomains: querySnapshots.citedDomains,
+      citedUrls: querySnapshots.citedUrls,
+      captureStatus: querySnapshots.captureStatus,
+      rawResponse: selection?.answerTextCap === undefined && advanced && filters.answers === 'not-mentioned'
+        ? sql<string | null>`case when ${querySnapshots.citedUrls} is null then ${querySnapshots.rawResponse} else null end`
+        : sql<string | null>`null`,
+      location: querySnapshots.location,
+      measurementExecutionId: querySnapshots.measurementExecutionId,
+      createdAt: querySnapshots.createdAt,
+    }).from(querySnapshots).where(inArray(querySnapshots.runId, candidateRuns.map(run => run.id))).all()
+  const runById = new Map(candidateRuns.map(run => [run.id, run]))
+  const selectedIds = selection?.snapshotIds ? new Set(selection.snapshotIds) : null
+  const inScope = allSnapshots.filter(snapshot => (!selectedIds || selectedIds.has(snapshot.id)) && snapshotMatchesFilters({
+    snapshot,
+    filters,
+    advanced,
+    queryTextById,
+    queryClassifier,
+  }))
+  const eligibleRuns = new Set(candidateRuns
+    .filter(run => run.trigger !== RunTriggers.probe && (run.status === RunStatuses.completed || run.status === RunStatuses.partial))
+    .map(run => run.id))
+  const eligibleSnapshots = inScope.filter(snapshot => eligibleRuns.has(snapshot.runId))
+  if (selection?.answerTextCap !== undefined && eligibleSnapshots.length > selection.answerTextCap) {
+    throw validationError(
+      `Competitor suggestions cover ${eligibleSnapshots.length} eligible answer rows, exceeding the ${selection.answerTextCap}-row exact-read limit. Narrow the window or select one Advanced market with groupKey and try again.`,
+      {
+        reason: 'competitor-suggestions-answer-cap',
+        eligibleAnswers: eligibleSnapshots.length,
+        maxAnswers: selection.answerTextCap,
+        window: filters.window ?? 'all',
+        queryClass: filters.queryClass ?? 'all',
+        groupKey: filters.groupKey ?? null,
+        guidance: ['narrow the window', 'use groupKey for one Advanced market'],
+      },
+    )
+  }
+  const hydratedInScope = selection?.answerTextCap === undefined || eligibleSnapshots.length === 0
+    ? inScope
+    : (() => {
+      const answerTextById = new Map(app.db.select({ id: querySnapshots.id, answerText: querySnapshots.answerText })
+        .from(querySnapshots)
+        .where(inArray(querySnapshots.id, eligibleSnapshots.map(snapshot => snapshot.id)))
+        .all()
+        .map(row => [row.id, row.answerText]))
+      return inScope.map(snapshot => eligibleRuns.has(snapshot.runId)
+        ? { ...snapshot, answerText: answerTextById.get(snapshot.id) ?? null }
+        : snapshot)
+    })()
+  return {
+    project,
+    filters,
+    candidateRuns,
+    advanced,
+    queryTextById,
+    queryClassifier,
+    allSnapshots,
+    runById,
+    inScope: hydratedInScope,
+    eligibleRuns,
+    excludedProbeResults: inScope.filter(snapshot => runById.get(snapshot.runId)?.trigger === RunTriggers.probe).length,
+    excludedNonCompletedResults: inScope.filter(snapshot => {
+      const run = runById.get(snapshot.runId)
+      return run !== undefined && run.trigger !== RunTriggers.probe
+        && run.status !== RunStatuses.completed && run.status !== RunStatuses.partial
+    }).length,
+    eligibleSnapshots: hydratedInScope.filter(snapshot => eligibleRuns.has(snapshot.runId)),
+  }
 }
 
 /** Pins are always complete; ranked historical discovery/source lists are bounded. */
@@ -263,6 +402,36 @@ export function readCompetitorIdentityChangedAt(db: Pick<DatabaseClient, 'select
   return renamed !== null && renamed > audited ? renamed : audited
 }
 
+/**
+ * When the tracked competitor set last changed, or null when it never did.
+ * Replacements written by older servers had no added/removed arrays, so those
+ * rows are changes conservatively. A current no-op replacement carries both
+ * arrays as empty lists and is deliberately ignored.
+ */
+export function readCompetitorSetChangedAt(db: Pick<DatabaseClient, 'select'>, projectId: string): string | null {
+  const diff = auditLog.diff
+  const row = db.select({ at: sql<string | null>`max(${auditLog.createdAt})` })
+    .from(auditLog)
+    .where(and(
+      eq(auditLog.projectId, projectId),
+      or(
+        sql`(${auditLog.action} = 'competitors.appended' AND json_type(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.added') = 'array' AND json_array_length(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.added') > 0)`,
+        sql`(${auditLog.action} = 'competitors.deleted' AND json_type(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.deleted') = 'array' AND json_array_length(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.deleted') > 0)`,
+        sql`(${auditLog.action} = 'discovery.promoted' AND json_type(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.competitors') = 'array' AND json_array_length(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.competitors') > 0)`,
+        sql`(${auditLog.action} = 'competitors.replaced' AND (
+          json_type(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.added') IS NULL
+          OR json_type(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.removed') IS NULL
+          OR json_type(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.added') <> 'array'
+          OR json_type(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.removed') <> 'array'
+          OR json_array_length(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.added') > 0
+          OR json_array_length(CASE WHEN json_valid(${diff}) THEN ${diff} ELSE '{}' END, '$.removed') > 0
+        ))`,
+      ),
+    ))
+    .get()
+  return row?.at ?? null
+}
+
 /** Run ids newest first (id DESC within one timestamp), capped for the response. */
 export function pooledRunIds(pooled: ReadonlyArray<Pick<typeof runs.$inferSelect, 'id' | 'createdAt'>>): string[] {
   return [...pooled]
@@ -279,9 +448,10 @@ export function readCompetitorLandscape(
   projectName: string,
   query: RawQuery,
   selection?: { runIds: readonly string[]; snapshotIds?: readonly string[]; autoAdvanced?: boolean },
+  identity?: { projectCompetitors?: readonly CompetitorIdentityInput[]; marketNames?: ReadonlyMap<string, string[]> },
 ): CompetitorLandscapeResponse {
     const project = resolveProject(app.db, projectName)
-    const parsed = competitorLandscapeQuerySchema.safeParse(query)
+    const parsed = competitorLandscapeQuerySchema.safeParse({ ...query, ...(query.window !== undefined ? { window: parseWindow(query.window) } : {}) })
     if (!parsed.success) {
       throw validationError('Invalid competitor landscape query', { issues: parsed.error.issues })
     }
@@ -296,85 +466,18 @@ export function readCompetitorLandscape(
     if ((selection?.autoAdvanced || classSplitByDefault)
       && activeMeasurementPlan(app.db, project.id)?.plan.schemaVersion === 2) filters.scope = 'all-markets'
     const window = parseWindow(filters.window)
-    const cutoff = windowCutoff(window)
-    // `latest` names the sweep the measurement reads display, so a class read
-    // no longer has to pool every sweep in the window to avoid guessing an id.
-    const latestRunIds = filters.runId === LATEST_RUN_ID
-      ? latestSweepRuns(app.db, project.id).map(run => run.id)
-      : null
-
-    // Pull the selected run population before deciding which observations count.
-    // The explicit excluded counts below make probe and non-terminal omission
-    // auditable without letting either kind pollute competitive metrics.
-    const candidateRuns = app.db.select().from(runs).where(and(
-      eq(runs.projectId, project.id),
-      eq(runs.kind, RunKinds['answer-visibility']),
-      selection ? inArray(runs.id, [...selection.runIds]) : undefined,
-      latestRunIds ? inArray(runs.id, latestRunIds) : filters.runId ? eq(runs.id, filters.runId) : undefined,
-      cutoff ? gte(runs.createdAt, cutoff) : undefined,
-    )).all()
-    const advanced = filters.groupKey || filters.scope === 'all-markets'
-      ? resolveAdvancedScope(app, project.id, filters.groupKey ? 'group' : 'all-markets', filters.groupKey, candidateRuns)
-      : null
-
-    const queryTextById = new Map(app.db.select({ id: queries.id, query: queries.query })
-      .from(queries)
-      .where(eq(queries.projectId, project.id))
-      .all()
-      .map(row => [row.id, row.query]))
-    const queryClassifier = projectQueryClassifier(project)
-    // Simple projects split classes from the query text. Without a usable brand
-    // alias there is no split, and every result would silently fail the class
-    // filter and read as an empty landscape rather than as an unanswerable one.
-    if (!advanced && filters.queryClass && filters.queryClass !== 'all' && !queryClassifier) {
-      throw validationError(
-        `Query class "${filters.queryClass}" needs a brand name or alias on this project. Add one, or omit queryClass for a pooled landscape.`,
-      )
-    }
-
-    const allSnapshots = candidateRuns.length === 0
-      ? []
-      : app.db.select({
-        id: querySnapshots.id,
-        runId: querySnapshots.runId,
-        queryId: querySnapshots.queryId,
-        queryText: querySnapshots.queryText,
-        provider: querySnapshots.provider,
-        model: querySnapshots.model,
-        servedModel: querySnapshots.servedModel,
-        answerMentioned: querySnapshots.answerMentioned,
-        answerText: querySnapshots.answerText,
-        recommendedCompetitors: querySnapshots.recommendedCompetitors,
-        citedDomains: querySnapshots.citedDomains,
-        citedUrls: querySnapshots.citedUrls,
-        captureStatus: querySnapshots.captureStatus,
-        rawResponse: advanced && filters.answers === 'not-mentioned'
-          ? sql<string | null>`case when ${querySnapshots.citedUrls} is null then ${querySnapshots.rawResponse} else null end`
-          : sql<string | null>`null`,
-        location: querySnapshots.location,
-        measurementExecutionId: querySnapshots.measurementExecutionId,
-        createdAt: querySnapshots.createdAt,
-      }).from(querySnapshots).where(inArray(querySnapshots.runId, candidateRuns.map(run => run.id))).all()
-
-    const runById = new Map(candidateRuns.map(run => [run.id, run]))
-    const selectedIds = selection?.snapshotIds ? new Set(selection.snapshotIds) : null
-    const inScope = allSnapshots.filter(snapshot => (!selectedIds || selectedIds.has(snapshot.id)) && snapshotMatchesFilters({
-      snapshot,
-      filters,
+    const population = selectLandscapePopulation(app, projectName, filters, selection)
+    const {
+      candidateRuns,
       advanced,
       queryTextById,
-      queryClassifier,
-    }))
-    const eligibleRuns = new Set(candidateRuns
-      .filter(run => run.trigger !== 'probe' && (run.status === RunStatuses.completed || run.status === RunStatuses.partial))
-      .map(run => run.id))
-    const excludedProbeResults = inScope.filter(snapshot => runById.get(snapshot.runId)?.trigger === 'probe').length
-    const excludedNonCompletedResults = inScope.filter(snapshot => {
-      const run = runById.get(snapshot.runId)
-      return run !== undefined && run.trigger !== 'probe'
-        && run.status !== RunStatuses.completed && run.status !== RunStatuses.partial
-    }).length
-    const eligibleSnapshots = inScope.filter(snapshot => eligibleRuns.has(snapshot.runId))
+      runById,
+      inScope,
+      eligibleRuns,
+      eligibleSnapshots,
+      excludedProbeResults,
+      excludedNonCompletedResults,
+    } = population
     let unknownMentionAnswers = 0
     const simpleMentionInputs = !advanced && filters.answers === 'not-mentioned'
       ? buildMentionShareInputs({ project, competitors: [], snapshots: eligibleSnapshots, queryTextById })
@@ -413,26 +516,24 @@ export function readCompetitorLandscape(
 
     // Curated and auto-detected aliases reinterpret stored history at read
     // time, like the pin itself; the generated domain label stays the display label.
-    const projectPins = app.db.select(competitorIdentityColumns)
+    const projectPinInputs = identity?.projectCompetitors ?? app.db.select(competitorIdentityColumns)
       .from(competitors)
       .where(eq(competitors.projectId, project.id))
       .orderBy(competitors.domain)
       .all()
-      .map(row => ({
+    const projectPins = projectPinInputs.map(row => ({
         domain: row.domain,
         label: brandLabelFromDomain(row.domain) || row.domain,
         labelSource: 'domain' as const,
         aliases: competitorIdentityAliases(row),
       }))
-    const marketPinned = mergePins(advanced?.pendingPins ?? [], advanced?.activePinned ?? [], projectPins)
     // Names learned for a competitor only a market pins reinterpret history
     // like a project pin's auto names do, and only on that pin: never a new
     // pin, never a project competitor's.
-    const marketNames = advanced ? readMarketCompetitorNames(app.db, project.id) : new Map<string, string[]>()
-    const pinned = marketNames.size === 0 ? marketPinned : mergePins(marketPinned, marketPinned.flatMap((pin) => {
-      const learned = marketNames.get(normalizeCompetitorDomain(pin.domain))
-      return learned ? [{ domain: pin.domain, label: pin.label, labelSource: 'domain' as const, aliases: learned }] : []
-    }))
+    const marketNames = advanced
+      ? identity?.marketNames ?? readMarketCompetitorNames(app.db, project.id)
+      : new Map<string, string[]>()
+    const pinned = selectLandscapePinnedIdentities(advanced, projectPins, marketNames)
     const buildHistory = (selectedSnapshots: typeof snapshots) => {
       const inputs = buildMentionShareInputs({ project, competitors: [], snapshots: selectedSnapshots, queryTextById })
       // Sorted by answer count, so the cap keeps the most-named. On a large
@@ -538,6 +639,16 @@ export function readCompetitorLandscape(
       }
     }
 
+    const competitorIdentityChangedAt = readCompetitorIdentityChangedAt(app.db, project.id)
+    const competitorSetChangedAt = readCompetitorSetChangedAt(app.db, project.id)
+    const oldestCountedRunAt = countedRuns.reduce<string | null>((oldest, run) => (
+      oldest === null || run.createdAt < oldest ? run.createdAt : oldest
+    ), null)
+    const competitorListRestated = oldestCountedRunAt !== null
+      && [competitorIdentityChangedAt, competitorSetChangedAt].some(changedAt => (
+        changedAt !== null && changedAt > oldestCountedRunAt
+      ))
+
     const response: CompetitorLandscapeResponse = {
       window,
       scope: advanced?.kind === 'group'
@@ -572,7 +683,9 @@ export function readCompetitorLandscape(
       runCount: countedRuns.length,
       runIds: pooledRunIds(countedRuns),
       countUnits: COMPETITOR_LANDSCAPE_COUNT_UNITS,
-      competitorIdentityChangedAt: readCompetitorIdentityChangedAt(app.db, project.id),
+      competitorIdentityChangedAt,
+      competitorSetChangedAt,
+      competitorListRestated,
       ...(filters.answers !== 'not-mentioned' ? {} : {
         answerSelection: { answers: filters.answers, populationSize: eligibleSnapshots.length, answerCount: snapshots.length, unknownMentionAnswers },
       }),
@@ -581,7 +694,7 @@ export function readCompetitorLandscape(
     return response
 }
 
-function resolveAdvancedScope(
+export function resolveAdvancedScope(
   app: Pick<FastifyInstance, 'db'>,
   projectId: string,
   kind: AdvancedScope['kind'],
@@ -776,8 +889,9 @@ function pendingDraftPins(
   }))
 }
 
-function snapshotMatchesFilters(input: {
+export function snapshotMatchesFilters(input: {
   snapshot: {
+    runId?: string
     queryId: string | null
     queryText: string | null
     provider: string

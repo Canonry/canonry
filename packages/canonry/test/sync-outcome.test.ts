@@ -35,6 +35,7 @@ function createTempDb() {
   db.insert(runs).values([
     { id: 'run_manual', projectId: 'proj_1', kind: 'gsc-sync', status: 'queued', trigger: 'manual', createdAt: NOW },
     { id: 'run_scheduled', projectId: 'proj_1', kind: 'inspect-sitemap', status: 'queued', trigger: 'scheduled', createdAt: NOW },
+    { id: 'run_scheduled_sync', projectId: 'proj_1', kind: 'gsc-sync', status: 'queued', trigger: 'scheduled', createdAt: NOW },
   ]).run()
   return db
 }
@@ -177,6 +178,19 @@ describe('run outcomes', () => {
   it('keeps a run the server queued as scheduled even when a request was active', async () => {
     const db = createTempDb()
     await reportFromRequest(db, 'run_scheduled', { 'user-agent': 'Mozilla/5.0' })
+    expect(trackEvent).toHaveBeenCalledWith(
+      'feature.completed',
+      {
+        feature: 'search_console', operation: 'sync', trigger: 'scheduled', surface: 'system',
+        status: 'succeeded', durationBucket: 'under_1s', counts: { rows: 4 },
+      },
+      undefined,
+    )
+  })
+
+  it('keeps a scheduled sync row scheduled even when a browser request is active', async () => {
+    const db = createTempDb()
+    await reportFromRequest(db, 'run_scheduled_sync', { 'user-agent': 'Mozilla/5.0' })
     expect(trackEvent).toHaveBeenCalledWith(
       'feature.completed',
       {

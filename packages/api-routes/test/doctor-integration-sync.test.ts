@@ -287,7 +287,7 @@ describe('integration sync failure checks', () => {
       expect(check.supersededBy?.length, check.id).toBeGreaterThan(0)
       for (const causeId of check.supersededBy ?? []) {
         const cause = ALL_CHECKS.find(candidate => candidate.id === causeId)
-        expect(cause, `${check.id} -> ${causeId}`).toMatchObject({ category: CheckCategories.auth, scope: check.scope })
+        expect(cause, `${check.id} -> ${causeId}`).toMatchObject({ category: causeId.endsWith('.api.reachable') ? CheckCategories.integrations : CheckCategories.auth, scope: check.scope })
         expect(scheduledHealthCheckIds()).toContain(causeId)
       }
     }
@@ -324,6 +324,20 @@ describe('integration sync failure checks', () => {
       code: 'google-ads.sync.recent-failures.superseded',
       details: { supersededBy: ['google-ads.auth.scopes'], supersededCode: 'google-ads.sync.repeated-failures', consecutiveFailures: 3 },
     })
+  })
+
+  it('lets a deterministic API DNS block supersede repeated sync failures, while a warning does not', async () => {
+    connectGoogleAds()
+    for (const days of [3, 2, 1]) adsFailure(daysAgo(days))
+    const blocked = ctx({ probeApiHost: async host => ({ host, kind: 'null-routed' as const, addresses: ['0.0.0.0'], durationMs: 1 }) })
+    const blockedReport = await runChecks(blocked, ALL_CHECKS, { checkIds: scheduledHealthCheckIds() })
+    expect(blockedReport.checks.find(check => check.id === 'google-ads.api.reachable')).toMatchObject({ status: 'fail', code: 'google-ads.api.dns-blocked' })
+    expect(blockedReport.checks.find(check => check.id === 'google-ads.sync.recent-failures')).toMatchObject({ status: 'skipped', code: 'google-ads.sync.recent-failures.superseded' })
+
+    const warning = ctx({ probeApiHost: async host => ({ host, kind: 'connect-failed' as const, addresses: ['192.0.2.10'], durationMs: 1 }) })
+    const warningReport = await runChecks(warning, ALL_CHECKS, { checkIds: scheduledHealthCheckIds() })
+    expect(warningReport.checks.find(check => check.id === 'google-ads.api.reachable')).toMatchObject({ status: 'warn', code: 'google-ads.api.connect-failed' })
+    expect(warningReport.checks.find(check => check.id === 'google-ads.sync.recent-failures')).toMatchObject({ status: 'fail', code: 'google-ads.sync.repeated-failures' })
   })
   // Search Console as a scheduled pass sees it: a connection with a refresh
   // token and the scopes it needs, and the last three syncs failing on DNS.

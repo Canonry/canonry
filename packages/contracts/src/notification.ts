@@ -1,6 +1,25 @@
 import { z } from 'zod'
 import type { GbpReviewOrigin } from './gbp.js'
 
+export const REDACTED_NOTIFICATION_URL_PROTOCOL = 'redacted:'
+
+export function buildRedactedNotificationUrl(host: string, id: string): string {
+  return `${REDACTED_NOTIFICATION_URL_PROTOCOL}//${host}/${id}`
+}
+
+export function isRedactedNotificationUrl(url: string): boolean {
+  if (url.startsWith(`${REDACTED_NOTIFICATION_URL_PROTOCOL}//`)) return true
+  try {
+    const parsed = new URL(url)
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+      && parsed.pathname === '/redacted'
+      && parsed.search === ''
+      && parsed.hash === ''
+  } catch {
+    return false
+  }
+}
+
 export const notificationEventSchema = z.enum([
   'citation.lost',
   'citation.gained',

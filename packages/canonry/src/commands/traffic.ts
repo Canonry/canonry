@@ -1,4 +1,4 @@
-import { referralAssessmentQuerySchema, type ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
+import { formatValidationIssues, trafficSamplesQuerySchema, type TrafficSamplesQuery, referralAssessmentQuerySchema, type ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
 import type {
   RunDetailDto,
   TrafficBackfillResponse,
@@ -999,6 +999,32 @@ function formatEventLine(event: TrafficEventEntry): string {
   }
 }
 
+export async function trafficSamples(project: string, opts: Omit<TrafficSamplesQuery, 'kind'> & { kind?: string; sinceMinutes?: number; format?: string }): Promise<void> {
+  const { format, sinceMinutes, ...input } = opts
+  if (sinceMinutes !== undefined) {
+    if (!Number.isSafeInteger(sinceMinutes) || sinceMinutes <= 0 || !Number.isFinite(Date.now() - sinceMinutes * 60_000)) throw usageError('--since-minutes must be a positive integer')
+    if (input.since) throw usageError('--since and --since-minutes cannot be combined')
+    const end = input.until === undefined ? Date.now() : Date.parse(input.until)
+    if (!Number.isFinite(end) || !Number.isFinite(new Date(end - sinceMinutes * 60_000).getTime())) throw usageError('Invalid traffic sample time window')
+    input.since = new Date(end - sinceMinutes * 60_000).toISOString()
+  }
+  const parsed = trafficSamplesQuerySchema.safeParse(input)
+  if (!parsed.success) throw usageError(formatValidationIssues(parsed.error.issues), { details: { issues: parsed.error.issues.map(({ path, message }) => ({ path, message })) } })
+  const result = await createApiClient().trafficListSamples(project, parsed.data)
+  if (isMachineFormat(format)) {
+    if (format === 'jsonl') emitJsonl(result.samples.map(sample => ({ project, windowStart: result.windowStart, windowEnd: result.windowEnd, ...sample })))
+    else console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  console.log(`Stored traffic samples for "${project}": ${result.samples.length} of ${result.totalRows} matching sample rows. Sampled tail, not visits; use traffic events for totals.`)
+  console.log('Retention: 30 days. Caps: 100 per sync, 500 per backfill, 100 per source per push hour.')
+  console.log('traffic status shows the last-24h sample count per source, including unknown samples. This selection excludes unknown unless requested.')
+  for (const sample of result.samples) {
+    const classifier = sample.classifier.aiReferral ?? sample.classifier.aiUserFetch ?? sample.classifier.crawler
+    console.log([sample.ts, sample.kind, sample.status ?? '-', sample.pathNormalized, sample.refererHost ?? '-', classifier?.product ?? '-', sample.userAgent ?? '-'].join('  '))
+  }
+}
+
 export async function trafficEvents(project: string, opts: {
   kind?: string
   sinceMinutes?: number
@@ -1095,8 +1121,9 @@ export async function trafficEvents(project: string, opts: {
 /** Separate diagnostic: existing traffic/report headlines retain their meaning. */
 export async function trafficReferralAssessment(project: string, options: Partial<ReferralAssessmentQuery> & { format?: string }): Promise<void> {
   const { format, ...query } = options
+  if (!query.startDate || !query.endDate) throw usageError('--start and --end are required for traffic referral-assessment.')
   const parsed = referralAssessmentQuerySchema.safeParse(query)
-  if (!parsed.success) throw new CliError({ code: 'TRAFFIC_INVALID_ASSESSMENT', message: parsed.error.message })
+  if (!parsed.success) throw new CliError({ code: 'TRAFFIC_INVALID_ASSESSMENT', message: formatValidationIssues(parsed.error.issues) })
   const result = await createApiClient().trafficReferralAssessment(project, parsed.data)
   if (isMachineFormat(format)) { console.log(JSON.stringify(result, null, 2)); return }
   console.log(`AI referral assessment for "${project}" · ${result.window.startDate} to ${result.window.endDate} UTC`)

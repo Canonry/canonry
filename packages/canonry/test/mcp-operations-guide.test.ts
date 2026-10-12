@@ -39,7 +39,7 @@ describe('universal MCP operations guidance', () => {
     const response = await client.callTool({ name: 'canonry_help', arguments: { intent: 'status' } })
     expect(response.isError).not.toBe(true)
     const help = response.structuredContent!
-    expect(help).toMatchObject({ guideVersion: 'v1', mode: 'hosted-fixed-catalog', next: ['canonry_projects_list', 'canonry_project_overview'] })
+    expect(help).toMatchObject({ guideVersion: 'v1', mode: 'hosted-fixed-catalog', next: ['canonry_status', 'canonry_projects_list', 'canonry_project_overview'] })
     expect(help).not.toHaveProperty('loadToolkits')
     expect(help).not.toHaveProperty('toolkits')
     expect(JSON.stringify(help).length).toBeLessThan(2000)
@@ -50,6 +50,38 @@ describe('universal MCP operations guidance', () => {
     await client.callTool({ name: 'canonry_project_overview', arguments: { project: 'demo' } })
     expect(listProjects).toHaveBeenCalledOnce()
     expect(getProjectOverview).toHaveBeenCalledOnce()
+  })
+
+  it('preserves the complete live tool list when includeCatalog expands help', async () => {
+    const { client } = await connect({ tiers: CANONRY_MCP_TIERS })
+    const compact = await client.callTool({ name: 'canonry_help', arguments: { intent: 'status' } })
+    const expanded = await client.callTool({ name: 'canonry_help', arguments: { intent: 'status', includeCatalog: true } })
+    const compactLive = compact.structuredContent?.liveTools as string[]
+    const expandedLive = expanded.structuredContent?.liveTools as string[]
+    const billedTools = [
+      'canonry_ads_account',
+      'canonry_ads_geo_search',
+      'canonry_ads_live_delivery',
+      'canonry_ads_conversion_pixels',
+      'canonry_ads_conversion_event_settings',
+    ]
+    const googleMarketingDiscoveryTools = [
+      'canonry_google_ads_customers',
+      'canonry_gtm_accounts',
+      'canonry_gtm_containers',
+      'canonry_gtm_workspaces',
+    ]
+    expect(expandedLive).toEqual(compactLive)
+    expect(expandedLive).toContain('canonry_ga_properties')
+    expect(compactLive).toEqual(expect.arrayContaining([...billedTools, ...googleMarketingDiscoveryTools]))
+    expect(expandedLive).toEqual(expect.arrayContaining([...billedTools, ...googleMarketingDiscoveryTools]))
+    for (const name of ['canonry_google_ads_sync', 'canonry_gtm_sync']) {
+      const tool = canonryMcpTools.find(candidate => candidate.name === name)
+      expect(tool).toMatchObject({
+        access: 'write',
+        annotations: { readOnlyHint: false, openWorldHint: true },
+      })
+    }
   })
 
   it.each(CANONRY_MCP_TIERS)('only routes to offered stored reads on hosted %s profiles', async tier => {

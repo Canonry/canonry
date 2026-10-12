@@ -25,7 +25,7 @@ import {
   formatChartDateTick,
   type TrendChartSeries,
 } from '../shared/ChartPrimitives.js'
-import { calendarDateRange, formatPercent, type GscPeriodComparison } from '@ainyc/canonry-contracts'
+import { calendarDateRange, formatPercent, formatRunErrorOneLine, RunKinds, RunStatuses, type GscPeriodComparison } from '@ainyc/canonry-contracts'
 import { formatTimestamp, formatBooleanState, SearchMetric, SEARCH_METRIC_LABELS } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
@@ -53,6 +53,7 @@ import {
   type ApiGscCoverageSummary,
 } from '../../api.js'
 import {
+  getApiV1ProjectsByNameRunsOptions,
   getApiV1ProjectsByNameGoogleConnectionsOptions,
   getApiV1ProjectsByNameGoogleGscCoverageHistoryOptions,
   getApiV1ProjectsByNameGoogleGscCoverageOptions,
@@ -393,6 +394,7 @@ export function GscSection({
   // instead of a raw error string. Mutually exclusive with `error`.
   const [actionNeeded, setActionNeeded] = useState<GscActionNeeded | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [savedSyncError, setSavedSyncError] = useState<string | null>(null)
 
   // Classify a thrown GSC error: a recognized "Action needed" remediation
   // (enable-API) renders as the amber banner; everything else is a plain inline
@@ -799,6 +801,21 @@ export function GscSection({
     }
   }
 
+  async function loadSavedSyncStatus() {
+    try {
+      const runs = await queryClient.fetchQuery({
+        ...getApiV1ProjectsByNameRunsOptions({ client: heyClient, path: { name: projectName }, query: { kind: RunKinds['gsc-sync'], limit: 1 } }),
+        staleTime: GSC_STALE_MS,
+      })
+      const latest = runs[0]
+      setSavedSyncError(latest?.status === RunStatuses.failed && latest.error
+        ? `Last saved Search Console sync failed: ${formatRunErrorOneLine(latest.error)}`
+        : null)
+    } catch {
+      setSavedSyncError('Saved Search Console sync status is unavailable.')
+    }
+  }
+
   async function loadSection() {
     setLoading(true)
     setError(null)
@@ -814,18 +831,30 @@ export function GscSection({
       setConnections(conns)
 
       const currentConn = conns.find((c) => c.connectionType === 'gsc')
+      setSelectedProperty(currentConn?.propertyId ?? '')
       await Promise.all([
-        publicDemo ? Promise.resolve() : loadProperties(currentConn),
+        !publicDemo && currentConn && !currentConn.propertyId ? loadProperties(currentConn) : Promise.resolve(),
+        !publicDemo && currentConn ? loadSavedSyncStatus() : Promise.resolve(),
         loadPerformanceRows(),
         loadPerformanceDaily(),
         loadInspectionHistory(),
         loadCoverage(),
-        !publicDemo && currentConn?.propertyId ? handleListSitemaps() : Promise.resolve(),
       ])
     } finally {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    setProperties([])
+    setSetupExpanded(false)
+    setDiscoveredSitemaps(null)
+    setSitemapSummary(null)
+    setPreferredSubmissionUrls([])
+    setSavedSyncError(null)
+    setActionNeeded(null)
+    setNotice(null)
+  }, [projectName])
 
   // Reloads on mount, on project switch, and when a project-level "Refresh search data"
   // bumps refreshNonce (after it syncs Google data and invalidates the cache).
@@ -1029,6 +1058,8 @@ export function GscSection({
           <h2>Google Search Console</h2>
         </div>
       </div>
+
+      {savedSyncError && <p role="status" className="mb-3 text-sm text-caution">{savedSyncError}</p>}
 
       {actionNeeded && (
         <div className="mb-3 rounded-lg border border-caution-800/40 bg-caution-950/20 px-3 py-2.5 text-sm text-caution-200">
@@ -1845,7 +1876,7 @@ export function GscSection({
                     disabled={listingSitemaps || !gscConn?.propertyId}
                     onClick={() => void handleListSitemaps()}
                   >
-                    {listingSitemaps ? 'Reloading\u2026' : 'Reload from Google'}
+                    {listingSitemaps ? 'Loading\u2026' : discoveredSitemaps === null ? 'Load from Google' : 'Reload from Google'}
                   </Button>
                 </div>
                 <div className="mt-3 flex flex-col gap-2 lg:flex-row">
@@ -1898,6 +1929,7 @@ export function GscSection({
                     <button type="button" className="text-secondary underline hover:text-strong" onClick={asyncHandler(handleConnect)}>Reconnect</button>
                   </div>
                 )}
+                {discoveredSitemaps === null && <p className="mt-3 text-sm text-secondary">Load sitemaps from Google to view them and enable resubmission.</p>}
                 {discoveredSitemaps && (
                   <div className="mt-3 overflow-x-auto">
                     {discoveredSitemaps.length > 0 ? (
@@ -2102,7 +2134,10 @@ export function GscSection({
                 <button
                   type="button"
                   className="flex w-full items-center gap-2 text-left"
-                  onClick={() => setSetupExpanded((prev) => !prev)}
+                  onClick={() => {
+                    if (!setupExpanded) void loadProperties(gscConn)
+                    setSetupExpanded((prev) => !prev)
+                  }}
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"

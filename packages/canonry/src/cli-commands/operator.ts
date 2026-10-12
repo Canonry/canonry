@@ -1,3 +1,4 @@
+import { WINDOW_SETS } from '@ainyc/canonry-contracts'
 import { applyConfigs } from '../commands/apply.js'
 import { showAnalytics } from '../commands/analytics.js'
 import { SOURCES_USAGE, parseSourcesIncludeByQuery, parseSourcesQueryClass, showSources } from '../commands/sources.js'
@@ -74,10 +75,13 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['status'],
-    usage: 'canonry status <project> [--format json]',
+    usage: 'canonry status <project>|--all [--problems] [--format json|jsonl]',
+    options: { all: { type: 'boolean', default: false }, problems: { type: 'boolean', default: false } },
     run: async (input) => {
-      const project = requireProject(input, 'status', 'canonry status <project> [--format json]')
-      await showStatus(project, input.format)
+      const all = getBoolean(input.values, 'all')
+      const usage = 'canonry status <project>|--all [--problems] [--format json|jsonl]'
+      const project = all ? undefined : requireProject(input, 'status', usage)
+      await showStatus(project, input.format, { all, problems: getBoolean(input.values, 'problems') })
     },
   },
   {
@@ -90,23 +94,32 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['history'],
-    usage: 'canonry history <project> [--limit <1..500>] [--offset <n>] [--since <ISO>] [--action <action>] [--actor <actor>] [--entity-type <type>] [--format json|jsonl]\n       canonry history --all [same filters]',
+    usage: 'canonry history <project> [--limit <1..500>] [--offset <n>] [--since <ISO>] [--until <ISO>] [--action <action>] [--action-prefix <prefix>] [--actor <actor>] [--entity-type <type>] [--exclude-entity-type <type>]... [--entity-id <id>] [--format json|jsonl]\n       canonry history --all [same filters]',
     options: {
       all: { type: 'boolean', default: false },
       limit: stringOption(),
       offset: stringOption(),
       since: stringOption(),
+      until: stringOption(),
+      'action-prefix': stringOption(),
+      'exclude-entity-type': multiStringOption(),
+      'entity-id': stringOption(),
       action: stringOption(),
       actor: stringOption(),
       'entity-type': stringOption(),
     },
     run: async (input) => {
-      const usage = 'canonry history <project> [--limit <1..500>] [--offset <n>] [--since <ISO>] [--action <action>] [--actor <actor>] [--entity-type <type>] [--format json|jsonl]\n       canonry history --all [same filters]'
+      const usage = 'canonry history <project> [--limit <1..500>] [--offset <n>] [--since <ISO>] [--until <ISO>] [--action <action>] [--action-prefix <prefix>] [--actor <actor>] [--entity-type <type>] [--exclude-entity-type <type>]... [--entity-id <id>] [--format json|jsonl]\n       canonry history --all [same filters]'
+      if (getBoolean(input.values, 'all') && input.positionals.length > 0) throw usageError('Use a project or --all, not both.')
       const project = getBoolean(input.values, 'all') ? undefined : requireProject(input, 'history', usage)
       await showHistory(project, input.format, {
         limit: parseHistoryPageOption(input, 'limit', usage),
         offset: parseHistoryPageOption(input, 'offset', usage),
         since: getString(input.values, 'since'),
+        until: getString(input.values, 'until'),
+        actionPrefix: getString(input.values, 'action-prefix'),
+        excludeEntityTypes: getStringArray(input.values, 'exclude-entity-type'),
+        entityId: getString(input.values, 'entity-id'),
         action: getString(input.values, 'action'),
         actor: getString(input.values, 'actor'),
         entityType: getString(input.values, 'entity-type'),
@@ -115,20 +128,23 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['export'],
-    usage: 'canonry export <project> [--include-results] [--format json]',
+    usage: 'canonry export <project> [--include-results] [--include-secrets] [--format json]',
     options: {
       'include-results': { type: 'boolean', default: false },
+      'include-secrets': { type: 'boolean', default: false },
     },
     run: async (input) => {
-      const project = requireProject(input, 'export', 'canonry export <project> [--include-results] [--format json]')
+      const project = requireProject(input, 'export', 'canonry export <project> [--include-results] [--include-secrets] [--format json]')
       await exportProject(project, {
         includeResults: getBoolean(input.values, 'include-results'),
+        includeSecrets: getBoolean(input.values, 'include-secrets'),
         format: input.format,
       })
     },
   },
   {
     path: ['analytics'],
+    windows: WINDOW_SETS.metrics,
     usage: 'canonry analytics <project> [--feature metrics|gaps|sources] [--window 7d|30d|90d|all] [--format json]',
     options: {
       feature: stringOption(),
@@ -145,6 +161,7 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['sources'],
+    windows: WINDOW_SETS.metrics,
     usage: SOURCES_USAGE,
     options: {
       rank: { type: 'boolean', default: false },
@@ -175,18 +192,20 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['apply'],
-    usage: 'canonry apply <file...> [--format json]',
+    help: 'Each document is previewed independently against current stored state; earlier previews do not change later ones. Webhook URL validation can resolve DNS.',
+    usage: 'canonry apply <file...> [--dry-run] [--format json]',
+    supportsDryRun: true,
     run: async (input) => {
       if (input.positionals.length === 0) {
         throw usageError('Error: at least one file path is required\nUsage: canonry apply <file...> [--format json]', {
           message: 'at least one file path is required',
           details: {
             command: 'apply',
-            usage: 'canonry apply <file...> [--format json]',
+            usage: 'canonry apply <file...> [--dry-run] [--format json]',
           },
         })
       }
-      await applyConfigs(input.positionals, input.format)
+      await applyConfigs(input.positionals, input.format, { dryRun: input.dryRun })
     },
   },
 ]
