@@ -1,5 +1,26 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { buildCompetitorSuggestions } from '../src/competitor-suggestions.js'
+
+/**
+ * Counts matcher builds and answer-text walks. Walking the text again for
+ * every candidate is what stalled a wide scan. A wall-clock limit on that
+ * fails on a slow runner, so the bound is on the work itself.
+ */
+const matcherWork = vi.hoisted(() => ({ builds: 0, textWalks: 0 }))
+vi.mock('@ainyc/canonry-contracts', async importOriginal => {
+  const actual = await importOriginal<typeof import('@ainyc/canonry-contracts')>()
+  return {
+    ...actual,
+    compileBrandAliases: (...args: Parameters<typeof actual.compileBrandAliases>) => {
+      matcherWork.builds++
+      return actual.compileBrandAliases(...args)
+    },
+    aliasOccurrencesAsWritten: (...args: Parameters<typeof actual.aliasOccurrencesAsWritten>) => {
+      matcherWork.textWalks++
+      return actual.aliasOccurrencesAsWritten(...args)
+    },
+  }
+})
 
 const project = {
   domain: 'subject.example',
@@ -47,7 +68,8 @@ describe('buildCompetitorSuggestions', () => {
       'Stored answer prose contains no candidate business name.',
       domains,
     ))
-    const started = Date.now()
+    matcherWork.builds = 0
+    matcherWork.textWalks = 0
     const result = await buildCompetitorSuggestions({
       project,
       minAnswers: 3,
@@ -59,7 +81,8 @@ describe('buildCompetitorSuggestions', () => {
 
     expect(result.candidates).toHaveLength(domains.length)
     expect(result.candidates.every(candidate => candidate.namingAnswers === 0)).toBe(true)
-    expect(Date.now() - started).toBeLessThan(3_000)
+    expect(matcherWork.builds).toBe(1)
+    expect(matcherWork.textWalks).toBe(answers.length)
   })
 
   it('uses stored subdomain classifications and includes naming-only sweeps in the evidence span', async () => {
