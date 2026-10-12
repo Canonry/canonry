@@ -75,6 +75,7 @@ function storedOnlyEarlyRefusal(args: readonly string[]): CliError | null {
     .find(candidate => candidate.path.every((segment, index) => args[index] === segment))
   if (!spec) return null
   const access = resolveCliAccess(spec)
+  if (spec.accessFor) return null
   if (access === OperationAccesses.stored) return null
   return new CliError({
     code: 'STORED_ONLY_REFUSED',
@@ -147,7 +148,11 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   const storedOnlyMode = storedOnlyRequested(args)
   const format = extractFormat(args)
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
-    printCliCatalog(REGISTERED_CLI_COMMANDS, format)
+    const accessArg = args.find(arg => arg === '--access' || arg.startsWith('--access='))
+    const access = accessArg?.startsWith('--access=')
+      ? accessArg.slice('--access='.length)
+      : accessArg ? args[args.indexOf(accessArg) + 1] : undefined
+    printCliCatalog(REGISTERED_CLI_COMMANDS, format, undefined, access)
     return 0
   }
 

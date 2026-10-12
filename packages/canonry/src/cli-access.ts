@@ -1,5 +1,5 @@
 import type { OperationAccess } from '@ainyc/canonry-contracts'
-import type { CliCommandSpec } from './cli-dispatch.js'
+import type { CliAccessContext, CliCommandSpec } from './cli-dispatch.js'
 
 const CLI_ACCESS_BY_ID: Readonly<Record<string, OperationAccess>> = Object.freeze({
   'ads.account': 'live',
@@ -93,8 +93,8 @@ const CLI_ACCESS_BY_ID: Readonly<Record<string, OperationAccess>> = Object.freez
   'citations.visibility': 'stored',
   'competitor': 'write',
   'competitor.add': 'write',
-  'competitor.aliases': 'write',
-  'competitor.aliases.detect': 'write',
+  'competitor.aliases': 'stored',
+  'competitor.aliases.detect': 'stored',
   'competitor.delete': 'write',
   'competitor.import': 'write',
   'competitor.landscape': 'stored',
@@ -164,7 +164,7 @@ const CLI_ACCESS_BY_ID: Readonly<Record<string, OperationAccess>> = Object.freez
   'gbp.reviews': 'stored',
   'gbp.summary': 'stored',
   'gbp.sync': 'write',
-  'get': 'live',
+  'get': 'stored',
   'google': 'write',
   'google-ads.customers': 'live',
   'google-ads.disconnect': 'write',
@@ -310,7 +310,7 @@ const CLI_ACCESS_BY_ID: Readonly<Record<string, OperationAccess>> = Object.freez
   'sentiment.jobs': 'stored',
   'sentiment.settings': 'stored',
   'serve': 'write',
-  'settings': 'write',
+  'settings': 'stored',
   'settings.google': 'write',
   'settings.provider': 'write',
   'settings.reload-providers': 'write',
@@ -393,6 +393,10 @@ export function resolveCliAccess(spec: CliCommandSpec): OperationAccess {
   const access = CLI_ACCESS_BY_ID[id]
   if (!access) throw new Error(`Missing CLI operation access classification: ${id}`)
   return access
+}
+
+export function resolveCliAccessForInvocation(spec: CliCommandSpec, input: CliAccessContext): OperationAccess {
+  return spec.accessFor?.(input) ?? resolveCliAccess(spec)
 }
 
 export function cliAccessClassificationIds(): readonly string[] {

@@ -3,6 +3,7 @@ import { parseArgs } from 'node:util'
 import type { ParseArgsOptionsConfig } from 'node:util'
 import { OperationAccesses, type OperationAccess } from '@ainyc/canonry-contracts'
 import { CliError, EXIT_USER_ERROR, type CliFormat, usageError } from './cli-error.js'
+import { resolveCliAccessForInvocation } from './cli-access.js'
 
 type CliValue = string | boolean | string[] | boolean[] | undefined
 
@@ -20,6 +21,8 @@ export type CliCommandInput = {
    */
   dryRun: boolean
 }
+
+export type CliAccessContext = Pick<CliCommandInput, 'positionals' | 'values' | 'dryRun'>
 
 export type CliCommandSpec = {
   path: readonly string[]
@@ -40,6 +43,8 @@ export type CliCommandSpec = {
   windowAliases?: WindowAliases
   /** Execution boundary shown in help and the generated catalog. */
   access?: OperationAccess
+  /** Resolve access for flags that change a command from a write to a stored preview. */
+  accessFor?: (input: CliAccessContext) => OperationAccess
   run: (input: CliCommandInput) => Promise<void> | void
 }
 
@@ -64,7 +69,8 @@ export function commandUsage(spec: CliCommandSpec): string {
 
 function printCommandHelp(spec: CliCommandSpec): void {
   console.log(`\nUsage:  ${commandUsage(spec)}\n`)
-  console.log(`Access: ${spec.access ?? OperationAccesses.stored} (${spec.access === OperationAccesses.live ? 'calls a provider now' : spec.access === OperationAccesses.write ? 'changes server state' : 'uses stored data'})\n`)
+  const access = spec.access ?? OperationAccesses.stored
+  console.log(`Access: ${access} (${access === OperationAccesses.live ? 'calls a provider now' : access === OperationAccesses.write ? 'changes server state' : 'uses stored data'})\n`)
   if (spec.help) console.log(`${spec.help}\n`)
   const aliases = Object.entries(spec.windowAliases ?? {}).map(([canonical, alias]) => `--${alias} for --${canonical}`)
   if (aliases.length) console.log(`Aliases: ${aliases.join('; ')}. Do not combine an alias with its canonical flag.\n`)
@@ -93,21 +99,23 @@ function toFormat(value: CliValue, fallbackFormat: CliFormat): CliFormat {
   return fallbackFormat
 }
 
-export function printGroupHelp(group: string, specs: readonly CliCommandSpec[]): void {
+export function printGroupHelp(group: string, specs: readonly CliCommandSpec[], accessFilter?: OperationAccess): void {
   const parentSpec = specs.find(s => s.path.length === 1 && s.path[0] === group)
   const groupSpecs = specs
-    .filter(s => s.path[0] === group && s.path.length > 1)
+    .filter(s => s.path[0] === group && s.path.length > 1 && (!accessFilter || (s.access ?? OperationAccesses.stored) === accessFilter))
     .sort((a, b) => a.path.join(' ').localeCompare(b.path.join(' ')))
 
   if (groupSpecs.length === 0) {
-    if (parentSpec) printCommandHelp(parentSpec)
+    if (parentSpec && !accessFilter) printCommandHelp(parentSpec)
+    else if (accessFilter) console.log(`No commands in group "${group}" match access "${accessFilter}".`)
     return
   }
 
   console.log(`\nUsage:  canonry ${group} <command> [options]\n`)
 
-  if (parentSpec) {
-    console.log(`  ${commandUsage(parentSpec)}\n`)
+  if (parentSpec && (!accessFilter || (parentSpec.access ?? OperationAccesses.stored) === accessFilter)) {
+    const access = parentSpec.access ?? OperationAccesses.stored
+    console.log(`  [${access}] ${commandUsage(parentSpec)}\n`)
   }
 
   console.log('Subcommands:')
@@ -131,7 +139,14 @@ export async function dispatchRegisteredCommand(
 
     if (fallbackFormat !== 'text') {
       const { printCliCatalog } = await import('./cli-catalog.js')
-      printCliCatalog(specs, fallbackFormat, argsWithoutHelp[0])
+      const group = argsWithoutHelp.find(arg => !arg.startsWith('--'))
+      const accessIndex = argsWithoutHelp.findIndex(arg => arg === '--access' || arg.startsWith('--access='))
+      const access = accessIndex >= 0
+        ? (argsWithoutHelp[accessIndex]!.startsWith('--access=')
+          ? argsWithoutHelp[accessIndex]!.slice('--access='.length)
+          : argsWithoutHelp[accessIndex + 1])
+        : undefined
+      printCliCatalog(specs, fallbackFormat, group, access)
       return true
     }
 
@@ -152,7 +167,14 @@ export async function dispatchRegisteredCommand(
     if (group) {
       const groupSpecs = specs.filter(s => s.path[0] === group && s.path.length > 1)
       if (groupSpecs.length > 0) {
-        printGroupHelp(group, specs)
+        const accessArg = argsWithoutHelp.find(arg => arg === '--access' || arg.startsWith('--access='))
+        const accessValue = accessArg?.startsWith('--access=')
+          ? accessArg.slice('--access='.length)
+          : accessArg ? argsWithoutHelp[argsWithoutHelp.indexOf(accessArg) + 1] : undefined
+        if (accessValue !== undefined && accessValue !== OperationAccesses.stored && accessValue !== OperationAccesses.live && accessValue !== OperationAccesses.write) {
+          throw usageError(`Unknown access filter: ${accessValue}`, { details: { access: accessValue } })
+        }
+        printGroupHelp(group, specs, accessValue as OperationAccess | undefined)
         return true
       }
       // Single command — show its usage string
@@ -168,7 +190,20 @@ export async function dispatchRegisteredCommand(
     .sort((a, b) => b.path.length - a.path.length)
     .find(candidate => matchesPath(args, candidate.path))
 
-  if (!spec) return false
+  if (!spec) {
+    const root = args[0]
+    if (root && specs.some(candidate => candidate.path[0] === root)) {
+      if (args.length === 1) {
+        printGroupHelp(root, specs)
+        return true
+      }
+      throw usageError(`Error: unknown ${root} subcommand: ${args[1]}`, {
+        message: `unknown ${root} subcommand`,
+        details: { command: root, subcommand: args[1] },
+      })
+    }
+    return false
+  }
 
   const remainingArgs = args.slice(spec.path.length)
   let values: CliValues
@@ -193,6 +228,13 @@ export async function dispatchRegisteredCommand(
     })
   }
 
+  if (values.access !== undefined && spec.path[0] !== 'help') {
+    throw usageError('--access is supported only with help or --help', {
+      message: '--access is supported only with help or --help',
+      details: { command: commandId(spec), usage: commandUsage(spec) },
+    })
+  }
+
   // Flip CANONRY_TRACE on for the rest of this process when --trace was
   // passed. The ApiClient reads the env var to gate its stderr trace
   // output — env var avoids threading a "trace" plumb through every
@@ -201,20 +243,21 @@ export async function dispatchRegisteredCommand(
     process.env.CANONRY_TRACE = '1'
   }
 
+  const dryRunRequested = values['dry-run'] === true
+  const access = resolveCliAccessForInvocation(spec, { positionals, values, dryRun: dryRunRequested })
   const storedOnly = values['stored-only'] === true || ['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())
   if (storedOnly) {
     process.env.CANONRY_STORED_ONLY = '1'
-    if (spec.access !== OperationAccesses.stored) {
+    if (access !== OperationAccesses.stored) {
       throw new CliError({
         code: 'STORED_ONLY_REFUSED',
-        message: `Command "${spec.path.join(' ')}" is ${spec.access ?? 'undeclared'}; --stored-only allows saved-data reads only`,
-        details: { command: commandId(spec), access: spec.access ?? 'undeclared' },
+        message: `Command "${spec.path.join(' ')}" is ${access}; --stored-only allows saved-data reads only`,
+        details: { command: commandId(spec), access },
         exitCode: EXIT_USER_ERROR,
       })
     }
   }
 
-  const dryRunRequested = values['dry-run'] === true
   if (dryRunRequested && !spec.supportsDryRun) {
     throw usageError(
       `Command "${spec.path.join(' ')}" does not support --dry-run. Either drop the flag, or run a different command that supports preview mode (e.g. ` +

@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import type { ParseArgsOptionsConfig } from 'node:util'
-import { OperationAccesses, type CliCatalogDto } from '@ainyc/canonry-contracts'
+import { OperationAccesses, type CliCatalogDto, type OperationAccess } from '@ainyc/canonry-contracts'
 import { CLI_GLOBAL_OPTIONS, commandOptions, commandUsage, printGroupHelp, type CliCommandSpec } from './cli-dispatch.js'
 import { type CliFormat, usageError } from './cli-error.js'
 import { emitJsonl } from './cli-output.js'
@@ -247,11 +247,11 @@ export const CLI_ROOT_SUMMARIES: Record<string, { section: string; summary: stri
   },
   "search": {
     "section": "Automation",
-    "summary": "Search the connected search provider"
+    "summary": "Search stored project evidence"
   },
   "get": {
     "section": "Automation",
-    "summary": "Retrieve page content"
+    "summary": "Extract stored page fields"
   },
   "key": {
     "section": "Admin",
@@ -306,6 +306,8 @@ export function renderTopLevelHelp(catalog: CliCatalogDto): string {
     '  --format json         Machine-readable output: one JSON document (all commands)',
     '  --format jsonl        Machine-readable output: one record per line, no jq needed',
     '  --dry-run             Preview commands that support it',
+    '  --stored-only         Refuse provider and write operations',
+    '  --access <mode>       Filter help/catalog by stored, live, or write access',
     '  --trace               Trace API requests to stderr',
     '  --help, -h            Show help (use with any command group)',
     '  --version, -v         Show version', '',
@@ -318,16 +320,17 @@ export function printCliCatalog(specs: readonly CliCommandSpec[], format: CliFor
   if (access !== undefined && access !== OperationAccesses.stored && access !== OperationAccesses.live && access !== OperationAccesses.write) {
     throw usageError(`Unknown access filter: ${access}`, { details: { access } })
   }
+  const knownGroup = group ? catalog.groups.find(entry => entry.root === group) : undefined
+  if (group && !knownGroup) throw usageError(`Unknown command group: ${group}`, { details: { group, usage: 'canonry help [<group>] [--format json|jsonl]' } })
   if (access) {
     for (const entry of catalog.groups) entry.commands = entry.commands.filter(command => command.access === access)
-    catalog.groups = catalog.groups.filter(entry => entry.commands.length > 0)
+    catalog.groups = catalog.groups.filter(entry => entry.commands.length > 0 || entry.root === group)
   }
   if (group) {
     catalog.groups = catalog.groups.filter(entry => entry.root === group)
-    if (!catalog.groups.length) throw usageError(`Unknown command group: ${group}`, { details: { group, usage: 'canonry help [<group>] [--format json|jsonl]' } })
   }
   if (format === 'json') console.log(JSON.stringify(catalog, null, 2))
   else if (format === 'jsonl') emitJsonl(catalog.groups.flatMap(entry => entry.commands.map(command => ({ root: entry.root, ...command }))))
-  else if (group) printGroupHelp(group, specs)
+  else if (group) printGroupHelp(group, specs, access as OperationAccess | undefined)
   else console.log(renderTopLevelHelp(catalog))
 }

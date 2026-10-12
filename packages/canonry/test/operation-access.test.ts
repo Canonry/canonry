@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { REGISTERED_CLI_COMMANDS } from '../src/cli-commands.js'
 import { buildCliCatalog } from '../src/cli-catalog.js'
 import { toolOperationAccess, canonryMcpTools } from '../src/mcp/tool-registry.js'
@@ -24,6 +24,10 @@ describe('CLI and MCP operation access metadata', () => {
     expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'google.submit-sitemap')?.access).toBe('write')
     expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'feedback')?.access).toBe('write')
     expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'settings.provider')?.access).toBe('write')
+    expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'settings')?.access).toBe('stored')
+    expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'get')?.access).toBe('stored')
+    expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'competitor.aliases')?.access).toBe('stored')
+    expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'mcp.install')?.supportsDryRun).toBe(true)
     const catalog = buildCliCatalog(REGISTERED_CLI_COMMANDS)
     expect(catalog.groups.flatMap(group => group.commands).every(command => command.access)).toBe(true)
   })
@@ -57,6 +61,104 @@ describe('CLI and MCP operation access metadata', () => {
     }
     expect(output.join('\n')).toContain('Access: live (calls a provider now)')
     expect(output.join('\n')).toContain('canonry google properties')
+  })
+
+  it('labels the parent command in group help', async () => {
+    const output: string[] = []
+    const original = console.log
+    console.log = (...args: unknown[]) => output.push(args.join(' '))
+    try {
+      await dispatchRegisteredCommand(['run', '--help'], 'text', REGISTERED_CLI_COMMANDS)
+    } finally {
+      console.log = original
+    }
+    expect(output.join('\n')).toContain('[write] canonry run <project|--all>')
+  })
+
+  it('applies access filters to text, JSON, and --help catalog requests', async () => {
+    const output: string[] = []
+    const original = console.log
+    const stdoutWrite = process.stdout.write
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      output.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'))
+      return true
+    }) as typeof process.stdout.write
+    console.log = (...args: unknown[]) => output.push(args.join(' '))
+    try {
+      await dispatchRegisteredCommand(['help', 'ga', '--access', 'live'], 'text', REGISTERED_CLI_COMMANDS)
+      expect(output.join('\n')).toContain('[live] canonry ga properties')
+      expect(output.join('\n')).not.toContain('[stored]')
+      output.length = 0
+      await dispatchRegisteredCommand(['ga', '--help', '--access', 'live'], 'jsonl', REGISTERED_CLI_COMMANDS)
+    } finally {
+      console.log = original
+      process.stdout.write = stdoutWrite
+    }
+    const lines = output.filter(Boolean).map(line => JSON.parse(line) as { access: string; root: string })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ root: 'ga', access: 'live' })
+  })
+
+  it('keeps a known empty access-filtered group valid', async () => {
+    const output: string[] = []
+    const original = console.log
+    console.log = (...args: unknown[]) => output.push(args.join(' '))
+    try {
+      await dispatchRegisteredCommand(['help', 'overview', '--access', 'write'], 'json', REGISTERED_CLI_COMMANDS)
+    } finally {
+      console.log = original
+    }
+    const catalog = JSON.parse(output.join('')) as { groups: Array<{ root: string; commands: unknown[] }> }
+    expect(catalog.groups).toEqual([{ root: 'overview', section: 'Monitoring', summary: 'Show the stored project overview', commands: [] }])
+  })
+
+  it('filters top-level --help and rejects --access on normal commands', async () => {
+    const output: string[] = []
+    const original = console.log
+    console.log = (...args: unknown[]) => output.push(args.join(' '))
+    try {
+      await dispatchRegisteredCommand(['help', '--access', 'live'], 'jsonl', REGISTERED_CLI_COMMANDS)
+      expect(output.every(line => JSON.parse(line).access === 'live')).toBe(true)
+    } finally {
+      console.log = original
+    }
+    await expect(dispatchRegisteredCommand(['ga', 'acquisition', 'demo', '--access', 'live'], 'json', REGISTERED_CLI_COMMANDS)).rejects.toMatchObject({ code: 'CLI_USAGE_ERROR' })
+  })
+
+  it('offers group usage for registered roots without a parent spec', async () => {
+    const output: string[] = []
+    const original = console.log
+    console.log = (...args: unknown[]) => output.push(args.join(' '))
+    try {
+      await dispatchRegisteredCommand(['ads'], 'text', REGISTERED_CLI_COMMANDS)
+    } finally {
+      console.log = original
+    }
+    expect(output.join('\n')).toContain('canonry ads <command>')
+  })
+
+  it('resolves stored-only access from the invocation rather than the default write', async () => {
+    const run = vi.fn()
+    const spec = {
+      path: ['preview-write'], usage: 'canonry preview-write [--dry-run]', access: 'write' as const,
+      supportsDryRun: true,
+      accessFor: ({ dryRun }: { dryRun: boolean }) => dryRun ? 'stored' as const : 'write' as const,
+      run,
+    }
+    await dispatchRegisteredCommand(['preview-write', '--dry-run', '--stored-only'], 'json', [spec])
+    expect(run).toHaveBeenCalledOnce()
+    await expect(dispatchRegisteredCommand(['preview-write', '--stored-only'], 'json', [spec])).rejects.toMatchObject({ code: 'STORED_ONLY_REFUSED' })
+    expect(run).toHaveBeenCalledOnce()
+  })
+
+  it('keeps competitor previews stored while preserving write variants', () => {
+    const aliases = REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'competitor.aliases')!
+    const detect = REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'competitor.aliases.detect')!
+    expect(aliases.accessFor?.({ positionals: ['project', 'example.test'], values: {}, dryRun: false })).toBe('stored')
+    expect(aliases.accessFor?.({ positionals: ['project', 'example.test'], values: { set: ['Name'] }, dryRun: false })).toBe('write')
+    expect(aliases.accessFor?.({ positionals: ['project', 'example.test'], values: { set: ['Name'] }, dryRun: true })).toBe('stored')
+    expect(detect.accessFor?.({ positionals: ['project'], values: {}, dryRun: false })).toBe('stored')
+    expect(detect.accessFor?.({ positionals: ['project'], values: { apply: true }, dryRun: false })).toBe('write')
   })
 
   it('exhaustively classifies every registered command without a stored fallback', () => {
@@ -113,7 +215,7 @@ describe('CLI and MCP operation access metadata', () => {
       'google.inspect-sitemap': 'write',
       'google.refresh': 'write',
       'search': 'stored',
-      'competitor.aliases.detect': 'write',
+      'competitor.aliases.detect': 'stored',
     }
     for (const [id, access] of Object.entries(expected)) {
       expect(REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === id)?.access, id).toBe(access)
