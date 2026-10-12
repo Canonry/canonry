@@ -64,6 +64,24 @@ describe('CLI and MCP operation access metadata', () => {
     expect(output.join('\n')).toContain('canonry google properties')
   })
 
+  it('filters exact command help by access and rejects an invalid filter', async () => {
+    const output: string[] = []
+    const original = console.log
+    console.log = (...args: unknown[]) => output.push(args.join(' '))
+    try {
+      await dispatchRegisteredCommand(['google', 'properties', '--help', '--access', 'live'], 'text', REGISTERED_CLI_COMMANDS)
+      expect(output.join('\n')).toContain('Usage:  canonry google properties')
+      output.length = 0
+      await dispatchRegisteredCommand(['google', 'properties', '--help', '--access', 'stored'], 'text', REGISTERED_CLI_COMMANDS)
+    } finally {
+      console.log = original
+    }
+    expect(output.join('\n')).toContain('No command "google properties" matches access "stored".')
+    await expect(
+      dispatchRegisteredCommand(['google', 'properties', '--help', '--access', 'bogus'], 'text', REGISTERED_CLI_COMMANDS),
+    ).rejects.toMatchObject({ code: 'CLI_USAGE_ERROR' })
+  })
+
   it('labels the parent command in group help', async () => {
     const output: string[] = []
     const original = console.log

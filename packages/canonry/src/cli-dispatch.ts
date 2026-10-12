@@ -102,6 +102,12 @@ export function accessFilterFromArgs(args: readonly string[]): string | undefine
   return value
 }
 
+function validateAccessFilter(value: string | undefined): asserts value is OperationAccess | undefined {
+  if (value !== undefined && value !== OperationAccesses.stored && value !== OperationAccesses.live && value !== OperationAccesses.write) {
+    throw usageError(`Unknown access filter: ${value}`, { details: { access: value } })
+  }
+}
+
 function toFormat(value: CliValue, fallbackFormat: CliFormat): CliFormat {
   if (value === 'json') return 'json'
   if (value === 'jsonl') return 'jsonl'
@@ -145,12 +151,13 @@ export async function dispatchRegisteredCommand(
   if (args.length >= 1 && (args.includes('--help') || args.includes('-h'))) {
     // Strip --help/-h from args for path matching
     const argsWithoutHelp = args.filter(a => a !== '--help' && a !== '-h')
+    const accessValue = accessFilterFromArgs(argsWithoutHelp)
+    validateAccessFilter(accessValue)
 
     if (fallbackFormat !== 'text') {
       const { printCliCatalog } = await import('./cli-catalog.js')
       const group = argsWithoutHelp.find(arg => !arg.startsWith('--'))
-      const access = accessFilterFromArgs(argsWithoutHelp)
-      printCliCatalog(specs, fallbackFormat, group, access)
+      printCliCatalog(specs, fallbackFormat, group, accessValue)
       return true
     }
 
@@ -162,7 +169,11 @@ export async function dispatchRegisteredCommand(
 
     if (exactMatch && exactMatch.path.length > 1) {
       // Specific subcommand — show its usage
-      printCommandHelp(exactMatch)
+      if (accessValue !== undefined && (exactMatch.access ?? OperationAccesses.stored) !== accessValue) {
+        console.log(`No command "${exactMatch.path.join(' ')}" matches access "${accessValue}".`)
+      } else {
+        printCommandHelp(exactMatch)
+      }
       return true
     }
 
@@ -171,21 +182,13 @@ export async function dispatchRegisteredCommand(
     if (group) {
       const groupSpecs = specs.filter(s => s.path[0] === group && s.path.length > 1)
       if (groupSpecs.length > 0) {
-        const accessValue = accessFilterFromArgs(argsWithoutHelp)
-        if (accessValue !== undefined && accessValue !== OperationAccesses.stored && accessValue !== OperationAccesses.live && accessValue !== OperationAccesses.write) {
-          throw usageError(`Unknown access filter: ${accessValue}`, { details: { access: accessValue } })
-        }
-        printGroupHelp(group, specs, accessValue as OperationAccess | undefined)
+        printGroupHelp(group, specs, accessValue)
         return true
       }
       // Single command — show its usage string
       const single = specs.find(s => s.path.length === 1 && s.path[0] === group)
       if (single) {
-        const accessValue = accessFilterFromArgs(argsWithoutHelp)
-        if (accessValue !== undefined && accessValue !== OperationAccesses.stored && accessValue !== OperationAccesses.live && accessValue !== OperationAccesses.write) {
-          throw usageError(`Unknown access filter: ${accessValue}`, { details: { access: accessValue } })
-        }
-        printGroupHelp(group, specs, accessValue as OperationAccess | undefined)
+        printGroupHelp(group, specs, accessValue)
         return true
       }
     }
