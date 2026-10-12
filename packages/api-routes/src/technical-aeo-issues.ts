@@ -180,6 +180,9 @@ export function readSiteAuditIssues(input: {
             const parsed = siteCrawlAuditFindingSchema.safeParse(rawFinding)
             if (!parsed.success) { coverage.omittedFindings += 1; pageComplete = false; continue }
             const finding = parsed.data
+            // The auditor retains findings for inapplicable factors; they are
+            // not repair targets. Missing legacy applicability remains usable.
+            if (factor.applicable === false) continue
             if (finding.type === 'found' || finding.type === 'info' && mirroredCodes.has(finding.code)) continue
             const id = `page-issue:${digest(['page-finding-v1', factor.id, finding.code, finding.type])}`
             if (seen.has(id)) continue
