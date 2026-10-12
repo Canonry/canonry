@@ -120,4 +120,24 @@ describe('apply --dry-run', () => {
     expect(output).toContain('notification hooks.example (URL changed)')
     expect(output).not.toContain('http')
   })
+
+  it('does not print a failed dry-run twice or suggest applying an invalid document', async () => {
+    mockPreviewApply.mockRejectedValue(new CliError({
+      code: 'VALIDATION_ERROR',
+      message: 'Invalid project config',
+      details: { issues: [{ path: 'spec.measurement.leadEventNames.0', message: 'Invalid event name' }] },
+    }))
+    const logs: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { logs.push(args.join(' ')) })
+    try {
+      await expect(applyConfigs([tmpFile], 'text', { dryRun: true })).rejects.toMatchObject({
+        code: 'APPLY_FAILED',
+        displayMessage: 'Document 1: Invalid project config (spec.measurement.leadEventNames.0: Invalid event name)',
+      })
+      expect(logs.filter(line => line.includes('Invalid project config'))).toHaveLength(0)
+      expect(logs.join('\n')).not.toContain('Re-run without --dry-run')
+    } finally {
+      log.mockRestore()
+    }
+  })
 })

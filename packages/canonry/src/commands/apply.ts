@@ -110,7 +110,6 @@ export async function applyConfigs(filePaths: string[], format?: string, options
       files.push(result)
       if (!isMachineFormat(format)) {
         console.log(`\n${filePath}`)
-        for (const error of result.errors) console.log(`  error: ${error}`)
         for (const preview of result.previews) {
           console.log(`${preview.action} ${preview.project.name}: ${preview.changed ? 'changes detected' : 'no changes'}`)
           for (const [field, change] of Object.entries(preview.fields)) {
@@ -151,8 +150,8 @@ export async function applyConfigs(filePaths: string[], format?: string, options
       changedCount: files.reduce((count, file) => count + file.previews.filter(preview => preview.changed).length, 0),
       errorCount: files.reduce((count, file) => count + file.errors.length, 0),
     }
-    if (!isMachineFormat(format)) console.log('No DB writes performed. Re-run without --dry-run to apply.')
-    else console.log(JSON.stringify(summary, null, 2))
+    if (isMachineFormat(format)) console.log(JSON.stringify(summary, null, 2))
+    else if (summary.errorCount === 0) console.log('No DB writes performed. Re-run without --dry-run to apply.')
     if (summary.errorCount > 0) {
       throw new CliError({ code: 'APPLY_FAILED', message: `${summary.errorCount} document(s) failed during apply`, displayMessage: files.flatMap(file => file.errors).join('\n'), details: summary })
     }
