@@ -75,7 +75,7 @@ test('apply preview returns redacted per-resource changes and rolls back all wri
       queries: ['second query'],
       competitors: ['new.example'],
       schedule: { preset: 'weekly', timezone: 'UTC' },
-      notifications: [{ id: notificationId, channel: 'webhook', url: `redacted://127.0.0.1/${notificationId}`, events: ['run.failed'] }],
+      notifications: [{ id: notificationId, channel: 'webhook', url: 'http://127.0.0.1/changed-path?token=preview-secret', events: ['run.failed'] }],
       google: { gsc: { propertyUrl: 'https://search.example/property' } },
     })
     const preview = await app.inject({
@@ -93,10 +93,11 @@ test('apply preview returns redacted per-resource changes and rolls back all wri
       queries: { managed: true, added: ['second query'], removed: ['first query'], snapshotsDetached: 1 },
       competitors: { managed: true, added: ['new.example'], removed: ['old.example'] },
       schedule: { managed: true, action: 'update' },
-      notifications: { managed: true, kept: [{ id: notificationId, urlHost: '127.0.0.1', eventsBefore: ['run.completed'], eventsAfter: ['run.failed'] }] },
+      notifications: { managed: true, kept: [{ id: notificationId, urlHost: '127.0.0.1', urlChanged: true, eventsBefore: ['run.completed'], eventsAfter: ['run.failed'] }] },
       effects: ['mention-backfill', 'competitor-auto-alias-rescan', 'schedule-reload', 'gsc-property-update'],
     })
     expect(JSON.stringify(body)).not.toContain('http://127.0.0.1/hook')
+    expect(JSON.stringify(body)).not.toContain('preview-secret')
     expect(callbacks).toEqual(callbackBefore)
     expect(db.select().from(projects).where(eq(projects.id, project.id)).get()).toEqual(before.project)
     expect(db.select().from(queries).where(eq(queries.projectId, project.id)).all()).toEqual(before.queries)
@@ -108,6 +109,13 @@ test('apply preview returns redacted per-resource changes and rolls back all wri
 
     const applied = await app.inject({ method: 'POST', url: '/api/v1/apply', payload: changedConfig })
     expect(applied.statusCode).toBe(200)
+    const audit = db.select().from(auditLog).where(and(
+      eq(auditLog.projectId, project.id),
+      eq(auditLog.action, 'notifications.replaced'),
+    )).get()
+    expect(JSON.stringify(audit?.diff)).toContain('urlChanged')
+    expect(JSON.stringify(audit?.diff)).not.toContain('changed-path')
+    expect(JSON.stringify(audit?.diff)).not.toContain('preview-secret')
     const exported = await app.inject({ method: 'GET', url: '/api/v1/projects/preview-project/export' })
     expect(exported.statusCode).toBe(200)
     const exportedPreview = await app.inject({ method: 'POST', url: '/api/v1/apply/preview', payload: exported.json() })

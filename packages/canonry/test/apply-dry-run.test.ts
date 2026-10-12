@@ -88,4 +88,36 @@ describe('apply --dry-run', () => {
     await expect(applyConfigs([tmpFile], 'json', { dryRun: true })).rejects.toMatchObject({ code: 'APPLY_PREVIEW_UNSUPPORTED' })
     expect(mockApply).not.toHaveBeenCalled()
   })
+
+  it('includes safe API validation field paths in document errors', async () => {
+    mockPreviewApply.mockRejectedValue(new CliError({
+      code: 'VALIDATION_ERROR',
+      message: 'Invalid project config',
+      details: {
+        issues: [{ path: 'spec.measurement.leadEventNames.0', message: 'GA4 event names must start with a letter.' }],
+      },
+    }))
+
+    await expect(applyConfigs([tmpFile], 'json', { dryRun: true })).rejects.toMatchObject({
+      details: { files: [{ errors: ['Document 1: Invalid project config (spec.measurement.leadEventNames.0: GA4 event names must start with a letter.)'] }] },
+    })
+    expect(mockApply).not.toHaveBeenCalled()
+  })
+
+  it('prints a safe URL-change marker in human preview output', async () => {
+    mockPreviewApply.mockResolvedValue({
+      ...PREVIEW,
+      notifications: {
+        managed: true,
+        added: [],
+        removed: [],
+        kept: [{ id: 'notification-1', urlHost: 'hooks.example', urlChanged: true, eventsBefore: ['run.completed'], eventsAfter: ['run.completed'] }],
+        secretsRotated: 0,
+      },
+    })
+
+    const output = await captureLog(() => applyConfigs([tmpFile], 'text', { dryRun: true }))
+    expect(output).toContain('notification hooks.example (URL changed)')
+    expect(output).not.toContain('http')
+  })
 })

@@ -107,6 +107,56 @@ test('apply keeps a keyed redacted notification and its stored state', async () 
   }
 })
 
+test('apply never stores the HTTPS notify-list redaction placeholder', async () => {
+  const { app, db, tmpDir } = buildApp()
+  await app.ready()
+
+  try {
+    const created = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/https-redacted-placeholder',
+      payload: {
+        displayName: 'Notification test',
+        canonicalDomain: 'notification-test.example',
+        country: 'US',
+        language: 'en',
+      },
+    })
+    expect(created.statusCode).toBe(201)
+    const project = db.select().from(projects).where(eq(projects.name, 'https-redacted-placeholder')).get()!
+    db.insert(notifications).values({
+      id: 'notification-https-redacted',
+      projectId: project.id,
+      channel: 'webhook',
+      config: { url: 'https://localhost/hooks/secret-path', events: ['run.completed'] },
+      webhookSecret: 'stored-webhook-secret',
+      enabled: true,
+      createdAt: '2026-10-11T10:00:00.000Z',
+      updatedAt: '2026-10-11T10:00:00.000Z',
+    }).run()
+
+    const applied = await app.inject({
+      method: 'POST',
+      url: '/api/v1/apply',
+      payload: config('https-redacted-placeholder', [{
+        id: 'notification-https-redacted',
+        channel: 'webhook',
+        url: 'https://localhost/redacted',
+        events: ['run.failed'],
+      }]),
+    })
+
+    expect(applied.statusCode).toBe(200)
+    const stored = db.select().from(notifications).where(eq(notifications.id, 'notification-https-redacted')).get()!
+    expect(stored.config).toEqual({ url: 'https://localhost/hooks/secret-path', events: ['run.failed'] })
+    expect(stored.config.url).not.toBe('https://localhost/redacted')
+  } finally {
+    await app.close()
+    db.$client.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
 test('apply keeps a stored notification when an unknown id carries its stored URL', async () => {
   const { app, db, tmpDir } = buildApp()
   await app.ready()

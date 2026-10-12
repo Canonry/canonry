@@ -109,6 +109,20 @@ describe('project measurement update flags', () => {
     expect(body()).not.toHaveProperty('measurement')
   })
 
+  it('normalizes remove-marketing-host values like add-marketing-host values', async () => {
+    await run(
+      'project', 'update', 'measurement-project',
+      '--remove-marketing-host', 'https://www.offers.measurement.example/',
+      '--format', 'json',
+    )
+
+    expect(body().measurement).toEqual({
+      marketingHosts: [],
+      brandTerms: ['Measurement Project'],
+      leadEventNames: ['generate_lead'],
+    })
+  })
+
   it('passes an explicit revision guard through the PATCH request', async () => {
     await run('project', 'update', 'measurement-project', '--display-name', 'Renamed', '--expect-revision', '4', '--format', 'json')
     expect(body().expectedConfigRevision).toBe(4)

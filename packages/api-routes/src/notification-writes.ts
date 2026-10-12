@@ -120,6 +120,9 @@ export function syncNotificationSet(
 export function notificationAuditDiff(plan: NotificationSetPlan, sync: NotificationSyncResult): unknown {
   return {
     kept: plan.kept.map(item => item.stored.id),
+    urlChanged: plan.kept
+      .filter(item => !isRedactedNotificationUrl(item.desired.url) && item.stored.config.url !== item.desired.url)
+      .map(item => item.stored.id),
     added: sync.added.map(item => item.id),
     removed: plan.removed.map(row => row.id),
   }

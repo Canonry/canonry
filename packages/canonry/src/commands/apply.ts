@@ -37,6 +37,20 @@ function previewValue(value: unknown): string {
   return encoded === undefined ? String(value) : encoded
 }
 
+function describeApplyError(error: unknown): string {
+  const message = describeError(error)
+  const details = error instanceof CliError ? error.details : undefined
+  const issues = Array.isArray(details?.issues) ? details.issues : []
+  const formatted = issues.flatMap(issue => {
+    if (!issue || typeof issue !== 'object') return []
+    const record = issue as { path?: unknown; message?: unknown }
+    const path = Array.isArray(record.path) ? record.path.join('.') : typeof record.path === 'string' ? record.path : ''
+    const issueMessage = typeof record.message === 'string' ? record.message : ''
+    return path && issueMessage ? [`${path}: ${issueMessage}`] : []
+  })
+  return formatted.length > 0 ? `${message} (${formatted.join('; ')})` : message
+}
+
 export async function applyConfigFile(filePath: string, options: { dryRun?: boolean } = {}): Promise<ApplyFileResult | ApplyPreviewFileResult> {
   if (!fs.existsSync(filePath)) {
     throw new Error(`File not found: ${filePath}`)
@@ -74,7 +88,7 @@ export async function applyConfigFile(filePath: string, options: { dryRun?: bool
           details: { filePath },
         })
       }
-      const msg = describeError(err)
+      const msg = describeApplyError(err)
       errors.push(`Document ${i + 1}: ${msg}`)
     }
   }
@@ -91,7 +105,7 @@ export async function applyConfigs(filePaths: string[], format?: string, options
         result = await applyConfigFile(filePath, { dryRun: true }) as ApplyPreviewFileResult
       } catch (err) {
         if (err instanceof CliError && err.code === 'APPLY_PREVIEW_UNSUPPORTED') throw err
-        result = { filePath, previews: [], errors: [describeError(err)] }
+        result = { filePath, previews: [], errors: [describeApplyError(err)] }
       }
       files.push(result)
       if (!isMachineFormat(format)) {
@@ -122,7 +136,10 @@ export async function applyConfigs(filePaths: string[], format?: string, options
           else {
             for (const notification of preview.notifications.added) console.log(`  + notification: ${notification.urlHost} (${notification.events.join(', ')})`)
             for (const notification of preview.notifications.removed) console.log(`  - notification: ${notification.urlHost} (${notification.events.join(', ')})`)
-            for (const notification of preview.notifications.kept) console.log(`  ~ notification ${notification.urlHost}: ${notification.eventsBefore.join(', ')} -> ${notification.eventsAfter.join(', ')}`)
+            for (const notification of preview.notifications.kept) {
+              const urlChange = notification.urlChanged ? ' (URL changed)' : ''
+              console.log(`  ~ notification ${notification.urlHost}${urlChange}: ${notification.eventsBefore.join(', ')} -> ${notification.eventsAfter.join(', ')}`)
+            }
             console.log(`  notifications: +${preview.notifications.added.length} -${preview.notifications.removed.length}`)
           }
         }
@@ -149,7 +166,7 @@ export async function applyConfigs(filePaths: string[], format?: string, options
     try {
       result = await applyConfigFile(filePath) as ApplyFileResult
     } catch (err) {
-      const message = describeError(err)
+      const message = describeApplyError(err)
       result = {
         filePath,
         applied: [],

@@ -8,7 +8,16 @@ export function buildRedactedNotificationUrl(host: string, id: string): string {
 }
 
 export function isRedactedNotificationUrl(url: string): boolean {
-  return url.startsWith(`${REDACTED_NOTIFICATION_URL_PROTOCOL}//`)
+  if (url.startsWith(`${REDACTED_NOTIFICATION_URL_PROTOCOL}//`)) return true
+  try {
+    const parsed = new URL(url)
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+      && parsed.pathname === '/redacted'
+      && parsed.search === ''
+      && parsed.hash === ''
+  } catch {
+    return false
+  }
 }
 
 export const notificationEventSchema = z.enum([

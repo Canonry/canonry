@@ -1,5 +1,5 @@
 import type { CompetitorAutoAliasMode, MeasurementConfig, ProjectDto, ProjectPatchRequest, ProjectUpsertRequest, ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
-import { DEFAULT_MEASUREMENT_CONFIG, formatPercent, RatioUnits, effectiveDomains, measurementConfigSchema, normalizeProjectAliases, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases } from '@ainyc/canonry-contracts'
+import { DEFAULT_MEASUREMENT_CONFIG, formatPercent, RatioUnits, effectiveDomains, measurementConfigSchema, normalizeProjectAliases, normalizeProjectDomain, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, isEndpointMissing, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -182,12 +182,20 @@ function mergeMeasurementList(
   additions: string[] | undefined,
   removals: string[] | undefined,
   caseInsensitive: boolean,
+  normalizeRemoval?: (value: string) => string,
 ): string[] {
   let values = [...(exact ?? current)]
   if (additions) values.push(...additions)
   if (removals?.length) {
-    const remove = new Set(removals.map(value => caseInsensitive ? value.toLowerCase() : value))
-    values = values.filter(value => !remove.has(caseInsensitive ? value.toLowerCase() : value))
+    const normalize = normalizeRemoval ?? ((value: string) => value)
+    const remove = new Set(removals.map(value => {
+      const normalized = normalize(value)
+      return caseInsensitive ? normalized.toLowerCase() : normalized
+    }))
+    values = values.filter(value => {
+      const normalized = normalize(value)
+      return !remove.has(caseInsensitive ? normalized.toLowerCase() : normalized)
+    })
   }
   return values
 }
@@ -195,7 +203,7 @@ function mergeMeasurementList(
 function resolveMeasurementUpdate(project: ProjectDto, flags: MeasurementUpdateFlags): MeasurementConfig {
   const current = project.measurement ?? DEFAULT_MEASUREMENT_CONFIG
   const parsed = measurementConfigSchema.safeParse({
-    marketingHosts: mergeMeasurementList(current.marketingHosts, flags.marketingHosts, flags.addMarketingHosts, flags.removeMarketingHosts, true),
+    marketingHosts: mergeMeasurementList(current.marketingHosts, flags.marketingHosts, flags.addMarketingHosts, flags.removeMarketingHosts, true, normalizeProjectDomain),
     brandTerms: mergeMeasurementList(current.brandTerms, flags.brandTerms, flags.addBrandTerms, flags.removeBrandTerms, true),
     leadEventNames: mergeMeasurementList(current.leadEventNames, flags.leadEvents, flags.addLeadEvents, flags.removeLeadEvents, false),
   })

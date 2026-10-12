@@ -103,6 +103,7 @@ const notificationRemovedSchema = notificationAddedSchema.extend({ id: z.string(
 const notificationKeptSchema = z.object({
   id: z.string(),
   urlHost: z.string(),
+  urlChanged: z.boolean(),
   eventsBefore: z.array(z.string()),
   eventsAfter: z.array(z.string()),
 })
@@ -208,8 +209,14 @@ function notificationDiff(before: ProjectConfigState | null, after: ProjectConfi
   const kept: ApplyPreviewDto['notifications']['kept'] = []
   for (const [id, row] of afterById) {
     const previous = beforeById.get(id)
-    if (previous && !sameValue(previous.events, row.events)) {
-      kept.push({ id, urlHost: row.urlHost, eventsBefore: previous.events, eventsAfter: row.events })
+    if (previous && (!sameValue(previous.events, row.events) || !sameValue(previous.url, row.url))) {
+      kept.push({
+        id,
+        urlHost: row.urlHost,
+        urlChanged: !sameValue(previous.url, row.url),
+        eventsBefore: previous.events,
+        eventsAfter: row.events,
+      })
     }
   }
   return {
