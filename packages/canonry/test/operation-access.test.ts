@@ -3,6 +3,7 @@ import { REGISTERED_CLI_COMMANDS } from '../src/cli-commands.js'
 import { buildCliCatalog } from '../src/cli-catalog.js'
 import { toolOperationAccess, canonryMcpTools } from '../src/mcp/tool-registry.js'
 import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
+import { runCli } from '../src/cli.js'
 import { cliAccessClassificationIds, resolveCliAccess } from '../src/cli-access.js'
 import { operationAccess } from '@ainyc/canonry-contracts'
 
@@ -112,6 +113,18 @@ describe('CLI and MCP operation access metadata', () => {
     expect(catalog.groups).toEqual([{ root: 'overview', section: 'Monitoring', summary: 'Show the stored project overview', commands: [] }])
   })
 
+  it('shows parent usage when the access filter matches a parent-only group', async () => {
+    const output: string[] = []
+    const original = console.log
+    console.log = (...args: unknown[]) => output.push(args.join(' '))
+    try {
+      await dispatchRegisteredCommand(['help', 'overview', '--access', 'stored'], 'text', REGISTERED_CLI_COMMANDS)
+    } finally {
+      console.log = original
+    }
+    expect(output.join('\n')).toContain('Usage:  canonry overview <project>')
+  })
+
   it('filters top-level --help and rejects --access on normal commands', async () => {
     const output: string[] = []
     const original = console.log
@@ -123,6 +136,34 @@ describe('CLI and MCP operation access metadata', () => {
       console.log = original
     }
     await expect(dispatchRegisteredCommand(['ga', 'acquisition', 'demo', '--access', 'live'], 'json', REGISTERED_CLI_COMMANDS)).rejects.toMatchObject({ code: 'CLI_USAGE_ERROR' })
+  })
+
+  it('rejects invalid or missing top-level access filters as structured CLI errors', async () => {
+    const errors: string[] = []
+    const original = console.error
+    console.error = (...args: unknown[]) => errors.push(args.join(' '))
+    try {
+      expect(await runCli(['--help', '--access=bogus', '--format', 'json'])).toBe(1)
+      expect(JSON.parse(errors.at(-1)!)).toMatchObject({ error: { code: 'CLI_USAGE_ERROR' } })
+      errors.length = 0
+      expect(await runCli(['--help', '--access', '--format', 'json'])).toBe(1)
+      expect(JSON.parse(errors.at(-1)!)).toMatchObject({ error: { code: 'CLI_USAGE_ERROR' } })
+    } finally {
+      console.error = original
+    }
+  })
+
+  it('supports access filters before and after contextual help', async () => {
+    const output: string[] = []
+    const original = console.log
+    console.log = (...args: unknown[]) => output.push(args.join(' '))
+    try {
+      expect(await runCli(['--access', 'live', 'ga', '--help'])).toBe(0)
+    } finally {
+      console.log = original
+    }
+    expect(output.join('\n')).toContain('[live] canonry ga properties')
+    expect(output.join('\n')).not.toContain('[stored]')
   })
 
   it('offers group usage for registered roots without a parent spec', async () => {
@@ -159,6 +200,12 @@ describe('CLI and MCP operation access metadata', () => {
     expect(aliases.accessFor?.({ positionals: ['project', 'example.test'], values: { set: ['Name'] }, dryRun: true })).toBe('stored')
     expect(detect.accessFor?.({ positionals: ['project'], values: {}, dryRun: false })).toBe('stored')
     expect(detect.accessFor?.({ positionals: ['project'], values: { apply: true }, dryRun: false })).toBe('write')
+    const projectUpdate = REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'project.update')!
+    expect(projectUpdate.accessFor?.({ positionals: ['project'], values: { 'competitor-auto-aliases': 'apply' }, dryRun: true })).toBe('stored')
+    expect(projectUpdate.accessFor?.({ positionals: ['project'], values: { 'competitor-auto-aliases': 'apply' }, dryRun: false })).toBe('write')
+    const get = REGISTERED_CLI_COMMANDS.find(command => command.path.join('.') === 'get')!
+    expect(get.accessFor?.({ positionals: ['project', 'health.status'], values: {}, dryRun: false })).toBe('stored')
+    expect(get.accessFor?.({ positionals: ['project', 'health.status'], values: { from: 'doctor' }, dryRun: false })).toBe('live')
   })
 
   it('exhaustively classifies every registered command without a stored fallback', () => {

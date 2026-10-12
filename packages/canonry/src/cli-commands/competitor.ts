@@ -80,7 +80,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
       apply: { type: 'boolean' },
     },
     supportsDryRun: true,
-    accessFor: ({ values, dryRun }) => getBoolean(values, 'apply') || !dryRun ? (getBoolean(values, 'apply') ? OperationAccesses.write : OperationAccesses.stored) : OperationAccesses.stored,
+    accessFor: ({ values }) => getBoolean(values, 'apply') ? OperationAccesses.write : OperationAccesses.stored,
     run: async (input) => {
       const project = requireProject(input, 'competitor.aliases.detect', DETECT_USAGE)
       await detectCompetitorAutoAliases(project, { apply: getBoolean(input.values, 'apply'), ...(input.dryRun ? { dryRun: true } : {}), format: input.format })

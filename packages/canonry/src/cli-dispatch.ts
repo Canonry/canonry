@@ -93,6 +93,15 @@ export function commandOptions(spec: CliCommandSpec): ParseArgsOptionsConfig {
   return { ...CLI_GLOBAL_OPTIONS, ...spec.options, ...windowOptions({ window: Boolean(spec.windows), dates: Boolean(spec.options?.start || spec.windowAliases?.start), aliases: spec.windowAliases }) }
 }
 
+export function accessFilterFromArgs(args: readonly string[]): string | undefined {
+  const index = args.findIndex(arg => arg === '--access' || arg.startsWith('--access='))
+  if (index < 0) return undefined
+  const arg = args[index]!
+  const value = arg.startsWith('--access=') ? arg.slice('--access='.length) : args[index + 1]
+  if (!value || value.startsWith('--')) throw usageError('--access requires stored, live, or write', { details: { option: 'access' } })
+  return value
+}
+
 function toFormat(value: CliValue, fallbackFormat: CliFormat): CliFormat {
   if (value === 'json') return 'json'
   if (value === 'jsonl') return 'jsonl'
@@ -106,7 +115,7 @@ export function printGroupHelp(group: string, specs: readonly CliCommandSpec[], 
     .sort((a, b) => a.path.join(' ').localeCompare(b.path.join(' ')))
 
   if (groupSpecs.length === 0) {
-    if (parentSpec && !accessFilter) printCommandHelp(parentSpec)
+    if (parentSpec && (!accessFilter || (parentSpec.access ?? OperationAccesses.stored) === accessFilter)) printCommandHelp(parentSpec)
     else if (accessFilter) console.log(`No commands in group "${group}" match access "${accessFilter}".`)
     return
   }
@@ -140,12 +149,7 @@ export async function dispatchRegisteredCommand(
     if (fallbackFormat !== 'text') {
       const { printCliCatalog } = await import('./cli-catalog.js')
       const group = argsWithoutHelp.find(arg => !arg.startsWith('--'))
-      const accessIndex = argsWithoutHelp.findIndex(arg => arg === '--access' || arg.startsWith('--access='))
-      const access = accessIndex >= 0
-        ? (argsWithoutHelp[accessIndex]!.startsWith('--access=')
-          ? argsWithoutHelp[accessIndex]!.slice('--access='.length)
-          : argsWithoutHelp[accessIndex + 1])
-        : undefined
+      const access = accessFilterFromArgs(argsWithoutHelp)
       printCliCatalog(specs, fallbackFormat, group, access)
       return true
     }
@@ -167,10 +171,7 @@ export async function dispatchRegisteredCommand(
     if (group) {
       const groupSpecs = specs.filter(s => s.path[0] === group && s.path.length > 1)
       if (groupSpecs.length > 0) {
-        const accessArg = argsWithoutHelp.find(arg => arg === '--access' || arg.startsWith('--access='))
-        const accessValue = accessArg?.startsWith('--access=')
-          ? accessArg.slice('--access='.length)
-          : accessArg ? argsWithoutHelp[argsWithoutHelp.indexOf(accessArg) + 1] : undefined
+        const accessValue = accessFilterFromArgs(argsWithoutHelp)
         if (accessValue !== undefined && accessValue !== OperationAccesses.stored && accessValue !== OperationAccesses.live && accessValue !== OperationAccesses.write) {
           throw usageError(`Unknown access filter: ${accessValue}`, { details: { access: accessValue } })
         }

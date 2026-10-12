@@ -15,7 +15,7 @@ import { buildSetupState } from './setup-state.js'
 import { cliRuntimeContext } from './runtime-context.js'
 import type { CliFormat } from './cli-error.js'
 import { CliError, EXIT_SYSTEM_ERROR, printCliError, usageError } from './cli-error.js'
-import { dispatchRegisteredCommand } from './cli-dispatch.js'
+import { accessFilterFromArgs, dispatchRegisteredCommand } from './cli-dispatch.js'
 import type { CliCommandSpec } from './cli-dispatch.js'
 import { REGISTERED_CLI_COMMANDS } from './cli-commands.js'
 import { resolveCliAccess } from './cli-access.js'
@@ -148,12 +148,13 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   const storedOnlyMode = storedOnlyRequested(args)
   const format = extractFormat(args)
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
-    const accessArg = args.find(arg => arg === '--access' || arg.startsWith('--access='))
-    const access = accessArg?.startsWith('--access=')
-      ? accessArg.slice('--access='.length)
-      : accessArg ? args[args.indexOf(accessArg) + 1] : undefined
-    printCliCatalog(REGISTERED_CLI_COMMANDS, format, undefined, access)
-    return 0
+    try {
+      printCliCatalog(REGISTERED_CLI_COMMANDS, format, undefined, accessFilterFromArgs(args))
+      return 0
+    } catch (error) {
+      printCliError(error, format)
+      return error instanceof CliError ? error.exitCode : EXIT_SYSTEM_ERROR
+    }
   }
 
   if (args.includes('--version') || args.includes('-v')) {

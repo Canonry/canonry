@@ -251,7 +251,7 @@ export const CLI_ROOT_SUMMARIES: Record<string, { section: string; summary: stri
   },
   "get": {
     "section": "Automation",
-    "summary": "Extract stored page fields"
+    "summary": "Read a field from stored project evidence"
   },
   "key": {
     "section": "Admin",

@@ -23,6 +23,7 @@ import {
 import { usageError } from '../cli-error.js'
 import {
   competitorAutoAliasModeSchema,
+  OperationAccesses,
   gbpNegativeReviewMaxStarsSchema,
   providerDispatchModeSchema,
   SITE_AUDIT_MAX_PAGE_LIMIT,
@@ -75,7 +76,8 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['project', 'update'],
     supportsDryRun: true,
-    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--competitor-auto-aliases <off|preview|apply>] [--expect-revision <n>] [--lead-event <name>...] [--add-lead-event <name>...] [--remove-lead-event <name>...] [--brand-term <term>...] [--add-brand-term <term>...] [--remove-brand-term <term>...] [--marketing-host <host>...] [--add-marketing-host <host>...] [--remove-marketing-host <host>...] [--format json]',
+    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--competitor-auto-aliases <off|preview|apply>] [--expect-revision <n>] [--lead-event <name>...] [--add-lead-event <name>...] [--remove-lead-event <name>...] [--brand-term <term>...] [--add-brand-term <term>...] [--remove-brand-term <term>...] [--marketing-host <host>...] [--add-marketing-host <host>...] [--remove-marketing-host <host>] [--format json] [--dry-run]',
+    accessFor: ({ values, dryRun }) => dryRun && getString(values, 'competitor-auto-aliases') === 'apply' ? OperationAccesses.stored : OperationAccesses.write,
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
