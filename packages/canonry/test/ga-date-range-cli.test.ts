@@ -46,9 +46,17 @@ describe('ga CLI --start / --end', () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
   })
 
-  it('forwards acquisition window and explicit dates together, with grouped CLI aliases', async () => {
-    await dispatch(['ga', 'acquisition', 'example', '--window', '7d', '--start', '2026-09-01', '--end', '2026-09-30', '--channel', 'Organic Search', '--host', 'EXAMPLE.com', '--landing-page', '/pricing?plan=team', '--source', 'google', '--medium', 'organic', '--group-by', 'date,channel,host,landing-page', '--limit', '20', '--offset', '10'])
-    expect(mockGaAcquisition).toHaveBeenCalledWith('example', expect.objectContaining({ window: '7d', startDate: '2026-09-01', endDate: '2026-09-30', channel: 'Organic Search', hostName: 'EXAMPLE.com', landingPage: '/pricing?plan=team', source: 'google', medium: 'organic', groupBy: 'date,channelGroup,hostName,landingPage', limit: 20, offset: 10 }))
+  it('forwards an acquisition window with grouped CLI aliases and paging', async () => {
+    await dispatch(['ga', 'acquisition', 'example', '--window', '7d', '--channel', 'Organic Search', '--host', 'EXAMPLE.com', '--landing-page', '/pricing?plan=team', '--source', 'google', '--medium', 'organic', '--group-by', 'date,channel,host,landing-page', '--limit', '20', '--offset', '10'])
+    expect(mockGaAcquisition).toHaveBeenCalledWith('example', expect.objectContaining({ window: '7d', channel: 'Organic Search', hostName: 'EXAMPLE.com', landingPage: '/pricing?plan=team', source: 'google', medium: 'organic', groupBy: 'date,channelGroup,hostName,landingPage', limit: 20, offset: 10 }))
+    expect(mockGaAcquisition.mock.calls[0]![1].startDate).toBeUndefined()
+    expect(mockGaAcquisition.mock.calls[0]![1].endDate).toBeUndefined()
+  })
+
+  it('forwards an acquisition calendar range with grouped CLI aliases and paging', async () => {
+    await dispatch(['ga', 'acquisition', 'example', '--start', '2026-09-01', '--end', '2026-09-30', '--channel', 'Organic Search', '--host', 'EXAMPLE.com', '--landing-page', '/pricing?plan=team', '--source', 'google', '--medium', 'organic', '--group-by', 'date,channel,host,landing-page', '--limit', '20', '--offset', '10'])
+    expect(mockGaAcquisition).toHaveBeenCalledWith('example', expect.objectContaining({ startDate: '2026-09-01', endDate: '2026-09-30', channel: 'Organic Search', hostName: 'EXAMPLE.com', landingPage: '/pricing?plan=team', source: 'google', medium: 'organic', groupBy: 'date,channelGroup,hostName,landingPage', limit: 20, offset: 10 }))
+    expect(mockGaAcquisition.mock.calls[0]![1].window).toBeUndefined()
   })
 
   it('leaves acquisition dates and window absent by default', async () => {
