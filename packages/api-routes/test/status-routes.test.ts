@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createClient, gbpLocations, gscDataWatermarks, measurementPlanVersions, measurementPlans, migrate, projects, runs } from '@ainyc/canonry-db'
+import { createClient, doctorHealthState, gbpLocations, gscDataWatermarks, measurementPlanVersions, measurementPlans, migrate, projects, runs } from '@ainyc/canonry-db'
 import { GBP_NO_SELECTED_LOCATIONS_ERROR, canonicalMeasurementPlanV2Json, instanceStatusDtoSchema, serializeRunError } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import type { GoogleConnectionStore } from '../src/google.js'
@@ -73,6 +73,34 @@ describe('GET /api/v1/status', () => {
     fs.rmSync(dir, { recursive: true, force: true })
   })
 
+  it('includes stored health failures and warnings in the problems view and summary', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'status-health-'))
+    const db = createClient(path.join(dir, 'status.db'))
+    migrate(db)
+    const now = new Date().toISOString()
+    for (const [id, status] of [['failure', 'fail'], ['warning', 'warn'], ['healthy', 'ok']] as const) {
+      db.insert(projects).values({ id, name: id, displayName: id, canonicalDomain: `${id}.example`, country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
+      db.insert(doctorHealthState).values({ projectId: id, status, code: `traffic.${status}`, summary: `${status} summary`, checkedAt: now }).run()
+    }
+    const before = db.select().from(doctorHealthState).all()
+    const app = Fastify()
+    app.register(apiRoutes, { db, skipAuth: true })
+    try {
+      const response = await app.inject('/api/v1/status?problems=true')
+      expect(response.statusCode).toBe(200)
+      expect(response.json().summary).toEqual({ projects: 3, ok: 1, failing: 1, warning: 1, stale: 0, neverSynced: 0 })
+      expect(response.json().projects).toMatchObject([
+        { project: 'failure', state: 'failing', health: { status: 'fail' }, integrations: [] },
+        { project: 'warning', state: 'warning', health: { status: 'warn' }, integrations: [] },
+      ])
+      expect(db.select().from(doctorHealthState).all()).toEqual(before)
+    } finally {
+      await app.close()
+      db.$client.close()
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('counts Search Console freshness in Pacific reporting days', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-10-11T01:00:00.000Z'))
@@ -116,7 +144,7 @@ describe('GET /api/v1/status', () => {
     const response = await app.inject({ method: 'GET', url: '/api/v1/status?project=demo&problems=true' })
     expect(response.statusCode).toBe(200)
     const body = JSON.parse(response.payload)
-    expect(body.projects).toHaveLength(0)
+    expect(body.projects).toMatchObject([{ project: 'demo', health: null, integrations: [] }])
     await app.close()
   })
 })

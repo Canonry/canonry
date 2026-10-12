@@ -53,7 +53,7 @@ describe('probeApiHost', () => {
     const options = { lookup: async () => [{ address: '192.0.2.10', family: 4 }], connect: async () => { calls++; return 'tls-failed' as const } }
     expect((await probeApiHost('tls.example', options)).kind).toBe('tls-failed')
     expect((await probeApiHost('tls.example', options)).kind).toBe('tls-failed')
-    expect(calls).toBe(1)
+    expect(calls).toBe(2)
     expect((await probeApiHost('refused.example', { lookup: options.lookup, connect: async () => 'connect-failed' })).kind).toBe('connect-failed')
     let now = 0
     let lookups = 0
@@ -64,6 +64,15 @@ describe('probeApiHost', () => {
     now = 5 * 60_000 + 1
     await probeApiHost('ttl.example', ttlOptions)
     expect(lookups).toBe(2)
+  })
+
+  it('rechecks failed DNS immediately after the operator fixes it', async () => {
+    const lookup = vi.fn()
+      .mockResolvedValueOnce([{ address: '0.0.0.0', family: 4 }])
+      .mockResolvedValue([{ address: PUBLIC_ADDRESS, family: 4 }])
+    const options = { lookup, connect: async () => 'reachable' as const }
+    expect((await probeApiHost('fixed.example', options)).kind).toBe('null-routed')
+    expect((await probeApiHost('fixed.example', options)).kind).toBe('reachable')
   })
 
   it.each(['CERT_HAS_EXPIRED', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'SELF_SIGNED_CERT_IN_CHAIN', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'ERR_TLS_CERT_ALTNAME_INVALID'] as const)('grades certificate error %s as TLS failure without an HTTP dial', async code => {

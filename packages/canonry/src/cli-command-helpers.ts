@@ -137,7 +137,10 @@ export function readWindowOptions(input: CliCommandInput, config: { allowed?: re
   const rawWindow = read('window')
   try {
     const window = rawWindow === undefined || rawWindow === '' ? undefined : parseWindowIn(rawWindow, config.allowed ?? [], { fallback: config.allowed?.[0] ?? '', field: 'window' })
-    const dates = resolveDateRange({ startDate: read('start'), endDate: read('end') })
+    const startDate = read('start')
+    const endDate = read('end')
+    if (rawWindow !== undefined && (startDate !== undefined || endDate !== undefined)) throw usageError('Use --window or --start/--end, not both.')
+    const dates = resolveDateRange({ startDate, endDate })
     return { window, startDate: dates.startDate ?? undefined, endDate: dates.endDate ?? undefined }
   } catch (error) {
     if (error instanceof AppError) throw usageError(error.message, { details: error.details })

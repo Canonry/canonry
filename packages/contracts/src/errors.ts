@@ -478,3 +478,8 @@ export function isFetchTransportError(err: unknown): boolean {
   if (err.name === 'TimeoutError' || err.name === 'AbortError') return true
   return err instanceof TypeError && err.message === 'fetch failed'
 }
+
+/** Concise field-aware validation text for API and CLI error envelopes. */
+export function formatValidationIssues(issues: readonly { path: readonly PropertyKey[]; message: string }[]): string {
+  return issues.map(issue => `${issue.path.length ? `${issue.path.map(String).join('.')}: ` : ''}${issue.message.replace(/\s+/g, ' ')}`).join('; ')
+}

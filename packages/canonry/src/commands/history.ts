@@ -1,8 +1,8 @@
 import { createApiClient } from '../client.js'
-import { CliError } from '../cli-error.js'
+import { CliError, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 import type { AuditHistoryOptions, AuditLogEntry } from '@ainyc/canonry-contracts'
-import { resultsClearRequestSchema, describeError } from '@ainyc/canonry-contracts'
+import { auditHistoryQuerySchema, formatValidationIssues, resultsClearRequestSchema, describeError } from '@ainyc/canonry-contracts'
 
 function getClient() {
   return createApiClient()
@@ -17,6 +17,8 @@ function originLabel(entry: AuditLogEntry): string {
 }
 
 export async function showHistory(project: string | undefined, format?: string, opts: AuditHistoryOptions = {}): Promise<void> {
+  const parsed = auditHistoryQuerySchema.safeParse(opts)
+  if (!parsed.success) throw usageError(formatValidationIssues(parsed.error.issues))
   const client = getClient()
 
   try {
@@ -43,12 +45,12 @@ export async function showHistory(project: string | undefined, format?: string, 
     }
 
     console.log(`${project ? `Audit history for "${project}"` : 'Instance audit history'} (${entries.length}):\n`)
-    console.log('  TIMESTAMP                ACTION              ENTITY TYPE  ACTOR               ORIGIN')
+    console.log(`  ${project ? '' : 'PROJECT               '}TIMESTAMP                ACTION              ENTITY TYPE  ACTOR               ORIGIN`)
     console.log('  ───────────────────────  ──────────────────  ───────────  ──────────────────  ─────────')
 
     for (const entry of entries) {
       console.log(
-        `  ${entry.createdAt.padEnd(23)}  ${entry.action.padEnd(18)}  ${entry.entityType.padEnd(11)}  ${entry.actor.padEnd(18)}  ${originLabel(entry)}`,
+        `  ${project ? '' : `${(entry.project ?? entry.projectId ?? '(instance)').padEnd(20)}  `}${entry.createdAt.padEnd(23)}  ${entry.action.padEnd(18)}  ${entry.entityType.padEnd(11)}  ${entry.actor.padEnd(18)}  ${originLabel(entry)}`,
       )
       if (entry.actorSession) console.log(`    session: ${entry.actorSession}`)
       if (entry.diff != null) console.log(`    diff: ${JSON.stringify(entry.diff)}`)

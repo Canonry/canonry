@@ -1,7 +1,7 @@
-import { and, asc, count, desc, eq, gte, inArray, like, lte, ne, notInArray, or, sql } from 'drizzle-orm'
+import { and, asc, count, getTableColumns, desc, eq, gte, inArray, like, lte, ne, notInArray, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { runFills, auditLog, competitors, querySnapshots, runs, queries, parseJsonColumn, researchRuns, researchRunQueries, insights, healthSnapshots } from '@ainyc/canonry-db'
+import { runFills, auditLog, projects, competitors, querySnapshots, runs, queries, parseJsonColumn, researchRuns, researchRunQueries, insights, healthSnapshots } from '@ainyc/canonry-db'
 import { compileCompetitiveSignalResolver } from '@ainyc/canonry-intelligence'
 import { runFillInProgress,
   auditHistoryQuerySchema,
@@ -84,7 +84,7 @@ export async function historyRoutes(app: FastifyInstance) {
       .offset(parseBoundedInt(request.query.offset, 0, Number.MAX_SAFE_INTEGER))
       .all()
 
-    return reply.send(rows.map(formatAuditEntry))
+    return reply.send(rows.map(row => formatAuditEntry({ ...row, project: project.name })))
   })
 
   // GET /history — audit log. Full-instance keys see every project's entries;
@@ -99,8 +99,9 @@ export async function historyRoutes(app: FastifyInstance) {
     if (request.operatorAccess !== true) filters.push(ne(auditLog.entityType, 'telemetry'))
     addAuditHistoryFilters(filters, parseAuditHistoryQuery(request.query))
     const rows = app.db
-      .select()
+      .select({ ...getTableColumns(auditLog), project: projects.name })
       .from(auditLog)
+      .leftJoin(projects, eq(auditLog.projectId, projects.id))
       .where(filters.length > 0 ? and(...filters) : undefined)
       .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
       .limit(parseBoundedInt(request.query.limit, 100, 500))
@@ -567,6 +568,7 @@ export async function historyRoutes(app: FastifyInstance) {
 }
 
 function formatAuditEntry(row: {
+  project?: string | null
   id: string
   projectId: string | null
   actor: string
@@ -583,6 +585,7 @@ function formatAuditEntry(row: {
   return {
     id: row.id,
     projectId: row.projectId,
+    project: row.project ?? null,
     actor: row.actor,
     action: row.action,
     entityType: row.entityType,

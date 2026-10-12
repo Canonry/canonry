@@ -43,7 +43,7 @@ export type StatusHealth = z.infer<typeof statusHealthSchema>
 export const projectStatusSchema = z.object({
   project: z.string(),
   displayName: z.string(),
-  state: integrationStateSchema,
+  state: z.enum([...integrationStateSchema.options, 'warning']),
   health: statusHealthSchema.nullable(),
   integrations: z.array(integrationStatusRowSchema),
 })
@@ -55,6 +55,7 @@ export const instanceStatusDtoSchema = z.object({
     projects: z.number().int().nonnegative(),
     ok: z.number().int().nonnegative(),
     failing: z.number().int().nonnegative(),
+    warning: z.number().int().nonnegative().optional(),
     stale: z.number().int().nonnegative(),
     neverSynced: z.number().int().nonnegative(),
   }),

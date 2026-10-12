@@ -110,6 +110,7 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     run: async (input) => {
       const usage = 'canonry history <project> [--limit <1..500>] [--offset <n>] [--since <ISO>] [--until <ISO>] [--action <action>] [--action-prefix <prefix>] [--actor <actor>] [--entity-type <type>] [--exclude-entity-type <type>]... [--entity-id <id>] [--format json|jsonl]\n       canonry history --all [same filters]'
+      if (getBoolean(input.values, 'all') && input.positionals.length > 0) throw usageError('Use a project or --all, not both.')
       const project = getBoolean(input.values, 'all') ? undefined : requireProject(input, 'history', usage)
       await showHistory(project, input.format, {
         limit: parseHistoryPageOption(input, 'limit', usage),

@@ -186,10 +186,9 @@ describe('GET /runs ?kind= filter', () => {
     expect(err.error.message).toMatch(/kind/i)
   })
 
-  it('empty ?kind= behaves like no filter (returns all kinds)', async () => {
-    const { body } = await get<Array<{ kind: string }>>(`/api/v1/runs?kind=`)
-    const kinds = new Set(body.map(r => r.kind))
-    expect(kinds.size).toBeGreaterThan(1) // both bing-inspect and answer-visibility
+  it('rejects an explicitly empty filter', async () => {
+    const { status } = await get(`/api/v1/runs?kind=`)
+    expect(status).toBe(400)
   })
 })
 
@@ -219,9 +218,9 @@ describe('GET /projects/:name/runs ?kind= filter', () => {
     expect(err.error.message).toMatch(/kind/i)
   })
 
-  it('empty ?kind= behaves like no filter', async () => {
-    const { body } = await get<Array<{ kind: string }>>(`/api/v1/projects/runs-filter/runs?kind=`)
-    expect(new Set(body.map(r => r.kind)).size).toBeGreaterThan(1)
+  it('rejects an explicitly empty filter', async () => {
+    const { status } = await get(`/api/v1/projects/runs-filter/runs?kind=`)
+    expect(status).toBe(400)
   })
 })
 
@@ -249,10 +248,9 @@ describe.each(['/api/v1/runs', '/api/v1/projects/runs-filter/runs'])('%s ?exclud
     expect(body.error.message).toBe(`"excludeKind" must be one of: ${Object.values(RunKinds).join(', ')}`)
   })
 
-  it('treats an empty excluded kind as no filter', async () => {
-    const { status, body } = await get<Array<{ id: string }>>(`${route}?excludeKind=`)
-    expect(status).toBe(200)
-    expect(body).toHaveLength(SEEDED_TOTAL)
+  it('rejects an explicitly empty filter', async () => {
+    const { status } = await get(`${route}?excludeKind=`)
+    expect(status).toBe(400)
   })
 })
 
@@ -308,10 +306,9 @@ describe.each(['/api/v1/runs', '/api/v1/projects/runs-filter/runs'])('%s ?exclud
     expect(body.error.message).toContain('"excludeKinds"')
   })
 
-  it('treats an empty multi-kind exclusion as no filter', async () => {
-    const { status, body } = await get<Array<{ id: string }>>(`${route}?excludeKinds=`)
-    expect(status).toBe(200)
-    expect(body).toHaveLength(SEEDED_TOTAL)
+  it('rejects an explicitly empty filter', async () => {
+    const { status } = await get(`${route}?excludeKinds=`)
+    expect(status).toBe(400)
   })
 })
 
@@ -360,9 +357,9 @@ describe('GET /runs ?status= filter', () => {
     )
   })
 
-  it('empty ?status= behaves like no filter', async () => {
-    const { body } = await get<Array<{ status: string }>>(`/api/v1/runs?status=`)
-    expect(body).toHaveLength(SEEDED_TOTAL)
+  it('rejects an explicitly empty filter', async () => {
+    const { status } = await get(`/api/v1/runs?status=`)
+    expect(status).toBe(400)
   })
 })
 

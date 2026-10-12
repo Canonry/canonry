@@ -67,6 +67,17 @@ describe('stored GA acquisition', () => {
     expect(typo).toMatchObject({ totalSessions: 0, totalRows: 0, rows: [], channelGroups: ['Organic Search'] })
   })
 
+  it('normalizes the requested landing page with the same rules used for stored rows', async () => {
+    row('contact', 22, { landingPage: '/contact/', landingPageNormalized: '/contact' })
+    row('root', 7, { landingPage: '/?gtm_latency=1', landingPageNormalized: '/' })
+    row('query', 5, { landingPage: '/contact/?plan=team', landingPageNormalized: '/contact?plan=team' })
+    for (const [page, normalized, sessions] of [['/contact/', '/contact', 22], ['/?gtm_latency=1', '/', 7], ['/contact/?plan=team&utm_source=qa', '/contact?plan=team', 5]] as const) {
+      const response = await app.inject(`${url}&landingPage=${encodeURIComponent(page)}`)
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toMatchObject({ totalSessions: sessions, filters: { landingPage: normalized } })
+    }
+  })
+
   it('matches boundary-safe literal path prefixes, including percent, underscore, and meaningful queries', async () => {
     row('root', 1, { landingPageNormalized: '/offers%_x' })
     row('child', 2, { landingPageNormalized: '/offers%_x/detail?plan=team' })
@@ -93,14 +104,15 @@ describe('stored GA acquisition', () => {
     const result = await app.inject({ method: 'GET', url: `/api/v1/projects/example/ga/acquisition?${query}` })
     expect(result.statusCode).toBe(400)
     expect(result.json().error.code).toBe('VALIDATION_ERROR')
+    expect(result.json().error.message).not.toMatch(/\n|^\[/)
   })
 
-  it('uses all-history defaults and explicit dates win over rolling windows', async () => {
+  it('uses all-history defaults and refuses ambiguous dates plus a rolling window', async () => {
     row('a', 7, { date: '2025-01-01' })
     row('b', 11)
     const all = (await app.inject({ method: 'GET', url: '/api/v1/projects/example/ga/acquisition' })).json()
     expect(all).toMatchObject({ totalSessions: 18, window: { window: 'all', startDate: null, endDate: null } })
-    expect((await app.inject({ method: 'GET', url: `${url}&window=7d` })).json()).toMatchObject({ totalSessions: 11, window: { window: '7d', startDate: '2026-09-01', endDate: '2026-09-30' } })
+    expect((await app.inject({ method: 'GET', url: `${url}&window=7d` })).statusCode).toBe(400)
   })
 
   it('keeps project-only scope for Advanced projects and leaves measurement-analysis unchanged', async () => {

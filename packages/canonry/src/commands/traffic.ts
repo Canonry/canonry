@@ -1,4 +1,4 @@
-import { trafficSamplesQuerySchema, type TrafficSamplesQuery, referralAssessmentQuerySchema, type ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
+import { formatValidationIssues, trafficSamplesQuerySchema, type TrafficSamplesQuery, referralAssessmentQuerySchema, type ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
 import type {
   RunDetailDto,
   TrafficBackfillResponse,
@@ -1009,7 +1009,7 @@ export async function trafficSamples(project: string, opts: Omit<TrafficSamplesQ
     input.since = new Date(end - sinceMinutes * 60_000).toISOString()
   }
   const parsed = trafficSamplesQuerySchema.safeParse(input)
-  if (!parsed.success) throw usageError(parsed.error.message)
+  if (!parsed.success) throw usageError(formatValidationIssues(parsed.error.issues), { details: { issues: parsed.error.issues.map(({ path, message }) => ({ path, message })) } })
   const result = await createApiClient().trafficListSamples(project, parsed.data)
   if (isMachineFormat(format)) {
     if (format === 'jsonl') emitJsonl(result.samples.map(sample => ({ project, windowStart: result.windowStart, windowEnd: result.windowEnd, ...sample })))
@@ -1121,8 +1121,9 @@ export async function trafficEvents(project: string, opts: {
 /** Separate diagnostic: existing traffic/report headlines retain their meaning. */
 export async function trafficReferralAssessment(project: string, options: Partial<ReferralAssessmentQuery> & { format?: string }): Promise<void> {
   const { format, ...query } = options
+  if (!query.startDate || !query.endDate) throw usageError('--start and --end are required for traffic referral-assessment.')
   const parsed = referralAssessmentQuerySchema.safeParse(query)
-  if (!parsed.success) throw new CliError({ code: 'TRAFFIC_INVALID_ASSESSMENT', message: parsed.error.message })
+  if (!parsed.success) throw new CliError({ code: 'TRAFFIC_INVALID_ASSESSMENT', message: formatValidationIssues(parsed.error.issues) })
   const result = await createApiClient().trafficReferralAssessment(project, parsed.data)
   if (isMachineFormat(format)) { console.log(JSON.stringify(result, null, 2)); return }
   console.log(`AI referral assessment for "${project}" · ${result.window.startDate} to ${result.window.endDate} UTC`)

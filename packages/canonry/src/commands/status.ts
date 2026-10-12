@@ -13,7 +13,9 @@ export async function showStatus(project: string | undefined, format?: string, o
   if (options.all) {
     const status = await client.getStatus({ problems: options.problems })
     if (format === 'jsonl') {
-      emitJsonl(status.projects.flatMap(item => item.integrations.map(row => ({ project: item.project, ...row }))))
+      emitJsonl(status.projects.flatMap(item => item.integrations.length > 0
+        ? item.integrations.map(row => ({ project: item.project, health: item.health, ...row }))
+        : [{ project: item.project, state: item.state, health: item.health }]))
       return
     }
     if (isMachineFormat(format)) {
@@ -48,7 +50,7 @@ export async function showStatus(project: string | undefined, format?: string, o
     } catch {
       // Runs endpoint may not be available (e.g. older server)
     }
-    console.log(JSON.stringify({
+    const result = {
       project: projectData,
       runs,
       latestRun: latest.run,
@@ -57,7 +59,9 @@ export async function showStatus(project: string | undefined, format?: string, o
       ...(latest.admission ? { admission: latest.admission } : {}),
       ...(latest.manualAdmission ? { manualAdmission: latest.manualAdmission } : {}),
       ...(storedStatus?.projects[0] ? { integrations: storedStatus.projects[0].integrations, health: storedStatus.projects[0].health } : {}),
-    }, null, 2))
+    }
+    if (format === 'jsonl') emitJsonl([result])
+    else console.log(JSON.stringify(result, null, 2))
     return
   }
 

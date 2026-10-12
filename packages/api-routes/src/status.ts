@@ -7,6 +7,7 @@ import {
   truncateUtf16,
   type RunKind,
   type InstanceStatusDto,
+  type ProjectStatus,
   type IntegrationStatusRow,
 } from '@ainyc/canonry-contracts'
 import {
@@ -167,8 +168,9 @@ function projectStatus(opts: StatusRoutesOptions, project: typeof projects.$infe
   const integrations = projectRows(opts, project)
   const healthRow = opts.db.select().from(doctorHealthState).where(eq(doctorHealthState.projectId, project.id)).limit(1).get()
   const health = healthRow ? { status: healthRow.status as 'ok' | 'warn' | 'fail', code: healthRow.code, summary: healthRow.summary, checkedAt: healthRow.checkedAt, notifiedAt: healthRow.notifiedAt } : null
-  const rank = { ok: 0, 'never-synced': 1, stale: 2, failing: 3 } as const
-  const state = integrations.reduce<IntegrationStatusRow['state']>((worst, row) => rank[row.state] > rank[worst] ? row.state : worst, 'ok')
+  const rank = { ok: 0, 'never-synced': 1, warning: 2, stale: 3, failing: 4 } as const
+  const healthState = health?.status === 'fail' ? 'failing' : health?.status === 'warn' ? 'warning' : 'ok'
+  const state = integrations.reduce<ProjectStatus['state']>((worst, row) => rank[row.state] > rank[worst] ? row.state : worst, healthState)
   return { project: project.name, displayName: project.displayName, state, health, integrations }
 }
 
@@ -179,15 +181,18 @@ export async function statusRoutes(app: FastifyInstance, opts: StatusRoutesOptio
     if (requested) {
       const project = resolveProject(opts.db, requested)
       if (scopedId && project.id !== scopedId) throw forbidden('This project is outside the API key scope.')
-      const result = { generatedAt: new Date().toISOString(), summary: { projects: 1, ok: 0, failing: 0, stale: 0, neverSynced: 0 }, projects: [projectStatus(opts, project)] }
+      const result = { generatedAt: new Date().toISOString(), summary: { projects: 1, ok: 0, failing: 0, warning: 0, stale: 0, neverSynced: 0 }, projects: [projectStatus(opts, project)] }
       const status = result.projects[0]!.state
       result.summary[status === 'never-synced' ? 'neverSynced' : status]++
-      if (request.query.problems === 'true') result.projects = result.projects.map(item => ({ ...item, integrations: item.integrations.filter(row => row.state !== 'ok') })).filter(item => item.state !== 'ok')
+      if (request.query.problems === 'true') result.projects = result.projects.map(item => ({ ...item, integrations: item.integrations.filter(row => row.state !== 'ok') }))
       return instanceStatusDtoSchema.parse(result)
     }
     const projectsRows = (scopedId ? opts.db.select().from(projects).where(eq(projects.id, scopedId)) : opts.db.select().from(projects)).all()
-    const output: InstanceStatusDto = { generatedAt: new Date().toISOString(), summary: { projects: projectsRows.length, ok: 0, failing: 0, stale: 0, neverSynced: 0 }, projects: projectsRows.map(project => projectStatus(opts, project)) }
-    for (const project of output.projects) output.summary[project.state === 'never-synced' ? 'neverSynced' : project.state]++
+    const output: InstanceStatusDto = { generatedAt: new Date().toISOString(), summary: { projects: projectsRows.length, ok: 0, failing: 0, warning: 0, stale: 0, neverSynced: 0 }, projects: projectsRows.map(project => projectStatus(opts, project)) }
+    for (const project of output.projects) {
+      const key = project.state === 'never-synced' ? 'neverSynced' : project.state
+      output.summary[key] = (output.summary[key] ?? 0) + 1
+    }
     if (request.query.problems === 'true') output.projects = output.projects.map(project => ({ ...project, integrations: project.integrations.filter(row => row.state !== 'ok') })).filter(project => project.state !== 'ok')
     return instanceStatusDtoSchema.parse(output)
   })

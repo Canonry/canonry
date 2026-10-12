@@ -73,6 +73,12 @@ describe('audit history pagination', () => {
     expect(new Set([...firstIds, ...secondIds])).toHaveLength(509)
   })
 
+  it('names the project on instance-wide rows without extra client lookups', async () => {
+    const response = await app.inject('/api/v1/history?limit=1')
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject([{ project: 'history-page', projectId }])
+  })
+
   it('keeps actor=api compatible with legacy and authenticated HTTP principal actors', async () => {
     const category = await app.inject('/api/v1/projects/history-page/history?actor=api&limit=10')
     const exact = await app.inject('/api/v1/projects/history-page/history?actor=api-key:key-1&limit=10')
@@ -119,6 +125,12 @@ for (const route of ['/api/v1/projects/history-page/history', '/api/v1/history']
         expect(response.statusCode).toBe(200)
         expect(response.json().map((row: { id: string }) => row.id)).toEqual(['boundary'])
       }
+    })
+
+    it.each(['actor', 'action', 'actionPrefix', 'entityType', 'entityId', 'excludeEntityTypes'])('rejects an explicitly empty %s filter', async field => {
+      const response = await app.inject(`${route}?${field}=`)
+      expect(response.statusCode).toBe(400)
+      expect(response.json().error.code).toBe('VALIDATION_ERROR')
     })
 
     it.each(['since', 'until'])('rejects an invalid %s bound', async field => {

@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaAcquisitionDaily as acquisition, gaMeasurementSyncStates } from '@ainyc/canonry-db'
-import { gaAcquisitionDimensionSchema, gaAcquisitionQuerySchema, GaAcquisitionDimensions, normalizePathPrefix, parseWindow, resolveDateRange, validationError, type GaAcquisitionDimension, type GaAcquisitionResponse } from '@ainyc/canonry-contracts'
+import { gaAcquisitionDimensionSchema, gaAcquisitionQuerySchema, GaAcquisitionDimensions, normalizePathPrefix, normalizeUrlPath, parseWindow, resolveDateRange, validationError, formatValidationIssues, type GaAcquisitionDimension, type GaAcquisitionResponse } from '@ainyc/canonry-contracts'
 import { resolveProject } from './helpers.js'
 import { literalPathPrefixCondition } from './path-prefix-condition.js'
 
@@ -10,9 +10,10 @@ export async function gaAcquisitionRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { name: string }; Querystring: Record<string, unknown> & { window?: string } }>('/projects/:name/ga/acquisition', async request => {
     const project = resolveProject(app.db, request.params.name)
     const input = { ...request.query }
+    if (input.window !== undefined && (input.startDate !== undefined || input.endDate !== undefined)) throw validationError('Use window or explicit startDate/endDate, not both.')
     for (const key of ['limit', 'offset']) if (input[key] !== undefined) input[key] = Number(input[key])
     const parsed = gaAcquisitionQuerySchema.safeParse({ ...input, window: parseWindow(input.window) })
-    if (!parsed.success) throw validationError(parsed.error.message)
+    if (!parsed.success) throw validationError(formatValidationIssues(parsed.error.issues), { issues: parsed.error.issues.map(({ path, message }) => ({ path, message })) })
     const query = parsed.data
     const range = resolveDateRange(query)
     const groupBy = query.groupBy === undefined ? [...gaAcquisitionDimensionSchema.options] : [...new Set(query.groupBy.split(',').map(key => gaAcquisitionDimensionSchema.parse(key.trim())))]
@@ -30,7 +31,8 @@ export async function gaAcquisitionRoutes(app: FastifyInstance): Promise<void> {
     if (query.hostName !== undefined) filters.push(sql`lower(${acquisition.hostName}) = lower(${query.hostName})`)
     if (query.source !== undefined) filters.push(eq(acquisition.source, query.source))
     if (query.medium !== undefined) filters.push(eq(acquisition.medium, query.medium))
-    if (query.landingPage !== undefined) filters.push(sql`${landingPage} = ${query.landingPage}`)
+    const selectedLandingPage = query.landingPage === undefined ? undefined : normalizeUrlPath(query.landingPage) ?? query.landingPage
+    if (selectedLandingPage !== undefined) filters.push(sql`${landingPage} = ${selectedLandingPage}`)
     const pathPrefix = normalizePathPrefix(query.pathPrefix)
     if (pathPrefix && pathPrefix !== '/') {
       const pathname = sql`case when instr(${landingPage}, '?') = 0 then ${landingPage} else substr(${landingPage}, 1, instr(${landingPage}, '?') - 1) end`
@@ -54,7 +56,7 @@ export async function gaAcquisitionRoutes(app: FastifyInstance): Promise<void> {
       source: 'ga4-acquisition', status: state?.acquisitionStatus ?? 'never-synced', error: state?.acquisitionError ?? null, syncedAt: state?.acquisitionSyncedAt ?? null,
       scope: { project: project.name, attribution: 'project-only', unavailableDimensions: ['property', 'target', 'market'] },
       window: { startDate: range.startDate, endDate: range.endDate, window: range.window }, coverage,
-      filters: { channel: query.channel ?? null, source: query.source ?? null, medium: query.medium ?? null, hostName: query.hostName ?? null, landingPage: query.landingPage ?? null, pathPrefix },
+      filters: { channel: query.channel ?? null, source: query.source ?? null, medium: query.medium ?? null, hostName: query.hostName ?? null, landingPage: selectedLandingPage ?? null, pathPrefix },
       groupBy, channelGroups, totalSessions, totalRows, limit, offset, rows,
     }
     return response

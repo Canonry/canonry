@@ -104,7 +104,6 @@ async function probeApiHostUncached(host: string, options: ApiHostProbeOptions):
     const code = (error as NodeJS.ErrnoException).code
     const kind: ApiHostProbeKind = code === 'ENOTFOUND' || code === 'ENODATA' ? 'no-address' : 'resolver-unavailable'
     const result = { kind, host, addresses: [], code, durationMs: now() - started }
-    cache.set(host, { at: now(), result })
     return result
   }
   const addresses = records.map(record => record.address)
@@ -112,7 +111,6 @@ async function probeApiHostUncached(host: string, options: ApiHostProbeOptions):
   const blocked = records.map(record => classifyBlocked(record.address)).find(Boolean)
   if (publicAddresses.length === 0) {
     const result: ApiHostProbeResult = { kind: blocked ?? 'no-address', host, addresses, durationMs: now() - started }
-    cache.set(host, { at: now(), result })
     return result
   }
   const attempts = await Promise.all(publicAddresses.map(async record => {
@@ -124,7 +122,7 @@ async function probeApiHostUncached(host: string, options: ApiHostProbeOptions):
   }))
   const kind: ApiHostProbeKind = attempts.includes('reachable') ? 'reachable' : attempts.includes('tls-failed') ? 'tls-failed' : 'connect-failed'
   const result = { kind, host, addresses, durationMs: now() - started }
-  cache.set(host, { at: now(), result })
+  if (kind === 'reachable') cache.set(host, { at: now(), result })
   return result
 }
 

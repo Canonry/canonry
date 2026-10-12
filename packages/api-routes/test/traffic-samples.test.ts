@@ -66,6 +66,14 @@ describe('stored traffic samples', () => {
     const response = await app.inject({ method: 'GET', url: `/api/v1/projects/example/traffic/samples?${params}` })
     expect(response.statusCode).toBe(400)
     expect(response.json().error.code).toBe('VALIDATION_ERROR')
+    expect(response.json().error.message).not.toMatch(/\n|^\[/)
+  })
+
+  it('accepts date-only bounds as UTC midnight', async () => {
+    sample('date-only')
+    const response = await app.inject('/api/v1/projects/example/traffic/samples?since=2026-10-10&until=2026-10-11')
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ totalRows: 1, windowStart: '2026-10-10T00:00:00.000Z', windowEnd: '2026-10-11T00:00:00.000Z' })
   })
 
   it('normalizes offset bounds and tolerates a synthetic pre-upgrade classifier shape', async () => {

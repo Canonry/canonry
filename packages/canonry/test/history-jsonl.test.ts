@@ -93,6 +93,18 @@ describe('showHistory --format jsonl', () => {
     )
   })
 
+  it('retains project names in instance JSONL and text', async () => {
+    mockGetGlobalHistory.mockResolvedValue([{ ...entries[0], project: 'demo' }])
+    const cap = captureStdout(() => showHistory(undefined, 'jsonl'))
+    await cap.run
+    expect(JSON.parse(cap.lines()[0]!)).toMatchObject({ project: 'demo' })
+    const lines: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation((...parts: unknown[]) => { lines.push(parts.join(' ')) })
+    try { await showHistory(undefined) } finally { log.mockRestore() }
+    expect(lines.join('\n')).toContain('PROJECT')
+    expect(lines.join('\n')).toContain('demo')
+  })
+
   it('empty collection writes nothing', async () => {
     mockGetHistory.mockResolvedValue([])
     const cap = captureStdout(() => showHistory('demo', 'jsonl'))
@@ -142,6 +154,11 @@ describe('history CLI paging arguments', () => {
   it('accepts and forwards a nonnegative offset beyond the first 500 entries', async () => {
     await dispatchRegisteredCommand(['history', 'demo', '--limit', '500', '--offset', '500'], 'json', OPERATOR_CLI_COMMANDS)
     expect(mockGetHistory).toHaveBeenCalledWith('demo', { limit: 500, offset: 500, since: undefined, until: undefined, actionPrefix: undefined, excludeEntityTypes: undefined, entityId: undefined, action: undefined, actor: undefined, entityType: undefined })
+  })
+
+  it('refuses a project together with --all', async () => {
+    await expect(dispatchRegisteredCommand(['history', 'demo', '--all'], 'json', OPERATOR_CLI_COMMANDS)).rejects.toMatchObject({ code: 'CLI_USAGE_ERROR' })
+    expect(mockGetGlobalHistory).not.toHaveBeenCalled()
   })
 
   it.each([

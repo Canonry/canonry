@@ -101,6 +101,34 @@ describe('latest-run command usage', () => {
     expect(row.row).toBeUndefined()
   })
 
+  it('single-project jsonl is one compact record with stored health', async () => {
+    mockGetProject.mockResolvedValue({ name: 'demo' })
+    mockGetLatestRun.mockResolvedValue({ run: null, totalRuns: 0 })
+    mockListRuns.mockResolvedValue([])
+    mockGetStatus.mockResolvedValue({ projects: [{ health: { status: 'fail' }, integrations: [] }] })
+    const output: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { output.push(args.join(' ') + '\n') })
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => { output.push(String(chunk)); return true }) as typeof process.stdout.write)
+    try {
+      await showStatus('demo', 'jsonl', { problems: true })
+    } finally {
+      log.mockRestore()
+      write.mockRestore()
+    }
+    const lines = output.join('').trim().split('\n')
+    expect(lines).toHaveLength(1)
+    expect(JSON.parse(lines[0]!)).toMatchObject({ project: { name: 'demo' }, health: { status: 'fail' }, integrations: [] })
+  })
+
+  it('status --all jsonl preserves a health problem with no integration rows', async () => {
+    mockGetStatus.mockResolvedValue({ projects: [{ project: 'demo', state: 'failing', health: { status: 'fail' }, integrations: [] }] })
+    const output: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => { output.push(String(chunk)); return true }) as typeof process.stdout.write)
+    try { await showStatus(undefined, 'jsonl', { all: true, problems: true }) } finally { write.mockRestore() }
+    expect(output.join('').trim()).not.toBe('')
+    expect(JSON.parse(output.join('').trim())).toMatchObject({ project: 'demo', state: 'failing', health: { status: 'fail' } })
+  })
+
   it('status --all human output includes streak, data watermark, and latest error', async () => {
     mockGetStatus.mockResolvedValue({
       generatedAt: '2026-10-11T00:00:00.000Z',

@@ -760,8 +760,8 @@ export const TrafficSampleKinds = trafficSampleKindSchema.enum
 export const trafficSamplesQuerySchema = z.object({
   kind: z.enum(['crawler', 'ai-user-fetch', 'ai-referral', 'unknown', 'all']).optional(),
   sourceId: z.string().min(1).optional(),
-  since: z.iso.datetime({ offset: true }).optional(),
-  until: z.iso.datetime({ offset: true }).optional(),
+  since: z.union([z.iso.datetime({ offset: true }), z.iso.date()], { error: 'Expected an ISO timestamp or YYYY-MM-DD date' }).optional(),
+  until: z.union([z.iso.datetime({ offset: true }), z.iso.date()], { error: 'Expected an ISO timestamp or YYYY-MM-DD date' }).optional(),
   path: z.string().optional(),
   limit: z.number().int().min(1).max(500).optional(),
   offset: z.number().int().nonnegative().optional(),

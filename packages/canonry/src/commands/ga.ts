@@ -1,6 +1,6 @@
 import type { AiEngineLeadRateUnavailableReason, GaConnectResponse, GA4PropertiesDto, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaMeasurementAnalysisDto, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GaSourceMover, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaSearchLandingMetrics, GaSearchLandingPagesResponse } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { gaAcquisitionQuerySchema, type GaAcquisitionQuery } from '@ainyc/canonry-contracts'
+import { formatValidationIssues, gaAcquisitionQuerySchema, type GaAcquisitionQuery } from '@ainyc/canonry-contracts'
 import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 import { GA_SEARCH_LANDING_WINDOW_DAYS, GaMoverChangeBases, describeError, formatPercent, gaSearchLandingHasSearchData, gaSearchLandingPageLabel } from '@ainyc/canonry-contracts'
@@ -39,7 +39,7 @@ function isRangeScoped(opts?: GaRangeOptions): boolean {
 export async function gaAcquisition(project: string, opts: Omit<GaAcquisitionQuery, 'window'> & { window?: string; format?: string }): Promise<void> {
   const { format, ...input } = opts
   const parsed = gaAcquisitionQuerySchema.safeParse(input)
-  if (!parsed.success) throw usageError(parsed.error.message)
+  if (!parsed.success) throw usageError(formatValidationIssues(parsed.error.issues), { details: { issues: parsed.error.issues.map(({ path, message }) => ({ path, message })) } })
   const result = await createApiClient().gaAcquisition(project, parsed.data)
   if (isMachineFormat(format)) {
     if (format === 'jsonl') emitJsonl(result.rows.map(row => ({ project, windowStart: result.window.startDate, windowEnd: result.window.endDate, ...row })))

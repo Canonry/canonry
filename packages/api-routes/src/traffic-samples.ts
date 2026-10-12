@@ -1,7 +1,7 @@
 import { and, count, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { rawEventSamples } from '@ainyc/canonry-db'
-import { escapeLikePattern, TrafficSampleKinds, trafficSampleClassifierSchema, trafficSamplesQuerySchema, validationError, type TrafficSampleKind, type TrafficSamplesResponse } from '@ainyc/canonry-contracts'
+import { escapeLikePattern, TrafficSampleKinds, trafficSampleClassifierSchema, trafficSamplesQuerySchema, validationError, formatValidationIssues, type TrafficSampleKind, type TrafficSamplesResponse } from '@ainyc/canonry-contracts'
 import { requireAdminSession } from './auth.js'
 import { resolveProject } from './helpers.js'
 
@@ -21,7 +21,7 @@ export async function trafficSamplesRoutes(app: FastifyInstance): Promise<void> 
     const input = { ...request.query }
     for (const key of ['limit', 'offset']) if (input[key] !== undefined) input[key] = Number(input[key])
     const parsed = trafficSamplesQuerySchema.safeParse(input)
-    if (!parsed.success) throw validationError(parsed.error.message)
+    if (!parsed.success) throw validationError(formatValidationIssues(parsed.error.issues), { issues: parsed.error.issues.map(({ path, message }) => ({ path, message })) })
     const query = parsed.data
     const windowEnd = new Date(query.until ?? Date.now()).toISOString()
     const windowStart = new Date(query.since ?? Date.parse(windowEnd) - 86_400_000).toISOString()

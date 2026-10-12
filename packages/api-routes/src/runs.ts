@@ -850,7 +850,7 @@ function isRunListFilterField(field: PropertyKey | undefined): field is keyof Ru
 
 /**
  * Parse the kind, exclusion, and status filters shared by `GET /runs` and
- * `GET /projects/:name/runs`. An absent or empty param applies no filter. An
+ * `GET /projects/:name/runs`. An absent param applies no filter. An
  * unknown value is a 400 naming the param and its allowed values: a typo that
  * silently returned `[]` would be indistinguishable from "no runs exist", and
  * an ignored param is worse still (`?status=running` used to return completed
@@ -858,10 +858,10 @@ function isRunListFilterField(field: PropertyKey | undefined): field is keyof Ru
  */
 function parseListFilters(query: { kind?: string; excludeKind?: string; excludeKinds?: string | string[]; status?: string }): RunListFilterQuery {
   const parsed = runListFilterQuerySchema.safeParse({
-    kind: query.kind === '' ? undefined : query.kind,
-    excludeKind: query.excludeKind === '' ? undefined : query.excludeKind,
+    kind: query.kind,
+    excludeKind: query.excludeKind,
     excludeKinds: query.excludeKinds,
-    status: query.status === '' ? undefined : query.status,
+    status: query.status,
   })
   if (parsed.success) return parsed.data
   const invalid = [...new Set(parsed.error.issues.map(issue => issue.path[0]).filter(isRunListFilterField))]

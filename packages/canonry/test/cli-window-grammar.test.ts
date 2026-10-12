@@ -67,3 +67,28 @@ it('shows canonical calendar flags and retained aliases in contextual help', asy
   expect(traffic.stdout).toContain('--period for --window')
   expect(createApiClient).not.toHaveBeenCalled()
 })
+
+it.each([['ga', 'acquisition'], ['google', 'performance'], ['google', 'performance-daily'], ['google', 'top-pages'], ['google', 'query-totals']])('refuses a rolling window together with explicit dates for %j', async (...command) => {
+  const result = await invokeCli([...command, 'example', '--window', '7d', '--start', '2026-09-01', '--end', '2026-09-30', '--format', 'json'])
+  expect(result.exitCode).toBe(1)
+  expect(JSON.parse(result.stderr).error.message).toMatch(/--window.*--start|--start.*--window/)
+  expect(createApiClient).not.toHaveBeenCalled()
+})
+
+it.each(['json', 'jsonl'])('names invalid stored-read fields in %s errors', async format => {
+  for (const [command, field] of [
+    [['traffic', 'samples', 'example', '--kind', 'bogus'], 'kind'],
+    [['traffic', 'samples', 'example', '--since', 'not-a-date'], 'since'],
+    [['traffic', 'samples', 'example', '--limit', '501'], 'limit'],
+    [['ga', 'acquisition', 'example', '--group-by', 'bogus'], 'groupBy'],
+    [['ga', 'acquisition', 'example', '--offset=-1'], 'offset'],
+    [['traffic', 'referral-assessment', 'example', '--start', '2026-09-01'], '--end'],
+  ] as const) {
+    const result = await invokeCli([...command, '--format', format])
+    expect(result.exitCode).toBe(1)
+    const error = JSON.parse(result.stderr).error
+    expect(error.message).toContain(field)
+    expect(error.message).not.toMatch(/^\[|\n/)
+    expect(createApiClient).not.toHaveBeenCalled()
+  }
+})
