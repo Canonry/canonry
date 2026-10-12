@@ -1,9 +1,10 @@
 import crypto from 'node:crypto'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { queries, querySnapshots } from '@ainyc/canonry-db'
-import { AppError, keywordGenerateRequestSchema, queryGenerateRequestSchema, validationError, notImplemented, internalError, notFound, providerAuthError, quotaExceeded, providerError, classifyProviderErrorMessage, describeError } from '@ainyc/canonry-contracts'
+import { queries, querySnapshots, type DatabaseClient } from '@ainyc/canonry-db'
+import { AppError, keywordGenerateRequestSchema, queryGenerateRequestSchema, validationError, notImplemented, internalError, notFound, providerAuthError, quotaExceeded, providerError, classifyProviderErrorMessage, describeError, type QueryDto } from '@ainyc/canonry-contracts'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
+import { readQueryClasses } from './query-class-read.js'
 import { assertQueryCatalogMutationAllowed, assertQueryReplacementAllowed, changedQueryIdsForReplace, diffProjectQueries, preserveSnapshotQueryText, replaceProjectQueries } from './query-replace.js'
 
 /**
@@ -40,6 +41,17 @@ function generationFailure(err: unknown, fallbackMessage: string): AppError {
   }
 }
 
+/**
+ * The project's tracked queries as every `/queries` route returns them, each
+ * with the class it is measured under (`readQueryClasses`). The class is read
+ * here, once, so the list and the response to a write never disagree.
+ */
+function projectQueryDtos(db: DatabaseClient, project: ReturnType<typeof resolveProject>): QueryDto[] {
+  const rows = db.select().from(queries).where(eq(queries.projectId, project.id)).all()
+  const classes = readQueryClasses(db, project, rows)
+  return rows.map(r => ({ id: r.id, query: r.query, createdAt: r.createdAt, queryClass: classes.get(r.id) ?? null }))
+}
+
 export interface QueryRoutesOptions {
   onGenerateQueries?: (provider: string, count: number, project: {
     domain: string; displayName?: string; country: string; language: string; existingQueries: string[]
@@ -52,8 +64,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
   // GET /projects/:name/queries
   app.get<{ Params: { name: string } }>('/projects/:name/queries', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
-    const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
-    return reply.send(rows.map(r => ({ id: r.id, query: r.query, createdAt: r.createdAt })))
+    return reply.send(projectQueryDtos(app.db, project))
   })
 
   // PUT /projects/:name/queries — replace all (declarative)
@@ -89,8 +100,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
       }))
     }, { behavior: 'immediate' })
 
-    const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
-    return reply.send(rows.map(r => ({ id: r.id, query: r.query, createdAt: r.createdAt })))
+    return reply.send(projectQueryDtos(app.db, project))
   })
 
   app.post<{
@@ -196,8 +206,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
       }
     }, { behavior: 'immediate' })
 
-    const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
-    return reply.send(rows.map(r => ({ id: r.id, query: r.query, createdAt: r.createdAt })))
+    return reply.send(projectQueryDtos(app.db, project))
   })
 
   // DELETE /projects/:name/queries/:id — remove one query by row id.
@@ -280,8 +289,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
       }))
     }
 
-    const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
-    return reply.send(rows.map(r => ({ id: r.id, query: r.query, createdAt: r.createdAt })))
+    return reply.send(projectQueryDtos(app.db, project))
   })
   // POST /projects/:name/queries/generate — auto-generate query suggestions
   app.post<{

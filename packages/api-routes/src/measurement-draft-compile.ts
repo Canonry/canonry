@@ -1,8 +1,6 @@
 import {
-  brandKeyFromText,
   canonicalMeasurementPlanV2,
-  compileBrandAliases,
-  matcherMatchesText,
+  compileQueryClassifier,
   measurementPlanV2ChecksumJson,
   measurementPlanV2Schema,
   measurementV2UsageEdgeKey,
@@ -72,10 +70,13 @@ export type MeasurementDraftCompileResult =
  * punctuation-boundary tokenization — is the shared brand matcher rather than a
  * second copy of those rules: a query classified one way here and matched
  * another way in reporting would be a silent disagreement about the same text.
+ *
+ * The matching itself is `compileQueryClassifier`, the one query classifier.
+ * A proposal has to name a class, so when no brand name is usable it stays
+ * `non-brand`, which the operator can reclassify.
  */
 export function proposeQueryClass(queryText: string, brandNames: readonly string[]): MeasurementDraftQueryClass {
-  const matcher = compileBrandAliases(brandNames.filter(name => brandKeyFromText(name).length > 0))
-  return matcherMatchesText(matcher, queryText) ? 'branded' : 'non-brand'
+  return compileQueryClassifier(brandNames)?.classify(queryText) ?? 'non-brand'
 }
 
 /**

@@ -10,6 +10,7 @@ import { siteAuditPageBudgetSchema } from './technical-aeo.js'
 import { MIN_DOMAIN_BRAND_KEY_LENGTH } from './answer-visibility.js'
 import { competitorEntrySchema, type CompetitorAliasProjectIdentity } from './competitor-aliases.js'
 import { competitorAutoAliasSchema } from './competitor-auto-aliases.js'
+import { queryClassSchema } from './query-class.js'
 
 export const configSourceSchema = z.enum(['cli', 'api', 'config-file'])
 export type ConfigSource = z.infer<typeof configSourceSchema>
@@ -263,6 +264,20 @@ export const queryDtoSchema = z.object({
   id: z.string(),
   query: z.string(),
   createdAt: z.string(),
+  /**
+   * The class this query is measured under, resolved by the server so every
+   * surface that lists queries shows the same one. Without an active schema v2
+   * measurement plan it is `compileQueryClassifier(effectiveBrandNames(project))`
+   * over the query text. With one it is the class stored on the query's
+   * assignments in the active revision.
+   *
+   * `null` means no single class exists, never a default: the project has no
+   * usable brand name, the query has no assignment in the active revision, or
+   * its assignments carry both classes.
+   * Optional so a row from an older server still parses: an absent field means
+   * the server did not report a class, which is not the same as `null`.
+   */
+  queryClass: queryClassSchema.nullable().optional(),
 })
 
 export type QueryDto = z.infer<typeof queryDtoSchema>

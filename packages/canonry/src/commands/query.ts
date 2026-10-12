@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { reportedQueryClasses, type QueryClass } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -7,20 +8,48 @@ function getClient() {
   return createApiClient()
 }
 
+/** Shown where the server reports no class. The CLI never fills one in. */
+const NO_CLASS = '-'
+const CLASS_COLUMN_WIDTH = 'non-brand'.length
+const NO_CLASS_NOTE = `${NO_CLASS} = no class: the project has no usable brand name, or its measurement plan holds no single class for that query (canonry query workspace shows the class per Property).`
+const CLASS_NOT_REPORTED_NOTE = `${NO_CLASS} = class not reported: this server version does not send a query class. Upgrade the server to see it.`
+
+function classCell(queryClass: QueryClass | null | undefined): string {
+  return (queryClass ?? NO_CLASS).padEnd(CLASS_COLUMN_WIDTH)
+}
+
+/**
+ * What a dash stands for in the rows just printed. `null` is the server saying
+ * no single class exists; a row with no `queryClass` at all comes from a server
+ * older than the field, which says nothing about the class.
+ */
+function dashNotes(rows: ReadonlyArray<{ queryClass?: QueryClass | null }>): string[] {
+  return [
+    ...(rows.some(row => row.queryClass === null) ? [NO_CLASS_NOTE] : []),
+    ...(rows.some(row => row.queryClass === undefined) ? [CLASS_NOT_REPORTED_NOTE] : []),
+  ]
+}
+
 export async function addQueries(project: string, queries: string[], format?: string): Promise<void> {
   const client = getClient()
-  await client.appendQueries(project, queries)
+  // The API answers an append with the project's query list, already classed.
+  const queryClasses = reportedQueryClasses(queries, await client.appendQueries(project, queries))
 
   if (isMachineFormat(format)) {
     console.log(JSON.stringify({
       project,
       queries,
       addedCount: queries.length,
+      queryClasses,
     }, null, 2))
     return
   }
 
   console.log(`Added ${queries.length} ${queries.length === 1 ? 'query' : 'queries'} to "${project}".`)
+  for (const entry of queryClasses) {
+    console.log(`  ${classCell(entry.queryClass)}  ${entry.query}`)
+  }
+  for (const note of dashNotes(queryClasses)) console.log(`  ${note}`)
 }
 
 export async function replaceQueries(
@@ -90,11 +119,7 @@ export async function removeQueries(project: string, queries: string[], format?:
 
 export async function listQueries(project: string, format?: string): Promise<void> {
   const client = getClient()
-  const qs = await client.listQueries(project) as Array<{
-    id: string
-    query: string
-    createdAt: string
-  }>
+  const qs = await client.listQueries(project)
 
   if (format === 'json') {
     console.log(JSON.stringify(qs, null, 2))
@@ -112,9 +137,12 @@ export async function listQueries(project: string, format?: string): Promise<voi
   }
 
   console.log(`Queries for "${project}" (${qs.length}):\n`)
+  console.log(`  ${'CLASS'.padEnd(CLASS_COLUMN_WIDTH)}  QUERY`)
   for (const q of qs) {
-    console.log(`  ${q.query}`)
+    console.log(`  ${classCell(q.queryClass)}  ${q.query}`)
   }
+  const notes = dashNotes(qs)
+  if (notes.length > 0) console.log(`\n${notes.map(note => `  ${note}`).join('\n')}`)
 }
 
 export async function importQueries(project: string, filePath: string, format?: string): Promise<void> {

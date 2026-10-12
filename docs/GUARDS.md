@@ -11,9 +11,24 @@ Source of truth for `AGENTS.md` “Lint Guards (Critical)” summary. All guards
 | `canonry-guards/no-inline-ai-hostname` | `packages/canonry`, `api-routes`, `provider-*`, `integration-*`, `intelligence`, `apps/*` src | Raw AI-provider hostnames — use `AI_ENGINE_DOMAINS` |
 | `canonry-guards/no-inline-percent` | `packages/canonry/src/commands`, `…/cli-commands`, `…/agent`, `apps/web/src`, `packages/api-routes/src`, `packages/intelligence/src`, `packages/contracts/src` (not `formatting.ts`) | A `%` right after a number rounded inline — show it with `formatPercent` |
 | `canonry-guards/no-inline-ga4-dimension` | `packages/integration-google-analytics/src` | Raw GA4 dimension names — use `GA4_DIMENSIONS` |
+| `canonry-guards/no-second-query-classifier` | every `packages/*/src` and `apps/**/src` (not `packages/contracts/src/query-class.ts`, not `packages/intelligence/src/query-categorize.ts`) | A hand-written branded / non-brand classifier for tracked queries. Use `compileQueryClassifier` ("One query classifier" below) |
 | `canonry-guards/no-raw-http-web` | `apps/web/src` | `fetch()` / `XMLHttpRequest` — use the generated SDK |
 | `canonry-guards/no-raw-http-cli` | `packages/canonry/src` | `fetch()` — use `ApiClient` / `createApiClient()` |
 | `design-tokens/no-literal-palette` | `apps/web/src` | Raw Tailwind palette utilities ("Design tokens") |
+
+### One query classifier
+
+A tracked query is branded or non-brand through `compileQueryClassifier(effectiveBrandNames(project))` (`packages/contracts/src/query-class.ts`), or through the class an advanced measurement plan stored for it. Two checks keep a second classifier out.
+
+`canonry-guards/no-second-query-classifier` (`eslint-rules/no-second-query-classifier.js`) reports the three shapes a hand-written classifier takes:
+
+1. A conditional that turns something that is not a class into the two class literals: `nameHit ? 'branded' : 'non-brand'`.
+2. A function that produces both class literals without comparing against one, whether it returns them, holds them in a variable (`let cls = 'non-brand'; if (hit) cls = 'branded'`) or writes them onto a row (`row.queryClass = 'branded'` in one branch, `'non-brand'` in the other).
+3. A brand matcher primitive (`matcherMatchesText`, `matchedAliasKeys`, `textContainsBrandAlias`, `textContainsAnyBrandAlias`) whose text argument is named for a query (`query`, `queryText`, `row.query`, `keyword`, `q`).
+
+Code that maps a class it was given is left alone: a test that compares against `'branded'` or `'non-brand'`, or a `switch` over a class, reads a class and does not derive one. The two exempt files are the classifier itself and `query-categorize.ts`, which sorts Search Console queries into its own enum (brand, lead-gen, industry, other) and is not the class of a tracked query. `test/no-second-query-classifier.test.ts` pins what the rule reports and what it leaves alone.
+
+The rule cannot see a classifier that keeps only a boolean, never writes a class literal, and holds the text in a variable not named for a query. It also cannot see class literals written only as object fields or call arguments, because code that lists both classes looks the same. One existing helper has the first shape and is out of scope, not exempt: `filterBrandedSeedCandidates` (`packages/contracts/src/discovery.ts`) runs the brand matcher over discovery seed candidates and Search Console queries, with its own `branded` / `non-branded` labels in `ga-measurement-analysis.ts`. Neither is the class of a tracked query, so do not reuse it for one. `packages/api-routes/test/query-class-parity.test.ts` covers the blind spots from the other side: it asks each server surface that classes a tracked query (the query list, mention share inputs, the frozen simple sweep definition, the advanced draft proposal) about one fixture basket and compares each with a hand-written answer key. A new server surface that classes tracked queries adds itself to that test's `SURFACES`.
 
 ### Adding a guard
 

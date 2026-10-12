@@ -135,6 +135,7 @@ only other published artifact; every remaining internal package is bundled into 
 | `src/provider-batches.ts` | Reads over `provider_batches` (run detail, fill age, scheduler `batch-pending`) |
 | `src/snapshot-evidence-fingerprint.ts` | The evidence fingerprint measurement cursors pin (excludes dispatch provenance columns) |
 | `src/queries.ts` / `src/query-replace.ts` | Query basket ops — `replaceProjectQueries` is only declarative replace (preserves FKs) |
+| `src/query-class-read.ts` | `readQueryClasses`: the branded / non-brand `queryClass` on every `/queries` row (text classifier for a simple project or a schema v1 plan, stored assignment class under an active schema v2 plan) |
 | `src/technical-aeo.ts` | Exact-identity `POST /technical-aeo/runs`; legacy score/page/trend reads; bounded crawl summary, page inventory, hierarchy, links/neighbors, semantic subgraph/path, complete-run changes, opt-in dead-links, persisted `/technical-aeo/graph` visualization projection (with server-owned `rootNodeKey`), and `GET /technical-aeo/runs` scan history with per-scan `hasCrawlData`. Legacy score-only runs answer crawl-scoped reads with their no-crawl shape; only unknown run ids 404. All use `notProbeRun()`. |
 | `src/composites.ts` | Composite reads |
 | `src/analytics.ts` / `visibility-stats.ts` / `visibility-compare.ts` | Aggregated metrics, per-query rates, month compare |
