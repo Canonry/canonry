@@ -515,11 +515,11 @@ approval; reading a recommendation does not authorize either action.
 ## Queries & Competitors
 
 ```bash
-cnry query add <project> "phrase one" "phrase two"
+cnry query add <project> "phrase one" "phrase two"       # prints each query's class; JSON adds `queryClasses`
 cnry query replace <project> "phrase one" "phrase two"   # set the basket to exactly this list
 cnry query replace <project> "..." --dry-run             # preview adds/removes via /queries/replace-preview
 cnry query remove <project> "phrase"
-cnry query list <project>
+cnry query list <project>                                # CLASS column; JSON and JSONL rows carry `queryClass`
 cnry query import <project> queries.txt
 cnry query generate <project> --provider gemini --count 10 --save
 
@@ -542,6 +542,19 @@ cnry competitor suggest <project> --window 30d --min-answers 3 --query-class non
 ```
 
 `competitor suggest` reads stored answer and citation evidence and ranks possible competitors. It never starts a sweep or writes data. Use `--format jsonl` for one candidate per line. The response keeps naming counts separate from citation counts and includes the query class, answer floor, run IDs, sample URLs, exclusions, and count units. An exact suggestion read refuses with `VALIDATION_ERROR` above 10,000 eligible answer rows instead of sampling; narrow `--window` or use `--group-key` for one Advanced market. A Simple project without a usable brand alias uses the pooled `all` class unless an explicit class filter is requested.
+
+### Query class
+
+Every tracked query is `branded` (it names the project) or `non-brand`, and the two are never counted together. The server decides the class; read it, never work it out from the query text.
+
+- `cnry query list <project>` prints a `CLASS` column. `--format json` and `--format jsonl` rows carry `queryClass`: `"branded"`, `"non-brand"` or `null`.
+- `cnry query add <project> ...` prints one line per query with its class after the count line. `--format json` adds `queryClasses: [{ query, queryClass }]`, one entry per distinct query in the order given. A query that was already tracked is listed with its class too.
+- A project without an advanced measurement plan is classed from the query text against the project's brand names: display name, aliases and owned-domain labels. A legacy schema v1 plan stores no class, so its queries are classed the same way.
+- A project with an active advanced measurement plan uses the class stored on the query's assignments in that plan, which an operator may have set by hand, so it can differ from what the text suggests.
+- A dash in text output, `null` in JSON, means there is no single class: the project has no usable brand name, or the plan holds no single class for the query (it has no assignment, or it is assigned under both classes). A dash is never a `non-brand`. `cnry query workspace <project> --format json` lists the class of each assignment, one per Property.
+- Against a server older than this field the JSON rows and `queryClasses` entries have no `queryClass` key, and text output shows a dash with the note "class not reported". That means unknown, not `null`.
+
+MCP: `canonry_queries_list` rows carry the same `queryClass`, and `canonry_queries_add` returns `queryClasses`.
 
 ### Competitor aliases
 

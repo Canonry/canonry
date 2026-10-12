@@ -37,8 +37,9 @@ independently guards. A test that would break under behavior-preserving
 refactoring is asserting implementation, not behavior; rewrite it at the
 owning boundary before landing it.
 
-Bug regression tests must fail on the pre-fix code for the intended reason and
-pass after the owner-boundary repair. A regression test that never demonstrably
+At final validation, run finalized bug regression tests against pre-fix and repaired code.
+Require the intended failure on pre-fix code and a passing result after the owner-boundary repair.
+A regression test that never demonstrably
 failed proves the mock, not the fix. One regression at the owner boundary
 covers the bug; do not replay the same scenario at every layer it crosses.
 
@@ -139,6 +140,8 @@ to increase deletion counts.
 
 Never edit source or tests while Vitest is running in the checkout. Follow
 the root and scoped `AGENTS.md` files and [Canonry's testing guide](../../../docs/testing.md).
+During local iteration, defer all test execution, including baseline and fault probes.
+Run tests only after changes are finalized and ready for push or review.
 
 1. Before running tests, identify the observable contract, its primary owner,
    and the credible regression the selected tests should catch. For routine
@@ -149,8 +152,9 @@ the root and scoped `AGENTS.md` files and [Canonry's testing guide](../../../doc
    Run the relevant package typecheck when types are part of the contract.
    Runtime `expectTypeOf` assertions alone are not compile-time proof; verify
    that a TypeScript or Vitest typechecking gate actually includes the test.
-3. For regression repairs, prove the test fails for the intended reason
-   before the fix and passes after it. During read-only audits, prefer
+3. At final validation for regression repairs, run the finalized test against
+   pre-fix code and the repaired code. Prove the intended failure and the passing repair.
+   During read-only audits, prefer
    temporary in-memory transforms over editing tracked source for fault probes.
    A green baseline alone does not demonstrate regression detection.
 4. For removed source greps or plan assertions, run the executable script or

@@ -664,6 +664,13 @@ describe('MCP tool registry', () => {
     expect(description('canonry_visibility_report')).toContain('mode simple reads only pre-plan sweeps, so it is refused there unless runId names one')
   })
 
+  it('tells an agent the query tools carry the class the server resolved', () => {
+    const description = (name: string) => canonryMcpTools.find(candidate => candidate.name === name)!.description
+    expect(description('canonry_queries_list')).toContain('queryClass')
+    expect(description('canonry_queries_list')).toContain('Never infer a class from the query text')
+    expect(description('canonry_queries_add')).toContain('queryClasses')
+  })
+
   it('forwards measurement-plan inputs to the matching ApiClient methods', async () => {
     const fixture = await startNativeMcpDispatchFixture()
     try {
@@ -1373,6 +1380,21 @@ describe('MCP tool handlers', () => {
           }],
           expectedText: { activity: null },
           expectedStructured: { activity: null },
+        },
+        {
+          // A server older than queryClass answers with unclassed rows. The
+          // entry carries no queryClass: null would claim no single class exists.
+          caseId: 'main-queries-add-server-without-class',
+          tool: 'canonry_queries_add',
+          channel: 'mcp',
+          input: { project: 'acme', request: { queries: ['alpha'] } },
+          requests: [{
+            method: 'POST', path: '/native-mcp/api/v1/projects/acme/queries', query: [],
+            body: { queries: ['alpha'] },
+            status: 200, response: [{ id: 'q-1', query: 'alpha', createdAt: '2026-09-01T00:00:00.000Z' }],
+          }],
+          expectedText: { ok: true, queryClasses: [{ query: 'alpha' }] },
+          expectedStructured: { ok: true, queryClasses: [{ query: 'alpha' }] },
         },
       ]
       for (const scenario of selectNativeDispatchCases([...registryDispatchCases, ...upstreamCases])) await fixture.verify(scenario)

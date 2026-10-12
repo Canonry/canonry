@@ -13070,6 +13070,7 @@ export type QueryDto = {
     id: string;
     query: string;
     createdAt: string;
+    queryClass?: 'branded' | 'non-brand' | null;
 };
 
 export type QueryGenerateResponse = {

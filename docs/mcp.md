@@ -346,6 +346,8 @@ For an existing-draft mutation, pass the ETag returned by `canonry_measurement_d
 
 `canonry_apply_config` accepts one config-as-code project document per call. For multi-document YAML or multiple project files, agents should call the tool once per project document. `canonry_queries_generate` returns suggestions only; persist accepted suggestions with `canonry_queries_add` or replace the tracked set with `canonry_queries_replace`. The `canonry_keywords_*` tools remain as legacy aliases over the same query store for older clients.
 
+`canonry_queries_list` rows carry `queryClass`: `branded`, `non-brand`, or `null` when no single class exists (the project has no usable brand name, or its active measurement plan holds no single class for the query). `canonry_queries_add` returns `{ ok, queryClasses }`, where `queryClasses` lists each requested query with the class the server gave it. A row or entry with no `queryClass` key comes from a server older than the field: the class was not reported, which is not `null`. The server resolves the class; an agent reads it and never infers one from the query text. `canonry query list` and `canonry query add` show the same values.
+
 `canonry_snapshot` (discovery toolkit) generates a prospect report without creating
 a project. It calls `POST /api/v1/snapshot` and spends provider quota, so it is
 unavailable to read-only connections. `providers: ["gemini"]` selects configured
