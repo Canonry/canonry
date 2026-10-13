@@ -10,7 +10,7 @@ import type {
   NormalizedQueryResult,
   RetrievalStatus,
 } from '@ainyc/canonry-contracts'
-import { RetrievalStatuses } from '@ainyc/canonry-contracts'
+import { RetrievalStatuses, usageCount } from '@ainyc/canonry-contracts'
 import {
   validateConfig as geminiValidateConfig,
   healthcheck as geminiHealthcheck,
@@ -61,6 +61,9 @@ function toRawQueryResult(raw: GeminiRawResult): RawQueryResult {
 
 function readRetrievalStatus(rawResponse: Record<string, unknown>): RetrievalStatus {
   const response = rawResponse as Partial<GenerateContentResponse>
+  // Google Search is the only offered tool; result tokens prove execution
+  // even when Gemini omits grounding metadata or produces no final answer.
+  if (usageCount(response.usageMetadata?.toolUsePromptTokenCount) > 0) return RetrievalStatuses.used
   const candidate = Array.isArray(response.candidates) ? response.candidates[0] : undefined
   if (!candidate) return RetrievalStatuses.unknown
   const metadata = candidate.groundingMetadata

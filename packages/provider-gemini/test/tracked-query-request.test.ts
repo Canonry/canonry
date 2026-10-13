@@ -102,15 +102,27 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
-test.each([
+test.each<{
+  name: string
+  candidate?: Record<string, unknown>
+  toolUsePromptTokenCount?: number
+  expected: RawQueryResult['retrievalStatus']
+}>([
   { name: 'executed search without citations', candidate: { finishReason: 'STOP', groundingMetadata: { webSearchQueries: ['crm'] } }, expected: 'used' },
   { name: 'retrieved web source without query disclosure', candidate: { finishReason: 'STOP', groundingMetadata: { groundingChunks: [{ web: { uri: 'https://example.com' } }] } }, expected: 'used' },
+  { name: 'tool-result tokens without grounding metadata', candidate: { finishReason: 'STOP' }, toolUsePromptTokenCount: 5372, expected: 'used' },
+  { name: 'tool-result tokens with an unfinished answer', candidate: { finishReason: 'MAX_TOKENS' }, toolUsePromptTokenCount: 5372, expected: 'used' },
+  { name: 'tool-result tokens without a candidate', toolUsePromptTokenCount: 5372, expected: 'used' },
+  { name: 'completed answer with zero tool-result tokens', candidate: { finishReason: 'STOP' }, toolUsePromptTokenCount: 0, expected: 'not-used' },
   { name: 'completed answer without search', candidate: { finishReason: 'STOP' }, expected: 'not-used' },
   { name: 'completed answer with empty search arrays', candidate: { finishReason: 'STOP', groundingMetadata: { webSearchQueries: [], groundingChunks: [] } }, expected: 'not-used' },
   { name: 'unfinished answer', candidate: { finishReason: 'MAX_TOKENS' }, expected: 'unknown' },
   { name: 'missing completion marker', candidate: {}, expected: 'unknown' },
-])('retrieval distinguishes $name in sync, batch and stored responses', async ({ candidate, expected }) => {
-  const response = { candidates: [{ content: { parts: [{ text: 'Example CRM.' }], role: 'model' }, ...candidate }] }
+])('retrieval distinguishes $name in sync, batch and stored responses', async ({ candidate, toolUsePromptTokenCount, expected }) => {
+  const response = {
+    candidates: candidate ? [{ content: { parts: [{ text: 'Example CRM.' }], role: 'model' }, ...candidate }] : [],
+    ...(toolUsePromptTokenCount === undefined ? {} : { usageMetadata: { toolUsePromptTokenCount } }),
+  }
   stubGenerateContent(response)
   const raw = await geminiAdapter.executeTrackedQuery(QUERY, CONFIG)
   expect(raw.retrievalStatus).toBe(expected)
