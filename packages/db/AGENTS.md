@@ -39,6 +39,13 @@ Drizzle ORM schema, migrations, and database client. SQLite locally (via better-
 
 ## Patterns
 
+Health notification recipient histories live in `doctor_health_state.urgentReceipts`
+and `site_liveness_state.urgentReceipts` (migration 183, nullable native JSON).
+Each notification id stores its destination URL and outstanding breach signature
+or outage timestamp. The notifier prunes inactive destinations and groups identical
+histories for any-accepted delivery. Existing aggregate fields remain summaries;
+NULL recipient histories establish no identity and never authorize a resolution.
+
 ### Schema changes (Critical)
 
 Every new table/column in `schema.ts` **MUST** have a matching migration in `migrate.ts`. Migrations live in the `MIGRATION_VERSIONS` array as `{ version, name, statements[] }` entries — find the highest existing `version` and add the next integer:

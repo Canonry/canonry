@@ -995,6 +995,8 @@ export const doctorHealthState = sqliteTable('doctor_health_state', {
    * webhooks and are accepted independently. NULL while nothing is outstanding.
    */
   urgentNotified: text('urgent_notified'),
+  /** Urgent delivery histories by notification id and destination, never inherited by replacements. */
+  urgentReceipts: text('urgent_receipts', { mode: 'json' }).$type<Record<string, { url: string; notified: string | null }>>(),
 })
 
 /**
@@ -1022,6 +1024,8 @@ export const siteLivenessState = sqliteTable('site_liveness_state', {
    * still owed.
    */
   urgentNotifiedAt: text('urgent_notified_at'),
+  /** Per-recipient outage receipts; the timestamp above summarizes outstanding receipts. */
+  urgentReceipts: text('urgent_receipts', { mode: 'json' }).$type<Record<string, { url: string; notified: string | null }>>(),
 })
 
 export const notifications = sqliteTable('notifications', {

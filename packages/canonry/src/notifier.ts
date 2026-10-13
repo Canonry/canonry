@@ -9,7 +9,7 @@ import type { AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 import { isWithinAlertWindow } from './gbp-reviews.js'
-import { CHECK_RUNTIME_ERROR_SUFFIX, CheckNotificationPolicies, CheckStatuses, describeError, notificationEventSchema, statusClassOf, type CheckNotificationPolicy, type OutcomeReasonCode, type StatusClass } from '@ainyc/canonry-contracts'
+import { CHECK_RUNTIME_ERROR_SUFFIX, CheckNotificationPolicies, CheckStatuses, compareText, describeError, notificationEventSchema, statusClassOf, type CheckNotificationPolicy, type OutcomeReasonCode, type StatusClass } from '@ainyc/canonry-contracts'
 import { createOutcomeSampler, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
 const log = createLogger('Notifier')
@@ -144,6 +144,42 @@ type GeneralHealthEvent = 'health.degraded' | 'health.recovered'
 type UrgentHealthEvent = 'health.urgent' | 'health.urgent-resolved'
 
 const URGENT_HEALTH_EVENTS: ReadonlySet<string> = new Set<UrgentHealthEvent>(['health.urgent', 'health.urgent-resolved'])
+
+type HealthNotification = typeof notifications.$inferSelect
+type UrgentReceipts = NonNullable<typeof doctorHealthState.$inferSelect.urgentReceipts>
+
+/** Equal delivery histories retain the existing any-accepted fanout policy. */
+function urgentReceiptGroups(subscribers: HealthNotification[], receipts: UrgentReceipts | null | undefined) {
+  const groups = new Map<string | null, { notified: string | null; subscribers: HealthNotification[] }>()
+  for (const subscriber of subscribers) {
+    const { url } = subscriber.config
+    const receipt = receipts?.[subscriber.id]
+    const notified = receipt?.url === url ? receipt.notified : null
+    const group = groups.get(notified)
+    if (group) group.subscribers.push(subscriber)
+    else groups.set(notified, { notified, subscribers: [subscriber] })
+  }
+  return [...groups.values()]
+}
+
+function recordUrgentReceipts(receipts: UrgentReceipts, subscribers: HealthNotification[], notified: string | null): void {
+  for (const subscriber of subscribers) receipts[subscriber.id] = { url: subscriber.config.url, notified }
+}
+
+function doctorUrgentSummary(receipts: UrgentReceipts): string | null {
+  const breaches = Object.values(receipts).flatMap(receipt => receipt.notified ? parseBreaches(receipt.notified) : [])
+  const summary = formatUrgentBreaches(indexBreaches(breaches, 'id').values())
+  return summary || null
+}
+
+function formatUrgentBreaches(breaches: Iterable<Breach>): string {
+  return formatBreaches([...breaches].sort((a, b) => b.rank - a.rank
+    || compareText(a.id ?? a.code, b.id ?? b.code) || compareText(a.code, b.code)))
+}
+
+function siteUrgentSummary(receipts: UrgentReceipts): string | null {
+  return Object.values(receipts).find(receipt => receipt.notified !== null)?.notified ?? null
+}
 
 /** One urgent problem as an alert reports it, worst first. */
 interface UrgentItem extends Breach {
@@ -546,47 +582,37 @@ export class Notifier {
     const hasUrl = (notif: (typeof enabled)[number]) => Boolean((notif.config as { url?: string }).url)
     const urgentSubscribers = enabled.filter(n => hasUrl(n) && (listedEvents(n) ?? []).some(e => URGENT_HEALTH_EVENTS.has(e)))
 
-    // The record is what a subscriber has been told. With no subscriber left
-    // there is nobody to keep it for: a webhook added later must hear about a
-    // problem that is still open, and must not be sent a resolution for one it
-    // never heard of.
-    const urgentTold = urgentRecord && urgentSubscribers.length > 0
-      ? parseBreaches(urgentRecord).filter((b): b is Breach & { id: string } => b.id !== null)
-      : []
-    // A told problem has cleared only when its check reached a verdict on this
-    // pass and is no longer urgent. One that was skipped, left out, or threw
-    // tested nothing, so it says nothing either way.
     const conclusive = new Set(graded.filter(c => !c.code.endsWith(CHECK_RUNTIME_ERROR_SUFFIX)).map(c => c.id))
-    const urgentCleared = urgentTold.filter(b => conclusive.has(b.id) && !urgentById.has(b.id))
-    const urgentUnknown = urgentTold.filter(b => !conclusive.has(b.id) && !urgentById.has(b.id))
-    // Known to be open: urgent on this pass, or set aside under its failing
-    // cause. An unknown problem that is neither does not hold a resolution
-    // back, or one integration being disconnected would silence "resolved" for
-    // every later problem on the project.
-    const urgentOpen = urgentTold.filter(b => urgentById.has(b.id) || hidden.has(b.id))
-    const toldIds = new Set(urgentTold.map(b => b.id))
-    const urgentNew = urgentItems.filter(item => !toldIds.has(item.id))
-    const urgentEvent: UrgentHealthEvent | null = urgentSubscribers.length === 0
-      ? null
-      : urgentNew.length > 0
+    // Keep histories by recipient. An unrecorded id or changed URL has heard
+    // nothing, even when another webhook accepted the project's last alert.
+    // Legacy aggregate records carry no identity and cannot establish a receipt.
+    const urgentReceipts: UrgentReceipts = {}
+    const recordedReceipts = previous?.urgentReceipts
+    const validReceipts = recordedReceipts && doctorUrgentSummary(recordedReceipts) === urgentRecord ? recordedReceipts : null
+    const urgentGroups = urgentReceiptGroups(urgentSubscribers, validReceipts).map(group => {
+      const urgentTold = group.notified
+        ? parseBreaches(group.notified).filter((b): b is Breach & { id: string } => b.id !== null)
+        : []
+      // Skipped, omitted and errored checks reached no verdict. Unknown checks
+      // do not hold later resolutions back when an integration is disconnected.
+      const urgentCleared = urgentTold.filter(b => conclusive.has(b.id) && !urgentById.has(b.id))
+      const urgentUnknown = urgentTold.filter(b => !conclusive.has(b.id) && !urgentById.has(b.id))
+      const urgentOpen = urgentTold.filter(b => urgentById.has(b.id) || hidden.has(b.id))
+      const toldIds = new Set(urgentTold.map(b => b.id))
+      const urgentNew = urgentItems.filter(item => !toldIds.has(item.id))
+      const urgentEvent: UrgentHealthEvent | null = urgentNew.length > 0
         ? 'health.urgent'
-        : urgentCleared.length > 0 && urgentOpen.length === 0
-          ? 'health.urgent-resolved'
-          : null
-    const urgentNotifs = urgentEvent ? urgentSubscribers.filter(n => receivesHealthEvent(listedEvents(n), urgentEvent)) : []
-    // The record once this pass's message is accepted: nothing after a
-    // resolution; otherwise every urgent problem now, plus the told ones whose
-    // check reached no verdict.
-    const urgentSettled: Breach[] = urgentEvent === 'health.urgent-resolved' ? [] : [...urgentUnknown, ...urgentItems]
-    // What is written before delivery. A message with someone to send it to
-    // leaves the record untouched until a webhook accepts it, so a refusal
-    // makes the same decision again on the next pass and loses nothing it
-    // carried. A message nobody is subscribed to is owed to no one, and a
-    // quiet pass drops what cleared (so its return is news) and keeps the
-    // current code of what still stands.
-    const urgentBefore: Breach[] = urgentEvent === null
-      ? [...urgentUnknown, ...urgentItems.filter(item => toldIds.has(item.id))]
-      : urgentNotifs.length > 0 ? urgentTold : urgentSettled
+        : urgentCleared.length > 0 && urgentOpen.length === 0 ? 'health.urgent-resolved' : null
+      const urgentNotifs = urgentEvent ? group.subscribers.filter(n => receivesHealthEvent(listedEvents(n), urgentEvent)) : []
+      const urgentSettled: Breach[] = urgentEvent === 'health.urgent-resolved' ? [] : [...urgentUnknown, ...urgentItems]
+      // Persist debt before delivery; refusal retains the same decision. An
+      // unlisted event settles immediately, and quiet passes drop cleared checks.
+      const urgentBefore = urgentEvent === null
+        ? [...urgentUnknown, ...urgentItems.filter(item => toldIds.has(item.id))]
+        : urgentNotifs.length > 0 ? urgentTold : urgentSettled
+      recordUrgentReceipts(urgentReceipts, group.subscribers, formatUrgentBreaches(urgentBefore) || null)
+      return { ...group, urgentTold, urgentCleared, urgentNew, urgentEvent, urgentNotifs, urgentSettled }
+    })
 
     const notifs = generalEvent ? enabled.filter(n => receivesHealthEvent(listedEvents(n), generalEvent)) : []
     const willAttempt = notifs.some(n => Boolean((n.config as { url?: string }).url))
@@ -611,7 +637,8 @@ export class Notifier {
       projectId, status, code, summary, checkedAt: now, failingSignature,
       failingChecks: formatBreaches(failingNow),
       pendingSignature: pendingNow === null ? null : formatBreaches(pendingNow),
-      urgentNotified: urgentBefore.length > 0 ? formatBreaches(urgentBefore) : null,
+      urgentNotified: doctorUrgentSummary(urgentReceipts),
+      urgentReceipts,
       // A delivered set an older release has written past is no longer what
       // the operator was last told.
       ...(idsKnown ? {} : { notifiedSignature: null }),
@@ -622,7 +649,9 @@ export class Notifier {
       this.db.update(doctorHealthState).set(observation).where(eq(doctorHealthState.projectId, projectId)).run()
     }
 
-    if (urgentEvent) {
+    for (const group of urgentGroups) {
+      const { urgentEvent, urgentTold, urgentNew, urgentCleared, urgentNotifs, urgentSettled } = group
+      if (!urgentEvent) continue
       const toldRank = urgentTold.reduce((worstRank, b) => Math.max(worstRank, b.rank), 0)
       const previousUrgent = toldRank === 0 ? 'ok' : toldRank === 2 ? 'fail' : 'warn'
       const lead = urgentNew[0]
@@ -668,8 +697,9 @@ export class Notifier {
         if (await this.sendWebhook(config.url, urgentPayload as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)) accepted += 1
       }
       if (accepted > 0) {
+        recordUrgentReceipts(urgentReceipts, group.subscribers, formatUrgentBreaches(urgentSettled) || null)
         this.db.update(doctorHealthState)
-          .set({ urgentNotified: urgentSettled.length > 0 ? formatBreaches(urgentSettled) : null })
+          .set({ urgentNotified: doctorUrgentSummary(urgentReceipts), urgentReceipts })
           .where(eq(doctorHealthState.projectId, projectId)).run()
       }
       if (urgentNotifs.length > 0) {
@@ -800,29 +830,26 @@ export class Notifier {
     const listedEvents = (notif: (typeof enabled)[number]) => (notif.config as { events?: string[] }).events
     const hasUrl = (notif: (typeof enabled)[number]) => Boolean((notif.config as { url?: string }).url)
     const scoped = enabled.filter(n => hasUrl(n) && (listedEvents(n) ?? []).some(e => URGENT_HEALTH_EVENTS.has(e)))
-    const urgentPaged = urgentRecord !== null && scoped.length > 0
-    const urgentEvent: UrgentHealthEvent | null = scoped.length === 0
-      ? null
-      : confirmed && !urgentPaged
+    const urgentReceipts: UrgentReceipts = {}
+    const recordedReceipts = previous?.urgentReceipts
+    const validReceipts = recordedReceipts && siteUrgentSummary(recordedReceipts) === urgentRecord ? recordedReceipts : null
+    const urgentGroups = urgentReceiptGroups(scoped, validReceipts).map(group => {
+      const urgentEvent: UrgentHealthEvent | null = confirmed && group.notified === null
         ? 'health.urgent'
-        : check.status === 'ok' && urgentPaged ? 'health.urgent-resolved' : null
-    // One message per webhook about one fact: a scoped webhook that also lists
-    // the general event is sent the outage under that name instead.
-    const generalName: GeneralHealthEvent = urgentEvent === 'health.urgent-resolved' ? 'health.recovered' : 'health.degraded'
-    const urgentNotifs = urgentEvent
-      ? scoped.filter(n => receivesHealthEvent(listedEvents(n), urgentEvent) && !receivesHealthEvent(listedEvents(n), generalName))
-      : []
-    // Written before delivery: a message with someone to send it to leaves the
-    // record as it was until a webhook accepts it, so a refusal is decided
-    // again on the next pass. A message nobody is subscribed to is owed to no
-    // one and takes effect at once.
-    const urgentBefore = scoped.length === 0
-      ? null
-      : urgentEvent === 'health.urgent'
-        ? (urgentNotifs.length > 0 ? null : checkedAt)
-        : urgentEvent === 'health.urgent-resolved'
-          ? (urgentNotifs.length > 0 ? urgentRecord : null)
-          : urgentRecord
+        : check.status === 'ok' && group.notified !== null ? 'health.urgent-resolved' : null
+      const recipients = urgentEvent ? group.subscribers.filter(n => receivesHealthEvent(listedEvents(n), urgentEvent)) : []
+      const generalName: GeneralHealthEvent = urgentEvent === 'health.urgent-resolved' ? 'health.recovered' : 'health.degraded'
+      // Deduplicate only against a general event this pass actually sends.
+      const generalRecipients = recipients.filter(n => event === generalName && receivesHealthEvent(listedEvents(n), generalName))
+      const generalIds = new Set(generalRecipients.map(n => n.id))
+      const urgentNotifs = recipients.filter(n => !generalIds.has(n.id))
+      const settled = urgentEvent === 'health.urgent' ? checkedAt : null
+      // A chosen general delivery still owes an acknowledgement. It can fail,
+      // and the next pass then retries under the urgent name.
+      const before = urgentEvent && recipients.length === 0 ? settled : group.notified
+      recordUrgentReceipts(urgentReceipts, group.subscribers, before)
+      return { ...group, urgentEvent, urgentNotifs, generalIds, settled }
+    })
 
     const observation = {
       projectId,
@@ -832,7 +859,8 @@ export class Notifier {
       consecutiveFailures: failures,
       checkedAt,
       notifiedAt: check.status === 'ok' ? null : (previous?.notifiedAt ?? null),
-      urgentNotifiedAt: urgentBefore,
+      urgentNotifiedAt: siteUrgentSummary(urgentReceipts),
+      urgentReceipts,
     }
     if (previous === undefined) {
       this.db.insert(siteLivenessState).values(observation).run()
@@ -842,7 +870,7 @@ export class Notifier {
 
     // No log on a quiet pass: every project, every few minutes, would evict a
     // night of real diagnostics from the operational log buffer.
-    if (!event && !urgentEvent) return null
+    if (!event && urgentGroups.every(group => group.urgentEvent === null)) return null
 
     const payloadFor = (name: GeneralHealthEvent | UrgentHealthEvent): HealthWebhookPayload => {
       const outage = name === 'health.degraded' || name === 'health.urgent'
@@ -868,6 +896,7 @@ export class Notifier {
       }
     }
 
+    const generalAccepted = new Set<string>()
     if (event) {
       // Same rule as onHealthChecked: health events reach every enabled
       // webhook, except one scoped to urgent events that does not list this one.
@@ -875,7 +904,10 @@ export class Notifier {
       let delivered = 0
       for (const notif of notifs) {
         const config = notif.config as { url: string }
-        if (await this.sendWebhook(config.url, payloadFor(event) as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)) delivered += 1
+        if (await this.sendWebhook(config.url, payloadFor(event) as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)) {
+          delivered += 1
+          generalAccepted.add(notif.id)
+        }
       }
       if (event === 'health.degraded' && delivered > 0) {
         this.db.update(siteLivenessState).set({ notifiedAt: checkedAt })
@@ -884,18 +916,23 @@ export class Notifier {
       log.info('site-liveness.notified', { projectId, event, code: check.code, subscribers: notifs.length, delivered })
     }
 
-    if (urgentEvent && urgentNotifs.length > 0) {
-      let accepted = 0
+    for (const group of urgentGroups) {
+      const { urgentEvent, urgentNotifs, generalIds } = group
+      if (!urgentEvent) continue
+      let accepted = [...generalIds].filter(id => generalAccepted.has(id)).length
       for (const notif of urgentNotifs) {
         const config = notif.config as { url: string }
         if (await this.sendWebhook(config.url, payloadFor(urgentEvent) as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)) accepted += 1
       }
       if (accepted > 0) {
+        recordUrgentReceipts(urgentReceipts, group.subscribers, group.settled)
         this.db.update(siteLivenessState)
-          .set({ urgentNotifiedAt: urgentEvent === 'health.urgent' ? checkedAt : null })
+          .set({ urgentNotifiedAt: siteUrgentSummary(urgentReceipts), urgentReceipts })
           .where(eq(siteLivenessState.projectId, projectId)).run()
       }
-      log.info('site-liveness.urgent-notified', { projectId, event: urgentEvent, code: check.code, subscribers: urgentNotifs.length, delivered: accepted })
+      if (urgentNotifs.length > 0 || generalIds.size > 0) {
+        log.info('site-liveness.urgent-notified', { projectId, event: urgentEvent, code: check.code, subscribers: urgentNotifs.length + generalIds.size, delivered: accepted })
+      }
     }
     return event
   }

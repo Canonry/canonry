@@ -4714,6 +4714,14 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE site_liveness_state ADD COLUMN urgent_notified_at TEXT`,
     ],
   },
+  {
+    version: 183,
+    name: 'urgent-health-recipient-receipts',
+    statements: [
+      `ALTER TABLE doctor_health_state ADD COLUMN urgent_receipts TEXT`,
+      `ALTER TABLE site_liveness_state ADD COLUMN urgent_receipts TEXT`,
+    ],
+  },
 ]
 
 /**

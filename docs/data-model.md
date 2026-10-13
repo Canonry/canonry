@@ -408,6 +408,14 @@ Sentiment JSON columns use native Drizzle JSON mode. Provider calls run outside 
 | **oauth_authorization_codes** | Single-use authorization codes, 60s TTL, bound to their PKCE challenge and RFC 8707 resource. Key is the SHA-256 of the code. Burned on first redemption even when that attempt fails, so a wrong verifier cannot be retried. FK: clientId → oauth_clients, userId → users |
 | **oauth_tokens** | Issued access and refresh tokens, stored as SHA-256 digests for the same reason `user_sessions` stores one: the row records that a token exists, it is not a way to become it. `resource` is the audience and is enforced on every resource request. Refresh tokens rotate, so a stolen one is usable at most once. FK: clientId → oauth_clients, userId → users |
 
+Health notification migration 183 adds nullable native JSON `urgentReceipts`
+to `doctor_health_state` and `site_liveness_state`. Each notification id stores
+its URL and outstanding breach signature or outage timestamp. These histories
+separate new destinations from receivers that already heard an alert. Legacy
+`urgentNotified` and `urgentNotifiedAt` remain aggregate summaries. Older rows
+without recipient identity establish no receipt, and changed aggregate summaries
+invalidate histories left behind by an older writer.
+
 ### Agent
 
 | Table | Purpose |

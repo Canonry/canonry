@@ -18,6 +18,7 @@ import { Notifier, receivesHealthEvent } from '../src/notifier.js'
 
 const GENERAL = 'https://hooks.example/general'
 const URGENT = 'https://hooks.example/urgent'
+const NEW_URGENT = 'https://hooks.example/new-urgent'
 
 function harness(opts: { urgentEvents?: string[] | null; accept?: (url: string) => boolean } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cnry-urgent-'))
@@ -43,11 +44,17 @@ function harness(opts: { urgentEvents?: string[] | null; accept?: (url: string) 
   type Sent = { url: string; event: string; health: { status: string; code: string; summary: string; previousStatus: string | null; failing: Array<{ id: string; code: string }>; added?: string[]; cleared?: string[] } }
   const sent: Sent[] = []
   let accept = opts.accept ?? (() => true)
-  vi.spyOn(notifier as never, 'sendWebhook').mockImplementation(async (...args: unknown[]) => {
+  const observe = (instance: Notifier) => vi.spyOn(instance as never, 'sendWebhook').mockImplementation(async (...args: unknown[]) => {
     const url = args[0] as string
     sent.push({ url, ...(args[1] as Omit<Sent, 'url'>) })
     return accept(url)
   })
+  observe(notifier)
+  const restart = () => {
+    const restarted = new Notifier(db, 'https://canonry.test')
+    observe(restarted)
+    return restarted
+  }
   const to = (url: string) => sent.filter(s => s.url === url).map(s => s.event)
   const stored = () => db.select().from(doctorHealthState).where(eq(doctorHealthState.projectId, projectId)).get()
   const liveness = () => db.select().from(siteLivenessState).where(eq(siteLivenessState.projectId, projectId)).get()
@@ -56,7 +63,13 @@ function harness(opts: { urgentEvents?: string[] | null; accept?: (url: string) 
       if ((row.config as { url?: string }).url === url) db.delete(notifications).where(eq(notifications.id, row.id)).run()
     }
   }
-  return { db, projectId, notifier, sent, to, stored, liveness, addWebhook, removeWebhook, setAccept: (fn: (url: string) => boolean) => { accept = fn } }
+  const changeDestination = (from: string, to: string) => {
+    const row = db.select().from(notifications).where(eq(notifications.projectId, projectId)).all()
+      .find(notification => notification.config.url === from)
+    if (!row) throw new Error(`No webhook for ${from}`)
+    db.update(notifications).set({ config: { ...row.config, url: to } }).where(eq(notifications.id, row.id)).run()
+  }
+  return { db, projectId, notifier, sent, to, stored, liveness, addWebhook, removeWebhook, changeDestination, restart, setAccept: (fn: (url: string) => boolean) => { accept = fn } }
 }
 
 let clock = Date.parse('2026-10-01T00:00:00.000Z')
@@ -246,6 +259,28 @@ const up = { id: 'site.reachability', status: 'ok', code: 'site.reachability.up'
 const START = Date.parse('2026-09-16T12:00:00.000Z')
 const probe = (check: typeof down | typeof up, minutes: number) => ({ check, checkedAt: new Date(START + minutes * 60_000).toISOString() })
 
+function healthLoop(engine: 'doctor' | 'website', env: ReturnType<typeof harness>) {
+  let notifier = env.notifier
+  let minutes = 0
+  const check = async (open: boolean) => {
+    if (engine === 'doctor') {
+      await notifier.onHealthChecked(env.projectId, pass(open ? gaStale : gaFresh))
+    } else {
+      await notifier.onSiteLivenessChecked(env.projectId, probe(open ? down : up, minutes))
+      minutes += 10
+    }
+  }
+  return {
+    start: async () => {
+      await check(true)
+      if (engine === 'website') await check(true)
+    },
+    open: () => check(true),
+    clear: () => check(false),
+    restart: () => { notifier = env.restart() },
+  }
+}
+
 test('a confirmed outage reaches the urgent webhook as urgent, once per webhook', async () => {
   const { notifier, projectId, sent, to } = harness()
   await notifier.onSiteLivenessChecked(projectId, probe(down, 0))
@@ -260,10 +295,13 @@ test('a confirmed outage reaches the urgent webhook as urgent, once per webhook'
   expect(to(URGENT)).toEqual(['health.urgent', 'health.urgent-resolved'])
 })
 
-test('the urgent webhook has its own record of an outage, so its recovery does not depend on the others', async () => {
+test.each([
+  { name: 'urgent-only', events: ['health.urgent', 'health.urgent-resolved'] },
+  { name: 'mixed recovery', events: ['health.urgent', 'health.urgent-resolved', 'health.recovered'] },
+])('$name: urgent recovery does not depend on a general outage delivery', async ({ events }) => {
   // Only the urgent webhook accepts. The general page is refused and is never
   // "paged", so no general recovery is owed; the urgent one still is.
-  const { notifier, projectId, to, liveness } = harness({ accept: url => url === URGENT })
+  const { notifier, projectId, to, liveness } = harness({ urgentEvents: events, accept: url => url === URGENT })
   await notifier.onSiteLivenessChecked(projectId, probe(down, 0))
   await notifier.onSiteLivenessChecked(projectId, probe(down, 10))
   expect(liveness()).toMatchObject({ notifiedAt: null, urgentNotifiedAt: probe(down, 10).checkedAt })
@@ -302,12 +340,24 @@ test('a refused "back up" is sent again on the next pass', async () => {
   expect(to(GENERAL)).toEqual(['health.degraded', 'health.recovered'])
 })
 
-test('a webhook that lists both an urgent and the general event gets an outage once, under the general name', async () => {
-  const { notifier, projectId, to } = harness({ urgentEvents: ['health.urgent', 'health.urgent-resolved', 'health.degraded', 'health.recovered'] })
+test.each([false, true])('a mixed general and urgent webhook gets one recovery per pass and retries refusal (%s)', async (refuseRecovery) => {
+  const { notifier, projectId, to, setAccept } = harness({ urgentEvents: ['health.urgent', 'health.urgent-resolved', 'health.degraded', 'health.recovered'] })
   await notifier.onSiteLivenessChecked(projectId, probe(down, 0))
   await notifier.onSiteLivenessChecked(projectId, probe(down, 10))
+  if (refuseRecovery) setAccept(url => url !== URGENT)
   await notifier.onSiteLivenessChecked(projectId, probe(up, 20))
   expect(to(URGENT)).toEqual(['health.degraded', 'health.recovered'])
+  setAccept(() => true)
+  await notifier.onSiteLivenessChecked(projectId, probe(up, 30))
+  if (refuseRecovery) {
+    expect(to(URGENT)).toHaveLength(3)
+    expect(to(URGENT)[2]).toBe('health.urgent-resolved')
+  } else {
+    expect(to(URGENT)).toEqual(['health.degraded', 'health.recovered'])
+  }
+  await notifier.onSiteLivenessChecked(projectId, probe(up, 40))
+  expect(to(URGENT)).toHaveLength(refuseRecovery ? 3 : 2)
+  expect(to(GENERAL)).toEqual(['health.degraded', 'health.recovered'])
 })
 
 test('an urgent webhook added during an outage is told about it', async () => {
@@ -347,15 +397,132 @@ test('the record does not outlive the webhook it was kept for', async () => {
   expect(to(URGENT)).toEqual(['health.urgent', 'health.urgent'])
 })
 
-test('a replacement webhook is not sent a resolution for a problem it never heard about', async () => {
-  const { notifier, projectId, sent, addWebhook, removeWebhook } = harness()
-  await notifier.onHealthChecked(projectId, pass(gaStale))
-  removeWebhook(URGENT)
-  await notifier.onHealthChecked(projectId, pass(gaFresh))
-  const before = sent.length
-  addWebhook(URGENT, ['health.urgent', 'health.urgent-resolved'])
-  await notifier.onHealthChecked(projectId, pass(gaFresh))
-  expect(sent.slice(before).filter(s => s.url === URGENT)).toEqual([])
+const audienceChanges = [
+  { engine: 'doctor', change: 'added' },
+  { engine: 'doctor', change: 'replacement' },
+  { engine: 'doctor', change: 'destination changed' },
+  { engine: 'website', change: 'added' },
+  { engine: 'website', change: 'replacement' },
+  { engine: 'website', change: 'destination changed' },
+] as const
+
+function changeUrgentAudience(env: ReturnType<typeof harness>, change: typeof audienceChanges[number]['change']) {
+  if (change === 'destination changed') {
+    env.changeDestination(URGENT, NEW_URGENT)
+  } else {
+    if (change === 'replacement') env.removeWebhook(URGENT)
+    env.addWebhook(NEW_URGENT, ['health.urgent', 'health.urgent-resolved'])
+  }
+}
+
+test.each(audienceChanges)('$engine: an urgent webhook $change between passes hears about the open problem after restart', async ({ engine, change }) => {
+  const env = harness()
+  const loop = healthLoop(engine, env)
+  await loop.start()
+  expect(env.to(URGENT)).toEqual(['health.urgent'])
+  changeUrgentAudience(env, change)
+  loop.restart()
+  await loop.open()
+  expect(env.to(NEW_URGENT)).toEqual(['health.urgent'])
+  expect(env.to(URGENT)).toEqual(['health.urgent'])
+  loop.restart()
+  await loop.open()
+  expect(env.to(NEW_URGENT)).toEqual(['health.urgent'])
+  await loop.clear()
+  expect(env.to(NEW_URGENT)).toEqual(['health.urgent', 'health.urgent-resolved'])
+  expect(env.to(URGENT)).toEqual(change === 'added' ? ['health.urgent', 'health.urgent-resolved'] : ['health.urgent'])
+})
+
+test.each(audienceChanges)('$engine: an urgent webhook $change between passes gets no resolution for a problem it never heard', async ({ engine, change }) => {
+  const env = harness()
+  const loop = healthLoop(engine, env)
+  await loop.start()
+  changeUrgentAudience(env, change)
+  loop.restart()
+  await loop.clear()
+  loop.restart()
+  await loop.clear()
+  expect(env.to(NEW_URGENT)).toEqual([])
+  expect(env.to(URGENT)).toEqual(change === 'added' ? ['health.urgent', 'health.urgent-resolved'] : ['health.urgent'])
+})
+
+test.each(['doctor', 'website'] as const)('%s: a refused catchup is retried after restart without repeating the original recipient\'s alert', async (engine) => {
+  const env = harness()
+  const loop = healthLoop(engine, env)
+  await loop.start()
+  env.addWebhook(NEW_URGENT, ['health.urgent', 'health.urgent-resolved'])
+  env.setAccept(url => url !== NEW_URGENT)
+  await loop.open()
+  expect(env.to(NEW_URGENT)).toEqual(['health.urgent'])
+  loop.restart()
+  await loop.open()
+  expect(env.to(NEW_URGENT)).toEqual(['health.urgent', 'health.urgent'])
+  env.setAccept(() => true)
+  loop.restart()
+  await loop.open()
+  loop.restart()
+  await loop.open()
+  expect(env.to(NEW_URGENT)).toEqual(['health.urgent', 'health.urgent', 'health.urgent'])
+  expect(env.to(URGENT)).toEqual(['health.urgent'])
+  await loop.clear()
+  expect(env.to(NEW_URGENT)).toEqual(['health.urgent', 'health.urgent', 'health.urgent', 'health.urgent-resolved'])
+})
+
+test.each(['doctor', 'website'] as const)('%s: recipients with the same history retain any-accepted acknowledgement', async (engine) => {
+  const env = harness({ accept: url => url !== NEW_URGENT })
+  env.addWebhook(NEW_URGENT, ['health.urgent', 'health.urgent-resolved'])
+  const loop = healthLoop(engine, env)
+  await loop.start()
+  expect(env.to(URGENT)).toEqual(['health.urgent'])
+  expect(env.to(NEW_URGENT)).toEqual(['health.urgent'])
+  loop.restart()
+  await loop.open()
+  expect(env.to(NEW_URGENT)).toEqual(['health.urgent'])
+
+  // Acceptance by either member settles the message for their shared history.
+  env.setAccept(url => url !== URGENT)
+  await loop.clear()
+  loop.restart()
+  await loop.clear()
+  expect(env.to(URGENT)).toEqual(['health.urgent', 'health.urgent-resolved'])
+  expect(env.to(NEW_URGENT)).toEqual(['health.urgent', 'health.urgent-resolved'])
+})
+
+test.each(['doctor', 'website'] as const)('%s: a legacy writer clearing delivery history makes an open problem news again after restart', async (engine) => {
+  const env = harness()
+  const loop = healthLoop(engine, env)
+  await loop.start()
+  expect(env.to(URGENT)).toEqual(['health.urgent'])
+
+  // An older release writes its aggregate without knowing recipient history.
+  if (engine === 'doctor') {
+    env.db.update(doctorHealthState).set({ urgentNotified: null }).where(eq(doctorHealthState.projectId, env.projectId)).run()
+  } else {
+    env.db.update(siteLivenessState).set({ urgentNotifiedAt: null }).where(eq(siteLivenessState.projectId, env.projectId)).run()
+  }
+  loop.restart()
+  await loop.open()
+  expect(env.to(URGENT)).toEqual(['health.urgent', 'health.urgent'])
+  loop.restart()
+  await loop.open()
+  expect(env.to(URGENT)).toEqual(['health.urgent', 'health.urgent'])
+})
+
+test('a newcomer resolves its own sync problem without inheriting an earlier ungradable data problem', async () => {
+  const env = harness()
+  await env.notifier.onHealthChecked(env.projectId, pass(gaStale, gscOk))
+  await env.notifier.onHealthChecked(env.projectId, pass(gaSkipped, gscOk))
+  env.addWebhook(NEW_URGENT, ['health.urgent', 'health.urgent-resolved'])
+  await env.restart().onHealthChecked(env.projectId, pass(gaSkipped, gscFailing))
+  const opening = env.sent.find(message => message.url === NEW_URGENT)!
+  expect(opening.health.previousStatus).toBe('ok')
+  expect(opening.health.failing.map(check => check.code)).toEqual(['gsc.sync.repeated-failures'])
+
+  await env.restart().onHealthChecked(env.projectId, pass(gaSkipped, gscOk))
+  expect(env.to(NEW_URGENT)).toEqual(['health.urgent', 'health.urgent-resolved'])
+  expect(env.sent.filter(message => message.url === NEW_URGENT).at(-1)!.health.cleared).toEqual(['gsc.sync.repeated-failures'])
+  await env.restart().onHealthChecked(env.projectId, pass(gaSkipped, gscOk))
+  expect(env.to(NEW_URGENT)).toEqual(['health.urgent', 'health.urgent-resolved'])
 })
 
 test('a refused urgent alert does not erase a problem that cleared on the same pass', async () => {
