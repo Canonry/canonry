@@ -1,0 +1,179 @@
+{
+  "services": [
+    {
+      "serviceName": "@ainyc/canonry-api",
+      "directory": "apps/api",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-web",
+      "directory": "apps/web",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-worker",
+      "directory": "apps/worker",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-api-client",
+      "directory": "packages/api-client-generated",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-api-routes",
+      "directory": "packages/api-routes",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@canonry/canonry",
+      "directory": "packages/canonry",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-config",
+      "directory": "packages/config",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-contracts",
+      "directory": "packages/contracts",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-db",
+      "directory": "packages/db",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-integration-bing",
+      "directory": "packages/integration-bing",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-integration-cloud-run",
+      "directory": "packages/integration-cloud-run",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-integration-cloudflare-queue",
+      "directory": "packages/integration-cloudflare-queue",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-integration-cloudflare-worker",
+      "directory": "packages/integration-cloudflare-worker",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-integration-commoncrawl",
+      "directory": "packages/integration-commoncrawl",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-integration-google",
+      "directory": "packages/integration-google",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-integration-google-ads",
+      "directory": "packages/integration-google-ads",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-integration-google-analytics",
+      "directory": "packages/integration-google-analytics",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-integration-google-business-profile",
+      "directory": "packages/integration-google-business-profile",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-integration-google-places",
+      "directory": "packages/integration-google-places",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-integration-google-tag-manager",
+      "directory": "packages/integration-google-tag-manager",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-integration-openai-ads",
+      "directory": "packages/integration-openai-ads",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-integration-traffic",
+      "directory": "packages/integration-traffic",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-integration-typesafe",
+      "directory": "packages/integration-typesafe",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-integration-vercel",
+      "directory": "packages/integration-vercel",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-integration-wordpress",
+      "directory": "packages/integration-wordpress",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-integration-wordpress-traffic",
+      "directory": "packages/integration-wordpress-traffic",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-intelligence",
+      "directory": "packages/intelligence",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-provider-cdp",
+      "directory": "packages/provider-cdp",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-provider-claude",
+      "directory": "packages/provider-claude",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-provider-gemini",
+      "directory": "packages/provider-gemini",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-provider-local",
+      "directory": "packages/provider-local",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-provider-muse",
+      "directory": "packages/provider-muse",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-provider-openai",
+      "directory": "packages/provider-openai",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@ainyc/canonry-provider-perplexity",
+      "directory": "packages/provider-perplexity",
+      "tsconfig": "tsconfig.json"
+    },
+    {
+      "serviceName": "@canonry/val-kit",
+      "directory": "packages/val-kit",
+      "tsconfig": "tsconfig.json"
+    }
+  ]
+}

@@ -38,7 +38,8 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      # Carrick derives services from pnpm-workspace.yaml, including API routes.
+      # carrick.json lists JS/TS workspace packages, including shared API routes.
+      # Keep its services in sync when packages change; the PHP plugin is excluded.
       # Its action installs Node 24, Deno, and frozen dependencies without scripts.
       - name: Scan and report
         id: scan
@@ -51,6 +52,7 @@ jobs:
           SCAN_OUTCOME: ${{ steps.scan.outcome }}
           ISSUES_FOUND: ${{ steps.scan.outputs.issues-found }}
         run: |
+          if [ "$SCAN_OUTCOME" != success ]; then ISSUES_FOUND=unavailable; fi
           {
             printf 'Carrick scan: %s\n\n' "$SCAN_OUTCOME"
             printf 'Reported issues: %s\n\n' "${ISSUES_FOUND:-unavailable}"
