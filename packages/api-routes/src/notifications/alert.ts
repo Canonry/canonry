@@ -74,7 +74,9 @@ export type AnyNotificationPayload =
   | ReviewWebhookPayload
   | RatingWebhookPayload
 
-const HEALTH_EVENTS: ReadonlySet<NotificationEvent> = new Set(['health.degraded', 'health.recovered'])
+const HEALTH_EVENTS: ReadonlySet<NotificationEvent> = new Set([
+  'health.degraded', 'health.recovered', 'health.urgent', 'health.urgent-resolved',
+])
 
 function isHealth(payload: AnyNotificationPayload): payload is HealthWebhookPayload {
   return HEALTH_EVENTS.has(payload.event as NotificationEvent)
@@ -92,15 +94,22 @@ function bulletList(lines: readonly string[]): string {
 
 function healthView(payload: HealthWebhookPayload): AlertView {
   const { health, project } = payload
-  const recovered = payload.event === 'health.recovered'
+  const urgentEvent = payload.event === 'health.urgent' || payload.event === 'health.urgent-resolved'
+  const recovered = payload.event === 'health.recovered' || payload.event === 'health.urgent-resolved'
+  // An urgent alert is critical whatever its check's status: stale daily data
+  // is graded `warn`, and it is still the alert someone has to act on.
   const severity: AlertSeverity = recovered
     ? AlertSeverities.success
-    : health.status === 'fail'
+    : urgentEvent || health.status === 'fail'
       ? AlertSeverities.critical
       : AlertSeverities.warning
 
   const fields: AlertField[] = [
-    { label: AlertFieldLabels.status, value: recovered ? 'recovered' : health.status, compact: true },
+    {
+      label: AlertFieldLabels.status,
+      value: recovered ? (urgentEvent ? 'resolved' : 'recovered') : urgentEvent ? 'urgent' : health.status,
+      compact: true,
+    },
     { label: AlertFieldLabels.check, value: health.code, compact: true },
   ]
   if (health.previousStatus) {
@@ -149,9 +158,11 @@ function healthView(payload: HealthWebhookPayload): AlertView {
     severity,
     title: website
       ? (recovered ? `${project.name} website is back up` : `${project.name} website is down`)
-      : recovered
-        ? `${project.name} recovered`
-        : `${project.name} — measurement degraded`,
+      : urgentEvent
+        ? (recovered ? `${project.name}: urgent problem resolved` : `${project.name}: urgent problem`)
+        : recovered
+          ? `${project.name} recovered`
+          : `${project.name} — measurement degraded`,
     body: health.summary,
     fields,
     url: payload.dashboardUrl,

@@ -5077,6 +5077,10 @@ export type DoctorReportDto = {
          * Stable machine-readable code (e.g. "google.token.refresh-failed"). Use this for filtering and remediation logic.
          */
         code: string;
+        /**
+         * True when this result is a problem a person has to act on now (the website is down, daily data stopped arriving, a sync keeps failing). Urgent results are what the health.urgent notification event reports. A result set aside under its failing cause (status "skipped", code "<id>.superseded") keeps the flag: the problem is still open.
+         */
+        urgent?: boolean;
         summary: string;
         /**
          * Operator-facing next step. Null when status is "ok" or no specific remediation applies.
@@ -11372,7 +11376,7 @@ export type NotificationDto = {
     url: string;
     urlDisplay: string;
     urlHost: string;
-    events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'review.negative' | 'review.rating-dropped'>;
+    events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped'>;
     enabled: boolean;
     source?: string;
     webhookSecret?: string;
@@ -12029,7 +12033,7 @@ export type ProjectConfig = {
             id?: string;
             channel: 'webhook';
             url: string;
-            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'review.negative' | 'review.rating-dropped'>;
+            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped'>;
         }>;
         google?: {
             gsc?: {
@@ -12112,7 +12116,7 @@ export type ProjectConfigExport = {
             id?: string;
             channel: 'webhook';
             url: string;
-            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'review.negative' | 'review.rating-dropped'>;
+            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped'>;
         }>;
         google?: {
             gsc?: {

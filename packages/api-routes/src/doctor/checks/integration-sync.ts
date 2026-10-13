@@ -278,6 +278,7 @@ function gradeSyncFailures(ctx: DoctorContext, spec: SyncFailureSpec): CheckOutp
     return {
       status: CheckStatuses.fail,
       code: code('repeated-failures'),
+      urgent: true,
       summary: `The last ${state.consecutiveFailures} ${spec.label} syncs failed (last success: ${lastSuccessText}). Latest error: ${shownError}`,
       remediation: `Fix the cause the latest error names (DNS or network filtering of the API host, credentials, or account access), then run \`${spec.syncCommand(project.name)}\`.`,
       details,
