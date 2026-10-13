@@ -174,7 +174,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Google Business Profile Integration",
     description: "canonry skill reference: references/google-business-profile.md",
     entryPoint: false,
-    characters: 36220,
+    characters: 36271,
     content: canonryReferencesGoogleBusinessProfilePart0,
   },
   {

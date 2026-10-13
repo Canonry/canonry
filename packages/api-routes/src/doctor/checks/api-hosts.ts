@@ -3,7 +3,7 @@ import { CheckCategories, CheckScopes, CheckStatuses } from '@ainyc/canonry-cont
 import { adsConnections } from '@ainyc/canonry-db'
 import { GSC_API_BASE, GOOGLE_TOKEN_URL, INDEXING_API_BASE, URL_INSPECTION_API } from '@ainyc/canonry-integration-google'
 import { GA4_ADMIN_API_BASE, GA4_DATA_API_BASE } from '@ainyc/canonry-integration-google-analytics'
-import { GBP_ACCOUNT_MANAGEMENT_BASE, GBP_BUSINESS_INFO_BASE, GBP_LEGACY_V4_BASE, GBP_LODGING_BASE, GBP_PERFORMANCE_BASE } from '@ainyc/canonry-integration-google-business-profile'
+import { GBP_ACCOUNT_MANAGEMENT_BASE, GBP_BUSINESS_INFO_BASE, GBP_LEGACY_V4_BASE, GBP_LODGING_BASE, GBP_PERFORMANCE_BASE, GBP_PLACE_ACTIONS_BASE } from '@ainyc/canonry-integration-google-business-profile'
 import { BING_WMT_API_BASE } from '@ainyc/canonry-integration-bing'
 import { probeApiHost } from '../../api-host-probe.js'
 import type { CheckDefinition, CheckOutput, DoctorContext, ProjectInfo } from '../types.js'
@@ -12,7 +12,7 @@ import { gaConnection, gbpConnection, googleMarketingConnection, gscConnection, 
 export const API_HOST_TABLE = {
   gsc: [new URL(GSC_API_BASE).hostname, new URL(URL_INSPECTION_API).hostname, new URL(GOOGLE_TOKEN_URL).hostname],
   ga: [new URL(GA4_DATA_API_BASE).hostname, new URL(GA4_ADMIN_API_BASE).hostname, new URL(GOOGLE_TOKEN_URL).hostname],
-  gbp: [new URL(GBP_ACCOUNT_MANAGEMENT_BASE).hostname, new URL(GBP_BUSINESS_INFO_BASE).hostname, new URL(GBP_PERFORMANCE_BASE).hostname, new URL(GBP_LEGACY_V4_BASE).hostname, new URL(GBP_LODGING_BASE).hostname, new URL(GOOGLE_TOKEN_URL).hostname],
+  gbp: [new URL(GBP_ACCOUNT_MANAGEMENT_BASE).hostname, new URL(GBP_BUSINESS_INFO_BASE).hostname, new URL(GBP_PLACE_ACTIONS_BASE).hostname, new URL(GBP_PERFORMANCE_BASE).hostname, new URL(GBP_LEGACY_V4_BASE).hostname, new URL(GBP_LODGING_BASE).hostname, new URL(GOOGLE_TOKEN_URL).hostname],
   'google-ads': ['googleads.googleapis.com', 'oauth2.googleapis.com'],
   gtm: ['tagmanager.googleapis.com', 'oauth2.googleapis.com'],
   bing: [new URL(BING_WMT_API_BASE).hostname],
