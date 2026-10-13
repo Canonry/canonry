@@ -1,4 +1,4 @@
-import { isRetryableHttpError, retryAfterDelayMs, withRetry } from '@ainyc/canonry-contracts'
+import { describeFetchError, isRetryableHttpError, retryAfterDelayMs, withRetry } from '@ainyc/canonry-contracts'
 import { GTM_REQUEST_TIMEOUT_MS } from './constants.js'
 import { GtmApiError } from './types.js'
 import type { GtmClientOptions } from './types.js'
@@ -40,14 +40,19 @@ async function fetchOnce<T>(
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? GTM_REQUEST_TIMEOUT_MS)
   try {
-    const response = await fetchImpl(url, {
-      method: 'GET',
-      headers: {
-        authorization: `Bearer ${accessToken}`,
-        accept: 'application/json',
-      },
-      signal: controller.signal,
-    })
+    let response: Response
+    try {
+      response = await fetchImpl(url, {
+        method: 'GET',
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          accept: 'application/json',
+        },
+        signal: controller.signal,
+      })
+    } catch (error) {
+      throw new Error(describeFetchError(error, url), { cause: error })
+    }
     const text = await response.text()
     let body: unknown = undefined
     let invalidJson = false

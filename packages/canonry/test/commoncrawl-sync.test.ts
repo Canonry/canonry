@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   backlinkDomains,
   backlinkSummaries,
@@ -13,7 +13,10 @@ import {
   projects,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
-import { executeReleaseSync, type ReleaseSyncDeps } from '../src/commoncrawl-sync.js'
+import { executeReleaseSync, syncLatestReleaseOnSchedule, type ReleaseSyncDeps } from '../src/commoncrawl-sync.js'
+
+const trackEvent = vi.hoisted(() => vi.fn())
+vi.mock('../src/telemetry.js', () => ({ trackEvent }))
 
 let tmpDir: string
 let db: DatabaseClient
@@ -57,6 +60,7 @@ function insertSyncRow(id: string, release: string): void {
 }
 
 beforeEach(async () => {
+  trackEvent.mockReset()
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-sync-'))
   db = createClient(path.join(tmpDir, 'test.db'))
   migrate(db)
@@ -191,6 +195,33 @@ describe('executeReleaseSync', () => {
     const row = db.select().from(ccReleaseSyncs).where(eq(ccReleaseSyncs.id, syncId)).get()
     expect(row?.status).toBe('failed')
     expect(row?.error).toMatch(/boom/)
+  })
+
+  it('keeps the completion stamp and the stored rows when a completed release is synced again and fails', async () => {
+    // The sources route and the `backlinks.source.connected` doctor check read
+    // `queryFinishedAt` to keep projects connected through a re-sync, because
+    // the rows of the earlier sync are still the project's data.
+    insertProject('p1', 'demo', 'example.com')
+    const syncId = crypto.randomUUID()
+    const release = 'cc-main-2026-jan-feb-mar'
+    insertSyncRow(syncId, release)
+    await executeReleaseSync(db, syncId, {
+      release,
+      deps: makeDeps({ queryBacklinks: async () => [{ targetDomain: 'example.com', linkingDomain: 'linker.example.org', numHosts: 5 }] }),
+    })
+    const completed = db.select().from(ccReleaseSyncs).where(eq(ccReleaseSyncs.id, syncId)).get()
+    expect(completed?.queryFinishedAt).toBeTruthy()
+
+    await expect(
+      executeReleaseSync(db, syncId, {
+        release,
+        deps: makeDeps({ downloadFile: async () => { throw new Error('boom') } }),
+      }),
+    ).rejects.toThrow(/boom/)
+
+    const row = db.select().from(ccReleaseSyncs).where(eq(ccReleaseSyncs.id, syncId)).get()
+    expect(row).toMatchObject({ status: 'failed', queryFinishedAt: completed!.queryFinishedAt })
+    expect(db.select().from(backlinkSummaries).all()).toMatchObject([{ projectId: 'p1', totalLinkingDomains: 1 }])
   })
 
   it('is idempotent under re-run: wipes prior rows and re-inserts under the same sync id', async () => {
@@ -335,5 +366,69 @@ describe('executeReleaseSync', () => {
     expect(row?.projectsProcessed).toBe(0)
     expect(row?.domainsDiscovered).toBe(0)
     expect(iso(0)).toMatch(/^1970/)
+  })
+})
+
+describe('backlinks sync outcome telemetry', () => {
+  const release = 'cc-main-2026-jan-feb-mar'
+  const synced = { feature: 'backlinks', operation: 'sync', durationBucket: expect.any(String) }
+
+  it('reports a sync once it is ready, with the linking domains and hosts it found, triggered as asked', async () => {
+    insertProject('p1', 'roots', 'roots.io')
+    const queryBacklinks = async () => [
+      { targetDomain: 'roots.io', linkingDomain: 'github.com', numHosts: 20000 },
+      { targetDomain: 'roots.io', linkingDomain: 'reddit.com', numHosts: 8000 },
+    ]
+    for (const [window, trigger] of [[release, undefined], ['cc-main-2026-apr-may-jun', 'scheduled']] as const) {
+      const syncId = crypto.randomUUID()
+      insertSyncRow(syncId, window)
+      await executeReleaseSync(db, syncId, { release: window, trigger, deps: makeDeps({ queryBacklinks }) })
+    }
+    expect(trackEvent.mock.calls).toEqual([
+      ['feature.completed', { ...synced, trigger: 'manual', status: 'succeeded', counts: { domains: 2, links: 28000 } }, undefined],
+      ['feature.completed', { ...synced, trigger: 'scheduled', surface: 'system', status: 'succeeded', counts: { domains: 2, links: 28000 } }, undefined],
+    ])
+  })
+
+  it('reports a failed sync by reason and error class, never its text', async () => {
+    const syncId = crypto.randomUUID()
+    insertSyncRow(syncId, release)
+    await expect(executeReleaseSync(db, syncId, { release: 'not-a-release', deps: makeDeps() })).rejects.toThrow()
+    await expect(executeReleaseSync(db, syncId, {
+      release,
+      deps: makeDeps({ downloadFile: async () => { throw Object.assign(new Error('socket hang up fetching https://data.commoncrawl.org/x'), { code: 'ECONNRESET' }) } }),
+    })).rejects.toThrow()
+    expect(trackEvent.mock.calls).toEqual([
+      ['feature.completed', { ...synced, trigger: 'manual', status: 'failed', reasonCode: 'VALIDATION', errorName: 'Error' }, { errorCode: 'VALIDATION' }],
+      ['feature.completed', { ...synced, trigger: 'manual', status: 'failed', reasonCode: 'NETWORK', errorName: 'Error' }, { errorCode: 'NETWORK' }],
+    ])
+    expect(JSON.stringify(trackEvent.mock.calls)).not.toContain('commoncrawl.org')
+  })
+
+  it('reports a schedule tick that never reaches a release sync, and marks the release it does request', async () => {
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const scheduledReleases = new Set<string>()
+    const tick = (probe: () => Promise<{ release: string } | null>, requestSync: (release: string) => Promise<unknown> = async () => ({})) =>
+      syncLatestReleaseOnSchedule('roots', { db, probe, requestSync, scheduledReleases, log })
+
+    await tick(async () => { throw Object.assign(new Error('getaddrinfo ENOTFOUND data.commoncrawl.org'), { code: 'ENOTFOUND' }) })
+    await tick(async () => null)
+    db.insert(ccReleaseSyncs).values({ id: 'ready', release, status: 'ready', createdAt: iso(0), updatedAt: iso(0) }).run()
+    await tick(async () => ({ release }))
+    const missingPlugin = Object.assign(new Error('@duckdb/node-api is not installed.'), { code: 'MISSING_DEPENDENCY' })
+    await tick(async () => ({ release: 'cc-main-2026-apr-may-jun' }), async () => { throw missingPlugin })
+    // A request the API accepts starts the release sync, which reports itself.
+    const markedDuringRequest: boolean[] = []
+    await tick(async () => ({ release: 'cc-main-2026-apr-may-jun' }), async (requested) => { markedDuringRequest.push(scheduledReleases.has(requested)) })
+
+    const scheduled = { ...synced, trigger: 'scheduled', surface: 'system' }
+    expect(trackEvent.mock.calls).toEqual([
+      ['feature.completed', { ...scheduled, status: 'failed', reasonCode: 'NETWORK', errorName: 'Error' }, { errorCode: 'NETWORK' }],
+      ['feature.completed', { ...scheduled, status: 'failed', reasonCode: 'NOT_FOUND' }, { errorCode: 'NOT_FOUND' }],
+      ['feature.completed', { ...scheduled, status: 'skipped', reasonCode: 'NOT_DUE' }, { errorCode: 'NOT_DUE' }],
+      ['feature.completed', { ...scheduled, status: 'failed', reasonCode: 'NOT_CONNECTED', errorName: 'Error' }, { errorCode: 'NOT_CONNECTED' }],
+    ])
+    expect(markedDuringRequest).toEqual([true])
+    expect(scheduledReleases.size).toBe(0)
   })
 })

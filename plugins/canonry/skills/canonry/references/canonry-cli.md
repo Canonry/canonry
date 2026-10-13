@@ -2,6 +2,17 @@
 
 The CLI is invoked as `cnry` (short form) or `canonry` — both ship with the `@canonry/canonry` npm package and behave identically. This reference uses `cnry`.
 
+## Find a command
+
+`cnry help` lists every command group in this binary. Use `cnry help --format json`
+for the complete catalog, or `cnry help ga --format jsonl` for one command per line
+in a group. `cnry --help --format json` and `cnry ga --help --format json` provide
+the same discovery output. The catalog includes access, flags, dry-run support and
+supported rolling windows. Contextual help prints `Access: stored`, `Access: live`
+or `Access: write`; live means the command calls a provider now, while write means
+it changes server or local state. `--trace` reports the response access header for
+API calls. Help is local and does not contact the server.
+
 ## Server Management
 
 ```bash
@@ -12,6 +23,7 @@ cnry stop                                      # stop daemon
 cnry serve                                     # foreground mode
 cnry serve --host 0.0.0.0 --port 4100
 cnry serve --embed --embed-allow-origin https://app.example.com   # read-only embed mode (#716)
+cnry dashboard reset-password                  # clear a forgotten dashboard password (edits local config.yaml)
 cnry --version
 ```
 
@@ -40,6 +52,47 @@ URL, or `not-matching` when the server on that URL belongs to another install
 install's server, or restart it, to apply the saved providers. Any other
 rejected reload reports `failed` and exits nonzero; the saved config remains
 available. Bootstrap never reloads a remote server automatically.
+
+### Stored-only mode
+
+Use `cnry --stored-only <command>` or set `CANONRY_STORED_ONLY=1` when the
+workflow may read saved evidence but must not perform provider work or change
+Canonry operational, configuration, or business state. The guard runs before
+telemetry, anonymous first-run setup, skills synchronization, update checks,
+configuration writes, or API access. A refused command exits 1 with
+`STORED_ONLY_REFUSED`; `doctor` remains a live diagnostic and is refused unless
+run outside stored-only mode. The local client refuses live and write operations
+before any network call on older servers; newer servers also honor
+`x-canonry-stored-only: 1` before their handlers run.
+
+Access follows the invocation: competitor change previews, alias reads, and
+alias detection without `--apply` work in stored-only mode. The corresponding
+writes remain refused. `get --from doctor` is a live diagnostic; other stored
+evidence sources and the settings read are allowed. Use `cnry help <group>
+--access stored` or `<group> --help --access stored` to filter help. A known
+group with no matching commands returns an empty result; `--access` is only a
+help/catalog option.
+
+Results exports are allowed because they read stored evidence; writing the
+requested export artifact is not a Canonry state mutation. Ordinary server
+request and authentication accounting remains separate from caller business
+mutations. The MCP adapter has the equivalent `--stored-only`,
+`--scope=stored-only`, `CANONRY_MCP_SCOPE=stored-only`, and
+`CANONRY_STORED_ONLY=1` forms, and a later read-only or all-scope option cannot
+widen a stored-only request.
+
+`cnry dashboard reset-password` clears a forgotten dashboard password. It edits
+`config.yaml` under `$CANONRY_CONFIG_DIR` on this machine and never calls the
+server, so run it where the server's config lives. A missing file is a
+`CONFIG_REQUIRED` error, not "nothing to reset". Restart the server afterward:
+until then it still accepts the old password. The dashboard then asks for a new
+password under the first-run rules, so stop any port forwarder first and set it
+right away. `--format json` returns
+`{ reset, configPath, restartRequired, namedAccounts, nextSteps[] }`; `reset` is
+`false` when no password was set. On an install with named accounts
+(`namedAccounts: true`) the shared password is not used, so clearing it changes
+nothing: restore an account with `cnry user delete <name>` and `cnry user
+create`. The command has no API route and no MCP tool.
 
 ### Read-only embed mode (#716)
 
@@ -70,6 +123,10 @@ cnry project list                              # list all projects
 cnry project create <name> --domain <url> --country US --language en
 cnry project show <name>                       # project detail
 cnry project update <name>                     # update project settings
+cnry project update <name> --add-lead-event book_demo --remove-lead-event old_event
+cnry project update <name> --brand-term "Sample Brand" --add-brand-term "Sample Pro"
+cnry project update <name> --marketing-host offers.example --remove-marketing-host old.example
+cnry project update <name> --display-name "Sample Brand" --expect-revision 4
 cnry project update <name> --dispatch-mode claude=batch   # scheduled sweeps batch this provider (repeatable; see Batch mode below)
 cnry project update <name> --clear-dispatch-mode claude   # back to sync
 cnry project update <name> --negative-review-max-stars 2   # review.negative for 1-2 star Google reviews only (1-4, or "default" for 3)
@@ -79,8 +136,22 @@ cnry project update <name> --add-qualified-alias "Acme NYC"      # sentiment tre
 cnry project update <name> --remove-qualified-alias "Acme NYC"   # repeatable; create takes --qualified-alias
 cnry project delete <name>                     # delete a project
 cnry project delete <name> --dry-run           # preview cascade impact (GET /delete-preview) without writing
-cnry status <project>                          # mention + citation summary + domain info; says when the next sweep is refused or skips providers
+cnry status <project>                          # stored run, integration and health status for one project
+cnry status --all [--problems]                 # stored status for every project and connected integration
 ```
+
+Project updates use PATCH and preserve omitted settings and config source. Measurement
+flags are repeatable: `--lead-event`, `--brand-term`, and `--marketing-host` replace
+only their named list; `--add-*` and `--remove-*` adjust it. Lead event matching is
+case-sensitive; brand-term and host removals ignore case. Values use the shared
+measurement validation. `project show` includes these lists in human output.
+
+The CLI sends the revision it read, or validates an explicit positive
+`--expect-revision`. A stale revision returns `PROJECT_REVISION_CONFLICT` without
+writing. A server whose PATCH route is unavailable uses the legacy full PUT after
+a second read confirms the revision is unchanged. That old-server fallback cannot
+provide atomic compare-and-swap protection; upgrade the server for that guarantee.
+The native MCP tool `canonry_project_update` accepts the same partial request.
 
 ### Brand aliases
 
@@ -140,9 +211,19 @@ cnry run cancel <project> [run-id]             # force-cancel stuck runs
 cnry run completeness <run-id>                 # answered vs missing answers per provider, and whether a fill is allowed
 cnry run fill <run-id> --dry-run               # what a fill would record, without spending quota
 cnry run fill <run-id> [--provider claude] --wait  # record a partial run's missing answers under the SAME run id
-cnry runs <project> --limit 10                 # list recent runs (includes both real and probe runs; filter on `trigger` if you only want one)
+cnry runs <project> --limit 10                 # list recent runs, including probes
+cnry run list <project> --kind traffic-sync --status failed --since 2026-10-01T00:00:00Z --limit 20 --format json
 cnry run show <id>                             # show run details
 ```
+
+`run list <project>` and `runs <project>` read the same stored history. Filters
+include `--kind`, `--status`, `--since`, `--exclude-kind`, and repeatable or
+comma-separated `--exclude-kinds`. The inclusive `--since` timestamp accepts
+UTC or an offset. Omit it for all dates; omit `--limit` for all matching runs.
+The newest limited rows retain chronological order. Traffic sync rows include
+`sourceId` when stored, and human output shows failed and partial errors.
+JSON is the API array; JSONL emits each run with its project. With no second
+positional, `run list` retains the sweep shorthand for a project named `list`.
 
 Run statuses: `queued` → `running` → `completed` / `failed` / `partial`
 
@@ -237,7 +318,10 @@ Two independent signals per (query × provider): **mention** (`answerMentioned` 
 cnry evidence <project>                        # per-query [C/c][M/m] cell + Mentioned: X / Y / Cited: X / Y
 cnry evidence <project> --format json          # JSON output
 cnry history <project>                         # audit trail
+cnry history <project> --entity-type competitor --format json
+cnry history <project> --action-prefix competitors. --exclude-entity-type traffic_source --since 2026-10-01T00:00:00Z --until 2026-10-02T00:00:00Z
 cnry export <project> --include-results        # export as YAML
+cnry export <project> --include-secrets        # include webhook URLs; requires administrator authority or a wildcard key
 cnry backfill answer-mentions                  # recompute answerMentioned (primary) from stored answers (honors aliases)
 cnry backfill answer-mentions --dry-run
 cnry backfill answer-visibility                # recompute citationState (secondary) from stored answers
@@ -245,6 +329,19 @@ cnry backfill answer-visibility --dry-run      # preview which snapshots would c
 cnry backfill insights <project>               # recompute insights for completed runs
 cnry backfill insights <project> --since 2026-04-01 --dry-run
 ```
+
+History filters compose on project reads and `history --all`. `--action` remains
+exact; `--action-prefix` matches a literal prefix. Repeat `--exclude-entity-type`
+or supply a comma list to remove noisy entity types before paging. `--entity-id`
+selects one entity. Time bounds are inclusive, normalize offsets to UTC, and
+reject invalid values. `--actor api` includes legacy API, API-key, and user
+actors; other actors match exactly. Empty filters are rejected. Human output shows actor and client origin; instance-wide rows include the project name. Select either a project or `--all`.
+New competitor replacement records include `added`, `removed`, and any discarded
+aliases beside the resulting `competitors` list. Older records remain unchanged.
+
+Project exports redact notification webhook URLs by default as `redacted://<host>/<notification-id>`.
+Applying that export preserves the existing notification ID, signing secret, source, enabled state and creation time. The HTTPS `/redacted` placeholder from notification listings also preserves the matched stored destination. A real URL change appears in preview and audit as a URL-change marker without exposing its path or secret.
+Use `--include-secrets` only when the credential has administrator authority. The CLI prints a redaction note to stderr when URLs remain redacted.
 
 Output uses a two-glyph cell per (query × provider): `[C/c][M/m]` — uppercase = present, lowercase = absent, `–` = no snapshot. **C/c = cited** (secondary), **M/m = mentioned** (primary). Always print the legend before the table; never collapse the two signals into one cell.
 
@@ -351,6 +448,8 @@ cnry technical-aeo run <project> --check-dead-links --wait   # opt in to dead-li
 cnry technical-aeo progress <project> --run-id <id> [--format json] # exact durable phase and pages found / checked / failed counters; never a synthesized percentage
 cnry technical-aeo crawl <project> [--run-id <id>] [--format json]   # crawl metadata, budgets, completeness, and termination
 cnry site-health overview <project> [--run-id <id>] [--format json] # operator-facing alias for crawl metadata
+cnry site-health issues <project> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl] # stored findings including passing-score issues, affected-page counts and example URLs
+cnry site-health issue-pages <project> --issue-id <id> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl] # affected URLs for one issue; pin the run from the issue list
 cnry site-health page-audit <project> (--node-key <key>|--url <url>) [--run-id <id>] [--format json] # exact audit score, factor findings, recommendations, and crawl provenance for one graph page
 cnry site-health subgraph <project> [--node-key <key>|--url <url>] [--hops <n>] [--max-nodes <n>] [--max-edges <n>] [--format json] # focused semantic graph (MCP defaults to 25 nodes / 50 edges)
 cnry site-health path <project> (--to-node-key <key>|--to-url <url>) [--from-node-key <key>|--from-url <url>] [--max-depth <n>] [--format json] # directed shortest followable-link path
@@ -371,6 +470,7 @@ cnry schedule set <project> --kind site-audit --preset weekly   # keep it fresh
 For agent site readiness, begin with `cnry technical-aeo score <project> --format json`. Use `cnry site-health overview <project>` only to add crawl metadata; it never replaces the score. Use `cnry site-health page-audit` (MCP: `canonry_site_health_page_audit`) to tie a selected graph page's audit score to exact findings and fixes. Link score is importance, not an audit verdict. Then request a focused neighborhood, a shortest path, or scan-to-scan changes. Do not ask an agent to materialize the interactive graph: it can exceed the MCP tool-result limit. The matching traversal tools are `canonry_site_health_subgraph`, `canonry_site_health_path`, and `canonry_site_health_changes`; the subgraph tool defaults to a small focused result and should be expanded only when needed.
 
 - The score is only available after at least one audit runs — `score` returns `hasData: false` until then.
+- `issues` and `issue-pages` read stored evidence only; `technical-aeo` aliases expose the same commands. JSONL begins with provenance, coverage, total and continuation metadata, including for an empty result. An unavailable cross-page source in an older scan is not a measured zero, and a partial scan cannot establish site-wide absence. Follow the cursor before claiming a complete list. Issue dispositions guide review; advisory metadata findings do not automatically justify an edit or a blog post.
 - Reads without `--run-id` use the newest scan that published a crawl, including one that stopped at its page budget (`complete: false`, `termination: max-pages`). A failed, cancelled, or still-running scan never replaces it. `changes` compares complete crawls only.
 - Graph reads are server-paged and bounded. Use `--run-id` to inspect a specific retained run.
 - A subgraph with `countAccuracy: "lower-bound"` hit a traversal cap: totals and omissions are minimums, not site-wide counts. Its `complete` and `termination` fields apply to every observation.
@@ -426,27 +526,46 @@ approval; reading a recommendation does not authorize either action.
 ## Queries & Competitors
 
 ```bash
-cnry query add <project> "phrase one" "phrase two"
+cnry query add <project> "phrase one" "phrase two"       # prints each query's class; JSON adds `queryClasses`
 cnry query replace <project> "phrase one" "phrase two"   # set the basket to exactly this list
 cnry query replace <project> "..." --dry-run             # preview adds/removes via /queries/replace-preview
 cnry query remove <project> "phrase"
-cnry query list <project>
+cnry query list <project>                                # CLASS column; JSON and JSONL rows carry `queryClass`
 cnry query import <project> queries.txt
 cnry query generate <project> --provider gemini --count 10 --save
 
 cnry competitor add <project> competitor1.com competitor2.com
+cnry competitor add <project> rival.example --dry-run --format json  # preview latest stored-evidence impact without writing
 cnry competitor add <project> spoketuneworks.example --alias TuneSpoke   # one domain; repeat --alias for more names
+cnry competitor add <project> competitor1.com competitor2.com --acknowledge-bulk-add  # operator acknowledgement for measured growth over 5 domains in 24 hours
 cnry competitor list <project>                       # text shows each competitor's aliases and auto names; JSON rows carry `aliases`, `autoAliases`, `blockedAliases`
 cnry competitor aliases <project> qvx.example                      # read one competitor's curated, auto-detected (with evidence) and blocked names
 cnry competitor aliases <project> qvx.example --set QVX            # exact list (repeat --set); --clear empties it
+cnry competitor aliases <project> qvx.example --set QVX --dry-run --format json  # preview an alias identity change
 cnry competitor aliases <project> qvx.example --add "QVX Stores"   # appends server-side in one call
 cnry competitor aliases <project> qvx.example --remove qvx         # read, edit, write back (a concurrent edit can be overwritten)
 cnry competitor aliases <project> spoketuneworks.example --block "Spoke Crew"   # never auto-apply this name (removes it if auto)
 cnry competitor aliases <project> spoketuneworks.example --unblock "Spoke Crew" # release it to detection again
-cnry competitor aliases detect <project> --format json             # dry run: names the stored answers tie to each site, with evidence
+cnry competitor aliases detect <project> --format json             # dry run: names the stored answers tie to each site, with evidence and impact
 cnry competitor aliases detect <project> --apply                   # run detection now and store it, in any mode (after each sweep the project's mode decides)
 cnry competitor landscape <project> --query-class non-brand --window 30d --format json
+cnry competitor suggest <project> --window 30d --min-answers 3 --query-class non-brand --format json
 ```
+
+`competitor suggest` reads stored answer and citation evidence and ranks possible competitors. It never starts a sweep or writes data. Use `--format jsonl` for one candidate per line. The response keeps naming counts separate from citation counts and includes the query class, answer floor, run IDs, sample URLs, exclusions, and count units. An exact suggestion read refuses with `VALIDATION_ERROR` above 10,000 eligible answer rows instead of sampling; narrow `--window` or use `--group-key` for one Advanced market. A Simple project without a usable brand alias uses the pooled `all` class unless an explicit class filter is requested. Exact reads also refuse more than 200,000 characters in one answer, 20 million evidence characters, or 200,000 source references with narrowing guidance. Scans yield so other requests remain responsive. Unknown untracked candidates with only unpaired prose matches are excluded as `unpaired-name`; mention counts stay unchanged for comparison with a bare-add preview. Human output shows both-answer and paired-answer counts and exclusion reasons.
+
+### Query class
+
+Every tracked query is `branded` (it names the project) or `non-brand`, and the two are never counted together. The server decides the class; read it, never work it out from the query text.
+
+- `cnry query list <project>` prints a `CLASS` column. `--format json` and `--format jsonl` rows carry `queryClass`: `"branded"`, `"non-brand"` or `null`.
+- `cnry query add <project> ...` prints one line per query with its class after the count line. `--format json` adds `queryClasses: [{ query, queryClass }]`, one entry per distinct query in the order given. A query that was already tracked is listed with its class too.
+- A project without an advanced measurement plan is classed from the query text against the project's brand names: display name, aliases and owned-domain labels. A legacy schema v1 plan stores no class, so its queries are classed the same way.
+- A project with an active advanced measurement plan uses the class stored on the query's assignments in that plan, which an operator may have set by hand, so it can differ from what the text suggests.
+- A dash in text output, `null` in JSON, means there is no single class: the project has no usable brand name, or the plan holds no single class for the query (it has no assignment, or it is assigned under both classes). A dash is never a `non-brand`. `cnry query workspace <project> --format json` lists the class of each assignment, one per Property.
+- Against a server older than this field the JSON rows and `queryClasses` entries have no `queryClass` key, and text output shows a dash with the note "class not reported". That means unknown, not `null`.
+
+MCP: `canonry_queries_list` rows carry the same `queryClass`, and `canonry_queries_add` returns `queryClasses`.
 
 ### Competitor aliases
 
@@ -454,6 +573,7 @@ A competitor is stored as its registrable domain, and every competitor mention m
 
 - Rules: trimmed, deduplicated case-insensitively (first spelling kept), at most 10 per competitor, 80 characters each, at least 3 letters or digits. Rejected with a 400 naming each alias and the name it overlaps: a brand key (letters and digits, case and punctuation folded) that contains, or sits inside, one of the project's own names or written hosts ("Acme", "Cycles", `acmecycles.example`, `shop.acmecycles.example` or "Acme Cycles Outlet" for the project "AcmeCycles" at `acmecycles.example`), or a name another tracked competitor answers to (its aliases, domain label or written host). Answers split and join the words of a name freely, so "Tune" cannot belong to one competitor while another answers to "Tune Spoke", "TuneSpoke" or `tunespoke.example`: an answer writing "Tune Spoke" would count both. Joined-word lookalikes ("Tune" and "Tuner") are refused too; pick a longer alias.
 - A new competitor whose domain name overlaps another competitor's alias that way (adding `tunespoke.example` or `spoketuneworks.example` while another competitor carries "Tune", or `tune.example` while one carries "Tune Spoke") is rejected on `competitor add` and apply until you remove or restate that alias; discovery promote leaves it out with reason `claimed-by-alias`. No surface starts tracking the project's own site, a subdomain of it, or a parent of an owned domain. A project identity change that claims a competitor alias drops it, audited as `droppedCompetitorAliases`.
+- On a measured project, a competitor add that would put more than 5 new or recently added domains inside the trailing 24 hours is refused with `bulk-add-unacknowledged`. Review stored evidence with `competitor suggest` or `competitor add --dry-run`, then pass `--acknowledge-bulk-add` for an operator-approved write. Projects without a completed or partial non-probe sweep are not guarded. The rule covers REST, CLI, MCP and dashboard writes; declarative apply and discovery promote remain outside this guard.
 - Advanced markets: a competitor an active or draft market pins counts as another competitor, and so does one a superseded revision pins when the project's runs were measured under that revision (`supersededRevision`), since those runs are still scored with it. An alias overlapping its names is rejected (`market-competitor`, naming the `markets`), a stored one is dropped and audited, and a new competitor whose domain name a pin's label or curated alias claims is rejected (`claimed-by-alias`, naming the `markets`) until you remove that name from the pin. The other way round, pinning a competitor (or giving a pin a new name) fails with `claimed-by-alias` when a curated alias already answers to it, and with `other-competitor` when its label or alias overlaps a tracked competitor's own domain label or host; `pin-competitor`, `upsert-competitor`, `upsert-group` and draft publish all check the pins they add or rename.
 - Not checked: two names that only share a part ("Tune Spoke" and "Spoke Works" both match the phrase "Tune Spoke Works"), and an alias equal to a subdomain label of another competitor's host. Avoid such pairs by hand.
 - Any spelling of a tracked domain (`www.`, a subdomain, or a row an older build's discovery promote stored as a subdomain) finds its stored row; discovery promote now stores the registrable domain. A competitor stored as two rows refuses alias edits; the error names both rows and the aliases to restate: `competitor remove` (which removes every row of it), then `competitor add <project> <domain> --alias ...`.
@@ -537,7 +657,7 @@ cnry schedule set <project> --preset daily     # or: weekly, twice-daily, daily@
 cnry schedule set <project> --cron "0 9 * * *" --timezone America/New_York
 cnry schedule set <project> --kind data-refresh --preset daily   # refresh all connected GSC/Bing/GA/GBP integrations (no --source)
 cnry schedule set <project> --kind backlinks-sync --preset weekly # re-probe Common Crawl; sync only when a newer rolling window is published (no --source/--provider)
-cnry doctor <project> --check site.reachability   # probe the homepage now; the server also probes every 10 min and pages health.degraded after two failed passes
+cnry doctor --project <project> --check site.reachability   # probe the homepage now; the server also probes every 10 min and pages health.degraded after two failed passes
 cnry schedule set <project> --kind site-audit --preset weekly     # Technical AEO: bounded full-site crawl and audit (no --source/--provider)
 cnry schedule show <project>
 cnry schedule list <project> --format json      # all configured schedule kinds
@@ -555,6 +675,8 @@ cnry notify test <project> <id>
 Available events: `citation.lost`, `citation.gained`, `run.completed`, `run.failed`, `insight.critical`, `insight.high`
 
 `insight.critical` and `insight.high` fire when the intelligence engine generates critical- or high-severity insights after a sweep completes.
+
+**Health alerts** (`health.degraded`, `health.recovered`) report on the measurement itself, not on findings, and reach every enabled webhook whether or not it subscribes to them. A doctor pass runs every 6 hours per project. `health.degraded` is sent only when something is new or worse: the project stops being healthy, the worst status rises, or a check starts failing, gets more severe, or reports a different code at the same severity. A pass that finds the same problems, or fewer, sends nothing, so a check clearing, or easing from fail to warn, never produces a second "degraded" alert. An alert that no webhook accepted is sent again on the next pass. `health.recovered` is sent when every check passes again. The payload's `health.failing` lists every failing check; `health.added` lists the codes that are new or worse and `health.cleared` the codes of the checks that stopped failing since the last delivered alert. Discord and Slack cards show them as `New (n)` and `Cleared (n)`, ahead of `Also failing`. Silent advisories (`report.*`, `content.winnability.coverage`, `traffic.source.cache-blindspot`) appear in `cnry doctor` with `notificationPolicy: "silent"` but never page. An optional integration the project does not use is `skipped`, not failed (`gbp.auth.not-connected`, `bing.auth.not-connected`), so it does not page either. Run `cnry doctor --project <project>` to see the current state at any time.
 
 > **No mention events yet.** Notification events cover the citation signal only — there are **no** `mention.lost` / `mention.gained` events today. For mention-first monitoring, read `scores.mentionCoverage` / `scores.mentionShare` via `cnry overview` (or the `insight.*` events, which can be driven by mention-side insights); do not wire automation to mention events that aren't emitted.
 
@@ -740,6 +862,8 @@ cnry bing request-indexing <project> <url>    # submit URL for indexing
 cnry bing request-indexing <project> --all-unindexed  # submit all unindexed
 cnry bing performance <project>               # search performance data
 ```
+
+Bing is optional. `cnry doctor --project <project> --check 'bing.*'` reports `bing.auth.connection` as **skipped** (`bing.auth.not-connected`) for a project that never connected Bing, or whose domain's connection was removed with `cnry bing disconnect` (projects on one domain share the connection). It **fails** (`bing.auth.no-connection`) only when the connection is gone while the project still holds Bing data from an earlier connection.
 
 ## WordPress Integration
 
@@ -1388,6 +1512,8 @@ cnry backlinks cache prune --release <id>      # delete cached release files fro
 
 All commands support `--format json`; collection commands (`list`, `sources`, `releases`) also support `--format jsonl`. A Common Crawl release sync has statuses `queued` → `downloading` → `querying` → `ready` / `failed`. Per-project extracts use the standard run statuses (`queued` → `running` → `completed` / `failed`). Projects with `autoExtractBacklinks` enabled get an extract enqueued automatically when a release sync transitions to `ready`.
 
+`backlinks sources` reports Common Crawl as `connected` when a release sync has completed and the project has stored Common Crawl data. Syncing the same release again keeps it connected while the download runs. The release sync writes every project's rows, so no project setting is needed. The `backlinks.source.connected` doctor check grades the same rule and warns `backlinks.source.none` otherwise: run `cnry backlinks extract <project>` when a release is currently `ready` but the project has no data yet, or `cnry backlinks sync` when no release is currently ready. Historical completion preserves existing project data through a re-sync but does not make that release available for extraction.
+
 **`jsonl` output schema:** `backlinks list` streams `rows` (each `{ project, release, targetDomain, linkingDomain, numHosts, source }`); `backlinks sources` streams the per-source availability list (`{ project, targetDomain, source, connected, hasData, latestRelease, totalLinkingDomains, lastSyncedAt }`); `backlinks releases` streams cached-release rows bare.
 
 To keep backlinks fresh automatically, schedule a `backlinks-sync` kind (`cnry schedule set <project> --kind backlinks-sync --preset weekly`): each tick re-probes Common Crawl and runs the workspace release sync **only when a newer rolling window is published** (it skips when the newest `ready` sync already covers the latest release, so it never re-downloads a near-identical window).
@@ -1581,6 +1707,7 @@ Compact reference for the composite / keyed commands agents read most (shapes ca
 
 | Command | JSON output shape (top-level keys → DTO) | `jsonl` |
 |---|---|---|
+| `cnry status --all [--problems]` | `InstanceStatusDto` @ `contracts/status.ts`: `{ generatedAt, summary{projects,ok,failing,warning,stale,neverSynced}, projects[{project,displayName,state,health,integrations[]}] }`. Stored reads only; a successful read exits 0 even when rows are failing. | One integration per line as `{project, health, ...row}`; a project without integration rows emits `{project,state,health}`. Single-project `status <p>` keeps its JSON envelope and emits one compact record for JSONL. Stored health failures and warnings affect project state, summary and `--problems`; explicit project reads always retain health. |
 | `cnry doctor [--project p] [--all] [--report-month YYYY-MM]` | `{ scope, project, reportMonths?, generatedAt, durationMs, summary{total,ok,warn,fail,skipped}, checks[] }` — `DoctorReportDto` @ `contracts/doctor.ts`. `checks[]` = `CheckResultDto{ id, category, scope, title, status(ok\|warn\|fail\|skipped), notificationPolicy?(health\|silent), code, summary, remediation?, details?, durationMs }`. `report.*` checks are silent report-readiness advisories: they never page or change health state. `--report-month` picks the month they grade (default: the current month, plus the closed month through day 3, when only the closed month is graded). With `--all`: an object keyed by `__global__` + each project name, each value a full report. | ✅ one check / line as `{project, …check}`; still exits non-zero if any `fail` |
 | `cnry analytics <p> [--feature metrics\|gaps\|sources] [--window 7d\|30d\|90d\|all]` | Object **keyed by feature**: `{ metrics?, gaps?, sources? }` (all three present with no `--feature`; one with `--feature X`). `metrics`=`BrandMetricsDto{ window, buckets[], overall, byProvider, trend, mentionTrend, queryChanges[] }`; `gaps`=`GapAnalysisDto{ cited[], gap[], uncited[], mentionedQueries[], mentionGap[], notMentioned[], runId, window }` (each `[]`=`GapQuery`); `sources`=`SourceBreakdownDto` (same shape as `cnry sources`, below). @ `contracts/analytics.ts` | → degrades to the `json` document |
 | `cnry sources <p> [--rank] [--limit N] [--by-provider] [--window …]` | `SourceBreakdownDto{ overall[], byQuery, ranked, byProvider, runId, window, limit }` @ `contracts/analytics.ts`. `ranked`/each `byProvider[name]` = `RankedSourceList{ totalCitedSlots, domainTotal, entries[], truncatedDomainCount, truncatedCitedSlots, bySurfaceClass[] }`; `entries[]`=`SourceRankEntry{ domain, count, percentage, category, label, surfaceClass }`; `bySurfaceClass[]`=`SurfaceClassCount{ surfaceClass, label, count, percentage, domainCount }`. `surfaceClass` ∈ own \| direct-competitor \| ota-aggregator \| editorial-media \| other. | ✅ streams `ranked.entries` one / line as `{project, …entry}` |
@@ -1663,3 +1790,112 @@ breakdown keys, most mixed plus unfavorable first). Text output lists them under
 `Most criticized properties: N of total` with favorable, mixed and unfavorable
 counts; read one with `--scope property --scope-key <key> --outcome mixed,unfavorable`
 (in a market view, pass that market as `--market-key`).
+
+### Stored traffic samples
+
+```bash
+cnry traffic samples <project> --kind ai-referral --since 2026-10-10T00:00:00Z --until 2026-10-11T00:00:00Z --format json
+cnry traffic samples <project> --source <id> --path /blog --limit 100 --offset 100 --format jsonl
+```
+
+A stored sampled tail with 30-day retention, not visits or sessions. Use `traffic
+events` for totals. Default `--kind all` includes crawler, AI user-fetch, and AI
+referral samples; unknown requests require `--kind unknown`. Time bounds are
+inclusive ISO timestamps or `YYYY-MM-DD` dates (midnight UTC), defaulting to the last 24 hours. `--since-minutes`
+selects a positive relative duration and cannot be combined with `--since`. Path
+prefixes are literal. Limit is 1 to 500; offset starts at zero. Project/source
+attribution applies equally to Simple and Advanced portfolios; Property, Target,
+and market attribution is unavailable. No provider call or write. Signed-in
+viewers and embeds cannot read samples; API read keys retain project scope.
+
+### Stored GA acquisition
+
+```bash
+cnry ga acquisition <project> --start 2026-09-01 --end 2026-09-30 --channel "Organic Search" --landing-page /pricing --format json
+cnry ga acquisition <project> --group-by source,medium --limit 100 --offset 100 --format jsonl
+```
+
+Reads stored GA4 sessions only, with no Google call. `--window 7d|30d|90d|all`
+defaults to all history. Use either a rolling window or explicit `--start` and `--end`; combining them is rejected. `--source` and `--medium` match exactly; `--channel` and `--host`
+match exactly without case sensitivity. `--landing-page` normalizes the supplied path like stored pages, removing trailing slashes and tracking parameters while retaining meaningful query parameters. `--path-prefix` matches a path or its
+descendants, treating percent and underscore literally. Group keys are date,
+channel, source, medium, host, landing-page (API names are also accepted). Default
+grouping uses all six. `totalSessions` covers every filtered row, independent of
+grouping and pagination; `totalRows` counts groups. Maximum page size is 1000.
+
+### Stored read windows and calendar dates
+
+Stored reads accept a positive day count such as `30` or its lowercase token
+`30d`, restricted to the command's available stored windows:
+
+| Read | Windows |
+| --- | --- |
+| Analytics, sources, competitor landscape, GA acquisition, traffic and referral/session histories, Google performance reads | `7d`, `30d`, `90d`, `all` |
+| GA measurement analysis | `30d`, `60d`, `90d` |
+| GA search landing pages | `7d`, `28d`, `90d` |
+| Google Ads performance | `7d`, `14d`, `30d` |
+| Traffic analytics | `7d`, `14d`, `30d`, `90d` |
+| Organic evidence | `60d`, `90d` |
+
+Defaults remain specific to each command. `--help` prints its full set. Traffic
+analytics and organic evidence accept `--window`; `--period` remains an alias.
+Use either `--window` or explicit calendar bounds, never both.
+For reads with calendar bounds, use inclusive `--start` and `--end` in
+`YYYY-MM-DD` form. Traffic referral assessment retains `--start-date` and
+`--end-date`; ads insights retains `--from` and `--to`. Supplying an alias and its
+canonical flag together is an error. Invalid calendar dates or reversed ranges
+fail before an API request. Explicit dates retain their existing precedence over
+rolling windows. Google performance `--days` remains a separate span selector.
+These changes do not alter sync/backfill depths, run/history ISO timestamps, or
+calendar-month report selections.
+
+### Applying project configuration
+
+```bash
+canonry apply <file...> --dry-run [--format json]
+canonry apply <file...> [--format json]
+```
+
+`--dry-run` calls the server preview route for every YAML document and reports
+field, query, competitor, schedule and notification changes. It performs no
+database writes and prints `No DB writes performed. Re-run without --dry-run to
+apply.` in text mode. JSON and JSONL emit the same `{ dryRun, files,
+changedCount, errorCount }` document. A server without the preview route exits
+with `APPLY_PREVIEW_UNSUPPORTED`; the command never falls back to apply.
+
+### Preview competitor impact
+
+Add, remove/delete and curated alias set/add/remove/clear accept `--dry-run`.
+JSON and JSONL include `dryRun`, the planned changes and the server's `impact`;
+text prints before/after mention share and counts. No competitors, names or
+audit rows change. The latest stored landscape is the estimate, while a real
+change restates every stored period. Advanced scope includes all markets; the
+response names its exact runs and query class. This is not the overview card.
+
+`project update <project> --competitor-auto-aliases apply --dry-run` previews
+the mode and detected-name impact. Other change flags are refused. Detection
+is a stored read; `competitor aliases detect --dry-run --apply` is invalid.
+Block/unblock, market pin writes, project identity edits, apply and discovery
+promotion are not covered. Ordinary writes keep their request count and output.
+Preview POSTs require a write-capable key; the detection GET accepts read keys.
+### Batch curated competitors and wait for stored fields
+
+`canonry competitor import <project> <file> [--wait] [--wait-timeout 120]` sends
+one append request for the whole file. A JSON file is an array of domains or
+`{ "domain": "rival.example", "aliases": ["Rival Name"] }` entries. Other files
+contain one `domain[,alias,alias]` per line; blank lines and `#` comments are
+ignored. Import only a curated set, not every cited domain. Repeating an import
+is idempotent and reports `addedCount: 0` when nothing is newly tracked.
+
+`competitor add` and `competitor aliases` also accept `--wait` with a positive
+integer timeout in seconds (default 120). This waits for stored answer fields
+to be recomputed after name changes, such as `competitor add demo rival.example
+--alias "Rival Name" --wait`. A bare-domain add sets no recomputation mark.
+Answer-derived alias detection has a separate lifecycle and is not covered by
+this wait. Cloud already completes the backfill within the write request.
+
+Timeout exits 2 with `OPERATION_IN_PROGRESS` and `writeCommitted: true`; read
+`project show` to inspect `answerFieldsRecompute` rather than treating the write
+as failed. Older servers that omit the field return `WAIT_STATUS_UNAVAILABLE`
+after the committed write. Without `--wait`, add timing and output are unchanged.
+The existing `canonry_project_get` MCP tool returns this additive field.

@@ -24,7 +24,10 @@ import { CURRENT_CLOUDFLARE_WORKER_VERSION } from '../src/cloudflare-worker-vers
 import type {
   CloudflareTrafficCredentialRecord,
   CloudflareTrafficCredentialStore,
+  TrafficIngestedEvent,
 } from '../src/traffic.js'
+import type { OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
+import { connectionOutcomes } from './outcome-capture.js'
 
 const INGEST_URL = 'https://canonry.test/api/v1/projects/{name}/traffic/cloudflare/ingest'
 
@@ -56,10 +59,14 @@ async function buildHarness(opts: {
     deleteConnection: (projectName) => cloudflareCredentials.delete(projectName),
   }
 
+  const ingested: TrafficIngestedEvent[] = []
+  const outcomes: OutcomeTelemetryEvent[] = []
   const app = Fastify()
   app.register(apiRoutes, {
     db,
     skipAuth: true,
+    onTrafficIngested: event => { ingested.push(event) },
+    onOutcome: event => { outcomes.push(event) },
     cloudflareTrafficCredentialStore,
     cloudflareTrafficIngestUrl: opts.ingestUrl ?? INGEST_URL,
     cloudflareIngestRateLimitMax: opts.ingestRateLimitMax,
@@ -84,6 +91,8 @@ async function buildHarness(opts: {
     app,
     db,
     cloudflareCredentials,
+    ingested,
+    connections: () => connectionOutcomes(outcomes),
     tmpDir,
     close: async () => {
       await app.close()
@@ -402,6 +411,23 @@ describe('POST /traffic/connect/cloudflare', () => {
       payload: {},
     })
     expect(res.statusCode).toBe(404)
+  })
+})
+
+describe('Cloudflare connection outcomes', () => {
+  it('reports a direct-push connect, and a reconnect of the same source as a reauth', async () => {
+    const h = await buildHarness()
+    try {
+      for (let i = 0; i < 2; i += 1) {
+        expect((await h.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloudflare', payload: {} })).statusCode).toBe(200)
+      }
+      expect(h.connections()).toEqual([
+        { integration: 'traffic_cloudflare', action: 'connect', status: 'succeeded', durationBucket: 'under_1s' },
+        { integration: 'traffic_cloudflare', action: 'reauth', status: 'succeeded', durationBucket: 'under_1s' },
+      ])
+    } finally {
+      await h.close()
+    }
   })
 })
 
@@ -747,6 +773,30 @@ describe('POST /traffic/cloudflare/ingest', () => {
     const res = await ingest({ body })
 
     expect(res.statusCode).toBe(413)
+  })
+
+  it('reports each authenticated push with its counts, a refused batch with its reason, and nothing for an unauthenticated one', async () => {
+    const pushed = await ingest({
+      body: {
+        schemaVersion: 1,
+        workerVersion: '1.0.0',
+        events: [
+          buildIngestEvent(),
+          buildIngestEvent({ userAgent: 'ChatGPT-User/1.0' }),
+          buildIngestEvent({ userAgent: 'Mozilla/5.0', referer: 'https://chatgpt.com/' }),
+        ],
+      },
+    })
+    expect(pushed.statusCode).toBe(200)
+    const wrongHost = await ingest({ body: { schemaVersion: 1, workerVersion: '1.0.0', events: [buildIngestEvent({ host: 'other.example' })] } })
+    expect(wrongHost.statusCode).toBe(400)
+    const forged = await ingest({ body: { schemaVersion: 1, workerVersion: '1.0.0', events: [buildIngestEvent()] }, signatureOverride: 'f'.repeat(64) })
+    expect(forged.statusCode).toBe(401)
+
+    expect(h.ingested).toEqual([
+      { sourceType: 'cloudflare', status: 'succeeded', events: 3, crawlerHits: 1, aiUserFetchHits: 1, aiReferralHits: 1, durationMs: expect.any(Number) },
+      { sourceType: 'cloudflare', status: 'failed', events: 0, crawlerHits: 0, aiUserFetchHits: 0, aiReferralHits: 0, durationMs: expect.any(Number), reasonCode: 'VALIDATION' },
+    ])
   })
 
   it('routes an AI-referral event into the referral bucket, not the crawler bucket', async () => {

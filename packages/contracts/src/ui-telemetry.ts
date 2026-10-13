@@ -222,6 +222,7 @@ export const uiTelemetryEventSchema = z.discriminatedUnion('event', [
     event: z.literal('ui.vitals'),
     metric: z.enum(UI_VITAL_METRICS),
     rating: z.enum(UI_VITAL_RATINGS),
+    tab: uiProjectTabSchema.optional(),
   }).strict(),
 ])
 export type UiTelemetryEvent = z.infer<typeof uiTelemetryEventSchema>

@@ -186,10 +186,9 @@ describe('GET /runs ?kind= filter', () => {
     expect(err.error.message).toMatch(/kind/i)
   })
 
-  it('empty ?kind= behaves like no filter (returns all kinds)', async () => {
-    const { body } = await get<Array<{ kind: string }>>(`/api/v1/runs?kind=`)
-    const kinds = new Set(body.map(r => r.kind))
-    expect(kinds.size).toBeGreaterThan(1) // both bing-inspect and answer-visibility
+  it('rejects an explicitly empty filter', async () => {
+    const { status } = await get(`/api/v1/runs?kind=`)
+    expect(status).toBe(400)
   })
 })
 
@@ -219,9 +218,9 @@ describe('GET /projects/:name/runs ?kind= filter', () => {
     expect(err.error.message).toMatch(/kind/i)
   })
 
-  it('empty ?kind= behaves like no filter', async () => {
-    const { body } = await get<Array<{ kind: string }>>(`/api/v1/projects/runs-filter/runs?kind=`)
-    expect(new Set(body.map(r => r.kind)).size).toBeGreaterThan(1)
+  it('rejects an explicitly empty filter', async () => {
+    const { status } = await get(`/api/v1/projects/runs-filter/runs?kind=`)
+    expect(status).toBe(400)
   })
 })
 
@@ -249,10 +248,9 @@ describe.each(['/api/v1/runs', '/api/v1/projects/runs-filter/runs'])('%s ?exclud
     expect(body.error.message).toBe(`"excludeKind" must be one of: ${Object.values(RunKinds).join(', ')}`)
   })
 
-  it('treats an empty excluded kind as no filter', async () => {
-    const { status, body } = await get<Array<{ id: string }>>(`${route}?excludeKind=`)
-    expect(status).toBe(200)
-    expect(body).toHaveLength(SEEDED_TOTAL)
+  it('rejects an explicitly empty filter', async () => {
+    const { status } = await get(`${route}?excludeKind=`)
+    expect(status).toBe(400)
   })
 })
 
@@ -308,10 +306,9 @@ describe.each(['/api/v1/runs', '/api/v1/projects/runs-filter/runs'])('%s ?exclud
     expect(body.error.message).toContain('"excludeKinds"')
   })
 
-  it('treats an empty multi-kind exclusion as no filter', async () => {
-    const { status, body } = await get<Array<{ id: string }>>(`${route}?excludeKinds=`)
-    expect(status).toBe(200)
-    expect(body).toHaveLength(SEEDED_TOTAL)
+  it('rejects an explicitly empty filter', async () => {
+    const { status } = await get(`${route}?excludeKinds=`)
+    expect(status).toBe(400)
   })
 })
 
@@ -360,9 +357,9 @@ describe('GET /runs ?status= filter', () => {
     )
   })
 
-  it('empty ?status= behaves like no filter', async () => {
-    const { body } = await get<Array<{ status: string }>>(`/api/v1/runs?status=`)
-    expect(body).toHaveLength(SEEDED_TOTAL)
+  it('rejects an explicitly empty filter', async () => {
+    const { status } = await get(`/api/v1/runs?status=`)
+    expect(status).toBe(400)
   })
 })
 
@@ -418,5 +415,33 @@ describe('OpenAPI: runs list filter params', () => {
       expect(params.find(p => p.name === 'excludeKinds')?.schema?.items?.enum, path).toEqual(Object.values(RunKinds))
       expect(params.find(p => p.name === 'status')?.schema?.enum, path).toEqual(ALL_STATUSES)
     }
+  })
+})
+
+describe('project run history time and source evidence', () => {
+  it('normalizes offset timestamps, preserves probes, and filters before the newest-row limit', async () => {
+    ctx.db.delete(runs).run()
+    ctx.db.insert(runs).values([
+      { id: 'before', projectId: ctx.projectId, kind: RunKinds['traffic-sync'], status: RunStatuses.failed, trigger: RunTriggers.manual, createdAt: '2026-10-01T03:59:59.999Z' },
+      { id: 'boundary', projectId: ctx.projectId, kind: RunKinds['traffic-sync'], status: RunStatuses.failed, trigger: RunTriggers.scheduled, sourceId: 'source-sample', createdAt: '2026-10-01T04:00:00.000Z' },
+      { id: 'probe', projectId: ctx.projectId, kind: RunKinds['answer-visibility'], status: RunStatuses.completed, trigger: RunTriggers.probe, createdAt: '2026-10-01T04:00:01.000Z' },
+    ]).run()
+    const all = await get<Array<{ id: string; sourceId?: string }>>('/api/v1/projects/runs-filter/runs')
+    expect(all.body.map(run => run.id)).toEqual(['before', 'boundary', 'probe'])
+    expect(all.body.find(run => run.id === 'probe')).not.toHaveProperty('sourceId')
+    expect(all.body.find(run => run.id === 'boundary')?.sourceId).toBe('source-sample')
+    const since = encodeURIComponent('2026-10-01T00:00:00-04:00')
+    const filtered = await get<Array<{ id: string }>>(`/api/v1/projects/runs-filter/runs?since=${since}`)
+    expect(filtered.status).toBe(200)
+    expect(filtered.body.map(run => run.id)).toEqual(['boundary', 'probe'])
+    const capped = await get<Array<{ id: string }>>(`/api/v1/projects/runs-filter/runs?since=${since}&kind=traffic-sync&status=failed&limit=1`)
+    expect(capped.body.map(run => run.id)).toEqual(['boundary'])
+  })
+
+  it('rejects invalid time input instead of returning unbounded history', async () => {
+    const result = await get<{ error: { code: string; message: string } }>('/api/v1/projects/runs-filter/runs?since=not-a-date')
+    expect(result.status).toBe(400)
+    expect(result.body.error.code).toBe('VALIDATION_ERROR')
+    expect(result.body.error.message).toContain('since')
   })
 })

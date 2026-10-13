@@ -110,7 +110,7 @@ describe('operator CLI contract', () => {
     expect(parsed.error.code).toBe('CLI_USAGE_ERROR')
     expect(parsed.error.message).toBe('project name is required')
     expect(parsed.error.details.command).toBe('status')
-    expect(parsed.error.details.usage).toBe('canonry status <project> [--format json]')
+    expect(parsed.error.details.usage).toBe('canonry status <project>|--all [--problems] [--format json|jsonl]')
   })
 
   it('prints project status to stdout in JSON mode', async () => {
@@ -1068,7 +1068,7 @@ describe('operator CLI contract', () => {
 
     expect(result.exitCode).toBe(undefined)
     expect(result.stderr).toBe('')
-    expect(result.stdout).toContain('Usage:  canonry bootstrap [--format json]')
+    expect(result.stdout).toContain('Usage:  canonry bootstrap [--ref <tag>] [--format json]')
     expect(result.stdout).toContain('local config, SQLite database, and default API key')
     expect(result.stdout).toContain('Provider credentials are optional')
     expect(result.stdout).toContain('Safe to rerun')

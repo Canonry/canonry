@@ -491,10 +491,10 @@ export async function showRun(id: string, format?: string): Promise<void> {
 
 export async function listRuns(
   project: string,
-  opts?: { format?: string; limit?: number; kind?: string; excludeKind?: string; excludeKinds?: string[]; status?: string },
+  opts?: { format?: string; limit?: number; kind?: string; excludeKind?: string; excludeKinds?: string[]; status?: string; since?: string },
 ): Promise<void> {
   const client = getClient()
-  const runs = await client.listRuns(project, opts?.limit, opts?.kind, opts?.status, opts?.excludeKind, opts?.excludeKinds)
+  const runs = await client.listRuns(project, opts?.limit, opts?.kind, opts?.status, opts?.excludeKind, opts?.excludeKinds, opts?.since)
 
   if (opts?.format === 'json') {
     console.log(JSON.stringify(runs, null, 2))
@@ -519,6 +519,9 @@ export async function listRuns(
     console.log(
       `  ${run.id}  ${run.status.padEnd(10)}  ${run.kind.padEnd(18)}  ${run.trigger.padEnd(9)}  ${run.createdAt}`,
     )
+    if ((run.status === RunStatuses.failed || run.status === RunStatuses.partial) && run.error) {
+      console.log(`    error: ${formatRunErrorOneLine(run.error)}`)
+    }
   }
 }
 

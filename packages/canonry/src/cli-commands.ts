@@ -6,6 +6,7 @@ import { BACKFILL_CLI_COMMANDS } from './cli-commands/backfill.js'
 import { BACKLINKS_CLI_COMMANDS } from './cli-commands/backlinks.js'
 import { BING_CLI_COMMANDS } from './cli-commands/bing.js'
 import { CDP_CLI_COMMANDS } from './cli-commands/cdp.js'
+import { DASHBOARD_CLI_COMMANDS } from './cli-commands/dashboard.js'
 import { DISCOVER_CLI_COMMANDS } from './cli-commands/discover.js'
 import { RESEARCH_CLI_COMMANDS } from './cli-commands/research.js'
 import { DOCTOR_CLI_COMMANDS } from './cli-commands/doctor.js'
@@ -39,8 +40,9 @@ import { VISIBILITY_STATS_CLI_COMMANDS } from './cli-commands/visibility-stats.j
 import { WORDPRESS_CLI_COMMANDS } from './cli-commands/wordpress.js'
 import { AGENT_CLI_COMMANDS } from './cli-commands/agent.js'
 import { MEASUREMENT_PLAN_CLI_COMMANDS } from './cli-commands/measurement-plan.js'
+import { resolveCliAccess } from './cli-access.js'
 
-export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
+const REGISTERED_COMMANDS: readonly CliCommandSpec[] = [
   ...DEMO_CLI_COMMANDS,
   ...SENTIMENT_CLI_COMMANDS,
   ...BACKFILL_CLI_COMMANDS,
@@ -54,6 +56,7 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...USERS_CLI_COMMANDS,
   ...COMPETITOR_CLI_COMMANDS,
   ...SETTINGS_CLI_COMMANDS,
+  ...DASHBOARD_CLI_COMMANDS,
   ...SKILLS_CLI_COMMANDS,
   ...SNAPSHOT_CLI_COMMANDS,
   ...RUN_CLI_COMMANDS,
@@ -81,3 +84,8 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...MCP_CLI_COMMANDS,
   ...MEASUREMENT_PLAN_CLI_COMMANDS,
 ]
+
+export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = REGISTERED_COMMANDS.map(spec => ({
+  ...spec,
+  access: resolveCliAccess(spec),
+}))

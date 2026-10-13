@@ -22,6 +22,7 @@ export type ErrorCode =
   | 'MISSING_DEPENDENCY'
   | 'RUNTIME_STATE_MISSING'
   | 'SCHEDULE_VERSION_CONFLICT'
+  | 'PROJECT_REVISION_CONFLICT'
   | 'MEASUREMENT_PLAN_REVISION_CONFLICT'
   | 'MEASUREMENT_COMPILED_CHECKSUM_CONFLICT'
   | 'MEASUREMENT_RUN_REVISION_MISMATCH'
@@ -33,6 +34,7 @@ export type ErrorCode =
   | 'RESEARCH_DAILY_LIMIT_EXCEEDED'
   | 'RUN_FILL_REFUSED'
   | 'RUN_FILL_IN_PROGRESS'
+  | 'STORED_ONLY_REFUSED'
 
 export class AppError extends Error {
   readonly code: ErrorCode
@@ -85,6 +87,10 @@ export function authInvalid(): AppError {
 
 export function forbidden(message = 'Forbidden', details?: Record<string, unknown>): AppError {
   return new AppError('FORBIDDEN', message, 403, details)
+}
+
+export function storedOnlyRefused(message = 'Stored-only mode refuses live or write operations', details?: Record<string, unknown>): AppError {
+  return new AppError('STORED_ONLY_REFUSED', message, 403, details)
 }
 
 export function quotaExceeded(metric: string, details?: Record<string, unknown>): AppError {
@@ -176,6 +182,15 @@ export function scheduleVersionConflict(
     'The schedule changed since it was loaded. Reload it before saving.',
     409,
     { expectedUpdatedAt, actualUpdatedAt },
+  )
+}
+
+export function projectRevisionConflict(expected: number, actual: number): AppError {
+  return new AppError(
+    'PROJECT_REVISION_CONFLICT',
+    'The project changed since it was loaded. Reload it before saving.',
+    409,
+    { expected, actual },
   )
 }
 
@@ -462,4 +477,9 @@ export function isFetchTransportError(err: unknown): boolean {
   if (!(err instanceof Error)) return false
   if (err.name === 'TimeoutError' || err.name === 'AbortError') return true
   return err instanceof TypeError && err.message === 'fetch failed'
+}
+
+/** Concise field-aware validation text for API and CLI error envelopes. */
+export function formatValidationIssues(issues: readonly { path: readonly PropertyKey[]; message: string }[]): string {
+  return issues.map(issue => `${issue.path.length ? `${issue.path.map(String).join('.')}: ` : ''}${issue.message.replace(/\s+/g, ' ')}`).join('; ')
 }

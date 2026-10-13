@@ -30,6 +30,15 @@ describe('traffic analytics CLI', () => {
     expect(getTrafficAnalytics).toHaveBeenCalledExactlyOnceWith('advanced', 14)
   })
 
+  it('maps canonical day tokens and the legacy numeric period to identical output', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await dispatchRegisteredCommand(['traffic', 'analytics', 'example', '--window', '30d', '--format', 'json'], 'text', TRAFFIC_CLI_COMMANDS)
+    const canonical = log.mock.calls.at(-1)![0]
+    await dispatchRegisteredCommand(['traffic', 'analytics', 'example', '--period', '30', '--format', 'json'], 'text', TRAFFIC_CLI_COMMANDS)
+    expect(log.mock.calls.at(-1)![0]).toEqual(canonical)
+    expect(getTrafficAnalytics.mock.calls).toEqual([['example', 30], ['example', 30]])
+  })
+
   it.each(['6', '0', 'abc', '30.5'])('rejects period %s as a user error before any request', async period => {
     await expect(trafficAnalytics('acme', { period, format: 'json' })).rejects.toMatchObject({ exitCode: 1 })
     expect(getTrafficAnalytics).not.toHaveBeenCalled()

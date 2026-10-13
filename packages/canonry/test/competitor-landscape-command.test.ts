@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { CompetitorLandscapeResponse } from '@ainyc/canonry-contracts'
+import type { CompetitorLandscapeResponse, CompetitorSuggestionsResponse } from '@ainyc/canonry-contracts'
 
 const mockGetCompetitorLandscape = vi.fn()
+const mockSuggestCompetitors = vi.fn()
 
 vi.mock('../src/client.js', () => ({
-  createApiClient: () => ({ getCompetitorLandscape: mockGetCompetitorLandscape }),
+  createApiClient: () => ({ getCompetitorLandscape: mockGetCompetitorLandscape, suggestCompetitors: mockSuggestCompetitors }),
 }))
 
 function fixture(): CompetitorLandscapeResponse {
@@ -97,6 +98,38 @@ describe('showCompetitorLandscape', () => {
   })
 
   beforeEach(() => vi.clearAllMocks())
+
+  it('uses the server restatement flag for the exact selected population with no second request', async () => {
+    const response = fixture()
+    response.competitorSetChangedAt = '2026-09-15T00:00:00.000Z'
+    response.competitorListRestated = true
+    response.runCount = 2
+    response.runIds = ['run-old', 'run-new']
+    mockGetCompetitorLandscape.mockResolvedValue(response)
+    let output = await captureLog(() => showCompetitorLandscape('acme', { runId: 'latest' }))
+    expect(output).toContain('Competitor list changed 2026-09-15T00:00:00.000Z: earlier periods were restated')
+    expect(mockGetCompetitorLandscape).toHaveBeenCalledWith('acme', expect.objectContaining({ runId: 'latest' }))
+
+    response.competitorListRestated = false
+    mockGetCompetitorLandscape.mockResolvedValue(response)
+    output = await captureLog(() => showCompetitorLandscape('acme', {}))
+    expect(output).not.toContain('Competitor list changed')
+
+    response.competitorSetChangedAt = null
+    response.competitorIdentityChangedAt = '2026-09-15T00:00:00.000Z'
+    response.competitorListRestated = true
+    mockGetCompetitorLandscape.mockResolvedValue(response)
+    output = await captureLog(() => showCompetitorLandscape('acme', {}))
+    expect(output).toContain('Competitor list changed 2026-09-15T00:00:00.000Z: earlier periods were restated')
+
+    // Older servers may omit the additive flag. The CLI preserves their data
+    // and does not make a capped or differently filtered second request.
+    response.competitorListRestated = undefined
+    mockGetCompetitorLandscape.mockResolvedValue(response)
+    output = await captureLog(() => showCompetitorLandscape('acme', {}))
+    expect(output).not.toContain('Competitor list changed')
+    expect(mockGetCompetitorLandscape).toHaveBeenCalledTimes(4)
+  })
 
   it('forwards explicit Advanced all-markets filters and prints the whole response for machine formats', async () => {
     const response = fixture()
@@ -229,5 +262,30 @@ describe('competitor landscape CLI model filters', () => {
     await captureLog(() => dispatchRegisteredCommand(['competitor', 'landscape', 'acme'], 'json', COMPETITOR_CLI_COMMANDS).then(() => {}))
     expect(mockGetCompetitorLandscape.mock.calls[0]?.[1]).not.toHaveProperty('groupBy')
     expect(mockGetCompetitorLandscape.mock.calls[0]?.[1]).not.toHaveProperty('model')
+  })
+})
+
+describe('competitor suggestion CLI', () => {
+  it('passes bounded stored-evidence filters and streams candidates as JSONL', async () => {
+    const response: CompetitorSuggestionsResponse = {
+      project: 'acme', window: '30d', scope: { kind: 'project' },
+      filters: { queryClass: 'non-brand', groupKey: null, limit: 2, minAnswers: 3 }, thresholds: { minAnswers: 3 },
+      candidates: [{ domain: 'rival.example', label: 'Rival', names: [], namingAnswers: 3, citingAnswers: 3, bothAnswers: 3, pairedAnswers: 3, namedByOtherNameAnswers: 0, sweeps: 1, firstSeenAt: null, lastSeenAt: null, surfaceClass: 'direct-competitor', tracked: false, status: 'suggested', reason: null, sampleUrls: [] }],
+      candidatesTotal: 1, excludedCounts: {}, unresolvedNames: [], evidence: { answeredResults: 3, sourceResults: 3, excludedProbeResults: 0, excludedNonCompletedResults: 0 }, runCount: 1, runIds: ['run-1'], countUnits: { answers: [], distinctNames: [], runs: [] }, truncated: false,
+    }
+    mockSuggestCompetitors.mockResolvedValue(response)
+    const writes: string[] = []
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+      writes.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString())
+      return true
+    }) as typeof process.stdout.write)
+    await captureLog(() => dispatchRegisteredCommand([
+      'competitor', 'suggest', 'acme', '--window', '30', '--min-answers', '3', '--query-class', 'non-brand', '--limit', '2',
+    ], 'jsonl', COMPETITOR_CLI_COMMANDS).then(() => {}))
+    stdoutWrite.mockRestore()
+    expect(mockSuggestCompetitors).toHaveBeenCalledWith('acme', { window: '30d', minAnswers: 3, queryClass: 'non-brand', groupKey: undefined, limit: 2 })
+    expect(JSON.parse(writes.join(''))).toMatchObject({ project: 'acme', domain: 'rival.example', filters: response.filters })
+    const text = await captureLog(() => dispatchRegisteredCommand(['competitor', 'suggest', 'acme'], 'text', COMPETITOR_CLI_COMMANDS).then(() => {}))
+    expect(text).toContain('both in 3, paired in 3')
   })
 })

@@ -1,3 +1,4 @@
+import { WINDOW_SETS } from './time-window.js'
 import { z } from 'zod'
 import { aiReferralEngineSchema } from './ai-referral-engine.js'
 import { fraction } from './ratio-unit.js'
@@ -78,7 +79,7 @@ export type GaMeasurementComponentStatus = z.infer<typeof gaMeasurementComponent
 export const gaLeadAttributionScopeSchema = z.enum(['landing-page', 'channel'])
 export type GaLeadAttributionScope = z.infer<typeof gaLeadAttributionScopeSchema>
 
-export const gaMeasurementAnalysisWindowSchema = z.enum(['30d', '60d', '90d'])
+export const gaMeasurementAnalysisWindowSchema = z.enum(WINDOW_SETS.gaMeasurementAnalysis)
 export type GaMeasurementAnalysisWindow = z.infer<typeof gaMeasurementAnalysisWindowSchema>
 export const gaMeasurementHostScopeSchema = z.enum(['marketing', 'all'])
 export type GaMeasurementHostScope = z.infer<typeof gaMeasurementHostScopeSchema>

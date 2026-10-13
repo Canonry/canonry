@@ -232,7 +232,7 @@ describe('competitor writes keep the stored qualifiedAliases valid', () => {
     await app.inject({ method: 'PUT', url: '/api/v1/projects/acme/competitors', payload: { competitors: ['rival.example'] } })
     expect(row('acme').qualifiedAliases).toEqual(['HBLNYC', 'Tidewater'])
     expect(row('acme').updatedAt).toBe(before.updatedAt)
-    expect(competitorAudit('competitors.replaced')).toEqual({ competitors: ['rival.example'] })
+    expect(competitorAudit('competitors.replaced')).toEqual({ competitors: ['rival.example'], added: ['rival.example'], removed: [] })
 
     await app.inject({ method: 'PUT', url: '/api/v1/projects/acme/competitors', payload: { competitors: ['hblnyc.example'] } })
     expect(row('acme').qualifiedAliases).toEqual(['Tidewater'])

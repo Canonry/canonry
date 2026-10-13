@@ -1,5 +1,5 @@
 import { eq, desc, and, inArray, or } from 'drizzle-orm'
-import { deliverWebhook, measurementRunCompleteness, notProbeRun, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView } from '@ainyc/canonry-api-routes'
+import { deliverWebhook, measurementRunCompleteness, notProbeRun, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { auditLog, doctorHealthState, siteLivenessState, gbpLocations, gbpReviewRatings, gbpReviews, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, readNegativeReviewMaxStars, runs } from '@ainyc/canonry-db'
 import type { GbpReviewAlertState, NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload, RatingWebhookPayload, ReviewAlertLocation, ReviewWebhookPayload } from '@ainyc/canonry-contracts'
@@ -9,9 +9,44 @@ import type { AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 import { isWithinAlertWindow } from './gbp-reviews.js'
-import { CheckNotificationPolicies, describeError, type CheckNotificationPolicy } from '@ainyc/canonry-contracts'
+import { CheckNotificationPolicies, CheckStatuses, describeError, notificationEventSchema, statusClassOf, type CheckNotificationPolicy, type OutcomeReasonCode, type StatusClass } from '@ainyc/canonry-contracts'
+import { createOutcomeSampler, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
 const log = createLogger('Notifier')
+
+/**
+ * Deliveries fan out per event and destination, so their outcomes are sampled:
+ * a burst of 20, then one a minute, with failures on their own key so a
+ * stream of successes never starves them.
+ */
+const sampleDelivery = createOutcomeSampler({ burst: 20, refillMs: 60_000, now: () => Date.now() })
+
+/** `feature.completed` `webhooks`/`deliver`: one per delivery, after its last attempt. */
+function trackWebhookDelivery(input: {
+  url: string
+  event: string
+  attempts: number
+  durationBucket: ReturnType<ReturnType<typeof startOutcomeTimer>>
+  statusClass: StatusClass
+  failure?: { reasonCode: OutcomeReasonCode; errorName?: string }
+}): void {
+  const sample = sampleDelivery(input.failure ? 'failed' : 'succeeded')
+  if (!sample.send) return
+  const eventType = notificationEventSchema.safeParse(input.event)
+  trackFeatureCompleted({
+    feature: 'webhooks',
+    operation: 'deliver',
+    status: input.failure ? 'failed' : 'succeeded',
+    surface: 'system',
+    target: webhookOutcomeTarget(input.url),
+    ...(eventType.success ? { eventType: eventType.data } : {}),
+    statusClass: input.statusClass,
+    counts: { attempts: input.attempts },
+    durationBucket: input.durationBucket,
+    ...input.failure,
+    ...(sample.droppedBefore ? { droppedBefore: sample.droppedBefore } : {}),
+  })
+}
 
 /**
  * How far a magnitude must move before the same finding is news again.
@@ -48,6 +83,62 @@ function insightMagnitude(insight: Insight): number | null {
 function insightNotifyKey(projectId: string, insight: Insight): string {
   return `${projectId}:${insight.type}:${insight.query}:${insightFingerprint(insight)}`
 }
+
+/** `fail` outranks `warn`; any other status is not a breach. */
+function healthRank(status: string): number {
+  return status === 'fail' ? 2 : status === 'warn' ? 1 : 0
+}
+
+/**
+ * A pass where no check could be graded. It has no failing check to name, so
+ * this code stands in for one wherever the failing set is compared.
+ */
+const HEALTH_NO_SIGNAL_CODE = 'health.no-signal'
+
+/**
+ * One failing check as the alert logic compares it. `id` is null only on an
+ * entry read from `failing_signature`, which stores no check ids.
+ */
+interface Breach { id: string | null; code: string; rank: number }
+
+const breachStatus = (breach: Breach): string => (breach.rank === 2 ? 'fail' : 'warn')
+
+/** Stored `status:code:id` entries, or the `status:code` pairs of `failing_signature`. */
+function parseBreaches(stored: string): Breach[] {
+  const breaches: Breach[] = []
+  for (const entry of stored.split(',')) {
+    const [status, code, id] = entry.split(':')
+    if (status && code) breaches.push({ id: id ?? null, code, rank: healthRank(status) })
+  }
+  return breaches
+}
+
+/** The `status:code:id` form `failing_checks` and `notified_signature` store. */
+function formatBreaches(breaches: Iterable<Breach>): string {
+  return [...breaches].map(b => `${breachStatus(b)}:${b.code}:${b.id}`).join(',')
+}
+
+/**
+ * A failing set indexed for comparison: by check id, or by code when the
+ * earlier pass stored no ids. Two checks reporting one code keep the worse.
+ */
+function indexBreaches(breaches: Iterable<Breach>, by: 'id' | 'code'): Map<string, Breach> {
+  const index = new Map<string, Breach>()
+  for (const breach of breaches) {
+    const key = by === 'code' ? breach.code : breach.id
+    if (key === null) continue
+    const known = index.get(key)
+    if (!known || breach.rank > known.rank) index.set(key, breach)
+  }
+  return index
+}
+
+/** New or worse than a baseline: not failing in it, more severe, or as severe with a different code. */
+function isNews(now: Breach, was: Breach | undefined): boolean {
+  return was === undefined || now.rank > was.rank || (now.rank === was.rank && now.code !== was.code)
+}
+
+const breachCodes = (breaches: Iterable<Breach>): string[] => [...new Set([...breaches].map(b => b.code))]
 
 /** Failed liveness passes in a row before a site-down page. */
 export const SITE_LIVENESS_FAILURES_TO_PAGE = 2
@@ -170,22 +261,38 @@ export class Notifier {
   }
 
   /**
-   * Record the outcome of a scheduled health pass and notify on transitions.
+   * Record the outcome of a scheduled health pass and notify when it is news.
    *
-   * Edge-triggered on `(status, code)`. A pass that finds the same problem as
-   * last time is stored but not re-sent: an operator who receives the same
-   * warning every day stops reading the channel, which is how a real
-   * degradation goes unnoticed. A pass whose worst code CHANGES does notify,
-   * even at the same severity, because a different cause is different news.
+   * `health.degraded` is sent when something is new or worse: the first pass
+   * is already bad, a healthy project stops being healthy, the worst status
+   * rises, or a check starts failing, gets more severe, or reports a different
+   * problem at the same severity. A pass that finds the same problems is
+   * stored but not re-sent: an operator who receives the same warning every
+   * day stops reading the channel, which is how a real degradation goes
+   * unnoticed.
    *
-   * Returns the event emitted, or null when nothing changed — the return value
+   * A pass that only CLEARS checks, or only eases one from fail to warn, is
+   * not news either while something is still failing. It used to send a
+   * second "degraded" alert that re-listed every standing item, so one
+   * transient blip produced two alerts and neither said what had changed. It
+   * is stored and logged as `health.improved`; the next alert lists what
+   * cleared since the last one delivered. `health.recovered` is sent when
+   * every check passes again.
+   *
+   * Checks are compared by id, not by code: a check changes its code when its
+   * severity changes, so by code an easing check reads as one entry cleared
+   * and another gained. A degraded alert no webhook accepted is sent again on
+   * the next pass, because a quiet clearing pass would otherwise never
+   * surface it.
+   *
+   * Returns the event emitted, or null when nothing was sent. The return value
    * is what tests assert against, so "stayed quiet" is observable rather than
    * inferred from the absence of a webhook.
    */
   async onHealthChecked(
     projectId: string,
     report: {
-      checks: Array<{ id: string; status: string; code: string; summary: string; remediation?: string | null; category?: string; notificationPolicy?: CheckNotificationPolicy }>
+      checks: Array<{ id: string; status: string; code: string; summary: string; remediation?: string | null; category?: string; notificationPolicy?: CheckNotificationPolicy; details?: Record<string, unknown> }>
       checkedAt: string
     },
   ): Promise<'health.degraded' | 'health.recovered' | null> {
@@ -197,7 +304,7 @@ export class Notifier {
 
     // `skipped` is not a health signal — a check that could not run tells us
     // nothing about the instrument and must never look like a clean bill.
-    const rank = (status: string): number => (status === 'fail' ? 2 : status === 'warn' ? 1 : 0)
+    const rank = healthRank
 
     // Among equally severe checks, lead with the one that says the measurement
     // is broken rather than the one offering advice about the site. Sorting by
@@ -236,7 +343,7 @@ export class Notifier {
       : worst
         ? (worst.status as 'warn' | 'fail')
         : 'ok'
-    const code = noSignal ? 'health.no-signal' : (worst?.code ?? 'health.ok')
+    const code = noSignal ? HEALTH_NO_SIGNAL_CODE : (worst?.code ?? 'health.ok')
     const summary = noSignal
       ? `No health check produced a result (${healthChecks.length} skipped) — health is unknown, not confirmed.`
       : (worst?.summary ?? `All ${graded.length} health check(s) passing.`)
@@ -249,36 +356,149 @@ export class Notifier {
     // across passes and only moves when the SET of breaches moves.
     const failingSignature = failing.map(c => `${c.status}:${c.code}`).join(',')
 
+    // This pass's failing checks, worst first.
+    const failingNow: Breach[] = failing.map(c => ({ id: c.id, code: c.code, rank: rank(c.status) }))
+    if (noSignal) failingNow.push({ id: HEALTH_NO_SIGNAL_CODE, code, rank: rank(status) })
+
+    // `failing_checks` carries the check ids of the pass before. It is trusted
+    // only while it still spells the signature and headline stored beside it:
+    // a release from before that column (a rollback runs one against the same
+    // database) keeps those current and leaves the ids behind. Such a row is
+    // compared by code for one pass, the rule before ids were stored.
+    const storedChecks = previous?.failingChecks == null ? null : parseBreaches(previous.failingChecks)
+    const idsKnown = previous === undefined || (
+      storedChecks !== null
+      && storedChecks.filter(b => b.id !== HEALTH_NO_SIGNAL_CODE).map(b => `${breachStatus(b)}:${b.code}`).join(',') === previous.failingSignature
+      && (previousStatus === 'ok' || storedChecks.some(b => b.code === previous.code))
+    )
+    const by = idsKnown ? 'id' : 'code'
+
+    // What the pass before found. A healthy or absent row had nothing failing.
+    // A degraded row from before the signature column is `null`: its set is
+    // unknown, and unknown is not the same as empty.
+    let failingBefore: Breach[] | null
+    if (previous === undefined || previousStatus === 'ok') {
+      failingBefore = []
+    } else if (idsKnown) {
+      failingBefore = storedChecks
+    } else if (previous.failingSignature === null) {
+      failingBefore = null
+    } else {
+      // The headline is always part of the set; only a no-signal pass has a
+      // headline the signature does not carry.
+      failingBefore = [...parseBreaches(previous.failingSignature), { id: null, code: previous.code, rank: rank(previous.status) }]
+    }
+    const current = indexBreaches(failingNow, by)
+    const before = failingBefore && indexBreaches(failingBefore, by)
+    // What the operator has been told is failing: the set of the last alert a
+    // webhook accepted. A row an older release has written since is past it
+    // (that release sends its own alerts and records none of them here), so
+    // such a row is compared against the previous pass alone.
+    const notified = idsKnown && previous?.notifiedSignature != null
+      ? indexBreaches(parseBreaches(previous.notifiedSignature), by)
+      : null
+
+    // A refused alert owes its triggering checks, even when an earlier alert
+    // already reported the same code before that check cleared and returned.
+    // The delivered set is only the clearance baseline, not a delivery receipt
+    // for a later episode. Drop an owed check if it cleared, eased or was set
+    // aside under its cause; an older writer invalidates the pending ids too.
+    const currentById = indexBreaches(failingNow, 'id')
+    const pending = idsKnown && previous?.pendingSignature != null
+      ? parseBreaches(previous.pendingSignature).flatMap(was => {
+          const now = was.id === null ? undefined : currentById.get(was.id)
+          return now && now.rank >= was.rank ? [now] : []
+        })
+      : []
+    const newBreaches = before === null
+      ? null
+      : [...current].filter(([key, now]) => isNews(now, before.get(key))).map(([, now]) => now)
+    const newsIds = new Set([...(newBreaches ?? []), ...pending].map(b => b.id))
+    const added = newBreaches === null ? null : breachCodes(failingNow.filter(b => newsIds.has(b.id)))
+
+    // A check that left the failing set is cleared, unless the runner only set
+    // it aside under its failing cause: that symptom is hidden, not fixed.
+    const hidden = new Set<string>()
+    for (const c of healthChecks) {
+      if (c.status !== CheckStatuses.skipped || typeof c.details?.supersededCode !== 'string') continue
+      hidden.add(c.id)
+      hidden.add(c.details.supersededCode)
+    }
+    const goneFrom = (earlier: ReadonlyMap<string, Breach>): string[] => breachCodes(
+      [...earlier]
+        .filter(([key]) => !current.has(key) && !hidden.has(key))
+        .map(([, was]) => was)
+        .sort((a, b) => b.rank - a.rank || a.code.localeCompare(b.code)),
+    )
+    const clearedThisPass = before === null ? [] : goneFrom(before)
+    const easedThisPass = before === null
+      ? []
+      : breachCodes([...current].filter(([key, now]) => now.rank < (before.get(key)?.rank ?? 0)).map(([, now]) => now))
+
     // Transition rules: a first observation only speaks up if it is already
     // bad, so installing this does not announce healthy projects.
     let event: 'health.degraded' | 'health.recovered' | null = null
     if (previous === undefined) {
       if (status !== 'ok') event = 'health.degraded'
-    } else if (status === 'ok' && previousStatus !== 'ok') {
-      event = 'health.recovered'
-    } else if (status !== 'ok' && (previousStatus === 'ok' || previous.code !== code)) {
+    } else if (status === 'ok') {
+      if (previousStatus !== 'ok') event = 'health.recovered'
+    } else if (previousStatus === 'ok' || rank(status) > rank(previous.status)) {
       event = 'health.degraded'
-    } else if (
-      status !== 'ok'
-      && previous.failingSignature !== null
-      && previous.failingSignature !== failingSignature
-    ) {
+    } else if (added === null) {
+      // A row predating the signature column knows only its headline, so it
+      // keeps the rule that column replaced for one pass: a new headline
+      // notifies, anything beneath it does not. Treating unknown as changed
+      // would page every already-degraded project on the first pass after
+      // deploy.
+      if (previous.code !== code) event = 'health.degraded'
+    } else if (added.length > 0) {
       // A second breach opening under an existing one leaves the headline code
-      // untouched, so keying only on that code graded the new outage, listed it
-      // in `failing`, and then dropped it at the trigger. The ranking decides
-      // which breach leads; it must not decide whether anyone is told at all.
-      // Guarded on a non-NULL previous signature: a row predating this column
-      // knows nothing about the old set, and treating unknown as changed would
-      // page every already-degraded project on the first pass after deploy.
+      // untouched, so the trigger reads the whole set: the ranking decides
+      // which breach leads, never whether anyone is told. It reads only what
+      // the set GAINED. A set that merely lost entries, a check that eased
+      // from fail to warn, and a headline that changed because the old one
+      // cleared are all the same standing problems, and re-sending them is
+      // noise.
       event = 'health.degraded'
     }
+
+    // What an alert reports as cleared: everything the operator was last told
+    // is failing, or that was failing on the pass before, and is not failing
+    // now. Reading only the pass before would drop a check that cleared on a
+    // quiet pass in between, which no alert ever mentioned. A pass that
+    // graded nothing cleared nothing, so it reports none.
+    const cleared = before === null || noSignal ? null : goneFrom(new Map([...before, ...(notified ?? [])]))
+
+    const notifs = event
+      ? this.db.select().from(notifications)
+          .where(eq(notifications.projectId, projectId)).all().filter(n => n.enabled)
+      : []
+    const willAttempt = notifs.some(n => Boolean((n.config as { url?: string }).url))
+    // Save what this attempt owes before delivering, so a restart during the
+    // send cannot erase the alert. Legacy rows with an unknown earlier set owe
+    // only the changed/worse headline, never unrelated standing checks.
+    const triggerIds = new Set([
+      ...(newBreaches ?? failingNow.filter(b => noSignal || b.id === worst?.id)),
+      ...pending,
+    ].map(b => b.id))
+    const pendingNow = event === 'health.degraded' && willAttempt
+      ? failingNow.filter(b => triggerIds.has(b.id))
+      : null
 
     const now = report.checkedAt
     // Write the observation first so a delivery failure cannot lose it, but
     // leave `notifiedAt` alone until something is actually sent — it previously
     // recorded "decided to notify", which read as delivered even when zero
-    // webhooks matched.
-    const observation = { projectId, status, code, summary, checkedAt: now, failingSignature }
+    // webhooks matched. Every pass is stored, quiet or not, so the next one
+    // compares against the latest state.
+    const observation = {
+      projectId, status, code, summary, checkedAt: now, failingSignature,
+      failingChecks: formatBreaches(failingNow),
+      pendingSignature: pendingNow === null ? null : formatBreaches(pendingNow),
+      // A delivered set an older release has written past is no longer what
+      // the operator was last told.
+      ...(idsKnown ? {} : { notifiedSignature: null }),
+    }
     if (previous === undefined) {
       this.db.insert(doctorHealthState).values({ ...observation, notifiedAt: null }).run()
     } else {
@@ -286,12 +506,13 @@ export class Notifier {
     }
 
     if (!event) {
-      log.info('health.unchanged', { projectId, status, code })
+      if (clearedThisPass.length > 0 || easedThisPass.length > 0) {
+        log.info('health.improved', { projectId, status, code, cleared: clearedThisPass, eased: easedThisPass })
+      } else {
+        log.info('health.unchanged', { projectId, status, code })
+      }
       return null
     }
-
-    const notifs = this.db.select().from(notifications)
-      .where(eq(notifications.projectId, projectId)).all().filter(n => n.enabled)
 
     const payload: HealthWebhookPayload = {
       source: 'canonry',
@@ -305,6 +526,8 @@ export class Notifier {
         checkedAt: now,
         previousStatus,
         failing: failing.map(c => ({ id: c.id, status: c.status, code: c.code, summary: c.summary })),
+        ...(added ? { added } : {}),
+        ...(cleared ? { cleared } : {}),
       },
       dashboardUrl: `${this.serverUrl}/projects/${project.name}`,
     }
@@ -324,10 +547,16 @@ export class Notifier {
       if (await this.sendWebhook(config.url, payload as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)) delivered += 1
     }
     if (delivered > 0) {
-      this.db.update(doctorHealthState).set({ notifiedAt: now })
+      this.db.update(doctorHealthState)
+        .set({ notifiedAt: now, notifiedSignature: formatBreaches(failingNow), pendingSignature: null })
         .where(eq(doctorHealthState.projectId, projectId)).run()
     }
-    log.info('health.notified', { projectId, event, status, code, subscribers: notifs.length, delivered })
+    log.info('health.notified', {
+      projectId, event, status, code,
+      ...(added ? { added } : {}),
+      ...(cleared ? { cleared } : {}),
+      subscribers: notifs.length, delivered,
+    })
     return event
   }
 
@@ -908,6 +1137,7 @@ export class Notifier {
 
   /** True only when the destination accepted the payload. Callers that record "already said" must not count an attempt. */
   private async sendWebhook(url: string, payload: AnyWebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<boolean> {
+    const elapsed = startOutcomeTimer()
     // A chat webhook IS a webhook whose body has to look a particular way, so
     // the destination is resolved from the URL rather than declared on the
     // stored notification. Discord and Slack both reject arbitrary JSON;
@@ -920,6 +1150,11 @@ export class Notifier {
     if (!targetCheck.ok) {
       log.error('webhook.ssrf-blocked', { url: targetLabel, reason: targetCheck.message })
       this.logDelivery(projectId, notificationId, payload.event, 'failed', `SSRF: ${targetCheck.message}`)
+      const reasonCode = webhookTargetRefusalReason(targetCheck)
+      trackWebhookDelivery({
+        url, event: payload.event, attempts: 0, durationBucket: elapsed(),
+        statusClass: reasonCode === 'NETWORK' ? 'network' : 'blocked', failure: { reasonCode },
+      })
       return false
     }
 
@@ -927,6 +1162,9 @@ export class Notifier {
 
     const maxRetries = 3
     const delays = [1000, 4000, 16000]
+    // The last attempt's answer, for the delivery outcome.
+    let lastStatusClass: StatusClass = 'network'
+    let lastFailure: { reasonCode: OutcomeReasonCode; errorName?: string } = { reasonCode: 'UNKNOWN' }
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
@@ -935,16 +1173,21 @@ export class Notifier {
         if (response.status >= 200 && response.status < 300) {
           log.info('webhook.delivered', { event: payload.event, url: targetLabel, httpStatus: response.status })
           this.logDelivery(projectId, notificationId, payload.event, 'sent', null)
+          trackWebhookDelivery({ url, event: payload.event, attempts: attempt + 1, durationBucket: elapsed(), statusClass: '2xx' })
           return true
         }
 
         const errorDetail = response.error ?? `HTTP ${response.status}`
         log.warn('webhook.attempt-failed', { event: payload.event, url: targetLabel, attempt: attempt + 1, maxRetries, httpStatus: response.status, error: errorDetail })
+        lastStatusClass = response.status === 0 && response.timedOut ? 'timeout' : statusClassOf(response.status)
+        lastFailure = { reasonCode: webhookResponseReason(response) ?? 'UNKNOWN' }
         if (attempt === maxRetries - 1) {
           this.logDelivery(projectId, notificationId, payload.event, 'failed', errorDetail)
         }
       } catch (err: unknown) {
         const errorDetail = describeError(err)
+        lastStatusClass = 'network'
+        lastFailure = outcomeFailure(err)
         if (attempt === maxRetries - 1) {
           this.logDelivery(projectId, notificationId, payload.event, 'failed', errorDetail)
           log.error('webhook.exhausted', { event: payload.event, url: targetLabel, maxRetries, error: errorDetail })
@@ -955,6 +1198,10 @@ export class Notifier {
         await new Promise(resolve => setTimeout(resolve, delays[attempt]!))
       }
     }
+    trackWebhookDelivery({
+      url, event: payload.event, attempts: maxRetries, durationBucket: elapsed(),
+      statusClass: lastStatusClass, failure: lastFailure,
+    })
     return false
   }
 

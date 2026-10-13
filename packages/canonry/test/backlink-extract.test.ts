@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   backlinkDomains,
   backlinkSummaries,
@@ -15,6 +15,9 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import { executeBacklinkExtract, type BacklinkExtractDeps } from '../src/backlink-extract.js'
+
+const trackEvent = vi.hoisted(() => vi.fn())
+vi.mock('../src/telemetry.js', () => ({ trackEvent }))
 
 let tmpDir: string
 let db: DatabaseClient
@@ -38,10 +41,10 @@ function insertProject(id: string, name: string, domain: string): void {
   }).run()
 }
 
-function insertRun(id: string, projectId: string, kind = 'backlink-extract'): void {
+function insertRun(id: string, projectId: string, kind = 'backlink-extract', trigger: 'manual' | 'scheduled' = 'manual'): void {
   const now = new Date().toISOString()
   db.insert(runs).values({
-    id, projectId, kind, status: 'queued', trigger: 'manual', createdAt: now,
+    id, projectId, kind, status: 'queued', trigger, createdAt: now,
   }).run()
 }
 
@@ -62,6 +65,7 @@ async function insertReadyReleaseSync(id: string, release: string, { createFiles
 }
 
 beforeEach(async () => {
+  trackEvent.mockReset()
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-extract-'))
   db = createClient(path.join(tmpDir, 'test.db'))
   migrate(db)
@@ -272,5 +276,48 @@ describe('executeBacklinkExtract', () => {
 
     const run = db.select().from(runs).where(eq(runs.id, runId)).get()
     expect(run?.status).toBe('failed')
+  })
+})
+
+describe('backlink extract outcome telemetry', () => {
+  const extracted = { feature: 'backlinks', operation: 'extract', durationBucket: expect.any(String) }
+
+  it('reports an extract once its rows are saved, triggered like its run: by hand, or as a sync follow-up', async () => {
+    insertProject('p1', 'roots', 'roots.io')
+    await insertReadyReleaseSync('s1', 'cc-main-2026-jan-feb-mar')
+    const queryBacklinks = async () => [
+      { targetDomain: 'roots.io', linkingDomain: 'github.com', numHosts: 20 },
+      { targetDomain: 'roots.io', linkingDomain: 'reddit.com', numHosts: 5 },
+    ]
+    insertRun('manual-run', 'p1')
+    await executeBacklinkExtract(db, 'manual-run', 'p1', { deps: makeDeps({ queryBacklinks }) })
+    insertRun('auto-run', 'p1', 'backlink-extract', 'scheduled')
+    await executeBacklinkExtract(db, 'auto-run', 'p1', { deps: makeDeps({ queryBacklinks }) })
+
+    expect(trackEvent.mock.calls).toEqual([
+      ['feature.completed', { ...extracted, trigger: 'manual', status: 'succeeded', counts: { domains: 2, links: 25 } }, undefined],
+      ['feature.completed', { ...extracted, trigger: 'scheduled', surface: 'system', status: 'succeeded', counts: { domains: 2, links: 25 } }, undefined],
+    ])
+  })
+
+  it('reports a missing project, a release not synced here, and a failed query as failed', async () => {
+    insertProject('p1', 'roots', 'roots.io')
+    insertRun('no-project', 'p1')
+    await expect(executeBacklinkExtract(db, 'no-project', 'ghost', { deps: makeDeps() })).rejects.toThrow()
+    insertRun('no-release', 'p1')
+    await expect(executeBacklinkExtract(db, 'no-release', 'p1', { deps: makeDeps() })).rejects.toThrow()
+    await insertReadyReleaseSync('s1', 'cc-main-2026-jan-feb-mar')
+    insertRun('query-fails', 'p1')
+    await expect(executeBacklinkExtract(db, 'query-fails', 'p1', {
+      deps: makeDeps({ queryBacklinks: async () => { throw new RangeError('duckdb: out of memory reading /home/someone/.canonry/cache') } }),
+    })).rejects.toThrow()
+
+    const failed = { ...extracted, trigger: 'manual', status: 'failed', errorName: expect.any(String) }
+    expect(trackEvent.mock.calls).toEqual([
+      ['feature.completed', { ...failed, reasonCode: 'NOT_FOUND' }, { errorCode: 'NOT_FOUND' }],
+      ['feature.completed', { ...failed, reasonCode: 'NO_DATA' }, { errorCode: 'NO_DATA' }],
+      ['feature.completed', { ...failed, reasonCode: 'UNKNOWN', errorName: 'RangeError' }, { errorCode: 'UNKNOWN' }],
+    ])
+    expect(JSON.stringify(trackEvent.mock.calls)).not.toContain('/home/someone')
   })
 })

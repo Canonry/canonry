@@ -26,6 +26,7 @@ import {
   researchRunSummarySchema,
   ga4AiReferralDtoSchema,
   ga4ConnectionDtoSchema,
+  gaAcquisitionRowSchema,
   ga4SocialReferralDtoSchema,
   ga4TrafficSnapshotDtoSchema,
   ga4TrafficSummaryDtoSchema,
@@ -63,6 +64,7 @@ import {
   siteCrawlPageSchema,
   siteCrawlSummarySchema,
   trafficSourceDtoSchema,
+  trafficSampleDtoSchema,
   conversionTrackingContractSchema,
   gtmConnectionMetadataDtoSchema,
   gtmRawSnapshotMetadataDtoSchema,
@@ -175,7 +177,6 @@ const COVERAGE: Record<string, CoverageEntry> = {
     dto: projectDtoSchema,
     internal: {
       icpDescription: 'Aero analyst context; not exposed on the public project DTO.',
-      answerFieldsRecompute: 'Local-server bookkeeping: a stored-answer-field recompute owed after an identity change, requeued on boot.',
     },
   },
   queries: {
@@ -206,7 +207,6 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'dto',
     dto: runDtoSchema,
     internal: {
-      sourceId: 'Set for traffic-sync runs; consumed by traffic routes, not the user-facing run DTO.',
       providerDispatchModes: 'Exposed as `dispatchModes` on the run DTO ({} when null).',
       pendingProviderErrors: 'Sync-provider errors held while finalization waits on a provider batch; folded into `error` at finalize.',
     },
@@ -292,6 +292,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
       pagesErrored: 'Diagnostic count not surfaced in the graph summary.',
       edgesDiscovered: 'Nested in counts as edges.',
       findingsCount: 'Nested in counts as findings.',
+      issueEvidence: 'Retained cross-page groups are projected through the bounded /technical-aeo/issues and /issues/:issueId/pages DTOs; the raw envelope is not part of the crawl summary.',
       deadLinkState: 'Represented by the discriminated deadLinks state.',
       deadLinksChecked: 'Represented by the discriminated deadLinks state.',
       deadLinksFound: 'Represented by the discriminated deadLinks state.',
@@ -698,8 +699,8 @@ const COVERAGE: Record<string, CoverageEntry> = {
     internal: {},
   },
   gaAcquisitionDaily: {
-    kind: 'internal-only',
-    reason: 'Typed GA4 acquisition foundation; its public read model lands in the follow-up measurement API PR.',
+    kind: 'dto', dto: gaAcquisitionRowSchema,
+    internal: { id: 'Grouped rows have no single stored identity.', projectId: 'Route scope.', landingPageNormalized: 'Exposed as landingPage.', syncedAt: 'Reported on the envelope.', syncRunId: 'Internal sync provenance.', createdAt: 'Ingest bookkeeping.' },
   },
   gaLeadEventsDaily: {
     kind: 'internal-only',
@@ -1037,8 +1038,8 @@ const COVERAGE: Record<string, CoverageEntry> = {
     reason: 'Transport-neutral transactional idempotency claims; never returned to an API caller.',
   },
   rawEventSamples: {
-    kind: 'internal-only',
-    reason: 'Short-retention raw evidence for classifier debugging; not part of the public API.',
+    kind: 'dto', dto: trafficSampleDtoSchema,
+    internal: { ipHash: 'Never exposed, including legacy non-null hashes.', projectId: 'Route scope.', createdAt: 'Ingest bookkeeping.', eventType: 'Exposed as kind with hyphenated wire values.', classifierDetailsJson: 'Exposed as classifier with only declared public fields.' },
   },
   migrationsTable: {
     kind: 'internal-only',

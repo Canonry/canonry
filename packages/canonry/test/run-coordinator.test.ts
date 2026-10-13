@@ -2,13 +2,17 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { describe, it, expect, vi, onTestFinished } from 'vitest'
+import { beforeEach, describe, it, expect, vi, onTestFinished } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { createClient, discoverySessions, measurementPlanVersions, migrate, projects, runs, queries, querySnapshots, healthSnapshots, insights, gbpLocations, gbpLodgingSnapshots } from '@ainyc/canonry-db'
 import type { AnalysisResult } from '@ainyc/canonry-intelligence'
 import { Notifier } from '../src/notifier.js'
 import { IntelligenceService } from '../src/intelligence-service.js'
 import { RunCoordinator, type AeroEventContext } from '../src/run-coordinator.js'
+
+const trackEvent = vi.hoisted(() => vi.fn())
+vi.mock('../src/telemetry.js', () => ({ trackEvent }))
+beforeEach(() => trackEvent.mockReset())
 
 function createTempDb(prefix: string) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -553,6 +557,63 @@ describe('RunCoordinator', () => {
     expect(captured!.seedProvider).toBe('gemini-older')
     expect(captured!.buckets).toEqual({ cited: 7, aspirational: 1, 'wasted-surface': 2 })
     expect(captured!.probeCount).toBe(10)
+  })
+})
+
+describe('insights generate outcome telemetry', () => {
+  const generated = { feature: 'insights', operation: 'generate', durationBucket: expect.any(String) }
+  const insightEvents = () => trackEvent.mock.calls.filter(([, properties]) => (properties as { feature?: string }).feature === 'insights')
+
+  it('reports the insights a sweep persisted, a run analysis does not read, and a failed analysis by class', async () => {
+    const { db } = createTempDb('coord-insight-outcomes-')
+    const { projectId, runId } = seedFixture(db)
+    // An earlier sweep that was not cited, so this one gains a citation.
+    const earlier = crypto.randomUUID()
+    const before = new Date(Date.now() - 86_400_000).toISOString()
+    db.insert(runs).values({ id: earlier, projectId, status: 'completed', createdAt: before, finishedAt: before }).run()
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(), runId: earlier, queryId: db.select().from(queries).get()!.id, provider: 'gemini', model: 'test-model',
+      citationState: 'not-cited', citedDomains: [], competitorOverlap: [], createdAt: before,
+    }).run()
+    const notifier = createMockNotifier()
+    const service = new IntelligenceService(db)
+    const coordinator = new RunCoordinator(db, notifier as Notifier, service)
+    await coordinator.onRunCompleted(runId, projectId)
+    // The count reported is the count persisted for the run.
+    expect(db.select().from(insights).where(eq(insights.runId, runId)).all()).toHaveLength(2)
+
+    const failedRun = crypto.randomUUID()
+    db.insert(runs).values({ id: failedRun, projectId, status: 'failed', trigger: 'scheduled', createdAt: new Date().toISOString() }).run()
+    await coordinator.onRunCompleted(failedRun, projectId)
+    vi.spyOn(service, 'analyzeAndPersist').mockImplementation(() => { throw new TypeError('cannot read snapshot for https://example.com') })
+    await coordinator.onRunCompleted(runId, projectId)
+
+    expect(insightEvents()).toEqual([
+      ['feature.completed', { ...generated, trigger: 'manual', status: 'succeeded', counts: { insights: 2 } }, undefined],
+      ['feature.completed', { ...generated, trigger: 'scheduled', surface: 'system', status: 'skipped', reasonCode: 'NO_DATA' }, { errorCode: 'NO_DATA' }],
+      ['feature.completed', { ...generated, trigger: 'manual', status: 'failed', reasonCode: 'UNKNOWN', errorName: 'TypeError' }, { errorCode: 'UNKNOWN' }],
+    ])
+  })
+
+  it('reports GBP insights from a scheduled sync, and nothing for a probe run', async () => {
+    const { db } = createTempDb('coord-gbp-outcomes-')
+    const now = new Date().toISOString()
+    const projectId = crypto.randomUUID()
+    db.insert(projects).values({ id: projectId, name: 'gbp-outcomes', displayName: 'GBP', canonicalDomain: 'example.com', country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
+    db.insert(gbpLocations).values({
+      id: 'l1', projectId, accountName: 'accounts/1', locationName: 'locations/1',
+      displayName: 'Loc 1', description: 'A description.', selected: true, syncedAt: now, createdAt: now, updatedAt: now,
+    }).run()
+    db.insert(gbpLodgingSnapshots).values({ id: 'lg1', projectId, locationName: 'locations/1', contentHash: 'h', attributes: {}, populatedGroupCount: 0, syncedAt: now, syncRunId: null }).run()
+    db.insert(runs).values({ id: 'gbp', projectId, kind: 'gbp-sync', status: 'completed', trigger: 'scheduled', createdAt: now, startedAt: now, finishedAt: now }).run()
+    db.insert(runs).values({ id: 'probe', projectId, status: 'completed', trigger: 'probe', createdAt: now }).run()
+    const coordinator = new RunCoordinator(db, createMockNotifier() as Notifier, new IntelligenceService(db))
+    await coordinator.onRunCompleted('gbp', projectId)
+    await coordinator.onRunCompleted('probe', projectId)
+
+    expect(insightEvents()).toEqual([
+      ['feature.completed', { ...generated, trigger: 'scheduled', surface: 'system', status: 'succeeded', counts: { insights: 1 } }, undefined],
+    ])
   })
 })
 

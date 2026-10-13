@@ -301,7 +301,6 @@ const ACTION_BY_ROUTE: ReadonlyArray<ActionRow> = [
   ['POST', '/api/v1/projects/{name}/traffic/connect/wordpress', 'integration.connect', 'traffic_wordpress'],
   ['POST', '/api/v1/projects/{name}/traffic/sources/{id}/sync', 'traffic.sync'],
   ['POST', '/api/v1/projects/{name}/notifications', 'notification.save'],
-  ['POST', '/api/v1/projects/{name}/notifications/{id}/test', 'notification.test'],
   ['POST', '/api/v1/projects/{name}/measurement-plan/draft/actions/publish', 'measurement_plan.publish'],
   // Only the Property page's name editor writes this action from the dashboard.
   ['POST', '/api/v1/projects/{name}/measurement-plan/draft/actions/upsert-target', 'property_names.save'],

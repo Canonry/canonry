@@ -138,6 +138,81 @@ describe('buildRunCompletedProps', () => {
     expect(props.phases).toEqual(phases)
     expect(props.durationMs).toBe(28100)
   })
+
+  const priced = (tier: 'standard' | 'batch', cost: number | null) => ({
+    inputTokens: 1000, cachedInputTokens: 50, cacheWriteTokens: 0, outputTokens: 200, searchCount: 1,
+    pricingTier: tier, estimatedCostMicros: cost, priceSource: cost === null ? null : 'default' as const,
+  })
+
+  it('counts calls from stored answers, and sends tokens only for answers that recorded usage', () => {
+    const props = buildRunCompletedProps({
+      ...baseInput,
+      answers: [
+        // A browser answer records no usage: a call, but unmeasured, not free.
+        { provider: 'cdp:chatgpt', usage: null, dispatchMode: 'sync' },
+        { provider: 'cdp:chatgpt', usage: null, dispatchMode: 'sync' },
+        // A name outside the provider list never reaches the wire.
+        { provider: 'mystery', usage: priced('standard', 10), dispatchMode: 'sync' },
+      ],
+    })
+    expect(props.providerCalls).toEqual({ 'cdp:chatgpt': 2 })
+    expect(props.usage).toEqual({ batchCalls: 0 })
+  })
+
+  it('reports each provider\'s median call latency in whole milliseconds', () => {
+    const props = buildRunCompletedProps({
+      ...baseInput,
+      callLatencies: new Map([['gemini', [2400, 1000, 5000]], ['openai', [5100.6]], ['claude', []], ['mystery', [100]]]),
+    })
+    expect(props.providerLatencyMs).toEqual({ gemini: 2400, openai: 5101 })
+    expect(buildRunCompletedProps({ ...baseInput, callLatencies: new Map([['claude', []]]) })).not.toHaveProperty('providerLatencyMs')
+  })
+
+  it('stays within the collector limits with every property present', () => {
+    const providers = ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local', 'cdp:chatgpt']
+    const props = {
+      ...buildRunCompletedProps({
+        ...baseInput,
+        status: 'failed',
+        providerCount: providers.length,
+        providers,
+        queryCount: 500,
+        trigger: 'scheduled',
+        canonicalDomain: 'example.com',
+        phases: { setup_ms: 1234, provider_call_ms: 1234567, total_ms: 1235801 },
+        location: 'North City, NC',
+        answers: providers.flatMap(provider => Array.from({ length: 3 }, (_, index) => ({
+          provider, usage: priced(index === 0 ? 'batch' : 'standard', 123_456), dispatchMode: index === 0 ? 'batch' as const : 'sync' as const,
+        }))),
+        callLatencies: new Map(providers.map(provider => [provider, [123_456, 234_567]])),
+      }),
+      ...buildProviderOutcomeProps(providers, new Map(providers.map(provider => [provider, '503 Service Unavailable']))),
+      ...describeRunFailure(Object.assign(new TypeError('boom'), { code: 'SQLITE_BUSY' }), 'provider_call'),
+      failureStreak: 50,
+      sampleRate: FAILURE_STREAK_SAMPLE_RATE,
+    }
+    expect(Object.keys(props).sort()).toEqual([
+      'domainHash', 'durationMs', 'errorName', 'errorSite', 'errorSysCode', 'failureStreak', 'location', 'phases',
+      'providerCalls', 'providerCount', 'providerHttpStatus', 'providerLatencyMs', 'providerOutcomes', 'providers',
+      'queryCount', 'sampleRate', 'status', 'trigger', 'usage',
+    ])
+    expect(Object.keys(props).length).toBeLessThanOrEqual(20)
+    expect(props.usage).toEqual({ inputTokens: 21_000, outputTokens: 4_200, costMicros: 21 * 123_456, batchCalls: 7 })
+    for (const value of Object.values(props)) {
+      expect(value).not.toBeNull()
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        expect(Object.keys(value).length).toBeLessThanOrEqual(12)
+        for (const nested of Object.values(value)) expect(['number', 'string', 'boolean']).toContain(typeof nested)
+      }
+    }
+    // The collector's whole-event limit, with the envelope it arrives in.
+    const envelope = {
+      eventId: crypto.randomUUID(), anonymousId: crypto.randomUUID(), sessionId: crypto.randomUUID(),
+      source: 'cli-server', event: 'run.completed', timestamp: '2026-10-09T12:00:00.000Z', version: '7.123.456',
+      nodeVersion: 'v24.123.456', os: 'darwin', arch: 'arm64', errorCode: 'PROVIDER_UNAVAILABLE',
+    }
+    expect(Buffer.byteLength(JSON.stringify({ ...envelope, properties: props }))).toBeLessThanOrEqual(2048)
+  })
 })
 
 describe('buildSiteAuditCompletedProps', () => {

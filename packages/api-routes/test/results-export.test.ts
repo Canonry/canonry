@@ -5,7 +5,8 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createClient, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
-import { apiRoutes } from '../src/index.js'
+import { apiRoutes, type OutcomeTelemetryEvent } from '../src/index.js'
+import { featureOutcomes } from './feature-outcome-capture.js'
 
 interface ResultExportResponse {
   schemaVersion: string
@@ -40,6 +41,7 @@ interface Ctx {
   tmpDir: string
   projectId: string
   runIds: { completed: string; partial: string; archived: string; probe: string }
+  outcomes: OutcomeTelemetryEvent[]
 }
 
 function insertRun(
@@ -184,9 +186,10 @@ function buildCtx(): Ctx {
     },
   ]).run()
 
+  const outcomes: OutcomeTelemetryEvent[] = []
   const app = Fastify()
-  app.register(apiRoutes, { db, skipAuth: true })
-  return { app, db, tmpDir, projectId, runIds: { completed, partial, archived, probe } }
+  app.register(apiRoutes, { db, skipAuth: true, onOutcome: event => { outcomes.push(event) } })
+  return { app, db, tmpDir, projectId, runIds: { completed, partial, archived, probe }, outcomes }
 }
 
 let ctx: Ctx
@@ -332,5 +335,28 @@ describe('GET /api/v1/projects/:name/results/export', () => {
 
     const invalidFormat = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/acme/results/export?format=yaml' })
     expect(invalidFormat.statusCode).toBe(400)
+  })
+
+  it('reports each export with its record count and the exact size sent, and a refused filter as failed', async () => {
+    const json = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/acme/results/export' })
+    const csv = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/acme/results/export?format=csv' })
+    const refused = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/acme/results/export?format=yaml' })
+    expect([json.statusCode, csv.statusCode, refused.statusCode]).toEqual([200, 200, 400])
+
+    const base = { feature: 'exports', operation: 'export', durationBucket: expect.any(String) }
+    expect(featureOutcomes(ctx.outcomes)).toEqual([
+      { ...base, status: 'succeeded', counts: { rows: 3, bytes: json.rawPayload.byteLength } },
+      { ...base, status: 'succeeded', counts: { rows: 3, bytes: csv.rawPayload.byteLength } },
+      { ...base, status: 'failed', reasonCode: 'VALIDATION', errorName: 'AppError' },
+    ])
+  })
+
+  it('reports a project config export with its query count', async () => {
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/acme/export' })
+    expect(res.statusCode).toBe(200)
+    expect(featureOutcomes(ctx.outcomes)).toEqual([{
+      feature: 'exports', operation: 'export', durationBucket: expect.any(String),
+      status: 'succeeded', counts: { queries: 1 },
+    }])
   })
 })

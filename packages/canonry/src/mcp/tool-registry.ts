@@ -1,4 +1,4 @@
-import { visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema } from '@ainyc/canonry-contracts'
+import { trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@ainyc/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
@@ -6,7 +6,7 @@ import {
   sentimentEvidencePageReadSchema, sentimentComparisonReadSchema, sentimentBackfillPreviewReadSchema, sentimentJobsReadSchema,
   sentimentJobReadSchema, sentimentSummaryIncludeSchema, sentimentEvidenceOutcomeFilterSchema, queryClassSchema, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_MAX,
 } from '@ainyc/canonry-contracts'
-import { agentConversationCreateSchema } from '@ainyc/canonry-contracts'
+import { agentConversationCreateSchema, reportedQueryClasses } from '@ainyc/canonry-contracts'
 import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS } from '@ainyc/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
@@ -28,9 +28,11 @@ import {
   adsUnresolvedOperationListQuerySchema,
   competitorAliasBlockRequestSchema,
   competitorAliasesRequestSchema,
+  competitorChangePreviewRequestSchema,
   competitorAppendRequestSchema,
   competitorBatchRequestSchema,
   competitorLandscapeQuerySchema,
+  competitorSuggestionsQuerySchema,
   contentTargetDismissRequestSchema,
   DISCOVERY_MAX_PROBES_CAP,
   DISCOVERY_PROBE_CONCURRENCY_CAP,
@@ -52,6 +54,7 @@ import {
   notificationCreateRequestSchema,
   notificationEventSchema,
   projectConfigSchema,
+  projectPatchRequestSchema,
   projectUpsertRequestSchema,
   runTriggerRequestSchema,
   backlinkSourceSchema,
@@ -61,6 +64,9 @@ import {
   scheduleUpsertRequestSchema,
   scheduleDtoSchema,
   siteAuditPageBudgetSchema,
+  siteAuditIssueListQuerySchema,
+  siteAuditIssuesResponseSchema,
+  siteAuditIssuePagesResponseSchema,
   settingsDtoSchema,
   telemetryStatusDtoSchema,
   feedbackSubmissionSchema,
@@ -165,6 +171,14 @@ const writeAnnotations = (opts: { idempotentHint: boolean; destructiveHint?: boo
   destructiveHint: Boolean(opts.destructiveHint),
   ...(opts.openWorldHint ? { openWorldHint: opts.openWorldHint } : {}),
 })
+
+export function toolOperationAccess(tool: Pick<CanonryMcpTool, 'openApiOperations' | 'access'>): OperationAccess {
+  const derived = maxOperationAccess(tool.openApiOperations.map(operation => {
+    const separator = operation.indexOf(' ')
+    return separator < 0 ? OperationAccesses.stored : operationAccess(operation.slice(0, separator), operation.slice(separator + 1))
+  }))
+  return tool.access === 'write' ? OperationAccesses.write : derived
+}
 
 function defineTool<TSchema extends z.ZodTypeAny, TName extends string>(
   tool: Omit<CanonryMcpTool<TSchema, TName>, 'inputJsonSchema'>,
@@ -349,6 +363,7 @@ const measurementDraftActionOpenApiOperations = [
 ]
 
 const runsListInputSchema = z.object({
+  since: z.string().optional().describe('Inclusive ISO 8601 lower bound on creation time. Omit to read all dates.'),
   project: projectNameSchema,
   limit: z.number().int().positive().max(500).optional(),
   kind: runListFilterQuerySchema.shape.kind.describe('Restrict to a single run kind (e.g. "answer-visibility"). Unknown values are rejected.'),
@@ -376,12 +391,9 @@ const timelineInputSchema = z.object({
 })
 
 const historyFilterShape = {
+  ...auditHistoryQuerySchema.shape,
   limit: z.number().int().positive().max(500).optional(),
   offset: z.number().int().nonnegative().optional(),
-  since: z.string().optional().describe('ISO 8601 lower bound.'),
-  action: z.string().optional().describe('Exact audit action filter.'),
-  actor: z.string().optional().describe('Exact actor filter.'),
-  entityType: z.string().optional().describe('Exact entity type filter.'),
 }
 
 const projectHistoryInputSchema = z.object({ project: projectNameSchema, ...historyFilterShape })
@@ -840,6 +852,12 @@ const competitorsAddInputSchema = z.object({
   project: projectNameSchema,
   request: competitorAppendRequestSchema,
 })
+const competitorChangePreviewInputSchema = z.discriminatedUnion('change', [
+  competitorChangePreviewRequestSchema.options[0].extend({ project: projectNameSchema }),
+  competitorChangePreviewRequestSchema.options[1].extend({ project: projectNameSchema }),
+  competitorChangePreviewRequestSchema.options[2].extend({ project: projectNameSchema }),
+  competitorChangePreviewRequestSchema.options[3].extend({ project: projectNameSchema }),
+])
 const competitorDomainInputSchema = z.string().trim().min(1).describe('Tracked competitor domain (any spelling; it resolves to the stored registrable domain).')
 const competitorAliasesInputSchema = competitorAliasesRequestSchema.safeExtend({
   project: projectNameSchema,
@@ -853,6 +871,9 @@ const latestSweepRunIdDescription = 'A run id, or latest for the latest sweep (t
 const competitorLandscapeInputSchema = competitorLandscapeQuerySchema.safeExtend({
   project: projectNameSchema,
   runId: z.string().trim().min(1).optional().describe(latestSweepRunIdDescription),
+}).strict()
+const competitorSuggestionsInputSchema = competitorSuggestionsQuerySchema.safeExtend({
+  project: projectNameSchema,
 }).strict()
 
 /**
@@ -870,6 +891,11 @@ function latestSweepUnlessPooled<T extends { runId?: string; window?: string; qu
 const projectUpsertInputSchema = z.object({
   project: projectNameSchema,
   request: projectUpsertRequestSchema,
+})
+
+const projectPatchInputSchema = z.object({
+  project: projectNameSchema,
+  request: projectPatchRequestSchema,
 })
 
 const applyConfigInputSchema = z.object({
@@ -901,6 +927,11 @@ const doctorInputSchema = z.object({
   reportMonth: reportMonthSchema.optional().describe('Report month (YYYY-MM). Defaults to this month, also retaining the prior month through UTC day 3.'),
   project: projectNameSchema.optional().describe('Project name to scope project-level checks. Omit to run global checks (provider keys, config, etc.).'),
   checks: z.array(z.string().min(1)).optional().describe('Optional check IDs or wildcard prefixes (e.g. "google.auth.*", "config.providers"). Empty/omitted runs all matching checks for the chosen scope.'),
+})
+
+const statusInputSchema = z.object({
+  project: projectNameSchema.optional().describe('Optional project name. Omit to read every visible project.'),
+  problems: z.boolean().optional().describe('Return only failing, stale, or never-synced projects and integrations.'),
 })
 
 const contentTargetsInputSchema = z.object({
@@ -1127,6 +1158,16 @@ const technicalAeoCrawlInputSchema = z.object({
   date: calendarDateSchema.optional().describe('Exact UTC scan date YYYY-MM-DD, mutually exclusive with runId. A dated no-data result may include availableScanDates. When the user omitted the year, resolve it from matchingMonthDayDates and request that exact returned date before concluding the scan is missing. Never silently select another date.'),
 })
 
+const siteHealthIssuesInputSchema = siteAuditIssueListQuerySchema.extend({
+  project: projectNameSchema,
+  runId: siteAuditIssueListQuerySchema.shape.runId.describe('Select an exact saved scan. Omit for the default scan; use its returned runId for subsequent pages and issue details.'),
+  cursor: siteAuditIssueListQuerySchema.shape.cursor.describe('Opaque nextCursor from this same scan and issue feed.'),
+})
+
+const siteHealthIssuePagesInputSchema = siteHealthIssuesInputSchema.extend({
+  issueId: z.string().min(1).describe('Exact issue ID from canonry_site_health_issues. Keep the returned runId when inspecting affected pages.'),
+})
+
 const siteHealthPageAuditInputSchema = z.object({
   project: projectNameSchema,
   runId: crawlRunIdSchema,
@@ -1294,7 +1335,7 @@ const sentimentPreviewInputSchema = sentimentBackfillSelectionSchema.safeExtend(
 })
 const sentimentBackfillInputSchema = sentimentBackfillRequestSchema.extend({ project: projectNameSchema })
 
-export const canonryMcpTools = [
+const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_sentiment_settings', title: 'Read sentiment readiness and settings',
     description: 'Read experimental sentiment configuration, evaluator identity, readiness and action permissions. No provider calls or credentials. Install administrators alone can configure or submit backfills.',
@@ -1538,6 +1579,34 @@ export const canonryMcpTools = [
     },
   }),
   defineTool({
+    name: 'canonry_competitors_suggest',
+    title: 'Suggest competitors from stored evidence',
+    description: 'Read stored completed and partial answer evidence and rank possible direct competitors. Candidate naming and citation counts are separate, cited-only domains are excluded, listing and marketplace surfaces are excluded, and the response discloses the answer and sweep denominator. No provider, discovery, classifier, or write operation runs. A Simple project without a usable brand alias pools all query classes and echoes queryClass=all. Use the returned evidence and sample URLs to review a candidate before tracking it.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: competitorSuggestionsInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/competitor-suggestions'],
+    handler: (client, input) => {
+      const { project, ...query } = input
+      return client.suggestCompetitors(project, query)
+    },
+  }),
+  defineTool({
+    name: 'canonry_competitors_change_preview',
+    title: 'Preview competitor change impact',
+    description: 'Preview the stored-evidence share impact of one explicit competitor add, remove, replace, or curated alias change. It reads the latest completed or partial sweep and never writes competitors, aliases, history, or provider state. Use this before a separate write when an operator wants the before and after denominator and percentage-point delta. Ordinary competitor writes do not call this implicitly.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: competitorChangePreviewInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['POST /api/v1/projects/{name}/competitor-changes/preview'],
+    handler: (client, input) => {
+      const { project, ...request } = input
+      return client.previewCompetitorChange(project, request)
+    },
+  }),
+  defineTool({
     name: 'canonry_search',
     title: 'Search project (composite)',
     description: 'Search query snapshots and intelligence insights for the given text. Looks at snapshot answer text, cited domains, raw provider responses, and insight title/query/recommendation/cause. Returns ranked hits with snippets — use it instead of paginating snapshots when you need to find a competitor mention or term.',
@@ -1565,9 +1634,21 @@ export const canonryMcpTools = [
     handler: (client, input) => client.runDoctor({ project: input.project, checkIds: input.checks, ...(input.reportMonth ? { reportMonth: input.reportMonth } : {}) }),
   }),
   defineTool({
+    name: 'canonry_status',
+    title: 'Read integration status',
+    description: 'Read stored synchronization status for one project or the instance. This is a read-only local database read and never calls providers or runs doctor checks.',
+    access: 'read',
+    tier: 'core',
+    inputSchema: statusInputSchema,
+    outputSchema: instanceStatusDtoSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/status'],
+    handler: (client, input) => client.getStatus({ project: input.project, problems: input.problems }),
+  }),
+  defineTool({
     name: 'canonry_project_export',
     title: 'Export project config',
-    description: 'Export a Canonry project in config-as-code format.',
+    description: 'Export a Canonry project in config-as-code format. Notification webhook URLs are always redacted for MCP.',
     access: 'read',
     tier: 'setup',
     inputSchema: projectInputSchema,
@@ -1599,6 +1680,10 @@ export const canonryMcpTools = [
       limit: input.limit,
       offset: input.offset,
       since: input.since,
+      until: input.until,
+      actionPrefix: input.actionPrefix,
+      excludeEntityTypes: input.excludeEntityTypes,
+      entityId: input.entityId,
       action: input.action,
       actor: input.actor,
       entityType: input.entityType,
@@ -1618,13 +1703,13 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_runs_list',
     title: 'List project runs',
-    description: "List runs for a Canonry project. Includes both real runs (trigger='manual'/'scheduled'/'config-apply'/'backfill') AND probe runs (trigger='probe'). Probe runs are operator/agent test runs that don't influence dashboard, analytics, intelligence, or notifications — filter by `trigger !== 'probe'` if you only want runs that feed project metrics. Narrow with `kind` and/or `status` (e.g. status='running' lists only in-flight work). Use `excludeKind` or `excludeKinds` to remove kinds before applying the limit.",
+    description: "List runs for a Canonry project. Includes both real runs (trigger='manual'/'scheduled'/'config-apply'/'backfill') AND probe runs (trigger='probe'). Probe runs are operator/agent test runs that don't influence dashboard, analytics, intelligence, or notifications; filter by `trigger !== 'probe'` if you only want runs that feed project metrics. Narrow with `kind` and/or `status` (e.g. status='running' lists only in-flight work). Use `excludeKind` or `excludeKinds` to remove kinds before applying the limit. `since` bounds creation time; omitting limit returns every matching run.",
     access: 'read',
     tier: 'monitoring',
     inputSchema: runsListInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/runs'],
-    handler: (client, input) => client.listRuns(input.project, input.limit, input.kind, input.status, input.excludeKind, input.excludeKinds),
+    handler: (client, input) => client.listRuns(input.project, input.limit, input.kind, input.status, input.excludeKind, input.excludeKinds, input.since),
   }),
   defineTool({
     name: 'canonry_runs_latest',
@@ -1917,7 +2002,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_queries_list',
     title: 'List queries',
-    description: 'List tracked queries for a Canonry project.',
+    description: 'List tracked queries for a Canonry project. Each row carries queryClass as the server classes it: branded, non-brand, or null when no single class exists (no usable brand name, or the active measurement plan holds no single class for the query). A row with no queryClass comes from a server older than the field: the class is unknown, not null. Never infer a class from the query text.',
     access: 'read',
     tier: 'setup',
     inputSchema: projectInputSchema,
@@ -2214,11 +2299,11 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_bing_coverage',
     title: 'Get Bing coverage',
-    description: 'Read stored Bing index coverage counts and URL inspections for a Canonry project. Preserves indexed, not indexed and unknown evidence, the server percentage and last inspection time. Project-wide for Simple and Advanced portfolios; Property, Target and market attribution are unavailable. Requires the existing Bing connection. Never calls Bing or starts a sync.',
-    access: 'read',
+    description: 'Read Bing index coverage counts and URL inspections for a Canonry project. The route records an idempotent daily coverage snapshot while returning the result, but does not call Bing or start a sync. Preserves indexed, not indexed and unknown evidence, the server percentage and last inspection time. Project-wide for Simple and Advanced portfolios; Property, Target and market attribution are unavailable. Requires the existing Bing connection.',
+    access: 'write',
     tier: 'bing',
     inputSchema: projectInputSchema,
-    annotations: readAnnotations(),
+    annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['GET /api/v1/projects/{name}/bing/coverage'],
     handler: (client, input) => client.bingCoverage(input.project),
   }),
@@ -2266,6 +2351,14 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/ga/properties'],
     handler: (client, input) => client.gaProperties(input.project),
+  }),
+  defineTool({
+    name: 'canonry_ga_acquisition',
+    title: 'Read stored GA4 acquisition',
+    description: 'Read stored GA4 sessions by day, channel, source/medium, host and normalized landing page. Sessions only; totalSessions is the full filtered total, independent of grouping and pagination. No Google calls. Project-only attribution; stored rows cannot distinguish an older connected GA4 property. Meaningful page query parameters remain distinct.',
+    access: 'read', tier: 'ga', inputSchema: gaAcquisitionQuerySchema.extend({ project: projectNameSchema, limit: z.number().int().min(1).max(500).optional() }), annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/ga/acquisition'],
+    handler: (client, input) => { const { project, ...query } = input; return client.gaAcquisition(project, query) },
   }),
   defineTool({
     name: 'canonry_ga_measurement_analysis',
@@ -2413,7 +2506,7 @@ export const canonryMcpTools = [
     access: 'write',
     tier: 'gbp',
     inputSchema: gbpDiscoverInputSchema,
-    annotations: writeAnnotations({ idempotentHint: true }),
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/gbp/locations/discover'],
     handler: (client, input) => client.discoverGbpLocations(input.project, {
       selectAllNew: input.selectAllNew,
@@ -2451,7 +2544,7 @@ export const canonryMcpTools = [
     access: 'write',
     tier: 'gbp',
     inputSchema: gbpSyncInputSchema,
-    annotations: writeAnnotations({ idempotentHint: true }),
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/gbp/sync'],
     handler: (client, input) => client.triggerGbpSync(input.project, {
       locationNames: input.locationNames,
@@ -2606,6 +2699,14 @@ export const canonryMcpTools = [
     },
   }),
   defineTool({
+    name: 'canonry_traffic_samples',
+    title: 'Read stored traffic samples',
+    description: 'Read the stored sampled tail of server-side traffic with 30-day retention. Sample rows are not a count of visits. Default kind excludes unknown requests. Project/source only; Property, Target and market dimensions are unavailable. No provider call or write.',
+    access: 'read', tier: 'traffic', inputSchema: trafficSamplesQuerySchema.extend({ project: projectNameSchema }), annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/traffic/samples'],
+    handler: (client, input) => { const { project, ...query } = input; return client.trafficListSamples(project, query) },
+  }),
+  defineTool({
     name: 'canonry_traffic_events',
     title: 'List traffic events',
     description: 'Read crawler, AI user-fetch, and AI-referral rollups from server-side traffic sources. Returns complete full-window chart series and totals plus a capped discriminated detail list with explicit truncation metadata. Window defaults to last 24h.',
@@ -2714,9 +2815,20 @@ export const canonryMcpTools = [
     handler: (client, input) => client.putProject(input.project, input.request),
   }),
   defineTool({
+    name: 'canonry_project_update',
+    title: 'Update project fields',
+    description: 'Update named fields on an existing Canonry project with PATCH semantics. Omitted fields keep their stored values, measurement merges one level, and expectedConfigRevision prevents overwriting a newer edit. Prefer this for targeted changes over canonry_project_upsert.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: projectPatchInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['PATCH /api/v1/projects/{name}'],
+    handler: (client, input) => client.patchProject(input.project, input.request),
+  }),
+  defineTool({
     name: 'canonry_apply_config',
     title: 'Apply project config',
-    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config; fields omitted from the spec are reset to defaults, with these exceptions: a spec with neither queries nor keywords leaves the tracked-query basket unchanged (to clear the basket, pass an explicit empty queries list); an omitted providerDispatchModes keeps the stored preference; an omitted qualifiedAliases keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it; and a competitor given as a plain domain keeps its stored curated aliases, while `{ domain, aliases }` sets them exactly (`[]` clears). A spec identity that claims a competitor\'s alias drops that alias (audited); a new competitor whose name overlaps another competitor\'s alias (one brand key contains the other) or that is the project\'s own site fails the apply. An omitted siteAuditMaxPages keeps the stored Site Health page budget (null means the full site). An omitted competitorAutoAliases keeps the stored answer-derived competitor alias mode (off, preview or apply). For multi-document YAML, call this tool once per project document.',
+    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config; fields omitted from the spec are reset to defaults, with these exceptions: a spec with neither queries nor keywords leaves the tracked-query basket unchanged (to clear the basket, pass an explicit empty queries list); an omitted providerDispatchModes keeps the stored preference; an omitted qualifiedAliases keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it; and a competitor given as a plain domain keeps its stored curated aliases, while `{ domain, aliases }` sets them exactly (`[]` clears). A spec identity that claims a competitor\'s alias drops that alias (audited); a new competitor whose name overlaps another competitor\'s alias (one brand key contains the other) or that is the project\'s own site fails the apply. An omitted siteAuditMaxPages keeps the stored Site Health page budget (null means the full site). An omitted competitorAutoAliases keeps the stored answer-derived competitor alias mode (off, preview or apply). For multi-document YAML, call this tool once per project document. Call canonry_apply_config_preview first.',
     access: 'write',
     tier: 'core',
     inputSchema: applyConfigInputSchema,
@@ -2724,6 +2836,17 @@ export const canonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
     openApiOperations: ['POST /api/v1/apply'],
     handler: (client, input) => client.apply(input.config),
+  }),
+  defineTool({
+    name: 'canonry_apply_config_preview',
+    title: 'Preview project config apply',
+    description: 'Preview one Canonry config-as-code project document. Returns per-field and child-resource changes with notification hosts only; the server resolves notification DNS to preserve the real apply verdict, then rolls back the transaction before responding, so no database writes, audit rows, or callbacks persist.',
+    access: 'read',
+    tier: 'core',
+    inputSchema: applyConfigInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['POST /api/v1/apply/preview'],
+    handler: (client, input) => client.previewApply(input.config),
   }),
   defineTool({
     name: 'canonry_queries_generate',
@@ -3172,14 +3295,15 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_queries_add',
     title: 'Add queries',
-    description: 'Append tracked queries to a Canonry project; existing queries are skipped by the API.',
+    description: 'Append tracked queries to a Canonry project; existing queries are skipped by the API. Returns queryClasses: each requested query with the class the server gave it (branded, non-brand, or null when no single class exists). An entry with no queryClass means the server did not report one.',
     access: 'write',
     tier: 'setup',
     inputSchema: queriesInputSchema,
     annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/queries'],
     handler: async (client, input) => {
-      await client.appendQueries(input.project, uniqueStrings(input.request.queries))
+      const queries = uniqueStrings(input.request.queries)
+      return { ok: true, queryClasses: reportedQueryClasses(queries, await client.appendQueries(input.project, queries)) }
     },
   }),
   defineTool({
@@ -3224,20 +3348,18 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_add',
     title: 'Add competitors',
-    description: 'Add tracked competitor domains to a Canonry project. Each entry is a domain, or `{ domain, aliases }` to also add curated answer-text names to that competitor (tracked already or not; existing aliases are kept, the same rules as canonry_competitors_aliases_set apply). A new domain whose name overlaps another competitor\'s curated alias, or the label or a curated alias of a competitor an Advanced market pins (one brand key contains the other, so the alias "Tune" claims tunespoke.example), is rejected until that name is removed, and so is the project\'s own site. Already tracked domains (any spelling) are skipped.',
+    description: 'Use canonry_competitors_change_preview to inspect the stored share impact before this separate write. Measured projects require `acknowledgeBulkAdd: true` when new domains plus recent additions exceed the shared five-domain, 24-hour guard. Review with canonry_competitors_suggest or canonry_competitors_change_preview first; the built-in agent cannot acknowledge bulk growth. Add tracked competitor domains to a Canonry project. Each entry is a domain, or `{ domain, aliases }` to also add curated answer-text names to that competitor (tracked already or not; existing aliases are kept, the same rules as canonry_competitors_aliases_set apply). A new domain whose name overlaps another competitor\'s curated alias, or the label or a curated alias of a competitor an Advanced market pins (one brand key contains the other, so the alias "Tune" claims tunespoke.example), is rejected until that name is removed, and so is the project\'s own site. Already tracked domains (any spelling) are skipped.',
     access: 'write',
     tier: 'setup',
     inputSchema: competitorsAddInputSchema,
     annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/competitors'],
-    handler: async (client, input) => {
-      await client.appendCompetitors(input.project, input.request.competitors)
-    },
+    handler: (client, input) => client.appendCompetitors(input.project, input.request.competitors, { acknowledgeBulkAdd: input.request.acknowledgeBulkAdd }),
   }),
   defineTool({
     name: 'canonry_competitors_aliases_set',
     title: 'Set competitor aliases',
-    description: 'Set one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the brand names it goes by in answer text when they differ from its domain, e.g. "TuneSpoke" for spoketuneworks.example or a 3-letter brand the domain label floor drops. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) uses them on stored answers at read time. Rejected: aliases under 3 letters or digits, over 80 characters, more than 10, or whose brand key contains, or sits inside, one of the project\'s own names or hosts or a name another tracked competitor answers to (its aliases, domain label or written host), because answers may split or join the words: "Tune" cannot belong to one competitor while another answers to "Tune Spoke", "TuneSpoke" or tunespoke.example, and joined-word lookalikes ("Tune" and "Tuner") are refused too. A competitor an Advanced market pins (active revision, pending draft, or a superseded revision the project\'s runs were measured under) counts as another competitor. Names detected automatically from stored answers (`autoAliases`) are matched the same way; a curated alias always wins, so an auto name the new list overlaps is dropped. Idempotent; returns the competitor.',
+    description: 'Use canonry_competitors_change_preview to inspect the stored share impact before this separate write. Set one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the brand names it goes by in answer text when they differ from its domain, e.g. "TuneSpoke" for spoketuneworks.example or a 3-letter brand the domain label floor drops. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) uses them on stored answers at read time. Rejected: aliases under 3 letters or digits, over 80 characters, more than 10, or whose brand key contains, or sits inside, one of the project\'s own names or hosts or a name another tracked competitor answers to (its aliases, domain label or written host), because answers may split or join the words: "Tune" cannot belong to one competitor while another answers to "Tune Spoke", "TuneSpoke" or tunespoke.example, and joined-word lookalikes ("Tune" and "Tuner") are refused too. A competitor an Advanced market pins (active revision, pending draft, or a superseded revision the project\'s runs were measured under) counts as another competitor. Names detected automatically from stored answers (`autoAliases`) are matched the same way; a curated alias always wins, so an auto name the new list overlaps is dropped. Idempotent; returns the competitor.',
     access: 'write',
     tier: 'setup',
     inputSchema: competitorAliasesInputSchema,
@@ -3259,7 +3381,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_auto_aliases_apply',
     title: 'Apply competitor auto-aliases',
-    description: 'Run automatic competitor alias detection now from the project\'s stored answers and store the result, whatever the project\'s competitorAutoAliases mode (a one-off apply; a project in `apply` mode also gets this pass after every completed or partial sweep, a competitor add, an unblock and a market pin write that changes the pins). Stored names restate history at read time: every period\'s competitor counts change, and so does share of voice for a tracked competitor; competitorIdentityChangedAt on the landscape, project-frame visibility-compare and analytics metrics marks when. Idempotent: unchanged answers write nothing. Curated aliases and blocked names always win. A change is audited as the system pass plus competitors.auto-aliases-apply-requested naming who asked. Not available to the built-in Aero agent. Returns what was stored, per competitor, with evidence.',
+    description: 'Use canonry_competitors_auto_aliases_detect first to preview names and their stored share impact. Run automatic competitor alias detection now from the project\'s stored answers and store the result, whatever the project\'s competitorAutoAliases mode (a one-off apply; a project in `apply` mode also gets this pass after every completed or partial sweep, a competitor add, an unblock and a market pin write that changes the pins). Stored names restate history at read time: every period\'s competitor counts change, and so does share of voice for a tracked competitor; competitorIdentityChangedAt on the landscape, project-frame visibility-compare and analytics metrics marks when. Idempotent: unchanged answers write nothing. Curated aliases and blocked names always win. A change is audited as the system pass plus competitors.auto-aliases-apply-requested naming who asked. Not available to the built-in Aero agent. Returns what was stored, per competitor, with evidence.',
     access: 'write',
     tier: 'setup',
     inputSchema: projectInputSchema,
@@ -3292,15 +3414,13 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_remove',
     title: 'Remove competitors',
-    description: 'Remove tracked competitor domains from a Canonry project.',
+    description: 'Use canonry_competitors_change_preview to inspect the stored share impact before this separate write. Remove tracked competitor domains from a Canonry project.',
     access: 'write',
     tier: 'setup',
     inputSchema: competitorsInputSchema,
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
     openApiOperations: ['DELETE /api/v1/projects/{name}/competitors'],
-    handler: async (client, input) => {
-      await client.deleteCompetitors(input.project, uniqueStrings(input.request.competitors))
-    },
+    handler: (client, input) => client.deleteCompetitors(input.project, uniqueStrings(input.request.competitors)),
   }),
   defineTool({
     name: 'canonry_schedule_set',
@@ -3599,6 +3719,34 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/crawl'],
     handler: (client, input) => client.getTechnicalAeoCrawl(input.project, { runId: input.runId, date: input.date }),
+  }),
+  defineTool({
+    name: 'canonry_site_health_issues',
+    title: 'List stored Site Health issues',
+    description: 'Read paginated finding groups from a saved audit, including duplicate metadata and critical defects regardless of aggregate score. Never starts a crawl. Preserve scan date, run/attempt identity, coverage and partial/unavailable states: an empty result does not prove the site is clean. Disposition separates actionable findings, advisory guidance, unverified checks and information; severity retains the recorded critical-defect level. recommendationsScope distinguishes issue-specific defect guidance from whole-factor advice. stableIdentity=false means the ID cannot establish continuity across scans. Follow nextCursor with the returned runId, or inspect one issue with canonry_site_health_issue_pages.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: siteHealthIssuesInputSchema,
+    outputSchema: siteAuditIssuesResponseSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/issues'],
+    handler: (client, input) => client.getSiteAuditIssues(input.project, {
+      runId: input.runId, cursor: input.cursor, limit: input.limit,
+    }),
+  }),
+  defineTool({
+    name: 'canonry_site_health_issue_pages',
+    title: 'Read pages affected by a saved audit issue',
+    description: 'Read paginated affected URLs and saved messages for one issue in the selected audit. Use the issue ID and runId from canonry_site_health_issues; continue with nextCursor without changing the selection. Null node keys and unavailable/partial coverage remain explicit. recommendationsScope identifies issue-specific defect guidance or broader factor advice; do not present factor advice as an exact fix for this finding. This stored read never crawls, changes content or authorizes edits.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: siteHealthIssuePagesInputSchema,
+    outputSchema: siteAuditIssuePagesResponseSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages'],
+    handler: (client, input) => client.getSiteAuditIssuePages(input.project, input.issueId, {
+      runId: input.runId, cursor: input.cursor, limit: input.limit,
+    }),
   }),
   defineTool({
     name: 'canonry_site_health_page_audit',
@@ -4341,11 +4489,16 @@ export const canonryMcpTools = [
     access: 'write',
     tier: 'ads',
     inputSchema: projectInputSchema,
-    annotations: writeAnnotations({ idempotentHint: true }),
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/ads/sync'],
     handler: (client, input) => client.triggerAdsSync(input.project),
   }),
 ] as const
+
+export const canonryMcpTools = rawCanonryMcpTools.map(tool => {
+  if (tool.access !== 'read' || toolOperationAccess(tool) !== OperationAccesses.live) return tool
+  return { ...tool, annotations: { ...tool.annotations, openWorldHint: true } }
+})
 
 export type CanonryMcpRegistryTool = typeof canonryMcpTools[number]
 export type CanonryMcpToolName = CanonryMcpRegistryTool['name']

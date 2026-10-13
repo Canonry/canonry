@@ -54,7 +54,7 @@ test('public demo reads stored Google evidence without configuration or live sit
   expect(requests.some((path) => path.includes('/google/properties'))).toBe(false)
   expect(requests.some((path) => path.includes('/google/gsc/sitemaps'))).toBe(false)
   expect(screen.queryByRole('button', { name: 'Disconnect' })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Reload from Google' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Load from Google' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Submit sitemap to Google' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Inspect URL' })).toBeNull()
   expect(screen.queryByText('Setup & Configuration')).toBeNull()
@@ -66,6 +66,7 @@ test.each([
 ])('outside the public demo, %s keeps the Google Search Console controls unchanged', async (_label, access) => {
   const restoreFetch = mockFetch((url) => {
     const path = pathOf(url)
+    if (path.split('?')[0]?.endsWith('/runs')) return jsonResponse([])
     if (path.endsWith('/google/connections')) return jsonResponse([{
       id: 'gsc-1', domain: 'example.com', connectionType: 'gsc', propertyId: 'sc-domain:example.com', sitemapUrl: 'https://example.com/sitemap.xml',
       scopes: [], createdAt: '2026-07-01T00:00:00.000Z', updatedAt: '2026-07-25T00:00:00.000Z',
@@ -95,7 +96,7 @@ test.each([
   )
 
   const disconnect = await screen.findByRole('button', { name: 'Disconnect' }) as HTMLButtonElement
-  const reload = await screen.findByRole('button', { name: 'Reload from Google' }) as HTMLButtonElement
+  const reload = await screen.findByRole('button', { name: 'Load from Google' }) as HTMLButtonElement
   await waitFor(() => expect(reload.disabled).toBe(false))
   expect(disconnect.disabled).toBe(false)
 })

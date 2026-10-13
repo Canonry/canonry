@@ -1,8 +1,14 @@
 import crypto from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
-import { competitors, marketCompetitorNames, type DatabaseClient } from '@ainyc/canonry-db'
+import { competitors, marketCompetitorNames, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { and, eq, inArray, ne } from 'drizzle-orm'
 import {
   brandKeyFromText,
+  RunKinds,
+  RunStatuses,
+  RunTriggers,
+  COMPETITOR_BULK_ADD_REFUSAL_REASON,
+  COMPETITOR_BULK_ADD_THRESHOLD,
+  COMPETITOR_BULK_ADD_WINDOW_HOURS,
   competitorDomainProjectClaim,
   competitorEntryParts,
   competitorIdentityAliases,
@@ -17,6 +23,7 @@ import {
   validationError,
   type AppError,
   type CompetitorAliasMarketPin,
+  type CompetitorAliasChange,
   type CompetitorAliasPlanEntry,
   type CompetitorAliasProjectIdentity,
   type CompetitorAliasRejection,
@@ -141,11 +148,7 @@ export const competitorIdentityColumns = {
   blockedAliases: competitors.blockedAliases,
 }
 
-export interface CompetitorAliasChange {
-  domain: string
-  before: string[]
-  after: string[]
-}
+export type { CompetitorAliasChange } from '@ainyc/canonry-contracts'
 
 export interface CompetitorSetPlan {
   /** Every competitor after the write, existing rows first (by domain, as `readStoredCompetitors` returns them). */
@@ -160,6 +163,83 @@ export interface CompetitorSetPlan {
   autoAliasChanges: CompetitorAliasChange[]
   /** The auto names those changes dropped, with the rule each failed. */
   droppedAutoAliases: CompetitorAutoAliasDrop[]
+}
+
+export interface BulkCompetitorAddSummary {
+  acknowledged: boolean
+  measured: boolean
+  limit: number
+  windowHours: number
+  wouldAdd: string[]
+  recentlyAdded: number
+  trackedBefore: number
+  trackedAfter: number
+}
+
+export function summarizeBulkCompetitorAdd(
+  db: Pick<DatabaseClient, 'select'>,
+  projectId: string,
+  plan: Pick<CompetitorSetPlan, 'added' | 'final'>,
+  options: { acknowledged?: boolean; now: string; trackedBefore: number },
+): BulkCompetitorAddSummary | null {
+  const wouldAdd = [...plan.added]
+  if (wouldAdd.length === 0) return null
+  const measured = db.select({ id: runs.id }).from(runs).where(and(
+    eq(runs.projectId, projectId),
+    eq(runs.kind, RunKinds['answer-visibility']),
+    inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+    ne(runs.trigger, RunTriggers.probe),
+  )).limit(1).get()
+  const finalDomains = new Set(plan.final.map(row => normalizeCompetitorDomain(row.domain)))
+  const addedSet = new Set(wouldAdd.map(normalizeCompetitorDomain))
+  const cutoff = Date.parse(options.now) - COMPETITOR_BULK_ADD_WINDOW_HOURS * 60 * 60 * 1000
+  const recentlyAdded = measured
+    ? db.select({ domain: competitors.domain, createdAt: competitors.createdAt }).from(competitors)
+      .where(eq(competitors.projectId, projectId)).all()
+      .filter(row => finalDomains.has(normalizeCompetitorDomain(row.domain)))
+      .filter(row => !addedSet.has(normalizeCompetitorDomain(row.domain)))
+      .filter(row => Date.parse(row.createdAt) >= cutoff).length
+    : 0
+  return {
+    acknowledged: options.acknowledged === true,
+    measured: measured !== undefined,
+    limit: COMPETITOR_BULK_ADD_THRESHOLD,
+    windowHours: COMPETITOR_BULK_ADD_WINDOW_HOURS,
+    wouldAdd,
+    recentlyAdded,
+    trackedBefore: options.trackedBefore,
+    trackedAfter: plan.final.length,
+  }
+}
+
+export function bulkCompetitorAddPreview(summary: BulkCompetitorAddSummary | null): { limit: number; count: number; acknowledgementRequired: boolean } {
+  return {
+    limit: COMPETITOR_BULK_ADD_THRESHOLD,
+    count: summary ? summary.wouldAdd.length + summary.recentlyAdded : 0,
+    acknowledgementRequired: summary?.measured === true && summary.wouldAdd.length + summary.recentlyAdded > COMPETITOR_BULK_ADD_THRESHOLD,
+  }
+}
+
+export function requireBulkCompetitorAddAcknowledged(
+  db: Pick<DatabaseClient, 'select'>,
+  projectId: string,
+  plan: Pick<CompetitorSetPlan, 'added' | 'final'>,
+  options: { acknowledged?: boolean; now: string; trackedBefore: number; projectName?: string },
+): BulkCompetitorAddSummary | null {
+  const summary = summarizeBulkCompetitorAdd(db, projectId, plan, options)
+  if (!summary) return null
+  const { wouldAdd, trackedAfter } = summary
+  if (!summary.measured || summary.recentlyAdded + wouldAdd.length <= COMPETITOR_BULK_ADD_THRESHOLD || summary.acknowledged) return summary
+  throw validationError(
+    `Adding ${wouldAdd.length} competitors would grow the tracked list from ${options.trackedBefore} to ${trackedAfter} within ${COMPETITOR_BULK_ADD_WINDOW_HOURS} hours. Review the stored evidence with canonry competitor suggest ${options.projectName ?? '<project>'} or canonry competitor add ${options.projectName ?? '<project>'} <domain...> --dry-run before acknowledging the bulk add.`,
+    { reason: COMPETITOR_BULK_ADD_REFUSAL_REASON, ...summary, suggest: `canonry competitor suggest ${options.projectName ?? '<project>'}`, preview: `canonry competitor add ${options.projectName ?? '<project>'} <domain...> --dry-run` },
+  )
+}
+
+export function bulkCompetitorAddAuditFields(summary: BulkCompetitorAddSummary | null): Record<string, unknown> {
+  return summary && summary.acknowledged && summary.wouldAdd.length > 0
+    ? { bulkAddAcknowledged: true, bulkAddLimit: summary.limit, bulkAddWindowHours: summary.windowHours, bulkAddCount: summary.wouldAdd.length, bulkAddRecentlyAdded: summary.recentlyAdded }
+    : {}
 }
 
 /** True when a plan changes any name a competitor answers to (curated or auto). */
@@ -595,4 +675,24 @@ export function competitorAliasAuditFields(
     ...(plan.autoAliasChanges?.length ? { autoAliasChanges: plan.autoAliasChanges } : {}),
     ...(plan.droppedAutoAliases?.length ? { droppedAutoAliases: plan.droppedAutoAliases } : {}),
   }
+}
+
+/**
+ * Names a delete discards (curated, auto-detected and blocked), kept in the
+ * audit row so they can be restored.
+ */
+export function deletedAliasesDiff(rows: readonly { domain: string; aliases: string[]; autoAliases: { name: string }[]; blockedAliases: string[] }[]): Record<string, unknown> {
+  const withAliases = rows.filter(row => row.aliases.length > 0)
+  const withAuto = rows.filter(row => row.autoAliases.length > 0)
+  const withBlocked = rows.filter(row => row.blockedAliases.length > 0)
+  return {
+    ...(withAliases.length ? { deletedAliases: Object.fromEntries(withAliases.map(row => [row.domain, row.aliases])) } : {}),
+    ...(withAuto.length ? { deletedAutoAliases: Object.fromEntries(withAuto.map(row => [row.domain, row.autoAliases.map(record => record.name)])) } : {}),
+    ...(withBlocked.length ? { deletedBlockedAliases: Object.fromEntries(withBlocked.map(row => [row.domain, row.blockedAliases])) } : {}),
+  }
+}
+
+/** Set membership and discarded names for both replacement audit writers. */
+export function competitorSetChangeAuditFields(plan: CompetitorSetPlan): Record<string, unknown> {
+  return { added: plan.added, removed: plan.removed.map(row => row.domain), ...deletedAliasesDiff(plan.removed) }
 }

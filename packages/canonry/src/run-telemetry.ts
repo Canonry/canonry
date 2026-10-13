@@ -1,5 +1,16 @@
 import crypto from 'node:crypto'
-import { classifyProviderErrorMessage, extractProviderHttpStatus, type ProviderErrorCode } from '@ainyc/canonry-contracts'
+import {
+  PROVIDER_NAMES,
+  ProviderDispatchModes,
+  classifyProviderErrorMessage,
+  compareText,
+  extractProviderHttpStatus,
+  median,
+  summarizeRunUsage,
+  type ProviderDispatchMode,
+  type ProviderErrorCode,
+  type SnapshotUsage,
+} from '@ainyc/canonry-contracts'
 
 /**
  * Extract the registrable host part of a domain string for non-PII telemetry
@@ -82,7 +93,34 @@ export interface RunTelemetryProps {
   errorSite?: RunFailureSite
   failureStreak?: number
   sampleRate?: number
+  /** Answers each provider returned that the run stored, sync and batch. */
+  providerCalls?: Record<string, number>
+  usage?: RunUsageTelemetry
+  /** Median latency of each provider's sync calls; batch-only providers are absent. */
+  providerLatencyMs?: Record<string, number>
 }
+
+/**
+ * Token and cost totals of a run's stored answers, summed by
+ * `summarizeRunUsage` like the run detail's `usage`. Tokens are absent when no
+ * answer recorded usage, and cost unless every such answer was priced, so an
+ * unknown is never sent as a zero.
+ */
+export interface RunUsageTelemetry {
+  inputTokens?: number
+  outputTokens?: number
+  costMicros?: number
+  batchCalls: number
+}
+
+/** One stored answer of a run, as `run.completed` reads it. */
+export interface RunAnswerUsage {
+  provider: string
+  usage: SnapshotUsage | null
+  dispatchMode: ProviderDispatchMode | null
+}
+
+const KNOWN_PROVIDERS: ReadonlySet<string> = new Set(PROVIDER_NAMES)
 
 export function buildRunCompletedProps(input: {
   status: RunTelemetryProps['status']
@@ -94,6 +132,10 @@ export function buildRunCompletedProps(input: {
   canonicalDomain?: string | null
   phases?: RunPhaseTimings
   location?: string
+  /** The run's stored answers. */
+  answers?: readonly RunAnswerUsage[]
+  /** Each provider's sync call latencies in this run, in ms. */
+  callLatencies?: ReadonlyMap<string, readonly number[]>
 }): RunTelemetryProps {
   const totalMs = input.phases?.total_ms ?? Date.now() - input.startTime
   const props: RunTelemetryProps = {
@@ -108,7 +150,38 @@ export function buildRunCompletedProps(input: {
   if (domainHash) props.domainHash = domainHash
   if (input.phases) props.phases = input.phases
   if (input.location) props.location = input.location
+  Object.assign(props, runUsageProps(input.answers ?? []), providerLatencyProps(input.callLatencies))
   return props
+}
+
+function runUsageProps(answers: readonly RunAnswerUsage[]): Pick<RunTelemetryProps, 'providerCalls' | 'usage'> {
+  const counted = answers.filter(answer => KNOWN_PROVIDERS.has(answer.provider))
+  if (counted.length === 0) return {}
+  const providerCalls: Record<string, number> = {}
+  for (const answer of [...counted].sort((left, right) => compareText(left.provider, right.provider))) {
+    providerCalls[answer.provider] = (providerCalls[answer.provider] ?? 0) + 1
+  }
+  const usage: RunUsageTelemetry = {
+    batchCalls: counted.filter(answer => answer.dispatchMode === ProviderDispatchModes.batch).length,
+  }
+  const rows = summarizeRunUsage(counted)
+  if (rows.length > 0) {
+    usage.inputTokens = rows.reduce((sum, row) => sum + row.inputTokens, 0)
+    usage.outputTokens = rows.reduce((sum, row) => sum + row.outputTokens, 0)
+    if (rows.every(row => row.unpricedAnswers === 0)) {
+      usage.costMicros = rows.reduce((sum, row) => sum + (row.estimatedCostMicros ?? 0), 0)
+    }
+  }
+  return { providerCalls, usage }
+}
+
+function providerLatencyProps(latencies: ReadonlyMap<string, readonly number[]> | undefined): Pick<RunTelemetryProps, 'providerLatencyMs'> {
+  const providerLatencyMs: Record<string, number> = {}
+  for (const [provider, values] of [...latencies ?? []].sort(([left], [right]) => compareText(left, right))) {
+    const middle = KNOWN_PROVIDERS.has(provider) ? median(values) : null
+    if (middle !== null) providerLatencyMs[provider] = Math.max(0, Math.round(middle))
+  }
+  return Object.keys(providerLatencyMs).length > 0 ? { providerLatencyMs } : {}
 }
 
 export type SiteAuditTelemetryStatus = 'completed' | 'partial' | 'failed' | 'cancelled'

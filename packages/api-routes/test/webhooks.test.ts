@@ -73,7 +73,7 @@ test.each([
   expect(await resolveWebhookTarget(url, { allowLoopback: true }))
     .toMatchObject({ ok: true, target: { address: '127.0.0.1', family: 4 } })
   expect(await resolveWebhookTarget(url))
-    .toEqual({ ok: false, message: '"url" must not resolve to a private or loopback address' })
+    .toEqual({ ok: false, message: '"url" must not resolve to a private or loopback address', blocked: true })
   expect(resolve4).not.toHaveBeenCalled()
   expect(resolve6).not.toHaveBeenCalled()
 })

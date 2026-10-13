@@ -9,6 +9,9 @@ import {
   formatIsoDateInTimeZone,
   startOfDayHourInTimeZone,
   describeError,
+  FeatureNames,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
 } from '@ainyc/canonry-contracts'
 import {
   getAdAccount,
@@ -30,6 +33,7 @@ import type {
 import type { CanonryConfig } from './config.js'
 import { getOpenAiAdsConnection } from './ads-config.js'
 import { createLogger } from './logger.js'
+import { runFailure, startRunOutcome, withOutcomeReason } from './sync-outcome.js'
 
 const log = createLogger('AdsSync')
 
@@ -280,20 +284,24 @@ export async function executeAdsSync(
   projectId: string,
   opts: AdsSyncOptions,
 ): Promise<void> {
+  const reportOutcome = startRunOutcome(db, runId, FeatureNames.openai_ads, 'sync')
   const now = new Date().toISOString()
   db.update(runs).set({ status: 'running', startedAt: now }).where(eq(runs.id, runId)).run()
 
   try {
     const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
-    if (!project) throw new Error(`Project not found: ${projectId}`)
+    if (!project) throw withOutcomeReason(new Error(`Project not found: ${projectId}`), OutcomeReasonCodes.NOT_FOUND)
 
     const connRow = db.select().from(adsConnections).where(eq(adsConnections.projectId, projectId)).get()
     if (!connRow) {
-      throw new Error('No ads connection found for this project. Run "canonry ads connect" first.')
+      throw withOutcomeReason(new Error('No ads connection found for this project. Run "canonry ads connect" first.'), OutcomeReasonCodes.NOT_CONNECTED)
     }
     const cfgConn = getOpenAiAdsConnection(opts.config, project.name)
     if (!cfgConn?.apiKey) {
-      throw new Error('No OpenAI Ads API key in the local Canonry config. Run "canonry ads connect" first.')
+      throw withOutcomeReason(
+        new Error('No OpenAI Ads API key in the local Canonry config. Run "canonry ads connect" first.'),
+        OutcomeReasonCodes.NOT_CONNECTED,
+      )
     }
     const apiKey = cfgConn.apiKey
 
@@ -312,6 +320,7 @@ export async function executeAdsSync(
     const inProgressDate = accountLocalDate(insightAnchor, account.timezone)
 
     const errors = new Map<string, string>()
+    let lastCampaignError: unknown
     const adGroupsByCampaign = new Map<string, OpenAiAdsAdGroup[]>()
     const adsByGroup = new Map<string, OpenAiAdsAd[]>()
     const insightUpserts: InsightUpsert[] = []
@@ -349,6 +358,7 @@ export async function executeAdsSync(
           insightUpserts.push(...toDailyUpserts('ad_group', group.id, insights))
         }
       } catch (err) {
+        lastCampaignError = err
         errors.set(campaign.name, describeError(err))
         log.error('campaign.failed', { runId, campaignId: campaign.id, error: describeError(err) })
       }
@@ -524,6 +534,14 @@ export async function executeAdsSync(
     }
 
     log.info('sync.done', { runId, projectId, campaigns: syncedCampaigns.length, insightRows: insightUpserts.length, failed: errors.size })
+    const counts = { campaigns: syncedCampaigns.length, rows: insightUpserts.length, failures: errors.size }
+    if (errors.size > 0) {
+      reportOutcome({ status: syncedCampaigns.length > 0 ? OutcomeStatuses.partial : OutcomeStatuses.failed, ...runFailure(lastCampaignError), counts })
+    } else {
+      reportOutcome(campaigns.length === 0
+        ? { status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.NO_DATA, counts }
+        : { status: OutcomeStatuses.succeeded, counts })
+    }
   } catch (err) {
     const errorMsg = describeError(err)
     db.update(runs)
@@ -531,6 +549,7 @@ export async function executeAdsSync(
       .where(eq(runs.id, runId))
       .run()
     log.error('sync.failed', { runId, projectId, error: errorMsg })
+    reportOutcome({ status: OutcomeStatuses.failed, ...runFailure(err) })
     throw err
   }
 }

@@ -1,5 +1,9 @@
+import fs from 'node:fs'
 import {
+  competitorAppendRequestSchema,
   formatPercent,
+  CompetitorChangeKinds,
+  CompetitorShareImpactCaveats,
   normalizeCompetitorAliases,
   normalizeCompetitorDomain,
   RatioUnits,
@@ -12,30 +16,156 @@ import {
   type ShareOfVoiceContext,
 } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { CliError, isMachineFormat } from '../cli-error.js'
+import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import type { CompetitorLandscapeQuery, CompetitorLandscapeResponse, ModelEvidenceState } from '@ainyc/canonry-contracts'
+import type { CompetitorChangePreviewResponse, CompetitorShareImpact, CompetitorLandscapeQuery, CompetitorLandscapeResponse, CompetitorSuggestionsQuery, CompetitorSuggestionsResponse, ModelEvidenceState } from '@ainyc/canonry-contracts'
 
 function getClient() {
   return createApiClient()
+}
+
+function printCompetitorPreviewImpact(impact: CompetitorShareImpact, preview?: CompetitorChangePreviewResponse): void {
+  const before = impact.before
+  const after = impact.after
+  const beforeBasis = before.basis === 'tracked' ? 'tracked competitor' : 'observed competitor'
+  const afterBasis = after.basis === 'tracked' ? 'tracked competitor' : 'observed competitor'
+  const frame = impact.runIds.length > 0
+    ? `latest stored sweep, ${impact.runIds.length} run${impact.runIds.length === 1 ? '' : 's'}`
+    : shareOfVoiceReason(before.reason ?? null) || 'no latest stored sweep'
+  const classLabel = impact.queryClass === 'pooled' ? 'pooled queries' : `${impact.queryClass} queries`
+  console.log(`Mention share ${formatPercent(before.percent, RatioUnits.percent)} -> ${formatPercent(after.percent, RatioUnits.percent)} (${frame}, ${classLabel}): project mentions ${before.projectMentions}, ${beforeBasis} mentions ${before.competitorMentions} -> ${afterBasis} mentions ${after.competitorMentions}; ${beforeBasis} competitors ${before.competitorCount} -> ${afterBasis} competitors ${after.competitorCount}. Restates every stored period.`)
+  if (preview) {
+    console.log('Dry run: no changes written.')
+    const plan = preview.plan
+    const planParts = [
+      ...(plan.added.length > 0 ? [`add ${plan.added.join(', ')}`] : []),
+      ...(plan.removed.length > 0 ? [`remove ${plan.removed.join(', ')}`] : []),
+      ...(plan.aliasChanges.length > 0 ? [`change aliases for ${plan.aliasChanges.map(change => change.domain).join(', ')}`] : []),
+      ...(plan.droppedAliases.length > 0 ? [`reject ${plan.droppedAliases.length} aliases`] : []),
+    ]
+    console.log(`Plan: ${planParts.length > 0 ? planParts.join('; ') : 'no stored changes'}.`)
+    if (preview.change === CompetitorChangeKinds.add) {
+      const requirement = preview.bulkAdd.acknowledgementRequired
+        ? 'requires --acknowledge-bulk-add for the real write'
+        : 'does not require bulk acknowledgement'
+      console.log(`Bulk add: ${plan.added.length} requested; ${preview.bulkAdd.count} additions in the trailing 24 hours, with a limit of ${preview.bulkAdd.limit}; ${requirement}.`)
+    }
+  }
+  for (const caveat of impact.caveats) {
+    if (caveat === CompetitorShareImpactCaveats['basis-changed']) console.log(`Caveat: the competitor basis changed from ${beforeBasis} to ${afterBasis}.`)
+    if (caveat === CompetitorShareImpactCaveats['auto-alias-rescan-pending']) console.log('Caveat: answer-derived aliases are pending a rescan.')
+    if (caveat === CompetitorShareImpactCaveats['pooled']) console.log('Caveat: branded and non-brand queries are pooled because no usable project brand was configured.')
+  }
+}
+
+export interface CompetitorCompletionOptions {
+  wait?: boolean
+  waitTimeout?: string
+  acknowledgeBulkAdd?: boolean
+}
+
+function completionTimeout(options: CompetitorCompletionOptions, dryRun = false): number | undefined {
+  const raw = options.waitTimeout
+  if (raw !== undefined && (!/^[1-9]\d*$/.test(raw) || !Number.isSafeInteger(Number(raw)))) {
+    throw usageError('--wait-timeout must be a positive integer number of seconds')
+  }
+  if (raw !== undefined && !options.wait) throw usageError('--wait-timeout requires --wait')
+  if (options.wait && dryRun) throw usageError('--wait cannot be combined with --dry-run')
+  return options.wait ? Number(raw ?? '120') * 1_000 : undefined
+}
+
+/** Wait only for the persisted answer-field pass; alias detection has its own lifecycle. */
+async function waitForCompetitorFields(client: ReturnType<typeof getClient>, project: string, timeout: number | undefined): Promise<void> {
+  if (timeout === undefined) return
+  const deadline = Date.now() + timeout
+  for (;;) {
+    const state = await client.getProject(project)
+    if (state.answerFieldsRecompute === null) return
+    if (state.answerFieldsRecompute === undefined) {
+      throw new CliError({
+        code: 'WAIT_STATUS_UNAVAILABLE',
+        message: 'The write committed, but this server does not expose answer-field recomputation status. Upgrade the server to use --wait.',
+        details: { project, writeCommitted: true },
+        exitCode: 2,
+      })
+    }
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) {
+      throw new CliError({
+        code: 'OPERATION_IN_PROGRESS',
+        message: 'The write committed; stored answer fields are still being recomputed. Read the project status to check completion.',
+        details: { project, writeCommitted: true, answerFieldsRecompute: state.answerFieldsRecompute },
+        exitCode: 2,
+      })
+    }
+    await new Promise(resolve => setTimeout(resolve, Math.min(500, remaining)))
+  }
+}
+
+/** Import curated competitors in a single append, retaining aliases per entry. */
+export async function importCompetitors(project: string, filePath: string, format?: string, completion: CompetitorCompletionOptions = {}): Promise<void> {
+  const timeout = completionTimeout(completion)
+  if (!fs.existsSync(filePath)) {
+    throw new CliError({ code: 'COMPETITOR_IMPORT_FILE_NOT_FOUND', message: `File not found: ${filePath}`, details: { filePath } })
+  }
+  const content = fs.readFileSync(filePath, 'utf8')
+  let entries: unknown
+  if (filePath.toLowerCase().endsWith('.json')) {
+    try { entries = JSON.parse(content) } catch {
+      throw new CliError({ code: 'VALIDATION_ERROR', message: 'Competitor import must contain a JSON array of domains or { domain, aliases } entries', details: { filePath } })
+    }
+  } else {
+    entries = content.split(/\r?\n/).map(line => line.trim()).filter(line => line && !line.startsWith('#')).map(line => {
+      const [domain, ...aliases] = line.split(',').map(value => value.trim())
+      return aliases.length ? { domain, aliases } : domain
+    })
+  }
+  const parsed = competitorAppendRequestSchema.shape.competitors.safeParse(entries)
+  if (!parsed.success) {
+    throw new CliError({ code: 'VALIDATION_ERROR', message: 'Invalid competitor import entries', details: { filePath, issues: parsed.error.issues } })
+  }
+  const client = getClient()
+  const existing = new Set((await client.listCompetitors(project)).map(row => normalizeCompetitorDomain(row.domain)))
+  const requested = new Set(parsed.data.map(entry => normalizeCompetitorDomain(typeof entry === 'string' ? entry : entry.domain)))
+  const current = completion.acknowledgeBulkAdd
+    ? await client.appendCompetitors(project, parsed.data, { acknowledgeBulkAdd: true })
+    : await client.appendCompetitors(project, parsed.data)
+  await waitForCompetitorFields(client, project, timeout)
+  const domains = current.map(row => row.domain)
+  const addedDomains = domains.filter(domain => {
+    const normalized = normalizeCompetitorDomain(domain)
+    return requested.has(normalized) && !existing.has(normalized)
+  })
+  const result = { project, domains, addedDomains, addedCount: addedDomains.length }
+  if (format === 'jsonl') emitJsonl([result])
+  else if (format === 'json') console.log(JSON.stringify(result, null, 2))
+  else console.log(`Imported ${addedDomains.length} new competitor(s) to "${project}".`)
 }
 
 /**
  * `canonry competitor add`. With `aliases` (one domain only), the names are
  * added to that competitor's curated alias list, tracked already or not.
  */
-export async function addCompetitors(project: string, domains: string[], format?: string, aliases: string[] = []): Promise<void> {
+export async function addCompetitors(project: string, domains: string[], format?: string, aliases: string[] = [], dryRun = false, completion: CompetitorCompletionOptions = {}): Promise<void> {
+  const timeout = completionTimeout(completion, dryRun)
   const client = getClient()
+  if (dryRun) {
+    const preview = await client.previewCompetitorChange(project, { change: CompetitorChangeKinds.add, competitors: aliases.length ? [{ domain: domains[0]!, aliases }] : domains })
+    if (isMachineFormat(format)) console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2))
+    else printCompetitorPreviewImpact(preview.impact, preview)
+    return
+  }
   const existing = await client.listCompetitors(project)
   const existingDomains = existing.map(c => c.domain)
   const existingSet = new Set(existingDomains)
   // Compare in the stored (registrable) form, so `www.rival.example` counts as
   // the `rival.example` row it creates.
   const requested = new Set(uniqueStrings(domains).map(domain => normalizeCompetitorDomain(domain.trim())))
-  const current = await client.appendCompetitors(
-    project,
-    aliases.length > 0 ? domains.map(domain => ({ domain, aliases })) : domains,
-  )
+  const entries = aliases.length > 0 ? domains.map(domain => ({ domain, aliases })) : domains
+  const current = completion.acknowledgeBulkAdd
+    ? await client.appendCompetitors(project, entries, { acknowledgeBulkAdd: true })
+    : await client.appendCompetitors(project, entries)
+  await waitForCompetitorFields(client, project, timeout)
   const currentDomains = current.map(c => c.domain)
   const addedDomains = currentDomains.filter(domain => requested.has(domain) && !existingSet.has(domain))
   const aliasTarget = aliases.length > 0 ? normalizeCompetitorDomain(domains[0]!.trim()) : null
@@ -79,7 +209,7 @@ function sameAliasName(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase()
 }
 
-export interface CompetitorAliasesOptions {
+export interface CompetitorAliasesOptions extends CompetitorCompletionOptions {
   /** Replace the list exactly. */
   set?: string[]
   /** Append names. */
@@ -92,6 +222,8 @@ export interface CompetitorAliasesOptions {
   block?: string[]
   /** Release blocked names back to auto-detection. */
   unblock?: string[]
+  /** Preview the resulting alias identity and share impact without writing. */
+  dryRun?: boolean
   format?: string
 }
 
@@ -105,8 +237,49 @@ export interface CompetitorAliasesOptions {
  * idempotent (an unchanged list writes nothing server-side).
  */
 export async function competitorAliases(project: string, domain: string, options: CompetitorAliasesOptions): Promise<void> {
+  const timeout = completionTimeout(options, options.dryRun)
+  if (options.wait && !options.set && !options.clear && !options.add && !options.remove && !options.block && !options.unblock) {
+    throw usageError('--wait requires an alias change')
+  }
   const client = getClient()
+  if (options.dryRun && (options.block !== undefined || options.unblock !== undefined)) {
+    throw new CliError({
+      code: 'VALIDATION_ERROR',
+      message: '--dry-run previews curated alias changes only; block and unblock are answer-derived detection controls',
+      displayMessage: 'Error: --dry-run cannot preview --block or --unblock. Use competitor aliases detect for a read-only detection preview.',
+      details: { project, domain },
+    })
+  }
   let result: CompetitorDto
+  if (options.dryRun) {
+    const target = normalizeCompetitorDomain(domain.trim())
+    const matches = (await client.listCompetitors(project)).filter(c => normalizeCompetitorDomain(c.domain) === target)
+    const current = matches.at(0)
+    if (!current) {
+      throw new CliError({
+        code: 'NOT_FOUND',
+        message: `Competitor "${target}" is not tracked by project "${project}"`,
+        displayMessage: `Error: competitor "${target}" is not a project competitor of "${project}".`,
+        details: { project, domain: target },
+      })
+    }
+    const currentAliases = storedAliases(current)
+    const nextAliases = options.set !== undefined || options.clear === true
+      ? (options.clear ? [] : options.set ?? [])
+      : [
+          ...currentAliases.filter(alias => !((options.remove ?? []).some(name => sameAliasName(name, alias)))),
+          ...(options.add ?? []),
+        ]
+    const preview = await client.previewCompetitorChange(project, {
+      change: CompetitorChangeKinds.aliases,
+      domain: current.domain,
+      aliases: nextAliases,
+      mode: 'set',
+    })
+    if (isMachineFormat(options.format)) console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2))
+    else printCompetitorPreviewImpact(preview.impact, preview)
+    return
+  }
   if (options.block !== undefined) {
     result = await client.blockCompetitorAliases(project, domain, options.block)
   } else if (options.unblock !== undefined) {
@@ -167,6 +340,7 @@ export async function competitorAliases(project: string, domain: string, options
     }
   }
 
+  await waitForCompetitorFields(client, project, timeout)
   if (isMachineFormat(options.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
@@ -211,6 +385,8 @@ function printCompetitorNames(competitor: CompetitorDto): void {
 export interface CompetitorAutoAliasDetectOptions {
   /** Store the result now instead of a dry run. */
   apply?: boolean
+  /** Keep the explicit no-write form clear when paired with --apply. */
+  dryRun?: boolean
   format?: string
 }
 
@@ -230,6 +406,14 @@ const CANDIDATE_MARKS: Record<CompetitorAutoAliasCandidate['status'], string> = 
  */
 export async function detectCompetitorAutoAliases(project: string, options: CompetitorAutoAliasDetectOptions): Promise<void> {
   const client = getClient()
+  if (options.dryRun && options.apply) {
+    throw new CliError({
+      code: 'VALIDATION_ERROR',
+      message: '--dry-run and --apply cannot be combined',
+      displayMessage: 'Error: --dry-run and --apply cannot be combined.',
+      details: { project },
+    })
+  }
   const result: CompetitorAutoAliasDetectionDto = options.apply
     ? await client.applyCompetitorAutoAliases(project)
     : await client.previewCompetitorAutoAliases(project)
@@ -250,6 +434,7 @@ export async function detectCompetitorAutoAliases(project: string, options: Comp
   console.log(`Scanned ${scan.runs} runs, ${scan.snapshots} snapshots, ${scan.answers} answers (newest ${scan.maxRuns} runs, up to ${scan.maxSnapshots} snapshots; provider citations ${scan.providerCitations ? 'read' : 'unavailable, answer-text pairings only'})`)
   console.log(`Applies a name paired with the site in ${thresholds.minDirectPairs}+ answers over ${thresholds.minRuns}+ sweeps, named in ${thresholds.minNamingAnswers}+ answers, precision ${formatPercent(thresholds.minPrecision, RatioUnits.fraction)}+, cited ${thresholds.minLift}x+ more often when named than otherwise, written as a name in ${formatPercent(thresholds.minNameCasedShare, RatioUnits.fraction)}+ of them, ${thresholds.dominanceMultiple}x any other competitor's pairings, ${thresholds.minKeyLength}+ letters or digits, and visibly tied to the domain`)
   console.log('Legend: + added  = kept  - removed  ? review only  x rejected')
+  if (result.impact) printCompetitorPreviewImpact(result.impact)
   if (result.competitors.length === 0) {
     console.log(`\nNo competitors tracked for "${result.project}".`)
     return
@@ -273,8 +458,14 @@ export async function detectCompetitorAutoAliases(project: string, options: Comp
   }
 }
 
-export async function removeCompetitors(project: string, domains: string[], format?: string): Promise<void> {
+export async function removeCompetitors(project: string, domains: string[], format?: string, dryRun = false): Promise<void> {
   const client = getClient()
+  if (dryRun) {
+    const preview = await client.previewCompetitorChange(project, { change: CompetitorChangeKinds.remove, competitors: domains })
+    if (isMachineFormat(format)) console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2))
+    else printCompetitorPreviewImpact(preview.impact, preview)
+    return
+  }
   const existing = await client.listCompetitors(project)
   const existingDomains = existing.map(c => c.domain)
   // The server removes every stored row that is a requested competitor in any
@@ -373,6 +564,52 @@ export async function showCompetitorLandscape(project: string, options: Competit
   printCompetitorLandscape(data)
 }
 
+export interface CompetitorSuggestionsOptions extends CompetitorSuggestionsQuery {
+  format?: string
+}
+
+/** `canonry competitor suggest`: rank stored, answer-grounded competitor candidates. */
+export async function suggestCompetitors(project: string, options: CompetitorSuggestionsOptions = {}): Promise<void> {
+  const client = getClient()
+  const data = await client.suggestCompetitors(project, {
+    window: options.window,
+    minAnswers: options.minAnswers,
+    queryClass: options.queryClass,
+    groupKey: options.groupKey,
+    limit: options.limit,
+  })
+
+  if (options.format === 'json') {
+    console.log(JSON.stringify(data, null, 2))
+    return
+  }
+  if (options.format === 'jsonl') {
+    emitJsonl(data.candidates.map(candidate => ({
+      project: data.project,
+      window: data.window,
+      filters: data.filters,
+      ...candidate,
+    })))
+    return
+  }
+  printCompetitorSuggestions(data)
+}
+
+function printCompetitorSuggestions(data: CompetitorSuggestionsResponse): void {
+  console.log(`Competitor suggestions for "${data.project}" (${data.window})`)
+  const population = data.filters.queryClass === 'all' ? 'pooled (all)' : data.filters.queryClass
+  console.log(`Counting ${population} queries, requiring ${data.thresholds.minAnswers} answer(s).`)
+  if (data.candidates.length === 0) {
+    console.log('No stored candidates met the threshold.')
+  } else {
+    for (const candidate of data.candidates) {
+      const names = candidate.names.length > 0 ? `; names: ${candidate.names.map(name => `${name.name} (${name.answerCount})`).join(', ')}` : ''
+      console.log(`  ${candidate.domain}  ${candidate.status}, named in ${candidate.namingAnswers} answer(s), cited in ${candidate.citingAnswers}, both in ${candidate.bothAnswers}, paired in ${candidate.pairedAnswers}${candidate.reason ? `; reason: ${candidate.reason}` : ''}${names}`)
+    }
+  }
+  console.log(`Evidence: ${data.evidence.answeredResults} answer(s), ${data.evidence.sourceResults} source result(s), ${data.runCount} sweep(s).`)
+}
+
 function printCompetitorLandscape(data: CompetitorLandscapeResponse): void {
   const scope = data.scope.kind === 'group'
     ? `market ${data.scope.groupKey}`
@@ -388,6 +625,13 @@ function printCompetitorLandscape(data: CompetitorLandscapeResponse): void {
       : `Counting ${data.filters.queryClass} queries only.`,
   )
   if (data.reason) console.log(shareOfVoiceReason(data.reason))
+  const changedAt = [data.competitorSetChangedAt, data.competitorIdentityChangedAt]
+    .filter((value): value is string => value !== null && value !== undefined)
+    .sort()
+    .at(-1)
+  if (changedAt && data.competitorListRestated === true) {
+    console.log(`Competitor list changed ${changedAt}: earlier periods were restated`)
+  }
   if (data.truncated) console.log('Top 100 observed competitors and top 100 other cited sources shown; pinned competitors are complete.')
   console.log('')
   printLandscapeRows('Your brand', [data.project], false, data, data.filters.queryClass)

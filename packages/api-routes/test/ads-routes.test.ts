@@ -23,6 +23,7 @@ import {
 import { adsRoutes } from '../src/ads.js'
 import type { AdsConnectionConfigEntryLike, AdsOperator, AdsReader, VerifiedAdsAccount } from '../src/ads.js'
 import type { AdsOperatorEntityResult } from '../src/ads.js'
+import type { OutcomeTelemetryInput } from '../src/outcome-telemetry.js'
 
 const NOW = '2026-06-10T00:00:00.000Z'
 
@@ -80,6 +81,8 @@ function buildApp(overrides: {
 
   const app = Fastify()
   app.decorate('db', db)
+  const outcomes: OutcomeTelemetryInput[] = []
+  app.decorate('emitOutcome', (event: OutcomeTelemetryInput) => { outcomes.push(event) })
   if (overrides.scopes) {
     app.addHook('onRequest', async (request) => {
       request.apiKey = { id: 'key_test', name: 'test', scopes: overrides.scopes! }
@@ -343,7 +346,7 @@ function buildApp(overrides: {
   }
 
   return {
-    app, db, tmpDir, configConnections, syncRequests, operatorCalls, readerCalls, verificationCalls,
+    app, db, tmpDir, configConnections, syncRequests, operatorCalls, readerCalls, verificationCalls, outcomes,
     seedProject, seedConnection, seedSnapshots, seedInsights,
   }
 }
@@ -2993,5 +2996,122 @@ describe('ads routes', () => {
   it('404s for an unknown project', async () => {
     const res = await ctx.app.inject({ method: 'GET', url: '/projects/nope/ads/status' })
     expect(res.statusCode).toBe(404)
+  })
+})
+
+describe('ads outcome telemetry', () => {
+  let ctx: ReturnType<typeof buildApp>
+
+  async function start(overrides: Parameters<typeof buildApp>[0] = {}) {
+    ctx = buildApp(overrides)
+    await ctx.app.ready()
+    ctx.seedConnection(ctx.seedProject())
+  }
+
+  afterEach(async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+  })
+
+  const campaign = (operationKey: string) => ({
+    method: 'POST' as const, url: '/projects/acme/ads/campaigns',
+    payload: { operationKey, name: 'AEO Audit Lead Generation', lifetimeSpendLimitMicros: 25_000_000, locationIds: ['1000232'] },
+  })
+  const reconcile = (operationKey: string) => ({
+    method: 'POST' as const, url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+  })
+  const of = (operation: string) => ctx.outcomes
+    .filter((event) => event.properties.operation === operation)
+    .map((event) => event.properties)
+
+  it('reports a mutation once, nothing for its replay, and a reused key with another payload as a validation refusal', async () => {
+    await start()
+    await ctx.app.inject(campaign('outcome:create'))
+    await ctx.app.inject(campaign('outcome:create'))
+    const conflict = await ctx.app.inject({ ...campaign('outcome:create'), payload: { ...campaign('outcome:create').payload, name: 'Other' } })
+
+    expect(conflict.statusCode).toBe(409)
+    expect(ctx.outcomes).toEqual([
+      { event: 'feature.completed', properties: { feature: 'openai_ads', operation: 'operation', status: 'succeeded', durationBucket: 'under_1s' } },
+      { event: 'feature.completed', properties: { feature: 'openai_ads', operation: 'operation', status: 'failed', reasonCode: 'VALIDATION', durationBucket: 'under_1s' } },
+    ])
+  })
+
+  it('reports a mutation whose outcome could not be confirmed as partial', async () => {
+    await start({ operatorShouldFail: true })
+    const res = await ctx.app.inject(campaign('outcome:unknown'))
+
+    expect(res.statusCode).toBe(502)
+    expect(of('operation')).toEqual([
+      { feature: 'openai_ads', operation: 'operation', status: 'partial', reasonCode: 'UNKNOWN', errorName: 'Error', durationBucket: 'under_1s' },
+    ])
+  })
+
+  it('reports a write the preflight refused before any receipt', async () => {
+    await start({ currentStatus: 'active' })
+    const res = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_live',
+      payload: { operationKey: 'outcome:update-active', expectedUpdatedAt: 123, name: 'Renamed' },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(of('operation')).toEqual([
+      { feature: 'openai_ads', operation: 'operation', status: 'failed', reasonCode: 'VALIDATION', errorName: 'AppError', durationBucket: 'under_1s' },
+    ])
+  })
+
+  it('reports reconciliation: resolved by a direct read, refused inside the idle window', async () => {
+    await start({ currentEntity: {
+      name: 'AEO Audit Lead Generation', description: null, startTime: null, endTime: null, lifetimeSpendLimitMicros: 25_000_000,
+      locationIds: ['1000232'], biddingType: 'impressions', conversionEventSettingIds: null,
+    } })
+    await ctx.app.inject(campaign('outcome:reconcile'))
+    ctx.db.update(adsOperations).set({ state: 'unknown', errorCode: 'upstream_error' })
+      .where(eq(adsOperations.operationKey, 'outcome:reconcile')).run()
+    await ctx.app.inject(reconcile('outcome:reconcile'))
+    await ctx.app.inject(campaign('outcome:in-flight'))
+    ctx.db.update(adsOperations).set({ state: 'pending', updatedAt: new Date().toISOString() })
+      .where(eq(adsOperations.operationKey, 'outcome:in-flight')).run()
+    const refused = await ctx.app.inject(reconcile('outcome:in-flight'))
+
+    expect(refused.statusCode).toBe(409)
+    expect(of('reconcile')).toEqual([
+      { feature: 'openai_ads', operation: 'reconcile', status: 'succeeded', durationBucket: 'under_1s' },
+      { feature: 'openai_ads', operation: 'reconcile', status: 'skipped', reasonCode: 'OPERATION_IN_PROGRESS', durationBucket: 'under_1s' },
+    ])
+  })
+
+  it('reports an inconclusive read, the attempt that quarantines a receipt, and a later request against it', async () => {
+    await start({ currentStatus: 'active', adsReconcileMaxAttempts: 2 })
+    await ctx.app.inject({ method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_never_matches/pause', payload: { operationKey: 'outcome:quarantine' } })
+    ctx.db.update(adsOperations).set({ state: 'unknown', errorCode: 'upstream_error' })
+      .where(eq(adsOperations.operationKey, 'outcome:quarantine')).run()
+    await ctx.app.inject(reconcile('outcome:quarantine'))
+    await ctx.app.inject(reconcile('outcome:quarantine'))
+    await ctx.app.inject(reconcile('outcome:quarantine'))
+
+    expect(ctx.db.select().from(adsOperations).where(eq(adsOperations.operationKey, 'outcome:quarantine')).get())
+      .toMatchObject({ state: 'unknown', reconcileAttempts: 2, errorCode: 'ADS_RECONCILIATION_QUARANTINED' })
+    expect(of('reconcile')).toEqual([
+      { feature: 'openai_ads', operation: 'reconcile', status: 'failed', reasonCode: 'UNKNOWN', durationBucket: 'under_1s' },
+      { feature: 'openai_ads', operation: 'reconcile', status: 'failed', reasonCode: 'QUARANTINED', durationBucket: 'under_1s' },
+      { feature: 'openai_ads', operation: 'reconcile', status: 'skipped', reasonCode: 'QUARANTINED', durationBucket: 'under_1s' },
+    ])
+  })
+
+  it('reports the background sweep as scheduled, including a receipt it quarantines without a read', async () => {
+    await start({ adsReconcileSweepIntervalMs: 5, adsReconcilePendingStaleMs: 1, adsReconcileMaxAttempts: 2 })
+    await ctx.app.inject({ method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_sweep/pause', payload: { operationKey: 'outcome:sweep' } })
+    await ctx.app.inject({ method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_dead/pause', payload: { operationKey: 'outcome:exhausted' } })
+    ctx.db.update(adsOperations).set({ state: 'pending', updatedAt: '2020-01-01T00:00:00.000Z' })
+      .where(eq(adsOperations.operationKey, 'outcome:sweep')).run()
+    ctx.db.update(adsOperations).set({ state: 'unknown', reconcileAttempts: 2, errorCode: 'upstream_error', updatedAt: '2020-01-01T00:00:00.000Z' })
+      .where(eq(adsOperations.operationKey, 'outcome:exhausted')).run()
+
+    await vi.waitFor(() => expect(of('reconcile')).toHaveLength(2), { timeout: 1000, interval: 5 })
+    expect(of('reconcile')).toEqual(expect.arrayContaining([
+      { feature: 'openai_ads', operation: 'reconcile', status: 'succeeded', trigger: 'scheduled', durationBucket: 'under_1s' },
+      { feature: 'openai_ads', operation: 'reconcile', status: 'failed', trigger: 'scheduled', reasonCode: 'QUARANTINED', durationBucket: 'under_1s' },
+    ]))
   })
 })

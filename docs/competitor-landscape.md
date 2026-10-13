@@ -71,6 +71,10 @@ A stored name stays until it is blocked; claimed by identity (the competitor's o
 
 Every landscape response carries `competitorIdentityChangedAt`: the newest change to the names any pin matches by (null if never). That is a change to a tracked competitor's curated or stored auto-detected names (a block counts only when it removes a stored name; an unblock only when it releases a learned market name); a detection pass that stores or removes a market-only competitor's learned names; a write that claims, releases or drops a market-only competitor's learned names (a project edit, an apply, a competitor add, alias edit, block, unblock or removal, a discovery promote, or a market pin write; all from the audit trail); and a published revision that renames a market pin the previous revision already had (from the revisions themselves). Adding or removing a competitor or a pin is a names change only when it moves a stored or learned name. Because the landscape matches by the names the project has now, that change restated every period, including ones already reported; a figure quoted before that time may differ from the same period read after it. Project-frame `visibility-compare` and the analytics metrics carry the same field, but their share of voice and mention share read only tracked competitors' names, so a pin or learned-name change moves the time without changing those figures. A scoped `visibility-compare` (a group, market or property scope, or a `marketKey`) reads frozen plan history and has no such field.
 
+Every landscape, project-frame comparison, and analytics metrics response also carries `competitorSetChangedAt`, the newest non-empty tracked competitor add, removal, replacement, or discovery promotion. Older replacement audit rows without `added` and `removed` arrays count conservatively. An identical replacement carries empty arrays and does not move the marker. Landscape responses include the optional server-computed `competitorListRestated` flag. It is true only when either change marker is newer than the oldest counted run after every requested window, run, provider, model, group, location, query-class, and probe filter has been applied. The CLI uses this exact flag and makes no second run-list request. The field is absent on scoped comparisons, which read frozen plan history. The human CLI prints `Competitor list changed <timestamp>: earlier periods were restated` when the flag is true.
+
+The tracked set marker covers the project tracked competitor set and its audit history. Changes to an Advanced market's frozen pin set are excluded because those changes belong to the market revision boundary. Deleting and later re-adding a domain creates a new set change; the marker has no historical backfill and its interpretation after that reset follows the stored audit history.
+
 Draft-only market pins appear in `marketState.draft.pendingCompetitorDomains`.
 Project pins and active or pending-draft market competitors express current operator intent. They reinterpret selected stored history.
 Historical-only identities and aliases match only answers from runs that used their frozen revision.
@@ -103,6 +107,16 @@ canonry competitor landscape <project> --scope all-markets --query-class non-bra
 ```
 
 The read-only MCP equivalent is `canonry_competitor_landscape`. Advanced market pinning uses the revision-guarded draft action endpoint. MCP agents can use the generic measurement-draft action workflow.
+
+## Stored competitor suggestions
+
+`GET /api/v1/projects/{name}/competitor-suggestions` ranks possible direct competitors from stored answer text and source lists. It defaults to the 30-day window, a three-answer naming floor, and non-brand queries when the project has a usable brand identity. A Simple project without a usable brand alias falls back to `queryClass=all`; an explicit branded or non-brand filter then returns a validation error. Advanced projects default to all markets and use frozen assignment classes, including when the project has no usable brand alias. `groupKey` selects one market.
+
+```bash
+canonry competitor suggest <project> --window 30d --min-answers 3 --query-class non-brand --format json
+```
+
+The result keeps naming and citation counts separate, pairs a name with a domain only through the canonical answer matcher and stored answer anchors, excludes cited-only domains, own sites, listing and marketplace surfaces, probes, and failed runs, and includes at most three sample URLs per candidate. `candidates[].status` is `suggested`, `tracked`, or `excluded`; `reason` explains an excluded candidate. `evidence`, `runIds`, `countUnits`, and `truncated` describe the denominator. This read performs no provider, classifier, discovery, or write operation. The exact read refuses with `VALIDATION_ERROR` when the eligible population exceeds 10,000 answer rows instead of sampling; narrow `--window` or use `--group-key` for one Advanced market. The MCP equivalent is `canonry_competitors_suggest`.
 
 ## Optional model comparison for agents
 
@@ -172,3 +186,19 @@ The web table displays stored sample URLs for the selected window. It does not l
 ## Shared readers
 
 `visibility-stats --share-of-voice` uses this landscape reader and comparison policy. Its existing run windows still apply. Simple visibility stats retain the current tracked-query basket. Advanced portfolio stats select all markets through frozen execution/Target assignments. Their query classes remain fixed even when query text suggests another class. Branded and non-brand shares retain separate denominators. Overview and trend mention-share instruments retain their explicitly tracked comparison sets.
+
+## Previewing competitor changes
+
+`POST /api/v1/projects/{name}/competitor-changes/preview` uses this landscape
+reader for both stored identity and a proposed add, remove, replacement or alias
+change. It selects the latest eligible sweep, non-brand answers (pooled only
+when a Simple project has no usable brand), and all Advanced markets. The
+response names the run IDs, counts and competitor basis alongside percentages.
+Learned market names are recalculated against the hypothetical identity, just
+as they are after a real write. Nothing is persisted by the preview.
+
+The estimate is for one stored sweep; the eventual identity change restates
+all stored periods. Automatic alias detection can move an apply-mode add again.
+This instrument can differ from the overview card's population. Block/unblock,
+market pins, project identity edits, apply and discovery promotion are outside
+this preview endpoint.

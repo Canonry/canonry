@@ -461,3 +461,55 @@ describe('resolveModelForCapability: gemini proxy base URL override', () => {
     })
   })
 })
+
+describe('resolveModelForCapability: zai proxy base URL override', () => {
+  const PRIOR = process.env.ZAI_BASE_URL
+  function withZaiBaseUrl<T>(value: string | undefined, fn: () => T): T {
+    if (value === undefined) delete process.env.ZAI_BASE_URL
+    else process.env.ZAI_BASE_URL = value
+    try {
+      return fn()
+    } finally {
+      if (PRIOR === undefined) delete process.env.ZAI_BASE_URL
+      else process.env.ZAI_BASE_URL = PRIOR
+    }
+  }
+  const baseUrlOf = (m: unknown) => (m as { baseUrl?: string }).baseUrl
+  const zaiAgentId = PROVIDER_MODELS.zai[LlmCapabilities.agent]
+
+  it('repoints the zai agent model at ZAI_BASE_URL (no /v1beta juggling)', () => {
+    withZaiBaseUrl('http://172.17.0.1:4610/zai', () => {
+      const model = resolveModelForCapability('zai', LlmCapabilities.agent)
+      expect(baseUrlOf(model)).toBe('http://172.17.0.1:4610/zai')
+    })
+  })
+
+  it('trims a trailing slash', () => {
+    withZaiBaseUrl('http://host/zai/', () => {
+      expect(baseUrlOf(resolveModelForCapability('zai', LlmCapabilities.agent))).toBe('http://host/zai')
+    })
+  })
+
+  it('never mutates the shared pi-ai registry Model (clones, not in place)', () => {
+    const before = baseUrlOf(aeroModels.getModel('zai', zaiAgentId))
+    withZaiBaseUrl('http://172.17.0.1:4610/zai', () => {
+      resolveModelForCapability('zai', LlmCapabilities.agent)
+    })
+    const after = baseUrlOf(aeroModels.getModel('zai', zaiAgentId))
+    expect(after).toBe(before)
+    expect(after ?? '').not.toContain('172.17.0.1')
+  })
+
+  it('leaves the default z.ai host untouched when ZAI_BASE_URL is unset', () => {
+    withZaiBaseUrl(undefined, () => {
+      const fromRegistry = baseUrlOf(aeroModels.getModel('zai', zaiAgentId))
+      expect(baseUrlOf(resolveModelForCapability('zai', LlmCapabilities.agent))).toBe(fromRegistry)
+    })
+  })
+
+  it('does not redirect other native providers (gemini) when only ZAI_BASE_URL is set', () => {
+    withZaiBaseUrl('http://172.17.0.1:4610/zai', () => {
+      expect(baseUrlOf(resolveModelForCapability('gemini', LlmCapabilities.agent)) ?? '').not.toContain('172.17.0.1')
+    })
+  })
+})

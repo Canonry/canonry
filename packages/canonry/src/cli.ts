@@ -1,4 +1,5 @@
 #!/usr/bin/env node --import tsx
+import { printCliCatalog } from './cli-catalog.js'
 import { pathToFileURL } from 'node:url'
 import {
   trackEvent,
@@ -14,74 +15,17 @@ import { buildSetupState } from './setup-state.js'
 import { cliRuntimeContext } from './runtime-context.js'
 import type { CliFormat } from './cli-error.js'
 import { CliError, EXIT_SYSTEM_ERROR, printCliError, usageError } from './cli-error.js'
-import { dispatchRegisteredCommand } from './cli-dispatch.js'
+import { accessFilterFromArgs, dispatchRegisteredCommand } from './cli-dispatch.js'
 import type { CliCommandSpec } from './cli-dispatch.js'
 import { REGISTERED_CLI_COMMANDS } from './cli-commands.js'
+import { resolveCliAccess } from './cli-access.js'
+import { OperationAccesses } from '@ainyc/canonry-contracts'
 import { checkLatestVersionForCli, formatUpdateNotice, notePrintedUpdateAvailable, readCachedUpdateAvailable } from './update-check.js'
 import { buildSetupNudgeLine } from './setup-nudge.js'
 import { consumePendingServeHandoff } from './commands/init.js'
 import { serveCommand } from './commands/serve.js'
 
-const USAGE = `
-cnry — Page Health and AI visibility CLI   ('canonry' also works)
 
-Usage:  cnry <command> [options]
-
-Setup:
-  bootstrap             Create local config/database (no provider required)
-  serve                 Start the local server (foreground)
-  demo                  Serve a public view-only sample dashboard
-  start / stop          Start/stop as a background daemon
-  init                  Optional interactive provider/OAuth provisioning
-  skills                List or install bundled agent skills (claude/codex)
-
-Page Health:
-  technical-aeo         Crawl, score, and inspect site health evidence
-  doctor                Diagnose runtime and integration health
-
-Projects:
-  project               Create, update, list, show, delete projects
-  query                 Add, replace, remove, list, import, generate queries
-  competitor            Add, remove, list competitors and their aliases
-
-Monitoring:
-  run                   Trigger visibility sweeps
-  snapshot              One-shot AI perception report
-  status <project>      Show project summary
-  evidence <project>    Show per-query results
-  analytics <project>   Show analytics (metrics, gaps, sources)
-  organic-evidence      Reconcile 60/90d search, GA4, and server AI evidence
-  insights <project>    Show intelligence insights
-  health <project>      Show citation health
-
-Config-as-Code:
-  apply <file...>       Apply declarative config (YAML)
-  export <project>      Export project as YAML
-
-Integrations:
-  google                Google Search Console / Analytics
-  bing                  Bing Webmaster Tools
-  wordpress             WordPress REST API
-  traffic               Server-side traffic ingestion (Cloud Run)
-
-Automation:
-  schedule              Manage scheduled runs
-  notify                Manage webhook notifications
-
-Admin:
-  settings              Show/update provider and quota settings
-  backfill              Backfill answer visibility or insights
-  telemetry             Manage anonymous telemetry
-  history <project>     Show audit trail
-
-Global options:
-  --format json         Machine-readable output: one JSON document (all commands)
-  --format jsonl        Machine-readable output: one record per line, no jq needed
-  --help, -h            Show help (use with any command group)
-  --version, -v         Show version
-
-Run 'cnry <command> --help' for details on a specific command.
-`.trim()
 
 import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
@@ -90,10 +34,55 @@ const { version: VERSION } = _require('../package.json') as { version: string }
 /** Extract --format flag from args. Returns 'json', 'jsonl', or 'text' (default). */
 function extractFormat(cmdArgs: string[]): CliFormat {
   const idx = cmdArgs.indexOf('--format')
-  const value = idx !== -1 ? cmdArgs[idx + 1] : undefined
+  const value = idx !== -1 ? cmdArgs[idx + 1] : cmdArgs.find(arg => arg.startsWith('--format='))?.slice('--format='.length)
   if (value === 'json') return 'json'
   if (value === 'jsonl') return 'jsonl'
   return 'text'
+}
+
+/** Move global flags placed before the command to the position the dispatcher parses. */
+function normalizeLeadingGlobalOptions(args: readonly string[]): string[] {
+  const leading: string[] = []
+  let index = 0
+  while (index < args.length) {
+    const arg = args[index]
+    if (arg === '--stored-only' || arg === '--dry-run' || arg === '--trace') {
+      leading.push(arg)
+      index += 1
+      continue
+    }
+    if (arg === '--format' || arg === '--access') {
+      const value = args[index + 1]
+      if (value === undefined) break
+      leading.push(arg, value)
+      index += 2
+      continue
+    }
+    break
+  }
+  return leading.length === 0 ? [...args] : [...args.slice(index), ...leading]
+}
+
+function storedOnlyRequested(args: readonly string[]): boolean {
+  return args.includes('--stored-only') || ['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())
+}
+
+function storedOnlyEarlyRefusal(args: readonly string[]): CliError | null {
+  if (!storedOnlyRequested(args)) return null
+  if (args.includes('--help') || args.includes('-h') || args.includes('--version') || args.includes('-v')) return null
+  const spec = [...REGISTERED_CLI_COMMANDS]
+    .sort((a, b) => b.path.length - a.path.length)
+    .find(candidate => candidate.path.every((segment, index) => args[index] === segment))
+  if (!spec) return null
+  const access = resolveCliAccess(spec)
+  if (spec.accessFor) return null
+  if (access === OperationAccesses.stored) return null
+  return new CliError({
+    code: 'STORED_ONLY_REFUSED',
+    message: `Command "${spec.path.join(' ')}" is ${access}; --stored-only allows saved-data reads only`,
+    details: { command: spec.path.join('.'), access },
+    exitCode: 1,
+  })
 }
 
 /**
@@ -145,6 +134,7 @@ const TELEMETRY_ERROR_CODES = new Set([
   'CLI_SYSTEM_ERROR',
   'CONNECTION_ERROR',
   'UNEXPECTED_RESPONSE_FORMAT',
+  'STORED_ONLY_REFUSED',
 ])
 
 function telemetryErrorCode(err: unknown): string {
@@ -154,9 +144,17 @@ function telemetryErrorCode(err: unknown): string {
 }
 
 export async function runCli(args = process.argv.slice(2)): Promise<number> {
+  args = normalizeLeadingGlobalOptions(args)
+  const storedOnlyMode = storedOnlyRequested(args)
+  const format = extractFormat(args)
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
-    console.log(USAGE)
-    return 0
+    try {
+      printCliCatalog(REGISTERED_CLI_COMMANDS, format, undefined, accessFilterFromArgs(args))
+      return 0
+    } catch (error) {
+      printCliError(error, format)
+      return error instanceof CliError ? error.exitCode : EXIT_SYSTEM_ERROR
+    }
   }
 
   if (args.includes('--version') || args.includes('-v')) {
@@ -164,8 +162,23 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
     return 0
   }
 
+  const earlyRefusal = storedOnlyEarlyRefusal(args)
+  if (earlyRefusal) {
+    printCliError(earlyRefusal, format)
+    return earlyRefusal.exitCode
+  }
+
   const command = args[0]!
-  const format = extractFormat(args)
+  const isHelpRequest = command === 'help' || args.includes('--help') || args.includes('-h')
+  if (isHelpRequest) {
+    try {
+      if (!await dispatchRegisteredCommand(args, format, REGISTERED_CLI_COMMANDS)) throw usageError(`Unknown command group: ${command}`)
+      return 0
+    } catch (error) {
+      printCliError(error, format)
+      return error instanceof CliError ? error.exitCode : EXIT_SYSTEM_ERROR
+    }
+  }
 
   // Demo startup must not read a personal config, send telemetry, refresh
   // installed skills, or start an update check on the hosting machine.
@@ -180,18 +193,18 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   }
 
   // Skip telemetry entirely for help requests — the user is just reading usage
-  const isHelpRequest = args.includes('--help') || args.includes('-h')
 
   // First-run telemetry notice (shown once, to stderr).
   // Skip for the `telemetry` command itself — the user may be about to disable it,
   // and we should not create an anonymousId before they get the chance to opt out.
-  if (!isHelpRequest && command !== 'telemetry' && command !== 'init' && isTelemetryEnabled() && isFirstRun()) {
+  if (!storedOnlyMode && !isHelpRequest && command !== 'telemetry' && command !== 'init' && isTelemetryEnabled() && isFirstRun()) {
     showFirstRunNotice()
     getOrCreateAnonymousId()
   }
 
   const resolvedCommand = resolveCommandIdentifier(args, REGISTERED_CLI_COMMANDS)
   const shouldTrackCommand =
+    !storedOnlyMode &&
     !isHelpRequest &&
     command !== 'telemetry' &&
     isTelemetryEnabled()
@@ -208,10 +221,12 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   // correctness behaviour, and tying it to an analytics opt-in would give the
   // users who opt out a quietly worse product. Never throws, never overwrites a
   // local edit, and prints only when it left one alone.
-  void autoSyncSkills().then((result) => {
-    const notice = formatAutoSyncNotice(result)
-    if (notice && process.stderr.isTTY) console.error(notice)
-  })
+  if (!storedOnlyMode) {
+    void autoSyncSkills().then((result) => {
+      const notice = formatAutoSyncNotice(result)
+      if (notice && process.stderr.isTTY) console.error(notice)
+    })
+  }
 
   if (shouldTrackCommandStart) {
     // Emit `cli.upgraded` once per version bump, before `cli.command`, so
@@ -233,7 +248,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   // the 24h TTL live in `update-check.ts`. The shape follows the caller:
   // banner on a terminal, one plain line when captured, one JSON line for
   // `--format json|jsonl`.
-  if (!isHelpRequest && command !== 'telemetry') {
+  if (!storedOnlyMode && !isHelpRequest && command !== 'telemetry') {
     const update = readCachedUpdateAvailable()
     notePrintedUpdateAvailable(update)
     if (update) {
@@ -258,13 +273,15 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
       // guidance, not measurement), but LAZY about reading state: control
       // commands and non-interactive runs outside the Page Health handoff must
       // not touch config or the database, and the nudge's own gates guarantee that.
-      const nudge = buildSetupNudgeLine({
-        command: resolvedCommand,
-        format,
-        stderrIsTTY: Boolean(process.stderr.isTTY),
-        getSetupState: buildSetupState,
-      })
-      if (nudge) process.stderr.write(nudge)
+      if (!storedOnlyMode) {
+        const nudge = buildSetupNudgeLine({
+          command: resolvedCommand,
+          format,
+          stderrIsTTY: Boolean(process.stderr.isTTY),
+          getSetupState: buildSetupState,
+        })
+        if (nudge) process.stderr.write(nudge)
+      }
       // Init's dashboard handoff, honored only after init's own lifecycle
       // event is on the wire so serve's unbounded runtime cannot pollute
       // init's duration bucket.

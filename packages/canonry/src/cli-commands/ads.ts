@@ -370,6 +370,7 @@ export const ADS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ads', 'insights'],
+    windowAliases: { start: 'from', end: 'to' },
     usage: 'canonry ads insights <project> [--level campaign|ad_group] [--entity <id>] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--format json|jsonl]',
     options: {
       level: stringOption(),
@@ -382,8 +383,8 @@ export const ADS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       await adsInsights(project, {
         level: getString(input.values, 'level'),
         entity: getString(input.values, 'entity'),
-        from: getString(input.values, 'from'),
-        to: getString(input.values, 'to'),
+        from: getString(input.values, 'start') ?? getString(input.values, 'from'),
+        to: getString(input.values, 'end') ?? getString(input.values, 'to'),
         format: input.format,
       })
     },

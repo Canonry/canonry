@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
+import { eq } from 'drizzle-orm'
 import { expect, test } from 'vitest'
 import { ADS_ACTIVATE_SCOPE, ADS_APPROVE_SCOPE, ADS_WRITE_SCOPE } from '@ainyc/canonry-contracts'
 import { createClient, migrate, apiKeys, notifications, projects } from '@ainyc/canonry-db'
@@ -496,6 +497,73 @@ test('notification APIs and history redact webhook secrets while keeping stored 
     expect(historyRes.body).not.toContain('secret-token')
     expect(historyRes.body).not.toContain('super-secret')
     expect(historyRes.body).toContain('8.8.8.8/redacted')
+  } finally {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('PATCH project authority uses real read, project scope, and settings.write gates', async () => {
+  const { app, db, tmpDir } = buildApp({
+    providerAdapters: [{
+      name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true,
+      defaultModel: 'gpt-test', knownModels: [], modelValidationPattern: /./, modelValidationHint: 'any model',
+    }],
+  })
+  const rootRaw = insertApiKey(db)
+  await app.ready()
+  try {
+    const created = await app.inject({
+      method: 'PUT', url: '/api/v1/projects/patch-auth-a', headers: { authorization: `Bearer ${rootRaw}` },
+      payload: { displayName: 'Patch Auth A', canonicalDomain: 'patch-auth-a.example', country: 'US', language: 'en', providers: ['openai'] },
+    })
+    expect(created.statusCode).toBe(201)
+    const projectA = db.select().from(projects).where(eq(projects.name, 'patch-auth-a')).get()!
+    await app.inject({
+      method: 'PUT', url: '/api/v1/projects/patch-auth-b', headers: { authorization: `Bearer ${rootRaw}` },
+      payload: { displayName: 'Patch Auth B', canonicalDomain: 'patch-auth-b.example', country: 'US', language: 'en', providers: ['openai'] },
+    })
+    const projectB = db.select().from(projects).where(eq(projects.name, 'patch-auth-b')).get()!
+
+    function scopedKey(name: string, scopes: string[], projectId: string): string {
+      const raw = `cnry_${crypto.randomBytes(16).toString('hex')}`
+      db.insert(apiKeys).values({
+        id: crypto.randomUUID(), name, keyHash: crypto.createHash('sha256').update(raw).digest('hex'),
+        keyPrefix: raw.slice(0, 9), scopes, projectId, createdAt: new Date().toISOString(),
+      }).run()
+      return raw
+    }
+
+    const readA = scopedKey('patch-read-a', ['read'], projectA.id)
+    const writeA = scopedKey('patch-write-a', ['read', 'write'], projectA.id)
+    const settingsA = scopedKey('patch-settings-a', ['read', 'write', 'settings.write'], projectA.id)
+    const readB = scopedKey('patch-read-b', ['read'], projectB.id)
+    const bearer = (token: string) => ({ authorization: `Bearer ${token}` })
+
+    expect((await app.inject({ method: 'GET', url: '/api/v1/projects/patch-auth-a', headers: bearer(readA) })).statusCode).toBe(200)
+    expect((await app.inject({ method: 'GET', url: '/api/v1/projects/patch-auth-b', headers: bearer(readA) })).statusCode).toBe(403)
+
+    const readDenied = await app.inject({
+      method: 'PATCH', url: '/api/v1/projects/patch-auth-a', headers: bearer(readA), payload: { displayName: 'Read Denied' },
+    })
+    expect(readDenied.statusCode).toBe(403)
+
+    const settingsDenied = await app.inject({
+      method: 'PATCH', url: '/api/v1/projects/patch-auth-a', headers: bearer(writeA), payload: { providerModels: { openai: 'gpt-next' } },
+    })
+    expect(settingsDenied.statusCode).toBe(403)
+    expect(JSON.parse(settingsDenied.body).error.message).toContain('settings.write')
+
+    const scopeDenied = await app.inject({
+      method: 'PATCH', url: '/api/v1/projects/patch-auth-a', headers: bearer(readB), payload: { displayName: 'Foreign' },
+    })
+    expect(scopeDenied.statusCode).toBe(403)
+
+    const allowed = await app.inject({
+      method: 'PATCH', url: '/api/v1/projects/patch-auth-a', headers: bearer(settingsA), payload: { providerModels: { openai: 'gpt-next' } },
+    })
+    expect(allowed.statusCode).toBe(200)
+    expect(allowed.json().providerModels).toEqual({ openai: 'gpt-next' })
   } finally {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })

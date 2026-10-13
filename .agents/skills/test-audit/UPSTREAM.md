@@ -8,9 +8,11 @@ The fetched Git blob IDs pin the imported contents:
 - `CAMPAIGN.md`: `f29346bf430228deb9d1d4c03157fdbfffce7c8e`
 - `LICENSE`: `ed064819ab537575d0cad902f7e5af4a3488b1d0`
 
-`CAMPAIGN.md` is unchanged. `SKILL.md` preserves the authoring gate, audit
-patterns, value and retention bars, candidate evidence, and handoff.
-Its trigger also covers running tests. Discovery paths, validation, independent
+`SKILL.md` preserves the authoring gate, audit patterns, value and retention
+bars, candidate evidence, and handoff. `CAMPAIGN.md` preserves the campaign's
+coverage and preservation criteria. Both defer local test execution to final
+validation, including baseline and regression proof.
+The skill's trigger also covers running tests. Discovery paths, validation, independent
 review, and landing instructions use Canonry's repository rules instead of
 OpenClaw's unavailable skills and scripts.
 

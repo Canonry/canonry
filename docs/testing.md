@@ -8,17 +8,18 @@ It applies to every package and app through the root `AGENTS.md`.
 The development skill stays in `.agents/skills/`; it is separate from the
 operator skills bundled in the published Canonry plugin.
 
-For a routine run, identify the affected tests' observable contract, primary
-owner, and credible regression, then run the focused commands below. A routine
-run does not require a full audit. Before adding or changing a test, apply the
+For a routine run at final validation, identify the affected tests' observable
+contract, primary owner, and credible regression. Then run the focused commands below.
+A routine run does not require a full audit. Before adding or changing a test, apply the
 skill's authoring gate: name the behavior and failure, explain the distinct risk
 not already covered, and avoid production hooks used only by tests.
 
 For audits, keep discovery read-only and record the skill's candidate evidence
 before editing. Keep independent API, security, migration, release, and other
 contract guards. A source grep or slow test is not automatically low value.
-Prove regression repairs fail before the fix and pass afterward; a green
-baseline alone does not prove a test catches the claimed regression. Verify
+At final validation, run finalized regression tests against pre-fix and repaired code.
+Require the intended failure on pre-fix code and a passing result on repaired code.
+A green baseline alone does not prove a test catches the claimed regression. Verify
 type assertions run through a compiler gate that includes their test files.
 
 Never edit source or tests while Vitest is running in the checkout. After
@@ -64,7 +65,10 @@ Use `pnpm check --no-cache` or `pnpm lint:staged --no-cache` to bypass the cache
 
 Full type-aware lint remains uncached: edits to imported types can change diagnostics in an otherwise unchanged file.
 
-For behavior changes, run the relevant tests and package typechecks:
+During local iteration, do not run tests, test watchers, or `pnpm verify`.
+Write or update tests with the implementation.
+Defer execution until the changes are finalized and ready for push or review.
+At final validation for behavior changes, run the relevant tests and package typechecks:
 
 ```bash
 pnpm exec vitest run --project contracts
@@ -73,7 +77,8 @@ pnpm --filter @ainyc/canonry-contracts typecheck
 ```
 
 Replace the project, test path, and package with the affected scope.
-After another edit or rebase, rerun only the affected checks.
+Reuse passing results while their inputs remain unchanged.
+After another edit or rebase, defer affected checks until the changes are ready again.
 
 Generated SDK type contracts live in `packages/api-client-generated/test/*.test-d.ts`.
 Run `pnpm --filter @ainyc/canonry-api-client typecheck` to compile the SDK,
@@ -138,17 +143,20 @@ Recursive builds order the dashboard before Canonry, which reuses its output.
 
 ## Full Workspace Checks
 
-Run `pnpm verify` locally when shared runtime, contracts, dependencies, database, or authorization changes span the workspace, or when requested or reproducing a CI failure.
-This command includes generated-file drift and documentation assertions. Focused changes use affected package checks.
+`pnpm verify` is optional locally. It is not required on every commit or push.
+This command includes generated-file drift, documentation assertions, and all workspace tests, typechecks, and lint.
+Local agents use affected package checks at final validation, including dependent packages for changes that span the workspace.
+Full workspace checks run in contributor CI. A requested full check or CI failure reproduction can use `pnpm verify` at final validation.
 
 ## Before Merging
 
-Agents must validate locally before pushing code or handing it off as ready:
+Agents must run tests only after changes are finalized and ready for push or review.
+Do not run tests during local iteration. At final validation:
 
 1. Run `pnpm check`, affected package tests, typechecks, and type-aware lint. Cover meaningful invalid, boundary, and permission cases; broaden validation for shared runtime, contracts, dependencies, migrations, and authorization changes.
 2. Build the affected surface and smoke its actual behavior through the relevant API, CLI, MCP, or browser. Packaging changes require a packed install smoke check; database changes require applicable fresh-install and upgrade migration checks.
 3. Run applicable SDK, plugin, and Val drift checks. Regenerate at the source and review generated changes; never weaken checks to make them pass. Hooks check staged lint and drift; they do not replace tests, typechecks, builds, or smoke checks.
-4. Fetch the latest PR target, integrate upstream changes, inspect the complete target-to-head diff, and resolve conflicts. After another edit, rebase, or conflict resolution, rerun affected checks.
+4. Fetch the latest PR target, integrate upstream changes, inspect the complete target-to-head diff, and resolve conflicts. At final validation, rerun only checks whose inputs changed.
 5. Recheck an attempted version bump against the current target tip and published npm versions immediately before pushing. Publish compares against the previous main commit; reusing the target's version skips npm and Homebrew even if merge-base checks pass.
 6. After pushing, before handoff or merge, verify the validated commit matches the remote branch and PR `headRefOid`; require GitHub `mergeable: MERGEABLE`. Report remaining working-tree changes without discarding another agent's work. Record exact commands, results, validated SHA, and blockers; failed or unrun required checks mean the change is not ready.
 

@@ -9,6 +9,25 @@ import { redactNotificationUrl } from './notification-redaction.js'
 import { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
 import { toAlertView } from './notifications/alert.js'
 import { resolveDestination } from './notifications/destinations.js'
+import {
+  connectionRoute,
+  webhookOutcomeTarget,
+  webhookResponseReason,
+  webhookTargetRefusalReason,
+  type ConnectionSubject,
+} from './connection-telemetry.js'
+
+/** The `source` the CLI and MCP give the external agent webhook. */
+const AGENT_WEBHOOK_SOURCE = 'agent'
+
+/** A webhook connection's outcome subject: an agent webhook or a plain one, and where it delivers. */
+function webhookConnection(action: ConnectionSubject['action'], url: unknown, source: unknown): ConnectionSubject {
+  return {
+    integration: source === AGENT_WEBHOOK_SOURCE ? 'agent_webhook' : 'webhook',
+    action,
+    ...(typeof url === 'string' && url ? { target: webhookOutcomeTarget(url) } : {}),
+  }
+}
 
 // Derived from the contract so a new event cannot be emitted by the notifier
 // yet rejected when someone tries to subscribe to it.
@@ -30,7 +49,10 @@ export async function notificationRoutes(app: FastifyInstance, opts: Notificatio
   app.post<{
     Params: { name: string }
     Body: { channel: string; url: string; events: string[]; source?: string }
-  }>('/projects/:name/notifications', async (request, reply) => {
+  }>('/projects/:name/notifications', connectionRoute(app, (request) => {
+    const body = request.body as { url?: unknown; source?: unknown } | undefined
+    return webhookConnection('connect', body?.url, body?.source)
+  }, async (request, reply, attempt) => {
     const project = resolveProject(app.db, request.params.name)
 
     const { channel, url, events, source } = request.body ?? {}
@@ -38,7 +60,10 @@ export async function notificationRoutes(app: FastifyInstance, opts: Notificatio
     if (channel !== 'webhook') throw validationError('Only "webhook" channel is supported')
 
     const urlCheck = await resolveWebhookTarget(url ?? '', { allowLoopback })
-    if (!urlCheck.ok) throw validationError(urlCheck.message)
+    if (!urlCheck.ok) {
+      attempt.failed(undefined, webhookTargetRefusalReason(urlCheck))
+      throw validationError(urlCheck.message)
+    }
 
     if (!events?.length) throw validationError('"events" must be a non-empty array')
 
@@ -76,7 +101,7 @@ export async function notificationRoutes(app: FastifyInstance, opts: Notificatio
       ...formatNotification(app.db.select().from(notifications).where(eq(notifications.id, id)).get()!),
       webhookSecret,
     })
-  })
+  }))
 
   // GET /projects/:name/notifications — list notifications
   app.get<{ Params: { name: string } }>('/projects/:name/notifications', async (request, reply) => {
@@ -87,7 +112,11 @@ export async function notificationRoutes(app: FastifyInstance, opts: Notificatio
   })
 
   // DELETE /projects/:name/notifications/:id — remove notification
-  app.delete<{ Params: { name: string; id: string } }>('/projects/:name/notifications/:id', async (request, reply) => {
+  app.delete<{ Params: { name: string; id: string } }>('/projects/:name/notifications/:id', connectionRoute(app, (request) => {
+    const stored = app.db.select({ config: notifications.config }).from(notifications).where(eq(notifications.id, request.params.id)).get()
+    const config = stored?.config as { url?: string; source?: string } | undefined
+    return config ? webhookConnection('disconnect', config.url, config.source) : undefined
+  }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     const notification = app.db.select().from(notifications).where(eq(notifications.id, request.params.id)).get()
@@ -106,10 +135,16 @@ export async function notificationRoutes(app: FastifyInstance, opts: Notificatio
     })
 
     return reply.status(204).send()
-  })
+  }))
 
   // POST /projects/:name/notifications/:id/test — send a test webhook from the server
-  app.post<{ Params: { name: string; id: string } }>('/projects/:name/notifications/:id/test', async (request, reply) => {
+  // Reported as an `integration.connection` test rather than a `webhooks.test`
+  // feature outcome: it checks that one destination answers, beside its connect and delete.
+  app.post<{ Params: { name: string; id: string } }>('/projects/:name/notifications/:id/test', connectionRoute(app, (request) => {
+    const stored = app.db.select({ config: notifications.config }).from(notifications).where(eq(notifications.id, request.params.id)).get()
+    const config = stored?.config as { url?: string; source?: string } | undefined
+    return config ? webhookConnection('test', config.url, config.source) : undefined
+  }, async (request, reply, attempt) => {
     const project = resolveProject(app.db, request.params.name)
 
     const notification = app.db.select().from(notifications).where(eq(notifications.id, request.params.id)).get()
@@ -121,7 +156,10 @@ export async function notificationRoutes(app: FastifyInstance, opts: Notificatio
 
     // Re-validate URL at delivery time (stored URLs may predate validation logic)
     const urlCheck = await resolveWebhookTarget(config.url, { allowLoopback })
-    if (!urlCheck.ok) throw validationError(`Stored webhook URL is invalid: ${urlCheck.message}`)
+    if (!urlCheck.ok) {
+      attempt.failed(undefined, webhookTargetRefusalReason(urlCheck))
+      throw validationError(`Stored webhook URL is invalid: ${urlCheck.message}`)
+    }
 
     const payload = {
       source: 'canonry',
@@ -150,8 +188,12 @@ export async function notificationRoutes(app: FastifyInstance, opts: Notificatio
 
     const targetLabel = redactNotificationUrl(config.url).urlDisplay
     request.log.info(`[Notification test] POST ${targetLabel} (${destination.destination})`)
-    const { status, error } = await deliverWebhook(urlCheck.target, body as never, signingSecret)
+    const delivery = await deliverWebhook(urlCheck.target, body as never, signingSecret)
+    const { status, error } = delivery
     request.log.info(`[Notification test] Response: HTTP ${status} from ${targetLabel}`)
+    // Succeeded only when the destination answered 2xx; the route still answers 200 otherwise.
+    const failure = webhookResponseReason(delivery)
+    if (failure) attempt.failed(undefined, failure)
 
     writeAuditLog(app.db, {
       projectId: project.id,
@@ -164,7 +206,7 @@ export async function notificationRoutes(app: FastifyInstance, opts: Notificatio
 
     if (error) throw deliveryFailed(error)
     return reply.send({ status, ok: status >= 200 && status < 300 })
-  })
+  }))
 }
 
 function formatNotification(row: typeof notifications.$inferSelect): Omit<NotificationDto, 'webhookSecret'> {

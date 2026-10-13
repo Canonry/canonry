@@ -198,6 +198,38 @@ describe('ui telemetry', () => {
     expect(vitals.every(e => e.page !== 'other')).toBe(true)
   })
 
+  it('sends vitals from a project page in a shape the API accepts, with the landing tab', () => {
+    const { sent } = capture()
+    setUiPageFromRoute('/projects/$projectName/')
+    setUiPageFromRoute('/projects/$projectName/report')
+    recordUiVital('TTFB', 'good')
+    recordUiVital('FCP', 'good')
+    const vitals = sent.filter(e => e.event === 'ui.vitals')
+    expect(vitals.map(e => [e.metric, e.page, e.tab])).toEqual([
+      ['TTFB', '/projects/:projectName', 'overview'],
+      ['FCP', '/projects/:projectName', 'overview'],
+    ])
+    for (const event of vitals) {
+      const parsed = uiTelemetryEventSchema.safeParse(event)
+      expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true)
+    }
+  })
+
+  it('sends every event kind from a project page in a shape the API accepts', () => {
+    const { sent } = capture()
+    setUiPageFromRoute('/projects/$projectName/queries')
+    trackUiAction('export.download', { format: 'csv' })
+    recordUiError({ kind: 'render', error: new TypeError('x'), component: 'root' })
+    recordUiApiResult({ method: 'GET', route: '/api/v1/projects/{name}', status: 500 })
+    recordUiVital('LCP', 'poor')
+    expect(new Set(sent.map(e => e.event))).toEqual(new Set(['ui.page_viewed', 'ui.action', 'ui.error', 'ui.vitals']))
+    for (const event of sent) {
+      expect(event.tab).toBe('queries')
+      const parsed = uiTelemetryEventSchema.safeParse(event)
+      expect(parsed.success, `${event.event} ${JSON.stringify(parsed.error?.issues)}`).toBe(true)
+    }
+  })
+
   it('stops sending for the session once the server says it does not collect', async () => {
     const { sent } = capture({ accepted: false })
     trackUiAction('aero.open')

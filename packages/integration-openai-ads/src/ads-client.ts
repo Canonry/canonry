@@ -1,4 +1,5 @@
 import { OPENAI_ADS_API_BASE, OPENAI_ADS_MAX_PAGES, OPENAI_ADS_REQUEST_TIMEOUT_MS } from './constants.js'
+import { describeFetchError } from '@ainyc/canonry-contracts'
 import type {
   OpenAiAdsAccount,
   OpenAiAdsAd,
@@ -374,15 +375,20 @@ async function adsFetch<T>(
 ): Promise<T> {
   const url = buildUrl(path, queryPairs)
 
-  const res = await fetch(url, {
-    method,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(OPENAI_ADS_REQUEST_TIMEOUT_MS),
-  })
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(OPENAI_ADS_REQUEST_TIMEOUT_MS),
+    })
+  } catch (error) {
+    throw new Error(describeFetchError(error, url), { cause: error })
+  }
 
   if (res.status === 401 || res.status === 403) {
     const { code } = parseErrorEnvelope(await res.text())

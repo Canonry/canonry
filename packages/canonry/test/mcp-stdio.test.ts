@@ -89,12 +89,14 @@ describe('canonry-mcp stdio', () => {
     clients.push(client)
 
     const list = await client.listTools()
-    expect(list.tools).toHaveLength(14)
+    expect(list.tools).toHaveLength(16)
     const listedNames = list.tools.map(tool => tool.name)
     expect(listedNames).toContain('canonry_projects_list')
     expect(listedNames).toContain('canonry_project_overview')
     expect(listedNames).toContain('canonry_search')
     expect(listedNames).toContain('canonry_doctor')
+    expect(listedNames).toContain('canonry_status')
+    expect(listedNames).toContain('canonry_apply_config_preview')
     expect(listedNames).toContain('canonry_key_self')
     expect(listedNames).toContain('canonry_help')
     expect(listedNames).toContain('canonry_load_toolkit')
@@ -150,7 +152,9 @@ describe('canonry-mcp stdio', () => {
       arguments: { project: 'acme', request: { queries: ['alpha', 'alpha'] } },
     })
     expect(addQueries.isError).not.toBe(true)
-    expect(jsonText(addQueries)).toEqual({ ok: true })
+    // The class is the API's, read back from the rows the append returns; the
+    // repeated query is reported once.
+    expect(jsonText(addQueries)).toEqual({ ok: true, queryClasses: [{ query: 'alpha', queryClass: 'non-brand' }] })
 
     const invalid = await client.callTool({
       name: 'canonry_queries_add',
@@ -223,6 +227,8 @@ describe('canonry-mcp stdio', () => {
     expect(names).toContain('canonry_history_global')
     expect(names).toContain('canonry_search')
     expect(names).toContain('canonry_competitor_landscape')
+    expect(names).toContain('canonry_competitors_suggest')
+    expect(names).toContain('canonry_competitors_change_preview')
     expect(names).toContain('canonry_backlinks_latest_release')
     expect(names).toContain('canonry_traffic_connect_vercel')
     expect(names).toContain('canonry_traffic_referral_assessment')
@@ -344,6 +350,28 @@ describe('canonry-mcp stdio', () => {
       },
     })
   }, SUBPROCESS_CASE_TIMEOUT_MS)
+
+  it('keeps stdio stored-only startup and a stored tool request on the marked read boundary', async () => {
+    const requests: Array<{ method: string; path: string; storedOnly: string | undefined }> = []
+    const api = await startStubApi(undefined, request => {
+      requests.push({ method: request.method ?? '', path: new URL(request.url ?? '/', 'http://127.0.0.1').pathname, storedOnly: request.headers['x-canonry-stored-only'] as string | undefined })
+    })
+    servers.push(api)
+    const { client } = await startMcpClient({
+      apiOrigin: api.origin,
+      configPrefix: 'canonry-mcp-stored-only-',
+      database: '/tmp/canonry-mcp-stored-only.sqlite',
+      clientName: 'canonry-mcp-stored-only-test',
+      args: ['--stored-only'],
+    })
+    clients.push(client)
+    const tools = await client.listTools()
+    expect(tools.tools.some(tool => tool.name === 'canonry_projects_list')).toBe(true)
+    expect(tools.tools.some(tool => tool.name === 'canonry_run_trigger')).toBe(false)
+    const projects = await client.callTool({ name: 'canonry_projects_list', arguments: {} })
+    expect(projects.isError).not.toBe(true)
+    expect(requests.find(request => request.path === '/api/v1/projects')?.storedOnly).toBe('1')
+  }, SUBPROCESS_CASE_TIMEOUT_MS)
 })
 
 /**
@@ -428,8 +456,11 @@ async function startMcpClient(options: {
   return { client, stderr: () => stderrChunks.join('') }
 }
 
-async function startStubApi(onRunRequest?: (body: unknown) => void): Promise<{ origin: string; close: () => Promise<void> }> {
-  const server = createServer((request, response) => handleRequest(request, response, onRunRequest))
+async function startStubApi(onRunRequest?: (body: unknown) => void, onRequest?: (request: IncomingMessage) => void): Promise<{ origin: string; close: () => Promise<void> }> {
+  const server = createServer((request, response) => {
+    onRequest?.(request)
+    handleRequest(request, response, onRunRequest)
+  })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Failed to start stub API')
@@ -465,7 +496,7 @@ function handleRequest(request: IncomingMessage, response: ServerResponse, onRun
   }
   if (request.method === 'POST' && url.pathname === '/api/v1/projects/acme/queries') {
     request.resume()
-    send(response, [{ id: 'k1', query: 'alpha', createdAt: '2026-04-27T00:00:00Z' }])
+    send(response, [{ id: 'k1', query: 'alpha', createdAt: '2026-04-27T00:00:00Z', queryClass: 'non-brand' }])
     return
   }
   if (request.method === 'GET' && url.pathname === '/api/v1/projects/acme/traffic/sources') {

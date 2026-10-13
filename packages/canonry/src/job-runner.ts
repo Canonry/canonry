@@ -12,7 +12,7 @@ import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatus
 import { answerIdentityChanged, answerIdentityFrom, backfillProjectAnswerMentions, captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, readAnswerIdentity, readMarketCompetitorNames, type AnswerIdentityFingerprint, type RunCompetitors } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
-import { buildProviderOutcomeProps, buildRunCompletedProps, buildSiteAuditCompletedProps, describeRunFailure, failureStreakSampling, hashDomain, runFailureSite, type RunPhaseTimings } from './run-telemetry.js'
+import { buildProviderOutcomeProps, buildRunCompletedProps, buildSiteAuditCompletedProps, describeRunFailure, failureStreakSampling, hashDomain, runFailureSite, type RunAnswerUsage, type RunPhaseTimings } from './run-telemetry.js'
 import { createLogger } from './logger.js'
 import { ProviderExecutionGate, getSharedProviderExecutionGate } from './provider-execution-gate.js'
 import { getCurrentUsageDay, releaseDailyQueryQuota, reserveDailyQueryQuota } from './usage-quota.js'
@@ -105,6 +105,8 @@ interface PlanSlotContext extends SlotRecordingContext {
   executionGates: ReadonlyMap<ProviderName, ProviderExecutionGate>
   providerDispatchCounts: Map<ProviderName, number>
   providerErrors: Map<ProviderName, string>
+  /** A sweep's sync call latencies for `run.completed`; a fill reports none. */
+  callLatencies?: Map<ProviderName, number[]>
   fill?: {
     shouldSkip: (provider: ProviderName, executionId: string) => boolean
     onOutcome: (provider: ProviderName, ok: boolean) => void
@@ -475,6 +477,16 @@ export interface RunFinalization {
   phases: RunPhaseTimings | undefined
   /** The caller's own reservation, released whether or not this call wins. */
   quota?: RunQuotaReservations
+  /** Latency of each provider's sync calls in this execution, in ms. */
+  callLatencies?: ReadonlyMap<ProviderName, readonly number[]>
+}
+
+/** Add one sync provider call's latency to a sweep's telemetry. */
+function recordCallLatency(latencies: Map<ProviderName, number[]> | undefined, provider: ProviderName, startedAt: number): void {
+  if (!latencies) return
+  const values = latencies.get(provider) ?? []
+  values.push(Math.max(0, Date.now() - startedAt))
+  latencies.set(provider, values)
 }
 
 /**
@@ -550,6 +562,8 @@ export class JobRunner {
     runId: string
     registrations: readonly RegisteredProvider[]
   }>()
+  /** Sync call latencies of sweeps handed to the batch poller, until their run reports. */
+  private readonly handedOffCallLatencies = new Map<string, ReadonlyMap<ProviderName, readonly number[]>>()
 
   constructor(
     db: DatabaseClient,
@@ -762,6 +776,7 @@ export class JobRunner {
     let recording: RunRecordingContext | undefined
     const providerDispatchCounts = new Map<ProviderName, number>()
     const providerReservations = new Map<ProviderName, { scope: string; period: string; reserved: number }>()
+    const callLatencies = new Map<ProviderName, number[]>()
     // The provider batches this sweep writes, so a failure or a cancellation
     // can stop them rather than leave them billing into a run that is over.
     const batchRowIds: string[] = []
@@ -1011,6 +1026,7 @@ export class JobRunner {
             this.throwIfRunCancelled(runId)
             providerDispatchCounts.set(providerName, (providerDispatchCounts.get(providerName) ?? 0) + 1)
 
+            const callStartedAt = Date.now()
             const raw = await adapter.executeTrackedQuery(
               {
                 query: q.query,
@@ -1020,6 +1036,7 @@ export class JobRunner {
               },
               config,
             )
+            recordCallLatency(callLatencies, providerName, callStartedAt)
 
             this.throwIfRunCancelled(runId)
 
@@ -1176,6 +1193,7 @@ export class JobRunner {
         executionGates,
         providerDispatchCounts,
         providerErrors,
+        callLatencies,
         onInserted: () => { totalSnapshotsInserted++ },
       }
       const processNodeForProvider = (registeredProvider: RegisteredProvider, unit: PlanExecutionUnit): Promise<void> =>
@@ -1331,6 +1349,7 @@ export class JobRunner {
           providerErrors,
           quota: { dispatched: providerDispatchCounts, reservations: providerReservations },
           releaseExecution,
+          callLatencies,
         })
         return
       }
@@ -1347,6 +1366,7 @@ export class JobRunner {
         startTime,
         phases: buildPhases({ startTime, providerCallStart, providerCallEnd }),
         quota: { dispatched: providerDispatchCounts, reservations: providerReservations },
+        callLatencies,
       })
       // A cancel that lands after the check above leaves the run cancelled
       // rather than overwritten, and this execution reports it as the
@@ -1367,7 +1387,7 @@ export class JobRunner {
       if (err instanceof RunCancelledError || this.isRunCancelled(runId)) {
         this.flushProviderUsage(providerDispatchCounts, providerReservations)
         const cancelled = this.markBatchesCancelled(batchRowIds, 'Cancelled with its run.')
-        this.handleCancelledRun(runId, projectId, startTime, executionContext)
+        this.handleCancelledRun(runId, projectId, startTime, executionContext, callLatencies)
         await this.cancelAtProvider(cancelled)
         return
       }
@@ -1434,6 +1454,8 @@ export class JobRunner {
                 canonicalDomain: executionContext.canonicalDomain,
                 phases,
                 location: executionContext.location,
+                answers: this.runAnswerUsage(runId),
+                callLatencies,
               }),
               ...describeRunFailure(err, runFailureSite(providerCallStart, providerCallEnd)),
               ...sampling.props,
@@ -1540,6 +1562,8 @@ export class JobRunner {
             canonicalDomain: executionContext.canonicalDomain,
             phases: input.phases,
             location: executionContext.location,
+            answers: this.runAnswerUsage(runId),
+            callLatencies: input.callLatencies,
           }),
           ...buildProviderOutcomeProps(executionContext.providers, providerErrors, Object.keys(skippedProviders)),
           ...sampling.props,
@@ -1601,6 +1625,7 @@ export class JobRunner {
     providerErrors: ReadonlyMap<ProviderName, string>
     quota: RunQuotaReservations
     releaseExecution: () => void
+    callLatencies: ReadonlyMap<ProviderName, readonly number[]>
   }): void {
     const { runId, projectId } = input
     const handedOff = this.db.update(runs)
@@ -1615,6 +1640,8 @@ export class JobRunner {
       log.warn('run.handoff-skipped', { runId })
       return
     }
+    // The finalizer reports the sweep's sync latencies; a restart loses them.
+    if (input.callLatencies.size > 0) this.handedOffCallLatencies.set(runId, input.callLatencies)
     // From here the poller owns the outcome, so the sweep lets go of the run
     // before asking whether it can already finalize.
     input.releaseExecution()
@@ -1676,6 +1703,7 @@ export class JobRunner {
     if (!decided) return false
 
     const telemetry = this.batchRunTelemetry(runId, projectId)
+    const callLatencies = this.takeHandedOffCallLatencies(runId)
     log.info('run.batch-finalized', { runId, status: decided.status, inserted: decided.inserted })
     this.reportFinalizedRun({
       runId,
@@ -1689,6 +1717,7 @@ export class JobRunner {
       // The sweep's phase split does not survive the wait (or a restart);
       // `durationMs` spans from the run's start to this finalization.
       phases: undefined,
+      callLatencies,
     }, decided.status)
     return true
   }
@@ -2081,7 +2110,7 @@ export class JobRunner {
         .changes === 1
       if (claimed) {
         const telemetry = this.batchRunTelemetry(runId, projectId)
-        this.handleCancelledRun(runId, projectId, telemetry.startTime, telemetry.executionContext)
+        this.handleCancelledRun(runId, projectId, telemetry.startTime, telemetry.executionContext, this.takeHandedOffCallLatencies(runId))
       }
     }
     await this.cancelAtProvider(marked)
@@ -2677,6 +2706,7 @@ export class JobRunner {
         if (ctx.fill?.shouldSkip(providerName, unit.executionId)) return
         ctx.providerDispatchCounts.set(providerName, (ctx.providerDispatchCounts.get(providerName) ?? 0) + 1)
 
+        const callStartedAt = Date.now()
         const raw = await adapter.executeTrackedQuery(
           {
             query: unit.queryText,
@@ -2686,6 +2716,7 @@ export class JobRunner {
           },
           config,
         )
+        recordCallLatency(ctx.callLatencies, providerName, callStartedAt)
 
         // Recorded inside the gate: resolving cited URLs is part of the slot's
         // turn, so the provider's concurrency bounds it too.
@@ -2958,6 +2989,26 @@ export class JobRunner {
     providerReservations.clear()
   }
 
+  /** The answers a run stored, for `run.completed`. Telemetry only: a failed read reports none. */
+  private runAnswerUsage(runId: string): RunAnswerUsage[] {
+    try {
+      return this.db
+        .select({ provider: querySnapshots.provider, usage: querySnapshots.usage, dispatchMode: querySnapshots.dispatchMode })
+        .from(querySnapshots)
+        .where(eq(querySnapshots.runId, runId))
+        .all()
+    } catch (err: unknown) {
+      log.warn('telemetry.run-usage-read-failed', { runId, error: describeError(err) })
+      return []
+    }
+  }
+
+  private takeHandedOffCallLatencies(runId: string): ReadonlyMap<ProviderName, readonly number[]> | undefined {
+    const latencies = this.handedOffCallLatencies.get(runId)
+    this.handedOffCallLatencies.delete(runId)
+    return latencies
+  }
+
   /**
    * How many runs of the same kind, created before this one, failed or came
    * back partial in a row. Telemetry only: it feeds `failureStreak` and the
@@ -3059,6 +3110,7 @@ export class JobRunner {
     projectId: string,
     startTime: number,
     context: RunExecutionContext,
+    callLatencies?: ReadonlyMap<ProviderName, readonly number[]>,
   ): void {
     const currentRun = this.getRunState(runId)
     if (currentRun && !currentRun.finishedAt) {
@@ -3083,6 +3135,8 @@ export class JobRunner {
         trigger: context.trigger,
         canonicalDomain: context.canonicalDomain,
         location: context.location,
+        answers: this.runAnswerUsage(runId),
+        callLatencies,
       }),
       { errorCode: 'RUN_CANCELLED' },
     )

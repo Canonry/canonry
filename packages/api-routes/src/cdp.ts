@@ -8,6 +8,7 @@ import { CitationStates, notFound, notImplemented, validationError, type Groundi
 import { resolveProject } from './helpers.js'
 import { assertProjectScope, requireScope } from './auth.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
+import { connectionRoute, startConnectionAttempt } from './connection-telemetry.js'
 
 export interface CDPRoutesOptions {
   /** Callback to get CDP connection status */
@@ -72,30 +73,34 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
   })
 
   // PUT /settings/cdp — configure the CDP endpoint (host + port)
-  app.put<{ Body: { host: string; port?: number } }>('/settings/cdp', async (request, reply) => {
+  app.put<{ Body: { host: string; port?: number } }>('/settings/cdp', connectionRoute(app, () => ({ integration: 'cdp', action: 'connect' }), async (request, reply, attempt) => {
     requireScope(request, SETTINGS_WRITE_SCOPE)
     if (!opts.onCdpConfigure) {
       const err = notImplemented('CDP configuration not supported in this deployment')
+      attempt.failed(err)
       return reply.code(err.statusCode).send(err.toJSON())
     }
     const { host, port = 9222 } = request.body
     if (!host || typeof host !== 'string') {
       const err = validationError('host is required')
+      attempt.failed(err)
       return reply.code(err.statusCode).send(err.toJSON())
     }
     // Restrict to loopback addresses only — arbitrary hosts would allow SSRF
     const ALLOWED_HOSTS = ['localhost', '127.0.0.1', '::1']
     if (!ALLOWED_HOSTS.includes(host)) {
       const err = validationError('host must be localhost, 127.0.0.1, or ::1')
+      attempt.failed(err, 'BLOCKED_UNSAFE_URL')
       return reply.code(err.statusCode).send(err.toJSON())
     }
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
       const err = validationError('port must be an integer between 1 and 65535')
+      attempt.failed(err)
       return reply.code(err.statusCode).send(err.toJSON())
     }
     await opts.onCdpConfigure(host, port)
     return reply.code(200).send({ endpoint: `ws://${host}:${port}` })
-  })
+  }))
 
   // GET /cdp/status — CDP connection health + tab status
   app.get('/cdp/status', async (_request, reply) => {
@@ -103,7 +108,17 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
       const err = notImplemented('CDP not configured')
       return reply.code(err.statusCode).send(err.toJSON())
     }
-    const status = await opts.getCdpStatus()
+    // A status read is a connection test only once an endpoint is configured.
+    const attempt = startConnectionAttempt(app, { integration: 'cdp', action: 'test' })
+    let status: Awaited<ReturnType<NonNullable<CDPRoutesOptions['getCdpStatus']>>>
+    try {
+      status = await opts.getCdpStatus()
+    } catch (err) {
+      attempt.failed(err)
+      throw err
+    }
+    if (status.connected) attempt.succeeded()
+    else if (status.endpoint) attempt.failed(undefined, 'NETWORK')
     return reply.send(status)
   })
 

@@ -13,10 +13,13 @@ import {
 import { requireOperator, requireScope } from './auth.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import { auditFromRequest, writeAuditLog } from './helpers.js'
+import type { OutcomeAttribution } from './outcome-telemetry.js'
+import { currentOutcomeAttribution } from './request-context.js'
 
 export interface TelemetryRoutesOptions {
   getTelemetryStatus?: () => TelemetryStatusInput
-  setTelemetryEnabled?: (enabled: boolean) => void
+  /** `attribution` is who asked, for the `telemetry.disabled` event's surface and agent. */
+  setTelemetryEnabled?: (enabled: boolean, attribution?: OutcomeAttribution) => void
   recordOnboardingEvent?: (event: OnboardingTelemetryEvent) => void
   /**
    * Dashboard usage: page views, feature actions, UI errors, web vitals.
@@ -48,7 +51,7 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
       throw validationError('enabled (boolean) is required')
     }
 
-    opts.setTelemetryEnabled(enabled)
+    opts.setTelemetryEnabled(enabled, currentOutcomeAttribution())
     const status = opts.getTelemetryStatus?.()
     const effective = normalizeTelemetryStatus(status ?? { enabled })
 
@@ -92,7 +95,14 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
     return reply.status(202).send({ accepted: Boolean(opts.recordOnboardingEvent) })
   })
 
-  app.post<{ Body: unknown }>('/telemetry/ui', async (request, reply) => {
+  // A POST only because the event travels in a body. It changes nothing on
+  // this install (no row, no setting): it validates one anonymous usage event
+  // and hands it to the opt-in forwarder. So a view-only account's dashboard
+  // can send it; see `readSemantic` in `auth.ts`. A read-only API key is still
+  // refused: this is the dashboard's route, not a key's.
+  app.post<{ Body: unknown }>('/telemetry/ui', {
+    config: { readSemantic: true },
+  }, async (request, reply) => {
     const parsed = uiTelemetryEventSchema.safeParse(request.body)
     if (!parsed.success) {
       throw validationError('Invalid UI telemetry event', {

@@ -9,6 +9,7 @@ import {
   competitorAliasesRequestSchema,
   competitorAppendRequestSchema,
   competitorBatchRequestSchema,
+  competitorReplaceRequestSchema,
   competitorAliasProjectIdentity,
   normalizeCompetitorAliases,
   normalizeCompetitorDomain,
@@ -29,13 +30,18 @@ import {
   beginMarketNameWrite,
   marketCompetitorDto,
   marketNameAuditFields,
+  readMarketCompetitorNames,
   readMarketCompetitors,
   writeMarketCompetitorNames,
   type MarketCompetitor,
 } from './market-competitor-names.js'
+import { previewCompetitorShareImpact } from './competitor-change-preview.js'
 import {
   applyCompetitorSetPlan,
+  bulkCompetitorAddAuditFields,
   competitorAliasAuditFields,
+  competitorSetChangeAuditFields,
+  deletedAliasesDiff,
   competitorIdentityChanged,
   competitorWritesFromEntries,
   findStoredCompetitor,
@@ -43,6 +49,7 @@ import {
   normalizeCompetitorList,
   planCompetitorSet,
   readStoredCompetitors,
+  requireBulkCompetitorAddAcknowledged,
   syncCompetitorSet,
 } from './competitor-writes.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
@@ -133,25 +140,24 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
   // keep their row, so their curated aliases survive a domain-only replace.
   app.put<{
     Params: { name: string }
-    Body: { competitors: string[] }
+    Body: { competitors: string[]; acknowledgeBulkAdd?: boolean }
   }>('/projects/:name/competitors', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
-    const body = request.body
-    if (!body || !Array.isArray(body.competitors)) {
-      throw validationError('Body must contain a "competitors" array')
-    }
+    const body = parseBody(competitorReplaceRequestSchema, request.body, 'Body must contain a "competitors" array')
 
     const now = new Date().toISOString()
     const normalizedCompetitors = normalizeCompetitorList(body.competitors)
 
     const changes = app.db.transaction((tx) => {
+      const trackedBefore = readStoredCompetitors(tx, project.id).length
       const marketNames = beginMarketNameWrite(tx, project.id)
       const plan = syncCompetitorSet(tx, project.id, normalizedCompetitors.map(domain => ({ domain })), {
         replace: true,
         project: competitorAliasProjectIdentity(project),
         now,
       })
+      const bulkAdd = requireBulkCompetitorAddAcknowledged(tx, project.id, plan, { acknowledged: body.acknowledgeBulkAdd, now, trackedBefore, projectName: project.name })
       const droppedQualifiedAliases = pruneQualifiedAliasesForCompetitors(tx, project.id, now)
       const marketNamesChanged = marketNames.finish()
 
@@ -162,7 +168,9 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
         entityType: 'competitor',
         diff: {
           competitors: normalizedCompetitors,
+          ...competitorSetChangeAuditFields(plan),
           ...competitorAliasAuditFields(plan),
+          ...bulkCompetitorAddAuditFields(bulkAdd),
           ...marketNameAuditFields(marketNamesChanged),
           ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}),
         },
@@ -170,6 +178,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
       return {
         identityChanged: competitorIdentityChanged(plan) || marketNamesChanged.length > 0,
         added: plan.added.length > 0,
+        bulkAdd,
       }
     })
 
@@ -191,12 +200,14 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
     const writes = competitorWritesFromEntries(body.competitors, 'add')
 
     const changes = app.db.transaction((tx) => {
+      const trackedBefore = readStoredCompetitors(tx, project.id).length
       const marketNames = beginMarketNameWrite(tx, project.id)
       const plan = syncCompetitorSet(tx, project.id, writes, {
         replace: false,
         project: competitorAliasProjectIdentity(project),
         now,
       })
+      const bulkAdd = requireBulkCompetitorAddAcknowledged(tx, project.id, plan, { acknowledged: body.acknowledgeBulkAdd, now, trackedBefore, projectName: project.name })
       if (plan.added.length === 0 && !competitorIdentityChanged(plan)) return { identityChanged: false, added: false }
       const droppedQualifiedAliases = pruneQualifiedAliasesForCompetitors(tx, project.id, now)
       // A new domain's label or curated alias can claim a name learned for a
@@ -212,6 +223,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
         diff: {
           added: plan.added,
           ...competitorAliasAuditFields(plan),
+          ...bulkCompetitorAddAuditFields(bulkAdd),
           ...marketNameAuditFields(marketNamesChanged),
           ...(droppedQualifiedAliases.length ? { droppedQualifiedAliases } : {}),
         },
@@ -219,6 +231,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
       return {
         identityChanged: competitorIdentityChanged(plan) || marketNamesChanged.length > 0,
         added: plan.added.length > 0,
+        bulkAdd,
       }
     })
 
@@ -297,7 +310,23 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
   // provider or any competitor site.
   app.get<{ Params: { name: string } }>('/projects/:name/competitor-auto-aliases', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
-    return reply.send(await previews.request(project.id))
+    const detection = await previews.request(project.id)
+    const tracked = detection.competitors.filter(competitor => competitor.marketKeys === undefined)
+      .map(competitor => ({
+        domain: competitor.domain,
+        aliases: competitor.aliases,
+        autoAliases: competitor.autoAliases,
+        blockedAliases: competitor.blockedAliases,
+      }))
+    const marketNames = readMarketCompetitorNames(app.db, project.id)
+    detection.competitors.filter(competitor => competitor.marketKeys !== undefined).forEach(competitor => {
+      marketNames.set(normalizeCompetitorDomain(competitor.domain), competitor.autoAliases.map(alias => alias.name))
+    })
+    const impact = previewCompetitorShareImpact(app, project.name, tracked, {
+      marketNames,
+      autoAliasRescanPending: detection.changed,
+    })
+    return reply.send({ ...detection, impact })
   })
 
   // POST /projects/:name/competitor-auto-aliases: run detection now and store
@@ -601,21 +630,6 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
     if (marketNamesMoved) opts.onCompetitorAliasesChanged?.(project.id, project.name)
     return reply.status(204).send()
   })
-}
-
-/**
- * Names a delete discards (curated, auto-detected and blocked), kept in the
- * audit row so they can be restored.
- */
-function deletedAliasesDiff(rows: readonly { domain: string; aliases: string[]; autoAliases: { name: string }[]; blockedAliases: string[] }[]): Record<string, unknown> {
-  const withAliases = rows.filter(row => row.aliases.length > 0)
-  const withAuto = rows.filter(row => row.autoAliases.length > 0)
-  const withBlocked = rows.filter(row => row.blockedAliases.length > 0)
-  return {
-    ...(withAliases.length ? { deletedAliases: Object.fromEntries(withAliases.map(row => [row.domain, row.aliases])) } : {}),
-    ...(withAuto.length ? { deletedAutoAliases: Object.fromEntries(withAuto.map(row => [row.domain, row.autoAliases.map(record => record.name)])) } : {}),
-    ...(withBlocked.length ? { deletedBlockedAliases: Object.fromEntries(withBlocked.map(row => [row.domain, row.blockedAliases])) } : {}),
-  }
 }
 
 /**

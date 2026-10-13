@@ -8,7 +8,7 @@ import {
 } from '@ainyc/canonry-db'
 import type { Agent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
-import { agentBusy, AgentProviderIds, describeError, missingDependency } from '@ainyc/canonry-contracts'
+import { agentBusy, AgentProviderIds, OutcomeTriggers, describeError, missingDependency } from '@ainyc/canonry-contracts'
 import { createLogger } from '../logger.js'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
@@ -35,6 +35,7 @@ import {
 import { loadExternalMcpTools } from './remote-mcp.js'
 import { loadRecentForHydrate } from './memory-store.js'
 import { configureAeroRuntime, isSystemMessage, setAeroSystemPrompt } from './runtime.js'
+import { trackAeroTurn } from './turn-telemetry.js'
 import { buildAeroViewTool, aeroViewPrompt, readAeroViewEvidence } from './view-context.js'
 import { aeroProjectShape } from './project-shape.js'
 import type { AgentViewContext, AgentTurnLimits } from '@ainyc/canonry-contracts'
@@ -745,7 +746,14 @@ export class SessionRegistry {
       const msgs = this.consumePending(projectName)
       if (msgs.length === 0) return
       await agent.prompt(msgs)
-      this.save(projectName)
+      // Aero woke itself: no request, so the turn is attributed to the system.
+      try {
+        this.save(projectName)
+      } catch (err) {
+        trackAeroTurn(agent, { trigger: OutcomeTriggers.agent, error: err })
+        throw err
+      }
+      trackAeroTurn(agent, { trigger: OutcomeTriggers.agent })
     } catch (err) {
       log.error('drain.failed', {
         projectName,

@@ -70,6 +70,7 @@ it('skips a scheduled sweep while every provider fails on its account, records t
   }).triggerRun('sched_stuck', projectId, 'answer-visibility')
   const refusals = () => db.select().from(auditLog).where(eq(auditLog.action, 'run.refused')).all()
   const aborted = () => telemetry.trackEvent.mock.calls.filter(([event]) => event === 'run.aborted')
+  const slots = () => telemetry.trackEvent.mock.calls.filter(([event]) => event === 'feature.completed')
   const refusalOf = (latestRunId: string, since: string, latestCreatedAt: string) => ({
     code: 'PROVIDERS_FAILING',
     consecutiveRuns: PROVIDER_ACCOUNT_FAILURE_STREAK,
@@ -104,6 +105,12 @@ it('skips a scheduled sweep while every provider fails on its account, records t
     },
     { errorCode: 'PROVIDERS_FAILING' },
   ]])
+  // The slot itself was skipped by the admission gate; `run.aborted` carries the providers.
+  expect(slots()).toEqual([[
+    'feature.completed',
+    { feature: 'schedules', operation: 'slot', trigger: 'scheduled', surface: 'system', status: 'skipped', reasonCode: 'GATE_REFUSED' },
+    { errorCode: 'GATE_REFUSED' },
+  ]])
 
   // The next slot meets the same refusal: skipped again, recorded nowhere new.
   fire()
@@ -120,4 +127,5 @@ it('skips a scheduled sweep while every provider fails on its account, records t
   ]))
   expect(refusals()).toHaveLength(2)
   expect(aborted()).toHaveLength(2)
+  expect(slots()).toHaveLength(3)
 })

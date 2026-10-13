@@ -50,6 +50,7 @@ function renderSection({ connected, googleConfigured = true, viewer = false }: {
   const settingsRead = vi.fn()
   const restoreFetch = mockFetch((url) => {
     const path = pathOf(url)
+    if (path.split('?')[0]?.endsWith('/runs')) return jsonResponse([])
     if (path === '/api/v1/settings') {
       settingsRead()
       return jsonResponse({

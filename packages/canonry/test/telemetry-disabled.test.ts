@@ -10,6 +10,7 @@ const ENV_KEYS = [
   'DO_NOT_TRACK',
   'CI',
   'CANONRY_CONFIG_DIR',
+  'CANONRY_AGENT',
 ] as const
 
 describe('telemetry.disabled', () => {
@@ -27,6 +28,8 @@ describe('telemetry.disabled', () => {
     }
     configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-telemetry-disabled-'))
     process.env.CANONRY_CONFIG_DIR = configDir
+    // The CLI reports the coding agent it runs under; pin it so the suite does not depend on its own harness.
+    process.env.CANONRY_AGENT = 'codex'
     const { saveConfig } = await import('../src/config.js')
     saveConfig({ apiUrl: 'http://localhost:4100', database: 'test.db', apiKey: 'cnry_test', telemetry: true, anonymousId })
 
@@ -76,8 +79,8 @@ describe('telemetry.disabled', () => {
       expect(logs).toHaveLength(1)
       expect(JSON.parse(logs[0]!)).toMatchObject({ target: 'local', enabled: false, configuredEnabled: false })
       expect(payloads).toHaveLength(1)
-      expect(payloads[0]).toMatchObject({ event: 'telemetry.disabled', anonymousId, properties: { method: 'cli' } })
-      expect(Object.keys(payloads[0]!.properties as object)).toEqual(['method'])
+      expect(payloads[0]).toMatchObject({ event: 'telemetry.disabled', anonymousId })
+      expect(payloads[0]!.properties).toEqual({ method: 'cli', surface: 'cli', agent: 'codex' })
     } finally {
       release(new Response(JSON.stringify({ ok: true })))
       await command
@@ -117,10 +120,18 @@ describe('telemetry.disabled', () => {
     expect(payloads).toEqual([])
     expect(await configuredTelemetry()).toBe(true)
 
-    await setTelemetryPreference(false, 'api')
+    await setTelemetryPreference(false, 'api', { surface: 'mcp-stdio', agent: 'claude' })
     expect(payloads).toHaveLength(1)
-    expect(payloads[0]).toMatchObject({ event: 'telemetry.disabled', properties: { method: 'api' } })
+    expect(payloads[0]).toMatchObject({ event: 'telemetry.disabled' })
+    expect(payloads[0]!.properties).toEqual({ method: 'api', surface: 'mcp-stdio', agent: 'claude' })
     expect(await configuredTelemetry()).toBe(false)
+  })
+
+  it('attributes an API opt-out with no request to the server itself, never to the CLI', async () => {
+    const { setTelemetryPreference } = await import('../src/telemetry.js')
+
+    await setTelemetryPreference(false, 'api')
+    expect(payloads[0]!.properties).toEqual({ method: 'api', surface: 'system' })
   })
 
   it('persists the preference even when the collector is unreachable', async () => {

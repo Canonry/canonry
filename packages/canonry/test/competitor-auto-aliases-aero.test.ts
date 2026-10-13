@@ -61,6 +61,15 @@ describe('Aero and the competitor auto-alias mode', () => {
     }
   }
 
+  it('refuses an acknowledged measured bulk competitor add', async () => {
+    const calls: Call[] = []
+    const add = toolFor('canonry_competitors_add', 'preview', calls)
+    await expect(add.execute('call-bulk', {
+      request: { competitors: ['one.example', 'two.example'], acknowledgeBulkAdd: true },
+    })).rejects.toThrow('Aero cannot acknowledge measured bulk competitor growth')
+    expect(calls).toEqual([])
+  })
+
   it('refuses a project upsert that changes the mode, on every write surface', async () => {
     for (const options of [{}, { managedSweeps: true }]) {
       const calls: Call[] = []
@@ -70,6 +79,20 @@ describe('Aero and the competitor auto-alias mode', () => {
       expect(calls.map(c => c.method)).toEqual(['getProject'])
       expect(calls[0]!.args[0]).toBe('demo')
     }
+  })
+
+  it('refuses the PATCH project update mode change and keeps omitted mode writable', async () => {
+    const refusedCalls: Call[] = []
+    const update = toolFor('canonry_project_update', 'preview', refusedCalls)
+    await expect(update.execute('call-1', { project: 'demo', request: { displayName: 'Demo', competitorAutoAliases: 'apply' } }))
+      .rejects.toThrow(COMPETITOR_AUTO_ALIAS_MODE_REFUSAL)
+    expect(refusedCalls.map(c => c.method)).toEqual(['getProject'])
+
+    const keptCalls: Call[] = []
+    await toolFor('canonry_project_update', 'preview', keptCalls)
+      .execute('call-2', { project: 'demo', request: { displayName: 'Demo' } })
+    expect(keptCalls.map(c => c.method)).toEqual(['patchProject'])
+    expect(keptCalls[0]!.args).toEqual(['demo', { displayName: 'Demo' }])
   })
 
   it('lets a project upsert omit the mode or restate the stored one', async () => {

@@ -1,3 +1,4 @@
+import { WINDOW_SETS, parseWindowIn, windowDays } from './time-window.js'
 import { shareOfVoiceContextFields } from './share-of-voice.js'
 import { z } from 'zod'
 import { fraction, percent } from './ratio-unit.js'
@@ -8,7 +9,7 @@ import { queryClassFilterSchema } from './query-class.js'
 import { sourceCategorySchema } from './source-categories.js'
 import { surfaceClassSchema } from './surface-class.js'
 
-export const metricsWindowSchema = z.enum(['7d', '30d', '90d', 'all'])
+export const metricsWindowSchema = z.enum(WINDOW_SETS.metrics)
 export type MetricsWindow = z.infer<typeof metricsWindowSchema>
 export const trendDirectionSchema = z.enum(['improving', 'declining', 'stable'])
 export type TrendDirection = z.infer<typeof trendDirectionSchema>
@@ -349,6 +350,10 @@ export type ExecutionIdentityChangeEvent = z.infer<typeof executionIdentityChang
 export const competitorIdentityChangedAtSchema = z.string().nullable()
   .describe('When the names the project\'s competitors are matched by last changed: a tracked competitor\'s curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass that stored or removed a market-only competitor\'s learned names, a write that claimed, released or dropped a market-only competitor\'s learned names, or a published revision that renamed a market pin; null if never. The competitor landscape reads every period with the current names, so a figure for any period quoted before this time was restated at this time. Analytics mention share and project-frame visibility-compare share of voice read only tracked competitors\' names, so a market pin or learned-name change moves this time without changing them. Adding or removing a competitor or a pin is a names change only when it moves a stored or learned name.')
 
+/** When the tracked competitor set last changed; null when it never did. */
+export const competitorSetChangedAtSchema = z.string().nullable()
+  .describe('When the tracked competitor set last changed: a non-empty competitor add, removal, replacement, or discovery promotion. Older replacement audit rows without added/removed fields count conservatively; an identical replacement with both arrays empty does not. Null when the set never changed.')
+
 export const brandMetricsDtoSchema = z.object({
   window: metricsWindowSchema,
   /** Scope that applies even when `buckets` is empty. `pooled` means classification was unavailable. */
@@ -423,6 +428,8 @@ export const brandMetricsDtoSchema = z.object({
    * learned-name change moves the time without changing the series.
    */
   competitorIdentityChangedAt: competitorIdentityChangedAtSchema.optional(),
+  /** When the tracked competitor set was last changed. */
+  competitorSetChangedAt: competitorSetChangedAtSchema.optional(),
 })
 export type BrandMetricsDto = z.infer<typeof brandMetricsDtoSchema>
 
@@ -880,6 +887,10 @@ export const competitorLandscapeResponseSchema = z.object({
   /** What each count counts: answers or distinct names. See `COMPETITOR_LANDSCAPE_COUNT_UNITS`. */
   countUnits: competitorLandscapeCountUnitsSchema.optional(),
   competitorIdentityChangedAt: competitorIdentityChangedAtSchema.optional(),
+  /** When the tracked competitor set was last changed. */
+  competitorSetChangedAt: competitorSetChangedAtSchema.optional(),
+  /** True when either competitor change marker is newer than the oldest run counted by this exact response. */
+  competitorListRestated: z.boolean().optional(),
 }).strict()
 export type CompetitorLandscapeResponse = z.infer<typeof competitorLandscapeResponseSchema>
 
@@ -893,19 +904,12 @@ export type CompetitorLandscapeResponse = z.infer<typeof competitorLandscapeResp
  * loudly is the only way the caller can tell.
  */
 export function parseWindow(value?: string): MetricsWindow {
-  if (value === undefined || value === '') return 'all'
-  const parsed = metricsWindowSchema.safeParse(value)
-  if (!parsed.success) {
-    throw validationError(
-      `Invalid window "${value}". Must be one of: ${metricsWindowSchema.options.join(', ')}.`,
-    )
-  }
-  return parsed.data
+  return parseWindowIn(value, WINDOW_SETS.metrics, { fallback: 'all' })
 }
 
 export function windowCutoff(window: MetricsWindow): string | null {
   if (window === 'all') return null
-  const days = window === '7d' ? 7 : window === '30d' ? 30 : 90
+  const days = windowDays(window)
   const d = new Date()
   d.setDate(d.getDate() - days)
   return d.toISOString()

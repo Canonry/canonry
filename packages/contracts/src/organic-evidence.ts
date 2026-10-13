@@ -1,8 +1,13 @@
+import { WINDOW_SETS, parseWindowIn, windowDayValues, windowDays } from './time-window.js'
 import { z } from 'zod'
 import { gaMeasurementAnalysisDtoSchema } from './measurement.js'
 
-export const organicEvidencePeriodSchema = z.union([z.literal(60), z.literal(90)])
+export const organicEvidencePeriodSchema = z.union(windowDayValues(WINDOW_SETS.organicEvidence).map(value => z.literal(value)))
 export type OrganicEvidencePeriodDays = z.infer<typeof organicEvidencePeriodSchema>
+
+export function parseOrganicEvidencePeriod(value?: string | number): OrganicEvidencePeriodDays {
+  return windowDays(parseWindowIn(value, WINDOW_SETS.organicEvidence, { field: 'period', fallback: '90d' }))
+}
 
 const cohortNameSchema = z.enum(['earliest', 'middle', 'prior', 'latest'])
 const countSchema = z.object({

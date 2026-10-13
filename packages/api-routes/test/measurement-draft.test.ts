@@ -44,11 +44,12 @@ import {
   schedules,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
-import { apiRoutes } from '../src/index.js'
+import { apiRoutes, type OutcomeTelemetryEvent } from '../src/index.js'
 import { plansAreLabelOnlyVariants } from '../src/measurement-draft-compile.js'
 import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
 import { hashApiKey } from '../src/auth.js'
 import { sha256Hex } from '../src/measurement-draft-repo.js'
+import { featureOutcomes } from './feature-outcome-capture.js'
 
 const ROOT_KEY = 'cnry_draft_root'
 const NOW = '2026-08-02T00:00:00.000Z'
@@ -56,6 +57,7 @@ const PROJECT = 'northwind'
 
 let tmpDir: string
 let db: DatabaseClient
+let outcomes: OutcomeTelemetryEvent[]
 let app: ReturnType<typeof Fastify>
 let tracked: Array<{ id: string; query: string }>
 let runnableProviders: string[]
@@ -187,8 +189,9 @@ beforeEach(async () => {
   tracked = db.select({ id: queries.id, query: queries.query }).from(queries).all()
 
   runnableProviders = ['gemini', 'openai']
+  outcomes = []
   app = Fastify()
-  app.register(apiRoutes, { db, getRunnableProviderNames: () => runnableProviders })
+  app.register(apiRoutes, { db, getRunnableProviderNames: () => runnableProviders, onOutcome: (event: OutcomeTelemetryEvent) => { outcomes.push(event) } })
   await app.ready()
 })
 
@@ -1097,6 +1100,35 @@ async function publish(session: DraftSession, expectedActiveRevision: number | n
 }
 
 describe('measurement draft publish', () => {
+  it('reports a publish with the plan it made live, a no-op as skipped, a refusal as failed, and a replay not again', async () => {
+    const first = await readyDraft()
+    await first.run('upsert-group', { group: { stableKey: 'catalog', label: 'Catalog', targetKeys: ['widgets'], competitors: [] } })
+    const compiled = await request('POST', '/measurement-plan/draft/actions/compile-preview', { payload: {} })
+    const publishFirst = () => action('publish', {
+      payload: { expectedActiveRevision: null, expectedCompiledChecksum: compiled.json().compiledChecksum },
+      ifMatch: first.etag,
+      idempotencyKey: 'publish-first',
+    })
+    const published = await publishFirst()
+    expect(published.json()).toMatchObject({ published: true, active: { revision: 1 } })
+    // A retry with the same key replays the receipt; the publish already reported.
+    expect((await publishFirst()).json()).toEqual(published.json())
+
+    const unchanged = await DraftSession.start(1)
+    expect((await publish(unchanged, 1)).json()).toMatchObject({ published: false })
+    const stale = await DraftSession.start(1)
+    const moved = await action('publish', { payload: { expectedActiveRevision: 7, expectedCompiledChecksum: '0'.repeat(64) }, ifMatch: stale.etag })
+    expect(moved.statusCode).toBe(409)
+
+    const base = { feature: 'measurement', operation: 'publish', durationBucket: expect.any(String) }
+    expect(featureOutcomes(outcomes)).toEqual([
+      // One group, its one Target, and the two queries assigned to it.
+      { ...base, status: 'succeeded', counts: { items: 1, targets: 1, queries: 2 } },
+      { ...base, status: 'skipped', reasonCode: 'NO_DATA' },
+      { ...base, status: 'failed', reasonCode: 'HTTP_4XX', errorName: 'AppError' },
+    ])
+  })
+
   it('preserves qualified identity phrases through publish and draft seeding, and treats changes as material', async () => {
     const session = await readyDraft()
     const identityAliases = ['Northwind Widgets in Eastport', 'Eastport Northwind Widgets']

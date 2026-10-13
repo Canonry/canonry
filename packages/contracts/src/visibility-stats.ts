@@ -1,7 +1,7 @@
 import { shareOfVoiceContextFields } from './share-of-voice.js'
 import { z } from 'zod'
 import { fraction, percent } from './ratio-unit.js'
-import { competitorIdentityChangedAtSchema } from './analytics.js'
+import { competitorIdentityChangedAtSchema, competitorSetChangedAtSchema } from './analytics.js'
 
 /**
  * Aggregated answer-visibility stats — per-query mention / citation counts
@@ -431,6 +431,8 @@ export const visibilityCompareDtoSchema = z.object({
    * plan frame only.
    */
   competitorIdentityChangedAt: competitorIdentityChangedAtSchema.optional(),
+  /** When the tracked competitor set was last changed; absent from scoped frozen comparisons. */
+  competitorSetChangedAt: competitorSetChangedAtSchema.optional(),
 })
 export type VisibilityCompareDto = z.infer<typeof visibilityCompareDtoSchema>
 

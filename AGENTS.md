@@ -41,9 +41,10 @@ Key types, scope gates, read-only keys, `keys.write`, and what a multi-tenant mi
 
 ## Local validation and merging (Critical)
 
-- Before push or handoff, run `pnpm check`, affected package **tests, typechecks, and type-aware lint**. Run `pnpm verify` for workspace-wide runtime, contract, dependency, DB, or auth changes.
+- During local iteration, do not run tests, test watchers, or `pnpm verify`. Run tests only after changes are finalized and ready for push or review.
+- At final validation, run `pnpm check`, affected package **tests, typechecks, and type-aware lint**. Include dependent packages for shared runtime, contract, dependency, DB, or auth changes. Reuse passing results while their inputs remain unchanged. `pnpm verify` is optional locally, not a per-push requirement.
 - Build and smoke affected CLI/API/MCP/UI surfaces; smoke installed tarballs for packaging changes. Check SDK/plugin/Val drift; fix its source.
-- Fetch and integrate the latest target, resolve conflicts, review the full PR diff, and rerun affected checks. Recheck release versions against the target tip and npm.
+- Fetch and integrate the latest target, resolve conflicts, and review the full PR diff. At final validation, rerun only checks whose inputs changed. Recheck release versions against the target tip and npm.
 - After pushing, match the tested SHA to the remote branch and PR head; require GitHub `MERGEABLE` before handoff or merge. Report commands, results, SHA, and blockers; failed or unrun required checks block readiness. Skipped owner CI proves nothing.
 - Outside work runs full CI; `arberx` validation is local. All releases stay enabled. Hooks remain staged lint and drift only. Docs/config: diff/live checks; no new tests needed.
 - Vals remain manual; see [Val kit rules](packages/val-kit/AGENTS.md).
@@ -128,7 +129,7 @@ Every (query × provider) snapshot carries two independent signals — a model c
 2. Branded stays visible as a sibling field (`branded`) with its own labelled section and denominator — never dropped, never pooled.
 3. The class travels with the number: `scope` / `queryClass` on the wire; "· non-brand queries" in the delta, chart title, column header, and CLI line. A GROUP of figures sitting directly under a heading that names the class may rely on that heading for the visible label (the dashboard's AI Visibility headline strip names the class once in its `h2`), but each figure still carries the class in its own accessible text via an `sr-only` suffix beside the value. A reader who sees only the number, or hears only the figure, must still be able to tell which instrument produced it.
 4. `pooled` appears only when the project has no usable brand alias. Never label an unsplit figure `non-brand`, and never silently classify an unclassifiable basket.
-5. One classifier: `compileQueryClassifier` (`packages/contracts/src/query-class.ts`) runs `effectiveBrandNames` through the shared brand matcher; `queryClassSchema` IS `measurementQueryClassSchema`. No hand-rolled regex, no second enum.
+5. One classifier: `compileQueryClassifier` (`packages/contracts/src/query-class.ts`) runs `effectiveBrandNames` through the shared brand matcher; `queryClassSchema` IS `measurementQueryClassSchema`. No hand-rolled regex, no second enum (`canonry-guards/no-second-query-classifier`). Surfaces show the server's `queryClass` (`canonry query list`).
 6. `competitorOverlap` is legacy MIXED evidence (answer text, source links, or both). Citation metrics use `citedDomains` plus grounding-source hosts; mention metrics use answer text with the shared matcher.
 7. Sentiment is a branded figure: a non-brand answer almost always names the brand to recommend it, so its favorable share says little. The portfolio overview shows the server's `sentiment.branded`, or no metric when no branded judgment exists. `overall` (`queryClass = 'all'`, computed server-side from distinct answer-subject assessments, never averaged class rates) stays in the API for compatibility and is not shown on the dashboard or the human CLI overview. The dashboard shows non-brand sentiment only as its unfavorable and mixed answers (exceptions), never a favorable share; the detailed `canonry sentiment --query-class non-brand` read keeps the class's full counts. Preserve both class summaries in the API; competitive metrics remain separate.
 
@@ -269,7 +270,7 @@ Canonry can run behind a reverse proxy sub-path (e.g. `/canonry/`); code that ig
 
 - Test the public API of each module, not internals. Cover the happy path plus meaningful edge cases (invalid input, env var overrides, error handling).
 - CLI tests capture stdout/stderr and assert on the output, not only side effects. File-system tests use `os.tmpdir()` and clean up in `afterEach`.
-- Run focused tests locally before pushing code; owner changes rely on this validation. Outside contributions also run the full suite in CI. Hooks never run tests or builds.
+- Run focused tests only when changes are finalized and ready for push or review. Do not run tests during local iteration. Owner changes rely on this validation. Outside contributions also run the full suite in CI. Hooks never run tests or builds.
 - **Test boundary matchers with data as STORED, not idealized.** Check how a column is actually populated before matching on it (project upsert/apply store `canonicalDomain` raw — full URLs and mixed case included) and use the canonical helpers (`hostOf`, `normalizeQueryText`). A clean-fixture-only suite passes while production values miss the match.
 - **Test default-value propagation end-to-end.** When a stored default (e.g. a project's `defaultLocation`) feeds another feature (run creation), exercise the full path with no explicit override — not just "the default is stored" and "the consumer accepts a value".
 

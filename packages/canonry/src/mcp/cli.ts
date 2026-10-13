@@ -6,20 +6,21 @@ import { autoSyncSkills } from '../skills-autosync.js'
 import { createCanonryMcpServer, type CanonryMcpScope } from './server.js'
 import { createUpdateNoticeSource } from './update-notice.js'
 
-export const HELP_TEXT = `Usage: canonry-mcp [--read-only | --scope=<all|read-only>] [--eager]
+export const HELP_TEXT = `Usage: canonry-mcp [--read-only | --stored-only | --scope=<all|read-only|stored-only>] [--eager]
 
 Stdio MCP adapter over the Canonry public API. Inherits config from
 ~/.canonry/config.yaml (or $CANONRY_CONFIG_DIR/config.yaml).
 
 Flags:
   --read-only          Expose read tools only
-  --scope=<all|read-only>
+  --stored-only        Expose stored reads only
+  --scope=<all|read-only|stored-only>
                        Same as --read-only when "read-only"
   --eager              Load all toolkits at start (skip progressive discovery)
   --help, -h           Show this message
 
 Environment variables:
-  CANONRY_MCP_SCOPE    "all" (default) or "read-only"
+  CANONRY_MCP_SCOPE    "all" (default), "read-only", or "stored-only"
   CANONRY_MCP_EAGER    "1" / "true" / "yes" to enable eager mode
 `
 
@@ -46,6 +47,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     }
     throw error
   }
+  if (options.scope === 'stored-only') process.env.CANONRY_STORED_ONLY = '1'
   // Heal installed skills here too, not only in the `cnry` CLI. A plugin host
   // launches THIS binary and may never invoke the CLI at all, so gating the
   // refresh on a CLI run leaves exactly the MCP-only user — the one who never
@@ -58,9 +60,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   // person who is not reading it is noise on every single launch. The heal
   // itself still happens; only the narration is dropped.
   //
-  // Fire-and-forget: the server must not wait on a filesystem refresh, and the
-  // sync swallows its own errors.
-  void autoSyncSkills()
+  // Stored-only mode keeps startup free of local skill writes and update
+  // checks. The sync swallows its own errors in ordinary MCP modes.
+  if (options.scope !== 'stored-only') void autoSyncSkills()
 
   // Build the client once, auto-detect a read-only key, then reuse the same
   // client for the server (keeps one client per server instance).
@@ -71,7 +73,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   // MCP-only agent never runs the CLI, so this is the only place it can learn
   // that the install is behind. Best-effort, opt-out aware, and refreshed
   // hourly for hosts that keep this process alive for days.
-  const updateNotice = createUpdateNoticeSource(client)
+  const updateNotice = options.scope === 'stored-only'
+    ? { refresh: async () => undefined, get: () => null }
+    : createUpdateNoticeSource(client)
   const [authorization] = await Promise.all([
     resolveEffectiveAuthorization(client, options.scope),
     updateNotice.refresh(),
@@ -117,7 +121,7 @@ export async function resolveEffectiveAuthorization(
       process.stderr.write(
         'canonry-mcp: configured API key is read-only — restricting to read tools.\n',
       )
-      return { scope: 'read-only', credentialScopes: self.scopes, operator: self.operator === true }
+      return { scope: flagScope === 'stored-only' ? 'stored-only' : 'read-only', credentialScopes: self.scopes, operator: self.operator === true }
     }
     return { scope: flagScope, credentialScopes: self.scopes, operator: self.operator === true }
   } catch {
@@ -136,12 +140,19 @@ export function parseCliOptions(
     throw new HelpRequested()
   }
   let scope = normalizeScope(env.CANONRY_MCP_SCOPE)
+  let storedOnlyRequested = ['1', 'true'].includes((env.CANONRY_STORED_ONLY ?? '').toLowerCase()) || scope === 'stored-only'
+  if (storedOnlyRequested) scope = 'stored-only'
   let eager = parseEagerEnv(env.CANONRY_MCP_EAGER)
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === '--read-only') {
-      scope = 'read-only'
+      if (!storedOnlyRequested) scope = 'read-only'
+      continue
+    }
+    if (arg === '--stored-only') {
+      storedOnlyRequested = true
+      scope = 'stored-only'
       continue
     }
     if (arg === '--eager') {
@@ -151,23 +162,28 @@ export function parseCliOptions(
     if (arg === '--scope') {
       const next = argv[i + 1]
       if (!next) throw new Error('Missing value for --scope')
-      scope = normalizeScope(next)
+      const requestedScope = normalizeScope(next)
+      if (requestedScope === 'stored-only') storedOnlyRequested = true
+      if (!storedOnlyRequested) scope = requestedScope
       i += 1
       continue
     }
     if (arg?.startsWith('--scope=')) {
-      scope = normalizeScope(arg.slice('--scope='.length))
+      const requestedScope = normalizeScope(arg.slice('--scope='.length))
+      if (requestedScope === 'stored-only') storedOnlyRequested = true
+      if (!storedOnlyRequested) scope = requestedScope
       continue
     }
     throw new Error(`Unknown canonry-mcp argument: ${arg}`)
   }
-  return { scope, eager }
+  return { scope: storedOnlyRequested || scope === 'stored-only' ? 'stored-only' : scope, eager }
 }
 
 function normalizeScope(value: string | undefined): CanonryMcpScope {
   if (!value || value === 'all') return 'all'
   if (value === 'read-only') return 'read-only'
-  throw new Error(`Invalid MCP scope "${value}". Expected "all" or "read-only".`)
+  if (value === 'stored-only') return 'stored-only'
+  throw new Error(`Invalid MCP scope "${value}". Expected "all", "read-only", or "stored-only".`)
 }
 
 function parseEagerEnv(value: string | undefined): boolean {

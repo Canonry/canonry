@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyQueryClass, compileQueryClassifier } from '../src/query-class.js'
+import { classifyQueryClass, compileQueryClassifier, reportedQueryClasses } from '../src/query-class.js'
 import { effectiveBrandNames } from '../src/project.js'
 import { measurementQueryClassSchema, measurementQueryClassFilterSchema } from '../src/measurement-plan-v2.js'
 import { queryClassSchema, queryClassFilterSchema } from '../src/query-class.js'
@@ -84,5 +84,35 @@ describe('compileQueryClassifier', () => {
     expect(measurementQueryClassFilterSchema).toBe(queryClassFilterSchema)
     expect(queryClassSchema.options).toEqual(['branded', 'non-brand'])
     expect(queryClassFilterSchema.options).toEqual(['all', 'branded', 'non-brand'])
+  })
+})
+
+describe('reportedQueryClasses', () => {
+  const rows = [
+    { query: 'already tracked', queryClass: 'non-brand' as const },
+    { query: 'acme pricing', queryClass: 'branded' as const },
+    { query: 'best widgets', queryClass: 'non-brand' as const },
+    { query: 'no single class', queryClass: null },
+    { query: 'from an older server' },
+  ]
+
+  it('reads each requested query back in request order, once, ignoring rows that were not requested', () => {
+    expect(reportedQueryClasses(['best widgets', 'acme pricing', 'best widgets'], rows)).toEqual([
+      { query: 'best widgets', queryClass: 'non-brand' },
+      { query: 'acme pricing', queryClass: 'branded' },
+    ])
+  })
+
+  it('keeps the server null, and leaves the class off where the server reported none', () => {
+    // `toStrictEqual` tells an absent key from one set to undefined or null.
+    expect(reportedQueryClasses(['no single class', 'from an older server', 'not in the response'], rows)).toStrictEqual([
+      { query: 'no single class', queryClass: null },
+      { query: 'from an older server' },
+      { query: 'not in the response' },
+    ])
+  })
+
+  it('matches the stored text exactly, so a differently cased request is not given another row\'s class', () => {
+    expect(reportedQueryClasses(['Acme Pricing'], rows)).toStrictEqual([{ query: 'Acme Pricing' }])
   })
 })

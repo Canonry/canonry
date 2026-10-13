@@ -730,7 +730,7 @@ transactional receipt protects each event ID for ten minutes. Receipt claims,
 hourly rollups, samples, and source progress commit in one transaction.
 
 Direct push sends one selected event per batch. It does not batch or sample at
-the edge. Canonry stores at most 100 raw samples per source per UTC hour, while
+the edge. Canonry retains at most 100 direct-push samples per source per UTC hour, while
 it continues to add all classified events to hourly rollups.
 
 The Worker transports the raw client IP, full query string, and full referer
@@ -1167,4 +1167,17 @@ Cache exclusions for the selected AI agents can recover crawler and user-fetch
 coverage, but they do not recover ordinary browser referrals served from cache.
 Use GA4 for landed browser visits or edge/access logs for cache-independent
 request coverage. The `traffic.source.cache-blindspot` doctor check is a static
-warning; it does not request or impersonate traffic against the public origin.
+warning; it does not request or impersonate traffic against the public origin,
+and it never sends a `health.degraded` alert.
+
+### Inspect stored samples
+
+`cnry traffic samples <project> --kind ai-referral --format json` exposes exact
+stored timestamps, normalized paths, status, referer host, user agent and
+classifier evidence. It never exposes IP hashes. These are a sampled tail with
+30-day retention: pull syncs keep up to 100 per sync, backfills 500 per run, and
+direct push up to 100 per source per UTC hour. There is no universal hourly cap.
+`totalRows` counts matching samples, not visits. Use `traffic events` for rollup
+totals; `traffic status` already reports last-24h sample counts per source across
+all kinds. The new read excludes unknown requests by default and requires them
+explicitly with `--kind unknown`. Viewers and embeds cannot read sample rows.

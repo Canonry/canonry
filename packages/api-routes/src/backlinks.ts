@@ -9,8 +9,11 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import {
+  AppError,
   BacklinkSources,
   CcReleaseSyncStatuses,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
   RunKinds,
   RunStatuses,
   RunTriggers,
@@ -35,6 +38,8 @@ import {
 import { isValidReleaseId } from '@ainyc/canonry-integration-commoncrawl'
 import { resolveProject } from './helpers.js'
 import { backlinkCrawlerExclusionClause } from './backlinks-filter.js'
+import { readCommonCrawlSourceState } from './backlinks-source-state.js'
+import { withFeatureOutcome } from './feature-outcome.js'
 
 export interface BacklinksRoutesOptions {
   /**
@@ -269,16 +274,11 @@ function buildSourceAvailability(
 
 function computeSourceAvailability(
   db: DatabaseClient,
-  project: { id: string; canonicalDomain: string; autoExtractBacklinks: boolean },
+  project: { id: string; canonicalDomain: string },
   excludeCrawlers: boolean,
 ): BacklinkSourcesResponseDto {
-  const ccReadySync = db
-    .select({ id: ccReleaseSyncs.id })
-    .from(ccReleaseSyncs)
-    .where(eq(ccReleaseSyncs.status, CcReleaseSyncStatuses.ready))
-    .limit(1)
-    .get()
-  const ccConnected = project.autoExtractBacklinks === true && !!ccReadySync
+  // The same rule the `backlinks.source.connected` doctor check grades.
+  const ccConnected = readCommonCrawlSourceState(db, project.id).connected
 
   const sources = [
     buildSourceAvailability(db, project.id, BacklinkSources.commoncrawl, ccConnected, excludeCrawlers),
@@ -301,13 +301,14 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
     return reply.send(opts.getBacklinksStatus())
   })
 
-  app.post('/backlinks/install', async (_request, reply) => {
+  app.post('/backlinks/install', async (_request, reply) => withFeatureOutcome(app, { feature: 'backlinks', operation: 'install' }, async (settle) => {
     if (!opts.onInstallBacklinks) {
       throw missingDependency(BACKLINKS_UNSUPPORTED_MESSAGE)
     }
     const result = await opts.onInstallBacklinks()
+    if (result.alreadyPresent) settle({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.ALREADY_CONNECTED })
     return reply.status(200).send(result)
-  })
+  }, err => (err instanceof AppError && err.code === 'MISSING_DEPENDENCY' ? OutcomeReasonCodes.UNSUPPORTED : undefined)))
 
   app.post<{ Body: { release?: string } }>('/backlinks/syncs', async (request, reply) => {
     let release = request.body?.release

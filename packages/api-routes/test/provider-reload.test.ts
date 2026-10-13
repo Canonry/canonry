@@ -4,7 +4,9 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apiKeys, createClient, migrate, projects, users } from '@ainyc/canonry-db'
-import { apiRoutes, hashApiKey, type ApiRoutesOptions } from '../src/index.js'
+import { operationInProgress, validationError } from '@ainyc/canonry-contracts'
+import { apiRoutes, hashApiKey, type ApiRoutesOptions, type OutcomeTelemetryEvent } from '../src/index.js'
+import { featureOutcomes } from './feature-outcome-capture.js'
 
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => {
@@ -40,9 +42,11 @@ async function harness(supported = true, liveRegistry = false) {
   const providers = [{ name: 'gemini', configured: true, vertexConfigured: true, model: 'gemini-2.5-flash' }]
   const providerSummary: NonNullable<ApiRoutesOptions['providerSummary']> = []
   const reload = vi.fn(async () => providers)
+  const outcomes: OutcomeTelemetryEvent[] = []
   const app = Fastify()
   const options: ApiRoutesOptions = {
     db, providerSummary,
+    onOutcome: event => { outcomes.push(event) },
     providerAdapters: [{
       name: 'gemini', displayName: 'Gemini', mode: 'api', modelConfigurable: true,
       defaultModel: 'gemini-2.5-flash', knownModels: [], modelValidationPattern: /^gemini-/, modelValidationHint: 'Gemini model',
@@ -58,7 +62,7 @@ async function harness(supported = true, liveRegistry = false) {
     db.$client.close()
     fs.rmSync(directory, { recursive: true, force: true })
   })
-  return { app, reload, providers, providerSummary }
+  return { app, reload, providers, providerSummary, outcomes }
 }
 
 function headers(key = 'root') {
@@ -158,5 +162,32 @@ describe('provider reload HTTP contract', () => {
     })
     expect(response.statusCode).toBe(501)
     expect(response.json()).toMatchObject({ error: { code: 'NOT_IMPLEMENTED' } })
+  })
+
+  it('reports each reload with the providers left configured, or the reason it was refused', async () => {
+    const { app, reload, outcomes } = await harness()
+    const post = () => app.inject({ method: 'POST', url: '/api/v1/settings/providers/reload', headers: headers(), payload: {} })
+    reload.mockResolvedValueOnce([
+      { name: 'gemini', configured: true, vertexConfigured: true, model: 'gemini-2.5-flash' },
+      { name: 'openai', configured: false, vertexConfigured: false, model: 'gpt-5' },
+      { name: 'claude', configured: true, vertexConfigured: false, model: 'claude-sonnet-4-6' },
+    ])
+    expect((await post()).statusCode).toBe(200)
+    // The host refuses a reload while batch work is outstanding, or one meant for another install.
+    reload.mockRejectedValueOnce(operationInProgress('Wait for outstanding batch work to settle.'))
+    expect((await post()).statusCode).toBe(409)
+    reload.mockRejectedValueOnce(validationError('Provider reload identity does not match this running server.', { reason: 'install-identity-mismatch' }))
+    expect((await post()).statusCode).toBe(400)
+
+    const unsupported = await harness(false)
+    await unsupported.app.inject({ method: 'POST', url: '/api/v1/settings/providers/reload', headers: headers(), payload: {} })
+
+    const base = { feature: 'providers', operation: 'reload', durationBucket: expect.any(String) }
+    expect(featureOutcomes([...outcomes, ...unsupported.outcomes])).toEqual([
+      { ...base, status: 'succeeded', counts: { providers: 2 } },
+      { ...base, status: 'failed', reasonCode: 'OPERATION_IN_PROGRESS', errorName: 'AppError' },
+      { ...base, status: 'failed', reasonCode: 'VALIDATION', errorName: 'AppError' },
+      { ...base, status: 'failed', reasonCode: 'UNSUPPORTED', errorName: 'AppError' },
+    ])
   })
 })

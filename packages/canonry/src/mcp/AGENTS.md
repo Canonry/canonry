@@ -10,9 +10,16 @@ catalog is split across a small **core tier** (always loaded) and the
 loads on demand via `canonry_load_toolkit`. The catalog coalesces enable
 side effects so each `canonry_load_toolkit` call emits exactly one
 `notifications/tools/list_changed`. Pass `--read-only` to surface
-only the read tools, or `--eager` (or `CANONRY_MCP_EAGER=1`) to register
+only the read tools, `--stored-only` or `--scope=stored-only` to expose only
+stored evidence reads, or `--eager` (or `CANONRY_MCP_EAGER=1`) to register
 every tool at startup like the previous flat catalog. Auth is inherited
 from `~/.canonry/config.yaml`.
+
+Stored-only is also selected by `CANONRY_STORED_ONLY=1` or
+`CANONRY_MCP_SCOPE=stored-only` and is monotonic if later options request a
+wider scope. Provider and write tools are refused before an HTTP request, with
+`STORED_ONLY_REFUSED` on CLI surfaces; hosted catalogs remain fixed and server
+startup or autonomous jobs are unchanged.
 
 Key files:
 - `packages/canonry/src/mcp/server.ts` — `createCanonryMcpServer` (one client per server instance, registers core tier + meta tools)
@@ -62,6 +69,8 @@ MCP parity is the default for every new public API/CLI capability. When adding a
 
 Cloudflare connect is intentionally deferred. It is a local deployment workflow that reads Canonry's local credential store. Direct push installs Worker secret bindings; Queue pull keeps its API token server-side. Do not add `canonry_traffic_connect_cloudflare` to MCP or Aero; agents may instruct the operator to run the CLI, inspect the exact zone route, attach it manually with Fail open, and pass both acknowledgement flags. Credentials and deployment material must not enter a transcript.
 
+`canonry dashboard reset-password` has no MCP tool and no API route to classify. It edits the local `config.yaml` and exists for an operator who cannot sign in; reopening first-run setup is a root action on the host. Do not add a tool or a route for it: agents tell the operator to run the CLI.
+
 `canonry_providers_reload` mirrors `settings reload-providers` and `POST /settings/providers/reload`: explicit operator approval, install administrator authority and `settings.write`. It reloads the connected host's own saved providers without accepting credentials or arbitrary file paths. Optional config/database path pins are one install identity pair. Read-only catalogs and native Aero exclude this install-wide mutation.
 
 Reload refuses provider removal or non-quota configuration changes while that provider has submitting, submitted or ended batches, or an executing sweep can still submit or cancel one (`OPERATION_IN_PROGRESS`); quota-only updates stay available. The host preserves the registration that work needs for dispatch, polling, ingestion and cancellation.
@@ -85,7 +94,10 @@ MCP workflows (agent): inspect → diagnose → act. Inspect: get-project / visi
 
 ## Kept out of MCP on purpose
 
-- MCP/Aero expose task-shaped Site Health overview/page-audit/subgraph/path/changes reads; the 20k/50k Sigma layout payload stays API/dashboard-only. CLI aliases: `canonry site-health overview|pages|page-audit|structure|links|neighbors|dead-links|subgraph|path|changes`.
+- `canonry help` describes the local CLI binary and has no API route. MCP discovery remains `canonry_help({ includeCatalog: true })`, which describes the tool catalog.
+
+- MCP/Aero expose task-shaped Site Health overview/issues/issue-pages/page-audit/subgraph/path/changes reads; the 20k/50k Sigma layout payload stays API/dashboard-only. CLI aliases: `canonry site-health overview|issues|issue-pages|pages|page-audit|structure|links|neighbors|dead-links|subgraph|path|changes`.
+- `canonry_site_health_issues` and `canonry_site_health_issue_pages` use the typed stored API and shared bounded query/response schemas. Preserve scan date and identity, missing/partial coverage, nullable totals, truncation and pagination. Use the returned run ID for continuation; `stableIdentity: false` never proves continuity across scans. Keep critical-defect severity and `recommendationsScope`: factor recommendations differ from issue-specific defect guidance. Read access grants no edit authority.
 - Ads archive is classified `deferred`: it is irreversible and stays a human API surface.
 - `canonry serve --embed` is not an `/api/v1` operation, so it has no MCP tool (same precedent as `--base-path`).
 - Cloudflare connect: see "Adapter rules" above.

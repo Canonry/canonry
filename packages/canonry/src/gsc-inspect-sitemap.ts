@@ -13,7 +13,8 @@ import { fetchAndParseSitemap } from './sitemap-parser.js'
 import { writeCoverageSnapshot } from './gsc-coverage-snapshot.js'
 import { createLogger } from './logger.js'
 import { inspectUrlsPaced, INSPECT_FAILFAST_THRESHOLD, INSPECT_SWEEP_MAX_URLS, INSPECT_DAILY_QUOTA } from './gsc-inspect-paced.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunStatuses } from '@ainyc/canonry-contracts'
+import { googleRunFailure, startRunOutcome, withOutcomeReason } from './sync-outcome.js'
 
 const log = createLogger('InspectSitemap')
 
@@ -28,6 +29,9 @@ export async function executeInspectSitemap(
   projectId: string,
   opts: InspectSitemapOptions,
 ): Promise<void> {
+  const reportOutcome = startRunOutcome(db, runId, FeatureNames.search_console, 'inspect')
+  // The error a breaker trip wraps, so the outcome reports its cause.
+  let abortCause: unknown
   const now = new Date().toISOString()
 
   // Mark run as running
@@ -36,21 +40,24 @@ export async function executeInspectSitemap(
   try {
     const { clientId: googleClientId, clientSecret: googleClientSecret } = getGoogleAuthConfig(opts.config)
     if (!googleClientId || !googleClientSecret) {
-      throw new Error('Google OAuth is not configured in the local Canonry config')
+      throw withOutcomeReason(new Error('Google OAuth is not configured in the local Canonry config'), OutcomeReasonCodes.NOT_CONNECTED)
     }
 
     const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) {
-      throw new Error(`Project not found: ${projectId}`)
+      throw withOutcomeReason(new Error(`Project not found: ${projectId}`), OutcomeReasonCodes.NOT_FOUND)
     }
 
     const conn = getGoogleConnection(opts.config, project.canonicalDomain, 'gsc')
     if (!conn || !conn.refreshToken) {
-      throw new Error('No GSC connection found or connection is incomplete')
+      throw withOutcomeReason(new Error('No GSC connection found or connection is incomplete'), OutcomeReasonCodes.NOT_CONNECTED)
     }
 
     if (!conn.propertyId) {
-      throw new Error('No GSC property selected. Use "canonry google properties" to list available sites, then set one.')
+      throw withOutcomeReason(
+        new Error('No GSC property selected. Use "canonry google properties" to list available sites, then set one.'),
+        OutcomeReasonCodes.PROPERTY_NOT_FOUND,
+      )
     }
     const propertyId = conn.propertyId
 
@@ -76,7 +83,7 @@ export async function executeInspectSitemap(
     log.info('sitemap.parsed', { runId, projectId, urlCount: urls.length, sitemapUrl })
 
     if (urls.length === 0) {
-      throw new Error('No URLs found in sitemap')
+      throw withOutcomeReason(new Error('No URLs found in sitemap'), OutcomeReasonCodes.NO_DATA)
     }
 
     // A sweep larger than the budget cannot finish: at ~7.1s and one quota unit
@@ -98,6 +105,7 @@ export async function executeInspectSitemap(
       })
     }
 
+    let lastInspectError: unknown
     const { inspected, errors, aborted, abortError } = await inspectUrlsPaced(
       targetUrls,
       {
@@ -131,6 +139,7 @@ export async function executeInspectSitemap(
           log.info('inspect.url-done', { runId, projectId, url: pageUrl, progress: `${index + 1}/${urls.length}` })
         },
         onError: (pageUrl, err) => {
+          lastInspectError = err
           log.error('inspect.url-failed', { runId, projectId, url: pageUrl, error: describeError(err) })
         },
       },
@@ -149,6 +158,7 @@ export async function executeInspectSitemap(
     )
 
     if (aborted) {
+      abortCause = abortError
       const detail = describeError(abortError)
       throw new Error(
         `URL inspection aborted after ${INSPECT_FAILFAST_THRESHOLD} consecutive rate/access failures (likely GSC URL Inspection quota exhaustion or property access loss). Last error: ${detail}`,
@@ -175,6 +185,14 @@ export async function executeInspectSitemap(
       .run()
 
     log.info('inspect.completed', { runId, projectId, inspected, errors, total: urls.length, indexed: snapIndexed, notIndexed: snapNotIndexed })
+    const counts = { urls: inspected, failures: errors, skipped }
+    if (status === RunStatuses.completed) {
+      reportOutcome({ status: OutcomeStatuses.succeeded, counts })
+    } else {
+      // Over budget with no failed URL is the daily inspection quota capping the sweep.
+      const failure = errors > 0 ? googleRunFailure(lastInspectError) : { reasonCode: OutcomeReasonCodes.QUOTA_EXCEEDED }
+      reportOutcome({ status: status === RunStatuses.partial ? OutcomeStatuses.partial : OutcomeStatuses.failed, ...failure, counts })
+    }
   } catch (err) {
     const errorMsg = describeError(err)
     db.update(runs)
@@ -183,6 +201,11 @@ export async function executeInspectSitemap(
       .run()
 
     log.error('inspect.failed', { runId, projectId, error: errorMsg })
+    const failure = googleRunFailure(abortCause ?? err)
+    reportOutcome({
+      status: failure.reasonCode === OutcomeReasonCodes.NO_DATA ? OutcomeStatuses.skipped : OutcomeStatuses.failed,
+      ...failure,
+    })
     throw err
   }
 }

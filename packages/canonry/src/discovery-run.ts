@@ -8,6 +8,7 @@ import {
   runs,
 } from '@ainyc/canonry-db'
 import {
+  classifyProviderOutcomeError,
   determineAnswerMentioned,
   DiscoveryCompetitorTypes,
   effectiveBrandNames,
@@ -15,6 +16,8 @@ import {
   hostMatchesAnyDomain,
   normalizeProjectDomain,
   isRetryableHttpError,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
   RunStatuses,
   withRetry,
   type DiscoveryCompetitorType,
@@ -34,6 +37,7 @@ import {
 } from '@ainyc/canonry-api-routes'
 import type { ProviderRegistry } from './provider-registry.js'
 import { createLogger } from './logger.js'
+import { startRunOutcome } from './sync-outcome.js'
 
 const log = createLogger('DiscoveryRun')
 
@@ -144,6 +148,8 @@ export interface ExecuteDiscoveryRunOptions {
  */
 export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Promise<void> {
   const startedAt = new Date().toISOString()
+  const reportOutcome = startRunOutcome(opts.db, opts.runId, 'discovery', 'run')
+  let notConfigured = false
   opts.db
     .update(runs)
     .set({ status: RunStatuses.running, startedAt })
@@ -181,7 +187,10 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
       competitorDomains: projectCompetitors,
     }
 
+    // buildDefaultDeps throws only when Gemini is not set up for discovery.
+    notConfigured = true
     const deps = buildDefaultDeps(opts.registry)
+    notConfigured = false
 
     const result = await executeDiscovery({
       db: opts.db,
@@ -218,6 +227,15 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
       buckets: result.buckets,
       competitorCount: result.competitorMap.length,
     })
+    reportOutcome({
+      status: OutcomeStatuses.succeeded,
+      // Candidate queries seeded, probes answered, competitor domains found.
+      counts: {
+        queries: result.seedCountRaw,
+        snapshots: result.buckets.cited + result.buckets.aspirational + result.buckets['wasted-surface'],
+        domains: result.competitorMap.length,
+      },
+    })
   } catch (err) {
     const errorMsg = describeError(err)
     log.error('discovery.failed', { runId: opts.runId, sessionId: opts.sessionId, error: errorMsg })
@@ -232,6 +250,12 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
       })
       .where(eq(runs.id, opts.runId))
       .run()
+    const failure = classifyProviderOutcomeError(err)
+    reportOutcome({
+      status: OutcomeStatuses.failed,
+      ...failure,
+      ...(notConfigured ? { reasonCode: OutcomeReasonCodes.NOT_CONNECTED } : {}),
+    })
   }
 }
 

@@ -28,7 +28,7 @@ const GATES = [
   {
     name: 'webhook gate',
     resolve: (url: string, resolveAddresses?: Resolver) => resolveWebhookTarget(url, { resolveAddresses }),
-    refusal: () => ({ ok: false, message: WEBHOOK_REFUSAL }),
+    refusal: () => ({ ok: false, message: WEBHOOK_REFUSAL, blocked: true }),
   },
   {
     name: 'public-fetch gate',
@@ -82,7 +82,7 @@ describe.each(GATES)('the $name', ({ resolve, refusal }) => {
 test('the webhook gate never names the refused address', async () => {
   expect(await resolveWebhookTarget('https://rebind.example.test/hook', {
     resolveAddresses: async () => [{ address: '64:ff9b::a9fe:a9fe', family: 6 }],
-  })).toEqual({ ok: false, message: WEBHOOK_REFUSAL })
+  })).toEqual({ ok: false, message: WEBHOOK_REFUSAL, blocked: true })
 })
 
 test('the public-fetch gate names the IPv4 address a NAT64 address carries', async () => {
@@ -97,14 +97,14 @@ test('the public-fetch gate names the IPv4 address a NAT64 address carries', asy
 describe('allowLoopback', () => {
   test.each(LOOPBACK_ADDRESSES)('admits %s only when asked to', async (address) => {
     const url = `http://${literalHost(address)}/hook`
-    expect(await resolveWebhookTarget(url)).toEqual({ ok: false, message: WEBHOOK_REFUSAL })
+    expect(await resolveWebhookTarget(url)).toEqual({ ok: false, message: WEBHOOK_REFUSAL, blocked: true })
     expect(await resolveWebhookTarget(url, { allowLoopback: true })).toMatchObject({ ok: true })
   })
 
   test.each(NOT_LOOPBACK_ADDRESSES)('still refuses %s', async (address) => {
     const url = `http://${literalHost(address)}/hook`
-    expect(await resolveWebhookTarget(url)).toEqual({ ok: false, message: WEBHOOK_REFUSAL })
-    expect(await resolveWebhookTarget(url, { allowLoopback: true })).toEqual({ ok: false, message: WEBHOOK_REFUSAL })
+    expect(await resolveWebhookTarget(url)).toEqual({ ok: false, message: WEBHOOK_REFUSAL, blocked: true })
+    expect(await resolveWebhookTarget(url, { allowLoopback: true })).toEqual({ ok: false, message: WEBHOOK_REFUSAL, blocked: true })
   })
 
   test('admits a hostname that resolves to loopback, and nothing that resolves beside it', async () => {
@@ -114,6 +114,6 @@ describe('allowLoopback', () => {
     expect(await resolveWebhookTarget('http://localhost.example.test/hook', {
       allowLoopback: true,
       resolveAddresses: async () => [{ address: '127.0.0.1', family: 4 }, { address: '10.0.0.1', family: 4 }],
-    })).toEqual({ ok: false, message: WEBHOOK_REFUSAL })
+    })).toEqual({ ok: false, message: WEBHOOK_REFUSAL, blocked: true })
   })
 })

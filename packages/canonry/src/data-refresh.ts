@@ -1,5 +1,6 @@
 import { createLogger } from './logger.js'
-import { asRecord, describeError, inclusiveDayCount, reportMonthsForDoctor } from '@ainyc/canonry-contracts'
+import { asRecord, describeError, inclusiveDayCount, reportMonthsForDoctor, RunKinds, type RunKind } from '@ainyc/canonry-contracts'
+import { syncRunClaimKey } from '@ainyc/canonry-api-routes'
 
 const log = createLogger('DataRefresh')
 
@@ -21,6 +22,11 @@ export interface DataRefreshClient {
   triggerGoogleAdsSync(project: string): Promise<unknown>
   /** Queues bounded, read-only Google Tag Manager evidence collection. */
   triggerGtmSync(project: string): Promise<unknown>
+}
+
+export interface ScheduledSyncClaims {
+  add(key: string): void
+  delete(key: string): void
 }
 
 /**
@@ -72,20 +78,33 @@ function queuedRun(result: unknown): { runId: string | null; runStatus: string |
  * endpoint answered, `integration.queued` (with the run id) for one that was
  * only accepted, and `integration.refresh-failed` for an endpoint that refused.
  */
-export async function refreshAllIntegrations(client: DataRefreshClient, projectName: string, now: Date = new Date()): Promise<void> {
-  const integrations: Array<{ name: string; completion: RefreshCompletion; run: () => Promise<unknown> }> = [
-    { name: 'gsc', completion: 'queued', run: () => client.gscSync(projectName, {}) },
-    { name: 'bing', completion: 'queued', run: () => client.bingInspectSitemap(projectName, {}) },
-    { name: 'ga', completion: 'synchronous', run: () => client.gaSync(projectName, { days: gaRefreshDays(now) }) },
-    { name: 'gbp', completion: 'queued', run: () => client.triggerGbpSync(projectName, {}) },
+export async function refreshAllIntegrations(
+  client: DataRefreshClient,
+  projectName: string,
+  now: Date = new Date(),
+  claims?: ScheduledSyncClaims,
+): Promise<void> {
+  const integrations: Array<{ name: string; kind: RunKind; completion: RefreshCompletion; run: () => Promise<unknown> }> = [
+    { name: 'gsc', kind: RunKinds['gsc-sync'], completion: 'queued', run: () => client.gscSync(projectName, {}) },
+    { name: 'bing', kind: RunKinds['bing-inspect-sitemap'], completion: 'queued', run: () => client.bingInspectSitemap(projectName, {}) },
+    { name: 'ga', kind: RunKinds['ga-sync'], completion: 'synchronous', run: () => client.gaSync(projectName, { days: gaRefreshDays(now) }) },
+    { name: 'gbp', kind: RunKinds['gbp-sync'], completion: 'queued', run: () => client.triggerGbpSync(projectName, {}) },
     // `ads` remains the OpenAI / ChatGPT Ads integration. For scheduled
     // refreshes, Google providers have explicit names and fan out only here.
-    { name: 'ads', completion: 'queued', run: () => client.triggerAdsSync(projectName) },
-    { name: 'google-ads', completion: 'queued', run: () => client.triggerGoogleAdsSync(projectName) },
-    { name: 'gtm', completion: 'queued', run: () => client.triggerGtmSync(projectName) },
+    { name: 'ads', kind: RunKinds['ads-sync'], completion: 'queued', run: () => client.triggerAdsSync(projectName) },
+    { name: 'google-ads', kind: RunKinds['google-ads-sync'], completion: 'queued', run: () => client.triggerGoogleAdsSync(projectName) },
+    { name: 'gtm', kind: RunKinds['gtm-sync'], completion: 'queued', run: () => client.triggerGtmSync(projectName) },
   ]
 
-  const results = await Promise.allSettled(integrations.map((i) => i.run()))
+  const results = await Promise.allSettled(integrations.map(async (integration) => {
+    const key = syncRunClaimKey(projectName, integration.kind)
+    claims?.add(key)
+    try {
+      return await integration.run()
+    } finally {
+      claims?.delete(key)
+    }
+  }))
 
   results.forEach((result, idx) => {
     const { name: integration, completion } = integrations[idx]!

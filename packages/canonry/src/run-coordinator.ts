@@ -2,10 +2,15 @@ import { eq } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { discoverySessions, runs } from '@ainyc/canonry-db'
 import {
+  OutcomeReasonCodes,
+  OutcomeStatuses,
+  OutcomeSurfaces,
+  OutcomeTriggers,
   RunKinds,
   RunStatuses,
   RunTriggers,
   type DiscoveryCompetitorMapEntry,
+  type FeatureCompletedProperties,
   type RunCompletionOrigin,
   type RunKind,
   describeError,
@@ -15,8 +20,23 @@ import type { Notifier } from './notifier.js'
 import type { IntelligenceService } from './intelligence-service.js'
 import type { AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import { createLogger } from './logger.js'
+import { outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
 const log = createLogger('RunCoordinator')
+
+type InsightsOutcome = Pick<FeatureCompletedProperties, 'status' | 'reasonCode' | 'errorName' | 'counts' | 'durationBucket'>
+
+/** One `insights.generate` outcome, triggered the way the analyzed run was. */
+function reportInsightsGenerated(runTrigger: string | undefined, outcome: InsightsOutcome): void {
+  trackFeatureCompleted({
+    feature: 'insights',
+    operation: 'generate',
+    ...(runTrigger === RunTriggers.scheduled
+      ? { trigger: OutcomeTriggers.scheduled, surface: OutcomeSurfaces.system }
+      : { trigger: OutcomeTriggers.manual }),
+    ...outcome,
+  })
+}
 
 /**
  * Notifies the built-in Aero agent that a run just completed.
@@ -139,8 +159,14 @@ export class RunCoordinator {
     //    skipped here: discovery writes its own insight directly from the
     //    job handler, and integration syncs don't produce visibility data.
     if (kind === RunKinds['answer-visibility']) {
+      const elapsed = startOutcomeTimer()
+      let insightsOutcome: InsightsOutcome
       try {
         const result = this.intelligenceService.analyzeAndPersist(runId, projectId)
+        // No result: the run is not one analysis reads (failed, or nothing measured).
+        insightsOutcome = result
+          ? { status: OutcomeStatuses.succeeded, counts: { insights: result.insights.length }, durationBucket: elapsed() }
+          : { status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.NO_DATA, durationBucket: elapsed() }
         if (result) {
           insightCount = result.insights.length
           criticalOrHigh = result.insights.filter(
@@ -157,14 +183,19 @@ export class RunCoordinator {
         }
       } catch (err) {
         log.error('intelligence.failed', { runId, error: describeError(err) })
+        insightsOutcome = { status: OutcomeStatuses.failed, ...outcomeFailure(err), durationBucket: elapsed() }
       }
+      reportInsightsGenerated(runRow?.trigger, insightsOutcome)
     } else if (kind === RunKinds['gbp-sync']) {
       // GBP sync runs produce location-scoped local-AEO insights (lodging gaps,
       // missing direct-booking CTAs, metric/keyword drops). The notifier + Aero
       // steps below pick them up from the DB the same way they do visibility
       // insights — no extra wiring once they're persisted.
+      const elapsed = startOutcomeTimer()
+      let insightsOutcome: InsightsOutcome
       try {
         const gbpInsights = this.intelligenceService.analyzeAndPersistGbp(runId, projectId)
+        insightsOutcome = { status: OutcomeStatuses.succeeded, counts: { insights: gbpInsights.length }, durationBucket: elapsed() }
         insightCount = gbpInsights.length
         criticalOrHigh = gbpInsights.filter(
           i => i.severity === 'critical' || i.severity === 'high',
@@ -179,7 +210,9 @@ export class RunCoordinator {
         }
       } catch (err) {
         log.error('gbp-intelligence.failed', { runId, error: describeError(err) })
+        insightsOutcome = { status: OutcomeStatuses.failed, ...outcomeFailure(err), durationBucket: elapsed() }
       }
+      reportInsightsGenerated(runRow?.trigger, insightsOutcome)
 
       // Negative-review and rating-drop webhooks the sync queued. Separate
       // from the insights above so one failing cannot swallow the other.

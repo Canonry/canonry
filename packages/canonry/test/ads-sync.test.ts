@@ -22,6 +22,12 @@ import {
 } from '../src/ads-sync.js'
 import type { CanonryConfig } from '../src/config.js'
 
+const trackEvent = vi.hoisted(() => vi.fn())
+vi.mock('../src/telemetry.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/telemetry.js')>()),
+  trackEvent,
+}))
+
 const NOW = '2026-06-10T00:00:00.000Z'
 
 /** The account's wall-clock hour, the unit both range edges are expressed in. */
@@ -747,5 +753,95 @@ describe('executeAdsSync', () => {
     await expect(executeAdsSync(db, 'run_1', 'proj_1', { config: testConfig() })).rejects.toThrow(/connect/i)
     const run = db.select().from(runs).where(eq(runs.id, 'run_1')).get()
     expect(run?.status).toBe('failed')
+  })
+})
+
+describe('executeAdsSync outcome telemetry', () => {
+  function outcomes() {
+    return trackEvent.mock.calls.filter((call) => call[0] === 'feature.completed').map((call) => call.slice(1))
+  }
+
+  /** The default provider responses, with one path answered by `override` instead. */
+  function serveWith(override: (url: string) => Response | null) {
+    const fallback = globalThis.fetch
+    globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => override(String(url)) ?? fallback(url, init)
+  }
+
+  beforeEach(() => trackEvent.mockReset())
+
+  it('reports campaigns and insight rows after the snapshot is saved', async () => {
+    const db = createTempDb()
+    seed(db)
+
+    await executeAdsSync(db, 'run_1', 'proj_1', { config: testConfig() })
+
+    expect(outcomes()).toEqual([[
+      {
+        feature: 'openai_ads', operation: 'sync', trigger: 'manual', status: 'succeeded',
+        durationBucket: 'under_1s', counts: { campaigns: 1, rows: 3, failures: 0 },
+      },
+      undefined,
+    ]])
+  })
+
+  it('reports an account with no campaigns as skipped for lack of data', async () => {
+    const db = createTempDb()
+    seed(db)
+    serveWith((url) => url.includes('/campaigns') ? new Response(JSON.stringify(list([])), { status: 200 }) : null)
+
+    await executeAdsSync(db, 'run_1', 'proj_1', { config: testConfig() })
+
+    expect(outcomes()).toEqual([[
+      {
+        feature: 'openai_ads', operation: 'sync', trigger: 'manual', status: 'skipped', reasonCode: 'NO_DATA',
+        durationBucket: 'under_1s', counts: { campaigns: 0, rows: 0, failures: 0 },
+      },
+      { errorCode: 'NO_DATA' },
+    ]])
+  })
+
+  it('reports a campaign the provider refused, and a rejected key, by reason', async () => {
+    const db = createTempDb()
+    seed(db)
+    db.insert(runs).values({ id: 'run_2', projectId: 'proj_1', kind: 'ads-sync', status: 'queued', trigger: 'scheduled', createdAt: NOW }).run()
+    const refused = (status: number) => new Response(JSON.stringify({ error: { message: 'refused', code: 'refused' } }), { status })
+
+    serveWith((url) => url.includes('/campaigns/cmpn_bbb/insights') ? refused(400) : null)
+    await executeAdsSync(db, 'run_1', 'proj_1', { config: testConfig() })
+    serveWith((url) => url.endsWith('/ad_account') ? refused(401) : null)
+    await expect(executeAdsSync(db, 'run_2', 'proj_1', { config: testConfig() })).rejects.toThrow()
+
+    expect(outcomes()).toEqual([
+      [
+        {
+          feature: 'openai_ads', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'HTTP_4XX',
+          errorName: 'OpenAiAdsApiError', durationBucket: 'under_1s', counts: { campaigns: 0, rows: 0, failures: 1 },
+        },
+        { errorCode: 'HTTP_4XX' },
+      ],
+      [
+        {
+          feature: 'openai_ads', operation: 'sync', trigger: 'scheduled', surface: 'system', status: 'failed',
+          reasonCode: 'INVALID_CREDENTIALS', errorName: 'OpenAiAdsApiError', durationBucket: 'under_1s',
+        },
+        { errorCode: 'INVALID_CREDENTIALS' },
+      ],
+    ])
+  })
+
+  it('reports a missing connection as not connected', async () => {
+    const db = createTempDb()
+    seed(db)
+    db.delete(adsConnections).where(eq(adsConnections.projectId, 'proj_1')).run()
+
+    await expect(executeAdsSync(db, 'run_1', 'proj_1', { config: testConfig() })).rejects.toThrow(/connect/i)
+
+    expect(outcomes()).toEqual([[
+      {
+        feature: 'openai_ads', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'NOT_CONNECTED',
+        errorName: 'Error', durationBucket: 'under_1s',
+      },
+      { errorCode: 'NOT_CONNECTED' },
+    ]])
   })
 })

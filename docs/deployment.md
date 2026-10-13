@@ -81,6 +81,23 @@ The same rule applies to `POST /api/v1/session/setup` with
 `config.yaml` was revoked or deleted, a request with that key gets
 `401 AUTH_INVALID`, which tells you to run `canonry bootstrap`.
 
+If you forget the dashboard password, sign in with the root API key (**Forgot
+password? Use API key** on the sign-in screen), or reset the password on the
+machine that holds `config.yaml`:
+
+```bash
+canonry dashboard reset-password
+```
+
+The command removes the password from `config.yaml` and does not call the
+server. Restart Canonry afterward: a running server keeps the old password until
+it restarts. The dashboard then asks for a new password under the rules above,
+so stop any port forwarder first and create the password right away. If the
+server uses another config directory, set `CANONRY_CONFIG_DIR` to it before you
+run the command. Installs with named accounts do not use this password: remove
+and recreate the account with `canonry user delete <name>` and `canonry user
+create`.
+
 Dashboard sessions persist in the database and survive server restarts. Shared-password
 and API-key logins expire twelve hours after sign-in; logout and key revocation
 still end access. Rotating an API key ends its browser sessions, even when bootstrap

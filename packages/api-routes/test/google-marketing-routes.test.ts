@@ -28,6 +28,8 @@ import {
   googleMarketingRoutes,
   type GoogleMarketingStoredCredential,
 } from '../src/google-marketing.js'
+import { createOutcomeEmitter, type OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
+import { connectionOutcomes } from './outcome-capture.js'
 
 const NOW = '2026-08-14T12:00:00.000Z'
 const SHA = 'a'.repeat(64)
@@ -41,6 +43,7 @@ interface TestContext {
   oauthExchanges: string[]
   liveCalls: string[]
   syncRequests: Array<{ runId: string; projectId: string }>
+  outcomes: OutcomeTelemetryEvent[]
   setScopes(scopes: string[]): void
   setProjectScopedKey(value: boolean): void
   setViewer(value: boolean): void
@@ -129,8 +132,10 @@ function buildApp({
   let exchangeStarted: (() => void) | null = null
   let resumeExchange: (() => void) | null = null
   let waitForExchange = false
+  const outcomes: OutcomeTelemetryEvent[] = []
   const app = Fastify()
   app.decorate('db', db)
+  app.decorate('emitOutcome', createOutcomeEmitter((event) => { outcomes.push(event) }))
   app.addHook('onRequest', async (request) => {
     const isOAuthStart = request.url.includes('/google-ads/oauth/connect') || request.url.includes('/gtm/oauth/connect')
     const isOAuthConfirm = request.url.includes('/google-marketing/callback/confirm/')
@@ -240,7 +245,7 @@ function buildApp({
   })
 
   return {
-    app, db, tmpDir, credentials, credentialWrites, oauthExchanges, liveCalls, syncRequests,
+    app, db, tmpDir, credentials, credentialWrites, oauthExchanges, liveCalls, syncRequests, outcomes,
     setScopes(next) { scopes = next },
     setProjectScopedKey(value) { projectScopedKey = value },
     setViewer(value) { viewer = value },
@@ -288,6 +293,75 @@ describe('Google Marketing routes', () => {
       await context.app.close()
       fs.rmSync(context.tmpDir, { recursive: true, force: true })
     }
+  })
+
+  it('reports an OAuth connection as started, then succeeded only when the browser confirms it', async () => {
+    const context = buildApp()
+    contexts.push(context)
+    await context.app.ready()
+
+    await connectGoogleAds(context)
+    await connectGoogleAds(context)
+
+    expect(connectionOutcomes(context.outcomes)).toEqual([
+      { integration: 'google_ads', action: 'connect', status: 'started' },
+      { integration: 'google_ads', action: 'connect', status: 'succeeded', durationBucket: 'under_1s' },
+      { integration: 'google_ads', action: 'reauth', status: 'started' },
+      { integration: 'google_ads', action: 'reauth', status: 'succeeded', durationBucket: 'under_1s' },
+    ])
+  })
+
+  it('reports a declined consent, a failed exchange and a refused start with their reasons', async () => {
+    const context = buildApp()
+    contexts.push(context)
+    await context.app.ready()
+    const start = async () => {
+      const res = await context.app.inject({ method: 'POST', url: '/projects/acme/gtm/oauth/connect', payload: { provider: 'gtm' } })
+      return { cookie: oauthBindingCookie(res), state: new URL((res.json() as { authorizationUrl: string }).authorizationUrl).searchParams.get('state')! }
+    }
+
+    const declined = await start()
+    await context.app.inject({ url: `/google-marketing/callback?error=access_denied&state=${encodeURIComponent(declined.state)}`, headers: { cookie: declined.cookie } })
+    const failing = await start()
+    context.failOAuthExchange(true)
+    await context.app.inject({ url: `/google-marketing/callback?code=bad&state=${encodeURIComponent(failing.state)}`, headers: { cookie: failing.cookie } })
+    // A replayed callback no longer matches a pending flow.
+    await context.app.inject({ url: `/google-marketing/callback?code=bad&state=${encodeURIComponent(failing.state)}`, headers: { cookie: failing.cookie } })
+    context.setOAuthPrincipal('bearer-key')
+    expect((await context.app.inject({ method: 'POST', url: '/projects/acme/gtm/oauth/connect', payload: { provider: 'gtm' } })).statusCode).toBe(403)
+
+    expect(connectionOutcomes(context.outcomes)).toEqual([
+      { integration: 'gtm', action: 'connect', status: 'started' },
+      { integration: 'gtm', action: 'connect', status: 'cancelled', reasonCode: 'OAUTH_CANCELLED', durationBucket: 'under_1s' },
+      { integration: 'gtm', action: 'connect', status: 'started' },
+      { integration: 'gtm', action: 'connect', status: 'failed', reasonCode: 'UNKNOWN', errorName: 'Error', durationBucket: 'under_1s' },
+      { integration: 'gtm', action: 'connect', status: 'failed', reasonCode: 'OAUTH_STATE_INVALID', durationBucket: 'under_1s' },
+      { integration: 'gtm', action: 'connect', status: 'failed', reasonCode: 'GATE_REFUSED', errorName: 'AppError', durationBucket: 'under_1s' },
+    ])
+  })
+
+  it('reports resource selection and disconnect, including both without a connection', async () => {
+    const context = buildApp()
+    contexts.push(context)
+    await context.app.ready()
+    expect((await context.app.inject({ method: 'PUT', url: '/projects/acme/google-ads/selection', payload: { customerId: '123-456-7890' } })).statusCode).toBe(400)
+    expect(connectionOutcomes(context.outcomes)).toEqual([
+      { integration: 'google_ads', action: 'select', status: 'failed', reasonCode: 'NOT_CONNECTED', errorName: 'AppError', durationBucket: 'under_1s' },
+    ])
+    await connectGoogleAds(context)
+    context.outcomes.length = 0
+
+    await context.app.inject({ method: 'PUT', url: '/projects/acme/google-ads/selection', payload: { customerId: '123-456-7890' } })
+    await context.app.inject({ method: 'DELETE', url: '/projects/acme/google-ads/connection' })
+    // GTM was never connected, so its disconnect answers `disconnected: false`.
+    const gtm = await context.app.inject({ method: 'DELETE', url: '/projects/acme/gtm/connection' })
+    expect(gtm.json()).toEqual({ provider: 'gtm', disconnected: false })
+
+    expect(connectionOutcomes(context.outcomes)).toEqual([
+      { integration: 'google_ads', action: 'select', status: 'succeeded', durationBucket: 'under_1s' },
+      { integration: 'google_ads', action: 'disconnect', status: 'succeeded', durationBucket: 'under_1s' },
+      { integration: 'gtm', action: 'disconnect', status: 'cancelled', reasonCode: 'NOT_CONNECTED', durationBucket: 'under_1s' },
+    ])
   })
 
   it('keeps the shared callback narrowly unauthenticated', () => {

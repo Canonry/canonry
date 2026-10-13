@@ -14,8 +14,19 @@ import {
   loadDuckdb as defaultLoadDuckdb,
   type BacklinkRow,
 } from '@ainyc/canonry-integration-commoncrawl'
-import { BacklinkSources, CcReleaseSyncStatuses, RunStatuses, computeBacklinkSummaryMetrics, describeError } from '@ainyc/canonry-contracts'
+import {
+  BacklinkSources,
+  CcReleaseSyncStatuses,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
+  RunStatuses,
+  computeBacklinkSummaryMetrics,
+  describeError,
+  type OutcomeReasonCode,
+} from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
+import { outcomeFailure } from './outcome-telemetry.js'
+import { startRunOutcome } from './sync-outcome.js'
 
 const log = createLogger('BacklinkExtract')
 
@@ -46,12 +57,16 @@ export async function executeBacklinkExtract(
 ): Promise<void> {
   const deps = { ...defaultDeps(), ...opts.deps }
   const startedAt = deps.now().toISOString()
+  // Auto-extracts after a release sync are queued as scheduled runs.
+  const reportOutcome = startRunOutcome(db, runId, 'backlinks', 'extract')
+  let refusal: OutcomeReasonCode | undefined
 
   db.update(runs).set({ status: RunStatuses.running, startedAt }).where(eq(runs.id, runId)).run()
 
   try {
     const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) {
+      refusal = OutcomeReasonCodes.NOT_FOUND
       throw new Error(`Project not found: ${projectId}`)
     }
 
@@ -63,6 +78,8 @@ export async function executeBacklinkExtract(
           .limit(1)
           .get()
 
+    // Every refusal below is a release that is not synced and cached here yet.
+    refusal = OutcomeReasonCodes.NO_DATA
     if (!sync) {
       throw new Error('No ready release sync available — run `canonry backlinks sync` first')
     }
@@ -80,6 +97,7 @@ export async function executeBacklinkExtract(
       )
     }
 
+    refusal = undefined
     const duckdb = deps.loadDuckdb()
     const rows = await deps.queryBacklinks({
       vertexPath: sync.vertexPath,
@@ -147,6 +165,8 @@ export async function executeBacklinkExtract(
     db.update(runs).set({ status: RunStatuses.completed, finishedAt }).where(eq(runs.id, runId)).run()
 
     log.info('extract.completed', { runId, projectId, release, rows: rows.length })
+    const summary = computeSummary(rows)
+    reportOutcome({ status: OutcomeStatuses.succeeded, counts: { domains: summary.totalLinkingDomains, links: summary.totalHosts } })
   } catch (err) {
     const errorMsg = describeError(err)
     const finishedAt = deps.now().toISOString()
@@ -154,6 +174,7 @@ export async function executeBacklinkExtract(
       status: RunStatuses.failed, error: errorMsg, finishedAt,
     }).where(eq(runs.id, runId)).run()
     log.error('extract.failed', { runId, projectId, error: errorMsg })
+    reportOutcome({ status: OutcomeStatuses.failed, ...outcomeFailure(err, refusal) })
     throw err
   }
 }

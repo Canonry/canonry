@@ -1,25 +1,19 @@
 import { z } from 'zod'
-import { validationError } from './errors.js'
+import { WINDOW_SETS, parseWindowIn, windowDays, windowDayValues } from './time-window.js'
 import { percent } from './ratio-unit.js'
 
 /** Stored server-activity windows supported by API, CLI, and MCP. */
-export const TRAFFIC_ANALYTICS_PERIOD_OPTIONS = [7, 14, 30, 90] as const
+export const TRAFFIC_ANALYTICS_PERIOD_OPTIONS = windowDayValues(WINDOW_SETS.trafficAnalytics)
 export type TrafficAnalyticsPeriodDays = (typeof TRAFFIC_ANALYTICS_PERIOD_OPTIONS)[number]
 export const TRAFFIC_ANALYTICS_DEFAULT_PERIOD_DAYS: TrafficAnalyticsPeriodDays = 30
 
 export const trafficAnalyticsPeriodSchema = z
-  .union([z.literal(7), z.literal(14), z.literal(30), z.literal(90)])
+  .union(TRAFFIC_ANALYTICS_PERIOD_OPTIONS.map(value => z.literal(value)))
   .describe('Traffic activity window in days (7, 14, 30, or 90). Defaults to 30 when omitted.')
 
 /** Missing values use the default; unsupported values fail before reading evidence. */
 export function parseTrafficAnalyticsPeriod(value: string | number | undefined | null): TrafficAnalyticsPeriodDays {
-  if (value === undefined || value === null || value === '') return TRAFFIC_ANALYTICS_DEFAULT_PERIOD_DAYS
-  const parsed = typeof value === 'number' ? value : Number(value)
-  const result = trafficAnalyticsPeriodSchema.safeParse(parsed)
-  if (!result.success) {
-    throw validationError(`"period" must be one of ${TRAFFIC_ANALYTICS_PERIOD_OPTIONS.join(', ')}`)
-  }
-  return result.data
+  return windowDays(parseWindowIn(value, WINDOW_SETS.trafficAnalytics, { field: 'period', fallback: '30d' }))
 }
 
 /** Recorded counts in adjacent equal periods; change is null when prior recording is incomplete. */

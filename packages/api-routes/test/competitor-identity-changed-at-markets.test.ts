@@ -174,6 +174,15 @@ async function marketLandscape() {
   return competitorLandscapeResponseSchema.parse(res.json())
 }
 
+async function rawMarketLandscape() {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/api/v1/projects/rotorwise/analytics/competitors?window=all&groupKey=regional&queryClass=non-brand',
+  })
+  expect(res.statusCode, res.body).toBe(200)
+  return res.json() as Record<string, unknown>
+}
+
 const gearloftMentions = async () => (await marketLandscape()).pinned.find(row => row.domain === 'gearloft.example')?.mentionCount
 
 function latestAudit(action: string) {
@@ -320,6 +329,69 @@ describe('competitorIdentityChangedAt on an Advanced market', () => {
   })
 })
 
+describe('competitorSetChangedAt', () => {
+  it('moves for real tracked set changes, skips an identical replace, and reads old replaces conservatively', async () => {
+    seedMarket([{ domain: 'gearloft.example', label: 'Gearloft', aliases: [] }], 'Rotorwise and LoftGear both repair rotors.')
+    expect((await rawMarketLandscape()).competitorSetChangedAt).toBeNull()
+
+    const appended = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['rival.example'] } })
+    expect(appended.statusCode, appended.body).toBe(200)
+    const appendedAudit = latestAudit('competitors.appended')
+    expect((await rawMarketLandscape()).competitorSetChangedAt).toBe(appendedAudit.createdAt)
+    expect((await rawMarketLandscape()).competitorListRestated).toBe(true)
+    const metrics = await app.inject({ method: 'GET', url: '/api/v1/projects/rotorwise/analytics/metrics' })
+    expect(metrics.statusCode, metrics.body).toBe(200)
+    expect(metrics.json().competitorSetChangedAt).toBe(appendedAudit.createdAt)
+
+    const same = await app.inject({ method: 'PUT', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['rival.example'] } })
+    expect(same.statusCode, same.body).toBe(200)
+    expect(JSON.parse(latestAudit('competitors.replaced').diff!)).toMatchObject({ added: [], removed: [] })
+    expect((await rawMarketLandscape()).competitorSetChangedAt).toBe(appendedAudit.createdAt)
+
+    const applied = await app.inject({
+      method: 'POST',
+      url: '/api/v1/apply',
+      payload: {
+        apiVersion: 'canonry/v1', kind: 'Project', metadata: { name: 'rotorwise' },
+        spec: { displayName: 'Rotorwise', canonicalDomain: 'rotorwise.example', country: 'US', language: 'en', competitors: ['rival.example'] },
+      },
+    })
+    expect(applied.statusCode, applied.body).toBe(200)
+    expect(JSON.parse(latestAudit('competitors.replaced').diff!)).toMatchObject({ added: [], removed: [] })
+    expect((await rawMarketLandscape()).competitorSetChangedAt).toBe(appendedAudit.createdAt)
+
+    const removed = await app.inject({ method: 'DELETE', url: '/api/v1/projects/rotorwise/competitors', payload: { competitors: ['rival.example'] } })
+    expect(removed.statusCode, removed.body).toBe(200)
+    const removedAudit = latestAudit('competitors.deleted')
+    expect((await rawMarketLandscape()).competitorSetChangedAt).toBe(removedAudit.createdAt)
+
+    db.insert(auditLog).values({
+      id: 'old-replace', projectId, actor: 'legacy', action: 'competitors.replaced', entityType: 'competitor',
+      diff: JSON.stringify({ competitors: ['legacy.example'] }), createdAt: '2099-10-02T00:00:00.000Z',
+    }).run()
+    expect((await rawMarketLandscape()).competitorSetChangedAt).toBe('2099-10-02T00:00:00.000Z')
+    db.insert(auditLog).values({
+      id: 'invalid-replace', projectId, actor: 'legacy', action: 'competitors.replaced', entityType: 'competitor',
+      diff: 'legacy diff', createdAt: '2100-10-02T00:00:00.000Z',
+    }).run()
+    expect((await rawMarketLandscape()).competitorSetChangedAt).toBe('2100-10-02T00:00:00.000Z')
+  })
+
+  it('moves for a discovery promotion and ignores another project audit row', async () => {
+    seedMarket([{ domain: 'gearloft.example', label: 'Gearloft', aliases: [] }], 'Rotorwise and LoftGear both repair rotors.')
+    const other = db.insert(projects).values({ id: 'other-project', name: 'other', displayName: 'Other', canonicalDomain: 'other.example', country: 'US', language: 'en', createdAt: NOW, updatedAt: NOW }).returning({ id: projects.id }).get()!
+    db.insert(auditLog).values({
+      id: 'other-promoted', projectId: other.id, actor: 'api', action: 'discovery.promoted', entityType: 'discovery_session',
+      diff: JSON.stringify({ competitors: ['other.example'] }), createdAt: '2026-10-05T00:00:00.000Z',
+    }).run()
+    db.insert(auditLog).values({
+      id: 'promoted', projectId, actor: 'api', action: 'discovery.promoted', entityType: 'discovery_session',
+      diff: JSON.stringify({ competitors: ['promoted.example'] }), createdAt: '2026-10-04T00:00:00.000Z',
+    }).run()
+    expect((await rawMarketLandscape()).competitorSetChangedAt).toBe('2026-10-04T00:00:00.000Z')
+  })
+})
+
 describe('competitorIdentityChangedAt after competitor and pin writes that move learned names', () => {
   const identityChangedAt = async () => (await marketLandscape()).competitorIdentityChangedAt
 
@@ -337,6 +409,10 @@ describe('competitorIdentityChangedAt after competitor and pin writes that move 
     expect(JSON.parse(latestAudit('competitors.appended').diff!)).not.toHaveProperty('marketNameChanges')
     expect(await identityChangedAt()).toBeNull()
 
+    // The preview must re-evaluate learned market names against the proposed tracked identity.
+    const addPreview = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitor-changes/preview', payload: { change: 'add', competitors: ['loftgear.example'] } })
+    expect(addPreview.statusCode, addPreview.body).toBe(200)
+    expect(addPreview.json().impact.after.percent).toBe(50)
     // loftgear.example's domain label is "LoftGear": it claims the learned name.
     const added = await addCompetitors(['loftgear.example'])
     expect(added.statusCode, added.body).toBe(200)
@@ -348,6 +424,9 @@ describe('competitorIdentityChangedAt after competitor and pin writes that move 
     })
     expect(await identityChangedAt()).toBe(appended.createdAt)
 
+    const removePreview = await app.inject({ method: 'POST', url: '/api/v1/projects/rotorwise/competitor-changes/preview', payload: { change: 'remove', competitors: ['loftgear.example'] } })
+    expect(removePreview.statusCode, removePreview.body).toBe(200)
+    expect(removePreview.json().impact.after.percent).toBe(50)
     const removed = await app.inject({
       method: 'DELETE',
       url: '/api/v1/projects/rotorwise/competitors',
