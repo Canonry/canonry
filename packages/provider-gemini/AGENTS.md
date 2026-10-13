@@ -26,6 +26,8 @@ All provider packages follow the same 4-file structure and implement the same `P
 
 The adapter object in `adapter.ts` wires these functions together with metadata (`name`, `displayName`, `mode`, `keyUrl`).
 
+Retrieval status is `used` when tool-result tokens are positive or the first candidate has nonempty search queries or web chunks. Google Search is the only offered tool, so `usageMetadata.toolUsePromptTokenCount` proves retrieval even without grounding metadata or a completed answer. Without search evidence, a completed nonempty answer is `not-used`; empty or unfinished responses remain `unknown`. The request contract remains `native-auto-v1`. `test/tracked-query-request.test.ts` covers sync, batch parsing, and historical response reconstruction.
+
 - **Answer anchors for competitor auto-aliases.** `extractAnchoredSpans` (`src/anchored-spans.ts`) pairs each grounding support's `segment.text` with the site of every chunk it cites: `web.title` (the source domain), since `web.uri` is a Vertex redirect that is never resolved. Segment offsets are UTF-8 bytes and `startIndex` is omitted when 0, so they are never used to slice. Stored data only.
 
 ## Common Mistakes
