@@ -12,7 +12,7 @@ consume Canonry through the external-agent webhook.
   `--provider claude|openai|gemini|zai` and `--model <id>`. `zai` is
   agent-only. Every provider resolves its models from pi-ai's catalog and
   authenticates with that vendor's own key (a proxied deployment can route
-  Gemini through `GEMINI_BASE_URL`). The `deepinfra` provider was removed:
+  Gemini through `GEMINI_BASE_URL` or Z.ai through `ZAI_BASE_URL`). The `deepinfra` provider was removed:
   config load and `--provider` reject it as removed (not unknown), and stored
   sessions it answered resume on the current provider (see "Model tiers and
   upgrades").
