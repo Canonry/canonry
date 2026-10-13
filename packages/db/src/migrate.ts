@@ -4696,6 +4696,24 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE site_crawl_snapshots ADD COLUMN issue_evidence TEXT`,
     ],
   },
+  {
+    // The urgent problems a health.urgent subscriber was last told about. NULL
+    // on every existing row: nothing has been sent, so a problem already open
+    // when this ships is reported once to a webhook that subscribes.
+    version: 181,
+    name: 'doctor-health-urgent-notified',
+    statements: [
+      `ALTER TABLE doctor_health_state ADD COLUMN urgent_notified TEXT`,
+    ],
+  },
+  {
+    // The same record for the website liveness loop, which keeps its own row.
+    version: 182,
+    name: 'site-liveness-urgent-notified-at',
+    statements: [
+      `ALTER TABLE site_liveness_state ADD COLUMN urgent_notified_at TEXT`,
+    ],
+  },
 ]
 
 /**

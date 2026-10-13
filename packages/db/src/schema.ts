@@ -987,6 +987,14 @@ export const doctorHealthState = sqliteTable('doctor_health_state', {
   notifiedSignature: text('notified_signature'),
   /** Triggering breaches owed by an unaccepted degraded alert, as `status:code:id`. */
   pendingSignature: text('pending_signature'),
+  /**
+   * The urgent problems a `health.urgent` subscriber has been told about and
+   * that have not cleared since, as `status:code:id`. A problem in this set is
+   * not news again; when the set empties, `health.urgent-resolved` is sent.
+   * Kept apart from `notifiedSignature` because the two alerts go to different
+   * webhooks and are accepted independently. NULL while nothing is outstanding.
+   */
+  urgentNotified: text('urgent_notified'),
 })
 
 /**
@@ -1006,6 +1014,14 @@ export const siteLivenessState = sqliteTable('site_liveness_state', {
   checkedAt: text('checked_at').notNull(),
   /** Set when an outage was actually paged; cleared on recovery. */
   notifiedAt: text('notified_at'),
+  /**
+   * Set when a webhook scoped to urgent events accepted the outage, cleared
+   * when one accepts the recovery or none is left to tell. Kept apart from
+   * `notifiedAt` because those webhooks accept or refuse independently of the
+   * others, and unlike it this survives the ok pass, so a refused "back up" is
+   * still owed.
+   */
+  urgentNotifiedAt: text('urgent_notified_at'),
 })
 
 export const notifications = sqliteTable('notifications', {
