@@ -1,0 +1,59 @@
+name: Carrick
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  repository_dispatch:
+    types: [carrick-sibling-updated]
+  workflow_dispatch:
+    inputs:
+      full-scan:
+        description: Re-analyze unchanged files instead of using cached answers
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  carrick:
+    name: Scan and report contracts
+    # Forks cannot receive the OIDC credential. A skipped job is not a scan.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CARRICK_NO_UPDATE_CHECK: '1'
+      CARRICK_FAIL_ON_TYPE_MEMORY: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # Carrick derives services from pnpm-workspace.yaml, including API routes.
+      # Its action installs Node 24, Deno, and frozen dependencies without scripts.
+      - name: Scan and report
+        id: scan
+        uses: carrick-tools/carrick@be1c9fdf835788f6aaf796e2f9928e82567627b1 # v1 / 0.3.114
+        with:
+          full-scan: ${{ inputs.full-scan }}
+      - name: Summarize scan
+        if: always()
+        env:
+          SCAN_OUTCOME: ${{ steps.scan.outcome }}
+          ISSUES_FOUND: ${{ steps.scan.outputs.issues-found }}
+        run: |
+          {
+            printf 'Carrick scan: %s\n\n' "$SCAN_OUTCOME"
+            printf 'Reported issues: %s\n\n' "${ISSUES_FOUND:-unavailable}"
+            printf '%s\n' 'PR scans report findings without updating the index. Main pushes refresh it.'
+            printf '%s\n' 'Findings are advisory; scan failures fail this job.'
+          } >> "$GITHUB_STEP_SUMMARY"
