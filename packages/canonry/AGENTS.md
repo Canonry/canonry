@@ -272,7 +272,14 @@ also live there through public `onRunCompleted`, actual subscriptions and delive
 receipts. `test/run-fill.test.ts` owns actual JobRunner fill execution; stored rows
 in a notifier fixture prove admission and delivery only.
 
-Health alerts are a separate path: the `doctor` schedule (`onDoctorRequested` in `server.ts`) hands each pass to `Notifier.onHealthChecked`, which sends `health.degraded` only when a check is new or worse and `health.recovered` when all pass again; a pass that only clears or eases checks is stored and logged as `health.improved`. Checks are compared by id (their codes change with severity). A degraded alert no webhook accepted owes its triggering checks through durable pending state, separate from the last delivered clearance baseline; the next pass retries it even after a restart or when the same breach recurs. Rules, stored state, payload fields (`added`, `cleared`) and the silent-check policy: `api-routes/src/doctor/AGENTS.md` → "Scheduled health alerts". Branch-by-branch cases live in `test/health-notifications.test.ts`.
+Health alerts are a separate path: the `doctor` schedule (`onDoctorRequested` in `server.ts`) hands each pass to `Notifier.onHealthChecked`, which sends `health.degraded` only when a check is new or worse and `health.recovered` when all pass again; a pass that only clears or eases checks is stored and logged as `health.improved`. Checks are compared by id (their codes change with severity). A degraded alert no webhook accepted owes its triggering checks through durable pending state, separate from the last delivered clearance baseline; the next pass retries it even after a restart or when the same breach recurs. Rules, stored state, payload fields (`added`, `cleared`) and the silent-check policy: `api-routes/src/doctor/AGENTS.md` → "Scheduled health alerts". Branch-by-branch cases live in `test/health-notifications.test.ts`. Urgent problems (`health.urgent`, `health.urgent-resolved`) are tracked beside that in `doctor_health_state.urgent_notified` (and `site_liveness_state.urgent_notified_at` for the website loop) and go only to webhooks that list them; such a webhook receives no other health event (`receivesHealthEvent`). Rules: the same doc → "Urgent problems"; cases: `test/urgent-health-notifications.test.ts`.
+
+Urgent delivery histories are persisted by notification id and destination URL
+in both health-state tables' `urgent_receipts` columns. New destinations receive
+open-problem catchup independently. Receivers with identical histories retain
+any-accepted fanout. A general liveness delivery settles urgent debt only when
+that subscribed destination accepts it; refused recovery retries under the urgent
+name on the next pass.
 
 `IntelligenceService` reads query snapshots from the DB, calls the pure analysis functions in `packages/intelligence/`, and persists insights + health snapshots. It also provides `backfill()` for reprocessing historical runs chronologically.
 

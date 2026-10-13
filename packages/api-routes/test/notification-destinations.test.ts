@@ -366,3 +366,50 @@ test('a no-signal alert, which has no failing check behind it, still names its s
     ['Cleared (1)', '• ga.data.aging'],
   ])
 })
+
+test('an urgent alert is critical whatever its check is graded, and says urgent', () => {
+  // Stale daily data is graded `warn`. On the urgent channel it is still the
+  // alert someone has to act on, so it must not render as a routine warning.
+  const view = toAlertView({
+    ...health({
+      status: 'warn',
+      code: 'ga.data.stale',
+      summary: 'GA4 syncs are running but have stored nothing newer than 2026-10-07 (5 days).',
+      previousStatus: 'ok',
+      failing: [{ id: 'ga.data.freshness', status: 'warn', code: 'ga.data.stale', summary: 'x' }],
+      added: ['ga.data.stale'],
+    }),
+    event: 'health.urgent',
+  })
+  expect(view.severity).toBe(AlertSeverities.critical)
+  expect(view.title).toBe('harborline-hotel: urgent problem')
+  expect(view.body).toContain('nothing newer than 2026-10-07')
+  expect(view.fields.find(f => f.label === AlertFieldLabels.status)!.value).toBe('urgent')
+  expect(view.fields.some(f => f.label === AlertFieldLabels.remediation)).toBe(true)
+})
+
+test('an urgent resolution is a success, and is not titled as the whole project recovering', () => {
+  const view = toAlertView({
+    ...health({
+      status: 'ok',
+      code: 'health.urgent.resolved',
+      summary: 'GA4 data is current through 2026-10-12.',
+      remediation: null,
+      previousStatus: 'warn',
+      failing: [],
+      cleared: ['ga.data.stale'],
+    }),
+    event: 'health.urgent-resolved',
+  })
+  expect(view.severity).toBe(AlertSeverities.success)
+  expect(view.title).toBe('harborline-hotel: urgent problem resolved')
+  expect(view.title).not.toContain('recovered')
+  expect(view.fields.find(f => f.label === AlertFieldLabels.status)!.value).toBe('resolved')
+  expect(view.fields.some(f => f.label.startsWith(AlertFieldLabels.cleared))).toBe(true)
+})
+
+test('a website outage keeps its own title on the urgent events', () => {
+  const outage = health({ status: 'fail', code: 'site.reachability.down', summary: 'https://harborline.test/ is not responding: HTTP 503.', previousStatus: 'ok', failing: [] })
+  expect(toAlertView({ ...outage, event: 'health.urgent' }).title).toBe('harborline-hotel website is down')
+  expect(toAlertView({ ...outage, event: 'health.urgent-resolved' }).title).toBe('harborline-hotel website is back up')
+})

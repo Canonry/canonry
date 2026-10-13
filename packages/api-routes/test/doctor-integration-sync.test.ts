@@ -165,7 +165,7 @@ describe('integration sync failure checks', () => {
     expect(await gscCheck.run(ctx())).toMatchObject({ status: 'skipped', code: 'gsc.sync.store-unavailable' })
     expect(await gscCheck.run(ctx({ googleConnectionStore: store({ gbp: {} }) }))).toMatchObject({ status: 'skipped', code: 'gsc.sync.not-connected' })
     const result = await gscCheck.run(ctx({ googleConnectionStore: store({ gsc: {} }) }))
-    expect(result).toMatchObject({ status: 'fail', code: 'gsc.sync.repeated-failures', details: { latestError: 'fetch failed' } })
+    expect(result).toMatchObject({ status: 'fail', code: 'gsc.sync.repeated-failures', urgent: true, details: { latestError: 'fetch failed' } })
     expect(result.remediation).toContain('canonry google sync client')
   })
 

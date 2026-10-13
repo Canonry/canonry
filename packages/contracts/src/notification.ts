@@ -41,6 +41,24 @@ export const notificationEventSchema = z.enum([
   'health.degraded',
   'health.recovered',
   /**
+   * The few health problems a person has to act on now: the website is down,
+   * daily data has stopped arriving, or a sync keeps failing. A check marks
+   * its own output `urgent`; most warnings are not.
+   *
+   * `health.urgent` is sent when an urgent problem starts, and
+   * `health.urgent-resolved` when the problems it reported have cleared and
+   * none is known to be open. The scheduled health pass and the website check
+   * report separately, so a data problem and a site outage each get their own
+   * resolved message. Every urgent problem is also part of `health.degraded`,
+   * so these two add no news of their own. They exist so one webhook can
+   * carry only what needs a person: a webhook that lists either of them
+   * receives the health events it lists and no others, while every other
+   * webhook keeps receiving `health.degraded` and `health.recovered` whether
+   * it lists them or not.
+   */
+  'health.urgent',
+  'health.urgent-resolved',
+  /**
    * Google Business Profile reviews. `review.negative` is sent once for each
    * new or edited review at or below the project's `negativeReviewMaxStars`
    * (1-3 stars by default). `review.rating-dropped` is sent when
@@ -104,7 +122,12 @@ export interface InsightWebhookPayload {
  */
 export interface HealthWebhookPayload {
   source: 'canonry'
-  event: 'health.degraded' | 'health.recovered'
+  /**
+   * On the two urgent events `health` describes the urgent problems only:
+   * `failing` and `added` list urgent checks, and `cleared` lists the urgent
+   * checks that are no longer a problem.
+   */
+  event: 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved'
   project: { name: string; canonicalDomain: string }
   health: {
     /** Worst check status observed on this pass. */

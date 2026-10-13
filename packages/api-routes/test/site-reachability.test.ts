@@ -212,13 +212,13 @@ describe('site.reachability check', () => {
 
   it('fails with the reason when the site is down', async () => {
     const result = await check.run(withProbe({ state: 'down', url: 'https://client.example/', finalUrl: 'https://client.example/', httpStatus: 503, reason: 'HTTP 503', attempts: 2, durationMs: 2100 }))
-    expect(result).toMatchObject({ status: 'fail', code: 'site.reachability.down' })
+    expect(result).toMatchObject({ status: 'fail', code: 'site.reachability.down', urgent: true })
     expect(result.summary).toContain('HTTP 503')
   })
 
   it('fails a sinkholed domain instead of going quiet about it', async () => {
     const result = await check.run(withProbe({ state: 'unreachable', url: 'https://client.example/', finalUrl: 'https://client.example/', reason: 'client.example resolves to 127.0.0.1, a loopback address', attempts: 2, durationMs: 40 }))
-    expect(result).toMatchObject({ status: 'fail', code: 'site.reachability.refused-address' })
+    expect(result).toMatchObject({ status: 'fail', code: 'site.reachability.refused-address', urgent: true })
   })
 
   it('skips, never fails, when this host could not run the probe', async () => {
