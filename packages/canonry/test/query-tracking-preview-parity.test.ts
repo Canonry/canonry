@@ -8,7 +8,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
 import { canonicalMeasurementPlanV2Json, measurementPlanV2ChecksumJson, measurementPlanV2Schema } from '@ainyc/canonry-contracts'
-import { apiKeys, createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries, type DatabaseClient } from '@ainyc/canonry-db'
+import { apiKeys, createClient, measurementPlans, measurementPlanVersions, measurementQueryTemplates, migrate, projects, queries, type DatabaseClient } from '@ainyc/canonry-db'
 import { ApiClient } from '../src/client.js'
 import { createCanonryMcpServer } from '../src/mcp/server.js'
 import { invokeCli } from './cli-test-utils.js'
@@ -190,6 +190,75 @@ describe('query tracking preview CLI/REST/MCP parity', () => {
     expect(mcpAdd.structuredContent).toMatchObject({ error: refusal })
   })
 
+  it('returns the same report of what each query changes, type mismatches and market query counts on every surface', async () => {
+    seedAdvancedPlan()
+    const workspace = await api.getQueryTrackingWorkspace(PROJECT)
+    const { rest, viaCli, viaMcp } = await previewEverywhere('report', {
+      expectedWorkspaceVersion: workspace.workspaceVersion, removals: [],
+      additions: [
+        // Already Metro's query, named again.
+        { input: { source: 'manual', text: 'best widget supplier' }, audience: { marketKeys: ['metro'] } },
+        // A market query that names the company: the classifier types it Branded.
+        { input: { source: 'manual', text: 'northwind widget prices' }, audience: { marketKeys: ['metro'] } },
+      ],
+      // Widgets' own query retyped against its Subject.
+      edits: [{ queryId: 'q-widgets', queryClass: 'non-brand' }],
+    })
+
+    expect(rest.changes?.map(change => [change.queryText, change.change, change.altered])).toStrictEqual([
+      ['northwind widget prices', 'added', true],
+      ['best widget supplier', 'reused', false],
+      ['northwind widgets reviews', 'reused', true],
+    ])
+    const added = rest.diff.added[0]!.queryId
+    expect(rest.typeMismatches).toStrictEqual([
+      {
+        queryId: added, queryText: 'northwind widget prices', focus: { kind: 'market', key: 'metro' },
+        expectedQueryClass: 'non-brand', queryClasses: ['branded'], brandedWording: true,
+      },
+      {
+        queryId: 'q-widgets', queryText: 'northwind widgets reviews', focus: { kind: 'property', key: 'widgets' },
+        expectedQueryClass: 'branded', queryClasses: ['non-brand'], brandedWording: false,
+      },
+    ])
+    expect(rest.marketQueryChanges).toStrictEqual([{ marketKey: 'metro', before: { marketQueries: 1 }, after: { marketQueries: 2 } }])
+    expect(rest.marketChanges).toStrictEqual([])
+    expect(rest.limits).toStrictEqual({
+      queries: { current: 2, next: 3, max: 1_000, left: { current: 998, next: 997 }, over: { current: 0, next: 0 }, exceeded: false },
+    })
+    expect(viaCli).toStrictEqual([rest, rest])
+    expect(viaMcp).toStrictEqual(rest)
+  })
+
+  it('returns a wording edit as one linked pair of rows, and a {submarket} pattern expanded, on every surface', async () => {
+    seedAdvancedPlan()
+    db.insert(measurementQueryTemplates).values({
+      id: 'tpl-repair', projectId: 'prj_northwind', name: 'Repair', description: null,
+      pattern: 'widget repair in {submarket}', variables: ['submarket'], createdAt: NOW, updatedAt: NOW,
+    }).run()
+    const workspace = await api.getQueryTrackingWorkspace(PROJECT)
+    const { rest, viaCli, viaMcp } = await previewEverywhere('reword', {
+      expectedWorkspaceVersion: workspace.workspaceVersion, removals: [],
+      additions: [{
+        input: { source: 'template', templateId: 'tpl-repair', templateVersion: NOW, template: 'widget repair in {submarket}' },
+        audience: { marketKeys: ['metro'] },
+      }],
+      edits: [{ queryId: 'q-supplier', text: 'top widget supplier' }],
+    })
+
+    expect(rest.changes?.map(change => [change.queryText, change.change, change.altered, change.rewordedFrom])).toStrictEqual([
+      ['top widget supplier', 'added', true, 'q-supplier'],
+      ['widget repair in Metro', 'added', true, undefined],
+      ['best widget supplier', 'removed', true, undefined],
+    ])
+    expect(rest.tracked.find(row => row.queryText === 'widget repair in Metro')?.provenance?.template?.bindings).toStrictEqual({ submarket: 'Metro' })
+    // The reworded query is still Metro's, and the pattern adds one more.
+    expect(rest.marketQueryChanges).toStrictEqual([{ marketKey: 'metro', before: { marketQueries: 1 }, after: { marketQueries: 2 } }])
+    expect(rest.typeMismatches).toStrictEqual([])
+    expect(viaCli).toStrictEqual([rest, rest])
+    expect(viaMcp).toStrictEqual(rest)
+  })
+
   it('returns no market changes field for a simple project on any surface', async () => {
     const workspace = await api.getQueryTrackingWorkspace(PROJECT)
     const { rest, viaCli, viaMcp } = await previewEverywhere('simple', {
@@ -199,6 +268,9 @@ describe('query tracking preview CLI/REST/MCP parity', () => {
     expect(rest.mode).toBe('simple')
     expect(rest.diff.removed.map(row => row.queryId)).toEqual(['q-supplier'])
     expect(rest).not.toHaveProperty('marketChanges')
+    expect(rest).not.toHaveProperty('marketQueryChanges')
+    expect(rest).not.toHaveProperty('typeMismatches')
+    expect(rest.changes?.map(change => [change.queryId, change.altered])).toEqual([['q-supplier', true]])
     expect(viaCli).toStrictEqual([rest, rest])
     expect(viaMcp).toStrictEqual(rest)
   })

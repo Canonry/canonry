@@ -11,8 +11,11 @@ import {
   QUERY_TRACKING_THIN_MARKET_FLOOR,
   compareText,
   expandQueryTemplate,
+  measurementV2UsageEdgeKey,
   normalizeCompetitorDomain,
   normalizeIdentityText,
+  queryTemplateBindings,
+  queryTemplateVariableKind,
   type MeasurementPlanV2,
   type QueryClass,
   type QueryTrackingFocus,
@@ -36,7 +39,7 @@ export interface PlanPlaceCounts {
 
 const CLASS_COUNT = { branded: 'branded', 'non-brand': 'nonBrand' } as const satisfies Record<QueryClass, string>
 
-function addTo(map: Map<string, Set<string>>, key: string, value: string): void {
+function addTo<T extends string>(map: Map<string, Set<T>>, key: string, value: T): void {
   const values = map.get(key)
   if (values) values.add(value)
   else map.set(key, new Set([value]))
@@ -55,7 +58,25 @@ export function distinctQueryClasses(classes: Iterable<QueryClass | null>): Quer
   return [...distinct].sort(compareText)
 }
 
-/** `left` is the room under the limit, never below zero for a plan already over it. */
+type ClassCounts = QueryTrackingSummary['byClass']
+
+function noClassCounts(): ClassCounts {
+  return { branded: 0, nonBrand: 0, mixed: 0, unknown: 0 }
+}
+
+/** One query's distinct classes: a single class counts under it, both under `mixed`, none under `unknown`. */
+function countClasses(counts: ClassCounts, classes: readonly QueryClass[]): void {
+  if (classes.length === 0) counts.unknown += 1
+  else if (classes.length === 1) counts[CLASS_COUNT[classes[0]!]] += 1
+  else counts.mixed += 1
+}
+
+/**
+ * `left` is the room under the limit and `over` the excess above it, neither
+ * below zero. `exceeded` is the one limit rule, which a commit's refusal reads
+ * too: a plan already over the limit may still shrink, but no change may grow
+ * it past the limit.
+ */
 export function queryLimitCounts(current: number, next: number, max: number): QueryTrackingLimits {
   return {
     queries: {
@@ -63,6 +84,8 @@ export function queryLimitCounts(current: number, next: number, max: number): Qu
       next,
       max,
       left: { current: Math.max(0, max - current), next: Math.max(0, max - next) },
+      over: { current: Math.max(0, current - max), next: Math.max(0, next - max) },
+      exceeded: next > max && next > current,
     },
   }
 }
@@ -78,7 +101,7 @@ export function trackingSummary(
   plan: MeasurementPlanV2 | null,
   workload: ReadonlyMap<string, number>,
 ): QueryTrackingSummary {
-  const byClass = { branded: 0, nonBrand: 0, mixed: 0, unknown: 0 }
+  const byClass = noClassCounts()
   const byFocus = { market: 0, property: 0, company: 0, custom: 0 }
   let asked = 0
   for (const row of tracked) {
@@ -86,10 +109,7 @@ export function trackingSummary(
     if (focus.kind === 'not-asked') continue
     asked += 1
     byFocus[focus.kind] += 1
-    const classes = row.queryClasses
-    if (classes.length === 0) byClass.unknown += 1
-    else if (classes.length === 1) byClass[CLASS_COUNT[classes[0]!]] += 1
-    else byClass.mixed += 1
+    countClasses(byClass, row.queryClasses)
   }
 
   // A published class is never null, so `unknown` stays zero for a plan.
@@ -129,6 +149,11 @@ export function trackingSummary(
  * `expectedSnapshots` over the distinct executions a place has a usage edge
  * on: an execution two places share counts once in each, so places do not add
  * up to the project total.
+ *
+ * `queries` counts the tracked rows with a pairing at the place, and `byClass`
+ * reads the Type of those pairings from every plan assignment there: a row's
+ * `assignments[].queryClass` keeps one class per location, so it would miss a
+ * query asked under both types at two search locations.
  */
 export function planPlaceCounts(plan: MeasurementPlanV2, tracked: readonly SummarizedRow[]): PlanPlaceCounts {
   const groupsByTarget = new Map<string, Set<string>>()
@@ -145,13 +170,13 @@ export function planPlaceCounts(plan: MeasurementPlanV2, tracked: readonly Summa
   const marketNodes = new Map<string, Set<string>>()
   const marketTargets = new Map<string, Set<string>>()
   const targetMarkets = new Map<string, Set<string>>()
-  const groupMarkets = new Map<string, number>()
+  const edgeMarkets = new Map<string, Set<string>>()
   for (const scope of plan.reportingScopes ?? []) {
-    if (scope.groupKey !== undefined) groupMarkets.set(scope.groupKey, (groupMarkets.get(scope.groupKey) ?? 0) + 1)
     for (const edge of scope.usageEdges) {
       addTo(marketNodes, scope.stableKey, edge.executionNodeKey)
       addTo(marketTargets, scope.stableKey, edge.targetKey)
       addTo(targetMarkets, edge.targetKey, scope.stableKey)
+      addTo(edgeMarkets, measurementV2UsageEdgeKey(edge), scope.stableKey)
     }
   }
 
@@ -164,15 +189,46 @@ export function planPlaceCounts(plan: MeasurementPlanV2, tracked: readonly Summa
 
   const targets = new Map(plan.targets.map(target => [target.stableKey, {
     marketKeys: sorted(targetMarkets.get(target.stableKey)),
-    counts: { propertyQueries: 0, marketQueries: 0, customQueries: 0, answersPerSweep: answers(targetNodes.get(target.stableKey)) },
+    counts: {
+      queries: 0, byClass: noClassCounts(),
+      propertyQueries: 0, marketQueries: 0, customQueries: 0, answersPerSweep: answers(targetNodes.get(target.stableKey)),
+    },
   }]))
   const markets = new Map((plan.reportingScopes ?? []).map(scope => [scope.stableKey, {
     targetKeys: sorted(marketTargets.get(scope.stableKey)),
-    counts: { marketQueries: 0, propertyQueries: 0, answersPerSweep: answers(marketNodes.get(scope.stableKey)) },
+    counts: {
+      queries: 0, byClass: noClassCounts(),
+      marketQueries: 0, propertyQueries: 0, answersPerSweep: answers(marketNodes.get(scope.stableKey)),
+    },
   }]))
+  // A group's markets are the ones its locations are in, the same rule as a location's `marketKeys`.
+  const marketsHolding = (targetKeys: readonly string[]): number => {
+    const held = new Set<string>()
+    for (const targetKey of targetKeys) {
+      for (const marketKey of targetMarkets.get(targetKey) ?? []) held.add(marketKey)
+    }
+    return held.size
+  }
   const groups = new Map(plan.groups.map(group => [group.stableKey, {
-    counts: { queries: 0, markets: groupMarkets.get(group.stableKey) ?? 0, answersPerSweep: answers(groupNodes.get(group.stableKey)) },
+    counts: {
+      queries: 0, byClass: noClassCounts(), marketQueries: 0, propertyQueries: 0, customQueries: 0,
+      markets: marketsHolding(group.targetKeys), answersPerSweep: answers(groupNodes.get(group.stableKey)),
+    },
   }]))
+
+  const countQuery = (counts: { queries: number; byClass: ClassCounts } | undefined, classes: ReadonlySet<QueryClass>): void => {
+    if (!counts) return
+    counts.queries += 1
+    countClasses(counts.byClass, [...classes])
+  }
+  // Same population as the tracked row: an assignment without its execution node is skipped.
+  const pairings = new Map<string, MeasurementPlanV2['assignments']>()
+  for (const assignment of plan.assignments) {
+    if (!calls.has(assignment.executionNodeKey)) continue
+    const paired = pairings.get(assignment.queryId)
+    if (paired) paired.push(assignment)
+    else pairings.set(assignment.queryId, [assignment])
+  }
 
   for (const row of tracked) {
     const focus = row.focus
@@ -198,13 +254,25 @@ export function planPlaceCounts(plan: MeasurementPlanV2, tracked: readonly Summa
         // A simple site's row and an unpaired row belong to no place.
         break
     }
-    const rowGroups = new Set<string>()
-    for (const assignment of row.assignments) {
-      for (const groupKey of groupsByTarget.get(assignment.targetKey) ?? []) rowGroups.add(groupKey)
+    // The row's classes at each place it is paired with: a pairing counts for its
+    // location, that location's groups, and the markets holding its exact edge.
+    const atTargets = new Map<string, Set<QueryClass>>()
+    const atMarkets = new Map<string, Set<QueryClass>>()
+    const atGroups = new Map<string, Set<QueryClass>>()
+    for (const pairing of pairings.get(row.queryId) ?? []) {
+      addTo(atTargets, pairing.targetKey, pairing.queryClass)
+      for (const groupKey of groupsByTarget.get(pairing.targetKey) ?? []) addTo(atGroups, groupKey, pairing.queryClass)
+      for (const marketKey of edgeMarkets.get(measurementV2UsageEdgeKey(pairing)) ?? []) addTo(atMarkets, marketKey, pairing.queryClass)
     }
-    for (const groupKey of rowGroups) {
-      const group = groups.get(groupKey)
-      if (group) group.counts.queries += 1
+    for (const [targetKey, classes] of atTargets) countQuery(targets.get(targetKey)?.counts, classes)
+    for (const [marketKey, classes] of atMarkets) countQuery(markets.get(marketKey)?.counts, classes)
+    for (const [groupKey, classes] of atGroups) {
+      const counts = groups.get(groupKey)?.counts
+      if (!counts) continue
+      countQuery(counts, classes)
+      if (focus.kind === 'market') counts.marketQueries += 1
+      else if (focus.kind === 'property') counts.propertyQueries += 1
+      else if (focus.kind === 'custom') counts.customQueries += 1
     }
   }
 
@@ -225,11 +293,12 @@ export type SavedPatterns = ReadonlyMap<string, { name: string; pattern: string;
 
 /**
  * Only a pattern whose one variable is the market makes a market's own query:
- * one per market, asked for its locations. A pattern with no variable makes
- * one query for every place, and one with `{property}` a query per location.
+ * one per market, asked for its locations. Either market name counts
+ * (`{market}` or `{submarket}`). A pattern with no variable makes one query for
+ * every place, and one with a location name a query per location.
  */
 function fillsMarket(variables: readonly string[]): boolean {
-  return variables.length === 1 && variables[0] === 'market'
+  return variables.length === 1 && queryTemplateVariableKind(variables[0]!) === 'market'
 }
 
 /**
@@ -293,9 +362,10 @@ export function trackingViews(
     const missingMarketKeys: string[] = []
     for (const marketKey of openMarketKeys) {
       const texts = marketTexts.get(marketKey)
-      const market = labels.get(marketKey)!
+      // Every market name is bound, so a wording reads the same under the name it was written with.
+      const market = queryTemplateBindings('market', labels.get(marketKey)!)
       const asked = pattern.marketKeys.has(marketKey) || (texts !== undefined
-        && [...pattern.wordings].some(wording => texts.has(normalizeIdentityText(expandQueryTemplate(wording, { market })))))
+        && [...pattern.wordings].some(wording => texts.has(normalizeIdentityText(expandQueryTemplate(wording, market)))))
       if (asked) usedMarketKeys.push(marketKey)
       else missingMarketKeys.push(marketKey)
     }
@@ -308,6 +378,6 @@ export function trackingViews(
   return {
     noPropertyQueries: { count: targetKeys.length, targetKeys },
     thinMarkets: { count: thinMarketKeys.length, floor: QUERY_TRACKING_THIN_MARKET_FLOOR, marketKeys: thinMarketKeys },
-    patternGaps: { count: gaps.length, patterns: gaps },
+    patternGaps: { count: gaps.length, compared: patterns.size, patterns: gaps },
   }
 }

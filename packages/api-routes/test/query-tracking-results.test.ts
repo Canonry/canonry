@@ -1381,6 +1381,8 @@ describe('query tracking results: cost', () => {
     const marketKeys = Array.from({ length: 137 }, (_, market) => `market-${market}`).sort()
     expect(board.body.views?.patternGaps).toStrictEqual({
       count: 1,
+      // All 20 saved patterns fill in a market, the 16 unused ones included.
+      compared: 20,
       patterns: [{
         templateId: 'tpl-3', name: 'homes with parking', pattern: 'homes with parking in {market}',
         usedMarketKeys: marketKeys.filter(marketKey => marketKey !== 'market-5'), missingMarketKeys: ['market-5'],

@@ -13,7 +13,16 @@
  * - Not asked: no pairings. Custom: anything else.
  */
 
-import type { MeasurementPlanV2, QueryTrackingFocus } from '@ainyc/canonry-contracts'
+import { QUERY_CLASS_BY_FOCUS, type MeasurementPlanV2, type QueryClass, type QueryTrackingFocus } from '@ainyc/canonry-contracts'
+
+/**
+ * The Type a Subject takes: Non-brand for a market query, Branded for a
+ * location query. Null for every other Subject: a hand-picked query takes
+ * either, and a simple site's query is classed by the project classifier.
+ */
+export function subjectQueryClass(focus: QueryTrackingFocus): QueryClass | null {
+  return focus.kind === 'market' || focus.kind === 'property' ? QUERY_CLASS_BY_FOCUS[focus.kind] : null
+}
 
 function pairingKey(queryId: string, targetKey: string): string {
   return `${queryId}\u0000${targetKey}`

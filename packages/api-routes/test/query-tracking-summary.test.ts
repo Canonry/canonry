@@ -194,6 +194,55 @@ function overlapPlan(): MeasurementPlanV2 {
   }))
 }
 
+/**
+ * A metro whose markets sit on its child groups only:
+ * - Lakeshore metro holds Harbor Point and River Point; Harbor side and River side each hold one of them.
+ * - Harbor market (on Harbor side) and River market (on River side) each hold their one location.
+ * - Crosstown, on no group, holds Harbor too, so Harbor sits in two markets.
+ * - Closed is on River side and holds no location.
+ * `q-pick` is hand-picked: asked for Harbor inside Harbor market and for River outside any market.
+ */
+function metroPlan(): MeasurementPlanV2 {
+  const pairings: Array<Edge & { queryClass: 'branded' | 'non-brand'; markets: string[] }> = [
+    { queryId: 'q-harbor-market', targetKey: 'harbor', executionNodeKey: 'n-harbor-market', queryClass: 'non-brand', markets: ['harbor-market'] },
+    { queryId: 'q-river-market', targetKey: 'river', executionNodeKey: 'n-river-market', queryClass: 'non-brand', markets: ['river-market'] },
+    { queryId: 'q-crosstown', targetKey: 'harbor', executionNodeKey: 'n-crosstown', queryClass: 'non-brand', markets: ['crosstown'] },
+    { queryId: 'q-pick', targetKey: 'harbor', executionNodeKey: 'n-pick', queryClass: 'non-brand', markets: ['harbor-market'] },
+    { queryId: 'q-pick', targetKey: 'river', executionNodeKey: 'n-pick', queryClass: 'non-brand', markets: [] },
+  ]
+  const edge = ({ executionNodeKey, targetKey, queryId }: Edge): Edge => ({ executionNodeKey, targetKey, queryId })
+  const texts: Record<string, string> = {
+    'q-harbor-market': 'best homes harbor side',
+    'q-river-market': 'best homes river side',
+    'q-crosstown': 'best homes crosstown',
+    'q-pick': 'homes with a garden',
+  }
+  return sealed(measurementPlanV2Fixture({
+    targets: [target('harbor', 'Harbor Point'), target('river', 'River Point')],
+    groups: [
+      { stableKey: 'lakeshore', label: 'Lakeshore metro', targetKeys: ['harbor', 'river'], competitors: [] },
+      { stableKey: 'harbor-side', label: 'Harbor side', parentGroupKey: 'lakeshore', targetKeys: ['harbor'], competitors: [] },
+      { stableKey: 'river-side', label: 'River side', parentGroupKey: 'lakeshore', targetKeys: ['river'], competitors: [] },
+    ],
+    querySnapshots: Object.entries(texts).map(([queryId, queryText]) => ({
+      queryId, queryText, provenance: { source: 'manual' as const, sourceId: null, capturedAt: NOW },
+    })),
+    assignments: pairings.map(pairing => ({ ...edge(pairing), queryClass: pairing.queryClass, classificationSource: 'server' as const })),
+    executionNodes: Object.entries(texts).map(([queryId, queryText]) => ({
+      stableKey: queryId.replace('q-', 'n-'), queryId, queryText, context: ONE_ENGINE, expectedSnapshots: 1,
+    })),
+    usageEdges: pairings.map(edge),
+    reportingScopes: [
+      { stableKey: 'closed', label: 'Closed', groupKey: 'river-side' },
+      { stableKey: 'crosstown', label: 'Crosstown' },
+      { stableKey: 'harbor-market', label: 'Harbor market', groupKey: 'harbor-side' },
+      { stableKey: 'river-market', label: 'River market', groupKey: 'river-side' },
+    ].map(market => ({
+      ...market, kind: 'market' as const, usageEdges: pairings.filter(pairing => pairing.markets.includes(market.stableKey)).map(edge),
+    })),
+  }))
+}
+
 /** A plan the compiler never publishes: `q-ghost` is assigned, but nothing stores its text. */
 function ghostPlan(): MeasurementPlanV2 {
   const edges = [
@@ -296,9 +345,9 @@ function viewsPlan(): MeasurementPlanV2 {
 }
 
 /** A saved pattern as the pattern routes store it. */
-function savePattern(id: string, name: string, pattern: string): void {
+function savePattern(id: string, name: string, pattern: string, variables: string[] = ['market']): void {
   db.insert(measurementQueryTemplates).values({
-    id, projectId: PROJECT_ID, name, description: null, pattern, variables: ['market'], createdAt: SAVED_FIRST, updatedAt: SAVED_AGAIN,
+    id, projectId: PROJECT_ID, name, description: null, pattern, variables, createdAt: SAVED_FIRST, updatedAt: SAVED_AGAIN,
   }).run()
 }
 
@@ -399,6 +448,11 @@ async function publish(mutation: { additions?: unknown[]; removals?: unknown[] }
 
 const total = (values: readonly number[]) => values.reduce((sum, value) => sum + value, 0)
 
+/** A place's Type counts, with every class not named at zero. */
+function byClass(counts: Partial<Record<'branded' | 'nonBrand' | 'mixed' | 'unknown', number>>) {
+  return { branded: 0, nonBrand: 0, mixed: 0, unknown: 0, ...counts }
+}
+
 beforeEach(async () => {
   directory = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-tracking-summary-'))
   db = createClient(path.join(directory, 'test.db'))
@@ -470,21 +524,27 @@ describe('query tracking workspace summary: advanced portfolio', () => {
     const current = await workspace()
 
     expect(current.targets.map(({ stableKey, marketKeys, counts }) => ({ stableKey, marketKeys, counts }))).toStrictEqual([
-      { stableKey: 'harbor', marketKeys: ['uptown'], counts: { propertyQueries: 1, marketQueries: 2, customQueries: 1, answersPerSweep: 6 } },
-      { stableKey: 'lone', marketKeys: [], counts: { propertyQueries: 1, marketQueries: 0, customQueries: 0, answersPerSweep: 3 } },
-      { stableKey: 'river', marketKeys: ['uptown'], counts: { propertyQueries: 0, marketQueries: 2, customQueries: 0, answersPerSweep: 4 } },
-      { stableKey: 'summit', marketKeys: ['downtown'], counts: { propertyQueries: 1, marketQueries: 1, customQueries: 1, answersPerSweep: 4 } },
+      // q-mixed is Branded for Harbor and Non-brand for River, so each location counts it under one class.
+      { stableKey: 'harbor', marketKeys: ['uptown'], counts: { queries: 4, byClass: byClass({ branded: 2, nonBrand: 2 }), propertyQueries: 1, marketQueries: 2, customQueries: 1, answersPerSweep: 6 } },
+      // q-lone is asked under both types at Lone Pine's two search locations.
+      { stableKey: 'lone', marketKeys: [], counts: { queries: 1, byClass: byClass({ mixed: 1 }), propertyQueries: 1, marketQueries: 0, customQueries: 0, answersPerSweep: 3 } },
+      { stableKey: 'river', marketKeys: ['uptown'], counts: { queries: 2, byClass: byClass({ nonBrand: 2 }), propertyQueries: 0, marketQueries: 2, customQueries: 0, answersPerSweep: 4 } },
+      { stableKey: 'summit', marketKeys: ['downtown'], counts: { queries: 3, byClass: byClass({ branded: 1, nonBrand: 2 }), propertyQueries: 1, marketQueries: 1, customQueries: 1, answersPerSweep: 4 } },
     ])
     expect(current.markets.map(({ stableKey, targetKeys, counts }) => ({ stableKey, targetKeys, counts }))).toStrictEqual([
-      { stableKey: 'downtown', targetKeys: ['summit'], counts: { marketQueries: 1, propertyQueries: 1, answersPerSweep: 3 } },
-      { stableKey: 'uptown', targetKeys: ['harbor', 'river'], counts: { marketQueries: 2, propertyQueries: 1, answersPerSweep: 5 } },
-      { stableKey: 'vacant', targetKeys: [], counts: { marketQueries: 0, propertyQueries: 0, answersPerSweep: 0 } },
+      { stableKey: 'downtown', targetKeys: ['summit'], counts: { queries: 2, byClass: byClass({ branded: 1, nonBrand: 1 }), marketQueries: 1, propertyQueries: 1, answersPerSweep: 3 } },
+      // Holding Harbor and River, Uptown reads q-mixed as both classes. q-custom's Harbor pairing is outside it.
+      { stableKey: 'uptown', targetKeys: ['harbor', 'river'], counts: { queries: 3, byClass: byClass({ branded: 1, nonBrand: 1, mixed: 1 }), marketQueries: 2, propertyQueries: 1, answersPerSweep: 5 } },
+      { stableKey: 'vacant', targetKeys: [], counts: { queries: 0, byClass: byClass({}), marketQueries: 0, propertyQueries: 0, answersPerSweep: 0 } },
     ])
     expect(current.groups.map(({ stableKey, counts }) => ({ stableKey, counts }))).toStrictEqual([
-      { stableKey: 'metro', counts: { queries: 6, markets: 1, answersPerSweep: 9 } },
-      { stableKey: 'north', counts: { queries: 4, markets: 1, answersPerSweep: 6 } },
-      { stableKey: 'solo', counts: { queries: 1, markets: 0, answersPerSweep: 3 } },
+      // Metro's locations sit in Downtown (on Metro) and Uptown (on its child North): two markets.
+      { stableKey: 'metro', counts: { queries: 6, byClass: byClass({ branded: 2, nonBrand: 3, mixed: 1 }), marketQueries: 3, propertyQueries: 2, customQueries: 1, markets: 2, answersPerSweep: 9 } },
+      { stableKey: 'north', counts: { queries: 4, byClass: byClass({ branded: 1, nonBrand: 2, mixed: 1 }), marketQueries: 2, propertyQueries: 1, customQueries: 1, markets: 1, answersPerSweep: 6 } },
+      // One class per location would call q-lone Non-brand; every assignment makes it Mixed.
+      { stableKey: 'solo', counts: { queries: 1, byClass: byClass({ mixed: 1 }), marketQueries: 0, propertyQueries: 1, customQueries: 0, markets: 0, answersPerSweep: 3 } },
     ])
+    expect(current.tracked.find(row => row.queryId === 'q-lone')?.assignments.map(assignment => assignment.queryClass)).toStrictEqual(['non-brand'])
 
     // n-market (two answers) serves Harbor and River: each location counts it, the project counts it once.
     const locationAnswers = total(current.targets.map(place => place.counts!.answersPerSweep))
@@ -498,19 +558,60 @@ describe('query tracking workspace summary: advanced portfolio', () => {
 
     // Harbor and River take Citywide's two market queries and Uptown's one.
     expect(current.targets.map(({ stableKey, marketKeys, counts }) => ({ stableKey, marketKeys, counts }))).toStrictEqual([
-      { stableKey: 'harbor', marketKeys: ['citywide', 'uptown'], counts: { propertyQueries: 1, marketQueries: 3, customQueries: 0, answersPerSweep: 6 } },
-      { stableKey: 'river', marketKeys: ['citywide', 'uptown'], counts: { propertyQueries: 0, marketQueries: 3, customQueries: 0, answersPerSweep: 4 } },
-      { stableKey: 'summit', marketKeys: ['citywide'], counts: { propertyQueries: 0, marketQueries: 2, customQueries: 0, answersPerSweep: 3 } },
+      { stableKey: 'harbor', marketKeys: ['citywide', 'uptown'], counts: { queries: 4, byClass: byClass({ branded: 1, nonBrand: 3 }), propertyQueries: 1, marketQueries: 3, customQueries: 0, answersPerSweep: 6 } },
+      { stableKey: 'river', marketKeys: ['citywide', 'uptown'], counts: { queries: 3, byClass: byClass({ nonBrand: 3 }), propertyQueries: 0, marketQueries: 3, customQueries: 0, answersPerSweep: 4 } },
+      { stableKey: 'summit', marketKeys: ['citywide'], counts: { queries: 2, byClass: byClass({ nonBrand: 2 }), propertyQueries: 0, marketQueries: 2, customQueries: 0, answersPerSweep: 3 } },
     ])
-    // Harbor's own query counts in both of its markets.
+    // Harbor's own query counts in both of its markets, as one query in each.
     expect(current.markets.map(({ stableKey, targetKeys, counts }) => ({ stableKey, targetKeys, counts }))).toStrictEqual([
-      { stableKey: 'citywide', targetKeys: ['harbor', 'river', 'summit'], counts: { marketQueries: 2, propertyQueries: 1, answersPerSweep: 5 } },
-      { stableKey: 'uptown', targetKeys: ['harbor', 'river'], counts: { marketQueries: 1, propertyQueries: 1, answersPerSweep: 3 } },
+      { stableKey: 'citywide', targetKeys: ['harbor', 'river', 'summit'], counts: { queries: 3, byClass: byClass({ branded: 1, nonBrand: 2 }), marketQueries: 2, propertyQueries: 1, answersPerSweep: 5 } },
+      { stableKey: 'uptown', targetKeys: ['harbor', 'river'], counts: { queries: 2, byClass: byClass({ branded: 1, nonBrand: 1 }), marketQueries: 1, propertyQueries: 1, answersPerSweep: 3 } },
     ])
     // A market query stays one row, however many of its locations another market shares.
     expect(current.summary?.byFocus).toStrictEqual({ market: 3, property: 1, company: 0, custom: 0 })
     expect(total(current.markets.map(market => market.counts!.marketQueries))).toBe(3)
     expect(current.summary?.answersPerSweep).toBe(6)
+  })
+
+  it('counts a group\'s markets as the markets its locations are in, wherever each market is attached', async () => {
+    activate(metroPlan())
+    const current = await workspace()
+
+    expect(current.markets.map(market => [market.stableKey, market.groupKey ?? null, market.targetKeys])).toStrictEqual([
+      ['closed', 'river-side', []],
+      ['crosstown', null, ['harbor']],
+      ['harbor-market', 'harbor-side', ['harbor']],
+      ['river-market', 'river-side', ['river']],
+    ])
+    expect(Object.fromEntries(current.groups.map(group => [group.stableKey, group.counts?.markets]))).toStrictEqual({
+      // No market is attached to the metro, and its two locations sit in three.
+      lakeshore: 3,
+      // One market is attached to Harbor side, and Harbor also sits in Crosstown.
+      'harbor-side': 2,
+      // Two are attached to River side, and Closed holds no location.
+      'river-side': 1,
+    })
+    // The same union as each location's own markets.
+    expect(current.targets.map(place => [place.stableKey, place.marketKeys])).toStrictEqual([
+      ['harbor', ['crosstown', 'harbor-market']], ['river', ['river-market']],
+    ])
+  })
+
+  it('counts a hand-picked query paired inside a market in that market\'s queries, outside its two Subject counts', async () => {
+    activate(metroPlan())
+    const current = await workspace()
+
+    expect(current.tracked.find(row => row.queryId === 'q-pick')?.focus).toStrictEqual({ kind: 'custom' })
+    expect(current.markets.find(market => market.stableKey === 'harbor-market')?.counts).toStrictEqual({
+      queries: 2, byClass: byClass({ nonBrand: 2 }), marketQueries: 1, propertyQueries: 0, answersPerSweep: 2,
+    })
+    // River's pairing of the same query is in no market, so River market does not count it.
+    expect(current.markets.find(market => market.stableKey === 'river-market')?.counts).toStrictEqual({
+      queries: 1, byClass: byClass({ nonBrand: 1 }), marketQueries: 1, propertyQueries: 0, answersPerSweep: 1,
+    })
+    expect(current.groups.find(group => group.stableKey === 'lakeshore')?.counts).toStrictEqual({
+      queries: 4, byClass: byClass({ nonBrand: 4 }), marketQueries: 3, propertyQueries: 0, customQueries: 1, markets: 3, answersPerSweep: 4,
+    })
   })
 
   it('reads a pattern row whose plan froze no pattern record as a pattern', async () => {
@@ -538,12 +639,16 @@ describe('query tracking workspace summary: advanced portfolio', () => {
   it('reports the room under the limit on the read and on a preview', async () => {
     seedPortfolio()
     const current = await workspace()
-    expect(current.limits).toStrictEqual({ queries: { current: 7, next: 7, max: 1_000, left: { current: 993, next: 993 } } })
+    expect(current.limits).toStrictEqual({
+      queries: { current: 7, next: 7, max: 1_000, left: { current: 993, next: 993 }, over: { current: 0, next: 0 }, exceeded: false },
+    })
 
     const added = await preview({
       additions: [{ input: { source: 'manual', text: 'apartments with a pool' }, audience: { marketKeys: ['uptown'] } }],
     })
-    expect(added.limits).toStrictEqual({ queries: { current: 7, next: 8, max: 1_000, left: { current: 993, next: 992 } } })
+    expect(added.limits).toStrictEqual({
+      queries: { current: 7, next: 8, max: 1_000, left: { current: 993, next: 992 }, over: { current: 0, next: 0 }, exceeded: false },
+    })
     expect(added.tracked.find(row => row.queryText === 'apartments with a pool'))
       .toMatchObject({ focus: { kind: 'market', key: 'uptown' }, queryClasses: ['non-brand'] })
   })
@@ -552,10 +657,15 @@ describe('query tracking workspace summary: advanced portfolio', () => {
     activate(crowdedPlan(1_002))
     const current = await workspace()
     expect(current.summary).toMatchObject({ asked: 1_002, notAsked: 0, answersPerSweep: 1_002 })
-    expect(current.limits).toStrictEqual({ queries: { current: 1_002, next: 1_002, max: 1_000, left: { current: 0, next: 0 } } })
+    // A read changes nothing, so a plan over the limit is not a refused change.
+    expect(current.limits).toStrictEqual({
+      queries: { current: 1_002, next: 1_002, max: 1_000, left: { current: 0, next: 0 }, over: { current: 2, next: 2 }, exceeded: false },
+    })
 
     const shrunk = await preview({ removals: [{ queryId: 'q-fill-0' }, { queryId: 'q-fill-1' }, { queryId: 'q-fill-2' }] })
-    expect(shrunk.limits).toStrictEqual({ queries: { current: 1_002, next: 999, max: 1_000, left: { current: 0, next: 1 } } })
+    expect(shrunk.limits).toStrictEqual({
+      queries: { current: 1_002, next: 999, max: 1_000, left: { current: 0, next: 1 }, over: { current: 2, next: 0 }, exceeded: false },
+    })
   })
 
   it('counts the rows it lists when a plan assigns a query whose text nothing stores', async () => {
@@ -572,7 +682,9 @@ describe('query tracking workspace summary: advanced portfolio', () => {
       answersPerSweep: 2,
     })
     // The limit stays the compiler's count, the one a publish is checked against.
-    expect(current.limits).toStrictEqual({ queries: { current: 2, next: 2, max: 1_000, left: { current: 998, next: 998 } } })
+    expect(current.limits).toStrictEqual({
+      queries: { current: 2, next: 2, max: 1_000, left: { current: 998, next: 998 }, over: { current: 0, next: 0 }, exceeded: false },
+    })
   })
 
   it('returns zero counts for a plan with locations and no queries', async () => {
@@ -593,9 +705,15 @@ describe('query tracking workspace summary: advanced portfolio', () => {
       answersPerSweep: 0,
       structure: { targets: 1, markets: 1, groups: 1, topLevelGroups: 1, competitors: 0 },
     })
-    expect(current.limits).toStrictEqual({ queries: { current: 0, next: 0, max: 1_000, left: { current: 1_000, next: 1_000 } } })
-    expect(current.targets[0]).toMatchObject({ marketKeys: [], counts: { propertyQueries: 0, marketQueries: 0, customQueries: 0, answersPerSweep: 0 } })
-    expect(current.groups[0]?.counts).toStrictEqual({ queries: 0, markets: 0, answersPerSweep: 0 })
+    expect(current.limits).toStrictEqual({
+      queries: { current: 0, next: 0, max: 1_000, left: { current: 1_000, next: 1_000 }, over: { current: 0, next: 0 }, exceeded: false },
+    })
+    expect(current.targets[0]).toMatchObject({
+      marketKeys: [], counts: { queries: 0, byClass: byClass({}), propertyQueries: 0, marketQueries: 0, customQueries: 0, answersPerSweep: 0 },
+    })
+    expect(current.groups[0]?.counts).toStrictEqual({
+      queries: 0, byClass: byClass({}), marketQueries: 0, propertyQueries: 0, customQueries: 0, markets: 0, answersPerSweep: 0,
+    })
   })
 })
 
@@ -623,6 +741,8 @@ describe('query tracking workspace views', () => {
       thinMarkets: { count: 3, floor: 4, marketKeys: ['downtown', 'lakeside', 'vacant'] },
       patternGaps: {
         count: 3,
+        // The three saved patterns and the two deleted ones market rows froze. Harbor's `{property}` pattern is not read.
+        compared: 5,
         patterns: [
           // Deleted since: no name, and the wording of the newest row that froze it.
           { templateId: 'tpl-lofts', name: null, pattern: 'luxury loft rentals in {market}', usedMarketKeys: ['downtown', 'lakeside'], missingMarketKeys: ['uptown'] },
@@ -651,7 +771,8 @@ describe('query tracking workspace views', () => {
       // Vacant has no location and no query. Downtown has one query and Uptown two.
       thinMarkets: { count: 3, floor: 4, marketKeys: ['downtown', 'uptown', 'vacant'] },
       // q-market is a pattern row that froze no pattern record, and no saved pattern makes its text.
-      patternGaps: { count: 0, patterns: [] },
+      // Nothing was compared, which is not the same as no gap found.
+      patternGaps: { count: 0, compared: 0, patterns: [] },
     })
     expect(patternReads()).toBe(1)
   })
@@ -674,6 +795,7 @@ describe('query tracking workspace views', () => {
     // No row froze either pattern, and both gaps are found: Uptown asks each text and Downtown does not.
     expect(before.views?.patternGaps).toStrictEqual({
       count: 2,
+      compared: 2,
       patterns: [
         { templateId: 'tpl-best', name: 'Best', pattern: 'best apartments {market}', usedMarketKeys: ['uptown'], missingMarketKeys: ['downtown'] },
         { templateId: 'tpl-pets', name: 'Pet friendly', pattern: 'pet friendly apartments in {market}', usedMarketKeys: ['uptown'], missingMarketKeys: ['downtown'] },
@@ -683,7 +805,8 @@ describe('query tracking workspace views', () => {
     // Adding both where they are missing closes both: Uptown is not reported as missing them.
     await publish({ additions: [best({ marketKeys: ['downtown'] }), pets({ marketKeys: ['downtown'] })] })
     const after = await workspace()
-    expect(after.views?.patternGaps).toStrictEqual({ count: 0, patterns: [] })
+    // Both patterns were compared and neither has a gap.
+    expect(after.views?.patternGaps).toStrictEqual({ count: 0, compared: 2, patterns: [] })
     expect(after.markets.map(market => [market.stableKey, market.counts?.marketQueries])).toStrictEqual([['downtown', 3], ['uptown', 3], ['vacant', 0]])
   })
 
@@ -711,14 +834,14 @@ describe('query tracking workspace views', () => {
     // Each is one market's own query, and none can become another market's:
     // a pattern with no variable makes one query for every place, and a
     // location's makes a query per location.
-    expect(current.views?.patternGaps).toStrictEqual({ count: 0, patterns: [] })
+    expect(current.views?.patternGaps).toStrictEqual({ count: 0, compared: 0, patterns: [] })
 
     // The rows keep their records once the saved patterns are deleted, and are still no gap.
     for (const id of ['tpl-gym', 'tpl-near', 'tpl-both']) {
       const deleted = await app.inject({ method: 'DELETE', url: `/api/v1/projects/northstar/measurement-query-templates/${id}`, headers: { authorization: `Bearer ${ROOT_KEY}` } })
       expect(deleted.statusCode, deleted.body).toBe(204)
     }
-    expect((await workspace()).views?.patternGaps).toStrictEqual({ count: 0, patterns: [] })
+    expect((await workspace()).views?.patternGaps).toStrictEqual({ count: 0, compared: 0, patterns: [] })
   })
 
   it('drops a gap once the saved pattern takes a location variable', async () => {
@@ -729,7 +852,7 @@ describe('query tracking workspace views', () => {
 
     // Saved again with a location in it: adding it now makes each location a query, never Downtown's own.
     await patternAddition('tpl-transit', 'Near transit', '{property} near transit in {market}', ['market', 'property'])
-    expect((await workspace()).views?.patternGaps).toStrictEqual({ count: 0, patterns: [] })
+    expect((await workspace()).views?.patternGaps).toStrictEqual({ count: 0, compared: 0, patterns: [] })
   })
 
   it('finds and closes a gap for a saved pattern added through the pattern and tracking routes', async () => {
@@ -751,14 +874,14 @@ describe('query tracking workspace views', () => {
     await addTo('uptown')
     const gap = { templateId: 'tpl-transit', usedMarketKeys: ['uptown'], missingMarketKeys: ['downtown'] }
     expect((await workspace()).views?.patternGaps).toStrictEqual({
-      count: 1, patterns: [{ ...gap, name: 'Near transit', pattern: 'apartments near transit in {market}' }],
+      count: 1, compared: 1, patterns: [{ ...gap, name: 'Near transit', pattern: 'apartments near transit in {market}' }],
     })
 
     // The row keeps the pattern it froze after the saved pattern is deleted.
     const deleted = await app.inject({ method: 'DELETE', url: '/api/v1/projects/northstar/measurement-query-templates/tpl-transit', headers })
     expect(deleted.statusCode, deleted.body).toBe(204)
     expect((await workspace()).views?.patternGaps).toStrictEqual({
-      count: 1, patterns: [{ ...gap, name: null, pattern: 'apartments near transit in {market}' }],
+      count: 1, compared: 1, patterns: [{ ...gap, name: null, pattern: 'apartments near transit in {market}' }],
     })
 
     const again = await app.inject({
@@ -775,8 +898,38 @@ describe('query tracking workspace views', () => {
     })
     // Asked in both markets that hold a location: no gap, though Vacant has no such query.
     const closed = await workspace()
-    expect(closed.views?.patternGaps).toStrictEqual({ count: 0, patterns: [] })
+    expect(closed.views?.patternGaps).toStrictEqual({ count: 0, compared: 1, patterns: [] })
     expect(closed.markets.map(market => [market.stableKey, market.counts?.marketQueries])).toStrictEqual([['downtown', 2], ['uptown', 3], ['vacant', 0]])
+  })
+
+  it('reads a pattern written with {submarket} as a market pattern, by its text and by the record a row froze', async () => {
+    seedPortfolio()
+    // Uptown already asks "best apartments uptown", the text this pattern makes for it.
+    savePattern('tpl-best', 'Best', 'best apartments {submarket}', ['submarket'])
+    // A location name makes a query per location, never a market's own.
+    savePattern('tpl-reviews', 'Reviews', '{propertyBrand} reviews', ['propertyBrand'])
+    expect((await workspace()).views?.patternGaps).toStrictEqual({
+      count: 1,
+      compared: 1,
+      patterns: [{ templateId: 'tpl-best', name: 'Best', pattern: 'best apartments {submarket}', usedMarketKeys: ['uptown'], missingMarketKeys: ['downtown'] }],
+    })
+
+    // Added through tracking, the row freezes the pattern under the name it was written with.
+    const pool = await patternAddition('tpl-pool', 'Pool', 'homes with a pool in {submarket}', ['submarket'])
+    await publish({ additions: [pool({ marketKeys: ['downtown'] })] })
+    const added = (await workspace()).tracked.find(row => row.queryText === 'homes with a pool in Downtown')
+    expect([added?.focus, added?.provenance?.template?.bindings]).toStrictEqual([{ kind: 'market', key: 'downtown' }, { submarket: 'Downtown' }])
+    // Deleted since, the pattern is still read from that record.
+    const deleted = await app.inject({ method: 'DELETE', url: '/api/v1/projects/northstar/measurement-query-templates/tpl-pool', headers: { authorization: `Bearer ${ROOT_KEY}` } })
+    expect(deleted.statusCode, deleted.body).toBe(204)
+    expect((await workspace()).views?.patternGaps).toMatchObject({
+      count: 2,
+      compared: 2,
+      patterns: [
+        { templateId: 'tpl-best', usedMarketKeys: ['uptown'], missingMarketKeys: ['downtown'] },
+        { templateId: 'tpl-pool', name: null, pattern: 'homes with a pool in {submarket}', usedMarketKeys: ['downtown'], missingMarketKeys: ['uptown'] },
+      ],
+    })
   })
 
   it('still parses a response from a server that sends no views', async () => {
@@ -841,6 +994,8 @@ describe('query tracking workspace summary: totals agree', () => {
   it.each([
     { name: 'an advanced portfolio', seed: seedPortfolio, limited: true },
     { name: 'locations in two markets', seed: () => activate(overlapPlan()), limited: true },
+    { name: 'a metro with markets on its child groups', seed: () => activate(metroPlan()), limited: true },
+    { name: 'markets asked by pattern', seed: () => activate(viewsPlan()), limited: true },
     { name: 'a simple site', seed: seedSimple, limited: false },
     { name: 'a simple site with no brand name', seed: seedSimpleWithoutBrand, limited: false },
     { name: 'a site with no queries', seed: () => undefined, limited: false },
@@ -855,8 +1010,27 @@ describe('query tracking workspace summary: totals agree', () => {
     expect(summary.assignments.branded + summary.assignments.nonBrand + summary.assignments.unknown).toBe(summary.assignments.total)
     expect(total(current.markets.map(market => market.counts!.marketQueries))).toBe(summary.byFocus.market)
     expect(total(current.targets.map(place => place.counts!.propertyQueries))).toBe(summary.byFocus.property)
+    // Every place: its Type counts add up to its queries, which are the listed rows with a pairing there.
+    const pairedAt = (keysOf: (assignment: QueryTrackingWorkspaceResponse['tracked'][number]['assignments'][number]) => readonly string[], key: string) =>
+      current.tracked.filter(row => row.assignments.some(assignment => keysOf(assignment).includes(key))).length
+    for (const place of current.targets) {
+      expect([place.stableKey, place.counts?.queries]).toStrictEqual([place.stableKey, pairedAt(assignment => [assignment.targetKey], place.stableKey)])
+      expect(total(Object.values(place.counts!.byClass!))).toBe(place.counts!.queries)
+      // A location's rows are its own, its markets' and the hand-picked ones.
+      expect(place.counts!.propertyQueries + place.counts!.marketQueries + place.counts!.customQueries).toBe(place.counts!.queries)
+    }
+    for (const market of current.markets) {
+      expect([market.stableKey, market.counts?.queries]).toStrictEqual([market.stableKey, pairedAt(assignment => assignment.marketKeys, market.stableKey)])
+      expect(total(Object.values(market.counts!.byClass!))).toBe(market.counts!.queries)
+    }
+    for (const group of current.groups) {
+      expect([group.stableKey, group.counts?.queries]).toStrictEqual([group.stableKey, pairedAt(assignment => assignment.groupKeys, group.stableKey)])
+      expect(total(Object.values(group.counts!.byClass!))).toBe(group.counts!.queries)
+      expect(group.counts!.marketQueries! + group.counts!.propertyQueries! + group.counts!.customQueries!).toBe(group.counts!.queries)
+    }
     // The limit counts the same queries the summary calls asked.
     expect(current.limits?.queries.current).toBe(limited ? summary.asked : undefined)
+    expect(current.limits?.queries.exceeded).toBe(limited ? false : undefined)
     // Only a portfolio has views. Each view's count is the length of the list beside it.
     const views = current.views
     expect(views !== undefined).toBe(limited)
