@@ -401,7 +401,7 @@ function extractDomainFromUri(uri: string): string | null {
     if (!hostname || !registrableDomain(hostname)) return null
 
     // Skip internal AI service domains
-    if (hostMatchesAnyDomain(hostname, AI_ENGINE_SELF_DOMAINS.chatgpt)) {
+    if (hostMatchesAnyDomain(hostname, AI_ENGINE_SELF_DOMAINS.gemini)) {
       return null
     }
 

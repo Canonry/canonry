@@ -145,7 +145,7 @@ function harborDraft(plan: MeasurementPlanV2): MeasurementDraftAuthoring {
     label: target.label,
     status: 'included' as const,
     aliases: target.aliases,
-    urlMatchers: target.urlMatchers.map(matcher => matcher.kind === 'prefix' ? `https://${matcher.host}${matcher.pathPrefix}/*` : matcher.kind === 'host' ? matcher.host : matcher.url),
+    urlMatchers: target.urlMatchers.map(matcher => matcher.kind === 'prefix' ? `https://${matcher.host}${matcher.pathPrefix === '/' ? '' : matcher.pathPrefix}/*` : matcher.kind === 'host' ? matcher.host : matcher.url),
     source: 'sitemap' as const,
     discoveredUrl: `https://${target.urlMatchers[0]!.kind === 'prefix' ? target.urlMatchers[0].host + target.urlMatchers[0].pathPrefix : 'harbor-resorts.example'}`,
     discoveryIdentity: target.discoveryIdentity ?? undefined,

@@ -6,7 +6,7 @@ import os from 'node:os'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { createClient, migrate, projects, runs, auditLog, gscCoverageSnapshots, gscUrlInspections, gscSearchData, gscDailyTotals, gscDataWatermarks } from '@ainyc/canonry-db'
-import { AppError, formatPercent, gscCoverageSummaryDtoSchema, RatioUnits, type GscCoverageSummaryDto, type GscPerformanceDailyDto } from '@ainyc/canonry-contracts'
+import { AppError, formatPercent, googleOAuthStartResponseSchema, gscCoverageSummaryDtoSchema, RatioUnits, type GscCoverageSummaryDto, type GscPerformanceDailyDto } from '@ainyc/canonry-contracts'
 import { googleOAuthSuccessHtml, googleRoutes, type GoogleConnectionRecord } from '../src/google.js'
 
 // Independently sign callback fixtures to exercise the production OAuth verifier.
@@ -324,7 +324,7 @@ describe('googleRoutes: connect uses publicUrl', () => {
       payload: { type: 'gsc' },
     })
     expect(res.statusCode).toBe(200)
-    const body = res.json() as { authUrl: string; redirectUri: string }
+    const body = googleOAuthStartResponseSchema.parse(res.json())
     expect(body.authUrl).toContain('accounts.google.com')
     expect(body.redirectUri).toBe('https://canonry.example.com/api/v1/google/callback')
     expect(body.authUrl).toContain(encodeURIComponent('https://canonry.example.com/api/v1/google/callback'))

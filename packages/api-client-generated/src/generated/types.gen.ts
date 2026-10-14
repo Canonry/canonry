@@ -6331,6 +6331,11 @@ export type GoogleMarketingOAuthConnectResponse = {
     expiresAt: string | null;
 };
 
+export type GoogleOAuthStartResponse = {
+    authUrl: string;
+    redirectUri: string;
+};
+
 export type GscCoverageSnapshotDto = {
     date: string;
     indexed: number;
@@ -24713,9 +24718,7 @@ export type PostApiV1ProjectsByNameGoogleConnectResponses = {
     /**
      * Google auth URL returned.
      */
-    200: {
-        url?: string;
-    };
+    200: GoogleOAuthStartResponse;
 };
 
 export type PostApiV1ProjectsByNameGoogleConnectResponse = PostApiV1ProjectsByNameGoogleConnectResponses[keyof PostApiV1ProjectsByNameGoogleConnectResponses];
