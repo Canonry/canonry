@@ -5,6 +5,10 @@ import { fraction, RatioUnits, roundRatio } from './ratio-unit.js'
 import { locationContextSchema } from './provider.js'
 
 export const SENTIMENT_MODEL = 'jev-1.13.0' as const
+export const SENTIMENT_OPENROUTER_MODEL = 'typesafe/jev-1.13' as const
+export const SENTIMENT_OPENROUTER_SERVED_MODEL = 'typesafe/jev-1.13-20260917' as const
+export const sentimentEvaluatorProviderSchema = z.enum(['typesafe', 'openrouter'])
+export type SentimentEvaluatorProvider = z.infer<typeof sentimentEvaluatorProviderSchema>
 export const SENTIMENT_INTERVAL_LIMITATION = 'Wilson 95% intervals assume independent observations. They exclude classifier error and dependence among related queries, Properties, and sweeps.'
 const id = z.string().trim().min(1).max(256)
 const count = z.number().int().nonnegative()
@@ -21,16 +25,27 @@ export const sentimentStateSchema = z.enum(['disabled', 'not-measured', 'process
 export type SentimentState = z.infer<typeof sentimentStateSchema>
 /** Schema 1 is readable archived metadata; only schema 2 is eligible for new dispatch. */
 export const sentimentEvaluationDefinitionSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2)]), requestedModel: z.literal(SENTIMENT_MODEL),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]), requestedModel: z.enum([SENTIMENT_MODEL, SENTIMENT_OPENROUTER_MODEL]),
+  /** Omitted on historical direct TypeSafe definitions to preserve their immutable identity. */
+  provider: sentimentEvaluatorProviderSchema.optional(),
+  expectedReturnedModel: z.literal(SENTIMENT_OPENROUTER_SERVED_MODEL).optional(),
   verdictVersion: id, identityVersion: id, evidenceVersion: id, segmentationVersion: id, preprocessingVersion: id,
   languagePolicy: z.literal('en-only'), comparisonMethodVersion: z.literal('wilson-independent-v1'),
   confidenceThreshold: z.number().min(0).max(1).nullable(),
   questions: z.object({ identity: z.string(), judgment: z.string(), stance: z.string(), conclusion: z.string(), complaint: z.string() }).strict(),
-}).strict()
+}).strict().superRefine((definition, ctx) => {
+  const routed = definition.provider === 'openrouter'
+  if (definition.requestedModel !== (routed ? SENTIMENT_OPENROUTER_MODEL : SENTIMENT_MODEL) ||
+      (routed ? definition.expectedReturnedModel !== SENTIMENT_OPENROUTER_SERVED_MODEL : definition.expectedReturnedModel !== undefined)) {
+    ctx.addIssue({ code: 'custom', path: ['requestedModel'], message: 'The frozen evaluator route must use its pinned requested and returned models.' })
+  }
+})
 export type SentimentEvaluationDefinition = z.infer<typeof sentimentEvaluationDefinitionSchema>
-export function createSentimentEvaluationDefinition(): SentimentEvaluationDefinition {
+export function createSentimentEvaluationDefinition(provider: SentimentEvaluatorProvider = 'typesafe'): SentimentEvaluationDefinition {
   return sentimentEvaluationDefinitionSchema.parse({
-    schemaVersion: 2, requestedModel: SENTIMENT_MODEL, verdictVersion: 'stance-v2', identityVersion: 'qualified-subject-v3',
+    schemaVersion: 2, requestedModel: provider === 'openrouter' ? SENTIMENT_OPENROUTER_MODEL : SENTIMENT_MODEL,
+    ...(provider === 'openrouter' ? { provider, expectedReturnedModel: SENTIMENT_OPENROUTER_SERVED_MODEL } : {}),
+    verdictVersion: 'stance-v2', identityVersion: 'qualified-subject-v3',
     evidenceVersion: 'sentence-evidence-v1', segmentationVersion: 'sentence-spans-v2', preprocessingVersion: 'verbatim-v1',
     languagePolicy: 'en-only', comparisonMethodVersion: 'wilson-independent-v1', confidenceThreshold: null,
     questions: {
@@ -41,6 +56,9 @@ export function createSentimentEvaluationDefinition(): SentimentEvaluationDefini
       complaint: 'Select the most serious complaint about the intended subject, or absent.',
     },
   })
+}
+export function sentimentEvaluatorProvider(definition: SentimentEvaluationDefinition): SentimentEvaluatorProvider {
+  return definition.provider ?? 'typesafe'
 }
 const SENTIMENT_TEMPLATE_FIELDS = ['schemaVersion', 'verdictVersion', 'identityVersion', 'evidenceVersion', 'segmentationVersion', 'preprocessingVersion'] as const
 /**
@@ -216,6 +234,7 @@ export function rankCriticizedProperties(rows: readonly SentimentBreakdown[]): {
 }
 export const sentimentSettingsUpdateSchema = z.object({ enabled: z.boolean().optional() }).strict()
 export const sentimentSettingsSchema = z.object({
+  provider: sentimentEvaluatorProviderSchema.optional(),
   installEnabled: z.boolean(), enabled: z.boolean(), ready: z.boolean(), readinessReasons: z.array(z.string()), model: z.string(),
   enablementEpoch: count, completionBoundary: count,
   evaluationDefinitionId: id.nullable(), actions: z.object({ configure: z.boolean(), backfill: z.boolean() }).strict(),

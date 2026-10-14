@@ -1,10 +1,12 @@
 import { z } from 'zod'
+import { SENTIMENT_MODEL, SENTIMENT_OPENROUTER_MODEL, sentimentEvaluatorProviderSchema } from '@ainyc/canonry-contracts'
 
 /** Private install configuration. Never serialize this object in public DTOs. */
 export const sentimentInstallConfigSchema = z.object({
   enabled: z.boolean().default(false),
+  provider: sentimentEvaluatorProviderSchema.default('typesafe'),
   apiKey: z.string().trim().min(1).optional(),
-  model: z.string().trim().min(1).default('jev-1.13.0'),
+  model: z.string().trim().min(1).default(SENTIMENT_MODEL),
   maxConcurrency: z.number().int().min(1).max(8).default(2),
   maxRequestsPerMinute: z.number().int().min(1).max(10_000).default(60),
   maxInputTokensPerMinute: z.number().int().min(1).max(10_000_000).default(100_000),
@@ -20,13 +22,16 @@ export type SentimentInstallConfigInput = z.input<typeof sentimentInstallConfigS
 export function resolveSentimentInstallConfig(
   env: NodeJS.ProcessEnv,
   value?: SentimentInstallConfigInput,
+  providerKeys?: { openrouter?: string },
 ): SentimentInstallConfig {
   const enabled = env.CANONRY_SENTIMENT_ENABLED?.trim().toLowerCase()
+  const provider = env.CANONRY_SENTIMENT_PROVIDER ?? value?.provider ?? 'typesafe'
+  const model = env.CANONRY_SENTIMENT_MODEL ?? (provider === 'typesafe' ? env.TYPESAFE_MODEL : undefined) ?? value?.model ?? (provider === 'openrouter' ? SENTIMENT_OPENROUTER_MODEL : SENTIMENT_MODEL)
+  const apiKey = provider === 'openrouter' ? env.OPENROUTER_API_KEY ?? providerKeys?.openrouter : env.TYPESAFE_API_KEY ?? value?.apiKey
   return sentimentInstallConfigSchema.parse({
     ...value,
+    provider, model, apiKey: apiKey?.trim() || undefined,
     ...(enabled ? { enabled: enabled === '1' || enabled === 'true' } : {}),
-    ...(env.TYPESAFE_API_KEY !== undefined ? { apiKey: env.TYPESAFE_API_KEY.trim() || undefined } : {}),
-    ...(env.TYPESAFE_MODEL !== undefined ? { model: env.TYPESAFE_MODEL } : {}),
   })
 }
 
@@ -36,7 +41,7 @@ export function sentimentInstallReadiness(config: SentimentInstallConfig): {
 } {
   const reason = config.invalid ? 'invalid-config'
     : !config.enabled ? 'install-disabled'
-    : config.model !== 'jev-1.13.0' ? 'unsupported-model'
+    : config.model !== (config.provider === 'openrouter' ? SENTIMENT_OPENROUTER_MODEL : SENTIMENT_MODEL) ? 'unsupported-model'
       : !config.apiKey ? 'missing-credentials' : null
   return { enabled: config.enabled, ready: reason === null, reason }
 }

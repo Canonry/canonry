@@ -3,18 +3,21 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createClient, migrate } from '@ainyc/canonry-db'
+import { eq } from 'drizzle-orm'
+import { parseMeasurementRunManifestV1 } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, queries, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { buildOpenApiDocument } from '../src/openapi.js'
 
 describe('native provider surface', () => {
   let app: ReturnType<typeof Fastify>
   let directory: string
+  let db: DatabaseClient
   const onProviderUpdate = vi.fn((name: string) => ({ name, configured: true }))
 
   beforeEach(async () => {
     directory = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-native-provider-surface-'))
-    const db = createClient(path.join(directory, 'test.db'))
+    db = createClient(path.join(directory, 'test.db'))
     migrate(db)
     onProviderUpdate.mockClear()
     app = Fastify()
@@ -24,22 +27,27 @@ describe('native provider surface', () => {
       onProviderUpdate,
       providerSummary: [
         { name: 'openai', configured: true },
+        { name: 'openrouter', configured: true },
         { name: 'local', configured: true },
         { name: 'claude', configured: false },
         { name: 'gemini', configured: false, vertexConfigured: true },
       ],
-      providerAdapters: ['openai', 'local', 'claude', 'gemini'].map(name => ({
+      providerAdapters: ['openai', 'local', 'claude', 'gemini', 'openrouter'].map(name => ({
         name, displayName: name, mode: 'api' as const, modelConfigurable: true,
-        defaultModel: name === 'openai' ? 'gpt-4.1' : 'llama3', knownModels: [],
+        defaultModel: name === 'openai' ? 'gpt-4.1' : 'llama3', knownModels: name === 'openrouter' ? [{ id: 'google/gemini-2.5-flash', displayName: 'Gemini Flash', tier: 'fast' as const }] : [],
         modelValidationPattern: /.+/, modelValidationHint: 'nonempty model',
       })),
       onResearchRunRequested: vi.fn(),
+      onRunCreated: vi.fn(),
+      getRunnableProviderNames: () => ['openai', 'openrouter'],
+      getEffectiveProviderModels: () => ({ openai: 'gpt-4.1', openrouter: 'google/gemini-2.5-flash' }),
     })
     await app.ready()
   })
 
   afterEach(async () => {
     await app.close()
+    db.$client.close()
     fs.rmSync(directory, { recursive: true, force: true })
   })
 
@@ -65,7 +73,7 @@ describe('native provider surface', () => {
   it('keeps native settings and caller-supplied endpoints without a route catalog', async () => {
     const settings = await app.inject({ method: 'GET', url: '/api/v1/settings' })
     expect(settings.statusCode).toBe(200)
-    expect(settings.json().providerCatalog.map((provider: { name: string }) => provider.name)).toEqual(['openai', 'local', 'claude', 'gemini'])
+    expect(settings.json().providerCatalog.filter((provider: { name: string }) => !provider.name.startsWith('openrouter')).map((provider: { name: string }) => provider.name)).toEqual(['openai', 'local', 'claude', 'gemini'])
     expect(settings.json()).not.toHaveProperty('engineRoutes')
     expect(settings.json()).not.toHaveProperty('engineConnections')
 
@@ -144,5 +152,61 @@ describe('native provider surface', () => {
     expect(research.statusCode).toBe(400)
     const loaded = await app.inject({ method: 'GET', url: '/api/v1/projects/example' })
     expect(loaded.json()).toMatchObject({ providers: nativeProject.providers, providerModels: nativeProject.providerModels })
+  })
+
+  it('offers pinned OpenRouter model routes through the existing settings catalog', async () => {
+    const settings = await app.inject({ method: 'GET', url: '/api/v1/settings' })
+    expect(settings.json().providerCatalog).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'openrouter', knownModels: [{ id: 'google/gemini-2.5-flash', displayName: 'Gemini Flash', tier: 'fast' }] }),
+      expect.objectContaining({ name: 'openrouter:google/gemini-2.5-flash', defaultModel: 'google/gemini-2.5-flash', modelConfigurable: false }),
+    ]))
+    expect(settings.json().providers.filter((provider: { name: string }) => provider.name.startsWith('openrouter'))).toEqual([{ name: 'openrouter', configured: true }])
+  })
+
+  it('selects direct and multiple routed models and freezes each model in an Advanced sweep', async () => {
+    const providers = ['openai', 'openrouter:google/gemini-2.5-flash', 'openrouter:anthropic/claude-sonnet-4.6']
+    const project = await app.inject({ method: 'PUT', url: '/api/v1/projects/routes', payload: {
+      displayName: 'Example', canonicalDomain: 'example.com', country: 'US', language: 'en', providers,
+    } })
+    expect(project.statusCode, project.body).toBe(201)
+    const added = await app.inject({ method: 'POST', url: '/api/v1/projects/routes/queries', payload: { queries: ['best widget shop'] } })
+    expect(added.statusCode, added.body).toBe(200)
+    const simple = await app.inject({ method: 'POST', url: '/api/v1/projects/routes/runs', payload: { providers } })
+    expect(simple.statusCode, simple.body).toBe(201)
+    db.update(runs).set({ status: 'completed' }).where(eq(runs.id, simple.json().id as string)).run()
+    const queryId = db.select({ id: queries.id }).from(queries).get()!.id
+    const published = await app.inject({ method: 'PUT', url: '/api/v1/projects/routes/measurement-plan', payload: {
+      expectedActiveRevision: null,
+      plan: {
+        schemaVersion: 1,
+        targets: [{ stableKey: 'widget', label: 'Widget', aliases: ['Widget'], urls: [{ kind: 'prefix', host: 'example.com', pathPrefix: '/widgets', pathCase: 'insensitive' }] }],
+        groups: [{ stableKey: 'all', label: 'All', targetKeys: ['widget'] }],
+        targetQuerySelections: [{ targetKey: 'widget', queryIds: [queryId] }],
+      },
+    } })
+    expect(published.statusCode, published.body).toBe(201)
+    const triggered = await app.inject({ method: 'POST', url: '/api/v1/projects/routes/runs', payload: { providers } })
+    expect(triggered.statusCode, triggered.body).toBe(201)
+    const run = db.select().from(runs).where(eq(runs.id, triggered.json().id as string)).get()!
+    const slots = parseMeasurementRunManifestV1(run.measurementManifest).expectedSlots
+    expect(slots.map(slot => [slot.provider, slot.requestedModel]).sort()).toEqual([
+      ['openai', 'gpt-4.1'],
+      ['openrouter:anthropic/claude-sonnet-4.6', 'anthropic/claude-sonnet-4.6'],
+      ['openrouter:google/gemini-2.5-flash', 'google/gemini-2.5-flash'],
+    ])
+    expect(db.select().from(projects).get()!.providers).toEqual(providers)
+  })
+
+  it('refuses a connection-only sweep selection and conflicting model overrides before writing', async () => {
+    const project = { displayName: 'Example', canonicalDomain: 'example.com', country: 'US', language: 'en' }
+    for (const providers of [['openrouter'], ['openrouter:openrouter/auto'], ['openrouter:typesafe/jev-1.13']]) {
+      const result = await app.inject({ method: 'PUT', url: '/api/v1/projects/invalid', payload: { ...project, providers } })
+      expect(result.statusCode, result.body).toBe(400)
+    }
+    const conflict = await app.inject({ method: 'PUT', url: '/api/v1/projects/invalid', payload: {
+      ...project, providers: ['openrouter:google/gemini-2.5-flash'], providerModels: { 'openrouter:google/gemini-2.5-flash': 'openai/gpt-5' },
+    } })
+    expect(conflict.statusCode, conflict.body).toBe(400)
+    expect(db.select().from(projects).all()).toEqual([])
   })
 })

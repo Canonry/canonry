@@ -189,7 +189,8 @@ for each claim. The outbound caller must check install readiness again before
 reconciliation after reenablement; the persisted observation survives restart and
 advances the admission boundary past the disabled interval. Attempt reservations
 are conservative across crashes; unknown usage stays on the receipt, while reported
-usage is written once into `llm_usage_events` under provider `typesafe`.
+usage is written once into `llm_usage_events` under the frozen evaluator's
+`typesafe` or `openrouter` provider, separately from the original answer engine.
 
 Assessments are unique by project, snapshot, source hash, subject hash and evaluation
 definition. Job membership retains its cancellation epoch when an explicit backfill

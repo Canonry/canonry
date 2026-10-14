@@ -93,6 +93,7 @@ import {
   previewGroupMembershipCsv,
 } from './measurement-group-import.js'
 import { resolveRunnableProviderSelection, resolveRunProviderSelection } from './run-queue.js'
+import { assertOpenRouterRouteScope } from './provider-models.js'
 import {
   actorFromRequest,
   activePlanVersionRow,
@@ -129,6 +130,16 @@ export interface MeasurementDraftRoutesOptions extends MarketPinWriteHooks {
 /** Key-order-independent identity, so "did this action change anything" never turns on serialization order. */
 function authoringIdentity(authoring: MeasurementDraftAuthoring): string {
   return canonicalJson(authoring)
+}
+
+function draftExecutionProviders(authoring: MeasurementDraftAuthoring): string[] {
+  return [
+    ...authoring.defaultContext.providers,
+    ...authoring.assignments.flatMap(assignment => [
+      ...(assignment.contextOverride?.providers ?? []),
+      ...(assignment.executionContexts?.flatMap(context => context.providers) ?? []),
+    ]),
+  ]
 }
 
 function trackedQueriesFor(db: DatabaseClient, projectId: string): Array<{ id: string; query: string }> {
@@ -869,6 +880,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
 
       const before = parseStoredAuthoring(row.authoringJson)
       const result = applyDraftAction(action, before, request.body, actionContextFor(app.db, gate.project))
+      assertOpenRouterRouteScope(request, draftExecutionProviders(result.authoring), [...gate.project.providers, ...draftExecutionProviders(before)])
       // A no-op leaves the counter alone: the ETag must change after every
       // successful MUTATION, and nothing was mutated.
       const changed = authoringIdentity(result.authoring) !== authoringIdentity(before)
@@ -1167,6 +1179,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       if (!compiled.ok) {
         throw validationError('The measurement draft does not compile.', { checks: compiled.checks })
       }
+      assertOpenRouterRouteScope(request, compiled.plan.executionNodes.flatMap(node => node.context.providers), gate.project.providers)
       if (compiled.plan.compiledChecksum !== parsed.data.expectedCompiledChecksum) {
         throw measurementCompiledChecksumConflict(parsed.data.expectedCompiledChecksum, compiled.plan.compiledChecksum)
       }

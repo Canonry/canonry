@@ -1,5 +1,6 @@
 import { trackUiAction } from '../../lib/ui-telemetry.js'
 import type { AgentViewContext, AgentConversationList, AgentConversation, AeroPreviewStarterId } from '@ainyc/canonry-contracts'
+import { AgentProviderIds } from '@ainyc/canonry-contracts'
 import { useAeroView } from '../../contexts/aero-view-context.js'
 import { aeroViewFromLocation } from '../../lib/aero-view.js'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -161,6 +162,7 @@ const SLASH_COMMANDS: Array<SlashCommand> = [
 ]
 
 const PROVIDER_PREF_KEY = (project: string) => `canonry:aero:provider:${project}`
+const OPENROUTER_MODEL_PREF_KEY = (project: string) => `canonry:aero:openrouter-model:${project}`
 const SCOPE_PREF_KEY = (project: string) => `canonry:aero:scope:${project}`
 
 function readPreference(key: string): string | null {
@@ -230,6 +232,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
   // clear would otherwise repin the session's provider on every prompt, and
   // the server persists that pin. Keep it stored for operator deployments.
   const providerOverride = managedSweeps || viewerMode || preview ? null : preferredProviderOverride
+  const [preferredOpenRouterModel, setOpenRouterModel] = useState(() => readPreference(OPENROUTER_MODEL_PREF_KEY(projectName)) ?? '')
   // Per-project tool scope. `read-only` (the server default) is the safe
   // choice; `all` lets Aero fire write tools like run_sweep without a
   // confirmation UX. Persist so the user doesn't have to re-opt-in each
@@ -308,6 +311,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
   // the install's configured model or reports why it cannot. The preview
   // answers from its script.
   const ready = viewerMode || preview || activeProvider !== null
+  const modelOverride = !managedSweeps && !viewerMode && !preview && activeProvider?.id === AgentProviderIds.openrouter ? preferredOpenRouterModel.trim() || undefined : undefined
 
   // The preview's scripts, fetched once the bar first opens.
   useQuery({ ...aeroPreviewQuery(projectName), enabled: preview && open })
@@ -432,7 +436,8 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
         project: projectName,
         prompt: trimmed,
         conversationId,
-        provider: providerOverride ?? undefined,
+        provider: modelOverride ? AgentProviderIds.openrouter : providerOverride ?? undefined,
+        modelId: modelOverride,
         scope,
         context: turnContext,
         signal: ctrl.signal,
@@ -749,6 +754,8 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
                     active={activeProvider}
                     override={providerOverride}
                     onPick={pickProvider}
+                    modelId={preferredOpenRouterModel}
+                    onModelChange={value => { setOpenRouterModel(value); if (value.trim()) writePreference(OPENROUTER_MODEL_PREF_KEY(projectName), value.trim()); else removePreference(OPENROUTER_MODEL_PREF_KEY(projectName)) }}
                     disabled={streaming}
                   />
                 )}
@@ -829,7 +836,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
                   <StarterButtons onPick={(prompt) => { void send(prompt) }} />
                 </div>
               )}
-              {renderTranscript(messages, projectName, providerOverride, scope, liveTrail, streaming, Boolean(streamingText.trim()), !viewerMode && !preview)}
+              {renderTranscript(messages, projectName, modelOverride ? AgentProviderIds.openrouter : providerOverride, scope, liveTrail, streaming, Boolean(streamingText.trim()), !viewerMode && !preview, modelOverride)}
               {streaming && streamingText && (
                 <div className="mt-3">
                   <div className="mb-0.5 text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
@@ -992,12 +999,16 @@ function ProviderPicker({
   active,
   override,
   onPick,
+  modelId,
+  onModelChange,
   disabled,
 }: {
   providers: AgentProviderOption[]
   active: AgentProviderOption | null
   override: AgentProviderId | null
   onPick: (id: AgentProviderId | null) => void
+  modelId: string
+  onModelChange: (modelId: string) => void
   disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
@@ -1009,19 +1020,22 @@ function ProviderPicker({
       if (!containerRef.current?.contains(e.target as Node)) setOpen(false)
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      setOpen(false)
     }
     window.addEventListener('mousedown', onClick)
-    window.addEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
     return () => {
       window.removeEventListener('mousedown', onClick)
-      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keydown', onKey, true)
     }
   }, [open])
 
   if (providers.length === 0) return null
 
-  const label = active?.label.replace(/\s+\(.+\)$/, '') ?? 'No provider'
+  const label = active?.id === AgentProviderIds.openrouter ? `OpenRouter · ${modelId || active.defaultModel}` : active?.label.replace(/\s+\(.+\)$/, '') ?? 'No provider'
   return (
     <div ref={containerRef} className="relative">
       <button
@@ -1030,22 +1044,22 @@ function ProviderPicker({
         disabled={disabled}
         className="flex items-center gap-1 rounded-md px-2 py-1 text-sm text-secondary transition hover:bg-surface-inset hover:text-strong disabled:opacity-50"
         aria-label="Switch agent model"
-        aria-haspopup="listbox"
         aria-expanded={open}
         title={active ? `${active.label} · ${active.defaultModel}` : 'Pick a provider'}
       >
-        <span className="font-medium text-strong">{label}</span>
+        <span className="max-w-64 truncate font-medium text-strong">{label}</span>
         <ChevronDown className="h-3 w-3" aria-hidden="true" />
       </button>
       {open && (
         <div
-          role="listbox"
+          role="group"
+          aria-label="Choose Aero model"
           className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-lg border border-base bg-bg shadow-xl"
         >
           <div className="border-b border-default px-3 py-2 text-sm font-medium text-secondary">
             Answer engine
           </div>
-          <ul className="max-h-72 overflow-y-auto py-1">
+          <ul role="listbox" aria-label="Answer engine" className="max-h-72 overflow-y-auto py-1">
             {providers.map((p) => {
               const isActive = active?.id === p.id
               const isOverride = override === p.id
@@ -1075,6 +1089,7 @@ function ProviderPicker({
               )
             })}
           </ul>
+          {active?.id === AgentProviderIds.openrouter && <div className="border-t border-default px-3 py-3"><label className="block text-sm text-secondary">Aero OpenRouter model<input className="setup-input mt-1 w-full" value={modelId} placeholder={active.defaultModel} disabled={disabled} onChange={event => onModelChange(event.target.value)} /></label><p className="mt-2 text-sm text-secondary">Applies to Aero. Your sweep models stay separate.</p></div>}
           {override && (
             <button
               type="button"
@@ -1199,14 +1214,16 @@ function StarterButtons({ onPick }: { onPick: (prompt: string) => void }) {
 
 function envVarHint(id: AgentProviderId): string {
   switch (id) {
-    case 'claude':
+    case AgentProviderIds.claude:
       return 'ANTHROPIC_API_KEY'
-    case 'openai':
+    case AgentProviderIds.openai:
       return 'OPENAI_API_KEY'
-    case 'gemini':
+    case AgentProviderIds.gemini:
       return 'GEMINI_API_KEY'
-    case 'zai':
+    case AgentProviderIds.zai:
       return 'ZAI_API_KEY'
+    case AgentProviderIds.openrouter:
+      return 'OPENROUTER_API_KEY'
   }
 }
 
@@ -1241,6 +1258,7 @@ function renderTranscript(
   streaming: boolean,
   answerStreaming: boolean,
   cliCopy = true,
+  modelOverride?: string,
 ): ReactNode[] {
   const nodes: ReactNode[] = []
   let group: ToolTrail[] = []
@@ -1281,6 +1299,7 @@ function renderTranscript(
           text={text}
           projectName={projectName}
           providerOverride={providerOverride}
+          modelOverride={modelOverride}
           scope={scope}
           context={msg.aeroContext}
           cliCopy={cliCopy}
@@ -1342,6 +1361,7 @@ function UserMessageRow({
   text,
   projectName,
   providerOverride,
+  modelOverride,
   scope,
   context,
   cliCopy = true,
@@ -1349,6 +1369,7 @@ function UserMessageRow({
   text: string
   projectName: string
   providerOverride: AgentProviderId | null
+  modelOverride?: string
   scope: AeroToolScope
   context?: AgentViewContext
   /** False for a viewer: the command needs an operator's key to run. */
@@ -1357,8 +1378,8 @@ function UserMessageRow({
   const [copied, setCopied] = useState(false)
 
   const cliCommand = useMemo(
-    () => buildAgentAskCommand(projectName, text, providerOverride, scope, context),
-    [projectName, text, providerOverride, scope, context],
+    () => buildAgentAskCommand(projectName, text, providerOverride, scope, context, modelOverride),
+    [projectName, text, providerOverride, scope, context, modelOverride],
   )
 
   async function handleCopy() {
@@ -1417,9 +1438,11 @@ function buildAgentAskCommand(
   providerOverride: AgentProviderId | null,
   scope: AeroToolScope,
   context?: AgentViewContext,
+  modelOverride?: string,
 ): string {
   const parts = ['canonry', 'agent', 'ask', shellQuote(projectName), shellQuote(prompt)]
   if (providerOverride) parts.push('--provider', providerOverride)
+  if (modelOverride) parts.push('--model', shellQuote(modelOverride))
   if (scope === 'read-only') parts.push('--scope', 'read-only')
   if (context) parts.push('--context', shellQuote(JSON.stringify(context)))
   return parts.join(' ')

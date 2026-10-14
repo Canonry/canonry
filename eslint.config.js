@@ -499,6 +499,8 @@ export default tseslint.config(
       'packages/canonry/src/commands/daemon.ts',
       'packages/canonry/src/telemetry.ts',
       'packages/canonry/src/update-check.ts',
+      // pi's fixed OpenRouter classifier transport retains response provenance.
+      'packages/canonry/src/sentiment-openrouter.ts',
     ],
     plugins: { 'canonry-guards': canonryGuardsPlugin },
     rules: { 'canonry-guards/no-raw-http-cli': 'error' },

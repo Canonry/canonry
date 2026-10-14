@@ -24,6 +24,8 @@ import {
   type MeasurementV2UsageEdge,
   compareText,
   sortedUnique as canonicalStrings,
+  isSweepProvider,
+  openRouterRouteModel,
 } from '@ainyc/canonry-contracts'
 import { canonicalJson, canonicalJsonValue, sha256Hex } from './measurement-draft-repo.js'
 import { measurementMentionAliasKey } from './measurement-report.js'
@@ -436,6 +438,13 @@ export function compileMeasurementDraft(
       }
       models[normalized] = model
     }
+    for (const provider of providers) {
+      if (!isSweepProvider(provider)) sink.fail('invalid-provider-model', 'OpenRouter measurement requires a fixed model route.', [...path, 'providers'])
+      const pinned = openRouterRouteModel(provider)
+      if (!pinned) continue
+      if (models[provider] && models[provider] !== pinned) sink.fail('invalid-provider-model', `OpenRouter route "${provider}" pins model "${pinned}".`, [...path, 'models', provider])
+      models[provider] = pinned
+    }
     const labels = canonicalStrings(override?.locations ?? authoring.defaultContext.locations)
     const locations: Array<LocationContext | null> = []
     labels.forEach((label, labelIndex) => {
@@ -476,6 +485,13 @@ export function compileMeasurementDraft(
       // An exact context intentionally does not inherit the current default
       // model. An empty map is a frozen request for the provider default.
       models[normalized] = model
+    }
+    for (const provider of providers) {
+      if (!isSweepProvider(provider)) sink.fail('invalid-provider-model', 'OpenRouter measurement requires a fixed model route.', [...path, 'providers'])
+      const pinned = openRouterRouteModel(provider)
+      if (!pinned) continue
+      if (models[provider] && models[provider] !== pinned) sink.fail('invalid-provider-model', `OpenRouter route "${provider}" pins model "${pinned}".`, [...path, 'models', provider])
+      models[provider] = pinned
     }
     const identity = exact.executionNodeKey === undefined ? {} : { executionNodeKey: exact.executionNodeKey }
     if (exact.location === null) return { ...identity, providers, models, location: null }

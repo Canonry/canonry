@@ -162,6 +162,27 @@ function queue(db: DatabaseClient, projectId: string, params: Parameters<typeof 
 }
 
 describe('a published v2 revision at queue time', () => {
+  it('preserves distinct direct and OpenRouter slots and pins route models over instance defaults', () => {
+    const { db, projectId } = seed()
+    const providers = ['gemini', 'openrouter:google/gemini-2.5-flash', 'openrouter:anthropic/claude-sonnet-4.6']
+    publishV2(db, projectId, v2Plan({
+      targets: ['widgets'],
+      nodes: [{ key: 'exec-routes', queryId: 'q-1', queryText: 'widget question 0', providers, location: NORTH }],
+      assignments: [{ targetKey: 'widgets', nodeKey: 'exec-routes' }],
+    }), 1)
+    const row = queuedRun(db, queue(db, projectId, { runnableProviders: ['gemini', 'openrouter'], providerModels: { gemini: 'gemini-2.5-flash', openrouter: 'openai/gpt-5' } }))
+    expect(parseMeasurementRunManifestV1(row.measurementManifest).expectedSlots.map(slot => [slot.provider, slot.requestedModel])).toEqual([
+      ['gemini', 'gemini-2.5-flash'],
+      ['openrouter:anthropic/claude-sonnet-4.6', 'anthropic/claude-sonnet-4.6'],
+      ['openrouter:google/gemini-2.5-flash', 'google/gemini-2.5-flash'],
+    ])
+    expect(parseStoredMeasurementExecutionIdentity(row.measurementExecutionIdentity).models).toEqual({
+      gemini: 'gemini-2.5-flash',
+      'openrouter:anthropic/claude-sonnet-4.6': 'anthropic/claude-sonnet-4.6',
+      'openrouter:google/gemini-2.5-flash': 'google/gemini-2.5-flash',
+    })
+  })
+
   it.each(['simple', 'advanced'].flatMap(portfolio =>
     ['manual', 'batch'].flatMap(entry => ['queued', 'running'].map(status => ({ portfolio, entry, status }))),
   ))('$portfolio $entry sweeps coexist with a $status audit and still reject duplicate sweeps', async ({ portfolio, entry, status }) => {

@@ -6,7 +6,7 @@ import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { expect, test } from 'vitest'
 import { ADS_ACTIVATE_SCOPE, ADS_APPROVE_SCOPE, ADS_WRITE_SCOPE } from '@ainyc/canonry-contracts'
-import { createClient, migrate, apiKeys, notifications, projects } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys, notifications, projects, queries, runs, measurementPlanDrafts } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { shouldSkipAuth } from '../src/auth.js'
 import type { ApiRoutesOptions } from '../src/index.js'
@@ -233,6 +233,87 @@ test('a read-only key is blocked on every write method but passes reads', async 
     expect(wildcardDelete.statusCode).toBe(204)
   } finally {
     await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('scoped keys may reuse saved OpenRouter routes but need settings.write to introduce a model', async () => {
+  const route = 'openrouter:google/gemini-2.5-flash'
+  const { app, db, tmpDir } = buildApp({
+    providerAdapters: ['openai', 'openrouter'].map(name => ({
+      name, displayName: name, mode: 'api' as const, modelConfigurable: true,
+      defaultModel: name === 'openai' ? 'gpt-5.4' : '', knownModels: [],
+      modelValidationPattern: /.+/, modelValidationHint: 'valid model',
+    })),
+    getRunnableProviderNames: () => ['openai', 'openrouter'],
+    getEffectiveProviderModels: () => ({ openai: 'gpt-5.4' }),
+    onRunCreated: () => {},
+    onGenerateQueries: async () => ['recommended widget store'],
+    onResearchRunRequested: () => {},
+  })
+  const rootHeaders = { authorization: `Bearer ${insertApiKey(db)}` }
+  const projectBody = { displayName: 'Route Authority', canonicalDomain: 'example.com', country: 'US', language: 'en', providers: ['openai'] }
+  await app.ready()
+  try {
+    const created = await app.inject({ method: 'PUT', url: '/api/v1/projects/route-authority', headers: rootHeaders, payload: projectBody })
+    expect(created.statusCode, created.body).toBe(201)
+    const projectId = created.json().id as string
+    const headersFor = (name: string, settings: boolean) => {
+      const token = `cnry_${crypto.randomBytes(16).toString('hex')}`
+      db.insert(apiKeys).values({
+        id: crypto.randomUUID(), name, keyHash: crypto.createHash('sha256').update(token).digest('hex'),
+        keyPrefix: token.slice(0, 9), projectId,
+        scopes: ['read', 'write', 'projects.write', 'measurement-plan.write', 'research.run', ...(settings ? ['settings.write'] : [])],
+        createdAt: new Date().toISOString(),
+      }).run()
+      return { authorization: `Bearer ${token}` }
+    }
+    const writerHeaders = headersFor('route-writer', false)
+    const settingsHeaders = headersFor('route-settings', true)
+    const added = await app.inject({ method: 'POST', url: '/api/v1/projects/route-authority/queries', headers: writerHeaders, payload: { queries: ['best widget store'] } })
+    expect(added.statusCode, added.body).toBe(200)
+    const attempts = [
+      { method: 'PUT' as const, url: '/api/v1/projects/route-authority', payload: { ...projectBody, providers: [route] } },
+      { method: 'PATCH' as const, url: '/api/v1/projects/route-authority', payload: { providers: [route] } },
+      { method: 'POST' as const, url: '/api/v1/apply', payload: { apiVersion: 'canonry/v1', kind: 'Project', metadata: { name: 'route-authority' }, spec: { ...projectBody, providers: [route] } } },
+      { method: 'POST' as const, url: '/api/v1/projects/route-authority/runs', payload: { providers: [route] } },
+      { method: 'PUT' as const, url: '/api/v1/projects/route-authority/schedule', payload: { cron: '0 8 * * *', timezone: 'UTC', providers: [route] } },
+      { method: 'POST' as const, url: '/api/v1/projects/route-authority/queries/generate', payload: { provider: route } },
+      { method: 'POST' as const, url: '/api/v1/projects/route-authority/research/runs', payload: { queries: ['best widget store'], provider: route } },
+    ]
+    for (const attempt of attempts) {
+      const denied = await app.inject({ ...attempt, headers: writerHeaders })
+      expect(denied.statusCode, `${attempt.url}: ${denied.body}`).toBe(403)
+      expect(denied.json().error).toMatchObject({ code: 'FORBIDDEN', message: expect.stringContaining('settings.write') })
+    }
+    const batchDenied = await app.inject({ method: 'POST', url: '/api/v1/runs', headers: writerHeaders, payload: { providers: [route] } })
+    expect(batchDenied.statusCode, batchDenied.body).toBe(207)
+    expect(batchDenied.json()).toEqual([expect.objectContaining({ projectId, errorCode: 'FORBIDDEN' })])
+    expect(db.select().from(runs).all()).toEqual([])
+    expect(db.select().from(projects).get()!.providers).toEqual(['openai'])
+
+    const draft = await app.inject({ method: 'POST', url: '/api/v1/projects/route-authority/measurement-plan/draft/actions/create', headers: { ...writerHeaders, 'idempotency-key': 'route-draft' }, payload: { expectedActiveRevision: null } })
+    expect(draft.statusCode, draft.body).toBe(200)
+    const target = await app.inject({ method: 'POST', url: '/api/v1/projects/route-authority/measurement-plan/draft/actions/upsert-target', headers: { ...writerHeaders, 'idempotency-key': 'route-target', 'if-match': draft.json().etag as string }, payload: {
+      target: { stableKey: 'widgets', label: 'Widgets', status: 'included', aliases: ['Route Authority Widgets'], urlMatchers: ['https://example.com/widgets/*'], source: 'manual' },
+    } })
+    expect(target.statusCode, target.body).toBe(200)
+    const assignment = { targetKeys: ['widgets'], queryIds: [db.select().from(queries).get()!.id], contextOverride: { providers: [route] } }
+    const assignDenied = await app.inject({ method: 'POST', url: '/api/v1/projects/route-authority/measurement-plan/draft/actions/apply-assignments', headers: { ...writerHeaders, 'idempotency-key': 'route-assign-denied', 'if-match': target.json().etag as string }, payload: assignment })
+    expect(assignDenied.statusCode, assignDenied.body).toBe(403)
+    expect(assignDenied.json().error.message).toContain('settings.write')
+    expect(JSON.parse(db.select().from(measurementPlanDrafts).get()!.authoringJson).assignments).toEqual([])
+
+    const configured = await app.inject({ method: 'PATCH', url: '/api/v1/projects/route-authority', headers: settingsHeaders, payload: { providers: ['openai', route] } })
+    expect(configured.statusCode, configured.body).toBe(200)
+    const assignSaved = await app.inject({ method: 'POST', url: '/api/v1/projects/route-authority/measurement-plan/draft/actions/apply-assignments', headers: { ...writerHeaders, 'idempotency-key': 'route-assign-saved', 'if-match': target.json().etag as string }, payload: assignment })
+    expect(assignSaved.statusCode, assignSaved.body).toBe(200)
+    const savedRun = await app.inject({ method: 'POST', url: '/api/v1/projects/route-authority/runs', headers: writerHeaders, payload: { providers: [route] } })
+    expect(savedRun.statusCode, savedRun.body).toBe(201)
+    expect(db.select().from(runs).all()).toHaveLength(1)
+  } finally {
+    await app.close()
+    db.$client.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   }
 })

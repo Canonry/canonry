@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from '@tanstack/react-router'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
@@ -44,6 +45,8 @@ function SettingsPageBody() {
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? defaultHealthSnapshot
 
   const [configuringProvider, setConfiguringProvider] = useState<string | null>(null)
+  const [openRouterSaved, setOpenRouterSaved] = useState(false)
+  const [modelProject, setModelProject] = useState('')
   const [configuringGoogle, setConfiguringGoogle] = useState(false)
   const [configuringBing, setConfiguringBing] = useState(false)
   const [bingApiKey, setBingApiKey] = useState('')
@@ -52,6 +55,8 @@ function SettingsPageBody() {
   const [bingSuccess, setBingSuccess] = useState(false)
 
   if (!settings) return null
+  const projects = dashboard?.projects ?? contextDashboard?.dashboard?.projects ?? []
+  const selectedModelProject = modelProject || projects[0]?.project.name
 
   return (
     <div className="page-container">
@@ -100,7 +105,7 @@ function SettingsPageBody() {
                 <details className="mt-3">
                   <summary className="cursor-pointer text-sm text-secondary hover:text-strong">Advanced</summary>
                   <dl className="definition-list mt-2">
-                    <div>
+                    {provider.name !== 'openrouter' && <div>
                       <dt>Model</dt>
                       <dd className="font-mono text-xs">
                         {provider.model ?? provider.defaultModel ?? 'unknown'}
@@ -108,7 +113,7 @@ function SettingsPageBody() {
                           <span className="ml-1 font-sans text-muted">(default)</span>
                         )}
                       </dd>
-                    </div>
+                    </div>}
                     {provider.quota && (
                       <>
                         <div>
@@ -130,9 +135,15 @@ function SettingsPageBody() {
                     modelHint={provider.modelHint}
                     onSaved={() => {
                       setConfiguringProvider(null)
+                      if (provider.name === 'openrouter') setOpenRouterSaved(true)
                     }}
                   />
                 )}
+                {provider.name === 'openrouter' && (provider.state === 'ready' || openRouterSaved) && <div className="mt-3 flex flex-wrap items-end gap-3">
+                  <p role={openRouterSaved ? 'status' : undefined} className="w-full text-sm text-secondary">OpenRouter connected. Choose the models for each project.</p>
+                  {projects.length > 1 && <label className="text-sm text-secondary">Project<select className="setup-input ml-2" value={selectedModelProject} onChange={event => setModelProject(event.target.value)}>{projects.map(project => <option key={project.project.name} value={project.project.name}>{project.project.displayName ?? project.project.name}</option>)}</select></label>}
+                  <Button type="button" variant="outline" asChild>{selectedModelProject ? <Link to="/projects/$projectName/settings" params={{ projectName: selectedModelProject }} hash="answer-engines">Choose project models</Link> : <Link to="/setup">Create a project</Link>}</Button>
+                </div>}
               </div>
             ))}
           </div>

@@ -9,6 +9,7 @@ import { SourceLink } from '../shared/SourceLink.js'
 import { competitorHighlightTerms, highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
 import { fetchRunDetail, type GroundingSource } from '../../api.js'
 import type { CitationInsightVm, ProjectCommandCenterVm } from '../../view-models.js'
+import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 
 /** Shape of snapshot data used for display — works for both current evidence and fetched historical snapshots. */
 export interface EvidenceDisplayData {
@@ -308,8 +309,8 @@ export function EvidenceDetailModal({
   // Hero copy
   const showModelInHeadline = isViewingHistory || evidence.historyScope !== 'provider'
   const providerMeta = showModelInHeadline && display.model
-    ? `${display.provider} (${display.model}) \u00b7 ${display.changeLabel.toLowerCase()}`
-    : `${display.provider} \u00b7 ${display.changeLabel.toLowerCase()}`
+    ? `${providerDisplayName(display.provider)} (${display.model}) \u00b7 ${display.changeLabel.toLowerCase()}`
+    : `${providerDisplayName(display.provider)} \u00b7 ${display.changeLabel.toLowerCase()}`
   const providerMetaNote = !isViewingHistory && evidence.historyScope === 'provider'
     ? [
         evidence.model ? `Current model: ${evidence.model}` : null,

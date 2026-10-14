@@ -19,6 +19,21 @@ function selectEngine(provider: string) {
   fireEvent.change(screen.getByRole('combobox', { name: 'Answer engine' }), { target: { value: provider } })
 }
 
+test('keeps direct Gemini and two OpenRouter models independently selectable with their saved answers', () => {
+  const first = 'openrouter:google/gemini-model'
+  const second = 'openrouter:anthropic/claude-model'
+  render(<EvidenceTable evidence={[
+    evidence('Best widgets', 'gemini'), evidence('Best widgets', first), evidence('Best widgets', second),
+  ]} />)
+  expect(screen.getByRole('option', { name: 'Gemini' })).toHaveProperty('value', 'gemini')
+  expect(screen.getByRole('option', { name: 'google/gemini-model via OpenRouter' })).toHaveProperty('value', first)
+  expect(screen.getByRole('option', { name: 'anthropic/claude-model via OpenRouter' })).toHaveProperty('value', second)
+  selectEngine(second)
+  fireEvent.click(screen.getByRole('button', { name: 'Best widgets', exact: true }))
+  fireEvent.click(screen.getByRole('button', { name: 'View', exact: true }))
+  expect(openEvidence).toHaveBeenCalledWith(`Best widgets-${second}`)
+})
+
 test('filters engine evidence before grouping, including counts, history, both signals and answer actions', () => {
   const history = { runId: 'run-1', createdAt: '2026-09-01T12:00:00Z' }
   render(<EvidenceTable evidence={[

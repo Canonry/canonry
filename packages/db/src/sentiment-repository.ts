@@ -353,7 +353,7 @@ export class SentimentRepository {
   }
 
   finishAttempt(input: {
-    attemptId: string; now: string; returnedModel: string | null; usageStatus: 'reported' | 'estimated' | 'unknown'
+    attemptId: string; now: string; returnedModel: string | null; usageStatus: 'reported' | 'estimated' | 'unknown'; provider?: 'typesafe' | 'openrouter'
     usage?: { inputTokens: number; outputTokens: number; costMillicents?: number }; safeFailure?: string | null
   }) {
     return this.db.transaction(tx => {
@@ -366,10 +366,10 @@ export class SentimentRepository {
       if (input.usage && input.usageStatus === 'reported') {
         const work = tx.select().from(sentimentWorkItems).where(eq(sentimentWorkItems.id, attempt.workItemId)).get()!
         tx.insert(llmUsageEvents).values({
-          id: `sentiment:${attempt.id}`, projectId: attempt.projectId, runId: work.runId, feature: 'sentiment', provider: 'typesafe',
+          id: `sentiment:${attempt.id}`, projectId: attempt.projectId, runId: work.runId, feature: 'sentiment', provider: input.provider ?? 'typesafe',
           model: input.returnedModel ?? attempt.requestedModel, inputTokens: input.usage.inputTokens, outputTokens: input.usage.outputTokens,
           totalTokens: input.usage.inputTokens + input.usage.outputTokens, costMillicents: input.usage.costMillicents ?? 0,
-          metadata: { sentimentAttemptId: attempt.id, usageStatus: 'reported' }, createdAt: input.now,
+          metadata: { sentimentAttemptId: attempt.id, usageStatus: 'reported', ...(input.usage.costMillicents === undefined ? { costStatus: 'unknown' } : {}) }, createdAt: input.now,
         }).onConflictDoNothing().run()
       }
       return true

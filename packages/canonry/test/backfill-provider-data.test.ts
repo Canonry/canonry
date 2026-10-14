@@ -55,6 +55,27 @@ describe('backfill answer-visibility provider reparsing', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
+  it('rebuilds routed mentions and citations from stored OpenRouter annotations while preserving model identity', async () => {
+    const projectId = crypto.randomUUID(); const runId = crypto.randomUUID(); const now = new Date().toISOString()
+    const route = 'openrouter:google/gemini-3.1-flash-lite'
+    db.insert(projects).values({ id: projectId, name: 'router-backfill', displayName: 'Northstar', canonicalDomain: 'example.com', country: 'US', language: 'en', providers: ['gemini', route], createdAt: now, updatedAt: now }).run()
+    db.insert(runs).values({ id: runId, projectId, status: 'completed', kind: RunKinds['answer-visibility'], createdAt: now }).run()
+    const id = crypto.randomUUID()
+    db.insert(querySnapshots).values({ id, runId, provider: route, model: 'google/gemini-3.1-flash-lite', servedModel: 'google/gemini-3.1-flash-lite-served',
+      queryText: 'widget suppliers', answerText: 'Stale answer', answerMentioned: true, citationState: 'not-cited', citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], createdAt: now,
+      rawResponse: JSON.stringify({ apiResponse: { model: 'google/gemini-3.1-flash-lite-served', choices: [{ message: {
+        content: 'Several widget suppliers exist. https://uncited.example', annotations: [{ type: 'url_citation', url_citation: { url: 'https://example.com/widgets' } }],
+      } }] } }),
+    }).run()
+    const output = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await backfillAnswerVisibilityCommand({ project: 'router-backfill', format: 'json' })
+    expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toMatchObject({ examined: 1, reparsed: 1, updated: 1, mentioned: 0 })
+    expect(db.select().from(querySnapshots).where(eq(querySnapshots.id, id)).get()).toMatchObject({
+      provider: route, model: 'google/gemini-3.1-flash-lite', servedModel: 'google/gemini-3.1-flash-lite-served',
+      answerMentioned: false, citationState: 'cited', citedDomains: ['example.com'], answerText: 'Several widget suppliers exist. https://uncited.example',
+    })
+  })
+
   it('reprocesses stored OpenAI, Claude, and Perplexity snapshot payloads', async () => {
     const projectId = crypto.randomUUID()
     const runId = crypto.randomUUID()

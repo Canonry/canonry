@@ -77,7 +77,9 @@ export type SentimentSummary = {
     };
     evaluationDefinition: {
         schemaVersion: 1 | 2;
-        requestedModel: 'jev-1.13.0';
+        requestedModel: 'jev-1.13.0' | 'typesafe/jev-1.13';
+        provider?: 'typesafe' | 'openrouter';
+        expectedReturnedModel?: 'typesafe/jev-1.13-20260917';
         verdictVersion: string;
         identityVersion: string;
         evidenceVersion: string;
@@ -298,6 +300,7 @@ export type SentimentSummary = {
 };
 
 export type SentimentSettings = {
+    provider?: 'typesafe' | 'openrouter';
     installEnabled: boolean;
     enabled: boolean;
     ready: boolean;
@@ -475,7 +478,9 @@ export type SentimentComparison = {
         };
         evaluationDefinition: {
             schemaVersion: 1 | 2;
-            requestedModel: 'jev-1.13.0';
+            requestedModel: 'jev-1.13.0' | 'typesafe/jev-1.13';
+            provider?: 'typesafe' | 'openrouter';
+            expectedReturnedModel?: 'typesafe/jev-1.13-20260917';
             verdictVersion: string;
             identityVersion: string;
             evidenceVersion: string;
@@ -767,7 +772,9 @@ export type SentimentComparison = {
         };
         evaluationDefinition: {
             schemaVersion: 1 | 2;
-            requestedModel: 'jev-1.13.0';
+            requestedModel: 'jev-1.13.0' | 'typesafe/jev-1.13';
+            provider?: 'typesafe' | 'openrouter';
+            expectedReturnedModel?: 'typesafe/jev-1.13-20260917';
             verdictVersion: string;
             identityVersion: string;
             evidenceVersion: string;
@@ -1866,7 +1873,7 @@ export type QueryTrackingCommitResponse = {
 export type AgentPromptRequest = {
     prompt: string;
     conversationId?: string | null;
-    provider?: 'claude' | 'openai' | 'gemini' | 'zai';
+    provider?: 'claude' | 'openai' | 'gemini' | 'zai' | 'openrouter';
     modelId?: string;
     scope?: 'all' | 'read-only';
     profile?: 'default' | 'ads-operator';
@@ -1944,13 +1951,13 @@ export type AgentConversationDelete = {
 
 export type AgentProvidersResponseDto = {
     providers: Array<{
-        id: 'claude' | 'openai' | 'gemini' | 'zai';
+        id: 'claude' | 'openai' | 'gemini' | 'zai' | 'openrouter';
         label: string;
         defaultModel: string;
         configured: boolean;
         keySource: 'config' | 'env' | null;
     }>;
-    defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai' | null;
+    defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai' | 'openrouter' | null;
 };
 
 export type ApplyPreviewDto = {
@@ -4605,6 +4612,12 @@ export type DiscoveryPromotePreview = {
             domain: string;
             hits: number;
             competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+            evaluator?: {
+                provider: string;
+                requestedModel: string;
+                servedModel: string | null;
+                promptVersion: string;
+            };
         }>;
     }>;
     skippedCompetitors: Array<{
@@ -4615,6 +4628,12 @@ export type DiscoveryPromotePreview = {
             domain: string;
             hits: number;
             competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+            evaluator?: {
+                provider: string;
+                requestedModel: string;
+                servedModel: string | null;
+                promptVersion: string;
+            };
         }>;
         reason: 'already-tracked' | 'project-domain' | 'shared-host' | 'claimed-by-alias';
         message: string;
@@ -4641,6 +4660,12 @@ export type DiscoveryPromoteResult = {
                 domain: string;
                 hits: number;
                 competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+                evaluator?: {
+                    provider: string;
+                    requestedModel: string;
+                    servedModel: string | null;
+                    promptVersion: string;
+                };
             }>;
         }>;
         skipped: Array<{
@@ -4651,6 +4676,12 @@ export type DiscoveryPromoteResult = {
                 domain: string;
                 hits: number;
                 competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+                evaluator?: {
+                    provider: string;
+                    requestedModel: string;
+                    servedModel: string | null;
+                    promptVersion: string;
+                };
             }>;
             reason: 'already-tracked' | 'project-domain' | 'shared-host' | 'claimed-by-alias';
             message: string;
@@ -4695,6 +4726,12 @@ export type DiscoverySessionDetailDto = {
         domain: string;
         hits: number;
         competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        evaluator?: {
+            provider: string;
+            requestedModel: string;
+            servedModel: string | null;
+            promptVersion: string;
+        };
     }>;
     warning?: string | null;
     error?: string | null;
@@ -4751,6 +4788,12 @@ export type DiscoverySessionDto = {
         domain: string;
         hits: number;
         competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        evaluator?: {
+            provider: string;
+            requestedModel: string;
+            servedModel: string | null;
+            promptVersion: string;
+        };
     }>;
     warning?: string | null;
     error?: string | null;

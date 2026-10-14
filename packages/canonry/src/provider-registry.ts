@@ -1,5 +1,5 @@
 import type { ProviderAdapter, ProviderConfig, ProviderName, ProviderHealthcheckResult } from '@ainyc/canonry-contracts'
-import { isBrowserProvider, resolveProviderModel } from '@ainyc/canonry-contracts'
+import { isBrowserProvider, isSweepProvider, openRouterRouteModel, providerConnectionName, resolveProviderModel } from '@ainyc/canonry-contracts'
 import { updateSharedProviderExecutionGate } from './provider-execution-gate.js'
 
 export interface RegisteredProvider {
@@ -37,7 +37,22 @@ export class ProviderRegistry {
   }
 
   get(name: ProviderName): RegisteredProvider | undefined {
-    return this.providers.get(name)
+    const registered = this.providers.get(name)
+    if (registered) return registered
+    const model = openRouterRouteModel(name)
+    const connection = model ? this.providers.get(providerConnectionName(name)) : undefined
+    if (!connection || !model) return undefined
+    const config = { ...connection.config, provider: name, model }
+    return {
+      config,
+      adapter: {
+        ...connection.adapter, name, displayName: `${model} · OpenRouter`,
+        modelRegistry: { ...connection.adapter.modelRegistry, defaultModel: model },
+        parseTrackedQueryResponse: connection.adapter.parseTrackedQueryResponse
+          ? (body, requestedModel) => ({ ...connection.adapter.parseTrackedQueryResponse!(body, requestedModel), provider: name })
+          : undefined,
+      },
+    }
   }
 
   getAll(): RegisteredProvider[] {
@@ -47,15 +62,15 @@ export class ProviderRegistry {
   getForProject(projectProviders: ProviderName[]): RegisteredProvider[] {
     // Empty array means "use all configured providers"
     if (projectProviders.length === 0) {
-      return this.getAll()
+      return this.getAll().filter(provider => isSweepProvider(provider.adapter.name))
     }
     const result: RegisteredProvider[] = []
     const seen = new Set<ProviderName>()
     for (const name of projectProviders) {
       if (seen.has(name)) continue
       seen.add(name)
-      const provider = this.providers.get(name)
-      if (provider) {
+      const provider = this.get(name)
+      if (provider && isSweepProvider(provider.adapter.name)) {
         result.push(provider)
       }
     }
@@ -69,7 +84,7 @@ export class ProviderRegistry {
 
   /** Get only API-based providers */
   getApiProviders(): RegisteredProvider[] {
-    return this.getAll().filter(p => !isBrowserProvider(p.adapter.name))
+    return this.getAll().filter(p => !isBrowserProvider(p.adapter.name) && isSweepProvider(p.adapter.name))
   }
 
   get size(): number {

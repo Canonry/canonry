@@ -7,6 +7,19 @@ let directory: string
 beforeEach(() => { directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sentiment-config-')); vi.stubEnv('CANONRY_CONFIG_DIR', directory); vi.stubEnv('CANONRY_SENTIMENT_ENABLED', ''); vi.stubEnv('TYPESAFE_API_KEY', ''); vi.stubEnv('TYPESAFE_MODEL', 'jev-1.13.0') })
 afterEach(() => { vi.unstubAllEnvs(); fs.rmSync(directory, { force: true, recursive: true }) })
 describe('sentiment live configuration', () => {
+  it('shares the OpenRouter connection key and reloads role and credential changes', () => {
+    vi.stubEnv('OPENROUTER_API_KEY', '')
+    const file = path.join(directory, 'config.yaml')
+    fs.writeFileSync(file, 'providers:\n  openrouter:\n    apiKey: synthetic-router-key\nsentiment:\n  enabled: true\n  provider: openrouter\n')
+    // An explicitly empty env value withdraws a key, as for direct TypeSafe.
+    expect(loadSentimentInstallConfig()).toMatchObject({ provider: 'openrouter', model: 'typesafe/jev-1.13', apiKey: undefined })
+    vi.stubEnv('OPENROUTER_API_KEY', undefined)
+    expect(loadSentimentInstallConfig()).toMatchObject({ provider: 'openrouter', model: 'typesafe/jev-1.13', apiKey: 'synthetic-router-key' })
+    fs.writeFileSync(file, 'providers:\n  openrouter:\n    apiKey: rotated-router-key\nsentiment:\n  enabled: true\n  provider: openrouter\n')
+    expect(loadSentimentInstallConfig().apiKey).toBe('rotated-router-key')
+    fs.writeFileSync(file, 'sentiment:\n  enabled: true\n  provider: typesafe\n')
+    expect(loadSentimentInstallConfig()).toMatchObject({ provider: 'typesafe', model: 'jev-1.13.0' })
+  })
   it('reloads each request and observes disablement without a server restart', () => {
     const file = path.join(directory, 'config.yaml')
     fs.writeFileSync(file, 'sentiment:\n  enabled: true\n')

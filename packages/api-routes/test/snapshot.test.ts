@@ -214,6 +214,37 @@ describe('snapshot routes', () => {
     }
   })
 
+  it.each([
+    { scopes: ['read', 'write'], status: 403 },
+    { scopes: ['read', 'write', 'settings.write'], status: 200 },
+    { scopes: ['*'], status: 200 },
+  ])('requires model authority for routed snapshot selection with $scopes', async ({ scopes, status }) => {
+    const onSnapshotRequested = vi.fn().mockResolvedValue(SNAPSHOT_FIXTURE)
+    const ctx = buildApp({ skipAuth: false, onSnapshotRequested })
+    const key = 'cnry_snapshot_route_authority'
+    ctx.db.insert(apiKeys).values({
+      id: 'route-authority', name: 'route-authority', keyHash: hashApiKey(key),
+      keyPrefix: key.slice(0, 9), scopes, createdAt: new Date().toISOString(),
+    }).run()
+    try {
+      const result = await ctx.app.inject({ method: 'POST', url: '/api/v1/snapshot',
+        headers: { authorization: `Bearer ${key}` },
+        payload: { companyName: 'Acme', domain: 'acme.example.com', queries: ['best widgets'], providers: ['openrouter:google/gemini-2.5-flash'] },
+      })
+      expect(result.statusCode, result.body).toBe(status)
+      if (status === 403) {
+        expect(result.json().error.message).toContain('settings.write')
+        expect(onSnapshotRequested).not.toHaveBeenCalled()
+      } else {
+        expect(onSnapshotRequested).toHaveBeenCalledWith(expect.objectContaining({ providers: ['openrouter:google/gemini-2.5-flash'] }))
+      }
+    } finally {
+      await ctx.app.close()
+      ctx.db.$client.close()
+      fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    }
+  })
+
   it('POST /api/v1/snapshot returns 501 when the server has no snapshot implementation', async () => {
     const ctx = buildApp()
     await ctx.app.ready()

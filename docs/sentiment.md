@@ -9,6 +9,7 @@ The private install `config.yaml` accepts:
 ```yaml
 sentiment:
   enabled: true
+  provider: typesafe
   model: jev-1.13.0
   maxConcurrency: 2
   maxRequestsPerMinute: 60
@@ -17,6 +18,20 @@ sentiment:
 ```
 
 Supply `TYPESAFE_API_KEY` in the server environment, or `sentiment.apiKey` in private install configuration. Never put it in a project export, source repository, command argument, or browser configuration. `CANONRY_SENTIMENT_ENABLED` can explicitly override install enablement; `TYPESAFE_MODEL` must remain `jev-1.13.0`. The worker rereads configuration before each dispatch. Routine configuration saves, such as a Google token refresh or a provider settings change, keep the `sentiment` block exactly as it is on disk, so they never undo a live disable, removal or key rotation. Disabling prevents subsequent requests and cancels pending selections; re-enabling does not resume canceled work. A missing, unreadable or invalid `config.yaml` (for example a misspelled key or an out-of-range limit) also stops requests and reports `invalid-config`, but it holds pending work instead of canceling it; fixing the file resumes that work, including completions from the gap. A missing key or unsupported model holds the same way. Only an explicit `enabled: false` cancels.
+
+To use OpenRouter for the same Jev rubric, select it independently of sweep and Aero models:
+
+```yaml
+providers:
+  openrouter:
+    apiKey: PRIVATE_OPENROUTER_KEY
+sentiment:
+  enabled: true
+  provider: openrouter
+  model: typesafe/jev-1.13
+```
+
+The routed evaluator uses the shared `providers.openrouter.apiKey` or `OPENROUTER_API_KEY`; it does not read `sentiment.apiKey`. `CANONRY_SENTIMENT_PROVIDER` and `CANONRY_SENTIMENT_MODEL` override the selected role. pi sends the native System One request with no internal retries. OpenRouter must report served snapshot `typesafe/jev-1.13-20260917` and complete token usage; a changed or undisclosed model fails with `model-mismatch`. Provider, requested model and expected returned snapshot are part of the immutable evaluator definition. Changing transport requires configuring project sentiment again and starts a new epoch. Existing results remain readable and comparisons across evaluator definitions refuse a directional claim. Queued requests share the OpenRouter connection budget with sweeps and Aero, honor cancellation, and reread enablement and credentials before dispatch. Transport support does not establish classifier quality; the independent evaluation gate still applies.
 
 An install administrator must also configure the project:
 
@@ -27,7 +42,7 @@ canonry sentiment configure example --enabled true --format json
 
 Enabling automatically admits eligible completions after the enablement boundary. Old answers require an explicit preview and backfill. Only enabling depends on the install: an install administrator can switch a project off at any time, including while the install switch is off, so re-enabling the install never resumes a project that was withdrawn. Named viewers, read-only keys, project-scoped keys, and narrow write keys cannot configure or admit work. Delegated requests retain their underlying user's role. The read surfaces obey the existing project boundary.
 
-Enabling and backfill send each selected answer's stored text to TypeSafe with the frozen subject identity (name, aliases, qualified aliases and URLs), the tracked query text and query class, the answer engine with its requested and served models, the location, and internal query, subject, Property, group and market identifiers, and may incur usage. A preview selects exactly one query class: the CLI requires `--query-class branded|non-brand` and the MCP preview tool requires `queryClass`, so backfilling both populations of a history takes one preview and one submission per class. Inspect the preview, including its echoed `selection` and every `skipped` reason, before submitting its token with a stable idempotency key:
+Enabling and backfill send each selected answer's stored text to the selected TypeSafe or OpenRouter evaluator with the frozen subject identity (name, aliases, qualified aliases and URLs), the tracked query text and query class, the answer engine with its requested and served models, the location, and internal query, subject, Property, group and market identifiers, and may incur usage. A preview selects exactly one query class: the CLI requires `--query-class branded|non-brand` and the MCP preview tool requires `queryClass`, so backfilling both populations of a history takes one preview and one submission per class. Inspect the preview, including its echoed `selection` and every `skipped` reason, before submitting its token with a stable idempotency key:
 
 ```bash
 canonry sentiment backfill example --preview --run-id saved-run --query-class non-brand --format json

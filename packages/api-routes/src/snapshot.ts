@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { AppError, internalError, notImplemented, resolveSnapshotRequestQueries, snapshotRequestSchema, validationError, type SnapshotReportDto, type SnapshotRequestDto } from '@ainyc/canonry-contracts'
+import { assertOpenRouterRouteScope } from './provider-models.js'
 
 export interface SnapshotRoutesOptions {
   onSnapshotRequested?: (input: SnapshotRequestDto) => Promise<SnapshotReportDto>
@@ -28,6 +29,7 @@ export async function snapshotRoutes(app: FastifyInstance, opts: SnapshotRoutesO
       queries: resolveSnapshotRequestQueries(parsed.data),
     }
     delete input.phrases
+    assertOpenRouterRouteScope(request, input.providers ?? [], [])
 
     try {
       return await opts.onSnapshotRequested(input)

@@ -257,20 +257,24 @@ describe('research run outcome telemetry', () => {
   const researched = { feature: 'research', operation: 'run', durationBucket: expect.any(String) }
 
   it('reports a finished batch with its queries, saved answers and failures, and the provider when telemetry knows it', async () => {
-    const complete = setup({ failQueries: false, provider: 'gemini' })
-    await executeResearchRun(complete.db, complete.registry, 'r', 'p')
+    for (const provider of ['gemini', 'openrouter:google/gemini-3.1-flash-lite']) {
+      const complete = setup({ failQueries: false, provider })
+      await executeResearchRun(complete.db, complete.registry, 'r', 'p')
+    }
     // One query fails on the provider's account; the adapter's text is classified, never sent.
     const partial = setup({ failWith: '[provider-test] 401 Incorrect API key provided: sk-live-123' })
     await executeResearchRun(partial.db, partial.registry, 'r', 'p')
 
     expect(trackEvent.mock.calls).toEqual([
       ['feature.completed', { ...researched, trigger: 'manual', provider: 'gemini', status: 'succeeded', counts: { queries: 2, snapshots: 2, failures: 0 } }, undefined],
+      ['feature.completed', { ...researched, trigger: 'manual', provider: 'openrouter', status: 'succeeded', counts: { queries: 2, snapshots: 2, failures: 0 } }, undefined],
       ['feature.completed', {
         ...researched, trigger: 'manual', status: 'partial', reasonCode: 'INVALID_CREDENTIALS', errorName: 'Error',
         counts: { queries: 2, snapshots: 1, failures: 1 },
       }, { errorCode: 'INVALID_CREDENTIALS' }],
     ])
     expect(JSON.stringify(trackEvent.mock.calls)).not.toContain('sk-live')
+    expect(JSON.stringify(trackEvent.mock.calls)).not.toContain('google/gemini')
   })
 
   it('reports a batch refused before dispatch, and one recovered at startup, as failed with the reason', async () => {

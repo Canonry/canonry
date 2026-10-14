@@ -2,13 +2,13 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { and, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm'
 import { rankCriticizedProperties,
   aggregateSentiment, AppError, compareText, canonicalSentimentJson, createSentimentEvaluationDefinition, hasCurrentSentimentTemplate,
-  emptySentimentCounts, notFound, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_INTERVAL_LIMITATION, SENTIMENT_MODEL, SENTIMENT_QUERY_PAGE_DEFAULT, SentimentOutcomes,
+  emptySentimentCounts, notFound, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_INTERVAL_LIMITATION, SENTIMENT_QUERY_PAGE_DEFAULT, SentimentOutcomes, sentimentEvaluatorProvider,
   sentimentBackfillSelectionSchema, storedSentimentClassifierInputSchema, storedSentimentClassifierOutputSchema,
   storedSentimentEvaluationDefinitionSchema, sentimentJobSchema, sentimentOutcomeSchema, sentimentSettingsUpdateSchema,
   validationError, type SentimentBackfillPreview, type SentimentBackfillSelection, type SentimentClassifierInput,
   type SentimentComparison, type SentimentCounts, type SentimentEvidenceItem, type SentimentHeadline, type SentimentJob, type SentimentOutcome,
   type SentimentQuerySummary, type SentimentResolvedSelection, type SentimentSelection, type SentimentEvidenceSelection,
-  type SentimentSettings, type SentimentSummary, type SentimentOverview, type SentimentOverallHeadline, type SentimentSummaryInclude, type SentimentJobSummary,
+  type SentimentSettings, type SentimentSummary, type SentimentOverview, type SentimentOverallHeadline, type SentimentSummaryInclude, type SentimentJobSummary, type SentimentEvaluatorProvider,
 } from '@ainyc/canonry-contracts'
 import {
   measurementPlanVersions, querySnapshots, runs, sentimentAttempts, sentimentDefinitions, sentimentJobItems, sentimentJobs,
@@ -18,7 +18,7 @@ import { matchesSentimentEdge, selectSentimentSources, type SentimentSourceAsses
 import { sentimentClassifierIdentity, sentimentClassifierInput, sentimentHash, sentimentSourceHashes } from './sentiment-input.js'
 import { notProbeRun } from './helpers.js'
 
-export interface SentimentInstallState { enabled: boolean; ready: boolean; reason: string | null; model: string }
+export interface SentimentInstallState { enabled: boolean; ready: boolean; reason: string | null; model: string; provider?: SentimentEvaluatorProvider }
 export interface SentimentServiceOptions { install: () => SentimentInstallState; previewSecret: string; now?: () => Date; estimate?: (input: SentimentClassifierInput) => number }
 /**
  * Opt-in summary shape. With a view, per-engine assessments and locations are
@@ -65,20 +65,22 @@ export class SentimentService {
   settings(projectId: string, administrator = false): SentimentSettings {
     const install = this.options.install()
     const row = this.repository.getSettings(projectId)
-    const supportedDefinition = !row || hasCurrentSentimentTemplate(this.definition(row.evaluationDefinitionId))
+    const definition = row ? this.definition(row.evaluationDefinitionId) : null
+    const supportedDefinition = !definition || (hasCurrentSentimentTemplate(definition) && sentimentEvaluatorProvider(definition) === (install.provider ?? 'typesafe') && definition.requestedModel === install.model)
     // The install-wide provider pause: a credential refusal holds every project, a rate limit only delays.
     const pause = this.repository.dispatchState()
+    const evaluatorLabel = install.provider === 'openrouter' ? 'OpenRouter' : 'TypeSafe'
     const pauseReason = pause?.blockedReason === 'provider-authorization'
-      ? 'provider-authorization: TypeSafe rejected the configured credentials. Dispatch is paused for every project until the key changes; one request retries each hour.'
-      : pause?.blockedReason === 'provider-rate-limit' && pause.nextDispatchAt ? `provider-rate-limit: TypeSafe is rate limiting this install. Dispatch resumes after ${pause.nextDispatchAt}.` : null
+      ? `provider-authorization: ${evaluatorLabel} rejected the configured credentials. Dispatch is paused for every project until the key changes; one request retries each hour.`
+      : pause?.blockedReason === 'provider-rate-limit' && pause.nextDispatchAt ? `provider-rate-limit: ${evaluatorLabel} is rate limiting this install. Dispatch resumes after ${pause.nextDispatchAt}.` : null
     const ready = install.ready && supportedDefinition && pause?.blockedReason !== 'provider-authorization'
     return {
       installEnabled: install.enabled, enabled: row?.enabled ?? false, ready,
-      readinessReasons: [...(install.reason ? [install.reason] : []), ...(!supportedDefinition ? ['unsupported-evaluator-definition: configure sentiment again to use the current evaluator.'] : []), ...(pauseReason ? [pauseReason] : [])], model: install.model, enablementEpoch: row?.enablementEpoch ?? 0,
+      readinessReasons: [...(install.reason ? [install.reason] : []), ...(!supportedDefinition ? ['unsupported-evaluator-definition: configure sentiment again to use the current evaluator.'] : []), ...(pauseReason ? [pauseReason] : [])], model: install.model, provider: install.provider ?? 'typesafe', enablementEpoch: row?.enablementEpoch ?? 0,
       completionBoundary: row?.completionBoundary ?? 0,
       evaluationDefinitionId: row?.evaluationDefinitionId ?? null,
       // A project that is still on can always be switched off, even while the install switch is off.
-      actions: { configure: administrator && (install.enabled || Boolean(row?.enabled)), backfill: administrator && ready && Boolean(row?.enabled) }, experimental: true, disclosure: DISCLOSURE,
+      actions: { configure: administrator && (install.enabled || Boolean(row?.enabled)), backfill: administrator && ready && Boolean(row?.enabled) }, experimental: true, disclosure: install.provider === 'openrouter' ? DISCLOSURE.replace('to TypeSafe', 'to OpenRouter for the pinned TypeSafe Jev evaluator') : DISCLOSURE,
     }
   }
   configure(projectId: string, value: unknown, actor = 'system'): SentimentSettings {
@@ -89,10 +91,10 @@ export class SentimentService {
     if (enabled && !previous.installEnabled) throw validationError('Sentiment is disabled in install configuration.')
     if (enabled && !this.options.install().ready) throw validationError('Sentiment provider is not ready.', { reasons: previous.readinessReasons })
     const configuration = { enabled }
-    const definition = createSentimentEvaluationDefinition()
+    const definition = createSentimentEvaluationDefinition(this.options.install().provider)
     const definitionId = sentimentHash(definition)
-    this.repository.putDefinition({ id: definitionId, contentHash: definitionId, requestedModel: SENTIMENT_MODEL, definition, createdAt: this.now() })
-    this.repository.configure({ projectId, enabled: configuration.enabled, evaluationDefinitionId: definitionId, configuration, actor, now: this.now(), forceNewEpoch: Boolean(previous.evaluationDefinitionId && !hasCurrentSentimentTemplate(this.definition(previous.evaluationDefinitionId))) })
+    this.repository.putDefinition({ id: definitionId, contentHash: definitionId, requestedModel: definition.requestedModel, definition, createdAt: this.now() })
+    this.repository.configure({ projectId, enabled: configuration.enabled, evaluationDefinitionId: definitionId, configuration, actor, now: this.now(), forceNewEpoch: Boolean(previous.evaluationDefinitionId && previous.evaluationDefinitionId !== definitionId) })
     return this.settings(projectId, true)
   }
   private disabled(projectId: string): boolean {
@@ -121,7 +123,7 @@ export class SentimentService {
     const frozenSelection: SentimentBackfillSelection = selection.runId ? { ...selection, runId: source.runIds[0]! } : source.runIds.length ? { ...selection, runIds: source.runIds } : selection
     const definitionId = settings.evaluationDefinitionId
     // A never-configured project is estimated against the evaluator that enabling would create.
-    const definition = definitionId ? this.definition(definitionId) : createSentimentEvaluationDefinition()
+    const definition = definitionId ? this.definition(definitionId) : createSentimentEvaluationDefinition(this.options.install().provider)
     const inputs = source.assessments.map(item => sentimentClassifierInput(item, definition))
     // Only identity columns of the selected runs' completed work; frozen inputs stay unread.
     const existing = definitionId && source.runIds.length ? this.db.select({ snapshotId: sentimentWorkItems.snapshotId, sourceTextHash: sentimentWorkItems.sourceTextHash, subjectHash: sentimentWorkItems.subjectHash }).from(sentimentWorkItems)

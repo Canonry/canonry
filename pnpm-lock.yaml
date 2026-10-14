@@ -444,6 +444,9 @@ importers:
       '@ainyc/canonry-provider-openai':
         specifier: workspace:*
         version: link:../provider-openai
+      '@ainyc/canonry-provider-openrouter':
+        specifier: workspace:*
+        version: link:../provider-openrouter
       '@ainyc/canonry-provider-perplexity':
         specifier: workspace:*
         version: link:../provider-perplexity
@@ -677,6 +680,12 @@ importers:
       openai:
         specifier: ^6.0.0
         version: 6.27.0(ws@8.21.0)(zod@4.3.6)
+
+  packages/provider-openrouter:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/provider-perplexity:
     dependencies:

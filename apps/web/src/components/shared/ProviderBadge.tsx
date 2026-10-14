@@ -1,3 +1,6 @@
+import { isOpenRouterRoute } from '@ainyc/canonry-contracts'
+import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
+
 export function ProviderBadge({ provider }: { provider: string }) {
   // Fixed engine-identity palettes (permanent no-literal-palette exclusion): the
   // dark-canvas default. The stable `provider-badge--<engine>` class lets the
@@ -19,7 +22,7 @@ export function ProviderBadge({ provider }: { provider: string }) {
     <span
       className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${tone}`}
     >
-      {provider}
+      {isOpenRouterRoute(provider) ? providerDisplayName(provider) : provider}
     </span>
   )
 }

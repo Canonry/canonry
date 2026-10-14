@@ -352,6 +352,7 @@ describe('config.agent-providers', () => {
     // The remediation names every agent provider an operator can add a key for.
     for (const id of AGENT_PROVIDER_IDS) expect(result.remediation).toContain(id)
     expect(result.remediation).toMatch(/ANTHROPIC_API_KEY/)
+    expect(result.remediation).toMatch(/OPENROUTER_API_KEY/)
   })
 
   it('warns on an agent.provider pin with no key, even while other providers are configured', () => {

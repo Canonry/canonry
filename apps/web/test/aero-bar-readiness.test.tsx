@@ -1,5 +1,5 @@
 import { MANAGED_SWEEPS_COPY } from '../src/components/project/ManagedSweepStatus.js'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
@@ -17,7 +17,7 @@ import * as api from '../src/api.js'
 import { AeroBar } from '../src/components/shared/AeroBar.js'
 import { AccountProvider, type ApiKeyAccess } from '../src/contexts/account-context.js'
 import * as aero from '../src/api-aero.js'
-import type { AeroPreviewResponse } from '@ainyc/canonry-contracts'
+import type { AeroPreviewResponse, AgentProvidersResponse } from '@ainyc/canonry-contracts'
 
 const PROJECT_NAME = 'citypoint'
 
@@ -33,16 +33,7 @@ afterEach(() => {
   }
 })
 
-async function renderWithProviderReadiness(data: {
-  providers: Array<{
-    id: 'openai'
-    label: string
-    defaultModel: string
-    configured: boolean
-    keySource: 'config' | null
-  }>
-  defaultProvider: 'openai' | null
-} | null, role: 'admin' | 'viewer' | null = null, apiKey?: ApiKeyAccess) {
+async function renderWithProviderReadiness(data: AgentProvidersResponse | null, role: 'admin' | 'viewer' | null = null, apiKey?: ApiKeyAccess) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   if (data) {
     queryClient.setQueryData(
@@ -303,6 +294,27 @@ const READY_AERO = {
   defaultProvider: 'openai' as const,
 }
 const EMPTY_TRANSCRIPT = { messages: [], modelProvider: 'openai', modelId: 'model', updatedAt: null }
+
+test('chooses an Aero OpenRouter model independently and includes it in the copied CLI command', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const prompt = vi.spyOn(aero, 'promptAero').mockRejectedValue(new Error('Provider temporarily unavailable'))
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  const descriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+  onTestFinished(() => { if (descriptor) Object.defineProperty(navigator, 'clipboard', descriptor); else Reflect.deleteProperty(navigator, 'clipboard') })
+  await renderWithProviderReadiness({ providers: [{ id: 'openrouter', label: 'OpenRouter', defaultModel: 'anthropic/claude-default', configured: true, keySource: 'config' }], defaultProvider: 'openrouter' }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Switch agent model' }))
+  const model = screen.getByRole('textbox', { name: 'Aero OpenRouter model' })
+  fireEvent.change(model, { target: { value: 'anthropic/claude-custom' } })
+  fireEvent.keyDown(model, { key: 'Escape' })
+  expect(screen.queryByRole('textbox', { name: 'Aero OpenRouter model' })).toBeNull()
+  fireEvent.change(screen.getByPlaceholderText('Ask Aero, or / for commands…'), { target: { value: 'Explain my saved results' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ provider: 'openrouter', modelId: 'anthropic/claude-custom' })))
+  fireEvent.click(await screen.findByRole('button', { name: 'Copy as CLI command' }))
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith("canonry agent ask citypoint 'Explain my saved results' --provider openrouter --model anthropic/claude-custom --scope read-only"))
+})
 
 test('keeps intermediate responses and renders a completed tool call once, behind its run header', async () => {
   const transcript = vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)

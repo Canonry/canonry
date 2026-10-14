@@ -1,3 +1,5 @@
+import { isProviderAvailable, isSweepProvider } from '@ainyc/canonry-contracts'
+import { assertOpenRouterRouteScope } from './provider-models.js'
 import crypto from 'node:crypto'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
@@ -311,12 +313,13 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
     const body = parsed.data
     const provider = body.provider.trim().toLowerCase()
     const validNames = opts.validProviderNames ?? []
-    if (validNames.length && !validNames.includes(provider)) {
+    if (validNames.length && (!isSweepProvider(provider) || !isProviderAvailable(provider, validNames))) {
       throw validationError(`Unknown provider "${body.provider}". Valid providers: ${validNames.join(', ')}`, {
         provider: body.provider,
         validProviders: validNames,
       })
     }
+    assertOpenRouterRouteScope(request, [provider], project.providers)
     const count = body.count ?? 5
 
     if (!opts.onGenerateQueries) {
@@ -490,12 +493,13 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
     const body = parsed.data
     const provider = body.provider.trim().toLowerCase()
     const validNames = opts.validProviderNames ?? []
-    if (validNames.length && !validNames.includes(provider)) {
+    if (validNames.length && (!isSweepProvider(provider) || !isProviderAvailable(provider, validNames))) {
       throw validationError(`Unknown provider "${body.provider}". Valid providers: ${validNames.join(', ')}`, {
         provider: body.provider,
         validProviders: validNames,
       })
     }
+    assertOpenRouterRouteScope(request, [provider], project.providers)
     const count = body.count ?? 5
 
     if (!opts.onGenerateQueries) {

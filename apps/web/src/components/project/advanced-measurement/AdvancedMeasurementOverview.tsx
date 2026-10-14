@@ -4,6 +4,7 @@ import type { KeyboardEvent, ReactNode } from 'react'
 import { formatPercent, UNATTRIBUTED_MENTION_REASON } from '@ainyc/canonry-contracts'
 import type { MetricTone } from '../../../view-models.js'
 import { excludedAnswersLabel, type CoverageSignal } from '../../../lib/format-helpers.js'
+import { providerDisplayName } from '../../../lib/visibility-trend-helpers.js'
 
 import { InfoTooltip } from '../../shared/InfoTooltip.js'
 import { ToneBadge } from '../../shared/ToneBadge.js'
@@ -931,7 +932,7 @@ export function AdvancedMeasurementOverview({
                     </tr>
                     {expanded ? (property.providers ?? []).map(engine => (
                       <tr key={`${property.id}:${engine.provider}`} className="measurement-subrow">
-                        <td className="measurement-subrow-name">{engine.provider}</td>
+                        <td className="measurement-subrow-name">{providerDisplayName(engine.provider)}</td>
                         <td className="text-secondary"><MetricValue metric={engine.mentionCoverage} signal="mentioned" compact /></td>
                         <td className="text-secondary"><MetricValue metric={engine.citationCoverage} signal="cited" compact /></td>
                         <td />

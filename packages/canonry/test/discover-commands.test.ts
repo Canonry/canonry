@@ -137,8 +137,8 @@ describe('discover CLI commands', () => {
       },
       {
         level: 'error', module: 'RunCoordinator', action: 'aero.failed',
-        msg: 'No agent LLM provider configured. Add an API key for one of: claude, openai, gemini, zai in ~/.canonry/config.yaml, or export ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY / ZAI_API_KEY.',
-        error: 'No agent LLM provider configured. Add an API key for one of: claude, openai, gemini, zai in ~/.canonry/config.yaml, or export ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY / ZAI_API_KEY.',
+        msg: 'No agent LLM provider configured. Add an API key for one of: claude, openai, gemini, zai, openrouter in ~/.canonry/config.yaml, or export ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY / ZAI_API_KEY / OPENROUTER_API_KEY.',
+        error: 'No agent LLM provider configured. Add an API key for one of: claude, openai, gemini, zai, openrouter in ~/.canonry/config.yaml, or export ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY / ZAI_API_KEY / OPENROUTER_API_KEY.',
       },
     ]
     for (const line of stderr.split('\n').filter(Boolean)) {

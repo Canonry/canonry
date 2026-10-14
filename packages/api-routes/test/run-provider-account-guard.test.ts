@@ -50,7 +50,7 @@ afterEach(async () => {
   for (const h of harnesses.splice(0)) await h.close()
 })
 
-async function harness(options: { locations?: boolean; projectProviders?: string[] } = {}) {
+async function harness(options: { locations?: boolean; projectProviders?: string[]; runnableProviders?: string[] } = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-account-guard-'))
   const db = createClient(path.join(tmpDir, 'test.db'))
   migrate(db)
@@ -59,7 +59,7 @@ async function harness(options: { locations?: boolean; projectProviders?: string
   app.register(apiRoutes, {
     db,
     skipAuth: true,
-    getRunnableProviderNames: () => ['claude', 'gemini', 'openai'],
+    getRunnableProviderNames: () => options.runnableProviders ?? ['claude', 'gemini', 'openai'],
     onRunCreated: runId => { created.push(runId) },
   })
   await app.ready()
@@ -139,6 +139,22 @@ function streakOver(code: ProviderAccountStreak['code'], failures: ReadonlyArray
 type Harness = Awaited<ReturnType<typeof harness>>
 
 describe('run admission after provider account failures', () => {
+  it('shares an OpenRouter account hold across model routes and releases it after another route answers', async () => {
+    const oldRoute = 'openrouter:google/gemini-2.5-flash'
+    const nextRoute = 'openrouter:anthropic/claude-sonnet-4.6'
+    const h = await harness({ projectProviders: [nextRoute], runnableProviders: ['openrouter'] })
+    h.seed(h.accountFailures(PROVIDER_ACCOUNT_FAILURE_STREAK, [[oldRoute, '402 insufficient credits']]))
+    const refused = await h.trigger()
+    expect(refused.statusCode, refused.body).toBe(422)
+    expect(refused.json().error.code).toBe('PROVIDERS_FAILING')
+    expect(refused.json().error.details.providers[nextRoute]).toBe('PROVIDER_BILLING')
+    expect(h.created).toEqual([])
+    h.seed([{ status: 'completed', answered: [oldRoute] }], 1_000)
+    const recovered = await h.trigger()
+    expect(recovered.statusCode, recovered.body).toBe(201)
+    expect(recovered.json().skippedProviders).toBeUndefined()
+  })
+
   it('refuses a run once every provider failed each of the last runs on its account, and force overrides', async () => {
     const h = await harness()
     const newest = h.seed(h.accountFailures(PROVIDER_ACCOUNT_FAILURE_STREAK))

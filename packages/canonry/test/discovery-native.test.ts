@@ -5,12 +5,16 @@ import { discoverySessions, discoveryProbes, domainClassifications, insights, pr
 import type { LocationContext } from '@ainyc/canonry-contracts'
 import { executeDiscoveryRun } from '../src/discovery-run.js'
 import { nativeDiscoveryFixture, type LiteralAnswer } from './discovery-native-fixture.js'
+import { openRouterMessagesReply } from './openrouter-pi-fixture.js'
+import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
+import { onTestFinished } from 'vitest'
 
 const CITED = { answerText: 'Acme IQ is a strong option.', citedDomains: ['acme-iq.example.com'] }
 const WASTED = { answerText: 'Compare the market.', citedDomains: ['sunplanner.test'] }
 const ASPIRATIONAL = { answerText: 'Compare the market.', citedDomains: ['random.com'] }
 const DETROIT: LocationContext = { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' }
 const MIAMI: LocationContext = { label: 'florida', city: 'Miami', region: 'Florida', country: 'US' }
+const GEMINI_EVALUATOR = { provider: 'gemini', requestedModel: 'gemini-fixture', servedModel: null, promptVersion: 'domain-category-v1' }
 
 const LIFECYCLE_ROWS: Array<{ label: string; seed: string; probes: Record<string, LiteralAnswer>; counts: [number, number, number]; severity: string }> = [
   { label: 'high1/2/1', seed: 'a q\nb q\nc q\nd q', probes: { 'a q': CITED, 'b q': WASTED, 'c q': WASTED, 'd q': ASPIRATIONAL }, counts: [1, 2, 1], severity: 'high' },
@@ -32,8 +36,8 @@ it.each(LIFECYCLE_ROWS)('native discovery persists literal lifecycle/buckets/ins
   expect(all[0]?.recommendation?.reason).toContain('aspirational=' + row.counts[2])
   expect(all[0]?.recommendation?.reason).toContain('sunplanner.test')
   expect(session?.competitorMap).toEqual(row.label === 'high1/2/1'
-    ? [{ domain: 'sunplanner.test', hits: 2, competitorType: 'direct-competitor' }, { domain: 'random.com', hits: 1, competitorType: 'other' }]
-    : [{ domain: 'sunplanner.test', hits: 1, competitorType: 'direct-competitor' }])
+    ? [{ domain: 'sunplanner.test', hits: 2, competitorType: 'direct-competitor', evaluator: GEMINI_EVALUATOR }, { domain: 'random.com', hits: 1, competitorType: 'other', evaluator: GEMINI_EVALUATOR }]
+    : [{ domain: 'sunplanner.test', hits: 1, competitorType: 'direct-competitor', evaluator: GEMINI_EVALUATOR }])
   expect(h.embeddingRequests).toHaveLength(1)
 })
 
@@ -134,7 +138,7 @@ it.each([
   const trackedLine = prompt?.split('\n').find(line => line.startsWith('Already-tracked competitors: '))
   expect(trackedLine?.slice('Already-tracked competitors: '.length).split(', ').sort()).toEqual(['solarflow.test', 'sunplanner.test'])
   expect(h.db.select().from(discoverySessions).get()?.status).toBe('completed')
-  expect(h.db.select().from(discoverySessions).get()?.competitorMap).toEqual(row.domains.map((domain, i) => ({ domain, hits: 1, competitorType: row.types[i] })).sort((a, b) => a.domain.localeCompare(b.domain)))
+  expect(h.db.select().from(discoverySessions).get()?.competitorMap).toEqual(row.domains.map((domain, i) => ({ domain, hits: 1, competitorType: row.types[i], ...(row.text instanceof Error ? {} : { evaluator: GEMINI_EVALUATOR }) })).sort((a, b) => a.domain.localeCompare(b.domain)))
   expect(h.db.select().from(domainClassifications).all().map(item => ({ projectId: item.projectId, sessionId: item.sessionId, domain: item.domain, hits: item.hits, competitorType: item.competitorType })).sort((a, b) => a.domain.localeCompare(b.domain))).toEqual(row.domains.map((domain, i) => ({ projectId: h.projectId, sessionId: h.sessionId, domain, hits: 1, competitorType: row.types[i] })).sort((a, b) => a.domain.localeCompare(b.domain)))
 })
 
@@ -144,7 +148,31 @@ it('native classifier receives none for untracked competitors and every real cit
   expect(h.classification).toHaveLength(1)
   expect(h.classification[0]?.prompt).toContain('Already-tracked competitors: none')
   expect(h.classification[0]?.prompt).toContain('\nDomains:\na.com\n')
-  expect(h.db.select().from(discoverySessions).get()?.competitorMap).toEqual([{ domain: 'a.com', hits: 1, competitorType: 'other' }])
+  expect(h.db.select().from(discoverySessions).get()?.competitorMap).toEqual([{ domain: 'a.com', hits: 1, competitorType: 'other', evaluator: GEMINI_EVALUATOR }])
+})
+
+it('routes only domain categorization through pi OpenRouter and freezes its evaluator beside the stored category', async () => {
+  const h = nativeDiscoveryFixture({ providers: { gemini: { seed: { answerText: 'best solar quoting tool\nbest solar installer crm', citedDomains: [] }, probes: { 'best solar quoting tool': { answerText: 'Independent options.', citedDomains: ['sunplanner.test'] }, 'best solar installer crm': { answerText: 'Other independent options.', citedDomains: [] } } } } })
+  const embedFetch = globalThis.fetch
+  const requests: Array<{ url: string; apiKey: string | null; model: string; prompt: string }> = []
+  vi.stubGlobal('fetch', async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    const request = new Request(input, init)
+    if (new URL(request.url).hostname !== 'openrouter.ai') return embedFetch(input, init)
+    const body = await request.json() as { model: string; messages: Array<{ content: Array<{ text: string }> }> }
+    requests.push({ url: request.url, apiKey: request.headers.get('x-api-key'), model: body.model, prompt: body.messages.flatMap(message => message.content.map(part => part.text)).join('\n') })
+    return new Response(openRouterMessagesReply('sunplanner.test => direct-competitor'), { headers: { 'content-type': 'text/event-stream' } })
+  })
+  onTestFinished(resetSharedProviderExecutionGates)
+  await executeDiscoveryRun({ ...h.runOptions, classifierConfig: { providers: { openrouter: { apiKey: 'shared-classifier-key' } }, classification: { provider: 'openrouter', model: 'anthropic/claude-haiku-4.5' } } })
+  expect(requests).toHaveLength(1)
+  expect(requests[0]).toMatchObject({ url: 'https://openrouter.ai/api/v1/messages?beta=true', apiKey: 'shared-classifier-key', model: 'anthropic/claude-haiku-4.5' })
+  expect(requests[0]?.prompt).toContain('sunplanner.test')
+  expect(h.classification).toEqual([])
+  expect(h.tracked.map(item => item.provider)).toEqual(['gemini', 'gemini', 'gemini'])
+  expect(h.tracked.slice(1).map(item => item.input.query)).toEqual(['best solar quoting tool', 'best solar installer crm'])
+  expect(h.embeddingRequests).toHaveLength(1)
+  expect(h.embeddingRequests[0]).toMatchObject({ url: 'https://embedding.fixture.invalid/discovery/v1beta/models/gemini-embedding-001:batchEmbedContents', method: 'POST', apiKey: 'gemini-fixture-key', queries: ['best solar quoting tool', 'best solar installer crm'] })
+  expect(h.db.select().from(discoverySessions).get()?.competitorMap).toEqual([{ domain: 'sunplanner.test', hits: 1, competitorType: 'direct-competitor', evaluator: { provider: 'openrouter', requestedModel: 'anthropic/claude-haiku-4.5', servedModel: null, promptVersion: 'domain-category-v1' } }])
 })
 
 it.each([

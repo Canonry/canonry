@@ -39,6 +39,16 @@ subtle borders, no visual noise.
 
 ## Patterns
 
+### OpenRouter sweep models
+
+Global Settings stores one OpenRouter key and quota. Project Answer engines and
+the first-sweep setup select concrete models through the same picker. The bare
+`openrouter` connection never counts as an automatically selected sweep engine.
+Each `openrouter:<vendor/model>` selection keeps its own checkbox, result row,
+filter value and comparison history; use `providerDisplayName` to identify the
+model via OpenRouter alongside direct providers. Search behavior is automatic,
+with no search-backend controls. Aero and classifiers choose their own models.
+
 ### Build workflow
 
 `pnpm --filter @ainyc/canonry-web build` builds into a temporary directory before updating `dist/`.

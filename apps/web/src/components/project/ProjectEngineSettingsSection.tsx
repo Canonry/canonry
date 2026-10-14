@@ -12,7 +12,8 @@ import {
 } from '../../lib/site-audit-page-budget.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { Button } from '../ui/button.js'
-import { describeError, RunKinds, SITE_AUDIT_MAX_PAGE_LIMIT, SITE_AUDIT_ONBOARDING_PAGE_LIMIT, siteAuditPageBudgetSchema } from '@ainyc/canonry-contracts'
+import { describeError, isOpenRouterRoute, openRouterRouteModel, openRouterRouteName, providerConnectionName, RunKinds, SITE_AUDIT_MAX_PAGE_LIMIT, SITE_AUDIT_ONBOARDING_PAGE_LIMIT, siteAuditPageBudgetSchema } from '@ainyc/canonry-contracts'
+import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 
 type EngineProject = Pick<ApiProject, 'name' | 'providers' | 'providerModels'>
 type EngineSave = Pick<ApiProject, 'providers' | 'providerModels'>
@@ -28,6 +29,59 @@ function sameModels(left: Record<string, string>, right: Record<string, string>)
     const other = rightEntries[index]
     return other?.[0] === provider && other[1] === model
   })
+}
+
+/** Concrete sweep models share the connection, but each remains a separate selection. */
+function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = false }: {
+  catalog: { knownModels: readonly { id: string; displayName: string }[]; modelValidationPattern: { source: string; flags: string }; modelValidationHint: string }
+  selected: readonly string[]
+  onAdd: (providers: string[]) => void
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [draft, setDraft] = useState<string[]>([])
+  const [manual, setManual] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const id = useId()
+  const matches = catalog.knownModels.filter(model => `${model.displayName} ${model.id}`.toLowerCase().includes(search.toLowerCase()))
+  const candidates = draft.filter(route => !selected.includes(route))
+  function addManual() {
+    const model = manual.trim()
+    if (!new RegExp(catalog.modelValidationPattern.source, catalog.modelValidationPattern.flags).test(model)) {
+      setError(catalog.modelValidationHint)
+      return
+    }
+    let route: string
+    try {
+      route = openRouterRouteName(model)
+    } catch (cause) {
+      setError(describeError(cause))
+      return
+    }
+    setDraft(current => [...new Set([...current, route])])
+    setManual('')
+    setError(null)
+  }
+  return <div className="space-y-3">
+    <Button type="button" variant="outline" disabled={disabled} aria-expanded={open} aria-controls={id} onClick={() => { setOpen(value => !value); setDraft([]); setError(null) }}>Add models</Button>
+    {open && <div id={id} role="group" aria-label="Add OpenRouter models" className="space-y-3 border-y border-default py-3">
+      <label className="block text-sm text-secondary">Search OpenRouter models<input className="setup-input mt-1 w-full" type="search" value={search} onChange={event => setSearch(event.target.value)} /></label>
+      <fieldset disabled={disabled} className="max-h-64 overflow-y-auto divide-y divide-default">
+        <legend className="sr-only">OpenRouter models</legend>
+        {matches.map(model => {
+          const route = openRouterRouteName(model.id)
+          const added = selected.includes(route)
+          return <label key={model.id} className="flex min-h-11 items-center gap-3 py-2 text-sm text-secondary"><input type="checkbox" aria-label={`${model.displayName} ${model.id}`} checked={added || draft.includes(route)} disabled={added} onChange={event => setDraft(current => event.target.checked ? [...current, route] : current.filter(value => value !== route))} /><span className="min-w-0"><span className="block text-heading">{model.displayName}</span><span className="block break-all text-sm">{model.id}</span></span>{added && <span className="ml-auto">Added</span>}</label>
+        })}
+        {matches.length === 0 && <p className="py-3 text-sm text-secondary">No matching models. Add a model ID below.</p>}
+      </fieldset>
+      <div className="flex flex-wrap items-end gap-2"><label className="min-w-0 flex-1 text-sm text-secondary">Model ID<input className="setup-input mt-1 w-full" value={manual} placeholder="vendor/model" onChange={event => setManual(event.target.value)} /></label><Button type="button" variant="outline" disabled={disabled || !manual.trim()} onClick={addManual}>Include model ID</Button></div>
+      {draft.filter(route => !catalog.knownModels.some(model => openRouterRouteName(model.id) === route)).map(route => <p key={route} className="break-all text-sm text-secondary">{openRouterRouteModel(route)} selected</p>)}
+      {error && <p role="alert" className="text-sm text-negative">{error}</p>}
+      <div className="flex gap-2"><Button type="button" disabled={disabled || candidates.length === 0} onClick={() => { onAdd(candidates); setOpen(false); setDraft([]) }}>Add {candidates.length} {candidates.length === 1 ? 'model' : 'models'}</Button><Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button></div>
+    </div>}
+  </div>
 }
 
 /**
@@ -53,6 +107,7 @@ export function ProjectEngineSettingsSection({
   })
   const [automatic, setAutomatic] = useState(project.providers.length === 0)
   const [selected, setSelected] = useState<string[]>(project.providers)
+  const [addedRoutes, setAddedRoutes] = useState<string[]>(project.providers.filter(isOpenRouterRoute))
   const [models, setModels] = useState<Record<string, string>>(() => copyModels(project.providerModels))
   const [saved, setSaved] = useState<EngineSave>({ providers: project.providers, providerModels: copyModels(project.providerModels) })
   const [saving, setSaving] = useState(false)
@@ -66,21 +121,22 @@ export function ProjectEngineSettingsSection({
   const customInput = useRef<HTMLInputElement>(null)
 
   const catalog = settings.data?.providerCatalog ?? []
+  const openRouterCatalog = catalog.find(provider => provider.name === 'openrouter')
   const configured = useMemo(
     () => new Set((settings.data?.providers ?? []).filter(provider => provider.configured).map(provider => provider.name)),
     [settings.data],
   )
   const rows = useMemo(() => {
     const instanceModels = new Map(settings.data?.providers.map(provider => [provider.name, provider.model]))
-    const known = new Map(catalog.map(entry => [entry.name, { ...entry, defaultModel: instanceModels.get(entry.name) || entry.defaultModel }]))
-    for (const provider of Object.keys(models)) {
+    const known = new Map(catalog.filter(entry => entry.name !== 'openrouter' && (!isOpenRouterRoute(entry.name) || addedRoutes.includes(entry.name) || selected.includes(entry.name))).map(entry => [entry.name, { ...entry, defaultModel: instanceModels.get(entry.name) || entry.defaultModel }]))
+    for (const provider of [...Object.keys(models), ...addedRoutes, ...selected]) {
       if (!known.has(provider)) {
         known.set(provider, {
           name: provider,
-          displayName: provider,
+          displayName: providerDisplayName(provider),
           mode: 'api' as const,
-          modelConfigurable: true,
-          defaultModel: '',
+          modelConfigurable: !isOpenRouterRoute(provider),
+          defaultModel: openRouterRouteModel(provider) ?? '',
           knownModels: [],
           modelValidationPattern: { source: '.', flags: '' },
           modelValidationHint: 'Validate this custom model ID with the server.',
@@ -88,7 +144,7 @@ export function ProjectEngineSettingsSection({
       }
     }
     return [...known.values()].sort((a, b) => a.displayName.localeCompare(b.displayName))
-  }, [catalog, models, settings.data?.providers])
+  }, [catalog, models, settings.data?.providers, addedRoutes, selected])
   const hasModelChange = !sameModels(models, saved.providerModels)
 
   useEffect(() => {
@@ -102,6 +158,7 @@ export function ProjectEngineSettingsSection({
     setSaved(next)
     setAutomatic(next.providers.length === 0)
     setSelected(next.providers)
+    setAddedRoutes(next.providers.filter(isOpenRouterRoute))
     setModels(next.providerModels)
   }, [project])
 
@@ -110,7 +167,7 @@ export function ProjectEngineSettingsSection({
     setAutomatic(false)
     // Preserve a previous explicit draft during this edit session. First entry
     // materializes from the currently configured catalogue.
-    if (selected.length === 0) setSelected([...configured])
+    if (selected.length === 0) setSelected([...configured].filter(name => name !== 'openrouter'))
   }
 
   function setModel(provider: string, value: string, currentIsKnown = false) {
@@ -137,6 +194,7 @@ export function ProjectEngineSettingsSection({
     setEditing(false)
     setAutomatic(saved.providers.length === 0)
     setSelected(saved.providers)
+    setAddedRoutes(saved.providers.filter(isOpenRouterRoute))
     setModels(copyModels(saved.providerModels))
     setError(null)
     setNotice(null)
@@ -194,7 +252,7 @@ export function ProjectEngineSettingsSection({
   }
 
   return (
-    <section className="project-engine-settings" aria-busy={saving}>
+    <section id="answer-engines" className="project-engine-settings scroll-mt-24" aria-busy={saving}>
       <div className="section-head section-head-inline">
         <div><p className="eyebrow eyebrow-soft">Execution</p><h2>Answer engines</h2></div>
         <p className="supporting-copy">Changes apply on the next sweep.</p>
@@ -208,7 +266,7 @@ export function ProjectEngineSettingsSection({
           <div className="project-engine-list">
             {rows.map(provider => {
               const checked = selected.includes(provider.name)
-              const configuredNow = configured.has(provider.name)
+              const configuredNow = configured.has(providerConnectionName(provider.name))
               const stale = checked && !configuredNow
               const model = models[provider.name]
               const known = provider.knownModels.some(item => item.id === model)
@@ -227,12 +285,13 @@ export function ProjectEngineSettingsSection({
                       {selectValue === '__custom__' && <input ref={customInput} aria-label={`${provider.displayName} custom model ID`} value={model ?? ''} onChange={event => { setEditing(true); setModels(current => ({ ...current, [provider.name]: event.target.value })) }} aria-describedby={`project-model-hint-${provider.name}`} />}
                       <p id={`project-model-hint-${provider.name}`} className="project-engine-help">{model ? 'Project override' : 'Inherited from instance settings'}. {provider.modelValidationHint}</p>
                     </div>
-                  ) : <p className="project-engine-help">Model is detected/fixed for this browser engine.</p>)}
+                  ) : <p className="project-engine-help">{isOpenRouterRoute(provider.name) ? provider.defaultModel : 'Model is detected/fixed for this browser engine.'}</p>)}
                 </div>
               )
             })}
           </div>
         )}
+        {openRouterCatalog && configured.has('openrouter') && <div className="border-t border-default pt-3"><h3 className="mb-3 text-sm font-medium text-heading">OpenRouter models</h3><OpenRouterModelPicker catalog={openRouterCatalog} selected={selected} disabled={saving} onAdd={routes => { setEditing(true); setAutomatic(false); setAddedRoutes(current => [...new Set([...current, ...routes])]); setSelected(current => [...new Set([...(automatic ? [...configured].filter(name => name !== 'openrouter') : current), ...routes])]) }} /></div>}
       </fieldset>
       {!automatic && selected.length === 0 && <p role="alert" className="text-sm text-negative-400">Choose at least one configured engine.</p>}
       {error && <p role="alert" className="text-sm text-negative-400">{error}</p>}

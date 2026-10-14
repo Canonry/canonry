@@ -21,13 +21,13 @@ import {
 import { aeroModels } from '../src/agent/pi-models.js'
 
 describe('agent provider registry', () => {
-  it('registers exactly claude, openai, gemini and zai', () => {
-    expect([...listAgentProviders()].sort()).toEqual(['claude', 'gemini', 'openai', 'zai'])
-    expect(Object.keys(AGENT_PROVIDERS).sort()).toEqual(['claude', 'gemini', 'openai', 'zai'])
+  it('registers direct providers and OpenRouter', () => {
+    expect([...listAgentProviders()].sort()).toEqual(['claude', 'gemini', 'openai', 'openrouter', 'zai'])
+    expect(Object.keys(AGENT_PROVIDERS).sort()).toEqual(['claude', 'gemini', 'openai', 'openrouter', 'zai'])
   })
 
-  it('auto-detects in the order claude, openai, gemini, zai', () => {
-    expect(agentProvidersByPriority()).toEqual(['claude', 'openai', 'gemini', 'zai'])
+  it('auto-detects in the order claude, openai, gemini, zai, openrouter', () => {
+    expect(agentProvidersByPriority()).toEqual(['claude', 'openai', 'gemini', 'zai', 'openrouter'])
   })
 
   it('every provider resolves from the pi-ai catalog under its own vendor id', () => {
@@ -193,6 +193,7 @@ describe('resolveApiKeySource', () => {
       openai: 'OPENAI_API_KEY',
       gemini: 'GEMINI_API_KEY',
       zai: 'ZAI_API_KEY',
+      openrouter: 'OPENROUTER_API_KEY',
     })
   })
 

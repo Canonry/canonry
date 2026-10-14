@@ -9,7 +9,7 @@ consume Canonry through the external-agent webhook.
 
 - **CLI**: `canonry agent ask <project> "<prompt>"` — one-shot turn. Streams
   `AgentEvent` lines to stdout (or JSON with `--format json`). Supports
-  `--provider claude|openai|gemini|zai` and `--model <id>`. `zai` is
+  `--provider claude|openai|gemini|zai|openrouter` and `--model <id>`. `zai` is
   agent-only. Every provider resolves its models from pi-ai's catalog and
   authenticates with that vendor's own key (a proxied deployment can route
   Gemini through `GEMINI_BASE_URL` or Z.ai through `ZAI_BASE_URL`). The `deepinfra` provider was removed:
@@ -368,6 +368,16 @@ self-starting), and `disabled` (off entirely).
 `AGENT_PROVIDERS[x].defaultModel` derives from the agent tier
 (`validateAgentProviderRegistry` throws if they desync). Every provider resolves
 models from pi-ai's catalog.
+
+OpenRouter uses `providers.openrouter.apiKey` or `OPENROUTER_API_KEY` for Aero,
+domain categorization and routed Jev. Aero defaults to the provider's agent tier;
+`agent.model` never inherits the model selected for visibility sweeps.
+`aeroStreamFn` retains the shared OpenRouter connection slot until the stream's
+terminal result. `completeOnce` shares that gate across model routes; canceled
+queued calls are removed before dispatch. Other providers retain their transport.
+Discovery's independent `classification.provider` / `classification.model` selects
+the generative classify tier. Sentiment has its own pinned decision evaluator and
+does not use the generative classify tier. See `docs/sentiment.md`.
 
 A session persists its provider and model id as provenance. Future
 default-model upgrades use a new versioned migration rather than repeatedly

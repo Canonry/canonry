@@ -8,6 +8,8 @@ import {
   RunKinds,
   RunTriggers,
   resolveProviderModel,
+  isProviderAvailable,
+  providerConnectionName,
   type RunCompletenessDto,
   type RunFillDto,
   type RunFillRefusalCode,
@@ -197,8 +199,8 @@ export function evaluateRunFill(db: DatabaseClient, run: RunRow, input: RunFillI
   }
 
   if (input.runnableProviders) {
-    const runnable = new Set(input.runnableProviders.map(normalizeProvider))
-    const absent = providers.filter(provider => !runnable.has(provider))
+    const runnable = input.runnableProviders.map(normalizeProvider)
+    const absent = providers.filter(provider => !isProviderAvailable(provider, runnable))
     if (absent.length) {
       return refuse(RunFillRefusalCodes.provider_not_configured,
         `${absent.join(', ')} is not configured on this instance, so its missing answers cannot run.`)
@@ -209,10 +211,14 @@ export function evaluateRunFill(db: DatabaseClient, run: RunRow, input: RunFillI
     // The executor would reserve these at dispatch and fail the fill; saying
     // so here keeps a 202 from promising work that cannot start.
     const period = new Date(now).toISOString().slice(0, 10)
+    const neededByConnection = new Map<string, number>()
     for (const provider of providers) {
+      const connection = providerConnectionName(provider)
+      neededByConnection.set(connection, (neededByConnection.get(connection) ?? 0) + (missingByProvider.get(provider)?.length ?? 0))
+    }
+    for (const [provider, needed] of neededByConnection) {
       const limit = input.dailyLimits[provider]
       if (limit === undefined) continue
-      const needed = missingByProvider.get(provider)?.length ?? 0
       const used = db.select({ count: usageCounters.count }).from(usageCounters).where(and(
         eq(usageCounters.scope, `${run.projectId}:${provider}`),
         eq(usageCounters.period, period),

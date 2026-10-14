@@ -18,9 +18,9 @@ const settings = {
   google: { configured: false }, bing: { configured: false },
 }
 
-function renderSection(onSave = vi.fn().mockResolvedValue(undefined), project = { name: 'demo', providers: [] as string[], providerModels: {} as Record<string, string> }) {
+function renderSection(onSave = vi.fn().mockResolvedValue(undefined), project = { name: 'demo', providers: [] as string[], providerModels: {} as Record<string, string> }, catalogue = settings) {
   const restore = mockFetch(url => {
-    if (url.split('?')[0]!.endsWith('/settings')) return jsonResponse(settings)
+    if (url.split('?')[0]!.endsWith('/settings')) return jsonResponse(catalogue)
     throw new Error(`Unexpected fetch: ${url}`)
   })
   onTestFinished(restore)
@@ -28,6 +28,47 @@ function renderSection(onSave = vi.fn().mockResolvedValue(undefined), project = 
   render(<QueryClientProvider client={client}><ProjectEngineSettingsSection project={project} onSave={onSave} /></QueryClientProvider>)
   return onSave
 }
+
+test('adds several concrete OpenRouter models beside direct Gemini, without selecting the connection', async () => {
+  const onSave = renderSection(undefined, { name: 'demo', providers: [], providerModels: {} }, {
+    ...settings,
+    providers: [...settings.providers, { name: 'openrouter', displayName: 'OpenRouter', configured: true }],
+    providerCatalog: [...settings.providerCatalog, {
+      name: 'openrouter', displayName: 'OpenRouter', mode: 'api', modelConfigurable: true,
+      defaultModel: '', knownModels: [
+        { id: 'google/gemini-model', displayName: 'Gemini via OpenRouter', tier: 'standard' },
+        { id: 'anthropic/claude-model', displayName: 'Claude via OpenRouter', tier: 'flagship' },
+      ], modelValidationPattern: { source: '^[a-z0-9._-]+/[a-z0-9._:-]+$', flags: '' }, modelValidationHint: 'Use a vendor/model ID.',
+    }],
+  })
+  fireEvent.click(await screen.findByRole('button', { name: 'Add models', exact: true }))
+  fireEvent.click(screen.getByRole('checkbox', { name: /Gemini via OpenRouter google\/gemini-model/ }))
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search OpenRouter models' }), { target: { value: 'claude' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: /Claude via OpenRouter anthropic\/claude-model/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add 2 models' }))
+  expect(screen.getByRole('checkbox', { name: 'Gemini' })).toHaveProperty('checked', true)
+  expect(screen.getByRole('checkbox', { name: 'google/gemini-model via OpenRouter' })).toHaveProperty('checked', true)
+  expect(screen.getByRole('checkbox', { name: 'anthropic/claude-model via OpenRouter' })).toHaveProperty('checked', true)
+  fireEvent.click(screen.getByRole('button', { name: 'Save engines' }))
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith({ providers: ['gemini', 'openrouter:google/gemini-model', 'openrouter:anthropic/claude-model'], providerModels: {} }))
+})
+
+test('manual OpenRouter models remain selectable after saving and classifier-only routes are refused', async () => {
+  const onSave = renderSection(undefined, { name: 'demo', providers: ['openrouter:vendor/saved-model'], providerModels: {} }, {
+    ...settings, providers: [...settings.providers, { name: 'openrouter', displayName: 'OpenRouter', configured: true }],
+    providerCatalog: [...settings.providerCatalog, { name: 'openrouter', displayName: 'OpenRouter', mode: 'api', modelConfigurable: true, defaultModel: '', knownModels: [], modelValidationPattern: { source: '^[a-z0-9._-]+/[a-z0-9._:-]+$', flags: '' }, modelValidationHint: 'Use a vendor/model ID.' }],
+  })
+  expect(await screen.findByRole('checkbox', { name: 'vendor/saved-model via OpenRouter' })).toHaveProperty('checked', true)
+  fireEvent.click(screen.getByRole('button', { name: 'Add models', exact: true }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Model ID' }), { target: { value: 'typesafe/jev-1.13' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Include model ID' }))
+  expect(screen.getByRole('alert').textContent).toContain('fixed vendor/model slug')
+  fireEvent.change(screen.getByRole('textbox', { name: 'Model ID' }), { target: { value: 'vendor/new-model' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Include model ID' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add 1 model' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save engines' }))
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith({ providers: ['openrouter:vendor/saved-model', 'openrouter:vendor/new-model'], providerModels: {} }))
+})
 
 test('automatic providers serialize as an empty list and choose mode materializes configured engines', async () => {
   const onSave = renderSection()

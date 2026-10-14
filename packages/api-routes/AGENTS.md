@@ -55,6 +55,13 @@ Every API operation carries `x-canonry-access` metadata and responses expose the
 
 ## Patterns
 
+### OpenRouter measurement routes
+
+OpenRouter credentials belong to the `openrouter` connection. Sweeps select fixed `openrouter:vendor/model` routes; the connection alone is excluded from automatic sweeps. `provider-models.ts` resolves route descriptors from the connection metadata, and `/settings` exposes both the connection and selectable model routes through the existing catalog. Model routes keep independent snapshot/manifest identities while account admission and fill quotas share `providerConnectionName` from contracts. `run-queue.ts` and the draft compiler freeze each route's model and reject conflicting overrides.
+
+Adding a routed model is model selection and requires `settings.write` through `assertOpenRouterRouteScope`. Runs, query generation, schedules, research and Advanced contexts may select routes already saved on that project with their normal action scope. Draft edits preserve previously authorized routes; publishing a route outside the project's saved roster requires model-choice authority.
+Ad hoc `/snapshot` has no saved project roster, so any explicit OpenRouter route requires `settings.write`.
+
 ### Run admission
 
 Visibility admission is locked by `(projectId, kind)` in `queueRunIfProjectIdle`

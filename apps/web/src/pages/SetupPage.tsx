@@ -7,6 +7,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ONBOARDING_FLOW_VERSION,
   bucketOnboardingCount,
+  isOpenRouterRoute,
+  openRouterRouteModel,
   type OnboardingTelemetryEvent,
 } from '@ainyc/canonry-contracts'
 
@@ -17,6 +19,8 @@ import { OnboardingProgress } from '../components/shared/OnboardingProgress.js'
 import { NextSteps } from '../components/shared/NextSteps.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { ProviderConfigForm } from '../components/settings/ProviderConfigForm.js'
+import { ProjectEngineSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
+import { providerDisplayName } from '../lib/visibility-trend-helpers.js'
 import { addToast } from '../lib/toast-store.js'
 import {
   createProject,
@@ -24,6 +28,7 @@ import {
   setCompetitors,
   generateQueries as apiGenerateQueries,
   updateProviderConfig,
+  updateProject,
   fetchQueries,
   heyClient,
   recordOnboardingEvent,
@@ -309,6 +314,8 @@ function ReadySetupPage({
   const healthQuery = useHealth(enableLiveStatus, initialHealth)
   const healthSnapshot = healthQuery.data ?? initialHealth ?? { apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' }, workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' } }
   const model = buildSetupModel(safeDashboard.setup, healthSnapshot, settings)
+  const openRouterConnected = settings.providerStatuses.some(provider => provider.name === 'openrouter' && provider.state === 'ready')
+  const connectionSetupReady = model.launchState.enabled || (openRouterConnected && model.healthChecks.every(check => check.state === 'ready' || check.id === 'provider'))
   const isProjectScoped = Boolean(visibilityProjectName)
 
   const navigate = useNavigate()
@@ -361,7 +368,7 @@ function ReadySetupPage({
   const initialResumeStep: SetupStep = isProjectScoped
     ? 2
     : deriveSetupStep({
-        launchReady: model.launchState.enabled,
+        launchReady: connectionSetupReady,
         hasProject: !!resumeProject,
         queryCount: durableQueryCount,
         competitorCount: durableCompetitors.length,
@@ -386,6 +393,7 @@ function ReadySetupPage({
   const [language, setLanguage] = useState(resumeProject?.project.language ?? 'en')
   const [autoExtractBacklinks, setAutoExtractBacklinks] = useState(resumeProject?.project.autoExtractBacklinks ?? false)
   const [createdProjectName, setCreatedProjectName] = useState<string | null>(resumeProject?.project.name ?? null)
+  const [setupEngineProject, setSetupEngineProject] = useState(resumeProject?.project ?? null)
   const [projectError, setProjectError] = useState<string | null>(null)
   const [projectSaving, setProjectSaving] = useState(false)
 
@@ -429,8 +437,11 @@ function ReadySetupPage({
   const [queriesSaving, setQueriesSaving] = useState(false)
   const [queriesGenerated, setQueriesGenerated] = useState(false)
 
-  const readyProviders = settings.providerStatuses.filter(p => p.state === 'ready')
-  const projectProviders = resumeProject?.project.providers.map(normalizeProviderName) ?? []
+  const projectProviders = (setupEngineProject?.providers ?? resumeProject?.project.providers ?? []).map(normalizeProviderName)
+  const readyProviders = [
+    ...settings.providerStatuses.filter(provider => provider.state === 'ready' && provider.name !== 'openrouter'),
+    ...(openRouterConnected ? projectProviders.filter(isOpenRouterRoute).map(name => ({ name, displayName: providerDisplayName(name), model: openRouterRouteModel(name), state: 'ready' as const, detail: 'OpenRouter model configured.' })) : []),
+  ]
   const runnableApiProviders = readyProviders.filter(provider => (
     projectProviders.length === 0 || projectProviders.includes(normalizeProviderName(provider.name))
   ))
@@ -480,6 +491,8 @@ function ReadySetupPage({
       configuredApiProviders,
       cdpConfigured,
     })
+  const openRouterModelsNeeded = openRouterConnected && projectProviders.length === 0 && providerReadiness === false
+  const providerNeedsConnection = providerReadiness === false && !openRouterModelsNeeded
   const runnableProviderCount = runnableApiProviders.length + (cdpConfigured === true ? 1 : 0)
   const [selectedProvider, setSelectedProvider] = useState(runnableApiProviders[0]?.name ?? '')
   const [generateCount, setGenerateCount] = useState(5)
@@ -499,7 +512,7 @@ function ReadySetupPage({
   const [researchCopyError, setResearchCopyError] = useState(false)
   const configurableProviders = settings.providerStatuses.filter(provider => (
     normalizeProviderName(provider.name) !== CDP_PROVIDER_NAME
-    && (projectProviders.length === 0 || projectProviders.includes(normalizeProviderName(provider.name)))
+    && (projectProviders.length === 0 || projectProviders.includes(normalizeProviderName(provider.name)) || (provider.name === 'openrouter' && projectProviders.some(isOpenRouterRoute)))
   ))
   const providerToConfigure = configurableProviders.find(provider => provider.name === configuringProvider)
     ?? configurableProviders.find(provider => provider.state !== 'ready')
@@ -729,6 +742,7 @@ function ReadySetupPage({
         autoExtractBacklinks,
       })
       setCreatedProjectName(slug)
+      setSetupEngineProject(project)
       addToast({
         title: 'Project created',
         detail: `${project.displayName || project.name} is ready for setup.`,
@@ -1042,7 +1056,7 @@ function ReadySetupPage({
       Check again
     </Button>
   ) : null
-  const providerFormVisible = (providerReadiness === false || showProviderConfig) && !!providerToConfigure
+  const providerFormVisible = (providerNeedsConnection || showProviderConfig) && !!providerToConfigure
   const providerSetup = isProjectScoped && (step === 2 || step === 4) ? (
     !isAdmin ? (
       <section aria-labelledby="setup-provider-heading" className="space-y-2 border-b border-default pb-6 mb-6">
@@ -1076,10 +1090,10 @@ function ReadySetupPage({
     <section aria-labelledby="setup-provider-heading" className="space-y-3 border-b border-default pb-6 mb-6">
       <div className="flex flex-wrap items-center gap-3">
         <h2 id="setup-provider-heading" className="text-lg font-semibold text-heading">
-          {providerReadiness === false ? 'Connect a provider' : 'Answer engine provider'}
+          {openRouterModelsNeeded ? 'Choose sweep models' : providerNeedsConnection ? 'Connect a provider' : 'Answer engine provider'}
         </h2>
         <ToneBadge tone={providerReadiness === true ? 'positive' : 'neutral'}>
-          {providerReadiness === true ? 'Configured' : providerReadiness === false ? 'Not connected' : 'Checking'}
+          {providerReadiness === true ? 'Configured' : openRouterModelsNeeded ? 'Models needed' : providerNeedsConnection ? 'Not connected' : 'Checking'}
         </ToneBadge>
       </div>
       <p className="max-w-prose text-sm text-secondary">
@@ -1087,11 +1101,13 @@ function ReadySetupPage({
           ? runnableApiProviders.length > 0
             ? `${runnableApiProviders.map(provider => provider.displayName ?? provider.name).join(', ')} available for this project. Research and sweeps use your provider account.`
             : 'ChatGPT in Chrome is configured for sweeps. Query Research needs an API provider.'
-          : providerReadiness === false
+          : openRouterModelsNeeded
+            ? 'OpenRouter is connected. Choose models before your first sweep. You can save queries now.'
+          : providerNeedsConnection
             ? 'An answer engine is required for visibility sweeps. You can save queries now and connect later.'
             : 'Checking available providers. You can choose queries while this finishes.'}
       </p>
-      {providerReadiness === false || showProviderConfig ? (
+      {providerNeedsConnection || showProviderConfig ? (
         providerToConfigure ? (
           <div>
             <ProviderConfigForm
@@ -1136,7 +1152,7 @@ function ReadySetupPage({
         )
       ) : null}
       <div className="flex flex-wrap items-center gap-2">
-        {providerReadiness === true && !showProviderConfig && providerToConfigure ? (
+        {(providerReadiness === true || openRouterModelsNeeded) && !showProviderConfig && providerToConfigure ? (
           <Button type="button" variant="outline" size="sm" onClick={() => setShowProviderConfig(true)}>
             Configure a provider
           </Button>
@@ -1169,7 +1185,7 @@ function ReadySetupPage({
                 <div key={check.id} className="health-check-row">
                   <div>
                     <p className="run-row-title">{check.label}</p>
-                    <p className="supporting-copy">{check.detail}</p>
+                    <p className="supporting-copy">{check.id === 'provider' && openRouterConnected ? 'OpenRouter connected. Choose models before your first sweep.' : check.detail}</p>
                     {check.id === 'provider' && check.state !== 'ready' && (
                       <div className="mt-3 rounded-md border border-default bg-bg-elevated/40 p-3 space-y-2">
                         <p className="text-xs text-secondary">
@@ -1215,6 +1231,7 @@ function ReadySetupPage({
                           </Link>
                           .
                         </p>
+                        {settings.providerStatuses.some(provider => provider.name === 'openrouter') && <details><summary className="min-h-11 cursor-pointer py-3 text-sm text-link">Connect OpenRouter</summary><ProviderConfigForm providerName="openrouter" compact keyUrl={settings.providerStatuses.find(provider => provider.name === 'openrouter')?.keyUrl} onSaved={() => { void refetch() }} /></details>}
                       </div>
                     )}
                   </div>
@@ -1241,7 +1258,7 @@ function ReadySetupPage({
               ) : <span />}
               <Button
                 type="button"
-                disabled={!model.launchState.enabled}
+                disabled={!connectionSetupReady}
                 title={model.launchState.blockedReason}
                 onClick={() => {
                   emitOnboardingEvent({
@@ -1766,6 +1783,7 @@ function ReadySetupPage({
 
       <section className="setup-wizard">
         {providerSetup}
+        {step === 4 && !runTriggered && isAdmin && openRouterConnected && setupEngineProject && <ProjectEngineSettingsSection project={setupEngineProject} onSave={async next => { const project = await updateProject(setupEngineProject.name, next); setSetupEngineProject(project); await refetch() }} />}
         {stepContent}
       </section>
     </div>

@@ -68,6 +68,17 @@ test('getPlatformEnv configures multiple providers', () => {
   expect(env.providers.claude!.apiKey).toBe('claude-key')
 })
 
+test('OpenRouter shares trimmed identity while bootstrap preserves saved model and quotas', () => {
+  const source = { OPENROUTER_API_KEY: ' shared-key\r', OPENROUTER_MODEL: ' google/gemini-3.8-flash ', OPENROUTER_MAX_CONCURRENCY: '3', OPENROUTER_MAX_REQUESTS_PER_MINUTE: '20', OPENROUTER_MAX_REQUESTS_PER_DAY: '600' }
+  expect(getPlatformEnv(source).providers.openrouter).toEqual({ apiKey: 'shared-key', model: 'google/gemini-3.8-flash', quota: { maxConcurrency: 3, maxRequestsPerMinute: 20, maxRequestsPerDay: 600 } })
+  expect(getBootstrapEnv(source).providers.openrouter).toEqual({ apiKey: 'shared-key', model: 'google/gemini-3.8-flash' })
+  const bootstrap = getBootstrapEnv({ OPENROUTER_API_KEY: 'shared-key' }).providers.openrouter!
+  expect(bootstrap.model).toBeUndefined()
+  expect(bootstrap.quota).toBeUndefined()
+  expect(withBootstrapProviderDefaults('openrouter', bootstrap)).toMatchObject({ model: 'google/gemini-3.8-flash', quota: { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 500 } })
+  expect(getPlatformEnv({ OPENROUTER_API_KEY: '   ' }).providers.openrouter).toBeUndefined()
+})
+
 test('Muse env trims key, model, and endpoint; quotas come from env on the platform only', () => {
   const source = {
     MUSE_API_KEY: ' canonical-key\r', MUSE_MODEL: 'muse-spark-1.3 ', MUSE_BASE_URL: ' https://muse-proxy.example/v1\r',

@@ -32,6 +32,7 @@ import {
   TrafficSourceTypes,
   bucketDuration,
   describeError,
+  providerConnectionName,
   type IntegrationName,
   type InstallStateProperties,
 } from '@ainyc/canonry-contracts'
@@ -144,8 +145,10 @@ function buildInstallState(sources: InstallStateSources, now: number, startedAt:
 
   const providerCalls = new Map<ProviderName, number>()
   const addCalls = (provider: string | null, calls: number) => {
-    if (!provider || !KNOWN_PROVIDERS.has(provider) || calls <= 0) return
-    providerCalls.set(provider as ProviderName, (providerCalls.get(provider as ProviderName) ?? 0) + calls)
+    if (!provider || calls <= 0) return
+    const connection = providerConnectionName(provider)
+    if (!KNOWN_PROVIDERS.has(connection)) return
+    providerCalls.set(connection as ProviderName, (providerCalls.get(connection as ProviderName) ?? 0) + calls)
   }
 
   // Sweep and fill answers, with the usage and price each one stored.

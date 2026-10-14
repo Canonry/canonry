@@ -8,6 +8,8 @@ import {
 } from '@earendil-works/pi-ai'
 import { builtinModels } from '@earendil-works/pi-ai/providers/all'
 import type { StreamFn } from '@earendil-works/pi-agent-core'
+import { ProviderIds } from '@ainyc/canonry-contracts'
+import { getSharedProviderExecutionGate } from '../provider-execution-gate.js'
 
 /**
  * The one pi-ai model collection Canonry streams through: every built-in
@@ -72,14 +74,26 @@ function canonryDefaults(model: Model<Api>, options: SimpleStreamOptions | undef
 }
 
 /** The Agent's stream function. pi-agent-core 0.81 no longer supplies a default. */
-export const aeroStreamFn: StreamFn = (model, context, options) =>
-  aeroModels.streamSimple(model, context, canonryDefaults(model, options))
+export const aeroStreamFn: StreamFn = (model, context, options) => {
+  if (model.provider !== ProviderIds.openrouter) return aeroModels.streamSimple(model, context, canonryDefaults(model, options))
+  // Resolve the stream as soon as it starts; retain connection capacity until its terminal result.
+  return new Promise<ReturnType<typeof aeroModels.streamSimple>>((resolve, reject) => {
+    void getSharedProviderExecutionGate(ProviderIds.openrouter, 2, 10).run(async () => {
+      const stream = aeroModels.streamSimple(model, context, canonryDefaults(model, options))
+      resolve(stream)
+      await stream.result()
+    }, options?.signal).catch(reject)
+  })
+}
 
 /** One-shot, non-streaming call (compaction summaries, recommendation explanations). */
 export function completeOnce(
   model: Model<Api>,
   context: Context,
-  options: { apiKey?: string } = {},
+  options: { apiKey?: string; signal?: AbortSignal } = {},
 ): Promise<AssistantMessage> {
+  if (model.provider === ProviderIds.openrouter) return getSharedProviderExecutionGate(ProviderIds.openrouter, 2, 10).run(
+    () => aeroModels.complete(model, context, canonryDefaults(model, options)), options.signal,
+  )
   return aeroModels.complete(model, context, canonryDefaults(model, options))
 }

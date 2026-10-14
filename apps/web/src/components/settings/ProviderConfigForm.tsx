@@ -21,6 +21,7 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
 }) {
   const queryClient = useQueryClient()
   const isLocal = providerName.toLowerCase() === 'local'
+  const isOpenRouter = providerName.toLowerCase() === 'openrouter'
   const showGeminiFreeTier = compact && providerName.toLowerCase() === 'gemini' && !!keyUrl
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
@@ -90,7 +91,7 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
 
   const optionalFields = (
     <>
-      <div className={compact ? 'space-y-1.5' : undefined}>
+      {!isOpenRouter && <div className={compact ? 'space-y-1.5' : undefined}>
         <label className={labelClassName} htmlFor={`model-${providerName}`}>Model (optional)</label>
         <input
           id={`model-${providerName}`}
@@ -100,7 +101,7 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
           value={model}
           onChange={(e) => setModel(e.target.value)}
         />
-      </div>
+      </div>}
       <div>
         <label className={labelClassName}>Quota (optional)</label>
         <div className="mt-0.5 grid grid-cols-3 gap-1.5">

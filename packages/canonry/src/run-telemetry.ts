@@ -6,6 +6,8 @@ import {
   compareText,
   extractProviderHttpStatus,
   median,
+  mostActionableProviderErrorCode,
+  providerConnectionName,
   summarizeRunUsage,
   type ProviderDispatchMode,
   type ProviderErrorCode,
@@ -141,7 +143,7 @@ export function buildRunCompletedProps(input: {
   const props: RunTelemetryProps = {
     status: input.status,
     providerCount: input.providerCount,
-    providers: [...input.providers],
+    providers: [...new Set(input.providers.map(providerConnectionName))],
     queryCount: input.queryCount,
     durationMs: totalMs,
   }
@@ -155,7 +157,8 @@ export function buildRunCompletedProps(input: {
 }
 
 function runUsageProps(answers: readonly RunAnswerUsage[]): Pick<RunTelemetryProps, 'providerCalls' | 'usage'> {
-  const counted = answers.filter(answer => KNOWN_PROVIDERS.has(answer.provider))
+  const counted = answers.map(answer => ({ ...answer, provider: providerConnectionName(answer.provider) }))
+    .filter(answer => KNOWN_PROVIDERS.has(answer.provider))
   if (counted.length === 0) return {}
   const providerCalls: Record<string, number> = {}
   for (const answer of [...counted].sort((left, right) => compareText(left.provider, right.provider))) {
@@ -176,9 +179,17 @@ function runUsageProps(answers: readonly RunAnswerUsage[]): Pick<RunTelemetryPro
 }
 
 function providerLatencyProps(latencies: ReadonlyMap<string, readonly number[]> | undefined): Pick<RunTelemetryProps, 'providerLatencyMs'> {
+  const byConnection = new Map<string, number[]>()
+  for (const [provider, values] of latencies ?? []) {
+    const connection = providerConnectionName(provider)
+    if (!KNOWN_PROVIDERS.has(connection)) continue
+    const samples = byConnection.get(connection) ?? []
+    samples.push(...values)
+    byConnection.set(connection, samples)
+  }
   const providerLatencyMs: Record<string, number> = {}
-  for (const [provider, values] of [...latencies ?? []].sort(([left], [right]) => compareText(left, right))) {
-    const middle = KNOWN_PROVIDERS.has(provider) ? median(values) : null
+  for (const [provider, values] of [...byConnection].sort(([left], [right]) => compareText(left, right))) {
+    const middle = median(values)
     if (middle !== null) providerLatencyMs[provider] = Math.max(0, Math.round(middle))
   }
   return Object.keys(providerLatencyMs).length > 0 ? { providerLatencyMs } : {}
@@ -285,20 +296,25 @@ export function buildProviderOutcomeProps(
 ): Pick<RunTelemetryProps, 'providerOutcomes' | 'providerHttpStatus'> {
   if (providerErrors.size === 0 && skippedProviders.length === 0) return {}
   const skipped = new Set(skippedProviders)
-  const names = [...new Set([...providers, ...providerErrors.keys(), ...skipped])].slice(0, MAX_NESTED_KEYS)
+  const grouped = new Map<string, string[]>()
+  for (const provider of new Set([...providers, ...providerErrors.keys(), ...skipped])) {
+    const name = providerConnectionName(provider)
+    grouped.set(name, [...(grouped.get(name) ?? []), provider])
+  }
   const providerOutcomes: Record<string, ProviderOutcome> = {}
   const providerHttpStatus: Record<string, number> = {}
-  for (const name of names) {
-    if (skipped.has(name)) {
-      providerOutcomes[name] = 'skipped'
+  for (const [name, routes] of [...grouped].slice(0, MAX_NESTED_KEYS)) {
+    const failures = routes.flatMap(route => {
+      const message = providerErrors.get(route)
+      return !skipped.has(route) && message !== undefined ? [{ message, code: classifyProviderErrorMessage(message) }] : []
+    })
+    if (failures.length === 0) {
+      providerOutcomes[name] = routes.every(route => skipped.has(route)) ? 'skipped' : 'ok'
       continue
     }
-    const message = providerErrors.get(name)
-    if (message === undefined) {
-      providerOutcomes[name] = 'ok'
-      continue
-    }
-    providerOutcomes[name] = classifyProviderErrorMessage(message)
+    const code = mostActionableProviderErrorCode(failures.map(failure => failure.code))
+    const message = failures.find(failure => failure.code === code)!.message
+    providerOutcomes[name] = code
     const status = extractProviderHttpStatus(message)
     if (status !== undefined) providerHttpStatus[name] = status
   }
@@ -333,12 +349,17 @@ export function buildRunRefusedProps(input: {
   canonicalDomain?: string | null
   location?: string | null
 }): RunRefusedProps {
-  const outcomes = Object.entries(input.providers).slice(0, MAX_NESTED_KEYS)
+  const outcomes = new Map<string, ProviderErrorCode>()
+  for (const [provider, code] of Object.entries(input.providers)) {
+    const name = providerConnectionName(provider)
+    const previous = outcomes.get(name)
+    outcomes.set(name, previous === undefined ? code : mostActionableProviderErrorCode([previous, code]))
+  }
   const props: RunRefusedProps = {
     reason: 'providers_failing',
     providerCount: Object.keys(input.providers).length,
-    providers: Object.keys(input.providers),
-    providerOutcomes: Object.fromEntries(outcomes),
+    providers: [...outcomes.keys()],
+    providerOutcomes: Object.fromEntries([...outcomes].slice(0, MAX_NESTED_KEYS)),
     trigger: input.trigger,
   }
   const domainHash = hashDomain(input.canonicalDomain ?? null)

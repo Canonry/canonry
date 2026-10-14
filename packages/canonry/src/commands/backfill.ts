@@ -3,13 +3,14 @@ import { backfillProjectAnswerMentions, competitorIdentityColumns, createRunComp
 import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
 import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest, RetrievalContract, RetrievalStatus } from '@ainyc/canonry-contracts'
 import { aiUserFetchEventsHourly, auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, rawEventSamples, runs } from '@ainyc/canonry-db'
-import { computeCompetitorOverlap, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, extractRecommendedCompetitors, normalizeUrlPath, ProviderNames, RetrievalContracts, RunKinds, TrafficEventConfidences, TrafficEventKinds, TrafficEvidenceKinds, TrafficSourceTypes } from '@ainyc/canonry-contracts'
+import { computeCompetitorOverlap, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, extractRecommendedCompetitors, normalizeUrlPath, openRouterRouteModel, ProviderNames, RetrievalContracts, RunKinds, TrafficEventConfidences, TrafficEventKinds, TrafficEvidenceKinds, TrafficSourceTypes } from '@ainyc/canonry-contracts'
 import { classifyAiUserFetch, classifyCrawler } from '@ainyc/canonry-integration-traffic'
 import { OPENAI_RETRIEVAL_CONTRACT, reparseStoredResult as reparseOpenAIStoredResult } from '@ainyc/canonry-provider-openai'
 import { reparseStoredResult as reparseClaudeStoredResult } from '@ainyc/canonry-provider-claude'
 import { reparseStoredResult as reparseGeminiStoredResult } from '@ainyc/canonry-provider-gemini'
 import { reparseStoredResult as reparsePerplexityStoredResult } from '@ainyc/canonry-provider-perplexity'
 import { reparseStoredResult as reparseMuseStoredResult } from '@ainyc/canonry-provider-muse'
+import { openrouterAdapter } from '@ainyc/canonry-provider-openrouter'
 import { loadConfig } from '../config.js'
 import { resolveStoredApiResponse } from '../stored-answer-anchors.js'
 import type { CliFormat } from '../cli-error.js'
@@ -1019,6 +1020,12 @@ function reparseProviderSnapshot(
   const envelope = parseJsonColumn<Record<string, unknown>>(rawResponse, {})
   const apiResponse = resolveStoredApiResponse(envelope)
   if (!apiResponse) return null
+
+  const routedModel = openRouterRouteModel(provider)
+  if (routedModel) {
+    try { return openrouterAdapter.normalizeResult(openrouterAdapter.parseTrackedQueryResponse!(apiResponse, routedModel)) }
+    catch { return null }
+  }
 
   switch (provider) {
     case ProviderNames.openai:

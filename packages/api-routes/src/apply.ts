@@ -1,3 +1,4 @@
+import { isProviderAvailable, isSweepProvider } from '@ainyc/canonry-contracts'
 import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
@@ -5,7 +6,7 @@ import { projects, schedules, notifications, readNegativeReviewMaxStars, writeNe
 import { competitorAliasProjectIdentity, DEFAULT_COMPETITOR_AUTO_ALIAS_MODE, diffProjectConfigState, forbidden, isRedactedNotificationUrl, nextScheduleUpdatedAt, normalizeProjectAliases, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError, type ApplyPreviewDto } from '@ainyc/canonry-contracts'
 import { competitorSetChangeAuditFields, competitorAliasAuditFields, competitorIdentityChanged, competitorNames, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
 import type { ProviderAdapterInfo } from './settings.js'
-import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
+import { assertOpenRouterRouteScope, pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
 import { writeAuditLog } from './helpers.js'
 import { readMarketCompetitorPins } from './plan-competitors.js'
 import { marketNameChanges, readMarketCompetitorNames } from './market-competitor-names.js'
@@ -69,7 +70,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         ...(config.spec.schedule?.providers ?? []),
       ]
       if (allProviders.length) {
-        const invalid = allProviders.filter(p => !validNames.includes(p))
+        const invalid = allProviders.filter(p => (!isSweepProvider(p) || !isProviderAvailable(p, validNames)))
         if (invalid.length) {
           throw validationError(`Invalid provider(s): ${[...new Set(invalid)].join(', ')}. Must be one of: ${validNames.join(', ')}`, {
             invalidProviders: [...new Set(invalid)],
@@ -153,7 +154,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     const configQueries = resolveConfigSpecQueries(config.spec)
 
     const target = app.db
-      .select({ id: projects.id, providerModels: projects.providerModels })
+      .select({ id: projects.id, providerModels: projects.providerModels, providers: projects.providers })
       .from(projects)
       .where(eq(projects.name, name))
       .get()
@@ -180,6 +181,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     // Same instance-level gate as PUT /projects/:name — apply may not be a
     // back door into choosing the execution model.
     assertProviderModelScope(request, target?.providerModels ?? {}, providerModels, specProviders)
+    assertOpenRouterRouteScope(request, [...specProviders, ...(config.spec.schedule?.providers ?? [])], target?.providers ?? [])
 
     // Planned only after the project-scope check, so a rejection naming another
     // competitor can never describe a project this key may not read. Planned

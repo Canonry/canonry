@@ -3,10 +3,11 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
-import { agentAllowViewersSchema, agentModelSchema, agentProviderSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@ainyc/canonry-config'
+import { agentAllowViewersSchema, agentModelSchema, agentProviderSchema, classificationConfigSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@ainyc/canonry-config'
 import type { SentimentInstallConfigInput } from '@ainyc/canonry-config'
 import { AGENT_PROVIDER_IDS, isRetiredAgentProviderId } from '@ainyc/canonry-contracts'
 import type { AgentProviderId, EmbedConfigEntry, ProviderBatchConfig, ProviderPricing, ProviderQuotaPolicy, SchedulableRunKind } from '@ainyc/canonry-contracts'
+import { isAgentModelAvailable } from './agent/providers.js'
 import { CliError } from './cli-error.js'
 import { normalizeProviderBatchSettings } from './provider-batch-config.js'
 
@@ -440,6 +441,8 @@ export interface PlacesConfigEntry {
 }
 
 export interface CanonryConfig {
+  /** Model for domain classification, separate from the measured sweep engines and Aero. */
+  classification?: import('@ainyc/canonry-config').ClassificationConfig
   /**
    * Private opt-in TypeSafe classifier credentials and limits. Reloaded from
    * config.yaml before dispatch; the in-memory copy is a startup snapshot that
@@ -662,6 +665,16 @@ export function loadConfig(configPath = getConfigPath()): CanonryConfig {
       code: 'CONFIG_INVALID',
       message: `Invalid config at ${configPath}: agent.allowViewers must be true, false, or left blank.`,
     })
+  }
+  if (parsed.classification !== undefined) {
+    const classification = classificationConfigSchema.safeParse(parsed.classification)
+    if (!classification.success || (classification.data.model && !isAgentModelAvailable(classification.data.provider, classification.data.model))) {
+      throw new CliError({
+        code: 'CONFIG_INVALID',
+        message: `Invalid config at ${configPath}: classification requires a supported provider and an available non-empty model.`,
+      })
+    }
+    parsed.classification = classification.data
   }
   // A model without a provider is silently ignored at resolution time, which
   // is exactly the invisible-configuration failure this pin exists to remove.

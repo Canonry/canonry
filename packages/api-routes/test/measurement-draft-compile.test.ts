@@ -3,6 +3,25 @@ import { measurementDraftAuthoringSchema } from '@ainyc/canonry-contracts'
 import { compileMeasurementDraft } from '../src/measurement-draft-compile.js'
 
 describe('measurement draft compiler', () => {
+  it('freezes OpenRouter route models and refuses a conflicting model override', () => {
+    const route = 'openrouter:google/gemini-2.5-flash'
+    const authoring = measurementDraftAuthoringSchema.parse({
+      defaultContext: { providers: ['gemini', route], models: { gemini: 'gemini-2.5-flash' }, locations: [] },
+      targets: [{ stableKey: 'widgets', label: 'Widgets', status: 'included', aliases: ['Northwind Widgets'], urlMatchers: ['https://northwind.example/widgets/*'], source: 'manual' }],
+      assignments: [{ targetKey: 'widgets', queryId: 'q-one', queryClass: 'non-brand', classificationSource: 'operator' }],
+      groups: [],
+    })
+    const context = { canonicalDomain: 'northwind.example', ownedDomains: [], brandNames: ['Northwind'], locations: [], trackedQueries: [{ id: 'q-one', query: 'best widget supplier' }] }
+    const result = compileMeasurementDraft(authoring, context)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('route draft should compile')
+    expect(result.plan.executionNodes[0]!.context.models).toEqual({ gemini: 'gemini-2.5-flash', [route]: 'google/gemini-2.5-flash' })
+    expect(result.plan.executionNodes[0]!.expectedSnapshots).toBe(2)
+    const conflict = compileMeasurementDraft({ ...authoring, defaultContext: { ...authoring.defaultContext, models: { [route]: 'openai/gpt-5' } } }, context)
+    expect(conflict.ok).toBe(false)
+    expect(conflict.checks).toContainEqual(expect.objectContaining({ ruleId: 'invalid-provider-model', severity: 'fail' }))
+  })
+
   it.each(['Northwind Widgets', 'Eastport', 'NorthwindWidgets in Eastport'])('refuses identity context that does not qualify the Property name: %s', identityAlias => {
     const authoring = measurementDraftAuthoringSchema.parse({
       defaultContext: { providers: ['openai'], locations: [] },

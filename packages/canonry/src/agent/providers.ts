@@ -106,6 +106,11 @@ export const PROVIDER_MODELS = {
     [LlmCapabilities.analyze]: 'glm-5-turbo',
     [LlmCapabilities.classify]: 'glm-5-turbo',
   },
+  [AgentProviderIds.openrouter]: {
+    [LlmCapabilities.agent]: 'anthropic/claude-opus-4.7',
+    [LlmCapabilities.analyze]: 'anthropic/claude-sonnet-4.6',
+    [LlmCapabilities.classify]: 'anthropic/claude-haiku-4.5',
+  },
 } as const satisfies Record<AgentProviderId, Record<LlmCapability, string>>
 
 export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderEntry> = {
@@ -132,6 +137,12 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderEntry> = {
     label: 'Z.ai (GLM)',
     defaultModel: PROVIDER_MODELS[AgentProviderIds.zai][LlmCapabilities.agent],
     autoDetectPriority: 3,
+  },
+  [AgentProviderIds.openrouter]: {
+    piAiProvider: 'openrouter',
+    label: 'OpenRouter',
+    defaultModel: PROVIDER_MODELS[AgentProviderIds.openrouter][LlmCapabilities.agent],
+    autoDetectPriority: 4,
   },
 }
 
@@ -328,6 +339,7 @@ const CATALOG_API_KEY_ENV_VARS: Record<string, readonly string[]> = {
   openai: ['OPENAI_API_KEY'],
   google: ['GEMINI_API_KEY'],
   zai: ['ZAI_API_KEY'],
+  openrouter: ['OPENROUTER_API_KEY'],
 }
 
 function agentProviderApiKeyEnvVars(id: AgentProviderId): readonly string[] {

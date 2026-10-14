@@ -5,6 +5,8 @@ import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn }
 import { compileCompetitiveSignalResolver } from '@ainyc/canonry-intelligence'
 import type { CitationState, LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderAccountStreak, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery } from '@ainyc/canonry-contracts'
 import {
+  isProviderAvailable,
+  isSweepProvider,
   AppError as AppErrorClass,
   type AppError,
   batchDispatchRefusalMessage,
@@ -40,6 +42,7 @@ import { assertMeasurementRunStampable, hasActiveMeasurementPlan, providerAccoun
 import { queueRunFill, readRunCompleteness } from './run-fill.js'
 import { readRunProviderBatches } from './provider-batches.js'
 import { competitorIdentityColumns } from './competitor-writes.js'
+import { assertOpenRouterRouteScope } from './provider-models.js'
 
 export interface RunRoutesOptions {
   onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: LocationContext | null) => void
@@ -83,7 +86,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       const normalized = rawProviders.map(p => p.trim().toLowerCase()).filter(Boolean)
       const validNames = opts.validProviderNames ?? []
       if (validNames.length) {
-        const invalid = normalized.filter(p => !validNames.includes(p))
+        const invalid = normalized.filter(p => (!isSweepProvider(p) || !isProviderAvailable(p, validNames)))
         if (invalid.length) {
           throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
             invalidProviders: invalid,
@@ -94,6 +97,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       rawProviders.splice(0, rawProviders.length, ...normalized)
     }
     const providers = rawProviders?.length ? rawProviders : undefined
+    assertOpenRouterRouteScope(request, providers ?? [], project.providers)
 
     // Validate activation state before queuing a normal sweep. Probe runs keep
     // their existing operator-test semantics and are validated by the worker.
@@ -539,7 +543,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       const normalized = rawProviders.map(p => p.trim().toLowerCase()).filter(Boolean)
       const validNames = opts.validProviderNames ?? []
       if (validNames.length) {
-        const invalid = normalized.filter(p => !validNames.includes(p))
+        const invalid = normalized.filter(p => (!isSweepProvider(p) || !isProviderAvailable(p, validNames)))
         if (invalid.length) {
           throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
             invalidProviders: invalid,
@@ -610,6 +614,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const dispatchable: typeof eligible = []
     for (const entry of eligible) {
       try {
+        assertOpenRouterRouteScope(request, providers ?? [], entry.project.providers)
         assertMeasurementRunStampable(app.db, {
           createdAt: now,
           projectId: entry.project.id,

@@ -26,13 +26,13 @@ function settings(configure = false): SentimentSettings {
 function SentimentSection(props: Omit<ComponentProps<typeof SentimentScopeProvider>, 'children'>) {
   return <SentimentScopeProvider {...props}><SentimentControls /><SentimentHeadlines /></SentimentScopeProvider>
 }
-function renderScope(children: ReactNode, options: { enabled?: boolean; configure?: boolean; branded?: SentimentSummary; nonBrand?: SentimentSummary; evidence?: SentimentEvidenceItem[] } = {}) {
+function renderScope(children: ReactNode, options: { enabled?: boolean; configure?: boolean; branded?: SentimentSummary; nonBrand?: SentimentSummary; evidence?: SentimentEvidenceItem[]; evaluatorProvider?: 'typesafe' | 'openrouter' } = {}) {
   const branded = options.branded ?? summary()
   const nonBrand = options.nonBrand ?? { ...summary(), selection: { ...summary().selection, queryClass: 'non-brand' as const }, score: { ...summary().score, favorableRate: 0.25, favorableDisplay: '25%' } }
   const requests: URL[] = []
   const restore = mockFetch(url => {
     const request = new URL(url); requests.push(request)
-    if (request.pathname.endsWith('/settings')) return jsonResponse({ ...settings(options.configure), enabled: options.enabled ?? true })
+    if (request.pathname.endsWith('/settings')) return jsonResponse({ ...settings(options.configure), enabled: options.enabled ?? true, ...(options.evaluatorProvider ? { provider: options.evaluatorProvider, model: options.evaluatorProvider === 'openrouter' ? 'typesafe/jev-1.13' : 'jev-1.13.0' } : {}) })
     if (request.pathname.endsWith('/jobs')) return jsonResponse({ jobs: [] })
     if (request.pathname.endsWith('/evidence')) return jsonResponse({ state: 'complete', selection: branded.selection, items: options.evidence ?? [], nextCursor: null })
     return jsonResponse(request.searchParams.get('queryClass') === 'non-brand' ? nonBrand : branded)
@@ -355,6 +355,13 @@ describe('sentiment presentation', () => {
       expect(screen.queryByText('Experimental sentiment')).toBeNull()
       fireEvent.click(manage)
       expect(await screen.findByText('Experimental sentiment')).toBeTruthy()
+    } finally { page.close() }
+  })
+  it.each(['typesafe', 'openrouter'] as const)('identifies the %s sentiment evaluator independently of the measured answer model', async evaluatorProvider => {
+    const page = renderScope(<><SentimentHeadlines /><SentimentControls /></>, { configure: true, evaluatorProvider })
+    try {
+      fireEvent.click(await screen.findByRole('button', { name: 'Manage sentiment' }))
+      expect(await screen.findByText(evaluatorProvider === 'openrouter' ? 'typesafe/jev-1.13 · OpenRouter' : 'jev-1.13.0 · TypeSafe')).toBeTruthy()
     } finally { page.close() }
   })
   it('keeps enable reachable while default-off projects do not request summaries', async () => {

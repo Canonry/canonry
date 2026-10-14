@@ -9,11 +9,15 @@ import {
   OutcomeStatuses,
   providerReloadRequestSchema,
   providerReloadResponseDtoSchema,
+  openRouterRouteName,
+  isOpenRouterRoute,
+  ProviderNames,
 } from '@ainyc/canonry-contracts'
 import { requireAdminSession, requireInstanceAdministrator, requireScope } from './auth.js'
 import { auditFromRequest, type AuditEntry } from './helpers.js'
 import { connectionRoute, outcomeProviderName } from './connection-telemetry.js'
 import { withFeatureOutcome } from './feature-outcome.js'
+import { providerAdapterForName } from './provider-models.js'
 
 /**
  * Scope required to mutate any global setting — provider API keys,
@@ -86,10 +90,10 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     requireAdminSession(request)
     return {
       providers: opts.providerSummary ?? [],
-      providerCatalog: await Promise.all((opts.providerAdapters ?? []).map(async adapter => {
+      providerCatalog: (await Promise.all((opts.providerAdapters ?? []).map(async adapter => {
         const configured = opts.providerSummary?.some(provider => provider.name === adapter.name && provider.configured)
         const discovered = configured && opts.getProviderModels ? await opts.getProviderModels(adapter.name) : []
-        return {
+        const descriptor = {
           name: adapter.name,
           displayName: adapter.displayName,
           mode: adapter.mode,
@@ -102,7 +106,15 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
           },
           modelValidationHint: adapter.modelValidationHint,
         }
-      })),
+        if (adapter.name !== ProviderNames.openrouter) return [descriptor]
+        const routeAdapters = descriptor.knownModels.flatMap(model => {
+          const routeName = `openrouter:${model.id}`
+          if (!isOpenRouterRoute(routeName)) return []
+          const route = providerAdapterForName(openRouterRouteName(model.id), [{ ...adapter, knownModels: descriptor.knownModels }])
+          return route ? [{ ...descriptor, name: route.name, displayName: route.displayName, modelConfigurable: false, defaultModel: model.id, knownModels: [model], modelValidationHint: route.modelValidationHint }] : []
+        })
+        return [descriptor, ...routeAdapters]
+      }))).flat(),
       google: opts.google ?? { configured: false },
       bing: opts.bing ?? { configured: false },
     }

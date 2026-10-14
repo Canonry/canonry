@@ -12,10 +12,13 @@ rewriting the dashboard block. The list uses `schedulableRunKindSchema`.
 | File | Role |
 |------|------|
 | `src/index.ts` | `dashboardManagedRunKindsSchema`, `dashboardManagedSweepsSchema`, `getPlatformEnv()`, `getBootstrapEnv()` |
+| `src/classification.ts` | Independent generative domain-classification provider/model role |
+| `src/sentiment.ts` | Private enablement, direct/routed Jev evaluator and readiness |
 
 ## Patterns
 
 - **Config source priority**: Environment variables override `config.yaml` values.
+- **OpenRouter roles**: `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` are parsed in the bootstrap and platform paths. `classification` selects domain categorization independently of sweep and Aero models. Sentiment uses `sentiment.provider` or `CANONRY_SENTIMENT_PROVIDER`, and `CANONRY_SENTIMENT_MODEL`; direct TypeSafe also accepts `TYPESAFE_MODEL`. Routed sentiment reads the shared OpenRouter credential, never `sentiment.apiKey`. Only the pinned model for the selected sentiment provider is ready.
 - **`getBootstrapEnv()`**: never injects a default. An unset model stays undefined and quotas are never read, so a bootstrap rerun keeps saved values. `withBootstrapProviderDefaults()` fills only a new entry's gaps (`BOOTSTRAP_PROVIDER_DEFAULT_MODELS`, `BOOTSTRAP_PROVIDER_DEFAULT_QUOTA`).
 - **`loadConfig()`**: Loads config for CLI commands (via `createApiClient()`) and the server. Preserve legacy dashboard fields and their key order; never replace the block with schema parse output. An invalid managed boolean or run-kind list raises a path-qualified `CliError` (exit 1). Missing or blank values leave the opt-in unset.
 - **`saveConfigPatch()`**: Merges partial updates into `~/.canonry/config.yaml`.

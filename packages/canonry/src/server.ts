@@ -8,7 +8,8 @@ import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { and, eq, isNotNull, isNull, lte, max, ne, or, sql } from "drizzle-orm";
 import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@ainyc/canonry-config";
 import { CliError } from "./cli-error.js";
-import { createTypeSafeClassifier, buildJevSentimentRequest } from "@ainyc/canonry-integration-typesafe";
+import { buildJevSentimentRequest } from "@ainyc/canonry-integration-typesafe";
+import { createConfiguredSentimentClassifier } from "./sentiment-openrouter.js";
 import { SentimentWorker, createSentimentPoller } from "./sentiment-worker.js";
 import { loadSentimentInstallConfig } from "./sentiment-config.js";
 
@@ -42,6 +43,7 @@ import {
   geminiAdapter,
 } from "@ainyc/canonry-provider-gemini";
 import { openaiAdapter } from "@ainyc/canonry-provider-openai";
+import { openrouterAdapter } from "@ainyc/canonry-provider-openrouter";
 import { claudeAdapter } from "@ainyc/canonry-provider-claude";
 import { localAdapter } from "@ainyc/canonry-provider-local";
 import { cdpChatgptAdapter } from "@ainyc/canonry-provider-cdp";
@@ -430,6 +432,7 @@ const API_ADAPTERS: ProviderAdapter[] = [
   localAdapter,
   perplexityAdapter,
   museAdapter,
+  openrouterAdapter,
 ];
 
 /** All known browser (CDP) adapters */
@@ -2815,7 +2818,7 @@ export async function createServer(opts: {
 
   const sentimentWorker = new SentimentWorker(opts.db, {
     configuration: loadSentimentInstallConfig,
-    classifier: configuration => createTypeSafeClassifier({ apiKey: configuration.apiKey! }),
+    classifier: configuration => createConfiguredSentimentClassifier(configuration, registry, loadSentimentInstallConfig),
     prepare: input => {
       const built = buildJevSentimentRequest(input);
       return built.ok ? { ok: true, estimatedInputTokens: built.estimate.inputTokens } : built;
@@ -3019,7 +3022,7 @@ export async function createServer(opts: {
     db: opts.db,
     claimScheduledSync,
     sentiment: {
-      install: () => { const configuration = loadSentimentInstallConfig(); return { ...sentimentInstallReadiness(configuration), model: configuration.model }; },
+      install: () => { const configuration = loadSentimentInstallConfig(); return { ...sentimentInstallReadiness(configuration), model: configuration.model, provider: configuration.provider }; },
       previewSecret: opts.config.apiKey,
       estimate: input => { const built = buildJevSentimentRequest(input); return built.estimate?.inputTokens ?? 0; },
     },
@@ -3332,6 +3335,7 @@ export async function createServer(opts: {
       executeDiscoveryRun({
         db: opts.db,
         registry,
+        getClassifierConfig: () => loadConfig(runtimeConfigPath),
         runId: input.runId,
         sessionId: input.sessionId,
         projectId: input.projectId,

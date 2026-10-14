@@ -70,6 +70,7 @@ export default defineConfig({
     '@ainyc/canonry-api-routes',
     '@ainyc/canonry-provider-gemini',
     '@ainyc/canonry-provider-openai',
+    '@ainyc/canonry-provider-openrouter',
     '@ainyc/canonry-provider-claude',
     '@ainyc/canonry-provider-local',
     '@ainyc/canonry-provider-cdp',

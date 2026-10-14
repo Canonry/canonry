@@ -1,11 +1,16 @@
 import crypto from 'node:crypto'
-import { and, desc, eq, gt, inArray, or } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, like, or } from 'drizzle-orm'
 import {
   batchDispatchRefusalMessage,
   buildMeasurementExecutionIdentity,
   buildMeasurementRunManifestV1,
   canonicalMeasurementExecutionIdentityJson,
   isProviderAccountFailure,
+  isProviderAvailable,
+  isSweepProvider,
+  openRouterRouteModel,
+  providerConnectionName,
+  ProviderNames,
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
   MeasurementRunScopeError,
   measurementRunScopeIsEmpty,
@@ -189,12 +194,11 @@ export function resolveRunnableProviderSelection(input: {
     ? requested
     : project.length > 0
       ? project
-      : availableProviders
-  const available = new Set(availableProviders)
+      : availableProviders.filter(isSweepProvider)
   return {
     availableProviders,
     selectedProviders,
-    runnableProviders: selectedProviders.filter(provider => available.has(provider)),
+    runnableProviders: selectedProviders.filter(provider => isSweepProvider(provider) && isProviderAvailable(provider, availableProviders)),
     selectionSource: requested.length > 0
       ? 'request'
       : project.length > 0
@@ -231,7 +235,7 @@ function effectiveModels(
   const instance = params.providerModels ?? {}
   const resolved: Record<string, string> = {}
   for (const provider of providers) {
-    const model = overrides[provider] ?? instance[provider]
+    const model = openRouterRouteModel(provider) ?? overrides[provider] ?? instance[provider]
     // An override stored before its id was retired names the engine that
     // answers now, so the frozen slot, the snapshot, and the identity agree.
     if (model) resolved[provider] = resolveProviderModel(provider, model)
@@ -341,7 +345,11 @@ function materializeV2ExecutionNodes(
     const declared = nodeProviderModels(node)
     const resolved = new Map<string, string>()
     for (const provider of nodeProviders) {
-      const model = declared.get(provider) ?? instanceModels[provider]
+      const pinned = openRouterRouteModel(provider)
+      if (pinned && declared.has(provider) && declared.get(provider) !== pinned) {
+        throw validationError(`OpenRouter route "${provider}" cannot override its pinned model.`)
+      }
+      const model = pinned ?? declared.get(provider) ?? instanceModels[provider]
       if (model) resolved.set(provider, model)
     }
 
@@ -749,8 +757,8 @@ export function providersARunWouldCall(
 ): string[] {
   const listed = normalizeProviders(roster)
   if (runnable == null) return listed
-  const available = new Set(normalizeProviders(runnable))
-  return listed.filter(provider => available.has(provider))
+  const available = normalizeProviders(runnable)
+  return listed.filter(provider => isSweepProvider(provider) && isProviderAvailable(provider, available))
 }
 
 /** How many of a project's newest runs admission looks through for each provider's streak. */
@@ -851,13 +859,16 @@ export function heldProviderAccounts(
 
   type RecentRun = typeof recent[number]
   const answered = (runId: string, provider: string) => db.select({ id: querySnapshots.id }).from(querySnapshots)
-    .where(and(eq(querySnapshots.runId, runId), eq(querySnapshots.provider, provider)))
+    .where(and(eq(querySnapshots.runId, runId), provider === ProviderNames.openrouter
+      ? or(eq(querySnapshots.provider, provider), like(querySnapshots.provider, 'openrouter:%'))
+      : eq(querySnapshots.provider, provider)))
     .limit(1)
     .get() !== undefined
   const finished = (run: RecentRun) => Date.parse(run.finishedAt ?? run.createdAt)
   const now = Date.parse(params.now)
 
-  for (const provider of calling) {
+  const accounts = [...new Set(calling.map(providerConnectionName))]
+  for (const provider of accounts) {
     let count = 0
     let newest: RecentRun | null = null
     let oldest: RecentRun | null = null
@@ -865,7 +876,17 @@ export function heldProviderAccounts(
     let vouched: ProviderAccountStreak | null = null
     let ended = false
     for (const run of recent) {
-      const entry = run.providers[provider]
+      if (provider === ProviderNames.openrouter && answered(run.id, provider)) {
+        ended = true
+        break
+      }
+      const accountEntries = Object.entries(run.providers)
+        .filter(([name]) => providerConnectionName(name) === provider)
+        .map(([, entry]) => entry)
+      // One run counts once even when several model routes failed on this account.
+      const entry = accountEntries.find(entry => !entry.skipped && !isProviderAccountFailure(entry.code))
+        ?? accountEntries.find(entry => !entry.skipped)
+        ?? accountEntries[0]
       if (!entry) {
         // A failed run lists every provider it called. A completed, partial or
         // cancelled one lists only failures (or nothing), so this provider
@@ -879,7 +900,8 @@ export function heldProviderAccounts(
       if (entry.skipped) {
         // Not called. The streak that held it back then is on the run; an
         // entry without one (never written so) is a run that did not call it.
-        vouched = run.skippedProviders?.[provider] ?? null
+        vouched = Object.entries(run.skippedProviders ?? {})
+          .find(([name]) => providerConnectionName(name) === provider)?.[1] ?? null
         if (vouched) break
         continue
       }
@@ -924,7 +946,10 @@ export function heldProviderAccounts(
       held.delete(change.entityId!)
     }
   }
-  return held
+  return new Map(calling.flatMap(provider => {
+    const streak = held.get(providerConnectionName(provider))
+    return streak ? [[provider, streak] as const] : []
+  }))
 }
 
 /** The refusal of a run whose providers are all held back. */

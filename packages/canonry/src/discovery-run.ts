@@ -20,6 +20,8 @@ import {
   OutcomeStatuses,
   RunStatuses,
   withRetry,
+  LlmCapabilities,
+  AgentProviderIds,
   type DiscoveryCompetitorType,
   type LocationContext,
   describeError,
@@ -38,6 +40,10 @@ import {
 import type { ProviderRegistry } from './provider-registry.js'
 import { createLogger } from './logger.js'
 import { startRunOutcome } from './sync-outcome.js'
+import type { CanonryConfig } from './config.js'
+import { completeOnce } from './agent/pi-models.js'
+import { resolveApiKeyFor, resolveModelForCapability } from './agent/providers.js'
+import { getSharedProviderExecutionGate } from './provider-execution-gate.js'
 
 const log = createLogger('DiscoveryRun')
 
@@ -105,6 +111,8 @@ async function embedWithRetry(
 const QUERIES_PER_INTENT_BUCKET = 6
 
 export interface ExecuteDiscoveryRunOptions {
+  classifierConfig?: Pick<CanonryConfig, 'providers' | 'classification'>
+  getClassifierConfig?: () => Pick<CanonryConfig, 'providers' | 'classification'>
   db: DatabaseClient
   registry: ProviderRegistry
   runId: string
@@ -189,7 +197,7 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
 
     // buildDefaultDeps throws only when Gemini is not set up for discovery.
     notConfigured = true
-    const deps = buildDefaultDeps(opts.registry)
+    const deps = buildDefaultDeps(opts.registry, opts.getClassifierConfig?.() ?? opts.classifierConfig)
     notConfigured = false
 
     const result = await executeDiscovery({
@@ -264,7 +272,7 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
  * multiple deps in a composite and surface a label like `"gemini+chatgpt"`
  * in the `DiscoverySeedResult.provider` field.
  */
-function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
+function buildDefaultDeps(registry: ProviderRegistry, classifierConfig?: Pick<CanonryConfig, 'providers' | 'classification'>): DiscoveryDeps {
   const gemini = registry.get('gemini')
   if (!gemini) {
     throw new Error('Gemini provider is not configured. Add a Gemini API key (or Vertex project) before running discovery.')
@@ -275,6 +283,10 @@ function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
   }
 
   const adapter = gemini.adapter
+  // Freeze role selection at session start, independently of measured engine models.
+  const classifierProvider = classifierConfig?.classification?.provider ?? AgentProviderIds.gemini
+  const classifierModel = classifierConfig?.classification ? resolveModelForCapability(classifierProvider, LlmCapabilities.classify, classifierConfig.classification.model) : undefined
+  const classifierKey = resolveApiKeyFor(classifierProvider, classifierConfig ?? { providers: { gemini: { apiKey: cfg.apiKey } } })
 
   /** Resolve a seed-capable provider or fail fast with a remediation. */
   function seedProviderFor(name: string): { adapter: typeof adapter; config: typeof cfg } {
@@ -380,13 +392,25 @@ function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
         rawResponse: raw.rawResponse as Record<string, unknown>,
       }
     },
-    async classifyDomains(input): Promise<DiscoveryDomainClassification> {
+    async classifyDomains(input) {
       // One plain-text generation per session — no grounding tool needed, the
       // model just types the domains it is handed. The orchestrator catches a
       // throw here and degrades every domain to `unknown`.
       const prompt = buildClassificationPrompt(input)
-      const text = await adapter.generateText(prompt, cfg)
-      return parseClassificationResponse(text, input.domains)
+      if (!classifierModel) {
+        const text = await adapter.generateText(prompt, cfg)
+        return { classifications: parseClassificationResponse(text, input.domains), evaluator: { provider: 'gemini', requestedModel: cfg.model ?? adapter.modelRegistry.defaultModel, servedModel: null, promptVersion: 'domain-category-v1' } }
+      }
+      if (!classifierKey) throw new Error('The configured domain classifier has no API key.')
+      const quota = registry.get(classifierProvider)?.config.quotaPolicy ?? cfg.quotaPolicy
+      const generate = () => completeOnce(classifierModel, {
+        messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
+      }, { apiKey: classifierKey })
+      const response = classifierProvider === AgentProviderIds.openrouter ? await generate()
+        : await getSharedProviderExecutionGate(classifierProvider, quota.maxConcurrency, quota.maxRequestsPerMinute).run(generate)
+      if (response.stopReason === 'error' || response.stopReason === 'aborted') throw new Error('The domain classifier did not complete.')
+      const text = response.content.filter(part => part.type === 'text').map(part => part.text).join('\n')
+      return { classifications: parseClassificationResponse(text, input.domains), evaluator: { provider: classifierProvider, requestedModel: classifierModel.id, servedModel: null, promptVersion: 'domain-category-v1' } }
     },
   }
 }
