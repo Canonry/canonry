@@ -26,6 +26,7 @@ import {
   competitors,
   runs,
   querySnapshots,
+  siteCrawlSnapshots,
 } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
@@ -502,4 +503,42 @@ describe("POST /projects/:name/runs accepts trigger='probe' end-to-end", () => {
     })
     expect(res.statusCode).toBe(400)
   })
+})
+
+describe('GET /projects/:name/competitor-suggestions excludes probe evidence', () => {
+  it('reports the probe exclusion without admitting its candidate', async () => {
+    const response = await ctx.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/probe-excl/competitor-suggestions?window=all&minAnswers=1',
+    })
+    expect(response.statusCode).toBe(200)
+    const body = response.json() as {
+      candidates: Array<{ domain: string }>
+      evidence: { excludedProbeResults: number }
+    }
+    expect(body.evidence.excludedProbeResults).toBe(1)
+    expect(body.candidates).toEqual([])
+  })
+  it('stored audit issue groups exclude probe snapshots from default and explicit selection', async () => {
+    const realId = crypto.randomUUID()
+    const probeId = crypto.randomUUID()
+    for (const [id, trigger, createdAt, code] of [
+      [realId, 'manual', '2026-10-11T12:00:00.000Z', 'site.duplicate-title'],
+      [probeId, 'probe', '2026-10-12T12:00:00.000Z', 'probe-only'],
+    ]) {
+      ctx.db.insert(runs).values({ id: id!, projectId: ctx.projectId, kind: 'site-audit', status: 'completed',
+        trigger: trigger!, createdAt: createdAt!, finishedAt: createdAt! }).run()
+      ctx.db.insert(siteCrawlSnapshots).values({ id: crypto.randomUUID(), projectId: ctx.projectId, runId: id!,
+        rootUrl: 'https://real-brand.example.com/', complete: true, termination: 'completed',
+        issueEvidence: { schemaVersion: '1.0', groupIdentityVersion: 'duplicate-metadata-v1', siteIssues: [
+          { key: `site-issue:${code}`, code: code!, message: code!, affectedUrls: ['https://real-brand.example.com/'] },
+        ] }, createdAt: createdAt!, updatedAt: createdAt! }).run()
+    }
+    const response = await ctx.app.inject('/api/v1/projects/probe-excl/technical-aeo/issues')
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ runId: realId, total: 1, issues: [{ code: 'site.duplicate-title' }] })
+    expect((await ctx.app.inject(`/api/v1/projects/probe-excl/technical-aeo/issues?runId=${probeId}`)).statusCode).toBe(404)
+    expect((await ctx.app.inject(`/api/v1/projects/probe-excl/technical-aeo/issues/site-issue:probe-only/pages?runId=${probeId}`)).statusCode).toBe(404)
+  })
+
 })

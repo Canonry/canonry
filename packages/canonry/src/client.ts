@@ -1,5 +1,13 @@
+import type { TrafficSamplesQuery, TrafficSamplesResponse } from '@ainyc/canonry-contracts'
+import { getApiV1ProjectsByNameTrafficSamples } from '@ainyc/canonry-api-client'
+
+import type { GaAcquisitionQuery, GaAcquisitionResponse } from '@ainyc/canonry-contracts'
+import { getApiV1ProjectsByNameGaAcquisition } from '@ainyc/canonry-api-client'
+import type { AuditHistoryOptions } from '@ainyc/canonry-contracts'
 import type { ReferralAssessment, ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameTrafficReferralAssessment } from '@ainyc/canonry-api-client'
+import { getApiV1ProjectsByNameCompetitorSuggestions } from '@ainyc/canonry-api-client'
+import { postApiV1ProjectsByNameCompetitorChangesPreview } from '@ainyc/canonry-api-client'
 
 import type { z } from 'zod'
 import type {
@@ -28,7 +36,7 @@ import { PACKAGE_VERSION } from './package-version.js'
 import { getApiV1ProjectsByNameSchedules, getApiV1NotificationsEvents } from '@ainyc/canonry-api-client'
 import type { LogQuery, OperationalLogListDto, NotificationEvent } from '@ainyc/canonry-contracts'
 import { normalizeTelemetryStatus, type FeedbackAcceptedDto, type FeedbackSubmission, type TelemetryStatusInput } from '@ainyc/canonry-contracts'
-import { OPERATIONAL_LOG_FIELDS_HEADER, OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS, operationalLogListReadSchema } from '@ainyc/canonry-contracts'
+import { OPERATIONAL_LOG_FIELDS_HEADER, OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS, OPERATION_ACCESS_HEADER, STORED_ONLY_HEADER, OperationAccesses, matchOperationTemplate, operationAccess, operationalLogListReadSchema } from '@ainyc/canonry-contracts'
 import { getApiV1OperationsLogs } from '@ainyc/canonry-api-client'
 import type {
   VisibilityReportRequest, VisibilityReportResponse,
@@ -48,6 +56,7 @@ import type {
   KeywordGenerateResponse,
   QueryGenerateResponse,
   ProjectUpsertRequest,
+  ProjectPatchRequest,
   RunDto,
   RunDetailDto,
   MeasurementPlanInput,
@@ -98,6 +107,8 @@ import type {
   LatestProjectRunDto,
   SiteAuditScoreDto,
   SiteAuditPagesResponseDto,
+  SiteAuditIssuesResponseDto,
+  SiteAuditIssuePagesResponseDto,
   SiteAuditTrendResponseDto,
   SiteAuditRunResponseDto,
   SiteAuditRunProgressDto,
@@ -121,6 +132,10 @@ import type {
   BrandMetricsDto,
   CompetitorLandscapeQuery,
   CompetitorLandscapeResponse,
+  CompetitorSuggestionsQuery,
+  CompetitorSuggestionsResponse,
+  CompetitorChangePreviewRequest,
+  CompetitorChangePreviewResponse,
   GapAnalysisDto,
   SourceBreakdownDto,
   VisibilityStatsDto,
@@ -265,6 +280,7 @@ import type {
   ProjectOverviewDto,
   ProjectSearchResponseDto,
   DoctorReportDto,
+  InstanceStatusDto,
   TrafficAnalyticsResponse,
   TrafficAnalyticsPeriodDays,
   OrganicEvidenceDto,
@@ -323,7 +339,9 @@ import {
   // Projects
   getApiV1Projects,
   getApiV1ProjectsByName,
+  getApiV1Status,
   putApiV1ProjectsByName,
+  patchApiV1ProjectsByName,
   deleteApiV1ProjectsByName,
   getApiV1ProjectsByNameDeletePreview,
   getApiV1ProjectsByNameExport,
@@ -332,6 +350,7 @@ import {
   getApiV1ProjectsByNameTrafficAnalytics,
   getApiV1ProjectsByNameOrganicEvidence,
   postApiV1Apply,
+  postApiV1ApplyPreview,
   // Queries / keywords / competitors
   getApiV1ProjectsByNameQueries,
   putApiV1ProjectsByNameQueries,
@@ -559,6 +578,8 @@ import {
   // Technical AEO (site-audit)
   getApiV1ProjectsByNameTechnicalAeo,
   getApiV1ProjectsByNameTechnicalAeoPages,
+  getApiV1ProjectsByNameTechnicalAeoIssues,
+  getApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPages,
   getApiV1ProjectsByNameTechnicalAeoTrend,
   getApiV1ProjectsByNameTechnicalAeoCrawl,
   getApiV1ProjectsByNameTechnicalAeoChanges,
@@ -741,6 +762,7 @@ export type SettingsDto = import('@ainyc/canonry-contracts').SettingsDto
 
 /** Apply response */
 export type ApplyResultDto = ProjectDto
+export type ApplyPreviewDto = import('@ainyc/canonry-contracts').ApplyPreviewDto
 
 export interface ProjectDeletePreviewDto {
   project: { id: string; name: string }
@@ -862,6 +884,36 @@ const usageTagStore = new AsyncLocalStorage<UsageTags>()
 export function runWithUsageTags<T>(client: unknown, tags: UsageTags, fn: () => Promise<T>): Promise<T> {
   if (!(client instanceof ApiClient)) return fn()
   return usageTagStore.run(tags, fn)
+}
+
+/** Classify a request before the HTTP client can open a socket. */
+export function classifyStoredOnlyRequest(method: string, url: string): { operation: string; access: ReturnType<typeof operationAccess> } {
+  const operation = matchOperationTemplate(method, url)
+  const separator = operation.indexOf(' ')
+  return {
+    operation,
+    access: operationAccess(operation.slice(0, separator), operation.slice(separator + 1), OperationAccesses.live),
+  }
+}
+
+function storedOnlyRequestHeaders(method: string, url: string): Record<string, string> {
+  if (!['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())) return {}
+  const { operation, access } = classifyStoredOnlyRequest(method, url)
+  if (access !== OperationAccesses.stored) {
+    throw new CliError({
+      code: 'STORED_ONLY_REFUSED',
+      message: `Stored-only mode refuses ${access} operation ${operation}`,
+      details: { operation, access },
+      exitCode: EXIT_USER_ERROR,
+    })
+  }
+  return { [STORED_ONLY_HEADER]: '1' }
+}
+
+function storedOnlyProbeHeaders(): Record<string, string> {
+  return ['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())
+    ? { [STORED_ONLY_HEADER]: '1' }
+    : {}
 }
 
 const SAFE_CLIENT_NAME = /^\w[\w./-]{0,127}$/
@@ -998,6 +1050,7 @@ export class ApiClient {
     }
     this.heyClient = createHeyClient({ baseUrl: this.originUrl, apiKey: this.apiKey, headers: this.requestHeaders })
     this.heyClient.interceptors.request.use((request) => {
+      for (const [key, value] of Object.entries(storedOnlyRequestHeaders(request.method, request.url.toString()))) request.headers.set(key, value)
       const tags = usageTagStore.getStore()
       if (tags?.mcpTool) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpTool, tags.mcpTool)
       if (tags?.mcpCall) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpCall, tags.mcpCall)
@@ -1022,6 +1075,7 @@ export class ApiClient {
         try {
           const origin = new URL(this.originUrl).origin
           const res = await fetch(`${origin}/health`, {
+            headers: storedOnlyProbeHeaders(),
             signal: AbortSignal.timeout(2000),
           })
           if (res.ok) {
@@ -1086,7 +1140,7 @@ export class ApiClient {
     if (traceEnabled) {
       const durMs = Date.now() - traceStart
       process.stderr.write(
-        `[trace] ${result.request.method} ${redactRequestTarget(result.request.url)} → ${result.response.status} (${durMs}ms)\n`,
+        `[trace] ${result.request.method} ${redactRequestTarget(result.request.url)} → ${result.response.status} (${durMs}ms) access=${result.response.headers.get(OPERATION_ACCESS_HEADER) ?? 'unknown'}\n`,
       )
     }
 
@@ -1226,10 +1280,13 @@ export class ApiClient {
    * and releases the response when done.
    */
   async streamPost(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+    const candidateUrl = `${this.originUrl}/api/v1${path}`
+    const storedOnlyHeaders = storedOnlyRequestHeaders('POST', candidateUrl)
     await this.probeBasePath()
     const url = `${this.originUrl}/api/v1${path}`
     const headers: Record<string, string> = {
       ...this.requestHeaders,
+      ...storedOnlyHeaders,
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     }
@@ -1278,6 +1335,12 @@ export class ApiClient {
     )
   }
 
+  async patchProject(name: string, body: ProjectPatchRequest): Promise<ProjectDto> {
+    return this.invoke<ProjectDto>(() =>
+      patchApiV1ProjectsByName({ client: this.heyClient, path: { name }, body: body as never }),
+    )
+  }
+
   async listProjects(): Promise<ProjectDto[]> {
     return this.invoke<ProjectDto[]>(() => getApiV1Projects({ client: this.heyClient }))
   }
@@ -1296,20 +1359,28 @@ export class ApiClient {
     )
   }
 
-  async getStatus(project: string): Promise<ProjectDto> {
-    return this.invoke<ProjectDto>(() =>
-      getApiV1ProjectsByName({ client: this.heyClient, path: { name: project } }),
+  async getStatus(opts?: { project?: string; problems?: boolean }): Promise<InstanceStatusDto> {
+    return this.invoke<InstanceStatusDto>(() =>
+      getApiV1Status({ client: this.heyClient, query: { project: opts?.project, problems: opts?.problems } }),
     )
   }
 
-  async getExport(project: string): Promise<ExportDto> {
+  async getExport(project: string, opts?: { includeSecrets?: boolean }): Promise<ExportDto> {
     return this.invoke<ExportDto>(() =>
-      getApiV1ProjectsByNameExport({ client: this.heyClient, path: { name: project } }),
+      getApiV1ProjectsByNameExport({
+        client: this.heyClient,
+        path: { name: project },
+        query: { includeSecrets: opts?.includeSecrets },
+      }),
     )
   }
 
   async apply(config: ProjectConfig): Promise<ApplyResultDto> {
     return this.invoke<ApplyResultDto>(() => postApiV1Apply({ client: this.heyClient, body: config as never }))
+  }
+
+  async previewApply(config: ProjectConfig): Promise<ApplyPreviewDto> {
+    return this.invoke<ApplyPreviewDto>(() => postApiV1ApplyPreview({ client: this.heyClient, body: config as never }))
   }
 
   async getProjectOverview(
@@ -1359,13 +1430,14 @@ export class ApiClient {
     if (opts.until) params.set('until', opts.until)
     if (opts.includeProbes) params.set('includeProbes', 'true')
     const url = `${this.originUrl}/api/v1/projects/${encodeURIComponent(project)}/results/export?${params.toString()}`
+    const storedOnlyHeaders = storedOnlyRequestHeaders('GET', url)
 
     let res: Response
     try {
       // The shared headers carry the surface label; without them a CLI export
       // is indistinguishable from a raw API caller in usage telemetry.
       res = await fetch(url, {
-        headers: { ...this.requestHeaders },
+        headers: { ...this.requestHeaders, ...storedOnlyHeaders },
       })
     } catch (err) {
       const message = describeError(err)
@@ -1432,8 +1504,9 @@ export class ApiClient {
     )
   }
 
-  async appendQueries(project: string, queries: string[]): Promise<void> {
-    await this.invoke<unknown>(() =>
+  /** Appends (existing texts are skipped) and returns the project's full query list, each row with its `queryClass`. */
+  async appendQueries(project: string, queries: string[]): Promise<QueryDto[]> {
+    return this.invoke<QueryDto[]>(() =>
       postApiV1ProjectsByNameQueries({ client: this.heyClient, path: { name: project }, body: { queries } }),
     )
   }
@@ -1488,13 +1561,29 @@ export class ApiClient {
     )
   }
 
+  async suggestCompetitors(project: string, query: CompetitorSuggestionsQuery = {}): Promise<CompetitorSuggestionsResponse> {
+    return this.invoke<CompetitorSuggestionsResponse>(() =>
+      getApiV1ProjectsByNameCompetitorSuggestions({
+        client: this.heyClient,
+        path: { name: project },
+        query,
+      }),
+    )
+  }
+
+  async previewCompetitorChange(project: string, request: CompetitorChangePreviewRequest): Promise<CompetitorChangePreviewResponse> {
+    return this.invoke<CompetitorChangePreviewResponse>(() =>
+      postApiV1ProjectsByNameCompetitorChangesPreview({ client: this.heyClient, path: { name: project }, body: request }),
+    )
+  }
+
   /** Each entry is a domain or `{ domain, aliases }`; stated aliases are added to that competitor's list. */
-  async appendCompetitors(project: string, competitors: CompetitorEntry[]): Promise<CompetitorDto[]> {
+  async appendCompetitors(project: string, competitors: CompetitorEntry[], options?: { acknowledgeBulkAdd?: boolean }): Promise<CompetitorDto[]> {
     return this.invoke<CompetitorDto[]>(() =>
       postApiV1ProjectsByNameCompetitors({
         client: this.heyClient,
         path: { name: project },
-        body: { competitors },
+        body: { competitors, ...(options?.acknowledgeBulkAdd !== undefined ? { acknowledgeBulkAdd: options.acknowledgeBulkAdd } : {}) },
       }),
     )
   }
@@ -2302,13 +2391,13 @@ export class ApiClient {
     )
   }
 
-  async listRuns(project: string, limit?: number, kind?: string, status?: string, excludeKind?: string, excludeKinds?: string[]): Promise<RunDto[]> {
+  async listRuns(project: string, limit?: number, kind?: string, status?: string, excludeKind?: string, excludeKinds?: string[], since?: string): Promise<RunDto[]> {
     return this.invoke<RunDto[]>(() =>
       getApiV1ProjectsByNameRuns({
         client: this.heyClient,
         path: { name: project },
         // Filters arrive as free CLI strings; the server validates them against the enums.
-        query: { limit, kind, status, excludeKind, excludeKinds } as GetApiV1ProjectsByNameRunsData['query'],
+        query: { limit, kind, status, excludeKind, excludeKinds, since } as GetApiV1ProjectsByNameRunsData['query'],
       }),
     )
   }
@@ -2343,7 +2432,7 @@ export class ApiClient {
 
   async getHistory(
     project: string,
-    opts?: { limit?: number; offset?: number; since?: string; action?: string; actor?: string; entityType?: string },
+    opts?: AuditHistoryOptions,
   ): Promise<AuditLogEntry[]> {
     return this.invoke<AuditLogEntry[]>(() =>
       getApiV1ProjectsByNameHistory({ client: this.heyClient, path: { name: project }, query: opts }),
@@ -2351,7 +2440,7 @@ export class ApiClient {
   }
 
   async getGlobalHistory(
-    opts?: { limit?: number; offset?: number; since?: string; action?: string; actor?: string; entityType?: string },
+    opts?: AuditHistoryOptions,
   ): Promise<AuditLogEntry[]> {
     return this.invoke<AuditLogEntry[]>(() =>
       getApiV1History({ client: this.heyClient, query: opts }),
@@ -2466,6 +2555,7 @@ export class ApiClient {
    * never run the CLI about a newer release.
    */
   async getServerUpdateAvailable(): Promise<ServerUpdateAvailable | null> {
+    if (storedOnlyProbeHeaders()[STORED_ONLY_HEADER]) return null
     try {
       await this.probeBasePath()
       const res = await fetch(`${this.originUrl}/health`, { signal: AbortSignal.timeout(2000) })
@@ -3722,6 +3812,10 @@ export class ApiClient {
     )
   }
 
+  async gaAcquisition(project: string, query?: GaAcquisitionQuery): Promise<GaAcquisitionResponse> {
+    return this.invoke<GaAcquisitionResponse>(() => getApiV1ProjectsByNameGaAcquisition({ client: this.heyClient, path: { name: project }, query }))
+  }
+
   async gaMeasurementAnalysis(
     project: string,
     params?: Record<string, string>,
@@ -3961,6 +4055,10 @@ export class ApiClient {
     }))
   }
 
+  async trafficListSamples(project: string, query?: TrafficSamplesQuery): Promise<TrafficSamplesResponse> {
+    return this.invoke<TrafficSamplesResponse>(() => getApiV1ProjectsByNameTrafficSamples({ client: this.heyClient, path: { name: project }, query }))
+  }
+
   async trafficListEvents(
     project: string,
     params?: { since?: string; until?: string; kind?: string; limit?: number; sourceId?: string; granularity?: TrafficSeriesGranularity },
@@ -4190,6 +4288,35 @@ export class ApiClient {
         client: this.heyClient,
         path: { name: project },
         query: { runId: opts?.runId, date: opts?.date },
+      }),
+    )
+  }
+
+  /** Stored findings across audited pages, including score-independent duplicate groups. */
+  async getSiteAuditIssues(
+    project: string,
+    opts?: { runId?: string; cursor?: string; limit?: number },
+  ): Promise<SiteAuditIssuesResponseDto> {
+    return this.invoke<SiteAuditIssuesResponseDto>(() =>
+      getApiV1ProjectsByNameTechnicalAeoIssues({
+        client: this.heyClient,
+        path: { name: project },
+        query: { runId: opts?.runId, cursor: opts?.cursor, limit: opts?.limit },
+      }),
+    )
+  }
+
+  /** Page evidence for one stored audit issue; continuation stays pinned to its crawl. */
+  async getSiteAuditIssuePages(
+    project: string,
+    issueId: string,
+    opts?: { runId?: string; cursor?: string; limit?: number },
+  ): Promise<SiteAuditIssuePagesResponseDto> {
+    return this.invoke<SiteAuditIssuePagesResponseDto>(() =>
+      getApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPages({
+        client: this.heyClient,
+        path: { name: project, issueId },
+        query: { runId: opts?.runId, cursor: opts?.cursor, limit: opts?.limit },
       }),
     )
   }

@@ -271,6 +271,12 @@ counted disclosures in Advanced and Research views.
 
 ### API calls (Critical)
 
+A connected Search Engines tab reads stored evidence on mount. Google property
+and sitemap lists load on explicit actions; a connection awaiting its first
+property may load that picker on mount. The latest stored GSC sync failure
+supplies the initial error signal, and live property errors appear on opening
+setup or refreshing properties. Both resubmit actions wait for a sitemap load.
+
 **Every web call into the canonry API MUST flow through the generated
 `@ainyc/canonry-api-client` SDK.** Raw `fetch()` and `XMLHttpRequest` are
 banned in `apps/web/src/` (ESLint-enforced) — the only exceptions are

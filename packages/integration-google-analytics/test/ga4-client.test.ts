@@ -370,6 +370,15 @@ describe('verifyConnectionWithToken', () => {
     fetchSpy.mockRestore()
   })
 
+  it('includes the provider host and dialed address for transport failures', async () => {
+    const cause = Object.assign(new Error('connect failed'), {
+      code: 'ECONNREFUSED', syscall: 'connect', address: '203.0.113.8', port: 443,
+    })
+    fetchSpy.mockRejectedValueOnce(Object.assign(new TypeError('fetch failed'), { cause }))
+    await expect(() => verifyConnectionWithToken('token', '123456789'))
+      .rejects.toThrow(/ECONNREFUSED.*analyticsdata\.googleapis\.com.*203\.0\.113\.8:443/)
+  })
+
   it('returns true when a minimal runReport succeeds', async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify({ rows: [], rowCount: 0 }), { status: 200 }),
@@ -620,6 +629,17 @@ describe('GA4 retry on transient errors', () => {
     await vi.runAllTimersAsync()
     await expect(promise).resolves.toBe(true)
     expect(callCount).toBe(2)
+  })
+
+  it('retries timeout-shaped fetch failures after adding endpoint context', async () => {
+    fetchSpy
+      .mockRejectedValueOnce(Object.assign(new Error('request timed out'), { name: 'AbortError' }))
+      .mockResolvedValueOnce(okResponse())
+
+    const promise = verifyConnectionWithToken('fake-token', '123456')
+    await vi.runAllTimersAsync()
+    await expect(promise).resolves.toBe(true)
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
   })
 
   it('honors Retry-After on a 5xx response', async () => {

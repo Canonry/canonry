@@ -8,8 +8,9 @@ import { brandKeyFromText } from './brand-matching.js'
 import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
 import { siteAuditPageBudgetSchema } from './technical-aeo.js'
 import { MIN_DOMAIN_BRAND_KEY_LENGTH } from './answer-visibility.js'
-import { competitorEntrySchema, type CompetitorAliasProjectIdentity } from './competitor-aliases.js'
+import { competitorDomainSchema, competitorEntrySchema, type CompetitorAliasProjectIdentity } from './competitor-aliases.js'
 import { competitorAutoAliasSchema } from './competitor-auto-aliases.js'
+import { queryClassSchema } from './query-class.js'
 
 export const configSourceSchema = z.enum(['cli', 'api', 'config-file'])
 export type ConfigSource = z.infer<typeof configSourceSchema>
@@ -177,6 +178,37 @@ export const projectUpsertRequestSchema = z.object({
 export type ProjectUpsertRequest = z.infer<typeof projectUpsertRequestSchema>
 
 /**
+ * Existing-project partial update. The outer object is strict so a typo can
+ * never become a successful no-op. Measurement lists merge one level in the
+ * route, with each named list replacing that list and omitted lists preserved.
+ */
+export const projectPatchRequestSchema = z.object({
+  displayName: z.string().min(1).optional(),
+  canonicalDomain: z.string().min(1).optional(),
+  ownedDomains: z.array(z.string().min(1)).optional(),
+  aliases: z.array(z.string()).optional(),
+  country: z.string().length(2).optional(),
+  language: z.string().min(2).optional(),
+  tags: z.array(z.string()).optional(),
+  labels: z.record(z.string(), z.string()).optional(),
+  providers: z.array(providerNameSchema).optional(),
+  providerModels: providerModelsSchema.optional(),
+  providerDispatchModes: providerDispatchModesSchema.optional(),
+  locations: z.array(locationContextSchema).optional(),
+  defaultLocation: z.string().nullable().optional(),
+  measurement: measurementConfigSchema.partial().strict().optional(),
+  autoExtractBacklinks: z.boolean().optional(),
+  qualifiedAliases: z.array(z.string().trim().min(1).max(PROJECT_QUALIFIED_ALIAS_MAX_LENGTH))
+    .max(PROJECT_QUALIFIED_ALIAS_LIMIT).optional(),
+  negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.nullable().optional(),
+  siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
+  competitorAutoAliases: competitorAutoAliasModeInputSchema,
+  expectedConfigRevision: z.number().int().positive().optional(),
+}).strict()
+
+export type ProjectPatchRequest = z.infer<typeof projectPatchRequestSchema>
+
+/**
  * Body for create-only project creation. `name` is intentionally separate from
  * the upsert path parameter: the API normalizes it before persistence and
  * refuses a collision instead of changing an existing project's configuration.
@@ -246,6 +278,8 @@ export const projectDtoSchema = z.object({
    */
   competitorAutoAliases: competitorAutoAliasModeSchema.optional()
     .describe('Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project\'s default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period\'s competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.'),
+  /** Persisted answer-field pass still owed; null means clear. Does not track alias detection. */
+  answerFieldsRecompute: z.enum(['full', 'competitors']).nullable().optional(),
   configSource: configSourceSchema.default('cli'),
   configRevision: z.number().int().positive().default(1),
   createdAt: z.string().optional(),
@@ -263,6 +297,20 @@ export const queryDtoSchema = z.object({
   id: z.string(),
   query: z.string(),
   createdAt: z.string(),
+  /**
+   * The class this query is measured under, resolved by the server so every
+   * surface that lists queries shows the same one. Without an active schema v2
+   * measurement plan it is `compileQueryClassifier(effectiveBrandNames(project))`
+   * over the query text. With one it is the class stored on the query's
+   * assignments in the active revision.
+   *
+   * `null` means no single class exists, never a default: the project has no
+   * usable brand name, the query has no assignment in the active revision, or
+   * its assignments carry both classes.
+   * Optional so a row from an older server still parses: an absent field means
+   * the server did not report a class, which is not the same as `null`.
+   */
+  queryClass: queryClassSchema.nullable().optional(),
 })
 
 export type QueryDto = z.infer<typeof queryDtoSchema>
@@ -346,6 +394,8 @@ export const competitorDtoSchema = z.object({
 export type CompetitorDto = z.infer<typeof competitorDtoSchema>
 
 export const competitorBatchRequestSchema = z.object({
+  // Removal accepts legacy rows written before domain validation so operators
+  // can clean them up instead of making invalid stored data permanent.
   competitors: z.array(z.string().trim().min(1)).min(1),
 })
 
@@ -358,9 +408,16 @@ export type CompetitorBatchRequest = z.infer<typeof competitorBatchRequestSchema
  */
 export const competitorAppendRequestSchema = z.object({
   competitors: z.array(competitorEntrySchema).min(1),
+  acknowledgeBulkAdd: z.boolean().optional(),
 })
 
 export type CompetitorAppendRequest = z.infer<typeof competitorAppendRequestSchema>
+
+export const competitorReplaceRequestSchema = z.object({
+  competitors: z.array(competitorDomainSchema),
+  acknowledgeBulkAdd: z.boolean().optional(),
+})
+export type CompetitorReplaceRequest = z.infer<typeof competitorReplaceRequestSchema>
 
 /** Returns deduplicated list of all domains owned by the project. */
 export function effectiveDomains(project: { canonicalDomain: string; ownedDomains?: string[] }): string[] {

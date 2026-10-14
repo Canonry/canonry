@@ -27,8 +27,7 @@ import {
   hostOf,
   hostMatchesAnyDomain,
   normalizeUrlPath,
-  organicEvidencePeriodSchema,
-  validationError,
+  parseOrganicEvidencePeriod,
   type OrganicEvidenceDto,
 } from '@ainyc/canonry-contracts'
 import { buildBrandTokens, categorizeQueryByIntent } from '@ainyc/canonry-intelligence'
@@ -634,11 +633,7 @@ export async function organicEvidenceRoutes(app: FastifyInstance) {
   app.get<{ Params: { name: string }; Querystring: { period?: string } }>(
     '/projects/:name/organic-evidence',
     async request => {
-      const parsed = organicEvidencePeriodSchema.safeParse(
-        request.query.period === undefined ? 90 : Number(request.query.period),
-      )
-      if (!parsed.success) throw validationError('period must be 60 or 90')
-      return buildOrganicEvidence(app.db, request.params.name, parsed.data)
+      return buildOrganicEvidence(app.db, request.params.name, parseOrganicEvidencePeriod(request.query.period))
     },
   )
 }

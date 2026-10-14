@@ -40,8 +40,9 @@ import { VISIBILITY_STATS_CLI_COMMANDS } from './cli-commands/visibility-stats.j
 import { WORDPRESS_CLI_COMMANDS } from './cli-commands/wordpress.js'
 import { AGENT_CLI_COMMANDS } from './cli-commands/agent.js'
 import { MEASUREMENT_PLAN_CLI_COMMANDS } from './cli-commands/measurement-plan.js'
+import { resolveCliAccess } from './cli-access.js'
 
-export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
+const REGISTERED_COMMANDS: readonly CliCommandSpec[] = [
   ...DEMO_CLI_COMMANDS,
   ...SENTIMENT_CLI_COMMANDS,
   ...BACKFILL_CLI_COMMANDS,
@@ -83,3 +84,8 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...MCP_CLI_COMMANDS,
   ...MEASUREMENT_PLAN_CLI_COMMANDS,
 ]
+
+export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = REGISTERED_COMMANDS.map(spec => ({
+  ...spec,
+  access: resolveCliAccess(spec),
+}))

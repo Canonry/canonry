@@ -20,7 +20,7 @@ afterEach(async () => {
   vi.unstubAllGlobals()
 })
 
-async function connect(options: { body?: unknown; status?: number; progressive?: boolean } = {}) {
+async function connect(options: { body?: unknown; status?: number; progressive?: boolean; scope?: 'all' | 'read-only' } = {}) {
   const requests: Request[] = []
   const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     requests.push(input instanceof Request ? input : new Request(input, init))
@@ -31,7 +31,7 @@ async function connect(options: { body?: unknown; status?: number; progressive?:
   })
   vi.stubGlobal('fetch', fetch)
   const server = createCanonryMcpServer({
-    scope: 'read-only',
+    scope: options.scope ?? 'all',
     ...(options.progressive ? {} : { tiers: ['core', 'bing'] }),
     clientFactory: () => new ApiClient('https://canonry.test/canonry', 'cnry_project_read', { skipProbe: true }),
   })
@@ -59,7 +59,7 @@ describe('Bing coverage MCP transport', () => {
     expect(request.headers.get('authorization')).toBe('Bearer cnry_project_read')
   })
 
-  it('loads the read tool through the progressive Bing toolkit', async () => {
+  it('loads the coverage tool through the progressive Bing toolkit', async () => {
     const { client, fetch } = await connect({ progressive: true })
     expect((await client.listTools()).tools.map(tool => tool.name)).not.toContain('canonry_bing_coverage')
     const loaded = await client.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'bing' } })
@@ -69,6 +69,18 @@ describe('Bing coverage MCP transport', () => {
     expect(fetch).not.toHaveBeenCalled()
     expect((await client.callTool({ name: 'canonry_bing_coverage', arguments: { project: 'simple' } })).structuredContent)
       .toEqual(COVERAGE)
+  })
+
+  it.each([false, true])('hides and refuses coverage in read-only %s catalogs without HTTP', async progressive => {
+    const { client, requests } = await connect({ progressive, scope: 'read-only' })
+    if (progressive) {
+      const loaded = await client.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'bing' } })
+      expect(loaded.isError).not.toBe(true)
+    }
+    expect((await client.listTools()).tools.map(tool => tool.name)).not.toContain('canonry_bing_coverage')
+    const refused = await client.callTool({ name: 'canonry_bing_coverage', arguments: { project: 'simple' } })
+    expect(refused.isError).toBe(true)
+    expect(requests).toHaveLength(0)
   })
 
   it('preserves the API permission refusal without broadening the credential', async () => {

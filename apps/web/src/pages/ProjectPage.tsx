@@ -15,7 +15,7 @@ import {
   type QueryWorkspace,
 } from '../lib/project-scope.js'
 import { useQueryClient } from '@tanstack/react-query'
-import { compileQueryClassifier, effectiveBrandNames, formatPercent, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
+import { COMPETITOR_BULK_ADD_REFUSAL_REASON, COMPETITOR_BULK_ADD_WINDOW_HOURS, compileQueryClassifier, effectiveBrandNames, formatPercent, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
 import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
@@ -2459,9 +2459,25 @@ function ProjectPageContent({
       await apiAppendCompetitors(projectName, [domain])
       return true
     } catch (err) {
+      let failure: unknown = err
+      const details = apiErrorDetails(err)
+      if (details?.reason === COMPETITOR_BULK_ADD_REFUSAL_REASON) {
+        const trackedBefore = typeof details.trackedBefore === 'number' ? details.trackedBefore : '?'
+        const trackedAfter = typeof details.trackedAfter === 'number' ? details.trackedAfter : '?'
+        const windowHours = typeof details.windowHours === 'number' ? details.windowHours : COMPETITOR_BULK_ADD_WINDOW_HOURS
+        const accepted = window.confirm(`This add would grow tracked competitors from ${trackedBefore} to ${trackedAfter} within ${windowHours} hours. Continue?`)
+        if (accepted) {
+          try {
+            await apiAppendCompetitors(projectName, [domain], { acknowledgeBulkAdd: true })
+            return true
+          } catch (retryError) {
+            failure = retryError
+          }
+        }
+      }
       addToast({
         title: 'Could not add competitor',
-        detail: err instanceof Error ? err.message : `Failed to add ${domain}`,
+        detail: failure instanceof Error ? failure.message : `Failed to add ${domain}`,
         tone: 'negative',
         dedupeKey: 'competitor:add',
         dedupeMode: 'replace',

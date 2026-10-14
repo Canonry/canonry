@@ -8,16 +8,20 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 
 | File | Role |
 |------|------|
+| `src/status.ts` | Stored integration status, scoped to visible projects; shares doctor failure readers and freshness constants without running doctor checks. |
 | `src/index.ts` | Plugin entry point, global error handler, `ApiRoutesOptions` interface |
 | `src/helpers.ts` | `resolveProject()`, `writeAuditLog()`, `incrementUsage()`, `notProbeRun()` Drizzle predicate (see "Probe runs") |
 | `src/auth.ts` | Auth plugin: API key and session validation, scope gates (see "Deployment posture and key authority") |
 | `src/keys.ts` | API key management routes: `/keys` list, self, mint, revoke |
 | `src/request-context.ts` / `src/runtime-logger.ts` / `src/operational-logs.ts` | Request-local actor context; shared redacting logger; `GET /operations/logs` reader |
 | `src/openapi.ts` | OpenAPI spec generation, the source of the generated SDK (see "Typed responses") |
+
+Every API operation carries `x-canonry-access` metadata and responses expose the same value in the `x-canonry-access` header. When adding a live provider GET or other live operation, update `LIVE_READ_OPERATIONS` in `@ainyc/canonry-contracts` and its route-map test.
 | `src/projects.ts` / `src/runs.ts` | Project CRUD routes (largest route file); run trigger, status, and list routes |
 | `src/query-replace.ts` | `replaceProjectQueries`, the declarative tracked-query replace (see "Declarative query replacement") |
 | `src/competitor-writes.ts` | The one path that adds competitors or changes their curated aliases: `planCompetitorSet` / `syncCompetitorSet` (see "Competitor aliases") |
 | `src/competitor-auto-aliases.ts` | Answer-derived competitor aliases over stored answers: the bounded scan, dry run and apply (see "Competitor aliases") |
+| `src/competitor-suggestions.ts` | Read-only candidate ranking from stored answer and source evidence; awaits the yielding intelligence builder and route-owned claimed alias set |
 | `src/market-pin-writes.ts` | What a market pin write does to answer-derived names: `beginMarketPinWrite` drops the tracked auto names the write's pins claim and reports whether the answer identity or the pins moved; `notifyMarketPinWrite` fires the hooks (see "Competitor aliases") |
 | `src/snapshot-competitor-refresh.ts` | `backfillProjectAnswerMentions` / `backfillProjectAnswerMentionsInChunks`: rescores stored answer-visibility snapshots from their stored answer text, cited domains and grounding sources (`competitorFieldsOnly` for a competitor names change, `runId` for one run, `dryRun` for a preview; the chunked form yields between chunks, and each of its chunks re-reads the identity, `readAnswerIdentity` in `src/answer-identity.ts`, starting over when it changed; the one-call form reads it once). Shared by local serve, Cloud, the job runner and `canonry backfill answer-mentions`. |
 | `src/results-export.ts` | `GET /projects/:name/results/export` bulk observation export (JSON or CSV) |
@@ -26,14 +30,17 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/visibility-attribution.ts` | `buildQueryAttribution` + `resolveCurrentQuery`: historical query attribution |
 | `src/google.ts` | Google Search Console and Google Business Profile (GBP) routes |
 | `src/gsc-period-comparison.ts` / `src/gbp-summary.ts` | Pure calculations behind the GSC performance tiles and `/gbp/summary` |
+| `src/ga-acquisition.ts` | Stored grouped acquisition sessions, filters, and paging. |
 | `src/ga.ts` | Google Analytics 4 routes |
 | `src/ga-source-mover.ts` | Pure biggest-mover calculation behind `/ga/social-referral-trend` and `/ga/attribution-trend` (see "GA4 trend movers") |
 | `src/ga-search-landing-pages.ts` | GA4's Search Console landing-page snapshot: the sync's persist / failure writers, the connect / disconnect clears, `resolveCurrentGa4PropertyId` and `GET /ga/search-landing-pages` (see "GA4 Search Console landing pages") |
 | `src/ads.ts` / `src/ads-live-delivery.ts` | OpenAI ads (ChatGPT ads) routes; pure live-vs-stored comparison engine |
 | `src/traffic.ts` / `src/ai-referral-status.ts` | Server-side traffic ingestion routes; shared `ai_referral_events_hourly` read conditions |
+| `src/traffic-samples.ts` | Stored diagnostic sample rows with project/source scope, bounded paging, and viewer/embed restrictions. |
 | `src/traffic-analytics.ts` | Full-window stored crawler, user-fetch and referral aggregates, exposed through `/traffic/analytics`; detail-row caps do not limit totals, operator/path/product breakdowns or history. `period` is read-selection identity, not execution tuning. |
 | `src/referral-assessment.ts` | DB-only project/source burst diagnostic. Raw headlines unchanged; grouped candidate counts and separate adjusted estimate, with GA quotient coverage limits. |
 | `src/technical-aeo.ts` | Site Health / Technical AEO routes |
+| `src/technical-aeo-issues.ts` | Stored coded-finding, independent-defect, and cross-page issue aggregation with bounded examples and cursor-paged membership |
 | `src/measurement-property-evidence.ts` | `GET /projects/:name/measurement-property-evidence`: one Property's cursor-paged evidence |
 | `src/discovery/routes.ts` / `src/discovery/orchestrate.ts` | Tracked-basket discovery routes; `executeDiscovery` orchestration (rules: `src/discovery/AGENTS.md`) |
 | `src/doctor.ts` / `src/doctor/registry.ts` / `src/doctor/runner.ts` | `GET /doctor`, `GET /projects/:name/doctor` → `DoctorReport`; `ALL_CHECKS`; `runChecks()`, `matchesCheckId()` |
@@ -152,6 +159,7 @@ Query identity uses normalized text and prefers the ID already bound by the acti
 Publication starts zero provider calls. It leaves an open setup draft untouched, on the base it was started from, so setup publish checks that base: `assertDraftBaseIsActive` (`measurement-draft.ts`) refuses a draft whose `baseActiveRevision` is not the active revision with `MEASUREMENT_PLAN_REVISION_CONFLICT` and `details: { check: 'draft-out-of-date', draftBase, active }`, before it compares the caller's `expectedActiveRevision`. A caller that names the current revision would otherwise publish the draft's older copy over every tracking change made since. Only publish checks: a draft edit, `pin-competitor` included, never changes the published plan. `test/measurement-draft-out-of-date.test.ts` and packages/canonry `test/measurement-draft-out-of-date-parity.test.ts` guard it.
 The workspace and every preview mark each tracked query measured or awaiting (`measuredAtByQuery` in `query-tracking.ts`). On an advanced portfolio it lists the newest 100 sweeps without their manifests and walks them by `finishedAt ?? createdAt`, newest first, so the first sweep that measured a pairing holds its latest time. It opens a sweep (the run row with its manifest, then its snapshots) only when the plan that sweep ran with holds a pairing still unmeasured, which the stored plan alone decides, and stops once none is left. A pairing that no listed sweep answered in full keeps the walk opening every listed sweep whose plan holds it. It never selects `answer_text`, `cited_urls` or `raw_response`: readiness counts answered slots. The active plan is not parsed a second time, and another plan is parsed only when the walk reaches one of its sweeps. `test/query-tracking-measured-cost.test.ts` pins the measured state on 1, 3 and 5 sweep fixtures, a query whose two locations were last measured by different sweeps, and a changed location name or class source awaiting a new sweep. It records which sweeps load rows, and holds a 940-query, 20-plan workspace and preview to a budget.
 Research rejects normalized duplicate queries before dispatch while preserving accepted text exactly. Research templates must be project-configured; editor and server expansion share declared bindings, and saved provenance remains immutable.
+Every `/queries` response row carries `queryClass` from `readQueryClasses` (`src/query-class-read.ts`), so the list and the response to a write agree. A project with no active plan, or with an active schema v1 plan (which stores no class), is classed from the query text by `compileQueryClassifier(effectiveBrandNames(project))`. A project with an active schema v2 plan reports the class stored on the query's assignments in that revision and never falls back to the text. This is the `schemaVersion === 2` gate `analytics.ts`, `visibility-stats.ts` and `competitor-landscape.ts` use, so the list shows the class those reads count the query under. `null` means no single class: no usable brand name, no assignment, assignments under both classes, or a revision that cannot be read (a list read must not fail over it). Tests: `test/query-class-list.test.ts`, `test/query-class-parity.test.ts`.
 `visibility-report` owns metrics, denominators, scope, provenance, trends, and paginated evidence.
 Mention coverage excludes unattributable answers (no verified mention of the rate's Properties, at least one unresolved) from both numerator and denominator and reports them as `unattributed`; it is `identity-ambiguous` only when none remain. `measurement-report.ts` (`attributableMentionRate`) and `visibility-report-reader.ts` (`mentionRate`) must keep the same rule, and any other missing mention signal still withholds the rate.
 Citation coverage excludes saved answers whose source capture was incomplete from both numerator and denominator, even when a positive was captured, and reports them as `unchecked`; it is `evidence-incomplete` only when none are checked, and a missing answer (an expected slot with no observation) still withholds the rate. `measurement-report.ts` (`indexedScopeCitationRate`, `coverageRate`) and `visibility-report-reader.ts` (`citationRate`, competitor rows included) must keep the same rule, both through contracts `rateOverChecked`. Simple runs read citation state from stored cited domains, so they are never unchecked. The report keeps what an unchecked answer's saved links cite visible without counting it: each query row's `uncheckedSources` (`uncheckedSourceEvidence`, limited to the row's own Properties) and the summary's `notMeasuredUnchecked`, the Properties whose mention was measured and whose citation is unknown only because of such an answer (a subset of `outcomes.notMeasured`, which stays identical to the overview's partition).
@@ -318,7 +326,7 @@ incrementally.
 
 ### Event callbacks
 
-Routes fire lifecycle hooks via `opts` callbacks — `onRunCreated`, `onProviderUpdate`, `onScheduleUpdated`, `onProjectDeleted`. Fire these **after** the database transaction commits, not inside it.
+Routes fire lifecycle hooks via `opts` callbacks: `onRunCreated`, `onProviderUpdate`, `onScheduleUpdated`, `onProjectDeleted`. Fire these **after** the database transaction commits, not inside it. The optional `claimScheduledSync(projectName, kind, sourceId?)` callback is a narrow host-owned claim for scheduler initiated sync requests. Consume it immediately before the run insert, after route validation. It returns true only for the matching in-flight scheduler call and removes that claim; absent or unmatched claims store `trigger: manual`. Request bodies and caller headers never select the stored trigger.
 
 ### Probe runs
 
@@ -340,7 +348,11 @@ Answer-derived AUTO aliases (`competitors.auto_aliases`, with evidence) and oper
 
 Every read-time competitor mention matcher builds identity from `competitorBrandAliases` / `competitorNameAliases` (contracts) over stored `{ domain, aliases, autoAliases, blockedAliases }` rows (select `competitorIdentityColumns`): mention share inputs, competitive signals (run detail, history, overview gaps, content), analytics gaps, the landscape's project pins. Curated aliases take the alias floor (3); derived domain labels keep the domain floor (4). Frozen identities stay frozen: a Simple run freezes `[label, ...competitorIdentityAliases]` (curated then auto, minus blocked) at dispatch (unchanged bytes when a competitor has none; an auto name moves the checksum only for runs dispatched after it was applied), research runs freeze named competitors, and Advanced revisions keep their plan names. An Advanced pin by domain alone (`pin-competitor` with no `aliases`) seeds a new draft competitor with the tracked competitor's curated aliases only (`trackedCompetitorAliases` in `src/measurement-draft.ts`): its auto-detected names, and the names learned for an untracked domain, would become curated plan names frozen into every revision that publishes them, where a later block or their decay out of detection could no longer take them back, so readers layer them onto the pin at read time instead.
 
+Measured competitor additions use the shared `COMPETITOR_BULK_ADD_THRESHOLD` and `COMPETITOR_BULK_ADD_WINDOW_HOURS` contracts constants. The guard counts only new domains and retained rows created in the trailing window, after excluding domains in the current replace plan. It applies to REST, CLI, MCP and dashboard writes, with an explicit acknowledgement recorded in the audit diff; projects without a completed or partial non-probe answer-visibility run are unmeasured and bypass it. Dry-run previews expose `bulkAdd.limit`, `bulkAdd.count` and `bulkAdd.acknowledgementRequired`. Apply and discovery promote remain outside this operator acknowledgement guard.
+
 Every read-time competitor reader scores stored answers with the names the project has now, so a names change restates every period it reads, months already reported included. The landscape reads tracked names, market pin names and learned market names; analytics mention share and project-frame `visibility-compare` share of voice read tracked competitors only (`mentionShareCompetitors`), so a pin or learned-name change leaves those figures as they were. `readCompetitorIdentityChangedAt` (`src/competitor-landscape.ts`) puts `competitorIdentityChangedAt` on the landscape, project-frame `visibility-compare` and analytics metrics responses (a scoped `visibility-compare`, a non-project `scope` or a `marketKey`, returns the frozen frame before it is read and carries none): the newest audit row that changed a curated, auto-detected or blocked name (`competitors.aliases-updated`, `competitors.auto-aliases-updated`, or a diff carrying `aliasChanges`, `autoAliasChanges`, `removedAutoAliases`, `marketNameChanges`, or a `project.updated` drop), or the publish of a v2 revision that renamed a pin the previous revision held in the same market, whichever is later; null when neither exists. Adding or removing a competitor or a pin, and a block or unblock, are names changes only when they move a stored or learned name. A write that claims, releases or drops a market-only competitor's learned name may change no stored row, so every writer that can move one compares `readMarketCompetitorNames` before and after inside its transaction and audits the difference as `marketNameChanges` (`src/market-competitor-names.ts`): a project `PUT` and apply directly; the competitor routes (`PUT`/`POST /competitors`, the alias set, block, unblock, both `DELETE`s) and discovery promote through `beginMarketNameWrite`; every market pin writer through `beginMarketPinWrite`. When names moved, each fires `onCompetitorAliasesChanged` (a pin writer through its `identityChanged`).
+
+`readCompetitorSetChangedAt` puts `competitorSetChangedAt` beside the identity marker on the landscape, project-frame visibility compare, and analytics metrics. It reads non-empty `added`, `deleted`, `competitors`, or `added`/`removed` audit arrays for tracked set writes; a legacy replacement without both arrays counts conservatively, while an empty pair is a no-op. Scoped visibility comparisons return neither marker because they read frozen plan history.
 
 ### Historical competitor landscapes
 
@@ -398,7 +410,8 @@ Every read-time competitor reader scores stored answers with the names the proje
 - **Do not deploy `apps/api` as a multi-tenant SaaS.** One Cloud Run service per team. If you need to host multiple teams, deploy multiple isolated Cloud Run services with separate databases and OAuth clients.
 - **Do not hand out `cnry_…` API keys outside the trust boundary you'd give a teammate.** A leaked key reads and writes every project on the instance.
 - **API key management (`canonry key create` / `list` / `revoke`, `POST /keys`, `POST /keys/:id/revoke`) is gated by the `keys.write` scope.** The default `*` key written by `canonry init` satisfies it; narrower delegate keys must declare `keys.write` explicitly. Listing keys is ungated but returns SAFE metadata only (id, name, prefix, scopes, timestamps, and the scoped project's id and name) — never the stored hash or the plaintext token. The raw `cnry_…` token is returned exactly once, at creation. Revoke sets `revokedAt` (it does not delete the row) and takes effect on the next request; you cannot revoke the key you are currently authenticating with. `GET /keys/self` (CLI `canonry key whoami`) returns the SAFE metadata of the key the request authenticated with, including the derived `readOnly` flag.
-- **Read-only keys (`canonry key create --read-only`, scopes `['read']`).** A key is read-only when it carries `read` or a named `*.read` scope and no explicit write grant — see `isReadOnlyKey` in `@ainyc/canonry-contracts`. In particular, `['logs.read']` is a read-only observer without requiring another marker. The auth plugin's global `onRequest` gate denies mutating HTTP methods (POST/PUT/PATCH/DELETE) with `403 FORBIDDEN`; GET/HEAD/OPTIONS remain subject to their route permissions. POST-based preview/dry-run routes are unavailable to read-only keys by design; MCP transport envelopes allow reads but never bypass per-operation authorization. Wildcard and explicit write grants retain their existing route gates. Empty or unrecognized legacy scope lists are unchanged. One benign exception: `GET .../bing/coverage` upserts a derived daily snapshot under a read method (idempotent, no user-meaningful state) — left allowed. `canonry-mcp` probes `GET /keys/self` at startup and auto-restricts the catalog to read tools when its configured key is read-only.
+- **Read-only keys (`canonry key create --read-only`, scopes `['read']`).** A key is read-only when it carries `read` or a named `*.read` scope and no explicit write grant. The auth plugin's global `onRequest` gate denies mutating HTTP methods (POST/PUT/PATCH/DELETE) with `403 FORBIDDEN`; GET/HEAD/OPTIONS remain subject to their route permissions. POST-based preview/dry-run routes are unavailable to read-only keys by design; MCP transport envelopes allow reads but never bypass per-operation authorization. Wildcard and explicit write grants retain their existing route gates. Empty or unrecognized legacy scope lists are unchanged. `GET .../bing/coverage` upserts an idempotent derived daily snapshot, so its operation metadata is write even though the HTTP method is GET. `canonry-mcp` probes `GET /keys/self` at startup and auto-restricts the catalog to read tools when its configured key is read-only.
+- **Operation access tables.** Keep `LIVE_READ_OPERATIONS`, `READ_SEMANTIC_OPERATIONS`, `STORED_READ_OPERATIONS`, and `WRITE_OPERATIONS` in `@ainyc/canonry-contracts` synchronized with registered route templates. `STORED_READ_OPERATIONS` describes effect and response provenance; a pure preview can remain write-scope authorized while its access metadata is stored. A live provider GET must also carry the route's paid-read marker and call `requirePaidReadScope` when it spends an operator budget. GET OAuth callbacks that persist credentials belong in `WRITE_OPERATIONS`; they are not stored reads.
 - **A GET that SPENDS is gated separately from one that reads (`requirePaidReadScope`).** A few GETs return no stored data at all: they resolve the operator's OpenAI Ads credential and call the provider on demand, spending on the ad account and disclosing account identity and conversion configuration. The method-based read-only gate cannot see this — a billed GET looks exactly like a free one — so those routes carry their own ALLOW-list gate (`*`, `ads.write`, `ads.approve`, `ads.activate`) plus `requireAdminSession`, refusing a read-only key, a key scoped to something unrelated, and a view-only account. Covered today: `GET .../ads/live-delivery`, `.../ads/account`, `.../ads/geo/search`, `.../ads/conversions/pixels`, `.../ads/conversions/event-settings`. **Any new route that calls a provider live on the caller's behalf must be added to this gate** — leaving it on the read/write split means every narrow credential on the install can spend the operator's budget.
 - **If a multi-tenant story becomes a requirement,** the work is substantial — add `owner_id` to every domain table, attach `apiKey.ownerId` to `request` in `authPlugin`, AND-in `eq(table.ownerId, request.apiKey.ownerId)` on every read/write, rekey `google_connections` / `bing_connections` to include `project_id`, and gate `/settings/*` on a real `admin` scope. The trade-off is real — a schema migration that touches ~15 tables and every route file. Plan accordingly.
 
@@ -477,6 +490,8 @@ Locations are project-scoped via `spec.locations` and `spec.defaultLocation`. Ru
 `spec.queries` (and its legacy `keywords` alias) is declarative WHEN PRESENT: the tracked basket is replaced to match it, and an explicit empty list clears it. A spec that OMITS the field leaves the tracked basket untouched, so a config converge that only manages providers/locations/metadata cannot wipe live queries (that wipe hit a control plane's boot-time re-apply mid-sweep, 2026-08-29).
 
 `spec.siteAuditMaxPages` (the Site Health page budget for scans that set none, 1 to 50,000) follows the same rule: present sets it, `null` resets it to the full site, absent keeps the stored value. Project `PUT` keeps an omitted value too, because the dashboard and CLI resend the whole project. A new project (POST, PUT create, or apply) starts at the given value or `null`. Project reads and the apply response always carry it (`null` = full site); export emits it only when non-null.
+
+Notification entries in an exported config carry their stable `id` and a `redacted://host/id` URL. Apply matches those entries by ID and preserves the stored webhook secret, source, enabled state and creation time. An unmatched redacted ID fails before any write. Export includes real webhook URLs only with the explicit `includeSecrets=true` query and administrator or wildcard authority; MCP never exposes that query.
 
 Multiple projects can be defined in one file using `---` document separators. Apply with `canonry apply <file...>` (accepts multiple files) or `POST /api/v1/apply`. Applied project YAML is declarative input; runtime project/run data lives in the DB, while local authentication credentials live in `~/.canonry/config.yaml`.
 
@@ -771,13 +786,19 @@ WordPress backfill is forbidden while either continuation field is set.
 `src/backlinks.ts` (Common Crawl sync + per-project extract):
 
 - Summary/domains/history default to `source=commoncrawl`; the source discriminator remains readable for inert historical rows from older versions.
-- `GET /projects/:name/backlinks/sources` reports Common Crawl readiness plus retained-source data availability.
+- `GET /projects/:name/backlinks/sources` reports Common Crawl readiness plus retained-source data availability. Common Crawl is `connected` when a release sync has completed AND the project has a Common Crawl summary (`readCommonCrawlSourceState` in `src/backlinks-source-state.ts`). Completed means `ready`, or `query_finished_at` set: syncing a release again re-queues its row while the stored rows stay intact, so the status alone would report every project disconnected for the length of the download. The `backlinks.source.connected` doctor check reads the same function, so the two cannot disagree; change the rule there, never in one caller. For a project without a summary, the check recommends `backlinks extract` only when a release is currently `ready`; historical completion alone requires `backlinks sync`. `autoExtractBacklinks` only queues a re-extract after a sync and is not part of it.
 
 ### Technical AEO crawl (Site Health)
 
 - Powered by the `site-audit` run kind and `@canonry/aeo-audit`'s `runSiteCrawl`. A run crawls the sitemap plus internal-link discoveries. Page budget: the request's `maxPages`, else the project's saved `siteAuditMaxPages`, else the full site (the 50,000-page hard limit), for manual and scheduled scans alike; edges derived by the engine from the page count (pages × 50, floor 100,000) unless `--max-edges` is set. Hard limits: 50,000 pages / 1,000,000 edges. Dead-link analysis is off unless requested.
 - Progress reports the exact durable phase and raw pages found / checked / failed counters — never a synthesized percentage.
 - Dead-link reports are disabled unless the run used `--check-dead-links`. A listed dead link ALWAYS has a real 4xx/5xx status: an internal target the crawler could not fetch at all (timeout, reset connection, throttling under crawl concurrency) is counted separately as `unverified` and is never listed, because a failed fetch is a fact about the crawl and not about the link. `found` and `checked` both exclude unverified targets, so "0 found, 6 unverified" reads as "nothing broken, six we could not check" rather than as a clean bill of health.
+
+#### Stored audit issues
+
+`GET /technical-aeo/issues` and `/technical-aeo/issues/:issueId/pages` read the selected published non-probe attempt only. The helper batches retained audit fields, groups findings independently of scores, keeps independent critical defects actionable with their stored severity, and prefers retained cross-page groups over mirrored duplicate annotations. Findings from factors explicitly marked `applicable: false` are excluded from groups and affected-page membership; missing/null legacy applicability does not discard evidence, and independent critical defects remain visible. Page-finding recommendations are factor-scoped; defect recommendations are issue-scoped. Known informational title/metadata advice is advisory; other information is not a defect. Legacy/malformed absence has explicit coverage and cannot yield an available clean result. Null cross-page identities remain run-local.
+
+Responses are capped at 16 KiB of pretty JSON (including provenance and cursor), with whole-row continuation and exact retained totals. A row that cannot fit fails explicitly. Reads also reject more than 128 MiB of retained evidence or 4096 distinct groups. Cursors bind project, run, attempt, endpoint/issue and all retained evidence; limit may change between pages. These are stored reads in operation-access; no provider or crawl action is permitted.
 
 #### Routes (`src/technical-aeo.ts`)
 
@@ -857,3 +878,86 @@ answers, checks at most 50 candidates, and returns separate reasons for changed
 populations, incomplete/empty targets, and bounded searches. Select an older run
 explicitly after a bounded-search refusal. Partial rated predecessors remain
 eligible; evaluator and model changes remain comparison refusals.
+
+### Audit investigations
+
+Both history routes parse `auditHistoryQuerySchema` before querying. Exact action
+and actor compatibility remain; action prefixes escape SQL wildcards, exclusions
+apply before paging, and inclusive time bounds normalize to UTC. Keep telemetry
+filtering and recursive notification redaction on every selection. Both competitor
+replacement writers use `competitorSetChangeAuditFields` to retain set changes and
+discarded names; never rewrite old audit records.
+
+### Stored traffic samples
+
+`traffic-samples.ts` exposes bounded stored sample rows with project/source scope.
+Keep unknown traffic out of the default, require admin session authority, and
+never allow embed access. Select public fields explicitly and parse classifier
+evidence through the tolerant, stripping schema. No IP hashes, provider calls,
+retention writes, or rollup changes belong in this route.
+
+### Stored acquisition rows
+
+`ga-acquisition.ts` aggregates stored sessions in SQL and pages grouped rows after
+counting the full selection. It never requires a live GA connection. The normalized
+page keeps meaningful query parameters; only the path-prefix filter ignores them.
+`literalPathPrefixCondition` shares boundary-safe, escaped SQL matching with the
+measurement analysis reader. Project-only scope cannot identify older GA properties.
+
+### Window parsing
+
+Stored readers share contracts `parseWindowIn` and `WINDOW_SETS`. Accept lowercase
+`Nd` or bare positive days only when the endpoint supports that stored window.
+Keep endpoint defaults and OpenAPI enums unchanged; failures include `field`,
+`value`, and the precise `allowed` set. Calendar-date and ISO-instant filters
+remain separate contracts.
+
+### Config-as-code apply preview
+
+`POST /apply` and `POST /apply/preview` share one transaction path. Preview runs
+the real validation and writes inside an immediate SQLite transaction, then
+throws its private rollback sentinel as the final transaction statement. The
+wrapper catches only that sentinel and returns `ApplyPreviewDto`; no audit row
+or post-commit callback may run. Keep project-scoped authorization before
+notification planning. Preview output contains notification hosts and event
+changes only, never stored or request webhook URLs. Redacted notification
+sentinels preserve stored IDs, secrets, enabled state, createdAt and source.
+
+### Partial project updates
+
+PATCH `/projects/:name` is existing-project-only and validates the strict `projectPatchRequestSchema`. It shares preparation and transaction logic with PUT, merges measurement one level, preserves config source, and audits patched field names. Empty or revision-only patches are refused. Match `configRevision` in the update predicate before any audit or callback; stale updates return `PROJECT_REVISION_CONFLICT`. Keep project and provider-model authority identical to PUT.
+
+### Competitor change preview
+
+`competitor-change-preview.ts` plans add/replace/aliases through the shared
+writer planner; removal preserves retained identity exactly as DELETE does.
+It passes hypothetical identity and recomputed learned market names to the same
+landscape reader as share of voice. It writes no rows and invokes no hooks.
+The preview POST retains write-key authorization; detection GET remains a read.
+### Stored answer-field completion status
+
+The project DTO exposes optional `answerFieldsRecompute` (`full`, `competitors`,
+or null). It reads the existing persisted mark and does not start work. Local
+serve clears it after the latest requested pass; Cloud completes its existing
+synchronous backfill before responding. Auto-alias detection is not covered.
+
+### Stored operator read corrections
+
+`status.ts` combines stored doctor health with integration state. Health fail
+maps to failing and warn to warning; summaries and problem filters use that
+aggregate. An explicitly selected project retains its health envelope even when
+its integration list filters to empty. Host probes cache only successful results
+so a corrected DNS or TLS failure can be rechecked immediately.
+
+History rows include the current project name from the same scoped selection;
+empty audit/run filters are invalid. Traffic samples accept timestamp or date-only
+bounds (UTC midnight). Acquisition normalizes a landing-page filter with the same
+`normalizeUrlPath` used when storing rows, retaining meaningful query parameters,
+and refuses a rolling window combined with explicit date bounds.
+
+Suggestion reads refuse oversized exact workloads before matching: at most
+200,000 characters in one answer, 20 million evidence characters total, and
+200,000 source references, in addition to the 10,000 eligible-answer cap. Return
+`competitor-suggestions-work-limit` with narrowing guidance, never a sampled
+result presented as exact. Add/replace competitor inputs validate registrable
+domains; removals stay permissive so legacy invalid rows can be cleaned up.

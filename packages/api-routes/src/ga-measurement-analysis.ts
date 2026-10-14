@@ -1,3 +1,4 @@
+import { literalPathPrefixCondition } from './path-prefix-condition.js'
 import { and, eq, gte, lte, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
@@ -17,12 +18,13 @@ import {
   classifyAiReferralTrafficClass,
   filterBrandedSeedCandidates,
   gaMeasurementAnalysisDtoSchema,
-  gaMeasurementAnalysisWindowSchema,
+  WINDOW_SETS, parseWindowIn,
   gaMeasurementHostScopeSchema,
   hostOf,
   hostMatchesAnyDomain,
   isGa4AiAssistantChannel,
   normalizeUrlPath,
+  normalizePathPrefix,
   RatioUnits,
   roundRatio,
   validationError,
@@ -437,13 +439,6 @@ function normalizeLandingPage(value: string | null | undefined): string {
   return normalizeUrlPath(value) ?? UNKNOWN_LANDING_PAGE
 }
 
-function normalizePathPrefix(value: string | undefined): string | null {
-  if (!value) return null
-  const normalized = normalizeUrlPath(value)
-  if (!normalized) return null
-  return normalized.startsWith('/') ? normalized : `/${normalized}`
-}
-
 function matchesPathPrefix(value: string, prefix: string | null): boolean {
   if (!prefix) return true
   const pathname = value.split('?')[0] ?? value
@@ -475,10 +470,7 @@ export function buildGaMeasurementAnalysis(
   projectName: string,
   options: GaMeasurementAnalysisOptions = {},
 ): GaMeasurementAnalysisDto {
-  const parsedWindow = gaMeasurementAnalysisWindowSchema.safeParse(options.window ?? '90d')
-  if (!parsedWindow.success) {
-    throw validationError('"window" must be one of: 30d, 60d, 90d')
-  }
+  const window = parseWindowIn(options.window, WINDOW_SETS.gaMeasurementAnalysis, { fallback: '90d' })
   const parsedHostScope = gaMeasurementHostScopeSchema.safeParse(
     options.hostScope ?? 'marketing',
   )
@@ -491,7 +483,7 @@ export function buildGaMeasurementAnalysis(
   }
 
   const project = resolveProject(db, projectName)
-  const days = windowDays(parsedWindow.data)
+  const days = windowDays(window)
   const pathPrefix = normalizePathPrefix(options.pathPrefix)
   const marketingHosts = stableUnique(
     [
@@ -529,7 +521,7 @@ export function buildGaMeasurementAnalysis(
     if (pathPrefix && pathPrefix !== '/') {
       const rawPath = sql`case when instr(${rawPathColumn}, '?') = 0 then ${rawPathColumn} else substr(${rawPathColumn}, 1, instr(${rawPathColumn}, '?') - 1) end`
       const landingPath = sql`case when trim(coalesce(${normalizedPathColumn}, '')) = '' then ${rawPath} else ${normalizedPathColumn} end`
-      conditions.push(or(sql`${landingPath} = ${pathPrefix}`, sql`${landingPath} like ${`${pathPrefix}/%`}`))
+      conditions.push(literalPathPrefixCondition(landingPath, pathPrefix))
     }
     return conditions
   }
@@ -744,7 +736,7 @@ export function buildGaMeasurementAnalysis(
   )
 
   return gaMeasurementAnalysisDtoSchema.parse({
-    window: parsedWindow.data,
+    window,
     bucketDays: 30,
     filters: {
       hostScope: parsedHostScope.data,

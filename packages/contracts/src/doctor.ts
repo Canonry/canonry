@@ -23,6 +23,13 @@ export const checkCategorySchema = z.enum([
 export type CheckCategory = z.infer<typeof checkCategorySchema>
 export const CheckCategories = checkCategorySchema.enum
 
+/**
+ * Suffix of the code the runner gives a check that threw (`<id>.runtime-error`).
+ * Such a result is graded `fail`, and it tested nothing: it is not evidence
+ * that the thing it checks is broken, or that it is fixed.
+ */
+export const CHECK_RUNTIME_ERROR_SUFFIX = '.runtime-error'
+
 export const checkNotificationPolicySchema = z.enum(['health', 'silent'])
 export const CheckNotificationPolicies = checkNotificationPolicySchema.enum
 export type CheckNotificationPolicy = z.infer<typeof checkNotificationPolicySchema>
@@ -54,8 +61,9 @@ export const checkResultSchema = z.object({
   scope: checkScopeSchema,
   title: z.string(),
   status: checkStatusSchema,
-  notificationPolicy: checkNotificationPolicySchema.optional().describe('Health checks page by default. Silent report advisories remain visible but never affect health alert state.'),
+  notificationPolicy: checkNotificationPolicySchema.optional().describe('Health checks page by default. Silent checks (report advisories and standing advisories) remain visible but never affect health alert state.'),
   code: z.string().describe('Stable machine-readable code (e.g. "google.token.refresh-failed"). Use this for filtering and remediation logic.'),
+  urgent: z.boolean().optional().describe('True when this result is a problem a person has to act on now (the website is down, daily data stopped arriving, a sync keeps failing). Urgent results are what the health.urgent notification event reports. A result set aside under its failing cause (status "skipped", code "<id>.superseded") keeps the flag: the problem is still open.'),
   summary: z.string(),
   remediation: z.string().nullable().optional().describe('Operator-facing next step. Null when status is "ok" or no specific remediation applies.'),
   details: z.record(z.string(), z.unknown()).optional().describe('Structured context — principal email, redirect URI, missing scopes, etc. Stable per check id.'),

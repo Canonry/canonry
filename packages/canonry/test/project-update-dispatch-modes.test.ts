@@ -9,11 +9,13 @@ import type { ProjectDto } from '@ainyc/canonry-contracts'
 
 const mockGetProject = vi.fn()
 const mockPutProject = vi.fn()
+const mockPatchProject = vi.fn()
 
 vi.mock('../src/client.js', () => ({
   createApiClient: () => ({
     getProject: mockGetProject,
     putProject: mockPutProject,
+    patchProject: mockPatchProject,
   }),
 }))
 
@@ -60,18 +62,18 @@ const WARNING = 'Warning: Dropped dispatch mode for engine(s) the project does n
 describe('canonry project update — dispatch modes the server did not store', () => {
   it('warns on stderr when a --dispatch-mode it was sent is pruned', async () => {
     // The server pruned claude: the project runs only openai.
-    mockPutProject.mockResolvedValue({ ...project, providerDispatchModes: {} })
+    mockPatchProject.mockResolvedValue({ ...project, providerDispatchModes: {} })
 
     await updateProjectSettings('acme', { dispatchModes: { claude: 'batch' } })
 
-    expect(mockPutProject.mock.calls[0]![1]).toMatchObject({ providerDispatchModes: { claude: 'batch' } })
+    expect(mockPatchProject.mock.calls[0]![1]).toEqual({ expectedConfigRevision: 1, providerDispatchModes: { claude: 'batch' } })
     expect(stderr).toEqual([WARNING])
     expect(stdout).toEqual(['Project updated: acme'])
   })
 
   it('warns on stderr in JSON mode and leaves stdout the API response', async () => {
     const result = { ...project, providerDispatchModes: {} }
-    mockPutProject.mockResolvedValue(result)
+    mockPatchProject.mockResolvedValue(result)
 
     await updateProjectSettings('acme', { dispatchModes: { claude: 'batch' }, format: 'json' })
 
@@ -82,17 +84,17 @@ describe('canonry project update — dispatch modes the server did not store', (
 
   it('warns when narrowing the engine set drops a stored preference', async () => {
     mockGetProject.mockResolvedValue({ ...project, providers: ['openai', 'claude'], providerDispatchModes: { claude: 'batch', openai: 'batch' } })
-    mockPutProject.mockResolvedValue({ ...project, providerDispatchModes: { openai: 'batch' } })
+    mockPatchProject.mockResolvedValue({ ...project, providerDispatchModes: { openai: 'batch' } })
 
     await updateProjectSettings('acme', { providers: ['openai'] })
 
     // No dispatch flag: the stored map is left to the server, not sent.
-    expect(mockPutProject.mock.calls[0]![1]).not.toHaveProperty('providerDispatchModes')
+    expect(mockPatchProject.mock.calls[0]![1]).toEqual({ expectedConfigRevision: 1, providers: ['openai'] })
     expect(stderr).toEqual([WARNING])
   })
 
   it('says nothing when the server kept the preference (an Advanced revision still measures the engine)', async () => {
-    mockPutProject.mockResolvedValue({ ...project, providerDispatchModes: { claude: 'batch' } })
+    mockPatchProject.mockResolvedValue({ ...project, providerDispatchModes: { claude: 'batch' } })
 
     await updateProjectSettings('acme', { dispatchModes: { claude: 'batch' } })
 
@@ -102,11 +104,11 @@ describe('canonry project update — dispatch modes the server did not store', (
 
   it('says nothing for a preference the operator cleared', async () => {
     mockGetProject.mockResolvedValue({ ...project, providerDispatchModes: { claude: 'batch' } })
-    mockPutProject.mockResolvedValue({ ...project, providerDispatchModes: {} })
+    mockPatchProject.mockResolvedValue({ ...project, providerDispatchModes: {} })
 
     await updateProjectSettings('acme', { clearDispatchModes: ['claude'] })
 
-    expect(mockPutProject.mock.calls[0]![1]).toMatchObject({ providerDispatchModes: {} })
+    expect(mockPatchProject.mock.calls[0]![1]).toEqual({ expectedConfigRevision: 1, providerDispatchModes: {} })
     expect(stderr).toEqual([])
   })
 })

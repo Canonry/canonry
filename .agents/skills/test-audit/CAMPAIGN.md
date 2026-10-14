@@ -4,16 +4,18 @@ Campaign mode prunes one subsystem's whole test surface in one PR: a plugin
 such as `extensions/telegram`, or one core area. The value bar, retention bar,
 candidate evidence, and validation in [SKILL.md](SKILL.md) apply to every
 lane. This file adds the order of work and the lessons of a full campaign.
-Each step ends on its completion criterion; do not start the next step early.
+For local agent work, complete discovery, edits, and source review before any test execution.
+At final validation, collect baseline results and run keeper, mutation, control, and subsystem checks.
+Execution-based completion criteria apply at final validation, not between edits.
 
 ## 1. Baseline
 
-Record the subsystem's test and support line counts and every test file's
-pass/fail state at a pinned `main` SHA. Keep baseline failures in their own
-list: in the Telegram campaign, all three were real delivery bugs, not stale
-tests.
+Record the subsystem's test and support line counts at a pinned `main` SHA.
+At final validation, collect every test file's baseline pass/fail state from that revision.
+Keep baseline failures in their own list: in the Telegram campaign, all three
+were real delivery bugs, not stale tests.
 
-Done when every in-scope test file has a recorded baseline result.
+Done when the pinned SHA, line counts, and baseline test scope are recorded.
 
 ## 2. Lanes and inventory
 
@@ -69,7 +71,7 @@ Register moved suites in CI routing and test inventories. Update shrink-only
 line-cap baselines. Put durable test-ownership rules in the subsystem's
 `AGENTS.md`, drawn from mistakes this campaign actually found.
 
-Done when every lane plan is applied and each lane's keepers pass.
+Done when every lane plan is applied and each lane's keeper validation scope is recorded.
 
 ## 6. Preservation review
 
@@ -79,8 +81,8 @@ contracts that lost their only proof. They also look for new assertions that
 cannot fail, such as a rejection row the production code never reaches. The
 Telegram review found nine real gaps and one unreachable assertion.
 
-For each restored contract, make one deliberate **mutation** of the production
-owner and confirm the keeper goes red. Then restore the source byte for byte.
+At final validation, make one deliberate **mutation** of the production owner for each restored contract.
+Confirm the keeper goes red. Then restore the source byte for byte.
 
 Done when every reported gap is restored or rejected with source evidence, and
 every restored contract has a caught mutation.
@@ -101,8 +103,9 @@ on the same harness.
 Campaigns outlive many `main` commits. Merge `main` rather than rebasing a
 long, many-commit campaign. When `main` modified a file the campaign
 deleted, keep the deletion. Port the new contract into the keeper instead, and
-confirm every new regression `main` added still has a home. Rerun the whole
-subsystem suite and repeat live proof on the merged head.
+confirm every new regression `main` added still has a home.
+Once the merged changes are finalized and ready for push or review, rerun the whole subsystem suite.
+Repeat live proof on that merged head.
 
 Expect review tooling to see a truncated file list on a diff this large.
 Record maintainer decisions for generic compatibility flags in the PR evidence

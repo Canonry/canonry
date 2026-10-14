@@ -19,7 +19,7 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { SetHeadersResponse } from "@fastify/static";
-import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, writeAuditLog, type ApiRoutesOptions } from "@ainyc/canonry-api-routes";
+import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, syncRunClaimKey, writeAuditLog, type ApiRoutesOptions } from "@ainyc/canonry-api-routes";
 import {
   apiKeys,
   auditLog,
@@ -75,6 +75,8 @@ import {
   FeatureNames,
   OutcomeReasonCodes,
   OutcomeSurfaces,
+  OPERATION_ACCESS_HEADER,
+  OperationAccesses,
   type AdsCampaignBiddingType,
   type AdsAdGroupBillingEventType,
   type ProviderAdapter,
@@ -82,7 +84,10 @@ import {
   type AgentPluginState,
   describeError,
   OutcomeTriggers,
+  STORED_ONLY_HEADER,
+  storedOnlyRefused,
   type OutcomeTrigger,
+  type RunKind,
 } from "@ainyc/canonry-contracts";
 import type {
   CanonryConfig,
@@ -1137,6 +1142,9 @@ export async function createServer(opts: {
   // Releases the backlinks schedule asked POST /backlinks/syncs for, so the
   // release sync that request starts reports a scheduled trigger.
   const scheduledBacklinkReleases = new Set<string>();
+  const scheduledSyncClaims = new Set<string>();
+  const claimScheduledSync = (projectName: string, kind: RunKind, sourceId?: string): boolean =>
+    scheduledSyncClaims.delete(syncRunClaimKey(projectName, kind, sourceId));
   // Built-in Aero agent kill-switch. When disabled (config `agent.mode:
   // 'disabled'` or env CANONRY_AGENT_DISABLED=1) we skip the SessionRegistry,
   // the proactive wake on run completion, and the interactive agent routes —
@@ -1898,7 +1906,10 @@ export async function createServer(opts: {
       // Reuse the in-process scheduler API client. The traffic-sync
       // endpoint owns run-row creation, dedupe, rollup writes, and emits
       // the `traffic.synced` telemetry — the scheduler only triggers it.
-      schedulerClient.trafficSync(projectName, sourceId).catch((err: unknown) => {
+      scheduledSyncClaims.add(syncRunClaimKey(projectName, RunKinds['traffic-sync'], sourceId));
+      schedulerClient.trafficSync(projectName, sourceId).finally(() => {
+        scheduledSyncClaims.delete(syncRunClaimKey(projectName, RunKinds['traffic-sync'], sourceId));
+      }).catch((err: unknown) => {
         app.log.error(
           {
             projectName,
@@ -1953,7 +1964,7 @@ export async function createServer(opts: {
       // Fan out to every connected data integration (GSC, Bing, GA, GBP) via
       // the same in-process client. refreshAllIntegrations isolates each
       // integration's failure with Promise.allSettled and never rejects.
-      void refreshAllIntegrations(schedulerClient, projectName);
+      void refreshAllIntegrations(schedulerClient, projectName, new Date(), scheduledSyncClaims);
     },
     onBacklinksSyncRequested: (projectName) => {
       void syncLatestReleaseOnSchedule(projectName, {
@@ -2540,7 +2551,25 @@ export async function createServer(opts: {
   const serverApiKeyMissing = () =>
     new AppError("AUTH_INVALID", "Server API key not found — run canonry bootstrap", 401);
 
-  app.get(apiPrefix + "/session", async (request, reply) => {
+  const rejectLegacySessionStoredOnly = async (request: FastifyRequest, reply: FastifyReply) => {
+    const header = request.headers[STORED_ONLY_HEADER];
+    if (header !== '1' && header !== 'true') return;
+    const route = request.routeOptions.url ?? request.url;
+    const operation = route.endsWith('/session/setup')
+      ? 'POST /api/v1/session/setup'
+      : `${request.method.toUpperCase()} /api/v1/session`;
+    const error = storedOnlyRefused('Stored-only mode refuses this operation', { operation, access: OperationAccesses.write });
+    return reply.status(error.statusCode).send(error.toJSON());
+  };
+  const legacySessionRouteOptions = {
+    onSend: async (_request: FastifyRequest, reply: FastifyReply, payload: unknown) => {
+      reply.header(OPERATION_ACCESS_HEADER, OperationAccesses.write);
+      return payload;
+    },
+    preHandler: rejectLegacySessionStoredOnly,
+  } as const;
+
+  app.get(apiPrefix + "/session", legacySessionRouteOptions, async (request, reply) => {
     if (namedAccountsInUse()) {
       return reply.send({ authenticated: false, setupRequired: false });
     }
@@ -2557,7 +2586,7 @@ export async function createServer(opts: {
   // One-time password setup — only works when no password is configured yet.
   app.post<{
     Body: { password?: string };
-  }>(apiPrefix + "/session/setup", async (request, reply) => {
+  }>(apiPrefix + "/session/setup", legacySessionRouteOptions, async (request, reply) => {
     if (namedAccountsInUse()) {
       const err = forbidden(NAMED_ACCOUNTS_MESSAGE);
       return reply.status(err.statusCode).send(err.toJSON());
@@ -2644,7 +2673,7 @@ export async function createServer(opts: {
   // Login with dashboard password or API key.
   app.post<{
     Body: { password?: string; apiKey?: string };
-  }>(apiPrefix + "/session", async (request, reply) => {
+  }>(apiPrefix + "/session", legacySessionRouteOptions, async (request, reply) => {
     if (namedAccountsInUse()) {
       const err = forbidden(NAMED_ACCOUNTS_MESSAGE);
       return reply.status(err.statusCode).send(err.toJSON());
@@ -2719,7 +2748,7 @@ export async function createServer(opts: {
     return reply.status(err.statusCode).send(err.toJSON());
   });
 
-  app.delete(apiPrefix + "/session", async (request, reply) => {
+  app.delete(apiPrefix + "/session", legacySessionRouteOptions, async (request, reply) => {
     const sessionId = parseCookieHeader(request.headers.cookie)[SESSION_COOKIE_NAME];
     clearSession(sessionId);
     reply.header(
@@ -2988,6 +3017,7 @@ export async function createServer(opts: {
     // Outcome telemetry reported from route code (`app.emitOutcome`).
     onOutcome: handleRouteOutcome,
     db: opts.db,
+    claimScheduledSync,
     sentiment: {
       install: () => { const configuration = loadSentimentInstallConfig(); return { ...sentimentInstallReadiness(configuration), model: configuration.model }; },
       previewSecret: opts.config.apiKey,
@@ -4007,8 +4037,9 @@ export async function createServer(opts: {
   // so resolve them once here; each is omitted, not nulled, when unknown.
   const buildCommit = resolveBuildCommit();
   const instance = resolveInstanceIdentity();
-  const healthHandler = () => {
-    const update = checkLatestVersionForServer();
+  const healthHandler = (request: FastifyRequest) => {
+    const storedOnly = request.headers[STORED_ONLY_HEADER] === '1' || request.headers[STORED_ONLY_HEADER] === 'true';
+    const update = checkLatestVersionForServer({ storedOnly });
     return {
       status: "ok",
       service: "canonry",

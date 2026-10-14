@@ -86,7 +86,7 @@ function readStoredMarketNames(db: Reader, projectId: string): StoredMarketNames
 export function readMarketCompetitors(
   db: Reader,
   projectId: string,
-  tracked?: readonly StoredCompetitor[],
+  tracked?: readonly Pick<StoredCompetitor, 'domain'>[],
   stored?: readonly StoredMarketNames[],
 ): MarketCompetitor[] {
   const pins = activePlanMarketPins(db, projectId)
@@ -111,14 +111,19 @@ export function readMarketCompetitors(
  * revision no longer pins (its names apply only where a run's own revision
  * pins it). Such a domain has no current plan names and comes after the
  * pinned ones, so a pinned competitor keeps a stored name the two share.
+ * `hypotheticalTracked` lets a preview run the same identity rules without a write.
  * Empty when the project has no stored market names (the plan is not read).
  */
-export function readMarketCompetitorNames(db: Reader, projectId: string): Map<string, string[]> {
+export function readMarketCompetitorNames(
+  db: Reader,
+  projectId: string,
+  hypotheticalTracked?: readonly Omit<StoredCompetitor, 'id'>[],
+): Map<string, string[]> {
   const storedRows = readStoredMarketNames(db, projectId)
   if (!storedRows.some(row => row.autoAliases.length > 0)) return new Map()
   const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
   if (!project) return new Map()
-  const tracked = readStoredCompetitors(db, projectId)
+  const tracked = hypotheticalTracked ?? readStoredCompetitors(db, projectId)
   const market = readMarketCompetitors(db, projectId, tracked, storedRows)
   const trackedDomains = new Set(tracked.map(row => normalizeCompetitorDomain(row.domain)))
   const pinnedDomains = new Set(market.map(entry => entry.domain))

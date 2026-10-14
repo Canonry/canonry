@@ -4,7 +4,8 @@ import type { FastifyInstance } from 'fastify'
 import { bingUrlInspections, bingCoverageSnapshots, runs } from '@ainyc/canonry-db'
 import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError, percentOf, classifyOutcomeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses } from '@ainyc/canonry-contracts'
 import { assertNotProjectScoped } from './auth.js'
-import { resolveProject, writeAuditLog } from './helpers.js'
+import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
+import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute } from './connection-telemetry.js'
 import { startRouteOutcome } from './feature-outcome.js'
 import {
@@ -107,6 +108,7 @@ export interface BingConnectionStore {
 }
 
 export interface BingRoutesOptions {
+  claimScheduledSync?: ScheduledSyncClaim
   bingConnectionStore?: BingConnectionStore
   onInspectSitemapRequested?: (
     runId: string,
@@ -625,7 +627,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       projectId: project.id,
       kind: RunKinds['bing-inspect-sitemap'],
       status: RunStatuses.queued,
-      trigger: RunTriggers.manual,
+      trigger: syncRunTrigger(opts.claimScheduledSync, project.name, RunKinds['bing-inspect-sitemap']),
       createdAt: now,
     }).run()
 

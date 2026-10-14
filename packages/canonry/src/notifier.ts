@@ -9,7 +9,7 @@ import type { AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 import { isWithinAlertWindow } from './gbp-reviews.js'
-import { CheckNotificationPolicies, describeError, notificationEventSchema, statusClassOf, type CheckNotificationPolicy, type OutcomeReasonCode, type StatusClass } from '@ainyc/canonry-contracts'
+import { CHECK_RUNTIME_ERROR_SUFFIX, CheckNotificationPolicies, CheckStatuses, compareText, describeError, notificationEventSchema, statusClassOf, type CheckNotificationPolicy, type OutcomeReasonCode, type StatusClass } from '@ainyc/canonry-contracts'
 import { createOutcomeSampler, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
 const log = createLogger('Notifier')
@@ -82,6 +82,134 @@ function insightMagnitude(insight: Insight): number | null {
 /** Stable across runs: same project, type, subject and wording is the same news. */
 function insightNotifyKey(projectId: string, insight: Insight): string {
   return `${projectId}:${insight.type}:${insight.query}:${insightFingerprint(insight)}`
+}
+
+/** `fail` outranks `warn`; any other status is not a breach. */
+function healthRank(status: string): number {
+  return status === 'fail' ? 2 : status === 'warn' ? 1 : 0
+}
+
+/**
+ * A pass where no check could be graded. It has no failing check to name, so
+ * this code stands in for one wherever the failing set is compared.
+ */
+const HEALTH_NO_SIGNAL_CODE = 'health.no-signal'
+
+/**
+ * One failing check as the alert logic compares it. `id` is null only on an
+ * entry read from `failing_signature`, which stores no check ids.
+ */
+interface Breach { id: string | null; code: string; rank: number }
+
+const breachStatus = (breach: Breach): string => (breach.rank === 2 ? 'fail' : 'warn')
+
+/** Stored `status:code:id` entries, or the `status:code` pairs of `failing_signature`. */
+function parseBreaches(stored: string): Breach[] {
+  const breaches: Breach[] = []
+  for (const entry of stored.split(',')) {
+    const [status, code, id] = entry.split(':')
+    if (status && code) breaches.push({ id: id ?? null, code, rank: healthRank(status) })
+  }
+  return breaches
+}
+
+/** The `status:code:id` form `failing_checks` and `notified_signature` store. */
+function formatBreaches(breaches: Iterable<Breach>): string {
+  return [...breaches].map(b => `${breachStatus(b)}:${b.code}:${b.id}`).join(',')
+}
+
+/**
+ * A failing set indexed for comparison: by check id, or by code when the
+ * earlier pass stored no ids. Two checks reporting one code keep the worse.
+ */
+function indexBreaches(breaches: Iterable<Breach>, by: 'id' | 'code'): Map<string, Breach> {
+  const index = new Map<string, Breach>()
+  for (const breach of breaches) {
+    const key = by === 'code' ? breach.code : breach.id
+    if (key === null) continue
+    const known = index.get(key)
+    if (!known || breach.rank > known.rank) index.set(key, breach)
+  }
+  return index
+}
+
+/** New or worse than a baseline: not failing in it, more severe, or as severe with a different code. */
+function isNews(now: Breach, was: Breach | undefined): boolean {
+  return was === undefined || now.rank > was.rank || (now.rank === was.rank && now.code !== was.code)
+}
+
+const breachCodes = (breaches: Iterable<Breach>): string[] => [...new Set([...breaches].map(b => b.code))]
+
+type GeneralHealthEvent = 'health.degraded' | 'health.recovered'
+type UrgentHealthEvent = 'health.urgent' | 'health.urgent-resolved'
+
+const URGENT_HEALTH_EVENTS: ReadonlySet<string> = new Set<UrgentHealthEvent>(['health.urgent', 'health.urgent-resolved'])
+
+type HealthNotification = typeof notifications.$inferSelect
+type UrgentReceipts = NonNullable<typeof doctorHealthState.$inferSelect.urgentReceipts>
+
+/** Equal delivery histories retain the existing any-accepted fanout policy. */
+function urgentReceiptGroups(subscribers: HealthNotification[], receipts: UrgentReceipts | null | undefined) {
+  const groups = new Map<string | null, { notified: string | null; subscribers: HealthNotification[] }>()
+  for (const subscriber of subscribers) {
+    const { url } = subscriber.config
+    const receipt = receipts?.[subscriber.id]
+    const notified = receipt?.url === url ? receipt.notified : null
+    const group = groups.get(notified)
+    if (group) group.subscribers.push(subscriber)
+    else groups.set(notified, { notified, subscribers: [subscriber] })
+  }
+  return [...groups.values()]
+}
+
+function recordUrgentReceipts(receipts: UrgentReceipts, subscribers: HealthNotification[], notified: string | null): void {
+  for (const subscriber of subscribers) receipts[subscriber.id] = { url: subscriber.config.url, notified }
+}
+
+function doctorUrgentSummary(receipts: UrgentReceipts): string | null {
+  const breaches = Object.values(receipts).flatMap(receipt => receipt.notified ? parseBreaches(receipt.notified) : [])
+  const summary = formatUrgentBreaches(indexBreaches(breaches, 'id').values())
+  return summary || null
+}
+
+function formatUrgentBreaches(breaches: Iterable<Breach>): string {
+  return formatBreaches([...breaches].sort((a, b) => b.rank - a.rank
+    || compareText(a.id ?? a.code, b.id ?? b.code) || compareText(a.code, b.code)))
+}
+
+function siteUrgentSummary(receipts: UrgentReceipts): string | null {
+  return Object.values(receipts).find(receipt => receipt.notified !== null)?.notified ?? null
+}
+
+/** One urgent problem as an alert reports it, worst first. */
+interface UrgentItem extends Breach {
+  id: string
+  status: 'warn' | 'fail'
+  summary: string
+  remediation: string | null
+}
+
+/** Stands in for a check code on `health.urgent-resolved`, which names no failing check. */
+const HEALTH_URGENT_RESOLVED_CODE = 'health.urgent.resolved'
+
+/**
+ * Whether one webhook receives one health event.
+ *
+ * `health.degraded` and `health.recovered` reach every enabled webhook whether
+ * or not it lists them (see onHealthChecked for why). The exception is a
+ * webhook that lists an urgent event: it was set up to carry only what needs a
+ * person, so it receives the health events it lists and no others. Without the
+ * exception such a webhook would also get every routine warning, and the
+ * channel it posts to would stop meaning "act now". An urgent event goes only
+ * to the webhooks that list it.
+ */
+export function receivesHealthEvent(
+  listed: readonly string[] | undefined,
+  event: GeneralHealthEvent | UrgentHealthEvent,
+): boolean {
+  const events = listed ?? []
+  if (URGENT_HEALTH_EVENTS.has(event)) return events.includes(event)
+  return events.includes(event) || !events.some(e => URGENT_HEALTH_EVENTS.has(e))
 }
 
 /** Failed liveness passes in a row before a site-down page. */
@@ -205,22 +333,48 @@ export class Notifier {
   }
 
   /**
-   * Record the outcome of a scheduled health pass and notify on transitions.
+   * Record the outcome of a scheduled health pass and notify when it is news.
    *
-   * Edge-triggered on `(status, code)`. A pass that finds the same problem as
-   * last time is stored but not re-sent: an operator who receives the same
-   * warning every day stops reading the channel, which is how a real
-   * degradation goes unnoticed. A pass whose worst code CHANGES does notify,
-   * even at the same severity, because a different cause is different news.
+   * `health.degraded` is sent when something is new or worse: the first pass
+   * is already bad, a healthy project stops being healthy, the worst status
+   * rises, or a check starts failing, gets more severe, or reports a different
+   * problem at the same severity. A pass that finds the same problems is
+   * stored but not re-sent: an operator who receives the same warning every
+   * day stops reading the channel, which is how a real degradation goes
+   * unnoticed.
    *
-   * Returns the event emitted, or null when nothing changed — the return value
-   * is what tests assert against, so "stayed quiet" is observable rather than
-   * inferred from the absence of a webhook.
+   * A pass that only CLEARS checks, or only eases one from fail to warn, is
+   * not news either while something is still failing. It used to send a
+   * second "degraded" alert that re-listed every standing item, so one
+   * transient blip produced two alerts and neither said what had changed. It
+   * is stored and logged as `health.improved`; the next alert lists what
+   * cleared since the last one delivered. `health.recovered` is sent when
+   * every check passes again.
+   *
+   * Checks are compared by id, not by code: a check changes its code when its
+   * severity changes, so by code an easing check reads as one entry cleared
+   * and another gained. A degraded alert no webhook accepted is sent again on
+   * the next pass, because a quiet clearing pass would otherwise never
+   * surface it.
+   *
+   * Urgent problems are tracked beside all of this, not inside it. A check
+   * marks its own output `urgent`; when one starts, `health.urgent` goes to
+   * the webhooks that list it, and `health.urgent-resolved` when the ones it
+   * reported have cleared and none is known to be open. They keep their own
+   * record of what a subscriber was told (`urgent_notified`) because they go
+   * to different webhooks than the alert above and are accepted
+   * independently: a refused urgent alert is owed again whether or not the
+   * general one was delivered. The record exists only while a webhook
+   * subscribes to urgent events.
+   *
+   * Returns the general event emitted, or null when none was sent. The return
+   * value is what tests assert against, so "stayed quiet" is observable rather
+   * than inferred from the absence of a webhook.
    */
   async onHealthChecked(
     projectId: string,
     report: {
-      checks: Array<{ id: string; status: string; code: string; summary: string; remediation?: string | null; category?: string; notificationPolicy?: CheckNotificationPolicy }>
+      checks: Array<{ id: string; status: string; code: string; summary: string; remediation?: string | null; category?: string; notificationPolicy?: CheckNotificationPolicy; urgent?: boolean; details?: Record<string, unknown> }>
       checkedAt: string
     },
   ): Promise<'health.degraded' | 'health.recovered' | null> {
@@ -232,7 +386,7 @@ export class Notifier {
 
     // `skipped` is not a health signal — a check that could not run tells us
     // nothing about the instrument and must never look like a clean bill.
-    const rank = (status: string): number => (status === 'fail' ? 2 : status === 'warn' ? 1 : 0)
+    const rank = healthRank
 
     // Among equally severe checks, lead with the one that says the measurement
     // is broken rather than the one offering advice about the site. Sorting by
@@ -271,7 +425,7 @@ export class Notifier {
       : worst
         ? (worst.status as 'warn' | 'fail')
         : 'ok'
-    const code = noSignal ? 'health.no-signal' : (worst?.code ?? 'health.ok')
+    const code = noSignal ? HEALTH_NO_SIGNAL_CODE : (worst?.code ?? 'health.ok')
     const summary = noSignal
       ? `No health check produced a result (${healthChecks.length} skipped) — health is unknown, not confirmed.`
       : (worst?.summary ?? `All ${graded.length} health check(s) passing.`)
@@ -284,49 +438,287 @@ export class Notifier {
     // across passes and only moves when the SET of breaches moves.
     const failingSignature = failing.map(c => `${c.status}:${c.code}`).join(',')
 
+    // This pass's failing checks, worst first.
+    const failingNow: Breach[] = failing.map(c => ({ id: c.id, code: c.code, rank: rank(c.status) }))
+    if (noSignal) failingNow.push({ id: HEALTH_NO_SIGNAL_CODE, code, rank: rank(status) })
+
+    // `failing_checks` carries the check ids of the pass before. It is trusted
+    // only while it still spells the signature and headline stored beside it:
+    // a release from before that column (a rollback runs one against the same
+    // database) keeps those current and leaves the ids behind. Such a row is
+    // compared by code for one pass, the rule before ids were stored.
+    const storedChecks = previous?.failingChecks == null ? null : parseBreaches(previous.failingChecks)
+    const idsKnown = previous === undefined || (
+      storedChecks !== null
+      && storedChecks.filter(b => b.id !== HEALTH_NO_SIGNAL_CODE).map(b => `${breachStatus(b)}:${b.code}`).join(',') === previous.failingSignature
+      && (previousStatus === 'ok' || storedChecks.some(b => b.code === previous.code))
+    )
+    const by = idsKnown ? 'id' : 'code'
+
+    // What the pass before found. A healthy or absent row had nothing failing.
+    // A degraded row from before the signature column is `null`: its set is
+    // unknown, and unknown is not the same as empty.
+    let failingBefore: Breach[] | null
+    if (previous === undefined || previousStatus === 'ok') {
+      failingBefore = []
+    } else if (idsKnown) {
+      failingBefore = storedChecks
+    } else if (previous.failingSignature === null) {
+      failingBefore = null
+    } else {
+      // The headline is always part of the set; only a no-signal pass has a
+      // headline the signature does not carry.
+      failingBefore = [...parseBreaches(previous.failingSignature), { id: null, code: previous.code, rank: rank(previous.status) }]
+    }
+    const current = indexBreaches(failingNow, by)
+    const before = failingBefore && indexBreaches(failingBefore, by)
+    // What the operator has been told is failing: the set of the last alert a
+    // webhook accepted. A row an older release has written since is past it
+    // (that release sends its own alerts and records none of them here), so
+    // such a row is compared against the previous pass alone.
+    const notified = idsKnown && previous?.notifiedSignature != null
+      ? indexBreaches(parseBreaches(previous.notifiedSignature), by)
+      : null
+
+    // A refused alert owes its triggering checks, even when an earlier alert
+    // already reported the same code before that check cleared and returned.
+    // The delivered set is only the clearance baseline, not a delivery receipt
+    // for a later episode. Drop an owed check if it cleared, eased or was set
+    // aside under its cause; an older writer invalidates the pending ids too.
+    const currentById = indexBreaches(failingNow, 'id')
+    const pending = idsKnown && previous?.pendingSignature != null
+      ? parseBreaches(previous.pendingSignature).flatMap(was => {
+          const now = was.id === null ? undefined : currentById.get(was.id)
+          return now && now.rank >= was.rank ? [now] : []
+        })
+      : []
+    const newBreaches = before === null
+      ? null
+      : [...current].filter(([key, now]) => isNews(now, before.get(key))).map(([, now]) => now)
+    const newsIds = new Set([...(newBreaches ?? []), ...pending].map(b => b.id))
+    const added = newBreaches === null ? null : breachCodes(failingNow.filter(b => newsIds.has(b.id)))
+
+    // A check that left the failing set is cleared, unless the runner only set
+    // it aside under its failing cause: that symptom is hidden, not fixed.
+    const hidden = new Set<string>()
+    for (const c of healthChecks) {
+      if (c.status !== CheckStatuses.skipped || typeof c.details?.supersededCode !== 'string') continue
+      hidden.add(c.id)
+      hidden.add(c.details.supersededCode)
+    }
+    const goneFrom = (earlier: ReadonlyMap<string, Breach>): string[] => breachCodes(
+      [...earlier]
+        .filter(([key]) => !current.has(key) && !hidden.has(key))
+        .map(([, was]) => was)
+        .sort((a, b) => b.rank - a.rank || a.code.localeCompare(b.code)),
+    )
+    const clearedThisPass = before === null ? [] : goneFrom(before)
+    const easedThisPass = before === null
+      ? []
+      : breachCodes([...current].filter(([key, now]) => now.rank < (before.get(key)?.rank ?? 0)).map(([, now]) => now))
+
     // Transition rules: a first observation only speaks up if it is already
     // bad, so installing this does not announce healthy projects.
     let event: 'health.degraded' | 'health.recovered' | null = null
     if (previous === undefined) {
       if (status !== 'ok') event = 'health.degraded'
-    } else if (status === 'ok' && previousStatus !== 'ok') {
-      event = 'health.recovered'
-    } else if (status !== 'ok' && (previousStatus === 'ok' || previous.code !== code)) {
+    } else if (status === 'ok') {
+      if (previousStatus !== 'ok') event = 'health.recovered'
+    } else if (previousStatus === 'ok' || rank(status) > rank(previous.status)) {
       event = 'health.degraded'
-    } else if (
-      status !== 'ok'
-      && previous.failingSignature !== null
-      && previous.failingSignature !== failingSignature
-    ) {
+    } else if (added === null) {
+      // A row predating the signature column knows only its headline, so it
+      // keeps the rule that column replaced for one pass: a new headline
+      // notifies, anything beneath it does not. Treating unknown as changed
+      // would page every already-degraded project on the first pass after
+      // deploy.
+      if (previous.code !== code) event = 'health.degraded'
+    } else if (added.length > 0) {
       // A second breach opening under an existing one leaves the headline code
-      // untouched, so keying only on that code graded the new outage, listed it
-      // in `failing`, and then dropped it at the trigger. The ranking decides
-      // which breach leads; it must not decide whether anyone is told at all.
-      // Guarded on a non-NULL previous signature: a row predating this column
-      // knows nothing about the old set, and treating unknown as changed would
-      // page every already-degraded project on the first pass after deploy.
+      // untouched, so the trigger reads the whole set: the ranking decides
+      // which breach leads, never whether anyone is told. It reads only what
+      // the set GAINED. A set that merely lost entries, a check that eased
+      // from fail to warn, and a headline that changed because the old one
+      // cleared are all the same standing problems, and re-sending them is
+      // noise.
       event = 'health.degraded'
     }
+
+    // What an alert reports as cleared: everything the operator was last told
+    // is failing, or that was failing on the pass before, and is not failing
+    // now. Reading only the pass before would drop a check that cleared on a
+    // quiet pass in between, which no alert ever mentioned. A pass that
+    // graded nothing cleared nothing, so it reports none.
+    const cleared = before === null || noSignal ? null : goneFrom(new Map([...before, ...(notified ?? [])]))
+
+    // Urgent problems, worst first: the failing checks whose output is marked
+    // urgent, and any urgent symptom the runner set aside under its failing
+    // cause. The second kind is the common one (a revoked grant fails the auth
+    // check and supersedes every sync that depends on it), and the cause is
+    // what explains it, so the alert quotes the cause under the symptom's code.
+    const urgentItems: UrgentItem[] = []
+    for (const c of failing) {
+      if (c.urgent !== true) continue
+      urgentItems.push({ id: c.id, code: c.code, rank: rank(c.status), status: c.status as 'warn' | 'fail', summary: c.summary, remediation: c.remediation ?? null })
+    }
+    for (const c of healthChecks) {
+      const supersededCode = c.details?.supersededCode
+      if (c.status !== CheckStatuses.skipped || c.urgent !== true || typeof supersededCode !== 'string') continue
+      const causeIds = Array.isArray(c.details?.supersededBy) ? c.details.supersededBy as unknown[] : []
+      const cause = failing.find(f => causeIds.includes(f.id))
+      const status = c.details?.supersededStatus === 'warn' ? 'warn' : 'fail'
+      urgentItems.push({ id: c.id, code: supersededCode, rank: rank(status), status, summary: cause?.summary ?? c.summary, remediation: cause?.remediation ?? null })
+    }
+    urgentItems.sort((a, b) => b.rank - a.rank)
+    const urgentById = new Map(urgentItems.map(item => [item.id, item]))
+
+    const generalEvent = event
+    const urgentRecord = previous?.urgentNotified ?? null
+    const enabled = generalEvent || urgentItems.length > 0 || urgentRecord
+      ? this.db.select().from(notifications)
+          .where(eq(notifications.projectId, projectId)).all().filter(n => n.enabled)
+      : []
+    const listedEvents = (notif: (typeof enabled)[number]) => (notif.config as { events?: string[] }).events
+    const hasUrl = (notif: (typeof enabled)[number]) => Boolean((notif.config as { url?: string }).url)
+    const urgentSubscribers = enabled.filter(n => hasUrl(n) && (listedEvents(n) ?? []).some(e => URGENT_HEALTH_EVENTS.has(e)))
+
+    const conclusive = new Set(graded.filter(c => !c.code.endsWith(CHECK_RUNTIME_ERROR_SUFFIX)).map(c => c.id))
+    // Keep histories by recipient. An unrecorded id or changed URL has heard
+    // nothing, even when another webhook accepted the project's last alert.
+    // Legacy aggregate records carry no identity and cannot establish a receipt.
+    const urgentReceipts: UrgentReceipts = {}
+    const recordedReceipts = previous?.urgentReceipts
+    const validReceipts = recordedReceipts && doctorUrgentSummary(recordedReceipts) === urgentRecord ? recordedReceipts : null
+    const urgentGroups = urgentReceiptGroups(urgentSubscribers, validReceipts).map(group => {
+      const urgentTold = group.notified
+        ? parseBreaches(group.notified).filter((b): b is Breach & { id: string } => b.id !== null)
+        : []
+      // Skipped, omitted and errored checks reached no verdict. Unknown checks
+      // do not hold later resolutions back when an integration is disconnected.
+      const urgentCleared = urgentTold.filter(b => conclusive.has(b.id) && !urgentById.has(b.id))
+      const urgentUnknown = urgentTold.filter(b => !conclusive.has(b.id) && !urgentById.has(b.id))
+      const urgentOpen = urgentTold.filter(b => urgentById.has(b.id) || hidden.has(b.id))
+      const toldIds = new Set(urgentTold.map(b => b.id))
+      const urgentNew = urgentItems.filter(item => !toldIds.has(item.id))
+      const urgentEvent: UrgentHealthEvent | null = urgentNew.length > 0
+        ? 'health.urgent'
+        : urgentCleared.length > 0 && urgentOpen.length === 0 ? 'health.urgent-resolved' : null
+      const urgentNotifs = urgentEvent ? group.subscribers.filter(n => receivesHealthEvent(listedEvents(n), urgentEvent)) : []
+      const urgentSettled: Breach[] = urgentEvent === 'health.urgent-resolved' ? [] : [...urgentUnknown, ...urgentItems]
+      // Persist debt before delivery; refusal retains the same decision. An
+      // unlisted event settles immediately, and quiet passes drop cleared checks.
+      const urgentBefore = urgentEvent === null
+        ? [...urgentUnknown, ...urgentItems.filter(item => toldIds.has(item.id))]
+        : urgentNotifs.length > 0 ? urgentTold : urgentSettled
+      recordUrgentReceipts(urgentReceipts, group.subscribers, formatUrgentBreaches(urgentBefore) || null)
+      return { ...group, urgentTold, urgentCleared, urgentNew, urgentEvent, urgentNotifs, urgentSettled }
+    })
+
+    const notifs = generalEvent ? enabled.filter(n => receivesHealthEvent(listedEvents(n), generalEvent)) : []
+    const willAttempt = notifs.some(n => Boolean((n.config as { url?: string }).url))
+    // Save what this attempt owes before delivering, so a restart during the
+    // send cannot erase the alert. Legacy rows with an unknown earlier set owe
+    // only the changed/worse headline, never unrelated standing checks.
+    const triggerIds = new Set([
+      ...(newBreaches ?? failingNow.filter(b => noSignal || b.id === worst?.id)),
+      ...pending,
+    ].map(b => b.id))
+    const pendingNow = event === 'health.degraded' && willAttempt
+      ? failingNow.filter(b => triggerIds.has(b.id))
+      : null
 
     const now = report.checkedAt
     // Write the observation first so a delivery failure cannot lose it, but
     // leave `notifiedAt` alone until something is actually sent — it previously
     // recorded "decided to notify", which read as delivered even when zero
-    // webhooks matched.
-    const observation = { projectId, status, code, summary, checkedAt: now, failingSignature }
+    // webhooks matched. Every pass is stored, quiet or not, so the next one
+    // compares against the latest state.
+    const observation = {
+      projectId, status, code, summary, checkedAt: now, failingSignature,
+      failingChecks: formatBreaches(failingNow),
+      pendingSignature: pendingNow === null ? null : formatBreaches(pendingNow),
+      urgentNotified: doctorUrgentSummary(urgentReceipts),
+      urgentReceipts,
+      // A delivered set an older release has written past is no longer what
+      // the operator was last told.
+      ...(idsKnown ? {} : { notifiedSignature: null }),
+    }
     if (previous === undefined) {
       this.db.insert(doctorHealthState).values({ ...observation, notifiedAt: null }).run()
     } else {
       this.db.update(doctorHealthState).set(observation).where(eq(doctorHealthState.projectId, projectId)).run()
     }
 
-    if (!event) {
-      log.info('health.unchanged', { projectId, status, code })
-      return null
+    for (const group of urgentGroups) {
+      const { urgentEvent, urgentTold, urgentNew, urgentCleared, urgentNotifs, urgentSettled } = group
+      if (!urgentEvent) continue
+      const toldRank = urgentTold.reduce((worstRank, b) => Math.max(worstRank, b.rank), 0)
+      const previousUrgent = toldRank === 0 ? 'ok' : toldRank === 2 ? 'fail' : 'warn'
+      const lead = urgentNew[0]
+      // One resolved problem reads best as what its check says now ("GA4 data
+      // is current through ..."). A check that only eased back to a warning
+      // is no longer urgent, not fixed, and says so.
+      const onlyCleared = urgentCleared.length === 1 ? graded.find(c => c.id === urgentCleared[0]!.id) : undefined
+      const resolvedSummary = onlyCleared
+        ? (onlyCleared.status === 'ok' ? onlyCleared.summary : `No longer urgent. ${onlyCleared.summary}`)
+        : `${urgentCleared.length} urgent problems are resolved.`
+      const urgentHealth: HealthWebhookPayload['health'] = urgentEvent === 'health.urgent' && lead
+        ? {
+            status: lead.status,
+            code: lead.code,
+            summary: lead.summary,
+            remediation: lead.remediation,
+            checkedAt: now,
+            previousStatus: previousUrgent,
+            failing: urgentItems.map(item => ({ id: item.id, status: item.status, code: item.code, summary: item.summary })),
+            added: breachCodes(urgentNew),
+            ...(urgentCleared.length > 0 ? { cleared: breachCodes(urgentCleared) } : {}),
+          }
+        : {
+            status: 'ok',
+            code: HEALTH_URGENT_RESOLVED_CODE,
+            summary: resolvedSummary,
+            remediation: null,
+            checkedAt: now,
+            previousStatus: previousUrgent,
+            failing: [],
+            cleared: breachCodes(urgentCleared),
+          }
+      const urgentPayload: HealthWebhookPayload = {
+        source: 'canonry',
+        event: urgentEvent,
+        project: { name: project.name, canonicalDomain: project.canonicalDomain },
+        health: urgentHealth,
+        dashboardUrl: `${this.serverUrl}/projects/${project.name}`,
+      }
+      let accepted = 0
+      for (const notif of urgentNotifs) {
+        const config = notif.config as { url: string }
+        if (await this.sendWebhook(config.url, urgentPayload as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)) accepted += 1
+      }
+      if (accepted > 0) {
+        recordUrgentReceipts(urgentReceipts, group.subscribers, formatUrgentBreaches(urgentSettled) || null)
+        this.db.update(doctorHealthState)
+          .set({ urgentNotified: doctorUrgentSummary(urgentReceipts), urgentReceipts })
+          .where(eq(doctorHealthState.projectId, projectId)).run()
+      }
+      if (urgentNotifs.length > 0) {
+        log.info('health.urgent-notified', {
+          projectId, event: urgentEvent,
+          codes: urgentEvent === 'health.urgent' ? breachCodes(urgentNew) : breachCodes(urgentCleared),
+          subscribers: urgentNotifs.length, delivered: accepted,
+        })
+      }
     }
 
-    const notifs = this.db.select().from(notifications)
-      .where(eq(notifications.projectId, projectId)).all().filter(n => n.enabled)
+    if (!event) {
+      if (clearedThisPass.length > 0 || easedThisPass.length > 0) {
+        log.info('health.improved', { projectId, status, code, cleared: clearedThisPass, eased: easedThisPass })
+      } else {
+        log.info('health.unchanged', { projectId, status, code })
+      }
+      return null
+    }
 
     const payload: HealthWebhookPayload = {
       source: 'canonry',
@@ -340,6 +732,8 @@ export class Notifier {
         checkedAt: now,
         previousStatus,
         failing: failing.map(c => ({ id: c.id, status: c.status, code: c.code, summary: c.summary })),
+        ...(added ? { added } : {}),
+        ...(cleared ? { cleared } : {}),
       },
       dashboardUrl: `${this.serverUrl}/projects/${project.name}`,
     }
@@ -351,7 +745,8 @@ export class Notifier {
     // existing subscription named them, and degradation was computed and then
     // dropped at delivery. They are edge-triggered and therefore rare, and
     // `canonry apply` rewriting a project's event list can no longer silence
-    // them.
+    // them. The one exception is a webhook scoped to urgent events, which
+    // `notifs` already leaves out (see receivesHealthEvent).
     let delivered = 0
     for (const notif of notifs) {
       const config = notif.config as { url: string; events?: string[] }
@@ -359,10 +754,16 @@ export class Notifier {
       if (await this.sendWebhook(config.url, payload as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)) delivered += 1
     }
     if (delivered > 0) {
-      this.db.update(doctorHealthState).set({ notifiedAt: now })
+      this.db.update(doctorHealthState)
+        .set({ notifiedAt: now, notifiedSignature: formatBreaches(failingNow), pendingSignature: null })
         .where(eq(doctorHealthState.projectId, projectId)).run()
     }
-    log.info('health.notified', { projectId, event, status, code, subscribers: notifs.length, delivered })
+    log.info('health.notified', {
+      projectId, event, status, code,
+      ...(added ? { added } : {}),
+      ...(cleared ? { cleared } : {}),
+      subscribers: notifs.length, delivered,
+    })
     return event
   }
 
@@ -408,9 +809,47 @@ export class Notifier {
       : 0
     const outagePaged = previous?.status === 'fail' && Boolean(previous.notifiedAt)
 
-    let event: 'health.degraded' | 'health.recovered' | null = null
+    let event: GeneralHealthEvent | null = null
     if (check.status === 'fail' && failures >= SITE_LIVENESS_FAILURES_TO_PAGE && !outagePaged) event = 'health.degraded'
     if (check.status === 'ok' && outagePaged) event = 'health.recovered'
+
+    // Webhooks scoped to urgent events keep their own record of the outage
+    // (`urgent_notified_at`). They are a different audience from the other
+    // webhooks and accept or refuse independently: sharing `notified_at` meant
+    // an urgent webhook that refused the page was never retried once any other
+    // webhook accepted it. The record survives the ok pass, so a refused
+    // "back up" is owed as well, and it exists only while such a webhook does.
+    const confirmed = check.status === 'fail' && failures >= SITE_LIVENESS_FAILURES_TO_PAGE
+    const urgentRecord = previous?.urgentNotifiedAt ?? null
+    // Webhooks are read only when there is something to decide, so a quiet
+    // pass stays one row write.
+    const enabled = event !== null || confirmed || urgentRecord !== null
+      ? this.db.select().from(notifications)
+          .where(eq(notifications.projectId, projectId)).all().filter(n => n.enabled)
+      : []
+    const listedEvents = (notif: (typeof enabled)[number]) => (notif.config as { events?: string[] }).events
+    const hasUrl = (notif: (typeof enabled)[number]) => Boolean((notif.config as { url?: string }).url)
+    const scoped = enabled.filter(n => hasUrl(n) && (listedEvents(n) ?? []).some(e => URGENT_HEALTH_EVENTS.has(e)))
+    const urgentReceipts: UrgentReceipts = {}
+    const recordedReceipts = previous?.urgentReceipts
+    const validReceipts = recordedReceipts && siteUrgentSummary(recordedReceipts) === urgentRecord ? recordedReceipts : null
+    const urgentGroups = urgentReceiptGroups(scoped, validReceipts).map(group => {
+      const urgentEvent: UrgentHealthEvent | null = confirmed && group.notified === null
+        ? 'health.urgent'
+        : check.status === 'ok' && group.notified !== null ? 'health.urgent-resolved' : null
+      const recipients = urgentEvent ? group.subscribers.filter(n => receivesHealthEvent(listedEvents(n), urgentEvent)) : []
+      const generalName: GeneralHealthEvent = urgentEvent === 'health.urgent-resolved' ? 'health.recovered' : 'health.degraded'
+      // Deduplicate only against a general event this pass actually sends.
+      const generalRecipients = recipients.filter(n => event === generalName && receivesHealthEvent(listedEvents(n), generalName))
+      const generalIds = new Set(generalRecipients.map(n => n.id))
+      const urgentNotifs = recipients.filter(n => !generalIds.has(n.id))
+      const settled = urgentEvent === 'health.urgent' ? checkedAt : null
+      // A chosen general delivery still owes an acknowledgement. It can fail,
+      // and the next pass then retries under the urgent name.
+      const before = urgentEvent && recipients.length === 0 ? settled : group.notified
+      recordUrgentReceipts(urgentReceipts, group.subscribers, before)
+      return { ...group, urgentEvent, urgentNotifs, generalIds, settled }
+    })
 
     const observation = {
       projectId,
@@ -420,6 +859,8 @@ export class Notifier {
       consecutiveFailures: failures,
       checkedAt,
       notifiedAt: check.status === 'ok' ? null : (previous?.notifiedAt ?? null),
+      urgentNotifiedAt: siteUrgentSummary(urgentReceipts),
+      urgentReceipts,
     }
     if (previous === undefined) {
       this.db.insert(siteLivenessState).values(observation).run()
@@ -429,43 +870,70 @@ export class Notifier {
 
     // No log on a quiet pass: every project, every few minutes, would evict a
     // night of real diagnostics from the operational log buffer.
-    if (!event) return null
+    if (!event && urgentGroups.every(group => group.urgentEvent === null)) return null
 
-    const notifs = this.db.select().from(notifications)
-      .where(eq(notifications.projectId, projectId)).all().filter(n => n.enabled)
-    const payload: HealthWebhookPayload = {
-      source: 'canonry',
-      event,
-      project: { name: project.name, canonicalDomain: project.canonicalDomain },
-      health: {
-        status: check.status as 'ok' | 'fail',
-        code: check.code,
-        summary: check.summary,
-        remediation: check.remediation ?? null,
-        checkedAt,
-        // The counter resets on every ok, so a page always follows a site that was
-        // answering. Echoing the row the first failed pass wrote would report
-        // "fail -> fail" and show the operator no transition at all.
-        previousStatus: event === 'health.degraded' ? 'ok' : 'fail',
-        failing: event === 'health.degraded'
-          ? [{ id: check.id, status: check.status, code: check.code, summary: check.summary }]
-          : [],
-      },
-      dashboardUrl: `${this.serverUrl}/projects/${project.name}`,
+    const payloadFor = (name: GeneralHealthEvent | UrgentHealthEvent): HealthWebhookPayload => {
+      const outage = name === 'health.degraded' || name === 'health.urgent'
+      return {
+        source: 'canonry',
+        event: name,
+        project: { name: project.name, canonicalDomain: project.canonicalDomain },
+        health: {
+          status: check.status as 'ok' | 'fail',
+          code: check.code,
+          summary: check.summary,
+          remediation: check.remediation ?? null,
+          checkedAt,
+          // The counter resets on every ok, so a page always follows a site that was
+          // answering. Echoing the row the first failed pass wrote would report
+          // "fail -> fail" and show the operator no transition at all.
+          previousStatus: outage ? 'ok' : 'fail',
+          failing: outage
+            ? [{ id: check.id, status: check.status, code: check.code, summary: check.summary }]
+            : [],
+        },
+        dashboardUrl: `${this.serverUrl}/projects/${project.name}`,
+      }
     }
 
-    // Same rule as onHealthChecked: health events reach every enabled webhook.
-    let delivered = 0
-    for (const notif of notifs) {
-      const config = notif.config as { url: string; events?: string[] }
-      if (!config.url) continue
-      if (await this.sendWebhook(config.url, payload as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)) delivered += 1
+    const generalAccepted = new Set<string>()
+    if (event) {
+      // Same rule as onHealthChecked: health events reach every enabled
+      // webhook, except one scoped to urgent events that does not list this one.
+      const notifs = enabled.filter(n => hasUrl(n) && receivesHealthEvent(listedEvents(n), event))
+      let delivered = 0
+      for (const notif of notifs) {
+        const config = notif.config as { url: string }
+        if (await this.sendWebhook(config.url, payloadFor(event) as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)) {
+          delivered += 1
+          generalAccepted.add(notif.id)
+        }
+      }
+      if (event === 'health.degraded' && delivered > 0) {
+        this.db.update(siteLivenessState).set({ notifiedAt: checkedAt })
+          .where(eq(siteLivenessState.projectId, projectId)).run()
+      }
+      log.info('site-liveness.notified', { projectId, event, code: check.code, subscribers: notifs.length, delivered })
     }
-    if (event === 'health.degraded' && delivered > 0) {
-      this.db.update(siteLivenessState).set({ notifiedAt: checkedAt })
-        .where(eq(siteLivenessState.projectId, projectId)).run()
+
+    for (const group of urgentGroups) {
+      const { urgentEvent, urgentNotifs, generalIds } = group
+      if (!urgentEvent) continue
+      let accepted = [...generalIds].filter(id => generalAccepted.has(id)).length
+      for (const notif of urgentNotifs) {
+        const config = notif.config as { url: string }
+        if (await this.sendWebhook(config.url, payloadFor(urgentEvent) as unknown as WebhookPayload, notif.id, projectId, notif.webhookSecret ?? null)) accepted += 1
+      }
+      if (accepted > 0) {
+        recordUrgentReceipts(urgentReceipts, group.subscribers, group.settled)
+        this.db.update(siteLivenessState)
+          .set({ urgentNotifiedAt: siteUrgentSummary(urgentReceipts), urgentReceipts })
+          .where(eq(siteLivenessState.projectId, projectId)).run()
+      }
+      if (urgentNotifs.length > 0 || generalIds.size > 0) {
+        log.info('site-liveness.urgent-notified', { projectId, event: urgentEvent, code: check.code, subscribers: urgentNotifs.length + generalIds.size, delivered: accepted })
+      }
     }
-    log.info('site-liveness.notified', { projectId, event, code: check.code, subscribers: notifs.length, delivered })
     return event
   }
 

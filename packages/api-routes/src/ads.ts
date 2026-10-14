@@ -51,7 +51,6 @@ import {
   OutcomeTriggers,
   RunKinds,
   RunStatuses,
-  RunTriggers,
   runStatusSchema,
   describeError,
 } from '@ainyc/canonry-contracts'
@@ -110,7 +109,8 @@ import type {
   AdsLiveEntityObservation,
   AdsStoredMetricRow,
 } from './ads-live-delivery.js'
-import { resolveProject, writeAuditLog, auditFromRequest } from './helpers.js'
+import { resolveProject, syncRunTrigger, writeAuditLog, auditFromRequest } from './helpers.js'
+import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute } from './connection-telemetry.js'
 import { startRouteOutcome, upstreamFailure } from './feature-outcome.js'
 
@@ -212,6 +212,7 @@ export interface AdsLiveDeliveryReader {
 }
 
 export interface AdsRoutesOptions {
+  claimScheduledSync?: ScheduledSyncClaim
   adsCredentialStore?: AdsCredentialStore
   /** Validates an SDK key against the upstream ad account (host wires this to the integration client). */
   verifyAdsAccount?: (apiKey: string) => Promise<VerifiedAdsAccount>
@@ -2468,7 +2469,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
    * thing (account identity, conversion configuration), so they carry the same
    * gate. Same reasoning as live-delivery: refuse before any work happens.
    */
-  app.get<{ Params: { name: string } }>('/projects/:name/ads/account', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/ads/account', { config: { paidRead: true } }, async (request) => {
     requireAdminSession(request)
     requirePaidReadScope(request)
     const project = resolveProject(app.db, request.params.name)
@@ -2479,7 +2480,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
   app.get<{
     Params: { name: string }
     Querystring: { q?: string; limit?: string | number }
-  }>('/projects/:name/ads/geo/search', async (request) => {
+  }>('/projects/:name/ads/geo/search', { config: { paidRead: true } }, async (request) => {
     requireAdminSession(request)
     requirePaidReadScope(request)
     const project = resolveProject(app.db, request.params.name)
@@ -2494,7 +2495,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     return executeAdsRead('geo search', () => reader.searchGeo(apiKey, parsed.data))
   })
 
-  app.get<{ Params: { name: string } }>('/projects/:name/ads/conversions/pixels', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/ads/conversions/pixels', { config: { paidRead: true } }, async (request) => {
     requireAdminSession(request)
     requirePaidReadScope(request)
     const project = resolveProject(app.db, request.params.name)
@@ -2504,7 +2505,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
 
   app.get<{ Params: { name: string } }>(
     '/projects/:name/ads/conversions/event-settings',
-    async (request) => {
+    { config: { paidRead: true } }, async (request) => {
       requireAdminSession(request)
       requirePaidReadScope(request)
       const project = resolveProject(app.db, request.params.name)
@@ -3040,7 +3041,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       projectId: project.id,
       kind: RunKinds['ads-sync'],
       status: RunStatuses.queued,
-      trigger: RunTriggers.manual,
+      trigger: syncRunTrigger(opts.claimScheduledSync, project.name, RunKinds['ads-sync']),
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -3328,7 +3329,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
   app.get<{
     Params: { name: string }
     Querystring: { campaignId?: string; lookbackDays?: string | number }
-  }>('/projects/:name/ads/live-delivery', async (request) => {
+  }>('/projects/:name/ads/live-delivery', { config: { paidRead: true } }, async (request) => {
     // Before anything else, including validation: a caller who may not spend
     // the budget should not be able to make the server do work either.
     requireAdminSession(request)

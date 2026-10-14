@@ -15,8 +15,10 @@ import {
   normalizeProjectAliases,
   normalizeProjectName,
   OutcomeStatuses,
+  projectPatchRequestSchema,
   projectCreateRequestSchema,
   projectUpsertRequestSchema,
+  projectRevisionConflict,
   resolveProjectQualifiedAliases,
   findDuplicateLocationLabels,
   hasLocationLabel,
@@ -24,9 +26,10 @@ import {
   DEFAULT_MEASUREMENT_CONFIG,
   PROJECTS_WRITE_SCOPE,
   SchedulableRunKinds,
+  buildRedactedNotificationUrl,
 } from '@ainyc/canonry-contracts'
-import type { CompetitorAliasRejection, CompetitorAutoAliasDrop, CompetitorAutoAliasMode, ConfigNotification, LocationContext, MeasurementConfig, ProjectConfigExport, ProjectCreateRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
-import { requireAdminSession, requireScope } from './auth.js'
+import type { CompetitorAliasRejection, CompetitorAutoAliasDrop, CompetitorAutoAliasMode, ConfigNotification, LocationContext, MeasurementConfig, ProjectConfigExport, ProjectCreateRequest, ProjectPatchRequest, ProjectUpsertRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
+import { requireAdminSession, requireScope, requireSecretExportScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { withFeatureOutcome } from './feature-outcome.js'
 import { competitorIdentityChanged, competitorIdentityColumns, competitorNames, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
@@ -37,6 +40,7 @@ import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
 import { activeRevisionProviders } from './run-queue.js'
 import { readProjectRunsWithOutstandingProviderBatch } from './provider-batches.js'
+import { redactNotificationUrl } from './notification-redaction.js'
 
 export interface ProjectRoutesOptions {
   /**
@@ -213,6 +217,196 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     return reply.status(201).send(formatProject(created, body.negativeReviewMaxStars ?? null))
   })
 
+  type PreparedProjectUpdate = {
+    now: string
+    providerModels: ProviderModels
+    providerDispatchModes: ProviderDispatchModesMap
+    nextLocations: LocationContext[]
+    nextDefaultLocation: string | null
+    nextAutoExtractBacklinks: boolean
+    nextSiteAuditMaxPages: number | null
+    nextCompetitorAutoAliases: CompetitorAutoAliasMode
+    nextNegativeReviewMaxStars: number | null
+    nextMeasurement: MeasurementConfig
+    nextAliases: string[]
+    nextAliasIdentity: ReturnType<typeof competitorAliasProjectIdentity>
+    competitorAliasPrune: ReturnType<typeof planCompetitorSet> | null
+    nextQualifiedAliases: string[]
+  }
+
+  const prepareProjectUpdate = (
+    request: FastifyRequest,
+    body: ProjectUpsertRequest,
+    existing: InferSelectModel<typeof projects> | undefined,
+  ): PreparedProjectUpdate => {
+    const validNames = opts.providerAdapters?.map(adapter => adapter.name) ?? []
+    if (validNames.length && body.providers?.length) {
+      const invalid = body.providers.filter(p => !validNames.includes(p))
+      if (invalid.length) {
+        throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
+          invalidProviders: invalid,
+          validProviders: validNames,
+        })
+      }
+    }
+    const nextProviders = body.providers ?? []
+    const providerModels = pruneProviderModelsForProviders(
+      validateProviderModels(body.providerModels ?? {}, opts.providerAdapters),
+      nextProviders,
+    )
+    const now = new Date().toISOString()
+    assertProviderModelScope(request, existing?.providerModels ?? {}, providerModels, nextProviders)
+    const providerDispatchModes = pruneProviderDispatchModes(
+      body.providerDispatchModes !== undefined
+        ? validateProviderDispatchModes(body.providerDispatchModes, opts.providerAdapters)
+        : existing?.providerDispatchModes ?? {},
+      nextProviders,
+      existing ? activeRevisionProviders(app.db, existing.id) : [],
+    )
+    const existingLocations = existing ? existing.locations : []
+    const nextLocations = body.locations ?? existingLocations
+    const duplicateLabels = findDuplicateLocationLabels(nextLocations)
+    if (duplicateLabels.length > 0) {
+      throw validationError(`Duplicate location labels are not allowed: ${duplicateLabels.join(', ')}`, { duplicateLabels })
+    }
+    const nextDefaultLocation = body.defaultLocation !== undefined
+      ? (body.defaultLocation ?? null)
+      : existing?.defaultLocation ?? null
+    if (!hasLocationLabel(nextLocations, nextDefaultLocation)) {
+      throw validationError(`defaultLocation "${nextDefaultLocation}" must match a configured location label`, { defaultLocation: nextDefaultLocation })
+    }
+    const nextAutoExtractBacklinks = body.autoExtractBacklinks !== undefined
+      ? body.autoExtractBacklinks
+      : existing?.autoExtractBacklinks ?? false
+    const nextSiteAuditMaxPages = body.siteAuditMaxPages !== undefined ? body.siteAuditMaxPages : existing?.siteAuditMaxPages ?? null
+    const nextCompetitorAutoAliases = body.competitorAutoAliases
+      ?? existing?.competitorAutoAliases
+      ?? DEFAULT_COMPETITOR_AUTO_ALIAS_MODE
+    const nextNegativeReviewMaxStars = body.negativeReviewMaxStars !== undefined
+      ? body.negativeReviewMaxStars
+      : existing ? readNegativeReviewMaxStars(app.db, existing.id) : null
+    const nextMeasurement = body.measurement ?? existing?.measurement ?? DEFAULT_MEASUREMENT_CONFIG
+    const nextAliases = normalizeProjectAliases(body.displayName, body.aliases ?? [])
+    const nextIdentity = { displayName: body.displayName, aliases: nextAliases }
+    const nextAliasIdentity = competitorAliasProjectIdentity({
+      displayName: body.displayName,
+      aliases: nextAliases,
+      canonicalDomain: body.canonicalDomain,
+      ownedDomains: body.ownedDomains ?? [],
+    })
+    const competitorAliasPrune = existing
+      ? planCompetitorSet(readStoredCompetitors(app.db, existing.id), [], {
+          replace: false,
+          project: nextAliasIdentity,
+          marketPins: readMarketCompetitorPins(app.db, existing.id),
+        })
+      : null
+    const liveCompetitors = competitorAliasPrune ? competitorNames(competitorAliasPrune.final) : []
+    const nextQualifiedAliases = body.qualifiedAliases !== undefined
+      ? requireQualifiedAliases(nextIdentity, body.qualifiedAliases, liveCompetitors)
+      : resolveProjectQualifiedAliases(nextIdentity, existing?.qualifiedAliases ?? [], liveCompetitors).value
+    return {
+      now,
+      providerModels,
+      providerDispatchModes,
+      nextLocations,
+      nextDefaultLocation,
+      nextAutoExtractBacklinks,
+      nextSiteAuditMaxPages,
+      nextCompetitorAutoAliases,
+      nextNegativeReviewMaxStars,
+      nextMeasurement,
+      nextAliases,
+      nextAliasIdentity,
+      competitorAliasPrune,
+      nextQualifiedAliases,
+    }
+  }
+
+  const updateExistingProject = async (
+    reply: import('fastify').FastifyReply,
+    name: string,
+    existing: InferSelectModel<typeof projects>,
+    body: ProjectUpsertRequest,
+    prepared: PreparedProjectUpdate,
+    options: { preserveConfigSource?: boolean; expectedConfigRevision?: number; patchedFields?: string[] } = {},
+  ) => {
+    if (options.expectedConfigRevision !== undefined && options.expectedConfigRevision !== existing.configRevision) {
+      throw projectRevisionConflict(options.expectedConfigRevision, existing.configRevision)
+    }
+    const prevAliases = existing.aliases
+    const aliasesChanged = !aliasArraysEqual(prevAliases, prepared.nextAliases)
+    let droppedCompetitorAliases: CompetitorAliasRejection[] = []
+    let droppedAutoAliases: CompetitorAutoAliasDrop[] = []
+    let marketNamesChanged: MarketNameChange[] = []
+    const autoAliasModeChange = existing.competitorAutoAliases !== prepared.nextCompetitorAutoAliases
+      ? { before: existing.competitorAutoAliases, after: prepared.nextCompetitorAutoAliases }
+      : null
+
+    app.db.transaction((tx) => {
+      const marketNamesBefore = readMarketCompetitorNames(tx, existing.id)
+      const changed = tx.update(projects).set({
+        displayName: body.displayName,
+        canonicalDomain: body.canonicalDomain,
+        ownedDomains: body.ownedDomains ?? [],
+        aliases: prepared.nextAliases,
+        qualifiedAliases: prepared.nextQualifiedAliases,
+        country: body.country,
+        language: body.language,
+        tags: body.tags ?? [],
+        labels: body.labels ?? {},
+        providers: body.providers ?? [],
+        providerModels: prepared.providerModels,
+        providerDispatchModes: prepared.providerDispatchModes,
+        measurement: prepared.nextMeasurement,
+        locations: prepared.nextLocations,
+        defaultLocation: prepared.nextDefaultLocation,
+        autoExtractBacklinks: prepared.nextAutoExtractBacklinks,
+        siteAuditMaxPages: prepared.nextSiteAuditMaxPages,
+        competitorAutoAliases: prepared.nextCompetitorAutoAliases,
+        ...(options.preserveConfigSource ? {} : { configSource: body.configSource ?? 'api' }),
+        configRevision: existing.configRevision + 1,
+        updatedAt: prepared.now,
+      }).where(and(eq(projects.id, existing.id), eq(projects.configRevision, existing.configRevision))).run()
+      if (changed.changes !== 1) {
+        const actual = app.db.select({ configRevision: projects.configRevision }).from(projects).where(eq(projects.id, existing.id)).get()?.configRevision ?? existing.configRevision
+        throw projectRevisionConflict(options.expectedConfigRevision ?? existing.configRevision, actual)
+      }
+      writeNegativeReviewMaxStars(tx, existing.id, prepared.nextNegativeReviewMaxStars, prepared.now)
+      if (prepared.competitorAliasPrune && competitorIdentityChanged(prepared.competitorAliasPrune)) {
+        const pruned = syncCompetitorSet(tx, existing.id, [], {
+          replace: false,
+          project: prepared.nextAliasIdentity,
+          now: prepared.now,
+        })
+        droppedCompetitorAliases = pruned.droppedAliases
+        droppedAutoAliases = pruned.autoAliasChanges.length ? pruned.droppedAutoAliases : []
+      }
+      marketNamesChanged = marketNameChanges(marketNamesBefore, readMarketCompetitorNames(tx, existing.id))
+      const diff = {
+        ...(options.patchedFields ? { patchedFields: options.patchedFields } : {}),
+        ...(droppedCompetitorAliases.length ? { droppedCompetitorAliases } : {}),
+        ...(droppedAutoAliases.length ? { droppedAutoAliases } : {}),
+        ...(marketNamesChanged.length ? { marketNameChanges: marketNamesChanged } : {}),
+        ...(autoAliasModeChange ? { competitorAutoAliases: autoAliasModeChange } : {}),
+      }
+      writeAuditLog(tx, {
+        projectId: existing.id,
+        actor: 'api',
+        action: 'project.updated',
+        entityType: 'project',
+        entityId: existing.id,
+        ...(Object.keys(diff).length ? { diff } : {}),
+      })
+    })
+
+    opts.onProjectUpserted?.(existing.id, name)
+    if (aliasesChanged) opts.onAliasesChanged?.(existing.id, name)
+    else if (droppedCompetitorAliases.length || droppedAutoAliases.length || marketNamesChanged.length) opts.onCompetitorAliasesChanged?.(existing.id, name)
+    const updated = app.db.select().from(projects).where(eq(projects.id, existing.id)).get()!
+    return reply.status(200).send(formatProject(updated, prepared.nextNegativeReviewMaxStars))
+  }
+
   // PUT /projects/:name — upsert project
   app.put<{
     Params: { name: string }
@@ -251,174 +445,11 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     }
     const body = parsedBody.data
 
-    // Validate provider names against registered adapters
-    const validNames = opts.providerAdapters?.map(adapter => adapter.name) ?? []
-    if (validNames.length && body.providers?.length) {
-      const invalid = body.providers.filter(p => !validNames.includes(p))
-      if (invalid.length) {
-        throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
-          invalidProviders: invalid,
-          validProviders: validNames,
-        })
-      }
-    }
-    const nextProviders = body.providers ?? []
-    const providerModels = pruneProviderModelsForProviders(
-      validateProviderModels(body.providerModels ?? {}, opts.providerAdapters),
-      nextProviders,
-    )
-
-    const now = new Date().toISOString()
     const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()
-    assertProviderModelScope(request, existing?.providerModels ?? {}, providerModels, nextProviders)
-    // Omitted keeps the stored preference (the dashboard's settings save and
-    // other full-replace callers predate the field and never send it).
-    const providerDispatchModes = pruneProviderDispatchModes(
-      body.providerDispatchModes !== undefined
-        ? validateProviderDispatchModes(body.providerDispatchModes, opts.providerAdapters)
-        : existing?.providerDispatchModes ?? {},
-      nextProviders,
-      existing ? activeRevisionProviders(app.db, existing.id) : [],
-    )
-    const existingLocations = existing ? existing.locations : []
-    const nextLocations = body.locations ?? existingLocations
-    const duplicateLabels = findDuplicateLocationLabels(nextLocations)
-    if (duplicateLabels.length > 0) {
-      throw validationError(`Duplicate location labels are not allowed: ${duplicateLabels.join(', ')}`, {
-        duplicateLabels,
-      })
-    }
-
-    const nextDefaultLocation = body.defaultLocation !== undefined
-      ? (body.defaultLocation ?? null)
-      : existing?.defaultLocation ?? null
-    if (!hasLocationLabel(nextLocations, nextDefaultLocation)) {
-      throw validationError(`defaultLocation "${nextDefaultLocation}" must match a configured location label`, {
-        defaultLocation: nextDefaultLocation,
-      })
-    }
-
-    const nextAutoExtractBacklinks = body.autoExtractBacklinks !== undefined
-      ? body.autoExtractBacklinks
-      : existing?.autoExtractBacklinks ?? false
-    // Omitted keeps the stored budget: the dashboard and CLI resend the whole
-    // project without fields they do not edit. Null means the full site.
-    const nextSiteAuditMaxPages = body.siteAuditMaxPages !== undefined ? body.siteAuditMaxPages : existing?.siteAuditMaxPages ?? null
-    // Omitted keeps the stored detection mode for the same reason; a new
-    // project starts in preview.
-    const nextCompetitorAutoAliases = body.competitorAutoAliases
-      ?? existing?.competitorAutoAliases
-      ?? DEFAULT_COMPETITOR_AUTO_ALIAS_MODE
-    // Omitted keeps the stored threshold; an explicit null resets it to the default.
-    const nextNegativeReviewMaxStars = body.negativeReviewMaxStars !== undefined
-      ? body.negativeReviewMaxStars
-      : existing ? readNegativeReviewMaxStars(app.db, existing.id) : null
-
-    const nextMeasurement = body.measurement ?? existing?.measurement ?? DEFAULT_MEASUREMENT_CONFIG
-
-    const nextAliases = normalizeProjectAliases(body.displayName, body.aliases ?? [])
-    // Explicit: every entry must pass the write rules against the live
-    // competitors. Omitted: keep the stored list, minus names that no longer
-    // pass them (the dashboard's settings save never sends the field).
-    // Sentiment only reads it, so a change here never triggers the mention
-    // backfill.
-    const nextIdentity = { displayName: body.displayName, aliases: nextAliases }
-    // A competitor alias the project now claims as its own name would count
-    // the project as its own competitor, so it is dropped (and audited).
-    // Qualified aliases are checked against the competitor names that remain.
-    const nextAliasIdentity = competitorAliasProjectIdentity({
-      displayName: body.displayName,
-      aliases: nextAliases,
-      canonicalDomain: body.canonicalDomain,
-      ownedDomains: body.ownedDomains ?? [],
-    })
-    // Planned against the market pins too, so the names checked here are the
-    // ones the transaction's `syncCompetitorSet` keeps.
-    const competitorAliasPrune = existing
-      ? planCompetitorSet(readStoredCompetitors(app.db, existing.id), [], {
-          replace: false,
-          project: nextAliasIdentity,
-          marketPins: readMarketCompetitorPins(app.db, existing.id),
-        })
-      : null
-    const liveCompetitors = competitorAliasPrune ? competitorNames(competitorAliasPrune.final) : []
-    const nextQualifiedAliases = body.qualifiedAliases !== undefined
-      ? requireQualifiedAliases(nextIdentity, body.qualifiedAliases, liveCompetitors)
-      : resolveProjectQualifiedAliases(nextIdentity, existing?.qualifiedAliases ?? [], liveCompetitors).value
+    const prepared = prepareProjectUpdate(request, body, existing)
 
     if (existing) {
-      const prevAliases = existing.aliases
-      const aliasesChanged = !aliasArraysEqual(prevAliases, nextAliases)
-      let droppedCompetitorAliases: CompetitorAliasRejection[] = []
-      let droppedAutoAliases: CompetitorAutoAliasDrop[] = []
-      // A new identity can claim, or release, a name learned for a competitor
-      // only a market pins: no stored name changes, so compare the names
-      // readers layer onto it before and after.
-      let marketNamesChanged: MarketNameChange[] = []
-      const autoAliasModeChange = existing.competitorAutoAliases !== nextCompetitorAutoAliases
-        ? { before: existing.competitorAutoAliases, after: nextCompetitorAutoAliases }
-        : null
-
-      app.db.transaction((tx) => {
-        const marketNamesBefore = readMarketCompetitorNames(tx, existing.id)
-        tx.update(projects).set({
-          displayName: body.displayName,
-          canonicalDomain: body.canonicalDomain,
-          ownedDomains: body.ownedDomains ?? [],
-          aliases: nextAliases,
-          qualifiedAliases: nextQualifiedAliases,
-          country: body.country,
-          language: body.language,
-          tags: body.tags ?? [],
-          labels: body.labels ?? {},
-          providers: body.providers ?? [],
-          providerModels,
-          providerDispatchModes,
-          measurement: nextMeasurement,
-          locations: nextLocations,
-          defaultLocation: nextDefaultLocation,
-          autoExtractBacklinks: nextAutoExtractBacklinks,
-          siteAuditMaxPages: nextSiteAuditMaxPages,
-          competitorAutoAliases: nextCompetitorAutoAliases,
-          configSource: body.configSource ?? 'api',
-          configRevision: existing.configRevision + 1,
-          updatedAt: now,
-        }).where(eq(projects.id, existing.id)).run()
-        writeNegativeReviewMaxStars(tx, existing.id, nextNegativeReviewMaxStars, now)
-        if (competitorAliasPrune && competitorIdentityChanged(competitorAliasPrune)) {
-          const pruned = syncCompetitorSet(tx, existing.id, [], {
-            replace: false,
-            project: nextAliasIdentity,
-            now,
-          })
-          droppedCompetitorAliases = pruned.droppedAliases
-          droppedAutoAliases = pruned.autoAliasChanges.length ? pruned.droppedAutoAliases : []
-        }
-        marketNamesChanged = marketNameChanges(marketNamesBefore, readMarketCompetitorNames(tx, existing.id))
-
-        writeAuditLog(tx, {
-          projectId: existing.id,
-          actor: 'api',
-          action: 'project.updated',
-          entityType: 'project',
-          entityId: existing.id,
-          ...(droppedCompetitorAliases.length || droppedAutoAliases.length || marketNamesChanged.length || autoAliasModeChange
-            ? { diff: {
-                ...(droppedCompetitorAliases.length ? { droppedCompetitorAliases } : {}),
-                ...(droppedAutoAliases.length ? { droppedAutoAliases } : {}),
-                ...(marketNamesChanged.length ? { marketNameChanges: marketNamesChanged } : {}),
-                ...(autoAliasModeChange ? { competitorAutoAliases: autoAliasModeChange } : {}),
-              } }
-            : {}),
-        })
-      })
-
-      opts.onProjectUpserted?.(existing.id, name)
-      if (aliasesChanged) opts.onAliasesChanged?.(existing.id, name)
-      else if (droppedCompetitorAliases.length || droppedAutoAliases.length || marketNamesChanged.length) opts.onCompetitorAliasesChanged?.(existing.id, name)
-
-      const updated = app.db.select().from(projects).where(eq(projects.id, existing.id)).get()!
-      return reply.status(200).send(formatProject(updated, nextNegativeReviewMaxStars))
+      return updateExistingProject(reply, name, existing, body, prepared)
     }
 
     const id = crypto.randomUUID()
@@ -429,27 +460,27 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         displayName: body.displayName,
         canonicalDomain: body.canonicalDomain,
         ownedDomains: body.ownedDomains ?? [],
-        aliases: nextAliases,
-        qualifiedAliases: nextQualifiedAliases,
+        aliases: prepared.nextAliases,
+        qualifiedAliases: prepared.nextQualifiedAliases,
         country: body.country,
         language: body.language,
         tags: body.tags ?? [],
         labels: body.labels ?? {},
         providers: body.providers ?? [],
-        providerModels,
-        providerDispatchModes,
-        measurement: nextMeasurement,
-        locations: nextLocations,
-        defaultLocation: nextDefaultLocation,
-        autoExtractBacklinks: nextAutoExtractBacklinks,
-        siteAuditMaxPages: nextSiteAuditMaxPages,
-        competitorAutoAliases: nextCompetitorAutoAliases,
+        providerModels: prepared.providerModels,
+        providerDispatchModes: prepared.providerDispatchModes,
+        measurement: prepared.nextMeasurement,
+        locations: prepared.nextLocations,
+        defaultLocation: prepared.nextDefaultLocation,
+        autoExtractBacklinks: prepared.nextAutoExtractBacklinks,
+        siteAuditMaxPages: prepared.nextSiteAuditMaxPages,
+        competitorAutoAliases: prepared.nextCompetitorAutoAliases,
         configSource: body.configSource ?? 'api',
         configRevision: 1,
-        createdAt: now,
-        updatedAt: now,
+        createdAt: prepared.now,
+        updatedAt: prepared.now,
       }).run()
-      writeNegativeReviewMaxStars(tx, id, nextNegativeReviewMaxStars, now)
+      writeNegativeReviewMaxStars(tx, id, prepared.nextNegativeReviewMaxStars, prepared.now)
 
       writeAuditLog(tx, {
         projectId: id,
@@ -464,7 +495,64 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     opts.onProjectUpserted?.(id, name)
 
     const created = app.db.select().from(projects).where(eq(projects.id, id)).get()!
-    return reply.status(201).send(formatProject(created, nextNegativeReviewMaxStars))
+    return reply.status(201).send(formatProject(created, prepared.nextNegativeReviewMaxStars))
+  })
+
+  // PATCH /projects/:name - update only named fields on an existing project.
+  app.patch<{ Params: { name: string }; Body: ProjectPatchRequest }>('/projects/:name', async (request, reply) => {
+    const parsedBody = projectPatchRequestSchema.safeParse(request.body)
+    if (!parsedBody.success) {
+      throw validationError('Invalid project patch', {
+        issues: parsedBody.error.issues.map(issue => ({
+          path: issue.path.join('.') || ('keys' in issue && Array.isArray(issue.keys) ? issue.keys.join('.') : ''),
+          message: issue.message,
+        })),
+      })
+    }
+    const patch = parsedBody.data
+    const patchedFields = Object.keys(patch)
+      .filter(field => field !== 'expectedConfigRevision')
+      .flatMap(field => field === 'measurement'
+        ? Object.keys(patch.measurement ?? {}).map(child => `measurement.${child}`)
+        : [field])
+    if (patchedFields.length === 0) throw validationError('Project patch must name at least one field to update.')
+    const { name } = request.params
+    const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()
+    if (!existing) throw notFound('Project', name)
+
+    const body: ProjectUpsertRequest = {
+      displayName: patch.displayName ?? existing.displayName,
+      canonicalDomain: patch.canonicalDomain ?? existing.canonicalDomain,
+      ownedDomains: patch.ownedDomains ?? existing.ownedDomains,
+      aliases: patch.aliases ?? existing.aliases,
+      country: patch.country ?? existing.country,
+      language: patch.language ?? existing.language,
+      tags: patch.tags ?? existing.tags,
+      labels: patch.labels ?? existing.labels,
+      providers: patch.providers ?? existing.providers,
+      providerModels: patch.providerModels ?? existing.providerModels,
+      ...(patch.providerDispatchModes !== undefined ? { providerDispatchModes: patch.providerDispatchModes } : {}),
+      ...(patch.locations !== undefined ? { locations: patch.locations } : {}),
+      ...(patch.defaultLocation !== undefined ? { defaultLocation: patch.defaultLocation } : {}),
+      ...(patch.measurement !== undefined ? {
+        measurement: {
+          marketingHosts: patch.measurement.marketingHosts ?? existing.measurement.marketingHosts,
+          brandTerms: patch.measurement.brandTerms ?? existing.measurement.brandTerms,
+          leadEventNames: patch.measurement.leadEventNames ?? existing.measurement.leadEventNames,
+        },
+      } : {}),
+      ...(patch.autoExtractBacklinks !== undefined ? { autoExtractBacklinks: patch.autoExtractBacklinks } : {}),
+      ...(patch.qualifiedAliases !== undefined ? { qualifiedAliases: patch.qualifiedAliases } : {}),
+      ...(patch.negativeReviewMaxStars !== undefined ? { negativeReviewMaxStars: patch.negativeReviewMaxStars } : {}),
+      ...(patch.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: patch.siteAuditMaxPages } : {}),
+      ...(patch.competitorAutoAliases !== undefined ? { competitorAutoAliases: patch.competitorAutoAliases } : {}),
+    }
+    const prepared = prepareProjectUpdate(request, body, existing)
+    return updateExistingProject(reply, name, existing, body, prepared, {
+      preserveConfigSource: true,
+      expectedConfigRevision: patch.expectedConfigRevision,
+      patchedFields,
+    })
   })
 
   // GET /projects — list all. A project-scoped key sees ONLY its own project,
@@ -702,8 +790,10 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
   })
 
   // GET /projects/:name/export — export as canonry.yaml format
-  app.get<{ Params: { name: string } }>('/projects/:name/export', async (request, reply) => withFeatureOutcome(app, { feature: 'exports', operation: 'export' }, async (settle) => {
+  app.get<{ Params: { name: string }; Querystring: { includeSecrets?: string } }>('/projects/:name/export', async (request, reply) => withFeatureOutcome(app, { feature: 'exports', operation: 'export' }, async (settle) => {
     const project = resolveProject(app.db, request.params.name)
+    const includeSecrets = request.query.includeSecrets === 'true'
+    if (includeSecrets) requireSecretExportScope(request)
     const negativeReviewMaxStars = readNegativeReviewMaxStars(app.db, project.id)
 
     const qs = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
@@ -755,9 +845,11 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           const cfg = row.config
           // Text and JSON columns; both write paths validate them against
           // configNotificationSchema's channel and events.
+          const redacted = redactNotificationUrl(cfg.url)
           return {
+            id: row.id,
             channel: row.channel as ConfigNotification['channel'],
-            url: cfg.url,
+            url: includeSecrets ? cfg.url : buildRedactedNotificationUrl(redacted.urlHost, row.id),
             events: cfg.events as ConfigNotification['events'],
           }
         }),
@@ -905,6 +997,7 @@ export function formatProject(row: InferSelectModel<typeof projects>, negativeRe
     negativeReviewMaxStars,
     siteAuditMaxPages: row.siteAuditMaxPages ?? null,
     competitorAutoAliases: row.competitorAutoAliases,
+    answerFieldsRecompute: row.answerFieldsRecompute,
     configSource: row.configSource,
     configRevision: row.configRevision,
     createdAt: row.createdAt,

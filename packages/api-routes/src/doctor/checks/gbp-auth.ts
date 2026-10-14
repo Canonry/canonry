@@ -16,8 +16,8 @@ import type { GoogleConnectionRecord } from '../../google.js'
 // 4 days rather than 7. GBP metrics land daily, so a week of silence is
 // already a long outage, and the shell alerting this check replaces paged at
 // 4. Consolidating an alarm into the product must not quietly loosen it.
-const RECENT_SYNC_WARN_DAYS = 4
-const RECENT_SYNC_FAIL_DAYS = 30
+export const RECENT_SYNC_WARN_DAYS = 4
+export const RECENT_SYNC_FAIL_DAYS = 30
 
 function skippedNoProject(): CheckOutput {
   return {
@@ -37,6 +37,16 @@ function storeUnavailable(): CheckOutput {
   }
 }
 
+/** Whether the project still selects a GBP location: the trace of having used GBP. */
+function hasSelectedLocation(ctx: DoctorContext, projectId: string): boolean {
+  return !!ctx.db
+    .select({ id: gbpLocations.id })
+    .from(gbpLocations)
+    .where(and(eq(gbpLocations.projectId, projectId), eq(gbpLocations.selected, true)))
+    .limit(1)
+    .get()
+}
+
 interface ResolvedGbpToken {
   accessToken: string
   conn: GoogleConnectionRecord
@@ -51,6 +61,23 @@ async function resolveGbpToken(
   const store = ctx.googleConnectionStore
   if (!store) return { ok: false, output: storeUnavailable() }
 
+  const conn = store.getConnection(ctx.project.canonicalDomain, 'gbp')
+  // GBP is optional. A project with no connection and no selected location
+  // never used it (or disconnected, which clears its locations), so there is
+  // nothing to fix. Asked before the OAuth client check: missing Google
+  // credentials are not this project's problem either.
+  if (!conn && !hasSelectedLocation(ctx, ctx.project.id)) {
+    return {
+      ok: false,
+      output: {
+        status: CheckStatuses.skipped,
+        code: 'gbp.auth.not-connected',
+        summary: `${ctx.project.name} has not connected Google Business Profile.`,
+        remediation: `Optional: run \`canonry gbp connect ${ctx.project.name}\` to track a Business Profile.`,
+      },
+    }
+  }
+
   const auth = ctx.getGoogleAuthConfig?.() ?? {}
   if (!auth.clientId || !auth.clientSecret) {
     return {
@@ -63,14 +90,15 @@ async function resolveGbpToken(
       },
     }
   }
-  const conn = store.getConnection(ctx.project.canonicalDomain, 'gbp')
   if (!conn) {
+    // Selected locations with no connection: the project used GBP and lost
+    // the connection, so its syncs have stopped.
     return {
       ok: false,
       output: {
         status: CheckStatuses.fail,
         code: 'gbp.auth.no-connection',
-        summary: `No Google Business Profile connection for ${ctx.project.canonicalDomain}.`,
+        summary: `No Google Business Profile connection for ${ctx.project.canonicalDomain}, but ${ctx.project.name} still has selected locations.`,
         remediation: `Run \`canonry gbp connect ${ctx.project.name}\` to authorize.`,
       },
     }

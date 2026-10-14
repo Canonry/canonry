@@ -31,6 +31,8 @@ export const AlertFieldLabels = {
   check: 'Check',
   previously: 'Was',
   remediation: 'What to do',
+  newlyFailing: 'New',
+  cleared: 'Cleared',
   alsoFailing: 'Also failing',
   event: 'Event',
   run: 'Run',
@@ -72,7 +74,9 @@ export type AnyNotificationPayload =
   | ReviewWebhookPayload
   | RatingWebhookPayload
 
-const HEALTH_EVENTS: ReadonlySet<NotificationEvent> = new Set(['health.degraded', 'health.recovered'])
+const HEALTH_EVENTS: ReadonlySet<NotificationEvent> = new Set([
+  'health.degraded', 'health.recovered', 'health.urgent', 'health.urgent-resolved',
+])
 
 function isHealth(payload: AnyNotificationPayload): payload is HealthWebhookPayload {
   return HEALTH_EVENTS.has(payload.event as NotificationEvent)
@@ -90,15 +94,22 @@ function bulletList(lines: readonly string[]): string {
 
 function healthView(payload: HealthWebhookPayload): AlertView {
   const { health, project } = payload
-  const recovered = payload.event === 'health.recovered'
+  const urgentEvent = payload.event === 'health.urgent' || payload.event === 'health.urgent-resolved'
+  const recovered = payload.event === 'health.recovered' || payload.event === 'health.urgent-resolved'
+  // An urgent alert is critical whatever its check's status: stale daily data
+  // is graded `warn`, and it is still the alert someone has to act on.
   const severity: AlertSeverity = recovered
     ? AlertSeverities.success
-    : health.status === 'fail'
+    : urgentEvent || health.status === 'fail'
       ? AlertSeverities.critical
       : AlertSeverities.warning
 
   const fields: AlertField[] = [
-    { label: AlertFieldLabels.status, value: recovered ? 'recovered' : health.status, compact: true },
+    {
+      label: AlertFieldLabels.status,
+      value: recovered ? (urgentEvent ? 'resolved' : 'recovered') : urgentEvent ? 'urgent' : health.status,
+      compact: true,
+    },
     { label: AlertFieldLabels.check, value: health.code, compact: true },
   ]
   if (health.previousStatus) {
@@ -107,9 +118,30 @@ function healthView(payload: HealthWebhookPayload): AlertView {
   if (health.remediation) {
     fields.push({ label: AlertFieldLabels.remediation, value: health.remediation })
   }
+  // What changed leads the lists, so a reader can tell the new breach from the
+  // standing ones the last alert already reported.
+  const added = health.added ?? []
+  if (added.length > 0) {
+    // `failing` is worst first, so a code two checks report keeps its worse status.
+    const statusOf = new Map<string, string>()
+    for (const check of health.failing) if (!statusOf.has(check.code)) statusOf.set(check.code, check.status)
+    fields.push({
+      label: `${AlertFieldLabels.newlyFailing} (${added.length})`,
+      value: bulletList(added.map(code => `${statusOf.get(code) ?? health.status}: ${code}`)),
+    })
+  }
+  const cleared = health.cleared ?? []
+  if (cleared.length > 0) {
+    fields.push({
+      label: `${AlertFieldLabels.cleared} (${cleared.length})`,
+      value: bulletList(cleared),
+    })
+  }
   // The headline names one check. Without the rest, the ranking decision
-  // silently becomes a filtering decision.
-  const others = health.failing.filter(check => check.code !== health.code)
+  // silently becomes a filtering decision. Checks already listed as new are
+  // left out, so this is the standing set and nothing is listed twice.
+  const newlyFailing = new Set(added)
+  const others = health.failing.filter(check => check.code !== health.code && !newlyFailing.has(check.code))
   if (others.length > 0) {
     fields.push({
       label: `${AlertFieldLabels.alsoFailing} (${others.length})`,
@@ -126,9 +158,11 @@ function healthView(payload: HealthWebhookPayload): AlertView {
     severity,
     title: website
       ? (recovered ? `${project.name} website is back up` : `${project.name} website is down`)
-      : recovered
-        ? `${project.name} recovered`
-        : `${project.name} — measurement degraded`,
+      : urgentEvent
+        ? (recovered ? `${project.name}: urgent problem resolved` : `${project.name}: urgent problem`)
+        : recovered
+          ? `${project.name} recovered`
+          : `${project.name} — measurement degraded`,
     body: health.summary,
     fields,
     url: payload.dashboardUrl,

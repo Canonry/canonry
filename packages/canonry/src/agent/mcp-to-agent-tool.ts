@@ -1044,6 +1044,7 @@ export const COMPETITOR_AUTO_ALIAS_MODE_REFUSAL =
 /** The project writes whose request can set `competitorAutoAliases`. */
 const COMPETITOR_AUTO_ALIAS_MODE_WRITES: ReadonlySet<CanonryMcpToolName> = new Set([
   CanonryMcpToolNames.canonry_project_upsert,
+  CanonryMcpToolNames.canonry_project_update,
   CanonryMcpToolNames.canonry_apply_config,
 ])
 
@@ -1057,6 +1058,10 @@ function requestedCompetitorAutoAliasMode(
   if (toolName === CanonryMcpToolNames.canonry_project_upsert) {
     const request = isRecord(params.request) ? params.request : {}
     return { project: ctx.projectName, mode: request.competitorAutoAliases }
+  }
+  if (toolName === CanonryMcpToolNames.canonry_project_update) {
+    const request = isRecord(params.request) ? params.request : {}
+    return { project: params.project, mode: request.competitorAutoAliases }
   }
   const config = isRecord(params.config) ? params.config : {}
   const metadata = isRecord(config.metadata) ? config.metadata : {}
@@ -1096,6 +1101,21 @@ function refuseCompetitorAutoAliasModeChange(tool: AgentTool, ctx: AgentMcpAdapt
   } as AgentTool
 }
 
+const COMPETITOR_BULK_ADD_REFUSAL = 'Aero cannot acknowledge measured bulk competitor growth. Review the stored evidence and acknowledge this operator action explicitly.'
+
+function refuseCompetitorBulkAddAcknowledgement(tool: AgentTool): AgentTool {
+  const write = tool.execute
+  return {
+    ...tool,
+    execute: async (toolCallId, params, ...rest) => {
+      const input = typeof params === 'object' && params !== null ? params as { request?: unknown } : undefined
+      const request = typeof input?.request === 'object' && input.request !== null ? input.request as { acknowledgeBulkAdd?: unknown } : undefined
+      if (request?.acknowledgeBulkAdd === true) throw new Error(COMPETITOR_BULK_ADD_REFUSAL)
+      return write(toolCallId, params, ...rest)
+    },
+  } as AgentTool
+}
+
 export interface BuildMcpAgentToolsOptions {
   /** Filter to read-only tools when true. */
   readOnly?: boolean
@@ -1127,6 +1147,7 @@ export function buildMcpAgentTools(
     .map((tool) => {
       const agentTool = mcpToAgentTool(tool, ctx)
       if (COMPETITOR_AUTO_ALIAS_MODE_WRITES.has(tool.name)) return refuseCompetitorAutoAliasModeChange(agentTool, ctx)
+      if (tool.name === 'canonry_competitors_add') return refuseCompetitorBulkAddAcknowledgement(agentTool)
       return opts.managedSweeps && tool.name === CanonryMcpToolNames.canonry_run_cancel
         ? refuseManagedSweepCancel(agentTool, ctx)
         : agentTool

@@ -25,6 +25,16 @@ describe('parseCliOptions', () => {
     expect(parseCliOptions([], envWith({ CANONRY_MCP_SCOPE: 'read-only' }))).toEqual({ scope: 'read-only', eager: false })
   })
 
+  it('keeps stored-only monotonic across later widening flags and env scope', () => {
+    expect(parseCliOptions(['--stored-only', '--read-only', '--scope=all'], emptyEnv).scope).toBe('stored-only')
+    expect(parseCliOptions(['--scope=all', '--stored-only', '--read-only'], emptyEnv).scope).toBe('stored-only')
+    expect(parseCliOptions(['--read-only', '--scope=all'], envWith({ CANONRY_STORED_ONLY: 'true' })).scope).toBe('stored-only')
+    expect(parseCliOptions(['--scope=stored-only', '--scope=all'], emptyEnv).scope).toBe('stored-only')
+    expect(parseCliOptions(['--scope', 'stored-only', '--read-only'], emptyEnv).scope).toBe('stored-only')
+    expect(parseCliOptions(['--read-only'], envWith({ CANONRY_MCP_SCOPE: 'stored-only' })).scope).toBe('stored-only')
+    expect(parseCliOptions(['--scope=all'], envWith({ CANONRY_MCP_SCOPE: 'stored-only' })).scope).toBe('stored-only')
+  })
+
   it('reads CANONRY_MCP_EAGER from env', () => {
     expect(parseCliOptions([], envWith({ CANONRY_MCP_EAGER: '1' }))).toEqual({ scope: 'all', eager: true })
     expect(parseCliOptions([], envWith({ CANONRY_MCP_EAGER: 'true' }))).toEqual({ scope: 'all', eager: true })

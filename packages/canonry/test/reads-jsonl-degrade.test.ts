@@ -7,8 +7,9 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
  * machine output silently got a decorated table. The fix degrades `jsonl` to
  * the same JSON document `--format json` emits (via `isMachineFormat`).
  *
- * Each block asserts the degrade is byte-identical to the json output, and
- * that the no-format (human/text) path is unchanged.
+ * Each block asserts the degrade is byte-identical to the json output, except
+ * status, which emits one compact JSONL record with the same parsed document.
+ * The no-format (human/text) path is unchanged.
  */
 
 const mockGetProject = vi.fn()
@@ -24,6 +25,7 @@ const mockGetRun = vi.fn()
 vi.mock('../src/client.js', () => ({
   createApiClient: () => ({
     getProject: mockGetProject,
+    getStatus: async () => ({ projects: [] }),
     listRuns: mockListRuns,
     getLatestRun: mockGetLatestRun,
     searchProject: mockSearchProject,
@@ -58,6 +60,17 @@ function captureLog(fn: () => Promise<void>): { run: Promise<void>; text: () => 
   return { run, text: () => logs.join('\n') }
 }
 
+/** Capture newline-delimited machine output written directly to stdout. */
+function captureStdout(fn: () => Promise<void>): { run: Promise<void>; text: () => string } {
+  let output = ''
+  const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+    output += String(chunk)
+    return true
+  })
+  const run = fn().finally(() => spy.mockRestore())
+  return { run, text: () => output }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
 })
@@ -89,12 +102,14 @@ describe('canonry status — jsonl degrades to the json document', () => {
     const jsonText = jsonCap.text()
 
     seed()
-    const jsonlCap = captureLog(() => showStatus('demo', 'jsonl'))
+    const jsonlCap = captureStdout(() => showStatus('demo', 'jsonl'))
     await jsonlCap.run
     const jsonlText = jsonlCap.text()
 
-    expect(jsonlText).toBe(jsonText)
-    const parsed = JSON.parse(jsonlText)
+    const jsonlLines = jsonlText.trimEnd().split('\n')
+    expect(jsonlLines).toHaveLength(1)
+    const parsed = JSON.parse(jsonlLines[0]!)
+    expect(JSON.parse(jsonText)).toEqual(parsed)
     expect(parsed).toEqual({ project, runs, latestRun: latest.run, totalRuns: latest.totalRuns })
   })
 
@@ -383,5 +398,14 @@ describe('canonry export — jsonl degrades to the json document', () => {
     const text = cap.text()
     expect(text).toContain('apiVersion: canonry/v1')
     expect(() => JSON.parse(text)).toThrow()
+  })
+
+  it('forwards the explicit secret export opt-in', async () => {
+    mockGetExport.mockResolvedValue({
+      ...data,
+      spec: { ...data.spec, notifications: [{ channel: 'webhook', url: 'https://hooks.example/export', events: ['run.completed'] }] },
+    })
+    await exportProject('demo', { includeSecrets: true, format: 'json' })
+    expect(mockGetExport).toHaveBeenCalledWith('demo', { includeSecrets: true })
   })
 })

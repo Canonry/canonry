@@ -1,11 +1,23 @@
-import type { CompetitorAutoAliasMode, ProjectDto, ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
-import { effectiveDomains, normalizeProjectAliases, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases } from '@ainyc/canonry-contracts'
+import type { CompetitorAutoAliasMode, MeasurementConfig, ProjectDto, ProjectPatchRequest, ProjectUpsertRequest, ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
+import { DEFAULT_MEASUREMENT_CONFIG, formatPercent, RatioUnits, effectiveDomains, measurementConfigSchema, normalizeProjectAliases, normalizeProjectDomain, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { isMachineFormat, usageError } from '../cli-error.js'
+import { CliError, isEndpointMissing, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
+}
+
+export interface MeasurementUpdateFlags {
+  leadEvents?: string[]
+  addLeadEvents?: string[]
+  removeLeadEvents?: string[]
+  brandTerms?: string[]
+  addBrandTerms?: string[]
+  removeBrandTerms?: string[]
+  marketingHosts?: string[]
+  addMarketingHosts?: string[]
+  removeMarketingHosts?: string[]
 }
 
 export async function createProject(
@@ -143,6 +155,14 @@ export async function showProject(name: string, format?: string): Promise<void> 
   if (project.competitorAutoAliases !== undefined) {
     console.log(`  Competitor auto aliases: ${formatCompetitorAutoAliasMode(project.competitorAutoAliases)}`)
   }
+  if (project.measurement) {
+    console.log(`  Marketing hosts:  ${project.measurement.marketingHosts.length > 0 ? project.measurement.marketingHosts.join(', ') : '(none)'}`)
+    console.log(`  Brand terms:      ${project.measurement.brandTerms.length > 0 ? project.measurement.brandTerms.join(', ') : '(none)'}`)
+    console.log(`  Lead events:      ${project.measurement.leadEventNames.length > 0 ? project.measurement.leadEventNames.join(', ') : '(none)'}`)
+  }
+  if (project.answerFieldsRecompute !== undefined && project.answerFieldsRecompute !== null) {
+    console.log(`  Answer fields recompute: ${project.answerFieldsRecompute}`)
+  }
   console.log(`  Tags:             ${project.tags.length > 0 ? project.tags.join(', ') : '(none)'}`)
   const labelEntries = Object.entries(project.labels)
   console.log(`  Labels:           ${labelEntries.length > 0 ? labelEntries.map(([k, v]) => `${k}=${v}`).join(', ') : '(none)'}`)
@@ -154,6 +174,47 @@ function formatCompetitorAutoAliasMode(mode: CompetitorAutoAliasMode): string {
   if (mode === 'apply') return 'apply (names detected after each sweep are stored and counted)'
   if (mode === 'off') return 'off (no detection after sweeps)'
   return 'preview (detected after each sweep and logged; nothing stored)'
+}
+
+function mergeMeasurementList(
+  current: readonly string[],
+  exact: string[] | undefined,
+  additions: string[] | undefined,
+  removals: string[] | undefined,
+  caseInsensitive: boolean,
+  normalizeRemoval?: (value: string) => string,
+): string[] {
+  let values = [...(exact ?? current)]
+  if (additions) values.push(...additions)
+  if (removals?.length) {
+    const normalize = normalizeRemoval ?? ((value: string) => value)
+    const remove = new Set(removals.map(value => {
+      const normalized = normalize(value)
+      return caseInsensitive ? normalized.toLowerCase() : normalized
+    }))
+    values = values.filter(value => {
+      const normalized = normalize(value)
+      return !remove.has(caseInsensitive ? normalized.toLowerCase() : normalized)
+    })
+  }
+  return values
+}
+
+function resolveMeasurementUpdate(project: ProjectDto, flags: MeasurementUpdateFlags): MeasurementConfig {
+  const current = project.measurement ?? DEFAULT_MEASUREMENT_CONFIG
+  const parsed = measurementConfigSchema.safeParse({
+    marketingHosts: mergeMeasurementList(current.marketingHosts, flags.marketingHosts, flags.addMarketingHosts, flags.removeMarketingHosts, true, normalizeProjectDomain),
+    brandTerms: mergeMeasurementList(current.brandTerms, flags.brandTerms, flags.addBrandTerms, flags.removeBrandTerms, true),
+    leadEventNames: mergeMeasurementList(current.leadEventNames, flags.leadEvents, flags.addLeadEvents, flags.removeLeadEvents, false),
+  })
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    throw usageError(`Error: invalid measurement option${issue?.message ? `: ${issue.message}` : ''}`, {
+      message: issue?.message ?? 'invalid measurement option',
+      details: { command: 'project.update', path: issue?.path.join('.') ?? '' },
+    })
+  }
+  return parsed.data
 }
 
 export async function updateProjectSettings(
@@ -182,11 +243,57 @@ export async function updateProjectSettings(
     siteAuditMaxPages?: number | null
     /** Sets the answer-derived competitor alias detection mode; undefined leaves it. */
     competitorAutoAliases?: CompetitorAutoAliasMode
+    expectedConfigRevision?: number
+    /** Measurement lists changed by one or more measurement flags. */
+    measurement?: MeasurementUpdateFlags
+    /** Preview only the detection-mode change and its stored-evidence impact. */
+    dryRun?: boolean
     format?: string
   },
 ): Promise<void> {
   const client = getClient()
   const project: ProjectDto = await client.getProject(name)
+  if (opts.expectedConfigRevision !== undefined && opts.expectedConfigRevision !== project.configRevision) {
+    throw new CliError({
+      code: 'PROJECT_REVISION_CONFLICT',
+      message: `Project '${name}' has revision ${project.configRevision}, not the expected ${opts.expectedConfigRevision}.`,
+      details: { expected: opts.expectedConfigRevision, actual: project.configRevision },
+    })
+  }
+
+  if (opts.dryRun) {
+    const hasValue = (key: string, value: unknown): boolean => {
+      if (value === undefined) return false
+      if (value === null) return true
+      if (Array.isArray(value)) return key === 'providers' || value.length > 0
+      if (typeof value === 'object') return Object.keys(value).length > 0
+      return true
+    }
+    const changedKeys = Object.entries(opts).filter(([key, value]) => key !== 'dryRun' && key !== 'format' && hasValue(key, value))
+    if (opts.competitorAutoAliases !== 'apply' || changedKeys.some(([key]) => key !== 'competitorAutoAliases')) {
+      throw usageError('Error: project update --dry-run supports only --competitor-auto-aliases apply', {
+        message: '--dry-run supports only --competitor-auto-aliases apply',
+        details: { command: 'project.update', project: name },
+      })
+    }
+    const detection = await client.previewCompetitorAutoAliases(name)
+    const preview = {
+      dryRun: true,
+      project: name,
+      modeBefore: project.competitorAutoAliases ?? 'preview',
+      modeAfter: opts.competitorAutoAliases,
+      impact: detection.impact,
+    }
+    if (isMachineFormat(opts.format)) {
+      console.log(JSON.stringify(preview, null, 2))
+    } else {
+      console.log(`Competitor auto-alias mode preview: ${preview.modeBefore} -> ${preview.modeAfter}`)
+      const percentBefore = detection.impact?.before.percent
+      const percentAfter = detection.impact?.after.percent
+      console.log(`Mention share ${percentBefore === null || percentBefore === undefined ? 'not measured' : formatPercent(percentBefore, RatioUnits.percent)} -> ${percentAfter === null || percentAfter === undefined ? 'not measured' : formatPercent(percentAfter, RatioUnits.percent)} (stored evidence preview)`)
+    }
+    return
+  }
 
   let ownedDomains = opts.ownedDomains ?? project.ownedDomains ?? []
   if (opts.addOwnedDomain) {
@@ -266,31 +373,67 @@ export async function updateProjectSettings(
   const providerDispatchModes: ProviderDispatchModesMap = { ...(project.providerDispatchModes ?? {}), ...(opts.dispatchModes ?? {}) }
   for (const provider of opts.clearDispatchModes ?? []) delete providerDispatchModes[provider]
 
-  const result: ProjectDto = await client.putProject(name, {
-    displayName: nextDisplayName,
-    canonicalDomain: opts.domain ?? project.canonicalDomain,
-    ownedDomains,
-    aliases: nextAliases,
+  const patch: ProjectPatchRequest = {
+    expectedConfigRevision: opts.expectedConfigRevision ?? project.configRevision,
+    ...(opts.displayName !== undefined ? { displayName: nextDisplayName } : {}),
+    ...(opts.domain !== undefined ? { canonicalDomain: opts.domain } : {}),
+    ...((opts.ownedDomains !== undefined || opts.addOwnedDomain !== undefined || opts.removeOwnedDomain !== undefined) ? { ownedDomains } : {}),
+    ...((opts.aliases !== undefined || opts.addAlias !== undefined || opts.removeAlias !== undefined) ? { aliases: nextAliases } : {}),
+    ...(opts.country !== undefined ? { country: opts.country } : {}),
+    ...(opts.language !== undefined ? { language: opts.language } : {}),
+    ...(opts.providers !== undefined ? { providers: opts.providers } : {}),
+    ...((Object.keys(opts.providerModels ?? {}).length > 0 || (opts.clearProviderModels?.length ?? 0) > 0) ? { providerModels } : {}),
     ...(touchesQualified ? { qualifiedAliases } : {}),
-    country: opts.country ?? project.country,
-    language: opts.language ?? project.language,
-    tags: project.tags,
-    labels: project.labels,
-    providers: opts.providers ?? project.providers,
-    providerModels,
     ...(touchesDispatch ? { providerDispatchModes } : {}),
-    locations: project.locations,
-    defaultLocation: project.defaultLocation,
-    autoExtractBacklinks: project.autoExtractBacklinks,
-    // Sent only when asked for: the server keeps the stored threshold when the
-    // field is absent, so a stale read cannot overwrite a newer setting.
     ...(opts.negativeReviewMaxStars !== undefined ? { negativeReviewMaxStars: opts.negativeReviewMaxStars } : {}),
-    // Same for the page budget: never echoed from the read above, so an edit
-    // that does not touch it cannot overwrite a newer one or send a stray null.
     ...(opts.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: opts.siteAuditMaxPages } : {}),
-    // Same for the detection mode.
     ...(opts.competitorAutoAliases !== undefined ? { competitorAutoAliases: opts.competitorAutoAliases } : {}),
-  })
+    ...(opts.measurement !== undefined ? { measurement: resolveMeasurementUpdate(project, opts.measurement) } : {}),
+  }
+  let result: ProjectDto
+  try {
+    result = await client.patchProject(name, patch)
+  } catch (error) {
+    // A route-specific 404 or 405 from PATCH identifies an older server whose
+    // API predates PATCH. Preserve the historical full PUT path only for that
+    // transport case; application NOT_FOUND responses must propagate.
+    if (!(error instanceof CliError) || !isEndpointMissing(error)) throw error
+    if (error.details?.httpStatus !== 405 && !/route/i.test(error.message)) throw error
+    // Re-read before the legacy request so a changed project is rejected.
+    // The legacy GET followed by PUT has no server-side compare-and-swap;
+    // callers still receive the historical fallback semantics after this
+    // best-effort race check.
+    const latest = await client.getProject(name)
+    if (latest.configRevision !== project.configRevision) {
+      throw new CliError({
+        code: 'PROJECT_REVISION_CONFLICT',
+        message: `Project '${name}' changed while the PATCH endpoint was unavailable. Re-read it and retry.`,
+        details: { expected: project.configRevision, actual: latest.configRevision },
+      })
+    }
+    const legacyBody: ProjectUpsertRequest = {
+      displayName: nextDisplayName,
+      canonicalDomain: opts.domain ?? project.canonicalDomain,
+      ownedDomains,
+      aliases: nextAliases,
+      ...(touchesQualified ? { qualifiedAliases } : {}),
+      country: opts.country ?? project.country,
+      language: opts.language ?? project.language,
+      tags: project.tags,
+      labels: project.labels,
+      providers: opts.providers ?? project.providers,
+      providerModels,
+      ...(touchesDispatch ? { providerDispatchModes } : {}),
+      locations: project.locations,
+      defaultLocation: project.defaultLocation,
+      autoExtractBacklinks: project.autoExtractBacklinks,
+      ...(opts.negativeReviewMaxStars !== undefined ? { negativeReviewMaxStars: opts.negativeReviewMaxStars } : {}),
+      ...(opts.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: opts.siteAuditMaxPages } : {}),
+      ...(opts.competitorAutoAliases !== undefined ? { competitorAutoAliases: opts.competitorAutoAliases } : {}),
+      ...(opts.measurement !== undefined ? { measurement: resolveMeasurementUpdate(project, opts.measurement) } : {}),
+    }
+    result = await client.putProject(name, legacyBody)
+  }
 
   // What the server was left holding: the map sent, else the stored one.
   warnDroppedDispatchModes(touchesDispatch ? providerDispatchModes : (project.providerDispatchModes ?? {}), result)

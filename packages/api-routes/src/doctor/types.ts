@@ -6,6 +6,7 @@ import type { WordpressConnectionStore } from '../wordpress.js'
 import type { AdsCredentialStore } from '../ads.js'
 import type { Ga4CredentialStore } from '../ga.js'
 import type { ProviderSummaryEntry } from '../settings.js'
+import type { ApiHostProbeResult } from '../api-host-probe.js'
 
 /**
  * Generic traffic-source row shape passed to a `TrafficSourceValidator`.
@@ -76,6 +77,7 @@ export interface DoctorContext {
   ga4CredentialStore?: Ga4CredentialStore
   /** Website probe seam for `site.reachability`. Defaults to the SSRF-guarded live probe. */
   probeSiteReachability?: (url: string) => Promise<import('../site-reachability.js').SiteReachabilityResult>
+  probeApiHost?: (host: string) => Promise<ApiHostProbeResult>
   adsCredentialStore?: AdsCredentialStore
   getGoogleAuthConfig?: () => { clientId?: string; clientSecret?: string }
   /**
@@ -179,6 +181,17 @@ export interface ProjectInfo {
 export type CheckOutput = Pick<CheckResultDto, 'status' | 'code' | 'summary'> & {
   remediation?: string | null
   details?: Record<string, unknown>
+  /**
+   * Set on a failing output that a person has to act on now, and on nothing
+   * else. It is a property of the output, not of the check: daily data three
+   * days old is a warning, the same check at five days is urgent. Urgent
+   * outputs are the whole content of the `health.urgent` notification event,
+   * which exists to reach a channel people watch, so marking a routine warning
+   * urgent spends the one signal that channel has. The runner keeps the flag
+   * on a result it sets aside under a failing cause: that problem is still
+   * open, and the alert reports it with the cause's explanation.
+   */
+  urgent?: boolean
 }
 
 export interface CheckDefinition {

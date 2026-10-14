@@ -69,6 +69,20 @@ describe('runChecks', () => {
     expect(report.checks.map(c => c.id)).toEqual(['google.auth.connection'])
   })
 
+  it('carries an urgent output onto the result, and adds the field to nothing else', async () => {
+    const urgent: CheckDefinition = {
+      id: 'demo.data',
+      category: CheckCategories.integrations,
+      scope: CheckScopes.project,
+      title: 'demo data',
+      run: () => ({ status: CheckStatuses.warn, code: 'demo.data.stale', summary: 'stale', urgent: true }),
+    }
+    const report = await runChecks(fakeCtx({ name: 'demo', canonicalDomain: 'example.com' }), [urgent, failCheck('demo.auth', 'project')])
+    expect(report.checks.find(c => c.id === 'demo.data')).toMatchObject({ code: 'demo.data.stale', urgent: true })
+    // A failing check is not urgent unless it says so.
+    expect(report.checks.find(c => c.id === 'demo.auth')).not.toHaveProperty('urgent')
+  })
+
   it('captures runtime errors as fail with runtime-error code', async () => {
     const broken: CheckDefinition = {
       id: 'broken',

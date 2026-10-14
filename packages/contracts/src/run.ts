@@ -41,7 +41,7 @@ export const runListFilterQuerySchema = z.object({
   excludeKind: runKindSchema.optional(),
   excludeKinds: z.preprocess(value => {
     const items: readonly unknown[] | null = typeof value === 'string' ? [value] : Array.isArray(value) ? value : null
-    return items ? [...new Set(items.flatMap((item): unknown[] => typeof item === 'string' ? item.split(',').map(part => part.trim()).filter(Boolean) : [item]))] : value
+    return items ? [...new Set(items.flatMap((item): unknown[] => typeof item === 'string' ? item.split(',').map(part => part.trim()) : [item]))] : value
   }, z.array(runKindSchema).max(runKindSchema.options.length)).optional(),
   status: runStatusSchema.optional(),
 })
@@ -256,6 +256,7 @@ export const runUsageSummaryRowSchema = z.object({
 export type RunUsageSummaryRow = z.infer<typeof runUsageSummaryRowSchema>
 
 export const runDtoSchema = z.object({
+  sourceId: z.string().nullable().optional(),
   id: z.string(),
   projectId: z.string(),
   kind: runKindSchema,
@@ -614,8 +615,30 @@ export const latestProjectRunDtoSchema = z.object({
 
 export type LatestProjectRunDto = z.infer<typeof latestProjectRunDtoSchema>
 
+const auditTimestampSchema = z.string().refine(value => !Number.isNaN(Date.parse(value)), 'Must be a valid ISO 8601 timestamp')
+
+/** Shared additive investigation filters; pagination keeps the HTTP legacy coercion. */
+export const auditHistoryQuerySchema = z.object({
+  limit: z.union([z.string(), z.number()]).optional(),
+  offset: z.union([z.string(), z.number()]).optional(),
+  since: auditTimestampSchema.optional().describe('Inclusive ISO 8601 lower bound.'),
+  until: auditTimestampSchema.optional().describe('Inclusive ISO 8601 upper bound.'),
+  action: z.string().trim().min(1).optional().describe('Exact audit action filter.'),
+  actionPrefix: z.string().trim().min(1).optional().describe('Literal audit action prefix; percent and underscore are not wildcards.'),
+  actor: z.string().trim().min(1).optional().describe('Exact actor, or api for legacy API, API-key, and user actors.'),
+  entityType: z.string().trim().min(1).optional().describe('Exact entity type filter.'),
+  entityId: z.string().trim().min(1).optional().describe('Exact entity identity filter.'),
+  excludeEntityTypes: z.preprocess(value => {
+    const items: readonly unknown[] | null = typeof value === 'string' ? [value] : Array.isArray(value) ? value : null
+    return items ? [...new Set(items.flatMap((item): unknown[] => typeof item === 'string' ? item.split(',').map(part => part.trim()) : [item]))] : value
+  }, z.array(z.string().min(1))).optional(),
+})
+export type AuditHistoryQuery = z.infer<typeof auditHistoryQuerySchema>
+export type AuditHistoryOptions = Omit<AuditHistoryQuery, 'limit' | 'offset'> & { limit?: number; offset?: number }
+
 export const auditLogEntrySchema = z.object({
   id: z.string(),
+  project: z.string().nullable().optional(),
   projectId: z.string().nullable().optional(),
   actor: z.string(),
   action: z.string(),

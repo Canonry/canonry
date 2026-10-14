@@ -1,3 +1,7 @@
+import { metricsWindowSchema } from './analytics.js'
+import { gaMeasurementComponentStatusSchema } from './measurement.js'
+
+import { WINDOW_SETS } from './time-window.js'
 import { z } from 'zod'
 import { fraction, percent } from './ratio-unit.js'
 import { aiReferralTrafficClassSchema } from './traffic-class.js'
@@ -284,7 +288,7 @@ export type GA4PropertiesDto = z.infer<typeof ga4PropertiesDtoSchema>
  * zone, exactly as GA4's own "Last N days" ranges are, so `28d` is the window
  * GA4's report opens on. Not the rolling `7d | 30d | 90d` of `/ga/traffic`.
  */
-export const gaSearchLandingWindowSchema = z.enum(['7d', '28d', '90d'])
+export const gaSearchLandingWindowSchema = z.enum(WINDOW_SETS.gaSearchLanding)
 export type GaSearchLandingWindow = z.infer<typeof gaSearchLandingWindowSchema>
 export const GA_SEARCH_LANDING_WINDOWS: readonly GaSearchLandingWindow[] = gaSearchLandingWindowSchema.options
 export const GA_SEARCH_LANDING_WINDOW_DAYS: Readonly<Record<GaSearchLandingWindow, number>> = {
@@ -680,3 +684,31 @@ export const ga4SessionHistoryEntrySchema = z.object({
   usersSource: z.enum(['deduplicated', 'landing-page-sum']),
 })
 export type GA4SessionHistoryEntry = z.infer<typeof ga4SessionHistoryEntrySchema>
+
+
+export const gaAcquisitionDimensionSchema = z.enum(['date', 'channelGroup', 'source', 'medium', 'hostName', 'landingPage'])
+export type GaAcquisitionDimension = z.infer<typeof gaAcquisitionDimensionSchema>
+export const GaAcquisitionDimensions = gaAcquisitionDimensionSchema.enum
+export const gaAcquisitionQuerySchema = z.object({
+  window: metricsWindowSchema.optional(), startDate: z.iso.date().optional(), endDate: z.iso.date().optional(),
+  channel: z.string().optional(), source: z.string().optional(), medium: z.string().optional(), hostName: z.string().optional(),
+  landingPage: z.string().optional(), pathPrefix: z.string().optional(),
+  groupBy: z.string().refine(value => value.split(',').every(key => gaAcquisitionDimensionSchema.safeParse(key.trim()).success), `groupBy must contain: ${gaAcquisitionDimensionSchema.options.join(', ')}`).optional(),
+  limit: z.number().int().min(1).max(1000).optional(), offset: z.number().int().nonnegative().optional(),
+}).strict()
+export type GaAcquisitionQuery = z.infer<typeof gaAcquisitionQuerySchema>
+export const gaAcquisitionRowSchema = z.object({
+  date: z.string().optional(), channelGroup: z.string().optional(), source: z.string().optional(), medium: z.string().optional(),
+  hostName: z.string().optional(), landingPage: z.string().optional(), sessions: z.number().int().nonnegative(),
+})
+export type GaAcquisitionRow = z.infer<typeof gaAcquisitionRowSchema>
+export const gaAcquisitionResponseSchema = z.object({
+  source: z.literal('ga4-acquisition'), status: gaMeasurementComponentStatusSchema, error: z.string().nullable(), syncedAt: z.string().nullable(),
+  scope: z.object({ project: z.string(), attribution: z.literal('project-only'), unavailableDimensions: z.array(z.enum(['property', 'target', 'market'])) }),
+  window: z.object({ startDate: z.string().nullable(), endDate: z.string().nullable(), window: metricsWindowSchema }),
+  coverage: z.object({ earliestDate: z.string().nullable(), latestDate: z.string().nullable() }),
+  filters: z.object({ channel: z.string().nullable(), source: z.string().nullable(), medium: z.string().nullable(), hostName: z.string().nullable(), landingPage: z.string().nullable(), pathPrefix: z.string().nullable() }),
+  groupBy: z.array(gaAcquisitionDimensionSchema), channelGroups: z.array(z.string()),
+  totalSessions: z.number().int().nonnegative(), totalRows: z.number().int().nonnegative(), limit: z.number().int(), offset: z.number().int(), rows: z.array(gaAcquisitionRowSchema),
+})
+export type GaAcquisitionResponse = z.infer<typeof gaAcquisitionResponseSchema>

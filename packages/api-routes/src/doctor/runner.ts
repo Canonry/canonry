@@ -1,4 +1,5 @@
 import {
+  CHECK_RUNTIME_ERROR_SUFFIX,
   CheckNotificationPolicies,
   CheckScopes,
   CheckStatuses,
@@ -52,7 +53,7 @@ export async function runChecks(
         // An advisory that cannot run is still only an advisory: it must not
         // fail the doctor (and its exit code) the way a broken health check does.
         status: definition.notificationPolicy === CheckNotificationPolicies.silent ? CheckStatuses.warn : CheckStatuses.fail,
-        code: `${definition.id}.runtime-error`,
+        code: `${definition.id}${CHECK_RUNTIME_ERROR_SUFFIX}`,
         summary: `Check threw an unexpected error: ${message}`,
         remediation: null,
         details: { error: message },
@@ -66,6 +67,7 @@ export async function runChecks(
       status: output.status,
       ...(definition.notificationPolicy ? { notificationPolicy: definition.notificationPolicy } : {}),
       code: output.code,
+      ...(output.urgent ? { urgent: true } : {}),
       summary: output.summary,
       remediation: output.remediation ?? null,
       details: output.details,
@@ -89,7 +91,7 @@ export async function runChecks(
 
 /** A check that threw is broken itself: it neither names a cause nor is a symptom of one. */
 function threw(definition: CheckDefinition, result: CheckResultDto): boolean {
-  return result.code === `${definition.id}.runtime-error`
+  return result.code === `${definition.id}${CHECK_RUNTIME_ERROR_SUFFIX}`
 }
 
 /**

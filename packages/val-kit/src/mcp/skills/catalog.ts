@@ -19,6 +19,7 @@ import { part as canonryReferencesAeoAnalysisPart0 } from './canonry-references-
 import { part as canonryReferencesCanonryCliPart0 } from './canonry-references-canonry-cli.0.js'
 import { part as canonryReferencesCanonryCliPart1 } from './canonry-references-canonry-cli.1.js'
 import { part as canonryReferencesCanonryCliPart2 } from './canonry-references-canonry-cli.2.js'
+import { part as canonryReferencesCanonryCliPart3 } from './canonry-references-canonry-cli.3.js'
 import { part as canonryReferencesGoogleBusinessProfilePart0 } from './canonry-references-google-business-profile.0.js'
 import { part as canonryReferencesGoogleMarketingPart0 } from './canonry-references-google-marketing.0.js'
 import { part as canonryReferencesIndexingPart0 } from './canonry-references-indexing.0.js'
@@ -53,7 +54,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry Operations Guide v1",
     description: "Shared Canonry vocabulary, evidence scope, comparison rules, and authority boundaries. Read when interpreting unfamiliar data or checking an operation.",
     entryPoint: false,
-    characters: 15239,
+    characters: 15867,
     content: aeroReferencesAgentOperationsPart0,
   },
   {
@@ -113,7 +114,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Site Health diagnosis",
     description: "Diagnose Site Health scores, page findings, crawl coverage, internal links, and scan changes while preserving run provenance and incomplete-data limits.",
     entryPoint: false,
-    characters: 6191,
+    characters: 7165,
     content: aeroReferencesSiteHealthPart0,
   },
   {
@@ -143,7 +144,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "canonry skill",
     description: "Navigate Canonry through connected MCP tools or the `cnry` CLI to inspect evidence, diagnose changes, plan measurement, review integrations, and report results. Use this optional host-native skill for CLI workflows and detailed references; connected MCP users can operate through canonry_help without installing a local runtime or skill.",
     entryPoint: true,
-    characters: 15457,
+    characters: 16085,
     content: canonrySkillPart0,
   },
   {
@@ -153,7 +154,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "AEO Analysis: Interpreting Canonry Results",
     description: "canonry skill reference: references/aeo-analysis.md",
     entryPoint: false,
-    characters: 17699,
+    characters: 19144,
     content: canonryReferencesAeoAnalysisPart0,
   },
   {
@@ -163,8 +164,8 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 161126,
-    content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2].join(''),
+    characters: 183442,
+    content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2, canonryReferencesCanonryCliPart3].join(''),
   },
   {
     uri: "canonry-skill://canonry/references/google-business-profile.md",
@@ -173,7 +174,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Google Business Profile Integration",
     description: "canonry skill reference: references/google-business-profile.md",
     entryPoint: false,
-    characters: 35976,
+    characters: 36220,
     content: canonryReferencesGoogleBusinessProfilePart0,
   },
   {
@@ -203,7 +204,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Server-side traffic (AI Visibility — Server-Side)",
     description: "canonry skill reference: references/server-side-traffic.md",
     entryPoint: false,
-    characters: 56052,
+    characters: 56851,
     content: canonryReferencesServerSideTrafficPart0,
   },
   {

@@ -1,7 +1,9 @@
 export type OpenApiMcpClassification = 'included' | 'deferred' | 'excluded-protocol'
 
 export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
+  'GET /api/v1/projects/{name}/ga/acquisition': 'included',
   'GET /api/v1/projects/{name}/traffic/referral-assessment': 'included',
+  'GET /api/v1/projects/{name}/traffic/samples': 'included',
 
   'GET /api/v1/projects/{name}/sentiment/settings': 'included',
   'PUT /api/v1/projects/{name}/sentiment/settings': 'included',
@@ -19,6 +21,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   // have the included project upsert tool and do not need a second create path.
   'POST /api/v1/projects': 'deferred',
   'PUT /api/v1/projects/{name}': 'included',
+  'PATCH /api/v1/projects/{name}': 'included',
   'GET /api/v1/projects': 'included',
   'GET /api/v1/projects/{name}': 'included',
   'DELETE /api/v1/projects/{name}': 'deferred',
@@ -48,6 +51,9 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/keywords': 'included',
   'POST /api/v1/projects/{name}/keywords/generate': 'included',
   'GET /api/v1/projects/{name}/competitors': 'included',
+  'GET /api/v1/projects/{name}/competitor-suggestions': 'included',
+  'POST /api/v1/projects/{name}/competitor-changes/preview': 'included',
+  'POST /api/v1/apply/preview': 'included',
   'GET /api/v1/projects/{name}/analytics/competitors': 'included',
   'PUT /api/v1/projects/{name}/competitors': 'deferred',
   'POST /api/v1/projects/{name}/competitors': 'included',
@@ -430,6 +436,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/search': 'included',
   'GET /api/v1/doctor': 'included',
   'GET /api/v1/projects/{name}/doctor': 'included',
+  'GET /api/v1/status': 'included',
   'GET /api/v1/backlinks/status': 'deferred',
   'POST /api/v1/backlinks/install': 'deferred',
   'POST /api/v1/backlinks/syncs': 'deferred',
@@ -465,6 +472,8 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/technical-aeo/pages': 'included',
   'GET /api/v1/projects/{name}/technical-aeo/trend': 'included',
   'GET /api/v1/projects/{name}/technical-aeo/crawl': 'included',
+  'GET /api/v1/projects/{name}/technical-aeo/issues': 'included',
+  'GET /api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages': 'included',
   'GET /api/v1/projects/{name}/technical-aeo/subgraph': 'included',
   'GET /api/v1/projects/{name}/technical-aeo/path': 'included',
   'GET /api/v1/projects/{name}/technical-aeo/changes': 'included',

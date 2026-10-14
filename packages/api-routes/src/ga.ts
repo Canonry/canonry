@@ -3,9 +3,10 @@ import { eq, desc, and, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, runs } from '@ainyc/canonry-db'
-import { breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, RunTriggers, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@ainyc/canonry-contracts'
+import { breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@ainyc/canonry-contracts'
 import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSearchLandingSyncResult, GaSocialReferralTrendResponse, ResolvedDateRange } from '@ainyc/canonry-contracts'
-import { resolveProject, writeAuditLog } from './helpers.js'
+import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
+import type { ScheduledSyncClaim } from './helpers.js'
 import { assertNotProjectScoped } from './auth.js'
 import { credentialFailure, startRouteOutcome } from './feature-outcome.js'
 import { buildSessionHistory } from './ga-session-history.js'
@@ -357,6 +358,7 @@ export interface GoogleAuthConfig {
 }
 
 export interface GA4RoutesOptions {
+  claimScheduledSync?: ScheduledSyncClaim
   ga4CredentialStore?: Ga4CredentialStore
   googleConnectionStore?: GoogleConnectionStore
   getGoogleAuthConfig?: () => GoogleAuthConfig
@@ -819,7 +821,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       projectId: project.id,
       kind: RunKinds['ga-sync'],
       status: RunStatuses.running,
-      trigger: RunTriggers.manual,
+      trigger: syncRunTrigger(opts.claimScheduledSync, project.name, RunKinds['ga-sync']),
       startedAt,
       createdAt: startedAt,
     }).run()

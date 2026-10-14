@@ -57,6 +57,7 @@ import {
 } from './site-crawl-graph-layout.js'
 import { classifySiteCrawlTemplateLinks } from './site-crawl-template-links.js'
 import { computeFactorAverages, recordedSharePct } from './site-audit-factors.js'
+import { buildSiteCrawlIssueEvidence } from './site-audit-issues.js'
 
 const log = createLogger('SiteAudit')
 
@@ -162,6 +163,7 @@ function toCrawlAuditFactor(factor: AuditFactor): SiteCrawlAuditFactorDto {
     applicable: factor.applicable ?? null,
     findings: factor.findings,
     recommendations: factor.recommendations,
+    ...(factor.advisoryRecommendations === undefined ? {} : { advisoryRecommendations: factor.advisoryRecommendations }),
   }
 }
 
@@ -809,6 +811,7 @@ export async function executeSiteAudit(
     // and each one is a separate thing to fix.
     const deadLinksUnverified = new Set(unverifiedLinks.map((finding) => finding.to)).size
     const legacyIssues = factors.map((factor) => toLegacyIssue(factor, crawlSummary.auditRollup.auditedPages)).filter((issue): issue is SiteAuditCrossCuttingIssueDto => issue !== null)
+    const issueEvidence = buildSiteCrawlIssueEvidence(crawlSummary.siteIssues, observedPages.values())
 
     // Derived layout persistence is isolated from the canonical crawl
     // publication. A worker timeout, package/runtime incompatibility, or row
@@ -915,6 +918,7 @@ export async function executeSiteAudit(
         pagesErrored: errorCount,
         edgesDiscovered: crawlSummary.edgesObserved,
         findingsCount: deadLinksFound,
+        issueEvidence,
         deadLinkState: report.deadLinks.state,
         deadLinksChecked,
         deadLinksFound,

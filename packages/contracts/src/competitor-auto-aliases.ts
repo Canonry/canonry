@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { competitorShareImpactSchema } from './competitor-change-preview.js'
 import { answerProseForMentions, isCitationLabel, stripCitationChips } from './answer-prose.js'
 import { MIN_BRAND_ALIAS_KEY_LENGTH, MIN_DOMAIN_BRAND_KEY_LENGTH } from './answer-visibility.js'
 import {
@@ -1498,6 +1499,8 @@ export const competitorAutoAliasDetectionDtoSchema = z.object({
     removeBelowNameCasedShare: fraction(z.number().min(0).max(1)),
   }),
   competitors: z.array(competitorAutoAliasDetectionCompetitorSchema),
+  /** Read-only impact if this pass's names were stored. */
+  impact: competitorShareImpactSchema.optional(),
 })
 export type CompetitorAutoAliasDetectionDto = z.infer<typeof competitorAutoAliasDetectionDtoSchema>
 

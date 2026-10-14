@@ -52,6 +52,8 @@ The provider uses Gemini's built-in **Google Search grounding** (`googleSearch` 
 
 Citation detection prefers the chunk indices referenced by `groundingSupports`, rather than treating every retrieved chunk as a final citation. The job runner then matches those domains against the project's canonical domain and competitor domains to determine citation state.
 
+The adapter records retrieval separately from citations. Positive `usageMetadata.toolUsePromptTokenCount`, nonempty `webSearchQueries`, or web source URIs establish `used`, including a search that yields no final citation. Google Search is the only offered tool, so tool-result tokens prove retrieval even when grounding metadata or the final answer is missing. Without that evidence, a nonempty answer ending with `STOP` is `not-used`; empty and unfinished answers remain `unknown`. Stored responses use the same detection when normalized. The `native-auto-v1` contract means search is offered; Gemini chooses whether to use it.
+
 ### Upstream references
 
 - Grounding with Google Search docs: <https://ai.google.dev/gemini-api/docs/google-search>

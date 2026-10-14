@@ -14,8 +14,8 @@ export const GTM_REQUIRED_OAUTH_SCOPES = [
   'https://www.googleapis.com/auth/tagmanager.readonly',
 ] as const
 
-const FRESH_SNAPSHOT_WARN_DAYS = 7
-const FRESH_SNAPSHOT_FAIL_DAYS = 30
+export const FRESH_SNAPSHOT_WARN_DAYS = 7
+export const FRESH_SNAPSHOT_FAIL_DAYS = 30
 const DAY_MS = 24 * 60 * 60 * 1000
 
 /**

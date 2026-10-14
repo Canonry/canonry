@@ -44,6 +44,7 @@ function renderSection() {
   const pagedRows = performanceRows(31)
   const restoreFetch = mockFetch((url) => {
     const path = pathOf(url)
+    if (path.split('?')[0]?.endsWith('/runs')) return jsonResponse([])
     if (path === '/api/v1/settings') {
       return jsonResponse({
         providers: [],
@@ -174,6 +175,7 @@ function renderSitemapSection({
   let submitAttempt = 0
   const restoreFetch = mockFetch((url, init) => {
     const path = pathOf(url)
+    if (path.split('?')[0]?.endsWith('/runs')) return jsonResponse([])
     if (path === '/api/v1/settings') return jsonResponse({ providers: [], providerCatalog: [], google: { configured: true }, bing: { configured: false } })
     if (path.endsWith('/google/connections')) return jsonResponse([{
       id: 'gsc-1', domain: 'example.com', connectionType: 'gsc', propertyId: 'sc-domain:example.com', sitemapUrl: 'https://example.com/sitemap.xml',
@@ -217,7 +219,8 @@ test('reports completed batches and stops after a later sitemap submission trans
     },
   })
 
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Resubmit all sitemaps' })).not.toBeNull())
+  fireEvent.click(await screen.findByRole('button', { name: 'Load from Google' }))
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Resubmit all sitemaps' }) as HTMLButtonElement).disabled).toBe(false))
   fireEvent.click(screen.getByRole('button', { name: 'Resubmit all sitemaps' }))
   await waitFor(() => expect(screen.getByText(/50 accepted, 0 failed, 50 unconfirmed, 0 not attempted/i)).not.toBeNull())
   expect(submitted).toHaveLength(2)
@@ -238,7 +241,8 @@ test('resubmit all files excludes a parent index and includes standalone and chi
     },
   })
 
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Resubmit all files' })).not.toBeNull())
+  fireEvent.click(await screen.findByRole('button', { name: 'Load from Google' }))
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Resubmit all files' }) as HTMLButtonElement).disabled).toBe(false))
   fireEvent.click(screen.getByRole('button', { name: 'Resubmit all files' }))
   await waitFor(() => expect(submitted).toHaveLength(1))
   expect(submitted[0]).toEqual(expect.arrayContaining([standalone, child]))
@@ -255,6 +259,7 @@ test('refreshes the cached OAuth connection immediately after popup authorizatio
 
   const restoreFetch = mockFetch((url) => {
     const path = pathOf(url)
+    if (path.split('?')[0]?.endsWith('/runs')) return jsonResponse([])
     if (path === '/api/v1/settings') return jsonResponse({ providers: [], providerCatalog: [], google: { configured: true }, bing: { configured: false } })
     if (path.endsWith('/google/connect')) {
       return jsonResponse({
@@ -297,7 +302,8 @@ test('refreshes the cached OAuth connection immediately after popup authorizatio
   render(<QueryClientProvider client={queryClient}><GscSection projectName="test-project" refreshNonce={0} /></QueryClientProvider>)
 
   await waitFor(() => expect(screen.getByText(/current Canonry OAuth grant is read-only/i)).not.toBeNull())
-  expect(screen.getByText('Default sitemap')).not.toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Load from Google' }))
+  await screen.findByText('Default sitemap')
   expect(screen.queryByText('Use for audits')).toBeNull()
 
   fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }))
@@ -323,6 +329,7 @@ test('manual GSC refresh actions bypass the one-minute query cache', async () =>
   let coverageReads = 0
   const restoreFetch = mockFetch((url) => {
     const path = pathOf(url)
+    if (path.split('?')[0]?.endsWith('/runs')) return jsonResponse([])
     if (path === '/api/v1/settings') return jsonResponse({ providers: [], providerCatalog: [], google: { configured: true }, bing: { configured: false } })
     if (path.endsWith('/google/connections')) return jsonResponse([{
       id: 'gsc-1',
@@ -359,12 +366,14 @@ test('manual GSC refresh actions bypass the one-minute query cache', async () =>
   render(<QueryClientProvider client={queryClient}><GscSection projectName="test-project" refreshNonce={0} /></QueryClientProvider>)
 
   await waitFor(() => {
-    expect(propertyReads).toBe(1)
+    expect(propertyReads).toBe(0)
     expect(inspectionReads).toBe(1)
     expect(coverageReads).toBe(1)
   })
 
   fireEvent.click(screen.getByRole('button', { name: 'Setup & Configuration' }))
+  await waitFor(() => expect(propertyReads).toBe(1))
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Refresh properties' }) as HTMLButtonElement).disabled).toBe(false))
   fireEvent.click(screen.getByRole('button', { name: 'Refresh properties' }))
   await waitFor(() => expect(propertyReads).toBe(2))
 
@@ -382,6 +391,7 @@ test('connection-owned sitemap changes stay fresh after a remount', async () => 
   let connectionReads = 0
   const restoreFetch = mockFetch((url, init) => {
     const path = pathOf(url)
+    if (path.split('?')[0]?.endsWith('/runs')) return jsonResponse([])
     if (path === '/api/v1/settings') return jsonResponse({ providers: [], providerCatalog: [], google: { configured: true }, bing: { configured: false } })
     if (path.endsWith('/google/connections')) {
       connectionReads += 1
@@ -420,6 +430,7 @@ test('connection-owned sitemap changes stay fresh after a remount', async () => 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const firstRender = render(<QueryClientProvider client={queryClient}><GscSection projectName="test-project" refreshNonce={0} /></QueryClientProvider>)
 
+  fireEvent.click(await screen.findByRole('button', { name: 'Load from Google' }))
   const newSitemapRow = await screen.findByText(newSitemap).then((cell) => cell.closest('tr'))
   if (!newSitemapRow) throw new Error('New sitemap row was not rendered')
   fireEvent.click(within(newSitemapRow).getByRole('button', { name: 'Set as default' }))
@@ -429,6 +440,7 @@ test('connection-owned sitemap changes stay fresh after a remount', async () => 
   render(<QueryClientProvider client={queryClient}><GscSection projectName="test-project" refreshNonce={0} /></QueryClientProvider>)
 
   await waitFor(() => expect(connectionReads).toBeGreaterThanOrEqual(2))
+  fireEvent.click(await screen.findByRole('button', { name: 'Load from Google' }))
   const remountedRow = await screen.findByText(newSitemap).then((cell) => cell.closest('tr'))
   if (!remountedRow) throw new Error('New sitemap row was not rendered after remount')
   expect(within(remountedRow).getByText('Default sitemap')).not.toBeNull()

@@ -197,6 +197,33 @@ describe('executeReleaseSync', () => {
     expect(row?.error).toMatch(/boom/)
   })
 
+  it('keeps the completion stamp and the stored rows when a completed release is synced again and fails', async () => {
+    // The sources route and the `backlinks.source.connected` doctor check read
+    // `queryFinishedAt` to keep projects connected through a re-sync, because
+    // the rows of the earlier sync are still the project's data.
+    insertProject('p1', 'demo', 'example.com')
+    const syncId = crypto.randomUUID()
+    const release = 'cc-main-2026-jan-feb-mar'
+    insertSyncRow(syncId, release)
+    await executeReleaseSync(db, syncId, {
+      release,
+      deps: makeDeps({ queryBacklinks: async () => [{ targetDomain: 'example.com', linkingDomain: 'linker.example.org', numHosts: 5 }] }),
+    })
+    const completed = db.select().from(ccReleaseSyncs).where(eq(ccReleaseSyncs.id, syncId)).get()
+    expect(completed?.queryFinishedAt).toBeTruthy()
+
+    await expect(
+      executeReleaseSync(db, syncId, {
+        release,
+        deps: makeDeps({ downloadFile: async () => { throw new Error('boom') } }),
+      }),
+    ).rejects.toThrow(/boom/)
+
+    const row = db.select().from(ccReleaseSyncs).where(eq(ccReleaseSyncs.id, syncId)).get()
+    expect(row).toMatchObject({ status: 'failed', queryFinishedAt: completed!.queryFinishedAt })
+    expect(db.select().from(backlinkSummaries).all()).toMatchObject([{ projectId: 'p1', totalLinkingDomains: 1 }])
+  })
+
   it('is idempotent under re-run: wipes prior rows and re-inserts under the same sync id', async () => {
     insertProject('p1', 'roots', 'roots.io')
     const syncId = crypto.randomUUID()

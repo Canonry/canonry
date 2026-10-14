@@ -12,7 +12,7 @@ import {
   GA_SEARCH_LANDING_MAX_LIMIT,
   RatioUnits,
   gaSearchLandingPagesResponseSchema,
-  gaSearchLandingWindowSchema,
+  WINDOW_SETS, parseWindowIn,
   inclusiveDayCount,
   roundRatio,
   validationError,
@@ -279,10 +279,7 @@ export function buildGaSearchLandingPages(
   query: GaSearchLandingPagesQuery,
   connections: GaSearchLandingRoutesOptions,
 ): GaSearchLandingPagesResponse {
-  const parsedWindow = gaSearchLandingWindowSchema.safeParse(query.window ?? GA_SEARCH_LANDING_DEFAULT_WINDOW)
-  if (!parsedWindow.success) {
-    throw validationError('"window" must be one of: 7d, 28d, 90d')
-  }
+  const window = parseWindowIn(query.window, WINDOW_SETS.gaSearchLanding, { fallback: GA_SEARCH_LANDING_DEFAULT_WINDOW })
   const limit = parseInteger(query.limit, GA_SEARCH_LANDING_DEFAULT_LIMIT)
   if (!Number.isInteger(limit) || limit < 1 || limit > GA_SEARCH_LANDING_MAX_LIMIT) {
     throw validationError(`"limit" must be an integer between 1 and ${GA_SEARCH_LANDING_MAX_LIMIT}`)
@@ -293,7 +290,6 @@ export function buildGaSearchLandingPages(
   }
 
   const project = resolveProject(db, projectName)
-  const window = parsedWindow.data
   const storedWindow = db.select().from(gaSearchLandingWindows)
     .where(and(eq(gaSearchLandingWindows.projectId, project.id), eq(gaSearchLandingWindows.windowKey, window)))
     .get()

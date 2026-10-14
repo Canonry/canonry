@@ -95,7 +95,14 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
     return reply.status(202).send({ accepted: Boolean(opts.recordOnboardingEvent) })
   })
 
-  app.post<{ Body: unknown }>('/telemetry/ui', async (request, reply) => {
+  // A POST only because the event travels in a body. It changes nothing on
+  // this install (no row, no setting): it validates one anonymous usage event
+  // and hands it to the opt-in forwarder. So a view-only account's dashboard
+  // can send it; see `readSemantic` in `auth.ts`. A read-only API key is still
+  // refused: this is the dashboard's route, not a key's.
+  app.post<{ Body: unknown }>('/telemetry/ui', {
+    config: { readSemantic: true },
+  }, async (request, reply) => {
     const parsed = uiTelemetryEventSchema.safeParse(request.body)
     if (!parsed.success) {
       throw validationError('Invalid UI telemetry event', {

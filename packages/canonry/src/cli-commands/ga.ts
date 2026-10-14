@@ -1,5 +1,7 @@
+import { WINDOW_SETS } from '@ainyc/canonry-contracts'
 import {
   gaAiReferralDaily,
+  gaAcquisition,
   gaAiReferralHistory,
   gaAttribution,
   gaConnect,
@@ -16,7 +18,7 @@ import {
   gaTraffic,
 } from '../commands/ga.js'
 import type { CliCommandSpec, CliValues } from '../cli-dispatch.js'
-import { getString, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
+import { getString, parseIntegerOption, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
 /**
  * `--window` is rolling from now and can never name a calendar month, so every
@@ -29,7 +31,7 @@ const RANGE_OPTIONS = {
   end: stringOption(),
 } as const
 
-const RANGE_USAGE = '[--window 30d] [--start YYYY-MM-DD] [--end YYYY-MM-DD]'
+const RANGE_USAGE = `[--window ${WINDOW_SETS.metrics.join('|')}] [--start YYYY-MM-DD] [--end YYYY-MM-DD]`
 
 function rangeValues(values: CliValues): { window?: string; startDate?: string; endDate?: string } {
   return {
@@ -40,6 +42,20 @@ function rangeValues(values: CliValues): { window?: string; startDate?: string; 
 }
 
 export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  {
+    path: ['ga', 'acquisition'],
+    windows: WINDOW_SETS.metrics,
+    usage: 'canonry ga acquisition <project> [--window 7d|30d|90d|all] [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--channel <group>] [--source <source>] [--medium <medium>] [--host <hostname>] [--landing-page <page>] [--path-prefix <prefix>] [--group-by date,channel,source,medium,host,landing-page] [--limit 100] [--offset 0] [--format json|jsonl]',
+    help: 'Stored GA4 sessions only, with filtered totals independent of grouping and paging. Never calls Google. Meaningful page query parameters remain distinct.',
+    options: { ...RANGE_OPTIONS, channel: stringOption(), source: stringOption(), medium: stringOption(), host: stringOption(), 'landing-page': stringOption(), 'path-prefix': stringOption(), 'group-by': stringOption(), limit: stringOption(), offset: stringOption() },
+    run: async input => {
+      const project = requireProject(input, 'ga.acquisition', 'canonry ga acquisition <project>')
+      const aliases: Record<string, string> = { channel: 'channelGroup', host: 'hostName', 'landing-page': 'landingPage' }
+      const groupBy = getString(input.values, 'group-by')?.split(',').map(key => aliases[key.trim()] ?? key.trim()).join(',')
+      const integer = (name: string) => parseIntegerOption(input, name, { command: 'ga.acquisition', usage: 'canonry ga acquisition <project>', message: `--${name} must be an integer` })
+      await gaAcquisition(project, { ...rangeValues(input.values), channel: getString(input.values, 'channel'), source: getString(input.values, 'source'), medium: getString(input.values, 'medium'), hostName: getString(input.values, 'host'), landingPage: getString(input.values, 'landing-page'), pathPrefix: getString(input.values, 'path-prefix'), groupBy, limit: integer('limit'), offset: integer('offset'), format: input.format })
+    },
+  },
   {
     path: ['ga', 'connect'],
     usage: 'canonry ga connect <project> --property-id <id> [--key-file <path>] [--key-json <json>] [--format json]',
@@ -107,6 +123,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'measurement-analysis'],
+    windows: WINDOW_SETS.gaMeasurementAnalysis,
     usage: 'canonry ga measurement-analysis <project> [--window 30d|60d|90d] [--host-scope marketing|all] [--path-prefix /path] [--limit 100] [--format json]',
     options: {
       window: stringOption(),
@@ -128,6 +145,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'search-landing-pages'],
+    windows: WINDOW_SETS.gaSearchLanding,
     usage: 'canonry ga search-landing-pages <project> [--window 7d|28d|90d] [--limit 50] [--offset 0] [--format json|jsonl]',
     options: {
       window: stringOption(),
@@ -147,6 +165,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'traffic'],
+    windows: WINDOW_SETS.metrics,
     usage: `canonry ga traffic <project> [--limit 50] ${RANGE_USAGE} [--format json]`,
     options: {
       limit: stringOption(),
@@ -173,6 +192,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'ai-referral-history'],
+    windows: WINDOW_SETS.metrics,
     usage: `canonry ga ai-referral-history <project> ${RANGE_USAGE} [--format json]`,
     options: { ...RANGE_OPTIONS },
     run: async (input) => {
@@ -185,6 +205,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'ai-referral-daily'],
+    windows: WINDOW_SETS.metrics,
     usage: `canonry ga ai-referral-daily <project> ${RANGE_USAGE} [--format json]`,
     options: { ...RANGE_OPTIONS },
     run: async (input) => {
@@ -197,6 +218,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'social-referral-history'],
+    windows: WINDOW_SETS.metrics,
     usage: `canonry ga social-referral-history <project> ${RANGE_USAGE} [--format json]`,
     options: { ...RANGE_OPTIONS },
     run: async (input) => {
@@ -209,6 +231,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'session-history'],
+    windows: WINDOW_SETS.metrics,
     usage: `canonry ga session-history <project> ${RANGE_USAGE} [--format json]`,
     options: { ...RANGE_OPTIONS },
     run: async (input) => {
@@ -254,7 +277,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
       unknownSubcommand(input.positionals[0], {
         command: 'ga',
         usage: 'canonry ga <subcommand> <project> [args]',
-        available: ['connect', 'disconnect', 'status', 'properties', 'sync', 'measurement-analysis', 'search-landing-pages', 'traffic', 'coverage', 'ai-referral-history', 'ai-referral-daily', 'social-referral-history', 'session-history', 'social-referral-summary', 'attribution'],
+        available: ['connect', 'disconnect', 'status', 'properties', 'sync', 'acquisition', 'measurement-analysis', 'search-landing-pages', 'traffic', 'coverage', 'ai-referral-history', 'ai-referral-daily', 'social-referral-history', 'session-history', 'social-referral-summary', 'attribution'],
       })
     },
   },

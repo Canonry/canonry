@@ -27,6 +27,8 @@ import {
   FeatureNames,
   OutcomeReasonCodes,
   OutcomeStatuses,
+  RunKinds,
+  RunStatuses,
 } from '@ainyc/canonry-contracts'
 import { extractPlaceAmenities, type PlaceDetails } from '@ainyc/canonry-integration-google-places'
 import { computeGscPeriodComparison, type GscComparisonBasis } from './gsc-period-comparison.js'
@@ -38,7 +40,8 @@ import {
   resolveGscRequestWindow, resolveGscWindowRange, resolveGscWindowDays, type GscWindowRange,
 } from './gsc-totals.js'
 import { assertNotProjectScoped } from './auth.js'
-import { resolveProject, writeAuditLog } from './helpers.js'
+import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
+import type { ScheduledSyncClaim } from './helpers.js'
 import { startRouteOutcome } from './feature-outcome.js'
 import {
   buildSignedGoogleOAuthState,
@@ -263,6 +266,7 @@ export interface GoogleConnectionStore {
 }
 
 export interface GoogleRoutesOptions {
+  claimScheduledSync?: ScheduledSyncClaim
   getGoogleAuthConfig?: () => { clientId?: string; clientSecret?: string }
   googleConnectionStore?: GoogleConnectionStore
   googleStateSecret?: string
@@ -851,9 +855,9 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     app.db.insert(runs).values({
       id: runId,
       projectId: project.id,
-      kind: 'gsc-sync',
-      status: 'queued',
-      trigger: 'manual',
+      kind: RunKinds['gsc-sync'],
+      status: RunStatuses.queued,
+      trigger: syncRunTrigger(opts.claimScheduledSync, project.name, RunKinds['gsc-sync']),
       createdAt: now,
     }).run()
 
@@ -2498,9 +2502,9 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     app.db.insert(runs).values({
       id: runId,
       projectId: project.id,
-      kind: 'gbp-sync',
-      status: 'queued',
-      trigger: 'manual',
+      kind: RunKinds['gbp-sync'],
+      status: RunStatuses.queued,
+      trigger: syncRunTrigger(opts.claimScheduledSync, project.name, RunKinds['gbp-sync']),
       createdAt: now,
     }).run()
 

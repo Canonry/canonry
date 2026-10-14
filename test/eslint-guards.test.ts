@@ -28,11 +28,11 @@ const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
   {
     // Aero's tool text and the server-side insight copy show percentages too.
     file: 'packages/canonry/src/agent/tool-result-units.ts',
-    rules: ['canonry-guards/no-inline-percent', 'canonry-guards/no-inline-ai-hostname'],
+    rules: ['canonry-guards/no-inline-percent', 'canonry-guards/no-inline-ai-hostname', 'canonry-guards/no-second-query-classifier'],
   },
   {
     file: 'packages/intelligence/src/mention-share.ts',
-    rules: ['canonry-guards/no-inline-percent', 'canonry-guards/no-inline-ai-hostname'],
+    rules: ['canonry-guards/no-inline-percent', 'canonry-guards/no-inline-ai-hostname', 'canonry-guards/no-second-query-classifier'],
   },
   {
     // Three guards overlap here, plus the two web-only ratchets. This is the
@@ -45,6 +45,7 @@ const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
       'canonry-guards/no-inline-ai-hostname',
       'canonry-guards/no-raw-http-web',
       'design-tokens/no-literal-palette',
+      'canonry-guards/no-second-query-classifier',
     ],
   },
   {
@@ -72,7 +73,18 @@ const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
       'canonry-guards/no-inline-percent',
       'canonry-vocabulary/no-banned-metric-literal',
       'canonry-guards/no-inline-ai-hostname',
+      'canonry-guards/no-second-query-classifier',
     ],
+  },
+  {
+    // The query list and the advanced class proposal: the two server modules
+    // most likely to grow a classifier of their own.
+    file: 'packages/api-routes/src/queries.ts',
+    rules: ['canonry-guards/no-second-query-classifier'],
+  },
+  {
+    file: 'packages/api-routes/src/measurement-draft-compile.ts',
+    rules: ['canonry-guards/no-second-query-classifier'],
   },
   {
     // Shared visibility labels carry the vocabulary guards the web tree does.
@@ -81,6 +93,7 @@ const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
       'canonry-guards/no-inline-percent',
       'canonry-vocabulary/no-banned-metric-literal',
       'canonry-vocabulary/no-question-ui-copy',
+      'canonry-guards/no-second-query-classifier',
     ],
   },
   {
@@ -90,6 +103,7 @@ const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
       'canonry-vocabulary/no-banned-metric-literal',
       'canonry-guards/no-inline-ai-hostname',
       'canonry-guards/no-raw-http-cli',
+      'canonry-guards/no-second-query-classifier',
     ],
   },
   {
@@ -99,6 +113,7 @@ const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
       'canonry-vocabulary/no-banned-metric-literal',
       'canonry-guards/no-inline-ai-hostname',
       'canonry-guards/no-raw-http-cli',
+      'canonry-guards/no-second-query-classifier',
     ],
   },
   {
@@ -108,6 +123,7 @@ const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
     rules: [
       'canonry-guards/no-inline-ga4-dimension',
       'canonry-guards/no-inline-ai-hostname',
+      'canonry-guards/no-second-query-classifier',
     ],
   },
 ]
@@ -123,6 +139,8 @@ const GUARD_EXEMPTIONS: Array<{ file: string, rule: string }> = [
   { file: 'packages/integration-google-analytics/src/constants.ts', rule: 'canonry-guards/no-inline-ga4-dimension' },
   { file: 'packages/contracts/src/ai-engines.ts', rule: 'canonry-guards/no-inline-ai-hostname' },
   { file: 'packages/contracts/src/formatting.ts', rule: 'canonry-guards/no-inline-percent' },
+  { file: 'packages/contracts/src/query-class.ts', rule: 'canonry-guards/no-second-query-classifier' },
+  { file: 'packages/intelligence/src/query-categorize.ts', rule: 'canonry-guards/no-second-query-classifier' },
 ]
 
 const severityOf = (entry: unknown): number | undefined => {

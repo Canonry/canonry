@@ -127,7 +127,8 @@ import {
   trafficConnectCloudflareRequestSchema,
   authRequired,
 } from '@ainyc/canonry-contracts'
-import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
+import { auditFromRequest, resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
+import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type ConnectionAttempt, type ConnectionSubject } from './connection-telemetry.js'
 import { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
 import { resolveWebhookTarget } from './webhooks.js'
@@ -292,6 +293,7 @@ export interface TrafficIngestedEvent {
 }
 
 export interface TrafficRoutesOptions {
+  claimScheduledSync?: ScheduledSyncClaim
   cloudRunCredentialStore?: CloudRunCredentialStore
   /** Override the Cloud Run pull function (for tests). Defaults to `listCloudRunTrafficEvents`. */
   pullCloudRunEvents?: (
@@ -2795,7 +2797,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       try {
         app.db.insert(runs).values({
           id: runId, projectId: project.id, kind: RunKinds['traffic-sync'], status: RunStatuses.running,
-          trigger: RunTriggers.manual, sourceId: sourceRow.id, startedAt, createdAt: startedAt,
+          trigger: syncRunTrigger(opts.claimScheduledSync, project.name, RunKinds['traffic-sync'], sourceRow.id), sourceId: sourceRow.id, startedAt, createdAt: startedAt,
         }).run()
         let acceptedEvents = 0
         let selfTrafficExcluded = 0
@@ -3046,7 +3048,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         projectId: project.id,
         kind: RunKinds['traffic-sync'],
         status: RunStatuses.running,
-        trigger: RunTriggers.manual,
+        trigger: syncRunTrigger(opts.claimScheduledSync, project.name, RunKinds['traffic-sync'], sourceRow.id),
         sourceId: sourceRow.id,
         startedAt,
         createdAt: startedAt,

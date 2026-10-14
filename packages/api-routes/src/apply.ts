@@ -1,9 +1,9 @@
 import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { projects, schedules, notifications, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
-import { competitorAliasProjectIdentity, DEFAULT_COMPETITOR_AUTO_ALIAS_MODE, forbidden, nextScheduleUpdatedAt, normalizeProjectAliases, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
-import { competitorAliasAuditFields, competitorIdentityChanged, competitorNames, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
+import { competitorAliasProjectIdentity, DEFAULT_COMPETITOR_AUTO_ALIAS_MODE, diffProjectConfigState, forbidden, isRedactedNotificationUrl, nextScheduleUpdatedAt, normalizeProjectAliases, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError, type ApplyPreviewDto } from '@ainyc/canonry-contracts'
+import { competitorSetChangeAuditFields, competitorAliasAuditFields, competitorIdentityChanged, competitorNames, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
 import type { ProviderAdapterInfo } from './settings.js'
 import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
 import { writeAuditLog } from './helpers.js'
@@ -14,6 +14,15 @@ import { assertQueryReplacementAllowed, replaceProjectQueries } from './query-re
 import { activeRevisionProviders } from './run-queue.js'
 import { nextRunFromSchedule, resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
 import { resolveWebhookTarget } from './webhooks.js'
+import { notificationAuditDiff, planNotificationSet, syncNotificationSet, type NotificationSetPlan } from './notification-writes.js'
+import { readProjectConfigState } from './project-config-state.js'
+
+class ApplyPreviewRollback extends Error {
+  constructor(readonly preview: ApplyPreviewDto) {
+    super('Apply preview rollback')
+    this.name = 'ApplyPreviewRollback'
+  }
+}
 
 export interface ApplyRoutesOptions {
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: import('@ainyc/canonry-contracts').SchedulableRunKind) => void
@@ -42,8 +51,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       app.log.error({ error, projectId, projectName }, 'Project-created callback failed after commit')
     }
   }
-  // POST /apply — accept a canonry.yaml body (JSON-parsed version)
-  app.post('/apply', async (request, reply) => {
+  const executeApply = async (request: FastifyRequest, reply: FastifyReply, mode: 'commit' | 'preview') => {
     const parsed = projectConfigSchema.safeParse(request.body)
     if (!parsed.success) {
       throw validationError('Invalid project config', {
@@ -127,6 +135,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     const hasNotifications = 'notifications' in rawSpec
     if (hasNotifications) {
       for (const notif of config.spec.notifications) {
+        if (isRedactedNotificationUrl(notif.url)) continue
         const urlCheck = await resolveWebhookTarget(notif.url ?? '', { allowLoopback })
         if (!urlCheck.ok) throw validationError(`Notification URL invalid: ${urlCheck.message}`)
       }
@@ -158,6 +167,14 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       if (!target || target.id !== scopedProjectId) {
         throw forbidden('This API key is scoped to a single project and cannot apply this config.')
       }
+    }
+
+    let notificationPlan: NotificationSetPlan | undefined
+    if (hasNotifications) {
+      const storedNotifications = target
+        ? app.db.select().from(notifications).where(eq(notifications.projectId, target.id)).all()
+        : []
+      notificationPlan = planNotificationSet(storedNotifications, config.spec.notifications)
     }
 
     // Same instance-level gate as PUT /projects/:name — apply may not be a
@@ -193,8 +210,13 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     const lifecycle = { projectCreated: false, competitorAliasesChanged: false, competitorsAdded: false }
     let scheduleAction: 'upsert' | 'delete' | null = null
     let aliasesChanged = false
+    let droppedAliases: ApplyPreviewDto['competitors']['droppedAliases'] = []
 
-    app.db.transaction((tx) => {
+    try {
+      app.db.transaction((tx) => {
+      const beforeState = mode === 'preview' ? readProjectConfigState(tx, name, {
+        managed: { queries: managesQueries, competitors: true, schedule: true, notifications: hasNotifications },
+      }) : null
       // Upsert project
       const existing = tx.select().from(projects).where(eq(projects.name, name)).get()
       // The spec's identity and competitor set can claim, or release, a name
@@ -328,6 +350,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         project: specAliasIdentity,
         now,
       })
+      droppedAliases = competitorPlan.droppedAliases
       const marketNamesChanged = existing ? marketNameChanges(marketNamesBefore, readMarketCompetitorNames(tx, projectId)) : []
       lifecycle.competitorAliasesChanged = !lifecycle.projectCreated
         && (competitorIdentityChanged(competitorPlan) || marketNamesChanged.length > 0)
@@ -340,6 +363,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         entityType: 'competitor',
         diff: {
           competitors: competitorWrites.map(write => write.domain),
+          ...competitorSetChangeAuditFields(competitorPlan),
           ...competitorAliasAuditFields(competitorPlan),
           ...(marketNamesChanged.length ? { marketNameChanges: marketNamesChanged } : {}),
         },
@@ -415,29 +439,41 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
 
       // Handle notifications
       if (hasNotifications) {
-        tx.delete(notifications).where(eq(notifications.projectId, projectId)).run()
-        for (const notif of config.spec.notifications) {
-          tx.insert(notifications).values({
-            id: crypto.randomUUID(),
-            projectId,
-            channel: notif.channel,
-            config: { url: notif.url, events: notif.events },
-            webhookSecret: crypto.randomBytes(32).toString('hex'),
-            enabled: true,
-            createdAt: now,
-            updatedAt: now,
-          }).run()
-        }
+        const notificationSync = syncNotificationSet(tx, projectId, notificationPlan!, now)
 
         writeAuditLog(tx, {
           projectId,
           actor: 'api',
           action: 'notifications.replaced',
           entityType: 'notification',
-          diff: { notifications: config.spec.notifications },
+          diff: { notifications: notificationAuditDiff(notificationPlan!, notificationSync) },
         })
       }
-    }, { behavior: 'immediate' })
+
+      if (mode === 'preview') {
+        const afterState = readProjectConfigState(tx, name, {
+          managed: {
+            queries: managesQueries,
+            competitors: true,
+            schedule: true,
+            notifications: hasNotifications,
+          },
+        })
+        if (!afterState) throw new Error('Applied project state was not readable inside the transaction')
+        const effects: ApplyPreviewDto['effects'] = []
+        if (aliasesChanged) effects.push('mention-backfill')
+        else if (lifecycle.competitorAliasesChanged) effects.push('competitor-rescore')
+        if (lifecycle.competitorsAdded) effects.push('competitor-auto-alias-rescan')
+        if (scheduleAction) effects.push('schedule-reload')
+        if ('google' in rawSpec && config.spec.google?.gsc?.propertyUrl) effects.push('gsc-property-update')
+        const preview = diffProjectConfigState(beforeState, afterState, { droppedAliases, effects })
+        throw new ApplyPreviewRollback(preview)
+      }
+      }, { behavior: 'immediate' })
+    } catch (error) {
+      if (error instanceof ApplyPreviewRollback) return reply.status(200).send(error.preview)
+      throw error
+    }
 
     // Fire callbacks after transaction commits.
     if (lifecycle.projectCreated) {
@@ -489,5 +525,8 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
     })
-  })
+  }
+
+  app.post('/apply', (request, reply) => executeApply(request, reply, 'commit'))
+  app.post('/apply/preview', (request, reply) => executeApply(request, reply, 'preview'))
 }

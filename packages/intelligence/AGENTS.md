@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Pure analysis library for computing intelligence insights from run data. Takes run snapshots as input and produces regression/gain/opportunity insights plus health metrics. No database access, no side effects — pure functions only.
+Pure analysis library for computing intelligence insights from run data. Takes run snapshots as input and produces regression/gain/opportunity insights plus health metrics. No database, network, or filesystem access. Analysis depends only on supplied evidence; large suggestion scans yield to the event loop.
 
 ## Key Files
 
@@ -18,6 +18,7 @@ Pure analysis library for computing intelligence insights from run data. Takes r
 | `src/insight-severity.ts` | `classifyRegressionSeverity({ gscImpressions, recurrenceCount })` — pure tiering rule. Caller supplies the signals (lookups happen in `IntelligenceService`); rule lives here so the dashboard, CLI, and Aero classify identically. |
 | `src/query-categorize.ts` | `buildBrandTokens()` + `categorizeQueryByIntent()` — brand/lead-gen/industry/other classifier. Uses contracts' exact approved-alias matcher across spacing/hyphenation variants; suffix stripping and fuzzy/edit-distance attribution are forbidden. |
 | `src/competitor-landscape-history.ts` | Stored-evidence competitor aggregation. Global pins intentionally reinterpret history; competitors frozen only in an old Advanced revision match answer text only in snapshots from that revision. Stored classifications retain exact-host identity until deterministic registrable-domain aggregation. |
+| `src/competitor-suggestions.ts` | Async stored-evidence candidate builder. It yields during bounded work and uses canonical matchers and receives tracked, claimed, classification, and market data from the route. |
 | `src/types.ts` | Shared types: `RunData`, `Snapshot`, `AnalysisResult`, `Insight` |
 | `src/index.ts` | Barrel re-export of all modules |
 
@@ -68,3 +69,13 @@ Add a new detector to that suite.
 
 - `packages/canonry/src/intelligence-service.ts` — DB integration layer that calls `analyzeRuns()`
 - `packages/contracts/src/intelligence.ts` — DTOs for API/CLI consumers (`InsightDto`, `HealthSnapshotDto`)
+
+### Suggestion evidence and scheduling
+
+Compile one canonical matcher per frozen identity scope and preserve every
+candidate owner of a shared alias. Count bare-add mentions unchanged; untracked,
+unclassified candidates without same-answer pairing stay excluded as
+`unpaired-name`, regardless of capitalization. Tracked identities and stored
+direct-competitor classifications retain their meaning. Scheduling must yield
+during source collection, matcher construction, and answer matching, including
+answers with no matches. The API refuses oversized exact reads before analysis.

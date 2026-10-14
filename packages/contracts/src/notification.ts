@@ -1,6 +1,25 @@
 import { z } from 'zod'
 import type { GbpReviewOrigin } from './gbp.js'
 
+export const REDACTED_NOTIFICATION_URL_PROTOCOL = 'redacted:'
+
+export function buildRedactedNotificationUrl(host: string, id: string): string {
+  return `${REDACTED_NOTIFICATION_URL_PROTOCOL}//${host}/${id}`
+}
+
+export function isRedactedNotificationUrl(url: string): boolean {
+  if (url.startsWith(`${REDACTED_NOTIFICATION_URL_PROTOCOL}//`)) return true
+  try {
+    const parsed = new URL(url)
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+      && parsed.pathname === '/redacted'
+      && parsed.search === ''
+      && parsed.hash === ''
+  } catch {
+    return false
+  }
+}
+
 export const notificationEventSchema = z.enum([
   'citation.lost',
   'citation.gained',
@@ -14,12 +33,31 @@ export const notificationEventSchema = z.enum([
    * trustworthy at all. They exist because a degraded pipeline keeps emitting
    * `run.completed` — a success signal — while producing wrong numbers.
    *
-   * Edge-triggered: emitted when the worst check status changes, never on every
-   * scheduled pass, so a persistent warning does not train the operator to
-   * ignore the channel.
+   * Edge-triggered: `health.degraded` is emitted when a check starts failing
+   * or gets worse, and `health.recovered` when every check passes again. A
+   * scheduled pass that finds the same problems, or fewer, sends nothing, so
+   * a persistent warning does not train the operator to ignore the channel.
    */
   'health.degraded',
   'health.recovered',
+  /**
+   * The few health problems a person has to act on now: the website is down,
+   * daily data has stopped arriving, or a sync keeps failing. A check marks
+   * its own output `urgent`; most warnings are not.
+   *
+   * `health.urgent` is sent when an urgent problem starts, and
+   * `health.urgent-resolved` when the problems it reported have cleared and
+   * none is known to be open. The scheduled health pass and the website check
+   * report separately, so a data problem and a site outage each get their own
+   * resolved message. Every urgent problem is also part of `health.degraded`,
+   * so these two add no news of their own. They exist so one webhook can
+   * carry only what needs a person: a webhook that lists either of them
+   * receives the health events it lists and no others, while every other
+   * webhook keeps receiving `health.degraded` and `health.recovered` whether
+   * it lists them or not.
+   */
+  'health.urgent',
+  'health.urgent-resolved',
   /**
    * Google Business Profile reviews. `review.negative` is sent once for each
    * new or edited review at or below the project's `negativeReviewMaxStars`
@@ -84,7 +122,12 @@ export interface InsightWebhookPayload {
  */
 export interface HealthWebhookPayload {
   source: 'canonry'
-  event: 'health.degraded' | 'health.recovered'
+  /**
+   * On the two urgent events `health` describes the urgent problems only:
+   * `failing` and `added` list urgent checks, and `cleared` lists the urgent
+   * checks that are no longer a problem.
+   */
+  event: 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved'
   project: { name: string; canonicalDomain: string }
   health: {
     /** Worst check status observed on this pass. */
@@ -98,6 +141,25 @@ export interface HealthWebhookPayload {
     previousStatus: 'ok' | 'warn' | 'fail' | null
     /** Every non-ok check on this pass, worst first. */
     failing: Array<{ id: string; status: string; code: string; summary: string }>
+    /**
+     * Codes of the checks that are new or worse, worst first: a check that
+     * started failing, got more severe, or reports a different problem at the
+     * same severity, on this pass or since the last alert a webhook accepted.
+     * They are what a `health.degraded` alert is about; every other entry in
+     * `failing` is one the operator has already been told about. Absent on
+     * website liveness alerts, and when the earlier failing set is unknown.
+     */
+    added?: string[]
+    /**
+     * Codes of the checks that were failing when the last alert was
+     * delivered, or on the pass before this one, and are not failing now. A
+     * pass that only clears checks sends no alert, so the next alert reports
+     * what cleared since. A check that still fails under another code, or
+     * that was set aside under its failing cause, has not cleared. Absent on
+     * website liveness alerts, when the earlier set is unknown, and on a pass
+     * where no check could be graded.
+     */
+    cleared?: string[]
   }
   dashboardUrl: string
 }

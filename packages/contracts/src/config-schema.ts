@@ -49,6 +49,7 @@ export const configScheduleSchema = configScheduleObjectSchema
   .optional()
 
 export const configNotificationSchema = z.object({
+  id: z.string().min(1).optional(),
   channel: z.literal('webhook'),
   url: z.string().url(),
   events: z.array(notificationEventSchema).min(1),

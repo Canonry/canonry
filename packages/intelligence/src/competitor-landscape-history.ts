@@ -171,7 +171,7 @@ export function buildCompetitorLandscapeHistory(
   // a stored discovery classification or frozen market competitor can be named
   // in answer prose without being cited. We suppress zero-activity observed rows
   // when finalizing, while pins deliberately remain visible at zero.
-  const groupedClassifications = groupClassifications(new Map(
+  const groupedClassifications = groupStoredCompetitorClassifications(new Map(
     [...options.classifications].filter(([host]) => !hostMatchesAnyDomain(host, projectDomains)),
   ))
   const classifiedDirect = new Map<string, Candidate>()
@@ -436,12 +436,12 @@ function mergeCandidates(primary: Candidate, additional: Candidate): Candidate {
 
 /** The same persisted taxonomy resolution for every comparison surface. */
 export function storedDirectCompetitorDomains(classifications: ReadonlyMap<string, CompetitorLandscapeSurfaceClass>): string[] {
-  return [...groupClassifications(classifications)]
+  return [...groupStoredCompetitorClassifications(classifications)]
     .filter(([, surfaceClass]) => surfaceClass === 'direct-competitor')
     .map(([domain]) => domain)
 }
 
-function groupClassifications(
+export function groupStoredCompetitorClassifications(
   classifications: ReadonlyMap<string, CompetitorLandscapeSurfaceClass>,
 ): Map<string, CompetitorLandscapeSurfaceClass> {
   const grouped = new Map<string, CompetitorLandscapeSurfaceClass>()

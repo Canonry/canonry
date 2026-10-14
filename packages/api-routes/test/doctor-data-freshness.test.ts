@@ -10,6 +10,7 @@ import {
   daysSinceDate,
   GA_DATA_AGING_DAYS,
   GA_DATA_STALE_DAYS,
+  NOT_SYNCING_URGENT_DAYS,
   GSC_DATA_AGING_DAYS,
   GSC_DATA_STALE_DAYS,
   GSC_REPORTING_TIME_ZONE,
@@ -116,9 +117,26 @@ describe('data freshness checks', () => {
     it('says nobody is syncing, rather than blaming the tag, when no sync has run', async () => {
       ga(project.id, daysAgo(GA_DATA_STALE_DAYS + 3))
       const result = await gaCheck.run(gaCtx())
-      expect(result).toMatchObject({ status: 'warn', code: 'ga.data.not-syncing' })
+      expect(result).toMatchObject({ status: 'warn', code: 'ga.data.not-syncing', urgent: true })
       expect(result.remediation).toContain('data-refresh')
       expect(result.remediation).not.toMatch(/tag/i)
+    })
+
+    it('is not urgent on a project that simply syncs weekly or by hand', async () => {
+      // Five days without a sync is what a weekly schedule looks like most of
+      // the week. It is a warning, as before, and must not page the urgent
+      // channel every week on a project working as configured.
+      ga(project.id, daysAgo(GA_DATA_STALE_DAYS + 1))
+      syncedAt('ga-sync', hoursAgo(24 * (NOT_SYNCING_URGENT_DAYS - 2)))
+      const result = await gaCheck.run(gaCtx())
+      expect(result).toMatchObject({ status: 'warn', code: 'ga.data.not-syncing' })
+      expect(result.urgent).toBeUndefined()
+    })
+
+    it('is urgent once nothing has synced for longer than any schedule would leave it', async () => {
+      ga(project.id, daysAgo(NOT_SYNCING_URGENT_DAYS + 1))
+      syncedAt('ga-sync', hoursAgo(24 * (NOT_SYNCING_URGENT_DAYS + 1)))
+      expect(await gaCheck.run(gaCtx())).toMatchObject({ status: 'warn', code: 'ga.data.not-syncing', urgent: true })
     })
 
     it('blames the tag only when syncs ARE running and still bring nothing back', async () => {
@@ -126,6 +144,8 @@ describe('data freshness checks', () => {
       syncedAt('ga-sync', hoursAgo(3))
       const aging = await gaCheck.run(gaCtx())
       expect(aging).toMatchObject({ status: 'warn', code: 'ga.data.aging' })
+      // Three quiet days are often a quiet site. Only stale data is urgent.
+      expect(aging.urgent).toBeUndefined()
       expect(aging.remediation).toMatch(/tag/i)
       expect(aging.remediation).toMatch(/quiet/i)
     })
@@ -133,7 +153,7 @@ describe('data freshness checks', () => {
     it('escalates the code, but never the status, so a failing auth check keeps the headline', async () => {
       ga(project.id, daysAgo(GA_DATA_STALE_DAYS))
       syncedAt('ga-sync', hoursAgo(3))
-      expect(await gaCheck.run(gaCtx())).toMatchObject({ status: 'warn', code: 'ga.data.stale' })
+      expect(await gaCheck.run(gaCtx())).toMatchObject({ status: 'warn', code: 'ga.data.stale', urgent: true })
     })
 
     it('grades the newest date, and counts a service-account connection as connected', async () => {
@@ -177,7 +197,7 @@ describe('data freshness checks', () => {
       gsc(project.id, gscDaysAgo(GSC_DATA_STALE_DAYS))
       syncedAt('gsc-sync', hoursAgo(4))
       const result = await gscCheck.run(gscCtx())
-      expect(result).toMatchObject({ status: 'warn', code: 'gsc.data.stale' })
+      expect(result).toMatchObject({ status: 'warn', code: 'gsc.data.stale', urgent: true })
       // Syncs are running, so the advice is about the property, not about running
       // a sync. The sync command belongs to the never-synced and not-syncing codes.
       expect(result.remediation).toMatch(/impressions/i)

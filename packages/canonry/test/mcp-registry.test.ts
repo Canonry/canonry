@@ -47,8 +47,11 @@ const expectedToolNames = [
   'canonry_analytics_metrics',
   'canonry_analytics_sources',
   'canonry_competitor_landscape',
+  'canonry_competitors_suggest',
+  'canonry_competitors_change_preview',
   'canonry_search',
   'canonry_doctor',
+  'canonry_status',
   'canonry_project_export',
   'canonry_results_clear',
   'canonry_project_history',
@@ -106,6 +109,7 @@ const expectedToolNames = [
   'canonry_gsc_sitemaps_submit',
   'canonry_ga_status',
   'canonry_ga_properties',
+  'canonry_ga_acquisition',
   'canonry_ga_measurement_analysis',
   'canonry_ga_search_landing_pages',
   'canonry_ga_traffic',
@@ -135,6 +139,7 @@ const expectedToolNames = [
   'canonry_traffic_status',
   'canonry_traffic_analytics',
   'canonry_traffic_referral_assessment',
+  'canonry_traffic_samples',
   'canonry_traffic_events',
   'canonry_traffic_connect_cloud_run',
   'canonry_traffic_connect_wordpress',
@@ -144,7 +149,9 @@ const expectedToolNames = [
   'canonry_traffic_reset',
   'canonry_snapshot',
   'canonry_project_upsert',
+  'canonry_project_update',
   'canonry_apply_config',
+  'canonry_apply_config_preview',
   'canonry_queries_generate',
   'canonry_keywords_generate',
   'canonry_queries_replace',
@@ -221,6 +228,8 @@ const expectedToolNames = [
   'canonry_discover_promote_preview',
   'canonry_discover_promote',
   'canonry_site_health_overview',
+  'canonry_site_health_issues',
+  'canonry_site_health_issue_pages',
   'canonry_site_health_page_audit',
   'canonry_site_health_subgraph',
   'canonry_site_health_path',
@@ -281,6 +290,14 @@ const expectedToolNames = [
 ] as const
 
 describe('MCP tool registry', () => {
+  it('keeps project export redacted and without a secret opt-in', () => {
+    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_project_export')!
+    expect(tool.description).toMatch(/webhook URLs are always redacted/i)
+    const schema = z.toJSONSchema(tool.inputSchema)
+    expect(schema.properties?.includeSecrets).toBeUndefined()
+    expect(tool.inputSchema.parse({ project: 'acme', includeSecrets: true })).toEqual({ project: 'acme' })
+  })
+
   it('exposes snapshot selection as a quota-spending tool with optional selectors', () => {
     const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_snapshot')!
     expect(tool).toMatchObject({ access: 'write', tier: 'discovery', annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true } })
@@ -456,6 +473,8 @@ describe('MCP tool registry', () => {
   it('exposes bounded Site Health reads as read-only monitoring tools', () => {
     const expected = [
       ['canonry_site_health_overview', 'GET /api/v1/projects/{name}/technical-aeo/crawl'],
+      ['canonry_site_health_issues', 'GET /api/v1/projects/{name}/technical-aeo/issues'],
+      ['canonry_site_health_issue_pages', 'GET /api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages'],
       ['canonry_site_health_page_audit', 'GET /api/v1/projects/{name}/technical-aeo/crawl/pages/audit'],
       ['canonry_site_health_subgraph', 'GET /api/v1/projects/{name}/technical-aeo/subgraph'],
       ['canonry_site_health_path', 'GET /api/v1/projects/{name}/technical-aeo/path'],
@@ -650,6 +669,13 @@ describe('MCP tool registry', () => {
     expect(description('canonry_visibility_report')).toContain('mode simple reads only pre-plan sweeps, so it is refused there unless runId names one')
   })
 
+  it('tells an agent the query tools carry the class the server resolved', () => {
+    const description = (name: string) => canonryMcpTools.find(candidate => candidate.name === name)!.description
+    expect(description('canonry_queries_list')).toContain('queryClass')
+    expect(description('canonry_queries_list')).toContain('Never infer a class from the query text')
+    expect(description('canonry_queries_add')).toContain('queryClasses')
+  })
+
   it('forwards measurement-plan inputs to the matching ApiClient methods', async () => {
     const fixture = await startNativeMcpDispatchFixture()
     try {
@@ -811,7 +837,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(canonryMcpTools.filter(tool => tool.access === 'read')).toHaveLength(166)
+    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(173)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -828,9 +854,11 @@ describe('MCP tool registry', () => {
       'canonry_project_overview',
       'canonry_search',
       'canonry_doctor',
+      'canonry_status',
       'canonry_settings_get',
       'canonry_key_self',
       'canonry_apply_config',
+      'canonry_apply_config_preview',
       'canonry_run_trigger',
       'canonry_feedback',
       'canonry_run_cancel',
@@ -848,16 +876,16 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
-    expect(counts.get('monitoring')).toBe(62)
-    expect(counts.get('setup')).toBe(66)
+    expect(counts.get('monitoring')).toBe(64)
+    expect(counts.get('setup')).toBe(69)
     expect(counts.get('gsc')).toBe(11)
-    expect(counts.get('ga')).toBe(12)
+    expect(counts.get('ga')).toBe(13)
     expect(counts.get('gbp')).toBe(14)
     expect(counts.get('ads')).toBe(26)
     expect(counts.get('google-ads')).toBe(6)
     expect(counts.get('gtm')).toBe(7)
     expect(counts.get('conversion-tracking')).toBe(3)
-    expect(counts.get('traffic')).toBe(12)
+    expect(counts.get('traffic')).toBe(13)
     expect(counts.get('agent')).toBe(10)
     expect(counts.get('discovery')).toBe(11)
   })
@@ -1103,9 +1131,14 @@ describe('MCP tool registry', () => {
     const queriesTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_queries_add')
     const keywordsTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_keywords_add')
     const competitorsTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_competitors_add')
+    const competitorPreviewTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_competitors_change_preview')
     expect(queriesTool).toBeTruthy()
     expect(keywordsTool).toBeTruthy()
     expect(competitorsTool).toBeTruthy()
+    expect(competitorPreviewTool).toBeTruthy()
+    expect(competitorPreviewTool!.inputSchema.parse({ project: 'acme', change: 'add', competitors: [' rival.example.com '] })).toEqual({
+      project: 'acme', change: 'add', competitors: ['rival.example.com'],
+    })
 
     expect(queriesTool!.inputSchema.parse({ project: 'acme', request: { queries: [' alpha '] } })).toEqual({
       project: 'acme',
@@ -1125,6 +1158,20 @@ describe('MCP tool registry', () => {
     expect(competitorsTool!.inputSchema.parse({ project: 'acme', request: { competitors: [{ domain: ' qvx.example ', aliases: ['QVX'] }, 'rival.example.com'] } })).toEqual({
       project: 'acme',
       request: { competitors: [{ domain: 'qvx.example', aliases: ['QVX'] }, 'rival.example.com'] },
+    })
+  })
+
+  it('forwards the bulk acknowledgement through the native competitor tool', async () => {
+    const calls: Array<{ method: string; args: unknown[] }> = []
+    const competitorsTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_competitors_add')!
+    const client = makeClient(calls)
+    await competitorsTool.handler(client, {
+      project: 'acme',
+      request: { competitors: ['one.example', 'two.example'], acknowledgeBulkAdd: true },
+    })
+    expect(calls).toContainEqual({
+      method: 'appendCompetitors',
+      args: ['acme', ['one.example', 'two.example'], { acknowledgeBulkAdd: true }],
     })
   })
 
@@ -1341,6 +1388,19 @@ describe('MCP tool handlers', () => {
     try {
       const upstreamCases: NativeDispatchCase[] = [
         {
+          caseId: 'main-project-update-patch',
+          tool: 'canonry_project_update',
+          channel: 'mcp',
+          input: { project: 'acme', request: { displayName: 'Acme Updated', expectedConfigRevision: 3 } },
+          requests: [{
+            method: 'PATCH', path: '/native-mcp/api/v1/projects/acme', query: [],
+            body: { displayName: 'Acme Updated', expectedConfigRevision: 3 },
+            status: 200, response: { name: 'acme', displayName: 'Acme Updated', configRevision: 4 },
+          }],
+          expectedText: { name: 'acme', displayName: 'Acme Updated', configRevision: 4 },
+          expectedStructured: { name: 'acme', displayName: 'Acme Updated', configRevision: 4 },
+        },
+        {
           caseId: 'main-feedback',
           tool: 'canonry_feedback',
           channel: 'mcp',
@@ -1376,6 +1436,21 @@ describe('MCP tool handlers', () => {
           }],
           expectedText: { activity: null },
           expectedStructured: { activity: null },
+        },
+        {
+          // A server older than queryClass answers with unclassed rows. The
+          // entry carries no queryClass: null would claim no single class exists.
+          caseId: 'main-queries-add-server-without-class',
+          tool: 'canonry_queries_add',
+          channel: 'mcp',
+          input: { project: 'acme', request: { queries: ['alpha'] } },
+          requests: [{
+            method: 'POST', path: '/native-mcp/api/v1/projects/acme/queries', query: [],
+            body: { queries: ['alpha'] },
+            status: 200, response: [{ id: 'q-1', query: 'alpha', createdAt: '2026-09-01T00:00:00.000Z' }],
+          }],
+          expectedText: { ok: true, queryClasses: [{ query: 'alpha' }] },
+          expectedStructured: { ok: true, queryClasses: [{ query: 'alpha' }] },
         },
       ]
       for (const scenario of selectNativeDispatchCases([...registryDispatchCases, ...upstreamCases])) await fixture.verify(scenario)
@@ -1436,9 +1511,11 @@ describe('Dynamic tool catalog', () => {
       'canonry_project_overview',
       'canonry_search',
       'canonry_doctor',
+      'canonry_status',
       'canonry_settings_get',
       'canonry_key_self',
       'canonry_apply_config',
+      'canonry_apply_config_preview',
       'canonry_run_trigger',
       'canonry_feedback',
       'canonry_run_cancel',

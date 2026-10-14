@@ -5,6 +5,7 @@ import reactHooksPlugin from 'eslint-plugin-react-hooks'
 import tseslint from 'typescript-eslint'
 import { noLiteralPaletteRule } from './eslint-rules/no-literal-palette.js'
 import { noInlinePercentRule } from './eslint-rules/no-inline-percent.js'
+import { noSecondQueryClassifierRule } from './eslint-rules/no-second-query-classifier.js'
 import { createRestrictedSyntaxRule } from './eslint-rules/restricted-syntax.js'
 
 const ALT_CHART_LIB_PATHS = [
@@ -234,6 +235,7 @@ const canonryGuardsPlugin = {
     'no-raw-http-web': rawHttpWebRule,
     'no-raw-http-cli': rawHttpCliRule,
     'no-inline-percent': noInlinePercentRule,
+    'no-second-query-classifier': noSecondQueryClassifierRule,
   },
 }
 
@@ -298,6 +300,26 @@ export default tseslint.config(
     ignores: ['packages/contracts/src/formatting.ts'],
     plugins: { 'canonry-guards': canonryGuardsPlugin },
     rules: { 'canonry-guards/no-inline-percent': 'error' },
+  },
+  {
+    // One query classifier: see eslint-rules/no-second-query-classifier.js.
+    // A tracked query is branded or non-brand only through
+    // `compileQueryClassifier` or a class an advanced plan stored. Production
+    // code only: test fixtures build class values by hand on purpose.
+    files: [
+      'packages/*/src/**/*.ts',
+      'apps/**/src/**/*.ts',
+      'apps/**/src/**/*.tsx',
+    ],
+    ignores: [
+      // The classifier itself.
+      'packages/contracts/src/query-class.ts',
+      // Search Console query intent (brand, lead-gen, industry, other): its own
+      // enum over search queries, not the class of a tracked query.
+      'packages/intelligence/src/query-categorize.ts',
+    ],
+    plugins: { 'canonry-guards': canonryGuardsPlugin },
+    rules: { 'canonry-guards/no-second-query-classifier': 'error' },
   },
   {
     // GA4 dimension drift guard — see `inlineGa4DimensionRule` above. This tree

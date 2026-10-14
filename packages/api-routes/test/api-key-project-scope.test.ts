@@ -3,8 +3,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
+import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClient, migrate, apiKeys, auditLog, projects, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys, auditLog, doctorHealthState, projects, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { CitationStates } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
@@ -160,6 +161,17 @@ describe('project-scoped API keys', () => {
   it('GET /projects returns ALL projects for a full-instance key (unchanged)', async () => {
     const res = await authed('GET', '/api/v1/projects', ROOT_KEY)
     expect((res.json() as Array<{ name: string }>).map(p => p.name).sort()).toEqual(['project-a', 'project-b'])
+  })
+
+  it('status uses the real auth plugin, respects scoped keys, and does not mutate stored health', async () => {
+    const checkedAt = new Date(Date.now() - 60_000).toISOString()
+    db.insert(doctorHealthState).values({ projectId: projectAId, status: 'warn', code: 'stored.warn', summary: 'stored health', checkedAt, notifiedAt: null, failingSignature: null }).run()
+    const before = db.select().from(doctorHealthState).where(eq(doctorHealthState.projectId, projectAId)).get()
+    expect((await authed('GET', '/api/v1/status?project=project-a', SCOPED_KEY)).statusCode).toBe(200)
+    expect((await authed('GET', '/api/v1/status?project=project-b', SCOPED_KEY)).statusCode).toBe(403)
+    expect((await authed('GET', '/api/v1/status', ROOT_KEY)).statusCode).toBe(200)
+    const after = db.select().from(doctorHealthState).where(eq(doctorHealthState.projectId, projectAId)).get()
+    expect(after).toEqual(before)
   })
 
   it('a scoped key is FORBIDDEN on a sibling run via /runs/:id (entity gate)', async () => {

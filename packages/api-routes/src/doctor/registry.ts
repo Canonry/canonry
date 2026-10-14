@@ -11,6 +11,7 @@ import { ADS_CHECKS } from './checks/ads.js'
 import { GA_AUTH_CHECKS } from './checks/ga-auth.js'
 import { DATA_FRESHNESS_CHECKS } from './checks/data-freshness.js'
 import { SITE_REACHABILITY_CHECKS } from './checks/site-reachability.js'
+import { API_HOST_CHECKS } from './checks/api-hosts.js'
 import { GBP_AUTH_CHECKS } from './checks/gbp-auth.js'
 import { PLACES_CHECKS } from './checks/places.js'
 import { GBP_REVIEWS_CHECKS } from './checks/gbp-reviews.js'
@@ -49,6 +50,7 @@ export const ALL_CHECKS: readonly CheckDefinition[] = [
   ...BACKLINKS_CHECKS,
   ...CONTENT_CHECKS,
   ...AGENT_CHECKS,
+  ...API_HOST_CHECKS,
   // Network probe last, so a slow or unreachable site never delays the local checks.
   ...SITE_REACHABILITY_CHECKS,
 ]

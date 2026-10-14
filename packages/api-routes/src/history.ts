@@ -1,9 +1,12 @@
-import { and, asc, count, desc, eq, gte, inArray, like, ne, or } from 'drizzle-orm'
+import { and, asc, count, getTableColumns, desc, eq, gte, inArray, like, lte, ne, notInArray, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { runFills, auditLog, competitors, querySnapshots, runs, queries, parseJsonColumn, researchRuns, researchRunQueries, insights, healthSnapshots } from '@ainyc/canonry-db'
+import { runFills, auditLog, projects, competitors, querySnapshots, runs, queries, parseJsonColumn, researchRuns, researchRunQueries, insights, healthSnapshots } from '@ainyc/canonry-db'
 import { compileCompetitiveSignalResolver } from '@ainyc/canonry-intelligence'
 import { runFillInProgress,
+  auditHistoryQuerySchema,
+  escapeLikePattern,
+  type AuditHistoryQuery,
   CitationStates,
   resultsClearRequestSchema,
   runInProgress,
@@ -70,7 +73,7 @@ export async function historyRoutes(app: FastifyInstance) {
     const project = resolveProject(app.db, request.params.name)
     const filters = [eq(auditLog.projectId, project.id)]
     if (request.operatorAccess !== true) filters.push(ne(auditLog.entityType, 'telemetry'))
-    addAuditHistoryFilters(filters, request.query)
+    addAuditHistoryFilters(filters, parseAuditHistoryQuery(request.query))
 
     const rows = app.db
       .select()
@@ -81,7 +84,7 @@ export async function historyRoutes(app: FastifyInstance) {
       .offset(parseBoundedInt(request.query.offset, 0, Number.MAX_SAFE_INTEGER))
       .all()
 
-    return reply.send(rows.map(formatAuditEntry))
+    return reply.send(rows.map(row => formatAuditEntry({ ...row, project: project.name })))
   })
 
   // GET /history — audit log. Full-instance keys see every project's entries;
@@ -94,10 +97,11 @@ export async function historyRoutes(app: FastifyInstance) {
     const filters = scopedProjectId ? [eq(auditLog.projectId, scopedProjectId)] : []
     // Internal telemetry state must not escape through its audit diff.
     if (request.operatorAccess !== true) filters.push(ne(auditLog.entityType, 'telemetry'))
-    addAuditHistoryFilters(filters, request.query)
+    addAuditHistoryFilters(filters, parseAuditHistoryQuery(request.query))
     const rows = app.db
-      .select()
+      .select({ ...getTableColumns(auditLog), project: projects.name })
       .from(auditLog)
+      .leftJoin(projects, eq(auditLog.projectId, projects.id))
       .where(filters.length > 0 ? and(...filters) : undefined)
       .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
       .limit(parseBoundedInt(request.query.limit, 100, 500))
@@ -564,6 +568,7 @@ export async function historyRoutes(app: FastifyInstance) {
 }
 
 function formatAuditEntry(row: {
+  project?: string | null
   id: string
   projectId: string | null
   actor: string
@@ -580,6 +585,7 @@ function formatAuditEntry(row: {
   return {
     id: row.id,
     projectId: row.projectId,
+    project: row.project ?? null,
     actor: row.actor,
     action: row.action,
     entityType: row.entityType,
@@ -597,17 +603,18 @@ function formatAuditEntry(row: {
   }
 }
 
-interface AuditHistoryQuery {
-  limit?: string
-  offset?: string
-  since?: string
-  action?: string
-  actor?: string
-  entityType?: string
+function parseAuditHistoryQuery(query: unknown): AuditHistoryQuery {
+  const parsed = auditHistoryQuerySchema.safeParse(query)
+  if (!parsed.success) throw validationError('Invalid audit history filters', { issues: parsed.error.issues })
+  return parsed.data
 }
 
 function addAuditHistoryFilters(filters: SQL[], query: AuditHistoryQuery): void {
-  if (query.since && !Number.isNaN(Date.parse(query.since))) filters.push(gte(auditLog.createdAt, query.since))
+  if (query.since) filters.push(gte(auditLog.createdAt, new Date(query.since).toISOString()))
+  if (query.until) filters.push(lte(auditLog.createdAt, new Date(query.until).toISOString()))
+  if (query.actionPrefix) filters.push(sql`${auditLog.action} LIKE ${escapeLikePattern(query.actionPrefix) + '%'} ESCAPE '\\'`)
+  if (query.entityId) filters.push(eq(auditLog.entityId, query.entityId))
+  if (query.excludeEntityTypes?.length) filters.push(notInArray(auditLog.entityType, query.excludeEntityTypes))
   if (query.action) filters.push(eq(auditLog.action, query.action))
   // `api` was the historical category for HTTP writes. Keep it useful after
   // attribution gained exact key/user identities, while exact actor lookups
@@ -621,8 +628,8 @@ function addAuditHistoryFilters(filters: SQL[], query: AuditHistoryQuery): void 
   if (query.entityType) filters.push(eq(auditLog.entityType, query.entityType))
 }
 
-function parseBoundedInt(value: string | undefined, fallback: number, max: number): number {
-  const parsed = Number.parseInt(value ?? '', 10)
+function parseBoundedInt(value: string | number | undefined, fallback: number, max: number): number {
+  const parsed = Number.parseInt(String(value ?? ''), 10)
   if (!Number.isFinite(parsed) || parsed < 0) return fallback
   return Math.min(parsed, max)
 }

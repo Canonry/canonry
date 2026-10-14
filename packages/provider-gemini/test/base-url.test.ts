@@ -110,7 +110,7 @@ test('geminiAdapter routes successful tracked requests through configured and de
       provider: 'gemini', model: 'gemini-2.5-flash', servedModel: 'gemini-routing-preview',
       rawResponse: { candidates: [{ content: { role: 'model', parts: [{ text: 'native routing answer' }] }, finishReason: 'STOP', groundingMetadata: undefined }],
         usageMetadata: { promptTokenCount: 2, candidatesTokenCount: 3, totalTokenCount: 5 }, modelVersion: 'gemini-routing-preview', responseId: 'routing-response' },
-      groundingSources: [], searchQueries: [], retrievalStatus: 'unknown', retrievalContract: 'native-auto-v1',
+      groundingSources: [], searchQueries: [], retrievalStatus: 'not-used', retrievalContract: 'native-auto-v1',
       usage: { inputTokens: 2, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 3, searchCount: 0 }, stopReason: 'STOP',
     })
     if (auth) expect(auth.exchanges, row.label).toEqual([{

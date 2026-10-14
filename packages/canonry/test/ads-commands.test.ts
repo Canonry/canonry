@@ -33,6 +33,7 @@ const mockCreateAdsActivationGrant = vi.fn()
 const mockRevokeAdsActivationGrant = vi.fn()
 const mockActivateAdsCampaignTree = vi.fn()
 const mockGetAdsSummary = vi.fn()
+const mockGetAdsInsights = vi.fn()
 
 function captureStdout(fn: () => Promise<void>): { run: Promise<void>; lines: () => string[] } {
   let output = ''
@@ -64,6 +65,7 @@ vi.mock('../src/client.js', () => ({
     revokeAdsActivationGrant: mockRevokeAdsActivationGrant,
     activateAdsCampaignTree: mockActivateAdsCampaignTree,
     getAdsSummary: mockGetAdsSummary,
+    getAdsInsights: mockGetAdsInsights,
   }),
 }))
 
@@ -909,5 +911,22 @@ describe('ads summary', () => {
   it('omits the CTR when there were no impressions to divide by', async () => {
     const lines = await summaryLines({ ...summary, totals: { ...summary.totals, impressions: 0, clicks: 0, ctr: null } })
     expect(lines).toContain('Clicks:       0')
+  })
+})
+
+describe('stored ads insight date aliases', () => {
+  it('canonical dates and legacy aliases forward exactly the same calendar range', async () => {
+    const { dispatchRegisteredCommand } = await import('../src/cli-dispatch.js')
+    mockGetAdsInsights.mockResolvedValue({ rows: [], currencyCode: 'USD' })
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      for (const [start, end] of [['--start', '--end'], ['--from', '--to']]) {
+        await dispatchRegisteredCommand(['ads', 'insights', 'example', start!, '2026-09-01', end!, '2026-09-30', '--format', 'json'], 'text', ADS_CLI_COMMANDS)
+      }
+      expect(mockGetAdsInsights).toHaveBeenCalledTimes(2)
+      expect(mockGetAdsInsights.mock.calls[0]).toEqual(['example', { from: '2026-09-01', to: '2026-09-30', level: undefined, entityId: undefined }])
+      expect(mockGetAdsInsights.mock.calls[1]).toEqual(mockGetAdsInsights.mock.calls[0])
+      expect(JSON.parse(String(log.mock.calls[0]![0]))).toEqual({ rows: [], currencyCode: 'USD' })
+    } finally { log.mockRestore() }
   })
 })

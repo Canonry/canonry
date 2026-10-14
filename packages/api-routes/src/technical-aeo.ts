@@ -95,6 +95,7 @@ import {
   SITE_HEALTH_SUBGRAPH_MAX_NODES,
 } from '@ainyc/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
+import { parseSiteAuditIssueQuery, readSiteAuditIssues } from './technical-aeo-issues.js'
 
 const FETCHED_SITE_CRAWL_STATES: ReadonlySet<string> = new Set([
   ...SiteCrawlFetchedStates,
@@ -2045,6 +2046,26 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       changes,
     }
   })
+
+  // Stored issue groups use the same published attempt and non-probe run selection as page evidence.
+  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>(
+    '/projects/:name/technical-aeo/issues', async (request) => {
+      const project = resolveProject(app.db, request.params.name)
+      const query = parseSiteAuditIssueQuery(request.query)
+      const target = resolveCrawl(project.id, query.runId)
+      if (!target) assertKnownAuditRun(project.id, query.runId)
+      return readSiteAuditIssues({ db: app.db, project, target, query })
+    },
+  )
+  app.get<{ Params: { name: string; issueId: string }; Querystring: Record<string, unknown> }>(
+    '/projects/:name/technical-aeo/issues/:issueId/pages', async (request) => {
+      const project = resolveProject(app.db, request.params.name)
+      const query = parseSiteAuditIssueQuery(request.query)
+      const target = resolveCrawl(project.id, query.runId)
+      if (!target) assertKnownAuditRun(project.id, query.runId)
+      return readSiteAuditIssues({ db: app.db, project, target, query, issueId: request.params.issueId })
+    },
+  )
 
   // GET /projects/:name/technical-aeo/crawl/pages/audit — one page's exact
   // weighted factors and independent critical defects. Evidence is loaded on

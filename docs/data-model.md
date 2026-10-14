@@ -240,6 +240,18 @@ can inspect. Path reads follow persisted internal links. Run-change reads
 compare two immutable complete snapshots by stable page and edge identity at
 query time; ForceAtlas2 coordinates are never considered a website change.
 
+Migration 180 adds nullable `site_crawl_snapshots.issue_evidence`, a versioned
+record of the crawler's cross-page findings. NULL means the scan did not record
+that source; an envelope with an empty `siteIssues` list means no groups were
+observed within that scan's coverage. Existing scans are not backfilled.
+Duplicate metadata groups retain sorted, distinct affected URLs. Their stable
+keys use the full exact trimmed metadata value, issue code and identity version,
+so a changing page count or a truncated display message cannot change identity.
+If the original metadata cannot establish that identity, the group survives
+with a null key. Stored issue reads combine these groups with recorded page
+findings, independently of the score, and expose source coverage and pagination.
+The existing page/link comparison does not establish issue resolution.
+
 #### `projects.provider_models`
 
 `projects.provider_models` is a JSON map of provider name to a model ID used
@@ -389,11 +401,20 @@ Sentiment JSON columns use native Drizzle JSON mode. Provider calls run outside 
 | **api_keys** | API authentication. Unique: `keyHash`. Internal nullable `delegatedUserId` → users (cascade delete) preserves OAuth account authority and research attribution across the MCP-to-REST hop; ordinary/historical keys remain null. |
 | **dashboard_sessions** | Durable shared-password/API-key browser sessions (migration 173). PK: SHA-256 token digest; FK: `apiKeyId` → api_keys (cascade delete). Fixed twelve-hour expiry, indexed by key and expiry. Migration 174 adds `apiKeyHash` and nullable `passwordFingerprint` to bind the credential used at sign-in. Rotation/revocation deletes bound sessions transactionally; native startup removes sessions with missing or outdated password bindings. Named-account sessions remain in `user_sessions`. |
 | **usage_counters** | Rate limiting and usage tracking. Unique: `(scope, period, metric)` |
+| **doctor_health_state** | Health alert bookkeeping, one row per project (PK: `projectId` → projects, cascade delete). Holds the last scheduled doctor pass (`status`, headline `code`, `failingSignature` as sorted `status:code` pairs, and since migration 178 `failingChecks`, the same set as `status:code:id`) and the last alert a webhook accepted (`notifiedAt`, and `notifiedSignature` since migration 177, also `status:code:id`). Migration 179 adds nullable `pendingSignature`: triggering breaches owed by an unaccepted degraded alert, separate from the delivered set so quiet clearances and recurrences cannot erase retries. Pending triggers are stored before delivery, survive restarts, and stop retrying when they clear, ease or become superseded; accepted delivery clears them. The notifier compares checks by id to alert only on new or worse results, and uses the last delivered set to list what cleared. Internal only: the live report is `GET /projects/:name/doctor`. |
 | **runtime_logs** | Sanitized runtime messages and allowlisted metadata, queried with indexed identity/time filters and opaque keyset cursors. Default retention: 10,000 events/seven days. Separate from business audit history; logs contain no raw HTTP bodies, headers, or provider payloads. |
 | **runtime_log_metadata** | Store identity, sequence, and eviction accounting for restart-safe pagination and honest retention/loss reporting. Runtime diagnostic data is bounded; audit history is not pruned by this policy. |
 | **oauth_clients** | OAuth 2.1 clients for the remote MCP surface. `registration` records how one came to exist: `operator` (created deliberately) or `dynamic` (registered itself over the open RFC 7591 endpoint and chose its own display name, so the consent screen marks that name unverified). `secretHash` is NULL for a public client authenticating by PKCE alone. `redirectUris` is an exact-match allowlist, except that RFC 8252 s7.3 lets the PORT float for loopback redirects so a native app can bind an ephemeral one. Revoking a client also revokes its outstanding tokens |
 | **oauth_authorization_codes** | Single-use authorization codes, 60s TTL, bound to their PKCE challenge and RFC 8707 resource. Key is the SHA-256 of the code. Burned on first redemption even when that attempt fails, so a wrong verifier cannot be retried. FK: clientId → oauth_clients, userId → users |
 | **oauth_tokens** | Issued access and refresh tokens, stored as SHA-256 digests for the same reason `user_sessions` stores one: the row records that a token exists, it is not a way to become it. `resource` is the audience and is enforced on every resource request. Refresh tokens rotate, so a stolen one is usable at most once. FK: clientId → oauth_clients, userId → users |
+
+Health notification migration 183 adds nullable native JSON `urgentReceipts`
+to `doctor_health_state` and `site_liveness_state`. Each notification id stores
+its URL and outstanding breach signature or outage timestamp. These histories
+separate new destinations from receivers that already heard an alert. Legacy
+`urgentNotified` and `urgentNotifiedAt` remain aggregate summaries. Older rows
+without recipient identity establish no receipt, and changed aggregate summaries
+invalidate histories left behind by an older writer.
 
 ### Agent
 
