@@ -7,7 +7,7 @@
  */
 
 import crypto from 'node:crypto'
-import { and, desc, eq, inArray, isNotNull, isNull, ne } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import {
   canonicalMeasurementPlanV2Json,
@@ -113,6 +113,10 @@ import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 const SOURCE_LIMIT = 100
 const MAX_REVIEW_AGE_MS = 15 * 60 * 1_000
 const MAX_REVIEW_FUTURE_SKEW_MS = 60 * 1_000
+/** SQLite binds every id of an `IN` list, so a long list is read in parts. */
+const QUERY_ID_READ_SIZE = 500
+/** Query texts one audit entry lists per kind of change. Its counts stay exact. */
+const AUDIT_QUERY_TEXT_LIMIT = 50
 
 type ProjectRow = typeof projects.$inferSelect
 type QueryRow = typeof queries.$inferSelect
@@ -517,8 +521,10 @@ function frozenAssignmentSigner(plan: MeasurementPlanV2): (assignment: Measureme
     if (node === undefined || target === undefined) throw validationError('A frozen measurement assignment is missing its execution or target identity.')
     // This is comparison only: no current aliases/classes/contexts are applied to
     // an old snapshot. A material target, query, class, or context edit yields a
-    // different signature and therefore awaits a fresh sweep.
-    return JSON.stringify([target, assignment.queryId, node, assignment.queryClass, assignment.classificationSource ?? null])
+    // different signature and therefore awaits a fresh sweep. Who set the class
+    // is not signed, as in the results read's `assignmentSigner`: the same class
+    // was measured alike whether the server or an operator chose it.
+    return JSON.stringify([target, assignment.queryId, node, assignment.queryClass])
   }
 }
 
@@ -731,6 +737,49 @@ function measuredAtByQuery(db: DbLike, state: WorkspaceState, opts: QueryTrackin
   return result
 }
 
+/**
+ * When a whole-project sweep last stored an answer for each of these queries.
+ * It reads the sweeps `measuredAtByQuery` lists, of any plan or none, so a
+ * stopped query keeps the date of its last answers. One grouped read per part.
+ */
+function lastAnsweredAtByQuery(db: DbLike, projectId: string, queryIds: readonly string[]): Map<string, string> {
+  const result = new Map<string, string>()
+  for (let start = 0; start < queryIds.length; start += QUERY_ID_READ_SIZE) {
+    const rows = db.select({
+      queryId: querySnapshots.queryId,
+      answeredAt: sql<string>`max(coalesce(${runs.finishedAt}, ${runs.createdAt}))`,
+    }).from(querySnapshots)
+      .innerJoin(runs, eq(querySnapshots.runId, runs.id))
+      .where(and(
+        inArray(querySnapshots.queryId, queryIds.slice(start, start + QUERY_ID_READ_SIZE)),
+        eq(runs.projectId, projectId),
+        eq(runs.kind, RunKinds['answer-visibility']),
+        inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+        ne(runs.trigger, RunTriggers.probe),
+        isNull(runs.measurementScope),
+      ))
+      .groupBy(querySnapshots.queryId).all()
+    for (const row of rows) {
+      if (row.queryId !== null) result.set(row.queryId, row.answeredAt)
+    }
+  }
+  return result
+}
+
+/** The queries among `queryIds` that a stored answer links to. */
+function queriesWithAnswers(db: DbLike, queryIds: readonly string[]): Set<string> {
+  const answered = new Set<string>()
+  for (let start = 0; start < queryIds.length; start += QUERY_ID_READ_SIZE) {
+    const rows = db.select({ queryId: querySnapshots.queryId }).from(querySnapshots)
+      .where(inArray(querySnapshots.queryId, queryIds.slice(start, start + QUERY_ID_READ_SIZE)))
+      .groupBy(querySnapshots.queryId).all()
+    for (const row of rows) {
+      if (row.queryId !== null) answered.add(row.queryId)
+    }
+  }
+  return answered
+}
+
 function marketKeysByEdge(plan: MeasurementPlanV2): Map<string, string[]> {
   const result = new Map<string, string[]>()
   for (const scope of plan.reportingScopes ?? []) {
@@ -790,6 +839,11 @@ function trackedRows(
     if (assigned) assigned.push(assignment)
     else assignmentsByQuery.set(assignment.queryId, [assignment])
   }
+  // No sweep can measure a query no location is paired with as the plan asks
+  // it now, so such a row shows when a sweep last answered it. The read is
+  // skipped while every row has a pairing.
+  const unpaired = allIds.filter(queryId => !assignmentsByQuery.has(queryId))
+  const lastAnswered = unpaired.length > 0 ? lastAnsweredAtByQuery(db, state.project.id, unpaired) : new Map<string, string>()
   return allIds.map(queryId => {
     const snapshot = snapshots.get(queryId)
     const row = queryRows.get(queryId)
@@ -837,8 +891,9 @@ function trackedRows(
       queryText,
       normalizedText: normalizeText(queryText),
       provenance: snapshot ? provenanceFromPlan(snapshot.provenance) : parseQueryProvenance(row?.provenance ?? null),
-      state: measured.has(queryId) ? 'tracked' as const : 'awaiting-sweep' as const,
-      lastMeasuredAt: measured.get(queryId) ?? null,
+      // A row with no pairing has nothing a sweep could have measured as asked now, in the preview of its stop too.
+      state: measured.has(queryId) && assignmentsByQuery.has(queryId) ? 'tracked' as const : 'awaiting-sweep' as const,
+      lastMeasuredAt: measured.get(queryId) ?? lastAnswered.get(queryId) ?? null,
       assignments: [...assignments.values()]
         .map(assignment => ({
           ...assignment,
@@ -1833,10 +1888,22 @@ function addAdvancedSource(
     ?? stableNewQueryId(state.project.id, normalized)
   const knownBefore = state.queryRows.some(row => row.id === queryId)
     || planSnapshot(state.active?.plan ?? null, queryId) !== null
-  const queryText = queryTextForId(state, plan, rows, queryId, source.queryText.trim())
+  const typedText = source.queryText.trim()
+  const storedText = queryTextForId(state, plan, rows, queryId, typedText)
+  // A query that is asked keeps its stored wording: that is the measured text.
+  // One asked nowhere takes the typed wording, unless another row holds that
+  // exact text already (query text is unique in a project).
+  const retyped = storedText !== typedText
+    && planSnapshot(plan, queryId) === null
+    && planSnapshot(state.active?.plan ?? null, queryId) === null
+    && ![...rows.values()].some(row => row.id !== queryId && row.query === typedText)
+  const queryText = retyped ? typedText : storedText
   const provenance = provenanceForId(state, plan, rows, queryId, source.provenance)
-  if (!rows.has(queryId)) {
+  const row = rows.get(queryId)
+  if (!row) {
     rows.set(queryId, { id: queryId, query: queryText, provenance: serializeQueryProvenance(provenance) })
+  } else if (retyped) {
+    rows.set(queryId, { ...row, query: queryText })
   }
   if (!planSnapshot(plan, queryId)) {
     plan.querySnapshots.push({ queryId, queryText, provenance })
@@ -1928,6 +1995,7 @@ function applyAdvancedEdit(
   reusedQueryIds: Set<string>,
   mutatedQueryIds: Set<string>,
   scopedRemovalQueryIds: Set<string>,
+  answeredQueryIds: ReadonlySet<string>,
 ): MeasurementPlanV2 {
   const snapshot = planSnapshot(plan, edit.queryId)
   const row = rows.get(edit.queryId)
@@ -2018,8 +2086,12 @@ function applyAdvancedEdit(
       }
     }
   }
-  if (!planSnapshot(plan, edit.queryId)) rows.delete(edit.queryId)
-  else scopedRemovalQueryIds.add(edit.queryId)
+  // An old wording that left the plan keeps its row only when a stored answer
+  // links to it. A row that stays is reported removed with the pairs it lost,
+  // as a stopped query's is.
+  const stillAsked = planSnapshot(plan, edit.queryId) !== null
+  if (!stillAsked && !answeredQueryIds.has(edit.queryId)) rows.delete(edit.queryId)
+  else if (stillAsked || selectedEdges.length > 0) scopedRemovalQueryIds.add(edit.queryId)
   mutatedQueryIds.add(edit.queryId)
   mutatedQueryIds.add(newQueryId)
   return plan
@@ -2039,8 +2111,11 @@ function buildAdvancedCandidate(
   const scopedRemovalQueryIds = new Set<string>()
   const fullRemovals = new Set<string>()
 
+  // One read, and only when a wording is edited: which of those queries hold answers.
+  const rewordedIds = unique((mutation.edits ?? []).filter(edit => edit.text !== undefined).map(edit => edit.queryId))
+  const answeredQueryIds = rewordedIds.length > 0 ? queriesWithAnswers(db, rewordedIds) : new Set<string>()
   for (const edit of mutation.edits ?? []) {
-    plan = applyAdvancedEdit(state, plan, rows, edit, manualCapturedAt, reusedQueryIds, mutatedQueryIds, scopedRemovalQueryIds)
+    plan = applyAdvancedEdit(state, plan, rows, edit, manualCapturedAt, reusedQueryIds, mutatedQueryIds, scopedRemovalQueryIds, answeredQueryIds)
   }
 
   for (const removal of mutation.removals) {
@@ -2057,9 +2132,9 @@ function buildAdvancedCandidate(
         ? new Set(plan.assignments.filter(assignment => assignment.queryId === queryId).map(assignment => assignment.targetKey))
         : new Set(resolveAudience(active.plan, removal.audience).targetKeys)
       if (targetKeys.size > 0) plan = removeAdvancedAssignments(plan, queryId, targetKeys)
-      // An unassigned query may still be a visible row. A full basket removal
-      // deletes that row too; a scoped Target removal leaves it for its other
-      // assignments, if any.
+      // A full removal is settled after the additions below: it stops a query
+      // the active plan asks and deletes the row of one asked nowhere. A scoped
+      // Target removal leaves the row for its other assignments, if any.
       if (removal.audience === undefined) fullRemovals.add(queryId)
     }
     if (plan !== before) {
@@ -2078,10 +2153,26 @@ function buildAdvancedCandidate(
     }
   }
 
-  // Delete a physical query only after additions have had a chance to reuse
-  // its active-plan id. The snapshot is the durable identity guard here.
+  // Settle full removals only after additions have had a chance to reuse an
+  // active-plan id. The snapshot is the durable identity guard here. A query
+  // the active plan asks is stopped: its row stays on the list, not asked, with
+  // the answers linked to it, and is reported removed with its pairing count.
+  // Only a query that was already asked nowhere loses its row.
+  const heldQueryIds = new Set(plan.querySnapshots.map(snapshot => snapshot.queryId))
+  const askedQueryIds = new Set(active.plan.assignments.map(assignment => assignment.queryId))
   for (const queryId of fullRemovals) {
-    if (!planSnapshot(plan, queryId)) rows.delete(queryId)
+    if (heldQueryIds.has(queryId)) continue
+    if (askedQueryIds.has(queryId) && rows.has(queryId)) scopedRemovalQueryIds.add(queryId)
+    else rows.delete(queryId)
+  }
+  // A row outlives the plan's hold on its query here, in a scoped stop of its
+  // last pairing and in a wording edit. The plan froze its Source, so the row
+  // takes it: the list keeps showing it, and tracking the query again reuses it.
+  for (const snapshot of active.plan.querySnapshots) {
+    const row = rows.get(snapshot.queryId)
+    if (!row || heldQueryIds.has(snapshot.queryId)) continue
+    const frozen = provenanceFromPlan(snapshot.provenance)
+    if (frozen) rows.set(snapshot.queryId, { ...row, provenance: serializeQueryProvenance(frozen) })
   }
 
   plan = fullPlanWithChecksum(pruneReportingScopes(plan))
@@ -2167,6 +2258,52 @@ function writeSimpleCandidate(
   }
 }
 
+/**
+ * What one commit changed, for its audit entry: the three counts it always
+ * held, and the query texts under `queries`. `stopped` is a query the change
+ * removed that is still on the list, `removed` one that is not, and `added`
+ * includes a query that was on the list and asked nowhere. `changed` is the
+ * rest of the queries the change reused. Each list holds at most
+ * `AUDIT_QUERY_TEXT_LIMIT` texts; `counts` stay exact and `truncated` says a
+ * list was cut.
+ */
+function auditDiff(candidate: Candidate) {
+  const { diff, plan } = candidate
+  const placement = new Map(candidate.changes.map(change => [change.queryId, change]))
+  const stays = (row: QueryTrackingChangeRow) => candidate.queryRows.has(row.queryId) || planSnapshot(plan, row.queryId) !== null
+  const started = (row: QueryTrackingChangeRow) => {
+    const change = placement.get(row.queryId)
+    return change !== undefined && change.before.targetKeys.length === 0 && change.after.targetKeys.length > 0
+  }
+  const lists = {
+    added: [...diff.added, ...diff.reused.filter(started)]
+      .sort((left, right) => compareText(left.queryText, right.queryText) || compareText(left.queryId, right.queryId)),
+    stopped: diff.removed.filter(stays),
+    removed: diff.removed.filter(row => !stays(row)),
+    // A simple basket's reused row is one an addition named and left as it was.
+    changed: plan === null ? [] : diff.reused.filter(row => !started(row)),
+  }
+  const texts = (rows: readonly QueryTrackingChangeRow[]) => rows.slice(0, AUDIT_QUERY_TEXT_LIMIT).map(row => row.queryText)
+  return {
+    added: diff.added.length,
+    removed: diff.removed.length,
+    reused: diff.reused.length,
+    queries: {
+      added: texts(lists.added),
+      stopped: texts(lists.stopped),
+      removed: texts(lists.removed),
+      changed: texts(lists.changed),
+      counts: {
+        added: lists.added.length,
+        stopped: lists.stopped.length,
+        removed: lists.removed.length,
+        changed: lists.changed.length,
+      },
+      truncated: Object.values(lists).some(rows => rows.length > AUDIT_QUERY_TEXT_LIMIT),
+    },
+  }
+}
+
 function writeAdvancedCandidate(
   tx: DbLike,
   candidate: Candidate,
@@ -2195,7 +2332,18 @@ function writeAdvancedCandidate(
       tx.update(queries).set({ query: row.query, provenance: row.provenance }).where(eq(queries.id, row.id)).run()
     }
   }
-  if (!candidate.planChanged) return active
+  if (!candidate.planChanged) {
+    // Only catalog rows changed, as when a query asked nowhere is removed: no
+    // revision is published, so the change gets the audit entry a simple basket's does.
+    writeAuditLog(tx, auditFromRequest(request, {
+      projectId: candidate.state.project.id,
+      actor: 'api',
+      action: 'query-tracking.updated',
+      entityType: 'query',
+      diff: auditDiff(candidate),
+    }))
+    return active
+  }
 
   const plan = candidate.plan!
   const canonicalJson = canonicalMeasurementPlanV2Json(plan)
@@ -2229,9 +2377,7 @@ function writeAdvancedCandidate(
     diff: {
       previousRevision: active.version.revision,
       compiledChecksum: plan.compiledChecksum,
-      added: candidate.diff.added.length,
-      removed: candidate.diff.removed.length,
-      reused: candidate.diff.reused.length,
+      ...auditDiff(candidate),
     },
   }))
   const version = tx.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.id, versionId)).get()
@@ -2315,7 +2461,7 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
           actor: 'api',
           action: 'query-tracking.updated',
           entityType: 'query',
-          diff: { added: candidate.diff.added.length, removed: candidate.diff.removed.length, reused: candidate.diff.reused.length },
+          diff: auditDiff(candidate),
         }))
         active = null
       } else if (!candidate.diff.noOp) {

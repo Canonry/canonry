@@ -271,7 +271,8 @@ describe('monthly comparison across a tracking publish', () => {
     expect([project.from.runCount, project.to.runCount]).toEqual([1, 1])
 
     // The four project metrics pair by query and engine: both untouched queries, two engines, four answers a month.
-    expect(project.basket).toEqual({ queryCount: 2, excludedFromOnly: 0, excludedToOnly: 0, providers: ['gemini', 'openai'], excludedProviders: [] })
+    // The stopped query stays on the list with its August answers, so it counts as measured in August only.
+    expect(project.basket).toEqual({ queryCount: 2, excludedFromOnly: 1, excludedToOnly: 0, providers: ['gemini', 'openai'], excludedProviders: [] })
     expect(project.continuity).toMatchObject(PAIRED)
     expect(project.queriesMentioned).toEqual({ from: { count: 2, of: 2 }, to: { count: 2, of: 2 } })
     expect(metricsOf(project, PROJECT_METRICS)).toEqual({

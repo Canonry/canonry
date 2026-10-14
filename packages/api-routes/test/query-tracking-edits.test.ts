@@ -390,7 +390,9 @@ describe('query-tracking edits', () => {
     expect(after.executionNodes.every(node => node.queryId === editedId && node.queryText === GLOBAL_TEXT)).toBe(true)
     expect(marketShapes(after, 'alpha-market').every(edge => edge.queryId === editedId)).toBe(true)
     expect(marketShapes(after, 'beta-market').every(edge => edge.queryId === editedId)).toBe(true)
-    expect(db.select().from(querySnapshots).where(eq(querySnapshots.id, 'history-alpha')).get()).toMatchObject({ queryId: null, queryText: OLD_TEXT })
+    // A stored answer links to the old wording, so its row stays on the list, not asked, with that answer.
+    expect(db.select().from(querySnapshots).where(eq(querySnapshots.id, 'history-alpha')).get()).toMatchObject({ queryId: 'q-existing', queryText: OLD_TEXT })
+    expect((await workspace()).tracked.find(row => row.queryId === 'q-existing')).toMatchObject({ queryText: OLD_TEXT, focus: { kind: 'not-asked' }, assignments: [] })
   })
 
   it('moves only a selected market text edge and retains an unselected market shared edge', async () => {
