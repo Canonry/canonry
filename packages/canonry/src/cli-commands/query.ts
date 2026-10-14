@@ -14,7 +14,7 @@ import {
 import { usageError } from '../cli-error.js'
 import { runAdvancedMeasurementOperation, showQueryTrackingResults } from '../commands/measurement-plan.js'
 
-const QUERY_RESULTS_USAGE = 'canonry query results <project> [--scope <project|group|market|property>] [--scope-key <key>] [--run <id>] [--format json]'
+const QUERY_RESULTS_USAGE = 'canonry query results <project> [--scope <project|group|market|property>] [--scope-key <key>] [--run <id>] [--query <id>] [--format json]'
 
 export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...(['workspace', 'preview', 'commit'] as const).map(action => ({
@@ -32,17 +32,19 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['query', 'results'],
     usage: QUERY_RESULTS_USAGE,
-    options: { scope: stringOption(), 'scope-key': stringOption(), run: stringOption() },
+    options: { scope: stringOption(), 'scope-key': stringOption(), run: stringOption(), query: stringOption() },
     run: async (input) => {
       const project = requireProject(input, 'query.results', QUERY_RESULTS_USAGE)
       const scope = getString(input.values, 'scope')
       const scopeKey = getString(input.values, 'scope-key')
       const runId = getString(input.values, 'run')
+      const queryId = getString(input.values, 'query')
       // The endpoint's own selection rules, checked before any request is sent.
       const request = queryTrackingResultsRequestSchema.safeParse({
         ...(scope === undefined ? {} : { scope }),
         ...(scopeKey === undefined ? {} : { scopeKey }),
         ...(runId === undefined ? {} : { runId }),
+        ...(queryId === undefined ? {} : { queryId }),
       })
       if (!request.success) {
         // A failed parse always carries at least one issue.
@@ -54,9 +56,11 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
           ? '--scope must be one of project, group, market, property'
           : field === 'runId'
             ? '--run needs a value'
-            : field === 'scopeKey' && issue.code !== 'custom'
-              ? '--scope-key needs a value'
-              : issue.message.replace('scopeKey', '--scope-key')
+            : field === 'queryId'
+              ? '--query needs a value'
+              : field === 'scopeKey' && issue.code !== 'custom'
+                ? '--scope-key needs a value'
+                : issue.message.replace('scopeKey', '--scope-key')
         throw usageError(`Error: ${message}\nUsage: ${QUERY_RESULTS_USAGE}`, {
           message,
           details: { command: 'query.results', usage: QUERY_RESULTS_USAGE },

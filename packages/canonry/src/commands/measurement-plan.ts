@@ -34,6 +34,7 @@ import {
   type MetricValue,
   type QueryTrackingResultsRequest,
   type QueryTrackingResultsResponse,
+  type VisibilityReportRate,
   measurementPropertyQuestionsQuerySchema,
   measurementQuestionResultQuerySchema,
   measurementQuerySetUpsertRequestSchema,
@@ -580,10 +581,22 @@ const QUERY_RESULT_TYPES: Record<QueryTrackingResultsResponse['rows'][number]['q
   unknown: 'Not set',
 }
 
+/** The line order of the totals: the category first, then the brand's own queries. */
+const QUERY_RESULT_TOTALS_ORDER: ReadonlyArray<QueryTrackingResultsResponse['rows'][number]['queryClass']> = ['non-brand', 'branded', 'unknown']
+
+/** One total's rate: both of its numbers, then the answers it left out, or why there is none. */
+function queryResultRateText(rate: VisibilityReportRate, leftOut: string | null): string {
+  if (rate.numerator === null || rate.denominator === null) {
+    return METRIC_REASONS[(rate.reason ?? '').replaceAll('-', '_')] ?? 'not measured'
+  }
+  return `${rate.numerator.toLocaleString('en-US')} of ${rate.denominator.toLocaleString('en-US')}${leftOut ? ` (${leftOut})` : ''}`
+}
+
 /**
  * `canonry query results <project>`: Mentioned and Cited per tracked query and
- * engine, from one stored sweep. `--format json` is the endpoint's response
- * unchanged. Never starts a sweep.
+ * engine, from one stored sweep. `--query <id>` reads one query and lists its
+ * answers. `--format json` is the endpoint's response unchanged. Never starts
+ * a sweep.
  */
 export async function showQueryTrackingResults(project: string, opts: QueryTrackingResultsOptions): Promise<void> {
   const { format, ...request } = opts
@@ -605,6 +618,14 @@ function printQueryTrackingResults(response: QueryTrackingResultsResponse): void
     return
   }
   const lines = [`Sweep ${formatIsoDate(response.run.completedAt ?? response.run.createdAt)} · run ${response.run.id}`]
+  // One line per Type, never one for both: the API's totals, printed as sent.
+  for (const queryClass of QUERY_RESULT_TOTALS_ORDER) {
+    const total = response.totals?.find(entry => entry.queryClass === queryClass)
+    if (!total) continue
+    const mentioned = queryResultRateText(total.mentionCoverage, unattributedAnswersLabel(total.mentionCoverage))
+    const cited = queryResultRateText(total.citationCoverage, uncheckedSourcesLabel(total.citationCoverage))
+    lines.push(`${QUERY_RESULT_TYPES[queryClass]}: mentioned ${mentioned} · cited ${cited}`)
+  }
   if (response.pendingRows > 0) lines.push(`Not in this sweep: ${response.pendingRows}`)
   if (response.rows.length === 0) {
     lines.push('No results')
@@ -621,7 +642,17 @@ function printQueryTrackingResults(response: QueryTrackingResultsResponse): void
   const typeWidth = Math.max(...Object.values(QUERY_RESULT_TYPES).map(label => label.length))
   // Each cell is the mention glyph then the citation glyph, as the dashboard's two chips.
   const cellWidth = (engine: string) => Math.max(2, engine.length)
-  lines.push(['Query'.padEnd(queryWidth), 'Type'.padEnd(typeWidth), ...response.engines.map(engine => engine.padEnd(cellWidth(engine)))].join('  ').trimEnd())
+  // The engines whose answers miss the row and mention another of the project's locations.
+  const otherLocation = (row: typeof rows[number]) => row.engines
+    .filter(entry => entry.otherLocationMentionedAnswers !== undefined)
+    .map(entry => entry.provider)
+    .join(', ')
+  // The column is printed only when a row has something to put in it.
+  const showOtherLocation = rows.some(row => otherLocation(row) !== '')
+  lines.push([
+    'Query'.padEnd(queryWidth), 'Type'.padEnd(typeWidth), ...response.engines.map(engine => engine.padEnd(cellWidth(engine))),
+    ...(showOtherLocation ? ['Another location'] : []),
+  ].join('  ').trimEnd())
   for (const row of rows) {
     const cells = response.engines.map(engine => {
       const result = row.engines.find(entry => entry.provider === engine)
@@ -629,9 +660,38 @@ function printQueryTrackingResults(response: QueryTrackingResultsResponse): void
       const cell = result ? `${signalGlyph(result.mentioned, 'M', 'm')}${signalGlyph(result.cited, 'C', 'c')}` : ''
       return cell.padEnd(cellWidth(engine))
     })
-    lines.push([row.queryText.padEnd(queryWidth), row.type.padEnd(typeWidth), ...cells].join('  ').trimEnd())
+    lines.push([row.queryText.padEnd(queryWidth), row.type.padEnd(typeWidth), ...cells, ...(showOtherLocation ? [otherLocation(row)] : [])].join('  ').trimEnd())
   }
+  lines.push(...queryAnswerLines(rows))
   console.log(lines.join('\n'))
+}
+
+/**
+ * The answers of a read of one query (`--query`), one line per engine answer
+ * under its Type. Empty for any other read, which carries no answer rows.
+ */
+function queryAnswerLines(rows: ReadonlyArray<QueryTrackingResultsResponse['rows'][number] & { type: string }>): string[] {
+  const answers = rows.flatMap(row => row.engines.flatMap(engine => (engine.answerRows ?? []).map(answer => ({
+    type: row.type,
+    engine: engine.provider,
+    result: `${signalGlyph(answer.mentioned, 'M', 'm')}${signalGlyph(answer.cited, 'C', 'c')}`,
+    searchLocation: answer.searchLocation ?? '',
+    covers: answer.targetKeys.length,
+    mentioned: answer.mentionedTargetKeys.join(', ') || 'None',
+    namedInstead: answer.namedInstead.join(', ') || 'None',
+    answer: answer.resultId ?? 'No answer saved',
+  }))))
+  if (answers.length === 0) return []
+  // Which location was mentioned is a question only where an answer covers more than one.
+  const showMentioned = answers.some(answer => answer.covers > 1)
+  const table = [
+    ['Type', 'Engine', 'Result', 'Search location', ...(showMentioned ? ['Location mentioned'] : []), 'Named instead', 'Answer'],
+    ...answers.map(answer => [
+      answer.type, answer.engine, answer.result, answer.searchLocation, ...(showMentioned ? [answer.mentioned] : []), answer.namedInstead, answer.answer,
+    ]),
+  ]
+  const widths = table[0]!.map((_, column) => Math.max(...table.map(cells => cells[column]!.length)))
+  return ['', 'Answers', ...table.map(cells => cells.map((cell, column) => cell.padEnd(widths[column]!)).join('  ').trimEnd())]
 }
 
 export interface MeasurementPropertyEvidenceOptions {

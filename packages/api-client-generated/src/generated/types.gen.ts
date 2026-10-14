@@ -2099,14 +2099,61 @@ export type QueryTrackingResultsResponse = {
             uncheckedSourceAnswers: number;
             mentioned: boolean | null;
             cited: boolean | null;
+            unattributedMentionAnswers?: number;
+            mentionedTargetKeys?: Array<string>;
+            citedTargetKeys?: Array<string>;
+            otherLocationMentionedAnswers?: number;
+            otherLocationMentionedTargetKeys?: Array<string>;
+            otherLocationCitedAnswers?: number;
+            otherLocationCitedTargetKeys?: Array<string>;
+            answerRows?: Array<{
+                resultId: string | null;
+                searchLocation: string | null;
+                targetKeys: Array<string>;
+                mentioned: boolean | null;
+                cited: boolean | null;
+                mentionedTargetKeys: Array<string>;
+                citedTargetKeys: Array<string>;
+                namedInstead: Array<string>;
+            }>;
         }>;
     }>;
     pendingRows: number;
+    totals?: Array<{
+        queryClass: 'branded' | 'non-brand' | 'unknown';
+        queries: number;
+        answers: number;
+        mentionCoverage: {
+            numerator: number | null;
+            denominator: number | null;
+            rate: number | null;
+            reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+            unattributed?: number;
+            unchecked?: number;
+        };
+        citationCoverage: {
+            numerator: number | null;
+            denominator: number | null;
+            rate: number | null;
+            reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+            unattributed?: number;
+            unchecked?: number;
+        };
+    }>;
     weakMarkets?: {
         rule: 'no-mention-latest-sweep';
         queryClass: 'non-brand';
         count: number;
         marketKeys: Array<string>;
+        markets?: Array<{
+            marketKey: string;
+            queries: number;
+            mentionCheckedAnswers: number;
+            mentionedAnswers: number;
+            otherLocationMentionedAnswers: number;
+            citationCheckedAnswers: number;
+            citedAnswers: number;
+        }>;
     };
 };
 
@@ -20516,6 +20563,10 @@ export type GetApiV1ProjectsByNameQueryTrackingResultsData = {
          * One completed or partial whole-project sweep. Omit for the default sweep.
          */
         runId?: string;
+        /**
+         * One tracked query. Returns only its rows, with `answerRows` per engine and no `totals` or `weakMarkets`. A query the place does not ask returns no rows. Read-selection identity.
+         */
+        queryId?: string;
     };
     url: '/api/v1/projects/{name}/query-tracking/results';
 };

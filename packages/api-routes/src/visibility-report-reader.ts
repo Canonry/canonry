@@ -197,7 +197,8 @@ export class VisibilityReportScopeError extends Error {
   }
 }
 
-interface Candidate {
+/** One expected answer with the edges it is read for. Exported for the query-tracking results read. */
+export interface Candidate {
   run: VisibilityReportRunInput
   slot: VisibilityReportSlotInput
   edges: VisibilityReportEdgeInput[]
@@ -577,6 +578,22 @@ function uncheckedSourceEvidence(rows: readonly Candidate[]): VisibilityReportQu
   }
 }
 
+/**
+ * Saved answers and both coverage rates over one set of expected answers.
+ * Exported so the query-tracking results read totals its rows with the rule
+ * the report's summary uses.
+ */
+export function answerCoverage(
+  candidates: readonly Candidate[],
+  targets: ReadonlyMap<string, VisibilityReportTargetInput>,
+) {
+  return {
+    answerCount: candidates.filter(answered).length,
+    mentionCoverage: mentionRate(candidates, targets),
+    citationCoverage: targetCitationRate(candidates, targets),
+  }
+}
+
 function coverageSummary(
   candidates: readonly Candidate[],
   definition: VisibilityReportDefinitionInput,
@@ -587,9 +604,7 @@ function coverageSummary(
   return {
     rows,
     queryCount: new Set(rows.map(candidate => candidate.slot.queryKey)).size,
-    answerCount: rows.filter(answered).length,
-    mentionCoverage: mentionRate(rows, targets),
-    citationCoverage: targetCitationRate(rows, targets),
+    ...answerCoverage(rows, targets),
   }
 }
 
