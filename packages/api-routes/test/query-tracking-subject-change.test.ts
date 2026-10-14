@@ -220,6 +220,7 @@ describe('query tracking: a Subject change is one removal plus one addition of t
       queryId: 'q-uptown', queryText: UPTOWN_TEXT, change: 'reused',
       before: placement(['harbor', 'river', 'summit'], ['uptown']),
       after: placement(['harbor'], ['uptown']),
+      altered: true,
     }])
     expect(row(preview, 'q-uptown')).toMatchObject({ provenance: RESEARCH, focus: { kind: 'property', key: 'harbor' } })
     // The other market query is still asked for River and Summit, so Uptown keeps its three locations.
@@ -265,7 +266,7 @@ describe('query tracking: a Subject change is one removal plus one addition of t
     const toRiver = (await subjectChange('q-harbor', HARBOR_TEXT, { audience: { targetKeys: ['river'], marketKeys: ['uptown'] } })).preview
     expect(toRiver.changes).toEqual([{
       queryId: 'q-harbor', queryText: HARBOR_TEXT, change: 'reused',
-      before: placement(['harbor'], ['uptown']), after: placement(['river'], ['uptown']),
+      before: placement(['harbor'], ['uptown']), after: placement(['river'], ['uptown']), altered: true,
     }])
     expect(row(toRiver, 'q-harbor')).toMatchObject({ provenance: PATTERN, focus: { kind: 'property', key: 'river' } })
     expect(toRiver.marketChanges).toEqual([])
@@ -274,7 +275,7 @@ describe('query tracking: a Subject change is one removal plus one addition of t
     const toLone = (await subjectChange('q-harbor', HARBOR_TEXT, { audience: { targetKeys: ['lone'] }, contexts: [CONTEXT_INPUT] })).preview
     expect(toLone.changes).toEqual([{
       queryId: 'q-harbor', queryText: HARBOR_TEXT, change: 'reused',
-      before: placement(['harbor'], ['uptown']), after: placement(['lone'], []),
+      before: placement(['harbor'], ['uptown']), after: placement(['lone'], []), altered: true,
     }])
     expect(row(toLone, 'q-harbor')).toMatchObject({ provenance: PATTERN, focus: { kind: 'property', key: 'lone' } })
     expect(toLone.marketChanges).toEqual([])
@@ -336,7 +337,8 @@ describe('query tracking: a market of one location', () => {
     expect(preview.diff).toMatchObject({ noOp: false, added: [], removed: [], reused: [{ queryId: 'q-pier', queryText: PIER_TEXT, assignmentCount: 1 }] })
     expect(preview.changes).toEqual([{
       queryId: 'q-pier', queryText: PIER_TEXT, change: 'reused',
-      before: placement(['pier'], ['solo']), after: placement(['pier'], ['solo']),
+      // The same location and market on both sides, asked through a new execution: still a change a publish writes.
+      before: placement(['pier'], ['solo']), after: placement(['pier'], ['solo']), altered: true,
     }])
     expect(preview.marketChanges).toEqual([])
     expect(preview.workload).toMatchObject({

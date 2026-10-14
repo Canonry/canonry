@@ -1546,6 +1546,13 @@ export type QueryTrackingWorkspaceResponse = {
         label: string;
         marketKeys?: Array<string>;
         counts?: {
+            queries?: number;
+            byClass?: {
+                branded: number;
+                nonBrand: number;
+                mixed: number;
+                unknown: number;
+            };
             propertyQueries: number;
             marketQueries: number;
             customQueries: number;
@@ -1559,6 +1566,15 @@ export type QueryTrackingWorkspaceResponse = {
         targetKeys: Array<string>;
         counts?: {
             queries: number;
+            byClass?: {
+                branded: number;
+                nonBrand: number;
+                mixed: number;
+                unknown: number;
+            };
+            marketQueries?: number;
+            propertyQueries?: number;
+            customQueries?: number;
             markets: number;
             answersPerSweep: number;
         };
@@ -1574,6 +1590,13 @@ export type QueryTrackingWorkspaceResponse = {
         }>;
         targetKeys?: Array<string>;
         counts?: {
+            queries?: number;
+            byClass?: {
+                branded: number;
+                nonBrand: number;
+                mixed: number;
+                unknown: number;
+            };
             marketQueries: number;
             propertyQueries: number;
             answersPerSweep: number;
@@ -1695,6 +1718,11 @@ export type QueryTrackingWorkspaceResponse = {
                 current: number;
                 next: number;
             };
+            over?: {
+                current: number;
+                next: number;
+            };
+            exceeded?: boolean;
         };
     };
     views?: {
@@ -1709,6 +1737,7 @@ export type QueryTrackingWorkspaceResponse = {
         };
         patternGaps: {
             count: number;
+            compared?: number;
             patterns: Array<{
                 templateId: string;
                 name: string | null;
@@ -1872,6 +1901,8 @@ export type QueryTrackingPreviewResponse = {
             targetKeys: Array<string>;
             marketKeys: Array<string>;
         };
+        altered?: boolean;
+        rewordedFrom?: string;
     }>;
     marketChanges?: Array<{
         marketKey: string;
@@ -1883,6 +1914,35 @@ export type QueryTrackingPreviewResponse = {
         };
         removedTargetKeys: Array<string>;
         emptied: boolean;
+    }>;
+    marketQueryChanges?: Array<{
+        marketKey: string;
+        before: {
+            marketQueries: number;
+        };
+        after: {
+            marketQueries: number;
+        };
+    }>;
+    typeMismatches?: Array<{
+        queryId: string;
+        queryText: string;
+        focus: {
+            kind: 'market';
+            key: string;
+        } | {
+            kind: 'property';
+            key: string;
+        } | {
+            kind: 'company';
+        } | {
+            kind: 'custom';
+        } | {
+            kind: 'not-asked';
+        };
+        expectedQueryClass: 'branded' | 'non-brand';
+        queryClasses: Array<'branded' | 'non-brand'>;
+        brandedWording: boolean;
     }>;
     workload: {
         existingNodes: number;
@@ -1903,6 +1963,11 @@ export type QueryTrackingPreviewResponse = {
                 current: number;
                 next: number;
             };
+            over?: {
+                current: number;
+                next: number;
+            };
+            exceeded?: boolean;
         };
     };
 };

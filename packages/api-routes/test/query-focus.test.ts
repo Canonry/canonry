@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MeasurementPlanV2, QueryClass } from '@ainyc/canonry-contracts'
-import { planQueryFocus } from '../src/query-focus.js'
+import { planQueryFocus, subjectQueryClass } from '../src/query-focus.js'
 import { HARBOR_CONTEXT, measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
 /** [query, location, class (default non-brand), execution node (default `exec-<query>`)] */
@@ -188,5 +188,16 @@ describe('planQueryFocus', () => {
     expect(focusOf('q-metro')).toEqual({ kind: 'market', key: 'metro' })
     // A pairing sits in a market when any of its search locations does.
     expect(focusOf('q-extra')).toEqual({ kind: 'market', key: 'metro' })
+  })
+})
+
+describe('subjectQueryClass', () => {
+  it('gives the one Type a market or a location query takes, and none for any other Subject', () => {
+    expect(subjectQueryClass({ kind: 'market', key: 'metro' })).toBe('non-brand')
+    expect(subjectQueryClass({ kind: 'property', key: 'harbor' })).toBe('branded')
+    // A hand-picked query takes either Type, and a simple site's query is classed by the project classifier.
+    expect(subjectQueryClass({ kind: 'custom' })).toBeNull()
+    expect(subjectQueryClass({ kind: 'company' })).toBeNull()
+    expect(subjectQueryClass({ kind: 'not-asked' })).toBeNull()
   })
 })

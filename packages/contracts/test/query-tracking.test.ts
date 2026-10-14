@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  QUERY_CLASS_BY_FOCUS,
+  QUERY_TEMPLATE_VARIABLE_NAMES,
+  expandQueryTemplate,
+  queryTemplateBindings,
+  queryTemplateVariableKind,
   queryTrackingCommitRequestSchema,
   queryTrackingPreviewRequestSchema,
   queryTrackingPreviewResponseSchema,
@@ -155,6 +160,73 @@ describe('query tracking contract', () => {
     }).success).toBe(false)
   })
 
+  it('carries altered and rewordedFrom on a change row exactly as sent, and still parses a row without them', () => {
+    const row = {
+      queryId: 'q-2', queryText: 'apartments near transit', change: 'reused',
+      before: { targetKeys: ['harbor-point'], marketKeys: ['beta'] },
+      after: { targetKeys: ['harbor-point'], marketKeys: ['beta'] },
+    }
+    const changes = [{ ...row, altered: false, rewordedFrom: 'q-1' }, { ...row, queryId: 'q-3', altered: true }]
+
+    expect(queryTrackingPreviewResponseSchema.parse({ ...advancedPreview(), changes }).changes).toEqual(changes)
+    const older = queryTrackingPreviewResponseSchema.parse({ ...advancedPreview(), changes: [row] }).changes![0]!
+    expect('altered' in older || 'rewordedFrom' in older).toBe(false)
+    for (const invalid of [{ ...row, altered: 'no' }, { ...row, rewordedFrom: '' }, { ...row, rewordedFrom: null }]) {
+      expect(queryTrackingPreviewResponseSchema.safeParse({ ...advancedPreview(), changes: [invalid] }).success, JSON.stringify(invalid)).toBe(false)
+    }
+  })
+
+  it('carries type mismatches on a preview exactly as sent, and still parses a preview without them', () => {
+    const typeMismatches = [
+      {
+        queryId: 'q-1', queryText: 'acme homes in lakeshore', focus: { kind: 'market', key: 'lakeshore' },
+        expectedQueryClass: 'non-brand', queryClasses: ['non-brand'], brandedWording: true,
+      },
+      {
+        queryId: 'q-2', queryText: 'harbor point pricing', focus: { kind: 'property', key: 'harbor-point' },
+        expectedQueryClass: 'branded', queryClasses: ['branded', 'non-brand'], brandedWording: false,
+      },
+    ]
+
+    expect(queryTrackingPreviewResponseSchema.parse({ ...advancedPreview(), typeMismatches }).typeMismatches).toEqual(typeMismatches)
+    expect(queryTrackingPreviewResponseSchema.parse({ ...advancedPreview(), typeMismatches: [] }).typeMismatches).toEqual([])
+    expect('typeMismatches' in queryTrackingPreviewResponseSchema.parse(advancedPreview())).toBe(false)
+    const [row] = typeMismatches
+    const { brandedWording, ...withoutWording } = row!
+    expect(brandedWording).toBe(true)
+    for (const invalid of [
+      withoutWording,
+      { ...row, expectedQueryClass: 'mixed' },
+      { ...row, queryClasses: ['unknown'] },
+      { ...row, focus: { kind: 'market' } },
+      { ...row, reason: 'branded-wording' },
+    ]) {
+      expect(queryTrackingPreviewResponseSchema.safeParse({ ...advancedPreview(), typeMismatches: [invalid] }).success, JSON.stringify(invalid)).toBe(false)
+    }
+  })
+
+  it('states the Type each Subject takes, and none for a hand-picked query', () => {
+    expect(QUERY_CLASS_BY_FOCUS).toEqual({ market: 'non-brand', property: 'branded' })
+    expect(Object.keys(QUERY_CLASS_BY_FOCUS)).not.toContain('custom')
+  })
+
+  it('carries each market\'s own-query count before and after exactly as sent, and still parses a preview without it', () => {
+    const marketQueryChanges = [
+      { marketKey: 'alpha', before: { marketQueries: 4 }, after: { marketQueries: 0 } },
+      { marketKey: 'beta', before: { marketQueries: 0 }, after: { marketQueries: 2 } },
+    ]
+
+    expect(queryTrackingPreviewResponseSchema.parse({ ...advancedPreview(), marketQueryChanges }).marketQueryChanges).toEqual(marketQueryChanges)
+    expect('marketQueryChanges' in queryTrackingPreviewResponseSchema.parse(advancedPreview())).toBe(false)
+    for (const invalid of [
+      { marketKey: 'alpha', before: { marketQueries: 4 } },
+      { marketKey: 'alpha', before: { marketQueries: 4 }, after: { marketQueries: -1 } },
+      { marketKey: 'alpha', before: { marketQueries: 4 }, after: { marketQueries: 0, propertyQueries: 2 } },
+    ]) {
+      expect(queryTrackingPreviewResponseSchema.safeParse({ ...advancedPreview(), marketQueryChanges: [invalid] }).success, JSON.stringify(invalid)).toBe(false)
+    }
+  })
+
   it('still parses a preview without market changes from an older server or a simple basket', () => {
     expect('marketChanges' in queryTrackingPreviewResponseSchema.parse(advancedPreview())).toBe(false)
   })
@@ -229,6 +301,23 @@ describe('query tracking contract', () => {
     }
   })
 
+  it('carries the excess over the limit and whether the change is refused exactly as sent', () => {
+    const limits = { queries: { current: 935, next: 1_005, max: 1_000, left: { current: 65, next: 0 }, over: { current: 0, next: 5 }, exceeded: true } }
+
+    expect(queryTrackingPreviewResponseSchema.parse({ ...previewResponse(), limits }).limits).toEqual(limits)
+    expect(queryTrackingWorkspaceResponseSchema.parse({ ...advancedWorkspace(), limits }).limits).toEqual(limits)
+    // A plan already over the limit that shrinks: still over, not refused.
+    const shrinking = { queries: { ...limits.queries, current: 1_002, next: 1_001, over: { current: 2, next: 1 }, exceeded: false } }
+    expect(queryTrackingPreviewResponseSchema.parse({ ...previewResponse(), limits: shrinking }).limits).toEqual(shrinking)
+    for (const invalid of [
+      { ...limits.queries, over: { current: 0, next: -5 } },
+      { ...limits.queries, over: { next: 5 } },
+      { ...limits.queries, exceeded: 'yes' },
+    ]) {
+      expect(queryTrackingPreviewResponseSchema.safeParse({ ...previewResponse(), limits: { queries: invalid } }).success, JSON.stringify(invalid)).toBe(false)
+    }
+  })
+
   it('rejects a partial, negative or zero-limit query count', () => {
     for (const limits of [
       { queries: { current: 1, next: 2 } },
@@ -276,6 +365,36 @@ describe('query tracking contract', () => {
     }
 
     expect(queryTrackingWorkspaceResponseSchema.parse(sent)).toEqual(sent)
+  })
+
+  it('carries each place\'s queries by Type, a group\'s Subject counts and the patterns compared exactly as sent', () => {
+    const base = advancedWorkspace()
+    const byClass = { branded: 1, nonBrand: 2, mixed: 1, unknown: 0 }
+    const sent = {
+      ...base,
+      targets: [{ ...base.targets[0]!, counts: { queries: 4, byClass, propertyQueries: 1, marketQueries: 2, customQueries: 1, answersPerSweep: 6 } }],
+      groups: [{ ...base.groups[0]!, counts: { queries: 4, byClass, marketQueries: 2, propertyQueries: 1, customQueries: 1, markets: 3, answersPerSweep: 6 } }],
+      // A hand-picked query paired inside the market: more queries than its two Subject counts.
+      markets: [{ ...base.markets[0]!, counts: { queries: 4, byClass, marketQueries: 2, propertyQueries: 1, answersPerSweep: 5 } }],
+      views: {
+        noPropertyQueries: { count: 0, targetKeys: [] },
+        thinMarkets: { count: 0, floor: 4, marketKeys: [] },
+        patternGaps: { count: 0, compared: 2, patterns: [] },
+      },
+    }
+
+    expect(queryTrackingWorkspaceResponseSchema.parse(sent)).toEqual(sent)
+    const { compared, ...olderGaps } = sent.views.patternGaps
+    expect(compared).toBe(2)
+    expect(queryTrackingWorkspaceResponseSchema.parse({ ...sent, views: { ...sent.views, patternGaps: olderGaps } }).views?.patternGaps).toEqual(olderGaps)
+    for (const [name, counts] of Object.entries({
+      'missing mixed': { ...sent.targets[0]!.counts, byClass: { branded: 1, nonBrand: 2, unknown: 0 } },
+      // One figure for both classes is not a count this contract carries.
+      pooled: { ...sent.targets[0]!.counts, byClass: { ...byClass, all: 4 } },
+      negative: { ...sent.targets[0]!.counts, queries: -1 },
+    })) {
+      expect(queryTrackingWorkspaceResponseSchema.safeParse({ ...sent, targets: [{ ...base.targets[0]!, counts }] }).success, name).toBe(false)
+    }
   })
 
   it('still parses a workspace without the summary, limits, place counts or row Types from an older server', () => {
@@ -369,6 +488,36 @@ function advancedPreview() {
     },
   }
 }
+
+describe('query pattern variable names', () => {
+  it('reads every name by what it fills in, and no name under two kinds', () => {
+    expect(QUERY_TEMPLATE_VARIABLE_NAMES).toEqual({
+      market: ['market', 'submarket'],
+      locationName: ['locationName', 'property', 'propertyBrand'],
+      searchLocation: ['searchLocation', 'location'],
+    })
+    expect(['market', 'submarket', 'locationName', 'property', 'propertyBrand', 'searchLocation', 'location'].map(queryTemplateVariableKind)).toEqual([
+      'market', 'market', 'locationName', 'locationName', 'locationName', 'searchLocation', 'searchLocation',
+    ])
+    const names = Object.values(QUERY_TEMPLATE_VARIABLE_NAMES).flat()
+    expect(new Set(names).size).toBe(names.length)
+  })
+
+  it('reads no kind for a name nothing binds, whatever its case or shape', () => {
+    for (const name of ['city', 'Market', 'LOCATION', 'location ', '', 'constructor', 'toString']) {
+      expect(queryTemplateVariableKind(name), name).toBeNull()
+    }
+  })
+
+  it('binds one value under every name of a kind, so a pattern written with any of them expands the same', () => {
+    expect(queryTemplateBindings('market', 'Lakeshore')).toEqual({ market: 'Lakeshore', submarket: 'Lakeshore' })
+    expect(queryTemplateBindings('locationName', 'Harbor Point')).toEqual({ locationName: 'Harbor Point', property: 'Harbor Point', propertyBrand: 'Harbor Point' })
+    expect(queryTemplateBindings('searchLocation', 'Chicago')).toEqual({ searchLocation: 'Chicago', location: 'Chicago' })
+    for (const pattern of ['best homes in {market}', 'best homes in {submarket}']) {
+      expect(expandQueryTemplate(pattern, queryTemplateBindings('market', 'Lakeshore'))).toBe('best homes in Lakeshore')
+    }
+  })
+})
 
 function advancedWorkspace() {
   return {

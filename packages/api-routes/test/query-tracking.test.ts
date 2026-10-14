@@ -72,6 +72,9 @@ async function preview(payload: Record<string, unknown>) {
   const listed = review.diff.noOp ? [] : (['added', 'reused', 'removed'] as const)
     .flatMap(change => review.diff[change].map(row => ({ queryId: row.queryId, queryText: row.queryText, change })))
   expect(review.changes?.map(({ queryId, queryText, change }) => ({ queryId, queryText, change }))).toEqual(listed)
+  // Only a reused query can be left as it is; an added or removed one always changes.
+  expect(review.changes?.filter(change => change.change !== 'reused').map(change => change.altered)).toEqual(
+    listed.filter(row => row.change !== 'reused').map(() => true))
   // Only an advanced review reports market changes, and each row agrees with its own before and after.
   expect(review.marketChanges === undefined).toBe(review.mode === 'simple')
   for (const market of review.marketChanges ?? []) {
@@ -487,8 +490,8 @@ describe('query tracking workspace: simple projects', () => {
       removals: [{ queryId: 'q-existing' }],
     })
     expect(review.changes).toEqual([
-      { queryId: review.diff.added[0]!.queryId, queryText: 'apartments with a rooftop terrace', change: 'added', before: placement(), after: placement() },
-      { queryId: 'q-existing', queryText: 'best apartments in northbridge', change: 'removed', before: placement(), after: placement() },
+      { queryId: review.diff.added[0]!.queryId, queryText: 'apartments with a rooftop terrace', change: 'added', before: placement(), after: placement(), altered: true },
+      { queryId: 'q-existing', queryText: 'best apartments in northbridge', change: 'removed', before: placement(), after: placement(), altered: true },
     ])
   })
 
@@ -661,7 +664,11 @@ describe('query tracking workspace: advanced portfolios', () => {
       groups.push({ stableKey: 'metro', label: 'Metro', targetKeys: ['harbor-point'], competitors: [] })
     })
     const current = await workspace()
-    const counts = { queries: 1, markets: 0, answersPerSweep: 3 }
+    // No market is attached to either group. Their one location sits in Alpha, so each counts that market.
+    const counts = {
+      queries: 1, byClass: { branded: 0, nonBrand: 1, mixed: 0, unknown: 0 }, marketQueries: 1, propertyQueries: 0, customQueries: 0,
+      markets: 1, answersPerSweep: 3,
+    }
     expect(current.groups).toEqual([
       { stableKey: 'metro', label: 'Metro', targetKeys: ['harbor-point'], counts },
       { stableKey: 'northbridge', label: 'Northbridge', targetKeys: ['harbor-point'], parentGroupKey: 'metro', counts },
@@ -679,8 +686,9 @@ describe('query tracking workspace: advanced portfolios', () => {
     }
     const review = await preview(mutation)
     const placed = placement(['harbor-point', 'river-point'], ['alpha-market', 'beta-market'])
+    // The placement is the same on both sides: only `altered` says the type moves.
     expect(review.changes).toEqual([{
-      queryId: 'q-existing', queryText: 'best apartments in northbridge', change: 'reused', before: placed, after: placed,
+      queryId: 'q-existing', queryText: 'best apartments in northbridge', change: 'reused', before: placed, after: placed, altered: true,
     }])
     expect(review.workload).toMatchObject({ addedNodes: 0, addedProviderCalls: 0, nextSweepProviderCalls: 3 })
     const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
@@ -856,7 +864,7 @@ describe('query tracking workspace: advanced portfolios', () => {
     const removalReview = await preview(removal)
     expect(removalReview.changes).toEqual([{
       queryId, queryText: 'apartments with a rooftop terrace', change: 'removed',
-      before: placement(['harbor-point', 'river-point']), after: placement(),
+      before: placement(['harbor-point', 'river-point']), after: placement(), altered: true,
     }])
     const removed = await commit({ ...removal, previewToken: removalReview.previewToken, reviewedAt: removalReview.reviewedAt })
     expect(removed.statusCode, removed.body).toBe(200)
@@ -1150,7 +1158,7 @@ describe('query tracking workspace: advanced portfolios', () => {
     expect(review.diff.removed.find(row => row.queryId === 'q-existing')?.assignmentCount).toBe(1)
     expect(review.changes).toEqual([{
       queryId: 'q-existing', queryText: 'best apartments in northbridge', change: 'removed',
-      before: placement(['harbor-point'], ['alpha-market']), after: placement(['harbor-point']),
+      before: placement(['harbor-point'], ['alpha-market']), after: placement(['harbor-point']), altered: true,
     }])
     expect(review.marketChanges).toEqual([{
       marketKey: 'alpha-market', before: { targetKeys: ['harbor-point'] }, after: { targetKeys: [] },
@@ -1218,7 +1226,7 @@ describe('query tracking workspace: advanced portfolios', () => {
     })
     expect(review.changes).toEqual([{
       queryId: review.diff.added[0]!.queryId, queryText: 'apartments with a rooftop terrace', change: 'added',
-      before: placement(), after: placement(['harbor-point'], ['beta-market']),
+      before: placement(), after: placement(['harbor-point'], ['beta-market']), altered: true,
     }])
   })
 
@@ -1244,7 +1252,7 @@ describe('query tracking workspace: advanced portfolios', () => {
     expect(review.diff.reused).toEqual([])
     expect(review.changes).toEqual([{
       queryId: 'q-existing', queryText: 'best apartments in northbridge', change: 'removed',
-      before: placement(['harbor-point'], ['alpha-market']), after: placement(['river-point']),
+      before: placement(['harbor-point'], ['alpha-market']), after: placement(['river-point']), altered: true,
     }])
   })
 
@@ -1552,9 +1560,13 @@ describe('query tracking guards: query limit', () => {
       expectedWorkspaceVersion: advanced.workspaceVersion,
       additions: [marketAddition('apartments near a park'), marketAddition('apartments near a library')], removals: [],
     })
-    expect(added.limits).toEqual({ queries: { current: 1, next: 3, max: 1_000, left: { current: 999, next: 997 } } })
+    expect(added.limits).toEqual({
+      queries: { current: 1, next: 3, max: 1_000, left: { current: 999, next: 997 }, over: { current: 0, next: 0 }, exceeded: false },
+    })
     const removed = await preview({ expectedWorkspaceVersion: advanced.workspaceVersion, additions: [], removals: [{ queryId: 'q-existing' }] })
-    expect(removed.limits).toEqual({ queries: { current: 1, next: 0, max: 1_000, left: { current: 999, next: 1_000 } } })
+    expect(removed.limits).toEqual({
+      queries: { current: 1, next: 0, max: 1_000, left: { current: 999, next: 1_000 }, over: { current: 0, next: 0 }, exceeded: false },
+    })
   })
 
   it('commits a change that reaches exactly 1,000 queries and refuses one more', async () => {
@@ -1562,7 +1574,10 @@ describe('query tracking guards: query limit', () => {
     const atLimit = await reviewed({
       expectedWorkspaceVersion: (await workspace()).workspaceVersion, additions: [marketAddition('apartments near a park')], removals: [],
     })
-    expect(atLimit.review.limits).toEqual({ queries: { current: 999, next: 1_000, max: 1_000, left: { current: 1, next: 0 } } })
+    // Exactly at the limit there is no room left and nothing over: `left.next` alone cannot tell this from one more.
+    expect(atLimit.review.limits).toEqual({
+      queries: { current: 999, next: 1_000, max: 1_000, left: { current: 1, next: 0 }, over: { current: 0, next: 0 }, exceeded: false },
+    })
     const committed = await commit(atLimit.payload)
     expect(committed.statusCode, committed.body).toBe(200)
     expect(committed.json()).toMatchObject({ committed: true, active: { revision: 2 } })
@@ -1570,7 +1585,10 @@ describe('query tracking guards: query limit', () => {
     const overLimit = await reviewed({
       expectedWorkspaceVersion: (await workspace()).workspaceVersion, additions: [marketAddition('apartments near a library')], removals: [],
     })
-    expect(overLimit.review.limits).toEqual({ queries: { current: 1_000, next: 1_001, max: 1_000, left: { current: 0, next: 0 } } })
+    // The preview still answers, and says the commit of this change is refused.
+    expect(overLimit.review.limits).toEqual({
+      queries: { current: 1_000, next: 1_001, max: 1_000, left: { current: 0, next: 0 }, over: { current: 0, next: 1 }, exceeded: true },
+    })
     const refused = await commit(overLimit.payload)
     expect(refused.statusCode, refused.body).toBe(400)
     expect(refused.json()).toEqual({
@@ -1590,10 +1608,166 @@ describe('query tracking guards: query limit', () => {
     const shrink = await reviewed({
       expectedWorkspaceVersion: (await workspace()).workspaceVersion, additions: [], removals: [{ queryId: 'q-fill-0' }],
     })
-    expect(shrink.review.limits).toEqual({ queries: { current: 1_002, next: 1_001, max: 1_000, left: { current: 0, next: 0 } } })
+    // Still one over after the change, and not refused: `over.next` does not decide `exceeded`.
+    expect(shrink.review.limits).toEqual({
+      queries: { current: 1_002, next: 1_001, max: 1_000, left: { current: 0, next: 0 }, over: { current: 2, next: 1 }, exceeded: false },
+    })
     const committed = await commit(shrink.payload)
     expect(committed.statusCode, committed.body).toBe(200)
     expect(new Set(activeV2Plan().plan.assignments.map(row => row.queryId)).size).toBe(1_001)
+  })
+
+  it('refuses a commit exactly when its preview said exceeded, also for a plan already over the limit', async () => {
+    seedAssignedQueries(1_002)
+    const version = (await workspace()).workspaceVersion
+    // Swapping one query for another keeps the count: over the limit, and allowed.
+    const swap = await reviewed({
+      expectedWorkspaceVersion: version, additions: [marketAddition('apartments near a park')], removals: [{ queryId: 'q-fill-0' }],
+    })
+    expect(swap.review.limits?.queries).toMatchObject({ current: 1_002, next: 1_002, over: { current: 2, next: 2 }, exceeded: false })
+    const grow = await reviewed({ expectedWorkspaceVersion: version, additions: [marketAddition('apartments near a library')], removals: [] })
+    expect(grow.review.limits?.queries).toMatchObject({ current: 1_002, next: 1_003, over: { current: 2, next: 3 }, exceeded: true })
+
+    const refused = await commit(grow.payload)
+    expect(refused.statusCode, refused.body).toBe(400)
+    expect(refused.json().error.details).toEqual({ check: 'query-limit-exceeded', current: 1_002, next: 1_003, max: 1_000, displayToOperator: true })
+    const allowed = await commit(swap.payload)
+    expect(allowed.statusCode, allowed.body).toBe(200)
+    expect(allowed.json()).toMatchObject({ committed: true, active: { revision: 2 } })
+  })
+})
+
+describe('query tracking preview: what each named query changes', () => {
+  it('marks two new lines altered and an already tracked line not', async () => {
+    seedAdvancedPlan()
+    const current = await workspace()
+    const review = await preview({
+      expectedWorkspaceVersion: current.workspaceVersion, removals: [],
+      additions: [marketAddition('apartments near a park'), marketAddition('apartments near a library'), marketAddition('best apartments in northbridge')],
+    })
+
+    expect(review.changes?.map(change => [change.queryText, change.change, change.altered])).toEqual([
+      ['apartments near a library', 'added', true],
+      ['apartments near a park', 'added', true],
+      // Named again in the market it is already asked in: listed, and nothing about it moves.
+      ['best apartments in northbridge', 'reused', false],
+    ])
+    expect(review.changes?.every(change => change.rewordedFrom === undefined)).toBe(true)
+  })
+
+  it('marks a reused query altered when only where its type came from changes', async () => {
+    seedAdvancedPlan()
+    const current = await workspace()
+    // The same Non-brand type, now set by an operator instead of the server.
+    const review = await preview({
+      expectedWorkspaceVersion: current.workspaceVersion, additions: [], removals: [],
+      edits: [{ queryId: 'q-existing', queryClass: 'non-brand' }],
+    })
+
+    const before = current.tracked.find(row => row.queryId === 'q-existing')!
+    const after = review.tracked.find(row => row.queryId === 'q-existing')!
+    expect([after.focus, after.queryClasses]).toEqual([before.focus, before.queryClasses])
+    expect(after.assignments.map(row => row.classificationSource)).toEqual(['operator'])
+    expect(review.changes).toEqual([{
+      queryId: 'q-existing', queryText: 'best apartments in northbridge', change: 'reused',
+      before: placement(['harbor-point'], ['alpha-market']), after: placement(['harbor-point'], ['alpha-market']), altered: true,
+    }])
+  })
+
+  it('marks a reused query altered when its Subject changes and when it only gains a search location', async () => {
+    seedAdvancedPlan()
+    const current = await workspace()
+    const addition = (extra: Record<string, unknown>) => preview({
+      expectedWorkspaceVersion: current.workspaceVersion, removals: [],
+      additions: [{ input: { source: 'manual', text: 'best apartments in northbridge' }, audience: { targetKeys: ['harbor-point'] }, ...extra }],
+    })
+
+    // Branded in a market of one location makes the query the Location's.
+    const subject = await addition({ queryClass: 'branded' })
+    expect(subject.tracked.find(row => row.queryId === 'q-existing')?.focus).toEqual({ kind: 'property', key: 'harbor-point' })
+    expect(subject.changes?.map(change => [change.queryId, change.change, change.altered])).toEqual([['q-existing', 'reused', true]])
+
+    // One more search location for the same location: the same locations and markets on both sides.
+    rewriteActivePlan(plan => {
+      (plan.assignments as unknown[]).pop()
+      ;(plan.usageEdges as unknown[]).pop()
+      ;(plan.executionNodes as unknown[]).pop()
+    })
+    const fresh = await workspace()
+    const gained = await preview({
+      expectedWorkspaceVersion: fresh.workspaceVersion, removals: [],
+      additions: [{
+        input: { source: 'manual', text: 'best apartments in northbridge' }, audience: { targetKeys: ['harbor-point'] },
+        contexts: [{ providers: ['gemini', 'openai'], models: { gemini: 'gemini-test', openai: 'gpt-test' }, location: 'beta' }],
+      }],
+    })
+    expect(gained.changes).toEqual([{
+      queryId: 'q-existing', queryText: 'best apartments in northbridge', change: 'reused',
+      before: placement(['harbor-point'], ['alpha-market']), after: placement(['harbor-point'], ['alpha-market']), altered: true,
+    }])
+    expect(gained.workload).toMatchObject({ addedNodes: 1, addedProviderCalls: 2 })
+  })
+
+  it('marks a reused query altered when its type changes everywhere or for one of its locations only', async () => {
+    seedMultiMarketPlan()
+    const current = await workspace()
+    const changesOf = async (edit: Record<string, unknown>) => (await preview({
+      expectedWorkspaceVersion: current.workspaceVersion, additions: [], removals: [], edits: [{ queryId: 'q-existing', ...edit }],
+    })).changes?.map(change => [change.queryId, change.change, change.altered])
+
+    expect(await changesOf({ queryClass: 'branded' })).toEqual([['q-existing', 'reused', true]])
+    expect(await changesOf({ audience: { targetKeys: ['river-point'] }, queryClass: 'branded' })).toEqual([['q-existing', 'reused', true]])
+  })
+})
+
+describe('query tracking preview: pattern variable names', () => {
+  it.each([
+    ['best apartments in {submarket}', { marketKeys: ['alpha-market'] }, 'best apartments in Alpha', { submarket: 'Alpha' }],
+    ['{propertyBrand} floor plans', { targetKeys: ['harbor-point'], marketKeys: ['alpha-market'] }, 'Harbor Point floor plans', { propertyBrand: 'Harbor Point' }],
+    ['{locationName} floor plans', { targetKeys: ['harbor-point'], marketKeys: ['alpha-market'] }, 'Harbor Point floor plans', { locationName: 'Harbor Point' }],
+    ['{locationName} homes in {submarket}', { targetKeys: ['harbor-point'], marketKeys: ['alpha-market'] }, 'Harbor Point homes in Alpha', { locationName: 'Harbor Point', submarket: 'Alpha' }],
+  ] as const)('expands a saved pattern written as "%s" and freezes its own names', async (pattern, audience, queryText, bindings) => {
+    seedAdvancedPlan()
+    const current = await workspace()
+    const review = await preview({
+      expectedWorkspaceVersion: current.workspaceVersion, removals: [],
+      additions: [{ input: additionSource(pattern), audience }],
+    })
+
+    expect(review.diff.added.map(row => row.queryText)).toEqual([queryText])
+    expect(review.tracked.find(row => row.queryText === queryText)?.provenance?.template).toMatchObject({ template: pattern, bindings, output: queryText })
+  })
+
+  it('still refuses a search location name, which tracking has nothing to bind, and names what it takes', async () => {
+    seedAdvancedPlan()
+    const current = await workspace()
+    for (const name of ['location', 'searchLocation', 'city']) {
+      const response = await request('POST', '/query-tracking/preview', {
+        expectedWorkspaceVersion: current.workspaceVersion, removals: [],
+        additions: [{ input: additionSource(`apartments in {${name}}`), audience: { marketKeys: ['alpha-market'] } }],
+      })
+      expect(response.statusCode, response.body).toBe(400)
+      expect(response.json().error.message).toBe(`Query tracking templates support only {market} and {locationName}; found {${name}}.`)
+      db.delete(measurementQueryTemplates).run()
+    }
+  })
+
+  it('names the pattern\'s own variable when its place is not selected', async () => {
+    seedAdvancedPlan()
+    const current = await workspace()
+    const refusal = async (pattern: string, audience: Record<string, string[]>) => {
+      const response = await request('POST', '/query-tracking/preview', {
+        expectedWorkspaceVersion: current.workspaceVersion, removals: [],
+        additions: [{ input: additionSource(pattern), audience, contexts: [{ providers: ['openai'], models: { openai: 'gpt-test' }, location: 'alpha' }] }],
+      })
+      db.delete(measurementQueryTemplates).run()
+      return [response.statusCode, response.json().error.message]
+    }
+
+    expect(await refusal('best apartments in {submarket}', { targetKeys: ['harbor-point'] }))
+      .toEqual([400, 'A template containing {submarket} needs a selected market.'])
+    expect(await refusal('best apartments in {market}', { targetKeys: ['harbor-point'] }))
+      .toEqual([400, 'A template containing {market} needs a selected market.'])
   })
 })
 

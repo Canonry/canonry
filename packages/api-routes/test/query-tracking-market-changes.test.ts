@@ -133,6 +133,39 @@ function seedPortfolio(): void {
   }))
 }
 
+/**
+ * One market of two locations with four queries of its own, and a second
+ * market of one location:
+ * - Lakeside holds Harbor and River through `q-lake-0` to `q-lake-3`; each also has its own query in it.
+ * - Hillside holds Summit through two market queries.
+ */
+function seedOwnQueries(): void {
+  const market = (queryId: string, targetKeys: string[], marketKey: string): Pairing[] => targetKeys.map(targetKey => ({
+    queryId, targetKey, executionNodeKey: `n-${queryId}`, queryClass: 'non-brand', markets: [marketKey],
+  }))
+  activate(planOf({
+    targets: [['harbor', 'Harbor Point'], ['river', 'River Point'], ['summit', 'Summit Lofts']],
+    markets: [['hillside', 'Hillside'], ['lakeside', 'Lakeside']],
+    texts: {
+      'q-lake-0': 'best homes lakeside',
+      'q-lake-1': 'lakeside homes with parking',
+      'q-lake-2': 'lakeside homes near transit',
+      'q-lake-3': 'pet friendly homes lakeside',
+      'q-harbor': 'harbor point reviews',
+      'q-river': 'river point reviews',
+      'q-hill-0': 'best homes hillside',
+      'q-hill-1': 'hillside homes with parking',
+    },
+    pairings: [
+      ...['q-lake-0', 'q-lake-1', 'q-lake-2', 'q-lake-3'].flatMap(queryId => market(queryId, ['harbor', 'river'], 'lakeside')),
+      { queryId: 'q-harbor', targetKey: 'harbor', executionNodeKey: 'n-q-harbor', queryClass: 'branded', markets: ['lakeside'] },
+      { queryId: 'q-river', targetKey: 'river', executionNodeKey: 'n-q-river', queryClass: 'branded', markets: ['lakeside'] },
+      ...market('q-hill-0', ['summit'], 'hillside'),
+      ...market('q-hill-1', ['summit'], 'hillside'),
+    ],
+  }))
+}
+
 function request(method: 'GET' | 'POST', suffix: string, payload?: unknown) {
   return app.inject({
     method,
@@ -385,6 +418,77 @@ describe('query tracking preview: market membership changes', () => {
     expect(response.statusCode, response.body).toBe(200)
     expect(response.json()).toMatchObject({ mode: 'simple', diff: { removed: [{ queryId: 'q-simple' }] } })
     expect(response.json()).not.toHaveProperty('marketChanges')
+    expect(response.json()).not.toHaveProperty('marketQueryChanges')
+  })
+})
+
+describe('query tracking preview: a market\'s own queries', () => {
+  const ownQueries = async () => Object.fromEntries((await workspace()).markets.map(market => [market.stableKey, market.counts?.marketQueries]))
+
+  it('reports a market left with no query of its own while every location stays in it', async () => {
+    seedOwnQueries()
+    expect(await ownQueries()).toEqual({ hillside: 2, lakeside: 4 })
+    const { preview, commit } = await review({ removals: ['q-lake-0', 'q-lake-1', 'q-lake-2', 'q-lake-3'].map(queryId => ({ queryId })) })
+
+    expect(preview.marketQueryChanges).toEqual([{ marketKey: 'lakeside', before: { marketQueries: 4 }, after: { marketQueries: 0 } }])
+    // Harbor and River keep their own queries in Lakeside, so no location leaves it.
+    expect(preview.marketChanges).toEqual([])
+    expect(preview.limits?.queries).toMatchObject({ current: 8, next: 4 })
+
+    // A report only: the change publishes, and the read then counts what the preview said.
+    expect((await publish(commit)).committed).toBe(true)
+    expect(await ownQueries()).toEqual({ hillside: 2, lakeside: 0 })
+    expect((await workspace()).markets.find(market => market.stableKey === 'lakeside')?.targetKeys).toEqual(['harbor', 'river'])
+  })
+
+  it('reports each market whose count moves, in key order, and none for a location query', async () => {
+    seedOwnQueries()
+
+    expect((await review({ removals: [{ queryId: 'q-lake-2' }] })).preview.marketQueryChanges)
+      .toEqual([{ marketKey: 'lakeside', before: { marketQueries: 4 }, after: { marketQueries: 3 } }])
+    // One stopped in each market, and one added to Hillside: only Lakeside's count moves.
+    expect((await review({
+      removals: [{ queryId: 'q-lake-0' }, { queryId: 'q-hill-0' }],
+      additions: [manual('hillside homes with a garden', { marketKeys: ['hillside'] })],
+    })).preview.marketQueryChanges).toEqual([{ marketKey: 'lakeside', before: { marketQueries: 4 }, after: { marketQueries: 3 } }])
+    expect((await review({
+      removals: [{ queryId: 'q-lake-0' }, { queryId: 'q-hill-0' }],
+    })).preview.marketQueryChanges).toEqual([
+      { marketKey: 'hillside', before: { marketQueries: 2 }, after: { marketQueries: 1 } },
+      { marketKey: 'lakeside', before: { marketQueries: 4 }, after: { marketQueries: 3 } },
+    ])
+    // A location's own query is not the market's, stopped or added.
+    expect((await review({ removals: [{ queryId: 'q-harbor' }] })).preview.marketQueryChanges).toEqual([])
+    expect((await review({
+      additions: [{ ...manual('harbor point floor plans', { targetKeys: ['harbor'], marketKeys: ['lakeside'] }), queryClass: 'branded' }],
+    })).preview.marketQueryChanges).toEqual([])
+    expect((await review({})).preview.marketQueryChanges).toEqual([])
+  })
+
+  it('counts a query that stops covering its market as no longer the market\'s, though both stay tracked', async () => {
+    seedOwnQueries()
+    // Stopped for River only: the query is now asked for one of Lakeside's two locations.
+    const { preview } = await review({ removals: [{ queryId: 'q-lake-0', audience: { targetKeys: ['river'] } }] })
+
+    expect(preview.tracked.find(row => row.queryId === 'q-lake-0')?.focus).toEqual({ kind: 'property', key: 'harbor' })
+    expect(preview.marketQueryChanges).toEqual([{ marketKey: 'lakeside', before: { marketQueries: 4 }, after: { marketQueries: 3 } }])
+    expect(preview.marketChanges).toEqual([])
+  })
+
+  it('reports the count the workspace read gives for every market, before and after a publish', async () => {
+    seedPortfolio()
+    const before = await ownQueries()
+    expect(before).toEqual({ downtown: 2, uptown: 1, waterfront: 0 })
+    // Stops every market query in the portfolio, so each row's `before` is checked against the read.
+    const { preview, commit } = await review({ removals: [{ queryId: 'q-uptown' }, { queryId: 'q-down-a' }, { queryId: 'q-down-b' }] })
+
+    expect(Object.fromEntries(preview.marketQueryChanges!.map(row => [row.marketKey, row.before.marketQueries])))
+      .toEqual({ downtown: before.downtown, uptown: before.uptown })
+    await publish(commit)
+    const after = await ownQueries()
+    expect(Object.fromEntries(preview.marketQueryChanges!.map(row => [row.marketKey, row.after.marketQueries])))
+      .toEqual({ downtown: after.downtown, uptown: after.uptown })
+    expect(after).toEqual({ downtown: 0, uptown: 0, waterfront: 0 })
   })
 })
 

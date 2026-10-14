@@ -143,7 +143,7 @@ A simple site's row carries the one Type the project classifier gives it, or non
 | `asked`, `notAsked` | Rows with and without a pairing. Together they are the row count. Every row on a simple site is asked. |
 | `byClass` | Asked rows by Type: `branded`, `nonBrand`, `mixed`, `unknown` (shown as Not set). A mixed row counts under neither Branded nor Non-brand. |
 | `byFocus` | Asked rows by Subject: `market`, `property`, `company`, `custom`. |
-| `assignments` | Location links: plan assignments (`total`, `branded`, `nonBrand`, `unknown`), the unit of a preview row's `assignmentCount`. One query at one location with two search locations is two. All zero on a simple site. |
+| `assignments` | Query-location pairs: plan assignments (`total`, `branded`, `nonBrand`, `unknown`), the unit of a preview row's `assignmentCount`. One query at one location with two search locations is two. All zero on a simple site. |
 | `answersPerSweep` | Provider answers one sweep asks for. A preview that changes nothing reports the same number as `workload.existingProviderCalls`. |
 | `structure` | `targets`, `markets`, `groups`, `topLevelGroups`, and `competitors` (distinct domains across groups). |
 
@@ -151,14 +151,27 @@ A simple site's row carries the one Type the project classifier gives it, or non
 An advanced portfolio's read also returns `limits.queries`, with `next` equal to `current` because a read changes nothing.
 `current` is the compiler's count of assigned queries, and equals `summary.asked` for every plan the compiler published.
 `limits.queries.left` is the room under `max`, 0 when the plan is over it.
+`limits.queries.over` is the excess above `max`, 0 when the plan is under it.
+`limits.queries.exceeded` is always false on a read. A preview sets it (see "CLI and MCP").
 
 Each place carries its own counts:
 
 | Place | Fields |
 | --- | --- |
-| `targets[]` | `marketKeys` (on `targets[]`; `scopeOptions` location choices still carry none): markets holding an edge for the location. `counts.propertyQueries`: rows whose Subject is this location. `counts.marketQueries`: rows whose Subject is a market holding it. `counts.customQueries`: hand-picked rows paired with it. |
-| `markets[]` | `targetKeys`: the distinct locations its edges name. `counts.marketQueries`: rows whose Subject is this market. `counts.propertyQueries`: rows whose Subject is one of its locations. |
-| `groups[]` | `counts.queries`: distinct queries paired with a member location. `counts.markets`: markets whose `groupKey` is this group. |
+| `targets[]` | `marketKeys` (on `targets[]`; `scopeOptions` location choices still carry none): markets holding an edge for the location. `counts.queries`: distinct queries paired with it. `counts.propertyQueries`: rows whose Subject is this location. `counts.marketQueries`: rows whose Subject is a market holding it. `counts.customQueries`: hand-picked rows paired with it. |
+| `markets[]` | `targetKeys`: the distinct locations its edges name. `counts.queries`: distinct queries with a pairing inside the market. `counts.marketQueries`: rows whose Subject is this market. `counts.propertyQueries`: rows whose Subject is one of its locations. |
+| `groups[]` | `counts.queries`: distinct queries paired with a member location. `counts.marketQueries`, `counts.propertyQueries`, `counts.customQueries`: those queries by Subject. `counts.markets`: distinct markets holding a member location. |
+
+`counts.queries` is the number of rows a list under the place shows.
+For a location and for a group, the three Subject counts add up to it.
+A market has no hand-picked count, and a hand-picked query paired inside it still counts, so a market's `counts.queries` can exceed `marketQueries` plus `propertyQueries`.
+
+Every place also has `counts.byClass`: its `counts.queries` by Type, as `branded`, `nonBrand`, `mixed` and `unknown`. The four add up to `counts.queries`.
+The Type is read at that place, from every plan assignment the query has there (a pairing counts for its location, that location's groups, and each market holding its exact edge).
+A query asked as Branded for one location and as Non-brand for another is `mixed` for a group or market holding both, and one class at each location.
+A query asked under both types at two search locations of one location is `mixed` there.
+
+`counts.markets` on a group is the markets its locations are in, the same rule as a location's `marketKeys`. A market attached to the group that holds no location counts for no group.
 
 Every place also has `counts.answersPerSweep`: the answers of the distinct executions the place has a usage edge on.
 An execution shared by two locations counts once in each, so place values do not add up to `summary.answersPerSweep`.
@@ -171,10 +184,11 @@ Each view has a `count` and the sorted list it counts, so `count` is always the 
 | --- | --- |
 | `noPropertyQueries` | `targetKeys`: locations no row has as its Subject (`counts.propertyQueries` is 0). A market query or a hand-picked query at the location does not count as its own. |
 | `thinMarkets` | `marketKeys`: markets whose `counts.marketQueries` is under `floor`. The floor is 4. A market with no query, or with no location left, is thin. |
-| `patternGaps` | `patterns[]`: each is a saved pattern asked as a market's own query in at least one market and not in another market that holds a location. Each has `templateId`, `name`, `pattern`, `usedMarketKeys` and `missingMarketKeys`. `count` is the number of patterns. |
+| `patternGaps` | `patterns[]`: each is a saved pattern asked as a market's own query in at least one market and not in another market that holds a location. Each has `templateId`, `name`, `pattern`, `usedMarketKeys` and `missingMarketKeys`. `count` is the number of patterns. `compared` is the number of patterns the rule could read. |
 
-Only a pattern whose one variable is `{market}` is read: it makes one query per market, the market's own.
-A pattern with no variable makes one query for every place, and one with `{property}` makes a query per location, so neither can fill another market and neither is listed.
+Only a pattern whose one variable is a market name, `{market}` or `{submarket}`, is read: it makes one query per market, the market's own.
+A pattern with no variable makes one query for every place, and one with a location name such as `{property}` makes a query per location, so neither can fill another market and neither is listed.
+`compared` counts the saved patterns the rule reads, plus any pattern a market row froze that was deleted since. When it is 0 nothing was compared, which is not the same as no gap found. `count` never exceeds it.
 A market asks a pattern when a row whose Subject is that market froze the pattern's record when it was added, or has the text the pattern makes for the market's label (compared as query identity, so case and spacing do not matter).
 The text match covers a query added in setup or typed by hand, which froze no record, and every wording the pattern has had counts.
 A location's own query and a hand-picked query made from the pattern are not the market's use of it.
@@ -353,8 +367,10 @@ The API, CLI, and MCP keep `scope`, `property`, and `location`.
 8. Start the reviewed queries.
 
 A pattern substitutes text. For Atlanta, `Best apartments in {market}` becomes `Best apartments in Atlanta`.
-`{market}` and `{submarket}` use the market label. `{property}` and `{propertyBrand}` use the property label.
-`{location}` uses the search location's label, never the Subject's.
+`{market}` and `{submarket}` use the market label. `{locationName}`, `{property}` and `{propertyBrand}` use the location's label.
+`{searchLocation}` and `{location}` use the search location's label, never the Subject's.
+The names in each set are aliases: a saved pattern keeps the name it was written with, and no name changes meaning.
+A pattern added to tracking (a `template` addition) takes the market names and the location names. It has no search location to bind, so it refuses `{searchLocation}` and `{location}`.
 When a pattern repeated across locations holds `{location}`, the form marks it **Uses search location**.
 A name the pattern does not recognize blocks the preview.
 
@@ -408,6 +424,9 @@ A location in no market has none to take engines from: send `audience: { "target
 Preview output adds `changes`, one row per added, reused, or removed query.
 Each row lists the query's locations (`targetKeys`) and markets (`marketKeys`) `before` in the active plan and `after` in the reviewed change.
 A scoped removal or move keeps its remaining placement in `after`. Simple projects list no locations or markets, and a no-op returns an empty `changes`.
+`reused` is every existing query the change names, whether or not it moves, so each row also carries `altered`.
+`altered` is false when the change leaves the query exactly as the active plan has it: the same pairings (location, search location and engines, type and where the type came from) and the same markets for each. It is true for every added and removed row.
+A wording edit is reviewed as a new query plus the old one removed, because the new wording starts a new trend. The row the new wording lands on carries `rewordedFrom`, the old query's id, so a caller can show the two rows as one change. It is set only when the same review lists the old query as removed. When the new wording was already tracked in every pairing the edit moves, the row is `reused` with `altered: false`; when it gains a pairing, it is `reused` with `altered: true`.
 An advanced preview also returns `marketChanges`, one row per market whose locations change: `marketKey`, its locations `before` and `after` (each a `targetKeys` list), `removedTargetKeys`, and `emptied`.
 A market has no stored list of locations. It holds only the locations that still have a query in it, so stopping a query, or moving it to another Subject or location, can remove a location from a market or empty it.
 An emptied market stays in the plan with no location and takes no later addition, so read `marketChanges` before you commit.
@@ -415,6 +434,13 @@ An addition that names the emptied market alone is refused with `Select at least
 One that names it with a location or a group, or beside another market through a pattern that uses `{market}`, is refused with `Market "<key>" has no selected location.`
 Any other addition that names it beside another market is accepted and placed in the other market only, so compare `changes[].after.marketKeys` with the markets you sent.
 The server reports the change and refuses nothing for it: a commit from the CLI, MCP or the API publishes as before. A preview that changes no market returns an empty list, and a simple project returns no `marketChanges`.
+An advanced preview also returns `marketQueryChanges`, one row per market whose own-query count changes: `marketKey`, `before.marketQueries` and `after.marketQueries`. The count is the workspace read's `markets[].counts.marketQueries`: the queries whose Subject is the market.
+A market can lose every market query and keep all its locations through their own queries. `marketChanges` is then empty, and `marketQueryChanges` shows the count going to 0.
+An advanced preview also returns `typeMismatches`. On an advanced portfolio the type follows the Subject: a market query is Non-brand, a location query is Branded, and a hand-picked query takes either.
+Each row is an added or reused query the change would leave against that rule: `queryId`, `queryText`, `focus`, `expectedQueryClass`, `queryClasses` (the type the query would get) and `brandedWording`.
+`brandedWording` is true for a market query whose wording the server classifier reads as Branded for one of its locations, because it names the company or that location. Such a query is listed even when its type is Non-brand.
+A query the change leaves with the Subject and type it already had is not listed, so an older query that breaks the rule shows up only when a change touches it.
+Both lists are reports, like `marketChanges`: the server refuses nothing for them and a commit publishes as before. Both are empty when there is nothing to report, and a simple project returns neither.
 Commit input adds the returned `previewToken` and `reviewedAt` to that exact request.
 The server binds the review time to the token and refuses expired reviews.
 The API returns the actual active revision after publication.
@@ -427,7 +453,10 @@ A setup publish (`draft-action` with `publish`) is refused the same way, unless 
 It is also refused with `409 MEASUREMENT_PLAN_REVISION_CONFLICT` (`details.check: draft-out-of-date`) when the active revision moved after the draft was started: see [Out-of-date setup draft](#out-of-date-setup-draft).
 An advanced preview also returns `limits.queries`: distinct assigned queries now (`current`), after the change (`next`), and the limit (`max`, 1,000).
 `limits.queries.left` is the room under the limit now and after the change (`max` minus each count), and is 0, never negative, for a plan over the limit.
-A commit that grows the plan past the limit returns `400` with `details.check: query-limit-exceeded`. A plan already over the limit may still shrink.
+`limits.queries.over` is the excess above the limit now and after the change (each count minus `max`), and is 0 for a plan under the limit.
+`limits.queries.exceeded` is true when a commit of this change would be refused for the limit. The preview still returns `200` with the counts, so read `exceeded` before you commit.
+A commit that grows the plan past the limit returns `400` with `details.check: query-limit-exceeded`. A plan already over the limit may still shrink: `over.next` is then above 0 and `exceeded` is false.
+A wording edit onto a wording that is already tracked there with a different type is refused on preview with `400` and `details.check: edit-destination-type-differs`. One with the same type set a different way (by the server there and by an operator here, or the reverse) is refused with `details.check: edit-destination-type-source-differs`.
 Preview and commit require write access. Stored workspace, results and visibility reads do not.
 
 The project API prefix is `/api/v1/projects/:name`.

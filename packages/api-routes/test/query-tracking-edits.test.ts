@@ -39,6 +39,14 @@ const PROPERTY_TEXT = 'Northbridge apartments with a rooftop terrace'
 const GLOBAL_TEXT = 'Northbridge apartment communities'
 const MARKET_TEXT = 'Northbridge apartments near parks'
 const DESTINATION_TEXT = 'Northbridge luxury apartments'
+/** The one refusal a wording edit meets in a sheet, with a stable check a client can map to its own words. */
+const DESTINATION_TYPE_REFUSAL = {
+  error: {
+    code: 'VALIDATION_ERROR',
+    message: 'That wording is already tracked with a different type. Change that query\'s type first, or use different wording.',
+    details: { check: 'edit-destination-type-differs', displayToOperator: true },
+  },
+}
 
 let tmpDir: string
 let db: DatabaseClient
@@ -411,11 +419,14 @@ describe('query-tracking edits', () => {
         queryId: editedId, queryText: MARKET_TEXT, change: 'added',
         before: { targetKeys: [], marketKeys: [] },
         after: { targetKeys: ['harbor-point', 'river-point'], marketKeys: ['alpha-market'] },
+        // The new wording names the query it was reworded from, which the same review lists as removed.
+        altered: true, rewordedFrom: 'q-existing',
       },
       {
         queryId: 'q-existing', queryText: OLD_TEXT, change: 'removed',
         before: { targetKeys: ['harbor-point', 'river-point'], marketKeys: ['alpha-market', 'beta-market'] },
         after: { targetKeys: ['harbor-point'], marketKeys: ['beta-market'] },
+        altered: true,
       },
     ])
     await publish({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
@@ -473,6 +484,7 @@ describe('query-tracking edits', () => {
       edits: [{ queryId: 'q-existing', audience: { targetKeys: ['harbor-point'] }, text: DESTINATION_TEXT, queryClass: 'branded' }],
     })
     expect(conflict.statusCode, conflict.body).toBe(400)
+    expect(conflict.json()).toEqual(DESTINATION_TYPE_REFUSAL)
     expect(activePlan().version.revision).toBe(1)
 
     const mutation = {
@@ -481,6 +493,11 @@ describe('query-tracking edits', () => {
     }
     const review = await preview(mutation)
     expect(review.tracked.find(row => row.queryText === DESTINATION_TEXT)!.queryId).toBe('q-bound-destination')
+    // The wording lands on a query that is already tracked: that row is reused, gains Harbor's other search location, and says where it came from.
+    expect(review.changes?.map(change => [change.queryId, change.change, change.altered, change.rewordedFrom])).toEqual([
+      ['q-bound-destination', 'reused', true, 'q-existing'],
+      ['q-existing', 'removed', true, undefined],
+    ])
     await publish({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
     const after = activePlan().plan
     expect(assignmentShapes(after, 'q-bound-destination').map(row => row.context.location?.label).sort()).toEqual(['alpha', 'beta'])
@@ -504,6 +521,14 @@ describe('query-tracking edits', () => {
       edits: [{ queryId: 'q-existing', audience: { targetKeys: ['harbor-point'] }, text: DESTINATION_TEXT }],
     })
     expect(response.statusCode, response.body).toBe(400)
+    // Both wordings have the same type, so the refusal names no type to change.
+    expect(response.json()).toEqual({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'That wording is already tracked here. Use different wording, or stop this query instead.',
+        details: { check: 'edit-destination-type-source-differs', displayToOperator: true },
+      },
+    })
     expect(activePlan().pointer.activeVersionId).toBe(before.pointer.activeVersionId)
     expect(activePlan().version.canonicalJson).toBe(before.version.canonicalJson)
     expect(db.select().from(measurementPlanVersions).all()).toHaveLength(1)
@@ -527,6 +552,47 @@ describe('query-tracking edits', () => {
     await publish({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
     expect(activePlan().plan.assignments.filter(row => row.queryId === editedId)
       .every(row => row.classificationSource === undefined)).toBe(true)
+  })
+
+  it('links a reworded query to the one it replaces, also when the new wording is already tracked there, and never on a type-only edit', async () => {
+    seedTwoPropertiesTwoContextsTwoMarkets()
+    // The destination is asked for Harbor in Alpha, exactly where the edited pairing is.
+    addActiveDestinationAndStaleDuplicate()
+    const current = await workspace()
+    const rows = async (edit: Record<string, unknown>) => (await preview({
+      expectedWorkspaceVersion: current.workspaceVersion, additions: [], removals: [], edits: [{ queryId: 'q-existing', ...edit }],
+    })).changes?.map(change => [change.queryText, change.change, change.altered, change.rewordedFrom])
+
+    // A new wording for every pairing: one added row that names the old query, and the old query removed.
+    expect(await rows({ text: GLOBAL_TEXT })).toEqual([
+      [GLOBAL_TEXT, 'added', true, 'q-existing'],
+      [OLD_TEXT, 'removed', true, undefined],
+    ])
+    // Reworded onto a wording already asked for Harbor in Alpha: publishing adds nothing there.
+    expect(await rows({ audience: { targetKeys: ['harbor-point'], marketKeys: ['alpha-market'] }, text: DESTINATION_TEXT })).toEqual([
+      [DESTINATION_TEXT, 'reused', false, 'q-existing'],
+      [OLD_TEXT, 'removed', true, undefined],
+    ])
+    // A type edit keeps the query, so nothing was reworded.
+    expect(await rows({ queryClass: 'branded' })).toEqual([[OLD_TEXT, 'reused', true, undefined]])
+  })
+
+  it('links a reworded simple query to the one it replaces', async () => {
+    db.insert(queries).values({ id: 'q-other', projectId: PROJECT_ID, query: 'northwind parking', provenance: null, createdAt: NOW }).run()
+    const current = await workspace()
+    const rows = async (text: string) => (await preview({
+      expectedWorkspaceVersion: current.workspaceVersion, additions: [], removals: [], edits: [{ queryId: 'q-existing', text }],
+    })).changes?.map(change => [change.queryText, change.change, change.altered, change.rewordedFrom])
+
+    expect(await rows('simple edited query')).toEqual([
+      ['simple edited query', 'added', true, 'q-existing'],
+      [OLD_TEXT, 'removed', true, undefined],
+    ])
+    // Onto a wording the basket already holds: that row stays as it is.
+    expect(await rows('Northwind  PARKING')).toEqual([
+      ['northwind parking', 'reused', false, 'q-existing'],
+      [OLD_TEXT, 'removed', true, undefined],
+    ])
   })
 
   it('edits template-resolved text literally instead of expanding the current template again', async () => {

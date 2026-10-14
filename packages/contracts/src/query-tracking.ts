@@ -5,7 +5,7 @@ import {
   measurementV2UsageEdgeSchema,
 } from './measurement-plan-v2.js'
 import { providerNameSchema } from './provider.js'
-import { queryClassSchema } from './query-class.js'
+import { queryClassSchema, type QueryClass } from './query-class.js'
 import { visibilityReportScopeOptionSchema } from './visibility-report.js'
 
 /** Expand an authoring template once; execution uses the editable final question verbatim. */
@@ -13,6 +13,32 @@ export function expandQueryTemplate(pattern: string, bindings: Readonly<Record<s
   let output = pattern
   for (const [variable, value] of Object.entries(bindings)) output = output.split(`{${variable}}`).join(value)
   return output.trim()
+}
+
+/**
+ * A pattern's variable names by what each fills in. The names of one kind are
+ * aliases: each binds the same value, and no name ever changes kind, so a
+ * saved pattern keeps the name it was written with. `location` is the search
+ * location, never the location's name.
+ */
+export const QUERY_TEMPLATE_VARIABLE_NAMES = {
+  market: ['market', 'submarket'],
+  locationName: ['locationName', 'property', 'propertyBrand'],
+  searchLocation: ['searchLocation', 'location'],
+} as const satisfies Record<string, readonly string[]>
+export type QueryTemplateVariableKind = keyof typeof QUERY_TEMPLATE_VARIABLE_NAMES
+
+/** What a pattern variable fills in, or null for a name no pattern reader binds. */
+export function queryTemplateVariableKind(name: string): QueryTemplateVariableKind | null {
+  for (const [kind, names] of Object.entries(QUERY_TEMPLATE_VARIABLE_NAMES)) {
+    if ((names as readonly string[]).includes(name)) return kind as QueryTemplateVariableKind
+  }
+  return null
+}
+
+/** One value bound under every name of a kind, so a pattern written with any of them expands. */
+export function queryTemplateBindings(kind: QueryTemplateVariableKind, value: string): Record<string, string> {
+  return Object.fromEntries(QUERY_TEMPLATE_VARIABLE_NAMES[kind].map(name => [name, value]))
 }
 
 const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/)
@@ -170,12 +196,30 @@ export type QueryTrackingCommitRequest = z.output<typeof queryTrackingCommitRequ
 
 const countSchema = z.number().int().nonnegative()
 
+/** Queries by Type: one class, both (`mixed`), or none (`unknown`). Branded and non-brand are never pooled. */
+const queryClassCountsSchema = z.object({
+  branded: countSchema,
+  nonBrand: countSchema,
+  mixed: countSchema,
+  unknown: countSchema,
+}).strict()
+
 /**
  * A place's own numbers, counted by the server from the tracked rows' `focus`.
  * `answersPerSweep` counts each execution the place uses once, so places
  * sharing an execution do not add up to the project total.
+ *
+ * `queries` is the distinct queries with a pairing at the place: the rows a
+ * list under it shows. `byClass` splits them by the Type of their pairings at
+ * that place, read from every plan assignment there, and adds up to `queries`.
+ * A query Branded at one location and Non-brand at another is `mixed` for a
+ * group or market holding both and one class at each location. Both are
+ * optional so a client tolerates a server that predates them.
  */
 export const queryTrackingTargetCountsSchema = z.object({
+  /** Distinct queries paired with this location. */
+  queries: countSchema.optional(),
+  byClass: queryClassCountsSchema.optional(),
   /** Rows whose Subject is this location. */
   propertyQueries: countSchema,
   /** Rows whose Subject is a market holding this location. */
@@ -198,7 +242,15 @@ export type QueryTrackingTarget = z.output<typeof queryTrackingTargetSchema>
 export const queryTrackingGroupCountsSchema = z.object({
   /** Distinct queries paired with a member location. */
   queries: countSchema,
-  /** Markets whose `groupKey` is this group. */
+  /** Optional, as the three Subject counts below, for a server that predates them. */
+  byClass: queryClassCountsSchema.optional(),
+  /** Those queries whose Subject is a market. */
+  marketQueries: countSchema.optional(),
+  /** Those whose Subject is a location. */
+  propertyQueries: countSchema.optional(),
+  /** Those that are hand-picked. The three add up to `queries`. */
+  customQueries: countSchema.optional(),
+  /** Distinct markets holding a member location. A market that holds no location counts for no group. */
   markets: countSchema,
   answersPerSweep: countSchema,
 }).strict()
@@ -215,6 +267,12 @@ export const queryTrackingGroupSchema = z.object({
 export type QueryTrackingGroup = z.output<typeof queryTrackingGroupSchema>
 
 export const queryTrackingMarketCountsSchema = z.object({
+  /**
+   * Distinct queries with a pairing inside this market. A hand-picked query
+   * paired here counts, so this can exceed the two Subject counts below.
+   */
+  queries: countSchema.optional(),
+  byClass: queryClassCountsSchema.optional(),
   /** Rows whose Subject is this market. */
   marketQueries: countSchema,
   /** Rows whose Subject is one of this market's locations. */
@@ -258,6 +316,15 @@ export const queryTrackingFocusSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('not-asked') }).strict(),
 ])
 export type QueryTrackingFocus = z.output<typeof queryTrackingFocusSchema>
+
+/**
+ * The Type a Subject takes on an advanced portfolio: a market query is
+ * Non-brand and a location query is Branded. A hand-picked query takes either.
+ */
+export const QUERY_CLASS_BY_FOCUS = {
+  market: 'non-brand',
+  property: 'branded',
+} as const satisfies Partial<Record<QueryTrackingFocus['kind'], QueryClass>>
 
 export const queryTrackingTrackedRowSchema = z.object({
   queryId: queryTrackingIdSchema,
@@ -312,12 +379,7 @@ export const queryTrackingSummarySchema = z.object({
   asked: countSchema,
   notAsked: countSchema,
   /** Asked rows by Type: one class, both (`mixed`), or none (`unknown`). */
-  byClass: z.object({
-    branded: countSchema,
-    nonBrand: countSchema,
-    mixed: countSchema,
-    unknown: countSchema,
-  }).strict(),
+  byClass: queryClassCountsSchema,
   /** Asked rows by Subject (`focus.kind`). */
   byFocus: z.object({
     market: countSchema,
@@ -356,6 +418,17 @@ export const queryTrackingLimitsSchema = z.object({
       current: countSchema,
       next: countSchema,
     }).strict().optional(),
+    /** Each count minus `max`, never below zero. Optional like `left`. */
+    over: z.object({
+      current: countSchema,
+      next: countSchema,
+    }).strict().optional(),
+    /**
+     * True when a commit of this change is refused: it grows the plan past
+     * `max`. A plan already over the limit may still shrink, so `over.next`
+     * above zero does not decide it. Always false on a read. Optional like `left`.
+     */
+    exceeded: z.boolean().optional(),
   }).strict(),
 }).strict()
 export type QueryTrackingLimits = z.output<typeof queryTrackingLimitsSchema>
@@ -366,7 +439,8 @@ export const QUERY_TRACKING_THIN_MARKET_FLOOR = 4
 /**
  * A saved pattern asked as a market's own query in at least one market and not
  * in another market that holds a location. Only a pattern whose one variable
- * is `{market}` is read: no other pattern makes a market's own query.
+ * is a market name (`{market}` or `{submarket}`) is read: no other pattern
+ * makes a market's own query.
  */
 export const queryTrackingPatternGapSchema = z.object({
   templateId: queryTrackingIdSchema,
@@ -404,6 +478,13 @@ export const queryTrackingViewsSchema = z.object({
   /** `count` is the number of patterns, sorted by `templateId`. */
   patternGaps: z.object({
     count: countSchema,
+    /**
+     * Patterns the rule could read: the saved ones whose one variable is a
+     * market name, and any a market row froze that was deleted since. Zero
+     * means nothing was compared, not that no gap was found. `count` never
+     * exceeds it. Optional so a client tolerates a server that predates it.
+     */
+    compared: countSchema.optional(),
     patterns: z.array(queryTrackingPatternGapSchema),
   }).strict(),
 }).strict()
@@ -471,8 +552,43 @@ export const queryTrackingQueryChangeSchema = z.object({
   before: queryTrackingPlacementSchema,
   /** Placement in the reviewed candidate; a scoped removal keeps what remains. */
   after: queryTrackingPlacementSchema,
+  /**
+   * False when the change leaves this query exactly as the active plan has
+   * it: the same wording, the same pairings (location identity, search
+   * location and engines, type and its source) and the same market for each.
+   * True for every added and removed row. Optional so a client tolerates a
+   * server that predates it.
+   */
+  altered: z.boolean().optional(),
+  /**
+   * On the query a wording edit lands on: the id of the query that was
+   * reworded, which the same review lists as removed. Absent on every other row.
+   */
+  rewordedFrom: queryTrackingIdSchema.optional(),
 }).strict()
 export type QueryTrackingQueryChange = z.output<typeof queryTrackingQueryChangeSchema>
+
+/**
+ * One added or reused query whose Type the reviewed change would set against
+ * its Subject (`QUERY_CLASS_BY_FOCUS`), or a market query whose wording reads
+ * as Branded. A report: nothing is refused for it.
+ */
+export const queryTrackingTypeMismatchSchema = z.object({
+  queryId: queryTrackingIdSchema,
+  queryText: queryTrackingTextSchema,
+  /** The query's Subject in the reviewed candidate: a market or a location. */
+  focus: queryTrackingFocusSchema,
+  /** The Type that Subject takes. */
+  expectedQueryClass: queryClassSchema,
+  /** The row's Type in the reviewed candidate, as the tracked row reports it. */
+  queryClasses: z.array(queryClassSchema),
+  /**
+   * True for a market query whose wording the server classifier reads as
+   * Branded for one of its locations: it names the company or that location.
+   */
+  brandedWording: z.boolean(),
+}).strict()
+export type QueryTrackingTypeMismatch = z.output<typeof queryTrackingTypeMismatchSchema>
 
 /**
  * One market whose locations change in the reviewed candidate. A market keeps
@@ -492,6 +608,20 @@ export const queryTrackingMarketChangeSchema = z.object({
   emptied: z.boolean(),
 }).strict()
 export type QueryTrackingMarketChange = z.output<typeof queryTrackingMarketChangeSchema>
+
+/**
+ * One market whose own-query count changes in the reviewed candidate: the rows
+ * whose Subject is the market, the workspace read's `counts.marketQueries`.
+ * Its locations may all stay (see `marketChanges` for those that leave).
+ */
+export const queryTrackingMarketQueryChangeSchema = z.object({
+  marketKey: measurementV2StableKeySchema,
+  /** The count in the active plan. */
+  before: z.object({ marketQueries: countSchema }).strict(),
+  /** The count in the reviewed candidate. */
+  after: z.object({ marketQueries: countSchema }).strict(),
+}).strict()
+export type QueryTrackingMarketQueryChange = z.output<typeof queryTrackingMarketQueryChangeSchema>
 
 /** Provider work is a deduplicated execution-node count, not an assignment count. */
 export const queryTrackingWorkloadSchema = z.object({
@@ -528,6 +658,17 @@ export const queryTrackingPreviewResponseSchema = z.object({
    * when none does. Optional so a client tolerates a server that predates it.
    */
   marketChanges: z.array(queryTrackingMarketChangeSchema).optional(),
+  /**
+   * Advanced portfolios only: one row per market whose own-query count
+   * changes, sorted by key, empty when none does. Optional like `marketChanges`.
+   */
+  marketQueryChanges: z.array(queryTrackingMarketQueryChangeSchema).optional(),
+  /**
+   * Advanced portfolios only: the added and reused queries this change would
+   * leave with a Type their Subject does not take, empty when none. Optional
+   * like `marketChanges`.
+   */
+  typeMismatches: z.array(queryTrackingTypeMismatchSchema).optional(),
   workload: queryTrackingWorkloadSchema,
   /**
    * Advanced portfolios only. Optional so a client tolerates a server that

@@ -23,11 +23,34 @@ describe('research input helpers', () => {
     expect(() => expandResearchTemplate({ pattern: 'Services in {market}', variables: ['market'] }, scope)).toThrow()
   })
 
+  it('binds the location name and search location names beside the older ones, which keep their values', () => {
+    const market = { kind: 'market' as const, label: 'Lakeshore' }
+    const property = { kind: 'property' as const, label: 'Harbor Point' }
+    const chicago = { label: 'Chicago' }
+
+    expect(researchTemplateBindings(market, chicago)).toEqual({
+      market: 'Lakeshore', submarket: 'Lakeshore', location: 'Chicago', searchLocation: 'Chicago',
+    })
+    expect(researchTemplateBindings(property, chicago)).toEqual({
+      locationName: 'Harbor Point', property: 'Harbor Point', propertyBrand: 'Harbor Point', location: 'Chicago', searchLocation: 'Chicago',
+    })
+    // `{location}` stays the search location under a location Subject: it is never the location's name.
+    expect(expandResearchTemplate({ pattern: '{locationName} reviews in {location}', variables: ['locationName', 'location'] }, property, chicago)).toEqual({
+      bindings: { locationName: 'Harbor Point', location: 'Chicago' }, output: 'Harbor Point reviews in Chicago',
+    })
+    expect(expandResearchTemplate({ pattern: 'Homes in {searchLocation}', variables: ['searchLocation'] }, null, chicago)).toEqual({
+      bindings: { searchLocation: 'Chicago' }, output: 'Homes in Chicago',
+    })
+    // A name is bound only where its kind has a value.
+    expect(() => expandResearchTemplate({ pattern: '{locationName} reviews', variables: ['locationName'] }, market, chicago)).toThrow(/unavailable bindings: locationName/)
+    expect(() => expandResearchTemplate({ pattern: 'Homes in {searchLocation}', variables: ['searchLocation'] }, property)).toThrow(/unavailable bindings: searchLocation/)
+  })
+
   it('binds configured locations without a scope and validates bounded explicit destinations', () => {
     expect(expandResearchTemplate({ pattern: 'Services in {location}', variables: ['location'] }, null, { label: 'New York' })).toEqual({
       bindings: { location: 'New York' }, output: 'Services in New York',
     })
-    expect(researchTemplateBindings(undefined, { label: 'New York' })).toEqual({ location: 'New York' })
+    expect(researchTemplateBindings(undefined, { label: 'New York' })).toEqual({ location: 'New York', searchLocation: 'New York' })
     const run = { queries: ['one'], provider: 'openai', model: 'gpt-4.1', location: null }
     expect(MAX_RESEARCH_BATCH_RUNS).toBe(20)
     expect(MAX_RESEARCH_BATCH_QUERIES).toBe(50)

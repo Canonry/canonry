@@ -25,6 +25,7 @@ import {
   queryTrackingPreviewStale,
   queryTrackingProvenanceSchema,
   queryTrackingWorkspaceResponseSchema,
+  queryTemplateVariableKind,
   resolveProviderModel,
   RunKinds,
   RunStatuses,
@@ -42,13 +43,16 @@ import {
   type QueryTrackingChangeRow,
   type QueryTrackingDiff,
   type QueryTrackingEdit,
+  type QueryTrackingFocus,
   type QueryTrackingLimits,
   type QueryTrackingMarketChange,
+  type QueryTrackingMarketQueryChange,
   type QueryTrackingMode,
   type QueryTrackingMutation,
   type QueryTrackingPlacement,
   type QueryTrackingProvenance,
   type QueryTrackingQueryChange,
+  type QueryTrackingTypeMismatch,
   type QueryTrackingWorkload,
   type QueryTrackingWorkspaceResponse,
   type SimpleMeasurementDefinition,
@@ -95,7 +99,7 @@ import {
 } from './measurement-report-adapter.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
 import { planScopeOptions, simpleScopeOptions } from './measurement-scope-options.js'
-import { planQueryFocus } from './query-focus.js'
+import { planQueryFocus, subjectQueryClass } from './query-focus.js'
 import {
   distinctQueryClasses,
   planPlaceCounts,
@@ -1128,12 +1132,17 @@ function templateRecords(
   if (template.updatedAt !== addition.input.templateVersion || template.pattern !== addition.input.template) {
     throw validationError('The selected query template changed. Reload the template and preview again.')
   }
-  const unsupported = template.variables.filter(variable => variable !== 'market' && variable !== 'property')
+  // A variable is read by its kind, so a pattern saved under any alias expands (`QUERY_TEMPLATE_VARIABLE_NAMES`).
+  const marketNames = template.variables.filter(variable => queryTemplateVariableKind(variable) === 'market')
+  const locationNames = template.variables.filter(variable => queryTemplateVariableKind(variable) === 'locationName')
+  const unsupported = template.variables.filter(variable => !marketNames.includes(variable) && !locationNames.includes(variable))
   if (unsupported.length) {
-    throw validationError(`Query tracking templates support only {market} and {property}; found ${unsupported.map(variable => `{${variable}}`).join(', ')}.`)
+    throw validationError(`Query tracking templates support only {market} and {locationName}; found ${unsupported.map(variable => `{${variable}}`).join(', ')}.`)
   }
-  const needsMarket = template.variables.includes('market')
-  const needsProperty = template.variables.includes('property')
+  const needsMarket = marketNames.length > 0
+  const needsProperty = locationNames.length > 0
+  // Each label is bound under the names the pattern declares, so the frozen record keeps the pattern's own.
+  const named = (names: readonly string[], label: string) => Object.fromEntries(names.map(name => [name, label]))
   const expand = (bindings: Record<string, string>, scopedAudience: ResolvedAudience) => {
     const queryText = expandQueryTemplate(template.pattern, Object.fromEntries(
       template.variables.map(variable => [variable, bindings[variable] ?? '']),
@@ -1166,10 +1175,10 @@ function templateRecords(
   const scopes = new Map((plan.reportingScopes ?? []).map(scope => [scope.stableKey, scope]))
   const targets = new Map(plan.targets.map(target => [target.stableKey, target]))
   if (needsMarket && audience.marketKeys.length === 0) {
-    throw validationError('A template containing {market} needs a selected market.')
+    throw validationError(`A template containing {${marketNames[0]}} needs a selected market.`)
   }
   if (needsProperty && audience.targetKeys.length === 0) {
-    throw validationError('A template containing {property} needs a selected Property or group.')
+    throw validationError(`A template containing {${locationNames[0]}} needs a selected location or group.`)
   }
 
   if (needsMarket && needsProperty) {
@@ -1179,14 +1188,14 @@ function templateRecords(
       const selected = audience.targetKeys.filter(targetKey => marketTargets.includes(targetKey))
       if (selected.length === 0) throw validationError(`Market "${marketKey}" has no selected location.`)
       return selected.map(targetKey => expand(
-        { market: scope.label, property: targets.get(targetKey)?.label ?? targetKey },
+        { ...named(marketNames, scope.label), ...named(locationNames, targets.get(targetKey)?.label ?? targetKey) },
         { targetKeys: [targetKey], groupKeys: audience.groupKeys, marketKeys: [marketKey] },
       ))
     })
   }
   if (needsProperty) {
     return audience.targetKeys.map(targetKey => expand(
-      { property: targets.get(targetKey)?.label ?? targetKey },
+      named(locationNames, targets.get(targetKey)?.label ?? targetKey),
       { targetKeys: [targetKey], groupKeys: audience.groupKeys, marketKeys: audience.marketKeys },
     ))
   }
@@ -1194,7 +1203,7 @@ function templateRecords(
     const scope = scopes.get(marketKey)!
     const targetKeys = audience.targetKeys.filter(targetKey => scope.usageEdges.some(edge => edge.targetKey === targetKey))
     if (targetKeys.length === 0) throw validationError(`Market "${marketKey}" has no selected location.`)
-    return expand({ market: scope.label }, { targetKeys, groupKeys: audience.groupKeys, marketKeys: [marketKey] })
+    return expand(named(marketNames, scope.label), { targetKeys, groupKeys: audience.groupKeys, marketKeys: [marketKey] })
   })
 }
 
@@ -1381,24 +1390,71 @@ function placementIndex(plan: MeasurementPlanV2 | null): (queryId: string) => Qu
 }
 
 /**
+ * Everything a publish writes for a query's pairings, per query: each
+ * assignment's signature (location identity, search location and engines, type
+ * and its source) with its exact edge and the markets that report it. A null
+ * plan pairs nothing.
+ */
+function pairingSignaturesByQuery(plan: MeasurementPlanV2 | null): Map<string, Set<string>> {
+  const result = new Map<string, Set<string>>()
+  if (!plan) return result
+  const sign = frozenAssignmentSigner(plan)
+  const markets = marketKeysByEdge(plan)
+  for (const assignment of plan.assignments) {
+    const key = edgeKey(assignment)
+    // Who set the type is written by a publish and is not part of the measured signature, so it is signed here.
+    const signature = JSON.stringify([sign(assignment), assignment.classificationSource ?? null, key, markets.get(key) ?? []])
+    const signatures = result.get(assignment.queryId)
+    if (signatures) signatures.add(signature)
+    else result.set(assignment.queryId, new Set([signature]))
+  }
+  return result
+}
+
+function sameSet(left: ReadonlySet<string> | undefined, right: ReadonlySet<string> | undefined): boolean {
+  if ((left?.size ?? 0) !== (right?.size ?? 0)) return false
+  for (const value of left ?? []) {
+    if (!right?.has(value)) return false
+  }
+  return true
+}
+
+/**
  * One row per added, reused or removed query: active placement before, the
  * candidate's after. A scoped removal shows what remains. A no-op has none.
+ *
+ * `diff.reused` holds every existing query the change named, whether or not it
+ * moves. `altered` tells them apart: a query id keeps its wording, so a reused
+ * row is unaltered when its pairings are the same in both plans. `rewordedFrom`
+ * maps the query a wording edit lands on to the one it reworded.
  */
 function queryChanges(
   before: MeasurementPlanV2 | null,
   after: MeasurementPlanV2 | null,
   diff: QueryTrackingDiff,
+  rewordedFrom: ReadonlyMap<string, string>,
 ): QueryTrackingQueryChange[] {
   if (diff.noOp) return []
   const placedBefore = placementIndex(before)
   const placedAfter = placementIndex(after)
-  return (['added', 'reused', 'removed'] as const).flatMap(change => diff[change].map(row => ({
-    queryId: row.queryId,
-    queryText: row.queryText,
-    change,
-    before: placedBefore(row.queryId),
-    after: placedAfter(row.queryId),
-  })))
+  // Only a reused row can be unaltered, so a change that reuses nothing signs no plan.
+  const pairedBefore = pairingSignaturesByQuery(diff.reused.length > 0 ? before : null)
+  const pairedAfter = pairingSignaturesByQuery(diff.reused.length > 0 ? after : null)
+  const removedIds = new Set(diff.removed.map(row => row.queryId))
+  return (['added', 'reused', 'removed'] as const).flatMap(change => diff[change].map(row => {
+    // Named only when the same report lists the old wording as removed, so a reader can always pair the two rows.
+    const source = change === 'removed' ? undefined : rewordedFrom.get(row.queryId)
+    const reworded = source !== undefined && removedIds.has(source) ? source : undefined
+    return {
+      queryId: row.queryId,
+      queryText: row.queryText,
+      change,
+      before: placedBefore(row.queryId),
+      after: placedAfter(row.queryId),
+      altered: change !== 'reused' || !sameSet(pairedBefore.get(row.queryId), pairedAfter.get(row.queryId)),
+      ...(reworded === undefined ? {} : { rewordedFrom: reworded }),
+    }
+  }))
 }
 
 /**
@@ -1432,6 +1488,82 @@ function marketChanges(before: MeasurementPlanV2, after: MeasurementPlanV2): Que
 }
 
 type CandidateQueryRow = { id: string; query: string; provenance: string | null }
+
+/** Each query's Subject and Type in one plan, as its tracked row reports them. */
+function planSubjects(plan: MeasurementPlanV2): (queryId: string) => { focus: QueryTrackingFocus; queryClasses: QueryClass[] } {
+  const focusOf = planQueryFocus(plan)
+  const nodeKeys = new Set(plan.executionNodes.map(node => node.stableKey))
+  const classes = new Map<string, QueryClass[]>()
+  for (const assignment of plan.assignments) {
+    if (!nodeKeys.has(assignment.executionNodeKey)) continue
+    const assigned = classes.get(assignment.queryId)
+    if (assigned) assigned.push(assignment.queryClass)
+    else classes.set(assignment.queryId, [assignment.queryClass])
+  }
+  return queryId => ({ focus: focusOf(queryId), queryClasses: distinctQueryClasses(classes.get(queryId) ?? []) })
+}
+
+/**
+ * The two advanced preview reports that read each query's Subject before and
+ * after the change. Both are reports: a commit publishes whatever they list.
+ *
+ * `marketQueryChanges` has one row per market whose own-query count differs,
+ * counted as the workspace read counts `counts.marketQueries`. A market can
+ * lose every query of its own and keep its locations through their own
+ * queries, which `marketChanges` never reports.
+ *
+ * `typeMismatches` lists the added and reused queries the change would leave
+ * with a Type their Subject does not take (`subjectQueryClass`), and a market
+ * query whose wording the existing classifier reads as Branded for one of its
+ * locations. A row the change leaves with the Subject and Type it already had
+ * is old state, not this change's doing, and is not listed.
+ */
+function subjectReports(
+  state: WorkspaceState,
+  candidate: Candidate,
+  tracked: readonly SummarizedRow[],
+): { marketQueryChanges?: QueryTrackingMarketQueryChange[]; typeMismatches?: QueryTrackingTypeMismatch[] } {
+  const active = state.active
+  const plan = candidate.plan
+  if (!active || !plan) return {}
+  const before = planSubjects(active.plan)
+
+  const ownQueries = { before: new Map<string, number>(), after: new Map<string, number>() }
+  const count = (counts: Map<string, number>, focus: QueryTrackingFocus): void => {
+    if (focus.kind === 'market') counts.set(focus.key, (counts.get(focus.key) ?? 0) + 1)
+  }
+  // The rows the workspace read lists for the active plan.
+  for (const queryId of displayIds(new Map(state.queryRows.map(row => [row.id, row])), active.plan)) count(ownQueries.before, before(queryId).focus)
+  for (const row of tracked) count(ownQueries.after, row.focus)
+  // Query tracking never adds or drops a market, so the active plan lists them all.
+  const marketQueryChanges = (active.plan.reportingScopes ?? []).flatMap(scope => {
+    const was = ownQueries.before.get(scope.stableKey) ?? 0
+    const next = ownQueries.after.get(scope.stableKey) ?? 0
+    return was === next ? [] : [{ marketKey: scope.stableKey, before: { marketQueries: was }, after: { marketQueries: next } }]
+  }).sort((left, right) => compareText(left.marketKey, right.marketKey))
+
+  const rows = new Map(tracked.map(row => [row.queryId, row]))
+  const targets = new Map(plan.targets.map(target => [target.stableKey, target]))
+  const brandNames = effectiveBrandNames(state.project)
+  const typeMismatches: QueryTrackingTypeMismatch[] = []
+  for (const change of candidate.changes) {
+    const row = change.change === 'removed' ? undefined : rows.get(change.queryId)
+    if (!row) continue
+    const expectedQueryClass = subjectQueryClass(row.focus)
+    if (expectedQueryClass === null) continue
+    const brandedWording = row.focus.kind === 'market' && row.assignments.some(assignment =>
+      proposeQueryClassForTarget(row.queryText, brandNames, targets.get(assignment.targetKey)) === 'branded')
+    const typed = row.queryClasses.length === 1 && row.queryClasses[0] === expectedQueryClass
+    if (typed && !brandedWording) continue
+    const was = before(row.queryId)
+    if (JSON.stringify([was.focus, was.queryClasses]) === JSON.stringify([row.focus, row.queryClasses])) continue
+    typeMismatches.push({
+      queryId: row.queryId, queryText: row.queryText, focus: row.focus, expectedQueryClass,
+      queryClasses: row.queryClasses, brandedWording,
+    })
+  }
+  return { marketQueryChanges, typeMismatches }
+}
 
 function planSnapshot(plan: MeasurementPlanV2 | null, queryId: string) {
   return plan?.querySnapshots.find(snapshot => snapshot.queryId === queryId) ?? null
@@ -1820,6 +1952,7 @@ function buildSimpleCandidate(
   const reusedQueryIds = new Set<string>()
   const mutatedQueryIds = new Set<string>()
   const scopedRemovalQueryIds = new Set<string>()
+  const rewordedFrom = new Map<string, string>()
   for (const edit of mutation.edits ?? []) {
     if (edit.audience !== undefined || edit.queryClass != null) {
       throw validationError('Audience selection and query-class overrides require an active advanced measurement plan.')
@@ -1833,6 +1966,9 @@ function buildSimpleCandidate(
       queryText: edit.text,
       provenance: { source: 'manual', sourceId: null, capturedAt: manualCapturedAt },
     }, reusedQueryIds)
+    // The row the new wording landed on, new or already in the basket.
+    const landedId = candidateIdsForText(state, null, rows, normalizeText(edit.text)).at(0)
+    if (landedId !== undefined && !rewordedFrom.has(landedId)) rewordedFrom.set(landedId, edit.queryId)
   }
   for (const removal of mutation.removals) {
     if (removal.audience !== undefined) {
@@ -1868,7 +2004,7 @@ function buildSimpleCandidate(
     reusedQueryIds,
     mutatedQueryIds,
     diff,
-    changes: queryChanges(null, null, diff),
+    changes: queryChanges(null, null, diff, rewordedFrom),
     workload: workloadDiff(beforeWork, nextWork),
   }
 }
@@ -1996,6 +2132,7 @@ function applyAdvancedEdit(
   mutatedQueryIds: Set<string>,
   scopedRemovalQueryIds: Set<string>,
   answeredQueryIds: ReadonlySet<string>,
+  rewordedFrom: Map<string, string>,
 ): MeasurementPlanV2 {
   const snapshot = planSnapshot(plan, edit.queryId)
   const row = rows.get(edit.queryId)
@@ -2066,8 +2203,19 @@ function applyAdvancedEdit(
       const existingNode = plan.executionNodes.find(node => node.queryId === newQueryId && contextKey(node.context) === contextKey(record.node.context))
       const existingAssignment = existingNode ? plan.assignments.find(candidate => assignmentKey(candidate.targetKey, candidate.queryId, candidate.executionNodeKey)
         === assignmentKey(record.target.stableKey, newQueryId, existingNode.stableKey)) : undefined
-      if (existingAssignment && (existingAssignment.queryClass !== record.queryClass || existingAssignment.classificationSource !== record.classificationSource)) {
-        throw validationError('The destination query uses different classification settings. Review that query separately.')
+      if (existingAssignment && existingAssignment.queryClass !== record.queryClass) {
+        throw validationError(
+          'That wording is already tracked with a different type. Change that query\'s type first, or use different wording.',
+          { check: 'edit-destination-type-differs', displayToOperator: true },
+        )
+      }
+      // Same type, set a different way (by the server there, by an operator here, or the reverse):
+      // the two cannot be folded into one pairing, and there is no type to change.
+      if (existingAssignment && existingAssignment.classificationSource !== record.classificationSource) {
+        throw validationError(
+          'That wording is already tracked here. Use different wording, or stop this query instead.',
+          { check: 'edit-destination-type-source-differs', displayToOperator: true },
+        )
       }
       const edge = existingNode
         ? { queryId: newQueryId, targetKey: record.target.stableKey, executionNodeKey: existingNode.stableKey }
@@ -2094,6 +2242,7 @@ function applyAdvancedEdit(
   else if (stillAsked || selectedEdges.length > 0) scopedRemovalQueryIds.add(edit.queryId)
   mutatedQueryIds.add(edit.queryId)
   mutatedQueryIds.add(newQueryId)
+  if (!rewordedFrom.has(newQueryId)) rewordedFrom.set(newQueryId, edit.queryId)
   return plan
 }
 
@@ -2110,12 +2259,13 @@ function buildAdvancedCandidate(
   const mutatedQueryIds = new Set<string>()
   const scopedRemovalQueryIds = new Set<string>()
   const fullRemovals = new Set<string>()
+  const rewordedFrom = new Map<string, string>()
 
   // One read, and only when a wording is edited: which of those queries hold answers.
   const rewordedIds = unique((mutation.edits ?? []).filter(edit => edit.text !== undefined).map(edit => edit.queryId))
   const answeredQueryIds = rewordedIds.length > 0 ? queriesWithAnswers(db, rewordedIds) : new Set<string>()
   for (const edit of mutation.edits ?? []) {
-    plan = applyAdvancedEdit(state, plan, rows, edit, manualCapturedAt, reusedQueryIds, mutatedQueryIds, scopedRemovalQueryIds, answeredQueryIds)
+    plan = applyAdvancedEdit(state, plan, rows, edit, manualCapturedAt, reusedQueryIds, mutatedQueryIds, scopedRemovalQueryIds, answeredQueryIds, rewordedFrom)
   }
 
   for (const removal of mutation.removals) {
@@ -2191,7 +2341,7 @@ function buildAdvancedCandidate(
     reusedQueryIds,
     mutatedQueryIds,
     diff,
-    changes: queryChanges(active.plan, plan, diff),
+    changes: queryChanges(active.plan, plan, diff, rewordedFrom),
     marketChanges: marketChanges(active.plan, plan),
     workload: workloadDiff(advancedWorkload(active.plan), advancedWorkload(plan)),
   }
@@ -2214,11 +2364,10 @@ function queryLimits(candidate: Candidate): QueryTrackingLimits | undefined {
   )
 }
 
-/** A plan already over the limit may still shrink, but no change may grow it past the limit. */
+/** Refuses exactly the change a preview reports as `limits.queries.exceeded`: the rule is `queryLimitCounts`'s. */
 function assertQueryLimit(limits: QueryTrackingLimits | undefined): void {
-  if (!limits) return
+  if (!limits?.queries.exceeded) return
   const { current, next, max } = limits.queries
-  if (next <= max || next <= current) return
   throw validationError(
     `This change would track ${next.toLocaleString('en-US')} queries, over the ${max.toLocaleString('en-US')}-query limit. Remove queries or add fewer, then preview the change again.`,
     { check: 'query-limit-exceeded', current, next, max, displayToOperator: true },
@@ -2403,16 +2552,18 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
     const reviewedAt = new Date().toISOString()
     const candidate = buildCandidate(app.db, state, parsed.data, opts, reviewedAt)
     const limits = queryLimits(candidate)
+    const tracked = trackedRows(app.db, state, candidate.queryRows, candidate.plan, opts)
     return queryTrackingPreviewResponseSchema.parse({
       mode: state.mode,
       workspaceVersion: state.workspaceVersion,
       previewToken: mutationPreviewToken(candidate, parsed.data, reviewedAt),
       reviewedAt,
       active: activeDto(state.active),
-      tracked: trackedRows(app.db, state, candidate.queryRows, candidate.plan, opts),
+      tracked,
       diff: candidate.diff,
       changes: candidate.changes,
       ...(candidate.marketChanges ? { marketChanges: candidate.marketChanges } : {}),
+      ...subjectReports(state, candidate, tracked),
       workload: candidate.workload,
       ...(limits ? { limits } : {}),
     })
