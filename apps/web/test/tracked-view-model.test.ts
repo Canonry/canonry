@@ -6,8 +6,12 @@ import {
   DEFAULT_TRACKED_SORT,
   engineSignal,
   engineSortKey,
+  marksNote,
+  marksSubject,
   nextTrackedSort,
+  NOT_ASKED,
   resultClasses,
+  rowSignal,
   sortTrackedRows,
   sourceDetailLabel,
   sourceLabel,
@@ -189,7 +193,7 @@ describe('statusLabel', () => {
 describe('coverageByQuery', () => {
   const results: TrackedResults = {
     rows: [
-      { queryId: 'query-1', queryClass: 'branded', engines: [{ provider: 'openai', mentioned: true, cited: null, answers: 3, mentionedAnswers: 2, citedAnswers: 0, uncheckedSourceAnswers: 3 }] },
+      { queryId: 'query-1', queryClass: 'branded', engines: [{ provider: 'openai', mentioned: true, cited: null, expectedAnswers: 4, answers: 3, mentionedAnswers: 2, citedAnswers: 0, uncheckedSourceAnswers: 3 }] },
       { queryId: 'query-1', queryClass: 'non-brand', engines: [{ provider: 'openai', mentioned: false, cited: false, answers: 3, mentionedAnswers: 0, citedAnswers: 0 }] },
       { queryId: 'query-2', queryClass: 'non-brand', engines: [{ provider: 'gemini', mentioned: false, cited: true }] },
     ],
@@ -198,7 +202,8 @@ describe('coverageByQuery', () => {
   it('keys each signal by query and type, and never reads one type for the other', () => {
     const coverage = coverageByQuery(results)
     // Cited stays not checked beside a mention: neither signal is read from the other.
-    expect(engineSignal(coverage, 'query-1', 'branded', 'openai')).toEqual({ mentioned: true, cited: null, answers: 3, mentionedAnswers: 2, citedAnswers: 0, uncheckedSourceAnswers: 3 })
+    // Every count is carried as sent, the answers asked for among them: the bubble says why a signal is not checked from those.
+    expect(engineSignal(coverage, 'query-1', 'branded', 'openai')).toStrictEqual({ mentioned: true, cited: null, expectedAnswers: 4, answers: 3, mentionedAnswers: 2, citedAnswers: 0, uncheckedSourceAnswers: 3 })
     expect(engineSignal(coverage, 'query-1', 'non-brand', 'openai')).toMatchObject({ mentioned: false, cited: false })
     // query-2 has a non-brand result only: its branded pairing is not checked.
     expect(engineSignal(coverage, 'query-2', 'non-brand', 'gemini')).toMatchObject({ mentioned: false, cited: true })
@@ -212,6 +217,129 @@ describe('coverageByQuery', () => {
     expect(coverageByQuery(undefined)).toBeUndefined()
     expect(coverageByQuery(null)).toBeUndefined()
     expect(engineSignal(undefined, 'query-1', 'branded', 'openai')).toBeUndefined()
+  })
+})
+
+describe('rowSignal', () => {
+  const on = (...providers: string[]) => ({ providers, models: {}, location: null })
+  const linked = (targetKey: string, ...contexts: ReturnType<typeof on>[]): Assignment => ({ ...assignment(targetKey), contexts })
+  const [two, three, simple, waiting, notAsked] = toTrackedRows(workspace([
+    // Asked on two of the three engines shown, from two search locations between them.
+    row('two', { focus: { kind: 'custom' }, queryClasses: ['non-brand'], assignments: [linked('harbor-point', on('openai')), linked('riverside', on('openai'), on('gemini'))] }),
+    row('three', { focus: { kind: 'market', key: 'uptown' }, queryClasses: ['non-brand'], assignments: [linked('harbor-point', on('claude', 'gemini', 'openai'))] }),
+    // A simple site's row has no location link: it is asked on the project's engines.
+    row('simple', { focus: { kind: 'company' }, queryClasses: ['non-brand'], assignments: [] }),
+    row('waiting', { focus: { kind: 'custom' }, queryClasses: ['non-brand'], state: 'awaiting-sweep', lastMeasuredAt: null, assignments: [linked('harbor-point', on('openai'))] }),
+    row('not-asked', { focus: { kind: 'not-asked' }, queryClasses: [], state: 'awaiting-sweep', assignments: [] }),
+  ]), []) as [ReturnType<typeof only>, ReturnType<typeof only>, ReturnType<typeof only>, ReturnType<typeof only>, ReturnType<typeof only>]
+  const coverage = coverageByQuery({
+    rows: [
+      { queryId: 'two', queryClass: 'non-brand', engines: [{ provider: 'openai', mentioned: true, cited: false }] },
+      // From before its engines changed: the sweep still holds a Claude result for a row no longer asked on Claude.
+      { queryId: 'waiting', queryClass: 'non-brand', engines: [{ provider: 'claude', mentioned: false, cited: false }] },
+      // A result under a query that is not asked now is not its result.
+      { queryId: 'not-asked', queryClass: 'unknown', engines: [{ provider: 'openai', mentioned: true, cited: true }] },
+    ],
+  })
+
+  it('gives no cell on an engine the row is not asked on, and Not checked on one it is', () => {
+    expect(rowSignal(two!, coverage, 'non-brand', 'openai')).toMatchObject({ mentioned: true, cited: false })
+    // Asked on Gemini at one of its two locations, with no result yet: a sweep gap.
+    expect(rowSignal(two!, coverage, 'non-brand', 'gemini')).toBeNull()
+    expect(rowSignal(two!, coverage, 'non-brand', 'claude')).toBe(NOT_ASKED)
+    expect(['claude', 'gemini', 'openai'].map(provider => rowSignal(three!, coverage, 'non-brand', provider))).toEqual([null, null, null])
+  })
+
+  it('reads a row with no location link of its own as asked on every engine shown', () => {
+    expect(['claude', 'openai'].map(provider => rowSignal(simple!, coverage, 'non-brand', provider))).toEqual([null, null])
+  })
+
+  it('still shows a result the sweep holds on an engine the row is no longer asked on', () => {
+    expect(rowSignal(waiting!, coverage, 'non-brand', 'claude')).toMatchObject({ mentioned: false, cited: false })
+    expect(rowSignal(waiting!, coverage, 'non-brand', 'gemini')).toBe(NOT_ASKED)
+  })
+
+  it('gives a query that is not asked no cell on any engine, loaded or not', () => {
+    expect(['claude', 'openai'].map(provider => rowSignal(notAsked!, coverage, 'unknown', provider))).toEqual([NOT_ASKED, NOT_ASKED])
+    expect(rowSignal(notAsked!, undefined, 'unknown', 'openai')).toBe(NOT_ASKED)
+  })
+
+  it('is still loading on an engine the row is asked on, and has nothing to wait for on one it is not', () => {
+    expect(rowSignal(two!, undefined, 'non-brand', 'openai')).toBeUndefined()
+    expect(rowSignal(two!, undefined, 'non-brand', 'claude')).toBe(NOT_ASKED)
+  })
+})
+
+describe('marksSubject', () => {
+  const labels = new Map(workspace([]).targets.map(target => [target.stableKey, target.label]))
+  const market = only(row('market', { focus: { kind: 'market', key: 'uptown' }, assignments: [assignment('harbor-point'), assignment('northbridge'), assignment('riverside')] }))
+  const handPicked = only(row('picked', { focus: { kind: 'custom' }, assignments: twelve }))
+
+  it('names the one location a row is asked for', () => {
+    const location = only(row('location', { focus: { kind: 'property', key: 'northbridge' }, assignments: [assignment('northbridge', 'branded')] }))
+    expect(marksSubject(location, location.tracked.assignments, labels)).toBe('Acme Homes Northbridge')
+    // A location the workspace no longer names keeps its key.
+    expect(marksSubject(location, [assignment('gone')], labels)).toBe('gone')
+  })
+
+  it('says any of the locations a market row is asked for, with the market', () => {
+    expect(marksSubject(market, market.tracked.assignments, labels)).toBe('Any of 3 locations in Uptown')
+  })
+
+  it('counts the links given, not the market: a Place that leaves one location names it', () => {
+    // The market holds three locations and the row is asked for all three. Under a location Place, or a group holding one of them, one link is left.
+    expect(market.subject).toMatchObject({ kind: 'market', locationCount: 3 })
+    expect(marksSubject(market, market.tracked.assignments.filter(link => link.targetKey === 'riverside'), labels)).toBe('Acme Homes Riverside')
+    expect(marksSubject(market, market.tracked.assignments.slice(0, 2), labels)).toBe('Any of 2 locations in Uptown')
+  })
+
+  it('counts a location once however many links name it', () => {
+    expect(marksSubject(market, [assignment('riverside', 'branded'), assignment('riverside', 'non-brand')], labels)).toBe('Acme Homes Riverside')
+  })
+
+  it('says any of the locations a hand-picked row is asked for, with no place to name', () => {
+    expect(marksSubject(handPicked, handPicked.tracked.assignments, labels)).toBe('Any of 12 locations')
+  })
+
+  it('names, for each type of a row asked both ways, the locations asked under that type', () => {
+    const mixed = only(row('mixed', { focus: { kind: 'custom' }, queryClasses: ['branded', 'non-brand'], assignments: [assignment('harbor-point', 'branded'), assignment('northbridge', 'non-brand'), assignment('riverside', 'non-brand')] }))
+    const links = mixed.tracked.assignments
+    // Branded and non-brand results are never combined: the Branded pair is Harbor Point's alone.
+    expect(marksSubject(mixed, links, labels, 'branded')).toBe('Acme Homes Harbor Point')
+    expect(marksSubject(mixed, links, labels, 'non-brand')).toBe('Any of 2 locations')
+    // With no type asked for, every location the row is asked for.
+    expect(marksSubject(mixed, links, labels)).toBe('Any of 3 locations')
+  })
+
+  it('falls back to the row\'s links where none carries the type asked for', () => {
+    // A link names one type. A row with no type set joins its results under "unknown", which no link carries.
+    const untyped = only(row('untyped', { focus: { kind: 'custom' }, queryClasses: [], assignments: [assignment('harbor-point', null), assignment('riverside', null)] }))
+    expect(marksSubject(untyped, untyped.tracked.assignments, labels, 'unknown')).toBe('Any of 2 locations')
+    // One location asked both ways from two search locations is sent as one link, of one type.
+    const both = only(row('both', { focus: { kind: 'property', key: 'riverside' }, queryClasses: ['branded', 'non-brand'], assignments: [assignment('riverside', 'branded')] }))
+    expect(marksSubject(both, both.tracked.assignments, labels, 'non-brand')).toBe('Acme Homes Riverside')
+  })
+
+  it('names no one for a row with no location link', () => {
+    const company = only(row('company', { focus: { kind: 'company' }, assignments: [] }))
+    expect(marksSubject(company, [], labels)).toBeUndefined()
+    expect(marksSubject(market, [], labels)).toBeUndefined()
+  })
+})
+
+describe('marksNote', () => {
+  it('says each query is marked for its own locations where the list is not one location\'s', () => {
+    expect(marksNote({ rootLabel: 'All of Acme Homes' })).toEqual({
+      label: "Each query's own locations",
+      detail: 'M and C are for the locations a query is asked for: one location for a location query, any location in the market for a market query. Another of your locations in the answer does not light them.',
+    })
+  })
+
+  it('names the one location a list is narrowed to, and how the same query reads under the whole project', () => {
+    const detail = 'M and C here are for Harbor Point alone. Under All of Acme Homes a market query is lit when any location in its market is mentioned or cited.'
+    expect(marksNote({ location: 'Harbor Point', rootLabel: 'All of Acme Homes' })).toEqual({ label: 'Harbor Point only', detail })
+    // On the location's own page the heading already names it.
+    expect(marksNote({ location: 'Harbor Point', label: 'This location only', rootLabel: 'All of Acme Homes' })).toEqual({ label: 'This location only', detail })
   })
 })
 

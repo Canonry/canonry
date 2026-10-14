@@ -292,7 +292,7 @@ test('lists a location query with its type and the last sweep\'s chips, and one 
   expect(rowOf(HARBOR_NEW).querySelector('.tracked-cell-status')!.textContent).toBe('First answers')
   // The legend sits beside the first table of chips, with no note while the sweep matches the tracking.
   const legend = within(region('Queries about this location')).getByRole('list')
-  expect(visibleText(legend)).toBe('M MentionedC CitedMNoMNot checked')
+  expect(visibleText(legend)).toBe('M MentionedC CitedM Not mentionedC Not citedMNot checked')
   expect(within(main()).queryByText(/^Tracking changed/)).toBeNull()
   expect(within(main()).queryByText('Results unavailable')).toBeNull()
 })
@@ -733,7 +733,7 @@ test('says the results are unavailable beside the hand-picked list when the loca
   expect(visibleText(status)).toBe('Results unavailableRetry')
   noteButton('Results unavailable', "The last sweep's results did not load, so every chip reads Not checked.", status)
   expectTouchAndFocus(within(status).getByRole('button', { name: 'Retry results' }))
-  expect(visibleText(within(picked).getByRole('list'))).toBe('M MentionedC CitedMNoMNot checked')
+  expect(visibleText(within(picked).getByRole('list'))).toBe('M MentionedC CitedM Not mentionedC Not citedMNot checked')
   expect(chips(PICKED)).toEqual(['OpenAI: Not checked', 'Gemini: Not checked'])
   expect([within(own).queryByRole('status'), within(own).queryByRole('list')]).toEqual([null, null])
 

@@ -192,7 +192,7 @@ test('saved results retain their saved scope independently from the current form
   const pair = row.getByRole('button', { name: 'OpenAI: Named, Not cited' })
   expect(pair.textContent).toBe('NC')
   // The legend names what the two chips check: the project's name and its domain.
-  expect(results.getAllByRole('listitem').slice(0, 4).map(item => item.textContent)).toEqual(['N Names demo', 'C Cites demo.example', 'NNo', 'NNot checked'])
+  expect(results.getAllByRole('listitem').slice(0, 5).map(item => item.textContent)).toEqual(['N Names demo', 'C Cites demo.example', 'N Not named', 'C Not cited', 'NNot checked'])
   // What the two signals check is one short label; its sentence is the label's tooltip and part of its name.
   const checked = results.getByRole('button', { name: `${RESEARCH_COPY.methodologySummary}. ${RESEARCH_COPY.methodology}` })
   expect(checked.textContent).toBe('Company names only')

@@ -6,6 +6,7 @@ import type {
 } from '@ainyc/canonry-contracts'
 
 import type { QueriesSectionProps } from '../DiscoverySection.js'
+import { plannedContext } from './tracking-contexts.js'
 
 export type TrackingAction =
   | { kind: 'add' }
@@ -28,14 +29,24 @@ export type TrackingDraft = {
   queryClass: 'keep' | 'auto' | 'branded' | 'non-brand'
 }
 
-export function defaultTrackingDraft(selection: NonNullable<QueriesSectionProps['selection']>): TrackingDraft {
+/**
+ * A clean draft for the place given. With the `workspace`, a draft for a new
+ * query starts on the plan's own search location and engines when every row
+ * of the plan is asked one way; a plan asked several ways leaves the choice
+ * open.
+ */
+export function defaultTrackingDraft(
+  selection: NonNullable<QueriesSectionProps['selection']>,
+  workspace?: Pick<QueryTrackingWorkspaceResponse, 'defaultContexts' | 'tracked'>,
+): TrackingDraft {
+  const planned = workspace ? plannedContext(workspace) : undefined
   return {
     source: 'manual', text: '', templateId: '', templateVersion: '', template: '', researchRunQueryId: '', discoveryProbeId: '',
     wholeSite: false,
     targetKeys: selection.measurementScope === 'property' && selection.measurementScopeKey ? [selection.measurementScopeKey] : [],
     groupKeys: selection.measurementScope === 'group' && selection.measurementScopeKey ? [selection.measurementScopeKey] : [],
     marketKeys: selection.measurementScope === 'market' && selection.measurementScopeKey ? [selection.measurementScopeKey] : [],
-    contexts: [],
+    contexts: planned ? [planned] : [],
     queryClass: 'auto',
   }
 }

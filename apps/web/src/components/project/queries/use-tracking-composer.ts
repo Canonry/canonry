@@ -104,7 +104,7 @@ export function useTrackingComposer({
   useEffect(() => {
     if (unavailableScope) return
     if (!pendingTrackingSource) return
-    const next = defaultTrackingDraft(pendingTrackingSource.trackingSelection ?? selection)
+    const next = defaultTrackingDraft(pendingTrackingSource.trackingSelection ?? selection, workspace)
     setAction({ kind: 'add' })
     setDraft(pendingTrackingSource.source === 'research'
       ? { ...next, source: 'research', researchRunQueryId: pendingTrackingSource.researchRunQueryId }
@@ -131,7 +131,7 @@ export function useTrackingComposer({
 
   function openAdd(source: TrackingDraft['source'] = 'manual', text = '') {
     setAction({ kind: 'add' })
-    setDraft({ ...defaultTrackingDraft(selection), source, text })
+    setDraft({ ...defaultTrackingDraft(selection, workspace), source, text })
     setReviewedMutation(null)
     onTrackingQueryIdChange?.(undefined)
   }

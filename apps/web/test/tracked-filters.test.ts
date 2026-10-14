@@ -165,8 +165,8 @@ describe('Result', () => {
     expect(lists('not-checked', [BOTH, signal(true, null)])).toBe(true)
     expect(lists('not-checked', [BOTH, signal(null, false)])).toBe(true)
     expect(lists('not-checked', [BOTH, signal(false, false)])).toBe(false)
-    // A row with no engine cell at all was never checked.
-    expect(lists('not-checked', [])).toBe(true)
+    // A row with no engine cell is asked on no engine. Not asked is not a sweep gap, so no Result lists it.
+    for (const result of ['not-mentioned', 'not-cited', 'not-checked'] as const) expect([result, lists(result, [])]).toEqual([result, false])
   })
 
   test('a cell that is still loading matches no result yet', () => {
@@ -189,7 +189,7 @@ describe('Result', () => {
     // Not checked reads the same way: a Branded cell with no result is not a Non-brand one.
     const unchecked = [...cellsOf('non-brand', [BOTH]), ...cellsOf('branded', [null])]
     expect([listsMixed('non-brand', 'not-checked', unchecked), listsMixed('branded', 'not-checked', unchecked)]).toEqual([false, true])
-    // No chips of the type asked for: that type was never checked.
-    expect(listsMixed('non-brand', 'not-checked', cellsOf('branded', [BOTH]))).toBe(true)
+    // No chips of the type asked for: nothing of that type was asked, so nothing went unchecked.
+    expect(listsMixed('non-brand', 'not-checked', cellsOf('branded', [BOTH]))).toBe(false)
   })
 })

@@ -26,7 +26,7 @@ import { VisibilityScopePicker } from '../../VisibilityScopePicker.js'
 import { TrackedBulkBar } from '../advanced/TrackedBulkBar.js'
 import { marketsHolding, subjectPlacement, TRACKED_BULK_MAX, type TrackedSubjectTarget } from '../advanced/tracked-actions.js'
 import { subjectKindLabel } from '../advanced/tracked-view-model.js'
-import { contextInput, contextLabel, contextLabels, uniqueContextInputs } from '../tracking-contexts.js'
+import { contextLabels, sheetContextChoices } from '../tracking-contexts.js'
 import { RESEARCH_TABLE, RESEARCH_TD, RESEARCH_TH } from './ResearchResults.js'
 
 /** One ticked row of a Research table: a saved research query or a Find ideas result. */
@@ -146,7 +146,7 @@ export function TrackResearchBar({ id, projectName, workspace, items, sweepActiv
         <TrackResearchSheet
           projectName={projectName}
           workspace={workspace}
-          contextChoices={uniqueContextInputs(workspace.defaultContexts.map(contextInput)).map(input => ({ label: contextLabel(input), input }))}
+          contextChoices={sheetContextChoices(workspace)}
           sweepActive={sweepActive}
           nextSweepDate={nextSweepDate}
           items={items}

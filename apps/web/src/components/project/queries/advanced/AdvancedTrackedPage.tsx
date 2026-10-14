@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, CirclePause, Clock, Download, Inbox, Info, MapPinOff, Plus, SearchX } from 'lucide-react'
+import { AlertTriangle, CirclePause, Clock, Download, Inbox, Info, MapPin, MapPinOff, Plus, SearchX } from 'lucide-react'
 import type { QueryClass, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
 import { getApiV1ProjectsByNameQueryTrackingQueryKey } from '@ainyc/canonry-api-client/react-query'
 
@@ -40,7 +40,7 @@ import { TRACKED_BULK_MAX, type TrackedPlace } from './tracked-actions.js'
 import { downloadTrackedCsv, trackedRowsCsv } from './tracked-export.js'
 import { activeFilterCount, DEFAULT_TRACKED_FILTERS, matchesTrackedFilters, trackedFiltersPatch, type TrackedResultCell } from './tracked-filters.js'
 import type { TrackedFilters, TrackedRowAction, TrackedRowVm, TrackedType } from './tracked-types.js'
-import { DEFAULT_TRACKED_SORT, engineSignal, resultClasses, sortTrackedRows, toTrackedRows, type TrackedCoverage, type TrackedSort } from './tracked-view-model.js'
+import { DEFAULT_TRACKED_SORT, marksNote, marksSubject, NOT_ASKED, resultClasses, rowSignal, sortTrackedRows, toTrackedRows, type TrackedCoverage, type TrackedSort } from './tracked-view-model.js'
 
 type PageProps = TrackedQueriesPageProps & TrackedPageHostProps & { composer: TrackingComposerState }
 
@@ -72,12 +72,12 @@ function placeOf(workspace: QueryTrackingWorkspaceResponse, scope: string, key: 
   return undefined
 }
 
-/** A row's engine cells for the Result filter, one per engine and type. A row that is not asked has no result to wait for. */
+/** A row's engine cells for the Result filter, one per engine and type it is asked on. A query that is not asked has none. */
 function resultCells(row: TrackedRowVm, engines: readonly string[], coverage: TrackedCoverage | undefined): TrackedResultCell[] {
-  return engines.flatMap(engine => resultClasses(row).map(queryClass => ({
-    queryClass: queryClass as QueryClass,
-    signal: row.status === 'not-asked' ? null : engineSignal(coverage, row.queryId, queryClass, engine),
-  })))
+  return engines.flatMap(engine => resultClasses(row).flatMap(queryClass => {
+    const signal = rowSignal(row, coverage, queryClass, engine)
+    return signal === NOT_ASKED ? [] : [{ queryClass: queryClass as QueryClass, signal }]
+  }))
 }
 
 /** The Place control in the project's header, which is outside this page. Choosing a place from it leaves the focus on it. */
@@ -216,6 +216,12 @@ function TrackedPage({
     }
   }, [placeRows, filters, tokens, engines, results.coverage])
   const sorted = useMemo(() => sortTrackedRows(listed.rows, sort, results.coverage), [listed.rows, sort, results.coverage])
+  // Whose mention or citation a row's marks are here: the locations it is asked for in the Place, as the results read them.
+  const marksFor = useMemo(() => {
+    const targetLabels = new Map(workspace.targets.map(target => [target.stableKey, target.label]))
+    const within = { measurementScope, measurementScopeKey, queryClass: 'all' as const }
+    return (row: TrackedRowVm, queryClass: string) => marksSubject(row, place ? row.tracked.assignments.filter(assignment => assignmentMatchesSelection(assignment, within)) : row.tracked.assignments, targetLabels, queryClass)
+  }, [workspace.targets, place, measurementScope, measurementScopeKey])
 
   // The page number belongs to one list: another search, filter, place, order or page size starts at the first page.
   const listKey = JSON.stringify([filters, search, measurementScope, measurementScopeKey, sort, pageSize])
@@ -355,7 +361,7 @@ function TrackedPage({
   // The list as it is filtered, searched and sorted, over every page, and named for what narrowed it.
   // Telemetry hears that a file was taken, and none of its text.
   function exportCsv() {
-    downloadTrackedCsv(projectName, trackedRowsCsv(sorted, engines, results.coverage), { placeKey: place?.narrow.key, filtered: narrowed })
+    downloadTrackedCsv(projectName, trackedRowsCsv(sorted, engines, results.coverage, marksFor), { placeKey: place?.narrow.key, filtered: narrowed })
     trackUiAction('export.download', { format: 'csv' })
   }
 
@@ -475,6 +481,7 @@ function TrackedPage({
           detail={VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(formatObservedInstantMonthDay(observedInstant(run.completedAt ?? run.createdAt)), nextSweepDate ?? null)}
         />
       ) : null}
+      <StatusNote icon={MapPin} {...marksNote({ location: place?.narrow.kind === 'location' ? place.narrow.label : undefined, rootLabel })} />
       <SignalLegend />
     </div>
   )
@@ -570,6 +577,7 @@ function TrackedPage({
               // The section is Tracked queries, so the table inside it has a name of its own.
               label="Queries"
               emptyState={emptyState}
+              marksFor={marksFor}
             />
             <DataTablePagination
               page={page}
@@ -649,7 +657,7 @@ function TrackedPage({
             setAddSheetOpen(false)
             openAdd('manual', text)
             // The form opens on the Place. A sheet opened from a view's row was on that row's place, so the form is too.
-            if (addPlace) setDraft({ ...defaultTrackingDraft({ measurementScope: addPlace.kind === 'location' ? 'property' : addPlace.kind, measurementScopeKey: addPlace.key, queryClass: 'all' }), text })
+            if (addPlace) setDraft({ ...defaultTrackingDraft({ measurementScope: addPlace.kind === 'location' ? 'property' : addPlace.kind, measurementScopeKey: addPlace.key, queryClass: 'all' }, workspace), text })
           }}
           onPublished={() => setSelectedIds(new Set<string>())}
           onClose={() => setAddSheetOpen(false)}
