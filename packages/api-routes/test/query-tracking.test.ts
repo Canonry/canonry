@@ -861,6 +861,16 @@ describe('query tracking workspace: advanced portfolios', () => {
     const removed = await commit({ ...removal, previewToken: removalReview.previewToken, reviewedAt: removalReview.reviewedAt })
     expect(removed.statusCode, removed.body).toBe(200)
     expect(activeV2Plan().plan.assignments.some(row => row.queryId === queryId)).toBe(false)
+    // The stop takes the query out of the plan and keeps its row on the list, not asked.
+    expect(db.select().from(queries).where(eq(queries.id, queryId)).get()).toMatchObject({ query: 'apartments with a rooftop terrace' })
+    const stopped = await workspace()
+    expect(stopped.tracked.find(row => row.queryId === queryId)).toMatchObject({ focus: { kind: 'not-asked' }, assignments: [] })
+    // Removing it again, now that nothing asks it, deletes the row and publishes no revision.
+    const deletion = { expectedWorkspaceVersion: stopped.workspaceVersion, additions: [], removals: [{ queryId }] }
+    const deletionReview = await preview(deletion)
+    const deleted = await commit({ ...deletion, previewToken: deletionReview.previewToken, reviewedAt: deletionReview.reviewedAt })
+    expect(deleted.statusCode, deleted.body).toBe(200)
+    expect(deleted.json()).toMatchObject({ committed: true, active: { revision: removed.json().active.revision } })
     expect(db.select().from(queries).where(eq(queries.id, queryId)).get()).toBeUndefined()
     expect(db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.id, original.id)).get()).toEqual(original)
     expect(db.select().from(runs).all()).toHaveLength(0)

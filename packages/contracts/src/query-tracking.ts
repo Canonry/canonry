@@ -115,6 +115,13 @@ export const queryTrackingAdditionSchema = z.object({
 }).strict()
 export type QueryTrackingAddition = z.output<typeof queryTrackingAdditionSchema>
 
+/**
+ * Ends pairings; it never deletes an answer. With no `audience`, a query the
+ * active plan asks is stopped: its pairings end and its row stays on the list
+ * with its answers, `focus.kind` `not-asked`. The same removal of a query that
+ * is asked nowhere deletes the row. With an `audience`, only the selected
+ * pairings end. A simple basket has no not-asked state: a removal deletes.
+ */
 export const queryTrackingRemovalSchema = z.object({
   queryId: queryTrackingIdSchema.optional(),
   queryText: queryTrackingTextSchema.optional(),
@@ -259,6 +266,11 @@ export const queryTrackingTrackedRowSchema = z.object({
   provenance: queryTrackingProvenanceSchema.nullable(),
   /** The server resolves measurement availability against the active frozen revision. */
   state: z.enum(['tracked', 'awaiting-sweep']),
+  /**
+   * When a sweep last measured every pairing as the active plan asks it. A
+   * row with no pairing has none to measure: it carries when a whole-project
+   * sweep last stored an answer for it, so a stopped query keeps its date.
+   */
   lastMeasuredAt: z.string().datetime().nullable(),
   assignments: z.array(queryTrackingAssignmentSchema),
   /** Optional so a client tolerates a server that predates it. This server always sets it. */

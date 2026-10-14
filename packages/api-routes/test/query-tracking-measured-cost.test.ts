@@ -195,6 +195,8 @@ function measured(rows: QueryTrackingWorkspaceResponse['tracked']) {
 interface Reads {
   /** One entry per `query_snapshots` read: the sweep it named and the rows that came back. */
   snapshots: Array<{ runId: string; rows: number }>
+  /** How many reads of `query_snapshots` were started, whatever they returned. */
+  snapshotReads: number
   /** How many sweep rows came back carrying their manifest. */
   manifests: number
   /** Whether any `query_snapshots` read selected answer text or source links. */
@@ -203,7 +205,7 @@ interface Reads {
 
 /** Records what the routes load from `query_snapshots` and `runs`. The reads themselves are unchanged. */
 function recordReads(): Reads {
-  const reads: Reads = { snapshots: [], manifests: 0, answerBodies: false }
+  const reads: Reads = { snapshots: [], snapshotReads: 0, manifests: 0, answerBodies: false }
   type Row = Record<string, unknown>
   type Builder = { from: (table: Table) => { all: () => Row[]; get: () => Row | undefined } }
   const select = db.select.bind(db) as (...args: unknown[]) => Builder
@@ -224,6 +226,7 @@ function recordReads(): Reads {
       const query = from(table)
       const name = getTableName(table)
       if (name !== 'query_snapshots' && name !== 'runs') return query
+      if (name === 'query_snapshots') reads.snapshotReads += 1
       const all = query.all.bind(query)
       const get = query.get.bind(query)
       query.all = () => {
@@ -390,6 +393,39 @@ describe('query tracking measured state: which sweeps are read', () => {
     expect(reads.snapshots).toEqual([{ runId: 'sweep-4', rows: 12 }, { runId: 'sweep-2', rows: 12 }])
   })
 
+  it('reads when a query was last answered in one more read, and only once a row has no pairing', async () => {
+    // Plan 1 asked `q-transit` and `q-schools`. Plan 2, the active one, asks neither: both stay on the list, not asked.
+    const texts = { ...TEXTS, 'q-transit': 'homes near transit', 'q-schools': 'homes near good schools' }
+    const first = planOf({
+      texts,
+      pairings: [...PAIRINGS, { queryId: 'q-transit', targetKey: 'harbor', queryClass: 'non-brand' }, { queryId: 'q-schools', targetKey: 'cedar', queryClass: 'non-brand' }],
+    })
+    const second = planOf()
+    const [firstId, secondId] = [seedVersion(1, first), seedVersion(2, second)]
+    activate(firstId, first)
+    seedSweep({ id: 'sweep-1', versionId: firstId, plan: first, createdAt: at(1), finishedAt: at(1, 13) })
+    activate(secondId, second)
+    seedSweep({ id: 'sweep-2', versionId: secondId, plan: second, createdAt: at(2) })
+    const reads = recordReads()
+
+    const tracked = (await workspace()).tracked
+    expect(measured(tracked)).toEqual({
+      'q-market': at(2), 'q-harbor': at(2), 'q-parking': at(2), 'q-transit': 'awaiting-sweep', 'q-schools': 'awaiting-sweep',
+    })
+    expect(Object.fromEntries(tracked.filter(row => row.assignments.length === 0).map(row => [row.queryId, row.lastMeasuredAt])))
+      .toEqual({ 'q-transit': at(1, 13), 'q-schools': at(1, 13) })
+    // The sweep that measures the active plan, then one grouped read for both rows. No older sweep is opened for them.
+    expect(reads.snapshotReads).toBe(2)
+    expect(reads.manifests).toBe(1)
+    expect(reads.answerBodies).toBe(false)
+
+    // With both rows gone every row has a pairing, and the extra read is not made.
+    db.run(sql`delete from queries where id in ('q-transit', 'q-schools')`)
+    reads.snapshotReads = 0
+    await workspace()
+    expect(reads.snapshotReads).toBe(1)
+  })
+
   it('stops at the newest of five sweeps of the active plan', async () => {
     const plan = planOf()
     const versionId = seedVersion(1, plan)
@@ -410,11 +446,6 @@ describe('query tracking measured state: what a sweep must have asked', () => {
       active: () => planOf({ aliases: { harbor: ['Harbor Point', 'Harbor Point Homes'] } }),
       awaiting: ['q-market', 'q-harbor'],
     },
-    {
-      change: 'an operator set the type the server had set',
-      active: () => planOf({ pairings: PAIRINGS.map(pairing => (pairing.queryId === 'q-parking' ? { ...pairing, classificationSource: 'operator' as const } : pairing)) }),
-      awaiting: ['q-parking'],
-    },
   ])('awaits a new sweep for the pairings it touches, and no other, once $change', async ({ active, awaiting }) => {
     const swept = planOf()
     const sweptId = seedVersion(1, swept)
@@ -427,6 +458,27 @@ describe('query tracking measured state: what a sweep must have asked', () => {
       'q-market': at(1), 'q-harbor': at(1), 'q-parking': at(1),
       ...Object.fromEntries(awaiting.map(queryId => [queryId, 'awaiting-sweep'])),
     })
+  })
+
+  // The sweep asked the same query, for the same location, under the same type. The results read signs a
+  // pairing without who set its type, so the workspace must too, or a row reads awaiting beside its marks.
+  it.each([
+    { from: 'server', to: 'operator' },
+    { from: 'operator', to: 'server' },
+  ] as const)('keeps every pairing measured when the $to sets the type the $from had set', async ({ from, to }) => {
+    const setBy = (classificationSource: 'server' | 'operator') => planOf({
+      pairings: PAIRINGS.map(pairing => (pairing.queryId === 'q-parking' ? { ...pairing, classificationSource } : pairing)),
+    })
+    const swept = setBy(from)
+    const sweptId = seedVersion(1, swept)
+    activate(sweptId, swept)
+    seedSweep({ id: 'sweep-1', versionId: sweptId, plan: swept, createdAt: at(1) })
+    const next = setBy(to)
+    activate(seedVersion(2, next), next)
+
+    const tracked = (await workspace()).tracked
+    expect(tracked.find(row => row.queryId === 'q-parking')?.assignments.map(assignment => assignment.classificationSource)).toEqual([to])
+    expect(measured(tracked)).toEqual({ 'q-market': at(1), 'q-harbor': at(1), 'q-parking': at(1) })
   })
 })
 
