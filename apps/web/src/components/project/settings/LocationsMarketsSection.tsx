@@ -1,13 +1,14 @@
 import { useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { AlertTriangle, ChevronDown, ChevronsUpDown, Info, Lock, SearchX } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronsUpDown, Info, SearchX } from 'lucide-react'
 import type { MeasurementPlanResponse, MeasurementSetupResponse, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-api-client'
 import { getApiV1ProjectsByNameQueryTrackingOptions } from '@ainyc/canonry-api-client/react-query'
 
 import { heyClient } from '../../../api.js'
 import { useAccount } from '../../../contexts/account-context.js'
 import { carryVisibilitySearch, patchVisibilitySelection } from '../../../lib/measurement-view-url.js'
+import { ViewOnlyNote } from '../../shared/AccessControls.js'
 import { DataTablePagination, DataTableSearch, DEFAULT_TABLE_PAGE_SIZE, useClientTable } from '../../shared/DataTableControls.js'
 import { InfoTooltip, useTooltipBubble } from '../../shared/InfoTooltip.js'
 import { StatusNote } from '../../shared/StatusNote.js'
@@ -31,8 +32,6 @@ export const LOCATIONS_MARKETS_COPY = {
   addLocations: 'Add locations',
   bulkSetup: 'Bulk setup',
   openDraft: 'Open draft',
-  viewOnly: 'View only',
-  viewOnlyHelp: 'Your account cannot change this setup.',
   loadError: 'Could not load',
   loadErrorHelp: 'Locations and markets did not load.',
   retry: 'Retry',
@@ -456,7 +455,6 @@ export function LocationsMarketsSection({ projectName, setup, plan, setupFailed,
   const failed = setupFailed || (advanced && planFailed) || workspaceFailed
   const loading = !failed && (setup === undefined || (advanced && (plan === undefined || workspace === undefined)))
   const activePlan = plan?.active?.plan
-  const viewOnly = <StatusNote icon={Lock} label={LOCATIONS_MARKETS_COPY.viewOnly} detail={LOCATIONS_MARKETS_COPY.viewOnlyHelp} />
   const ready = !failed && !loading && setup !== undefined
 
   return (
@@ -467,7 +465,7 @@ export function LocationsMarketsSection({ projectName, setup, plan, setupFailed,
           <h2 id={headingId} className="text-lg font-semibold text-heading">{LOCATIONS_MARKETS_COPY.heading}</h2>
           {ready && !advanced ? <InfoTooltip text={LOCATIONS_MARKETS_COPY.help} /> : null}
         </div>
-        {!ready ? null : !canWrite ? viewOnly : advanced
+        {!ready ? null : !canWrite ? <ViewOnlyNote /> : advanced
           ? <Button type="button" variant="outline" size="sm" className={TOUCH} onClick={onOpenSetup}>{LOCATIONS_MARKETS_COPY.bulkSetup}</Button>
           : null}
       </div>

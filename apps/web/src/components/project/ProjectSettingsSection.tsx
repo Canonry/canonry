@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import type { ResultsExportFormat } from '@ainyc/canonry-contracts'
 
 import { Button } from '../ui/button.js'
+import { ViewOnlyNote } from '../shared/AccessControls.js'
+import { useAccount } from '../../contexts/account-context.js'
 import { addLocation, downloadResultsExport, removeLocation, setDefaultLocation, isEmbed, isPublicDemo, type ApiLocation } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
@@ -13,6 +15,7 @@ export function ProjectSettingsSection({
   project: { name: string; displayName: string; canonicalDomain: string; ownedDomains: string[]; aliases: string[]; country: string; language: string; tags?: string[]; locations: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation: string | null }
   onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) => Promise<void>
 }) {
+  const { canWrite } = useAccount()
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -213,9 +216,10 @@ export function ProjectSettingsSection({
     JSON.stringify(ownedDomains) !== JSON.stringify(project.ownedDomains ?? []) ||
     JSON.stringify(aliases) !== JSON.stringify(project.aliases ?? [])
 
-  // An embed and the public demo are view only: stored settings stay readable,
-  // but nothing that would change them is offered.
-  const canChange = !isEmbed() && !isPublicDemo()
+  // A view-only account, an embed and the public demo read the stored settings:
+  // nothing that would change them is offered. Only the account is told why.
+  const readOnlySurface = isEmbed() || isPublicDemo()
+  const canChange = canWrite && !readOnlySurface
   const inputClass = 'w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none'
   const labelClass = 'mb-1 block text-sm font-medium text-secondary'
   const newLocValid = newLocLabel.trim() && newLocCity.trim() && newLocRegion.trim() && newLocCountry.trim()
@@ -233,6 +237,7 @@ export function ProjectSettingsSection({
             Edit settings
           </Button>
         )}
+        {!canWrite && !readOnlySurface ? <ViewOnlyNote /> : null}
       </div>
 
       {error && (
@@ -331,7 +336,7 @@ export function ProjectSettingsSection({
             <tbody>
               <tr className="border-b border-subtle">
                 <td className="px-4 py-2.5 text-muted font-medium w-40">Display name</td>
-                <td className="px-4 py-2.5 text-strong">{project.displayName || '\u2014'}</td>
+                <td className="px-4 py-2.5 text-strong">{project.displayName || 'None'}</td>
               </tr>
               <tr className="border-b border-subtle">
                 <td className="px-4 py-2.5 text-muted font-medium">Canonical domain</td>
@@ -347,7 +352,7 @@ export function ProjectSettingsSection({
                       ))}
                     </div>
                   ) : (
-                    <span className="text-muted">{'\u2014'}</span>
+                    <span className="text-muted">None</span>
                   )}
                 </td>
               </tr>
@@ -361,7 +366,7 @@ export function ProjectSettingsSection({
                       ))}
                     </div>
                   ) : (
-                    <span className="text-muted">{'\u2014'}</span>
+                    <span className="text-muted">None</span>
                   )}
                 </td>
               </tr>
@@ -386,7 +391,7 @@ export function ProjectSettingsSection({
                 </tr>
               ) : null}
               <tr>
-                <td className="px-4 py-2.5 text-muted font-medium align-top pt-3">Search Locations</td>
+                <td className="px-4 py-2.5 text-muted font-medium align-top pt-3">Search locations</td>
                 <td className="px-4 py-2.5">
                   {locationError && (
                     <div className="mb-2 rounded border border-negative-800/40 bg-negative-950/20 px-2 py-1 text-xs text-negative">
@@ -417,7 +422,7 @@ export function ProjectSettingsSection({
                             <td className="py-1.5 pr-3 text-neutral">{loc.city}</td>
                             <td className="py-1.5 pr-3 text-neutral">{loc.region}</td>
                             <td className="py-1.5 pr-3 text-neutral">{loc.country}</td>
-                            <td className="py-1.5 pr-3 text-muted">{loc.timezone ?? '\u2014'}</td>
+                            <td className="py-1.5 pr-3 text-muted">{loc.timezone ?? 'None'}</td>
                             <td className="py-1.5">
                               <div className="flex items-center gap-1.5">
                                 {canChange && loc.label !== project.defaultLocation && (

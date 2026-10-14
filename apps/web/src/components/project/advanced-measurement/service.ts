@@ -168,7 +168,8 @@ export function isRunInProgress(error: unknown): error is ApiError {
 }
 
 export function setupErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof ApiError) return fallback
+  // A request that never reached the server throws the browser's own TypeError ("Failed to fetch"), not words for a person.
+  if (error instanceof ApiError || error instanceof TypeError) return fallback
   const message = error instanceof Error ? error.message.trim() : ''
   return message || fallback
 }

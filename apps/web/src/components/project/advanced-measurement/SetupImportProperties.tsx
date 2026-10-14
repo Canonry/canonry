@@ -31,6 +31,8 @@ export interface AdvancedMeasurementProperty {
 export interface AdvancedMeasurementImportPropertiesProps {
   activeStep: AdvancedMeasurementSetupStep
   canEdit: boolean
+  /** The account cannot change the setup. False for an account that can and is reading with no draft open. Defaults to `!canEdit`. */
+  viewOnly?: boolean
   importDraft: AdvancedMeasurementImportDraft
   onImportDraftChange: (next: AdvancedMeasurementImportDraft) => void
   onReviewSitemap: (draft: AdvancedMeasurementImportDraft) => void
@@ -79,12 +81,14 @@ function PropertyUrls({ property }: { property: AdvancedMeasurementProperty }) {
 
 function ImportStep({
   canEdit,
+  viewOnly,
   draft,
   onDraftChange,
   onReviewSitemap,
   reviewState,
 }: {
   canEdit: boolean
+  viewOnly: boolean
   draft: AdvancedMeasurementImportDraft
   onDraftChange: (next: AdvancedMeasurementImportDraft) => void
   onReviewSitemap: (draft: AdvancedMeasurementImportDraft) => void
@@ -106,7 +110,7 @@ function ImportStep({
         <InfoTooltip placement="bottom" text="Review sitemap entries before choosing the locations to measure." />
       </div>
 
-      {!canEdit ? <div className="mt-4"><StatusNote icon={Eye} label="View only" detail="Your account cannot change this setup." /></div> : null}
+      {viewOnly ? <div className="mt-4"><StatusNote icon={Eye} label="View only" detail="Your account cannot change this setup." /></div> : null}
 
       <form
         className="mt-5 space-y-4"
@@ -227,6 +231,7 @@ function ImportStep({
 
 function PropertiesStep({
   canEdit,
+  viewOnly = !canEdit,
   properties,
   propertiesState,
   propertiesSearch,
@@ -285,7 +290,7 @@ function PropertiesStep({
         <InfoTooltip placement="bottom" text="Choose the locations to include, then continue." />
       </div>
 
-      {!canEdit ? <div className="mt-4"><StatusNote icon={Eye} label="View only" detail="Your account cannot change this setup." /></div> : null}
+      {viewOnly ? <div className="mt-4"><StatusNote icon={Eye} label="View only" detail="Your account cannot change this setup." /></div> : null}
 
       {propertiesState === 'loading' ? (
         <div className="mt-5 rounded-md border border-default bg-surface-subtle p-4">
@@ -402,6 +407,7 @@ export function SetupImportProperties(props: AdvancedMeasurementImportProperties
     return (
       <ImportStep
         canEdit={props.canEdit}
+        viewOnly={props.viewOnly ?? !props.canEdit}
         draft={props.importDraft}
         onDraftChange={props.onImportDraftChange}
         onReviewSitemap={props.onReviewSitemap}

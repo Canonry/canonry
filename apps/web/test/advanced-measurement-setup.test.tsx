@@ -85,7 +85,7 @@ describe('advanced measurement setup composition', () => {
       />,
     )
 
-    expect(screen.getByText('Unpublished changes')).toBeTruthy()
+    expect(screen.getByText('Draft')).toBeTruthy()
     expect(screen.getAllByText(expectedText).length).toBeGreaterThan(0)
   })
 

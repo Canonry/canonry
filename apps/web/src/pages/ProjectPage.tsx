@@ -941,7 +941,7 @@ function SearchConsoleSection({
         // panels below reloaded pre-sync numbers — indistinguishable from "the
         // button did nothing". Say what is actually true instead: the sync is
         // still running and its data will appear on its own.
-        notices.push('Google sync is still running — search data will appear shortly')
+        notices.push('Google sync is still running. Search data will appear shortly.')
       }
 
       // --- Bing: trigger the server-side sweep and poll, like syncGoogle ---
@@ -983,7 +983,7 @@ function SearchConsoleSection({
 
         // Still running at the deadline. The run continues in the engine — say
         // so rather than reporting a failure the user cannot act on.
-        notices.push('Bing sweep is still running — coverage will update shortly')
+        notices.push('Bing sweep is still running. Coverage will update shortly.')
       }
 
       const results = await Promise.allSettled([syncGoogle(), syncBing()])
@@ -2250,6 +2250,9 @@ function ProjectPageContent({
     && hasVisibilityInputs
     && providerReady === true
   const sweepSetupRequired = canWrite && !sweepReadinessPending && !sweepPrerequisitesReady
+  // A project that has queries or a published setup is set up: all it lacks is a connected engine, and engine
+  // keys are added on the global Settings page. Only a project with neither is sent to first-run setup.
+  const engineMissing = sweepSetupRequired && hasVisibilityInputs && !providerReadinessFailed
   // "Map site" invites the operator to do something that has not been done yet,
   // so it needs the one fact the sweep-readiness flags never carry: whether
   // this project already has a Site Health scan.
@@ -2625,7 +2628,8 @@ function ProjectPageContent({
           && !visibilitySelection.from && !visibilitySelection.to && !visibilitySelection.revision
           && !visibilitySelection.measurementRunId && !visibilitySelection.queryKey && !visibilitySelection.marketKey}
         onSelectionChange={updateVisibilitySearch}
-        onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined, measurementMarketKey: undefined }) }) } : undefined}
+        // Tracked filters Type by its own key, so the type in view here is handed over as that filter.
+        onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined, measurementMarketKey: undefined, ...trackedFiltersPatch({ type: visibilitySelection.queryClass === 'branded' || visibilitySelection.queryClass === 'non-brand' ? visibilitySelection.queryClass : 'all' }) }) }) } : undefined}
         renderPropertyLink={!isEmbed() ? ({ id, label }) => (
           <Link to="/projects/$projectName/properties/$targetKey" params={{ projectName, targetKey: id }} search={carryVisibilitySearch} aria-label={`Location details for ${label}`} className="inline-flex min-h-11 items-center text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
             Location details
@@ -2880,6 +2884,8 @@ function ProjectPageContent({
                   disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending || (sweepsOnHold && !providerReadinessFailed && !sweepSetupRequired)}
                   onClick={providerReadinessFailed
                     ? () => { void Promise.all([measurementSetupQuery.refetch(), ...(needsHeaderQueries ? [headerQueriesQuery.refetch()] : [])]) }
+                    : engineMissing
+                      ? () => { void navigate({ to: '/settings' }) }
                     : sweepSetupRequired
                       ? openAiVisibilitySetup
                       : event => { sweepOpener.current = event.currentTarget; setSweepConfirmationProject(projectName) }}
@@ -2892,6 +2898,8 @@ function ProjectPageContent({
                         ? 'Checking AI readiness…'
                         : providerReadinessFailed
                           ? 'Retry AI readiness'
+                        : engineMissing
+                          ? 'Connect an engine'
                         : sweepSetupRequired
                           ? 'Set up AI Visibility'
                           : sweepsOnHold
@@ -2930,6 +2938,8 @@ function ProjectPageContent({
           isQueryError={isPortfolioQueriesError}
           onRetryQueries={() => { void portfolioQueriesQuery.refetch() }}
           publishedPlan={activeMeasurementPlan}
+          isPublishedPlanError={isActiveMeasurementPlanError}
+          onRetryPublishedPlan={() => { void activeMeasurementPlanQuery.refetch() }}
           sweepActive={hasActiveVisibilitySweep}
           onCreateQueries={async texts => {
             // The shared mutation carries the write guard and invalidates both

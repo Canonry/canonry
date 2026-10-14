@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
+import { BellOff } from 'lucide-react'
 
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
+import { ViewOnlyNote } from '../shared/AccessControls.js'
+import { StatusNote } from '../shared/StatusNote.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
+import { useAccount } from '../../contexts/account-context.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { listNotifications, addNotification, removeNotification, sendTestNotification, isEmbed, isPublicDemo, type ApiNotification } from '../../api.js'
@@ -24,8 +28,10 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
   const [error, setError] = useState<string | null>(null)
   const [testStates, setTestStates] = useState<Record<string, { state: 'testing' | 'ok' | 'fail'; status?: number }>>({})
   const [removingIds, setRemovingIds] = useState<Set<string>>(new Set())
-  // An embed and the public demo list webhooks without offering to change them.
-  const canManage = !isEmbed() && !isPublicDemo()
+  // A view-only account, an embed and the public demo list webhooks without offering to change them.
+  const { canWrite } = useAccount()
+  const readOnlySurface = isEmbed() || isPublicDemo()
+  const canManage = canWrite && !readOnlySurface
 
   useEffect(() => {
     listNotifications(projectName).then(setNotifs).catch(() => setNotifs([]))
@@ -118,6 +124,7 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
             {adding ? 'Cancel' : '+ Add webhook'}
           </Button>
         )}
+        {!canWrite && !readOnlySurface ? <ViewOnlyNote /> : null}
       </div>
 
       {canManage && adding && (
@@ -166,8 +173,9 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
       {notifs === 'loading' && <p className="supporting-copy">Loading...</p>}
 
       {notifs !== 'loading' && notifs.length === 0 && !adding && (
-        <Card className="surface-card compact-card">
-          <p className="supporting-copy">No webhooks configured. Add one to get alerted when citations change or runs complete.</p>
+        <Card className="surface-card">
+          {/* Only someone who can add a webhook is told to. */}
+          <StatusNote icon={BellOff} label="No webhooks" detail={canManage ? 'Add a webhook to get alerted when citations change or runs complete.' : undefined} />
         </Card>
       )}
 

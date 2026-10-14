@@ -1,14 +1,15 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Clock, History, MousePointerClick, Play, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Clock, History, Key, MousePointerClick, Play, RefreshCw } from 'lucide-react'
 import type { DiscoveryBucket, DiscoverySessionDto, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
 import {
   getApiV1ProjectsByNameDiscoverSessionsByIdOptions,
   getApiV1ProjectsByNameDiscoverSessionsOptions,
   getApiV1RunsQueryKey,
+  getApiV1SettingsOptions,
 } from '@ainyc/canonry-api-client/react-query'
 
-import { heyClient, isEmbed, triggerDiscoveryRun } from '../../../api.js'
+import { heyClient, isEmbed, isPublicDemo, triggerDiscoveryRun } from '../../../api.js'
 import { addToast } from '../../../lib/toast-store.js'
 import { invalidateProjectQueryDomain } from '../../../queries/query-invalidation.js'
 import { WriteButton } from '../../shared/AccessControls.js'
@@ -38,13 +39,15 @@ export const FIND_COPY = {
   customerHelp: 'Describe who buys from you, such as small online stores that want faster support. Find ideas writes questions your customers might ask and checks whether your site shows up for each. Leave blank to use the customer profile saved on this project.',
   count: 'Questions to test',
   countHelp: 'More questions means broader coverage and a longer run. 100 is a good default.',
-  runAction: 'Start run',
+  runAction: 'Run',
   engine: 'Runs on Gemini',
-  runsTitle: 'Recent runs',
-  runsLoading: 'Loading recent runs',
-  noRuns: 'No runs yet',
+  noGeminiKey: 'No Gemini key',
+  noGeminiKeyDetail: 'Find ideas runs on Gemini. Add a Gemini API key in Settings.',
+  runsTitle: 'Past research',
+  runsLoading: 'Loading past research',
+  noRuns: 'No research yet',
   loadError: 'Could not load',
-  runsError: 'Recent runs did not load.',
+  runsError: 'Past research did not load.',
   retry: 'Retry',
   noRun: 'No run selected',
   citedSites: 'Cited sites',
@@ -180,13 +183,27 @@ export function FindQueriesSection({
 
   const detail = detailQuery.data ?? null
 
+  // The read the Research form makes, so the two share one request. A run needs Gemini configured, by key or
+  // by Vertex project. A read that failed says nothing either way and leaves Run on.
+  const publicDemo = isPublicDemo()
+  const settingsQuery = useQuery({
+    ...getApiV1SettingsOptions({ client: heyClient }),
+    enabled: !publicDemo,
+    staleTime: 60_000,
+  })
+  const noGemini = settingsQuery.data !== undefined && !settingsQuery.data.providers.some(item => item.name === 'gemini' && item.configured)
+  // The count is a cap on what the run tests, so the button says "up to". The button and the request read the
+  // same number: with none, the server's own size applies and the button names no size.
+  const parsedMax = Number.parseInt(maxProbes, 10)
+  const runCap = Number.isFinite(parsedMax) && parsedMax > 0 ? parsedMax : null
+  const runLabel = runCap === null ? FIND_COPY.runAction : `${FIND_COPY.runAction} up to ${runCap}`
+
   const startMutation = useMutation({
     mutationFn: () => {
       const body: { icpDescription?: string; maxProbes?: number } = {}
       const trimmedIcp = icpDescription.trim()
       if (trimmedIcp) body.icpDescription = trimmedIcp
-      const parsedMax = Number.parseInt(maxProbes, 10)
-      if (Number.isFinite(parsedMax) && parsedMax > 0) body.maxProbes = parsedMax
+      if (runCap !== null) body.maxProbes = runCap
       return triggerDiscoveryRun(projectName, body)
     },
     onSuccess: async (result) => {
@@ -240,7 +257,7 @@ export function FindQueriesSection({
       if (result.error) throw result.error
       const count = result.data?.length ?? 0
       addToast({
-        title: 'Recent runs refreshed',
+        title: `${FIND_COPY.runsTitle} refreshed`,
         detail: `${count} ${count === 1 ? 'run' : 'runs'}`,
         tone: 'positive',
         dedupeKey: `discovery:refresh:${projectName}`,
@@ -291,14 +308,15 @@ export function FindQueriesSection({
                     type="button"
                     size="sm"
                     className={TOUCH_TARGET}
-                    disabled={startMutation.isPending}
+                    disabled={startMutation.isPending || (!publicDemo && settingsQuery.isPending) || noGemini}
                     onClick={() => startMutation.mutate()}
                   >
                     <Play size={14} />
-                    {startMutation.isPending ? 'Starting…' : FIND_COPY.runAction}
+                    {startMutation.isPending ? 'Starting…' : runLabel}
                   </WriteButton>
                 )}
                 <p className="text-sm text-secondary">{FIND_COPY.engine}</p>
+                {noGemini && <StatusNote icon={Key} tone="caution" label={FIND_COPY.noGeminiKey} detail={FIND_COPY.noGeminiKeyDetail} />}
               </div>
             </div>
           </Card>
@@ -320,7 +338,7 @@ export function FindQueriesSection({
               </Button>}
             </div>
             {sessionsFailed ? (
-              <div role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={FIND_COPY.loadError} detail={FIND_COPY.runsError} action={<Button type="button" variant="outline" size="sm" className={TOUCH_TARGET} aria-label={`${FIND_COPY.retry} recent runs`} onClick={() => { void sessionsQuery.refetch() }}>{FIND_COPY.retry}</Button>} /></div>
+              <div role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={FIND_COPY.loadError} detail={FIND_COPY.runsError} action={<Button type="button" variant="outline" size="sm" className={TOUCH_TARGET} aria-label={`${FIND_COPY.retry} past research`} onClick={() => { void sessionsQuery.refetch() }}>{FIND_COPY.retry}</Button>} /></div>
             ) : sessionsQuery.isPending ? (
               <div role="status" aria-label={FIND_COPY.runsLoading} className="space-y-2">{[0, 1, 2].map(row => <div key={row} aria-hidden="true" className="skeleton h-[4.25rem] rounded-md" />)}</div>
             ) : sessions.length === 0 ? (
@@ -357,7 +375,7 @@ export function FindQueriesSection({
         </div>
 
         <div className="min-w-0 space-y-4">
-          {/* With no runs, or a list that did not load, there is no run to show: Recent runs says so. */}
+          {/* With no runs, or a list that did not load, there is no run to show: Past research says so. */}
           {!sessionsFailed && (sessionsQuery.isPending || sessions.length > 0) && <Card className="surface-card min-w-0">
             {activeSession ? <div className="section-head section-head-inline items-center">
               {/* The id is in mono, as the list beside it shows it, with a gap wide enough to read as two words. */}

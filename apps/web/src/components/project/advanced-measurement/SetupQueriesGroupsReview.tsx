@@ -6,7 +6,8 @@ import { StatusNote } from '../../shared/StatusNote.js'
 import { ToneBadge } from '../../shared/ToneBadge.js'
 import { Button } from '../../ui/button.js'
 
-export type AdvancedMeasurementAccess = 'editor' | 'viewer'
+/** `reader` is an account that can edit, reading with no draft open: read-only as `viewer` is, and not told View only. */
+export type AdvancedMeasurementAccess = 'editor' | 'viewer' | 'reader'
 
 export type AdvancedMeasurementAvailability =
   | { status: 'available' }
@@ -260,7 +261,7 @@ const PROPERTY_CHECKLIST_PAGE_SIZE = 50
 const QUERY_LIST_PAGE_SIZE = 50
 
 function isViewer(access: AdvancedMeasurementAccess | undefined): boolean {
-  return access === 'viewer'
+  return access === 'viewer' || access === 'reader'
 }
 
 function isUnavailable(availability: AdvancedMeasurementAvailability | undefined): availability is Extract<AdvancedMeasurementAvailability, { status: 'unavailable' }> {
@@ -724,7 +725,7 @@ export function AdvancedMeasurementQueriesStep({
         </div>
       </div>
 
-      {viewer ? <ViewerNotice /> : null}
+      {access === 'viewer' ? <ViewerNotice /> : null}
 
       {viewer ? null : (
         <fieldset className="border-y border-default py-4">
@@ -832,7 +833,7 @@ export function AdvancedMeasurementQueriesStep({
             </div>
           ) : null}
           <div className="mt-3">
-            <StatusNote icon={Info} label="Groups are shortcuts" detail="A group is resolved when you apply queries. Changing its members later does not rewrite existing location links, and a location added later does not receive earlier group queries." />
+            <StatusNote icon={Info} label="Groups are shortcuts" detail="A group is resolved when you apply queries. Changing its members later does not rewrite existing pairs, and a location added later does not receive earlier group queries." />
           </div>
         </fieldset>
       )}
@@ -938,7 +939,7 @@ export function AdvancedMeasurementQueriesStep({
                 <div className="mt-2">
                   <StatusNote
                     icon={Info}
-                    label={`Adds ${patternPairs.length} location ${patternPairs.length === 1 ? 'link' : 'links'}`}
+                    label={`Adds ${patternPairs.length} ${patternPairs.length === 1 ? 'pair' : 'pairs'}`}
                     detail="Each query is measured on the one location it names."
                   />
                 </div>
@@ -1000,12 +1001,12 @@ export function AdvancedMeasurementQueriesStep({
             {isPreviewingAssignmentImpact ? <p role="status" className="text-sm text-secondary">Calculating impact…</p> : null}
             {assignmentImpact ? (
               <p className="text-sm text-secondary">
-                {selectedQueryIds.length} {selectedQueryIds.length === 1 ? 'query' : 'queries'} → {assignmentImpact.assignmentCount} location link{assignmentImpact.assignmentCount === 1 ? '' : 's'}
-                {' · '}{assignmentImpact.addedAssignments} new, {assignmentImpact.alreadyPresentAssignments} already linked
+                {selectedQueryIds.length} {selectedQueryIds.length === 1 ? 'query' : 'queries'} → {assignmentImpact.assignmentCount} pair{assignmentImpact.assignmentCount === 1 ? '' : 's'}
+                {' · '}{assignmentImpact.addedAssignments} new, {assignmentImpact.alreadyPresentAssignments} already paired
                 {' · '}{assignmentImpact.fullRunProviderCalls} provider request{assignmentImpact.fullRunProviderCalls === 1 ? '' : 's'} per full run
                 {' · '}{assignmentImpact.addedProviderCalls} new
                 {activeAudience.kind === 'groups' ? ` · ${assignmentImpact.resolvedPropertyCount} unique ${assignmentImpact.resolvedPropertyCount === 1 ? 'location' : 'locations'}${assignmentImpact.overlapCount > 0 ? `, ${assignmentImpact.overlapCount} in overlapping groups` : ''}` : ''}
-                <InfoTooltip placement="bottom" text="Existing location links stay in place." />
+                <InfoTooltip placement="bottom" text="Existing pairs stay in place." />
               </p>
             ) : assignmentImpactError ? (
               <div className="flex flex-wrap items-center gap-3">
@@ -1016,7 +1017,7 @@ export function AdvancedMeasurementQueriesStep({
             ) : activeAudience.kind === 'none' ? (
               <p className="text-sm text-secondary">Choose where to apply first.</p>
             ) : (
-              <p className="text-sm text-secondary">{selectedQueryIds.length} {selectedQueryIds.length === 1 ? 'query' : 'queries'} × {selectedPropertyCount} {selectedPropertyCount === 1 ? 'location' : 'locations'} = {selectedQueryIds.length * selectedPropertyCount} location link{selectedQueryIds.length * selectedPropertyCount === 1 ? '' : 's'}</p>
+              <p className="text-sm text-secondary">{selectedQueryIds.length} {selectedQueryIds.length === 1 ? 'query' : 'queries'} × {selectedPropertyCount} {selectedPropertyCount === 1 ? 'location' : 'locations'} = {selectedQueryIds.length * selectedPropertyCount} pair{selectedQueryIds.length * selectedPropertyCount === 1 ? '' : 's'}</p>
             )}
             </div>
             {assignmentNotice ? <p role="status" className="text-sm text-secondary">{assignmentNotice}</p> : null}
@@ -1068,7 +1069,7 @@ export function AdvancedMeasurementQueriesStep({
               {viewer ? null : <th><span className="sr-only">Select query</span></th>}
               <th>Query</th>
               <th>Locations</th>
-              {viewer ? null : <th><span className="sr-only">Clear location links</span></th>}
+              {viewer ? null : <th><span className="sr-only">Clear locations</span></th>}
             </tr>
           </thead>
           <tbody>
@@ -1108,12 +1109,12 @@ export function AdvancedMeasurementQueriesStep({
                               className="min-h-11"
                               disabled={isBusy || isReplacingAssignments}
                               onClick={() => setReplacement({ queryId: query.id, propertyIds: [...(query.propertyIds ?? [])] })}
-                              aria-label={`Replace location links for ${label}`}
+                              aria-label={`Replace locations for ${label}`}
                             >
-                              Replace location links
+                              Replace locations
                             </Button>
                           ) : null}
-                          <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={isBusy} onClick={() => { void clearAssignments(query.id) }} aria-label={`Clear location links for ${label}`}>Clear location links</Button>
+                          <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={isBusy} onClick={() => { void clearAssignments(query.id) }} aria-label={`Clear locations for ${label}`}>Clear locations</Button>
                         </div>
                       ) : null}
                     </td>
@@ -1133,8 +1134,8 @@ export function AdvancedMeasurementQueriesStep({
         return (
           <section aria-labelledby="advanced-measurement-replace-assignments-title" className="border-y border-default py-4">
             <div className="flex items-center gap-1">
-              <h4 id="advanced-measurement-replace-assignments-title" className="text-sm font-medium text-heading">Replace location links</h4>
-              <InfoTooltip placement="bottom" text={`This replaces every location linked to “${label}”.`} />
+              <h4 id="advanced-measurement-replace-assignments-title" className="text-sm font-medium text-heading">Replace locations</h4>
+              <InfoTooltip placement="bottom" text={`This replaces every location paired with “${label}”.`} />
             </div>
             <div className="mt-3">
               <PropertyChecklist
@@ -1145,7 +1146,7 @@ export function AdvancedMeasurementQueriesStep({
               />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-3">
-              <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={isReplacingAssignments || isBusy} onClick={() => setReplacement(null)}>Keep current location links</Button>
+              <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={isReplacingAssignments || isBusy} onClick={() => setReplacement(null)}>Keep current locations</Button>
               <Button
                 type="button"
                 size="sm"
@@ -1157,7 +1158,7 @@ export function AdvancedMeasurementQueriesStep({
                   void Promise.resolve(onReplaceAssignments({ queryId: replacement.queryId, propertyIds: selected }))
                 }}
               >
-                {isReplacingAssignments ? 'Replacing location links…' : `Replace with ${selected.length} ${selected.length === 1 ? 'location' : 'locations'}`}
+                {isReplacingAssignments ? 'Replacing locations…' : `Replace with ${selected.length} ${selected.length === 1 ? 'location' : 'locations'}`}
               </Button>
             </div>
           </section>
@@ -1228,7 +1229,7 @@ export function AdvancedMeasurementGroupsStep({
         </div>
       </div>
 
-      {viewer ? <ViewerNotice /> : null}
+      {access === 'viewer' ? <ViewerNotice /> : null}
 
       {viewer || !membershipImport ? null : <GroupMembershipImportPanel value={membershipImport} />}
 
@@ -1270,7 +1271,7 @@ export function AdvancedMeasurementGroupsStep({
               {isSaving ? 'Saving group…' : 'Save group'}
             </Button>
             <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={!hasUnsavedGroupDraft} onClick={clearGroupForm}>Clear form</Button>
-            <StatusNote icon={Info} label="How groups apply" detail="Competitor domains are used only in this group's competitor report. Membership changes affect future location links only." />
+            <StatusNote icon={Info} label="How groups apply" detail="Competitor domains are used only in this group's competitor report. Membership changes affect future pairs only." />
           </div>
           {hasUnsavedGroupDraft ? <p role="status" className="text-sm text-caution">Save this group or clear the form before continuing.</p> : null}
         </div>
@@ -1353,7 +1354,7 @@ export function AdvancedMeasurementReviewStep({
         </div>
       </div>
 
-      {viewer ? <ViewerNotice /> : null}
+      {access === 'viewer' ? <ViewerNotice /> : null}
 
       {sitemapReview ? (
         <section aria-labelledby="advanced-measurement-sitemap-review-title" className="border-y border-caution-800/40 bg-caution-950/20 py-4">
@@ -1443,7 +1444,7 @@ export function AdvancedMeasurementReviewStep({
 
       <div className="overflow-x-auto border-y border-default">
         <table className="evidence-table min-w-[720px]">
-          <thead><tr><th>Locations</th><th>Queries</th><th>Groups</th><th>Location links</th><th>Provider requests / run</th></tr></thead>
+          <thead><tr><th>Locations</th><th>Queries</th><th>Groups</th><th>Pairs</th><th>Provider requests / run</th></tr></thead>
           <tbody><tr>
             <td className="tabular-nums text-heading">{counts.properties}</td>
             <td className="tabular-nums text-heading">{counts.queries}</td>
@@ -1465,8 +1466,8 @@ export function AdvancedMeasurementReviewStep({
         <div>
           <StatusNote
             icon={Info}
-            label="More links than queries"
-            detail={`${counts.queries} ${counts.queries === 1 ? 'query' : 'queries'} applied to groups and locations ${counts.queries === 1 ? 'makes' : 'make'} ${counts.assignments} location ${counts.assignments === 1 ? 'link' : 'links'}: a query applied to a group is measured on every location in it.`}
+            label="More pairs than queries"
+            detail={`${counts.queries} ${counts.queries === 1 ? 'query' : 'queries'} applied to groups and locations ${counts.queries === 1 ? 'makes' : 'make'} ${counts.assignments} ${counts.assignments === 1 ? 'pair' : 'pairs'}: a query applied to a group is measured on every location in it.`}
           />
         </div>
       ) : null}

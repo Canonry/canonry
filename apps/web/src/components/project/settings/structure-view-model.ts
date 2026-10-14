@@ -31,6 +31,7 @@ export interface StructureMarket extends StructureRow {
   label: string
   /** Names of the locations it holds. */
   members: string[] | undefined
+  /** The name of the group above the market's own group, or of its own group when that one is top-level. */
   group: string | undefined
   locations: number | undefined
   marketQueries: number | undefined
@@ -70,6 +71,7 @@ export function projectStructure(workspace: StructureWorkspace, plan: StructureP
   const targetLabels = new Map(workspace.targets.map(target => [target.stableKey, target.label]))
   const marketLabels = new Map(workspace.markets.map(market => [market.stableKey, market.label]))
   const groupLabels = new Map(workspace.groups.map(group => [group.stableKey, group.label]))
+  const groupsByKey = new Map(workspace.groups.map(group => [group.stableKey, group]))
   const planTargets = new Map(plan?.targets.map(target => [target.stableKey, target]))
   const planGroups = new Map(plan?.groups.map(group => [group.stableKey, group]))
   const labels = (keys: readonly string[] | undefined, known: ReadonlyMap<string, string>) => keys?.flatMap(key => known.get(key) ?? [])
@@ -91,7 +93,9 @@ export function projectStructure(workspace: StructureWorkspace, plan: StructureP
 
   const markets = workspace.markets.map((market): StructureMarket => {
     const members = labels(market.targetKeys, targetLabels)
-    const group = market.groupKey === undefined ? undefined : groupLabels.get(market.groupKey)
+    // A market's own group carries the market's name, so the column names the group above it. A top-level group names itself.
+    const own = market.groupKey === undefined ? undefined : groupsByKey.get(market.groupKey)
+    const group = own && ((own.parentGroupKey === undefined ? undefined : groupLabels.get(own.parentGroupKey)) ?? own.label)
     return {
       key: market.stableKey,
       label: market.label,

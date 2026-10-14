@@ -61,6 +61,9 @@ export interface AdvancedMeasurementSectionProps {
   isQueryError: boolean
   onRetryQueries?: () => void
   publishedPlan?: MeasurementPlanResponse['active']
+  /** The published setup's read failed, so `publishedPlan` will not arrive without a retry. */
+  isPublishedPlanError?: boolean
+  onRetryPublishedPlan?: () => void
   canEdit?: boolean
   /** A queued or running sweep is pinned to the current plan, so Publish waits for it. */
   sweepActive?: boolean
@@ -467,22 +470,22 @@ function reviewCheckMeaning(check: MeasurementDraftCompileCheck, context: Review
       }
     case 'assignment-unknown-target':
       return {
-        title: 'Fix a location link',
-        detail: 'This query is linked to a location that is no longer in setup. Remove the link or add the location back.',
+        title: 'Fix a pair',
+        detail: 'This query is paired with a location that is no longer in setup. Remove the pair or add the location back.',
         tone: 'negative',
         affected,
       }
     case 'assignment-excluded-target':
       return {
-        title: 'Include or unlink a location',
-        detail: 'This query is linked to an excluded location. Include it or remove the link.',
+        title: 'Include or unpair a location',
+        detail: 'This query is paired with an excluded location. Include it or remove the pair.',
         tone: 'negative',
         affected,
       }
     case 'assignment-unknown-query':
       return {
         title: 'Remove an unavailable query',
-        detail: 'This location link refers to a tracked query that is no longer available. Remove it or add the query back to the project.',
+        detail: 'This pair refers to a tracked query that is no longer available. Remove it or add the query back to the project.',
         tone: 'negative',
         affected,
       }
@@ -552,7 +555,7 @@ function reviewCheckDetail(ruleId: string, detail: string, count: number, affect
   const detailWithCount = (() => {
   switch (ruleId) {
     case 'execution-context-no-provider':
-      return `${detail} ${pluralized(count, 'location link')} need${count === 1 ? 's' : ''} a provider.`
+      return `${detail} ${pluralized(count, 'pair')} need${count === 1 ? 's' : ''} a provider.`
     case 'target-without-aliases':
       return `${detail} ${pluralized(count, 'location')} need${count === 1 ? 's' : ''} aliases.`
     case 'target-without-assignments':
@@ -677,7 +680,7 @@ function reviewedChanges(diff: MeasurementDraftDiff, preservesHistoricalResults 
   const groupChanges = diff.groups.added.length + diff.groups.removed.length + diff.groups.changed.length
   const assignmentChanges = diff.assignments.added + diff.assignments.removed + diff.assignments.reclassified
   if (targetChanges > 0) items.push(`${targetChanges} location ${targetChanges === 1 ? 'change' : 'changes'}`)
-  if (assignmentChanges > 0) items.push(`${assignmentChanges} location link ${assignmentChanges === 1 ? 'change' : 'changes'}`)
+  if (assignmentChanges > 0) items.push(`${assignmentChanges} pair ${assignmentChanges === 1 ? 'change' : 'changes'}`)
   if (groupChanges > 0) items.push(`${groupChanges} group ${groupChanges === 1 ? 'change' : 'changes'}`)
   if (preservesHistoricalResults) items.unshift('Existing results remain visible after you publish this setup.')
   return {
@@ -800,6 +803,8 @@ export function AdvancedMeasurementSection({
   isQueryError,
   onRetryQueries,
   publishedPlan,
+  isPublishedPlanError = false,
+  onRetryPublishedPlan,
   canEdit = true,
   sweepActive = false,
   onCreateQueries,
@@ -843,11 +848,14 @@ export function AdvancedMeasurementSection({
 
   const draft = draftResponse?.draft ?? null
   const etag = draftResponse?.etag ?? null
+  // The page reads first. With no draft open, the published setup is shown as it is, to an editor as to a
+  // viewer: a draft is opened by Edit setup, or on arrival when nothing is published yet.
+  const editing = canEdit && draft !== null
   const publishedDraftView = useMemo(() => (
-    !canEdit && publishedPlan
+    !draft && publishedPlan
       ? { baseActiveRevision: publishedPlan.revision, authoring: publishedAuthoring(publishedPlan) }
       : null
-  ), [canEdit, publishedPlan])
+  ), [draft, publishedPlan])
   const viewDraft = draft ?? publishedDraftView
 
   async function loadCurrent(createIfMissing: boolean): Promise<void> {
@@ -859,7 +867,7 @@ export function AdvancedMeasurementSection({
         service.loadSetup(projectName),
         service.loadDraft(projectName),
       ])
-      if (!nextDraft.draft && createIfMissing && canEdit) {
+      if (!nextDraft.draft && createIfMissing && canEdit && nextSetup.activeRevision === null) {
         await service.createDraft(projectName, nextSetup.activeRevision)
         ;[nextSetup, nextDraft] = await Promise.all([
           service.loadSetup(projectName),
@@ -874,7 +882,7 @@ export function AdvancedMeasurementSection({
       setIncludedPropertyIds(included)
     } catch (error) {
       if (requestVersion !== requestVersionRef.current) return
-      setLoadError(setupErrorMessage(error, 'Could not load advanced measurement setup.'))
+      setLoadError(setupErrorMessage(error, 'Could not load setup.'))
     } finally {
       if (requestVersion === requestVersionRef.current) setIsLoading(false)
     }
@@ -1059,7 +1067,7 @@ export function AdvancedMeasurementSection({
       && !(publishedDraftView && publishedPlan?.plan.schemaVersion === 1)) ? [{
       id: 'unclassified-query-assignments',
       title: 'Remove an unavailable query',
-      detail: 'One or more saved location links no longer have a tracked query. Clear them before publishing.',
+      detail: 'One or more saved pairs no longer have a tracked query. Clear them before publishing.',
       tone: 'negative' as const,
     }] : []),
     ...serverFlags,
@@ -1165,7 +1173,7 @@ export function AdvancedMeasurementSection({
     )
     if (next) {
       setSelectedQueryIds([])
-      setAssignmentNotice(`${assignmentPreview.assignments.added} location link${assignmentPreview.assignments.added === 1 ? '' : 's'} added`)
+      setAssignmentNotice(`${assignmentPreview.assignments.added} pair${assignmentPreview.assignments.added === 1 ? '' : 's'} added`)
     }
   }
 
@@ -1177,11 +1185,11 @@ export function AdvancedMeasurementSection({
         targetKeys: unique(selection.propertyIds),
         queryIds: [selection.queryId],
       }),
-      'Could not replace these location links.',
+      'Could not replace these locations.',
     )
     if (next) {
       setSelectedQueryIds(current => current.filter(queryId => queryId !== selection.queryId))
-      setAssignmentNotice('Location links replaced.')
+      setAssignmentNotice('Locations replaced.')
     }
   }
 
@@ -1246,7 +1254,7 @@ export function AdvancedMeasurementSection({
       try {
         await applyPairedQuestions(assignmentPairs, true)
       } catch (error) {
-        setCreateQueriesError('The queries were added, but could not be linked to their locations. Try again to pair them.')
+        setCreateQueriesError('The queries were added, but could not be paired with their locations. Try again to pair them.')
         throw error
       }
     } finally {
@@ -1263,7 +1271,7 @@ export function AdvancedMeasurementSection({
     const next = await mutate(
       `remove-${queryId}`,
       currentEtag => service.removeAssignment(projectName, currentEtag, targetKeys, queryId),
-      'Could not clear these location links.',
+      'Could not clear these locations.',
     )
     if (next) setSelectedQueryIds(current => current.filter(id => id !== queryId))
   }
@@ -1461,6 +1469,30 @@ export function AdvancedMeasurementSection({
     }
   }
 
+  /** Edit setup: opens a draft of the published setup and stays on the step being read. */
+  async function startEditing(): Promise<void> {
+    if (!canEdit || draft || !setup || busyAction) return
+    setBusyAction('start-editing')
+    setActionError(null)
+    try {
+      await service.createDraft(projectName, setup.activeRevision)
+      const [nextSetup, nextDraft] = await Promise.all([
+        service.loadSetup(projectName),
+        service.loadDraft(projectName),
+      ])
+      setSetup(nextSetup)
+      setDraftResponse(nextDraft)
+      setIncludedPropertyIds(includedPropertyIdsFor(nextDraft.draft))
+      setStep(current => recoveredStepFor(nextDraft.draft, current))
+    } catch (error) {
+      // Another session opened a draft first: that draft is the one to edit.
+      if (isDraftConflict(error)) await recoverConflict('This setup changed in another session. The latest draft is loaded.')
+      else setActionError('Could not start editing.')
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
   async function discardDraft(): Promise<void> {
     if (!etag || busyAction) return
     setBusyAction('discard')
@@ -1509,31 +1541,34 @@ export function AdvancedMeasurementSection({
     }
   }
 
-  if (isLoading) {
+  // A setup is published and its plan has not reached the page: it is still being read, or its read failed.
+  const awaitingPublished = !loadError && !viewDraft && setup !== null && setup.activeRevision !== null
+
+  if (isLoading || (awaitingPublished && !isPublishedPlanError)) {
     return (
       <section aria-labelledby="advanced-measurement-loading-title" className="space-y-4">
-        <div className="section-head"><h2 id="advanced-measurement-loading-title">Advanced measurement setup</h2></div>
-        <div className="h-28 animate-pulse rounded-md bg-surface-subtle" aria-label="Loading advanced measurement setup" />
+        <div className="section-head"><h2 id="advanced-measurement-loading-title">Bulk setup</h2></div>
+        <div className="h-28 animate-pulse rounded-md bg-surface-subtle" aria-label="Loading bulk setup" />
       </section>
     )
   }
 
-  if (loadError) {
+  if (loadError || awaitingPublished) {
     return (
       <section aria-labelledby="advanced-measurement-error-title" className="space-y-4">
-        <div className="section-head"><h2 id="advanced-measurement-error-title">Advanced measurement setup</h2></div>
+        <div className="section-head"><h2 id="advanced-measurement-error-title">Bulk setup</h2></div>
         <div role="alert" className="border-y border-negative-800/40 bg-negative-950/20 py-4 text-sm text-negative">
-          <p>{loadError}</p>
-          <Button className="mt-3 min-h-11" type="button" size="sm" variant="outline" onClick={() => { void loadCurrent(true) }}>Retry</Button>
+          <p>{loadError ?? 'Could not load setup.'}</p>
+          <Button className="mt-3 min-h-11" type="button" size="sm" variant="outline" onClick={() => { if (loadError) void loadCurrent(true); else onRetryPublishedPlan?.() }}>Retry</Button>
         </div>
       </section>
     )
   }
 
-  if (!viewDraft || (canEdit && !etag)) {
+  if (!viewDraft || (editing && !etag)) {
     return (
       <section aria-labelledby="advanced-measurement-empty-title" className="space-y-4">
-        <div className="section-head"><h2 id="advanced-measurement-empty-title">Advanced measurement setup</h2></div>
+        <div className="section-head"><h2 id="advanced-measurement-empty-title">Bulk setup</h2></div>
         <p className="text-sm text-secondary">{canEdit ? 'Start setup from the project Overview.' : 'No advanced setup is available to review.'}</p>
       </section>
     )
@@ -1542,7 +1577,7 @@ export function AdvancedMeasurementSection({
   if (canEdit && draft && setup && draft.baseActiveRevision !== setup.activeRevision) {
     return (
       <section aria-labelledby="advanced-measurement-stale-draft-title" className="space-y-4">
-        <div className="section-head"><h2 id="advanced-measurement-stale-draft-title">Advanced measurement setup</h2></div>
+        <div className="section-head"><h2 id="advanced-measurement-stale-draft-title">Bulk setup</h2></div>
         <div role="alert" className="border-y border-caution-800/40 bg-caution-950/20 py-4">
           <p className="text-sm font-medium text-heading">This draft is based on an older published setup.</p>
           <p className="mt-1 text-sm text-secondary">Restart from the latest setup before making more changes.</p>
@@ -1566,6 +1601,16 @@ export function AdvancedMeasurementSection({
     <div className="flex justify-end"><Button type="button" size="sm" variant="outline" className="min-h-11" onClick={onRetryQueries}>Retry queries</Button></div>
   ) : null
 
+  // What every step's frame is handed. An editor with no draft open reads, as a viewer does, with Edit setup in the header.
+  const frame = {
+    hasDraft: draft !== null,
+    canEdit: editing,
+    onStepChange: !editing ? setStep : undefined,
+    onDiscard: () => { void discardDraft() },
+    onEdit: canEdit && !draft ? () => { void startEditing() } : undefined,
+    isStartingEdit: busyAction === 'start-editing',
+  }
+
   return (
     <div className="space-y-4">
       {setup?.mode === 'active-v1' ? (
@@ -1578,10 +1623,7 @@ export function AdvancedMeasurementSection({
       {step === 'import' || step === 'properties' ? (
         <AdvancedMeasurementSetup
           currentStep={step}
-          hasDraft={draft !== null}
-          canEdit={canEdit}
-          onStepChange={!canEdit ? setStep : undefined}
-          onDiscard={() => { void discardDraft() }}
+          {...frame}
           importProperties={{
             importDraft,
             onImportDraftChange: next => {
@@ -1597,7 +1639,8 @@ export function AdvancedMeasurementSection({
             onPropertiesSearchChange: setPropertiesSearch,
             maxVisibleProperties,
             onShowAllProperties: () => setMaxVisibleProperties(importProperties.length),
-            selectedPropertyIds: includedPropertyIds,
+            // With no draft open there is no selection to hold: every location of the published setup is in it.
+            selectedPropertyIds: draft ? includedPropertyIds : includedTargets.map(target => target.stableKey),
             onSelectedPropertyIdsChange: ids => setIncludedPropertyIds([...ids]),
             onContinue: ids => { void continueProperties(ids) },
             isContinuing: busyAction === 'properties',
@@ -1608,10 +1651,7 @@ export function AdvancedMeasurementSection({
       ) : step === 'queries' ? (
         <AdvancedMeasurementSetup
           currentStep="queries"
-          hasDraft={draft !== null}
-          canEdit={canEdit}
-          onStepChange={!canEdit ? setStep : undefined}
-          onDiscard={() => { void discardDraft() }}
+          {...frame}
           onManageProjectQueries={onManageProjectQueries}
           queries={{
             onCreateQueries: onCreateQueries
@@ -1642,7 +1682,7 @@ export function AdvancedMeasurementSection({
             assignmentNotice,
             onReplaceAssignments: replaceQueryAssignments,
             isReplacingAssignments: busyAction === 'replace-assignments',
-            onCreateAndPairQuestions: canEdit && onCreateQueries ? createAndPairQuestions : undefined,
+            onCreateAndPairQuestions: editing && onCreateQueries ? createAndPairQuestions : undefined,
             onClearQueryAssignments: clearQueryAssignments,
             onRemoveQuery: clearQueryAssignments,
             canContinue: assignmentCount > 0,
@@ -1653,10 +1693,7 @@ export function AdvancedMeasurementSection({
       ) : step === 'groups' ? (
         <AdvancedMeasurementSetup
           currentStep="groups"
-          hasDraft={draft !== null}
-          canEdit={canEdit}
-          onStepChange={!canEdit ? setStep : undefined}
-          onDiscard={() => { void discardDraft() }}
+          {...frame}
           groups={{
             properties: confirmedProperties,
             groups: setupGroups,
@@ -1690,10 +1727,7 @@ export function AdvancedMeasurementSection({
       ) : (
         <AdvancedMeasurementSetup
           currentStep="review"
-          hasDraft={draft !== null}
-          canEdit={canEdit}
-          onStepChange={!canEdit ? setStep : undefined}
-          onDiscard={() => { void discardDraft() }}
+          {...frame}
           review={{
             counts: {
               properties: includedTargets.length,

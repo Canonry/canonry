@@ -78,7 +78,7 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
   expect((await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · gemini-2.5-flash` }) as HTMLOptionElement).selected).toBe(true)
 
   fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'Which AEO platform fits an agency?' } })
-  const run = screen.getByRole('button', { name: 'Run 1 answer' }) as HTMLButtonElement
+  const run = screen.getByRole('button', { name: 'Run 1 query' }) as HTMLButtonElement
   await waitFor(() => expect(run.disabled).toBe(false))
   fireEvent.click(run)
   await waitFor(() => expect(requests.some(request => request.method === 'POST')).toBe(true))

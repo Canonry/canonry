@@ -14,7 +14,7 @@ afterEach(() => {
 // one, and says which one the page is on. The list has no route key: a section is the URL's hash.
 const SECTIONS: ProjectSettingsEntry[] = [
   { id: 'settings-general', label: 'General', content: <section><h2>Project settings</h2><button type="button">Edit settings</button></section> },
-  { id: 'settings-schedule', label: 'Schedule', content: <section><h2>Scheduled runs</h2><button type="button">Set schedule</button></section> },
+  { id: 'settings-schedule', label: 'Schedule', content: <section><h2>Scheduled sweeps</h2><button type="button">Set schedule</button></section> },
   { id: 'settings-notifications', label: 'Notifications', content: <section><h2>Notifications</h2><button type="button">Add webhook</button></section> },
 ]
 
@@ -56,7 +56,7 @@ test('names the sections on the page, in order, as links and as one select', asy
     ['General', 'settings-general'], ['Schedule', 'settings-schedule'], ['Notifications', 'settings-notifications'],
   ])
   // Every entry has its section on the page, holding that section and nothing else.
-  expect(SECTIONS.map(section => within(anchor(section.id)).getByRole('heading').textContent)).toEqual(['Project settings', 'Scheduled runs', 'Notifications'])
+  expect(SECTIONS.map(section => within(anchor(section.id)).getByRole('heading').textContent)).toEqual(['Project settings', 'Scheduled sweeps', 'Notifications'])
   // The page opens on its first section, and exactly one entry is marked.
   expect(current()).toEqual({ link: [['General', 'location']], select: 'settings-general' })
 })
@@ -243,7 +243,7 @@ test('without the list the sections render as they are', async () => {
   await renderSettings({ nav: false })
   expect(screen.queryByRole('navigation', { name: 'Settings sections' })).toBeNull()
   expect(SECTIONS.map(section => document.getElementById(section.id))).toEqual([null, null, null])
-  expect(screen.getAllByRole('heading').map(heading => heading.textContent)).toEqual(['Project settings', 'Scheduled runs', 'Notifications'])
+  expect(screen.getAllByRole('heading').map(heading => heading.textContent)).toEqual(['Project settings', 'Scheduled sweeps', 'Notifications'])
   // No wrapper stands between the sections: they are siblings, as they were before the list.
   expect(new Set(screen.getAllByRole('heading').map(heading => heading.closest('section')!.parentElement)).size).toBe(1)
 })

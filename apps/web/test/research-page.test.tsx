@@ -47,6 +47,10 @@ type Options = {
   saved?: ResearchRunDetailDto[]
   /** The results of a finished Find ideas run, in place of the three. */
   probes?: typeof probes
+  /** Whether Gemini, the engine Find ideas runs on, is configured. It is unless this says no. */
+  gemini?: boolean
+  /** The engines read fails. */
+  failSettings?: boolean
 }
 
 const workspaceVersion = `qtw_${'a'.repeat(64)}`
@@ -133,7 +137,9 @@ function installApi(options: Options = {}) {
       country: 'US', language: 'en', tags: [], labels: {}, providers: ['openai'], providerModels: {}, locations: options.searchLocations === false ? [] : [downtown], defaultLocation: null,
       autoExtractBacklinks: false, configSource: 'api', configRevision: 1,
     })
-    if (path === '/api/v1/settings') return jsonResponse({ providers: options.engine === false ? [] : [{ name: 'openai', displayName: 'OpenAI', configured: true }], providerCatalog: catalog })
+    if (path === '/api/v1/settings' && options.failSettings) return jsonResponse({ error: { code: 'UNAVAILABLE', message: 'Temporary read failure' } }, 503)
+    // Gemini is out of the catalog, so Research offers OpenAI alone whether or not Gemini is configured.
+    if (path === '/api/v1/settings') return jsonResponse({ providers: options.engine === false ? [] : [{ name: 'openai', displayName: 'OpenAI', configured: true }, { name: 'gemini', displayName: 'Gemini', configured: options.gemini !== false }], providerCatalog: catalog })
     throw new Error(`Unexpected fetch: ${path}`)
   })
   onTestFinished(restore)
@@ -160,7 +166,7 @@ function renderPage(props: Partial<QueriesSectionProps> = {}) {
   return { rerender: (next: Partial<QueriesSectionProps>) => view.rerender(page(next)) }
 }
 
-const RUN = /^Run(?: \d+ answers?)?$/
+const RUN = /^Run(?: \d+ quer(?:y|ies))?$/
 const choices = (name: string) => within(screen.getByRole('radiogroup', { name })).getAllByRole('radio').map(radio => [radio.textContent, radio.getAttribute('aria-checked')])
 const start = (name: string) => fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Start from' })).getByRole('radio', { name }))
 /** An arrow key on the checked choice of "Start from": the next or the previous choice takes its place. */
@@ -172,7 +178,7 @@ const facts = () => [...screen.getByRole('region', { name: RESEARCH_COPY.results
 const ready = () => screen.findByRole('option', { name: 'OpenAI' })
 /** A run's date as the page prints it, worked out apart from the page. */
 const shownDate = (value: string) => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value))
-/** The runs under Recent runs, each as one line of text. */
+/** The runs under Past research in Find ideas, each as one line of text. */
 const recentRuns = () => screen.getAllByRole('button').filter(button => button.hasAttribute('aria-pressed')).map(button => button.textContent)
 /** The Results table's rows as text, cell by cell. A box has no text, so its cell reads empty. */
 const resultRows = () => results().getAllByRole('row').slice(1).map(row => within(row).getAllByRole('cell').map(cell => cell.textContent))
@@ -286,7 +292,7 @@ test('arrow keys through Start from keep what each form holds: a draft, a previe
   fireEvent.click(screen.getByRole('checkbox', { name: 'Old Mill' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Riverside' }))
   fireEvent.click(screen.getByRole('button', { name: RESEARCH_COPY.refreshPreview }))
-  fireEvent.click(screen.getByRole('button', { name: 'Run 2 answers' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Run 2 queries' }))
   const subject = await results().findByRole('combobox', { name: 'Subject' }) as HTMLSelectElement
   arrow('ArrowRight')
   arrow('ArrowLeft')
@@ -370,7 +376,8 @@ test('a link that names pattern opens Pattern, and one that names find opens Fin
   renderPage({ researchMode: 'find', trackedMode: 'advanced' })
   expect(choices('Start from')).toEqual([['Write', 'false'], ['Pattern', 'false'], ['Find ideas', 'true']])
   await screen.findByText(FIND_COPY.noRuns)
-  expect(state.paths).toEqual(['/api/v1/projects/demo/discover/sessions'])
+  // Its runs, and the engines its button waits on.
+  expect([...state.paths].sort()).toEqual(['/api/v1/projects/demo/discover/sessions', '/api/v1/settings'])
 })
 
 test('a server that sends no list of places offers a pattern across search locations only', async () => {
@@ -411,7 +418,7 @@ test('a pattern across five markets saves five runs, and the Subject select over
   fireEvent.click(screen.getByRole('button', { name: 'Preview queries' }))
   // Two lines for five markets: ten answers from the one engine.
   const run = screen.getByRole('button', { name: RUN }) as HTMLButtonElement
-  expect(run.textContent).toBe('Run 10 answers')
+  expect(run.textContent).toBe('Run 10 queries')
   fireEvent.click(run)
   await waitFor(() => expect(state.posts).toHaveLength(1))
   expect(state.posts[0]).toEqual({ path: '/api/v1/projects/demo/research/batches', body: {
@@ -467,7 +474,7 @@ test('a run clears the form and keeps what the pattern repeats for', async () =>
   fireEvent.click(screen.getByRole('checkbox', { name: 'Acme Homes Lofts' }))
   fireEvent.change(screen.getByRole('textbox', { name: 'Pattern' }), { target: { value: 'Is {property} pet friendly?' } })
   fireEvent.click(screen.getByRole('button', { name: 'Preview queries' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Run 1 answer' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Run 1 query' }))
   await waitFor(() => expect(state.posts).toHaveLength(1))
   await waitFor(() => expect((screen.getByRole('textbox', { name: 'Pattern' }) as HTMLTextAreaElement).value).toBe(''))
   expect(choices('For each')).toEqual([['Market', 'false'], ['Location', 'true'], ['Search location', 'false']])
@@ -515,7 +522,7 @@ test('with no engine key the page renders, a pattern still previews, and Run sta
   fireEvent.change(screen.getByRole('textbox', { name: 'Pattern' }), { target: { value: 'best apartments in {market}' } })
   fireEvent.click(screen.getByRole('button', { name: 'Preview queries' }))
   expect((screen.getByRole('textbox', { name: 'Query 1 for Old Mill' }) as HTMLTextAreaElement).value).toBe('best apartments in Old Mill')
-  const run = screen.getByRole('button', { name: 'Run 1 answer' }) as HTMLButtonElement
+  const run = screen.getByRole('button', { name: 'Run 1 query' }) as HTMLButtonElement
   expect(run.disabled).toBe(true)
   fireEvent.click(run)
   // Stored results still show: the legend names the company and the project's domain, without its scheme or www.
@@ -569,10 +576,12 @@ test('Find ideas is short labels with the sentences behind them, and a finished 
   expect(screen.getByRole('textbox', { name: FIND_COPY.count })).toHaveProperty('value', '100')
   expect(screen.getByRole('button', { name: FIND_COPY.countHelp })).toBeTruthy()
   expect(screen.getByText('Runs on Gemini')).toBeTruthy()
-  expect(screen.getAllByRole('heading').map(heading => heading.textContent)).toEqual(['Queries', 'Recent runs', 'Run session-', 'Results'])
-  // The action is named for what it starts, apart from the choice of "Start from" above it.
-  expect(screen.getByRole('button', { name: FIND_COPY.runAction }).textContent).toBe('Start run')
-  // Each run under Recent runs: its status in the page's words, then the server's three numbers.
+  expect(screen.getAllByRole('heading').map(heading => heading.textContent)).toEqual(['Queries', 'Past research', 'Run session-', 'Results'])
+  // The action says how many it may test: the count field is a cap. Gemini is configured, so it is on.
+  const run = await screen.findByRole<HTMLButtonElement>('button', { name: 'Run up to 100' })
+  await waitFor(() => expect(run.disabled).toBe(false))
+  expect(screen.queryByText(FIND_COPY.noGeminiKey)).toBeNull()
+  // Each run under Past research: its status in the page's words, then the server's three numbers.
   expect(recentRuns()).toEqual(['session-CompletedCited queries2Worth tracking4Skip3', 'testing-TestingCited queries0Worth tracking0Skip0'])
 
   // The run's numbers are the server's own fields, each under its label.
@@ -599,22 +608,64 @@ test('Find ideas is short labels with the sentences behind them, and a finished 
   // A run still at work has no result to review, so its Results card has no help for one.
   fireEvent.click(screen.getByRole('button', { name: /^testing-/ }))
   expect((await screen.findByText(FIND_COPY.noResults)).textContent).toBe('No results yet')
-  expect(screen.getAllByRole('heading').map(heading => heading.textContent)).toEqual(['Queries', 'Recent runs', 'Run testing-', 'Results'])
+  expect(screen.getAllByRole('heading').map(heading => heading.textContent)).toEqual(['Queries', 'Past research', 'Run testing-', 'Results'])
   expect(screen.queryByRole('button', { name: FIND_COPY.resultsHelp })).toBeNull()
 
   // A run starts only when pressed, with the number of questions asked for. Its toast is in the page's words.
   expect(state.posts).toEqual([])
   fireEvent.change(customer, { target: { value: 'Renters moving for work' } })
-  fireEvent.click(screen.getByRole('button', { name: FIND_COPY.runAction }))
+  fireEvent.click(screen.getByRole('button', { name: 'Run up to 100' }))
   await waitFor(() => expect(state.posts).toEqual([{ path: '/api/v1/projects/demo/discover/run', body: { icpDescription: 'Renters moving for work', maxProbes: 100 } }]))
   await waitFor(() => expect(getToasts().map(toast => [toast.title, toast.detail])).toEqual([['Find ideas started', 'Run session- · Testing']]))
   fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
-  await waitFor(() => expect(getToasts().map(toast => [toast.title, toast.detail])).toContainEqual(['Recent runs refreshed', '2 runs']))
+  await waitFor(() => expect(getToasts().map(toast => [toast.title, toast.detail])).toContainEqual(['Past research refreshed', '2 runs']))
   state.failSessions = true
   fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
   // A refresh that fails takes the place of the one that worked, and the runs already listed stay.
   await waitFor(() => expect(getToasts().map(toast => [toast.title, toast.detail])).toEqual([['Find ideas started', 'Run session- · Testing'], ['Could not refresh', FIND_COPY.runsError]]))
   expect(recentRuns()).toHaveLength(2)
+})
+
+test('Find ideas stays off without Gemini, whatever other engine has a key, and says how many it may test', async () => {
+  // OpenAI has a key and Gemini does not: Write and Pattern can run, Find ideas cannot.
+  const state = installApi({ sessions: [session], gemini: false })
+  renderPage({ researchMode: 'find' })
+  const note = await screen.findByRole('button', { name: `${FIND_COPY.noGeminiKey}. ${FIND_COPY.noGeminiKeyDetail}` })
+  expect(note.textContent).toBe('No Gemini key')
+  const run = screen.getByRole<HTMLButtonElement>('button', { name: 'Run up to 100' })
+  expect(run.disabled).toBe(true)
+  fireEvent.click(run)
+  expect(state.posts).toEqual([])
+  expect(state.paths.filter(path => path.endsWith('/settings'))).toHaveLength(1)
+})
+
+test('the Find ideas button names the count typed, or no size when it is not a number', async () => {
+  const state = installApi({ sessions: [session] })
+  renderPage({ researchMode: 'find' })
+  const run = await screen.findByRole<HTMLButtonElement>('button', { name: 'Run up to 100' })
+  await waitFor(() => expect(run.disabled).toBe(false))
+  const count = screen.getByRole('textbox', { name: FIND_COPY.count })
+
+  fireEvent.change(count, { target: { value: '25' } })
+  expect(run.textContent).toBe('Run up to 25')
+  fireEvent.click(run)
+  await waitFor(() => expect(state.posts).toEqual([{ path: '/api/v1/projects/demo/discover/run', body: { maxProbes: 25 } }]))
+
+  // Not a number: the server's own size applies, so the button names none and the request sends none.
+  fireEvent.change(count, { target: { value: '' } })
+  await waitFor(() => expect(run.textContent).toBe('Run'))
+  fireEvent.click(run)
+  await waitFor(() => expect(state.posts.at(-1)).toEqual({ path: '/api/v1/projects/demo/discover/run', body: {} }))
+})
+
+test('Find ideas is off while the engines are read, and a read that fails leaves it on', async () => {
+  installApi({ sessions: [session], failSettings: true })
+  renderPage({ researchMode: 'find' })
+  const run = screen.getByRole<HTMLButtonElement>('button', { name: 'Run up to 100' })
+  expect(run.disabled).toBe(true)
+  // A failed read says nothing about Gemini either way.
+  await waitFor(() => expect(run.disabled).toBe(false))
+  expect(screen.queryByText(FIND_COPY.noGeminiKey)).toBeNull()
 })
 
 test('Find ideas with no runs says so, and a failed read offers Retry', async () => {
@@ -630,14 +681,14 @@ test('Find ideas with no runs says so, and a failed read offers Retry', async ()
   expect(screen.queryByText(FIND_COPY.noRun)).toBeNull()
   expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull()
   state.failSessions = false
-  fireEvent.click(screen.getByRole('button', { name: 'Retry recent runs' }))
-  expect((await screen.findByText(FIND_COPY.noRuns)).textContent).toBe('No runs yet')
+  fireEvent.click(screen.getByRole('button', { name: 'Retry past research' }))
+  expect((await screen.findByText(FIND_COPY.noRuns)).textContent).toBe('No research yet')
   expect(screen.queryByRole('alert')).toBeNull()
   expect(screen.queryByRole('status', { name: FIND_COPY.runsLoading })).toBeNull()
   expect(screen.getByRole('button', { name: 'Refresh' })).toBeTruthy()
   // With no run there is nothing to select and nothing to show results for: one empty state, not two.
   expect(screen.queryByText(FIND_COPY.noRun)).toBeNull()
-  expect(screen.getAllByRole('heading').map(heading => heading.textContent)).toEqual(['Queries', 'Recent runs'])
+  expect(screen.getAllByRole('heading').map(heading => heading.textContent)).toEqual(['Queries', 'Past research'])
   expect(state.posts).toEqual([])
 })
 
@@ -677,7 +728,7 @@ test('rows ticked in two runs of one batch go in one review, each for its own ma
   for (const market of ['Harbor Point', 'Northbridge']) fireEvent.click(await screen.findByRole('checkbox', { name: market }))
   fireEvent.change(screen.getByRole('textbox', { name: 'Pattern' }), { target: { value: 'apartments with a dog park in {market}\nquiet apartments in {market}' } })
   fireEvent.click(screen.getByRole('button', { name: 'Preview queries' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Run 4 answers' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Run 4 queries' }))
   const subject = await results().findByRole('combobox', { name: 'Subject' }) as HTMLSelectElement
   await waitFor(() => expect(resultQueries()).toEqual(['apartments with a dog park in Harbor Point', 'quiet apartments in Harbor Point']))
 

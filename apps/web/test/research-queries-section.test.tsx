@@ -14,8 +14,8 @@ afterEach(() => {
   delete window.__CANONRY_CONFIG__
 })
 
-/** The Run button says how many answers it will ask for, and only "Run" while there is none. */
-const RUN = /^Run(?: \d+ answers?)?$/
+/** The Run button says how many queries it will send, and only "Run" while there is none. */
+const RUN = /^Run(?: \d+ quer(?:y|ies))?$/
 /** A run's date as the page prints it, worked out apart from the page. */
 const shownDate = (value: string) => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value))
 
@@ -43,7 +43,8 @@ function installApiMock(posts?: string[], bodies?: Array<Record<string, unknown>
     }
     if (path === '/api/v1/settings') {
       return jsonResponse({
-        providers: [{ name: 'openai', displayName: 'OpenAI', configured: true, defaultModel: 'gpt-5-mini' }],
+        // Find ideas runs on Gemini. It is configured and left out of the catalog, so Research still offers OpenAI alone.
+        providers: [{ name: 'openai', displayName: 'OpenAI', configured: true, defaultModel: 'gpt-5-mini' }, { name: 'gemini', displayName: 'Gemini', configured: true }],
         providerCatalog: [{
           name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true, defaultModel: 'gpt-5-mini',
           knownModels: [{ id: 'gpt-5-mini', displayName: 'GPT-5 mini', tier: 'fast' }],
@@ -70,13 +71,16 @@ test.each([false, true])('managedSweeps=%s preserves client Discovery and Resear
     </AccountProvider>,
   )
 
-  fireEvent.click(screen.getByRole('button', { name: FIND_COPY.runAction }))
+  // Off until the engines have been read, then on: Gemini is configured.
+  const findIdeas = screen.getByRole('button', { name: `${FIND_COPY.runAction} up to 100` }) as HTMLButtonElement
+  await waitFor(() => expect(findIdeas.disabled).toBe(false))
+  fireEvent.click(findIdeas)
   await waitFor(() => expect(posts).toContain('/api/v1/projects/demo/discover/run'))
 
   fireEvent.click(screen.getByRole('tab', { name: 'Research queries' }))
   await screen.findByRole('option', { name: 'OpenAI' })
   fireEvent.change(screen.getByPlaceholderText(RESEARCH_COPY.queryPlaceholder), { target: { value: 'How do I measure AI citations?' } })
-  const run = screen.getByRole('button', { name: 'Run 1 answer' }) as HTMLButtonElement
+  const run = screen.getByRole('button', { name: 'Run 1 query' }) as HTMLButtonElement
   await waitFor(() => expect(run.disabled).toBe(false))
   fireEvent.click(run)
   await waitFor(() => expect(posts).toContain('/api/v1/projects/demo/research/batches'))
@@ -334,7 +338,7 @@ test('with no engine configured the form renders and Run stays off beside a No e
   expect(run.disabled).toBe(true)
   fireEvent.click(run)
   // Nothing beside Run names an engine or a model, because none is chosen. The reason Run is off sits in the same footer.
-  expect(run.parentElement!.textContent).toBe('Run 1 answer')
+  expect(run.parentElement!.textContent).toBe('Run 1 query')
   expect(run.parentElement!.parentElement!.contains(note)).toBe(true)
   // With no run saved there is no Results card: the Past research row says there is none.
   expect(screen.getByText(RESEARCH_COPY.emptyHistory)).toBeTruthy()

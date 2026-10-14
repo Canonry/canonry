@@ -19,6 +19,9 @@ export interface AdvancedMeasurementSetupWizardProps {
   hasDraft: boolean
   canEdit: boolean
   onDiscard?: () => void
+  /** Opens a draft of the published setup. Given only when the account can edit and no draft is open. */
+  onEdit?: () => void
+  isStartingEdit?: boolean
   onStepChange?: (step: AdvancedMeasurementSetupStep) => void
   children: ReactNode
 }
@@ -28,6 +31,8 @@ export function AdvancedMeasurementSetupWizard({
   hasDraft,
   canEdit,
   onDiscard,
+  onEdit,
+  isStartingEdit = false,
   onStepChange,
   children,
 }: AdvancedMeasurementSetupWizardProps) {
@@ -66,12 +71,12 @@ export function AdvancedMeasurementSetupWizard({
     <div className="space-y-6">
       <div className="mb-3 flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:justify-between">
         <div className="flex min-w-0 w-full items-center gap-1 sm:flex-1">
-          <h2>Advanced measurement setup</h2>
+          <h2>Bulk setup</h2>
           <InfoTooltip placement="bottom" text="Choose the locations and queries you want to measure." />
         </div>
         {hasDraft ? (
           <div className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end">
-            <ToneBadge tone="caution">Unpublished changes</ToneBadge>
+            <ToneBadge tone="caution">Draft</ToneBadge>
             {canEdit && onDiscard ? discardArmed ? (
               <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Confirm discard">
                 <span className="text-sm text-secondary">Discard all unpublished changes?</span>
@@ -88,10 +93,15 @@ export function AdvancedMeasurementSetupWizard({
               </Button>
             ) : null}
           </div>
+        ) : onEdit ? (
+          // The published setup is read first. This is the one way into editing it.
+          <Button type="button" size="sm" className="min-h-11" disabled={isStartingEdit} onClick={onEdit}>
+            {isStartingEdit ? 'Opening…' : 'Edit setup'}
+          </Button>
         ) : null}
       </div>
 
-      <div role="group" aria-label="Advanced measurement setup progress" className="overflow-x-auto border-b border-default">
+      <div role="group" aria-label="Bulk setup progress" className="overflow-x-auto border-b border-default">
         <ol className="flex min-w-max gap-6">
           {setupSteps.map(step => (
             <li key={step.id}>
