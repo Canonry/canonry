@@ -10,9 +10,17 @@ import { AdvancedMeasurementOverview } from '../src/components/project/advanced-
 import {
   adaptV2MeasurementOverview,
   areV2OverviewPagesCompatible,
+  matcherLabel,
 } from '../src/components/project/advanced-measurement/v2-overview-adapter.js'
 
 afterEach(cleanup)
+
+it('labels a root prefix without a doubled slash', () => {
+  expect(matcherLabel({ kind: 'prefix', host: 'northstar.example', pathPrefix: '/', pathCase: 'insensitive' }))
+    .toBe('https://northstar.example/*')
+  expect(matcherLabel({ kind: 'prefix', host: 'northstar.example', pathPrefix: '/places', pathCase: 'insensitive' }))
+    .toBe('https://northstar.example/places/*')
+})
 
 type ActivePlan = NonNullable<MeasurementPlanResponse['active']>
 

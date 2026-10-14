@@ -112,6 +112,24 @@ test('normalizeResult extracts answer text from candidates', () => {
   expect(result.searchQueries).toEqual(['answer engine optimization'])
 })
 
+test('normalizeResult drops Gemini hosts and keeps domains ChatGPT would exclude', () => {
+  const raw: GeminiRawResult = {
+    provider: 'gemini',
+    model: 'gemini-2.5-flash',
+    rawResponse: {},
+    groundingSources: [
+      { uri: 'https://gemini.google.com/app', title: '' },
+      { uri: 'https://bard.google.com/chat', title: '' },
+      { uri: 'https://chatgpt.com/share/1', title: '' },
+      { uri: 'https://openai.com/blog', title: '' },
+      { uri: 'https://example.com/article', title: '' },
+    ],
+    searchQueries: [],
+  }
+
+  expect(normalizeResult(raw).citedDomains).toEqual(['chatgpt.com', 'openai.com', 'example.com'])
+})
+
 test('normalizeResult strips www. from domains', () => {
   const raw: GeminiRawResult = {
     provider: 'gemini',

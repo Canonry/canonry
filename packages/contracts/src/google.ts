@@ -17,6 +17,13 @@ export const googleConnectionDtoSchema = z.object({
 })
 export type GoogleConnectionDto = z.infer<typeof googleConnectionDtoSchema>
 
+/** Browser hand-off for Search Console, Analytics, or Business Profile OAuth. No token is returned. */
+export const googleOAuthStartResponseSchema = z.object({
+  authUrl: z.string().url(),
+  redirectUri: z.string().url(),
+}).strict()
+export type GoogleOAuthStartResponse = z.infer<typeof googleOAuthStartResponseSchema>
+
 export const gscSearchDataDtoSchema = z.object({
   date: z.string(),
   query: z.string(),
