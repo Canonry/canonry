@@ -2610,6 +2610,13 @@ function ProjectPageContent({
   const shownTrackingChangedAt = isEmbed() || isDashboardManagedSweeps() ? undefined : activeMeasurementPlan?.createdAt
   const shownNextSweepDate = isEmbed() || isDashboardManagedSweeps() || hasActiveVisibilitySweep ? undefined : nextSweepDate ?? undefined
 
+  // The way from a location chosen as the Place to its own page, on AI Visibility and on Queries.
+  const locationDetailsLink = ({ id, label }: { id: string; label: string }) => (
+    <Link to="/projects/$projectName/properties/$targetKey" params={{ projectName, targetKey: id }} search={carryVisibilitySearch} aria-label={`Location details for ${label}`} className="inline-flex min-h-11 items-center whitespace-nowrap text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
+      Location details
+    </Link>
+  )
+
   function renderVisibilityOverview(overview: React.ReactNode) {
     // Simple keeps its own layout even when a unified report is available.
     // Advanced retains the report workspace and its existing legacy fallback.
@@ -2626,11 +2633,7 @@ function ProjectPageContent({
           && !visibilitySelection.measurementRunId && !visibilitySelection.queryKey && !visibilitySelection.marketKey}
         onSelectionChange={updateVisibilitySearch}
         onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined, measurementMarketKey: undefined }) }) } : undefined}
-        renderPropertyLink={!isEmbed() ? ({ id, label }) => (
-          <Link to="/projects/$projectName/properties/$targetKey" params={{ projectName, targetKey: id }} search={carryVisibilitySearch} aria-label={`Location details for ${label}`} className="inline-flex min-h-11 items-center text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
-            Location details
-          </Link>
-        ) : undefined}
+        renderPropertyLink={!isEmbed() ? locationDetailsLink : undefined}
         trackingChangedAt={shownTrackingChangedAt}
         nextSweepDate={shownNextSweepDate}
         rootLabel={placeRootLabel}
@@ -2714,7 +2717,8 @@ function ProjectPageContent({
             selected={selected}
             onSelect={scope => updateVisibilitySearch({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id })}
           />,
-          placeCounts(selected, workspace.targets.length, workspace.markets.length),
+          // A location links to its own page from here. The counts are the whole project's, and show only for it.
+          selected.kind === 'property' && !isEmbed() ? locationDetailsLink(selected) : placeCounts(selected, workspace.targets.length, workspace.markets.length),
         ) : null
       }
       case 'scope-unavailable':
@@ -2931,6 +2935,7 @@ function ProjectPageContent({
           onRetryQueries={() => { void portfolioQueriesQuery.refetch() }}
           publishedPlan={activeMeasurementPlan}
           sweepActive={hasActiveVisibilitySweep}
+          openStep={projectSearchParams.setupStep === 'review' ? 'review' : undefined}
           onCreateQueries={async texts => {
             // The shared mutation carries the write guard and invalidates both
             // the projects list and the per-project detail. Calling the raw

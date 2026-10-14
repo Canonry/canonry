@@ -199,7 +199,7 @@ const AWAITING_SWEEP: { activeRevision: number; measuredRevision: number | null;
 const SWEPT_ON = formatObservedInstantMonthDay(observedInstant(SWEPT_AT))
 const CHANGED_ON = formatObservedInstantMonthDay(observedInstant(CHANGED_AT))
 /** What the header's one note says, after its label. */
-const TRACKING_CHANGED_HELP = `Showing the ${SWEPT_ON} results, from before the change. New numbers after the next sweep. Queries removed since ${SWEPT_ON} still count here. Queries added since do not.`
+const TRACKING_CHANGED_HELP = `Showing the ${SWEPT_ON} results, from before the change. New numbers after the next sweep. Queries removed since ${SWEPT_ON} still count in the rates on this page. Queries added since do not.`
 /** Why a type with queries now has no number from that sweep. */
 const NOT_IN_LAST_SWEEP = `Not in last sweep. No queries of this type were asked for this location in the ${SWEPT_ON} sweep. First numbers after the next sweep.`
 /** Why a list of what cited this location is not "None" when that sweep had no number of either type for it. */
@@ -467,7 +467,16 @@ async function renderPropertyPage(options: {
 
 async function renderPropertyPageFromApi(
   handler: (url: string, init?: RequestInit) => Response | Promise<Response>,
-  options: { account?: SignedInAccount | null; search?: string; queryClient?: QueryClient } = {},
+  options: {
+    account?: SignedInAccount | null
+    search?: string
+    queryClient?: QueryClient
+    /**
+     * The page the reader was on before this one, under `/projects/{name}`. Both entries are then written as a
+     * browser holds them, with the name encoded. Left out, the page is the first entry: a direct open.
+     */
+    cameFrom?: string
+  } = {},
 ) {
   const fixture = createDashboardFixture({})
   const projectName = fixture.dashboard.projects.find(project => project.project.id === 'project_citypoint')!.project.name
@@ -475,7 +484,9 @@ async function renderPropertyPageFromApi(
   const restoreFetch = mockFetch((url, init) => handler(url, init))
   onTestFinished(restoreFetch)
   const router = createAppRouter(queryClient, {
-    initialEntries: [`/projects/${projectName}/properties/${TARGET_KEY}${options.search ?? ''}`],
+    initialEntries: options.cameFrom === undefined
+      ? [`/projects/${projectName}/properties/${TARGET_KEY}${options.search ?? ''}`]
+      : [options.cameFrom, `/properties/${TARGET_KEY}${options.search ?? ''}`].map(path => `/projects/${encodeURIComponent(projectName)}${path}`),
   })
   await router.load()
 
@@ -641,7 +652,7 @@ describe('Property page in a read-only embed', () => {
     })
 
     expect(await screen.findByText('This view is not available here.')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Back to AI Visibility' }).getAttribute('href')).toBe(`/projects/${encodeURIComponent(projectName)}`)
+    expect(screen.getByRole('link', { name: 'AI Visibility' }).getAttribute('href')).toBe(`/projects/${encodeURIComponent(projectName)}`)
     // The message is on the first render, so give any query that did start time
     // to reach the mocked fetch, then check the cache: the queries exist but never ran.
     await new Promise(resolve => setTimeout(resolve, 50))
@@ -1122,7 +1133,7 @@ describe('Property page', () => {
     // The cited URL and its classification moved inside the answer row, so this
     // assertion now expands the answer before reading them.
     const evidence = await answersTable()
-    fireEvent.click(within(evidence).getByRole('button', { name: `Read the answer for ${NEARBY_QUESTION}` }))
+    fireEvent.click(within(evidence).getByRole('button', { name: `View the answer for ${NEARBY_QUESTION}` }))
     fireEvent.click(within(evidence).getByText(`${ANSWER_SOURCES_LABEL} (1)`, { selector: 'summary' }))
     expect(within(evidence).getByText('This location')).toBeTruthy()
     expect(within(evidence).getByText(OWN_URL)).toBeTruthy()
@@ -1227,14 +1238,14 @@ describe('Property answer evidence', () => {
     const notSaved = 'Sources not saved. The sources for this answer were not fully captured, so none can be shown.'
     expect(within(sources!).getByRole('button', { name: notSaved })).toBeTruthy()
     // The opened row says the same thing, in the same words.
-    fireEvent.click(within(unknown).getByRole('button', { name: 'Read the answer for where to stay by the water' }))
+    fireEvent.click(within(unknown).getByRole('button', { name: 'View the answer for where to stay by the water' }))
     expect(within(evidence).getAllByRole('button', { name: notSaved })).toHaveLength(2)
 
     // Some sources were captured: partial, and the ones captured are listed when the row is opened.
     const partial = answerFor(evidence, 'best small hotels in the old port')
     expect(partial.querySelectorAll('td')[3]!.textContent).toBe(`${ANSWER_SOURCES_LABEL}Sources partial`)
     expect(within(partial).getByRole('button', { name: 'Sources partial. Sources were not fully captured for this answer.' })).toBeTruthy()
-    fireEvent.click(within(partial).getByRole('button', { name: 'Read the answer for best small hotels in the old port' }))
+    fireEvent.click(within(partial).getByRole('button', { name: 'View the answer for best small hotels in the old port' }))
     expect(within(evidence).getByText(`${ANSWER_SOURCES_LABEL} (1)`, { selector: 'summary' })).toBeTruthy()
     expect(within(evidence).getAllByRole('button', { name: notSaved })).toHaveLength(2)
   })
@@ -1285,7 +1296,7 @@ describe('Property answer evidence', () => {
     ])
 
     expect(within(evidence).queryByText(OWN_URL)).toBeNull()
-    const toggle = within(evidence).getByRole('button', { name: 'Read the answer for where to stay by the water' })
+    const toggle = within(evidence).getByRole('button', { name: 'View the answer for where to stay by the water' })
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
     fireEvent.click(toggle)
 
@@ -1315,7 +1326,7 @@ describe('Property answer evidence', () => {
   it('says an answer cited nothing rather than leaving its detail blank', async () => {
     const evidence = await renderAnswers([answerRow({ slot: 'a', queryText: 'where to stay by the water' })])
 
-    fireEvent.click(within(evidence).getByRole('button', { name: 'Read the answer for where to stay by the water' }))
+    fireEvent.click(within(evidence).getByRole('button', { name: 'View the answer for where to stay by the water' }))
     expect(within(evidence).getByRole('button', { name: 'No sources. This answer returned no source URLs at all.' })).toBeTruthy()
   })
 
@@ -1477,7 +1488,7 @@ describe('Property facts and market link', () => {
     // same unscoped URL, so the market a reader picked was silently dropped.
     const links = within(market).getAllByRole('link')
     expect(links).toHaveLength(1)
-    expect(links[0]!.textContent).toBe('Open AI Visibility')
+    expect(links[0]!.textContent).toBe('View in AI Visibility')
   })
 
   it('does not claim the Property was never swept while a class is failing', async () => {
@@ -1528,7 +1539,7 @@ describe('Reading the answer', () => {
     // and no badge or source count carries that.
     await renderPropertyPageFromApi(propertyPageResponses())
 
-    const toggle = await screen.findByRole('button', { name: `Read the answer for ${NEARBY_QUESTION}` })
+    const toggle = await screen.findByRole('button', { name: `View the answer for ${NEARBY_QUESTION}` })
     fireEvent.click(toggle)
 
     expect(await screen.findByText(/Harborline Homes and The Sutton/)).toBeTruthy()
@@ -1547,10 +1558,10 @@ describe('Reading the answer', () => {
       return propertyPageResponses()(url)
     })
 
-    await screen.findByRole('button', { name: `Read the answer for ${NEARBY_QUESTION}` })
+    await screen.findByRole('button', { name: `View the answer for ${NEARBY_QUESTION}` })
     expect(paths.some(path => path.includes('/measurement-question-result'))).toBe(false)
 
-    fireEvent.click(screen.getByRole('button', { name: `Read the answer for ${NEARBY_QUESTION}` }))
+    fireEvent.click(screen.getByRole('button', { name: `View the answer for ${NEARBY_QUESTION}` }))
     await screen.findByText(/Harborline Homes and The Sutton/)
     expect(paths.some(path => path.includes('/measurement-question-result'))).toBe(true)
   })
@@ -1606,20 +1617,20 @@ function renderNamedInsteadWith(rows: CompetitorRowFixture[]) {
   })
 }
 
-describe('Named instead of this Property', () => {
+describe('Mentioned instead of this Property', () => {
   it('names who the engines recommended in the answers this Property missed', async () => {
     // Coverage says there is a gap. Only this says what is in it — and the
     // occurrence counts are meaningless without the basis, which states how
     // many answers they were counted over.
     await renderPropertyPageFromApi(propertyPageResponses())
 
-    const section = await screen.findByRole('region', { name: 'Named instead' })
+    const section = await screen.findByRole('region', { name: 'Mentioned instead' })
     expect(within(section).getByText('Harborline Homes')).toBeTruthy()
     expect(within(section).getByText('The Sutton')).toBeTruthy()
     expect(within(section).getByText('OpenAI, Gemini')).toBeTruthy()
     // The basis is a labelled figure: the server's two counts and their type, with what they count in the help beside them.
     expect(within(section).getByText('Missed answers').nextElementSibling!.textContent).toBe('3 of 4 · Non-brand')
-    expect(within(section).getByRole('button', { name: 'Answers to non-brand queries that did not name this location.' })).toBeTruthy()
+    expect(within(section).getByRole('button', { name: 'Answers to non-brand queries that did not mention this location.' })).toBeTruthy()
   })
 
   it('collapses a repeated query list into a count, and keeps the text reachable behind disclosure', async () => {
@@ -1633,7 +1644,7 @@ describe('Named instead of this Property', () => {
     ]
     await renderNamedInsteadWith(rows)
 
-    const section = await screen.findByRole('region', { name: 'Named instead' })
+    const section = await screen.findByRole('region', { name: 'Mentioned instead' })
 
     // The wide, near-constant text is gone from the row cells on first render
     // — only the count survives there.
@@ -1669,7 +1680,7 @@ describe('Named instead of this Property', () => {
     ]
     await renderNamedInsteadWith(rows)
 
-    const section = await screen.findByRole('region', { name: 'Named instead' })
+    const section = await screen.findByRole('region', { name: 'Mentioned instead' })
     const deltaRow = within(section).getByText('Delta Suites').closest('tr')!
 
     // The count is the SERVER total (5), not the length of the sample array (2).
@@ -1680,13 +1691,13 @@ describe('Named instead of this Property', () => {
     expect(await screen.findByText(`${REPEATED_QUERIES_TEXT} +3 more`)).toBeTruthy()
   })
 
-  it('says so plainly when no rival was named, rather than showing an empty table', async () => {
+  it('says so plainly when no other name was mentioned, rather than showing an empty table', async () => {
     // Answers were measured and none named a rival: the basis is there, the list is empty.
     await renderNamedInsteadWith([])
 
-    const section = await screen.findByRole('region', { name: 'Named instead' })
-    expect(visibleText(section)).toBe('Named insteadNone named')
-    expect(within(section).getByRole('button', { name: 'None named. No rival was named in the answers this location missed.' })).toBeTruthy()
+    const section = await screen.findByRole('region', { name: 'Mentioned instead' })
+    expect(visibleText(section)).toBe('Mentioned insteadNone mentioned')
+    expect(within(section).getByRole('button', { name: 'None mentioned. No other name was mentioned in the answers this location missed.' })).toBeTruthy()
     expect(section.querySelector('table')).toBeNull()
   })
 
@@ -1694,14 +1705,14 @@ describe('Named instead of this Property', () => {
     { reason: 'no_population', why: 'No queries tracked.' },
     { reason: 'no_completed_run', why: 'No completed sweep yet.' },
     { reason: 'evidence_incomplete', why: 'Evidence incomplete.' },
-  ])('says Not measured, never None named, when no answer was read ($reason)', async ({ reason, why }) => {
+  ])('says Not measured, never None mentioned, when no answer was read ($reason)', async ({ reason, why }) => {
     await renderPropertyPageFromApi(url => {
       if (pathOf(url).includes('/measurement-property-competitors')) return jsonResponse({ ...competitorsResponse([]), basis: { state: 'unavailable', reason } })
       return propertyPageResponses()(url)
     })
 
-    const section = await screen.findByRole('region', { name: 'Named instead' })
-    expect(visibleText(section)).toBe('Named insteadNot measured')
+    const section = await screen.findByRole('region', { name: 'Mentioned instead' })
+    expect(visibleText(section)).toBe('Mentioned insteadNot measured')
     expect(within(section).getByRole('button', { name: `Not measured. No answers to non-brand queries have been measured for this location. ${why}` })).toBeTruthy()
     expect(section.querySelector('table')).toBeNull()
   })
@@ -1716,11 +1727,11 @@ describe('Named instead of this Property', () => {
       return propertyPageResponses()(url)
     })
 
-    const section = await screen.findByRole('region', { name: 'Named instead' })
-    expect(visibleText(section)).toBe('Named insteadLoad failedRetry')
+    const section = await screen.findByRole('region', { name: 'Mentioned instead' })
+    expect(visibleText(section)).toBe('Mentioned insteadLoad failedRetry')
     expect(within(section).getByRole('alert').textContent).toBe('Load failed')
     expect(within(section).getByRole('button', { name: 'Load failed. The names given instead did not load.' })).toBeTruthy()
-    fireEvent.click(within(section).getByRole('button', { name: 'Retry named instead' }))
+    fireEvent.click(within(section).getByRole('button', { name: 'Retry mentioned instead' }))
 
     expect(await within(section).findByText('Harborline Homes')).toBeTruthy()
     expect(attempts).toBe(2)
@@ -1887,7 +1898,7 @@ describe('Names that count as this Property', () => {
 
     const section = await namesSection()
     expect(within(section).getByRole('button', { name: PROPERTY_NAMES_COPY.help })).toBeTruthy()
-    expect(PROPERTY_NAMES_COPY.help).toContain('Source titles and source links never count, but a link in the answer whose text is one of these names does.')
+    expect(PROPERTY_NAMES_COPY.help).toBe('An answer mentions this location when its text has one of these names as whole words. Source titles and source links do not count. Longer names are fuller forms, for a name other places share.')
     // A link written into the sentence keeps its text as prose; a source link
     // in parentheses is dropped whatever its text says.
     expect(answerProseForMentions('Try [Harbor House](https://locations.example/harbor-house) today.')).toContain('Harbor House')
@@ -1923,10 +1934,12 @@ describe('Names that count as this Property', () => {
     expect(document.getElementById(names.getAttribute('aria-describedby')!.split(' ')[0]!)!.textContent).toBe(PROPERTY_NAMES_COPY.perLine)
     const [qualifiedHint, qualifiedIssues, ...more] = qualified.getAttribute('aria-describedby')!.split(' ').map(id => document.getElementById(id)!)
     expect(qualifiedHint!.contains(help(`${PROPERTY_NAMES_COPY.perLine}. ${PROPERTY_NAMES_COPY.qualifiedHint}`))).toBe(true)
-    expect(PROPERTY_NAMES_COPY.qualifiedHint).toContain('With qualified names set, an answer that uses only a plain name counts as a mention only when it also cites this location’s own page.')
+    expect(PROPERTY_NAMES_COPY.qualifiedHint).toContain('With longer names set, an answer that uses only a plain name counts as a mention only when it also cites this location’s own page.')
     expect(qualifiedIssues!.contains(nameWarning(section, 'Must include a name: Harbor District', unqualified))).toBe(true)
     expect(more).toEqual([])
-    expect(help(`${PROPERTY_NAMES_COPY.draftOnly}. ${PROPERTY_NAMES_COPY.draftOnlyDetail}`)).toBeTruthy()
+    // Before saving, the note beside Save names where the names get published.
+    expect(help('Publish in Bulk setup. Saved to the draft. Nothing is measured differently until it is published in Bulk setup.')).toBeTruthy()
+    expect([PROPERTY_NAMES_COPY.qualifiedNames, PROPERTY_NAMES_COPY.save, PROPERTY_NAMES_COPY.pending, PROPERTY_NAMES_COPY.openSetup]).toEqual(['Longer names', 'Save to draft', 'In draft', 'Open Bulk setup'])
     // No name in a warning's help or anywhere else in the open editor says property.
     expect([...section.querySelectorAll('[aria-label]')].map(element => element.getAttribute('aria-label')!).filter(name => /propert/i.test(name))).toEqual([])
     // What a sighted reader sees in the open editor around the two fields: labels only, and the values in the warnings.
@@ -1943,8 +1956,9 @@ describe('Names that count as this Property', () => {
 
     expect((await within(section).findByRole('status')).textContent).toBe(`${PROPERTY_NAMES_COPY.saved}${PROPERTY_NAMES_COPY.review}`)
     expect(within(section).getByRole('button', { name: `${PROPERTY_NAMES_COPY.saved}. ${PROPERTY_NAMES_COPY.savedDetail}` })).toBeTruthy()
+    // The link opens setup on its last step, where Publish is.
     expect(within(section).getByRole('link', { name: PROPERTY_NAMES_COPY.review }).getAttribute('href'))
-      .toBe(`/projects/${encodeURIComponent(projectName)}/portfolio`)
+      .toBe(`/projects/${encodeURIComponent(projectName)}/portfolio?setupStep=review`)
     // Create a draft against the published revision, then replace this
     // Property's names in it under the draft's ETag. Nothing else is written.
     expect(server.writes.map(write => write.path.split('/').at(-1))).toEqual(['create', 'upsert-target'])
@@ -2005,11 +2019,12 @@ describe('Names that count as this Property', () => {
   it('flags names saved in the draft but not published, and edits from the draft', async () => {
     const pending = draftTarget({ aliases: ['Locations Harbor House'], identityAliases: ['Locations Harbor House Bayfront'] })
     const server = draftServer(draftResponse(pending))
-    await renderPropertyPageFromApi(server.handler, { account: ADMIN })
+    const { projectName } = await renderPropertyPageFromApi(server.handler, { account: ADMIN })
 
     const section = await namesSection()
     expect((await within(section).findByRole('status')).textContent).toBe(`${PROPERTY_NAMES_COPY.pending}${PROPERTY_NAMES_COPY.review}`)
     expect(within(section).getByRole('button', { name: `${PROPERTY_NAMES_COPY.pending}. ${PROPERTY_NAMES_COPY.pendingDetail}` })).toBeTruthy()
+    expect(within(section).getByRole('link', { name: PROPERTY_NAMES_COPY.review }).getAttribute('href')).toBe(`/projects/${encodeURIComponent(projectName)}/portfolio?setupStep=review`)
     // The list still shows what is published, because that is what is measured.
     expect(within(section).getByText('Harbor House')).toBeTruthy()
     await openNamesEditor(section)
@@ -2232,7 +2247,7 @@ describe('Cited on other queries', () => {
     expect(within(pier).getByText(OTHER_QUERIES_COPY.partlySaved)).toBeTruthy()
 
     // The answer belongs to the Property it was asked for, so it is read through that one.
-    fireEvent.click(within(quiet).getByRole('button', { name: 'Read the answer for quiet stays by the marina' }))
+    fireEvent.click(within(quiet).getByRole('button', { name: 'View the answer for quiet stays by the marina' }))
     expect(await within(section).findByText(/Harbor House next door has a pool/)).toBeTruthy()
     const answer = requests.find(request => request.pathname.includes('/measurement-question-result'))!
     expect(Object.fromEntries(answer.searchParams)).toEqual({ targetKey: OTHER_KEY, resultId: 'obs-quiet stays by the marina', ...LAST_SWEEP })
@@ -2301,8 +2316,9 @@ function visibleRuns(root: HTMLElement): string[] {
 
 const serverError = () => jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'temporary failure' } }, 500)
 
-// Words the page must not show or say, tooltips and accessible names included. The page prints "Location".
-const BANNED = /propert|assign|\bclass\b|classification|whole site|audience|\bscope\b|\bcontext\b|revision|question|—/i
+// Words the page must not show or say, tooltips and accessible names included. The page prints "Location", and
+// an answer's result has one word: Mentioned, never Named.
+const BANNED = /propert|assign|\bclass\b|classification|whole site|audience|\bscope\b|\bcontext\b|revision|question|\bnamed\b|—/i
 
 /** The page says Location: no banned word on screen or in a tooltip or accessible name, and no visible sentence. */
 function expectLocationCopy(page: HTMLElement) {
@@ -2334,7 +2350,7 @@ describe('Location page copy', () => {
       return propertyPageResponses({ nonBrand })(url)
     }, { account })
     await answersTable()
-    await within(await screen.findByRole('region', { name: 'Named instead' })).findByRole('table')
+    await within(await screen.findByRole('region', { name: 'Mentioned instead' })).findByRole('table')
     await within(await screen.findByRole('region', { name: OTHER_QUERIES_COPY.heading })).findByRole('table')
     await screen.findByRole('table', { name: 'Location queries' })
     await waitFor(() => expect(screen.getByRole('button', { name: 'OpenAI: Mentioned, Not cited' })).toBeTruthy())
@@ -2365,7 +2381,7 @@ describe('Location page copy', () => {
     }, { account, search })
     await within(await screen.findByRole('region', { name: 'Answers' })).findByText('No answers')
     await within(await screen.findByRole('region', { name: OTHER_QUERIES_COPY.heading })).findByText(OTHER_QUERIES_COPY.empty)
-    await screen.findByRole('region', { name: 'Named instead' })
+    await screen.findByRole('region', { name: 'Mentioned instead' })
     await within(await screen.findByRole('region', { name: 'Queries about this location' })).findByText('No location queries')
     return document.querySelector<HTMLElement>('.page-container')!
   }
@@ -2384,7 +2400,7 @@ describe('Location page copy', () => {
     expect(headers('Answers measured for this location')).toEqual(['Query', 'Mentioned', 'Cited', 'Sources', 'Sources detail'])
     // The tracked lists: a row menu for a writer only, and no menu column without one.
     expect(headers('Location queries')).toEqual(['Query', 'Type', 'OpenAI', 'Status', ...(account === ADMIN ? ['Actions'] : [])])
-    expect(headers('Market queries')).toEqual(['Market', 'Query', 'Type', 'Last measured'])
+    expect(headers('Market queries')).toEqual(['Market', 'Query', 'OpenAI', 'Type', 'Last measured'])
     expect(within(page).queryAllByRole('button', { name: /^Actions for / }).map(button => button.getAttribute('aria-label'))).toEqual(account === ADMIN ? [`Actions for ${OWN_QUESTION}`] : [])
     // Engines read by their display names, in the answer rows and the rows cited on other queries.
     expect(answerFor(within(page).getByRole('table', { name: 'Answers measured for this location' }), NEARBY_QUESTION).querySelector('td')!.textContent).toBe(`${NEARBY_QUESTION}OpenAI`)
@@ -2399,7 +2415,7 @@ describe('Location page copy', () => {
     ])
     const results = within(page).getByRole('heading', { name: 'Results', level: 2 })
     expect(within(page).getAllByRole('heading', { level: 3 }).filter(heading => results.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).map(heading => heading.textContent)).toEqual([
-      'By type', 'By engine', 'Named instead', 'Competitors by market', 'Answers', OTHER_QUERIES_COPY.heading,
+      'By type', 'By engine', 'Mentioned instead', 'Competitors by market', 'Answers', OTHER_QUERIES_COPY.heading,
     ])
     // A location with one list of names shows it under the section's heading alone: the list's own label is for a screen reader.
     expect(within(page).getByRole('heading', { name: PROPERTY_NAMES_COPY.names, level: 3 }).className).toBe('sr-only')
@@ -2426,12 +2442,12 @@ describe('Location page copy', () => {
     expect(within(names).getByRole('button', { name: `${PROPERTY_NAMES_COPY.noNames}. ${PROPERTY_NAMES_COPY.noNamesDetail}` })).toBeTruthy()
     // Site pages are read-only here, and the one action beside an empty list of them is the setup that holds them.
     const pages = within(page).getByRole('region', { name: 'Site pages we match' })
-    expect(visibleText(pages)).toBe('Site pages we match0Read-onlyNo site pagesOpen measurement setup')
-    expect(within(pages).getByRole('link', { name: 'Open measurement setup' }).getAttribute('href')).toMatch(/\/portfolio$/)
+    expect(visibleText(pages)).toBe('Site pages we match0Read-onlyNo site pagesOpen Bulk setup')
+    expect(within(pages).getByRole('link', { name: 'Open Bulk setup' }).getAttribute('href')).toMatch(/\/portfolio$/)
     // A location in no market has no competitor section, and the rest say what is missing in a label.
     expect(within(page).queryByRole('region', { name: 'Competitors by market' })).toBeNull()
     expect(visibleText(within(page).getByRole('region', { name: 'By engine' }))).toBe('By engineNot measured')
-    expect(visibleText(within(page).getByRole('region', { name: 'Named instead' }))).toBe('Named insteadNot measured')
+    expect(visibleText(within(page).getByRole('region', { name: 'Mentioned instead' }))).toBe('Mentioned insteadNot measured')
     expect(visibleText(within(page).getByRole('region', { name: 'Answers' }))).toBe('AnswersNo answers')
     // The reason a type has no number is a label too, with its sentence in this page's words.
     const branded = within(within(page).getByRole('table', { name: 'Mention and citation coverage for this location, by query type' })).getByText('Branded').closest('tr')!
@@ -2460,7 +2476,7 @@ describe('Location page copy', () => {
     expect(visibleText(within(page).getByRole('region', { name: 'From its markets' }))).toBe('From its markets0In no market')
     expect(visibleText(within(page).getByRole('region', { name: PROPERTY_NAMES_COPY.heading }))).toBe(`${PROPERTY_NAMES_COPY.heading}0${PROPERTY_NAMES_COPY.noNames}`)
     expect(visibleText(within(page).getByRole('region', { name: 'Site pages we match' }))).toBe('Site pages we match0Read-onlyNo site pages')
-    expect(within(page).queryByRole('link', { name: 'Open measurement setup' })).toBeNull()
+    expect(within(page).queryByRole('link', { name: 'Open Bulk setup' })).toBeNull()
     expect(within(page).queryByRole('button', { name: 'Add query about this location' })).toBeNull()
   })
 
@@ -2487,7 +2503,7 @@ describe('Location page copy', () => {
     expect(visibleText(within(page).getByRole('region', { name: 'Answers' }))).toBe('AnswersNot measured')
     expect(visibleText(within(page).getByRole('region', { name: 'By engine' }))).toBe('By engineNot measured')
     // No answer was read, so no rival can have been named or not named.
-    expect(visibleText(within(page).getByRole('region', { name: 'Named instead' }))).toBe('Named insteadNot measured')
+    expect(visibleText(within(page).getByRole('region', { name: 'Mentioned instead' }))).toBe('Mentioned insteadNot measured')
     expect(within(page).queryByText(/^Tracking changed/)).toBeNull()
     // Nothing was measured, so there are no citations on other queries to list.
     expect(within(page).queryByRole('region', { name: OTHER_QUERIES_COPY.heading })).toBeNull()
@@ -2604,12 +2620,12 @@ describe('Location page copy', () => {
     expect([...reads].sort()).toEqual(['branded', 'non-brand', 'plan'])
   })
 
-  const notPublished = 'A location page needs a published advanced measurement setup.'
+  const notPublished = 'A location page needs a published setup.'
   it.each<{ state: string; plan: () => unknown; label: string; detail: string; link: string; account?: SignedInAccount }>([
     { state: 'has an older published setup', plan: legacyPlanResponse, label: 'Setup not published', detail: notPublished, link: 'Republish setup' },
-    { state: 'has no published setup', plan: () => ({ active: null }), label: 'Setup not published', detail: notPublished, link: 'Open measurement setup' },
-    { state: 'has no published setup, for a viewer', plan: () => ({ active: null }), label: 'Setup not published', detail: notPublished, link: 'View measurement setup', account: VIEWER },
-    { state: 'is not in the published setup', plan: () => { const plan = planResponse(); plan.active.plan.targets = []; return plan }, label: 'Location not found', detail: 'This location is not in the published setup. It may have been renamed or removed.', link: 'Open measurement setup' },
+    { state: 'has no published setup', plan: () => ({ active: null }), label: 'Setup not published', detail: notPublished, link: 'Open Bulk setup' },
+    { state: 'has no published setup, for a viewer', plan: () => ({ active: null }), label: 'Setup not published', detail: notPublished, link: 'View Bulk setup', account: VIEWER },
+    { state: 'is not in the published setup', plan: () => { const plan = planResponse(); plan.active.plan.targets = []; return plan }, label: 'Location not found', detail: 'This location is not in the published setup. It may have been renamed or removed.', link: 'Open Bulk setup' },
   ])('says so in a label with one link to setup when the location $state', async ({ plan, label, detail, link, account = ADMIN }) => {
     const paths: string[] = []
     const { projectName, queryClient } = await renderPropertyPageFromApi(url => {
@@ -2624,7 +2640,7 @@ describe('Location page copy', () => {
     expect(screen.getByRole('status').textContent).toBe(label)
     expect(screen.getByRole('link', { name: link }).getAttribute('href')).toBe(`/projects/${encodeURIComponent(projectName)}/portfolio`)
     // One action beside the label, and the way back above it.
-    expect(within(document.querySelector<HTMLElement>('.page-container')!).getAllByRole('link').map(each => each.textContent)).toEqual(['Back to AI Visibility', link])
+    expect(within(document.querySelector<HTMLElement>('.page-container')!).getAllByRole('link').map(each => each.textContent)).toEqual(['AI Visibility', link])
   })
 
   it('offers the type retry in every section that reads the failed type, and announces the failure once', async () => {
@@ -2662,7 +2678,7 @@ describe('Location page copy', () => {
       detail: 'This measurement was returned in an older format, so the answers cannot be shown here. The numbers above are unaffected.',
       evidence: () => { const { answers: _answers, ...older } = evidenceResponse(); return older },
     },
-    { state: 'empty', label: 'No answers', detail: 'No answers matched this location in the displayed measurement.', alert: false, evidence: () => evidenceResponse([]) },
+    { state: 'empty', label: 'No answers', detail: 'No answers matched this location in this sweep.', alert: false, evidence: () => evidenceResponse([]) },
   ])('shows a label, not a sentence, when the answers are $state', async ({ label, detail, alert, evidence }) => {
     let reads = 0
     await renderPropertyPageFromApi(url => {
@@ -2714,7 +2730,7 @@ describe('Location page copy', () => {
     })
 
     const evidence = await answersTable()
-    fireEvent.click(within(evidence).getByRole('button', { name: `Read the answer for ${NEARBY_QUESTION}` }))
+    fireEvent.click(within(evidence).getByRole('button', { name: `View the answer for ${NEARBY_QUESTION}` }))
     expect((await within(evidence).findByRole('alert')).textContent).toBe('Load failed')
     fireEvent.click(within(evidence).getByRole('button', { name: 'Retry answer' }))
 
@@ -2729,11 +2745,73 @@ describe('Location page copy', () => {
     })
 
     const evidence = await answersTable()
-    fireEvent.click(within(evidence).getByRole('button', { name: `Read the answer for ${NEARBY_QUESTION}` }))
+    fireEvent.click(within(evidence).getByRole('button', { name: `View the answer for ${NEARBY_QUESTION}` }))
     expect(await within(evidence).findByRole('button', { name: 'Text not saved. This answer was measured, but its text was not stored.' })).toBeTruthy()
     // The row says it where its source count would be, and the opened detail says it again in the same words.
     expect(within(evidence).getAllByRole('button', { name: 'Sources not saved. The sources for this answer were not fully captured, so none can be shown.' })).toHaveLength(2)
     expect(visibleText(evidence.querySelector<HTMLElement>('.property-answer-detail')!)).toBe('Text not savedSources not saved')
+  })
+})
+
+describe('The way back', () => {
+  const fromQueries = `/queries?measurementScope=property&measurementScopeKey=${TARGET_KEY}`
+
+  it('is a Back button that pops the history when the reader came from another page of the app', async () => {
+    const back = vi.spyOn(window.history, 'back').mockImplementation(() => {})
+    onTestFinished(() => back.mockRestore())
+    await renderPropertyPageFromApi(propertyPageResponses(), { account: VIEWER, search: '?queryClass=non-brand', cameFrom: fromQueries })
+    const header = (await screen.findByRole('heading', { name: 'Harbor House', level: 1 })).closest<HTMLElement>('.page-header')!
+
+    // One control, named for what it does: it returns to Queries, Settings or AI Visibility, whichever came before.
+    const button = within(header).getByRole('button', { name: 'Back' })
+    expect(within(header).queryByRole('link', { name: /AI Visibility/ })).toBeNull()
+    expect(screen.queryByText(/Back to AI Visibility/)).toBeNull()
+    expect(button.className).toContain('focus-visible:ring-2')
+    expect(button.className).toContain('max-md:min-h-11')
+    fireEvent.click(button)
+    expect(back).toHaveBeenCalledTimes(1)
+  })
+
+  it('is a link to AI Visibility, with the selection carried, on a direct open', async () => {
+    // The project's name has spaces, which the router re-encodes when the page opens. That rewrite drops the
+    // history index the router's own check reads, and a missing index must not pass for a page to go back to.
+    const { projectName } = await renderPropertyPageFromApi(propertyPageResponses(), { account: VIEWER, search: '?queryClass=branded&measurementProvider=openai' })
+    const header = (await screen.findByRole('heading', { name: 'Harbor House', level: 1 })).closest<HTMLElement>('.page-header')!
+
+    expect(within(header).queryByRole('button', { name: 'Back' })).toBeNull()
+    const link = within(header).getByRole('link', { name: 'AI Visibility' })
+    const href = new URL(link.getAttribute('href')!, window.location.origin)
+    expect(href.pathname).toBe(`/projects/${encodeURIComponent(projectName)}`)
+    expect(Object.fromEntries(href.searchParams)).toEqual({ queryClass: 'branded', measurementProvider: 'openai' })
+    expect(link.className).toContain('focus-visible:ring-2')
+  })
+
+  it.each([
+    { state: 'the location did not load', handler: () => serverError(), shown: () => screen.findByRole('alert') },
+    { state: 'the published setup does not hold the location', handler: (url: string) => pathOf(url).endsWith('/measurement-plan') ? jsonResponse((() => { const plan = planResponse(); plan.active.plan.targets = []; return plan })()) : propertyPageResponses()(url), shown: () => screen.findByText('Location not found') },
+  ])('keeps the same control when $state', async ({ handler, shown }) => {
+    const { queryClient } = await renderPropertyPageFromApi(handler, { account: ADMIN, cameFrom: fromQueries })
+    await shown()
+    expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'AI Visibility' })).toBeNull()
+
+    cleanup()
+    queryClient.clear()
+    await renderPropertyPageFromApi(handler, { account: ADMIN })
+    await shown()
+    expect(screen.getByRole('link', { name: 'AI Visibility' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
+  })
+
+  it('replaces the history entry when the type changes, so one Back leaves the page', async () => {
+    const { router } = await renderPropertyPageFromApi(propertyPageResponses(), { account: VIEWER, search: '?queryClass=non-brand', cameFrom: fromQueries })
+    const type = await screen.findByLabelText('Query type') as HTMLSelectElement
+    const entries = router.history.length
+
+    fireEvent.change(type, { target: { value: 'branded' } })
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ queryClass: 'branded' }))
+    expect(router.history.length).toBe(entries)
+    expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy()
   })
 })
 
@@ -2756,7 +2834,27 @@ describe('What the location is tracked for', () => {
     expect([compiledElementProperty(rules, subtitle, 'width'), compiledElementProperty(rules, subtitle, 'width', '@media (width >= 40rem)')]).toEqual([undefined, '100cqw'])
     // The state of the measurement stays in the header, with the one way back above the name.
     expect(within(header).getByText('Measured')).toBeTruthy()
-    expect(within(header).getAllByRole('link').map(link => link.textContent)).toEqual(['Back to AI Visibility', 'North coast'])
+    expect(within(header).getAllByRole('link').map(link => link.textContent)).toEqual(['AI Visibility', 'North coast'])
+  })
+
+  it('holds no table of rates to a fixed width on a phone, so Cited stays on screen', async () => {
+    const providers = [{ provider: 'openai', mentionCoverage: available(3, 4), citationCoverage: available(2, 4) }]
+    await renderPropertyPageFromApi(propertyPageResponses({ nonBrand: overviewResponse('non-brand', { mentionCoverage: available(3, 4), citationCoverage: available(2, 4), providers }) }), { account: VIEWER, search: '?queryClass=non-brand' })
+    const tables = await Promise.all([
+      'Mention and citation coverage for this location, by query type',
+      'Per-engine mention and citation coverage',
+      'Names mentioned instead of this location',
+    ].map(name => screen.findByRole('table', { name })))
+
+    for (const table of tables) {
+      // Under md the table is as wide as its frame, which is the phone's column: the minimum width starts at md.
+      const rules = parseCompiledCss(await compileAppStyles([...table.classList]))
+      expect([compiledElementProperty(rules, table, 'min-width'), compiledElementProperty(rules, table, 'min-width', '@media (width >= 48rem)')], table.caption!.textContent!).toEqual([undefined, expect.stringMatching(/^\d+px$/)])
+      // Its cells give up half their side padding there, which is the room Cited needs.
+      expect(table.className).toContain('max-md:[&_td]:px-2')
+      expect(table.className).toContain('max-md:[&_th]:px-2')
+      expect(table.closest('.overflow-x-auto')).toBeTruthy()
+    }
   })
 
   it('puts what the location is matched by beside the tracked section only, and every result section under them at the page\'s full width', async () => {
@@ -2779,7 +2877,7 @@ describe('What the location is tracked for', () => {
     const follows = (first: Element, second: Element) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
     expect(follows(within(page).getByRole('region', { name: 'Coverage for this location' }), grid)).toBe(true)
     expect(follows(grid, results)).toBe(true)
-    for (const name of ['By type', 'By engine', 'Named instead', 'Competitors by market', 'Answers', OTHER_QUERIES_COPY.heading]) {
+    for (const name of ['By type', 'By engine', 'Mentioned instead', 'Competitors by market', 'Answers', OTHER_QUERIES_COPY.heading]) {
       const section = within(page).getByRole('region', { name })
       expect([grid.contains(section), follows(results, section)]).toEqual([false, true])
     }
@@ -2940,7 +3038,7 @@ describe('After a tracking change', () => {
   it.each([{ role: 'a writer', account: ADMIN }, { role: 'a viewer', account: VIEWER }])('shows $role the last sweep in every section, under one note beside the state', async ({ account }) => {
     const { header, page, requests } = await renderAfterChange({ account })
     const answers = await answersTable()
-    const named = within(page).getByRole('region', { name: 'Named instead' })
+    const named = within(page).getByRole('region', { name: 'Mentioned instead' })
     const other = within(page).getByRole('region', { name: OTHER_QUERIES_COPY.heading })
 
     // One note on the page, in the header after the state, which is the sweep's own. Its date is the server's:
@@ -2970,8 +3068,8 @@ describe('After a tracking change', () => {
     expect(requests.filter(request => request.pathname.includes('/visibility-report'))).toEqual([])
 
     // A row of that sweep opens, under Answers and under Cited on other queries.
-    fireEvent.click(within(answers).getByRole('button', { name: `Read the answer for ${NEARBY_QUESTION}` }))
-    fireEvent.click(within(other).getByRole('button', { name: 'Read the answer for quiet stays by the marina' }))
+    fireEvent.click(within(answers).getByRole('button', { name: `View the answer for ${NEARBY_QUESTION}` }))
+    fireEvent.click(within(other).getByRole('button', { name: 'View the answer for quiet stays by the marina' }))
     await waitFor(() => expect(within(page).getAllByText(/Harborline Homes and The Sutton/)).toHaveLength(2))
 
     // Every results read asks for the last sweep, and the two lists name the sweep the numbers are from.
@@ -3031,7 +3129,7 @@ describe('After a tracking change', () => {
     expect(within(page.querySelector<HTMLElement>('.page-header')!).getByText('Not measured')).toBeTruthy()
     expect(heroRows(page)).toEqual(Array.from({ length: 4 }, () => ['Not measured', 'No completed sweep yet']))
     for (const type of ['Non-brand', 'Branded']) expect(figures(page, TYPE_TABLE, type)).toEqual(['Not measuredNo completed sweep yet', 'Not measuredNo completed sweep yet'])
-    for (const section of ['By engine', 'Named instead', 'Answers']) expect(visibleText(within(page).getByRole('region', { name: section }))).toBe(`${section}Not measured`)
+    for (const section of ['By engine', 'Mentioned instead', 'Answers']) expect(visibleText(within(page).getByRole('region', { name: section }))).toBe(`${section}Not measured`)
     expect(within(page).queryByText('Not in last sweep')).toBeNull()
     expect(within(within(page).getByRole('region', { name: 'Measurement next step' })).getByRole('link', { name: 'Go to AI Visibility' })).toBeTruthy()
   })
@@ -3050,7 +3148,7 @@ describe('After a tracking change', () => {
       },
     })
     await within(await screen.findByRole('region', { name: 'Answers' })).findByText('Not in last sweep')
-    await screen.findByRole('region', { name: 'Named instead' })
+    await screen.findByRole('region', { name: 'Mentioned instead' })
     const other = await screen.findByRole('region', { name: OTHER_QUERIES_COPY.heading })
     await within(other).findByText('Not in last sweep')
 
@@ -3066,8 +3164,8 @@ describe('After a tracking change', () => {
       expect(figures(page, TYPE_TABLE, type)).toEqual(['Not measuredNot in last sweep'])
       expect(within(within(page).getByRole('table', { name: TYPE_TABLE })).getByText(type).closest('tr')!.querySelector('td[colspan="2"]')).not.toBeNull()
     }
-    // 3 to 5: By engine, Named instead and Answers, for the type on screen. None of them reports a measured nothing.
-    for (const section of ['By engine', 'Named instead', 'Answers']) {
+    // 3 to 5: By engine, Mentioned instead and Answers, for the type on screen. None of them reports a measured nothing.
+    for (const section of ['By engine', 'Mentioned instead', 'Answers']) {
       const region = within(page).getByRole('region', { name: section })
       expect(visibleText(region)).toBe(`${section}Not measuredNot in last sweep`)
       expect(within(region).getByRole('button', { name: NOT_IN_LAST_SWEEP })).toBeTruthy()
@@ -3083,7 +3181,7 @@ describe('After a tracking change', () => {
     expect(reasons).toHaveLength(8)
     for (const reason of [...reasons, within(other).getByRole('button', { name: LOCATION_NOT_IN_LAST_SWEEP })]) expect(reason.querySelector('svg.lucide-clock')).not.toBeNull()
     expect(within(page).queryByRole('alert')).toBeNull()
-    for (const wrong of ['None named', 'No answers', 'No queries tracked', 'No completed sweep yet', OTHER_QUERIES_COPY.empty, /^0 answers/]) expect(within(page).queryByText(wrong)).toBeNull()
+    for (const wrong of ['None mentioned', 'No answers', 'No queries tracked', 'No completed sweep yet', OTHER_QUERIES_COPY.empty, /^0 answers/]) expect(within(page).queryByText(wrong)).toBeNull()
     expectLocationCopy(page)
     expect(within(page).queryByRole('region', { name: 'Measurement next step' })).toBeNull()
   })
@@ -3207,16 +3305,16 @@ describe('After a tracking change', () => {
     expect(within(page).queryByText('Not in last sweep')).toBeNull()
   })
 
-  it('keeps the reason Named instead was given for a type the last sweep did ask', async () => {
+  it('keeps the reason Mentioned instead was given for a type the last sweep did ask', async () => {
     // The published setup asks a non-brand query, and that sweep asked the type too: its answers could not be read.
     const { page } = await renderAfterChange({
       first: url => pathOf(url).includes('/measurement-property-competitors')
         ? jsonResponse({ ...competitorsResponse([]), basis: { state: 'unavailable', reason: 'evidence_incomplete' } })
         : undefined,
     })
-    const named = await within(page).findByRole('region', { name: 'Named instead' })
+    const named = await within(page).findByRole('region', { name: 'Mentioned instead' })
 
-    expect(visibleText(named)).toBe('Named insteadNot measured')
+    expect(visibleText(named)).toBe('Mentioned insteadNot measured')
     expect(within(named).getByRole('button', { name: 'Not measured. No answers to non-brand queries have been measured for this location. Evidence incomplete.' })).toBeTruthy()
     expect(within(named).queryByText('Not in last sweep')).toBeNull()
   })
@@ -3228,7 +3326,7 @@ describe('After a tracking change', () => {
       overviews: { nonBrand: measured.nonBrand, branded: notAsked('branded') },
     })
 
-    expect(within(header).getByRole('button', { name: `Tracking changed ${CHANGED_ON}. Showing the last results, from before the change. New numbers after the next sweep. Queries removed since the last sweep still count here. Queries added since do not.` })).toBeTruthy()
+    expect(within(header).getByRole('button', { name: `Tracking changed ${CHANGED_ON}. Showing the last results, from before the change. New numbers after the next sweep. Queries removed since the last sweep still count in the rates on this page. Queries added since do not.` })).toBeTruthy()
     expect(within(page).getAllByRole('button', { name: 'Not in last sweep. No queries of this type were asked for this location in the last sweep. First numbers after the next sweep.' })).toHaveLength(2)
   })
 
@@ -3306,7 +3404,7 @@ describe('After a tracking change', () => {
       .toEqual([['Removed location', 'no link'], ['Harbor House', expect.stringContaining(`/properties/${TARGET_KEY}`)]])
     expect(within(other).queryByText('old-wharf')).toBeNull()
     // Its answer still opens: the server reads a result of that sweep under the setup it ran with.
-    fireEvent.click(within(other).getByRole('button', { name: 'Read the answer for quiet stays by the marina' }))
+    fireEvent.click(within(other).getByRole('button', { name: 'View the answer for quiet stays by the marina' }))
     expect(await within(other).findByText(/Harborline Homes and The Sutton/)).toBeTruthy()
     expect(requests.filter(request => request.pathname.includes('/measurement-question-result')).map(request => [request.searchParams.get('targetKey'), request.searchParams.get('fallback')])).toEqual([['old-wharf', 'last-sweep']])
   })
@@ -3734,7 +3832,7 @@ describe('Add query about this location', () => {
 
   it.each([
     { state: 'setup is not advanced', plan: legacyPlanResponse, link: 'Republish setup' },
-    { state: 'setup does not hold this location', plan: () => { const plan = planResponse(); plan.active.plan.targets = []; return plan }, link: 'Open measurement setup' },
+    { state: 'setup does not hold this location', plan: () => { const plan = planResponse(); plan.active.plan.targets = []; return plan }, link: 'Open Bulk setup' },
   ])('offers no button when $state', async ({ plan, link }) => {
     await renderPropertyPageFromApi(url => pathOf(url).endsWith('/measurement-plan') ? jsonResponse(plan()) : propertyPageResponses()(url), { account: ADMIN })
 

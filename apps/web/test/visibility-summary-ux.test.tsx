@@ -65,7 +65,7 @@ test('labels aggregate answer coverage separately from property reach and explai
  * The whole explanation, asserted verbatim. It is the accessible name of the
  * trigger, so a screen reader user and a sighted user read the same sentence.
  */
-const OUTCOMES_HELP = "Counts locations, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the location's page as a source without naming it in the answer. Not measured covers a location with no eligible completed measurement, and one where only one of the two signals was measured: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
+const OUTCOMES_HELP = "Counts locations, not answers. Each location is counted once. Cited only: its page was a source and its name was not in the answer. Not measured: mentioned or cited could not be checked."
 
 function outcomesDisclosure() {
   return screen.getByText('Location outcomes', { selector: 'summary > span' }).closest('details')!
@@ -88,7 +88,7 @@ test('Location outcomes counts locations from the server total and keeps its exp
     ['5', 'mentioned and cited'],
     ['4', 'mentioned only'],
     ['3', 'cited only'],
-    ['2', 'neither signal'],
+    ['2', 'not mentioned or cited'],
     ['1', 'not measured'],
   ])
 

@@ -31,9 +31,9 @@ import { advancedMeasurementService, isDraftConflict, type AdvancedMeasurementSe
  */
 export const PROPERTY_NAMES_COPY = {
   heading: 'Names we match',
-  help: 'An answer mentions this location when its text contains one of these names as whole words. Source titles and source links never count, but a link in the answer whose text is one of these names does. Qualified names are longer forms, such as the name with its street or city, for a name that other places share.',
+  help: 'An answer mentions this location when its text has one of these names as whole words. Source titles and source links do not count. Longer names are fuller forms, for a name other places share.',
   names: 'Names',
-  qualifiedNames: 'Qualified names',
+  qualifiedNames: 'Longer names',
   noNames: 'No names set',
   noNamesDetail: 'No names are set, so answers can cite this location but never mention it.',
   edit: 'Edit names',
@@ -41,20 +41,20 @@ export const PROPERTY_NAMES_COPY = {
   saving: 'Saving…',
   cancel: 'Cancel',
   perLine: 'One per line',
-  qualifiedHint: 'Each must include one of the names above plus more words, such as a street or city. With qualified names set, an answer that uses only a plain name counts as a mention only when it also cites this location’s own page. Otherwise it is left out as not tied to one location.',
-  draftOnly: 'Publish to apply',
-  draftOnlyDetail: 'Saving changes the draft only. Nothing is measured differently until the setup is published.',
+  qualifiedHint: 'Each must include one of the names above plus more words, such as a street or city. With longer names set, an answer that uses only a plain name counts as a mention only when it also cites this location’s own page. Otherwise it is left out as not tied to one location.',
+  draftOnly: 'Publish in Bulk setup',
+  draftOnlyDetail: 'Saved to the draft. Nothing is measured differently until it is published in Bulk setup.',
   saved: 'Saved to draft',
   savedDetail: 'Publish the setup to start using these names.',
-  pending: 'Unpublished changes',
+  pending: 'In draft',
   pendingDetail: 'Name changes are saved in the draft and not published yet.',
   review: 'Review and publish',
-  openSetup: 'Open measurement setup',
+  openSetup: 'Open Bulk setup',
   noChanges: 'No changes',
   staleDraft: 'Draft out of date',
-  staleDraftDetail: 'The draft is based on an older published setup. Restart it in measurement setup before editing names.',
+  staleDraftDetail: 'The draft is based on an older published setup. Restart it in Bulk setup before editing names.',
   missingFromDraft: 'Not in draft',
-  missingFromDraftDetail: 'This location is not included in the current draft. Review it in measurement setup.',
+  missingFromDraftDetail: 'This location is not included in the current draft. Review it in Bulk setup.',
   conflict: 'Changed elsewhere',
   conflictDetail: 'The draft changed in another session. The latest names are loaded. Review them and save again.',
   failed: 'Save failed',
@@ -86,6 +86,9 @@ export function nameIssueDetail(issue: MeasurementTargetNameIssue): string {
 }
 
 type DraftTarget = MeasurementDraftTarget
+
+/** Opens Bulk setup on its Review and publish step (`ProjectPage` reads `setupStep`). */
+const reviewStepSearch = (): Record<string, unknown> => ({ setupStep: 'review' })
 
 /** A Property's names and qualified names, wherever they are stored. */
 interface TargetNames {
@@ -317,13 +320,14 @@ export function PropertyNamesSection({
     },
   })
 
-  // Both go to measurement setup. A draft that must be restarted or reviewed there cannot be published from here, so its link does not say publish.
-  const setupLink = (label: string) => (
-    <Link to="/projects/$projectName/portfolio" params={{ projectName }} className="inline-flex items-center text-[13px] font-medium text-link underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 pointer-coarse:min-h-11 max-md:min-h-11">
+  // Both go to Bulk setup. A draft that must be restarted or reviewed there cannot be published from here, so its link
+  // does not say publish and opens setup where it stands. The review link opens it on its last step, where Publish is.
+  const setupLink = (label: string, search?: typeof reviewStepSearch) => (
+    <Link to="/projects/$projectName/portfolio" params={{ projectName }} search={search} className="inline-flex items-center text-[13px] font-medium text-link underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 pointer-coarse:min-h-11 max-md:min-h-11">
       {label}
     </Link>
   )
-  const reviewLink = setupLink(PROPERTY_NAMES_COPY.review)
+  const reviewLink = setupLink(PROPERTY_NAMES_COPY.review, reviewStepSearch)
   const nameCount = published.aliases.length + publishedQualified.length
 
   return (

@@ -60,8 +60,8 @@ const EMPTY_VALUE = '\u2014'
  * pinned here, once.
  */
 const OUTCOME_COPY = {
-  factual: 'Named, no opinion',
-  'subject-not-mentioned': 'Not named in the answer',
+  factual: 'Mentioned, no opinion',
+  'subject-not-mentioned': 'Not mentioned in the answer',
   'ambiguous-subject': 'Unclear which one was meant',
   'unsupported-language': 'Not in English',
   pending: 'Waiting to be rated',
@@ -554,7 +554,7 @@ describe('sentiment presentation', () => {
       expect(within(bare!).getByText('Target project-1; market None; branded')).toBeTruthy()
       for (const article of [named!, market!, bare!]) {
         expect(within(article).getByText('No search location')).toBeTruthy()
-        expect(terms(article)).toEqual(['Query', 'Subject', 'Run', 'Setup version', 'Evaluator', 'Evaluation definition', 'Source snapshot', 'Source hash', 'Location link'])
+        expect(terms(article)).toEqual(['Query', 'Subject', 'Run', 'Setup version', 'Evaluator', 'Evaluation definition', 'Source snapshot', 'Source hash', 'Pair'])
       }
       expect(within(dialog).getByText('Stored judgments and exact quotations for the selected query and place.')).toBeTruthy()
       expect(dialog.textContent).not.toMatch(/propert|revision|assignment|scope/i)

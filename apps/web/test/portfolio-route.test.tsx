@@ -2222,11 +2222,11 @@ test('By engine, Past sweeps and Competitors over time read ainyc as the approve
   // The tiles, engine counts, per-model rates and competitor gap rows of the
   // old diagnostics are Details lines; the per-model rates come from /overview.
   expect([...byEngine.querySelectorAll('.av-details-list li')].map(item => item.textContent)).toEqual([
-    'Cited and named: 4 of 11 queries',
-    'Cited but not named: 0 of 11 queries',
-    'Named but not cited: 0 of 11 queries',
-    'Not cited or named: 7 of 11 queries',
-    'All queries: cited by 4 of 4 engines, named by 4 of 4',
+    'Cited and mentioned: 4 of 11 queries',
+    'Cited but not mentioned: 0 of 11 queries',
+    'Mentioned but not cited: 0 of 11 queries',
+    'Not cited or mentioned: 7 of 11 queries',
+    'All queries: cited by 4 of 4 engines, mentioned by 4 of 4',
     'Claude (claude-sonnet-5) citation rate: 28.6%, 4 of 14 answers, all queries',
     'Gemini (gemini-3.5-flash) citation rate: 42.9%, 6 of 14 answers, all queries',
     'OpenAI (chat-latest) citation rate: 14.3%, 2 of 14 answers, all queries',
@@ -3543,9 +3543,10 @@ test('a place narrower than the whole project shows no counts, and a project wit
   const doc = new DOMParser().parseFromString(await renderAt('/projects/project_citypoint?measurementScope=group&measurementScopeKey=north', undefined, { plan: measurementPlanV2Response(4), visibilityReport: report }), 'text/html')
   expect(placeSlotParts(doc)).toEqual([PROJECT_SCOPE_COPY.place, 'North · 1 location', null])
 
+  // A location shows no counts either. That room holds the link to its own page.
   const scoped = await renderScopeRoute('/projects/project_citypoint/queries?measurementScope=property&measurementScopeKey=citypoint', trackingRoute(), { accountRole: 'viewer' })
   await rowTrigger(scoped.page.container)
-  expect(placeSlotParts(scoped.page.container)).toEqual([PROJECT_SCOPE_COPY.place, 'Citypoint Dental · Location', null])
+  expect(placeSlotParts(scoped.page.container)).toEqual([PROJECT_SCOPE_COPY.place, 'Citypoint Dental · Location', 'Location details'])
   scoped.page.unmount()
 
   // One location and no markets: the empty list is left out, never printed as "0 markets".
@@ -3964,7 +3965,7 @@ test('the tracked Queries row picker searches a large property list and browses 
   expect(within(details).queryByRole('button', { name: 'Select Citypoint Dental' })).toBeNull()
   fireEvent.click(within(details).getByRole('button', { name: 'Browse Metro' }))
   expect(within(details).getByText('All in this group')).toBeTruthy()
-  expect(within(details).getByText('Subgroups (1)', { selector: 'summary, summary > span' }).closest('details')!.open).toBe(true)
+  expect(within(details).getByText('Groups (1)', { selector: 'summary, summary > span' }).closest('details')!.open).toBe(true)
   expect(within(details).getByText('All locations (1)', { selector: 'summary, summary > span' }).closest('details')!.open).toBe(false)
   fireEvent.click(within(details).getByRole('button', { name: 'Select North East' }))
   await waitFor(() => expect(router.state.location.search).toMatchObject({ measurementScope: 'group', measurementScopeKey: 'north-east' }))
@@ -4212,11 +4213,11 @@ test('a published Property scope opens the Property page, and every return keeps
   expect(page.getByText(/Filters not applied/)).toBeTruthy()
   expect(page.getByRole('button', { name: `AI Visibility is filtered to ${PROPERTY_MARKET.label}, a saved sweep. This page shows the latest measurement for all markets and answer engines.` })).toBeTruthy()
   expect((page.getByLabelText('Query type') as HTMLSelectElement).value).toBe('branded')
-  const back = page.getByRole('link', { name: 'Back to AI Visibility' })
-  expect(hrefOf(back).pathname).toBe(projectPath)
-  expect(Object.fromEntries(hrefOf(back).searchParams)).toEqual(Object.fromEntries(reportSearch))
+  // The reader came from the report, so the way back is Back: it returns there, not to a fixed page.
+  const back = page.getByRole('button', { name: 'Back' })
+  expect(page.queryByRole('link', { name: 'AI Visibility' })).toBeNull()
   // The market section compares markets, so its overview link returns to the whole site.
-  const marketOverview = hrefOf(page.getByRole('link', { name: 'Open AI Visibility' }))
+  const marketOverview = hrefOf(page.getByRole('link', { name: 'View in AI Visibility' }))
   expect(marketOverview.pathname).toBe(projectPath)
   expect(Object.fromEntries(marketOverview.searchParams)).toEqual({ measurementScope: 'project', queryClass: 'branded', measurementRunId: 'run-synthetic' })
 
@@ -4225,11 +4226,18 @@ test('a published Property scope opens the Property page, and every return keeps
   expect(router.state.location.search).toMatchObject({ ...Object.fromEntries(reportSearch), queryClass: 'non-brand' })
   expect(router.state.location.search.runId).toBeUndefined()
 
-  fireEvent.click(page.getByRole('link', { name: 'Back to AI Visibility' }))
+  // The type switch replaced the page's own history entry, so one Back leaves it. In a browser the router's
+  // history is the window's; here it is in memory, so the button's call is handed to it.
+  const pop = vi.spyOn(window.history, 'back').mockImplementation(() => router.history.back())
+  onTestFinished(() => pop.mockRestore())
+  fireEvent.click(back)
   expect(await page.findByRole('link', { name: 'Location details for Harbor House' })).toBeTruthy()
+  // The report is as the reader left it: every filter, and the type it was on.
+  expect(router.state.location.pathname).toBe('/projects/project_citypoint')
+  expect(router.state.location.search).toMatchObject(Object.fromEntries(reportSearch))
   const returned = observed.filter(url => url.pathname.endsWith('/visibility-report')).at(-1)!
   expect(Object.fromEntries(returned.searchParams)).toMatchObject({
-    scope: 'property', scopeKey: 'harbor-house', marketKey: PROPERTY_MARKET.id, queryClass: 'non-brand', runId: 'run-synthetic',
+    scope: 'property', scopeKey: 'harbor-house', marketKey: PROPERTY_MARKET.id, queryClass: 'branded', runId: 'run-synthetic',
   })
 }, 15_000)
 
@@ -4244,7 +4252,8 @@ test.each([
   await waitFor(() => {
     expect(router.state.location.search.queryClass).toBe(assignedClass)
     expect((page.getByLabelText('Query type') as HTMLSelectElement).value).toBe(assignedClass)
-    expect(page.getByRole('link', { name: 'Back to AI Visibility' }).getAttribute('href')).toBe(`/projects/project_citypoint?queryClass=${assignedClass}`)
+    // Opened directly, with nowhere to go back to: a link to AI Visibility, carrying the type.
+    expect(page.getByRole('link', { name: 'AI Visibility' }).getAttribute('href')).toBe(`/projects/project_citypoint?queryClass=${assignedClass}`)
   })
   expect(page.queryByText(/Filters not applied/)).toBeNull()
 })
@@ -4268,6 +4277,88 @@ test('Location details is offered only for a published Advanced Property scope o
   const simple = await renderAt(propertyPath)
   expect(simple).not.toContain('aria-label="AI visibility results"')
   expect(simple).not.toContain('/properties/')
+})
+
+test.each(['admin', 'viewer'] as const)('Queries links a location chosen as the Place to its page for %s, and no other place', async accountRole => {
+  const queries = (search: string) => renderScopeRoute(`/projects/project_citypoint/queries${search}`, trackingRoute(), { accountRole })
+  const projectPath = `/projects/${encodeURIComponent('Citypoint Dental NYC')}`
+
+  const location = await queries('?measurementScope=property&measurementScopeKey=citypoint&trackedType=branded')
+  await waitFor(async () => expect((await rowTrigger(location.page.container)).textContent).toBe('Citypoint Dental · Location'))
+  const link = within(contextRow(location.page.container)).getByRole('link', { name: 'Location details for Citypoint Dental' })
+  expect(link.textContent).toBe('Location details')
+  const href = new URL(link.getAttribute('href')!, window.location.origin)
+  expect(href.pathname).toBe(`${projectPath}/properties/citypoint`)
+  // The selection travels with it, as it does from AI Visibility.
+  expect(Object.fromEntries(href.searchParams)).toMatchObject({ measurementScope: 'property', measurementScopeKey: 'citypoint' })
+  location.page.unmount()
+
+  // A group and the whole project have no page of their own. The project keeps its counts in that place.
+  const group = await queries('?measurementScope=group&measurementScopeKey=north')
+  await waitFor(async () => expect((await rowTrigger(group.page.container)).textContent).toBe('North · 1 location'))
+  expect(group.page.container.querySelector('a[href*="/properties/"]')).toBeNull()
+  group.page.unmount()
+
+  const project = await queries('')
+  await waitFor(() => expect(placeSlotParts(project.page.container).at(-1)).toBe('1 location'))
+  expect(project.page.container.querySelector('a[href*="/properties/"]')).toBeNull()
+})
+
+/** Bulk setup on a draft over the published setup of revision 7, opened at `entry`. */
+async function renderSetupRoute(entry: string, draft = measurementDraftResponse()) {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (path.endsWith('/measurement-setup')) return jsonResponse(measurementSetupResponse(7))
+    if (path.endsWith('/measurement-plan/draft')) return jsonResponse(draft)
+    if (path.endsWith('/measurement-plan')) return jsonResponse(measurementPlanResponse(7, true))
+    if (path.endsWith('/queries')) return jsonResponse([{ id: 'query-old', query: 'old service query', createdAt: '2026-08-01T11:00:00.000Z' }])
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+  const fixture = createDashboardFixture({})
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: [entry] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+  /** The step the wizard is on, as its step list marks it. */
+  const step = async () => (await waitFor(() => {
+    const current = page.container.querySelector('[aria-current="step"]')
+    expect(current).not.toBeNull()
+    return current!
+  })).textContent
+  return { page, step }
+}
+
+test('Bulk setup opens on Review and publish when a link asks for it, and where it always did without', async () => {
+  // A finished draft over a published setup: the names editor's "Review and publish" link asks for the last step.
+  const asked = await renderSetupRoute('/projects/project_citypoint/portfolio?setupStep=review')
+  expect(await asked.step()).toBe('Review and publish')
+  asked.page.unmount()
+
+  const plain = await renderSetupRoute('/projects/project_citypoint/portfolio')
+  expect(await plain.step()).toBe('Locations')
+  plain.page.unmount()
+
+  // Any other value asks for nothing.
+  const other = await renderSetupRoute('/projects/project_citypoint/portfolio?setupStep=groups')
+  expect(await other.step()).toBe('Locations')
+})
+
+test('Bulk setup opens on the step a draft still needs, whatever step a link asks for', async () => {
+  // A location still to be decided on: the draft cannot be reviewed yet.
+  const draft = measurementDraftResponse()
+  draft.draft.authoring.targets.push({ ...draft.draft.authoring.targets[0]!, stableKey: 'pier-house', label: 'Pier House', status: 'proposed' as never, discoveryIdentity: 'sitemap:pier-house' })
+  const { step } = await renderSetupRoute('/projects/project_citypoint/portfolio?setupStep=review', draft)
+  expect(await step()).toBe('Locations')
 })
 
 const managedSchedule = {

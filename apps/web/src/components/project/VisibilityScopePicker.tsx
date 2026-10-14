@@ -4,6 +4,7 @@ import type { VisibilityReportScopeOption } from '@ainyc/canonry-contracts'
 
 const CONTROL = 'min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
 const ROW = 'flex min-h-11 w-full items-center justify-between gap-3 rounded px-2 text-left text-sm text-primary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
+const capitalized = (word: string) => `${word.charAt(0).toLocaleUpperCase()}${word.slice(1)}`
 export const MARKET_SCOPE_COPY = {
   allMarkets: 'All markets',
   /** The project row and selection when the caller names no root. */
@@ -11,9 +12,26 @@ export const MARKET_SCOPE_COPY = {
   browse: (label: string) => `Browse ${label}`,
   select: (label: string) => `Select ${label}`,
   browseAll: (plural: string) => `Browse all ${plural}`,
+  /** A group that shares its name with a market it parents. */
+  locationsIn: (label: string, plural = 'locations') => `${capitalized(plural)} in ${label}`,
 }
 const marketForGroup = (scope?: VisibilityReportScopeOption) => scope?.kind === 'group' && scope.marketKeys?.length === 1 ? scope.marketKeys[0] : undefined
-const capitalized = (word: string) => `${word.charAt(0).toLocaleUpperCase()}${word.slice(1)}`
+
+/** The groups that parent a market of their own name, by the markets' own `parentGroupIds`. */
+function marketNamedGroupIds(options: readonly VisibilityReportScopeOption[]): Set<string> {
+  const groupLabels = new Map(options.flatMap(option => option.kind === 'group' ? [[option.id, option.label] as const] : []))
+  return new Set(options.flatMap(option => option.kind === 'market' ? (option.parentGroupIds ?? []).filter(id => groupLabels.get(id) === option.label) : []))
+}
+
+/**
+ * What a place is called where a group can be chosen. A market keeps its name.
+ * A group that parents a market of the same name is not that market: its
+ * numbers cover every query its locations are asked, in any market, so it
+ * reads "Locations in {name}". Every other place keeps its label.
+ */
+export function placeLabel(option: Pick<VisibilityReportScopeOption, 'id' | 'kind' | 'label'>, options: readonly VisibilityReportScopeOption[]): string {
+  return option.kind === 'group' && marketNamedGroupIds(options).has(option.id) ? MARKET_SCOPE_COPY.locationsIn(option.label) : option.label
+}
 
 /** Navigation uses explicit frozen memberships, never labels or inferred containment. */
 export function VisibilityScopePicker({ options: suppliedOptions, selected, placeholder = 'Choose a place', onSelect, marketKey, label = 'Place', labelVisibility = 'visible', allowGroupSelect = true, propertyNoun: [noun, nouns] = ['location', 'locations'], rootLabel = MARKET_SCOPE_COPY.allLocations }: {
@@ -33,6 +51,10 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, plac
   rootLabel?: string
 }) {
   const labelFor = (scope: VisibilityReportScopeOption) => scope.kind === 'project' ? rootLabel : scope.label
+  // Only where a group is itself a choice. A picker that browses groups to reach a market or a location keeps their plain names.
+  const marketNamed = allowGroupSelect ? marketNamedGroupIds(suppliedOptions) : undefined
+  /** The name a place is shown and chosen by. Search reads `labelFor`, the plain label. */
+  const nameFor = (scope: VisibilityReportScopeOption) => scope.kind === 'group' && marketNamed?.has(scope.id) ? MARKET_SCOPE_COPY.locationsIn(scope.label, nouns) : labelFor(scope)
   const options = [...suppliedOptions].sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true }) || left.id.localeCompare(right.id))
   const [search, setSearch] = useState('')
   const [path, setPath] = useState<string[]>([])
@@ -48,7 +70,8 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, plac
   const query = search.trim().toLocaleLowerCase()
   const roots = groups.filter(group => !group.parentGroupIds?.some(key => groupById.has(key)))
   const properties = options.filter(scope => scope.kind === 'property')
-  const parentLabels = (scope: VisibilityReportScopeOption) => (scope.parentGroupIds ?? []).map(key => groupById.get(key)?.label).filter(Boolean).join(' · ')
+  // A market's group can have the market's own name, which its row already says.
+  const parentLabels = (scope: VisibilityReportScopeOption) => (scope.parentGroupIds ?? []).map(key => groupById.get(key)?.label).filter(label => label && label !== scope.label).join(' · ')
   const matches = (scope: VisibilityReportScopeOption) => `${labelFor(scope)} ${parentLabels(scope)}`.toLocaleLowerCase().includes(query)
   const isDescendant = (scope: VisibilityReportScopeOption): boolean => {
     const pending = [...(scope.parentGroupIds ?? [])]
@@ -120,18 +143,18 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, plac
   const browse = (scope: VisibilityReportScopeOption) => {
     setPath(groupPath(scope)); setAllProperties(false); setSearch(''); searchInput.current?.focus()
   }
-  const row = (scope: VisibilityReportScopeOption, displayLabel = labelFor(scope)) => <div key={`${scope.kind}:${scope.id}`} className="flex items-stretch">
+  const row = (scope: VisibilityReportScopeOption, displayLabel = nameFor(scope)) => <div key={`${scope.kind}:${scope.id}`} className="flex items-stretch">
     <button
       type="button"
       className={ROW}
-      aria-label={scope.kind === 'group' && !allowGroupSelect ? MARKET_SCOPE_COPY.browse(labelFor(scope)) : MARKET_SCOPE_COPY.select(labelFor(scope))}
+      aria-label={scope.kind === 'group' && !allowGroupSelect ? MARKET_SCOPE_COPY.browse(nameFor(scope)) : MARKET_SCOPE_COPY.select(nameFor(scope))}
       aria-current={selected?.kind === scope.kind && selected.id === scope.id ? 'true' : undefined}
       onClick={() => scope.kind === 'group' && !allowGroupSelect ? browse(scope) : choose(scope)}
     >
       <span className="min-w-0 break-words">{displayLabel}{query && parentLabels(scope) ? <span className="block text-[13px] text-secondary">{parentLabels(scope)}</span> : null}</span>
       <span className="shrink-0 text-right text-[13px] text-secondary">{scope.kind === 'market' ? 'Market' : scope.kind === 'property' ? capitalized(noun) : countFor(scope.targetCount)}</span>
     </button>
-    {allowGroupSelect && scope.kind === 'group' && scope.id !== current?.id && options.some(option => option.parentGroupIds?.includes(scope.id)) ? <button type="button" aria-label={MARKET_SCOPE_COPY.browse(scope.label)} title={`Browse ${scope.label}`} className="flex min-h-11 min-w-11 items-center justify-center rounded text-secondary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={() => browse(scope)}><ChevronRight size={18} aria-hidden="true" /></button> : null}
+    {allowGroupSelect && scope.kind === 'group' && scope.id !== current?.id && options.some(option => option.parentGroupIds?.includes(scope.id)) ? <button type="button" aria-label={MARKET_SCOPE_COPY.browse(nameFor(scope))} title={MARKET_SCOPE_COPY.browse(nameFor(scope))} className="flex min-h-11 min-w-11 items-center justify-center rounded text-secondary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={() => browse(scope)}><ChevronRight size={18} aria-hidden="true" /></button> : null}
   </div>
   const section = (label: string, scopes: VisibilityReportScopeOption[]) => scopes.length > 0 ? <section aria-label={label} className="mt-2">
     <h3 className="px-2 py-2 text-[13px] font-medium text-secondary">{label}</h3>{scopes.map(scope => row(scope))}
@@ -149,20 +172,22 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, plac
       if (event.key === 'Escape') { event.preventDefault(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() }
     }}>
       <summary id={`${id}-value`} aria-labelledby={`${id}-label ${id}-value`} className={`${CONTROL} visibility-scope-trigger`} onClick={() => { if (!picker.current?.open) restoreSelection() }}>
-        {selected ? `${labelFor(selected)}${selected.kind === 'group' ? ` · ${countFor(selected.targetCount)}` : selected.kind === 'property' ? ` · ${options.find(option => option.kind === 'market' && option.id === marketKey)?.label ?? (selected.marketKeys?.length ? MARKET_SCOPE_COPY.allMarkets : capitalized(noun))}` : selected.kind === 'market' ? ' · Market' : ''}` : <span className="text-secondary">{placeholder}</span>}<ChevronDown size={16} aria-hidden="true" className="shrink-0 text-secondary" />
+        {selected ? `${nameFor(selected)}${selected.kind === 'group' ? ` · ${countFor(selected.targetCount)}` : selected.kind === 'property' ? ` · ${options.find(option => option.kind === 'market' && option.id === marketKey)?.label ?? (selected.marketKeys?.length ? MARKET_SCOPE_COPY.allMarkets : capitalized(noun))}` : selected.kind === 'market' ? ' · Market' : ''}` : <span className="text-secondary">{placeholder}</span>}<ChevronDown size={16} aria-hidden="true" className="shrink-0 text-secondary" />
       </summary>
       <div className="visibility-scope-menu">
         {current || allProperties ? <div className="mb-2 border-b border-default pb-2">
-          <button type="button" className={ROW} aria-label={`Back to ${parent?.label ?? 'all groups'}`} onClick={() => { setPath(path.slice(0, -1)); setAllProperties(false); setSearch(''); searchInput.current?.focus() }}><span className="flex items-center gap-1"><ChevronLeft size={16} aria-hidden="true" />{parent?.label ?? 'All groups'}</span></button>
-          <p className="px-2 py-1 text-sm font-medium text-heading" aria-live="polite">{current?.label ?? `All ${nouns}`}</p>
+          <button type="button" className={ROW} aria-label={`Back to ${parent ? nameFor(parent) : 'all groups'}`} onClick={() => { setPath(path.slice(0, -1)); setAllProperties(false); setSearch(''); searchInput.current?.focus() }}><span className="flex items-center gap-1"><ChevronLeft size={16} aria-hidden="true" />{parent ? nameFor(parent) : 'All groups'}</span></button>
+          <p className="px-2 py-1 text-sm font-medium text-heading" aria-live="polite">{current ? nameFor(current) : `All ${nouns}`}</p>
         </div> : null}
         <input ref={searchInput} type="search" aria-label="Search places" className={CONTROL} placeholder={current ? 'Search within this group' : allProperties ? `Search ${nouns}` : properties.length > 0 ? `Search groups or ${nouns}` : 'Search groups or markets'} value={search} onChange={event => setSearch(event.target.value)} />
         <div className="mt-2 max-h-80 overflow-y-auto">
           {allowGroupSelect && current && !query ? row(current, 'All in this group') : null}
           {projects.map(scope => row(scope))}
-          {current && !query ? disclosure('Subgroups', visibleGroups, true) : section(current ? 'Subgroups' : 'Groups', visibleGroups)}
+          {/* A search lists markets first: where a market and a group share a name, the market is the place of that name. */}
+          {query ? section('Markets', markets) : null}
+          {current && !query ? disclosure('Groups', visibleGroups, true) : section('Groups', visibleGroups)}
           {query ? section(capitalized(nouns), visibleProperties) : disclosure(current && visibleGroups.length > 0 ? `All ${nouns}` : capitalized(nouns), visibleProperties, !current || visibleGroups.length === 0)}
-          {section('Markets', markets)}
+          {query ? null : section('Markets', markets)}
           {!current && !allProperties && !query && groups.length > 0 && properties.length > 0 ? <button type="button" className={`${ROW} mt-2 border-t border-default`} aria-label={MARKET_SCOPE_COPY.browseAll(nouns)} onClick={() => { setAllProperties(true); searchInput.current?.focus() }}><span>{`All ${nouns}`}</span><ChevronRight size={18} aria-hidden="true" /></button> : null}
           {query && visibleGroups.length + visibleProperties.length + markets.length + projects.length === 0 ? <p className="py-3 text-sm text-secondary">No matches</p> : null}
         </div>

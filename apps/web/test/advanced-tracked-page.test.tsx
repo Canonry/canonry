@@ -288,7 +288,7 @@ test('prints the server\'s numbers in the strip, for the project and for a place
   rerender({ selection: { measurementScope: 'market', measurementScopeKey: 'uptown', queryClass: 'all' } })
   expect(strip()).toEqual({ 'Market queries': '7', 'Location queries': '9', Locations: '3', 'Answers per sweep': '96' })
   rerender({ selection: { measurementScope: 'property', measurementScopeKey: 'harbor', queryClass: 'all' } })
-  expect(strip()).toEqual({ 'Location queries': '4', 'Market queries': '11', 'Hand-picked queries': '2', Markets: '2', 'Answers counted': '51' })
+  expect(strip()).toEqual({ 'Location queries': '4', 'Market queries': '11', 'Hand-picked queries': '2', Markets: '2', 'Answers per sweep': '51' })
   rerender({ selection: { measurementScope: 'group', measurementScopeKey: 'north', queryClass: 'all' } })
   expect(strip()).toEqual({ Queries: '19', Locations: '2', Markets: '1', 'Answers per sweep': '114' })
 })

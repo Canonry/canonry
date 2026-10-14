@@ -7,20 +7,22 @@ import { getApiV1ProjectsByNameQueryTrackingOptions } from '@ainyc/canonry-api-c
 
 import { heyClient } from '../../../api.js'
 import { formatSweepDay } from '../../../lib/format-helpers.js'
+import { providerDisplayName } from '../../../lib/visibility-trend-helpers.js'
 import { carryVisibilitySearch, patchVisibilitySelection } from '../../../lib/measurement-view-url.js'
 import { addToast } from '../../../lib/toast-store.js'
 import { formatObservedInstantMonthDay, observedInstant } from '../../shared/ChartPrimitives.js'
 import { InfoTooltip, useTooltipBubble } from '../../shared/InfoTooltip.js'
-import { SignalLegend } from '../../shared/SignalCells.js'
+import { SignalLegend, SignalPair } from '../../shared/SignalCells.js'
 import { StatusNote } from '../../shared/StatusNote.js'
 import { Button } from '../../ui/button.js'
+import { MARKET_SCOPE_COPY } from '../VisibilityScopePicker.js'
 import { VISIBILITY_TOOLBAR_COPY } from '../VisibilityTrendSection.js'
 import { TrackedActionSheet, type TrackedSheetAction } from '../queries/advanced/TrackedActionSheet.js'
 import { TrackedRowMenu } from '../queries/advanced/TrackedRowMenu.js'
 import { TrackedTable } from '../queries/advanced/TrackedTable.js'
 import type { TrackedPlace } from '../queries/advanced/tracked-actions.js'
 import type { TrackedRowAction, TrackedRowVm, TrackedType } from '../queries/advanced/tracked-types.js'
-import { locationCountLabel, sortTrackedRows, toTrackedRows, typeLabel, type TrackedColumn } from '../queries/advanced/tracked-view-model.js'
+import { engineSignal, locationCountLabel, resultClasses, sortTrackedRows, toTrackedRows, trackedEngineColumnWidth, typeLabel, type TrackedColumn, type TrackedCoverage } from '../queries/advanced/tracked-view-model.js'
 import { contextInput, contextLabel, searchLocationNames, uniqueContextInputs } from '../queries/tracking-contexts.js'
 import { useTrackedResults } from '../queries/use-tracked-results.js'
 
@@ -50,7 +52,9 @@ const COPY = {
   refreshFailed: 'The latest tracked queries did not load. These are the last ones read.',
   resultsUnavailable: "The last sweep's results did not load, so every chip reads Not checked.",
   // The Tracked strip's own words for this number, when the page is narrowed to one location.
-  answersCounted: 'Answers per sweep that count for this location, its market queries included. Locations share answers, so they do not add up to the project total.',
+  answersPerSweep: 'Answers one sweep collects for this location, its market queries included. Locations share answers, so they do not add up to the project total.',
+  // While the last sweep ran before the tracking changed, the number is the tracking's and the rates beside it are that sweep's.
+  answersNextSweep: 'Answers the next sweep collects for this location, its market queries included. The rates on this page are from the last sweep, before tracking changed.',
   noLocationQueries: 'No tracked query has this location as its Subject.',
   inNoMarket: 'This location is in no market, so no market query counts for it.',
 }
@@ -79,7 +83,10 @@ export function LocationPlaces({ projectName, targetKey }: { projectName: string
   if (!workspace) return isPending ? <span aria-hidden="true" className="skeleton-text w-56 max-w-full" /> : null
   const marketNames = new Map(workspace.markets.map(market => [market.stableKey, market.label]))
   const marketKeys = workspace.targets.find(target => target.stableKey === targetKey)?.marketKeys ?? []
-  const groups = workspace.groups.filter(group => group.targetKeys.includes(targetKey))
+  // A market keeps its name. The group that holds a market of the same name reads "Locations in {name}", as the Place picker calls it.
+  const groups = workspace.groups.filter(group => group.targetKeys.includes(targetKey)).map(group => (
+    workspace.markets.some(market => market.groupKey === group.stableKey && market.label === group.label) ? MARKET_SCOPE_COPY.locationsIn(group.label) : group.label
+  ))
   if (marketKeys.length === 0 && groups.length === 0) return null
   return (
     <dl className="contents">
@@ -102,7 +109,7 @@ export function LocationPlaces({ projectName, targetKey }: { projectName: string
       {groups.length > 0 ? (
         <div className="flex flex-wrap items-center gap-x-1.5 pointer-coarse:min-h-7 max-md:min-h-7">
           <dt>{groups.length === 1 ? 'Group:' : 'Groups:'}</dt>
-          <dd className="text-strong">{groups.map(group => group.label).join(' · ')}</dd>
+          <dd className="text-strong">{groups.join(' · ')}</dd>
         </div>
       ) : null}
     </dl>
@@ -316,6 +323,8 @@ function TrackedFor({ projectName, workspace, target, results, canWrite, trackin
       <SignalLegend />
     </div>
   )
+  // The legend goes with the first list that draws chips.
+  const legendAt = listed.location.length > 0 ? 'location' : marketGroups.length > 0 ? 'market' : 'picked'
   const table = (rows: readonly TrackedRowVm[], label: string) => (
     <TrackedTable rows={rows} engines={engines} coverage={results.coverage} renderRowMenu={renderRowMenu} workspace={workspace} contextLabels={rowContextLabels} columns={COLUMNS} label={label} />
   )
@@ -333,25 +342,26 @@ function TrackedFor({ projectName, workspace, target, results, canWrite, trackin
           />
         </div>
       ) : null}
-      <Numbers target={target} />
+      {/* The workspace's number is the tracking's as it is now. A last sweep that ran before a change did not collect it. */}
+      <Numbers target={target} nextSweep={run != null && !run.matchesCurrentTracking} />
 
-      <Block title="Queries about this location" count={counts?.propertyQueries} aside={listed.location.length > 0 ? legend : undefined} headingRef={ownHeading}>
+      <Block title="Queries about this location" count={counts?.propertyQueries} aside={legendAt === 'location' ? legend : undefined} headingRef={ownHeading}>
         {listed.location.length > 0
           ? <FirstRows rows={listed.location} of="location queries">{rows => table(rows, 'Location queries')}</FirstRows>
           // A flag, so only where it is true: the server counts none and none is listed.
           : (counts?.propertyQueries ?? 0) === 0 ? <StatusNote icon={AlertTriangle} tone="caution" label="No location queries" detail={COPY.noLocationQueries} /> : null}
       </Block>
 
-      <Block title="From its markets" count={counts?.marketQueries}>
+      <Block title="From its markets" count={counts?.marketQueries} aside={legendAt === 'market' ? legend : undefined}>
         {marketGroups.length > 0
-          ? <MarketQueries projectName={projectName} groups={marketGroups} />
+          ? <MarketQueries projectName={projectName} groups={marketGroups} engines={engines} coverage={results.coverage} />
           : target.marketKeys?.length === 0
             ? <StatusNote icon={AlertTriangle} tone="caution" label="In no market" detail={COPY.inNoMarket} />
             : <StatusNote icon={Info} label="No market queries" />}
       </Block>
 
       {listed.picked.length > 0 ? (
-        <Block title="Hand-picked" count={counts?.customQueries} aside={listed.location.length === 0 ? legend : undefined} headingRef={pickedHeading}>
+        <Block title="Hand-picked" count={counts?.customQueries} aside={legendAt === 'picked' ? legend : undefined} headingRef={pickedHeading}>
           <FirstRows rows={listed.picked} of="hand-picked queries">{rows => table(rows, 'Hand-picked queries')}</FirstRows>
         </Block>
       ) : null}
@@ -383,12 +393,14 @@ const numberCell = (index: number) => `min-w-0 border-subtle py-3 pr-4${index >=
  * Each is a field of its `targets[]` entry, or the length of its market list.
  * One the server left out has no cell: nothing is counted in its place.
  */
-function Numbers({ target }: { target: Workspace['targets'][number] }) {
+function Numbers({ target, nextSweep }: { target: Workspace['targets'][number]; nextSweep: boolean }) {
   const { counts, marketKeys } = target
   const stats: { label: string; value: number; help?: string }[] = [
     ...(counts ? [{ label: 'Location queries', value: counts.propertyQueries }, { label: 'Market queries', value: counts.marketQueries }] : []),
     ...(marketKeys ? [{ label: 'Markets', value: marketKeys.length }] : []),
-    ...(counts ? [{ label: 'Answers counted', value: counts.answersPerSweep, help: COPY.answersCounted }] : []),
+    ...(counts ? [nextSweep
+      ? { label: 'Answers next sweep', value: counts.answersPerSweep, help: COPY.answersNextSweep }
+      : { label: 'Answers per sweep', value: counts.answersPerSweep, help: COPY.answersPerSweep }] : []),
   ]
   if (stats.length === 0) return null
   return (
@@ -478,11 +490,18 @@ interface MarketGroup {
 }
 
 // In a frame of 40rem or more this is a table whose header sticks under the topbar. In less it is a list with no
-// header: a market's name and links over its queries, and each query over its two facts, which then name themselves.
-const HEAD = 'whitespace-nowrap border-b border-default bg-bg px-2.5 py-2 text-left text-[13px] font-medium text-secondary @[40rem]:sticky @[40rem]:top-[var(--topbar-h)] @[40rem]:z-10'
-const CELL = 'border-subtle align-top @[40rem]:border-b @[40rem]:px-2.5 @[40rem]:py-2'
-const FACT = `${CELL} whitespace-nowrap @max-[40rem]:inline-flex @max-[40rem]:items-center @max-[40rem]:gap-1.5 @max-[40rem]:pr-5`
+// header: a market's name and links over its queries, and each query over its facts, which then name themselves.
+const HEAD_CELL = 'whitespace-nowrap border-b border-default bg-bg py-2 text-[13px] font-medium text-secondary @[40rem]:sticky @[40rem]:top-[var(--topbar-h)] @[40rem]:z-10'
+const HEAD = `${HEAD_CELL} px-2.5 text-left`
+const CELL_LINES = 'border-subtle align-top @[40rem]:border-b @[40rem]:py-2'
+const CELL = `${CELL_LINES} @[40rem]:px-2.5`
+const FACT_LINE = 'whitespace-nowrap @max-[40rem]:inline-flex @max-[40rem]:items-center @max-[40rem]:gap-1.5 @max-[40rem]:pr-5'
+const FACT = `${CELL} ${FACT_LINE}`
 const FACT_NAME = 'hidden text-secondary @max-[40rem]:inline'
+// An engine's chips, centred under its name in the table, in a column as narrow as the Tracked table's. In the list
+// they are a fact like the others, named by the engine.
+const ENGINE_HEAD = `${HEAD_CELL} px-1 text-center`
+const ENGINE_FACT = `${CELL_LINES} ${FACT_LINE} @[40rem]:px-1 @[40rem]:text-center`
 const LINE = '@max-[40rem]:flex @max-[40rem]:flex-wrap @max-[40rem]:items-center @max-[40rem]:border-b @max-[40rem]:border-subtle'
 
 /**
@@ -493,17 +512,30 @@ const LINE = '@max-[40rem]:flex @max-[40rem]:flex-wrap @max-[40rem]:items-center
  * would take its line. A market is named once, in a cell that spans its
  * queries and holds its other locations and the link to it; down a long market
  * the name follows the page under the header.
+ *
+ * Each query has the last sweep's Mentioned and Cited per engine, read for
+ * this location as the chips of the lists beside this one are: the page's one
+ * results read, joined by query and type. A query added since that sweep has
+ * no result, so its chips read Not checked.
  */
-function MarketQueries({ projectName, groups }: { projectName: string; groups: readonly MarketGroup[] }) {
+function MarketQueries({ projectName, groups, engines, coverage }: {
+  projectName: string
+  groups: readonly MarketGroup[]
+  engines: readonly string[]
+  /** Undefined while the results load, so the chips draw their skeleton. */
+  coverage: TrackedCoverage | undefined
+}) {
   // How many queries a market lists, once the reader has asked it for more.
   const [opened, setOpened] = useState<Readonly<Record<string, number>>>({})
   const share = Math.max(MARKET_MIN, Math.floor(MARKET_ROWS / groups.length))
+  const engineColumns = engines.map(key => ({ key, label: providerDisplayName(key) }))
   return (
     <div className="@container">
       <table aria-label="Market queries" className="w-full table-fixed border-separate border-spacing-0 text-[13.5px] leading-5 text-neutral @max-[40rem]:block">
         <colgroup>
-          <col className="w-52" />
+          <col className="w-40" />
           <col />
+          {engineColumns.map(engine => <col key={engine.key} style={{ width: trackedEngineColumnWidth(engine.label) }} />)}
           <col className="w-[5.5rem]" />
           <col className="w-[6.75rem]" />
         </colgroup>
@@ -511,6 +543,7 @@ function MarketQueries({ projectName, groups }: { projectName: string; groups: r
           <tr>
             <th scope="col" className={HEAD}>Market</th>
             <th scope="col" className={HEAD}>Query</th>
+            {engineColumns.map(engine => <th key={engine.key} scope="col" className={ENGINE_HEAD}>{engine.label}</th>)}
             <th scope="col" className={HEAD}>Type</th>
             <th scope="col" className={HEAD}>Last measured</th>
           </tr>
@@ -536,6 +569,25 @@ function MarketQueries({ projectName, groups }: { projectName: string; groups: r
                     </td>
                   ) : null}
                   <td className={`${CELL} break-words text-[13px] text-heading @max-[40rem]:block @max-[40rem]:w-full`}>{row.queryText}</td>
+                  {engineColumns.map(engine => {
+                    const classes = resultClasses(row)
+                    return (
+                      <td key={engine.key} className={ENGINE_FACT}>
+                        <span className={FACT_NAME}>{engine.label}</span>
+                        {/* Branded and non-brand results are never combined: a query asked both ways has a pair per type, each named by its type. */}
+                        <span className={classes.length > 1 ? 'inline-flex flex-col items-center gap-1 align-middle' : 'contents'}>
+                          {classes.map(queryClass => (
+                            <SignalPair
+                              key={queryClass}
+                              signal={engineSignal(coverage, row.queryId, queryClass, engine.key)}
+                              engineLabel={engine.label}
+                              classLabel={classes.length > 1 ? typeLabel(queryClass as TrackedType) : undefined}
+                            />
+                          ))}
+                        </span>
+                      </td>
+                    )
+                  })}
                   {/* The type the query counts as for this location, set as the Type of the tables beside this one is. */}
                   <td className={`${FACT} text-[13px]`}><span className={FACT_NAME}>Type</span>{typeLabel(row.type)}</td>
                   <td className={`${FACT} tabular-nums text-secondary`}>
@@ -546,7 +598,7 @@ function MarketQueries({ projectName, groups }: { projectName: string; groups: r
               ))}
               {cut ? (
                 <tr className={LINE}>
-                  <td colSpan={3} className="border-subtle @[40rem]:border-b @[40rem]:py-0.5 @max-[40rem]:block @max-[40rem]:w-full">
+                  <td colSpan={3 + engineColumns.length} className="border-subtle @[40rem]:border-b @[40rem]:py-0.5 @max-[40rem]:block @max-[40rem]:w-full">
                     {/* Its words stand under the queries' own. */}
                     <MoreButton
                       hidden={total - count}

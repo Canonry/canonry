@@ -17,6 +17,12 @@ import { SENTIMENT_COPY, SentimentScopeProvider } from '../src/components/projec
 
 afterEach(cleanup)
 
+/** One engine row of Query results as it reads under Mentioned and under Cited, without the labels a phone adds. */
+function engineResult(table: Element, provider: string): Array<string | null | undefined> {
+  const row = within(table as HTMLElement).getByRole('button', { name: new RegExp(` · ${provider}$`) }).closest('tr')!
+  return [...row.querySelectorAll('.measurement-result-mobile-label')].map(label => label.nextElementSibling?.textContent)
+}
+
 export function reportFixture(): VisibilityReportResponse {
   const rate = { numerator: 1, denominator: 3, rate: 0.43 }
   const missing = { numerator: null, denominator: null, rate: null, reason: 'no-population' as const }
@@ -331,10 +337,11 @@ describe('shared production visibility view', () => {
     const table = screen.getByRole('table', { name: 'Non-brand queries trend data' })
     expect(table.parentElement!.classList.contains('sr-only')).toBe(false)
     expect(within(table).getAllByRole('row')).toHaveLength(3)
-    for (const point of population.trend) {
-      expect(within(table).getByText(new Date(point.createdAt).toLocaleDateString())).toBeTruthy()
-    }
-    expect(within(table).getByText('model changed')).toBeTruthy()
+    // A sweep's day reads as it does in the header, and its comparison in the headline's words, never the wire value.
+    expect(within(table).getAllByRole('row').slice(1).map(row => [row.cells[0]!.textContent, row.cells[3]!.textContent])).toEqual([
+      [formatObservedInstantLabel(observedInstant('2026-09-03T12:00:00Z')), 'No earlier sweep'],
+      [formatObservedInstantLabel(observedInstant('2026-09-04T12:00:00Z')), 'Not compared: engines or models changed'],
+    ])
     expect(within(table).getAllByText('Not measured')).toHaveLength(4)
     expect(screen.queryByRole('img', { name: /mention and citation trend/ })).toBeNull()
     expect(screen.getByText('No measured trend for this selection.')).toBeTruthy()
@@ -366,6 +373,31 @@ describe('shared production visibility view', () => {
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
     const kindLabel = kind === 'group' ? 'Group' : 'Market'
     expect(screen.getByText(`1 result · Metro Beta · ${kindLabel}`)).toBeTruthy()
+  })
+
+  it('calls a group that holds a market of its own name Locations in that name, in By place and in the results line', () => {
+    // Harbor Point is a market and the group that holds it. The market's numbers are its own queries; the group
+    // rolls up every query its locations are asked, so the two never read as one place with two numbers.
+    const report = reportFixture()
+    const group = { id: 'harbor-point', label: 'Harbor Point', kind: 'group' as const, targetCount: 4 }
+    report.scopeOptions.push(group, { id: 'harbor-point-market', label: 'Harbor Point', kind: 'market', targetCount: 4, parentGroupIds: ['harbor-point'] })
+    report.populations[0]!.breakdown.groups.push({ ...report.populations[0]!.breakdown.groups[0]!, id: 'harbor-point', label: 'Harbor Point' })
+    const select = vi.fn()
+    const view = render(<VisibilityReportView report={report} onSelectionChange={select} />)
+    const breakdown = within(screen.getByRole('region', { name: 'By place' }))
+
+    // A group with no market of its name keeps it.
+    expect(breakdown.getAllByRole('row').slice(1).map(row => row.cells[0]!.textContent)).toEqual(['Metro Alpha', 'Locations in Harbor Point'])
+    // The row is still the group: it opens the group's own numbers. Search reads its own label.
+    fireEvent.click(breakdown.getByRole('button', { name: 'Locations in Harbor Point' }))
+    expect(select).toHaveBeenCalledExactlyOnceWith({ measurementScope: 'group', measurementScopeKey: 'harbor-point', measurementMarketKey: undefined })
+    fireEvent.change(breakdown.getByRole('searchbox', { name: 'Search breakdown' }), { target: { value: 'harbor' } })
+    expect(breakdown.getAllByRole('row').slice(1).map(row => row.cells[0]!.textContent)).toEqual(['Locations in Harbor Point'])
+
+    // Selected, the results line names it as the place picker does.
+    report.selection.scope = group
+    view.rerender(<VisibilityReportView report={report} onSelectionChange={select} />)
+    expect(screen.getByText('1 result · Locations in Harbor Point · Group')).toBeTruthy()
   })
 
   it('leaves the scope control to the project context row', () => {
@@ -431,6 +463,28 @@ describe('shared production visibility view', () => {
     await waitFor(() => expect(requests.at(-1)!.searchParams.get('cursor')).toBe('next-result-page'))
     expect(requests.at(-1)!.searchParams.get('limit')).toBe('25')
   })
+  it('groups the digits of every count it prints, and changes no number', () => {
+    const report = reportFixture()
+    report.selection.mode = 'advanced'
+    const population = report.populations[0]!
+    const rate = { numerator: 1234, denominator: 5678, rate: 0.2173 }
+    population.summary = { ...population.summary, queryCount: 1893, answerCount: 5678, mentionCoverage: rate, citationCoverage: { numerator: 2001, denominator: 5600, rate: 0.3573 } }
+    population.summary.outcomes = { ...population.summary.outcomes, neither: 1234, total: 5678 }
+    population.queries.total = 5678
+    population.breakdown.groups = [{ ...population.breakdown.groups[0]!, queryCount: 1893, mentionCoverage: rate }]
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+
+    // The caption, a headline tile and a table row: the server's counts, written as the Queries tab writes them.
+    expect(screen.getByText('1,893 queries · 5,678 answers')).toBeTruthy()
+    expect(screen.getByText('1,234 of 5,678 answers')).toBeTruthy()
+    expect(screen.getByText('2,001 of 5,600 answers')).toBeTruthy()
+    expect([...within(screen.getByRole('region', { name: 'By place' })).getAllByRole('row')[1]!.cells].slice(1, 3).map(cell => cell.textContent)).toEqual(['1,893', '21.7%1,234 of 5,678'])
+    // The closed rows under them say how many there are the same way.
+    expect(screen.getByText('5,678 locations')).toBeTruthy()
+    expect(screen.getByText('5,678 results · All locations')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/\b(1234|5678|1893)\b/)
+  })
+
   it('renders server rates without dividing counts and keeps unavailable values explicit', () => {
     const html = renderToStaticMarkup(<VisibilityReportView report={reportFixture()} onSelectionChange={() => {}} />)
     expect(html).toContain('43.0%')
@@ -483,8 +537,9 @@ describe('shared production visibility view', () => {
       expect(within(table).queryByRole('columnheader', { name: 'Properties' })).toBeNull()
     }
     expect(within(table).getByText('1 of 3')).toBeTruthy()
-    expect(within(table).getByText('No')).toBeTruthy()
-    expect(within(table).getByText('Yes')).toBeTruthy()
+    // One answer reads as its result in a word, each signal in its own: never a Yes or a No under either column.
+    expect(engineResult(table, 'openai')).toEqual(['Not mentioned', 'Cited'])
+    expect(within(table).queryByText(/^(Yes|No)$/)).toBeNull()
     expect(container.textContent).toContain('1 query · 2 engine results shown of 2 results')
   })
 
@@ -653,9 +708,9 @@ describe('shared production visibility view', () => {
     const table = screen.getByRole('table', { name: 'Non-brand queries engine results' })
     expect(within(table).getAllByText('apartments near transit')).toHaveLength(1)
     expect(within(table).getAllByText('No search location')).toHaveLength(1)
-    expect(within(table).getAllByText('No')).toHaveLength(2)
-    expect(within(table).getByText('Yes')).toBeTruthy()
-    expect(within(table).getByText('Not measured')).toBeTruthy()
+    expect(engineResult(table, 'gemini')).toEqual(['Not mentioned', 'Not measured'])
+    expect(engineResult(table, 'openai')).toEqual(['Mentioned', 'Not cited'])
+    expect(within(table).queryByText(/^(Yes|No)$/)).toBeNull()
     expect(within(table).queryByText('0%')).toBeNull()
     expect(within(table).getByRole('button', { name: /The saved evidence is incomplete/ })).toBeTruthy()
     if (mode === 'advanced') {
@@ -892,6 +947,25 @@ describe('shared production visibility view', () => {
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
     expect(screen.queryByRole('button', { name: REPORT_TREND_UNCHECKED_NOTE })).toBeNull()
     expect(document.body.textContent).not.toContain(REPORT_TREND_UNCHECKED_NOTE)
+  })
+
+  it('names each trend point\'s comparison in words, for every state the server sends', () => {
+    const report = reportFixture()
+    const population = report.populations[0]!
+    const states = ['first', 'comparable', 'definition-changed', 'model-changed', 'legacy-unknown'] as const
+    population.trend = states.map((state, index) => ({
+      runId: `run-${index}`, createdAt: `2026-09-0${index + 1}T12:00:00Z`, revision: report.selection.revision,
+      provenance: report.selection.provenance, queryCount: 1, answerCount: 3,
+      mentionCoverage: population.summary.mentionCoverage, citationCoverage: population.summary.citationCoverage,
+      continuity: { state, comparedRunId: index === 0 ? null : `run-${index - 1}` },
+    }))
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+
+    const table = screen.getByRole('table', { name: 'Non-brand queries trend data' })
+    expect(within(table).getAllByRole('row').slice(1).map(row => row.cells[3]!.textContent)).toEqual([
+      'No earlier sweep', 'Compared', 'Not compared: setup changed', 'Not compared: engines or models changed', 'Not compared: older sweep',
+    ])
+    expect(within(table).getAllByRole('row')[1]!.cells[0]!.textContent).toBe(formatObservedInstantLabel(observedInstant('2026-09-01T12:00:00Z')))
   })
 
   it.each(['definition-changed', 'model-changed', 'legacy-unknown'] as const)('explains %s trend gaps beside the chart', state => {

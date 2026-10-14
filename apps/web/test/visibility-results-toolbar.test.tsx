@@ -317,18 +317,18 @@ describe('URL-bound toolbar controls', () => {
     expect(engine.isConnected).toBe(true)
     expect(engine.value).toBe('gemini')
     expect(document.activeElement).toBe(engine)
-    expect(tokenLabels()).toEqual(['Engine: gemini'])
+    expect(tokenLabels()).toEqual(['Engine: Gemini'])
     expect(filtersButton().textContent).toBe('Filters · 1')
 
     gate.release()
     await screen.findByRole('region', { name: 'AI visibility results' })
     expect(engine.value).toBe('gemini')
-    expect(tokenLabels()).toEqual(['Engine: gemini'])
+    expect(tokenLabels()).toEqual(['Engine: Gemini'])
   })
 
   it('labels one removable token for each non-default URL filter', () => {
     renderToolbar(FILTERED)
-    const labels = ['Engine: gemini', 'Model: gpt-5', 'Search location: Portland, ME', 'Sep 1 to Sep 8, 2026 (UTC)', 'Results from: Sep 6, 2026']
+    const labels = ['Engine: Gemini', 'Model: gpt-5', 'Search location: Portland, ME', 'Sep 1 to Sep 8, 2026 (UTC)', 'Results from: Sep 6, 2026']
     expect(tokenLabels()).toEqual(labels)
     expect(filterTokens().map(token => token.getAttribute('aria-label'))).toEqual(labels.map(label => `Remove filter ${label}`))
     for (const token of filterTokens()) expect(token.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
@@ -357,7 +357,7 @@ describe('URL-bound toolbar controls', () => {
   })
 
   it.each([
-    ['Engine: gemini', { measurementProvider: undefined }],
+    ['Engine: Gemini', { measurementProvider: undefined }],
     ['Model: gpt-5', { measurementModel: undefined }],
     ['Search location: Portland, ME', { measurementLocation: undefined }],
     ['Sep 1 to Sep 8, 2026 (UTC)', { measurementFrom: undefined, measurementTo: undefined }],
@@ -520,14 +520,17 @@ describe('URL-bound toolbar controls', () => {
       const select = screen.getByRole('combobox', { name }) as HTMLSelectElement
       return { value: select.value, options: [...select.options].map(option => [option.value, option.text]) }
     }
-    expect(control('Answer engine')).toEqual({ value: 'claude', options: [['', 'All engines'], ['gemini', 'gemini'], ['openai', 'openai'], ['claude', 'claude']] })
+    // An engine reads by its display name, never its id. The value sent is still the id.
+    expect(control('Answer engine')).toEqual({ value: 'claude', options: [['', 'All engines'], ['gemini', 'Gemini'], ['openai', 'OpenAI'], ['claude', 'Claude']] })
     expect(control('Search location')).toEqual({ value: 'Bangor, ME', options: [['', 'All search locations'], ['Portland, ME', 'Portland, ME'], ['none', 'No search location'], ['Bangor, ME', 'Bangor, ME']] })
     // Model choices follow the URL engine, which the report has no models for.
     expect(control('AI model')).toEqual({ value: 'claude-sonnet', options: [['', 'All models'], ['claude-sonnet', 'claude-sonnet']] })
     expect(control('Results from')).toEqual({
       value: 'run-9',
-      options: [['', 'Latest saved sweep'], ...[...TREND_RUNS].reverse().map(point => [point.runId, new Date(point.createdAt).toLocaleString()]), ['run-9', 'Selected sweep']],
+      // A sweep is named by its day as the header writes one, with its time: two sweeps can share a day.
+      options: [['', 'Latest saved sweep'], ...[...TREND_RUNS].reverse().map(point => [point.runId, new Date(point.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })]), ['run-9', 'Selected sweep']],
     })
+    expect(control('Results from').options[1]![1]).toMatch(/^[A-Z][a-z]{2} \d{1,2}, 2026, \d{1,2}:\d{2}/)
   })
 
   it('offers Manage queries and the Property details link only when the page provides them', () => {
