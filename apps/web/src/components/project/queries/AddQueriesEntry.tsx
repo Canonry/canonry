@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ComponentProps } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Plus } from 'lucide-react'
@@ -10,15 +10,17 @@ import { WriteButton } from '../../shared/AccessControls.js'
 import { StatusNote } from '../../shared/StatusNote.js'
 import { AddQueriesSheet } from '../AddQueriesSheet.js'
 import { TrackingReview, TrackingReviewActions } from '../TrackingReview.js'
-import { contextInput, contextLabel, contextLabels, uniqueContextInputs } from './tracking-contexts.js'
+import { contextLabels, sheetContextChoices } from './tracking-contexts.js'
 
 /** The Add queries sheet with the Add query form's search location and engines choices and the review every tracking change gets. */
 export function TrackingAddQueriesSheet({ workspace, sweepActive, ...sheet }: Omit<ComponentProps<typeof AddQueriesSheet>, 'contextChoices' | 'renderReview'> & { sweepActive: boolean }) {
+  // What the plan's rows are asked with, then the project's own setting: a read of every row, so once per workspace.
+  const contextChoices = useMemo(() => sheetContextChoices(workspace), [workspace])
   return (
     <AddQueriesSheet
       {...sheet}
       workspace={workspace}
-      contextChoices={uniqueContextInputs(workspace.defaultContexts.map(contextInput)).map(input => ({ label: contextLabel(input), input }))}
+      contextChoices={contextChoices}
       renderReview={review => ({
         changes: <TrackingReview {...review} workspace={workspace} contextLabels={contextLabels} sweepActive={sweepActive} showActions={false} />,
         actions: <TrackingReviewActions {...review} sweepActive={sweepActive} />,

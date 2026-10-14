@@ -95,12 +95,12 @@ export interface TrackedResultCell { queryClass: QueryClass; signal: EngineSigna
 /**
  * Whether a row's chips show the result asked for. A cell still loading
  * matches nothing yet. A cell is not checked when either chip is. A row with
- * no cell was never checked.
+ * no cell is asked on no engine, so it shows no result at all.
  */
 function matchesResult(result: Exclude<TrackedFilters['result'], 'any'>, signals: readonly (EngineSignal | null | undefined)[]): boolean {
   if (result === 'not-mentioned') return signals.some(signal => signal?.mentioned === false)
   if (result === 'not-cited') return signals.some(signal => signal?.cited === false)
-  return signals.length === 0 || signals.some(signal => signal === null || (signal !== undefined && (signal.mentioned === null || signal.cited === null)))
+  return signals.some(signal => signal === null || (signal !== undefined && (signal.mentioned === null || signal.cited === null)))
 }
 
 /**

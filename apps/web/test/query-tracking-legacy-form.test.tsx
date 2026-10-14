@@ -182,7 +182,8 @@ test('starts with the question, preserves written text, and keeps required measu
 })
 
 test.each([
-  { name: 'names a search location that has no place', contexts: [{ ...context, location: null }], options: ['Choose a search location and engines', 'No search location · openai (gpt-5)'] },
+  // The plan's rows are asked from New York, which this project no longer has: a new query cannot be asked from it, so it is not offered.
+  { name: 'names a search location that has no place', contexts: [{ ...context, location: null }], options: ['Choose a search location and engines', 'No search location · OpenAI'] },
   { name: 'says so when the project has no search location and engines', contexts: [], options: ['Choose a search location and engines'] },
 ])('$name', async ({ contexts, options }) => {
   installWorkspaceApi(undefined, [], { ...workspace(), defaultContexts: contexts } as unknown as ReturnType<typeof workspace>)
@@ -205,7 +206,7 @@ test('offers to keep the combinations a draft already holds', () => {
   render(<TrackingComposer workspace={workspace() as never} templates={[]} action={{ kind: 'add' }} draft={draft} onDraftChange={onDraftChange} onClose={vi.fn()} canReview isPreviewing={false} editorHeadingRef={{ current: null }} onReview={vi.fn()} />)
   const control = screen.getByLabelText('Search location and engines') as HTMLSelectElement
   // The draft's own two stay one choice, ahead of the single ones.
-  expect([...control.options].map(option => option.text)).toEqual(['Choose a search location and engines', 'Keep 2 current combinations', 'New York · openai (gpt-5)', 'Chicago · openai (gpt-5)'])
+  expect([...control.options].map(option => option.text)).toEqual(['Choose a search location and engines', 'Keep 2 current combinations', 'New York · OpenAI', 'Chicago · OpenAI'])
   expect(control.selectedOptions[0]!.text).toBe('Keep 2 current combinations')
   fireEvent.change(control, { target: { value: control.options[3]!.value } })
   expect(onDraftChange).toHaveBeenLastCalledWith({ ...draft, contexts: [chicago] })
@@ -289,7 +290,7 @@ test('focuses and scrolls an opened assignment editor without hijacking assignme
   expect(document.activeElement).toBe(group)
 })
 
-test('requires a selected context for an advanced addition, then uses the server preview and keeps no-op confirmation disabled', async () => {
+test('opens an advanced addition on the search location and engines the plan is asked with, then uses the server preview and keeps no-op confirmation disabled', async () => {
   const requests: Array<{ path: string; body: unknown }> = []
   installWorkspaceApi((path, body) => {
     requests.push({ path, body })
@@ -306,7 +307,15 @@ test('requires a selected context for an advanced addition, then uses the server
   await screen.findByText('Acme pricing')
   openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'Acme pricing' } })
+  // Every row of the plan is asked one way, so the form opens on it: Review waits for the place only.
+  const choice = screen.getByLabelText('Search location and engines') as HTMLSelectElement
+  expect([...choice.options].map(option => option.text)).toEqual(['Choose a search location and engines', 'New York · OpenAI'])
+  expect(choice.selectedOptions[0]!.text).toBe('New York · OpenAI')
+  expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
   fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Location' }))
+  expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(false)
+  // Taking the choice away turns Review off again: an addition with its own place never goes without one.
+  fireEvent.change(choice, { target: { value: '' } })
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
@@ -346,13 +355,19 @@ test('sends one explicitly selected context for a new advanced group assignment'
       }))
     }
     throw new Error(`Unexpected fetch: ${path}`)
-  }, [], { ...workspace(), defaultContexts: contexts })
+  }, [], (() => {
+    // The plan's rows are asked two ways, New York and Chicago, so the form cannot say which a new query takes.
+    const data = workspace()
+    data.tracked[1]!.assignments[0]!.contexts = [contexts[1]!]
+    return { ...data, defaultContexts: contexts }
+  })())
   renderWorkspace()
 
   await screen.findByText('Acme pricing')
   openLegacyAdd()
   fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'New group query' } })
   fireEvent.click(screen.getByRole('checkbox', { name: /^North East/ }))
+  expect((screen.getByLabelText('Search location and engines') as HTMLSelectElement).value).toBe('')
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
   chooseContext('New York')
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
@@ -374,7 +389,7 @@ test('sends one explicitly selected context for a new advanced group assignment'
   })
 })
 
-test('requires an explicit context when a market is combined with a group', async () => {
+test('asks for a search location and engines when a market is combined with a group, opened on the plan\'s own', async () => {
   let previewBody: Record<string, unknown> | undefined
   installWorkspaceApi((path, body) => {
     if (path === '/api/v1/projects/demo/query-tracking/preview') {
@@ -392,8 +407,11 @@ test('requires an explicit context when a market is combined with a group', asyn
   expect(screen.queryByLabelText('Search location and engines')).toBeNull()
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(false)
 
+  // A market alone asks with its own. With a group beside it the addition names one, and the form holds the plan's.
   fireEvent.click(screen.getByRole('checkbox', { name: 'North East, Group' }))
-  expect(screen.getByLabelText('Search location and engines')).toBeTruthy()
+  const choice = screen.getByLabelText('Search location and engines') as HTMLSelectElement
+  expect(choice.selectedOptions[0]!.text).toBe('New York · OpenAI')
+  fireEvent.change(choice, { target: { value: '' } })
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
   chooseContext()
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
@@ -593,10 +611,10 @@ test('an Advanced project whose mode Find ideas has not learned still tracks one
 
   expect(await screen.findByRole('heading', { name: 'Add query' })).toBeTruthy()
   expect((screen.getByLabelText('Discovery query') as HTMLSelectElement).value).toBe('discovery-probe-1')
-  // A Find ideas result leaves the place alone: the form starts with none, and Review waits for one and its search location and engines.
+  // A Find ideas result leaves the place alone: the form starts with none and Review waits for one. It opens on the search location and engines the plan is asked with.
   expect(onSelectionChange).not.toHaveBeenCalled()
   expect(screen.getByRole('checkbox', { name: 'Acme, Location' })).toHaveProperty('checked', false)
-  expect((screen.getByLabelText('Search location and engines') as HTMLSelectElement).value).toBe('')
+  expect((screen.getByLabelText('Search location and engines') as HTMLSelectElement).selectedOptions[0]!.text).toBe('New York · OpenAI')
   expect(screen.getByRole('button', { name: 'Review changes' }).hasAttribute('disabled')).toBe(true)
   fireEvent.click(screen.getByRole('checkbox', { name: 'Acme, Location' }))
   chooseContext()

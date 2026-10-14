@@ -1,14 +1,16 @@
 import type { TrackedRowVm } from './tracked-types.js'
-import { engineSignal, locationCountLabel, resultClasses, sourceLabel, statusLabel, subjectKindLabel, typeLabel, type TrackedCoverage } from './tracked-view-model.js'
+import { locationCountLabel, NOT_ASKED, resultClasses, rowSignal, sourceLabel, statusLabel, subjectKindLabel, typeLabel, type TrackedCoverage } from './tracked-view-model.js'
 
 /**
  * The Tracked list as a CSV file: the rows the page lists, in its order, over
  * every page. One line per query and type, so a query asked both ways is two
  * lines and Branded and Non-brand results are never one line. The headers
- * keep the wire's names; the cells read as the page does.
+ * keep the wire's names; the cells read as the page does. `place` is the
+ * market or location the query is about; `marks_for` is whose mention or
+ * citation the line's results are, in the Place the page was on.
  */
 
-const COLUMNS = ['query', 'query_class', 'subject', 'place', 'status', 'last_measured', 'source'] as const
+const COLUMNS = ['query', 'query_class', 'subject', 'place', 'marks_for', 'status', 'last_measured', 'source'] as const
 
 /** Three states, as a chip has them. No result, and a signal the sweep did not check, are not a no. */
 const signalWord = (value: boolean | null | undefined) => value === true ? 'yes' : value === false ? 'no' : 'not checked'
@@ -32,21 +34,24 @@ function cell(value: string): string {
 /**
  * `rows` as CSV, with two columns per engine: `{engine}_mentioned` and
  * `{engine}_cited`, each yes, no or not checked. Neither is read from the
- * other. A query that is not asked has no result to read.
+ * other. Both are empty where the query is not asked on that engine, and on
+ * every engine for a query that is not asked: not asked is not a sweep gap.
+ * `marksFor` gives a line's `marks_for` (`marksSubject`), empty without it.
  */
-export function trackedRowsCsv(rows: readonly TrackedRowVm[], engines: readonly string[], coverage: TrackedCoverage | undefined): string {
+export function trackedRowsCsv(rows: readonly TrackedRowVm[], engines: readonly string[], coverage: TrackedCoverage | undefined, marksFor?: (row: TrackedRowVm, queryClass: string) => string | undefined): string {
   const header = [...COLUMNS, ...engines.flatMap(engine => [`${engine}_mentioned`, `${engine}_cited`])]
   const lines = rows.flatMap(row => resultClasses(row).map((queryClass, index) => [
     row.queryText,
     typeLabel(row.queryClasses[index] ?? 'not-set'),
     subjectKindLabel(row.subject.kind),
     placeOf(row.subject),
+    marksFor?.(row, queryClass) ?? '',
     statusLabel(row.status),
     row.lastMeasuredAt ?? '',
     sourceLabel(row.source),
     ...engines.flatMap(engine => {
-      const signal = row.status === 'not-asked' ? null : engineSignal(coverage, row.queryId, queryClass, engine)
-      return [signalWord(signal?.mentioned), signalWord(signal?.cited)]
+      const signal = rowSignal(row, coverage, queryClass, engine)
+      return signal === NOT_ASKED ? ['', ''] : [signalWord(signal?.mentioned), signalWord(signal?.cited)]
     }),
   ]))
   return `${[header, ...lines].map(line => line.map(cell).join(',')).join('\r\n')}\r\n`

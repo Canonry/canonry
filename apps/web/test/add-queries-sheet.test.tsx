@@ -486,10 +486,10 @@ test('asks for a new review when the search location and engines pick changes wh
   const { sheet } = await openSheet()
   fillLocation(sheet, 'Birch House', 'Birch House reviews')
   const choice = sheet.getByRole('combobox', { name: 'Search location and engines' })
-  fireEvent.change(choice, { target: { value: 'New York · openai (gpt-5)' } })
+  fireEvent.change(choice, { target: { value: 'New York · OpenAI' } })
   fireEvent.click(reviewButton(sheet))
   await waitFor(() => expect(finish).toBeTypeOf('function'))
-  fireEvent.change(choice, { target: { value: 'Boston · openai (gpt-5), gemini (gemini-3)' } })
+  fireEvent.change(choice, { target: { value: 'Boston · OpenAI, Gemini' } })
 
   // The New York review lands while the pick shows Boston; confirming it would publish New York.
   await act(async () => finish!(jsonResponse(preview(['Birch House reviews']))))
@@ -708,11 +708,11 @@ test('asks for one search location and engines when a location is in no market a
   const choice = sheet.getByRole('combobox', { name: 'Search location and engines' }) as HTMLSelectElement
   expect(choice.required).toBe(true)
   expect(choice.value).toBe('')
-  // The same choices, in the same words, as the Add query form.
+  // The same choices, in the same words, as the Add query form: what the plan's rows are asked with first (New York here), each engine by its display name.
   expect([...choice.options].map(option => option.text)).toEqual([
     'Choose a search location and engines',
-    'New York · openai (gpt-5)',
-    'Boston · openai (gpt-5), gemini (gemini-3)',
+    'New York · OpenAI',
+    'Boston · OpenAI, Gemini',
   ])
   expect(sheetText()).not.toMatch(/question|propert|—/i)
   expect(reviewButton(sheet).disabled).toBe(true)
@@ -720,7 +720,7 @@ test('asks for one search location and engines when a location is in no market a
   await act(() => new Promise(resolve => setTimeout(resolve, 0)))
   expect(writes).toEqual([])
 
-  fireEvent.change(choice, { target: { value: 'Boston · openai (gpt-5), gemini (gemini-3)' } })
+  fireEvent.change(choice, { target: { value: 'Boston · OpenAI, Gemini' } })
   expect(reviewButton(sheet).disabled).toBe(false)
   fireEvent.click(reviewButton(sheet))
   await reviewHeading(sheet)

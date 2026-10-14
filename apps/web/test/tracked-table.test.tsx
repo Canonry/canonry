@@ -7,13 +7,14 @@ import { TrackedTable, TrackedTableSkeleton } from '../src/components/project/qu
 import {
   coverageByQuery,
   DEFAULT_TRACKED_SORT,
+  marksSubject,
   sortTrackedRows,
   toTrackedRows,
   type TrackedResults,
   type TrackedSort,
 } from '../src/components/project/queries/advanced/tracked-view-model.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
-import { compileAppStyles, compiledDeclarations, parseCompiledCss } from './compiled-app-css.js'
+import { compileAppStyles, compiledDeclarations, compiledElementProperty, parseCompiledCss } from './compiled-app-css.js'
 
 beforeEach(() => {
   // Dates print without their year only inside the current one.
@@ -139,8 +140,15 @@ const rowOf = (text: string) => query(text).closest('tr')!
 const ENGINE_PAIR = /^(OpenAI|Gemini|Claude|Local)[,:]/
 /** A row's cells as read, engine cells aside: their chips are read by name. */
 const cells = (text: string) => [...rowOf(text).children]
-  .filter(cell => within(cell as HTMLElement).queryAllByRole('button', { name: ENGINE_PAIR }).length === 0)
+  .filter(cell => !cell.classList.contains('tracked-cell-engine'))
   .map(cell => cell.textContent)
+/** A row's engine cells, in column order. */
+const engineCells = (text: string) => [...rowOf(text).querySelectorAll<HTMLElement>(':scope > td.tracked-cell-engine')]
+/** What a row's engine cells say to a screen reader: each pair by its name, and a cell with no pair by its text. */
+const engineCellsRead = (text: string) => engineCells(text).map(cell => {
+  const pairs = within(cell).queryAllByRole('button').map(pair => pair.getAttribute('aria-label'))
+  return pairs.length > 0 ? pairs.join(' | ') : cell.textContent
+})
 const queryOrder = () => within(table()).getAllByRole('button', { expanded: false }).filter(button => button.classList.contains('tracked-query')).map(button => button.textContent)
 /** Each column's set width in px, in order. Query has none: it takes what the others leave. */
 const columnWidths = () => [...table().querySelectorAll('col')].map(column => column.style.width)
@@ -254,14 +262,24 @@ describe('TrackedTable', () => {
     expect(within(rowOf(MARKET)).queryByText('OpenAI')).toBeNull()
   })
 
-  it('tones the Status badge by status', () => {
+  it('prints a measured row\'s Status as plain text, and keeps the pill for a row waiting on its first answers and one that is not asked', async () => {
     setup()
-    const badge = (text: string, label: string) => within(rowOf(text)).getByText(label).className.split(' ')
-    expect(badge(MARKET, 'Measured Oct 7')).toContain('text-positive')
-    expect(badge(WAITING, 'First answers Oct 21')).toEqual(expect.arrayContaining(['border-info-500/30', 'bg-info-500/10', 'text-info-300']))
-    expect(badge(WAITING, 'First answers Oct 21')).not.toContain('text-neutral')
-    expect(badge(NOT_ASKED, 'Not asked')).toContain('text-neutral')
-    expect(badge(NOT_ASKED, 'Not asked')).not.toContain('text-info-300')
+    const status = (text: string) => rowOf(text).querySelector('.tracked-cell-status')!.firstElementChild!
+    const classes = (text: string) => status(text).className.split(' ')
+    // Nearly every row is measured: a pill on each would mark nothing.
+    expect(status(MARKET).textContent).toBe('Measured Oct 7')
+    expect(classes(MARKET).filter(name => /^(?:border|bg-|rounded)/.test(name))).toEqual([])
+    expect(classes(MARKET)).toEqual(expect.arrayContaining(['text-secondary', 'truncate']))
+    expect(classes(MARKET)).not.toContain('text-positive')
+    expect(classes(WAITING)).toEqual(expect.arrayContaining(['rounded-md', 'border', 'border-info-500/30', 'bg-info-500/10', 'text-info-300']))
+    expect(classes(WAITING)).not.toContain('text-neutral')
+    expect(classes(NOT_ASKED)).toEqual(expect.arrayContaining(['rounded-md', 'border', 'text-neutral']))
+    expect(classes(NOT_ASKED)).not.toContain('text-info-300')
+    // The text is as tall as the pill, so a page that holds both keeps its rows one height: 16px of line and 3px above and below, the pill's padding and border.
+    const rules = parseCompiledCss(await compileAppStyles([...status(MARKET).classList, ...status(WAITING).classList]))
+    const height = (text: string) => ['line-height', 'padding-block', 'border-width'].map(property => compiledElementProperty(rules, status(text), property))
+    expect(height(MARKET)).toEqual(['calc(var(--spacing) * 4)', '3px', undefined])
+    expect(height(WAITING)).toEqual(['calc(var(--spacing) * 4)', 'calc(var(--spacing) * 0.5)', '1px'])
   })
 
   it('keeps a market\'s count after its name in a closed row, and on the last word of the name where the name wraps', () => {
@@ -308,7 +326,7 @@ describe('TrackedTable', () => {
       ])
       // Tracked, with no sweep on record yet.
       expect(cells(MIXED).at(-2)).toBe('Measured')
-      // One badge on one line: no second element holds the date.
+      // One label on one line: no second element holds the date.
       const status = rowOf(LOCATION).querySelector('.tracked-cell-status')!
       expect([status.children.length, status.firstElementChild!.children.length]).toEqual([1, 0])
     })
@@ -593,7 +611,7 @@ describe('TrackedTable', () => {
     setup()
     const market = within(rowOf(MARKET))
     const mentioned = market.getByRole('button', { name: 'OpenAI: Mentioned, Not cited' })
-    expect(mentioned.getAttribute('aria-description')).toBe('2 of 3 answers mention it. 0 of 3 cite it.')
+    expect(mentioned.getAttribute('aria-description')).toBe('Mentioned in 2 of 3 answers. Cited in 0 of 3.')
     // The sweep holds no Gemini answer for this query.
     expect(market.getByRole('button', { name: 'Gemini: Not checked' })).toBeTruthy()
     // Asked as Branded, measured only as Non-brand: the other type's result is never borrowed.
@@ -617,12 +635,14 @@ describe('TrackedTable', () => {
 
   it('keeps one tab stop per engine cell, and moves between two pairs with the arrow keys', () => {
     setup()
-    const engineCells = [...new Set(screen.getAllByRole('button', { name: ENGINE_PAIR }).map(pair => pair.closest('td')!))]
-    // Six rows, two engines.
-    expect(engineCells).toHaveLength(12)
-    for (const cell of engineCells) {
+    const withPairs = [...new Set(screen.getAllByRole('button', { name: ENGINE_PAIR }).map(pair => pair.closest('td')!))]
+    // Five rows that are asked, two engines.
+    expect(withPairs).toHaveLength(10)
+    for (const cell of withPairs) {
       expect(within(cell).getAllByRole('button').filter(button => button.tabIndex >= 0), cell.textContent ?? '').toHaveLength(1)
     }
+    // A row that is not asked has no pair, so its engine cells are no stop at all.
+    expect(engineCells(NOT_ASKED).map(cell => cell.querySelectorAll('button, a[href], [tabindex]').length)).toEqual([0, 0])
 
     // The second pair is off the tab order, so the cell says how to reach it.
     const [branded, nonBrand] = within(within(rowOf(MIXED)).getByRole('group', { name: 'OpenAI by type' })).getAllByRole('button')
@@ -638,16 +658,100 @@ describe('TrackedTable', () => {
     expect(document.activeElement).toBe(branded)
   })
 
-  it('draws no result while results load, except on a row that is not asked', () => {
+  it('draws a skeleton while results load, and nothing on a row that is not asked', () => {
     setup({ coverage: undefined })
     expect(within(rowOf(MARKET)).queryByRole('button', { name: /^OpenAI/ })).toBeNull()
     expect(within(rowOf(MIXED)).queryByRole('button', { name: /^Gemini/ })).toBeNull()
-    expect(within(rowOf(NOT_ASKED)).getByRole('button', { name: 'OpenAI: Not checked' })).toBeTruthy()
+    // Two skeleton chips in each cell of a row that is asked. A row that is not asked has no result to wait for.
+    expect(engineCells(MARKET).map(cell => cell.querySelectorAll('.skeleton').length)).toEqual([2, 2])
+    expect(engineCells(NOT_ASKED).map(cell => cell.querySelectorAll('.skeleton').length)).toEqual([0, 0])
+    expect(engineCellsRead(NOT_ASKED)).toEqual(['Not asked', 'Not asked'])
   })
 
-  it('draws Not checked everywhere when the results hold nothing', () => {
+  it('draws Not checked on every row that is asked when the results hold nothing', () => {
     setup({ coverage: coverageByQuery({ rows: [] }) })
-    expect(screen.getAllByRole('button', { name: /^(OpenAI|Gemini)(, (Branded|Non-brand))?: Not checked$/ })).toHaveLength(14)
+    // Five rows that are asked on two engines, one of them asked both ways.
+    expect(screen.getAllByRole('button', { name: /^(OpenAI|Gemini)(, (Branded|Non-brand))?: Not checked$/ })).toHaveLength(12)
+  })
+
+  describe('a query or an engine that is not asked', () => {
+    const openaiOnly = { ...context('Lakeshore'), providers: ['openai'], models: { openai: 'model-a' } }
+    /** The market row asked on OpenAI alone, and the waiting row on all three engines shown. */
+    function partly() {
+      const source = workspace()
+      source.tracked = source.tracked.map(row => row.queryId === 'market' ? { ...row, assignments: row.assignments.map(link => ({ ...link, contexts: [openaiOnly] })) }
+        : row.queryId === 'waiting' ? { ...row, assignments: row.assignments.map(link => ({ ...link, contexts: [{ ...context('Lakeshore'), providers: ['openai', 'gemini', 'claude'] }] })) }
+          : row)
+      return source
+    }
+    const THREE = ['openai', 'gemini', 'claude']
+
+    it('draws no pair for a query that is not asked: each engine cell is blank and reads Not asked', () => {
+      setup()
+      expect(within(rowOf(NOT_ASKED)).queryByRole('button', { name: ENGINE_PAIR })).toBeNull()
+      expect(engineCellsRead(NOT_ASKED)).toEqual(['Not asked', 'Not asked'])
+      // The words are for a screen reader. The column's header names the engine, and Status says Not asked for all to see.
+      expect(engineCells(NOT_ASKED).map(cell => [...cell.children].map(child => child.className))).toEqual([['sr-only'], ['sr-only']])
+      expect(rowOf(NOT_ASKED).querySelector('.tracked-cell-status')!.textContent).toBe('Not asked')
+    })
+
+    it('draws no pair on an engine a row is not asked on, and keeps Not checked for one it is', () => {
+      setup({ engines: THREE }, partly())
+      // Asked on OpenAI alone: the sweep holds its OpenAI result, and Gemini and Claude are not a sweep gap.
+      expect(engineCellsRead(MARKET)).toEqual(['OpenAI: Mentioned, Not cited', 'Not asked', 'Not asked'])
+      // Asked on all three and waiting for its first sweep: three pairs, each not checked.
+      expect(engineCellsRead(WAITING)).toEqual(['OpenAI: Not checked', 'Gemini: Not checked', 'Claude: Not checked'])
+      // Asked on OpenAI and Gemini, as the fixture's every other row is: no Claude pair.
+      expect(engineCellsRead(LOCATION)).toEqual(['OpenAI: Not checked', 'Gemini: Not checked', 'Not asked'])
+      expect(engineCellsRead(MIXED)[2]).toBe('Not asked')
+    })
+
+    it('still draws a result the sweep holds on an engine the row is no longer asked on', () => {
+      const results: TrackedResults = { rows: [
+        { queryId: 'market', queryClass: 'non-brand', engines: [{ provider: 'gemini', mentioned: false, cited: false }] },
+        // One type of the row asked both ways has an older Claude result, the other none.
+        { queryId: 'mixed', queryClass: 'branded', engines: [{ provider: 'claude', mentioned: true, cited: true }] },
+      ] }
+      setup({ engines: THREE, coverage: coverageByQuery(results) }, partly())
+      expect(engineCellsRead(MARKET)).toEqual(['OpenAI: Not checked', 'Gemini: Not mentioned, Not cited', 'Not asked'])
+      // The Branded pair is drawn, and the Non-brand line under it is kept, blank, so each type stays level with its own pair.
+      const claude = engineCells(MIXED)[2]!
+      expect(within(claude).getAllByRole('button').map(pair => pair.getAttribute('aria-label'))).toEqual(['Claude, Branded: Mentioned, Cited'])
+      const stack = within(claude).getByRole('group', { name: 'Claude by type' })
+      expect([...stack.children].map(line => [line.tagName, line.classList.contains('tracked-pair-label') || line.classList.contains('tracked-pair-lead') ? line.className : 'pair', line.textContent])).toEqual([
+        ['SPAN', 'tracked-pair-lead', ''],
+        ['BUTTON', 'pair', 'MC'],
+        ['SPAN', 'tracked-pair-label', 'Non-brand: Not asked'],
+      ])
+      expect(stack.lastElementChild!.firstElementChild!.className).toBe('sr-only')
+    })
+
+    it('says a pair with no result was not in the last sweep only when a sweep was read', () => {
+      const { rerender } = setup()
+      // The sweep read holds results, and none for this row on Gemini.
+      const gemini = () => within(rowOf(MARKET)).getByRole('button', { name: 'Gemini: Not checked' })
+      expect(gemini().getAttribute('aria-description')).toBe('Not in the last sweep.')
+      act(() => gemini().focus())
+      expect(document.body.textContent).toContain('Not in the last sweep.')
+      act(() => gemini().blur())
+      // No result read at all (no sweep yet, or a read that failed): nothing here says why, so the pair says only its state.
+      rerender({ coverage: coverageByQuery({ rows: [] }) })
+      expect(gemini().hasAttribute('aria-description')).toBe(false)
+    })
+  })
+
+  it('opens each pair\'s bubble with whose result it is, as the caller reads it for the Place', () => {
+    const source = workspace()
+    const labels = new Map(source.targets.map(target => [target.stableKey, target.label]))
+    setup({ marksFor: (row, queryClass) => marksSubject(row, row.tracked.assignments, labels, queryClass) }, source)
+    // The market lists three locations and this row is asked for one of them: the marks are that one's.
+    expect(within(rowOf(MARKET)).getByRole('button', { name: 'OpenAI: Mentioned, Not cited' }).getAttribute('aria-description')).toBe('Acme Homes Harbor Point. Mentioned in 2 of 3 answers. Cited in 0 of 3.')
+    expect(within(rowOf(MARKET)).getByRole('button', { name: 'Gemini: Not checked' }).getAttribute('aria-description')).toBe('Acme Homes Harbor Point. Not in the last sweep.')
+    // Twelve hand-picked locations, one of them with no type set: the Branded pair is for the eleven asked as Branded.
+    expect(within(rowOf(HAND_PICKED)).getByRole('button', { name: 'OpenAI: Not checked' }).getAttribute('aria-description')).toBe('Any of 11 locations. Not in the last sweep.')
+    // A row asked both ways: the type, then the location asked under that type, on each of its two pairs. The two are never read as one.
+    expect(within(rowOf(MIXED)).getByRole('button', { name: 'OpenAI, Branded: Mentioned, Cited' }).getAttribute('aria-description')).toBe('Branded. Acme Homes Harbor Point. Mentioned. Cited.')
+    expect(within(rowOf(MIXED)).getByRole('button', { name: 'OpenAI, Non-brand: Not mentioned, Not cited' }).getAttribute('aria-description')).toBe('Non-brand. Acme Homes Residence 12. Not mentioned. Not cited.')
   })
 
   describe('sorting', () => {
@@ -1044,6 +1148,17 @@ describe('TrackedTable', () => {
         const engine = within(rowOf(WAITING).children[4] as HTMLElement)
         expect(engine.getByText('OpenAI')).toBeTruthy()
         expect(engine.getByRole('button', { name: 'OpenAI: Not checked' })).toBeTruthy()
+      })
+
+      it('reads an engine cell with no pair by its engine, and draws nothing for it', () => {
+        frameWidth(358)
+        setup({ renderRowMenu: menu })
+        // No header names the engine here and no chips stand beside a name, so the cell is only read: it takes no room in the row.
+        expect(engineCells(NOT_ASKED).map(cell => [cell.classList.contains('sr-only'), cell.textContent])).toEqual([[true, 'OpenAI: Not asked'], [true, 'Gemini: Not asked']])
+        expect(engineCells(NOT_ASKED).flatMap(cell => [...cell.querySelectorAll('.tracked-engine-name, button')])).toEqual([])
+        expect(cells(NOT_ASKED)).toEqual([NOT_ASKED, `Menu for ${NOT_ASKED}`, 'None', 'Not set', 'Not asked'])
+        // A cell with a pair is drawn as before.
+        expect(engineCells(WAITING).map(cell => cell.classList.contains('sr-only'))).toEqual([false, false])
       })
 
       it('names the two types of a row asked both ways once, beside the pairs of every engine', () => {

@@ -10,11 +10,12 @@ import { Button } from '../../../ui/button.js'
 import { TrackedRowDetail, type TrackedContextLabels } from './TrackedRowDetail.js'
 import type { TrackedRowVm, TrackedSubject, TrackedType } from './tracked-types.js'
 import {
-  engineSignal,
   engineSortKey,
   locationCountLabel,
   nextTrackedSort,
+  NOT_ASKED,
   resultClasses,
+  rowSignal,
   sourceLabel,
   statusLabel,
   subjectKindLabel,
@@ -181,7 +182,11 @@ function measuredDay(iso: string): string {
  * Results join on query and type. A row asked both ways stacks one pair per
  * type in each engine cell, each named with its type, and a result under the
  * other type is never borrowed: a missing one draws Not checked. `coverage`
- * undefined is still loading.
+ * undefined is still loading. A query that is not asked, and an engine a row
+ * is not asked on, draw no pair (`rowSignal`): the cell is blank and reads
+ * "Not asked" to a screen reader, so Not checked always means a sweep gap.
+ * Each pair's bubble opens with whose result it is (`marksFor`). A measured
+ * row's Status is plain text; the pill is for the rows that are not measured.
  *
  * The query text and the Subject count open the row detail, for every role.
  * The checkbox column shows only when `onSelectedIdsChange` is given, and a
@@ -207,7 +212,7 @@ function measuredDay(iso: string): string {
  */
 export function TrackedTable({
   rows, engines, coverage, sort, onSortChange, selectedIds, onSelectedIdsChange, highlightedId, renderRowMenu, nextSweepDate, workspace, contextLabels,
-  columns, label = 'Tracked queries', emptyState,
+  columns, label = 'Tracked queries', emptyState, marksFor,
 }: {
   rows: readonly TrackedRowVm[]
   /** Engine keys, one column each, in this order. */
@@ -240,6 +245,8 @@ export function TrackedTable({
   label?: string
   /** Shown under the header when there are no rows. */
   emptyState?: ReactNode
+  /** Whose mention or citation a row's marks of one type are in the Place shown (`marksSubject`). Each pair's bubble opens with it. */
+  marksFor?: (row: TrackedRowVm, queryClass: string) => string | undefined
 }) {
   const tableId = useId()
   const [frameRef, frameWidth] = useFrameWidth()
@@ -257,6 +264,8 @@ export function TrackedTable({
   const shown = new Set(layout.columns)
   const lines = useRowLines(frameRef, rows, JSON.stringify([rows.map(row => row.queryId), engineColumns.map(engine => engine.width), wanted, selectable]), frameWidth, measured && !layout.stacked, fontLoads)
   const columnCount = (selectable ? 1 : 0) + [...shown].reduce((count, column) => count + (column === 'engines' ? engineColumns.length : 1), 0)
+  // With a result read, a pair that has none was left out of that sweep. With none read, nothing says why.
+  const noResult = coverage && coverage.size > 0 ? 'Not in the last sweep.' : undefined
   // What a header sorts by, in header order. Stacked rows have no header, so their Sort select lists the same.
   const sortChoices = wanted.flatMap((column): [TrackedSortKey, string][] => {
     switch (column) {
@@ -408,6 +417,7 @@ export function TrackedTable({
             const detailId = `${tableId}-detail-${index}`
             const discloses = { 'aria-expanded': open, 'aria-controls': open ? detailId : undefined, onClick: () => toggleOpen(row.queryId) }
             const mixed = row.type === 'mixed'
+            const status = statusLabel(row.status, nextSweepDate, row.lastMeasuredAt ? measuredDay(row.lastMeasuredAt) : undefined)
             const menuCell = shown.has('menu') ? <td className="tracked-cell-menu">{renderRowMenu?.(row)}</td> : null
             return (
               <Fragment key={row.queryId}>
@@ -437,23 +447,34 @@ export function TrackedTable({
                   {layout.stacked ? menuCell : null}
                   {shown.has('subject') ? <td className="tracked-cell-subject"><SubjectCell subject={row.subject} discloses={discloses} fit={layout.stacked || open ? 'whole' : lines === 2 ? 'lines' : 'line'} room={`${layout.subjectWidth}:${fontLoads}`} /></td> : null}
                   {shown.has('type') ? <td className="tracked-cell-type"><TypeCell type={row.type} classes={row.queryClasses} /></td> : null}
-                  {shown.has('engines') ? engineColumns.map(engine => (
-                    <td key={engine.key} className="tracked-cell-engine">
-                      {/* A stacked row has no header to read the engine from, so each cell names its own. */}
-                      {layout.stacked && !mixed ? <span className="tracked-engine-name" aria-hidden="true">{engine.label}</span> : null}
-                      <PairStack mixed={mixed} engineLabel={engine.label} named={layout.stacked}>
-                        {resultClasses(row).map(queryClass => (
-                          <SignalPair
-                            key={queryClass}
-                            // A row that is not asked has no result to wait for.
-                            signal={row.status === 'not-asked' ? null : engineSignal(coverage, row.queryId, queryClass, engine.key)}
-                            engineLabel={engine.label}
-                            classLabel={mixed ? typeLabel(queryClass as QueryClass) : undefined}
-                          />
-                        ))}
-                      </PairStack>
-                    </td>
-                  )) : null}
+                  {shown.has('engines') ? engineColumns.map(engine => {
+                    const pairs = resultClasses(row).map(queryClass => ({ queryClass, signal: rowSignal(row, coverage, queryClass, engine.key) }))
+                    // No pair to draw. Under a header the cell is blank. Stacked, its engine's name goes with the chips, so the cell is only read.
+                    if (pairs.every(pair => pair.signal === NOT_ASKED)) {
+                      return <td key={engine.key} className={`tracked-cell-engine${layout.stacked ? ' sr-only' : ''}`}><span className="sr-only">{layout.stacked ? `${engine.label}: ` : ''}Not asked</span></td>
+                    }
+                    return (
+                      <td key={engine.key} className="tracked-cell-engine">
+                        {/* A stacked row has no header to read the engine from, so each cell names its own. */}
+                        {layout.stacked && !mixed ? <span className="tracked-engine-name" aria-hidden="true">{engine.label}</span> : null}
+                        <PairStack mixed={mixed} engineLabel={engine.label} named={layout.stacked}>
+                          {pairs.map(({ queryClass, signal }) => signal === NOT_ASKED ? (
+                            // One type of a row asked both ways has a result here from before its engines changed: the other keeps its line.
+                            <span key={queryClass} className="tracked-pair-label"><span className="sr-only">{typeLabel(queryClass as QueryClass)}: Not asked</span></span>
+                          ) : (
+                            <SignalPair
+                              key={queryClass}
+                              signal={signal}
+                              engineLabel={engine.label}
+                              classLabel={mixed ? typeLabel(queryClass as QueryClass) : undefined}
+                              subject={marksFor?.(row, queryClass)}
+                              noResult={noResult}
+                            />
+                          ))}
+                        </PairStack>
+                      </td>
+                    )
+                  }) : null}
                   {shown.has('lastMeasured') ? (
                     <td className="tracked-cell-date">
                       {row.lastMeasuredAt ? <time dateTime={row.lastMeasuredAt}>{formatSweepDay(row.lastMeasuredAt)}</time> : 'Never'}
@@ -461,13 +482,18 @@ export function TrackedTable({
                   ) : null}
                   {shown.has('status') ? (
                     <td className="tracked-cell-status">
-                      <ToneBadge
-                        tone={row.status === 'measured' ? 'positive' : 'neutral'}
-                        // One line of 16px, so a one-line row is as tall as its text. A label too long for the column is cut short, never drawn over Source.
-                        className={`block w-fit max-w-full truncate leading-4 ${row.status === 'first-answers' ? 'border-info-500/30 bg-info-500/10 text-info-300' : ''}`}
-                      >
-                        {statusLabel(row.status, nextSweepDate, row.lastMeasuredAt ? measuredDay(row.lastMeasuredAt) : undefined)}
-                      </ToneBadge>
+                      {row.status === 'measured' ? (
+                        // Most rows are measured, so theirs is plain text, as tall as the pill that marks a row that is not, and cut short at the column's edge as it is.
+                        <span className="block truncate py-[3px] text-[13px] leading-4 tabular-nums text-secondary">{status}</span>
+                      ) : (
+                        <ToneBadge
+                          tone="neutral"
+                          // One line of 16px, so a one-line row is as tall as its text. A label too long for the column is cut short, never drawn over Source.
+                          className={`block w-fit max-w-full truncate leading-4 ${row.status === 'first-answers' ? 'border-info-500/30 bg-info-500/10 text-info-300' : ''}`}
+                        >
+                          {status}
+                        </ToneBadge>
+                      )}
                     </td>
                   ) : null}
                   {shown.has('source') ? <td className="tracked-cell-source"><span title={sourceLabel(row.source)}>{sourceLabel(row.source)}</span></td> : null}

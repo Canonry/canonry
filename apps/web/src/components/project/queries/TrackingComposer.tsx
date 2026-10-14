@@ -10,7 +10,7 @@ import { InfoTooltip } from '../../shared/InfoTooltip.js'
 import { StatusNote } from '../../shared/StatusNote.js'
 import { Button } from '../../ui/button.js'
 import { Card } from '../../ui/card.js'
-import { contextInput, contextKey, contextLabel, uniqueContextInputs } from './tracking-contexts.js'
+import { contextChoices, contextKey } from './tracking-contexts.js'
 import { hasMarketOnlyAudience, needsTemplateMarket, type TrackingAction, type TrackingDraft } from './tracking-draft.js'
 
 export function TrackingComposer({
@@ -289,10 +289,8 @@ function TrackingContextSelector({
   draft: TrackingDraft
   onDraftChange: (draft: TrackingDraft) => void
 }) {
-  const options = useMemo(
-    () => uniqueContextInputs([...workspace.defaultContexts.map(contextInput), ...draft.contexts]),
-    [draft.contexts, workspace.defaultContexts],
-  )
+  // What the plan's rows are asked with, then the project's own setting. A draft can hold one neither lists: it stays a choice.
+  const options = useMemo(() => contextChoices(workspace, draft.contexts), [workspace, draft.contexts])
   const selected = draft.contexts.length === 1 ? contextKey(draft.contexts[0]!) : draft.contexts.length > 1 ? '__existing__' : ''
 
   return (
@@ -308,16 +306,16 @@ function TrackingContextSelector({
         className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
         value={selected}
         onChange={event => {
-          const selectedContext = options.find(context => contextKey(context) === event.target.value)
+          const selectedContext = options.find(option => contextKey(option.input) === event.target.value)
           const next = event.target.value === '__existing__'
             ? draft.contexts
-            : selectedContext ? [selectedContext] : []
+            : selectedContext ? [selectedContext.input] : []
           onDraftChange({ ...draft, contexts: next })
         }}
       >
         <option value="">Choose a search location and engines</option>
         {draft.contexts.length > 1 ? <option value="__existing__">Keep {draft.contexts.length} current combinations</option> : null}
-        {options.map(context => <option key={contextKey(context)} value={contextKey(context)}>{contextLabel(context)}</option>)}
+        {options.map(option => <option key={contextKey(option.input)} value={contextKey(option.input)}>{option.label}</option>)}
       </select>
       {options.length === 0 ? <div className="mt-1"><StatusNote icon={AlertTriangle} tone="caution" label="No search location" detail="No search location and engines are set up for this project." /></div> : null}
     </div>

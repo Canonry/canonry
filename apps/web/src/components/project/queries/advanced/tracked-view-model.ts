@@ -188,8 +188,8 @@ export function coverageByQuery(results: TrackedResults | null | undefined): Tra
   const coverage = new Map<string, Map<string, EngineSignal>>()
   for (const row of results.rows) {
     const engines = new Map<string, EngineSignal>()
-    for (const { provider, mentioned, cited, answers, mentionedAnswers, citedAnswers, uncheckedSourceAnswers } of row.engines) {
-      engines.set(provider, { mentioned, cited, answers, mentionedAnswers, citedAnswers, uncheckedSourceAnswers })
+    for (const { provider, mentioned, cited, expectedAnswers, answers, mentionedAnswers, citedAnswers, uncheckedSourceAnswers } of row.engines) {
+      engines.set(provider, { mentioned, cited, expectedAnswers, answers, mentionedAnswers, citedAnswers, uncheckedSourceAnswers })
     }
     coverage.set(coverageKey(row.queryId, row.queryClass), engines)
   }
@@ -209,6 +209,75 @@ export function resultClasses(row: Pick<TrackedRowVm, 'queryClasses'>): readonly
 export function engineSignal(coverage: TrackedCoverage | undefined, queryId: string, queryClass: string, provider: string): EngineSignal | null | undefined {
   if (!coverage) return undefined
   return coverage.get(coverageKey(queryId, queryClass))?.get(provider) ?? null
+}
+
+/** The cell of a row on an engine it is not asked on: no pair is drawn there, and it is neither a no nor not checked. */
+export const NOT_ASKED = 'not-asked'
+
+/**
+ * Whether a row is asked on an engine: one of its location links names the
+ * engine in a search location's engines. A row with no link of its own (a
+ * simple site's) is asked on every engine shown.
+ */
+function askedOn(row: Pick<TrackedRowVm, 'tracked'>, provider: string): boolean {
+  const links = row.tracked.assignments
+  return links.length === 0 || links.some(link => link.contexts.some(context => context.providers.includes(provider)))
+}
+
+/**
+ * One engine cell of a row, for one of its types: its signal, as
+ * `engineSignal` reads it, or `NOT_ASKED`. A query that is not asked has no
+ * cell on any engine. Nor has a row on an engine it is not asked on, unless
+ * the sweep holds a result for it there: one from before its engines changed
+ * is still shown. The table, the Result filter and the CSV all read a cell
+ * through this, so the three agree on what was not asked.
+ */
+export function rowSignal(row: Pick<TrackedRowVm, 'queryId' | 'status' | 'tracked'>, coverage: TrackedCoverage | undefined, queryClass: string, provider: string): EngineSignal | null | undefined | typeof NOT_ASKED {
+  if (row.status === 'not-asked') return NOT_ASKED
+  const signal = engineSignal(coverage, row.queryId, queryClass, provider)
+  return signal || askedOn(row, provider) ? signal : NOT_ASKED
+}
+
+/**
+ * Whose mention or citation a row's marks are, with no full stop: the
+ * locations the row is asked for in the Place. `links` are the row's location
+ * links there, all of them with no Place. One location gives its name. Several
+ * give "Any of 3 locations in Uptown" on a market row and "Any of 12
+ * locations" on any other. The count is of the links given, so it is the
+ * Place's and not the market's own. A row with no link has no subject to name.
+ *
+ * `queryClass` is the type a pair or a CSV line is of. Branded and non-brand
+ * results are never combined, so a row asked both ways names, for each type,
+ * the locations asked under it. A link carries one type; where none carries
+ * the type asked for, the row's links stand for it.
+ */
+export function marksSubject(row: Pick<TrackedRowVm, 'subject'>, links: readonly { targetKey: string; queryClass?: string | null }[], targetLabels: ReadonlyMap<string, string>, queryClass?: string): string | undefined {
+  const ofType = queryClass === undefined ? [] : links.filter(link => link.queryClass === queryClass)
+  const targetKeys = [...new Set((ofType.length > 0 ? ofType : links).map(link => link.targetKey))]
+  if (targetKeys.length === 0) return undefined
+  if (targetKeys.length === 1) return targetLabels.get(targetKeys[0]!) ?? targetKeys[0]!
+  const any = `Any of ${locationCountLabel(targetKeys.length)}`
+  return row.subject.kind === 'market' ? `${any} in ${row.subject.label}` : any
+}
+
+/**
+ * The note before the legend: whose mention or citation lights a mark here.
+ * `location` is the one location the list is narrowed to, by a Place or on
+ * its own page; `label` is that note's label where the location's name and
+ * "only" is not wanted. `rootLabel` is the Place picker's root, "All of
+ * {project}".
+ */
+export function marksNote({ location, label, rootLabel }: { location?: string; label?: string; rootLabel: string }): { label: string; detail: string } {
+  if (location === undefined) {
+    return {
+      label: "Each query's own locations",
+      detail: 'M and C are for the locations a query is asked for: one location for a location query, any location in the market for a market query. Another of your locations in the answer does not light them.',
+    }
+  }
+  return {
+    label: label ?? `${location} only`,
+    detail: `M and C here are for ${location} alone. Under ${rootLabel} a market query is lit when any location in its market is mentioned or cited.`,
+  }
 }
 
 export type TrackedSortKey = 'query' | 'subject' | 'lastMeasured' | 'status' | `engine:${string}`
