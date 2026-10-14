@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type {
   DraftMutationResponse,
   MeasurementDraftAuthoring,
@@ -10,7 +10,7 @@ import type {
   MeasurementPlanV2PublishResponse,
   MeasurementSetupResponse,
 } from '@ainyc/canonry-contracts'
-import type { QueryDto } from '@ainyc/canonry-api-client'
+import type { MeasurementPlanResponse, QueryDto } from '@ainyc/canonry-api-client'
 
 import { ApiError } from '../src/api.js'
 import {
@@ -157,6 +157,8 @@ interface FakeServiceOptions {
   pairedAssignmentError?: Error
   pairedAssignmentGate?: Promise<void>
   groupMembershipPreview?: GroupMembershipPreview
+  /** What the server copies into a draft opened over a published setup. */
+  publishedSeed?: { targets: DraftTarget[]; assignedQueryIds: string[] }
 }
 
 function createFakeService(options: FakeServiceOptions = {}) {
@@ -213,7 +215,7 @@ function createFakeService(options: FakeServiceOptions = {}) {
     loadSetup: vi.fn(async () => setupResponse()),
     loadDraft: vi.fn(async () => draftResponse()),
     createDraft: vi.fn(async (_projectName, expectedActiveRevision) => {
-      currentDraft = draftFixture({ baseActiveRevision: expectedActiveRevision })
+      currentDraft = draftFixture({ ...(expectedActiveRevision === null ? {} : options.publishedSeed), baseActiveRevision: expectedActiveRevision })
       currentSetup = setupFixture(currentDraft)
       return mutation()
     }),
@@ -554,6 +556,28 @@ function renderSection(
   )
 }
 
+/** The published setup the page hands the section: two locations, each asked one query. */
+const PUBLISHED_SEED = { targets: [property(1), property(2)], assignedQueryIds: ['q-nearby'] }
+function publishedPlan(revision: number): NonNullable<MeasurementPlanResponse['active']> {
+  return {
+    revision,
+    checksum: DOCUMENT_CHECKSUM,
+    createdAt: NOW,
+    plan: {
+      ...compiledPlan(COMPILED_CHECKSUM),
+      targets: PUBLISHED_SEED.targets.map(target => ({
+        stableKey: target.stableKey,
+        label: target.label,
+        aliases: target.aliases,
+        mentionNotApplicable: false,
+        discoveryIdentity: null,
+        urlMatchers: target.urlMatchers.map(url => ({ kind: 'exact' as const, url, pathCase: 'insensitive' as const })),
+      })),
+      assignments: PUBLISHED_SEED.targets.map(target => ({ targetKey: target.stableKey, queryId: 'q-nearby', queryClass: 'non-brand' as const, executionNodeKey: 'node-nearby' })),
+    },
+  }
+}
+
 async function reviewSyntheticSitemap() {
   await screen.findByRole('heading', { name: 'Import locations' })
   fireEvent.change(screen.getByLabelText('Sitemap URL'), {
@@ -613,6 +637,9 @@ test('keeps internal setup terminology out of customer-facing errors', () => {
     .toBe('Could not discard these changes.')
   expect(setupErrorMessage(new ApiError('A draft already exists', 409), 'Could not open setup.'))
     .toBe('Could not open setup.')
+  // A request that never reached the server throws the browser's own words.
+  expect(setupErrorMessage(new TypeError('Failed to fetch'), 'Could not review this sitemap.'))
+    .toBe('Could not review this sitemap.')
   expect(assignmentPreviewErrorMessage(new ApiError(
     'Group "Dallas" has no Properties to assign.',
     400,
@@ -878,11 +905,11 @@ describe('AdvancedMeasurementSection server draft controller', () => {
       },
     )
     expect(fake.getDraft()?.authoring.assignments).toHaveLength(targets.length * QUERIES.length)
-    // The count is the notice. That existing links stay is said before the click, behind the impact line's help icon.
-    expect((await screen.findByText('6 location links added')).getAttribute('role')).toBe('status')
+    // The count is the notice. That existing pairs stay is said before the click, behind the impact line's help icon.
+    expect((await screen.findByText('6 pairs added')).getAttribute('role')).toBe('status')
   })
 
-  test('says "1 location link" after a single query lands on a single location', async () => {
+  test('says "1 pair" after a single query lands on a single location', async () => {
     const fake = createFakeService({ initialDraft: draftFixture({ targets: [property(1)] }) })
     renderSection(fake)
 
@@ -890,10 +917,10 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'all' } })
     fireEvent.click(screen.getByLabelText(`Select query ${QUERIES[0]!.query}`))
     // The server's counts, before the click and after it.
-    expect(await screen.findByText('1 query → 1 location link · 1 new, 0 already linked · 1 provider request per full run · 1 new')).toBeTruthy()
+    expect(await screen.findByText('1 query → 1 pair · 1 new, 0 already paired · 1 provider request per full run · 1 new')).toBeTruthy()
     await clickReadyAssignment(/Apply 1 query to every location \(1\)/)
 
-    expect(await screen.findByText('1 location link added')).toBeTruthy()
+    expect(await screen.findByText('1 pair added')).toBeTruthy()
   })
 
   test('previews and applies a selected group through one server-resolved audience', async () => {
@@ -988,7 +1015,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add 2 queries' }))
 
     expect(await screen.findByText(
-      'The queries were added, but could not be linked to their locations. Try again to pair them.',
+      'The queries were added, but could not be paired with their locations. Try again to pair them.',
     )).toBeTruthy()
     expect((screen.getByLabelText('Query pattern') as HTMLInputElement).value).toBe('events at {property}')
     expect(onCreateQueries).toHaveBeenCalledWith(['events at Property 001', 'events at Property 002'])
@@ -1039,7 +1066,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     renderSection(fake)
 
     await advancePropertiesToQuestions()
-    fireEvent.click(screen.getByRole('button', { name: `Clear location links for ${QUERIES[0]!.query}` }))
+    fireEvent.click(screen.getByRole('button', { name: `Clear locations for ${QUERIES[0]!.query}` }))
 
     await waitFor(() => expect(fake.service.removeAssignment).toHaveBeenCalledTimes(1))
     expect(fake.service.removeAssignment).toHaveBeenCalledWith(
@@ -1199,6 +1226,102 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     ]) expect(method).not.toHaveBeenCalled()
   })
 
+  test('opens a published setup to read: no draft is made until Edit setup, which keeps the step in view', async () => {
+    const fake = createFakeService({ setupActiveRevision: 5, publishedSeed: PUBLISHED_SEED })
+    renderSection(fake, { publishedPlan: publishedPlan(5) })
+
+    // The published locations, read-only, on the first step that holds something to read.
+    await screen.findByRole('heading', { name: 'Locations' })
+    expect(screen.getByRole('heading', { name: 'Bulk setup' })).toBeTruthy()
+    expect(within(screen.getByRole('table', { name: 'Locations to review' })).getAllByRole('row').slice(1).map(row => row.cells[0]!.textContent)).toEqual(['Property 001', 'Property 002'])
+    expect(screen.getByText('2 of 2 selected')).toBeTruthy()
+    expect(fake.service.loadSetup).toHaveBeenCalledTimes(1)
+    expect(fake.service.loadDraft).toHaveBeenCalledTimes(1)
+    expect(fake.service.createDraft).not.toHaveBeenCalled()
+    // An account that can edit is reading, so it is told neither that a draft exists nor that it is view only.
+    expect(screen.queryByText('Draft')).toBeNull()
+    expect(screen.queryByText('View only')).toBeNull()
+    for (const action of ['Discard changes', 'Continue', 'Select all shown']) expect(screen.queryByRole('button', { name: action })).toBeNull()
+
+    // The steps are read by their tabs. Edit setup opens the draft on the step in view.
+    fireEvent.click(screen.getByRole('button', { name: 'Queries' }))
+    await screen.findByRole('heading', { name: 'Queries' })
+    expect(screen.queryByText('View only')).toBeNull()
+    expect(screen.queryByRole('button', { name: `Clear locations for ${QUERIES[0]!.query}` })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit setup' }))
+
+    expect(await screen.findByRole('button', { name: 'Discard changes' })).toBeTruthy()
+    expect(fake.service.createDraft).toHaveBeenCalledTimes(1)
+    expect(fake.service.createDraft).toHaveBeenCalledWith(PROJECT, 5)
+    expect(screen.getByText('Draft')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Edit setup' })).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Queries' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: `Clear locations for ${QUERIES[0]!.query}` })).toBeTruthy()
+  })
+
+  test('says Could not start editing when the draft cannot be opened, and leaves the setup to read', async () => {
+    const fake = createFakeService({ setupActiveRevision: 5, publishedSeed: PUBLISHED_SEED })
+    vi.mocked(fake.service.createDraft).mockRejectedValueOnce(new ApiError('Internal error', 500))
+    renderSection(fake, { publishedPlan: publishedPlan(5) })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit setup' }))
+
+    expect((await screen.findByRole('alert')).textContent).toBe('Could not start editing.')
+    expect(screen.queryByText('Draft')).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Locations' })).toBeTruthy()
+    // The button is still there, and a second press opens the draft.
+    fireEvent.click(screen.getByRole('button', { name: 'Edit setup' }))
+    expect(await screen.findByRole('button', { name: 'Discard changes' })).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  test('a viewer reads the same published setup with View only and no Edit setup', async () => {
+    const fake = createFakeService({ setupActiveRevision: 5 })
+    renderSection(fake, { canEdit: false, publishedPlan: publishedPlan(5) })
+
+    await screen.findByRole('heading', { name: 'Locations' })
+    expect(screen.getByRole('button', { name: 'View only. Your account cannot change this setup.' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Edit setup' })).toBeNull()
+    expect(fake.service.createDraft).not.toHaveBeenCalled()
+  })
+
+  test('a failed read says Could not load setup, never the browser\'s own words, and Retry reads again', async () => {
+    const fake = createFakeService({ setupActiveRevision: 5 })
+    vi.mocked(fake.service.loadSetup).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    renderSection(fake, { publishedPlan: publishedPlan(5) })
+
+    expect((await screen.findByRole('alert')).textContent).toBe('Could not load setup.Retry')
+    expect(screen.getByRole('heading', { name: 'Bulk setup' })).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Failed to fetch')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(await screen.findByRole('button', { name: 'Edit setup' })).toBeTruthy()
+    expect(fake.service.createDraft).not.toHaveBeenCalled()
+  })
+
+  test('waits for a published setup the page has not handed over, and offers Retry when its read failed', async () => {
+    const fake = createFakeService({ setupActiveRevision: 5 })
+    const onRetryPublishedPlan = vi.fn()
+    const view = renderSection(fake, { onRetryPublishedPlan })
+
+    // Published, with its plan still on the way: loading, not an invitation to start a setup that exists.
+    await waitFor(() => expect(fake.service.loadDraft).toHaveBeenCalledTimes(1))
+    expect(await screen.findByLabelText('Loading bulk setup')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Start setup from the project Overview.')
+
+    const section = (overrides: Partial<React.ComponentProps<typeof AdvancedMeasurementSection>>) => (
+      <AdvancedMeasurementSection projectName={PROJECT} queries={QUERIES} isQueryLoading={false} isQueryError={false} service={fake.service} onRetryPublishedPlan={onRetryPublishedPlan} {...overrides} />
+    )
+    view.rerender(section({ isPublishedPlanError: true }))
+    expect(screen.getByRole('alert').textContent).toBe('Could not load setup.Retry')
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(onRetryPublishedPlan).toHaveBeenCalledTimes(1)
+
+    view.rerender(section({ publishedPlan: publishedPlan(5) }))
+    expect(await screen.findByRole('button', { name: 'Edit setup' })).toBeTruthy()
+    expect(fake.service.createDraft).not.toHaveBeenCalled()
+  })
+
   test('reloads the latest draft when compile and diff report a moved active revision', async () => {
     const fake = createFakeService({
       initialDraft: draftFixture({ targets: [property(1)], assignedQueryIds: ['q-nearby'], baseActiveRevision: 4 }),
@@ -1265,10 +1388,10 @@ describe('AdvancedMeasurementSection server draft controller', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
     await screen.findByRole('button', { name: 'Publish setup' })
-    // The reviewed changes and the counts table name locations and location links.
+    // The reviewed changes and the counts table name locations and pairs.
     const reviewed = screen.getByRole('heading', { name: 'Changes ready' }).closest('section')!
-    expect([...reviewed.querySelectorAll('li')].map(item => item.textContent)).toEqual(['1 location change', '1 location link change'])
-    expect(screen.getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Locations', 'Queries', 'Groups', 'Location links', 'Provider requests / run'])
+    expect([...reviewed.querySelectorAll('li')].map(item => item.textContent)).toEqual(['1 location change', '1 pair change'])
+    expect(screen.getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Locations', 'Queries', 'Groups', 'Pairs', 'Provider requests / run'])
     fireEvent.click(screen.getByRole('button', { name: 'Publish setup' }))
 
     await waitFor(() => expect(fake.service.publish).toHaveBeenCalledTimes(1))
@@ -1295,7 +1418,33 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     expect(note.closest('[role="status"]')).not.toBeNull()
   })
 
-  test('asks a setup with no location links to apply a query, in the words of the Queries step', async () => {
+  test('an older published setup also opens to read, with Republish needed and Edit setup', async () => {
+    const fake = createFakeService()
+    vi.mocked(fake.service.loadSetup).mockResolvedValue({
+      state: 'operational', nextAction: 'view_measurement', mode: 'active-v1', answerVisibilityProviderReady: true, activeRevision: 3, activeSchemaVersion: 1, draft: null,
+    })
+    // The older plan shape: site pages under `urls`, and each location's queries as one selection.
+    const older: NonNullable<MeasurementPlanResponse['active']> = {
+      revision: 3,
+      checksum: DOCUMENT_CHECKSUM,
+      createdAt: NOW,
+      plan: {
+        schemaVersion: 1, defaultContext: null, effectiveOwnedHosts: ['portfolio.example'], projectCanonicalHost: 'portfolio.example', projectBrandNames: ['Example Portfolio'],
+        targets: [{ stableKey: 'property-001', label: 'Property 001', aliases: ['Property 001'], mentionNotApplicable: false, urls: [{ kind: 'prefix', host: 'portfolio.example', pathPrefix: '/properties/property-001', pathCase: 'insensitive' }] }],
+        groups: [], targetQuerySelections: [{ targetKey: 'property-001', queryIds: ['q-nearby'] }], querySnapshots: [{ queryId: 'q-nearby', queryText: QUERIES[0]!.query }],
+        executionNodes: [], usageEdges: [], warnings: [],
+      },
+    }
+    renderSection(fake, { publishedPlan: older })
+
+    await screen.findByRole('heading', { name: 'Locations' })
+    expect(within(screen.getByRole('table', { name: 'Locations to review' })).getAllByRole('row').slice(1).map(row => [row.cells[0]!.textContent, row.cells[1]!.textContent])).toEqual([['Property 001', 'https://portfolio.example/properties/property-001/*']])
+    expect(screen.getByRole('button', { name: 'Republish needed. Review and publish this setup to report Branded and Non-brand queries separately.' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Edit setup' })).toBeTruthy()
+    expect(fake.service.createDraft).not.toHaveBeenCalled()
+  })
+
+  test('asks a setup with no pairs to apply a query, in the words of the Queries step', async () => {
     const fake = createFakeService({ initialDraft: draftFixture({ targets: [property(1)] }) })
     renderSection(fake, { canEdit: false })
 
@@ -1391,7 +1540,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
 
     expect(await screen.findByText('Choose a provider')).toBeTruthy()
-    expect(screen.getByText('Choose at least one provider before publishing. 194 location links need a provider. Affected: Property 001 · event venues nearby, Property 002 · event venues nearby, Property 003 · event venues nearby, and 191 more.')).toBeTruthy()
+    expect(screen.getByText('Choose at least one provider before publishing. 194 pairs need a provider. Affected: Property 001 · event venues nearby, Property 002 · event venues nearby, Property 003 · event venues nearby, and 191 more.')).toBeTruthy()
     expect(screen.getByText('Add location aliases')).toBeTruthy()
     expect(screen.getByText('Add a name or alias to measure mentions. 194 locations need aliases. Affected: Property 001, Property 002, Property 003, and 191 more.')).toBeTruthy()
     expect(screen.getByText('Apply queries')).toBeTruthy()
@@ -1484,8 +1633,8 @@ describe('AdvancedMeasurementSection server draft controller', () => {
       ['invalid-provider-model', 'Fix provider settings', ['assignments', 0, 'contextOverride', 'models', 'gemini'], 'fail'],
       ['invalid-location', 'Fix a search location', ['assignments', 0, 'contextOverride', 'locations', 0], 'fail'],
       ['duplicate-assignment', 'Remove a duplicate query', ['assignments', 0], 'fail'],
-      ['assignment-unknown-target', 'Fix a location link', ['assignments', 0, 'targetKey'], 'fail'],
-      ['assignment-excluded-target', 'Include or unlink a location', ['assignments', 0, 'targetKey'], 'fail'],
+      ['assignment-unknown-target', 'Fix a pair', ['assignments', 0, 'targetKey'], 'fail'],
+      ['assignment-excluded-target', 'Include or unpair a location', ['assignments', 0, 'targetKey'], 'fail'],
       ['assignment-unknown-query', 'Remove an unavailable query', ['assignments', 0, 'queryId'], 'fail'],
       ['assignment-unclassified', 'Set a query type', ['assignments', 0, 'queryClass'], 'fail'],
       ['query-limit-exceeded', 'Reduce queries', ['assignments'], 'fail'],

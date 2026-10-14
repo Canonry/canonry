@@ -26,7 +26,7 @@ import { toRunListItem } from '../src/build-dashboard.js'
 import { mapInsightDtosToVms } from '../src/mappers/insight-mapper.js'
 import { AdvancedMeasurementSection } from '../src/components/project/advanced-measurement/AdvancedMeasurementSection.js'
 import { QueriesSection } from '../src/components/project/DiscoverySection.js'
-import { TRACKED_FILTER_KEYS } from '../src/components/project/queries/advanced/tracked-filters.js'
+import { parseTrackedFilters, TRACKED_FILTER_KEYS } from '../src/components/project/queries/advanced/tracked-filters.js'
 import { LOCATIONS_MARKETS_COPY } from '../src/components/project/settings/LocationsMarketsSection.js'
 import { configureUiTelemetry, recordUiSearchParamsChange, resetUiTelemetryForTests, UI_FILTER_DEBOUNCE_MS } from '../src/lib/ui-telemetry.js'
 import {
@@ -855,8 +855,8 @@ test('the Portfolio route is an explicit non-embed project workspace', async () 
   const html = await renderAt('/projects/project_citypoint/portfolio')
 
   expect(html).not.toMatch(/href="\/projects\/[^"/]+\/portfolio" class="project-subnav-link/)
-  expect(html).toContain('Advanced measurement setup')
-  expect(html).toContain('Loading advanced measurement setup')
+  expect(html).toContain('Bulk setup')
+  expect(html).toContain('Loading bulk setup')
   expect(html).toContain('AI sweep running')
   expect(html).not.toContain('Portfolio setup')
   expect(html).not.toContain('Coverage and performance')
@@ -1698,7 +1698,7 @@ test('a failed setup read blocks setup instead of looking planless', async () =>
   )
 
   await waitFor(() => {
-    expect(screen.getByText('Could not load advanced measurement setup.')).toBeTruthy()
+    expect(screen.getByText('Could not load setup.')).toBeTruthy()
   })
   expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Review sitemap' })).toBeNull()
@@ -2355,12 +2355,12 @@ test('fresh project settings use the empty collection instead of a noisy schedul
     </AccountProvider>,
   )
 
-  expect(await page.findByRole('heading', { name: 'Scheduled runs' })).toBeTruthy()
+  expect(await page.findByRole('heading', { name: 'Scheduled sweeps' })).toBeTruthy()
   // Awaited, not synchronous: this copy appears only once the schedules query
   // settles, and nothing before it waits on that query. The heading above can
   // resolve first, so a synchronous read here is a race that only passed while
   // an unrelated component happened to keep the tree re-rendering.
-  expect(await page.findByText('No schedule configured. Set one to automatically trigger visibility sweeps.')).toBeTruthy()
+  expect(await page.findByText('No schedule')).toBeTruthy()
   await new Promise(resolve => setTimeout(resolve, 50))
   expect(observed.some(path => path.endsWith('/schedules'))).toBe(true)
   expect(observed.some(path => path.endsWith('/schedule'))).toBe(false)
@@ -2677,7 +2677,8 @@ test('saving the project provider allowlist refreshes server-owned sweep readine
     </QueryClientProvider>,
   )
 
-  expect(await page.findByRole('button', { name: 'Set up AI Visibility' })).toBeTruthy()
+  // The project has a tracked query, so it is set up: what it lacks is an engine it can use.
+  expect(await page.findByRole('button', { name: 'Connect an engine' })).toBeTruthy()
   fireEvent.click(await page.findByLabelText('All configured engines'))
   fireEvent.click(page.getByRole('button', { name: 'Save engines' }))
 
@@ -2732,7 +2733,7 @@ test('window focus refreshes server-owned sweep readiness on a mounted project',
     </QueryClientProvider>,
   )
 
-  expect(await page.findByRole('button', { name: 'Set up AI Visibility' })).toBeTruthy()
+  expect(await page.findByRole('button', { name: 'Connect an engine' })).toBeTruthy()
   ready = true
   await act(async () => {
     focusManager.setFocused(false)
@@ -2800,7 +2801,8 @@ test('AI Visibility honors the project provider allowlist instead of any configu
     readiness: false,
   })
 
-  expect(html).toContain('Set up AI Visibility')
+  expect(html).toContain('Connect an engine')
+  expect(html).not.toContain('Set up AI Visibility')
   expect(html).not.toContain('Run AI sweep')
   }
 })
@@ -2840,7 +2842,7 @@ test('an established schedule stays visible when run prerequisites need repair',
   })
 
   expect(html).toContain('Next AI sweep')
-  expect(html).toContain('Set up AI Visibility')
+  expect(html).toContain('Connect an engine')
   expect(html).not.toContain('Run AI sweep')
 })
 
@@ -2966,15 +2968,15 @@ test.each(['simple', 'advanced'] as const)('%s Settings names every section on t
     ['settings-engines', []],
     ['settings-site-health', ['Site Health scans']],
     ['settings-locations-markets', ['Locations & markets']],
-    ['settings-schedule', ['Scheduled runs']],
+    ['settings-schedule', ['Scheduled sweeps']],
     ['settings-notifications', ['Notifications']],
     ['settings-delete', ['Delete project']],
   ])
   expect(page.querySelector('#settings-engines > .project-engine-settings')).not.toBeNull()
   // No section stands outside the list.
   expect([...page.querySelectorAll('h2')].filter(heading => heading.closest('[id^="settings-"]') === null).map(heading => heading.textContent)).toEqual([])
-  // General keeps its "Search Locations" row, the engines' locations. The structure tables' search box is plain "Search".
-  expect(within(page.querySelector<HTMLElement>('#settings-general')!).getByText('Search Locations')).toBeTruthy()
+  // General keeps its "Search locations" row, the engines' locations. The structure tables' search box is plain "Search".
+  expect(within(page.querySelector<HTMLElement>('#settings-general')!).getByText('Search locations')).toBeTruthy()
   expect(within(page).queryAllByRole('searchbox').map(box => box.getAttribute('aria-label'))).toEqual(mode === 'advanced' ? ['Search'] : [])
 })
 
@@ -2990,7 +2992,7 @@ test.each(['simple', 'advanced'] as const)('%s Settings leaves the sections a vi
   // The section is a viewer's to read: no way into the wizard, and the label that says so.
   const section = locationsMarketsSection(html)
   expect(within(section).queryByRole('button', { name: /^(Bulk setup|Open draft|Add locations|Continue setup)$/ })).toBeNull()
-  expect(within(section).getByRole('button', { name: 'View only. Your account cannot change this setup.' })).toBeTruthy()
+  expect(within(section).getByRole('button', { name: 'View only. Your account cannot change this.' })).toBeTruthy()
   if (mode === 'advanced') expect(within(section).getByRole('table', { name: 'Locations' })).toBeTruthy()
 })
 
@@ -3010,7 +3012,7 @@ test.each(['simple', 'advanced'] as const)('%s Settings lists Delete project and
     ['settings-general', ['Project settings', 'Tracking results']],
     ['settings-site-health', ['Site Health scans']],
     ['settings-locations-markets', ['Locations & markets']],
-    ['settings-schedule', ['Scheduled runs']],
+    ['settings-schedule', ['Scheduled sweeps']],
     ['settings-notifications', ['Notifications']],
     ['settings-delete', ['Delete project']],
   ])
@@ -3028,8 +3030,8 @@ test.each(['simple', 'advanced'] as const)('an embedded %s Settings has no jump 
   expect(html).not.toContain('Locations &amp; markets')
   // The sections an embed had are the ones it has, as siblings on one stacked page.
   const headings = [...page.querySelectorAll('h2')].map(heading => heading.textContent)
-  expect(headings).toEqual(expect.arrayContaining(['Project settings', 'Site Health scans', 'Scheduled runs', 'Notifications']))
-  expect(within(page).getByText('Search Locations')).toBeTruthy()
+  expect(headings).toEqual(expect.arrayContaining(['Project settings', 'Site Health scans', 'Scheduled sweeps', 'Notifications']))
+  expect(within(page).getByText('Search locations')).toBeTruthy()
 })
 
 test('a published setup is read on Settings: its numbers, its rows and the ways on from them', async () => {
@@ -3464,6 +3466,57 @@ function overviewRoute(respond: (url: URL) => Response | Promise<Response>) {
     return undefined
   }
 }
+
+test.each(['tracked queries', 'a published setup'] as const)('a project with %s and no engine it can use is sent to connect one, not through first-run setup', async has => {
+  const { page, router } = await renderScopeRoute('/projects/project_citypoint', url => {
+    const path = decodeURIComponent(url.pathname)
+    if (path.endsWith('/measurement-setup')) return jsonResponse({ ...(has === 'a published setup' ? activeMeasurementSetupResponse(4) : simpleMeasurementSetupResponse()), answerVisibilityProviderReady: false })
+    if (path.endsWith('/measurement-plan')) return jsonResponse(has === 'a published setup' ? measurementPlanV2Response(4) : { active: null })
+    if (path.endsWith('/visibility-report')) return jsonResponse(visibilityReportResponse({ mode: 'advanced' }))
+    if (path.endsWith('/queries') || path.endsWith('/schedules')) return jsonResponse([])
+    return undefined
+  }, {
+    configureFixture(dashboard) {
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      // A published setup with an empty basket: the setup alone is what makes the project set up.
+      if (has === 'a published setup') {
+        project.visibilityEvidence = []
+        project.queryCounts = { cited: 0, total: 0 }
+      }
+      project.recentRuns = []
+      dashboard.runs = []
+      dashboard.settings.providerStatuses = []
+    },
+  })
+
+  const connect = await page.findByRole('button', { name: 'Connect an engine' })
+  expect(connect.closest('[data-project-actions]')).not.toBeNull()
+  expect(page.queryByRole('button', { name: 'Set up AI Visibility' })).toBeNull()
+  expect(page.queryByRole('button', { name: 'Run AI sweep' })).toBeNull()
+  // Engine keys are added on the global Settings page.
+  fireEvent.click(connect)
+  await waitFor(() => expect(router.state.location.pathname).toBe('/settings'))
+})
+
+test.each([
+  { queryClass: 'non-brand', type: 'non-brand' },
+  { queryClass: 'branded', type: 'branded' },
+  // Results saved before queries had a type are neither: Tracked opens unfiltered, with no key in its URL.
+  { queryClass: 'unknown', type: 'all' },
+] as const)('Manage queries from AI Visibility showing $queryClass results opens Tracked with Type $type', async ({ queryClass, type }) => {
+  // The report answers for the type asked for, as the server does: the page keeps the type its report names.
+  const overview = overviewRoute(() => jsonResponse(visibilityReportResponse({ mode: 'advanced', queryClass })))
+  const tracking = trackingRoute()
+  const { page, router, projectName } = await renderScopeRoute(`/projects/project_citypoint?queryClass=${queryClass}`, url => overview(url) ?? tracking(url))
+
+  fireEvent.click(await page.findByRole('button', { name: 'Manage queries' }))
+  await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${projectName}/queries`))
+  const search = router.state.location.search as Record<string, unknown>
+  expect(search.queryWorkspace).toBe('tracked')
+  // The filter Tracked itself reads from this URL.
+  expect(parseTrackedFilters(search).type).toBe(type)
+  expect(search[TRACKED_FILTER_KEYS.type]).toBe(type === 'all' ? undefined : type)
+})
 
 test('AI Visibility v2 renders one scope trigger, in the project context row, with its label kept for assistive tech', async () => {
   const doc = new DOMParser().parseFromString(await renderAt('/projects/project_citypoint', undefined, {
@@ -4319,7 +4372,7 @@ test.each(['simple', 'advanced'] as const)('managed sweeps replaces the %s heade
       expect(renderedPage(html).querySelector('.project-context-meta')).toBeNull()
       expect(actions.querySelectorAll('p:not([role="status"])')).toHaveLength(0)
     }
-    expect(html).not.toMatch(/Run AI sweep|Run measurement|Checking AI readiness|Set up AI Visibility/)
+    expect(html).not.toMatch(/Run AI sweep|Run measurement|Checking AI readiness|Set up AI Visibility|Connect an engine/)
   }
 })
 
@@ -4393,7 +4446,7 @@ test.each(['simple', 'advanced'] as const)('managed %s settings exposes schedule
   )
   const container = document.createElement('div')
   container.innerHTML = html
-  const section = within(container).getByRole('heading', { name: 'Scheduled runs' }).closest('section')!
+  const section = within(container).getByRole('heading', { name: 'Scheduled sweeps' }).closest('section')!
   expect(section.textContent).toContain(MANAGED_SWEEPS_COPY)
   expect(section.textContent).toContain('0 6 * * *')
   expect(within(section).queryByRole('button', { name: /Set schedule|Edit schedule|Pause|Resume|Remove|Save schedule/ })).toBeNull()
@@ -4480,7 +4533,7 @@ test.each(['', '/technical-aeo', '/settings', '/history'])('unset managed run ki
       expect(within(doc).getByRole('heading', { level: 1, name: 'Citypoint Dental NYC' })).toBeTruthy()
       expect(html).not.toContain('Scans are run by your Canonry team')
       expect(html).not.toContain('Sweeps are run by your Canonry team')
-      expect(within(projectActions(html)).getByRole('button', { name: /AI sweep running|Checking AI readiness|Set up AI Visibility|Run AI sweep/ }).hasAttribute('disabled')).toBe(true)
+      expect(within(projectActions(html)).getByRole('button', { name: /AI sweep running|Checking AI readiness|Set up AI Visibility|Connect an engine|Run AI sweep/ }).hasAttribute('disabled')).toBe(true)
       if (suffix === '/technical-aeo') expect(within(doc).getByRole('heading', { name: 'Site Health' })).toBeTruthy()
       if (suffix === '/settings') expect(within(doc).getByRole('heading', { name: 'Project settings' })).toBeTruthy()
       if (suffix === '/history') expect(within(within(doc).getByRole('tablist', { name: 'Project history views' })).getByRole('tab', { name: 'Changes' }).getAttribute('aria-selected')).toBe('true')

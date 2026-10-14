@@ -111,7 +111,7 @@ export const RESEARCH_COPY = {
 type ResearchNote = { label: string; detail: string; tone?: 'caution' | 'negative' }
 const plural = (value: number, one: string, many: string) => `${value} ${value === 1 ? one : many}`
 /** The Run button's words: one engine answers each query once, so the count is the queries about to be sent. */
-const researchRunLabel = (answers: number) => answers > 0 ? `${RESEARCH_COPY.runAction} ${plural(answers, 'answer', 'answers')}` : RESEARCH_COPY.runAction
+const researchRunLabel = (count: number) => count > 0 ? `${RESEARCH_COPY.runAction} ${plural(count, 'query', 'queries')}` : RESEARCH_COPY.runAction
 
 export type ResearchTemplateOption = { id: string; version: string; label: string; pattern: string; variables: readonly string[] }
 export type ResearchScopeOption = ResearchRunScope & { expectedPlanRevision: number }

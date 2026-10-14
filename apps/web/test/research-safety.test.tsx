@@ -75,8 +75,8 @@ function setup(sectionProps: SectionProps = {}, access: 'admin' | 'viewer' | 're
   return { state, project, queryClient, rerender: (props: SectionProps) => view.rerender(ui(props)) }
 }
 
-/** The Run button says how many answers it will ask for, and only "Run" while there is none. */
-const RUN = /^Run(?: \d+ answers?)?$/
+/** The Run button says how many queries it will send, and only "Run" while there is none. */
+const RUN = /^Run(?: \d+ quer(?:y|ies))?$/
 const runButton = () => screen.getByRole('button', { name: RUN }) as HTMLButtonElement
 /** An account that cannot run research has no Run button, only the reason in its place. */
 const expectViewOnly = () => {
@@ -140,9 +140,9 @@ test('direct queries preserve exact text, deduplicate, and submit only once', as
   await ready()
   fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: '  Exact query  \nEXACT QUERY\n\nSecond query\n' } })
   // Three lines, one of them a repeat: two answers.
-  expect(runButton().textContent).toBe('Run 2 answers')
+  expect(runButton().textContent).toBe('Run 2 queries')
   fireEvent.click(runButton())
-  fireEvent.click(screen.getByRole('button', { name: /^(Starting…|Run 2 answers)$/ }))
+  fireEvent.click(screen.getByRole('button', { name: /^(Starting…|Run 2 queries)$/ }))
   await waitFor(() => expect(state.posts).toHaveLength(1))
   expect(state.posts[0]).toEqual({ idempotencyKey: expect.any(String), runs: [{ queries: ['  Exact query  ', 'Second query'], provider: 'openai', model: 'project-model', location: null }] })
   await waitFor(() => expect((screen.getByRole('textbox', { name: 'Queries' }) as HTMLTextAreaElement).value).toBe(''))
@@ -314,7 +314,7 @@ test('plan and model changes invalidate previews without discarding edited rows'
   await ready(); setMode('markets'); choose('Atlanta'); typePattern('Apartments in {market}'); preview()
   fireEvent.change(screen.getByRole('textbox', { name: 'Query 1 for Atlanta' }), { target: { value: 'My reviewed wording' } })
   expect(screen.queryByRole('alert')).toBeNull()
-  expect(runButton().textContent).toBe('Run 1 answer')
+  expect(runButton().textContent).toBe('Run 1 query')
   view.rerender({ ...advanced, planRevision: 8 })
   // A stale preview's count is no longer what would run, so the button shows none.
   expect(runButton().disabled).toBe(true)
@@ -480,7 +480,7 @@ test('a pattern repeats for each Market, Location or Search location, with no ol
     expect(screen.getByText('1 query · 1 run')).toBeTruthy()
     expect((screen.getByRole('textbox', { name: `Query 1 for ${name}` }) as HTMLTextAreaElement).value).toBe(name)
     // The button carries the count; the line beside it names the engine and the model.
-    expect(runButton().parentElement!.textContent).toBe('Run 1 answerOpenAI · project-model')
+    expect(runButton().parentElement!.textContent).toBe('Run 1 queryOpenAI · project-model')
     expect(shownCopy()).not.toMatch(OLD_WORDS)
   }
   // A market or a location takes its search location in the row; a search location is its own.

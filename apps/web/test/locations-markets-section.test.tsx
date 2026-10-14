@@ -218,6 +218,37 @@ describe('an advanced project', () => {
     expect(visibleText(markets)).not.toContain('nothing is measured')
   })
 
+  test('a market whose own group sits under another names that one in Group, never its own name twice', async () => {
+    // Each market has a group of its own that carries the market's name. The first sits under the metro's group,
+    // the second is top-level, and the third market has no group.
+    const market = workspaceResponse().markets[0]!
+    await renderSection({
+      workspace: () => json(workspaceResponse({
+        markets: [
+          { ...market, stableKey: 'harbor-lakeshore', label: 'Harbor Point, Lakeshore', groupKey: 'harbor-lakeshore-group' },
+          { ...market, stableKey: 'north-market', label: 'North Market', groupKey: 'north-market-group' },
+          { stableKey: 'lake-market', label: 'Lake Market', usageEdges: [], targetKeys: ['harbor-point'], counts: market.counts },
+        ],
+        groups: [
+          { stableKey: 'lakeshore-metro', label: 'Lakeshore metro', targetKeys: ['harbor-point', 'northbridge'] },
+          { stableKey: 'harbor-lakeshore-group', parentGroupKey: 'lakeshore-metro', label: 'Harbor Point, Lakeshore', targetKeys: ['harbor-point', 'northbridge'] },
+          { stableKey: 'north-market-group', label: 'North Market', targetKeys: ['harbor-point', 'northbridge'] },
+        ],
+      })),
+    })
+    await table('Locations')
+    fireEvent.click(tab('Markets'))
+    const markets = await table('Markets')
+    expect(cells(markets).map(row => [row[0], row[1]])).toEqual([
+      ['Harbor Point, LakeshoreHarbor Point · Northbridge', 'Lakeshore metro'],
+      ['North MarketHarbor Point · Northbridge', 'North Market'],
+      ['Lake MarketHarbor Point', ''],
+    ])
+    // A market is found by the group the column names.
+    fireEvent.change(search(), { target: { value: 'metro' } })
+    expect(names(markets)).toEqual(['Harbor Point, LakeshoreHarbor Point · Northbridge'])
+  })
+
   test('lists each group with its parent, its locations, the server\'s market count and its competitors', async () => {
     await renderSection()
     await table('Locations')
@@ -375,7 +406,7 @@ describe('an advanced project', () => {
     // The draft is still counted. Only the way into the wizard is gone.
     expect(stat('Open drafts')).toBe('1')
     expect(within(section()).queryByRole('button', { name: /Bulk setup|Open draft/ })).toBeNull()
-    expect(within(section()).getByRole('button', { name: 'View only. Your account cannot change this setup.' })).toBeTruthy()
+    expect(within(section()).getByRole('button', { name: 'View only. Your account cannot change this.' })).toBeTruthy()
   })
 
   test('holds the page with a skeleton while the workspace is out', async () => {
@@ -496,7 +527,7 @@ describe('a project with no published setup', () => {
     // "View only" sits in the header, where a published setup has it; the body is the empty state.
     expect(visibleText(section())).toBe('Locations & marketsView onlyNo locations')
     expect(within(section()).queryByRole('button', { name: /^(Add locations|Continue setup|Republish setup)$/ })).toBeNull()
-    expect(within(section()).getByRole('button', { name: 'View only. Your account cannot change this setup.' })).toBeTruthy()
+    expect(within(section()).getByRole('button', { name: 'View only. Your account cannot change this.' })).toBeTruthy()
   })
 
   test('a failed plan read does not take the setup button away: this section reads no plan here', async () => {

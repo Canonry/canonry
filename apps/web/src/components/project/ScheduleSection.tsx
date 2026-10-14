@@ -1,11 +1,15 @@
 import { useState } from 'react'
 import { formatZonedTimestamp } from '@ainyc/canonry-contracts'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { CalendarOff } from 'lucide-react'
 import { getApiV1ProjectsByNameSchedulesOptions, getApiV1ProjectsByNameSchedulesQueryKey } from '@ainyc/canonry-api-client/react-query'
 
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
+import { ViewOnlyNote } from '../shared/AccessControls.js'
+import { StatusNote } from '../shared/StatusNote.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
+import { useAccount } from '../../contexts/account-context.js'
 import { formatHour, buildPreset, parsePreset, scheduleLabel } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
@@ -58,8 +62,10 @@ function calendarRecurrenceLabel(recurrence: CalendarRecurrence, timezone: strin
 }
 
 export function ScheduleSection({ projectName }: { projectName: string }) {
+  const { canWrite } = useAccount()
   const managedSweeps = isDashboardManagedSweeps()
-  const canManageSchedule = !isEmbed() && !isPublicDemo() && !managedSweeps
+  const readOnlySurface = isEmbed() || isPublicDemo()
+  const canManageSchedule = canWrite && !readOnlySurface && !managedSweeps
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
   const [freq, setFreq] = useState('daily')
@@ -285,13 +291,14 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
       <div className="section-head section-head-inline">
         <div>
           <p className="eyebrow eyebrow-soft">Automation</p>
-          <h2>Scheduled runs</h2>
+          <h2>Scheduled sweeps</h2>
         </div>
         {canManageSchedule && !scheduleLoading && !loadFailed && !editing && (
           <Button type="button" variant="outline" size="sm" onClick={startEditing}>
             {schedule ? SCHEDULE_COPY.edit : '+ Set schedule'}
           </Button>
         )}
+        {!canWrite && !readOnlySurface ? <ViewOnlyNote /> : null}
       </div>
 
       {scheduleLoading && <p className="supporting-copy">Loading...</p>}
@@ -314,8 +321,12 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
       )}
 
       {!scheduleLoading && !loadFailed && !editing && schedule === null && (
-        <Card className="surface-card compact-card">
-          <p className="supporting-copy">{managedSweeps ? MANAGED_SWEEPS_COPY : 'No schedule configured. Set one to automatically trigger visibility sweeps.'}</p>
+        // The two-word note needs no room under it, so its card is as tall as the note.
+        <Card className={managedSweeps ? 'surface-card compact-card' : 'surface-card'}>
+          {managedSweeps
+            ? <p className="supporting-copy">{MANAGED_SWEEPS_COPY}</p>
+            // Only someone who can set a schedule is told to.
+            : <StatusNote icon={CalendarOff} label="No schedule" detail={canManageSchedule ? 'Set a schedule to run sweeps automatically.' : undefined} />}
         </Card>
       )}
 

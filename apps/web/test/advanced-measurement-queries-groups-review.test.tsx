@@ -158,7 +158,7 @@ test('shows Property scope before dependent query patterns and previews cross-pr
   const creation = screen.getAllByText('Add queries').find(element => element.tagName === 'SUMMARY')?.closest('details')
 
   expect(scope?.compareDocumentPosition(creation!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
-  expect(screen.getByText(/2 new, 0 already linked/)).toBeTruthy()
+  expect(screen.getByText(/2 new, 0 already paired/)).toBeTruthy()
   const apply = screen.getByRole('button', { name: 'Apply 1 query to every location (2)' })
   expect(apply.className).toContain('min-h-11')
   expect(apply.className).toContain('bg-accent')
@@ -173,8 +173,8 @@ test('shows Property scope before dependent query patterns and previews cross-pr
 test('clears an individual query assignment with explicit wording', () => {
   const { props } = renderQueries()
 
-  const clear = screen.getByRole('button', { name: 'Clear location links for Harbor House events' })
-  expect(clear.textContent).toBe('Clear location links')
+  const clear = screen.getByRole('button', { name: 'Clear locations for Harbor House events' })
+  expect(clear.textContent).toBe('Clear locations')
   fireEvent.click(clear)
 
   expect(props.onRemoveQuery).toHaveBeenCalledWith('q-saved')
@@ -184,14 +184,14 @@ test('offers an explicit replacement editor for an already assigned query', () =
   const onReplaceAssignments = vi.fn()
   renderQueries({ onReplaceAssignments })
 
-  const replace = screen.getByRole('button', { name: 'Replace location links for Harbor House events' })
-  expect(replace.textContent).toBe('Replace location links')
+  const replace = screen.getByRole('button', { name: 'Replace locations for Harbor House events' })
+  expect(replace.textContent).toBe('Replace locations')
   fireEvent.click(replace)
-  expect(screen.getByRole('heading', { name: 'Replace location links' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Replace locations' })).toBeTruthy()
   // What the replacement does is the help icon beside the heading, not a sentence under it.
-  expect(screen.getByRole('button', { name: 'This replaces every location linked to “Harbor House events”.' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'This replaces every location paired with “Harbor House events”.' })).toBeTruthy()
   expect(screen.getByRole('group', { name: 'Locations for this query' })).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Keep current location links' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Keep current locations' })).toBeTruthy()
   fireEvent.click(screen.getAllByRole('button', { name: 'Clear selection' }).at(-1)!)
   fireEvent.click(screen.getAllByLabelText('Select North Hall').at(-1)!)
   fireEvent.click(screen.getByRole('button', { name: 'Replace with 1 location' }))
@@ -213,7 +213,7 @@ test('keeps a missing tracked query visible only for clearing its assignments', 
 
   expect(screen.getAllByText('Unavailable tracked query').length).toBeGreaterThan(0)
   expect(screen.queryByLabelText('Select query Removed event query')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Clear location links for Unavailable tracked query' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Clear locations for Unavailable tracked query' }))
   expect(props.onRemoveQuery).toHaveBeenCalledWith('q-missing')
 })
 
@@ -253,8 +253,8 @@ test('uses one audience control for every location, groups, and the Specific loc
 
   expect((screen.getByLabelText('Apply to') as HTMLSelectElement).value).toBe('group:waterfront-venues')
   // The counts are the line; the one sentence beside them is the help icon.
-  expect(screen.getByText('1 query → 1 location link · 1 new, 0 already linked · 4 provider requests per full run · 2 new · 1 unique location')).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Existing location links stay in place.' })).toBeTruthy()
+  expect(screen.getByText('1 query → 1 pair · 1 new, 0 already paired · 4 provider requests per full run · 2 new · 1 unique location')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Existing pairs stay in place.' })).toBeTruthy()
   expect(screen.getByRole('option', { name: 'Waterfront venues · 1 location' })).toBeTruthy()
   fireEvent.change(screen.getByLabelText('Add another group'), { target: { value: 'downtown' } })
   expect(onAudienceChange).toHaveBeenLastCalledWith({ kind: 'groups', groupIds: ['waterfront-venues', 'downtown'] })
@@ -319,7 +319,7 @@ test('shows zero new provider requests when the execution nodes are already reus
     },
   })
 
-  expect(screen.getByText('1 query → 1 location link · 0 new, 1 already linked · 4 provider requests per full run · 0 new · 1 unique location')).toBeTruthy()
+  expect(screen.getByText('1 query → 1 pair · 0 new, 1 already paired · 4 provider requests per full run · 0 new · 1 unique location')).toBeTruthy()
 })
 
 test('keeps selected queries visible and disables assignment when the server impact cannot be calculated', () => {
@@ -459,7 +459,7 @@ test('writes one query per selected Property from a pattern, paired to it', () =
   for (const pair of pairs) expect(pair.text.includes('{property}')).toBe(false)
 })
 
-test('states how many location links the pattern will create', () => {
+test('states how many pairs the pattern will create', () => {
   renderQueries({
     queries: [],
     selectedQueryIds: [],
@@ -473,12 +473,12 @@ test('states how many location links the pattern will create', () => {
 
   // The number nobody saw before a plan was published with 45,369 of them.
   // It is the visible label; the reason is the note's sentence.
-  const note = screen.getByRole('button', { name: 'Adds 2 location links. Each query is measured on the one location it names.' })
-  expect(note.textContent).toBe('Adds 2 location links')
+  const note = screen.getByRole('button', { name: 'Adds 2 pairs. Each query is measured on the one location it names.' })
+  expect(note.textContent).toBe('Adds 2 pairs')
   expect(screen.getByText('2 queries, one per selected location:')).toBeTruthy()
 })
 
-test('says "1 location link" for a pattern over one location', () => {
+test('says "1 pair" for a pattern over one location', () => {
   renderQueries({
     queries: [],
     selectedQueryIds: [],
@@ -491,7 +491,7 @@ test('says "1 location link" for a pattern over one location', () => {
     target: { value: 'apartments near {property}' },
   })
 
-  expect(screen.getByRole('button', { name: 'Adds 1 location link. Each query is measured on the one location it names.' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Adds 1 pair. Each query is measured on the one location it names.' })).toBeTruthy()
 })
 
 test('asks for a location before a pattern can write queries', () => {
@@ -643,7 +643,7 @@ test('places competitors only in groups and uses one clear continuation action',
 
   const { props } = renderGroups({ groupDraft: emptyGroupDraft })
   expect(screen.getByText('rival.example')).toBeTruthy()
-  expect(screen.getByRole('button', { name: "How groups apply. Competitor domains are used only in this group's competitor report. Membership changes affect future location links only." }).textContent).toBe('How groups apply')
+  expect(screen.getByRole('button', { name: "How groups apply. Competitor domains are used only in this group's competitor report. Membership changes affect future pairs only." }).textContent).toBe('How groups apply')
   expect(screen.getByRole('button', { name: 'Use groups to apply queries by market and compare competitors.' })).toBeTruthy()
 
   expect(screen.queryByRole('button', { name: 'Skip groups' })).toBeNull()
@@ -1029,7 +1029,7 @@ test('keeps large review lists bounded and reveals them fifty at a time', () => 
 test('leaves the single unpublished-changes banner to the surrounding setup shell', () => {
   renderReview()
 
-  expect(screen.queryByText('Unpublished changes')).toBeNull()
+  expect(screen.queryByText('Draft')).toBeNull()
   expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull()
 })
 
@@ -1099,7 +1099,7 @@ test('renders an unavailable state without controls', () => {
   expect(container.querySelectorAll('button, input, select, textarea')).toHaveLength(0)
 })
 
-test('review states why location links outrun queries, and never puts a button name in a number column', () => {
+test('review states why pairs outrun queries, and never puts a button name in a number column', () => {
   renderReview({
     counts: { properties: 6, queries: 1, groups: 3, assignments: 3 },
   })
@@ -1110,24 +1110,24 @@ test('review states why location links outrun queries, and never puts a button n
   expect(screen.queryByText('Review changes', { selector: 'td' })).toBeNull()
 
   // One query applied to a group writes one assignment per Property in it, so
-  // 1 query and 3 location links is correct and needs saying: four words on
+  // 1 query and 3 pairs is correct and needs saying: four words on
   // screen, the sentence with both counts behind them. The sentence names what
   // Apply to offers: groups and locations. The wizard has no market control.
-  const note = screen.getByRole('button', { name: 'More links than queries. 1 query applied to groups and locations makes 3 location links: a query applied to a group is measured on every location in it.' })
-  expect(note.textContent).toBe('More links than queries')
-  expect(screen.getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Locations', 'Queries', 'Groups', 'Location links', 'Provider requests / run'])
+  const note = screen.getByRole('button', { name: 'More pairs than queries. 1 query applied to groups and locations makes 3 pairs: a query applied to a group is measured on every location in it.' })
+  expect(note.textContent).toBe('More pairs than queries')
+  expect(screen.getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Locations', 'Queries', 'Groups', 'Pairs', 'Provider requests / run'])
 })
 
-test('review says nothing about links when they do not outrun the queries', () => {
+test('review says nothing about pairs when they do not outrun the queries', () => {
   renderReview({ counts: { properties: 2, queries: 3, groups: 1, assignments: 3 } })
 
-  expect(screen.queryByRole('button', { name: /More links than queries/ })).toBeNull()
+  expect(screen.queryByRole('button', { name: /More pairs than queries/ })).toBeNull()
 })
 
-test('review words the link count for several queries', () => {
+test('review words the pair count for several queries', () => {
   renderReview({ counts: { properties: 6, queries: 2, groups: 3, assignments: 9 } })
 
-  expect(screen.getByRole('button', { name: 'More links than queries. 2 queries applied to groups and locations make 9 location links: a query applied to a group is measured on every location in it.' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'More pairs than queries. 2 queries applied to groups and locations make 9 pairs: a query applied to a group is measured on every location in it.' })).toBeTruthy()
 })
 
 test('the assignment impact slot keeps a reserved height so ticking a box cannot move the table', () => {
@@ -1141,21 +1141,21 @@ test('the assignment impact slot keeps a reserved height so ticking a box cannot
   const slot = container.querySelector('.min-h-\\[2\\.75rem\\]')
   expect(slot).toBeTruthy()
   // The impact line lives inside it, so every state shares the reservation.
-  expect(slot!.textContent).toContain('1 query → 2 location links')
+  expect(slot!.textContent).toContain('1 query → 2 pairs')
 })
 
-test('counts the location links a selection would make before the server has answered', () => {
+test('counts the pairs a selection would make before the server has answered', () => {
   const two = renderQueries({ assignmentImpact: null })
-  expect(screen.getByText('1 query × 2 locations = 2 location links')).toBeTruthy()
+  expect(screen.getByText('1 query × 2 locations = 2 pairs')).toBeTruthy()
   two.unmount()
 
   // No query ticked asks the server for nothing, so this line stays. Each noun agrees with its own count.
   const none = renderQueries({ assignmentImpact: null, selectedQueryIds: [], properties: [properties[0]!] })
-  expect(screen.getByText('0 queries × 1 location = 0 location links')).toBeTruthy()
+  expect(screen.getByText('0 queries × 1 location = 0 pairs')).toBeTruthy()
   none.unmount()
 
   renderQueries({ assignmentImpact: null, properties: [properties[0]!] })
-  expect(screen.getByText('1 query × 1 location = 1 location link')).toBeTruthy()
+  expect(screen.getByText('1 query × 1 location = 1 pair')).toBeTruthy()
 })
 
 // "Property" stays in code, on the wire, in the {property} token and in the CSV header.

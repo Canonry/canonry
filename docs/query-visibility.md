@@ -386,6 +386,7 @@ A legacy publish is accepted only when no plan or a schema v1 plan is active. It
 It opens on **Write**, direct query entry that runs once. The choice is kept in the URL as `researchMode` (`write`, `pattern`, `find`).
 Moving between the three keeps what each form holds: a draft, a preview and the last batch's runs.
 **Find ideas** uses the existing ICP discovery process and needs write access; other Research accounts get Write and Pattern.
+It runs on Gemini. In the dashboard its button stays off until Gemini is configured, and names the most it may test ("Run up to 100").
 A **Pattern** repeats a query across explicit markets, properties, or configured locations.
 Groups are not research destinations.
 Neither process adds queries to official tracking automatically.

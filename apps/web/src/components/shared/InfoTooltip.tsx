@@ -48,7 +48,8 @@ export function useTooltipBubble(text: string, { placement, align = 'center', ho
     const center = align === 'start' ? rect.left + halfWidth : rect.left + rect.width / 2
     setPos({
       top: placement === 'bottom' ? rect.bottom : rect.top,
-      left: placement === 'bottom' ? Math.max(halfWidth + 8, Math.min(center, window.innerWidth - halfWidth - 8)) : center,
+      // Held inside the viewport whichever way it opens: a trigger near an edge would run its bubble off the page.
+      left: Math.max(halfWidth + 8, Math.min(center, window.innerWidth - halfWidth - 8)),
       offscreen: rect.bottom < 0 || rect.top > window.innerHeight,
     })
   }, [placement, align])
@@ -141,7 +142,7 @@ export function useTooltipBubble(text: string, { placement, align = 'center', ho
           transform: below ? 'translateX(-50%) translateY(8px)' : 'translateX(-50%) translateY(calc(-100% - 8px))',
           zIndex: 9999,
           pointerEvents: 'none',
-          width: placement === 'bottom' ? 'min(14rem, calc(100vw - 1rem))' : '14rem',
+          width: 'min(14rem, calc(100vw - 1rem))',
           padding: '0.5rem 0.75rem',
           fontSize: placement === 'bottom' ? '13px' : '11px',
           fontWeight: 400,

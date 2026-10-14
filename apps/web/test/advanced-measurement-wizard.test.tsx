@@ -27,10 +27,10 @@ describe('advanced measurement setup shell', () => {
       'Review and publish',
     ])
     expect(screen.getByText('Locations').getAttribute('aria-current')).toBe('step')
-    expect(screen.getByRole('group', { name: 'Advanced measurement setup progress' })).toBeTruthy()
-    expect(screen.queryByRole('navigation', { name: 'Advanced measurement setup progress' })).toBeNull()
+    expect(screen.getByRole('group', { name: 'Bulk setup progress' })).toBeTruthy()
+    expect(screen.queryByRole('navigation', { name: 'Bulk setup progress' })).toBeNull()
 
-    const heading = screen.getByRole('heading', { name: 'Advanced measurement setup' })
+    const heading = screen.getByRole('heading', { name: 'Bulk setup' })
     expect(heading.parentElement?.parentElement?.className).toContain('flex-wrap')
     // No sentence under the heading: it is the help icon's name and bubble.
     expect(screen.getByRole('button', { name: INTRO })).toBeTruthy()
@@ -64,7 +64,7 @@ describe('advanced measurement setup shell', () => {
       </AdvancedMeasurementSetupWizard>,
     )
 
-    const progress = screen.getByRole('group', { name: 'Advanced measurement setup progress' })
+    const progress = screen.getByRole('group', { name: 'Bulk setup progress' })
     expect(within(progress).getAllByRole('button')).toHaveLength(5)
     // The only button outside the steps is the help icon.
     expect(screen.getAllByRole('button')).toHaveLength(6)
@@ -82,7 +82,7 @@ describe('advanced measurement setup shell', () => {
       </AdvancedMeasurementSetupWizard>,
     )
 
-    expect(screen.getByText('Unpublished changes')).toBeTruthy()
+    expect(screen.getByText('Draft')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
     expect(onDiscard).not.toHaveBeenCalled()
     expect(screen.getByText('Discard all unpublished changes?')).toBeTruthy()
@@ -105,7 +105,7 @@ describe('advanced measurement setup shell', () => {
       </AdvancedMeasurementSetupWizard>,
     )
 
-    expect(screen.getByText('Unpublished changes')).toBeTruthy()
+    expect(screen.getByText('Draft')).toBeTruthy()
     // The help icon is the only button: no step, discard or other control.
     expect(screen.getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual([INTRO])
   })

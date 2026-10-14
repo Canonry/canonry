@@ -124,4 +124,21 @@ describe('InfoTooltip default variant', () => {
     act(() => trigger.focus())
     expect([bubble()!.textContent, bubble()!.style.fontSize, bubble()!.style.transform]).toEqual(['Help for a label.', '11px', 'translateX(-50%) translateY(calc(-100% - 8px))'])
   })
+
+  it.each([
+    // The bubble is 224px wide and centred on `left`, with an 8px gutter: 1440 - 112 - 8 at the right, 112 + 8 at the left.
+    { edge: 'right edge', triggerLeft: 1392, left: '1320px' },
+    { edge: 'left edge', triggerLeft: 4, left: '120px' },
+    { edge: 'middle', triggerLeft: 700, left: '708px' },
+  ])('keeps a bubble that opens above inside a 1440px viewport from a 16px icon at the $edge', ({ triggerLeft, left }) => {
+    vi.stubGlobal('innerWidth', 1440)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const rect = this.tagName === 'BUTTON' ? { left: triggerLeft, top: 300, width: 16, height: 16 } : { left: 0, top: 0, width: 0, height: 0 }
+      return { ...rect, x: rect.left, y: rect.top, right: rect.left + rect.width, bottom: rect.top + rect.height, toJSON: () => rect }
+    })
+    render(<InfoTooltip text="Help for a label." />)
+    act(() => screen.getByRole('button', { name: 'Help for a label.' }).focus())
+    // Still above its icon, moved sideways only as far as the edge asks.
+    expect([bubble()!.style.left, bubble()!.style.top, bubble()!.style.transform]).toEqual([left, '300px', 'translateX(-50%) translateY(calc(-100% - 8px))'])
+  })
 })
