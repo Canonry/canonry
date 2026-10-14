@@ -114,9 +114,23 @@ type VisibilitySnapshot = Pick<typeof querySnapshots.$inferSelect,
   | 'createdAt'
 >
 
-function loadVisibilitySnapshots(db: DatabaseClient, runIds: readonly string[]): Map<string, VisibilitySnapshot[]> {
+/**
+ * Narrows a sweep's snapshot read to one query's answers: an advanced plan by
+ * its execution ids, a simple basket by the query id. Omitted, every snapshot
+ * of the run is read.
+ */
+export type VisibilitySnapshotFilter = { executionIds: readonly string[] } | { queryId: string }
+
+function loadVisibilitySnapshots(
+  db: DatabaseClient,
+  runIds: readonly string[],
+  only?: VisibilitySnapshotFilter,
+): Map<string, VisibilitySnapshot[]> {
   const byRun = new Map<string, VisibilitySnapshot[]>()
   if (runIds.length === 0) return byRun
+  // No execution asks the query in this sweep, so there is no answer to read.
+  if (only !== undefined && 'executionIds' in only && only.executionIds.length === 0) return byRun
+  const inRuns = inArray(querySnapshots.runId, [...runIds])
   const rows = db.select({
     id: querySnapshots.id,
     runId: querySnapshots.runId,
@@ -137,7 +151,12 @@ function loadVisibilitySnapshots(db: DatabaseClient, runIds: readonly string[]):
     requestedContext: querySnapshots.requestedContext,
     supportedContext: querySnapshots.supportedContext,
     createdAt: querySnapshots.createdAt,
-  }).from(querySnapshots).where(inArray(querySnapshots.runId, [...runIds])).all()
+  }).from(querySnapshots).where(only === undefined ? inRuns : and(
+    inRuns,
+    'executionIds' in only
+      ? inArray(querySnapshots.measurementExecutionId, [...only.executionIds])
+      : eq(querySnapshots.queryId, only.queryId),
+  )).all()
   for (const row of rows) {
     const snapshots = byRun.get(row.runId) ?? []
     snapshots.push(row)
@@ -814,7 +833,9 @@ export function defaultSweep<Candidate>(
  * sweep's snapshots alone. A display-only revision uses the same exact frozen
  * execution, so a sweep of the presentation chain resolves the presentation
  * definition once instead of materializing the old and rebased evidence
- * separately. Material predecessors keep their own plan.
+ * separately. Material predecessors keep their own plan. `executionIds`, when
+ * passed, reads only those executions' answers; every other slot of the
+ * definition then has no observation.
  */
 export function materializeAdvancedSweep(
   db: DatabaseClient,
@@ -822,13 +843,15 @@ export function materializeAdvancedSweep(
   presentation: AdvancedSweepPresentation,
   comparableLinks: ComparableLinks,
   includeEvidence: boolean,
+  executionIds?: readonly string[],
 ): VisibilityReportRunInput {
   const usePresentation = presentation.comparableIds.has(candidate.source.row.id)
   const version = usePresentation ? presentation.version : candidate.source.row
   const plan = usePresentation ? presentation.plan : candidate.source.plan
   // Read one run at a time so cold history does not retain all source answer
   // bodies alongside the compact trend observations.
-  const snapshots = loadVisibilitySnapshots(db, [candidate.run.id]).get(candidate.run.id) ?? []
+  const snapshots = loadVisibilitySnapshots(db, [candidate.run.id], executionIds === undefined ? undefined : { executionIds })
+    .get(candidate.run.id) ?? []
   return advancedRun(
     candidate.run,
     version,
@@ -933,15 +956,22 @@ export function frozenSimpleDefinitions(
     .map(row => [row.runId, row.definition] as const))
 }
 
-/** Rebuilds one planless sweep from its frozen sidecar, or as legacy history without one. */
+/**
+ * Rebuilds one planless sweep from its frozen sidecar, or as legacy history
+ * without one. `queryId`, when passed, reads only that query's answers of a
+ * frozen sweep. Legacy history is always read whole: its snapshots are its
+ * only record of what it asked.
+ */
 export function simpleRunInput(
   db: DatabaseClient,
   project: { displayName: string; canonicalDomain: string },
   run: typeof runs.$inferSelect,
   definition: SimpleMeasurementDefinition | undefined,
   includeEvidence: boolean,
+  queryId?: string,
 ): VisibilityReportRunInput {
-  const snapshots = loadVisibilitySnapshots(db, [run.id]).get(run.id) ?? []
+  const only = queryId === undefined || definition === undefined ? undefined : { queryId }
+  const snapshots = loadVisibilitySnapshots(db, [run.id], only).get(run.id) ?? []
   return definition
     ? frozenSimpleRun(run, definition, snapshots, includeEvidence)
     : legacySimpleRun(project, run, snapshots, includeEvidence)

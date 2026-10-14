@@ -245,6 +245,7 @@ It reads stored evidence only and never starts a sweep.
 | --- | --- |
 | `scope`, `scopeKey` | The place: `project` (the default), or a `group`, `market` or `property` key. The key is resolved against the active plan. A key the active plan does not hold is a 400. A key it holds that the sweep never measured returns no rows. |
 | `runId` | One completed or partial whole-project sweep. Omit it for the default sweep. A probe or a scoped run is refused. |
+| `queryId` | One tracked query. The read returns only that query's rows, with its answers, and neither `totals` nor `weakMarkets`. See "One query and its answers". |
 
 The default sweep is the newest completed or partial whole-project sweep comparable to the active plan, else the newest of any plan. This is the sweep AI Visibility shows by default.
 A simple project has no plan. Its default sweep is the newest of its last 100 sweeps that was sent with the engines, models, search location, country and language the project uses now, else the newest.
@@ -259,7 +260,7 @@ Each row is one query under one class: `queryId`, `queryText`, `queryClass` and 
 A row is returned only when the sweep asked every pairing of that query and class in the place exactly as it is asked now: same location, class, text, engines, models and search location.
 A query that was moved, re-typed or reworded since has no row until the next sweep, and neither has one whose engines, models or search location changed. `pendingRows` counts those query and class pairs.
 On a simple project the engines, models, search location, country and language are project settings. Changing one withholds every row until a sweep is sent that way, and the workspace marks every query `awaiting-sweep` until then. A run named by `runId` that was sent another way returns no rows either. A new name or site keeps the rows and sets `matchesCurrentTracking` to false.
-The project read returns every tracked query, about 0.5 MB per 1,000 queries on three engines. Pass `scope` and `scopeKey` to read one place.
+The project read returns every tracked query, about 0.6 MB per 1,000 queries on three engines. Pass `scope` and `scopeKey` to read one place.
 
 Each `engines[]` entry reads only the answers of that row's own executions:
 
@@ -276,21 +277,66 @@ Each `engines[]` entry reads only the answers of that row's own executions:
 In a place, a row covers only the locations it is paired with there, so a market query read for one location counts an answer only when it names or cites that location.
 A simple project is read at project scope only: one row per tracked query, measured when the sweep asked that query with the same text under the same class.
 
+An entry also carries optional fields. Each is left out when it has nothing to report, so an entry with none of them is the eight fields above. None of them changes `mentioned`, `cited` or a count.
+
+| Field | Says |
+| --- | --- |
+| `unattributedMentionAnswers` | Saved answers whose mention was left unchecked because a name in the text could not be tied to one location. |
+| `mentionedTargetKeys`, `citedTargetKeys` | On a row that covers more than one location in the place: the covered locations an answer names, and the ones an answer with fully saved sources cites. |
+| `otherLocationMentionedAnswers`, `otherLocationMentionedTargetKeys` | Saved answers whose text names no location the row covers in the place and does name another location of the plan, and those locations. The two are sent together. |
+| `otherLocationCitedAnswers`, `otherLocationCitedTargetKeys` | The same over fully saved sources: answers that cite no location the row covers in the place and do cite another location's page. |
+
+An answer that names another location is still a miss for the row: the signal stays false and it is one of the answers `mentionedAnswers` does not count.
+What counts as another location depends on the place. Under a location, the other members of its market are other locations, which is why a market query can read mentioned for the whole project and not mentioned there.
+A name the reader could not tie to one location is never reported as a mention of it, and partly saved sources are never read for another location's page.
+A simple project has one subject, so it carries none of the location fields.
+
+`totals` has one entry per class that has a row, sorted by class and never pooled: `queryClass`, `queries` (the returned rows of that class, one per query), `answers` (answers saved for them), `mentionCoverage` and `citationCoverage`.
+The two rates are the visibility report's own, built with the same function, so the Tracked figures and AI Visibility agree for a sweep read whole: `numerator`, `denominator` and `rate`, plus `unattributed` or `unchecked` for the answers left out of both sides.
+The unit is answers. A query asked at two search locations is one query and two answers per engine.
+A missing answer withholds that class's rate with `reason` `evidence-incomplete`, as the report does. It is never counted as a no.
+The totals cover the returned rows only. After a tracking change a query counted in `pendingRows` is in no total, so the totals can be smaller than the report's figures for the same sweep.
+`totals` is absent before the first sweep and on a read of one query.
+
+### One query and its answers
+
+With `queryId` the read returns only that query's rows: one per class it carries in the place, never combined.
+It loads only that query's answers from the sweep, so it stays fast on a large plan.
+Each engine entry gains `answerRows`, one per expected answer:
+
+| Field | Meaning |
+| --- | --- |
+| `resultId` | The saved answer, for `GET /measurement-question-result` with one of `targetKeys`. Null when no answer text was saved. |
+| `searchLocation` | The search location the answer was asked at, or null. |
+| `targetKeys` | The locations the row covers in the place through this answer. |
+| `mentioned`, `cited` | That one answer, by the rule the entry's counts use. The answers with `mentioned` true add up to `mentionedAnswers`, and the same for `cited`. An answer with partly saved sources has `cited` null. |
+| `mentionedTargetKeys`, `citedTargetKeys` | The locations in `targetKeys` the answer names, and the ones its fully saved sources cite. |
+| `namedInstead` | Names the answer wrote that are no location of the sweep's plan. Another of the project's locations is never listed here. |
+
+A query the place does not ask returns no rows. A query changed since the sweep returns no rows and is counted in `pendingRows`.
+`run`, `engines` and `matchesCurrentTracking` are the same as on the read of every query.
+
 The project read of an advanced portfolio with a sweep also returns `weakMarkets`: `rule` (`no-mention-latest-sweep`), `queryClass` (`non-brand`), `count` and `marketKeys`.
 A market is listed when, in the sweep `run` names, at least one answer to its own non-brand queries had its text read and none named a location of the market.
 The rule name is fixed: with `runId` the rule reads that named sweep, and `run` always says which sweep was read.
 `marketKeys` are in key order, not ranked: every listed market has no mention.
+`markets` lists the same markets with their counts, weakest first: fewest `citedAnswers`, then fewest `otherLocationMentionedAnswers`, then most `mentionCheckedAnswers`, then key.
+Each entry counts the market's own non-brand rows only: `marketKey`, `queries`, `mentionCheckedAnswers` (answers whose text was read), `mentionedAnswers` (0 under this rule), `otherLocationMentionedAnswers`, `citationCheckedAnswers` (saved answers with fully saved sources) and `citedAnswers`.
 Only the returned non-brand rows whose query has the market as its Subject are read. A market's branded rows never count, so a market named only for its branded queries is still listed. A location's own query, a hand-picked query and a citation do not count either.
 A market with no such answer read is left out, never listed: its queries were not asked or were not answered.
 A market is also left out while any of its own non-brand queries has no row: a query added, moved, re-typed or reworded since the sweep. The sweep did not measure every such query as it is asked now, and may hold a mention for one as it was asked then, so the market is not called weak until the next sweep.
-`weakMarkets` is absent for a group, market or location read, for a simple project, and before the first sweep.
+`weakMarkets` is absent for a group, market or location read, for a simple project, before the first sweep, and on a read of one query.
 
-The CLI table prints two glyphs per engine, the mention first, under this legend:
+The CLI prints one line per class under the sweep line, the category first, then a table of two glyphs per engine, the mention first, under this legend:
 
 ```text
+Non-brand: mentioned 120 of 300 · cited 45 of 299 (1 of 300 answers had sources that could not be checked)
 M mentioned · m not mentioned · C cited · c not cited · - not checked
 ```
 
+A withheld rate prints its reason in place of the two numbers.
+A trailing `Another location` column names the engines whose answers miss the row and name another of the project's locations. It is printed only when a row has one.
+`--query <id>` adds an `Answers` block: one line per engine answer with its two glyphs, its search location, the locations it names when the row covers more than one, the names written instead, and the answer id or `No answer saved`.
 The table does not print `weakMarkets`; `--format json` returns it.
 
 ## Revision continuity
@@ -390,7 +436,7 @@ Embeds expose measured results, not query publication or saved research administ
 | Action | CLI | MCP |
 | --- | --- | --- |
 | Read assignments | `canonry query workspace <project>` | `canonry_query_tracking_workspace` |
-| Read results per query and engine | `canonry query results <project> [--scope <kind> --scope-key <key>] [--run <id>]` | `canonry_query_tracking_results` |
+| Read results per query and engine | `canonry query results <project> [--scope <kind> --scope-key <key>] [--run <id>] [--query <id>]` | `canonry_query_tracking_results` |
 | Preview changes | `canonry query preview <project> <json\|->` | `canonry_query_tracking_preview` |
 | Publish changes | `canonry query commit <project> <json\|->` | `canonry_query_tracking_commit` |
 | Read visibility | `canonry measurement-plan visibility <project> [<json\|->]` | `canonry_visibility_report` |
