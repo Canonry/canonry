@@ -300,8 +300,8 @@ importers:
         specifier: ^0.91.1
         version: 0.91.1(zod@4.3.6)
       '@canonry/aeo-audit':
-        specifier: 7.3.0
-        version: 7.3.0
+        specifier: 7.4.1
+        version: 7.4.1
       '@earendil-works/pi-agent-core':
         specifier: 1.0.0
         version: 1.0.0(@aws-sdk/credential-provider-node@3.972.84)(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))(@smithy/signature-v4@5.7.4)(undici@7.24.4)(ws@8.21.0)(zod@4.3.6)
@@ -913,8 +913,8 @@ packages:
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
 
-  '@canonry/aeo-audit@7.3.0':
-    resolution: {integrity: sha512-jQwx9J7R85YPQ6vY7wQYK7D8xXw/3fY9U8S6FM30PTRs2N+R8x+YnpnaLsks3MY+zXsYYvCgyO2CTseWH6oIhg==}
+  '@canonry/aeo-audit@7.4.1':
+    resolution: {integrity: sha512-W2xm0jeS+RjHFp8OMe4J+1AUzVb4X7oaGgCUxNJD54bNjESGFzfzkgn+HoR8Qm+qyxdnk+WhWnZjtiDYl5/njA==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -5065,7 +5065,7 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
-  '@canonry/aeo-audit@7.3.0':
+  '@canonry/aeo-audit@7.4.1':
     dependencies:
       cheerio: 1.2.0
       ipaddr.js: 2.3.0

@@ -32573,6 +32573,14 @@ export type PostApiV1ProjectsByNameTechnicalAeoRunsData = {
          * Enable dead-link checking. Defaults to false.
          */
         checkDeadLinks?: boolean;
+        /**
+         * Opt in to geographic signals for location and service-area businesses. Part of scan identity.
+         */
+        includeGeo?: boolean;
+        /**
+         * Check discoverable actions, forms, and agent integrations by default. Set false to disable. Part of scan identity.
+         */
+        includeAgentSkills?: boolean;
     };
     path: {
         /**

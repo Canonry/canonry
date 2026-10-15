@@ -74,6 +74,7 @@ import {
 } from './site-graph-sigma.js'
 import { displayPagePath, siteHostFromUrl } from './site-health-paths.js'
 import { PageAuditEvidence } from './PageAuditEvidence.js'
+import { SITE_HEALTH_CHECK_HELP } from './site-health-check-help.js'
 import { TechnicalAeoSection } from './TechnicalAeoSection.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { OnboardingProgress } from '../shared/OnboardingProgress.js'
@@ -1664,6 +1665,8 @@ export function SiteHealthSection({
   const previousInitialRunId = useRef(initialRunId)
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null)
   const [checkDeadLinks, setCheckDeadLinks] = useState(false)
+  const [includeGeo, setIncludeGeo] = useState(false)
+  const [includeAgentSkills, setIncludeAgentSkills] = useState(true)
   // `null` on both = send nothing: the server applies the project's saved
   // page budget (else the full site) and the crawler's default depth.
   const [pageBudget, setPageBudget] = useState<number | null>(null)
@@ -2101,6 +2104,8 @@ export function SiteHealthSection({
       projectId,
       body: {
         checkDeadLinks: explicitOnboarding || checkDeadLinks,
+        ...(includeGeo ? { includeGeo: true } : {}),
+        ...(!includeAgentSkills ? { includeAgentSkills: false } : {}),
         // Onboarding is a bounded first look, so it does not spend the full
         // crawl budget before the operator has seen any result. Everywhere
         // else the budget is whatever Scan settings says, and an unset budget
@@ -2174,7 +2179,7 @@ export function SiteHealthSection({
                   <Settings2 className="size-4" aria-hidden="true" />
                   Scan settings
                 </summary>
-                <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-strong bg-bg-elevated p-4 shadow-[0_12px_32px_var(--color-shadow-panel)]">
+                <div className="absolute left-0 z-20 mt-2 w-72 rounded-lg border border-strong bg-bg-elevated p-4 shadow-[0_12px_32px_var(--color-shadow-panel)] sm:left-auto sm:right-0">
                   <div className="flex items-center justify-between gap-3 text-sm text-heading">
                     <span className="flex items-center gap-1.5 font-medium">
                       Check dead links
@@ -2186,6 +2191,34 @@ export function SiteHealthSection({
                       checked={checkDeadLinks}
                       disabled={scanBusy}
                       onChange={(event) => setCheckDeadLinks(event.target.checked)}
+                      className="size-4 rounded border-base accent-mono-200 focus:ring-2 focus:ring-mono-400"
+                    />
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-3 text-sm text-heading">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      Geographic signals
+                      <InfoTooltip text={SITE_HEALTH_CHECK_HELP['geographic-signals']!} placement="bottom" />
+                    </span>
+                    <input
+                      type="checkbox"
+                      aria-label="Geographic signals"
+                      checked={includeGeo}
+                      disabled={scanBusy}
+                      onChange={(event) => setIncludeGeo(event.target.checked)}
+                      className="size-4 rounded border-base accent-mono-200 focus:ring-2 focus:ring-mono-400"
+                    />
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-3 text-sm text-heading">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      Agent integrations
+                      <InfoTooltip text={SITE_HEALTH_CHECK_HELP['agent-skill-exposure']!} placement="bottom" />
+                    </span>
+                    <input
+                      type="checkbox"
+                      aria-label="Agent integrations"
+                      checked={includeAgentSkills}
+                      disabled={scanBusy}
+                      onChange={(event) => setIncludeAgentSkills(event.target.checked)}
                       className="size-4 rounded border-base accent-mono-200 focus:ring-2 focus:ring-mono-400"
                     />
                   </div>

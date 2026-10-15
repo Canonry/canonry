@@ -1,4 +1,4 @@
-import { formatPercent, RatioUnits, SiteAuditIssueRecommendationScopes, type SiteAuditIssuesResponseDto, type SiteCrawlAvailableScanDatesDto, type SiteCrawlInventorySummaryDto, type SiteHealthChangeRecordDto } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits, SiteAuditIssueRecommendationScopes, type SiteAuditIssuesResponseDto, type SiteAuditRunRequest, type SiteCrawlAvailableScanDatesDto, type SiteCrawlInventorySummaryDto, type SiteHealthChangeRecordDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -674,7 +674,7 @@ function formatDeadLinkState(value: { state: string; checked?: number; found?: n
 /** `canonry technical-aeo run <project>` — trigger a site-audit run. Mutation → json (not jsonl). */
 export async function technicalAeoRun(
   project: string,
-  opts: { sitemapUrl?: string; limit?: number; maxPages?: number; maxEdges?: number; maxDepth?: number; checkDeadLinks?: boolean; wait?: boolean; format?: string },
+  opts: Partial<SiteAuditRunRequest> & { wait?: boolean; format?: string },
 ): Promise<void> {
   const client = getClient()
   const { runId, status } = await client.triggerSiteAudit(project, {
@@ -685,6 +685,8 @@ export async function technicalAeoRun(
     maxDepth: opts.maxDepth,
     // Explicit opt-in: absence and false are both intentionally disabled.
     checkDeadLinks: opts.checkDeadLinks === true,
+    includeGeo: opts.includeGeo === true,
+    includeAgentSkills: opts.includeAgentSkills ?? true,
   })
 
   if (!opts.wait) {

@@ -26,6 +26,7 @@ import {
 } from '../src/components/project/SiteHealthSection.js'
 import { compileAppStyles, parseCompiledCss, compiledElementProperty, cssLengthPx } from './compiled-app-css.js'
 import { heyClient } from '../src/api.js'
+import { SITE_HEALTH_CHECK_HELP } from '../src/components/project/site-health-check-help.js'
 import type { SiteCrawlPageDto, SiteCrawlSummaryDto } from '@ainyc/canonry-contracts'
 import { AccountProvider } from '../src/contexts/account-context.js'
 
@@ -1280,12 +1281,29 @@ test('states the bounded first-run budget during onboarding and not on a regular
   }
 })
 
-test('sends the chosen crawl budget so a scan that stopped early can be changed', () => {
+test('sends the chosen crawl budget and optional checks', () => {
   // The only way to change either budget used to be the CLI, which the
   // dashboard never mentions, so "this scan ran out of time" was a dead end.
   const queryClient = makeClient()
   renderSection(queryClient)
 
+  const geographic = screen.getByRole('checkbox', { name: 'Geographic signals' }) as HTMLInputElement
+  const agents = screen.getByRole('checkbox', { name: 'Agent integrations' }) as HTMLInputElement
+  expect(geographic.checked).toBe(false)
+  expect(agents.checked).toBe(true)
+  for (const text of Object.values(SITE_HEALTH_CHECK_HELP)) {
+    const help = screen.getByRole('button', { name: text })
+    fireEvent.click(help)
+    expect(help.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText(text!)).not.toBeNull()
+    expect(agents.checked).toBe(true)
+    expect(mutationMock.mutate).not.toHaveBeenCalled()
+    fireEvent.keyDown(help, { key: 'Escape' })
+    expect(help.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText(text!)).toBeNull()
+  }
+  fireEvent.click(geographic)
+  fireEvent.click(agents)
   fireEvent.change(screen.getByLabelText('Page budget'), { target: { value: '500' } })
   fireEvent.change(screen.getByLabelText('Crawl depth'), { target: { value: '2' } })
   fireEvent.click(screen.getByRole('button', { name: /Run scan/ }))
@@ -1293,7 +1311,7 @@ test('sends the chosen crawl budget so a scan that stopped early can be changed'
   expect(mutationMock.mutate).toHaveBeenCalledWith({
     projectName,
     projectId,
-    body: { checkDeadLinks: false, maxPages: 500, maxDepth: 2 },
+    body: { checkDeadLinks: false, includeGeo: true, includeAgentSkills: false, maxPages: 500, maxDepth: 2 },
   })
 })
 

@@ -37,6 +37,7 @@ import {
   siteAuditPageFactorSchema,
   siteAuditRequestIdentity,
   siteAuditRunRequestSchema,
+  type SiteAuditRunRequest,
   siteCrawlAuditFactorSchema,
   siteCrawlCriticalDefectSchema,
   siteHealthLinkKindSchema,
@@ -110,15 +111,7 @@ export interface TechnicalAeoRoutesOptions {
    * Fired after a `site-audit` run row is created. Wire this in the host server
    * to `executeSiteAudit(...).then(() => runCoordinator.onRunCompleted(...))`.
    */
-  onSiteAuditRequested?: (runId: string, projectId: string, opts?: {
-    sitemapUrl?: string
-    /** @deprecated Compatibility alias for maxPages. */
-    limit?: number
-    maxPages?: number
-    maxEdges?: number
-    maxDepth?: number
-    checkDeadLinks?: boolean
-  }) => void
+  onSiteAuditRequested?: (runId: string, projectId: string, opts?: Partial<SiteAuditRunRequest>) => void
 }
 
 /** Run statuses that count as a real, surfaceable site audit. */
@@ -2755,7 +2748,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   // POST /projects/:name/technical-aeo/runs — exact-identity consolidation.
   app.post<{
     Params: { name: string }
-    Body: { sitemapUrl?: string; limit?: number; maxPages?: number; maxEdges?: number; maxDepth?: number; checkDeadLinks?: boolean }
+    Body: Partial<SiteAuditRunRequest>
   }>('/projects/:name/technical-aeo/runs', async (request) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -2836,6 +2829,8 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         maxEdges: effectiveRequest.maxEdges ?? undefined,
         maxDepth: effectiveRequest.maxDepth ?? undefined,
         checkDeadLinks: effectiveRequest.checkDeadLinks,
+        includeGeo: effectiveRequest.includeGeo,
+        includeAgentSkills: effectiveRequest.includeAgentSkills,
       })
     }
 
