@@ -769,8 +769,8 @@ test('leads with the map, truthful crawl metrics, and an explicit disabled dead-
   const queryClient = renderSection()
 
   expect(screen.getByRole('heading', { name: 'Site Health', level: 2 })).not.toBeNull()
-  expect(screen.getByRole('option', { name: 'Most complete scan from latest day' })).not.toBeNull()
-  expect(screen.queryByRole('option', { name: 'Latest scan' })).toBeNull()
+  expect(screen.getByRole('option', { name: 'Latest scan' })).not.toBeNull()
+  expect(screen.getByRole('button', { name: 'Shows the most complete scan from the latest day with results. Choose a dated entry to view another scan.' })).not.toBeNull()
   expect(screen.getByRole('tab', { name: 'Map' }).getAttribute('aria-selected')).toBe('true')
   expect(screen.getByRole('img', { name: 'Interactive site map' })).not.toBeNull()
   expect(screen.getByText('Indexable')).not.toBeNull()

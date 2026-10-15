@@ -1,6 +1,7 @@
 import { usePublishAeroView } from '../../contexts/aero-view-context.js'
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -304,12 +305,8 @@ function scanTone(status: string | null | undefined): MetricTone {
   return 'neutral'
 }
 
-/**
- * The scan history default is the API's preferred scan: the latest scan date,
- * a complete scan first, then the most pages checked. It is not always the
- * newest scan, so the label names the rule rather than saying "latest".
- */
-const DEFAULT_SCAN_OPTION_LABEL = 'Most complete scan from latest day'
+const DEFAULT_SCAN_OPTION_LABEL = 'Latest scan'
+const DEFAULT_SCAN_HELP = 'Shows the most complete scan from the latest day with results. Choose a dated entry to view another scan.'
 
 /**
  * A scan that kept no crawl is still real, selectable history. Say what it
@@ -1657,6 +1654,7 @@ export function SiteHealthSection({
   /** Leaves the explicit onboarding flow. */
   onSkipOnboarding?: () => void
 }) {
+  const scanHistoryId = useId()
   const [view, setView] = useState<SiteHealthView>('map')
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const [selectedRunId, setSelectedRunId] = useState<string | null>(() => initialRunId ?? null)
@@ -2157,9 +2155,13 @@ export function SiteHealthSection({
         </div>
 
         <div className="flex flex-wrap items-start gap-2">
-          <label className="grid gap-1 text-xs text-muted">
-            Scan history
+          <div className="grid gap-1 text-xs text-muted">
+            <div className="flex items-center gap-1.5">
+              <label htmlFor={scanHistoryId}>Scan history</label>
+              <InfoTooltip text={DEFAULT_SCAN_HELP} placement="bottom" />
+            </div>
             <select
+              id={scanHistoryId}
               aria-label="View a Site Health scan"
               value={selectedRunId ?? finishedRescanRunId ?? ''}
               onChange={(event) => selectRun(event.target.value)}
@@ -2170,7 +2172,7 @@ export function SiteHealthSection({
                 <option key={scan.runId} value={scan.runId}>{scanOptionLabel(scan)}</option>
               ))}
             </select>
-          </label>
+          </div>
 
           {!embedded && !managedScanForViewer && (
             <div className="flex items-end gap-2 pt-5">
