@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
-import { AppError } from '@canonry/canonry-contracts'
+import { AppError, usageSurfaceSchema } from '@canonry/canonry-contracts'
+import { currentOutcomeAttribution } from './request-context.js'
 
 /**
  * Memory of recent credential checks against an upstream (Google, Bing), so a
@@ -21,6 +22,21 @@ function remember<V>(entries: Map<string, V>, key: string, value: V): void {
   entries.delete(key)
   entries.set(key, value)
   if (entries.size > MAX_ENTRIES) entries.delete(entries.keys().next().value as string)
+}
+
+/**
+ * Whether a person is behind the current request: canonry's CLI or the
+ * dashboard. They are always checked again; only other API clients use the
+ * memory and wait out a backoff. Same rules as the host's `api.request`
+ * surface (a valid `x-canonry-surface` label, else the user agent). Both are
+ * caller-controlled, so this only decides who waits, never what anyone may do.
+ */
+export function isInteractiveCaller(): boolean {
+  const attribution = currentOutcomeAttribution()
+  const label = usageSurfaceSchema.safeParse(attribution?.surfaceLabel)
+  if (label.success) return label.data === 'cli' || label.data === 'dashboard'
+  const ua = attribution?.userAgent ?? ''
+  return ua.startsWith('canonry-cli') || ua.startsWith('Mozilla/')
 }
 
 export function verifyCacheKey(...parts: string[]): string {

@@ -33,7 +33,7 @@ import {
 } from '@canonry/canonry-integration-google-analytics'
 import type { GoogleConnectionStore } from './google.js'
 import { connectionRoute } from './connection-telemetry.js'
-import { createRefusalBackoff, createVerifyCache, verifyCacheKey } from './connection-verify-cache.js'
+import { createRefusalBackoff, createVerifyCache, isInteractiveCaller, verifyCacheKey } from './connection-verify-cache.js'
 import { refreshAccessToken } from '@canonry/canonry-integration-google'
 
 function gaLog(level: 'info' | 'warn' | 'error', action: string, ctx?: Record<string, unknown>): void {
@@ -531,17 +531,20 @@ function requireGa4Connection(opts: GA4RoutesOptions, projectName: string, canon
 }
 
 export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
-  // Connect checks against Google. A recent pass skips the check for an
-  // unchanged connect; a refusal that keeps coming back is replayed with backoff.
+  // Connect checks against Google. For API clients, a recent pass skips the
+  // check for an unchanged connect and a refusal that keeps coming back is
+  // replayed with backoff. The CLI and dashboard are always checked again.
   const connectPasses = createVerifyCache<true>()
   const connectRefusals = createRefusalBackoff()
 
   async function checkGa4Access(key: string, verify: () => Promise<unknown>, toError: (err: unknown) => AppError): Promise<
     { ok: true } | { ok: false; error: AppError; cause: unknown }
   > {
-    if (connectPasses.get(key)) return { ok: true }
-    const replay = connectRefusals.replay(key)
-    if (replay) return { ok: false, ...replay }
+    if (!isInteractiveCaller()) {
+      if (connectPasses.get(key)) return { ok: true }
+      const replay = connectRefusals.replay(key)
+      if (replay) return { ok: false, ...replay }
+    }
     try {
       await verify()
       connectPasses.set(key, true)

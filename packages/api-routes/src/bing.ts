@@ -7,7 +7,7 @@ import { assertNotProjectScoped } from './auth.js'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute } from './connection-telemetry.js'
-import { createVerifyCache, verifyCacheKey } from './connection-verify-cache.js'
+import { createVerifyCache, isInteractiveCaller, verifyCacheKey } from './connection-verify-cache.js'
 import { startRouteOutcome } from './feature-outcome.js'
 import {
   BingApiError,
@@ -119,8 +119,8 @@ export interface BingRoutesOptions {
 }
 
 export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) {
-  // Sites a key listed recently. A client re-sending the same connect gets them
-  // without another call to Bing.
+  // Sites a key listed recently. An API client re-sending the same connect
+  // gets them without another call to Bing; the CLI and dashboard always ask.
   const keyChecks = createVerifyCache<Awaited<ReturnType<typeof getSites>>>()
 
   function requireConnectionStore(): BingConnectionStore {
@@ -152,7 +152,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
 
     // Verify the API key by listing sites
     const keyCheck = verifyCacheKey('bing-key', apiKey)
-    let sites = keyChecks.get(keyCheck)
+    let sites = isInteractiveCaller() ? undefined : keyChecks.get(keyCheck)
     if (!sites) {
       try {
         sites = await getSites(apiKey)

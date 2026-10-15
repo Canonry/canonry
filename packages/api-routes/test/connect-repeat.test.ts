@@ -104,12 +104,13 @@ afterEach(async () => {
   fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
 })
 
-function gaConnect(payload: Record<string, unknown>) {
-  return ctx.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/ga/connect', payload })
+// `inject` sends no canonry user agent, so by default these calls are an API client.
+function gaConnect(payload: Record<string, unknown>, headers: Record<string, string> = {}) {
+  return ctx.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/ga/connect', payload, headers })
 }
 
-function bingConnect(apiKey: string) {
-  return ctx.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/bing/connect', payload: { apiKey } })
+function bingConnect(apiKey: string, headers: Record<string, string> = {}) {
+  return ctx.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/bing/connect', payload: { apiKey }, headers })
 }
 
 describe('GA4 connect, repeated', () => {
@@ -175,6 +176,38 @@ describe('GA4 connect, repeated', () => {
     expect(ctx.credentials.get('test-project')?.propertyId).toBe('123')
   })
 
+  it('always checks again for the CLI and the dashboard, while an API client waits', async () => {
+    const ga = await import('@ainyc/canonry-integration-google-analytics')
+    const verify = vi.spyOn(ga, 'verifyConnection').mockRejectedValue(new ga.GA4ApiError('The caller does not have permission', 403))
+    const body = { propertyId: '123', keyJson: KEY_JSON }
+
+    for (let i = 0; i < 4; i++) await gaConnect(body)
+    expect(verify).toHaveBeenCalledTimes(3)
+    await gaConnect(body, { 'user-agent': 'canonry-cli/7.45.2' })
+    expect(verify).toHaveBeenCalledTimes(4)
+    await gaConnect(body, { 'user-agent': 'Mozilla/5.0 (Macintosh)' })
+    expect(verify).toHaveBeenCalledTimes(5)
+    await gaConnect(body, { 'x-canonry-surface': 'cli' })
+    expect(verify).toHaveBeenCalledTimes(6)
+    // A valid label wins over the user agent, as it does for usage telemetry.
+    await gaConnect(body, { 'x-canonry-surface': 'api', 'user-agent': 'Mozilla/5.0 (Macintosh)' })
+    expect(verify).toHaveBeenCalledTimes(6)
+  })
+
+  it('checks a new key file straight away, even while backing off', async () => {
+    const ga = await import('@ainyc/canonry-integration-google-analytics')
+    const verify = vi.spyOn(ga, 'verifyConnection').mockRejectedValue(new ga.GA4ApiError('The caller does not have permission', 403))
+
+    for (let i = 0; i < 4; i++) await gaConnect({ propertyId: '123', keyJson: KEY_JSON })
+    expect(verify).toHaveBeenCalledTimes(3)
+    const rotatedKey = JSON.stringify({ client_email: 'sa@demo.iam.gserviceaccount.com', private_key: 'rotated-key' })
+    await gaConnect({ propertyId: '123', keyJson: rotatedKey })
+    expect(verify).toHaveBeenCalledTimes(4)
+    const otherAccount = JSON.stringify({ client_email: 'other@demo.iam.gserviceaccount.com', private_key: 'fake-key' })
+    await gaConnect({ propertyId: '123', keyJson: otherAccount })
+    expect(verify).toHaveBeenCalledTimes(5)
+  })
+
   it('keeps other verification failures a 400 and checks them again every time', async () => {
     const ga = await import('@canonry/canonry-integration-google-analytics')
     const verify = vi.spyOn(ga, 'verifyConnection').mockRejectedValue(new ga.GA4ApiError('Invalid property', 400))
@@ -222,6 +255,11 @@ describe('GA4 connect, repeated', () => {
     for (let i = 0; i < 3; i++) expect((await gaConnect({ propertyId: '123' })).statusCode).toBe(403)
     expect(verify).toHaveBeenCalledTimes(3)
     expect(ctx.google.get('example.com:ga4')?.propertyId).toBeUndefined()
+
+    // A new grant (`canonry google connect` again) is a new refresh token: checked straight away.
+    ctx.google.set('example.com:ga4', { ...ctx.google.get('example.com:ga4')!, refreshToken: 'refresh-token-2' })
+    await gaConnect({ propertyId: '123' })
+    expect(verify).toHaveBeenCalledTimes(4)
   })
 })
 
@@ -254,9 +292,14 @@ describe('Bing connect, repeated', () => {
     expect(ctx.bing.get('example.com')).toBe(stored)
     expect(ctx.audits('bing.connected')).toBe(0)
 
+    // The dashboard always gets a fresh site list.
+    expect((await bingConnect('key-1', { 'user-agent': 'Mozilla/5.0 (Macintosh)' })).statusCode).toBe(200)
+    expect(getSites).toHaveBeenCalledTimes(2)
+    expect(ctx.audits('bing.connected')).toBe(0)
+
     // A new key is checked and stored.
     expect((await bingConnect('key-2')).statusCode).toBe(200)
-    expect(getSites).toHaveBeenCalledTimes(2)
+    expect(getSites).toHaveBeenCalledTimes(3)
     expect(ctx.bing.get('example.com')?.apiKey).toBe('key-2')
     expect(ctx.audits('bing.connected')).toBe(1)
   })
