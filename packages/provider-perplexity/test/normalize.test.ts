@@ -74,7 +74,7 @@ describe('normalizeResult (Sonar history)', () => {
     const empty = { provider: 'perplexity', answerText: '', citedDomains: [], groundingSources: [], searchQueries: [], retrievalStatus: 'unknown' } satisfies import('../src/types.js').PerplexityNormalizedResult
     const base: PerplexityRawResult = { provider: 'perplexity', model: 'sonar', rawResponse: {}, groundingSources: [], searchQueries: [] }
     const rows: Array<{ name: string; raw: PerplexityRawResult; expected: import('../src/types.js').PerplexityNormalizedResult }> = [
-      { name: 'original complete Sonar normalization', raw, expected: { provider: 'perplexity', answerText: 'Perplexity is an AI search engine.', citedDomains: ['perplexity.ai', 'example.com'], groundingSources: [{ uri: 'https://perplexity.ai', title: '' }, { uri: 'https://www.example.com/article', title: '' }], searchQueries: [], retrievalStatus: 'unknown' } },
+      { name: 'original complete Sonar normalization', raw, expected: { provider: 'perplexity', answerText: 'Perplexity is an AI search engine.', citedDomains: ['example.com'], groundingSources: [{ uri: 'https://perplexity.ai', title: '' }, { uri: 'https://www.example.com/article', title: '' }], searchQueries: [], retrievalStatus: 'unknown' } },
       { name: 'original direct string citations', raw: { ...base, rawResponse: { citations: ['https://example.com/page1', 'https://foo.bar.com/article', 'https://www.test.org'] } }, expected: { ...empty, groundingSources: [{ uri: 'https://example.com/page1', title: '' }, { uri: 'https://foo.bar.com/article', title: '' }, { uri: 'https://www.test.org', title: '' }], citedDomains: ['example.com', 'foo.bar.com', 'test.org'] } },
       { name: 'original absent citations', raw: base, expected: empty },
       { name: 'original null citations', raw: { ...base, rawResponse: { citations: null } }, expected: empty },
@@ -127,8 +127,28 @@ describe('normalizeResult (Sonar history)', () => {
     expect(result.groundingSources).toEqual([
       { uri: 'https://www.perplexity.ai/docs', title: 'Perplexity Docs' },
     ])
-    expect(result.citedDomains).toEqual(['perplexity.ai'])
+    expect(result.citedDomains).toEqual([])
     expect(result.searchQueries).toEqual([])
+  })
+})
+
+describe('citation domains', () => {
+  it('drops Perplexity hosts and keeps domains ChatGPT would exclude', () => {
+    const result = normalizeResult({
+      provider: 'perplexity',
+      model: 'sonar',
+      rawResponse: {},
+      groundingSources: [
+        { uri: 'https://www.perplexity.ai/docs', title: '' },
+        { uri: 'https://docs.perplexity.ai/guides', title: '' },
+        { uri: 'https://chatgpt.com/share/1', title: '' },
+        { uri: 'https://openai.com/blog', title: '' },
+        { uri: 'https://example.com/article', title: '' },
+      ],
+      searchQueries: [],
+    })
+
+    expect(result.citedDomains).toEqual(['chatgpt.com', 'openai.com', 'example.com'])
   })
 })
 
@@ -164,7 +184,7 @@ describe('reparseStoredResult (Sonar history)', () => {
     expect(result.groundingSources).toEqual([
       { uri: 'https://www.perplexity.ai/docs', title: '' },
     ])
-    expect(result.citedDomains).toEqual(['perplexity.ai'])
+    expect(result.citedDomains).toEqual([])
   })
 
   it('reparseStoredResult reads nested apiResponse.search_results from stored snapshot envelopes', () => {

@@ -4,6 +4,7 @@ export const GBP_SCOPE = 'https://www.googleapis.com/auth/business.manage'
 // API hosts — each sub-API lives on its own subdomain.
 export const GBP_ACCOUNT_MANAGEMENT_BASE = 'https://mybusinessaccountmanagement.googleapis.com/v1'
 export const GBP_BUSINESS_INFO_BASE = 'https://mybusinessbusinessinformation.googleapis.com/v1'
+export const GBP_PLACE_ACTIONS_BASE = 'https://mybusinessplaceactions.googleapis.com/v1'
 // Reviews and Local Posts still live on the legacy v4 host — Google never migrated them.
 export const GBP_LEGACY_V4_BASE = 'https://mybusiness.googleapis.com/v4'
 // Performance API — daily metrics + monthly search keywords.

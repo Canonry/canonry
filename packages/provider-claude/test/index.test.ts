@@ -161,6 +161,26 @@ test('normalizeResult deduplicates domains', () => {
   expect(result.citedDomains).toEqual(['example.com', 'other.com'])
 })
 
+test('normalizeResult drops Claude hosts and keeps domains ChatGPT would exclude', () => {
+  const raw: ClaudeRawResult = {
+    provider: 'claude',
+    model: 'claude-sonnet-4-6',
+    rawResponse: {},
+    groundingSources: [
+      { uri: 'https://claude.ai/new', title: '' },
+      { uri: 'https://docs.claude.ai/guide', title: '' },
+      { uri: 'https://chatgpt.com/share/1', title: '' },
+      { uri: 'https://openai.com/blog', title: '' },
+      { uri: 'https://example.com/article', title: '' },
+    ],
+    searchQueries: [],
+    retrievalStatus: 'unknown',
+    retrievalContract: 'search-required-v1',
+  }
+
+  expect(normalizeResult(raw).citedDomains).toEqual(['chatgpt.com', 'openai.com', 'example.com'])
+})
+
 test('normalizeResult handles empty response gracefully', () => {
   const raw: ClaudeRawResult = {
     provider: 'claude',

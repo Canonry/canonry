@@ -1,4 +1,4 @@
-import { GBP_BUSINESS_INFO_BASE, GBP_DEFAULT_PAGE_SIZE, GBP_MAX_PAGES } from './constants.js'
+import { GBP_PLACE_ACTIONS_BASE, GBP_DEFAULT_PAGE_SIZE, GBP_MAX_PAGES } from './constants.js'
 import { gbpFetchGet } from './http.js'
 import type { GbpFetchOptions } from './types.js'
 
@@ -26,7 +26,7 @@ export interface GbpPlaceActionRow {
 
 /**
  * List the booking / reservation / order CTAs ("place action links") for a
- * location. Fully paginated. Lives on the Business Information v1 host.
+ * location. Fully paginated. Lives on the Place Actions v1 host.
  */
 export async function listPlaceActionLinks(
   accessToken: string,
@@ -37,7 +37,7 @@ export async function listPlaceActionLinks(
   let pageToken: string | undefined
   let page = 0
   do {
-    const url = new URL(`${GBP_BUSINESS_INFO_BASE}/${locationName}/placeActionLinks`)
+    const url = new URL(`${GBP_PLACE_ACTIONS_BASE}/${locationName}/placeActionLinks`)
     url.searchParams.set('pageSize', String(GBP_DEFAULT_PAGE_SIZE))
     if (pageToken) url.searchParams.set('pageToken', pageToken)
     const res = await gbpFetchGet<ListPlaceActionLinksResponse>(url.toString(), accessToken, opts)

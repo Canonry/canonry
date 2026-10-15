@@ -34,12 +34,21 @@ describe('listPlaceActionLinks', () => {
     expect(await listPlaceActionLinks('tok', 'locations/1')).toEqual([])
   })
 
-  it('paginates across nextPageToken', async () => {
+  it('paginates the Place Actions service across nextPageToken', async () => {
     fetchSpy
       .mockResolvedValueOnce({ ok: true, status: 200, text: async () => JSON.stringify({ placeActionLinks: [{ name: 'l/1/p/a', placeActionType: 'BOOK' }], nextPageToken: 'p2' }) })
       .mockResolvedValueOnce({ ok: true, status: 200, text: async () => JSON.stringify({ placeActionLinks: [{ name: 'l/1/p/b', placeActionType: 'ORDER_FOOD' }] }) })
     const rows = await listPlaceActionLinks('tok', 'locations/1')
     expect(rows.map(r => r.placeActionType)).toEqual(['BOOK', 'ORDER_FOOD'])
-    expect(fetchSpy.mock.calls[1]![0]).toContain('pageToken=p2')
+    expect(fetchSpy).toHaveBeenNthCalledWith(
+      1,
+      'https://mybusinessplaceactions.googleapis.com/v1/locations/1/placeActionLinks?pageSize=100',
+      expect.objectContaining({ method: 'GET' }),
+    )
+    expect(fetchSpy).toHaveBeenNthCalledWith(
+      2,
+      'https://mybusinessplaceactions.googleapis.com/v1/locations/1/placeActionLinks?pageSize=100&pageToken=p2',
+      expect.objectContaining({ method: 'GET' }),
+    )
   })
 })

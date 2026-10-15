@@ -63,11 +63,11 @@ In Cloud Console → APIs & Services → Library, enable:
 | API | Purpose |
 |---|---|
 | My Business Account Management API | List accounts |
-| My Business Business Information API | List locations + place action links |
+| My Business Business Information API | List locations + owner-set attributes |
 | Business Profile Performance API | Daily metrics + monthly search keywords |
 | My Business Verifications API | (optional) Voice-of-Merchant state |
-| **My Business Lodging API** | **Hotel attributes — required if working with lodging properties** |
-| **My Business Place Actions API** | **Booking / reservation CTAs — required if hotels or restaurants use them** |
+| **My Business Lodging API** | **Hotel attributes — required for every GBP sync; non-lodging locations return no lodging data** |
+| **My Business Place Actions API** | **Booking / reservation CTAs — required for every GBP sync, even when no CTAs are configured** |
 
 **Do NOT enable "My Business Q&A API"** — Google **retired** it on 2025-11-03. It's listed in some older setup docs but no longer functions.
 

@@ -465,7 +465,7 @@ That is not a style preference. The gate used to be a `let` inside `inspectUrlsP
 
 ### GSC sitemap submission
 
-`src/gsc-sitemap-submission.ts`: `dedupeGscSitemapUrls` + `resolveDiscoveredGscSitemapUrls` (indexes vs all-files, 4× parallel) + `requireGscSitemapUrls` + `submitGscSitemapBatches` (50-url batches).
+`src/gsc-sitemap-submission.ts`: `dedupeGscSitemapUrls` + `resolveDiscoveredGscSitemapUrls` (indexes vs all-files, 4× parallel) + `requireGscSitemapUrls` + `submitGscSitemapBatches` (50-url batches). CLI `submitGscSitemaps` and MCP `canonry_gsc_sitemaps_submit` call these. The dashboard keeps its own progress and toasts.
 
 ### Data refresh
 

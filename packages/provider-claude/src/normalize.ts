@@ -614,7 +614,7 @@ function extractDomainFromUri(uri: string): string | null {
   if (
     !hostname ||
     !registrableDomain(hostname) ||
-    hostMatchesAnyDomain(hostname, AI_ENGINE_SELF_DOMAINS.chatgpt)
+    hostMatchesAnyDomain(hostname, AI_ENGINE_SELF_DOMAINS.claude)
   ) {
     return null;
   }

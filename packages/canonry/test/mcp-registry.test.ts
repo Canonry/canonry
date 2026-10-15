@@ -1482,6 +1482,7 @@ describe('MCP tool handlers', () => {
 
     await expect(tool.handler(client, { project: 'acme', mode: 'all-files' })).rejects.toMatchObject({
       code: 'GOOGLE_SITEMAP_SUBMISSION_PARTIAL',
+      message: 'Sitemap submission stopped at batch 2/2; 50 accepted, 0 failed, 50 unconfirmed, 0 not attempted.',
       details: {
         accepted: 50,
         failed: 0,
@@ -1489,6 +1490,7 @@ describe('MCP tool handlers', () => {
         attempted: 100,
         unconfirmed: 50,
         remaining: 0,
+        unconfirmedBatch: { index: 2, total: 2 },
       },
     })
     expect(submitCalls).toBe(2)
