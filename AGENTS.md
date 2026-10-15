@@ -42,7 +42,8 @@ Key types, scope gates, read-only keys, `keys.write`, and what a multi-tenant mi
 ## Local validation and merging (Critical)
 
 - During local iteration, do not run tests, test watchers, or `pnpm verify`. Run tests only after changes are finalized and ready for push or review.
-- At final validation, run `pnpm check`, affected package **tests, typechecks, and type-aware lint**. Include dependent packages for shared runtime, contract, dependency, DB, or auth changes. Reuse passing results while their inputs remain unchanged. `pnpm verify` is optional locally, not a per-push requirement.
+- At final validation, run `pnpm check`, affected package **tests, typechecks, and type-aware lint**. Include dependent packages for shared runtime, contract, dependency, DB, or auth changes. Reuse passing results while their inputs remain unchanged. For owner changes, `pnpm verify` is optional locally, not a per-push requirement.
+- Before opening an outside code PR (including drafts), run `pnpm check` and `pnpm verify`. Follow [CONTRIBUTING.md](CONTRIBUTING.md#before-submitting-a-pr) and the [PR template](.github/pull_request_template.md): 1–3 summary bullets, security review, styling checks, and exact-head results. Missing or failed required checks block submission without an explicit maintainer exception.
 - Build and smoke affected CLI/API/MCP/UI surfaces; smoke installed tarballs for packaging changes. Check SDK/plugin/Val drift; fix its source.
 - Fetch and integrate the latest target, resolve conflicts, and review the full PR diff. At final validation, rerun only checks whose inputs changed. Recheck release versions against the target tip and npm.
 - After pushing, match the tested SHA to the remote branch and PR head; require GitHub `MERGEABLE` before handoff or merge. Report commands, results, SHA, and blockers; failed or unrun required checks block readiness. Skipped owner CI proves nothing.
@@ -57,7 +58,7 @@ Key types, scope gates, read-only keys, `keys.write`, and what a multi-tenant mi
 pnpm install
 pnpm check                      # fast lint of staged, unstaged, and untracked JS/TS files
 pnpm lint:staged                # fast lint of the exact staged JS/TS content
-pnpm verify                     # optional full check: drift checks + all workspace checks
+pnpm verify                     # full check; required before outside code PRs
 pnpm build:cli                  # CLI/server bundle only; skips the dashboard
 pnpm build:web                  # build or reuse dashboard output and copy changed assets
 pnpm build                      # complete publishable package
@@ -270,7 +271,7 @@ Canonry can run behind a reverse proxy sub-path (e.g. `/canonry/`); code that ig
 
 - Test the public API of each module, not internals. Cover the happy path plus meaningful edge cases (invalid input, env var overrides, error handling).
 - CLI tests capture stdout/stderr and assert on the output, not only side effects. File-system tests use `os.tmpdir()` and clean up in `afterEach`.
-- Run focused tests only when changes are finalized and ready for push or review. Do not run tests during local iteration. Owner changes rely on this validation. Outside contributions also run the full suite in CI. Hooks never run tests or builds.
+- Run tests only when changes are finalized and ready for push or review. Do not run tests during local iteration. Owner changes use affected checks. Outside code contributions require full workspace results before opening a PR and full CI afterward. Hooks never run tests or builds.
 - **Test boundary matchers with data as STORED, not idealized.** Check how a column is actually populated before matching on it (project upsert/apply store `canonicalDomain` raw — full URLs and mixed case included) and use the canonical helpers (`hostOf`, `normalizeQueryText`). A clean-fixture-only suite passes while production values miss the match.
 - **Test default-value propagation end-to-end.** When a stored default (e.g. a project's `defaultLocation`) feeds another feature (run creation), exercise the full path with no explicit override — not just "the default is stored" and "the consumer accepts a value".
 

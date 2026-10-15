@@ -352,6 +352,77 @@ describe('telemetry', () => {
 
   // ── isFirstRun ──────────────────────────────────────────────────────
 
+  describe('getMachineId', () => {
+    const hostDerived = /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    const external = {
+      address: '192.0.2.1', netmask: '255.255.255.0', family: 'IPv4' as const,
+      mac: '02:00:00:00:00:01', internal: false, cidr: '192.0.2.1/24',
+    }
+
+    // The ID is memoized per process, so each case loads a fresh module and
+    // leaves none behind for later tests to inherit a mocked host from.
+    async function freshTelemetry() {
+      vi.resetModules()
+      return import('../src/telemetry.js')
+    }
+
+    afterEach(() => {
+      vi.resetModules()
+    })
+
+    async function captureEnvelope(trackEvent: (event: string) => void): Promise<Record<string, unknown>> {
+      const upstream = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}'))
+      vi.stubGlobal('fetch', upstream)
+      trackEvent('test.event')
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(upstream).toHaveBeenCalledTimes(1)
+      return JSON.parse(upstream.mock.calls[0]![1]!.body as string) as Record<string, unknown>
+    }
+
+    it('is stable for the process and never equals the fallback anonymousId', async () => {
+      const hostname = vi.spyOn(os, 'hostname').mockReturnValue('host-a')
+      vi.spyOn(os, 'networkInterfaces').mockReturnValue({ eth0: [external] })
+      const { getMachineId, getOrCreateAnonymousId } = await freshTelemetry()
+      const id = getMachineId()
+      expect(id).toMatch(hostDerived)
+      // No config exists, so this is the hostname + MAC fallback.
+      expect(getOrCreateAnonymousId()).not.toBe(id)
+      hostname.mockReturnValue('host-b')
+      expect(getMachineId()).toBe(id)
+    })
+
+    it('derives the same ID in every process on one machine and a different one elsewhere', async () => {
+      const hostname = vi.spyOn(os, 'hostname').mockReturnValue('host-a')
+      vi.spyOn(os, 'networkInterfaces').mockReturnValue({ eth0: [external] })
+      const first = (await freshTelemetry()).getMachineId()
+      expect((await freshTelemetry()).getMachineId()).toBe(first)
+      hostname.mockReturnValue('host-b')
+      expect((await freshTelemetry()).getMachineId()).not.toBe(first)
+    })
+
+    it('rides on every event, including when CANONRY_ANONYMOUS_ID pins the install', async () => {
+      const pinned = crypto.randomUUID()
+      process.env.CANONRY_ANONYMOUS_ID = pinned
+      const { getMachineId, trackEvent } = await freshTelemetry()
+      const payload = await captureEnvelope(trackEvent)
+      expect(payload.anonymousId).toBe(pinned)
+      expect(payload.machineId).toBe(getMachineId())
+      expect(payload.machineId).toMatch(hostDerived)
+    })
+
+    it('omits the field instead of dropping the event when derivation throws', async () => {
+      process.env.CANONRY_ANONYMOUS_ID = crypto.randomUUID()
+      vi.spyOn(os, 'hostname').mockImplementation(() => {
+        throw new Error('hostname unavailable')
+      })
+      const { getMachineId, trackEvent } = await freshTelemetry()
+      expect(getMachineId()).toBeUndefined()
+      const payload = await captureEnvelope(trackEvent)
+      expect(payload.anonymousId).toBe(process.env.CANONRY_ANONYMOUS_ID)
+      expect(payload).not.toHaveProperty('machineId')
+    })
+  })
+
   describe('isFirstRun', () => {
     it('returns false when no config exists (pre-init)', async () => {
       const { isFirstRun } = await import('../src/telemetry.js')
@@ -589,6 +660,8 @@ describe('telemetry', () => {
           /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
         )
         expect(payload.anonymousId, 'version should be set').toBe(anonId)
+        expect(payload.machineId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+        expect(payload.machineId).not.toBe(anonId)
         expect(payload.event).toBe('cli.command')
         expect(payload.os).toBe(process.platform)
         expect(payload.arch).toBe(process.arch)
