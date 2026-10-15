@@ -143,10 +143,17 @@ Recursive builds order the dashboard before Canonry, which reuses its output.
 
 ## Full Workspace Checks
 
-`pnpm verify` is optional locally. It is not required on every commit or push.
-This command includes generated-file drift, documentation assertions, and all workspace tests, typechecks, and lint.
-Local agents use affected package checks at final validation, including dependent packages for changes that span the workspace.
-Full workspace checks run in contributor CI. A requested full check or CI failure reproduction can use `pnpm verify` at final validation.
+Outside code contributors must run `pnpm check` and `pnpm verify` before opening a PR, including a draft.
+Use the [contribution checklist](../CONTRIBUTING.md#before-submitting-a-pr) and [PR template](../.github/pull_request_template.md).
+Include the tested SHA, exact commands, test totals, and results before submission. Focused tests and future CI are insufficient.
+Failed or unrun required checks block submission without an explicit maintainer exception.
+Docs/comment-only and configuration changes use the applicable checks under [Before Merging](#before-merging).
+
+`pnpm verify` includes generated-file drift, documentation assertions, and all workspace tests, typechecks, and lint.
+It stops at the first failure. Report only checks that actually ran.
+For owner (`arberx`) changes, `pnpm verify` remains optional locally, not a per-commit or per-push requirement.
+Owner changes use affected package checks at final validation, including dependent packages for changes that span the workspace.
+Full workspace checks also run in contributor CI after submission.
 
 ## Before Merging
 
