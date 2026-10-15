@@ -152,6 +152,9 @@ describe('openapi contract', () => {
     expect(okRef('/api/v1/projects/{name}/wordpress/pages', 'get')).toBe('#/components/schemas/WordpressPageListDto')
     expect(okRef('/api/v1/projects/{name}/queries/generate', 'post')).toBe('#/components/schemas/QueryGenerateResponse')
     expect(okRef('/api/v1/projects/{name}/locations/default', 'put')).toBe('#/components/schemas/ProjectDefaultLocationResponse')
+    expect(okRef('/api/v1/projects/{name}/google/connect', 'post')).toBe('#/components/schemas/GoogleOAuthStartResponse')
+    expect(okRef('/api/v1/projects/{name}/google/connections/{type}/property', 'put')).toBe('#/components/schemas/GoogleConnectionDto')
+    expect(okRef('/api/v1/projects/{name}/google/connections/{type}/sitemap', 'put')).toBe('#/components/schemas/GoogleConnectionDto')
     // The legacy alias sends the same suggestions under `keywords`.
     expect(okRef('/api/v1/projects/{name}/keywords/generate', 'post')).toBe('#/components/schemas/KeywordGenerateResponse')
     const schemas = doc.components?.schemas as Record<string, { required?: string[] }>

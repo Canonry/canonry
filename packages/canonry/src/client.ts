@@ -171,6 +171,7 @@ import type {
   GA4SessionHistoryEntry,
   AuditLogEntry,
   GoogleConnectionDto,
+  GoogleOAuthStartResponse,
   GoogleAdsAccessibleCustomersResponse,
   GoogleAdsConnectionStatusDto,
   GoogleAdsCustomerSelectionRequest,
@@ -2787,8 +2788,8 @@ export class ApiClient {
   async googleConnect(
     project: string,
     body: { type: string; propertyId?: string; publicUrl?: string },
-  ): Promise<{ authUrl: string; redirectUri?: string }> {
-    return this.invoke<{ authUrl: string; redirectUri?: string }>(() =>
+  ): Promise<GoogleOAuthStartResponse> {
+    return this.invoke<GoogleOAuthStartResponse>(() =>
       postApiV1ProjectsByNameGoogleConnect({
         client: this.heyClient,
         path: { name: project },

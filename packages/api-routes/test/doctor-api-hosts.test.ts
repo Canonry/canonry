@@ -4,12 +4,12 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
+import { createClient, gbpLocations, migrate, projects } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { GoogleConnectionRecord, GoogleConnectionStore } from '../src/google.js'
 import { GOOGLE_TOKEN_URL, GSC_API_BASE, INDEXING_API_BASE, URL_INSPECTION_API } from '../../integration-google/src/constants.js'
 import { GA4_ADMIN_API_BASE, GA4_DATA_API_BASE, GOOGLE_TOKEN_URL as GA_TOKEN_URL } from '../../integration-google-analytics/src/constants.js'
-import { GBP_ACCOUNT_MANAGEMENT_BASE, GBP_BUSINESS_INFO_BASE, GBP_LEGACY_V4_BASE, GBP_LODGING_BASE, GBP_PERFORMANCE_BASE } from '../../integration-google-business-profile/src/constants.js'
+import { GBP_ACCOUNT_MANAGEMENT_BASE, GBP_BUSINESS_INFO_BASE, GBP_LEGACY_V4_BASE, GBP_LODGING_BASE, GBP_PERFORMANCE_BASE, GBP_PLACE_ACTIONS_BASE } from '../../integration-google-business-profile/src/constants.js'
 import { BING_WMT_API_BASE } from '../../integration-bing/src/constants.js'
 import { API_HOST_TABLE } from '../src/doctor/checks/api-hosts.js'
 
@@ -17,12 +17,17 @@ const cleanups: Array<() => Promise<void>> = []
 
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup() })
 
-function buildApp(probe: (host: string) => Promise<{ kind: 'reachable' | 'null-routed' | 'private-address' | 'no-address' | 'resolver-unavailable' | 'connect-failed' | 'tls-failed'; host: string; addresses: string[]; durationMs: number }>, connected = true) {
+function buildApp(probe: (host: string) => Promise<{ kind: 'reachable' | 'null-routed' | 'private-address' | 'no-address' | 'resolver-unavailable' | 'connect-failed' | 'tls-failed'; host: string; addresses: string[]; durationMs: number }>, connected = true, integration: 'gsc' | 'gbp' = 'gsc') {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-api-hosts-'))
   const db = createClient(path.join(dir, 'doctor.db'))
   migrate(db)
-  db.insert(projects).values({ id: crypto.randomUUID(), name: 'demo', displayName: 'Demo', canonicalDomain: 'example.com', country: 'US', language: 'en', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }).run()
-  const record: GoogleConnectionRecord = { domain: 'example.com', connectionType: 'gsc', propertyId: 'sc-domain:example.com', accessToken: 'token', refreshToken: 'refresh', tokenExpiresAt: new Date(Date.now() + 3600000).toISOString(), scopes: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+  const projectId = crypto.randomUUID()
+  const now = new Date().toISOString()
+  db.insert(projects).values({ id: projectId, name: 'demo', displayName: 'Demo', canonicalDomain: 'example.com', country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
+  if (integration === 'gbp') {
+    db.insert(gbpLocations).values({ id: crypto.randomUUID(), projectId, accountName: 'accounts/1', locationName: 'locations/1', displayName: 'Demo', selected: true, createdAt: now, updatedAt: now }).run()
+  }
+  const record: GoogleConnectionRecord = { domain: 'example.com', connectionType: integration, propertyId: 'sc-domain:example.com', accessToken: 'token', refreshToken: 'refresh', tokenExpiresAt: new Date(Date.now() + 3600000).toISOString(), scopes: [], createdAt: now, updatedAt: now }
   const store: GoogleConnectionStore = {
     getConnection: () => connected ? record : undefined,
     listConnections: () => connected ? [record] : [],
@@ -45,7 +50,7 @@ describe('provider API host doctor checks', () => {
     expect(API_HOST_TABLE.gsc).toEqual([new URL(GSC_API_BASE).hostname, new URL(URL_INSPECTION_API).hostname, new URL(GOOGLE_TOKEN_URL).hostname])
     expect(API_HOST_TABLE.gsc).not.toContain(new URL(INDEXING_API_BASE).hostname)
     expect(API_HOST_TABLE.ga).toEqual([new URL(GA4_DATA_API_BASE).hostname, new URL(GA4_ADMIN_API_BASE).hostname, new URL(GA_TOKEN_URL).hostname])
-    expect(API_HOST_TABLE.gbp).toEqual([new URL(GBP_ACCOUNT_MANAGEMENT_BASE).hostname, new URL(GBP_BUSINESS_INFO_BASE).hostname, new URL(GBP_PERFORMANCE_BASE).hostname, new URL(GBP_LEGACY_V4_BASE).hostname, new URL(GBP_LODGING_BASE).hostname, new URL(GA_TOKEN_URL).hostname])
+    expect(API_HOST_TABLE.gbp).toEqual([new URL(GBP_ACCOUNT_MANAGEMENT_BASE).hostname, new URL(GBP_BUSINESS_INFO_BASE).hostname, new URL(GBP_PLACE_ACTIONS_BASE).hostname, new URL(GBP_PERFORMANCE_BASE).hostname, new URL(GBP_LEGACY_V4_BASE).hostname, new URL(GBP_LODGING_BASE).hostname, new URL(GA_TOKEN_URL).hostname])
     expect(API_HOST_TABLE.bing).toEqual([new URL(BING_WMT_API_BASE).hostname])
     expect(API_HOST_TABLE['google-ads']).toEqual(['googleads.googleapis.com', 'oauth2.googleapis.com'])
     expect(API_HOST_TABLE.gtm).toEqual(['tagmanager.googleapis.com', 'oauth2.googleapis.com'])
@@ -72,6 +77,18 @@ describe('provider API host doctor checks', () => {
     const response = await app.inject({ url: '/api/v1/projects/demo/doctor?check=gsc.api.reachable' })
     expect(response.statusCode).toBe(200)
     expect(response.json().checks[0]).toMatchObject({ status: 'skipped', code: 'gsc.api.probe-unavailable' })
+  })
+
+  it('reports a blocked Place Actions host for a connected GBP project with a selected location', async () => {
+    const placeActionsHost = 'mybusinessplaceactions.googleapis.com'
+    const app = buildApp(async host => result(host, host === placeActionsHost ? 'null-routed' : 'reachable', host === placeActionsHost ? ['0.0.0.0'] : ['192.0.2.10']), true, 'gbp')
+    const response = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/doctor?check=gbp.api.reachable' })
+    expect(response.statusCode).toBe(200)
+    const check = response.json().checks[0]
+    expect(check).toMatchObject({ status: 'fail', code: 'gbp.api.dns-blocked' })
+    expect(check.details.hosts).toContainEqual(result(placeActionsHost, 'null-routed', ['0.0.0.0']))
+    expect(check.summary).toContain(placeActionsHost)
+    expect(check.remediation).toContain('canonry gbp sync demo')
   })
 
   it('names a null-routed host and skips disconnected integrations', async () => {

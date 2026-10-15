@@ -4079,7 +4079,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: rawJsonResponse('Google auth URL returned.', { type: 'object', properties: { url: { type: 'string' } } }),
+      200: jsonResponse('Google auth URL returned.', 'GoogleOAuthStartResponse'),
       400: errorResponse('Invalid Google connection request.'),
     },
   },

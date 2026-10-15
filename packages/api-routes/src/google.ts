@@ -253,6 +253,20 @@ export interface GoogleConnectionRecord {
   updatedAt: string
 }
 
+/** Public connection fields only. Tokens stay in the connection store. */
+function googleConnectionDto(connection: GoogleConnectionRecord) {
+  return {
+    id: `${connection.domain}:${connection.connectionType}`,
+    domain: connection.domain,
+    connectionType: connection.connectionType,
+    propertyId: connection.propertyId ?? null,
+    sitemapUrl: connection.sitemapUrl ?? null,
+    scopes: connection.scopes ?? [],
+    createdAt: connection.createdAt,
+    updatedAt: connection.updatedAt,
+  }
+}
+
 export interface GoogleConnectionStore {
   listConnections: (domain: string) => GoogleConnectionRecord[]
   getConnection: (domain: string, connectionType: GoogleConnectionType) => GoogleConnectionRecord | undefined
@@ -504,16 +518,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{ Params: { name: string } }>('/projects/:name/google/connections', async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const conns = opts.googleConnectionStore?.listConnections(project.canonicalDomain) ?? []
-    return conns.map((connection) => ({
-      id: `${connection.domain}:${connection.connectionType}`,
-      domain: connection.domain,
-      connectionType: connection.connectionType,
-      propertyId: connection.propertyId ?? null,
-      sitemapUrl: connection.sitemapUrl ?? null,
-      scopes: connection.scopes ?? [],
-      createdAt: connection.createdAt,
-      updatedAt: connection.updatedAt,
-    }))
+    return conns.map(googleConnectionDto)
   })
 
   // POST /projects/:name/google/connect
@@ -1961,7 +1966,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       throw notFound('Google connection', request.params.type)
     }
 
-    return { sitemapUrl: sitemapUrl.trim() }
+    return googleConnectionDto(conn)
   })
 
   // PUT /projects/:name/google/connections/:type/property
@@ -1990,7 +1995,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       throw notFound('Google connection', request.params.type)
     }
 
-    return { propertyId }
+    return googleConnectionDto(conn)
   }))
 
   // POST /projects/:name/google/indexing/request
