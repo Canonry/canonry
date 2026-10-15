@@ -26,6 +26,7 @@ import {
 } from '../src/components/project/SiteHealthSection.js'
 import { compileAppStyles, parseCompiledCss, compiledElementProperty, cssLengthPx } from './compiled-app-css.js'
 import { heyClient } from '../src/api.js'
+import { SITE_HEALTH_CHECK_HELP } from '../src/components/project/site-health-check-help.js'
 import type { SiteCrawlPageDto, SiteCrawlSummaryDto } from '@canonry/canonry-contracts'
 import { AccountProvider } from '../src/contexts/account-context.js'
 
@@ -768,8 +769,8 @@ test('leads with the map, truthful crawl metrics, and an explicit disabled dead-
   const queryClient = renderSection()
 
   expect(screen.getByRole('heading', { name: 'Site Health', level: 2 })).not.toBeNull()
-  expect(screen.getByRole('option', { name: 'Most complete scan from latest day' })).not.toBeNull()
-  expect(screen.queryByRole('option', { name: 'Latest scan' })).toBeNull()
+  expect(screen.getByRole('option', { name: 'Latest scan' })).not.toBeNull()
+  expect(screen.getByRole('button', { name: 'Shows the most complete scan from the latest day with results. Choose a dated entry to view another scan.' })).not.toBeNull()
   expect(screen.getByRole('tab', { name: 'Map' }).getAttribute('aria-selected')).toBe('true')
   expect(screen.getByRole('img', { name: 'Interactive site map' })).not.toBeNull()
   expect(screen.getByText('Indexable')).not.toBeNull()
@@ -1280,12 +1281,29 @@ test('states the bounded first-run budget during onboarding and not on a regular
   }
 })
 
-test('sends the chosen crawl budget so a scan that stopped early can be changed', () => {
+test('sends the chosen crawl budget and optional checks', () => {
   // The only way to change either budget used to be the CLI, which the
   // dashboard never mentions, so "this scan ran out of time" was a dead end.
   const queryClient = makeClient()
   renderSection(queryClient)
 
+  const geographic = screen.getByRole('checkbox', { name: 'Geographic signals' }) as HTMLInputElement
+  const agents = screen.getByRole('checkbox', { name: 'Agent integrations' }) as HTMLInputElement
+  expect(geographic.checked).toBe(false)
+  expect(agents.checked).toBe(true)
+  for (const text of Object.values(SITE_HEALTH_CHECK_HELP)) {
+    const help = screen.getByRole('button', { name: text })
+    fireEvent.click(help)
+    expect(help.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText(text!)).not.toBeNull()
+    expect(agents.checked).toBe(true)
+    expect(mutationMock.mutate).not.toHaveBeenCalled()
+    fireEvent.keyDown(help, { key: 'Escape' })
+    expect(help.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText(text!)).toBeNull()
+  }
+  fireEvent.click(geographic)
+  fireEvent.click(agents)
   fireEvent.change(screen.getByLabelText('Page budget'), { target: { value: '500' } })
   fireEvent.change(screen.getByLabelText('Crawl depth'), { target: { value: '2' } })
   fireEvent.click(screen.getByRole('button', { name: /Run scan/ }))
@@ -1293,16 +1311,16 @@ test('sends the chosen crawl budget so a scan that stopped early can be changed'
   expect(mutationMock.mutate).toHaveBeenCalledWith({
     projectName,
     projectId,
-    body: { checkDeadLinks: false, maxPages: 500, maxDepth: 2 },
+    body: { checkDeadLinks: false, includeGeo: true, includeAgentSkills: false, maxPages: 500, maxDepth: 2 },
   })
 })
 
 
 
 test.each([
-  { saved: null, label: 'Project default: full site (up to 50,000 pages)' },
-  { saved: 2_500, label: 'Project default (2,500 pages)' },
-  { saved: 750, label: 'Project default (750 pages)' },
+  { saved: null, label: 'Default: full site' },
+  { saved: 2_500, label: 'Default: 2,500 pages' },
+  { saved: 750, label: 'Default: 750 pages' },
 ])('the no-budget choice names the saved budget ($saved) and still sends no budget', ({ saved, label }) => {
   const queryClient = makeClient()
   queryClient.setQueryData(projectKey(), storedProject(saved))
@@ -1313,13 +1331,14 @@ test.each([
   expect(options.map(option => [option.value, option.textContent])).toEqual([
     ['', label],
     // A smaller saved budget adds a one-off full-site choice; with none, the default already is the full site.
-    ...(saved === null ? [] : [['50000', 'Full site (up to 50,000 pages)']]),
+    ...(saved === null ? [] : [['50000', 'Full site']]),
     ['100', '100 pages (quick look)'],
     ['500', '500 pages'],
     ['2500', '2,500 pages'],
     ['10000', '10,000 pages'],
   ])
   expect(budget.value).toBe('')
+  expect(screen.getByRole('button', { name: 'How many pages one scan may read before it stops. Project default uses your saved budget. Full site checks up to 50,000 pages.' })).not.toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
   // The server resolves the saved budget; the dashboard never fills one in.
   expect(mutationMock.mutate).toHaveBeenCalledExactlyOnceWith({ projectName, projectId, body: { checkDeadLinks: false } })
@@ -1329,13 +1348,13 @@ test('the no-budget choice follows the cached project after a Settings save', as
   const queryClient = makeClient()
   renderSection(queryClient)
   const budget = screen.getByRole('combobox', { name: 'Page budget' })
-  expect(within(budget).getByRole('option', { name: 'Project default: full site (up to 50,000 pages)' }).getAttribute('value')).toBe('')
+  expect(within(budget).getByRole('option', { name: 'Default: full site' }).getAttribute('value')).toBe('')
 
   // Project Settings writes the saved project into this same cache entry.
   act(() => { queryClient.setQueryData(projectKey(), storedProject(10_000)) })
 
-  expect((await within(budget).findByRole('option', { name: 'Project default (10,000 pages)' })).getAttribute('value')).toBe('')
-  expect(within(budget).queryByRole('option', { name: 'Project default: full site (up to 50,000 pages)' })).toBeNull()
+  expect((await within(budget).findByRole('option', { name: 'Default: 10,000 pages' })).getAttribute('value')).toBe('')
+  expect(within(budget).queryByRole('option', { name: 'Default: full site' })).toBeNull()
 })
 
 test('offers a one-off full-site scan only when the project saved a smaller budget, and sends the hard limit', async () => {
@@ -1343,13 +1362,13 @@ test('offers a one-off full-site scan only when the project saved a smaller budg
   renderSection(queryClient)
   const budget = screen.getByRole('combobox', { name: 'Page budget' })
   // No saved budget: the project default already is the full site, so there is no second full-site choice.
-  expect(within(budget).queryByRole('option', { name: 'Full site (up to 50,000 pages)' })).toBeNull()
+  expect(within(budget).queryByRole('option', { name: 'Full site' })).toBeNull()
 
   act(() => { queryClient.setQueryData(projectKey(), storedProject(10_000)) })
-  const fullSite = await within(budget).findByRole('option', { name: 'Full site (up to 50,000 pages)' })
+  const fullSite = await within(budget).findByRole('option', { name: 'Full site' })
   expect(fullSite.getAttribute('value')).toBe('50000')
   expect(within(budget).getAllByRole('option').map(option => option.textContent)).toEqual([
-    'Project default (10,000 pages)', 'Full site (up to 50,000 pages)', '100 pages (quick look)', '500 pages', '2,500 pages', '10,000 pages',
+    'Default: 10,000 pages', 'Full site', '100 pages (quick look)', '500 pages', '2,500 pages', '10,000 pages',
   ])
   fireEvent.change(budget, { target: { value: '50000' } })
   fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
@@ -1367,7 +1386,7 @@ test('names no number for the no-budget choice before the project read lands', a
   expect((within(budget).getAllByRole('option')[0] as HTMLOptionElement).textContent).toBe('Project default')
   await waitFor(() => expect(reads.filter(read => read.path === '/api/v1/projects/citypoint')).toHaveLength(1))
   await act(async () => { project.resolve(jsonResponse(storedProject(500))) })
-  await waitFor(() => expect((within(budget).getAllByRole('option')[0] as HTMLOptionElement).textContent).toBe('Project default (500 pages)'))
+  await waitFor(() => expect((within(budget).getAllByRole('option')[0] as HTMLOptionElement).textContent).toBe('Default: 500 pages'))
 })
 
 test.each([

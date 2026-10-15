@@ -235,7 +235,7 @@ import { maybeRefreshGscCoverage, runWasUserInitiated } from "./coverage-refresh
 import { executeReleaseSync, syncLatestReleaseOnSchedule } from "./commoncrawl-sync.js";
 import { executeBacklinkExtract } from "./backlink-extract.js";
 import { executeDiscoveryRun } from "./discovery-run.js";
-import { executeSiteAudit } from "./execute-site-audit.js";
+import { executeSiteAudit, type SiteAuditOptions } from "./execute-site-audit.js";
 import { createAnswerFieldRecomputeQueue, type AnswerFieldRecomputeRequest } from "./answer-field-recompute.js";
 import { createCompetitorAutoAliasRunner } from "./competitor-auto-alias-runner.js";
 import { extractStoredAnswerAnchors } from "./stored-answer-anchors.js";
@@ -1445,14 +1445,7 @@ export async function createServer(opts: {
   const runSiteAudit = (
     runId: string,
     projectId: string,
-    auditOpts?: {
-      sitemapUrl?: string;
-      limit?: number;
-      maxPages?: number;
-      maxEdges?: number;
-      maxDepth?: number;
-      checkDeadLinks?: boolean;
-    },
+    auditOpts?: SiteAuditOptions,
   ): void => {
     const controller = new AbortController();
     siteAuditAbortControllers.set(runId, controller);
@@ -3375,14 +3368,7 @@ export async function createServer(opts: {
     onSiteAuditRequested: (
       runId: string,
       projectId: string,
-      auditOpts?: {
-        sitemapUrl?: string;
-        limit?: number;
-        maxPages?: number;
-        maxEdges?: number;
-        maxDepth?: number;
-        checkDeadLinks?: boolean;
-      },
+      auditOpts?: SiteAuditOptions,
     ) => {
       // The route already created the site-audit run row; run the shared worker.
       runSiteAudit(runId, projectId, auditOpts);

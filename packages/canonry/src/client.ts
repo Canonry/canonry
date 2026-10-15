@@ -109,6 +109,7 @@ import type {
   SiteAuditIssuePagesResponseDto,
   SiteAuditTrendResponseDto,
   SiteAuditRunResponseDto,
+  SiteAuditRunRequest,
   SiteAuditRunProgressDto,
   SiteCrawlSummaryDto,
   SiteCrawlPagesResponseDto,
@@ -4517,7 +4518,7 @@ export class ApiClient {
 
   async triggerSiteAudit(
     project: string,
-    body?: { sitemapUrl?: string; limit?: number; maxPages?: number; maxEdges?: number; maxDepth?: number; checkDeadLinks?: boolean },
+    body?: Partial<SiteAuditRunRequest>,
   ): Promise<SiteAuditRunResponseDto> {
     return this.invoke<SiteAuditRunResponseDto>(() =>
       postApiV1ProjectsByNameTechnicalAeoRuns({

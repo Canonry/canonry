@@ -64,6 +64,7 @@ import {
   scheduleUpsertRequestSchema,
   scheduleDtoSchema,
   siteAuditPageBudgetSchema,
+  siteAuditRunRequestSchema,
   siteAuditIssueListQuerySchema,
   siteAuditIssuesResponseSchema,
   siteAuditIssuePagesResponseSchema,
@@ -1216,6 +1217,8 @@ const technicalAeoRunInputSchema = z.object({
   maxEdges: z.number().int().positive().max(1_000_000).optional().describe('Maximum link observations retained for this crawl. When omitted the crawl engine derives the budget from the page count; hard maximum 1,000,000.'),
   maxDepth: z.number().int().min(0).max(100).optional().describe('Maximum internal-link depth from the root page.'),
   checkDeadLinks: z.boolean().optional().describe('Opt in to internal dead-link checks. Omitted and false both disable checks.'),
+  includeGeo: siteAuditRunRequestSchema.shape.includeGeo.removeDefault().optional().describe('Opt in to geographic signals for a location or service-area business.'),
+  includeAgentSkills: siteAuditRunRequestSchema.shape.includeAgentSkills.removeDefault().optional().describe('Check discoverable actions, forms, and agent integrations by default. Set false to disable.'),
 })
 
 const AGENT_WEBHOOK_EVENTS = [
@@ -3901,6 +3904,8 @@ const rawCanonryMcpTools = [
       maxEdges: input.maxEdges,
       maxDepth: input.maxDepth,
       checkDeadLinks: input.checkDeadLinks,
+      includeGeo: input.includeGeo,
+      includeAgentSkills: input.includeAgentSkills,
     }),
   }),
   // ----- Google Marketing: Google Ads + Google Tag Manager -----

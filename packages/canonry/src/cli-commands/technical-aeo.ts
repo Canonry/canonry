@@ -160,8 +160,8 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
   },
   {
     path: ['technical-aeo', 'run'],
-    usage: 'canonry technical-aeo run <project> [--sitemap-url <url>] [--max-pages <n>] [--max-edges <n>] [--max-depth <n>] [--check-dead-links] [--wait] [--format json]',
-    help: 'Start a Site Health crawl. No answer-engine provider is required. Without --max-pages the scan uses the project\'s saved page budget (canonry project update <project> --site-audit-max-pages <n|full>), else the full site, up to 50,000 pages. --wait polls for up to 15 minutes, so a large full-site scan can outlast it; follow it with canonry technical-aeo progress <project> --run-id <id>. Dead-link checking is off unless --check-dead-links is set.',
+    usage: 'canonry technical-aeo run <project> [--sitemap-url <url>] [--max-pages <n>] [--max-edges <n>] [--max-depth <n>] [--check-dead-links] [--include-geo] [--no-agent-skills] [--wait] [--format json]',
+    help: 'Start a Site Health crawl. No answer-engine provider is required. Without --max-pages the scan uses the project\'s saved page budget (canonry project update <project> --site-audit-max-pages <n|full>), else the full site, up to 50,000 pages. --wait polls for up to 15 minutes, so a large full-site scan can outlast it; follow it with canonry technical-aeo progress <project> --run-id <id>. Dead-link checking is off unless --check-dead-links is set. Add --include-geo for location and service-area checks. Agent integration checks are on by default; use --no-agent-skills to disable them.',
     options: {
       'sitemap-url': stringOption(),
       limit: stringOption(),
@@ -169,10 +169,13 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
       'max-edges': stringOption(),
       'max-depth': stringOption(),
       'check-dead-links': { type: 'boolean', default: false },
+      'include-geo': { type: 'boolean', default: false },
+      'include-agent-skills': { type: 'boolean', default: true },
+      'no-agent-skills': { type: 'boolean', default: false },
       wait: { type: 'boolean', default: false },
     },
     run: async (input) => {
-      const usage = 'canonry technical-aeo run <project> [--sitemap-url <url>] [--max-pages <n>] [--max-edges <n>] [--max-depth <n>] [--check-dead-links] [--wait] [--format json]'
+      const usage = 'canonry technical-aeo run <project> [--sitemap-url <url>] [--max-pages <n>] [--max-edges <n>] [--max-depth <n>] [--check-dead-links] [--include-geo] [--no-agent-skills] [--wait] [--format json]'
       const project = requireProject(input, 'technical-aeo.run', usage)
       await technicalAeoRun(project, {
         sitemapUrl: getString(input.values, 'sitemap-url'),
@@ -191,6 +194,8 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
           command: 'technical-aeo.run', usage, message: '--max-depth must be an integer',
         }),
         checkDeadLinks: getBoolean(input.values, 'check-dead-links'),
+        includeGeo: getBoolean(input.values, 'include-geo'),
+        includeAgentSkills: getBoolean(input.values, 'include-agent-skills') && !getBoolean(input.values, 'no-agent-skills'),
         wait: getBoolean(input.values, 'wait'),
         format: input.format,
       })
