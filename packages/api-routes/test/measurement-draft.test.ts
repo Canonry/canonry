@@ -1491,6 +1491,94 @@ describe('measurement draft publish', () => {
     expect(noOp.json()).toMatchObject({ published: false, active: { revision: 1, compiledChecksum: frozen.compiledChecksum } })
     expect(db.select().from(measurementPlanVersions).all()).toHaveLength(1)
 
+    const marketRoute = await DraftSession.start(1)
+    const routeRequest = {
+      marketKeys: ['named-market'],
+      contextOverride: { providers: ['gemini'], models: { gemini: 'gemini-test' } },
+    }
+    const routePreview = await request('POST', '/measurement-plan/draft/actions/preview-route-markets', { payload: routeRequest })
+    expect(routePreview.statusCode, routePreview.body).toBe(200)
+    expect(routePreview.json()).toMatchObject({
+      draftEtag: marketRoute.etag,
+      markets: [{ marketKey: 'named-market', label: 'Named market', matchedEdges: 1, changedEdges: 1 }],
+      matchedEdges: 1,
+      changedEdges: 1,
+      execution: { fullRunNodes: expect.any(Number), fullRunProviderCalls: expect.any(Number) },
+    })
+    const routed = await marketRoute.run('route-markets', routeRequest)
+    expect(routed.statusCode, routed.body).toBe(200)
+    const routedPreview = await request('POST', '/measurement-plan/draft/actions/compile-preview', { payload: {} })
+    expect(routedPreview.statusCode, routedPreview.body).toBe(200)
+    const routedPlan = measurementPlanV2Schema.parse(routedPreview.json().plan)
+    const namedMarket = routedPlan.reportingScopes?.find(scope => scope.stableKey === 'named-market')
+    expect(namedMarket).toBeDefined()
+    const namedEdge = namedMarket?.usageEdges[0]
+    expect(namedEdge).toBeDefined()
+    if (!namedEdge) throw new Error('Routed market should retain its exact usage edge')
+    const routedNode = routedPlan.executionNodes.find(node => node.stableKey === namedEdge.executionNodeKey)
+    expect(routedNode).toBeDefined()
+    if (!routedNode) throw new Error('Routed market should point at a compiled execution node')
+    expect(routedNode.context).toEqual({ providers: ['gemini'], models: { gemini: 'gemini-test' }, location: namedContext.location })
+    expect(routedPlan.reportingScopes?.find(scope => scope.stableKey === 'location-free-market')?.usageEdges)
+      .toEqual([{ executionNodeKey: nullKey, targetKey: originalAssignment.targetKey, queryId: sourceQueryId }])
+    await marketRoute.run('discard', {})
+
+    const locationThenMarket = await DraftSession.start(1)
+    await locationThenMarket.run('apply-assignments', {
+      targetKey: originalAssignment.targetKey,
+      queryIds: [sourceQueryId],
+      contextOverride: { providers: ['gemini'], models: { gemini: 'gemini-test' }, locations: [] },
+    })
+    const locationRouteRequest = {
+      marketKeys: ['named-market'],
+      contextOverride: { providers: ['openai'], models: { openai: 'gpt-test' } },
+    }
+    const locationRoutePreview = await request('POST', '/measurement-plan/draft/actions/preview-route-markets', {
+      payload: locationRouteRequest,
+    })
+    expect(locationRoutePreview.statusCode, locationRoutePreview.body).toBe(200)
+    expect(locationRoutePreview.json()).toMatchObject({ matchedEdges: 1, changedEdges: 1 })
+    await locationThenMarket.run('route-markets', locationRouteRequest)
+    const locationCompile = await request('POST', '/measurement-plan/draft/actions/compile-preview', { payload: {} })
+    expect(locationCompile.statusCode, locationCompile.body).toBe(200)
+    const locationPlan = measurementPlanV2Schema.parse(locationCompile.json().plan)
+    const namedLocationEdge = locationPlan.reportingScopes?.find(scope => scope.stableKey === 'named-market')?.usageEdges[0]
+    const locationFreeEdge = locationPlan.reportingScopes?.find(scope => scope.stableKey === 'location-free-market')?.usageEdges[0]
+    expect(namedLocationEdge).toBeDefined()
+    expect(locationFreeEdge).toBeDefined()
+    expect(locationPlan.executionNodes.find(node => node.stableKey === namedLocationEdge?.executionNodeKey)?.context)
+      .toEqual({ providers: ['openai'], models: { openai: 'gpt-test' }, location: null })
+    expect(locationPlan.executionNodes.find(node => node.stableKey === locationFreeEdge?.executionNodeKey)?.context)
+      .toEqual({ providers: ['gemini'], models: { gemini: 'gemini-test' }, location: null })
+    await locationThenMarket.run('discard', {})
+
+    for (const destructiveAction of ['replace-assignments', 'remove-assignment'] as const) {
+      const cleanup = await DraftSession.start(1)
+      if (destructiveAction === 'replace-assignments') {
+        await cleanup.run('upsert-target', { target: GADGETS_TARGET })
+        await cleanup.run('replace-assignments', { targetKeys: ['gadgets'], queryIds: [sourceQueryId] })
+      } else {
+        await cleanup.run('remove-assignment', { targetKey: originalAssignment.targetKey, queryId: sourceQueryId })
+      }
+
+      const cleanupPreview = await request('POST', '/measurement-plan/draft/actions/preview-route-markets', { payload: routeRequest })
+      expect(cleanupPreview.statusCode, cleanupPreview.body).toBe(200)
+      expect(cleanupPreview.json()).toMatchObject({
+        markets: [{ marketKey: 'named-market', label: 'Named market', matchedEdges: 0, changedEdges: 0 }],
+        matchedEdges: 0,
+        changedEdges: 0,
+      })
+      const cleanupApplied = await cleanup.run('route-markets', routeRequest)
+      expect(cleanupApplied.json()).toMatchObject({ changed: false })
+      const cleanedDraft = (await request('GET', '/measurement-plan/draft')).json().draft
+      expect(cleanedDraft.authoring.reportingScopes
+        .flatMap((scope: { usageEdges: Array<{ targetKey: string; queryId: string }> }) => scope.usageEdges)
+        .some((edge: { targetKey: string; queryId: string }) => (
+          edge.targetKey === originalAssignment.targetKey && edge.queryId === sourceQueryId
+        ))).toBe(false)
+      await cleanup.run('discard', {})
+    }
+
     const labelEdit = await DraftSession.start(1)
     await labelEdit.run('upsert-target', { target: { ...WIDGETS_TARGET, label: 'Widgets renamed' } })
     const labelPreview = await request('POST', '/measurement-plan/draft/actions/compile-preview', { payload: {} })

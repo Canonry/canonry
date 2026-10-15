@@ -9,6 +9,8 @@ import {
   ResearchRunStatuses,
   deduplicateResearchQueries,
   expandResearchTemplate,
+  isOpenRouterRoute,
+  openRouterRouteModel,
   researchTemplateBindings,
   type LocationContext,
   type ResearchRunQueryDto,
@@ -39,6 +41,7 @@ import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { Button } from '../ui/button.js'
 import { useAccount } from '../../contexts/account-context.js'
+import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 
 const ACTIVE_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
   ResearchRunStatuses.queued,
@@ -154,12 +157,52 @@ export function ResearchQueriesSection({
 
   const locations = projectQuery.data?.locations ?? []
   const providerOptions = useMemo(() => {
-    if (limitedAccess) return (historyPolicy?.providers ?? []).map(item => ({ ...item, catalog: item }))
+    if (limitedAccess) {
+      return (historyPolicy?.providers ?? [])
+        .filter(item => item.name !== 'openrouter')
+        .map(item => ({ ...item, catalog: item }))
+    }
     const catalog = new Map((settingsQuery.data?.providerCatalog ?? []).map(item => [item.name, item]))
-    return (settingsQuery.data?.providers ?? [])
-      .filter(item => item.configured && catalog.get(item.name)?.mode === 'api')
+    const configured = new Map((settingsQuery.data?.providers ?? [])
+      .filter(item => item.configured)
+      .map(item => [item.name, item]))
+    const direct = [...configured.values()]
+      .filter(item => item.name !== 'openrouter' && !isOpenRouterRoute(item.name) && catalog.get(item.name)?.mode === 'api')
       .map(item => ({ ...item, catalog: { ...catalog.get(item.name)!, defaultModel: item.model || catalog.get(item.name)!.defaultModel } }))
-  }, [limitedAccess, historyPolicy?.providers, settingsQuery.data])
+
+    const openRouterCatalog = catalog.get('openrouter')
+    const serverRoutes = new Map((historyPolicy?.providers ?? [])
+      .filter(item => isOpenRouterRoute(item.name))
+      .map(item => [item.name, item]))
+    if (!configured.has('openrouter') && serverRoutes.size === 0) return direct
+    const routes = [...new Set([
+      ...(projectQuery.data?.providers ?? []),
+      ...serverRoutes.keys(),
+    ])]
+      .filter(isOpenRouterRoute)
+      .flatMap(name => {
+        const model = openRouterRouteModel(name)
+        if (!model) return []
+        const savedRoute = catalog.get(name)
+        const serverRoute = serverRoutes.get(name)
+        const routeCatalog = savedRoute ?? (openRouterCatalog ? {
+          ...openRouterCatalog,
+          name,
+          displayName: serverRoute?.displayName ?? providerDisplayName(name),
+          modelConfigurable: false,
+          defaultModel: model,
+          knownModels: openRouterCatalog.knownModels.filter(candidate => candidate.id === model),
+        } : serverRoute)
+        return routeCatalog ? [{
+          name,
+          displayName: serverRoute?.displayName ?? providerDisplayName(name),
+          configured: true,
+          defaultModel: model,
+          catalog: routeCatalog,
+        }] : []
+      })
+    return [...direct, ...routes]
+  }, [historyPolicy?.providers, limitedAccess, projectQuery.data?.providers, settingsQuery.data])
   const noConfiguredApiProviders = !(limitedAccess ? runsQuery.isPending : settingsQuery.isPending) && providerOptions.length === 0
   const selectedProvider = providerOptions.find(item => item.name === provider) ?? null
 

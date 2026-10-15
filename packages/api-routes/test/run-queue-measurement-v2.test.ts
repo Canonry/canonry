@@ -183,6 +183,39 @@ describe('a published v2 revision at queue time', () => {
     })
   })
 
+  it.each([
+    { entry: 'manual', url: '/api/v1/projects/planned/runs', statusCode: 201 },
+    { entry: 'bulk', url: '/api/v1/runs', statusCode: 207 },
+  ])('launches an OpenRouter-only Advanced plan through the $entry route when the simple roster is empty', async ({ entry, url, statusCode }) => {
+    const { db, projectId } = seed({ projectProviders: [] })
+    const route = 'openrouter:google/gemini-2.5-flash'
+    const versionId = publishV2(db, projectId, v2Plan({
+      targets: ['widgets'],
+      nodes: [{ key: 'exec-route', queryId: 'q-1', queryText: 'widget question 0', providers: [route], location: NORTH }],
+      assignments: [{ targetKey: 'widgets', nodeKey: 'exec-route' }],
+    }), 1)
+    const app = Fastify()
+    onTestFinished(() => app.close())
+    app.register(apiRoutes, {
+      db,
+      skipAuth: true,
+      getRunnableProviderNames: () => ['openrouter'],
+      getEffectiveProviderModels: () => ({ openrouter: 'openai/gpt-5' }),
+      onRunCreated: () => {},
+    })
+
+    const response = await app.inject({ method: 'POST', url })
+
+    expect(response.statusCode, response.body).toBe(statusCode)
+    const created = entry === 'manual' ? response.json() : response.json()[0]
+    expect(created).toMatchObject({ status: 'queued' })
+    const row = queuedRun(db, created.id)
+    expect(row.measurementPlanVersionId).toBe(versionId)
+    expect(parseMeasurementRunManifestV1(row.measurementManifest).expectedSlots).toEqual([
+      expect.objectContaining({ provider: route, requestedModel: 'google/gemini-2.5-flash' }),
+    ])
+  })
+
   it.each(['simple', 'advanced'].flatMap(portfolio =>
     ['manual', 'batch'].flatMap(entry => ['queued', 'running'].map(status => ({ portfolio, entry, status }))),
   ))('$portfolio $entry sweeps coexist with a $status audit and still reject duplicate sweeps', async ({ portfolio, entry, status }) => {
@@ -413,14 +446,14 @@ describe('a published v2 revision at queue time', () => {
 })
 
 describe('a slice of a published v2 revision', () => {
-  function seedSliceable() {
+  function seedSliceable(options: { northProvider?: string; southProvider?: string } = {}) {
     const { db, projectId } = seed({ queryIds: ['q-1', 'q-2'] })
     publishV2(db, projectId, v2Plan({
       targets: ['north-branch', 'south-branch'],
       groups: [{ key: 'metro-group', targetKeys: ['south-branch'] }],
       nodes: [
-        { key: 'exec-north', queryId: 'q-1', queryText: 'widget question 0', providers: ['openai'], location: NORTH },
-        { key: 'exec-south', queryId: 'q-2', queryText: 'widget question 1', providers: ['openai'], location: SOUTH },
+        { key: 'exec-north', queryId: 'q-1', queryText: 'widget question 0', providers: [options.northProvider ?? 'openai'], location: NORTH },
+        { key: 'exec-south', queryId: 'q-2', queryText: 'widget question 1', providers: [options.southProvider ?? 'openai'], location: SOUTH },
       ],
       assignments: [
         { targetKey: 'north-branch', nodeKey: 'exec-north' },
@@ -429,6 +462,41 @@ describe('a slice of a published v2 revision', () => {
     }), 1)
     return { db, projectId }
   }
+
+  it.each([
+    { selection: 'group', payload: { measurementScope: { groups: ['metro-group'] } } },
+    { selection: 'target', payload: { measurementScope: { targets: ['south-branch'] } } },
+    { selection: 'query', payload: { queries: ['widget question 1'] } },
+  ])('preflights the $selection slice against its own providers', async ({ payload }) => {
+    const { db } = seedSliceable({ northProvider: 'openai', southProvider: 'claude' })
+    const app = Fastify()
+    onTestFinished(() => app.close())
+    app.register(apiRoutes, {
+      db,
+      skipAuth: true,
+      getRunnableProviderNames: () => ['openai'],
+      onRunCreated: () => {},
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/planned/runs',
+      payload,
+    })
+
+    expect(response.statusCode, response.body).toBe(503)
+    expect(response.json()).toMatchObject({
+      error: {
+        code: 'NO_PROVIDER',
+        details: {
+          availableProviders: ['openai'],
+          selectedProviders: ['claude'],
+          selectionSource: 'project',
+        },
+      },
+    })
+    expect(db.select().from(runs).all()).toEqual([])
+  })
 
   it('narrows to the group members, records the scope and keeps the run a probe', () => {
     const { db, projectId } = seedSliceable()

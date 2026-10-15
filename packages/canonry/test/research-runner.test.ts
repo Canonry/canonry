@@ -27,10 +27,13 @@ function setup(opts: {
   blockBad?: Promise<void>
   /** The registered provider name; `test` is not one telemetry knows. */
   provider?: string
+  /** Register the shared connection while the saved run selects a routed model. */
+  connectionProvider?: string
   /** The text a failing provider call throws, as adapters word it. */
   failWith?: string
 } = {}) {
   const provider = opts.provider ?? 'test'
+  const connectionProvider = opts.connectionProvider ?? provider
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-research-runner-'))
   cleanup.push(dir)
   const db = createClient(path.join(dir, 'test.db'))
@@ -40,18 +43,11 @@ function setup(opts: {
   for (const domain of opts.competitorDomains ?? []) {
     db.insert(competitors).values({ id: crypto.randomUUID(), projectId: 'p', domain, aliases: opts.competitorAliases?.[domain] ?? [], createdAt: now }).run()
   }
-  db.insert(researchRuns).values({ id: 'r', projectId: 'p', status: 'queued', provider, resolvedModel: 'exact-model', totalQueries: 2, completedQueries: 0, failedQueries: 0, createdAt: now }).run()
-  for (const [position, queryText] of ['good', 'bad'].entries()) {
-    db.insert(researchRunQueries).values({
-      id: crypto.randomUUID(), researchRunId: 'r', position, queryText,
-      status: 'queued', resolvedModel: 'exact-model', groundingSources: [],
-      citedDomains: [], searchQueries: [], createdAt: now,
-    }).run()
-  }
+  seedResearchRun(db, { id: 'r', provider, queries: ['good', 'bad'], createdAt: now })
   const registry = new ProviderRegistry()
   const models: string[] = []
   registry.register({
-    name: provider,
+    name: connectionProvider,
     executeTrackedQuery: async (_input: { query: string }, config: { model?: string }) => {
       models.push(config.model ?? '')
       if (_input.query === 'bad') await opts.blockBad
@@ -66,10 +62,29 @@ function setup(opts: {
     }),
     healthcheck: async () => ({ ok: true, provider: 'test', message: 'ok' }),
   } as never, {
-    provider, model: 'wrong',
+    provider: connectionProvider, model: 'wrong',
     quotaPolicy: { maxConcurrency: 2, maxRequestsPerMinute: 100, maxRequestsPerDay: 10 },
   })
   return { db, registry, models }
+}
+
+function seedResearchRun(
+  db: ReturnType<typeof createClient>,
+  input: { id: string; provider: string; queries: string[]; createdAt?: string },
+): void {
+  const createdAt = input.createdAt ?? new Date().toISOString()
+  db.insert(researchRuns).values({
+    id: input.id, projectId: 'p', status: 'queued', provider: input.provider,
+    resolvedModel: 'exact-model', totalQueries: input.queries.length,
+    completedQueries: 0, failedQueries: 0, createdAt,
+  }).run()
+  for (const [position, queryText] of input.queries.entries()) {
+    db.insert(researchRunQueries).values({
+      id: crypto.randomUUID(), researchRunId: input.id, position, queryText,
+      status: 'queued', resolvedModel: 'exact-model', groundingSources: [],
+      citedDomains: [], searchQueries: [], createdAt,
+    }).run()
+  }
 }
 describe('executeResearchRun', () => {
   it('records partial results, preserves a null served model, and charges dispatched calls only', async () => {
@@ -250,6 +265,29 @@ describe('executeResearchRun', () => {
     const second = reserveDailyQueryQuota(db, { scope: 'p:test', period, count: 3, limit: 10 })
     expect(second).toEqual({ reserved: false, used: 8 })
     expect(db.select().from(usageCounters).get()?.count).toBe(8)
+  })
+
+  it('shares visibility quota across sibling OpenRouter research routes', async () => {
+    const firstRoute = 'openrouter:google/gemini-3.1-flash-lite'
+    const secondRoute = 'openrouter:anthropic/claude-sonnet-4.6'
+    const { db, registry } = setup({
+      provider: firstRoute,
+      connectionProvider: 'openrouter',
+      failQueries: false,
+    })
+    const period = new Date().toISOString().slice(0, 10)
+    expect(reserveDailyQueryQuota(db, {
+      scope: 'p:openrouter', period, count: 6, limit: 10,
+    }).reserved).toBe(true)
+    seedResearchRun(db, { id: 'r2', provider: secondRoute, queries: ['one', 'two'] })
+
+    await executeResearchRun(db, registry, 'r', 'p')
+    await executeResearchRun(db, registry, 'r2', 'p')
+
+    expect(db.select().from(researchRuns).all().map(row => row.status)).toEqual(['completed', 'completed'])
+    expect(db.select().from(usageCounters).all().map(row => ({ scope: row.scope, count: row.count }))).toEqual([
+      { scope: 'p:openrouter', count: 10 },
+    ])
   })
 })
 

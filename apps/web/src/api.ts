@@ -1124,7 +1124,7 @@ export function updateProviderConfig(provider: string, body: {
   return invokeWeb<ApiProviderSummary>(() =>
     putApiV1SettingsProvidersByName({
       client: heyClient,
-      path: { name: provider } as never,
+      path: { name: provider },
       body,
     }),
   )
@@ -1255,7 +1255,7 @@ export function generateQueries(projectName: string, provider: string, count?: n
     postApiV1ProjectsByNameQueriesGenerate({
       client: heyClient,
       path: { name: projectName },
-      body: { provider, count } as never,
+      body: { provider, count },
     }),
   )
 }

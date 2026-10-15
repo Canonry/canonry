@@ -172,7 +172,7 @@ it('routes only domain categorization through pi OpenRouter and freezes its eval
   expect(h.tracked.slice(1).map(item => item.input.query)).toEqual(['best solar quoting tool', 'best solar installer crm'])
   expect(h.embeddingRequests).toHaveLength(1)
   expect(h.embeddingRequests[0]).toMatchObject({ url: 'https://embedding.fixture.invalid/discovery/v1beta/models/gemini-embedding-001:batchEmbedContents', method: 'POST', apiKey: 'gemini-fixture-key', queries: ['best solar quoting tool', 'best solar installer crm'] })
-  expect(h.db.select().from(discoverySessions).get()?.competitorMap).toEqual([{ domain: 'sunplanner.test', hits: 1, competitorType: 'direct-competitor', evaluator: { provider: 'openrouter', requestedModel: 'anthropic/claude-haiku-4.5', servedModel: null, promptVersion: 'domain-category-v1' } }])
+  expect(h.db.select().from(discoverySessions).get()?.competitorMap).toEqual([{ domain: 'sunplanner.test', hits: 1, competitorType: 'direct-competitor', evaluator: { provider: 'openrouter', requestedModel: 'anthropic/claude-haiku-4.5', servedModel: 'synthetic-served-model', promptVersion: 'domain-category-v1' } }])
 })
 
 it.each([

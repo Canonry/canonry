@@ -96,6 +96,8 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-assignments': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/replace-assignments': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/apply-paired-assignments': 'included',
+  'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-route-markets': 'included',
+  'POST /api/v1/projects/{name}/measurement-plan/draft/actions/route-markets': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/remove-assignment': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/clear-assignments': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/classify-assignments': 'included',

@@ -11,7 +11,9 @@ import {
   assertMeasurementDraftAuthoringLimits,
   replaceAssignmentsInAuthoring,
   resolveDraftAudience,
+  routeMarketsInAuthoring,
 } from '../src/measurement-draft-actions.js'
+import { compileMeasurementDraft } from '../src/measurement-draft-compile.js'
 
 function audienceFixture() {
   return measurementDraftAuthoringSchema.parse({
@@ -60,6 +62,119 @@ describe('measurement draft assignment scale', () => {
     expect(changed.authoring.assignments[0]!.queryProvenance).toEqual(authoring.assignments[0]!.queryProvenance)
     expect(measurementDraftAuthoringSchema.safeParse(changed.authoring).success).toBe(true)
     expect(authoring.assignments[0]!.executionContexts).toHaveLength(1)
+  })
+
+  it.each(['apply-assignments', 'replace-assignments', 'apply-paired-assignments'] as const)(
+    'reroutes frozen contexts without widening locations through %s',
+    (action) => {
+      const nyc = { label: 'nyc', city: 'New York', region: 'NY', country: 'US' }
+      const la = { label: 'la', city: 'Los Angeles', region: 'CA', country: 'US' }
+      const authoring = audienceFixture()
+      authoring.assignments = [{
+        targetKey: 'dallas-1', queryId: 'q-market', queryClass: 'non-brand', classificationSource: 'operator',
+        executionContexts: [
+          { providers: ['openai'], models: { openai: 'gpt-a' }, location: nyc, executionNodeKey: 'nyc-a' },
+          { providers: ['openai'], models: { openai: 'gpt-b' }, location: nyc, executionNodeKey: 'nyc-b' },
+          { providers: ['gemini'], models: { gemini: 'gemini-a' }, location: la, executionNodeKey: 'la-a' },
+        ],
+      }]
+      authoring.reportingScopes = [{
+        stableKey: 'primary-market', label: 'Primary market', kind: 'market',
+        usageEdges: [
+          { targetKey: 'dallas-1', queryId: 'q-market', executionNodeKey: 'nyc-a' },
+          { targetKey: 'dallas-1', queryId: 'q-market', executionNodeKey: 'nyc-b' },
+          { targetKey: 'dallas-1', queryId: 'q-market', executionNodeKey: 'la-a' },
+        ],
+      }]
+      const route = 'openrouter:google/gemini-2.5-flash'
+      const selection = action === 'apply-paired-assignments'
+        ? { pairs: [{ targetKey: 'dallas-1', queryId: 'q-market' }] }
+        : { targetKeys: ['dallas-1'], queryIds: ['q-market'] }
+      const result = applyDraftAction(action, authoring, {
+        ...selection,
+        contextOverride: { providers: [route], models: { [route]: 'google/gemini-2.5-flash' } },
+      }, audienceContext)
+
+      const assignment = result.authoring.assignments[0]!
+      expect(assignment.contextOverride).toBeUndefined()
+      expect(assignment.executionContexts).toHaveLength(2)
+      expect(assignment.executionContexts?.map(context => context.location)).toEqual([nyc, la])
+      expect(assignment.executionContexts?.every(context => context.providers[0] === route)).toBe(true)
+      expect(assignment.executionContexts?.every(context => context.executionNodeKey?.startsWith('execution-'))).toBe(true)
+      expect(new Set(result.authoring.reportingScopes?.[0]?.usageEdges.map(edge => edge.executionNodeKey)).size).toBe(2)
+
+      const compiled = compileMeasurementDraft({ ...result.authoring, groups: [] }, {
+        canonicalDomain: 'portfolio.example', ownedDomains: [], brandNames: ['Example Portfolio'],
+        locations: [nyc, la], trackedQueries: [{ id: 'q-market', query: 'best apartments downtown' }],
+      })
+      expect(compiled.ok).toBe(true)
+      if (!compiled.ok) throw new Error('Rerouted exact contexts should compile')
+      expect(compiled.plan.executionNodes).toHaveLength(2)
+      expect(compiled.plan.reportingScopes?.[0]?.usageEdges).toHaveLength(2)
+    },
+  )
+
+  it('reroutes one Property without moving a shared execution edge on another Property or market', () => {
+    const nyc = { label: 'nyc', city: 'New York', region: 'NY', country: 'US' }
+    const authoring = audienceFixture()
+    const frozen = { providers: ['openai'], models: { openai: 'gpt-4.1' }, location: nyc, executionNodeKey: 'shared-node' }
+    authoring.assignments = ['dallas-1', 'dallas-2'].map(targetKey => ({
+      targetKey, queryId: 'q-market', queryClass: 'non-brand' as const, classificationSource: 'operator' as const,
+      executionContexts: [frozen],
+    }))
+    authoring.reportingScopes = [
+      { stableKey: 'first-market', label: 'First', kind: 'market', usageEdges: [{ targetKey: 'dallas-1', queryId: 'q-market', executionNodeKey: 'shared-node' }] },
+      { stableKey: 'second-market', label: 'Second', kind: 'market', usageEdges: [{ targetKey: 'dallas-2', queryId: 'q-market', executionNodeKey: 'shared-node' }] },
+    ]
+
+    const result = applyAssignmentsToAuthoring(authoring, {
+      targetKeys: ['dallas-1'], queryIds: ['q-market'],
+      contextOverride: { providers: ['gemini'], models: { gemini: 'gemini-test' } },
+    }, audienceContext)
+    const firstKey = result.authoring.assignments[0]!.executionContexts![0]!.executionNodeKey
+    expect(firstKey).not.toBe('shared-node')
+    expect(result.authoring.assignments[1]).toEqual(authoring.assignments[1])
+    expect(result.authoring.reportingScopes?.[0]?.usageEdges[0]?.executionNodeKey).toBe(firstKey)
+    expect(result.authoring.reportingScopes?.[1]?.usageEdges[0]?.executionNodeKey).toBe('shared-node')
+  })
+
+  it('preserves market membership for a one-to-one explicit location override', () => {
+    const authoring = audienceFixture()
+    authoring.assignments = [{
+      targetKey: 'dallas-1', queryId: 'q-market', queryClass: 'non-brand', classificationSource: 'operator',
+      executionContexts: [{ providers: ['openai'], models: {}, location: null, executionNodeKey: 'old-node' }],
+    }]
+    authoring.reportingScopes = [{
+      stableKey: 'primary-market', label: 'Primary market', kind: 'market',
+      usageEdges: [{ targetKey: 'dallas-1', queryId: 'q-market', executionNodeKey: 'old-node' }],
+    }]
+
+    const changed = applyAssignmentsToAuthoring(authoring, {
+      targetKeys: ['dallas-1'], queryIds: ['q-market'],
+      contextOverride: { providers: ['gemini'], models: { gemini: 'gemini-test' }, locations: [] },
+    }, audienceContext)
+    expect(changed.authoring.reportingScopes?.[0]?.usageEdges).toEqual(authoring.reportingScopes[0]!.usageEdges)
+
+    const compiled = compileMeasurementDraft({ ...changed.authoring, groups: [] }, {
+      canonicalDomain: 'portfolio.example', ownedDomains: [], brandNames: ['Example Portfolio'],
+      locations: [], trackedQueries: [{ id: 'q-market', query: 'best apartments downtown' }],
+    })
+    expect(compiled.ok).toBe(true)
+    if (!compiled.ok) throw new Error('One-to-one context replacement should compile')
+    expect(compiled.plan.reportingScopes?.[0]?.usageEdges).toHaveLength(1)
+    expect(compiled.plan.reportingScopes?.[0]?.usageEdges[0]?.executionNodeKey).not.toBe('old-node')
+
+    const routed = routeMarketsInAuthoring(changed.authoring, {
+      marketKeys: ['primary-market'],
+      contextOverride: { providers: ['openai'], models: { openai: 'gpt-test' } },
+    }, audienceContext)
+    expect(routed).toMatchObject({ matchedEdges: 1, changedEdges: 1 })
+    expect(routed.authoring.assignments[0]?.contextOverride).toBeUndefined()
+    expect(routed.authoring.assignments[0]?.executionContexts).toEqual([
+      expect.objectContaining({ providers: ['openai'], models: { openai: 'gpt-test' }, location: null }),
+    ])
+    expect(routed.authoring.reportingScopes?.[0]?.usageEdges[0]?.executionNodeKey)
+      .toBe(routed.authoring.assignments[0]?.executionContexts?.[0]?.executionNodeKey)
   })
 
   it('applies one query to 200 selected Targets without mutating the input', () => {
@@ -216,6 +331,207 @@ describe('measurement draft assignment audiences', () => {
     const twice = applyAssignmentsToAuthoring(once.authoring, { groupKeys: ['dallas'], queryIds: ['q-market'] }, audienceContext)
     expect(twice.assignments).toEqual({ requested: 2, added: 0, alreadyPresent: 2 })
     expect(twice.authoring).toEqual(once.authoring)
+  })
+})
+
+describe('measurement draft market routing', () => {
+  const nyc = { label: 'nyc', city: 'New York', region: 'NY', country: 'US' }
+  const la = { label: 'la', city: 'Los Angeles', region: 'CA', country: 'US' }
+
+  function marketAuthoring() {
+    const authoring = audienceFixture()
+    authoring.assignments = [{
+      targetKey: 'dallas-1', queryId: 'q-market', queryClass: 'non-brand', classificationSource: 'operator',
+      executionContexts: [
+        { providers: ['openai'], models: { openai: 'gpt-4.1' }, location: nyc, executionNodeKey: 'shared-nyc' },
+        { providers: ['openai'], models: { openai: 'gpt-4.1' }, location: la, executionNodeKey: 'north-la' },
+      ],
+    }]
+    authoring.reportingScopes = [
+      {
+        stableKey: 'north', label: 'North', kind: 'market',
+        usageEdges: [
+          { targetKey: 'dallas-1', queryId: 'q-market', executionNodeKey: 'shared-nyc' },
+          { targetKey: 'dallas-1', queryId: 'q-market', executionNodeKey: 'north-la' },
+        ],
+      },
+      {
+        stableKey: 'enterprise', label: 'Enterprise', kind: 'market',
+        usageEdges: [{ targetKey: 'dallas-1', queryId: 'q-market', executionNodeKey: 'shared-nyc' }],
+      },
+    ]
+    return authoring
+  }
+
+  it('clones a shared edge, rewrites an exclusive edge, and preserves every exact location', () => {
+    const route = 'openrouter:google/gemini-2.5-flash'
+    const result = routeMarketsInAuthoring(marketAuthoring(), {
+      marketKeys: ['north'],
+      contextOverride: { providers: [route], models: { [route]: 'google/gemini-2.5-flash' } },
+    }, audienceContext)
+
+    expect(result.markets).toEqual([{ marketKey: 'north', label: 'North', matchedEdges: 2, changedEdges: 2 }])
+    expect(result.matchedEdges).toBe(2)
+    expect(result.changedEdges).toBe(2)
+    const contexts = result.authoring.assignments[0]!.executionContexts!
+    expect(contexts).toHaveLength(3)
+    expect(contexts).toContainEqual(expect.objectContaining({ executionNodeKey: 'shared-nyc', location: nyc, providers: ['openai'] }))
+    expect(contexts.filter(context => context.providers[0] === route).map(context => context.location)).toEqual([nyc, la])
+
+    const northKeys = result.authoring.reportingScopes?.find(scope => scope.stableKey === 'north')!.usageEdges.map(edge => edge.executionNodeKey)
+    expect(northKeys).toHaveLength(2)
+    expect(northKeys).not.toContain('shared-nyc')
+    expect(northKeys).not.toContain('north-la')
+    expect(result.authoring.reportingScopes?.find(scope => scope.stableKey === 'enterprise')!.usageEdges)
+      .toEqual([{ targetKey: 'dallas-1', queryId: 'q-market', executionNodeKey: 'shared-nyc' }])
+
+    const compiled = compileMeasurementDraft({ ...result.authoring, groups: [] }, {
+      canonicalDomain: 'portfolio.example', ownedDomains: [], brandNames: ['Example Portfolio'],
+      locations: [nyc, la], trackedQueries: [{ id: 'q-market', query: 'best apartments downtown' }],
+    })
+    expect(compiled.ok).toBe(true)
+    if (!compiled.ok) throw new Error('Market-routed exact contexts should compile')
+    expect(compiled.plan.executionNodes).toHaveLength(3)
+    expect(compiled.plan.reportingScopes?.find(scope => scope.stableKey === 'north')?.usageEdges).toHaveLength(2)
+    expect(compiled.plan.reportingScopes?.find(scope => scope.stableKey === 'enterprise')?.usageEdges)
+      .toEqual([{ targetKey: 'dallas-1', queryId: 'q-market', executionNodeKey: 'shared-nyc' }])
+  })
+
+  it('validates market, Property, and query filters and leaves a valid non-match as a no-op', () => {
+    const request = { marketKeys: ['north'], contextOverride: { providers: ['gemini'] } }
+    expect(() => routeMarketsInAuthoring(marketAuthoring(), { ...request, marketKeys: ['missing'] }, audienceContext)).toThrow(/market.*no longer available/i)
+    expect(() => routeMarketsInAuthoring(marketAuthoring(), { ...request, targetKeys: ['missing'] }, audienceContext)).toThrow(/Target/i)
+    expect(() => routeMarketsInAuthoring(marketAuthoring(), { ...request, queryIds: ['missing'] }, audienceContext)).toThrow(/project has no query/i)
+    const noMatch = routeMarketsInAuthoring(marketAuthoring(), { ...request, targetKeys: ['dallas-2'] }, audienceContext)
+    expect(noMatch).toMatchObject({ matchedEdges: 0, changedEdges: 0 })
+    expect(noMatch.authoring).toEqual(marketAuthoring())
+  })
+
+  it.each([
+    ['replace-assignments', { targetKeys: ['dallas-2'], queryIds: ['q-market'] }],
+    ['remove-assignment', { targetKey: 'dallas-1', queryId: 'q-market' }],
+    ['clear-assignments', { targetKey: 'dallas-1' }],
+    ['exclude-target', { targetKey: 'dallas-1', cleanup: 'assignments-and-group-memberships' }],
+  ] as const)('prunes stale market membership after %s so routing remains usable', (action, request) => {
+    const changed = applyDraftAction(action, marketAuthoring(), request, audienceContext)
+    expect(changed.authoring.reportingScopes?.flatMap(scope => scope.usageEdges)).toEqual([])
+
+    const routed = routeMarketsInAuthoring(changed.authoring, {
+      marketKeys: ['north'],
+      contextOverride: { providers: ['gemini'], models: { gemini: 'gemini-test' } },
+    }, audienceContext)
+    expect(routed).toMatchObject({ matchedEdges: 0, changedEdges: 0 })
+    expect(routed.authoring.reportingScopes?.flatMap(scope => scope.usageEdges)).toEqual([])
+  })
+
+  it('remaps market membership when merging an assigned Property into the survivor', () => {
+    const authoring = marketAuthoring()
+    authoring.assignments.push({
+      targetKey: 'dallas-2', queryId: 'q-market', queryClass: 'branded', classificationSource: 'operator',
+      executionContexts: [{ providers: ['gemini'], models: { gemini: 'gemini-test' }, location: null, executionNodeKey: 'survivor-node' }],
+    })
+    authoring.reportingScopes![1]!.usageEdges.push({
+      targetKey: 'dallas-2', queryId: 'q-market', executionNodeKey: 'survivor-node',
+    })
+
+    const merged = applyDraftAction('merge-targets', authoring, {
+      targetKey: 'dallas-2',
+      mergedKeys: ['dallas-1'],
+    }, audienceContext)
+    expect(merged.authoring.assignments).toEqual([
+      expect.objectContaining({ targetKey: 'dallas-2', queryId: 'q-market' }),
+    ])
+    expect(merged.authoring.reportingScopes?.flatMap(scope => scope.usageEdges).every(edge => edge.targetKey === 'dallas-2')).toBe(true)
+    const exactKeys = new Set(merged.authoring.assignments[0]!.executionContexts?.map(context => context.executionNodeKey))
+    expect(merged.authoring.reportingScopes?.flatMap(scope => scope.usageEdges).every(edge => exactKeys.has(edge.executionNodeKey))).toBe(true)
+    expect(merged.authoring.assignments[0]).toMatchObject({ queryClass: 'branded', classificationSource: 'operator' })
+
+    const routed = routeMarketsInAuthoring(merged.authoring, {
+      marketKeys: ['north'],
+      contextOverride: { providers: ['gemini'], models: { gemini: 'gemini-test' } },
+    }, audienceContext)
+    expect(routed).toMatchObject({ matchedEdges: 2, changedEdges: 2 })
+  })
+
+  it.each(['dynamic-first', 'exact-first'] as const)(
+    'rejects a mixed exact/dynamic duplicate merge in %s assignment order',
+    (order) => {
+      const authoring = audienceFixture()
+      const dynamic = {
+        targetKey: 'dallas-1', queryId: 'q-market', queryClass: 'non-brand' as const, classificationSource: 'operator' as const,
+        contextOverride: { providers: ['gemini'], locations: [] },
+      }
+      const exact = {
+        targetKey: 'dallas-2', queryId: 'q-market', queryClass: 'non-brand' as const, classificationSource: 'operator' as const,
+        executionContexts: [{ providers: ['openai'], models: {}, location: null, executionNodeKey: 'absorbed-exact' }],
+      }
+      authoring.assignments = order === 'dynamic-first' ? [dynamic, exact] : [exact, dynamic]
+      authoring.reportingScopes = [{
+        stableKey: 'absorbed-market', label: 'Absorbed market', kind: 'market',
+        usageEdges: [{ targetKey: 'dallas-2', queryId: 'q-market', executionNodeKey: 'absorbed-exact' }],
+      }]
+
+      expect(() => applyDraftAction('merge-targets', authoring, {
+        targetKey: 'dallas-1', mergedKeys: ['dallas-2'],
+      }, audienceContext)).toThrow(/exact and editable execution contexts/i)
+      expect(authoring.reportingScopes[0]!.usageEdges[0]).toEqual({
+        targetKey: 'dallas-2', queryId: 'q-market', executionNodeKey: 'absorbed-exact',
+      })
+    },
+  )
+
+  it.each(['survivor-first', 'absorbed-first'] as const)(
+    'rejects differing editable duplicate contexts in %s assignment order',
+    (order) => {
+      const authoring = audienceFixture()
+      const survivor = {
+        targetKey: 'dallas-1', queryId: 'q-market', queryClass: 'non-brand' as const, classificationSource: 'operator' as const,
+        contextOverride: { providers: ['gemini'], models: { gemini: 'gemini-test' }, locations: [] },
+      }
+      const absorbed = {
+        targetKey: 'dallas-2', queryId: 'q-market', queryClass: 'non-brand' as const, classificationSource: 'operator' as const,
+        contextOverride: { providers: ['openai'], models: { openai: 'gpt-test' }, locations: [] },
+      }
+      authoring.assignments = order === 'survivor-first' ? [survivor, absorbed] : [absorbed, survivor]
+
+      expect(() => applyDraftAction('merge-targets', authoring, {
+        targetKey: 'dallas-1', mergedKeys: ['dallas-2'],
+      }, audienceContext)).toThrow(/editable execution contexts differ/i)
+    },
+  )
+
+  it('allows duplicate editable assignments whose effective contexts are equivalent', () => {
+    const authoring = audienceFixture()
+    authoring.defaultContext.locations = ['nyc', 'la']
+    authoring.assignments = [
+      {
+        targetKey: 'dallas-1', queryId: 'q-market', queryClass: 'non-brand', classificationSource: 'operator',
+      },
+      {
+        targetKey: 'dallas-2', queryId: 'q-market', queryClass: 'non-brand', classificationSource: 'operator',
+        contextOverride: { providers: ['gemini'], models: { gemini: 'gemini-test' }, locations: ['la', 'nyc'] },
+      },
+    ]
+    const merged = applyDraftAction('merge-targets', authoring, {
+      targetKey: 'dallas-1', mergedKeys: ['dallas-2'],
+    }, audienceContext)
+    expect(merged.authoring.assignments).toHaveLength(1)
+  })
+
+  it('self-heals stale market edges already stored in a draft and excludes them from preview counts', () => {
+    const stale = marketAuthoring()
+    stale.assignments = []
+
+    const routed = routeMarketsInAuthoring(stale, {
+      marketKeys: ['north'],
+      contextOverride: { providers: ['gemini'], models: { gemini: 'gemini-test' } },
+    }, audienceContext)
+    expect(routed).toMatchObject({
+      markets: [{ marketKey: 'north', label: 'North', matchedEdges: 2, changedEdges: 2 }],
+      matchedEdges: 2,
+      changedEdges: 2,
+    })
+    expect(routed.authoring.reportingScopes?.flatMap(scope => scope.usageEdges)).toEqual([])
   })
 })
 

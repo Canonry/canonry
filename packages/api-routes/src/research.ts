@@ -11,6 +11,7 @@ import { activeMeasurementPlan, type ActiveMeasurementPlan } from './measurement
 import type { ProviderAdapterInfo } from './settings.js'
 import { assertOpenRouterRouteScope, providerAdapterForName } from './provider-models.js'
 import { isProviderAvailable, isSweepProvider, openRouterRouteModel, providerConnectionName } from '@ainyc/canonry-contracts'
+import { activeRevisionProviders } from './run-queue.js'
 
 export interface ResearchRoutesOptions {
   /** Local cached/bundled choices only; must never discover models live. */
@@ -59,10 +60,11 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     if (!opts.onResearchRunRequested) throw missingDependency('Research execution is not available on this deployment.', { reason: 'no-research-handler' })
     const adapters = opts.providerAdapters ?? []
     const configured = new Set(opts.getConfiguredProviderNames?.() ?? opts.configuredProviderNames ?? [])
-    const providerName = input.provider ?? project.providers.find(name => isSweepProvider(name) && isProviderAvailable(name, [...configured]) && providerAdapterForName(name, adapters)?.mode === 'api') ?? adapters.find(adapter => adapter.mode === 'api' && isSweepProvider(adapter.name) && configured.has(adapter.name))?.name
+    const authorizedProviders = researchProjectProviders(app, project.id, project.providers)
+    const providerName = input.provider ?? authorizedProviders.find(name => isSweepProvider(name) && isProviderAvailable(name, [...configured]) && providerAdapterForName(name, adapters)?.mode === 'api') ?? adapters.find(adapter => adapter.mode === 'api' && isSweepProvider(adapter.name) && configured.has(adapter.name))?.name
     const adapter = providerName ? providerAdapterForName(providerName, adapters) : undefined
-    if (!providerName || !adapter || adapter.mode !== 'api' || !isSweepProvider(providerName) || isBrowserProvider(providerName) || !isProviderAvailable(providerName, [...configured])) throw validationError('Research requires a configured API provider.', { provider: input.provider, validProviders: adapters.filter(a => a.mode === 'api' && isSweepProvider(a.name) && configured.has(a.name)).map(a => a.name) })
-    assertOpenRouterRouteScope(request, [providerName], project.providers)
+    if (!providerName || !adapter || adapter.mode !== 'api' || !isSweepProvider(providerName) || isBrowserProvider(providerName) || !isProviderAvailable(providerName, [...configured])) throw validationError('Research requires a configured API provider.', { provider: input.provider, validProviders: authorizedProviders.filter(name => isProviderAvailable(name, [...configured]) && providerAdapterForName(name, adapters)?.mode === 'api') })
+    assertOpenRouterRouteScope(request, [providerName], authorizedProviders)
     if (input.model) { adapter.modelValidationPattern.lastIndex = 0; if ((!adapter.modelConfigurable && input.model !== adapter.defaultModel) || !adapter.modelValidationPattern.test(input.model)) throw validationError(`Invalid model "${input.model}" for provider "${providerName}".`, { provider: providerName, model: input.model, hint: adapter.modelValidationHint }) }
     const active = activeMeasurementPlan(app.db, project.id)
     const scope = input.scope
@@ -147,7 +149,7 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     if (!opts.onResearchRunRequested) throw missingDependency('Research execution is not available on this deployment.', { reason: 'no-research-handler' })
     const active = activeMeasurementPlan(app.db, project.id)
     const prepared = input.runs.map(run => prepareBatchRun(app, opts, project, active, run))
-    assertOpenRouterRouteScope(request, prepared.map(run => run.providerName), project.providers)
+    assertOpenRouterRouteScope(request, prepared.map(run => run.providerName), researchProjectProviders(app, project.id, project.providers))
     const now = new Date().toISOString()
     const initiatedBy = researchPrincipal(request)
     const decision = app.db.transaction((tx) => {
@@ -203,7 +205,14 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     const configured = new Set(opts.getConfiguredProviderNames?.() ?? opts.configuredProviderNames ?? [])
     const effectiveModels = opts.getEffectiveProviderModels?.() ?? {}
     const adapters = opts.providerAdapters ?? []
-    const catalog = [...adapters.filter(adapter => isSweepProvider(adapter.name)), ...project.providers.filter(name => openRouterRouteModel(name)).flatMap(name => { const adapter = providerAdapterForName(name, adapters); return adapter ? [adapter] : [] })]
+    const savedProviders = researchProjectProviders(app, project.id, project.providers)
+    const catalog = [...new Map([
+      ...adapters.filter(adapter => isSweepProvider(adapter.name)),
+      ...savedProviders.filter(name => openRouterRouteModel(name)).flatMap(name => {
+        const adapter = providerAdapterForName(name, adapters)
+        return adapter ? [adapter] : []
+      }),
+    ].map(adapter => [adapter.name, adapter])).values()]
     const providers = catalog
       .filter(adapter => adapter.mode === 'api' && !isBrowserProvider(adapter.name) && isProviderAvailable(adapter.name, [...configured]))
       .map(adapter => {
@@ -228,6 +237,10 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     const project = resolveProject(app.db, request.params.name)
     return getDetail(app, project.id, request.params.runId)
   })
+}
+
+function researchProjectProviders(app: FastifyInstance, projectId: string, projectProviders: readonly string[]): string[] {
+  return [...new Set([...projectProviders, ...activeRevisionProviders(app.db, projectId)])]
 }
 
 

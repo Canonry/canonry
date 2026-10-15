@@ -40,6 +40,26 @@ export interface AdvancedMeasurementApplySelection {
   groupIds?: readonly string[]
 }
 
+export interface AdvancedMeasurementExecutionOption {
+  id: string
+  provider: string
+  label: string
+  model?: string
+}
+
+export interface AdvancedMeasurementMarketRoutingOption {
+  id: string
+  label: string
+  measurementCount: number
+}
+
+export interface AdvancedMeasurementMarketRoutingImpact {
+  matchedMeasurements: number
+  changedMeasurements: number
+  addedProviderCalls: number
+  fullRunProviderCalls: number
+}
+
 /** A group is an assignment shortcut. Published assignments still name Properties. */
 export type AdvancedMeasurementAudience =
   | { kind: 'none' }
@@ -91,6 +111,21 @@ export interface AdvancedMeasurementQueriesStepProps {
   groups: readonly AdvancedMeasurementGroup[]
   audience: AdvancedMeasurementAudience
   onAudienceChange: (audience: AdvancedMeasurementAudience) => void
+  executionOptions?: readonly AdvancedMeasurementExecutionOption[]
+  executionOptionId?: string
+  onExecutionOptionChange?: (optionId: string) => void
+  markets?: readonly AdvancedMeasurementMarketRoutingOption[]
+  marketId?: string
+  onMarketChange?: (marketId: string) => void
+  marketExecutionOptionId?: string
+  onMarketExecutionOptionChange?: (optionId: string) => void
+  onRouteMarket?: () => void | Promise<void>
+  isRoutingMarket?: boolean
+  isPreviewingMarketRouting?: boolean
+  marketRoutingImpact?: AdvancedMeasurementMarketRoutingImpact | null
+  marketRoutingError?: string | null
+  onRetryMarketRouting?: () => void
+  marketRoutingNotice?: string | null
   assignmentImpact?: AdvancedMeasurementAssignmentImpact | null
   isPreviewingAssignmentImpact?: boolean
   assignmentImpactError?: string | null
@@ -479,7 +514,7 @@ function GroupMembershipImportPanel({ value }: { value: AdvancedMeasurementGroup
     <section aria-labelledby="advanced-measurement-group-import-title" className="border-y border-default py-4">
       <div className="max-w-2xl">
         <h4 id="advanced-measurement-group-import-title" className="text-sm font-medium text-heading">Import groups from CSV</h4>
-        <p className="mt-1 text-sm text-secondary">Import market membership once instead of selecting the same Properties for every group.</p>
+        <p className="mt-1 text-sm text-secondary">Import group membership once instead of selecting the same Properties repeatedly.</p>
       </div>
       <div className="mt-3 space-y-3">
         <label className="block max-w-xl">
@@ -642,6 +677,21 @@ export function AdvancedMeasurementQueriesStep({
   groups,
   audience,
   onAudienceChange,
+  executionOptions = [],
+  executionOptionId = '',
+  onExecutionOptionChange,
+  markets = [],
+  marketId = '',
+  onMarketChange,
+  marketExecutionOptionId = '',
+  onMarketExecutionOptionChange,
+  onRouteMarket,
+  isRoutingMarket = false,
+  isPreviewingMarketRouting = false,
+  marketRoutingImpact = null,
+  marketRoutingError = null,
+  onRetryMarketRouting,
+  marketRoutingNotice = null,
   assignmentImpact = null,
   isPreviewingAssignmentImpact = false,
   assignmentImpactError = null,
@@ -726,9 +776,9 @@ export function AdvancedMeasurementQueriesStep({
       {viewer ? null : (
         <fieldset className="border-y border-default py-4">
           <legend className="text-sm font-medium text-heading">Apply to</legend>
-          <div className="mt-3 max-w-xl">
+          <div className="mt-3 grid max-w-2xl gap-3 sm:grid-cols-2">
             <label className="block">
-              <span className="sr-only">Apply to</span>
+              <span className="text-sm font-medium text-heading">Locations or group</span>
               <select
                 aria-label="Apply to"
                 value={activeAudience.kind === 'none'
@@ -746,7 +796,7 @@ export function AdvancedMeasurementQueriesStep({
                   }
                   else if (value.startsWith('group:')) updateAudience({ kind: 'groups', groupIds: [value.slice('group:'.length)] })
                 }}
-                className="block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
+                className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
               >
                 <option value="" disabled>Choose where to apply</option>
                 <option value="all">Every location ({properties.length})</option>
@@ -761,7 +811,22 @@ export function AdvancedMeasurementQueriesStep({
                 <option value="specific">Specific locations…</option>
               </select>
             </label>
+            {executionOptions.length > 0 && onExecutionOptionChange ? (
+              <label className="block">
+                <span className="text-sm font-medium text-heading">Answer engine</span>
+                <select
+                  aria-label="Answer engine for these assignments"
+                  value={executionOptionId}
+                  onChange={event => onExecutionOptionChange(event.currentTarget.value)}
+                  className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
+                >
+                  <option value="">Keep existing or use portfolio defaults</option>
+                  {executionOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+                </select>
+              </label>
+            ) : null}
           </div>
+          {executionOptions.length > 0 ? <p className="mt-2 max-w-2xl text-sm text-secondary">The answer engine is saved on assignments for these locations or groups.</p> : null}
 
           {activeAudience.kind === 'groups' ? (
             <div className="mt-3 max-w-2xl space-y-3">
@@ -825,6 +890,60 @@ export function AdvancedMeasurementQueriesStep({
             </div>
           ) : null}
           <p className="mt-3 max-w-2xl text-sm text-secondary">Groups are shortcuts resolved when you assign. Changing membership later does not rewrite existing assignments, and a Property added later does not receive earlier group queries.</p>
+        </fieldset>
+      )}
+
+      {viewer || markets.length === 0 || executionOptions.length === 0 || !onMarketChange || !onMarketExecutionOptionChange || !onRouteMarket ? null : (
+        <fieldset className="border-b border-default pb-4">
+          <legend className="text-sm font-medium text-heading">Market routing</legend>
+          <p className="mt-1 max-w-2xl text-sm text-secondary">Choose the answer engine for one saved market. Its existing answer-engine locations stay unchanged.</p>
+          <div className="mt-3 grid max-w-2xl gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-sm font-medium text-heading">Market</span>
+              <select
+                aria-label="Market to route"
+                value={marketId}
+                onChange={event => onMarketChange(event.currentTarget.value)}
+                className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
+              >
+                <option value="">Choose a market</option>
+                {markets.map(market => <option key={market.id} value={market.id}>{market.label} · {market.measurementCount} saved measurement{market.measurementCount === 1 ? '' : 's'}</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-heading">Answer engine</span>
+              <select
+                aria-label="Answer engine for this market"
+                value={marketExecutionOptionId}
+                onChange={event => onMarketExecutionOptionChange(event.currentTarget.value)}
+                className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
+              >
+                <option value="">Choose an answer engine</option>
+                {executionOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <Button type="button" size="sm" className="min-h-11" disabled={!marketId || !marketExecutionOptionId || isBusy || isRoutingMarket || isPreviewingMarketRouting || marketRoutingImpact === null || marketRoutingImpact.changedMeasurements === 0 || marketRoutingError !== null} onClick={() => { void onRouteMarket() }}>
+              {isRoutingMarket ? 'Saving market routing…' : 'Save market routing'}
+            </Button>
+            {marketRoutingNotice ? <p role="status" className="text-sm text-secondary">{marketRoutingNotice}</p> : null}
+          </div>
+          <div className="mt-2 min-h-5">
+            {isPreviewingMarketRouting ? <p role="status" className="text-sm text-secondary">Calculating market impact…</p> : null}
+            {marketRoutingImpact ? (
+              <p className="text-sm text-secondary">
+                {marketRoutingImpact.changedMeasurements} of {marketRoutingImpact.matchedMeasurements} saved measurement{marketRoutingImpact.matchedMeasurements === 1 ? '' : 's'} will change
+                {' · '}{marketRoutingImpact.addedProviderCalls} new provider request{marketRoutingImpact.addedProviderCalls === 1 ? '' : 's'}
+                {' · '}{marketRoutingImpact.fullRunProviderCalls} per full run
+              </p>
+            ) : marketRoutingError ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <p role="alert" className="text-sm text-negative">{marketRoutingError}</p>
+                {onRetryMarketRouting ? <Button type="button" size="sm" variant="outline" className="min-h-11" onClick={onRetryMarketRouting}>Retry impact</Button> : null}
+              </div>
+            ) : null}
+          </div>
         </fieldset>
       )}
 
@@ -1203,7 +1322,7 @@ export function AdvancedMeasurementGroupsStep({
       <div className="section-head">
         <div>
           <h3 id="advanced-measurement-groups-title">Groups</h3>
-          <p className="mt-1 max-w-2xl text-sm text-secondary">Use groups to assign queries by market and compare competitors.</p>
+          <p className="mt-1 max-w-2xl text-sm text-secondary">Use groups to organize Properties, apply queries in bulk, and compare competitors.</p>
         </div>
       </div>
 
@@ -1436,13 +1555,12 @@ export function AdvancedMeasurementReviewStep({
         </p>
       ) : null}
       {counts.assignments !== undefined && counts.assignments > counts.queries ? (
-        // Aiming one query at a market writes one assignment per Property in
+        // Applying one query to a group writes one assignment per Property in
         // it, so this number outruns the query count and looks wrong without
         // the reason beside it.
         <p className="supporting-copy">
-          {counts.queries} {counts.queries === 1 ? 'query' : 'queries'} aimed at markets and Properties
-          {' '}produce {counts.assignments} assignment{counts.assignments === 1 ? '' : 's'}:
-          {' '}a query aimed at a market is measured on every Property in it.
+          Queries applied to groups create one assignment for every Property in each group.
+          {' '}{counts.queries} {counts.queries === 1 ? 'query' : 'queries'} produce {counts.assignments} assignment{counts.assignments === 1 ? '' : 's'} here.
         </p>
       ) : null}
 

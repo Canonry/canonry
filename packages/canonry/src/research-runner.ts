@@ -74,7 +74,7 @@ export async function executeResearchRun(
       throw new Error('Configured API provider is unavailable.')
     }
     const period = getCurrentUsageDay()
-    const scope = `${projectId}:${run.provider}`
+    const scope = `${projectId}:${providerConnectionName(run.provider)}`
     const quota = reserveDailyQueryQuota(db, {
       scope, period, count: run.totalQueries, limit: provider.config.quotaPolicy.maxRequestsPerDay,
     })

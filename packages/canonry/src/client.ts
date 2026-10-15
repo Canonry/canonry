@@ -95,8 +95,10 @@ import type {
   MeasurementDraftDiffPreviewResponse,
   MeasurementDraftPreviewAssignmentsRequest,
   MeasurementDraftPreviewAssignmentsResponse,
+  MeasurementDraftPreviewMarketRoutingResponse,
   MeasurementDraftPreviewGroupMembershipRequest,
   MeasurementDraftPreviewGroupMembershipResponse,
+  MeasurementDraftRouteMarketsRequest,
   MeasurementDraftReplaceAssignmentsRequest,
   MeasurementPlanV2PublishResponse,
   MeasurementQuerySetDetail,
@@ -680,6 +682,8 @@ import {
   postApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewAssignments,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceAssignments,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsApplyPairedAssignments,
+  postApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarkets,
+  postApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarkets,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsRemoveAssignment,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsClearAssignments,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsClassifyAssignments,
@@ -1514,7 +1518,7 @@ export class ApiClient {
       postApiV1ProjectsByNameQueriesGenerate({
         client: this.heyClient,
         path: { name: project },
-        body: { provider, count } as never,
+        body: { provider, count },
       }),
     )
   }
@@ -1548,7 +1552,7 @@ export class ApiClient {
       postApiV1ProjectsByNameKeywordsGenerate({
         client: this.heyClient,
         path: { name: project },
-        body: { provider, count } as never,
+        body: { provider, count },
       }),
     )
   }
@@ -2086,6 +2090,35 @@ export class ApiClient {
     )
   }
 
+  async previewMeasurementDraftMarketRouting(
+    project: string,
+    request: MeasurementDraftRouteMarketsRequest,
+  ): Promise<MeasurementDraftPreviewMarketRoutingResponse> {
+    return this.invoke<MeasurementDraftPreviewMarketRoutingResponse>(() =>
+      postApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarkets({
+        client: this.heyClient,
+        path: { name: project },
+        body: request,
+      }),
+    )
+  }
+
+  async routeMeasurementDraftMarkets(
+    project: string,
+    request: MeasurementDraftRouteMarketsRequest,
+    idempotencyKey: string,
+    etag?: string,
+  ): Promise<DraftMutationResponse> {
+    return this.invoke<DraftMutationResponse>(() =>
+      postApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarkets({
+        client: this.heyClient,
+        path: { name: project },
+        body: request,
+        headers: this.measurementDraftMutationHeaders(idempotencyKey, etag) as never,
+      }),
+    )
+  }
+
   async removeMeasurementDraftAssignment(
     project: string,
     request: MeasurementPlanDraftRemoveAssignmentRequest,
@@ -2601,7 +2634,7 @@ export class ApiClient {
     },
   ): Promise<ProviderSummaryEntryDto> {
     return this.invoke<ProviderSummaryEntryDto>(() =>
-      putApiV1SettingsProvidersByName({ client: this.heyClient, path: { name } as never, body }),
+      putApiV1SettingsProvidersByName({ client: this.heyClient, path: { name }, body }),
     )
   }
 

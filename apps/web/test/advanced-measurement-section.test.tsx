@@ -357,6 +357,34 @@ function createFakeService(options: FakeServiceOptions = {}) {
       }
       return mutation(options.assignmentWarnings)
     }),
+    previewMarketRouting: vi.fn(async (_projectName, input) => {
+      if (!currentDraft || !currentEtag()) throw new ApiError('The draft changed.', 412)
+      const markets = (currentDraft.authoring.reportingScopes ?? [])
+        .filter(market => input.marketKeys.includes(market.stableKey))
+        .map(market => ({
+          marketKey: market.stableKey,
+          label: market.label,
+          matchedEdges: market.usageEdges.length,
+          changedEdges: market.usageEdges.length,
+        }))
+      const changedEdges = markets.reduce((total, market) => total + market.changedEdges, 0)
+      return {
+        draftEtag: currentEtag()!,
+        markets,
+        matchedEdges: changedEdges,
+        changedEdges,
+        execution: {
+          addedNodes: changedEdges,
+          addedProviderCalls: changedEdges,
+          fullRunNodes: currentDraft.authoring.assignments.length + changedEdges,
+          fullRunProviderCalls: currentDraft.authoring.assignments.length + changedEdges,
+        },
+      }
+    }),
+    routeMarkets: vi.fn(async (_projectName, etag) => {
+      requireDraft(etag)
+      return mutation(options.assignmentWarnings)
+    }),
     removeAssignment: vi.fn(async (_projectName, etag, targetKeys, queryId) => {
       const draft = requireDraft(etag)
       const selected = new Set(targetKeys)
@@ -887,6 +915,168 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     })
   })
 
+  test('saves an OpenRouter model on assignments made through a market group', async () => {
+    const route = 'openrouter:google/gemini-2.5-pro'
+    const targets = [property(1), property(2)]
+    const initialDraft = draftFixture({ targets })
+    initialDraft.authoring.groups = [{
+      stableKey: 'group-dallas',
+      label: 'Dallas',
+      targetKeys: targets.map(target => target.stableKey),
+      competitors: [],
+    }]
+    const fake = createFakeService({ initialDraft })
+    renderSection(fake, { executionProviders: [route] })
+
+    await advanceGroupsToQuestions()
+    fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'group:group-dallas' } })
+    fireEvent.change(screen.getByLabelText('Answer engine for these assignments'), { target: { value: route } })
+    fireEvent.click(screen.getByLabelText(`Select query ${QUERIES[0]!.query}`))
+    await clickReadyAssignment(/Assign 1 query to Dallas/)
+
+    const expected = {
+      groupKeys: ['group-dallas'],
+      queryIds: [QUERIES[0]!.id],
+      contextOverride: { providers: [route], models: {} },
+    }
+    await waitFor(() => expect(fake.service.applyAssignments).toHaveBeenCalledTimes(1))
+    expect(fake.service.previewAssignments).toHaveBeenLastCalledWith(PROJECT, expected)
+    expect(fake.service.applyAssignments).toHaveBeenCalledWith(PROJECT, '"mpd_7"', expected)
+  })
+
+  test('offers distinct frozen provider models and applies one without adding a location override', async () => {
+    const route = 'openrouter:google/gemini-2.5-pro'
+    const targets = [property(1), property(2)]
+    const initialDraft = draftFixture({ targets })
+    initialDraft.authoring.assignments = [
+      {
+        targetKey: targets[0]!.stableKey,
+        queryId: QUERIES[0]!.id,
+        executionContexts: [{
+          providers: ['openai', route],
+          models: { openai: 'gpt-market-a', [route]: 'google/gemini-2.5-pro' },
+          location: { label: 'Dallas', city: 'Dallas', region: 'TX', country: 'US' },
+          executionNodeKey: 'execution-dallas',
+        }],
+        queryClass: 'non-brand',
+        classificationSource: 'rule',
+      },
+      {
+        targetKey: targets[1]!.stableKey,
+        queryId: QUERIES[0]!.id,
+        executionContexts: [{
+          providers: ['openai'],
+          models: { openai: 'gpt-market-b' },
+          location: { label: 'Austin', city: 'Austin', region: 'TX', country: 'US' },
+          executionNodeKey: 'execution-austin',
+        }],
+        queryClass: 'non-brand',
+        classificationSource: 'rule',
+      },
+    ]
+    initialDraft.authoring.groups = [{
+      stableKey: 'group-texas',
+      label: 'Texas',
+      targetKeys: targets.map(target => target.stableKey),
+      competitors: [],
+    }]
+    const fake = createFakeService({ initialDraft })
+    renderSection(fake)
+
+    await screen.findByRole('heading', { name: 'Review & publish' })
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await screen.findByRole('heading', { name: 'Queries' })
+
+    expect(screen.getByRole('option', { name: 'OpenAI · gpt-market-a' })).toBeTruthy()
+    const secondModel = screen.getByRole('option', { name: 'OpenAI · gpt-market-b' }) as HTMLOptionElement
+    expect(screen.getByRole('option', { name: 'google/gemini-2.5-pro via OpenRouter' })).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'group:group-texas' } })
+    fireEvent.change(screen.getByLabelText('Answer engine for these assignments'), { target: { value: secondModel.value } })
+    fireEvent.click(screen.getByLabelText(`Select query ${QUERIES[0]!.query}`))
+    await clickReadyAssignment(/Assign 1 query to Texas/)
+
+    const expected = {
+      groupKeys: ['group-texas'],
+      queryIds: [QUERIES[0]!.id],
+      contextOverride: { providers: ['openai'], models: { openai: 'gpt-market-b' } },
+    }
+    await waitFor(() => expect(fake.service.applyAssignments).toHaveBeenCalledTimes(1))
+    expect(fake.service.previewAssignments).toHaveBeenLastCalledWith(PROJECT, expected)
+    expect(fake.service.applyAssignments).toHaveBeenCalledWith(PROJECT, '"mpd_7"', expected)
+  })
+
+  test('routes one seeded market by its exact reporting scope when markets share frozen measurements', async () => {
+    const route = 'openrouter:google/gemini-2.5-pro'
+    const targets = [property(1), property(2)]
+    const initialDraft = draftFixture({ targets })
+    initialDraft.authoring.assignments = [
+      {
+        targetKey: targets[0]!.stableKey,
+        queryId: QUERIES[0]!.id,
+        executionContexts: [{
+          providers: [route],
+          models: { [route]: 'google/gemini-2.5-pro' },
+          location: { label: 'Dallas', city: 'Dallas', region: 'TX', country: 'US' },
+          executionNodeKey: 'execution-dallas',
+        }],
+        queryClass: 'non-brand',
+        classificationSource: 'rule',
+      },
+      {
+        targetKey: targets[1]!.stableKey,
+        queryId: QUERIES[0]!.id,
+        executionContexts: [{
+          providers: ['openai'],
+          models: { openai: 'gpt-austin' },
+          location: { label: 'Austin', city: 'Austin', region: 'TX', country: 'US' },
+          executionNodeKey: 'execution-austin',
+        }],
+        queryClass: 'non-brand',
+        classificationSource: 'rule',
+      },
+    ]
+    initialDraft.authoring.groups = [{
+      stableKey: 'group-portfolio',
+      label: 'Portfolio group',
+      targetKeys: targets.map(target => target.stableKey),
+      competitors: [],
+    }]
+    const dallasEdge = { executionNodeKey: 'execution-dallas', targetKey: targets[0]!.stableKey, queryId: QUERIES[0]!.id }
+    initialDraft.authoring.reportingScopes = [
+      { stableKey: 'market-dallas', label: 'Dallas market', kind: 'market', groupKey: 'group-portfolio', usageEdges: [dallasEdge] },
+      {
+        stableKey: 'market-statewide',
+        label: 'Statewide market',
+        kind: 'market',
+        groupKey: 'group-portfolio',
+        usageEdges: [dallasEdge, { executionNodeKey: 'execution-austin', targetKey: targets[1]!.stableKey, queryId: QUERIES[0]!.id }],
+      },
+    ]
+    const fake = createFakeService({ initialDraft })
+    renderSection(fake)
+
+    await screen.findByRole('heading', { name: 'Review & publish' })
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await screen.findByRole('heading', { name: 'Queries' })
+
+    fireEvent.change(screen.getByLabelText('Market to route'), { target: { value: 'market-dallas' } })
+    fireEvent.change(screen.getByLabelText('Answer engine for this market'), { target: { value: route } })
+    const save = screen.getByRole('button', { name: 'Save market routing' }) as HTMLButtonElement
+    await waitFor(() => expect(save.disabled).toBe(false))
+    expect(fake.service.previewMarketRouting).toHaveBeenLastCalledWith(PROJECT, {
+      marketKeys: ['market-dallas'],
+      contextOverride: { providers: [route], models: {} },
+    })
+    fireEvent.click(save)
+
+    await waitFor(() => expect(fake.service.routeMarkets).toHaveBeenCalledTimes(1))
+    expect(fake.service.routeMarkets).toHaveBeenCalledWith(PROJECT, '"mpd_7"', {
+      marketKeys: ['market-dallas'],
+      contextOverride: { providers: [route], models: {} },
+    })
+    expect(screen.getByText('Dallas market routing saved. Existing locations were preserved.')).toBeTruthy()
+  })
+
   test('applies Specific locations in canonical order regardless of checkbox order', async () => {
     const targets = [property(1), property(2), property(3)]
     const fake = createFakeService({ initialDraft: draftFixture({ targets }) })
@@ -905,6 +1095,57 @@ describe('AdvancedMeasurementSection server draft controller', () => {
       queryIds: [QUERIES[0]!.id],
     })
     expect(screen.queryByText('Review the latest assignment impact before assigning queries.')).toBeNull()
+  })
+
+  test('replaces specific Property assignments with the selected direct-provider model', async () => {
+    const targets = [property(1), property(2)]
+    const fake = createFakeService({ initialDraft: draftFixture({ targets, assignedQueryIds: [QUERIES[0]!.id] }) })
+    renderSection(fake, {
+      executionProviders: ['openai'],
+      executionProviderModels: { openai: 'gpt-5-search' },
+    })
+
+    await screen.findByRole('heading', { name: 'Review & publish' })
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await screen.findByRole('heading', { name: 'Queries' })
+    const engine = screen.getByRole('option', { name: 'OpenAI · gpt-5-search' }) as HTMLOptionElement
+    fireEvent.change(screen.getByLabelText('Answer engine for these assignments'), { target: { value: engine.value } })
+    fireEvent.click(screen.getByRole('button', { name: `Replace query assignments for ${QUERIES[0]!.query}` }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Clear selection' }).at(-1)!)
+    fireEvent.click(screen.getAllByLabelText('Select Property 002').at(-1)!)
+    fireEvent.click(screen.getByRole('button', { name: 'Replace with 1 Property' }))
+
+    await waitFor(() => expect(fake.service.replaceAssignments).toHaveBeenCalledTimes(1))
+    expect(fake.service.replaceAssignments).toHaveBeenCalledWith(PROJECT, '"mpd_7"', {
+      targetKeys: ['property-002'],
+      queryIds: [QUERIES[0]!.id],
+      contextOverride: { providers: ['openai'], models: { openai: 'gpt-5-search' } },
+    })
+  })
+
+  test('uses the selected assignment engine for one-query-per-Property pairs', async () => {
+    const route = 'openrouter:anthropic/claude-3.7-sonnet'
+    const targets = [property(1), property(2)]
+    const fake = createFakeService({ initialDraft: draftFixture({ targets }) })
+    const onCreateQueries = vi.fn(async (texts: readonly string[]) => (
+      texts.map((query, index) => ({ id: `created-${index + 1}`, query }))
+    ))
+    renderSection(fake, { onCreateQueries, executionProviders: [route] })
+
+    await advanceGroupsToQuestions()
+    fireEvent.change(screen.getByLabelText('Apply to'), { target: { value: 'specific' } })
+    fireEvent.click(screen.getByLabelText('Select Property 001'))
+    fireEvent.change(screen.getByLabelText('Answer engine for these assignments'), { target: { value: route } })
+    fireEvent.change(screen.getByLabelText('Query pattern'), { target: { value: 'events at {property}' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 query' }))
+
+    await waitFor(() => expect(fake.service.applyPairedAssignments).toHaveBeenCalledTimes(1))
+    expect(fake.service.applyPairedAssignments).toHaveBeenCalledWith(
+      PROJECT,
+      '"mpd_7"',
+      [{ targetKey: 'property-001', queryId: 'created-1' }],
+      { providers: [route], models: {} },
+    )
   })
 
   test('resets the audience when its selected group is removed', async () => {

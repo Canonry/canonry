@@ -7,9 +7,9 @@ const config: ProviderConfig = {
   quotaPolicy: { maxConcurrency: 1, maxRequestsPerMinute: 60, maxRequestsPerDay: 100 },
 }
 const input = { query: 'best widgets', canonicalDomains: ['example.com'], competitorDomains: [], location: { label: 'New York', city: 'New York', country: 'US' } }
-function response(annotations: unknown[] = [], searches?: number) {
+function response(annotations: unknown[] = [], searches?: number, usage: Record<string, unknown> = { input_tokens: 20, output_tokens: 5 }) {
   return { model: 'google/gemini-3.1-flash-lite-20260917', choices: [{ finish_reason: 'stop', message: { content: 'Northstar has widgets. https://uncited.example', annotations } }],
-    usage: { prompt_tokens: 20, completion_tokens: 5, ...(searches === undefined ? {} : { server_tool_use: { web_search_requests: searches } }) } }
+    usage: { ...usage, ...(searches === undefined ? {} : { server_tool_use: { web_search_requests: searches } }) } }
 }
 function json(value: unknown, status = 200, headers?: HeadersInit) {
   return new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json', ...headers } })
@@ -46,6 +46,16 @@ test('prose URLs are not citations and missing search evidence stays unknown', a
   expect(raw.servedModel).toBe('google/gemini-3.1-flash-lite-20260917')
 })
 
+test('legacy chat-completions token fields remain compatible', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => json(response([], 1, {
+    prompt_tokens: 20,
+    completion_tokens: 5,
+    prompt_tokens_details: { cached_tokens: 3 },
+  }))))
+  const raw = await openrouterAdapter.executeTrackedQuery(input, config)
+  expect(raw.usage).toEqual({ inputTokens: 17, cachedInputTokens: 3, cacheWriteTokens: 0, outputTokens: 5, searchCount: 1 })
+})
+
 test('connection health and catalog use metadata calls and expose usable text models', async () => {
   const transport = vi.fn(async (url: string, init?: RequestInit) => {
     expect(init?.method).toBe('GET')
@@ -55,12 +65,15 @@ test('connection health and catalog use metadata calls and expose usable text mo
       { id: 'openrouter/auto', supported_parameters: ['tools'] },
       { id: 'openrouter/free', supported_parameters: ['tools'] },
       { id: 'vendor/image', architecture: { output_modalities: ['image'] }, supported_parameters: ['tools'] },
-      { id: 'vendor/no-tools', architecture: { output_modalities: ['text'] }, supported_parameters: [] },
+      { id: 'vendor/no-tools', name: 'Server-search fallback', architecture: { output_modalities: ['text'] }, supported_parameters: [] },
     ] })
   })
   vi.stubGlobal('fetch', transport)
   expect((await openrouterAdapter.healthcheck({ ...config, provider: 'openrouter', model: undefined })).ok).toBe(true)
-  expect(await openrouterAdapter.listModels!(config, AbortSignal.timeout(3000))).toEqual([{ id: config.model, displayName: 'Gemini', tier: 'standard' }])
+  expect(await openrouterAdapter.listModels!(config, AbortSignal.timeout(3000))).toEqual([
+    { id: config.model, displayName: 'Gemini', tier: 'standard' },
+    { id: 'vendor/no-tools', displayName: 'Server-search fallback', tier: 'standard' },
+  ])
   expect(transport.mock.calls.map(([url]) => url)).toEqual(['https://openrouter.ai/api/v1/auth/key', 'https://openrouter.ai/api/v1/models'])
 })
 

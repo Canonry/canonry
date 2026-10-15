@@ -8557,6 +8557,24 @@ export type MeasurementDraftPreviewGroupMembershipResponse = {
     };
 };
 
+export type MeasurementDraftPreviewMarketRoutingResponse = {
+    draftEtag: string;
+    markets: Array<{
+        marketKey: string;
+        label: string;
+        matchedEdges: number;
+        changedEdges: number;
+    }>;
+    matchedEdges: number;
+    changedEdges: number;
+    execution: {
+        addedNodes: number;
+        addedProviderCalls: number;
+        fullRunNodes: number;
+        fullRunProviderCalls: number;
+    };
+};
+
 export type MeasurementDraftRebindTargetRequest = {
     targetKey: string;
     discoveryIdentity: string;
@@ -8590,6 +8608,18 @@ export type MeasurementDraftReplaceAssignmentsRequest = {
             [key: string]: string;
         };
         locations?: Array<string>;
+    };
+};
+
+export type MeasurementDraftRouteMarketsRequest = {
+    marketKeys: Array<string>;
+    targetKeys?: Array<string>;
+    queryIds?: Array<string>;
+    contextOverride: {
+        providers: Array<string>;
+        models?: {
+            [key: string]: string;
+        };
     };
 };
 
@@ -17512,6 +17542,108 @@ export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsApplyPairedAssignm
 
 export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsApplyPairedAssignmentsResponse = PostApiV1ProjectsByNameMeasurementPlanDraftActionsApplyPairedAssignmentsResponses[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsApplyPairedAssignmentsResponses];
 
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsData = {
+    body: MeasurementDraftRouteMarketsRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/measurement-plan/draft/actions/preview-route-markets';
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsErrors = {
+    /**
+     * The action payload is invalid.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The caller may read the draft but not mutate it.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or draft not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * The preview request budget has been exceeded.
+     */
+    429: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsError = PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsErrors[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsErrors];
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsResponses = {
+    /**
+     * Matched market edges and execution impact returned.
+     */
+    200: MeasurementDraftPreviewMarketRoutingResponse;
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsResponse = PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsResponses[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsResponses];
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsData = {
+    body: MeasurementDraftRouteMarketsRequest;
+    headers: {
+        /**
+         * Current draft ETag. Missing returns 428; stale returns 412.
+         */
+        'If-Match': string;
+        /**
+         * Replay key. The same key with a different request body returns 409.
+         */
+        'Idempotency-Key': string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/measurement-plan/draft/actions/route-markets';
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsErrors = {
+    /**
+     * The action payload is invalid.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The caller may read the draft but not mutate it.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or draft not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * The idempotency key was already used with a different request body.
+     */
+    409: ErrorEnvelope;
+    /**
+     * The draft changed since it was loaded.
+     */
+    412: ErrorEnvelope;
+    /**
+     * The draft ETag was not supplied in `If-Match`.
+     */
+    428: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsError = PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsErrors[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsErrors];
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsResponses = {
+    /**
+     * Draft mutated; the new ETag and counts are returned.
+     */
+    200: MeasurementDraftMutationResponse;
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsResponse = PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsResponses[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsResponses];
+
 export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsRemoveAssignmentData = {
     body: MeasurementDraftRemoveAssignmentRequest;
     headers: {
@@ -20720,7 +20852,10 @@ export type PostApiV1ProjectsByNameQueriesReplacePreviewResponse = PostApiV1Proj
 
 export type PostApiV1ProjectsByNameQueriesGenerateData = {
     body: {
-        provider: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'muse' | 'local';
+        /**
+         * Configured sweep provider. OpenRouter models use `openrouter:publisher/model`; the bare `openrouter` connection is not executable.
+         */
+        provider: string;
         count?: number;
     };
     path: {
@@ -20852,7 +20987,10 @@ export type PutApiV1ProjectsByNameKeywordsResponse = PutApiV1ProjectsByNameKeywo
 
 export type PostApiV1ProjectsByNameKeywordsGenerateData = {
     body: {
-        provider: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'muse' | 'local';
+        /**
+         * Configured sweep provider. OpenRouter models use `openrouter:publisher/model`; the bare `openrouter` connection is not executable.
+         */
+        provider: string;
         count?: number;
     };
     path: {
@@ -22320,9 +22458,9 @@ export type PutApiV1SettingsProvidersByNameData = {
     };
     path: {
         /**
-         * Provider name.
+         * Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.
          */
-        name: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'muse' | 'local';
+        name: string;
     };
     query?: never;
     url: '/api/v1/settings/providers/{name}';

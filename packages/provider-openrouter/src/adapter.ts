@@ -72,10 +72,12 @@ function parseResponse(body: Record<string, unknown>, model: string, provider = 
   if (typeof message?.content !== 'string' || !message.content.trim()) throw new Error('OpenRouter returned no answer text')
   const groundingSources = sourcesOf(body)
   const usage = asRecord(body.usage)
-  const details = asRecord(usage?.prompt_tokens_details)
+  const details = asRecord(usage?.input_tokens_details) ?? asRecord(usage?.prompt_tokens_details)
   const choice = Array.isArray(body.choices) ? asRecord(body.choices[0]) : undefined
   const cached = usageCount(details?.cached_tokens)
   const searchCount = usageCount(asRecord(usage?.server_tool_use)?.web_search_requests)
+  const inputTokens = usage?.input_tokens === undefined ? usageCount(usage?.prompt_tokens) : usageCount(usage.input_tokens)
+  const outputTokens = usage?.output_tokens === undefined ? usageCount(usage?.completion_tokens) : usageCount(usage.output_tokens)
   return {
     provider, model, servedModel: normalizeServedModel(body.model), rawResponse: body,
     groundingSources, searchQueries: [],
@@ -83,8 +85,8 @@ function parseResponse(body: Record<string, unknown>, model: string, provider = 
     retrievalStatus: searchCount > 0 || groundingSources.length ? RetrievalStatuses.used : RetrievalStatuses.unknown,
     ...(typeof choice?.finish_reason === 'string' ? { stopReason: choice.finish_reason } : {}),
     ...(usage ? { usage: {
-      inputTokens: Math.max(0, usageCount(usage.prompt_tokens) - cached), cachedInputTokens: cached,
-      cacheWriteTokens: 0, outputTokens: usageCount(usage.completion_tokens), searchCount,
+      inputTokens: Math.max(0, inputTokens - cached), cachedInputTokens: cached,
+      cacheWriteTokens: 0, outputTokens, searchCount,
     } } : {}),
   }
 }
@@ -134,7 +136,6 @@ export const openrouterAdapter: ProviderAdapter = {
       const architecture = asRecord(model.architecture)
       const output = architecture?.output_modalities
       if (Array.isArray(output) && !output.includes('text')) return []
-      if (Array.isArray(model.supported_parameters) && !model.supported_parameters.includes('tools')) return []
       return [{ id: model.id, displayName: typeof model.name === 'string' ? model.name : model.id, tier: 'standard' as const }]
     })
   },

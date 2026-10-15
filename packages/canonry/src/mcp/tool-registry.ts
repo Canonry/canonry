@@ -346,6 +346,8 @@ const measurementDraftActionOpenApiOperations = [
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-assignments',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/replace-assignments',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/apply-paired-assignments',
+  'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-route-markets',
+  'POST /api/v1/projects/{name}/measurement-plan/draft/actions/route-markets',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/remove-assignment',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/clear-assignments',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/classify-assignments',

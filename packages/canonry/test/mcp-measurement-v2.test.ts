@@ -121,6 +121,38 @@ const draftActionCasesRaw = [
     args: [project, { pairs: [{ targetKey: 'target-a', queryId: 'query-a' }] }, idempotencyKey, etag],
   },
   {
+    action: 'preview-route-markets',
+    input: {
+      project,
+      action: 'preview-route-markets',
+      request: { marketKeys: ['market-a'], contextOverride: { providers: ['openai'], models: { openai: 'gpt-5' } } },
+    },
+    method: 'previewMeasurementDraftMarketRouting',
+    args: [project, { marketKeys: ['market-a'], contextOverride: { providers: ['openai'], models: { openai: 'gpt-5' } } }],
+  },
+  {
+    action: 'route-markets',
+    input: {
+      project,
+      action: 'route-markets',
+      request: {
+        marketKeys: ['market-a'],
+        targetKeys: ['target-a'],
+        queryIds: ['query-a'],
+        contextOverride: { providers: ['openai'], models: { openai: 'gpt-5' } },
+      },
+      etag,
+      idempotencyKey,
+    },
+    method: 'routeMeasurementDraftMarkets',
+    args: [project, {
+      marketKeys: ['market-a'],
+      targetKeys: ['target-a'],
+      queryIds: ['query-a'],
+      contextOverride: { providers: ['openai'], models: { openai: 'gpt-5' } },
+    }, idempotencyKey, etag],
+  },
+  {
     action: 'remove-assignment',
     input: { project, action: 'remove-assignment', request: { targetKey: 'target-a', queryId: 'query-a' }, etag, idempotencyKey },
     method: 'removeMeasurementDraftAssignment',
@@ -390,6 +422,8 @@ function makeClient() {
     previewMeasurementDraftAssignments: vi.fn().mockResolvedValue({}),
     replaceMeasurementDraftAssignments: vi.fn().mockResolvedValue({}),
     applyPairedMeasurementDraftAssignments: vi.fn().mockResolvedValue({}),
+    previewMeasurementDraftMarketRouting: vi.fn().mockResolvedValue({}),
+    routeMeasurementDraftMarkets: vi.fn().mockResolvedValue({}),
     removeMeasurementDraftAssignment: vi.fn().mockResolvedValue({}),
     clearMeasurementDraftAssignments: vi.fn().mockResolvedValue({}),
     classifyMeasurementDraftAssignments: vi.fn().mockResolvedValue({}),
@@ -529,6 +563,18 @@ describe('Advanced Measurement v2 MCP tools', () => {
     expect(schema.safeParse({ project, operation: { action: 'compile-preview' } }).success).toBe(true)
     expect(schema.safeParse({ project, operation: { action: 'compile-preview', etag } }).success).toBe(false)
     expect(schema.safeParse({ project, operation: { action: 'diff-preview', idempotencyKey } }).success).toBe(false)
+    expect(schema.safeParse({
+      project,
+      operation: {
+        action: 'route-markets',
+        request: {
+          marketKeys: ['market-a'],
+          contextOverride: { providers: ['openai'], locations: ['Boston'] },
+        },
+        etag,
+        idempotencyKey,
+      },
+    }).success).toBe(false)
     expect(schema.safeParse({
       project,
       operation: {

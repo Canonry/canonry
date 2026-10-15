@@ -3,11 +3,13 @@ import { extractErrorMessage } from '../../../lib/extract-error-message.js'
 import type {
   MeasurementDraftAuthoring,
   MeasurementDraftCompileCheck,
+  MeasurementDraftContextOverride,
   MeasurementDraftDiff,
   MeasurementDraftResponse,
   MeasurementDraftWarning,
   MeasurementSetupResponse,
 } from '@ainyc/canonry-contracts'
+import { isOpenRouterRoute, isSweepProvider } from '@ainyc/canonry-contracts'
 import type { QueryDto } from '@ainyc/canonry-api-client'
 import type { MeasurementPlanResponse } from '@ainyc/canonry-api-client'
 
@@ -22,8 +24,11 @@ import type {
   AdvancedMeasurementFlaggedException,
   AdvancedMeasurementAudience,
   AdvancedMeasurementAssignmentImpact,
+  AdvancedMeasurementExecutionOption,
   AdvancedMeasurementGroup,
   AdvancedMeasurementGroupDraft,
+  AdvancedMeasurementMarketRoutingImpact,
+  AdvancedMeasurementMarketRoutingOption,
   AdvancedMeasurementProperty as SetupProperty,
   AdvancedMeasurementQuery,
 } from './SetupQueriesGroupsReview.js'
@@ -36,8 +41,11 @@ import {
   type GroupMembershipPreview,
   type MeasurementAudienceAssignmentInput,
   type MeasurementAudienceAssignmentPreview,
+  type MeasurementMarketRoutingInput,
+  type MeasurementMarketRoutingPreview,
   type SitemapImportInput,
 } from './service.js'
+import { providerDisplayName } from '../../../lib/visibility-trend-helpers.js'
 
 type SetupStep = 'import' | 'properties' | 'groups' | 'queries' | 'review'
 type Draft = NonNullable<MeasurementDraftResponse['draft']>
@@ -61,6 +69,9 @@ export interface AdvancedMeasurementSectionProps {
   canEdit?: boolean
   /** A queued or running sweep is pinned to the current plan, so Publish waits for it. */
   sweepActive?: boolean
+  /** Current project engines remain available when a frozen portfolio draft uses older defaults. */
+  executionProviders?: readonly string[]
+  executionProviderModels?: Readonly<Record<string, string>>
   /** Adds tracked queries to the project from inside setup. */
   /** Returns the project's queries AFTER the write, so a pairing can resolve text -> id. */
   onCreateQueries?: (texts: readonly string[]) => Promise<readonly { id: string; query: string }[]>
@@ -84,6 +95,8 @@ const DEFAULT_GROUP_DRAFT: AdvancedMeasurementGroupDraft = {
   competitorDomains: '',
 }
 const DEFAULT_VISIBLE_PROPERTIES = 50
+const EMPTY_EXECUTION_PROVIDERS: readonly string[] = []
+const EMPTY_EXECUTION_PROVIDER_MODELS: Readonly<Record<string, string>> = {}
 
 function normalizedHost(value: string): string | null {
   const candidate = value.trim()
@@ -697,14 +710,21 @@ function assignmentInputFor(
   audience: AdvancedMeasurementAudience,
   allTargetKeys: readonly string[],
   queryIds: readonly string[],
+  contextOverride?: MeasurementDraftContextOverride,
 ): MeasurementAudienceAssignmentInput {
   if (audience.kind === 'groups') {
-    return { groupKeys: uniqueSorted(audience.groupIds), queryIds: uniqueSorted(queryIds) }
+    return { groupKeys: uniqueSorted(audience.groupIds), queryIds: uniqueSorted(queryIds), ...(contextOverride ? { contextOverride } : {}) }
   }
   return {
     targetKeys: uniqueSorted(audience.kind === 'all' ? allTargetKeys : audience.kind === 'specific' ? audience.propertyIds : []),
     queryIds: uniqueSorted(queryIds),
+    ...(contextOverride ? { contextOverride } : {}),
   }
+}
+
+/** A direct provider may appear with several frozen models in one portfolio. */
+function executionOptionIdentity(provider: string, model: string | undefined): string {
+  return model === undefined ? provider : JSON.stringify([provider, model])
 }
 
 function assignmentImpactFor(preview: MeasurementAudienceAssignmentPreview): AdvancedMeasurementAssignmentImpact {
@@ -799,6 +819,8 @@ export function AdvancedMeasurementSection({
   publishedPlan,
   canEdit = true,
   sweepActive = false,
+  executionProviders = EMPTY_EXECUTION_PROVIDERS,
+  executionProviderModels = EMPTY_EXECUTION_PROVIDER_MODELS,
   onCreateQueries,
   onManageProjectQueries,
   onPublished,
@@ -818,6 +840,15 @@ export function AdvancedMeasurementSection({
   const [includedPropertyIds, setIncludedPropertyIds] = useState<string[]>([])
   const [selectedQueryIds, setSelectedQueryIds] = useState<string[]>([])
   const [audience, setAudience] = useState<AdvancedMeasurementAudience>({ kind: 'none' })
+  const [assignmentExecutionOptionId, setAssignmentExecutionOptionId] = useState('')
+  const [marketId, setMarketId] = useState('')
+  const [marketExecutionOptionId, setMarketExecutionOptionId] = useState('')
+  const [marketRoutingPreview, setMarketRoutingPreview] = useState<MeasurementMarketRoutingPreview | null>(null)
+  const [marketRoutingPreviewSelectionKey, setMarketRoutingPreviewSelectionKey] = useState<string | null>(null)
+  const [isPreviewingMarketRouting, setIsPreviewingMarketRouting] = useState(false)
+  const [marketRoutingError, setMarketRoutingError] = useState<string | null>(null)
+  const [marketRoutingPreviewRetry, setMarketRoutingPreviewRetry] = useState(0)
+  const [marketRoutingNotice, setMarketRoutingNotice] = useState<string | null>(null)
   const [assignmentPreview, setAssignmentPreview] = useState<MeasurementAudienceAssignmentPreview | null>(null)
   const [assignmentPreviewSelectionKey, setAssignmentPreviewSelectionKey] = useState<string | null>(null)
   const [isPreviewingAssignment, setIsPreviewingAssignment] = useState(false)
@@ -837,6 +868,7 @@ export function AdvancedMeasurementSection({
   const [reviewed, setReviewed] = useState<ReviewedSetup | null>(null)
   const requestVersionRef = useRef(0)
   const assignmentPreviewVersionRef = useRef(0)
+  const marketRoutingPreviewVersionRef = useRef(0)
 
   const draft = draftResponse?.draft ?? null
   const etag = draftResponse?.etag ?? null
@@ -993,12 +1025,101 @@ export function AdvancedMeasurementSection({
     }))
   ), [viewDraft])
 
+  const setupMarkets = useMemo<AdvancedMeasurementMarketRoutingOption[]>(() => (
+    (viewDraft?.authoring.reportingScopes ?? []).map(market => ({
+      id: market.stableKey,
+      label: market.label,
+      measurementCount: market.usageEdges.length,
+    }))
+  ), [viewDraft])
+
+  const assignmentExecutionOptions = useMemo<AdvancedMeasurementExecutionOption[]>(() => {
+    const options = new Map<string, AdvancedMeasurementExecutionOption>()
+    const addOptions = (providers: readonly string[], models: Readonly<Record<string, string>> = {}) => {
+      for (const provider of providers) {
+        if (!isSweepProvider(provider)) continue
+        const model = isOpenRouterRoute(provider) ? undefined : models[provider]
+        const id = executionOptionIdentity(provider, model)
+        if (options.has(id)) continue
+        options.set(id, {
+          id,
+          provider,
+          label: model ? `${providerDisplayName(provider)} · ${model}` : providerDisplayName(provider),
+          ...(model ? { model } : {}),
+        })
+      }
+    }
+
+    addOptions(executionProviders, executionProviderModels)
+    const defaultContext = viewDraft?.authoring.defaultContext
+    if (defaultContext) addOptions(defaultContext.providers, defaultContext.models)
+    for (const assignment of viewDraft?.authoring.assignments ?? []) {
+      if (assignment.contextOverride) {
+        addOptions(
+          assignment.contextOverride.providers ?? defaultContext?.providers ?? [],
+          assignment.contextOverride.models ?? defaultContext?.models,
+        )
+      }
+      for (const context of assignment.executionContexts ?? []) addOptions(context.providers, context.models)
+    }
+    return [...options.values()]
+  }, [executionProviderModels, executionProviders, viewDraft])
+  const assignmentContextOverride = useMemo<MeasurementDraftContextOverride | undefined>(() => {
+    if (!assignmentExecutionOptionId) return undefined
+    const option = assignmentExecutionOptions.find(candidate => candidate.id === assignmentExecutionOptionId)
+    if (!option) return undefined
+    return {
+      providers: [option.provider],
+      models: option.model ? { [option.provider]: option.model } : {},
+    }
+  }, [assignmentExecutionOptionId, assignmentExecutionOptions])
+  const marketContextOverride = useMemo<MeasurementMarketRoutingInput['contextOverride'] | undefined>(() => {
+    if (!marketExecutionOptionId) return undefined
+    const option = assignmentExecutionOptions.find(candidate => candidate.id === marketExecutionOptionId)
+    if (!option) return undefined
+    return {
+      providers: [option.provider],
+      models: option.model ? { [option.provider]: option.model } : {},
+    }
+  }, [assignmentExecutionOptions, marketExecutionOptionId])
+  const marketRoutingInput = useMemo<MeasurementMarketRoutingInput | null>(() => (
+    marketId && marketContextOverride
+      ? { marketKeys: [marketId], contextOverride: marketContextOverride }
+      : null
+  ), [marketContextOverride, marketId])
+  const marketRoutingSelectionKey = marketRoutingInput ? JSON.stringify(marketRoutingInput) : ''
+  const marketRoutingImpact = useMemo<AdvancedMeasurementMarketRoutingImpact | null>(() => {
+    if (!marketRoutingPreview || marketRoutingPreviewSelectionKey !== marketRoutingSelectionKey || marketRoutingPreview.draftEtag !== etag) return null
+    return {
+      matchedMeasurements: marketRoutingPreview.matchedEdges,
+      changedMeasurements: marketRoutingPreview.changedEdges,
+      addedProviderCalls: marketRoutingPreview.execution.addedProviderCalls,
+      fullRunProviderCalls: marketRoutingPreview.execution.fullRunProviderCalls,
+    }
+  }, [etag, marketRoutingPreview, marketRoutingPreviewSelectionKey, marketRoutingSelectionKey])
+
+  useEffect(() => {
+    if (assignmentExecutionOptionId && !assignmentExecutionOptions.some(option => option.id === assignmentExecutionOptionId)) {
+      setAssignmentExecutionOptionId('')
+    }
+  }, [assignmentExecutionOptionId, assignmentExecutionOptions])
+
+  useEffect(() => {
+    if (marketExecutionOptionId && !assignmentExecutionOptions.some(option => option.id === marketExecutionOptionId)) {
+      setMarketExecutionOptionId('')
+    }
+  }, [assignmentExecutionOptions, marketExecutionOptionId])
+
+  useEffect(() => {
+    if (marketId && !setupMarkets.some(market => market.id === marketId)) setMarketId('')
+  }, [marketId, setupMarkets])
+
   const assignmentPreviewInput = useMemo<MeasurementAudienceAssignmentInput | null>(() => {
     if (selectedQueryIds.length === 0) return null
-    const input = assignmentInputFor(audience, confirmedProperties.map(property => property.id), selectedQueryIds)
+    const input = assignmentInputFor(audience, confirmedProperties.map(property => property.id), selectedQueryIds, assignmentContextOverride)
     const targetCount = input.groupKeys?.length ?? input.targetKeys?.length ?? 0
     return targetCount > 0 ? input : null
-  }, [audience, confirmedProperties, selectedQueryIds])
+  }, [assignmentContextOverride, audience, confirmedProperties, selectedQueryIds])
   const assignmentPreviewKey = assignmentPreviewInput ? JSON.stringify(assignmentPreviewInput) : ''
 
   useEffect(() => {
@@ -1044,6 +1165,46 @@ export function AdvancedMeasurementSection({
       assignmentPreviewVersionRef.current += 1
     }
   }, [assignmentPreviewInput, assignmentPreviewKey, assignmentPreviewRetry, canEdit, draft, etag, projectName, service])
+
+  useEffect(() => {
+    const request = marketRoutingInput
+    const requestVersion = ++marketRoutingPreviewVersionRef.current
+    if (!canEdit || !draft || !etag || !request) {
+      setMarketRoutingPreview(null)
+      setMarketRoutingPreviewSelectionKey(null)
+      setMarketRoutingError(null)
+      setIsPreviewingMarketRouting(false)
+      return
+    }
+
+    setMarketRoutingPreview(null)
+    setMarketRoutingPreviewSelectionKey(null)
+    setMarketRoutingError(null)
+    setIsPreviewingMarketRouting(true)
+    const timer = window.setTimeout(() => {
+      void service.previewMarketRouting(projectName, request)
+        .then(preview => {
+          if (requestVersion !== marketRoutingPreviewVersionRef.current) return
+          if (preview.draftEtag !== etag) {
+            setMarketRoutingError('The setup changed while calculating market impact. Refresh the draft and try again.')
+            return
+          }
+          setMarketRoutingPreview(preview)
+          setMarketRoutingPreviewSelectionKey(marketRoutingSelectionKey)
+        })
+        .catch(error => {
+          if (requestVersion !== marketRoutingPreviewVersionRef.current) return
+          setMarketRoutingError(setupErrorMessage(error, 'Could not calculate market routing impact.'))
+        })
+        .finally(() => {
+          if (requestVersion === marketRoutingPreviewVersionRef.current) setIsPreviewingMarketRouting(false)
+        })
+    }, 250)
+    return () => {
+      window.clearTimeout(timer)
+      marketRoutingPreviewVersionRef.current += 1
+    }
+  }, [canEdit, draft, etag, marketRoutingInput, marketRoutingPreviewRetry, marketRoutingSelectionKey, projectName, service])
 
   const reviewFlags = useMemo<AdvancedMeasurementFlaggedException[]>(() => [
     ...(assignmentCount === 0 ? [{
@@ -1148,8 +1309,8 @@ export function AdvancedMeasurementSection({
 
   async function applySelectedQueries(selection: { queryIds: readonly string[]; propertyIds: readonly string[]; groupIds?: readonly string[] }): Promise<void> {
     const input: MeasurementAudienceAssignmentInput = selection.groupIds && selection.groupIds.length > 0
-      ? { groupKeys: uniqueSorted(selection.groupIds), queryIds: uniqueSorted(selection.queryIds) }
-      : { targetKeys: uniqueSorted(selection.propertyIds), queryIds: uniqueSorted(selection.queryIds) }
+      ? { groupKeys: uniqueSorted(selection.groupIds), queryIds: uniqueSorted(selection.queryIds), ...(assignmentContextOverride ? { contextOverride: assignmentContextOverride } : {}) }
+      : { targetKeys: uniqueSorted(selection.propertyIds), queryIds: uniqueSorted(selection.queryIds), ...(assignmentContextOverride ? { contextOverride: assignmentContextOverride } : {}) }
     if (!assignmentPreview || assignmentPreviewSelectionKey !== JSON.stringify(input)
       || !etag || assignmentPreview.draftEtag !== etag) {
       setActionError('Review the latest assignment impact before assigning queries.')
@@ -1173,6 +1334,7 @@ export function AdvancedMeasurementSection({
       currentEtag => service.replaceAssignments(projectName, currentEtag, {
         targetKeys: unique(selection.propertyIds),
         queryIds: [selection.queryId],
+        ...(assignmentContextOverride ? { contextOverride: assignmentContextOverride } : {}),
       }),
       'Could not replace this query assignment.',
     )
@@ -1180,6 +1342,21 @@ export function AdvancedMeasurementSection({
       setSelectedQueryIds(current => current.filter(queryId => queryId !== selection.queryId))
       setAssignmentNotice('Query assignments replaced.')
     }
+  }
+
+  async function routeSelectedMarket(): Promise<void> {
+    if (!marketRoutingInput || !marketRoutingPreview || marketRoutingPreviewSelectionKey !== JSON.stringify(marketRoutingInput)
+      || !etag || marketRoutingPreview.draftEtag !== etag) {
+      setActionError('Review the latest market routing impact before saving.')
+      return
+    }
+    const market = setupMarkets.find(candidate => candidate.id === marketId)
+    const next = await mutate(
+      'route-markets',
+      currentEtag => service.routeMarkets(projectName, currentEtag, marketRoutingInput),
+      'Could not save this market routing.',
+    )
+    if (next) setMarketRoutingNotice(`${market?.label ?? 'Market'} routing saved. Existing locations were preserved.`)
   }
 
   /**
@@ -1198,7 +1375,9 @@ export function AdvancedMeasurementSection({
     if (pairs.length === 0) return
     const next = await mutate(
       'paired-assignments',
-      currentEtag => service.applyPairedAssignments(projectName, currentEtag, [...pairs]),
+      currentEtag => assignmentContextOverride
+        ? service.applyPairedAssignments(projectName, currentEtag, [...pairs], assignmentContextOverride)
+        : service.applyPairedAssignments(projectName, currentEtag, [...pairs]),
       'Could not assign these queries.',
       { preserveBusyAction },
     )
@@ -1628,6 +1807,30 @@ export function AdvancedMeasurementSection({
               setAudience(nextAudience)
               setAssignmentNotice(null)
             },
+            executionOptions: assignmentExecutionOptions,
+            executionOptionId: assignmentExecutionOptionId,
+            onExecutionOptionChange: optionId => {
+              setAssignmentExecutionOptionId(optionId)
+              setAssignmentNotice(null)
+            },
+            markets: setupMarkets,
+            marketId,
+            onMarketChange: nextMarketId => {
+              setMarketId(nextMarketId)
+              setMarketRoutingNotice(null)
+            },
+            marketExecutionOptionId,
+            onMarketExecutionOptionChange: optionId => {
+              setMarketExecutionOptionId(optionId)
+              setMarketRoutingNotice(null)
+            },
+            onRouteMarket: routeSelectedMarket,
+            isRoutingMarket: busyAction === 'route-markets',
+            isPreviewingMarketRouting,
+            marketRoutingImpact,
+            marketRoutingError,
+            onRetryMarketRouting: () => setMarketRoutingPreviewRetry(value => value + 1),
+            marketRoutingNotice,
             assignmentImpact: assignmentPreview && assignmentPreviewSelectionKey === assignmentPreviewKey && assignmentPreview.draftEtag === etag
               ? assignmentImpactFor(assignmentPreview)
               : null,

@@ -2888,6 +2888,8 @@ function ProjectPageContent({
           onRetryQueries={() => { void portfolioQueriesQuery.refetch() }}
           publishedPlan={activeMeasurementPlan}
           sweepActive={hasActiveVisibilitySweep}
+          executionProviders={model.project.providers}
+          executionProviderModels={model.project.providerModels}
           onCreateQueries={async texts => {
             // The shared mutation carries the write guard and invalidates both
             // the projects list and the per-project detail. Calling the raw

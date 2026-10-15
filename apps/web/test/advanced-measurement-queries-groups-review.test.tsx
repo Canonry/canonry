@@ -931,9 +931,9 @@ test('review states why assignments outrun queries, and never puts a button name
   // a value rather than as "not computed yet".
   expect(screen.queryByText('Review changes', { selector: 'td' })).toBeNull()
 
-  // One query aimed at a market writes one assignment per Property in it, so
+  // One query applied to a group writes one assignment per Property in it, so
   // 1 query and 3 assignments is correct and needs saying.
-  expect(screen.getByText(/a query aimed at a market is measured on every Property in it/)).toBeTruthy()
+  expect(screen.getByText(/Queries applied to groups create one assignment for every Property in each group/)).toBeTruthy()
 })
 
 test('the assignment impact slot keeps a reserved height so ticking a box cannot move the table', () => {

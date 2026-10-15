@@ -410,7 +410,7 @@ function buildDefaultDeps(registry: ProviderRegistry, classifierConfig?: Pick<Ca
         : await getSharedProviderExecutionGate(classifierProvider, quota.maxConcurrency, quota.maxRequestsPerMinute).run(generate)
       if (response.stopReason === 'error' || response.stopReason === 'aborted') throw new Error('The domain classifier did not complete.')
       const text = response.content.filter(part => part.type === 'text').map(part => part.text).join('\n')
-      return { classifications: parseClassificationResponse(text, input.domains), evaluator: { provider: classifierProvider, requestedModel: classifierModel.id, servedModel: null, promptVersion: 'domain-category-v1' } }
+      return { classifications: parseClassificationResponse(text, input.domains), evaluator: { provider: classifierProvider, requestedModel: classifierModel.id, servedModel: response.responseModel ?? null, promptVersion: 'domain-category-v1' } }
     },
   }
 }

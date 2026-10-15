@@ -311,6 +311,114 @@ test('scoped keys may reuse saved OpenRouter routes but need settings.write to i
     const savedRun = await app.inject({ method: 'POST', url: '/api/v1/projects/route-authority/runs', headers: writerHeaders, payload: { providers: [route] } })
     expect(savedRun.statusCode, savedRun.body).toBe(201)
     expect(db.select().from(runs).all()).toHaveLength(1)
+    db.update(runs).set({ status: 'completed', finishedAt: new Date().toISOString() }).run()
+
+    const compile = async () => app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/route-authority/measurement-plan/draft/actions/compile-preview',
+      headers: writerHeaders,
+      payload: {},
+    })
+    const firstCompiled = await compile()
+    expect(firstCompiled.statusCode, firstCompiled.body).toBe(200)
+    const firstPublish = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/route-authority/measurement-plan/draft/actions/publish',
+      headers: { ...settingsHeaders, 'idempotency-key': 'route-publish-first', 'if-match': assignSaved.json().etag as string },
+      payload: { expectedActiveRevision: null, expectedCompiledChecksum: firstCompiled.json().compiledChecksum },
+    })
+    expect(firstPublish.statusCode, firstPublish.body).toBe(200)
+    expect(firstPublish.json()).toMatchObject({ published: true, active: { revision: 1 } })
+
+    const narrowed = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/projects/route-authority',
+      headers: writerHeaders,
+      payload: { providers: ['openai'] },
+    })
+    expect(narrowed.statusCode, narrowed.body).toBe(200)
+
+    const researchCatalog = await app.inject({
+      method: 'GET', url: '/api/v1/projects/route-authority/research/runs', headers: writerHeaders,
+    })
+    expect(researchCatalog.statusCode, researchCatalog.body).toBe(200)
+    expect(researchCatalog.json().providers).toContainEqual(expect.objectContaining({
+      name: route,
+      defaultModel: 'google/gemini-2.5-flash',
+    }))
+    const activeRouteResearch = await app.inject({
+      method: 'POST', url: '/api/v1/projects/route-authority/research/runs', headers: writerHeaders,
+      payload: { queries: ['active route research'], provider: route },
+    })
+    expect(activeRouteResearch.statusCode, activeRouteResearch.body).toBe(202)
+    expect(activeRouteResearch.json()).toMatchObject({ provider: route, resolvedModel: 'google/gemini-2.5-flash' })
+    const activeRouteBatch = await app.inject({
+      method: 'POST', url: '/api/v1/projects/route-authority/research/batches', headers: writerHeaders,
+      payload: {
+        idempotencyKey: 'active-route-batch',
+        runs: [{ queries: ['active route batch research'], provider: route, model: 'google/gemini-2.5-flash', location: null }],
+      },
+    })
+    expect(activeRouteBatch.statusCode, activeRouteBatch.body).toBe(202)
+
+    const unchangedDraft = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/route-authority/measurement-plan/draft/actions/create',
+      headers: { ...writerHeaders, 'idempotency-key': 'route-republish-draft' },
+      payload: { expectedActiveRevision: 1 },
+    })
+    expect(unchangedDraft.statusCode, unchangedDraft.body).toBe(200)
+    const unchangedCompiled = await compile()
+    expect(unchangedCompiled.statusCode, unchangedCompiled.body).toBe(200)
+    const republished = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/route-authority/measurement-plan/draft/actions/publish',
+      headers: { ...writerHeaders, 'idempotency-key': 'route-republish', 'if-match': unchangedDraft.json().etag as string },
+      payload: { expectedActiveRevision: 1, expectedCompiledChecksum: unchangedCompiled.json().compiledChecksum },
+    })
+    expect(republished.statusCode, republished.body).toBe(200)
+    expect(republished.json()).toMatchObject({ published: false, active: { revision: 1 } })
+
+    const nextRoute = 'openrouter:anthropic/claude-sonnet-4.6'
+    const unsavedResearch = await app.inject({
+      method: 'POST', url: '/api/v1/projects/route-authority/research/runs', headers: writerHeaders,
+      payload: { queries: ['unsaved route research'], provider: nextRoute },
+    })
+    expect(unsavedResearch.statusCode, unsavedResearch.body).toBe(403)
+    expect(unsavedResearch.json().error.message).toContain('settings.write')
+    const unsavedResearchBatch = await app.inject({
+      method: 'POST', url: '/api/v1/projects/route-authority/research/batches', headers: writerHeaders,
+      payload: {
+        idempotencyKey: 'unsaved-route-batch',
+        runs: [{ queries: ['unsaved route batch research'], provider: nextRoute, model: 'anthropic/claude-sonnet-4.6', location: null }],
+      },
+    })
+    expect(unsavedResearchBatch.statusCode, unsavedResearchBatch.body).toBe(403)
+    expect(unsavedResearchBatch.json().error.message).toContain('settings.write')
+    const changedDraft = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/route-authority/measurement-plan/draft/actions/create',
+      headers: { ...writerHeaders, 'idempotency-key': 'route-change-draft' },
+      payload: { expectedActiveRevision: 1 },
+    })
+    expect(changedDraft.statusCode, changedDraft.body).toBe(200)
+    const changedAssignment = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/route-authority/measurement-plan/draft/actions/apply-assignments',
+      headers: { ...settingsHeaders, 'idempotency-key': 'route-change-assignment', 'if-match': changedDraft.json().etag as string },
+      payload: { ...assignment, contextOverride: { providers: [nextRoute] } },
+    })
+    expect(changedAssignment.statusCode, changedAssignment.body).toBe(200)
+    const changedCompiled = await compile()
+    expect(changedCompiled.statusCode, changedCompiled.body).toBe(200)
+    const changedPublish = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/route-authority/measurement-plan/draft/actions/publish',
+      headers: { ...writerHeaders, 'idempotency-key': 'route-change-publish', 'if-match': changedAssignment.json().etag as string },
+      payload: { expectedActiveRevision: 1, expectedCompiledChecksum: changedCompiled.json().compiledChecksum },
+    })
+    expect(changedPublish.statusCode, changedPublish.body).toBe(403)
+    expect(changedPublish.json().error).toMatchObject({ code: 'FORBIDDEN', message: expect.stringContaining('settings.write') })
   } finally {
     await app.close()
     db.$client.close()

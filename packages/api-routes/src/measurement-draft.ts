@@ -24,6 +24,7 @@ import {
   measurementDraftEtagStale,
   measurementDraftPublishRequestSchema,
   measurementDraftPreviewAssignmentsRequestSchema,
+  measurementDraftRouteMarketsRequestSchema,
   measurementDraftPreviewGroupMembershipRequestSchema,
   measurementPlanDeactivateRequestSchema,
   measurementPlanRevisionConflict,
@@ -77,6 +78,7 @@ import {
   applyAssignmentsToAuthoring,
   assertMeasurementDraftAuthoringLimits,
   MEASUREMENT_DRAFT_ACTIONS,
+  routeMarketsInAuthoring,
   type DraftActionContext,
 } from './measurement-draft-actions.js'
 import {
@@ -142,6 +144,12 @@ function draftExecutionProviders(authoring: MeasurementDraftAuthoring): string[]
   ]
 }
 
+function storedPlanExecutionProviders(plan: StoredMeasurementPlan): string[] {
+  return plan.schemaVersion === 2
+    ? plan.executionNodes.flatMap(node => node.context.providers)
+    : []
+}
+
 function trackedQueriesFor(db: DatabaseClient, projectId: string): Array<{ id: string; query: string }> {
   return db.select({ id: queries.id, query: queries.query })
     .from(queries).where(eq(queries.projectId, projectId)).all()
@@ -161,6 +169,7 @@ function actionContextFor(db: DatabaseClient, project: ProjectRow): DraftActionC
   return {
     brandNames: effectiveBrandNames(project),
     queriesById: new Map(trackedQueriesFor(db, project.id).map(query => [query.id, query.query])),
+    locationsByLabel: new Map(project.locations.map(location => [location.label, location])),
   }
 }
 
@@ -974,6 +983,43 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     }
   })
 
+  app.post<{ Params: { name: string } }>('/projects/:name/measurement-plan/draft/actions/preview-route-markets', {
+    config: {
+      readSemantic: true,
+      rateLimit: { max: 30, timeWindow: '1 minute' },
+    },
+  }, async (request, reply) => {
+    requireScope(request, MEASUREMENT_PLAN_WRITE_SCOPE)
+    const project = resolveProject(app.db, request.params.name)
+    const parsed = measurementDraftRouteMarketsRequestSchema.safeParse(request.body)
+    if (!parsed.success) throw validationError('Invalid "preview-route-markets" payload', { issues: parsed.error.issues })
+    const row = requireDraft(project)
+    const before = parseStoredAuthoring(row.authoringJson)
+    const result = routeMarketsInAuthoring(before, parsed.data, actionContextFor(app.db, project))
+    assertMeasurementDraftAuthoringLimits(before, result.authoring)
+
+    const context = compileContextFor(app.db, project)
+    const current = compileMeasurementDraftAssignmentExecution(authoringForCompile(before, project, opts), context)
+    const candidate = compileMeasurementDraftAssignmentExecution(authoringForCompile(result.authoring, project, opts), context)
+    if (!current.ok || !candidate.ok) {
+      throw validationError('The selected market routing has invalid question or provider settings. Review it and try again.', {
+        displayToOperator: true,
+        currentChecks: current.checks,
+        candidateChecks: candidate.checks,
+      })
+    }
+
+    const draftEtag = measurementDraftEtag(row.etagVersion)
+    reply.header('etag', draftEtag)
+    return {
+      draftEtag,
+      markets: result.markets,
+      matchedEdges: result.matchedEdges,
+      changedEdges: result.changedEdges,
+      execution: assignmentExecutionImpact(current.plan, candidate.plan),
+    }
+  })
+
   app.post<{ Params: { name: string } }>('/projects/:name/measurement-plan/draft/actions/preview-group-membership', {
     bodyLimit: MEASUREMENT_GROUP_MEMBERSHIP_BODY_LIMIT,
     config: {
@@ -1179,7 +1225,14 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       if (!compiled.ok) {
         throw validationError('The measurement draft does not compile.', { checks: compiled.checks })
       }
-      assertOpenRouterRouteScope(request, compiled.plan.executionNodes.flatMap(node => node.context.providers), gate.project.providers)
+      const activeProviders = active
+        ? storedPlanExecutionProviders(parseStoredMeasurementPlanAnyVersion(active.canonicalJson))
+        : []
+      assertOpenRouterRouteScope(
+        request,
+        compiled.plan.executionNodes.flatMap(node => node.context.providers),
+        [...gate.project.providers, ...activeProviders],
+      )
       if (compiled.plan.compiledChecksum !== parsed.data.expectedCompiledChecksum) {
         throw measurementCompiledChecksumConflict(parsed.data.expectedCompiledChecksum, compiled.plan.compiledChecksum)
       }
