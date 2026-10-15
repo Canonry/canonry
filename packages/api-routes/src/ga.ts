@@ -33,6 +33,7 @@ import {
 } from '@canonry/canonry-integration-google-analytics'
 import type { GoogleConnectionStore } from './google.js'
 import { connectionRoute } from './connection-telemetry.js'
+import { createRefusalBackoff, createVerifyCache, verifyCacheKey } from './connection-verify-cache.js'
 import { refreshAccessToken } from '@canonry/canonry-integration-google'
 
 function gaLog(level: 'info' | 'warn' | 'error', action: string, ctx?: Record<string, unknown>): void {
@@ -424,6 +425,29 @@ function ga4ErrorToAppError(err: unknown, context: string): AppError {
 }
 
 /**
+ * The error for a GA4 connect whose credential check failed.
+ *
+ * Google refusing the property (403) stays refused until someone grants the
+ * account access, so it is a 403 with its own reason a client can stop on,
+ * not the 400 a malformed body gets. Anything else keeps the 400.
+ */
+function ga4ConnectError(err: unknown, propertyId: string, principal: string, context: string): AppError {
+  if (err instanceof GA4ApiError && err.status === 403) {
+    return forbidden(
+      `Google refused access to GA4 property ${propertyId} for ${principal}. ` +
+      `Add ${principal} as a Viewer in Google Analytics (Admin > Property access management), then connect again. ` +
+      'Retrying will not help until access is granted.',
+      { reason: 'ga4-permission-missing', propertyId, retryable: false },
+    )
+  }
+  return validationError(`${context}: ${describeError(err)}`)
+}
+
+function isPermissionRefusal(error: AppError): boolean {
+  return error.details?.reason === 'ga4-permission-missing'
+}
+
+/**
  * Resolve a valid GA4 access token for a project.
  * Priority: service account (ga4CredentialStore) → OAuth token (googleConnectionStore).
  * Returns the access token and the resolved property ID.
@@ -507,6 +531,30 @@ function requireGa4Connection(opts: GA4RoutesOptions, projectName: string, canon
 }
 
 export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
+  // Connect checks against Google. A recent pass skips the check for an
+  // unchanged connect; a refusal that keeps coming back is replayed with backoff.
+  const connectPasses = createVerifyCache<true>()
+  const connectRefusals = createRefusalBackoff()
+
+  async function checkGa4Access(key: string, verify: () => Promise<unknown>, toError: (err: unknown) => AppError): Promise<
+    { ok: true } | { ok: false; error: AppError; cause: unknown }
+  > {
+    if (connectPasses.get(key)) return { ok: true }
+    const replay = connectRefusals.replay(key)
+    if (replay) return { ok: false, ...replay }
+    try {
+      await verify()
+      connectPasses.set(key, true)
+      connectRefusals.cleared(key)
+      return { ok: true }
+    } catch (cause) {
+      const error = toError(cause)
+      // Only a refusal is stable enough to replay; a timeout or a bad key is checked again next time.
+      if (isPermissionRefusal(error)) connectRefusals.refused(key, error, cause)
+      return { ok: false, error, cause }
+    }
+  }
+
   // POST /projects/:name/ga/connect
   // Accepts an optional service account key. When omitted, checks for an existing
   // OAuth token from "canonry google connect --type ga4" and registers the property ID.
@@ -544,19 +592,25 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       const clientEmail = parsed.client_email
       const privateKey = parsed.private_key
 
-      try {
-        await verifyConnection(clientEmail, privateKey, propertyId)
-        gaLog('info', 'connect.verified.service-account', { projectId: project.id, propertyId })
-      } catch (e) {
-        const msg = describeError(e)
-        gaLog('error', 'connect.verify-failed', { projectId: project.id, propertyId, error: msg })
-        attempt.failed(e)
-        throw validationError(`Failed to verify GA4 credentials: ${msg}`)
+      const check = await checkGa4Access(
+        verifyCacheKey('ga4-service-account', project.id, propertyId, clientEmail, privateKey),
+        () => verifyConnection(clientEmail, privateKey, propertyId),
+        (err) => ga4ConnectError(err, propertyId, clientEmail, 'Failed to verify GA4 credentials'),
+      )
+      if (!check.ok) {
+        gaLog('error', 'connect.verify-failed', { projectId: project.id, propertyId, error: check.error.message })
+        attempt.failed(check.cause)
+        throw check.error
       }
+      gaLog('info', 'connect.verified.service-account', { projectId: project.id, propertyId })
 
       const now = new Date().toISOString()
       const existing = opts.ga4CredentialStore.getConnection(project.name)
       if (existing) attempt.update({ action: 'reauth' })
+      // A repeat of the stored connection changes nothing: no rewrite, no audit entry.
+      if (existing?.clientEmail === clientEmail && existing.privateKey === privateKey && existing.propertyId === propertyId) {
+        return { connected: true, propertyId, authMethod: 'service-account', clientEmail }
+      }
       const previousPropertyId = resolveCurrentGa4PropertyId(opts, project.name, project.canonicalDomain)
       opts.ga4CredentialStore.upsertConnection({
         projectName: project.name,
@@ -603,22 +657,29 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       )
     }
 
-    // Get a valid (possibly refreshed) token
-    const accessToken = await refreshOAuthTokenIfNeeded(googleStore, authConfig, project.canonicalDomain, {
-      accessToken: oauthConn.accessToken,
-      refreshToken: oauthConn.refreshToken,
-      tokenExpiresAt: oauthConn.tokenExpiresAt,
-    })
-
-    // Verify the token works for this property
-    try {
-      await verifyConnectionWithToken(accessToken, propertyId)
-      gaLog('info', 'connect.verified.oauth', { projectId: project.id, propertyId })
-    } catch (e) {
-      const msg = describeError(e)
-      gaLog('error', 'connect.verify-failed.oauth', { projectId: project.id, propertyId, error: msg })
-      attempt.failed(e)
-      throw validationError(`Failed to verify GA4 access: ${msg}`)
+    // Verify the (possibly refreshed) token works for this property
+    const { accessToken: storedAccessToken, refreshToken } = oauthConn
+    const check = await checkGa4Access(
+      verifyCacheKey('ga4-oauth', project.id, propertyId, refreshToken),
+      async () => {
+        const accessToken = await refreshOAuthTokenIfNeeded(googleStore, authConfig, project.canonicalDomain, {
+          accessToken: storedAccessToken,
+          refreshToken,
+          tokenExpiresAt: oauthConn.tokenExpiresAt,
+        })
+        return verifyConnectionWithToken(accessToken, propertyId)
+      },
+      (err) => err instanceof AppError ? err : ga4ConnectError(err, propertyId, 'the connected Google account', 'Failed to verify GA4 access'),
+    )
+    if (!check.ok) {
+      gaLog('error', 'connect.verify-failed.oauth', { projectId: project.id, propertyId, error: check.error.message })
+      attempt.failed(check.cause)
+      throw check.error
+    }
+    gaLog('info', 'connect.verified.oauth', { projectId: project.id, propertyId })
+    // Selecting the property already selected changes nothing: no rewrite, no audit entry.
+    if (oauthConn.propertyId === propertyId) {
+      return { connected: true, propertyId, authMethod: 'oauth' }
     }
 
     // Store the property ID on the OAuth connection record

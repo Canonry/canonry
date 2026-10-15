@@ -6053,6 +6053,7 @@ const routeCatalog: OpenApiOperation[] = [
       // TODO: Add `GaConnectResponse` Zod schema in contracts.
       200: rawJsonResponse('GA4 connection established.', looseObjectSchema),
       400: errorResponse('Invalid GA4 connection request.'),
+      403: errorResponse('Google refused the property (`details.reason` is `ga4-permission-missing`). Retrying will not help until access is granted; repeated refusals are answered without asking Google again until `details.nextCheckAt`.'),
       404: errorResponse('Project not found.'),
     },
   },
