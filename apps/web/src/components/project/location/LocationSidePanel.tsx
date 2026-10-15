@@ -13,7 +13,7 @@ type PlanV2 = Extract<NonNullable<MeasurementPlanResponse['active']>['plan'], { 
  * What an answer is matched to this location by, beside what it is tracked
  * for: the site pages a cited link is credited through, and the names a
  * mention is read by. Both are the published setup's own lists. Site pages
- * are set in measurement setup, so here they are read-only for everyone.
+ * are set in Bulk setup, so here they are read-only for everyone.
  * Names keep their editor (`PropertyNamesSection`), which a writer opens in
  * place and a viewer never sees. Its headings are labels, lighter than the
  * headings of the lists it sits beside.
@@ -42,7 +42,7 @@ export function LocationSidePanel({ projectName, target, activeRevision, publish
               <InfoTooltip placement="bottom" text="A cited source URL is credited to this location when it matches one of these. The most specific match wins, so a URL covered by two locations at the same specificity is flagged for review instead of being credited to either." />
               <span className="ml-1 text-sm tabular-nums text-secondary">{urls.length}<span className="sr-only"> {urls.length === 1 ? 'page' : 'pages'}</span></span>
             </div>
-            <StatusNote icon={Lock} label="Read-only" detail="Site pages are set in measurement setup." />
+            <StatusNote icon={Lock} label="Read-only" detail="Site pages are set in Bulk setup." />
           </div>
           {urls.length === 0 ? (
             <StatusNote icon={Info} label="No site pages" action={setupAction} />

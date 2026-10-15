@@ -67,6 +67,8 @@ export interface AdvancedMeasurementSectionProps {
   canEdit?: boolean
   /** A queued or running sweep is pinned to the current plan, so Publish waits for it. */
   sweepActive?: boolean
+  /** The step a link asks setup to open on. A draft that is not ready for it opens on the step it needs. */
+  openStep?: SetupStep
   /** Adds tracked queries to the project from inside setup. */
   /** Returns the project's queries AFTER the write, so a pairing can resolve text -> id. */
   onCreateQueries?: (texts: readonly string[]) => Promise<readonly { id: string; query: string }[]>
@@ -807,6 +809,7 @@ export function AdvancedMeasurementSection({
   onRetryPublishedPlan,
   canEdit = true,
   sweepActive = false,
+  openStep,
   onCreateQueries,
   onManageProjectQueries,
   onPublished,
@@ -877,7 +880,7 @@ export function AdvancedMeasurementSection({
       if (requestVersion !== requestVersionRef.current) return
       setSetup(nextSetup)
       setDraftResponse(nextDraft)
-      setStep(initialStepFor(nextDraft.draft))
+      setStep(openStep ? recoveredStepFor(nextDraft.draft, openStep) : initialStepFor(nextDraft.draft))
       const included = includedPropertyIdsFor(nextDraft.draft)
       setIncludedPropertyIds(included)
     } catch (error) {

@@ -2,7 +2,7 @@ import { usePublishAeroView } from '../contexts/aero-view-context.js'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { AlertTriangle, ArrowLeft, Clock, Info, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, Clock, Info, type LucideIcon } from 'lucide-react'
 import { formatPercent, MeasurementEvidenceShapes } from '@ainyc/canonry-contracts'
 import type {
   MeasurementOverviewResponse,
@@ -21,6 +21,7 @@ import { getEmbedConfig, heyClient, isDashboardManagedSweeps } from '../api.js'
 import { MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'
 import { effectiveEmbedProjectTabs, isEmbedProjectTabAllowed } from '../embed.js'
 import { Button } from '../components/ui/button.js'
+import { BackLink, useInAppBack } from '../components/shared/BackLink.js'
 import { formatObservedInstantLabel, formatObservedInstantMonthDay, observedInstant } from '../components/shared/ChartPrimitives.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { StatusNote } from '../components/shared/StatusNote.js'
@@ -57,6 +58,8 @@ type ActivePlan = NonNullable<MeasurementPlanResponse['active']>
 type PlanV2 = Extract<ActivePlan['plan'], { schemaVersion: 2 }>
 
 const EVIDENCE_PAGE_SIZE = 50
+/** The way back over the page's name: a small link, a full-size target where a finger is the pointer. */
+const BACK_LINK = 'rounded-sm text-xs text-muted hover:text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 pointer-coarse:min-h-11 max-md:min-h-11'
 const NO_COMPLETED_SWEEP = 'No completed sweep yet'
 /**
  * Sent on every results read of this page. Until the published setup has a
@@ -298,7 +301,8 @@ function MetricCell({ metric, signal, emphasis = false, notInLastSweep }: { metr
   if (metric.state === 'unavailable') {
     return (
       <span className="inline-flex flex-col gap-0.5">
-        <span className={emphasis ? 'text-lg font-semibold text-secondary' : 'text-sm font-medium text-secondary'}>Not measured</span>
+        {/* On a phone the two figure columns share what the type's name leaves, so the words are a size smaller there and stay on a line. */}
+        <span className={emphasis ? 'whitespace-nowrap text-lg font-semibold text-secondary max-md:text-base' : 'text-sm font-medium text-secondary'}>Not measured</span>
         <span className="text-sm text-secondary"><ReasonLabel reason={reasonOf(metric, notInLastSweep)} /></span>
       </span>
     )
@@ -413,10 +417,10 @@ function MarketLink({
       <div className="section-head section-head-inline flex-wrap">
         <div className="flex items-center gap-1">
           <h3 id="property-market" className="text-base font-semibold text-heading">Competitors by market</h3>
-          <InfoTooltip placement="bottom" text="Competitors are attached to a market rather than to a single location, because one location has nobody to be compared against. Share of voice and competitor pressure are reported for the market this location sits in." />
+          <InfoTooltip placement="bottom" text="Competitors are set per market, not per location. Their numbers are for this location's markets." />
         </div>
         <Button asChild type="button" size="sm" variant="outline">
-          <Link to="/projects/$projectName" params={{ projectName: project }} search={previous => patchVisibilitySelection(carryVisibilitySearch(previous), { measurementScope: 'project' })}>Open AI Visibility</Link>
+          <Link to="/projects/$projectName" params={{ projectName: project }} search={previous => patchVisibilitySelection(carryVisibilitySearch(previous), { measurementScope: 'project' })}>View in AI Visibility</Link>
         </Button>
       </div>
       <ul className="flex flex-wrap gap-2">
@@ -587,11 +591,11 @@ function BrandContrast({
       <div className="section-head section-head-inline">
         <div className="flex items-center gap-1">
           <h3 id="property-brand-contrast" className="text-base font-semibold text-heading">By type</h3>
-          <InfoTooltip placement="bottom" text="Branded queries already contain your name, so an answer engine has an easy path back to you. Non-brand queries describe the need instead, and that is the demand you have to earn. Each row is measured only over this location's queries of that type. A type with no query reads Not measured rather than 0%." />
+          <InfoTooltip placement="bottom" text="Each row counts only this location's queries of that type. A type with no query reads Not measured, not 0%." />
         </div>
       </div>
       <div className="overflow-x-auto rounded-md border border-default">
-        <table className="evidence-table min-w-[560px]">
+        <table className="evidence-table max-md:[&_td]:px-2 max-md:[&_th]:px-2 md:min-w-[560px]">
           <caption className="sr-only">Mention and citation coverage for this location, by query type</caption>
           <thead>
             <tr>
@@ -604,7 +608,7 @@ function BrandContrast({
             {rows.map(({ queryClass, row, isError }) => (
               <tr key={queryClass}>
                 <td>
-                  <span className="block font-medium text-heading">{CLASS_LABELS[queryClass]}</span>
+                  <span className="block whitespace-nowrap font-medium text-heading">{CLASS_LABELS[queryClass]}</span>
                   {row && isError ? (
                     <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
                       <span role="status"><StatusNote icon={AlertTriangle} tone="caution" label="Refresh failed" detail="The latest numbers did not load. These are the last ones read." /></span>
@@ -646,7 +650,7 @@ function ProviderBreakdown({ row, queryClass, isError, onRetry, notInLastSweep }
       <div className="section-head section-head-inline">
         <div className="flex items-center gap-1">
           <h3 id="property-providers" className="text-base font-semibold text-heading">By engine</h3>
-          <InfoTooltip placement="bottom" text="Each row is measured over the queries that engine actually answered for this location, so the rows are a split of the same population rather than parts that add up to the location total. An engine that answered nothing for this location is absent instead of shown at 0%." />
+          <InfoTooltip placement="bottom" text="Each row covers the queries that engine answered for this location. Rows do not add up to the location total. An engine with no answer is not listed." />
         </div>
       </div>
       {row === undefined && isError ? (
@@ -663,7 +667,7 @@ function ProviderBreakdown({ row, queryClass, isError, onRetry, notInLastSweep }
         />
       ) : (
         <div className="overflow-x-auto rounded-md border border-default">
-          <table className="evidence-table min-w-[520px]">
+          <table className="evidence-table max-md:[&_td]:px-2 max-md:[&_th]:px-2 md:min-w-[520px]">
             <caption className="sr-only">Per-engine mention and citation coverage</caption>
             <thead><tr><th>Engine</th><th>Mentioned</th><th>Cited</th></tr></thead>
             <tbody>
@@ -683,7 +687,7 @@ function ProviderBreakdown({ row, queryClass, isError, onRetry, notInLastSweep }
 }
 
 /**
- * The full query list behind the count in the "Named instead" table's Queries
+ * The full query list behind the count in the "Mentioned instead" table's Queries
  * cell. Kept behind an `InfoTooltip` rather than inline: this page is already
  * scoped to one Property and one query class, so the same one or two queries
  * repeat down nearly every row — the joined text is the widest column in the
@@ -734,35 +738,35 @@ function NamedInstead({ project, targetKey, queryClass, notInLastSweep }: { proj
     <section aria-labelledby="property-named-instead" className="page-section-divider">
       <div className="section-head section-head-inline">
         <div className="flex items-center gap-1">
-          <h3 id="property-named-instead" className="text-base font-semibold text-heading">Named instead</h3>
-          <InfoTooltip placement="bottom" text="Counted from the answers that did not name this location, so a name here is one an engine recommended in its place. Occurrences count answers, not positions: an engine naming the same rival in two answers counts twice, and one naming it twice in a single answer counts once." />
+          <h3 id="property-named-instead" className="text-base font-semibold text-heading">Mentioned instead</h3>
+          <InfoTooltip placement="bottom" text="Names from the answers that did not mention this location. A name counts once per answer." />
         </div>
-        {competitors.length > 0 ? <p className="supporting-copy">{query.data?.total ?? competitors.length} named</p> : null}
+        {competitors.length > 0 ? <p className="supporting-copy">{query.data?.total ?? competitors.length} names</p> : null}
       </div>
       {failed ? (
         <div className="flex flex-wrap items-center gap-3">
           <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label="Load failed" detail="The names given instead did not load." /></span>
-          <RetryButton name="named instead" onClick={() => { void query.refetch() }} />
+          <RetryButton name="mentioned instead" onClick={() => { void query.refetch() }} />
         </div>
       ) : basis?.state === 'unavailable' && basis.reason === 'no_population' && notInLastSweep ? (
         <NotInLastSweep reason={notInLastSweep} />
       ) : basis?.state === 'unavailable' ? (
-        // No answer was read for this type. "None named" would report that as a sweep in which no rival was named.
+        // No answer was read for this type. "None mentioned" would report that as a sweep in which no other name was mentioned.
         <StatusNote
           icon={Clock}
           label="Not measured"
           detail={`No answers to ${classQueries(queryClass)} have been measured for this location. ${reasonOf(basis).detail ?? `${reasonOf(basis).label}.`}`}
         />
       ) : competitors.length === 0 ? (
-        <StatusNote icon={Info} label="None named" detail="No rival was named in the answers this location missed." />
+        <StatusNote icon={Info} label="None mentioned" detail="No other name was mentioned in the answers this location missed." />
       ) : (
         <>
           <div className="overflow-x-auto rounded-md border border-default">
-            <table className="evidence-table min-w-[420px]">
-              <caption className="sr-only">Names the engines gave instead of this location</caption>
+            <table className="evidence-table max-md:[&_td]:px-2 max-md:[&_th]:px-2 md:min-w-[420px]">
+              <caption className="sr-only">Names mentioned instead of this location</caption>
               <thead>
                 <tr>
-                  <th>Named</th>
+                  <th>Name</th>
                   <th>Answers</th>
                   <th>Engines</th>
                   <th>Queries</th>
@@ -795,7 +799,7 @@ function NamedInstead({ project, targetKey, queryClass, notInLastSweep }: { proj
                 {/* The type travels with the figure, as it does on the count under Cited on other queries. */}
                 <dd className="tabular-nums text-heading">{basis.targetMissResults} of {basis.answeredResults} <span className="text-secondary">&middot; {CLASS_LABELS[queryClass]}</span></dd>
               </dl>
-              <InfoTooltip placement="bottom" text={`Answers to ${classQueries(queryClass)} that did not name this location.`} />
+              <InfoTooltip placement="bottom" text={`Answers to ${classQueries(queryClass)} that did not mention this location.`} />
             </div>
           ) : null}
         </>
@@ -810,7 +814,7 @@ export const OTHER_QUERIES_COPY = {
   notCounted: 'Not in rates',
   notCountedHelp: 'This location was not measured on those queries, so these answers are not in its Mentioned or Cited rates.',
   empty: 'None',
-  emptyHelp: 'No answer to a query tracked for another location cited this location\u2019s pages in the displayed measurement.',
+  emptyHelp: 'No answer to a query tracked for another location cited this location\u2019s pages in this sweep.',
   loadError: 'Load failed',
   loadErrorHelp: 'Citations from other queries did not load.',
   partlySaved: SOURCES_PARTIAL.label,
@@ -958,7 +962,7 @@ function CitedOnOtherQueries({
                             variant="ghost"
                             className="h-auto min-h-11 max-w-full whitespace-normal py-2 text-left md:h-auto md:whitespace-nowrap"
                             aria-expanded={open}
-                            aria-label={open ? `Hide the answer for ${row.queryText}` : `Read the answer for ${row.queryText}`}
+                            aria-label={open ? `Hide the answer for ${row.queryText}` : `View the answer for ${row.queryText}`}
                             aria-controls={open ? detailId : undefined}
                             onClick={() => setExpanded(current => {
                               const next = new Set(current)
@@ -966,7 +970,7 @@ function CitedOnOtherQueries({
                               return next
                             })}
                           >
-                            {open ? 'Hide answer' : 'Read answer'}
+                            {open ? 'Hide answer' : 'View answer'}
                           </Button>
                         </td>
                       </tr>
@@ -1023,6 +1027,7 @@ function carriedFilterHelp(selection: VisibilitySelectionState, marketLabel: str
 export function MeasurementPropertyPage() {
   const { projectName, targetKey } = useParams({ strict: false }) as { projectName?: string; targetKey?: string }
   const navigate = useNavigate()
+  const canGoBack = useInAppBack()
   // Query type and filters arrive in AI Visibility's shared URL selection.
   const urlSearch = useSearch({ strict: false }) as Record<string, unknown>
   const selection = useMemo(() => parseVisibilitySelection(urlSearch), [urlSearch])
@@ -1056,7 +1061,8 @@ export function MeasurementPropertyPage() {
     void navigate({ to: '.', replace: true, search: previous => patchVisibilitySelection(previous, { queryClass }) })
   }, [assignedPlan, urlQueryClass, queryClass, navigate])
   const showQueryClass = (next: QueryClass) => {
-    void navigate({ to: '.', search: previous => patchVisibilitySelection(previous, { queryClass: next }) })
+    // Replaces the entry, so one press of Back leaves the page whatever types were looked at.
+    void navigate({ to: '.', replace: true, search: previous => patchVisibilitySelection(previous, { queryClass: next }) })
   }
   const brandedQuery = useQuery({ ...overviewOptions(project, property, 'branded'), enabled })
   const nonBrandQuery = useQuery({ ...overviewOptions(project, property, 'non-brand'), enabled })
@@ -1186,16 +1192,20 @@ export function MeasurementPropertyPage() {
     && (evidenceQuery.data?.pages ?? []).every(page => page.answers === undefined)
   const evidenceState = evidenceQuery.data?.pages[0]?.measurement.state
 
+  // "Back" with in-app history: to Queries, Settings or AI Visibility, whichever the reader came from. A direct
+  // open has nowhere to go back to, so it links to AI Visibility by name.
   const backLink = (
-    <Link
-      to="/projects/$projectName"
-      params={{ projectName: project }}
-      search={carryVisibilitySearch}
-      className="inline-flex items-center gap-1 text-xs text-muted hover:text-strong"
-    >
-      <ArrowLeft className="size-3.5" aria-hidden="true" />
-      Back to AI Visibility
-    </Link>
+    <BackLink
+      canGoBack={canGoBack}
+      className={BACK_LINK}
+      iconClassName="size-3.5"
+      fallback={link => (
+        <Link to="/projects/$projectName" params={{ projectName: project }} search={carryVisibilitySearch} className={link.className}>
+          {link.icon}
+          AI Visibility
+        </Link>
+      )}
+    />
   )
 
   if (!hasRouteParams) {
@@ -1273,10 +1283,10 @@ export function MeasurementPropertyPage() {
               label={planV2 ? 'Location not found' : 'Setup not published'}
               detail={planV2
                 ? 'This location is not in the published setup. It may have been renamed or removed.'
-                : 'A location page needs a published advanced measurement setup.'}
+                : 'A location page needs a published setup.'}
             />
           </span>
-          {setupLink(canWrite ? (legacyPlan ? 'Republish setup' : 'Open measurement setup') : 'View measurement setup')}
+          {setupLink(canWrite ? (legacyPlan ? 'Republish setup' : 'Open Bulk setup') : 'View Bulk setup')}
         </div>
       </div>
     )
@@ -1318,7 +1328,7 @@ export function MeasurementPropertyPage() {
                     icon={Clock}
                     tone="caution"
                     label={VISIBILITY_TOOLBAR_COPY.trackingChangedLabel(sweep.trackingChangedAt && !isDashboardManagedSweeps() ? formatObservedInstantMonthDay(observedInstant(sweep.trackingChangedAt)) : null)}
-                    detail={`${VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(sweptOn, null)} Queries removed since ${sweptOn ?? 'the last sweep'} still count here. Queries added since do not.`}
+                    detail={`${VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(sweptOn, null)} Queries removed since ${sweptOn ?? 'the last sweep'} still count in the rates on this page. Queries added since do not.`}
                   />
                 </span>
               ) : null}
@@ -1362,7 +1372,7 @@ export function MeasurementPropertyPage() {
               target={target}
               activeRevision={activePlan!.revision}
               publishedBrandNames={planV2.identities.projectBrand.names}
-              setupAction={canWrite ? setupLink('Open measurement setup') : undefined}
+              setupAction={canWrite ? setupLink('Open Bulk setup') : undefined}
             />
           </div>
         </div>
@@ -1431,7 +1441,7 @@ export function MeasurementPropertyPage() {
         <div className="section-head section-head-inline">
           <div className="flex items-center gap-1">
             <h3 id="property-evidence" className="text-base font-semibold text-heading">Answers</h3>
-            <InfoTooltip placement="bottom" text="One row per answer an engine gave for this location's queries in the displayed measurement. Mentioned and cited are independent: an answer can name this location without linking it, or link it without naming it. Where the answer text was not stored the mention reads Not measured, never a zero. Open a row to read what the engine actually said, followed by the source URLs it returned, this location's own first." />
+            <InfoTooltip placement="bottom" text="One row per answer to this location's queries in this sweep. Mentioned and cited are separate. No saved answer text reads Not measured. Open a row for the answer and its sources." />
           </div>
           {evidenceRows.length > 0 ? <p className="supporting-copy">{evidenceRows.length} of {evidenceTotal}</p> : null}
         </div>
@@ -1464,7 +1474,7 @@ export function MeasurementPropertyPage() {
         ) : evidenceRows.length === 0 && selectedTypeGap ? (
           <NotInLastSweep reason={selectedTypeGap} />
         ) : evidenceRows.length === 0 ? (
-          <StatusNote icon={Info} label="No answers" detail="No answers matched this location in the displayed measurement." />
+          <StatusNote icon={Info} label="No answers" detail="No answers matched this location in this sweep." />
         ) : (
           <>
             <div className="property-answer-table-container overflow-x-auto rounded-md border border-default">
@@ -1506,7 +1516,7 @@ export function MeasurementPropertyPage() {
                               variant="ghost"
                               className="h-auto min-h-11 max-w-full whitespace-normal py-2 text-left md:h-auto md:whitespace-nowrap"
                               aria-expanded={expanded}
-                              aria-label={expanded ? `Hide the answer for ${item.queryText}` : `Read the answer for ${item.queryText}`}
+                              aria-label={expanded ? `Hide the answer for ${item.queryText}` : `View the answer for ${item.queryText}`}
                               aria-controls={expanded ? detailId : undefined}
                               onClick={() => setExpandedAnswers(current => {
                                 const next = new Set(current)
@@ -1514,7 +1524,7 @@ export function MeasurementPropertyPage() {
                                 return next
                               })}
                             >
-                              {expanded ? 'Hide answer' : 'Read answer'}
+                              {expanded ? 'Hide answer' : 'View answer'}
                             </Button>
                           </td>
                         </tr>

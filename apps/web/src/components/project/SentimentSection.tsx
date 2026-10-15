@@ -70,9 +70,9 @@ export const SENTIMENT_COPY = {
 const EM_DASH = '\u2014'
 /** Plain names for the outcomes a reader meets in Details and evidence; anything else falls back to its code. */
 const OUTCOME_LABEL: Record<string, string> = {
-  factual: 'Named, no opinion',
-  'subject-not-mentioned': 'Not named in the answer',
-  'wrong-subject': 'Named someone else',
+  factual: 'Mentioned, no opinion',
+  'subject-not-mentioned': 'Not mentioned in the answer',
+  'wrong-subject': 'Mentioned someone else',
   'ambiguous-subject': 'Unclear which one was meant',
   'ambiguous-judgment': 'Opinion unclear',
   'subject-not-applicable': 'Not applicable',
@@ -574,7 +574,7 @@ export function SentimentAnswerOutcome({ queryId, sourceSnapshotIds, queryClass,
 }
 
 function SentimentEvidenceContent({ item }: { item: SentimentEvidenceItem }) {
-  // An Advanced page calls a Property "Location", so the engine's place is "search location" and the provenance says "Setup version" and "Location link".
+  // An Advanced page calls a Property "Location", so the engine's place is "search location" and the provenance says "Setup version" and "Pair".
   // The page decides, never the item: an answer from a sweep with no published setup names no Property and no revision. A Simple page keeps its labels.
   const advanced = useContext(SentimentContext)?.advanced ?? false
   return <article className="space-y-4 border-b border-default py-5 text-sm text-secondary">
@@ -583,7 +583,7 @@ function SentimentEvidenceContent({ item }: { item: SentimentEvidenceItem }) {
     <section><h3 className="mb-2 text-heading">Conclusion evidence</h3>{item.conclusion.length ? item.conclusion.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No valid conclusion evidence is available.</p>}</section>
     <section><h3 className="mb-2 text-heading">Complaint evidence</h3>{item.complaint?.length ? item.complaint.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No complaint was identified.</p>}</section>
     <details><summary className="cursor-pointer">Original source answer</summary><p className="mt-2 whitespace-pre-wrap break-words text-primary">{item.sourceText}</p></details>
-    <details><summary className="cursor-pointer">Assessment provenance</summary><dl className="mt-3 space-y-2 break-all"><dt>Query</dt><dd>{item.context.queryText}</dd><dt>Subject</dt><dd>{item.subject.displayName} ({item.subject.id})</dd><dt>Run</dt><dd>{item.runId}</dd><dt>{advanced ? 'Setup version' : 'Revision'}</dt><dd>{item.context.revision ?? 'Unavailable'}</dd><dt>Evaluator</dt><dd>{item.returnedModel ?? 'Unavailable'}</dd><dt>Evaluation definition</dt><dd>{item.evaluationDefinitionId}</dd><dt>Source snapshot</dt><dd>{item.sourceSnapshotId}</dd><dt>Source hash</dt><dd>{item.sourceTextHash}</dd>{item.context.usageEdges.map((edge, index) => <div key={index}><dt>{advanced ? 'Location link' : 'Assignment'}</dt><dd>Target {edge.targetId}; {edge.propertyId ? `Location ${edge.propertyId}; ` : null}market {edge.marketId ?? 'None'}; {edge.queryClass}</dd></div>)}</dl></details>
+    <details><summary className="cursor-pointer">Assessment provenance</summary><dl className="mt-3 space-y-2 break-all"><dt>Query</dt><dd>{item.context.queryText}</dd><dt>Subject</dt><dd>{item.subject.displayName} ({item.subject.id})</dd><dt>Run</dt><dd>{item.runId}</dd><dt>{advanced ? 'Setup version' : 'Revision'}</dt><dd>{item.context.revision ?? 'Unavailable'}</dd><dt>Evaluator</dt><dd>{item.returnedModel ?? 'Unavailable'}</dd><dt>Evaluation definition</dt><dd>{item.evaluationDefinitionId}</dd><dt>Source snapshot</dt><dd>{item.sourceSnapshotId}</dd><dt>Source hash</dt><dd>{item.sourceTextHash}</dd>{item.context.usageEdges.map((edge, index) => <div key={index}><dt>{advanced ? 'Pair' : 'Assignment'}</dt><dd>Target {edge.targetId}; {edge.propertyId ? `Location ${edge.propertyId}; ` : null}market {edge.marketId ?? 'None'}; {edge.queryClass}</dd></div>)}</dl></details>
   </article>
 }
 function SentimentQueryEvidence({ projectName, selection }: { projectName: string; selection: SentimentEvidenceSelection }) {

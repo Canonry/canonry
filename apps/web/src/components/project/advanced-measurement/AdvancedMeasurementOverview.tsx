@@ -585,7 +585,7 @@ function OutcomeCounts({ outcomes }: {
     { key: 'cited-only', count: outcomes.citedOnly, label: 'cited only', tone: 'text-primary' },
     // Colour carries exactly one meaning here. Ranking mentioned-only against
     // cited-only with a tone ramp would assert an ordering the copy refuses.
-    { key: 'neither', count: outcomes.neither, label: 'neither signal', tone: 'text-negative' },
+    { key: 'neither', count: outcomes.neither, label: 'not mentioned or cited', tone: 'text-negative' },
     ...(outcomes.notMeasured > 0
       ? [{ key: 'not-measured', count: outcomes.notMeasured, label: 'not measured', tone: 'text-faint' }]
       : []),

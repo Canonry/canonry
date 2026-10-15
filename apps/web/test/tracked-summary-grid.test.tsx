@@ -212,14 +212,14 @@ describe('TrackedSummaryGrid, place strip', () => {
 
   test('a location prints its own counts and how many markets it is in', () => {
     const { container } = render(<TrackedSummaryGrid summary={SUMMARY} limits={LIMITS} place={location} />)
-    expect(numbers(container)).toEqual([['Location queries', '2'], ['Market queries', '8'], ['Markets', '2'], ['Answers counted', '29']])
-    expect(helpFor('Answers per sweep that count for this location, its market queries included. Locations share answers, so they do not add up to the project total.')).toBe('Answers counted')
+    expect(numbers(container)).toEqual([['Location queries', '2'], ['Market queries', '8'], ['Markets', '2'], ['Answers per sweep', '29']])
+    expect(helpFor('Answers one sweep collects for this location, its market queries included. Locations share answers, so they do not add up to the project total.')).toBe('Answers per sweep')
   })
 
   test('a location\'s hand-picked queries show only above zero', () => {
     const picked: TrackedSummaryPlace = { kind: 'location', target: { ...location.target, counts: { ...location.target.counts!, customQueries: 3 } } }
     const { container } = render(<TrackedSummaryGrid summary={SUMMARY} place={picked} />)
-    expect(numbers(container)).toEqual([['Location queries', '2'], ['Market queries', '8'], ['Hand-picked queries', '3'], ['Markets', '2'], ['Answers counted', '29']])
+    expect(numbers(container)).toEqual([['Location queries', '2'], ['Market queries', '8'], ['Hand-picked queries', '3'], ['Markets', '2'], ['Answers per sweep', '29']])
   })
 
   test('a group prints its own counts and how many locations it lists', () => {

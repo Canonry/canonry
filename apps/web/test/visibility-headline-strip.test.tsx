@@ -189,7 +189,7 @@ describe('headline strip', () => {
     // Server truth: eligible = the property has a name to match (`mentionEligible`),
     // reach counts a property once across its answers, and one unknown property
     // makes the whole rate unavailable rather than partial.
-    expect(REPORT_HEADLINE_HELP.propertyReach).toBe('Selected locations named in at least one measured answer, out of the selected locations that have a name to match on. It counts locations, not answers, and shows no rate while any of those locations is unmeasured.')
+    expect(REPORT_HEADLINE_HELP.propertyReach).toBe('Selected locations mentioned in at least one measured answer, out of the selected locations that have a name to match on. It counts locations, not answers, and shows no rate while any of those locations is unmeasured.')
   })
 
   it('renders separate tiles with the change inline beside each value', () => {
@@ -294,9 +294,9 @@ describe('headline strip', () => {
     render(<VisibilityReportView report={headlineReport({ queryClass: 'branded', answerCount: 1152, summary: { mentionCoverage: partial } })} onSelectionChange={() => {}} />)
     expect(cell(MENTION_LABEL, 'branded')).toEqual([
       [`92.5% · ${REPORT_CLASS_NOUN.branded}`, 'report-headline-value'],
-      ['1055 of 1140 answers', DETAIL_CLASS],
+      ['1,055 of 1,140 answers', DETAIL_CLASS],
     ])
-    expectCautionNote(tile(MENTION_LABEL, 'branded'), '12 of 1152 answers could not be tied to one location', '1055 of 1140 answers')
+    expectCautionNote(tile(MENTION_LABEL, 'branded'), '12 of 1152 answers could not be tied to one location', '1,055 of 1,140 answers')
     expect(visibleText(tile(MENTION_LABEL, 'branded'))).not.toContain(VISIBILITY_DISPLAY_COPY.ambiguous)
     // Cited is a separate signal with its own denominator and no such note.
     expect(cell(CITATION_LABEL, 'branded')).toEqual(figure(CITATION_LABEL, 'branded'))
@@ -311,13 +311,13 @@ describe('headline strip', () => {
     render(<VisibilityReportView report={headlineReport({ answerCount: 2796, summary: { mentionCoverage: rate(1398, 2796), citationCoverage: checked } })} onSelectionChange={() => {}} />)
     expect(cell(CITATION_LABEL)).toEqual([
       [`50.0% · ${REPORT_CLASS_NOUN['non-brand']}`, 'report-headline-value'],
-      ['1397 of 2794 answers', DETAIL_CLASS],
+      ['1,397 of 2,794 answers', DETAIL_CLASS],
     ])
-    expectCautionNote(tile(CITATION_LABEL), '2 of 2796 answers had sources that could not be checked', '1397 of 2794 answers')
+    expectCautionNote(tile(CITATION_LABEL), '2 of 2796 answers had sources that could not be checked', '1,397 of 2,794 answers')
     // Mention reads the answer text, so its tile carries no source-check note.
     expect(cell(MENTION_LABEL)).toEqual([
       [`50.0% · ${REPORT_CLASS_NOUN['non-brand']}`, 'report-headline-value'],
-      ['1398 of 2796 answers', DETAIL_CLASS],
+      ['1,398 of 2,796 answers', DETAIL_CLASS],
     ])
     expect(cautionNotes(tile(MENTION_LABEL))).toEqual([])
   })
@@ -510,8 +510,8 @@ describe('headline strip', () => {
     const table = screen.getByRole('table', { name: 'Non-brand queries trend data' })
     expect(table.parentElement!.classList.contains('sr-only')).toBe(true)
     const [, mentionedCell, citedCell] = [...within(table).getAllByRole('row')[2]!.querySelectorAll('td')]
-    expect(mentionedCell!.textContent).toBe('50.0%1398 of 2796')
-    expect(citedCell!.textContent).toBe('50.0%1397 of 27942 of 2796 answers had sources that could not be checked')
+    expect(mentionedCell!.textContent).toBe('50.0%1,398 of 2,796')
+    expect(citedCell!.textContent).toBe('50.0%1,397 of 2,7942 of 2796 answers had sources that could not be checked')
     expect(table.querySelectorAll('button')).toHaveLength(0)
   })
 

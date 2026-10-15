@@ -22,7 +22,7 @@ const cells = (stats: readonly (Stat | false | undefined)[]): Stat[] => stats.fi
 const HELP = {
   answers: 'Answers one sweep collects: each query on every engine and search location it is asked on.',
   placeAnswers: 'Answers one sweep collects for this place. Places share answers, so they do not add up to the project total.',
-  locationAnswers: 'Answers per sweep that count for this location, its market queries included. Locations share answers, so they do not add up to the project total.',
+  locationAnswers: 'Answers one sweep collects for this location, its market queries included. Locations share answers, so they do not add up to the project total.',
   links: 'One link for each query, location and search location it is asked for.',
 }
 
@@ -78,7 +78,7 @@ function placeStats(place: TrackedSummaryPlace): Stat[] | null {
       { label: 'Market queries', value: counts.marketQueries },
       counts.customQueries > 0 && { label: 'Hand-picked queries', value: counts.customQueries },
       listed('Markets', place.target.marketKeys),
-      { label: 'Answers counted', value: counts.answersPerSweep, help: HELP.locationAnswers },
+      { label: 'Answers per sweep', value: counts.answersPerSweep, help: HELP.locationAnswers },
     ]) : null
   }
   const counts = place.group.counts

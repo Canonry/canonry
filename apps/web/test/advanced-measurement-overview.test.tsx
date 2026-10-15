@@ -1112,7 +1112,7 @@ describe('outcome count row', () => {
     expect(row.textContent).toContain('mentioned and cited')
     expect(row.textContent).toContain('mentioned only')
     expect(row.textContent).toContain('cited only')
-    expect(row.textContent).toContain('neither signal')
+    expect(row.textContent).toContain('not mentioned or cited')
     // The pooled label and its tooltip are gone.
     expect(row.textContent).not.toContain('one signal')
     expect(screen.queryByRole('button', { name: /which signal/i })).toBeNull()

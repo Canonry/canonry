@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import type { VisibilityReportScopeOption } from '@ainyc/canonry-contracts'
-import { VisibilityScopePicker, MARKET_SCOPE_COPY } from '../src/components/project/VisibilityScopePicker.js'
+import { VisibilityScopePicker, MARKET_SCOPE_COPY, placeLabel } from '../src/components/project/VisibilityScopePicker.js'
 
 afterEach(cleanup)
 
@@ -32,7 +32,7 @@ describe('group-first scope navigation', () => {
     expect(screen.queryByRole('button', { name: 'Select Harbor House' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Browse North Region' }))
     expect(onSelect).not.toHaveBeenCalled()
-    expect(screen.getByText('Subgroups (2)').closest('details')!.open).toBe(true)
+    expect(screen.getByText('Groups (2)').closest('details')!.open).toBe(true)
     expect(screen.getByText('All locations (2)').closest('details')!.open).toBe(false)
     expect(screen.getByRole('button', { name: 'Select Harbor House' }).closest('details')!.open).toBe(false)
     fireEvent.click(screen.getByText('All locations (2)'))
@@ -95,7 +95,7 @@ describe('group-first scope navigation', () => {
   it('lets both hierarchy sections collapse independently without changing the selected scope', () => {
     const { onSelect } = openPicker()
     fireEvent.click(screen.getByRole('button', { name: 'Browse North Region' }))
-    fireEvent.click(screen.getByText('Subgroups (2)'))
+    fireEvent.click(screen.getByText('Groups (2)'))
     expect(screen.getByRole('button', { name: 'Select City Center' }).closest('details')!.open).toBe(false)
     fireEvent.click(screen.getByText('All locations (2)'))
     expect(screen.getByRole('button', { name: 'Select Harbor House' })).toBeTruthy()
@@ -248,18 +248,20 @@ describe('market context through property navigation', () => {
     const view = render(<VisibilityScopePicker options={options} selected={project!} onSelect={onSelect} />)
     const trigger = view.container.querySelector('summary')!
 
+    // The group holds a market of its own name, so the group is called by what it is: that market's locations.
+    const groupName = MARKET_SCOPE_COPY.locationsIn('Coastal Maine')
     fireEvent.click(trigger)
-    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.browse('Coastal Maine') }))
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.browse(groupName) }))
     fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.select('Harbor House') }))
     expect(onSelect.mock.lastCall).toStrictEqual([harbor, 'coastal-market'])
 
     fireEvent.click(trigger)
-    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.browse('Coastal Maine') }))
-    fireEvent.click(within(screen.getByText('All in this group').closest('button')!.parentElement!).getByRole('button', { name: MARKET_SCOPE_COPY.select('Coastal Maine') }))
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.browse(groupName) }))
+    fireEvent.click(within(screen.getByText('All in this group').closest('button')!.parentElement!).getByRole('button', { name: MARKET_SCOPE_COPY.select(groupName) }))
     expect(onSelect.mock.lastCall).toStrictEqual([group])
 
     fireEvent.click(trigger)
-    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.select('Coastal Maine') }))
+    fireEvent.click(screen.getByRole('button', { name: MARKET_SCOPE_COPY.select(groupName) }))
     expect(onSelect.mock.lastCall).toStrictEqual([group])
     expect(onSelect).toHaveBeenCalledTimes(3)
   })
@@ -362,6 +364,82 @@ describe('trigger label and naming', () => {
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search places' }), { target: { value: 'Metro Alpha' } })
     expect(within(screen.getByRole('region', { name: 'Groups', exact: true })).getByRole('button', { name: 'Select Metro Alpha', exact: true }).textContent).toContain('15 locations')
     expect(within(screen.getByRole('region', { name: 'Markets', exact: true })).getByRole('button', { name: 'Select Metro Alpha', exact: true }).textContent).toBe('Metro AlphaMarket')
+  })
+})
+
+describe('a group and a market of one name', () => {
+  // Harbor Point is a market, and the group that holds it has the same name and four locations. Old Town's market
+  // is named unlike its group, and Lakeshore metro holds no market of its own name.
+  const options: VisibilityReportScopeOption[] = [
+    { id: 'project', kind: 'project', label: 'Project', targetCount: 6 },
+    { id: 'metro', kind: 'group', label: 'Lakeshore metro', targetCount: 6 },
+    { id: 'harbor-group', kind: 'group', label: 'Harbor Point', targetCount: 4, parentGroupIds: ['metro'], marketKeys: ['harbor-market'] },
+    { id: 'harbor-market', kind: 'market', label: 'Harbor Point', targetCount: 4, parentGroupIds: ['harbor-group'] },
+    { id: 'old-town', kind: 'group', label: 'Old Town', targetCount: 2, parentGroupIds: ['metro'], marketKeys: ['old-town-market'] },
+    { id: 'old-town-market', kind: 'market', label: 'Old Town core', targetCount: 2, parentGroupIds: ['old-town'] },
+    { id: 'lofts', kind: 'property', label: 'Harbor Point Lofts', targetCount: 1, parentGroupIds: ['metro', 'harbor-group'], marketKeys: ['harbor-market'] },
+  ]
+  const [, metro, harborGroup, harborMarket, oldTown] = options
+  const search = (value: string) => fireEvent.change(screen.getByRole('searchbox', { name: 'Search places' }), { target: { value } })
+  const sectionNames = () => screen.getAllByRole('region').map(section => section.getAttribute('aria-label'))
+
+  it('lists the market first under its name, and the group as the locations in it', () => {
+    const { onSelect } = openPicker(vi.fn(), options)
+    search('harbor')
+
+    // The market is the place of that name, so it leads. The group's count says how many locations it rolls up.
+    expect(sectionNames()).toEqual(['Markets', 'Groups', 'Locations'])
+    const markets = within(screen.getByRole('region', { name: 'Markets' }))
+    const groups = within(screen.getByRole('region', { name: 'Groups' }))
+    expect(markets.getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(['Select Harbor Point'])
+    // Its group has its name, which the row does not say twice.
+    expect(markets.getByRole('button', { name: 'Select Harbor Point' }).textContent).toBe('Harbor PointMarket')
+    expect(groups.getByRole('button', { name: 'Select Locations in Harbor Point' }).textContent).toBe('Locations in Harbor PointLakeshore metro4 locations')
+    // The name was added for the reader. Search still reads the group's own label.
+    search('locations in')
+    expect(screen.getByText('No matches')).toBeTruthy()
+
+    search('harbor')
+    fireEvent.click(screen.getByRole('button', { name: 'Select Harbor Point' }))
+    expect(onSelect).toHaveBeenLastCalledWith(harborMarket)
+  })
+
+  it('selects the group by its own key and names it on the trigger', () => {
+    const onSelect = vi.fn()
+    const view = render(<VisibilityScopePicker options={options} selected={options[0]!} onSelect={onSelect} />)
+    const trigger = view.container.querySelector('summary')!
+    fireEvent.click(trigger)
+    search('harbor')
+    fireEvent.click(screen.getByRole('button', { name: 'Select Locations in Harbor Point' }))
+    expect(onSelect).toHaveBeenLastCalledWith(harborGroup)
+
+    view.rerender(<VisibilityScopePicker options={options} selected={harborGroup} onSelect={onSelect} />)
+    expect(trigger.textContent).toBe('Locations in Harbor Point · 4 locations')
+    view.rerender(<VisibilityScopePicker options={options} selected={harborMarket} onSelect={onSelect} />)
+    expect(trigger.textContent).toBe('Harbor Point · Market')
+    // Browsing into it, every name of the group is the same one.
+    view.rerender(<VisibilityScopePicker options={options} selected={harborGroup} onSelect={onSelect} />)
+    fireEvent.click(trigger)
+    expect(screen.getByText('Locations in Harbor Point', { selector: 'p' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Back to Lakeshore metro' })).toBeTruthy()
+  })
+
+  it('keeps the name of a group whose market is named otherwise, and of one with no market', () => {
+    openPicker(vi.fn(), options)
+    expect(screen.getByRole('button', { name: 'Select Lakeshore metro' }).textContent).toBe('Lakeshore metro6 locations')
+    fireEvent.click(screen.getByRole('button', { name: 'Browse Lakeshore metro' }))
+    expect(screen.getByRole('button', { name: 'Select Old Town' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Browse Locations in Harbor Point' })).toBeTruthy()
+
+    expect([metro, harborGroup, harborMarket, oldTown].map(option => placeLabel(option!, options))).toEqual(['Lakeshore metro', 'Locations in Harbor Point', 'Harbor Point', 'Old Town'])
+  })
+
+  it('keeps the plain name where a group is only browsed, never chosen', () => {
+    const view = render(<VisibilityScopePicker options={options} placeholder="Choose a market" allowGroupSelect={false} onSelect={vi.fn()} />)
+    fireEvent.click(view.container.querySelector('summary')!)
+    fireEvent.click(screen.getByRole('button', { name: 'Browse Lakeshore metro' }))
+    expect(screen.getByRole('button', { name: 'Browse Harbor Point' }).textContent).toBe('Harbor Point4 locations')
+    expect(screen.queryByText(/Locations in/)).toBeNull()
   })
 })
 

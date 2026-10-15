@@ -194,7 +194,7 @@ async function renderLocation(options: {
       <AccountProvider account={options.role ? { name: 'someone', role: options.role } : null}>
         <header><LocationPlaces projectName="acme" targetKey={targetKey} /></header>
         <main><LocationTrackedSection projectName="acme" targetKey={targetKey} canWrite={options.role !== 'viewer'} trackingChangedAt={options.trackingChangedAt} /></main>
-        <aside><LocationSidePanel projectName="acme" target={options.target ?? planTarget()} activeRevision={4} publishedBrandNames={['Acme Homes']} setupAction={options.role === 'viewer' ? undefined : <a href="/setup">Open measurement setup</a>} /></aside>
+        <aside><LocationSidePanel projectName="acme" target={options.target ?? planTarget()} activeRevision={4} publishedBrandNames={['Acme Homes']} setupAction={options.role === 'viewer' ? undefined : <a href="/setup">Open Bulk setup</a>} /></aside>
         <Outlet />
       </AccountProvider>
     ),
@@ -228,6 +228,12 @@ const rowOf = (queryText: string) => within(main()).getByRole('button', { name: 
 const listedIn = (markets: HTMLElement, marketKey: string) => within(markets).queryAllByText(new RegExp(`^${marketKey} apartments \\d+$`)).length
 /** One row's chips, as each engine's pair names them. */
 const chips = (queryText: string) => within(rowOf(queryText)).getAllByRole('button', { name: /^(OpenAI|Gemini)[,:]/ }).map(pair => pair.getAttribute('aria-label'))
+/** One market query's chips. Its row has no button for the query, so it is found by its text. */
+const marketChips = (queryText: string) => within(within(within(main()).getByRole('table', { name: 'Market queries' })).getByText(queryText).closest('tr')!).queryAllByRole('button', { name: /^(OpenAI|Gemini|Claude)[,:]/ }).map(pair => pair.getAttribute('aria-label'))
+/** An engine's cell as it reads: its name, drawn in the list layout only, then the letters of its two chips. */
+const PAIRS = ['OpenAIMC', 'GeminiMC']
+const ANSWERS_PER_SWEEP_HELP = 'Answers one sweep collects for this location, its market queries included. Locations share answers, so they do not add up to the project total.'
+const ANSWERS_NEXT_SWEEP_HELP = 'Answers the next sweep collects for this location, its market queries included. The rates on this page are from the last sweep, before tracking changed.'
 const hrefOf = (link: HTMLElement) => new URL(link.getAttribute('href')!, 'http://localhost')
 /** A control this page adds: a 44px target where a finger is the pointer, and a ring when the keyboard reaches it. */
 function expectTouchAndFocus(control: HTMLElement) {
@@ -251,8 +257,8 @@ test('prints the server\'s numbers for the location, never a recount of the rows
   await waitFor(() => expect(chips(HARBOR_REVIEWS)).toHaveLength(2))
 
   // The grid is this location's `targets[]` entry: its counts, and the length of its market list.
-  expect(strip()).toEqual({ 'Location queries': '4', 'Market queries': '11', Markets: '3', 'Answers counted': '51' })
-  expect(within(main()).getByRole('button', { name: 'Answers per sweep that count for this location, its market queries included. Locations share answers, so they do not add up to the project total.' })).toBeTruthy()
+  expect(strip()).toEqual({ 'Location queries': '4', 'Market queries': '11', Markets: '3', 'Answers per sweep': '51' })
+  expect(within(main()).getByRole('button', { name: ANSWERS_PER_SWEEP_HELP })).toBeTruthy()
   // Each heading carries the server's count, which the rows under it do not add up to: 2, 3 and 1 are listed.
   expect([headingCount('Queries about this location'), headingCount('From its markets'), headingCount('Hand-picked')]).toEqual(['4 queries', '11 queries', '2 queries'])
   expect(own.querySelectorAll('tbody tr')).toHaveLength(2)
@@ -264,6 +270,34 @@ test('prints the server\'s numbers for the location, never a recount of the rows
   // Two reads: the workspace under the Queries tab's key, and the results for this location.
   expect(trackingReads(requests)).toEqual(TWO_READS)
   expectNoSentence(main())
+})
+
+test('names the strip\'s last number for the next sweep while the last one ran before the tracking changed', async () => {
+  // The sweep on the page ran with the tracking before a change. Its rows hold 12 answers; the workspace's 51 is the tracking as it is now.
+  const before = sweep({ run: { ...sweep().run!, matchesCurrentTracking: false } })
+  expect(before.rows.flatMap(row => row.engines).reduce((sum, cell) => sum + cell.answers, 0)).toBe(12)
+  await renderLocation({ trackingChangedAt: null, results: () => json(before) })
+  await table('Location queries')
+
+  // The number is the server's count for the tracking, never a count of the sweep's rows, and its label says which it is.
+  await waitFor(() => expect(strip()).toEqual({ 'Location queries': '4', 'Market queries': '11', Markets: '3', 'Answers next sweep': '51' }))
+  expect(within(main()).getByRole('button', { name: ANSWERS_NEXT_SWEEP_HELP })).toBeTruthy()
+  expect(within(main()).queryByRole('button', { name: ANSWERS_PER_SWEEP_HELP })).toBeNull()
+  // The page keeps its one "Tracking changed" note: the strip adds none.
+  expect(within(main()).queryByText(/^Tracking changed/)).toBeNull()
+  expectNoSentence(main())
+})
+
+test.each([
+  { state: 'no sweep has finished', results: () => json(sweep({ run: null, engines: [], rows: [], pendingRows: 0 })) },
+  { state: 'the results did not load', results: failure },
+])('keeps Answers per sweep when $state', async ({ results }) => {
+  await renderLocation({ results })
+  await table('Location queries')
+  await waitFor(() => expect(chips(HARBOR_REVIEWS)).toEqual(['OpenAI: Not checked', 'Gemini: Not checked']))
+
+  expect(strip()).toEqual({ 'Location queries': '4', 'Market queries': '11', Markets: '3', 'Answers per sweep': '51' })
+  expect(within(main()).getByRole('button', { name: ANSWERS_PER_SWEEP_HELP })).toBeTruthy()
 })
 
 test('reads no workspace again after a visit to Queries left it in the cache', async () => {
@@ -304,19 +338,20 @@ test('lists a market query under From its markets with its type here, and names 
   await renderLocation({ workspace: () => json(portfolio({ tracked: [...portfolio().tracked, named] })) })
   const markets = await table('Market queries')
 
-  expect(within(markets).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Market', 'Query', 'Type', 'Last measured'])
+  // An engine has a column after Query, in the order the tables beside this one list them.
+  expect(within(markets).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Market', 'Query', 'OpenAI', 'Gemini', 'Type', 'Last measured'])
   // In market order, then by query. A market is named once, in a cell that spans its queries and holds its
   // other locations and its link. Each query reads the type it counts as for this location.
   expect(cells(markets)).toEqual([
-    ['DowntownNo other locationsOpen market', DOWNTOWN, 'TypeNon-brand', `Last measured${day(MEASURED_AT)}`],
-    ['Uptown, Lakeshore+2 locationsOpen market', NAMED, 'TypeBranded', `Last measured${day(MEASURED_AT)}`],
-    [UPTOWN_BEST, 'TypeNon-brand', `Last measured${day(MEASURED_AT)}`],
-    [UPTOWN_PETS, 'TypeNon-brand', `Last measured${day(MEASURED_AT)}`],
+    ['DowntownNo other locationsOpen market', DOWNTOWN, ...PAIRS, 'TypeNon-brand', `Last measured${day(MEASURED_AT)}`],
+    ['Uptown, Lakeshore+2 locationsOpen market', NAMED, ...PAIRS, 'TypeBranded', `Last measured${day(MEASURED_AT)}`],
+    [UPTOWN_BEST, ...PAIRS, 'TypeNon-brand', `Last measured${day(MEASURED_AT)}`],
+    [UPTOWN_PETS, ...PAIRS, 'TypeNon-brand', `Last measured${day(MEASURED_AT)}`],
   ])
   expect(within(markets).getByText('Uptown, Lakeshore').closest('td')!.rowSpan).toBe(3)
   // The count is the market's own member list less this location. Its names are one step away and in its name.
   // It is one stop for the market, not one for each of its queries.
-  const others = within(markets).getAllByRole('button')
+  const others = within(markets).getAllByRole('button', { name: /other locations?:/ })
   expect(others.map(button => [button.getAttribute('aria-label'), button.textContent])).toEqual([['2 other locations: River Point · Summit Lofts', '+2 locations']])
   // Each market opens in Queries, narrowed to it.
   const open = within(markets).getAllByRole('link')
@@ -324,6 +359,80 @@ test('lists a market query under From its markets with its type here, and names 
   const search = hrefOf(open[1]!).searchParams
   expect(hrefOf(open[1]!).pathname).toBe('/projects/acme/queries')
   expect([search.get('measurementScope'), search.get('measurementScopeKey'), search.get('queryWorkspace')]).toEqual(['market', 'uptown', 'tracked'])
+})
+
+test('marks each market query per engine with the last sweep\'s result for this location, and one with no result as Not checked', async () => {
+  // Claude is an engine of the sweep only. One answer in the market mentions this location, and none cites it.
+  const results = sweep({
+    engines: ['gemini', 'openai', 'claude'],
+    rows: [
+      ...sweep().rows,
+      { queryId: 'q-uptown-best', queryText: UPTOWN_BEST, queryClass: 'non-brand', engines: [engine('gemini', false, false), engine('openai', false, false), engine('claude', true, false)] },
+      { queryId: 'q-downtown', queryText: DOWNTOWN, queryClass: 'non-brand', engines: [engine('gemini', false, true), engine('openai', null, null), engine('claude', false, false)] },
+    ],
+  })
+  await renderLocation({ results: () => json(results) })
+  const markets = await table('Market queries')
+  await waitFor(() => expect(marketChips(UPTOWN_BEST)).toHaveLength(3))
+
+  expect(within(markets).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Market', 'Query', 'OpenAI', 'Gemini', 'Claude', 'Type', 'Last measured'])
+  // Mentioned and Cited are read apart, each from its own field of the engine's cell.
+  expect(marketChips(UPTOWN_BEST)).toEqual(['OpenAI: Not mentioned, Not cited', 'Gemini: Not mentioned, Not cited', 'Claude: Mentioned, Not cited'])
+  expect(marketChips(DOWNTOWN)).toEqual(['OpenAI: Not checked', 'Gemini: Not mentioned, Cited', 'Claude: Not mentioned, Not cited'])
+  // The sweep holds no result for this query, so no chip claims a No.
+  expect(marketChips(UPTOWN_PETS)).toEqual(['OpenAI: Not checked', 'Gemini: Not checked', 'Claude: Not checked'])
+  // A pair is one stop, and the count behind it is the server's.
+  expect(within(markets).getByRole('button', { name: 'Claude: Mentioned, Not cited' }).getAttribute('aria-description')).toContain('2 of 3')
+})
+
+test('draws skeleton chips for the market queries while the results load, and Not checked with a Retry when they fail', async () => {
+  let respond: (response: Response) => void = () => {}
+  let attempts = 0
+  await renderLocation({ results: () => { attempts += 1; return attempts === 1 ? new Promise<Response>(resolve => { respond = resolve }) : json(sweep()) } })
+  const markets = await table('Market queries')
+
+  // Loading: each engine cell holds two skeleton chips and no button, so nothing reads Not checked yet.
+  const row = within(markets).getByText(UPTOWN_BEST).closest('tr')!
+  expect(marketChips(UPTOWN_BEST)).toEqual([])
+  expect(['OpenAI', 'Gemini'].map(name => within(row).getByText(name).closest('td')!.querySelectorAll('.skeleton').length)).toEqual([2, 2])
+
+  respond(failure())
+  await waitFor(() => expect(marketChips(UPTOWN_BEST)).toEqual(['OpenAI: Not checked', 'Gemini: Not checked']))
+  noteButton('Results unavailable', "The last sweep's results did not load, so every chip reads Not checked.", main())
+  fireEvent.click(within(main()).getByRole('button', { name: 'Retry results' }))
+  await waitFor(() => expect(within(main()).queryByText('Results unavailable')).toBeNull())
+  expect(attempts).toBe(2)
+})
+
+test('puts the legend beside From its markets for a location with no query of its own', async () => {
+  await renderLocation({
+    workspace: () => json(portfolio({ tracked: portfolio().tracked.filter(row => row.focus?.kind !== 'property') })),
+    results: () => json(sweep({ run: { ...sweep().run!, matchesCurrentTracking: false } })),
+  })
+  await table('Market queries')
+  await table('Hand-picked queries')
+
+  // The first list that draws chips carries the legend and the note about them. The lists after it carry neither.
+  const fromMarkets = region('From its markets')
+  expect(within(fromMarkets).getByRole('list')).toBeTruthy()
+  expect(await within(fromMarkets).findByText('Tracking changed')).toBeTruthy()
+  for (const other of [region('Queries about this location'), region('Hand-picked')]) {
+    expect([within(other).queryByRole('list'), within(other).queryByText('Tracking changed')]).toEqual([null, null])
+  }
+})
+
+test('names each pair by its engine where the market queries are a list, and never under a header', async () => {
+  await renderLocation()
+  const markets = await table('Market queries')
+  const name = within(within(markets).getByText(UPTOWN_BEST).closest('tr')!).getByText('OpenAI')
+  const cell = name.closest('td')!
+
+  // Under 40rem the table is a list with no header: the engine's name shows beside its chips, as Type's and Last measured's do.
+  const rules = parseCompiledCss(await compileAppStyles([...name.classList, ...cell.classList]))
+  expect([compiledElementProperty(rules, name, 'display'), compiledElementProperty(rules, name, 'display', '@container (width < 40rem)')]).toEqual(['none', 'inline'])
+  expect(compiledElementProperty(rules, cell, 'display', '@container (width < 40rem)')).toBe('inline-flex')
+  // In the table the chips are centred under the engine's header.
+  expect(compiledElementProperty(rules, cell, 'text-align', '@container (width >= 40rem)')).toBe('center')
 })
 
 test('names twenty-five of a market\'s other locations behind the count, then counts the rest', async () => {
@@ -381,7 +490,7 @@ test('keeps every market of a location in five in view, two queries each', async
 
   expect(keys.map(key => listedIn(markets, key))).toEqual([2, 2, 2, 2, 2])
   expect(within(markets).getAllByRole('link').map(link => link.getAttribute('aria-label'))).toEqual(keys.map(key => `Open market Market ${key}`))
-  expect(within(markets).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(keys.map(key => `+ 6 more queries in Market ${key}`))
+  expect(within(markets).getAllByRole('button', { name: /more queries in/ }).map(button => button.getAttribute('aria-label'))).toEqual(keys.map(key => `+ 6 more queries in Market ${key}`))
   expect(headingCount('From its markets')).toBe('44 queries')
 
   // One market opens. The others stay as they were.
@@ -445,7 +554,7 @@ test('lists a hand-picked query under the type it is asked under here, and no Ha
 
 test('flags a location with no query of its own and in no market, and only then', async () => {
   await renderLocation({ targetKey: 'pier', results: () => json(sweep({ scope: { kind: 'property', key: 'pier' }, rows: [], pendingRows: 0 })) })
-  await waitFor(() => expect(strip()).toEqual({ 'Location queries': '0', 'Market queries': '0', Markets: '0', 'Answers counted': '0' }))
+  await waitFor(() => expect(strip()).toEqual({ 'Location queries': '0', 'Market queries': '0', Markets: '0', 'Answers per sweep': '0' }))
 
   expect(visibleText(region('Queries about this location'))).toBe('Queries about this location0No location queries')
   noteButton('No location queries', 'No tracked query has this location as its Subject.', region('Queries about this location'))
@@ -521,6 +630,25 @@ test('names one market and one group in the singular', async () => {
 
   await within(screen.getByRole('banner')).findByText('Market:')
   expect(screen.getByRole('banner').textContent).toBe('Market:Uptown, LakeshoreGroup:North, Lakeshore')
+})
+
+test('calls a group that holds a market of its own name Locations in that name, and keeps every other group\'s name', async () => {
+  const base = portfolio()
+  await renderLocation({ workspace: () => json(portfolio({
+    groups: [
+      ...base.groups,
+      // The group of the market Uptown, Lakeshore, with the market's own label, and one named unlike its market.
+      { stableKey: 'uptown-group', parentGroupKey: 'north', label: 'Uptown, Lakeshore', targetKeys: ['harbor', 'river', 'summit'], counts: { queries: 9, markets: 1, answersPerSweep: 96 } },
+      { stableKey: 'downtown-group', label: 'Downtown core', targetKeys: ['harbor'], counts: { queries: 4, markets: 1, answersPerSweep: 14 } },
+    ],
+    markets: base.markets.map(market => market.stableKey === 'uptown' ? { ...market, groupKey: 'uptown-group' } : market.stableKey === 'downtown' ? { ...market, groupKey: 'downtown-group' } : market),
+  })) })
+  const header = screen.getByRole('banner')
+  await within(header).findByText('Groups:')
+
+  // The market keeps the name and its link. The group of the same name says what it is: the market's locations.
+  expect(within(header).getAllByRole('link').map(link => link.textContent)).toEqual(['Uptown, Lakeshore', 'Downtown', 'Lakeview'])
+  expect(within(header).getByText('Groups:').nextElementSibling!.textContent).toBe('North, Lakeshore · North Side · Locations in Uptown, Lakeshore · Downtown core')
 })
 
 test('opens a row\'s action sheet with this location as the place', async () => {
@@ -624,7 +752,7 @@ test('shows a viewer the same lists and numbers with no row menu, and opens a ro
 
   // Every request the header line, the section and the panel made: the two reads, and nothing else.
   expect(requests).toEqual(TWO_READS)
-  expect(strip()).toEqual({ 'Location queries': '4', 'Market queries': '11', Markets: '3', 'Answers counted': '51' })
+  expect(strip()).toEqual({ 'Location queries': '4', 'Market queries': '11', Markets: '3', 'Answers per sweep': '51' })
   expect(screen.queryByRole('button', { name: /^Actions for / })).toBeNull()
   expect(within(own).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Query', 'Type', 'OpenAI', 'Gemini', 'Status'])
   expect(within(main()).getByRole('table', { name: 'Market queries' })).toBeTruthy()
@@ -717,10 +845,10 @@ test('reads every chip as Not checked when the results fail, and reads them agai
   expect(within(main()).queryByText('Results unavailable')).toBeNull()
 })
 
-test('says the results are unavailable beside the hand-picked list when the location has no query of its own', async () => {
+test('says the results are unavailable beside the hand-picked list when it is the location\'s only list of chips', async () => {
   let attempts = 0
   await renderLocation({
-    workspace: () => json(portfolio({ tracked: portfolio().tracked.filter(row => row.focus?.kind !== 'property') })),
+    workspace: () => json(portfolio({ tracked: portfolio().tracked.filter(row => row.focus?.kind === 'custom') })),
     // The second read is of a sweep from before the tracking changed.
     results: () => { attempts += 1; return attempts === 1 ? failure() : json(sweep({ run: { ...sweep().run!, matchesCurrentTracking: false } })) },
   })
@@ -728,7 +856,7 @@ test('says the results are unavailable beside the hand-picked list when the loca
   const picked = region('Hand-picked')
   const own = region('Queries about this location')
 
-  // With no table of chips above it, the hand-picked list carries the legend and what there is to say about the chips.
+  // With no table of chips above it (no query of its own, none from a market), the hand-picked list carries the legend and what there is to say about the chips.
   const status = await within(picked).findByRole('status')
   expect(visibleText(status)).toBe('Results unavailableRetry')
   noteButton('Results unavailable', "The last sweep's results did not load, so every chip reads Not checked.", status)
@@ -771,8 +899,8 @@ test('prints no number, flag or list of locations the server did not send', asyn
   expect(['Queries about this location', 'From its markets', 'Hand-picked'].map(headingCount)).toEqual([undefined, undefined, undefined])
   expect(['No location queries', 'In no market', 'No market queries'].map(flag => within(main()).queryByText(flag))).toEqual([null, null, null])
   // The rows are the workspace's, so they are listed. A market names no other location, and does not claim to have none.
-  expect(cells(markets)[0]).toEqual(['DowntownOpen market', DOWNTOWN, 'TypeNon-brand', `Last measured${day(MEASURED_AT)}`])
-  expect(within(markets).queryByRole('button')).toBeNull()
+  expect(cells(markets)[0]).toEqual(['DowntownOpen market', DOWNTOWN, ...PAIRS, 'TypeNon-brand', `Last measured${day(MEASURED_AT)}`])
+  expect(within(markets).queryByRole('button', { name: /other location/ })).toBeNull()
   // The header has the groups, which are the workspace's own list, and no market.
   expect(screen.getByRole('banner').textContent).toBe('Groups:North, Lakeshore · North Side')
 })
@@ -837,7 +965,7 @@ test('lists the site pages as read-only for everyone and the names as chips, wit
 
   expect(visibleText(pages)).toBe('Site pages we match2Read-onlyhttps://example.com/harbor-point/*https://example.com/floor-plans/harbor')
   expect(pages.querySelector('.section-head')!.textContent).toBe('Site pages we match2 pagesRead-only')
-  noteButton('Read-only', 'Site pages are set in measurement setup.', pages)
+  noteButton('Read-only', 'Site pages are set in Bulk setup.', pages)
   expect(within(pages).getAllByRole('listitem').map(item => item.textContent)).toEqual(['https://example.com/harbor-point/*', 'https://example.com/floor-plans/harbor'])
   const names = within(panel).getByRole('region', { name: PROPERTY_NAMES_COPY.heading })
   expect(names.querySelector('.section-head')!.textContent).toBe(`${PROPERTY_NAMES_COPY.heading}3 names${PROPERTY_NAMES_COPY.edit}`)
@@ -856,14 +984,14 @@ test('lists the site pages as read-only for everyone and the names as chips, wit
   const viewed = within(screen.getByRole('complementary')).getByRole('region', { name: PROPERTY_NAMES_COPY.heading })
   expect(viewed.querySelector('.section-head')!.textContent).toBe(`${PROPERTY_NAMES_COPY.heading}3 names`)
   expect(within(viewed).queryByRole('button', { name: PROPERTY_NAMES_COPY.edit })).toBeNull()
-  noteButton('Read-only', 'Site pages are set in measurement setup.', within(screen.getByRole('complementary')).getByRole('region', { name: 'Site pages we match' }))
+  noteButton('Read-only', 'Site pages are set in Bulk setup.', within(screen.getByRole('complementary')).getByRole('region', { name: 'Site pages we match' }))
 })
 
 test('offers the setup beside an empty list of site pages to a writer only', async () => {
   const { client } = await renderLocation({ target: planTarget({ urlMatchers: [] }) })
   const pages = () => within(screen.getByRole('complementary')).getByRole('region', { name: 'Site pages we match' })
 
-  expect(visibleText(pages())).toBe('Site pages we match0Read-onlyNo site pagesOpen measurement setup')
+  expect(visibleText(pages())).toBe('Site pages we match0Read-onlyNo site pagesOpen Bulk setup')
   expect(pages().querySelector('.section-head')!.textContent).toBe('Site pages we match0 pagesRead-only')
 
   cleanup()

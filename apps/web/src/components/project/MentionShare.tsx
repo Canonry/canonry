@@ -27,7 +27,7 @@ const MENTION_SCOPE_WORD: Record<MentionScopeKey, string> = {
 /** One tooltip per scope, selected by what is actually rendered, so the
  *  explanation can never describe a denominator other than the one on screen. */
 const MENTION_SCOPE_TOOLTIP: Record<MentionScopeKey, string> = {
-  'non-brand': 'On queries that do not contain your name: of the brand names written into the answer text, the share that were yours. Branded queries are scored separately because you are named on nearly all of them and a competitor cannot be.',
+  'non-brand': 'On queries that do not contain your name: of the brand names written into the answer text, the share that were yours. Branded queries are scored separately because you are mentioned on nearly all of them and a competitor cannot be.',
   branded: 'On queries that contain your name: of the brand names written into the answer text, the share that were yours. This is recognition, not competitive placement, and it is never pooled with the non-brand figure.',
   pooled: 'This project has no brand name or domain to match on, so branded and non-brand queries could not be separated. This figure pools both and is not a competitive read. Set a display name or aliases to split them.',
 }
@@ -71,7 +71,7 @@ export function mentionClassFigures(
     return {
       headline: 'Add competitors',
       numeric: false,
-      detail: `you were named in ${breakdown.projectMentionSnapshots} of ${breakdown.snapshotsWithAnswerText} answers`,
+      detail: `you were mentioned in ${breakdown.projectMentionSnapshots} of ${breakdown.snapshotsWithAnswerText} answers`,
       showRows: false,
     }
   }
@@ -79,7 +79,7 @@ export function mentionClassFigures(
     return {
       headline: 'No mentions',
       numeric: false,
-      detail: `no brand named in ${breakdown.snapshotsWithAnswerText} answers`,
+      detail: `no brand mentioned in ${breakdown.snapshotsWithAnswerText} answers`,
       showRows: false,
     }
   }
