@@ -46,7 +46,7 @@ import {
 } from '@ainyc/canonry-db'
 import { apiRoutes, type OutcomeTelemetryEvent } from '../src/index.js'
 import { plansAreLabelOnlyVariants } from '../src/measurement-draft-compile.js'
-import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
+import { buildMeasurementPlanV2Manifest, measurementRunExpectedSlots } from '../src/measurement-report-adapter.js'
 import { hashApiKey } from '../src/auth.js'
 import { sha256Hex } from '../src/measurement-draft-repo.js'
 import { featureOutcomes } from './feature-outcome-capture.js'
@@ -1100,6 +1100,68 @@ async function publish(session: DraftSession, expectedActiveRevision: number | n
 }
 
 describe('measurement draft publish', () => {
+  it.each(['apply-assignments', 'apply-paired-assignments', 'route-markets'] as const)(
+    'keeps reports readable when %s returns to another Property’s frozen engine',
+    async (routeAction) => {
+      const sourceQueryId = queryId('best widget supplier')
+      const initial = await DraftSession.start()
+      await initial.run('upsert-target', { target: WIDGETS_TARGET })
+      await initial.run('upsert-target', { target: GADGETS_TARGET })
+      await initial.run('apply-assignments', {
+        targetKeys: ['widgets', 'gadgets'], queryIds: [sourceQueryId],
+        contextOverride: { providers: ['gemini'], models: { gemini: 'gemini-test' }, locations: routeAction === 'apply-assignments' ? [] : ['nyc'] },
+      })
+      expect((await publish(initial, null)).statusCode).toBe(200)
+      const original = measurementPlanV2Schema.parse(JSON.parse(db.select().from(measurementPlanVersions).get()!.canonicalJson))
+      expect(original.executionNodes).toHaveLength(1)
+      const originalKey = original.executionNodes[0]!.stableKey
+      const session = await DraftSession.start(1)
+      for (const targetKey of ['widgets', 'gadgets']) {
+        await session.run('upsert-market', { market: {
+          stableKey: `${targetKey}-market`, label: `${targetKey} market`, kind: 'market',
+          usageEdges: [{ targetKey, queryId: sourceQueryId, executionNodeKey: originalKey }],
+        } })
+      }
+      const selection = routeAction === 'route-markets'
+        ? { marketKeys: ['widgets-market'] }
+        : routeAction === 'apply-paired-assignments'
+          ? { pairs: [{ targetKey: 'widgets', queryId: sourceQueryId }] }
+          : { targetKeys: ['widgets'], queryIds: [sourceQueryId] }
+      const route = 'openrouter:google/gemini-2.5-flash'
+      await session.run(routeAction, { ...selection, contextOverride: { providers: [route] } })
+      const separated = await action('compile-preview')
+      const separatedPlan = measurementPlanV2Schema.parse(separated.json().plan)
+      expect(separatedPlan.executionNodes).toHaveLength(2)
+      expect(separatedPlan.executionNodes.map(node => node.context.providers[0]).sort()).toEqual(['gemini', route])
+      expect(separatedPlan.reportingScopes?.find(scope => scope.stableKey === 'gadgets-market')?.usageEdges)
+        .toEqual([{ targetKey: 'gadgets', queryId: sourceQueryId, executionNodeKey: originalKey }])
+
+      await session.run(routeAction, {
+        ...selection, contextOverride: { providers: ['gemini'], models: { gemini: 'gemini-test' } },
+      })
+      const published = await publish(session, 1)
+      expect(published.statusCode, published.body).toBe(200)
+      const queued = await request('POST', '/runs', { payload: {} })
+      expect(queued.statusCode, queued.body).toBe(201)
+      const run = db.select().from(runs).get()!
+      const version = db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.id, run.measurementPlanVersionId!)).get()!
+      const plan = measurementPlanV2Schema.parse(JSON.parse(version.canonicalJson))
+      expect(measurementRunExpectedSlots(run, plan).expectedSlots).toHaveLength(1)
+      expect(plan.executionNodes).toEqual(original.executionNodes)
+      expect(plan.reportingScopes?.flatMap(scope => scope.usageEdges).map(edge => edge.executionNodeKey))
+        .toEqual([originalKey, originalKey])
+      db.update(runs).set({ status: RunStatuses.completed, finishedAt: NOW }).where(eq(runs.id, run.id)).run()
+      const report = await request('GET', `/visibility-report?runId=${run.id}&queryClass=non-brand`)
+      expect(report.statusCode, report.body).toBe(200)
+
+      const merged = await DraftSession.start(published.json().active.revision as number)
+      await merged.run('merge-targets', { targetKey: 'widgets', mergedKeys: ['gadgets'] })
+      const mergePreview = await action('compile-preview')
+      expect(mergePreview.json()).toMatchObject({ ok: true })
+      expect(measurementPlanV2Schema.parse(mergePreview.json().plan).executionNodes).toHaveLength(1)
+    },
+  )
+
   it('reports a publish with the plan it made live, a no-op as skipped, a refusal as failed, and a replay not again', async () => {
     const first = await readyDraft()
     await first.run('upsert-group', { group: { stableKey: 'catalog', label: 'Catalog', targetKeys: ['widgets'], competitors: [] } })

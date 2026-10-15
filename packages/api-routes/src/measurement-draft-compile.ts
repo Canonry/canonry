@@ -258,6 +258,24 @@ function normalizeProviders(values: readonly string[]): string[] {
   return canonicalStrings(values.map(value => value.trim().toLowerCase()).filter(Boolean))
 }
 
+/** Reuse frozen identities across Properties when compiling or rerouting an assignment. */
+export function frozenMeasurementDraftExecutionKeys(authoring: MeasurementDraftAuthoring): Map<string, string> {
+  const keys = new Map<string, string>()
+  for (const assignment of authoring.assignments) {
+    for (const exact of assignment.executionContexts ?? []) {
+      if (exact.executionNodeKey === undefined) continue
+      const signature = canonicalJson({
+        queryId: assignment.queryId,
+        location: exact.location,
+        providers: normalizeProviders(exact.providers),
+        models: Object.fromEntries(Object.entries(exact.models).map(([provider, model]) => [provider.trim().toLowerCase(), model])),
+      })
+      keys.set(signature, exact.executionNodeKey)
+    }
+  }
+  return keys
+}
+
 /**
  * Compile the authoring intent into the immutable v2 document.
  *
@@ -518,19 +536,7 @@ export function compileMeasurementDraft(
   const frozenProvenanceByQuery = new Map<string, MeasurementV2QuerySnapshot['provenance']>()
   // An added Target can reuse an imported execution. Resolve these identities
   // before walking assignments so reuse does not depend on Target ordering.
-  const frozenKeysBySignature = new Map<string, string>()
-  for (const assignment of authoring.assignments) {
-    for (const exact of assignment.executionContexts ?? []) {
-      if (exact.executionNodeKey === undefined) continue
-      const signature = canonicalJson({
-        queryId: assignment.queryId,
-        location: exact.location,
-        providers: normalizeProviders(exact.providers),
-        models: Object.fromEntries(Object.entries(exact.models).map(([provider, model]) => [provider.trim().toLowerCase(), model])),
-      })
-      frozenKeysBySignature.set(signature, exact.executionNodeKey)
-    }
-  }
+  const frozenKeysBySignature = frozenMeasurementDraftExecutionKeys(authoring)
 
   authoring.assignments.forEach((assignment, index) => {
     const path: (string | number)[] = ['assignments', index]

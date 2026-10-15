@@ -62,6 +62,8 @@ OpenRouter credentials belong to the `openrouter` connection. Sweeps select fixe
 Adding a routed model is model selection and requires `settings.write` through `assertOpenRouterRouteScope`. Runs, query generation, schedules, research and Advanced contexts may select routes already saved on that project with their normal action scope. Draft edits preserve previously authorized routes; publishing a route outside the project's saved roster requires model-choice authority.
 Ad hoc `/snapshot` has no saved project roster, so any explicit OpenRouter route requires `settings.write`.
 
+Draft engine changes preserve existing location overrides, including an explicit empty location list. Rerouting uses `frozenMeasurementDraftExecutionKeys` from the draft compiler to reuse matching executions across Properties and remaps market edges to those keys. Identical provider work must not acquire a second execution key that the queue deduplicates but reports still expect.
+
 ### Run admission
 
 Visibility admission is locked by `(projectId, kind)` in `queueRunIfProjectIdle`

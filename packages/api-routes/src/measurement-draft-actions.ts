@@ -38,7 +38,7 @@ import {
   compareText,
   openRouterRouteModel,
 } from '@ainyc/canonry-contracts'
-import { proposeQueryClassForTarget } from './measurement-draft-compile.js'
+import { frozenMeasurementDraftExecutionKeys, proposeQueryClassForTarget } from './measurement-draft-compile.js'
 import { canonicalJson, sha256Hex } from './measurement-draft-repo.js'
 import type { ZodType } from 'zod'
 
@@ -290,6 +290,7 @@ function normalizedExactContext(
   exact: ExactExecutionContext,
   queryId: string,
   override: ProviderModelOverride,
+  frozenKeys: ReadonlyMap<string, string>,
 ): ExactExecutionContext {
   const providers = normalizedProviders(override.providers ?? exact.providers)
   const models = normalizedModels(override.models ?? (override.providers === undefined ? exact.models : {}))
@@ -304,9 +305,10 @@ function normalizedExactContext(
     location: exact.location,
   }
   if (canonicalJson(next) === canonicalJson(current)) return exact
+  const signature = canonicalJson({ queryId, ...next })
   return {
     ...next,
-    executionNodeKey: `execution-${sha256Hex(canonicalJson({ queryId, ...next }))}`,
+    executionNodeKey: frozenKeys.get(signature) ?? `execution-${sha256Hex(signature)}`,
   }
 }
 
@@ -485,13 +487,14 @@ function normalizeSelectedOneToOneMarketEdges(
 function withRequestedContext(
   assignment: MeasurementDraftAssignment,
   contextOverride: MeasurementDraftAssignmentAudienceRequest['contextOverride'],
+  frozenKeys: ReadonlyMap<string, string>,
   edgeRemaps?: Map<string, UsageEdge>,
 ): MeasurementDraftAssignment {
   if (contextOverride === undefined) return assignment
   if (assignment.executionContexts !== undefined && contextOverride.locations === undefined) {
     const contextsByIdentity = new Map<string, ExactExecutionContext>()
     for (const exact of assignment.executionContexts) {
-      const rewritten = normalizedExactContext(exact, assignment.queryId, contextOverride)
+      const rewritten = normalizedExactContext(exact, assignment.queryId, contextOverride, frozenKeys)
       const identity = canonicalJson({
         providers: normalizedProviders(rewritten.providers),
         models: normalizedModels(rewritten.models),
@@ -509,7 +512,11 @@ function withRequestedContext(
     return { ...assignment, executionContexts: [...contextsByIdentity.values()] }
   }
   const { executionContexts: _frozenContexts, ...withoutFrozenContexts } = assignment
-  return { ...withoutFrozenContexts, contextOverride }
+  const locations = contextOverride.locations ?? assignment.contextOverride?.locations
+  return {
+    ...withoutFrozenContexts,
+    contextOverride: { ...contextOverride, ...(locations === undefined ? {} : { locations }) },
+  }
 }
 
 /**
@@ -721,6 +728,7 @@ export function applyAssignmentsToAuthoring(
 
   const targetByKey = new Map(authoring.targets.map(target => [target.stableKey, target]))
   const assignments = [...authoring.assignments]
+  const frozenKeys = frozenMeasurementDraftExecutionKeys(authoring)
   const edgeRemaps = new Map<string, UsageEdge>()
   const assignmentIndexes = new Map(assignments.map((assignment, index) => [
     `${assignment.targetKey}\u0000${assignment.queryId}`,
@@ -745,7 +753,7 @@ export function applyAssignmentsToAuthoring(
       }
       const existing = assignments[index]!
       assignments[index] = {
-        ...withRequestedContext(existing, request.contextOverride, edgeRemaps),
+        ...withRequestedContext(existing, request.contextOverride, frozenKeys, edgeRemaps),
         ...(existing.classificationSource === 'operator'
           ? {}
           : { queryClass: proposeQueryClassForTarget(context.queriesById.get(queryId)!, context.brandNames, targetByKey.get(targetKey)) }),
@@ -844,6 +852,7 @@ function applyPairedAssignments(
 
   const targetByKey = new Map(authoring.targets.map(target => [target.stableKey, target]))
   const assignments = [...authoring.assignments]
+  const frozenKeys = frozenMeasurementDraftExecutionKeys(authoring)
   const edgeRemaps = new Map<string, UsageEdge>()
   const assignmentIndexes = new Map(assignments.map((assignment, index) => [
     `${assignment.targetKey}\u0000${assignment.queryId}`,
@@ -866,7 +875,7 @@ function applyPairedAssignments(
     // An operator classification outranks the rule, exactly as in the cross-product path.
     const existing = assignments[index]!
     assignments[index] = {
-      ...withRequestedContext(existing, contextOverride, edgeRemaps),
+      ...withRequestedContext(existing, contextOverride, frozenKeys, edgeRemaps),
       ...(existing.classificationSource === 'operator'
         ? {}
         : { queryClass: proposeQueryClassForTarget(context.queriesById.get(queryId)!, context.brandNames, targetByKey.get(targetKey)) }),
@@ -969,6 +978,7 @@ export function routeMarketsInAuthoring(
   }
 
   const selectedEdgeRemaps = new Map<string, UsageEdge>()
+  const frozenKeys = frozenMeasurementDraftExecutionKeys(routableAuthoring)
   const assignments = routableAuthoring.assignments.map((assignment, assignmentIndex) => {
     const selectedKeys = selectedKeysByAssignment.get(assignmentIndex)
     if (!selectedKeys || assignment.executionContexts === undefined) return assignment
@@ -978,7 +988,7 @@ export function routeMarketsInAuthoring(
       if (!exact.executionNodeKey || !selectedKeys.has(exact.executionNodeKey)) continue
       rewrittenByKey.set(
         exact.executionNodeKey,
-        normalizedExactContext(exact, assignment.queryId, request.contextOverride),
+        normalizedExactContext(exact, assignment.queryId, request.contextOverride, frozenKeys),
       )
     }
 

@@ -42,6 +42,53 @@ const audienceContext = {
 }
 
 describe('measurement draft assignment scale', () => {
+  it.each(['apply-assignments', 'replace-assignments', 'apply-paired-assignments'] as const)(
+    'preserves mutable locations when %s changes only the engine',
+    (action) => {
+      const dallas = { label: 'dallas', city: 'Dallas', region: 'TX', country: 'US', timezone: 'America/Chicago' }
+      const austin = { label: 'austin', city: 'Austin', region: 'TX', country: 'US' }
+      const route = 'openrouter:google/gemini-2.5-flash'
+      for (const { locations, expected } of [
+        { locations: ['dallas'], expected: [dallas] },
+        { locations: [], expected: [null] },
+        { locations: ['dallas', 'austin'], expected: [dallas, austin] },
+      ]) {
+        const authoring = audienceFixture()
+        authoring.defaultContext.locations = ['austin']
+        authoring.groups = []
+        authoring.assignments = [{
+          targetKey: 'dallas-1', queryId: 'q-market', queryClass: 'non-brand', classificationSource: 'operator',
+          contextOverride: { providers: ['gemini'], locations },
+        }]
+        const selection = action === 'apply-paired-assignments'
+          ? { pairs: [{ targetKey: 'dallas-1', queryId: 'q-market' }] }
+          : { targetKeys: ['dallas-1'], queryIds: ['q-market'] }
+        const changed = applyDraftAction(action, authoring, {
+          ...selection, contextOverride: { providers: [route], models: {} },
+        }, audienceContext)
+        const compileContext = {
+          canonicalDomain: 'portfolio.example', ownedDomains: [], brandNames: ['Example Portfolio'],
+          locations: [dallas, austin], trackedQueries: [{ id: 'q-market', query: 'best apartments downtown' }],
+        }
+        const compiled = compileMeasurementDraft(changed.authoring, compileContext)
+        expect(compiled.ok).toBe(true)
+        if (!compiled.ok) throw new Error('Engine changes should preserve valid locations')
+        expect(compiled.plan.executionNodes).toHaveLength(expected.length)
+        expect(compiled.plan.executionNodes.map(node => node.context.location)).toEqual(expect.arrayContaining(expected))
+        expect(compiled.plan.executionNodes.every(node => node.context.providers[0] === route)).toBe(true)
+
+        // Explicit location changes, including a location-free request, still replace the old choice.
+        const cleared = applyDraftAction(action, changed.authoring, {
+          ...selection, contextOverride: { providers: ['gemini'], models: {}, locations: [] },
+        }, audienceContext)
+        const clearedPlan = compileMeasurementDraft(cleared.authoring, compileContext)
+        expect(clearedPlan.ok).toBe(true)
+        if (!clearedPlan.ok) throw new Error('Explicit location changes should compile')
+        expect(clearedPlan.plan.executionNodes.map(node => node.context.location)).toEqual([null])
+      }
+    },
+  )
+
   it.each(['apply-assignments', 'apply-paired-assignments'] as const)('keeps frozen contexts until %s explicitly replaces them', (action) => {
     const authoring = audienceFixture()
     authoring.assignments = [{
