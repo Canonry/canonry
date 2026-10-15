@@ -379,10 +379,48 @@ test('marks each market query per engine with the last sweep\'s result for this 
   // Mentioned and Cited are read apart, each from its own field of the engine's cell.
   expect(marketChips(UPTOWN_BEST)).toEqual(['OpenAI: Not mentioned, Not cited', 'Gemini: Not mentioned, Not cited', 'Claude: Mentioned, Not cited'])
   expect(marketChips(DOWNTOWN)).toEqual(['OpenAI: Not checked', 'Gemini: Not mentioned, Cited', 'Claude: Not mentioned, Not cited'])
-  // The sweep holds no result for this query, so no chip claims a No.
-  expect(marketChips(UPTOWN_PETS)).toEqual(['OpenAI: Not checked', 'Gemini: Not checked', 'Claude: Not checked'])
+  // Its assigned engines have no result; Claude was never asked for this query.
+  expect(marketChips(UPTOWN_PETS)).toEqual(['OpenAI: Not checked', 'Gemini: Not checked'])
   // A pair is one stop, and the count behind it is the server's.
-  expect(within(markets).getByRole('button', { name: 'Claude: Mentioned, Not cited' }).getAttribute('aria-description')).toContain('2 of 3')
+  const description = within(markets).getByRole('button', { name: 'Claude: Mentioned, Not cited' }).getAttribute('aria-description')
+  expect(description).toContain('Harbor Point.')
+  expect(description).toContain('2 of 3')
+})
+
+test('market signals ignore unassigned default engines and engines assigned only to another location', async () => {
+  const on = (targetKey: string, provider: string) => ({
+    ...pairing(targetKey, ['uptown'], 'non-brand', ['north']),
+    contexts: [{ ...context, providers: [provider], models: {} }],
+  })
+  await renderLocation({
+    role: 'viewer',
+    workspace: () => json(portfolio({
+      defaultContexts: [{ ...context, providers: ['openai', 'gemini', 'claude'] }],
+      tracked: [tracked('q-uptown-best', UPTOWN_BEST, { kind: 'market', key: 'uptown' }, [on('harbor', 'openai'), on('river', 'gemini')])],
+    })),
+    results: () => json(sweep({ rows: [] })),
+  })
+  const markets = await table('Market queries')
+  await waitFor(() => expect(marketChips(UPTOWN_BEST)).toEqual(['OpenAI: Not checked']))
+  // The result is for Harbor Point, not another member of its market.
+  expect(within(markets).getByRole('button', { name: 'OpenAI: Not checked' }).getAttribute('aria-description')).toContain('Harbor Point.')
+  expect(within(markets).queryByRole('button', { name: 'Gemini: Not checked' })).toBeNull()
+  expect(within(markets).queryByRole('button', { name: 'Claude: Not checked' })).toBeNull()
+})
+
+test("hand-picked queries on a location page do not borrow another location's engine assignments", async () => {
+  const on = (targetKey: string, provider: string) => ({
+    ...pairing(targetKey, [], 'non-brand'),
+    contexts: [{ ...context, providers: [provider], models: {} }],
+  })
+  await renderLocation({
+    role: 'viewer',
+    workspace: () => json(portfolio({ tracked: [tracked('q-picked', PICKED, { kind: 'custom' }, [on('harbor', 'openai'), on('river', 'gemini')])] })),
+    results: () => json(sweep({ rows: [] })),
+  })
+  await table('Hand-picked queries')
+  await waitFor(() => expect(chips(PICKED)).toEqual(['OpenAI: Not checked']))
+  expect(within(rowOf(PICKED)).getByText('Not asked')).toBeTruthy()
 })
 
 test('draws skeleton chips for the market queries while the results load, and Not checked with a Retry when they fail', async () => {

@@ -43,7 +43,8 @@ export function queryTemplateBindings(kind: QueryTemplateVariableKind, value: st
 
 const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/)
 const queryTrackingIdSchema = z.string().trim().min(1).max(256)
-const queryTrackingTextSchema = z.string().trim().min(1).max(4_000)
+export const QUERY_TRACKING_TEXT_MAX_LENGTH = 4_000
+const queryTrackingTextSchema = z.string().trim().min(1).max(QUERY_TRACKING_TEXT_MAX_LENGTH)
 /** Server-minted timestamp for the exact preview the operator reviewed. */
 export const queryTrackingReviewedAtSchema = z.string().datetime()
 
@@ -292,6 +293,13 @@ export const queryTrackingMarketSchema = z.object({
 }).strict()
 export type QueryTrackingMarket = z.output<typeof queryTrackingMarketSchema>
 
+export const queryTrackingClassifiedContextSchema = measurementV2ExecutionContextSchema.extend({
+  queryClass: queryClassSchema,
+  /** Markets containing this exact context and class for the assignment's location. */
+  marketKeys: z.array(measurementV2StableKeySchema),
+})
+export type QueryTrackingClassifiedContext = z.output<typeof queryTrackingClassifiedContextSchema>
+
 export const queryTrackingAssignmentSchema = z.object({
   targetKey: measurementV2StableKeySchema,
   groupKeys: z.array(measurementV2StableKeySchema),
@@ -300,6 +308,12 @@ export const queryTrackingAssignmentSchema = z.object({
   classificationSource: z.enum(['frozen', 'server', 'operator']),
   /** Complete provider/model/location contexts, never a label-only reconstruction. */
   contexts: z.array(measurementV2ExecutionContextSchema).min(1),
+  /**
+   * Exact context/class pairings, with edge-backed markets. A location can ask
+   * the same query under both classes. Optional for older servers; the legacy
+   * queryClass and contexts fields retain their original shape and cardinality.
+   */
+  classifiedContexts: z.array(queryTrackingClassifiedContextSchema).min(1).optional(),
 }).strict()
 export type QueryTrackingAssignment = z.output<typeof queryTrackingAssignmentSchema>
 
@@ -346,7 +360,8 @@ export const queryTrackingTrackedRowSchema = z.object({
    * The row's Type: the distinct classes across every plan assignment of the
    * query (one per location and search location), sorted. Two mean mixed, none
    * means not set. `assignments[].queryClass` shows one class per location, so
-   * it can list fewer classes. A simple site's row carries the project
+   * it can list fewer classes; `assignments[].classifiedContexts` preserves
+   * every class with its context and markets. A simple site's row carries the project
    * classifier's one class. Optional like `focus`.
    */
   queryClasses: z.array(queryClassSchema).optional(),

@@ -176,7 +176,7 @@ describe('TrackedSummaryGrid, project strip', () => {
     }
     render(<Host />)
     const chosen = () => ['Subject', 'Type', 'Status', 'Source', 'Result'].map(name => screen.getByRole<HTMLSelectElement>('combobox', { name }).selectedOptions[0]!.textContent)
-    expect(chosen()).toEqual(['Any', 'Branded', 'Measured + First answers', 'Any', 'Any'])
+    expect(chosen()).toEqual(['Any', 'Branded', 'Asked', 'Any', 'Any'])
     fireEvent.click(screen.getByRole('button', { name: '38 not asked' }))
     expect(chosen()).toEqual(['Any', 'Branded', 'Not asked', 'Any', 'Any'])
   })

@@ -188,8 +188,8 @@ export function coverageByQuery(results: TrackedResults | null | undefined): Tra
   const coverage = new Map<string, Map<string, EngineSignal>>()
   for (const row of results.rows) {
     const engines = new Map<string, EngineSignal>()
-    for (const { provider, mentioned, cited, expectedAnswers, answers, mentionedAnswers, citedAnswers, uncheckedSourceAnswers } of row.engines) {
-      engines.set(provider, { mentioned, cited, expectedAnswers, answers, mentionedAnswers, citedAnswers, uncheckedSourceAnswers })
+    for (const { provider, ...signal } of row.engines) {
+      engines.set(provider, signal)
     }
     coverage.set(coverageKey(row.queryId, row.queryClass), engines)
   }
@@ -219,9 +219,11 @@ export const NOT_ASKED = 'not-asked'
  * engine in a search location's engines. A row with no link of its own (a
  * simple site's) is asked on every engine shown.
  */
-function askedOn(row: Pick<TrackedRowVm, 'tracked'>, provider: string): boolean {
-  const links = row.tracked.assignments
-  return links.length === 0 || links.some(link => link.contexts.some(context => context.providers.includes(provider)))
+function askedOn(row: Pick<TrackedRowVm, 'tracked' | 'displayAssignments'>, queryClass: string, provider: string): boolean {
+  const links = row.displayAssignments ?? row.tracked.assignments
+  return (links.length === 0 && row.displayAssignments === undefined) || links.some(link => link.classifiedContexts
+    ? link.classifiedContexts.some(context => context.queryClass === queryClass && context.providers.includes(provider))
+    : (link.queryClass ?? UNSET_RESULT_CLASS) === queryClass && link.contexts.some(context => context.providers.includes(provider)))
 }
 
 /**
@@ -232,10 +234,10 @@ function askedOn(row: Pick<TrackedRowVm, 'tracked'>, provider: string): boolean 
  * is still shown. The table, the Result filter and the CSV all read a cell
  * through this, so the three agree on what was not asked.
  */
-export function rowSignal(row: Pick<TrackedRowVm, 'queryId' | 'status' | 'tracked'>, coverage: TrackedCoverage | undefined, queryClass: string, provider: string): EngineSignal | null | undefined | typeof NOT_ASKED {
+export function rowSignal(row: Pick<TrackedRowVm, 'queryId' | 'status' | 'tracked' | 'displayAssignments'>, coverage: TrackedCoverage | undefined, queryClass: string, provider: string): EngineSignal | null | undefined | typeof NOT_ASKED {
   if (row.status === 'not-asked') return NOT_ASKED
   const signal = engineSignal(coverage, row.queryId, queryClass, provider)
-  return signal || askedOn(row, provider) ? signal : NOT_ASKED
+  return signal || askedOn(row, queryClass, provider) ? signal : NOT_ASKED
 }
 
 /**
@@ -251,8 +253,8 @@ export function rowSignal(row: Pick<TrackedRowVm, 'queryId' | 'status' | 'tracke
  * the locations asked under it. A link carries one type; where none carries
  * the type asked for, the row's links stand for it.
  */
-export function marksSubject(row: Pick<TrackedRowVm, 'subject'>, links: readonly { targetKey: string; queryClass?: string | null }[], targetLabels: ReadonlyMap<string, string>, queryClass?: string): string | undefined {
-  const ofType = queryClass === undefined ? [] : links.filter(link => link.queryClass === queryClass)
+export function marksSubject(row: Pick<TrackedRowVm, 'subject'>, links: readonly { targetKey: string; queryClass?: string | null; classifiedContexts?: readonly { queryClass: string }[] }[], targetLabels: ReadonlyMap<string, string>, queryClass?: string): string | undefined {
+  const ofType = queryClass === undefined ? [] : links.filter(link => link.classifiedContexts ? link.classifiedContexts.some(context => context.queryClass === queryClass) : link.queryClass === queryClass)
   const targetKeys = [...new Set((ofType.length > 0 ? ofType : links).map(link => link.targetKey))]
   if (targetKeys.length === 0) return undefined
   if (targetKeys.length === 1) return targetLabels.get(targetKeys[0]!) ?? targetKeys[0]!

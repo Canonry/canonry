@@ -498,7 +498,7 @@ export type MeasurementPropertyQuestionsResponse = z.output<typeof measurementPr
 export const measurementQuestionResultQuerySchema = z.object({
   targetKey: measurementV2StableKeySchema,
   resultId: measurementDemoIdSchema,
-  /** Open a result of the last completed sweep after a tracking change. */
+  /** Open this result under its own completed or partial whole-project v2 sweep's frozen plan. */
   fallback: measurementReadFallbackSchema.optional(),
 }).strict()
 export type MeasurementQuestionResultQuery = z.output<typeof measurementQuestionResultQuerySchema>

@@ -250,6 +250,31 @@ describe('rowSignal', () => {
     expect(['claude', 'gemini', 'openai'].map(provider => rowSignal(three!, coverage, 'non-brand', provider))).toEqual([null, null, null])
   })
 
+  it('does not borrow an engine assignment from the other query type', () => {
+    const mixed = only(row('mixed', { queryClasses: ['branded', 'non-brand'], assignments: [
+      { ...linked('harbor-point', on('openai')), queryClass: 'branded' },
+      linked('riverside', on('gemini')),
+    ] }))
+    expect(rowSignal(mixed, coverage, 'non-brand', 'openai')).toBe(NOT_ASKED)
+    expect(rowSignal(mixed, coverage, 'branded', 'gemini')).toBe(NOT_ASKED)
+    expect(rowSignal(mixed, coverage, 'non-brand', 'gemini')).toBeNull()
+    expect(rowSignal(mixed, coverage, 'branded', 'openai')).toBeNull()
+  })
+
+  it('preserves both types at one location when their engine contexts differ', () => {
+    const mixed = only(row('mixed-contexts', { queryClasses: ['branded', 'non-brand'], assignments: [{
+      ...linked('harbor-point', on('openai'), on('gemini')),
+      classifiedContexts: [
+        { ...on('openai'), queryClass: 'branded', marketKeys: [] },
+        { ...on('gemini'), queryClass: 'non-brand', marketKeys: [] },
+      ],
+    }] }))
+    expect(rowSignal(mixed, coverage, 'branded', 'openai')).toBeNull()
+    expect(rowSignal(mixed, coverage, 'non-brand', 'gemini')).toBeNull()
+    expect(rowSignal(mixed, coverage, 'branded', 'gemini')).toBe(NOT_ASKED)
+    expect(rowSignal(mixed, coverage, 'non-brand', 'openai')).toBe(NOT_ASKED)
+  })
+
   it('reads a row with no location link of its own as asked on every engine shown', () => {
     expect(['claude', 'openai'].map(provider => rowSignal(simple!, coverage, 'non-brand', provider))).toEqual([null, null])
   })

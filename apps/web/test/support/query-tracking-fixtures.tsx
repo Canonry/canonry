@@ -241,7 +241,8 @@ export async function reviewRemoval() {
 
 /** The advanced review's number grid, as label and value pairs. */
 export function reviewNumbers() {
-  const grid = screen.getByText('Queries', { selector: 'dt' }).closest('dl')!
+  const heading = screen.getByRole('heading', { name: /^(Review(?: \d+ changes?| tracking changes)|No tracking changes)(, publish blocked)?$/ })
+  const grid = within(heading.parentElement!).getByText('Queries asked', { selector: 'dt' }).closest('dl')!
   return Object.fromEntries(within(grid).getAllByRole('term').map(term => [term.textContent, term.nextElementSibling?.textContent]))
 }
 
@@ -259,7 +260,7 @@ export function reviewRow(queryText: string, table = 'Changes') {
   const cell = (header: string) => headers.includes(header) ? row.cells[headers.indexOf(header)]!.textContent : undefined
   const stacked = headers.includes('Subject and type') ? [...row.cells[headers.indexOf('Subject and type')]!.children].map(line => line.textContent) : null
   if (stacked) expect(stacked).toHaveLength(2)
-  return { row, change: cell('Change'), subject: stacked ? stacked[0] : cell('Subject'), type: stacked ? stacked[1] : cell('Type'), assignments: cell('Location links'), searchLocation: cell('Search location and engines') }
+  return { row, change: cell('Change'), subject: stacked ? stacked[0] : cell('Subject'), type: stacked ? stacked[1] : cell('Type'), assignments: cell('Pairs'), searchLocation: cell('Search location and engines') }
 }
 
 /**

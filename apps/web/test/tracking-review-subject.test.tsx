@@ -136,7 +136,7 @@ const LOCATION_MISSES = /^[\d,]+ location mismatch(es)?$/
 function check(name: string, missed: RegExp) {
   const held = within(reviewRegion()).queryByText(name)
   if (held) {
-    expect(held.closest('button')).toBeNull()
+    expect(held.closest('button')).not.toBeNull()
     expect(look(held)).toBe('check positive')
     return 'met'
   }
@@ -145,21 +145,19 @@ function check(name: string, missed: RegExp) {
   expect(look(miss)).toBe('x negative')
   return miss.textContent
 }
-const checks = () => ({ subjects: check('One Subject each', SUBJECT_MISSES), locations: check('Locations match', LOCATION_MISSES) })
+const checks = () => ({ subjects: check('Subject as chosen', SUBJECT_MISSES), locations: check('Locations as chosen', LOCATION_MISSES) })
 /** The sentence behind a check that does not hold. */
 const subjectMisses = (label: string, queries: string) => noteButton(label, `${queries} would get a different Subject than the one you chose.`, reviewRegion())
 const locationMisses = (label: string, queries: string) => noteButton(label, `${queries} would be asked for other locations than your Subject holds.`, reviewRegion())
 /** "Publish blocked" in the actions: a status, with the count and the way out behind it. */
 function blockedNote(queries: string, back = true) {
-  const one = queries.startsWith('1 ')
-  const note = noteButton('Publish blocked', `${queries} would not be tracked for the Subject you chose.${back ? ` Go back and remove ${one ? 'it, or change its' : 'them, or change their'} Subject from the Tracked list.` : ''}`, actions())
+  const note = noteButton('Publish blocked', `${queries} would not be tracked for the Subject you chose.${back ? ' Go back to update the change.' : ''}`, actions())
   expect(look(note)).toBe('ban negative')
   expect(within(actions()).getAllByRole('status').some(status => status.contains(note))).toBe(true)
   return note
 }
 /** A row's own note, in its Query cell on the line of its location list. */
 const rowNote = (queryText: string, label: string, detail: string) => noteButton(label, detail, cell(queryText, 'Query'))
-const TYPE_SETS_SUBJECT = 'In a market with one location, the type decides the Subject. Branded reads as a location query and Non-brand as a market query.'
 
 test('checks a market add: its three locations, both checks met and Publish on', () => {
   // Each of Uptown's three locations is asked from two search locations, so the server counts six links for three locations.
@@ -167,13 +165,13 @@ test('checks a market add: its three locations, both checks met and Publish on',
   // The Subject was stated for the text as typed. The server lists it trimmed and in its own case.
   const { onPublish } = renderReview({ preview: preview([{ row: twice, links: 6 }]), expectedSubjects: [market('  Apartments with a  gym in Uptown ')] })
   expect(screen.getByRole('heading', { name: 'Review 1 change' })).toBeTruthy()
-  expect(headers()).toEqual(['Change', 'Query', 'Subject and type', 'Locations', 'Location links'])
+  expect(headers()).toEqual(['Change', 'Query', 'Subject and type', 'Locations', 'Pairs'])
   expect(cell(gym.queryText, 'Locations').textContent).toBe('0 → 3')
   expect(reviewRow(gym.queryText)).toMatchObject({ change: 'Added', subject: 'Market · Uptown (3)', type: 'Non-brand', assignments: '6' })
   expect(checks()).toEqual({ subjects: 'met', locations: 'met' })
   // Both sit above the table, beside the count of changes.
   const table = screen.getByRole('table', { name: 'Changes' })
-  for (const label of ['1 added', 'One Subject each', 'Locations match']) expect(screen.getByText(label).compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  for (const label of ['1 added', 'Subject as chosen', 'Locations as chosen']) expect(screen.getByText(label).compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   // The row says nothing more: its cell is the query and its location list.
   expect(cell(gym.queryText, 'Query').textContent).toBe(`${gym.queryText}3 locations`)
   expect(screen.queryByText('Publish blocked')).toBeNull()
@@ -201,8 +199,8 @@ test('keeps Publish off when a market query would be asked for all 192 locations
   expect(checks()).toEqual({ subjects: '1 Subject mismatch', locations: '1 location mismatch' })
   subjectMisses('1 Subject mismatch', '1 query')
   locationMisses('1 location mismatch', '1 query')
-  expect(screen.queryByText('One Subject each')).toBeNull()
-  expect(screen.queryByText('Locations match')).toBeNull()
+  expect(screen.queryByText('Subject as chosen')).toBeNull()
+  expect(screen.queryByText('Locations as chosen')).toBeNull()
 
   // The row that misses its Subject leads the table and is marked.
   expect(listedQueries()).toEqual([everyLocation.queryText, gym.queryText])
@@ -255,19 +253,17 @@ describe('a market of one location', () => {
   it.each([
     { name: 'a location add the server reads as its one-location market', row: asMarket, expected: location(asMarket.queryText, 'pier'), chosen: 'Location · Pier House', subject: 'Market · Solo (1)' },
     { name: 'a market add the server reads as its one location', row: asLocation, expected: market(asLocation.queryText, 'solo'), chosen: 'Market · Solo (1)', subject: 'Location · Pier House' },
-  ])('passes $name, and says the type set the Subject', ({ row, expected, chosen, subject }) => {
-    const { onPublish } = renderReview({ preview: preview([{ row }]), expectedSubjects: [expected] })
-    // The table still names the Subject the server gives it.
+  ])('blocks $name even when the server reports no type mismatch', ({ row, expected, chosen, subject }) => {
+    const { onPublish } = renderReview({ preview: preview([{ row }], { typeMismatches: [] }), expectedSubjects: [expected] })
     expect(reviewRow(row.queryText).subject).toBe(subject)
     expect(cell(row.queryText, 'Locations').textContent).toBe('0 → 1')
-    expect(checks()).toEqual({ subjects: 'met', locations: 'met' })
-    // A caution, not a mismatch: the row is not marked and nothing is blocked.
-    expect(look(rowNote(row.queryText, 'Type sets Subject', `You chose ${chosen}. ${TYPE_SETS_SUBJECT}`))).toBe('triangle-alert caution')
-    expect(reviewRow(row.queryText).row.className).toBe('')
-    expect(screen.queryByText('Publish blocked')).toBeNull()
-    expectNoSentence(reviewRegion())
+    expect(checks()).toEqual({ subjects: '1 Subject mismatch', locations: 'met' })
+    rowNote(row.queryText, 'Subject mismatch', `You chose ${chosen}. After you publish, its Subject would be ${subject}.`)
+    expect(reviewRow(row.queryText).row.classList.contains('bg-negative-soft')).toBe(true)
+    expect(screen.queryByText('Type sets Subject')).toBeNull()
+    expect(publish().disabled).toBe(true)
     fireEvent.click(publish())
-    expect(onPublish).toHaveBeenCalledTimes(1)
+    expect(onPublish).not.toHaveBeenCalled()
   })
 
   it('does not pass a query hand-picked for that one location', () => {
@@ -294,7 +290,7 @@ describe('a market of one location', () => {
   })
 
   it('does not take a location\'s Subject for a market of several, even with the market\'s own locations listed', () => {
-    // The server's two answers disagree here: Uptown's three locations, and a location's Subject. Only a market of one has two readings.
+    // The server's two answers disagree here: Uptown's three locations, and a location's Subject. The chosen Subject must match even if the location list agrees.
     const odd = tracked('query-view', 'apartments with a view in uptown', { kind: 'property', key: 'court' }, [pairing('court', ['uptown'], 'branded')])
     renderReview({ preview: preview([{ row: odd, after: UPTOWN }]), expectedSubjects: [market(odd.queryText)] })
     expect(checks()).toEqual({ subjects: '1 Subject mismatch', locations: 'met' })
@@ -400,7 +396,7 @@ test('reads each row\'s locations from the server\'s two lists, for a reused and
   // The unchanged queries have no placement to compare, so their table keeps its columns.
   fireEvent.click(screen.getByText('1 unchanged query'))
   await screen.findByRole('table', { name: 'Unchanged queries' })
-  expect(headers('Unchanged queries')).toEqual(['Change', 'Query', 'Subject', 'Type', 'Location links'])
+  expect(headers('Unchanged queries')).toEqual(['Change', 'Query', 'Subject', 'Type', 'Pairs'])
 })
 
 test('puts a query\'s location links under its locations, with their unit, beside a search location column', () => {
@@ -416,19 +412,39 @@ test('puts a query\'s location links under its locations, with their unit, besid
   // The column keeps its name. The second line says what it counts.
   expect(headers()).toEqual(['Change', 'Query', 'Subject and type', 'Locations', 'Search location and engines'])
   const lines = (queryText: string) => [...cell(queryText, 'Locations').children].map(line => line.textContent)
-  expect(lines(gym.queryText)).toEqual(['0 → 3', '3 links'])
-  expect(lines(garden.queryText)).toEqual(['0 → 3', '6 links'])
-  expect(lines(court.queryText)).toEqual(['0 → 1', '1 link'])
-  expect(lines(gone.queryText)).toEqual(['3 → 0', '−3 links'])
+  expect(lines(gym.queryText)).toEqual(['0 → 3', '3 pairs'])
+  expect(lines(garden.queryText)).toEqual(['0 → 3', '6 pairs'])
+  expect(lines(court.queryText)).toEqual(['0 → 1', '1 pair'])
+  expect(lines(gone.queryText)).toEqual(['3 → 0', '−3 pairs'])
   // A row's location list spans all five columns.
   fireEvent.click(within(reviewRow(garden.queryText).row).getByRole('button', { name: '3 locations' }))
   expect((reviewRow(garden.queryText).row.nextElementSibling as HTMLTableRowElement).cells[0]!.colSpan).toBe(5)
   expect(checks()).toEqual({ subjects: 'met', locations: 'met' })
 })
 
+test('reviews each class with only its own engines and markets for a location asked both ways', () => {
+  const branded = { ...context, providers: ['openai'], models: { openai: 'gpt-5' } }
+  const nonBrand = { ...elsewhere, providers: ['gemini'], models: { gemini: 'gemini-3' } }
+  const assignment = {
+    ...pairing('court', ['uptown', 'solo'], 'branded', [branded, nonBrand]),
+    classifiedContexts: [
+      { ...nonBrand, queryClass: 'non-brand', marketKeys: ['solo'] },
+      { ...branded, queryClass: 'branded', marketKeys: ['uptown'] },
+    ],
+  }
+  const mixed = { ...tracked('query-mixed', 'acme homes court comparison', { kind: 'custom' }, [assignment]), queryClasses: ['branded', 'non-brand'] }
+  renderReview({ preview: preview([{ row: mixed, links: 2 }]) })
+  fireEvent.click(within(reviewRow(mixed.queryText).row).getByRole('button', { name: '1 location' }))
+  const disclosure = reviewRow(mixed.queryText).row.nextElementSibling as HTMLElement
+  expect(within(disclosure).getAllByRole('listitem').map(item => item.textContent)).toEqual([
+    'Acme Homes Court · Branded · Markets: Uptown · Northbridge · OpenAI',
+    'Acme Homes Court · Non-brand · Markets: Solo · Lakeshore · Gemini',
+  ])
+})
+
 // Neither pair is the limit less the count, so a number worked out here would show.
 const limits = { queries: { current: 932, next: 936, max: 1_000, left: { current: 61, next: 57 } } }
-const numberGrid = () => screen.getByText('Queries', { selector: 'dt' }).closest('dl')!
+const numberGrid = () => screen.getByText('Queries asked', { selector: 'dt' }).closest('dl')!
 
 describe('with nothing to check', () => {
   const landings = [{ row: gym }, { row: everyLocation }]
@@ -439,10 +455,10 @@ describe('with nothing to check', () => {
     { name: 'no Subject was stated, as from the old Add form', props: { preview: preview(landings, { limits }) } },
     { name: 'an empty list of Subjects', props: { preview: preview(landings, { limits }), expectedSubjects: [] } },
     { name: 'a server that sends no changes', props: { preview: preview(landings, { limits, changes: undefined }), expectedSubjects: stated } },
-  ])('draws nothing new and leaves Publish on for $name', ({ props }) => {
+  ])('keeps placement checks absent and leaves Publish on for $name', ({ props }) => {
     const { onPublish } = renderReview(props)
     expect(screen.getByRole('heading', { name: 'Review 2 changes' })).toBeTruthy()
-    expect(headers()).toEqual(['Change', 'Query', 'Subject', 'Type', 'Location links'])
+    expect(headers()).toEqual(['Change', 'Query', 'Subject', 'Type', 'Pairs'])
     // The server's order, with the row that would have missed its Subject where the server put it.
     expect(listedQueries()).toEqual([gym.queryText, everyLocation.queryText])
     expect(reviewRow(everyLocation.queryText).row.className).toBe('')
@@ -450,9 +466,9 @@ describe('with nothing to check', () => {
     expect(checks()).toEqual({ subjects: null, locations: null })
     expect(screen.queryByText('Subject mismatch')).toBeNull()
     expect(screen.queryByText('Publish blocked')).toBeNull()
-    // The four numbers it had, four to a row.
-    expect(reviewNumbers()).toEqual({ Queries: '932 → 936', 'Answers per sweep': '6 → 12', 'Answers added': '+6', 'Answers removed': '0' })
-    expect(numberGrid().className).toBe('mt-3 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4')
+    // Room under the limit is useful even when this caller stated no Subject.
+    expect(reviewNumbers()).toEqual({ 'Queries asked': '932 → 936', 'Left under limit': '61 → 57', 'Answers per sweep': '6 → 12', 'Answers added': '+6', 'Answers removed': '0' })
+    expect(numberGrid().classList.contains('sm:grid-cols-3')).toBe(true)
     fireEvent.click(publish())
     expect(onPublish).toHaveBeenCalledTimes(1)
   })
@@ -463,9 +479,9 @@ describe('with nothing to check', () => {
       expectedSubjects: [market(gym.queryText)],
     })
     expect(screen.getByRole('heading', { name: 'No tracking changes' })).toBeTruthy()
-    expect(headers()).toEqual(['Change', 'Query', 'Subject', 'Type', 'Location links'])
+    expect(headers()).toEqual(['Change', 'Query', 'Subject', 'Type', 'Pairs'])
     expect(checks()).toEqual({ subjects: null, locations: null })
-    expect(Object.keys(reviewNumbers())).toEqual(['Queries', 'Answers per sweep', 'Answers added', 'Answers removed'])
+    expect(Object.keys(reviewNumbers())).toEqual(['Queries asked', 'Left under limit', 'Answers per sweep', 'Answers added', 'Answers removed'])
     // Off because nothing changes, not because of a mismatch.
     expect(publish().disabled).toBe(true)
     expect(screen.queryByText('Publish blocked')).toBeNull()
@@ -474,15 +490,15 @@ describe('with nothing to check', () => {
 
 test('prints the server\'s room under the query limit beside the check, and none from a server that sends none', () => {
   renderReview({ preview: preview([{ row: gym }], { limits }), expectedSubjects: [market(gym.queryText)] })
-  expect(reviewNumbers()).toEqual({ Queries: '932 → 936', 'Left under limit': '61 → 57', 'Answers per sweep': '6 → 12', 'Answers added': '+6', 'Answers removed': '0' })
+  expect(reviewNumbers()).toEqual({ 'Queries asked': '932 → 936', 'Left under limit': '61 → 57', 'Answers per sweep': '6 → 12', 'Answers added': '+6', 'Answers removed': '0' })
   // The query counts lead, then the answers, three to a row. On a phone the widest has a row to itself, which keeps the two answer changes a pair.
-  expect(within(numberGrid()).getAllByRole('term').map(term => term.textContent)).toEqual(['Queries', 'Left under limit', 'Answers per sweep', 'Answers added', 'Answers removed'])
+  expect(within(numberGrid()).getAllByRole('term').map(term => term.textContent)).toEqual(['Queries asked', 'Left under limit', 'Answers per sweep', 'Answers added', 'Answers removed'])
   expect(numberGrid().classList.contains('sm:grid-cols-3')).toBe(true)
   expect([...numberGrid().children].map(number => number.className)).toEqual(['', '', 'max-sm:col-span-2', '', ''])
   cleanup()
 
   renderReview({ preview: preview([{ row: gym }], { limits: { queries: { current: 932, next: 936, max: 1_000 } } }), expectedSubjects: [market(gym.queryText)] })
-  expect(reviewNumbers()).toEqual({ Queries: '932 → 936', 'Answers per sweep': '6 → 12', 'Answers added': '+6', 'Answers removed': '0' })
+  expect(reviewNumbers()).toEqual({ 'Queries asked': '932 → 936', 'Answers per sweep': '6 → 12', 'Answers added': '+6', 'Answers removed': '0' })
   expect(numberGrid().className).toBe('mt-3 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4')
   expect(checks()).toEqual({ subjects: 'met', locations: 'met' })
 })
@@ -564,8 +580,8 @@ async function reviewed(sheet: Sheet) {
   // The sheet's own footer makes the review's buttons a finger's size on a phone.
   expect(publishButton.parentElement!.classList.contains('max-md:[&>button]:h-11')).toBe(true)
   return {
-    subjects: state('One Subject each', SUBJECT_MISSES),
-    locations: state('Locations match', LOCATION_MISSES),
+    subjects: state('Subject as chosen', SUBJECT_MISSES),
+    locations: state('Locations as chosen', LOCATION_MISSES),
     mismatches: sheet.queryAllByText('Subject mismatch').length,
     byType: sheet.queryAllByText('Type sets Subject').length,
     blocked: sheet.queryByText('Publish blocked') !== null && heading.textContent!.endsWith(', publish blocked'),
@@ -593,7 +609,7 @@ describe('the Add queries sheet', () => {
       ? { text: addition.input.text!, focus: { kind: 'custom' }, after: [...UPTOWN_SHEET, 'pier', 'lone'] }
       : { text: addition.input.text!, focus: { kind: 'market', key: 'uptown' }, after: UPTOWN_SHEET }))
     const sheet = renderSheet(<TrackingAddQueriesSheet {...sheetProps} defaultMarketKey="uptown" defaultText={lines.join('\n')} />)
-    expect(await reviewed(sheet)).toEqual({ ...landed, columns: ['Change', 'Query', 'Subject and type', 'Locations', 'Location links'] })
+    expect(await reviewed(sheet)).toEqual({ ...landed, columns: ['Change', 'Query', 'Subject and type', 'Locations', 'Pairs'] })
     // The request is the one the sheet always sent: the check reads the answer and adds nothing to it.
     expect(bodies[0]!.additions).toEqual(lines.map(text => ({ input: { source: 'manual', text }, audience: { marketKeys: ['uptown'] } })))
 
@@ -603,16 +619,16 @@ describe('the Add queries sheet', () => {
     noteButton('Subject mismatch', 'You chose Market · Uptown (3). After you publish, its Subject would be Hand-picked · 5 locations.', sheetRow(sheet, lines[1]!))
   })
 
-  it('passes a location query the server reads as its one-location market, and blocks one it would spread over a market', async () => {
+  it('blocks a location query that becomes a market query, whether that market has one or several locations', async () => {
     let spread = false
     installReview(body => body.additions.map(addition => spread
       ? { text: addition.input.text!, focus: { kind: 'market', key: 'uptown' }, after: UPTOWN_SHEET }
       : { text: addition.input.text!, focus: { kind: 'market', key: 'solo' }, after: ['pier'] }))
     const sheet = renderSheet(<TrackingAddQueriesSheet {...sheetProps} defaultLocationKey="pier" defaultText="apartments by the water" />)
-    expect(await reviewed(sheet)).toMatchObject({ ...landed, byType: 1 })
-    // The table names the Subject the server gives it, and the row says why it is not the one chosen.
+    expect(await reviewed(sheet)).toMatchObject({ ...missedOnce, locations: 'met', byType: 0 })
+    // The table names the Subject the server gives it, and the mismatch blocks the chosen location's publish.
     expect(sheetRow(sheet, 'apartments by the water').cells[2]!.textContent).toBe('Market · Solo (1)Non-brand')
-    noteButton('Type sets Subject', `You chose Location · Pier House. ${TYPE_SETS_SUBJECT}`, sheetRow(sheet, 'apartments by the water'))
+    noteButton('Subject mismatch', 'You chose Location · Pier House. After you publish, its Subject would be Market · Solo (1).', sheetRow(sheet, 'apartments by the water'))
 
     spread = true
     fireEvent.click(sheet.getByRole('button', { name: 'Back' }))
@@ -628,7 +644,7 @@ describe('the Add queries sheet', () => {
     const sheet = renderSheet(<TrackingAddQueriesSheet {...sheetProps} defaultLocationKey="lone" defaultText="Lone Pine reviews" />)
     expect(await reviewed(sheet)).toMatchObject(landed)
     // With no market to take them from, the request names the location and the project's one search location and engines.
-    expect(bodies[0]!.additions).toEqual([{ input: { source: 'manual', text: 'Lone Pine reviews' }, audience: { targetKeys: ['lone'] }, contexts: [expect.anything()] }])
+    expect(bodies[0]!.additions).toEqual([{ input: { source: 'manual', text: 'Lone Pine reviews' }, audience: { targetKeys: ['lone'] }, contexts: [expect.anything()], queryClass: 'branded' }])
 
     spread = true
     fireEvent.click(sheet.getByRole('button', { name: 'Back' }))
@@ -653,7 +669,7 @@ describe('the Tracked action sheet', () => {
     expect(await reviewed(sheet)).toMatchObject(missedOnce)
   })
 
-  it('passes a Subject change that leaves a market one location, says the type set the Subject, and waits for the market tick', async () => {
+  it('blocks a Subject change that stays a market query after the market shrinks to one location', async () => {
     // Uptown's query becomes River Point's. Were it Uptown's only one, the market would keep River Point alone,
     // and there the server reads a Non-brand query as the market's: the Subject stays Market.
     installReview(
@@ -665,15 +681,14 @@ describe('the Tracked action sheet', () => {
     pick(sheet, 'Choose a location', 'River Point')
     // The form gave no warning: Uptown held three locations when the Subject was chosen.
     expect(sheet.queryByText('Type sets Subject')).toBeNull()
-    // Both checks hold, and the market's own guard keeps Publish off until its tick.
-    expect(await reviewed(sheet)).toMatchObject({ ...landed, byType: 1, publishOff: true })
+    // The chosen location is preserved; a market membership confirmation cannot bypass a Subject mismatch.
+    expect(await reviewed(sheet)).toMatchObject({ ...missedOnce, locations: 'met', byType: 0 })
     const row = sheetRow(sheet, trackedRows.market.queryText)
     expect(within(row).getByText('3 → 1')).toBeTruthy()
     expect(row.cells[2]!.textContent).toBe('Market · Uptown (1)Non-brand')
-    const note = noteButton('Type sets Subject', `You chose Location · River Point. ${TYPE_SETS_SUBJECT}`, row)
-    expect(look(note)).toBe('triangle-alert caution')
-    fireEvent.click(sheet.getByRole('checkbox', { name: 'Confirm market changes' }))
-    expect(sheet.getByRole<HTMLButtonElement>('button', { name: PUBLISH }).disabled).toBe(false)
+    noteButton('Subject mismatch', 'You chose Location · River Point. After you publish, its Subject would be Market · Uptown (1).', row)
+    expect(sheet.queryByRole('checkbox', { name: 'Confirm market changes' })).toBeNull()
+    expect(sheet.getByRole<HTMLButtonElement>('button', { name: PUBLISH }).disabled).toBe(true)
   })
 
   it('states the location a move names', async () => {
@@ -696,8 +711,8 @@ describe('the Tracked action sheet', () => {
     installReview(() => [{ text: trackedRows.location.queryText, queryId: 'q-harbor', focus: { kind: 'market', key: 'solo' }, before: ['harbor'], after: ['pier'] }])
     const solo = renderSheet(<TrackedActionSheet {...sheetProps} action="move-location" rows={[trackedRows.location]} contextChoices={contextChoices} />)
     pick(solo, 'Harbor Point · Location', 'Pier House')
-    expect(await reviewed(solo)).toMatchObject({ ...landed, byType: 1 })
-    noteButton('Type sets Subject', `You chose Location · Pier House. ${TYPE_SETS_SUBJECT}`, sheetRow(solo, trackedRows.location.queryText))
+    expect(await reviewed(solo)).toMatchObject({ ...missedOnce, locations: 'met', byType: 0 })
+    noteButton('Subject mismatch', 'You chose Location · Pier House. After you publish, its Subject would be Market · Solo (1).', sheetRow(solo, trackedRows.location.queryText))
   })
 
   it('states no Subject for an action that names no place, so its review is as before', async () => {
@@ -705,7 +720,7 @@ describe('the Tracked action sheet', () => {
     installReview(() => [{ text: trackedRows.market.queryText, queryId: 'q-uptown', removed: true, before: UPTOWN_SHEET, after: [] }])
     const sheet = renderSheet(<TrackedActionSheet {...sheetProps} action="stop" rows={[trackedRows.market]} contextChoices={contextChoices} />)
     // The shared fixture's rows carry no Subject, so a removed row shows none.
-    expect(await reviewed(sheet)).toEqual({ subjects: null, locations: null, mismatches: 0, byType: 0, blocked: false, publishOff: false, leftUnderLimit: null, columns: ['Change', 'Query', 'Type', 'Location links'] })
+    expect(await reviewed(sheet)).toEqual({ subjects: null, locations: null, mismatches: 0, byType: 0, blocked: false, publishOff: false, leftUnderLimit: '990 → 989', columns: ['Change', 'Query', 'Type', 'Pairs'] })
   })
 })
 
@@ -753,4 +768,34 @@ describe('the Research track sheet', () => {
     noteButton('Subject mismatch', 'You chose Market · Uptown (3). After you publish, its Subject would be Hand-picked · 4 locations.', sheetRow(sheet, items[1]!.text))
     expect(within(sheetRow(sheet, items[0]!.text)).queryByText('Subject mismatch')).toBeNull()
   })
+})
+
+test.each([undefined, []])('blocks a server-reported query limit without a chosen Subject (%j)', expectedSubjects => {
+  const over = { queries: { current: 999, next: 1002, max: 1000, left: { current: 1, next: 0 }, exceeded: true, over: { current: 0, next: 2 } } }
+  const { onPublish } = renderReview({ preview: preview([{ row: gym }], { limits: over }), expectedSubjects })
+  expect(screen.getByRole('heading', { name: 'Review 1 change, publish blocked' })).toBeTruthy()
+  expect(reviewNumbers()).toMatchObject({ 'Queries asked': '999 → 1,002', 'Left under limit': '1 → 0' })
+  expect(checks()).toEqual({ subjects: null, locations: null })
+  noteButton('Over limit by 2', 'This change would track 1,002 queries. The limit is 1,000. Over limit by 2. Add fewer queries, or stop some first.', reviewRegion())
+  expect(publish().disabled).toBe(true)
+  fireEvent.click(publish())
+  expect(onPublish).not.toHaveBeenCalled()
+})
+
+test('blocks a server-reported type mismatch without expected Subjects and explains the affected wording', () => {
+  const { onPublish } = renderReview({ preview: preview([{ row: gym }], { typeMismatches: [{ queryId: gym.queryId, queryText: gym.queryText, focus: uptownFocus, expectedQueryClass: 'non-brand', queryClasses: ['non-brand'], brandedWording: true }] }) })
+  expect(checks()).toEqual({ subjects: null, locations: null })
+  expect(screen.getByRole('heading', { name: 'Review 1 change, publish blocked' })).toBeTruthy()
+  noteButton('1 type mismatch', '1 query would get a type their Subject does not take.', reviewRegion())
+  rowNote(gym.queryText, 'Type mismatch', 'This wording names the company or a location, so it cannot count as Non-brand.')
+  expect(reviewRow(gym.queryText).row.classList.contains('bg-negative-soft')).toBe(true)
+  expect(publish().disabled).toBe(true)
+  fireEvent.click(publish())
+  expect(onPublish).not.toHaveBeenCalled()
+})
+
+test('a clean server type check explains the rule and permits publishing', () => {
+  renderReview({ preview: preview([{ row: gym }], { typeMismatches: [] }) })
+  noteButton('Type follows Subject', 'A market query is Non-brand and a location query is Branded. A hand-picked query takes either.', reviewRegion())
+  expect(publish().disabled).toBe(false)
 })

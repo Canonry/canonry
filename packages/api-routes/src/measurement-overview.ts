@@ -91,7 +91,9 @@ export interface ActiveMeasurementPlan {
  * The plan a location read reads its sweep under. It is the active plan,
  * unless the request asked for the last-sweep fallback and the only completed
  * sweep ran with an older plan: then `version` and `plan` are that sweep's own
- * and `lastSweepRun` is the sweep. `active` is always the active plan.
+ * and `lastSweepRun` is the sweep. An explicitly named answer can also pin
+ * its own completed or partial historical sweep. `active` is always the
+ * active plan.
  */
 export type MeasurementReading =
   | (ActiveMeasurementPlan & { active: ActiveMeasurementPlan; lastSweepRun?: undefined })

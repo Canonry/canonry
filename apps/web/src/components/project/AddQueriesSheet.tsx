@@ -1,7 +1,7 @@
 import { useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { AlertTriangle, CornerDownRight, MapPinOff } from 'lucide-react'
-import { normalizeIdentityText } from '@ainyc/canonry-contracts'
+import { AlertTriangle, CornerDownRight, Info, MapPinOff } from 'lucide-react'
+import { normalizeIdentityText, QUERY_TRACKING_TEXT_MAX_LENGTH } from '@ainyc/canonry-contracts'
 import type {
   QueryTrackingCommitResponse,
   QueryTrackingContextInput,
@@ -16,22 +16,16 @@ import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { SegmentedRadioGroup, type SegmentedRadioOption } from '../shared/SegmentedRadioGroup.js'
 import { StatusNote } from '../shared/StatusNote.js'
 import { Button } from '../ui/button.js'
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
-import { expectedSubject, SearchLocationText, type TrackingReviewState } from './TrackingReview.js'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, useSheetDiscardGuard } from '../ui/sheet.js'
+import { expectedSubject, SearchLocationText, TYPE_FOLLOWS_SUBJECT, type TrackingReviewState } from './TrackingReview.js'
 import { VisibilityScopePicker } from './VisibilityScopePicker.js'
 
 type Subject = 'market' | 'location' | 'company'
-type QueryType = 'auto' | 'branded' | 'non-brand'
 
 const SUBJECTS: readonly SegmentedRadioOption<Subject>[] = [
   { value: 'market', label: 'Market' },
   { value: 'location', label: 'Location' },
   { value: 'company', label: 'Company', description: 'Not available yet', disabled: true },
-]
-const TYPES: readonly SegmentedRadioOption<QueryType>[] = [
-  { value: 'auto', label: 'Automatic' },
-  { value: 'branded', label: 'Branded' },
-  { value: 'non-brand', label: 'Non-brand' },
 ]
 /** The wire calls a location a property; this sheet never does. */
 const LOCATION_NOUN = ['location', 'locations'] as const
@@ -114,7 +108,6 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
   const [placeKey, setPlaceKey] = useState(defaultLocationKey ?? defaultMarketKey)
   const [contextLabel, setContextLabel] = useState('')
   const [text, setText] = useState(defaultText ?? '')
-  const [type, setType] = useState<QueryType>('auto')
   const [reviewed, setReviewed] = useState<QueryTrackingMutation | null>(null)
   const picker = useRef<HTMLDivElement>(null)
   const [opener] = useState(() => document.activeElement)
@@ -135,8 +128,15 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
       : locationMarkets.length > 0 ? { audience: { targetKeys: [place.id], marketKeys: locationMarkets.map(market => market.stableKey) } }
         : context ? { audience: { targetKeys: [place.id] }, contexts: [context.input] } : null
   const lines = queryLines(text)
+  const tooLong = lines.filter(line => line.length > QUERY_TRACKING_TEXT_MAX_LENGTH).length
+  const guard = useSheetDiscardGuard({
+    dirty: text.trim() !== (defaultText ?? '').trim() || contextLabel !== '' || subject !== (defaultLocationKey ? 'location' : 'market') || placeKey !== (defaultLocationKey ?? defaultMarketKey),
+    busy: publish.isCommitting,
+    label: lines.length > 0 ? `Discard ${lines.length} ${lines.length === 1 ? 'query' : 'queries'}?` : 'Discard this change?',
+    onClose,
+  })
   const preview = reviewed ? publish.preview : null
-  const canReview = placement !== null && lines.length > 0 && !publish.isPreviewing
+  const canReview = placement !== null && lines.length > 0 && tooLong === 0 && !publish.isPreviewing
   // The toast for a refused review or publish sits under this sheet, so the review stays up to show the
   // refusal and offer another review. Back keeps showing it beside the draft, until the next request.
   const reviewStep = reviewed && (preview || publish.error) ? renderReview({
@@ -203,7 +203,7 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
       additions: lines.map(line => ({
         input: { source: 'manual', text: line },
         ...placement,
-        ...(type === 'auto' ? {} : { queryClass: type }),
+        ...(subject === 'location' ? { queryClass: 'branded' as const } : {}),
       })),
       removals: [],
     }
@@ -212,8 +212,8 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
   }
 
   return (
-    <Sheet open onOpenChange={open => { if (!open) onClose() }}>
-      <SheetContent onCloseAutoFocus={restoreFocus} onEscapeKeyDown={keepOpenForInner}>
+    <Sheet open onOpenChange={open => { if (!open) guard.requestClose() }}>
+      <SheetContent onPointerDownOutside={guard.onPointerDownOutside} onCloseAutoFocus={restoreFocus} onEscapeKeyDown={keepOpenForInner}>
         <SheetHeader>
           <SheetTitle>Add queries</SheetTitle>
           <SheetDescription className="sr-only">Each query is tracked for one market or one location.</SheetDescription>
@@ -286,16 +286,13 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
                 onChange={event => edit(setText)(event.target.value)}
               />
               {/* Stays in place, empty until there are lines, so the first line typed does not push the form down. */}
-              <p id={`${id}-queries-count`} className={`${FIELD_HINT} min-h-5`}>{lines.length > 0 ? `${lines.length.toLocaleString('en-US')} ${lines.length === 1 ? 'query' : 'queries'}` : null}</p>
+              <p id={`${id}-queries-count`} className={`${FIELD_HINT} min-h-5`}>{lines.length > 0 ? `${lines.length.toLocaleString('en-US')} ${lines.length === 1 ? 'query' : 'queries'}${workspace.limits?.queries.left ? ` · ${workspace.limits.queries.left.current.toLocaleString('en-US')} left` : ''}` : null}</p>
             </div>
-            <details className="border-t border-default text-sm text-secondary">
-              {/* A Type other than Automatic is sent on every line, so it shows while this is closed. */}
-              <summary className="min-h-11 cursor-pointer py-3">More options{type === 'auto' ? '' : ` · Type: ${TYPES.find(option => option.value === type)!.label}`}</summary>
-              <div className="pb-3">
-                <span aria-hidden="true" className={FIELD_LABEL}>Type</span>
-                <SegmentedRadioGroup label="Type" options={TYPES} value={type} onChange={edit(setType)} />
-              </div>
-            </details>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-strong">
+              <span>Type: {subject === 'location' ? 'Branded' : 'Non-brand'}</span>
+              <StatusNote icon={Info} label="Type follows Subject" detail={TYPE_FOLLOWS_SUBJECT} />
+            </div>
+            {tooLong > 0 ? <StatusNote icon={AlertTriangle} tone="negative" label={`${tooLong} ${tooLong === 1 ? 'line' : 'lines'} too long`} detail="A query holds at most 4,000 characters. Shorten the long lines to review." /> : null}
             {onOpenComposer ? <div className="flex flex-wrap items-center gap-x-5">
               {/* The help is a sibling of the link, so its text stays out of the link's name. */}
               <span className="inline-flex items-center">
@@ -313,9 +310,10 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
             <WriteButton type="button" size="sm" disabled={!canReview} onClick={review}>
               {publish.isPreviewing ? 'Reviewing…' : 'Review'}
             </WriteButton>
-            <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+            <Button type="button" variant="ghost" size="sm" onClick={guard.requestClose}>Cancel</Button>
           </div>
         </>}
+        {guard.prompt}
       </SheetContent>
     </Sheet>
   )

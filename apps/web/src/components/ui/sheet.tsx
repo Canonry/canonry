@@ -2,8 +2,75 @@ import * as React from 'react'
 
 import * as Dialog from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
+import { useRouter } from '@tanstack/react-router'
 
 import { cn } from '../../lib/utils.js'
+import { Button } from './button.js'
+
+/** Shared dismissal guard for query drafts and their pending publications. */
+export function useSheetDiscardGuard({ dirty, busy = false, label = 'Discard this change?', onClose }: {
+  dirty: boolean
+  busy?: boolean
+  label?: string
+  onClose: () => void
+}) {
+  const router = useRouter({ warn: false })
+  const [confirming, setConfirming] = React.useState(false)
+  const keepEditing = React.useRef<HTMLButtonElement>(null)
+  const returnFocus = React.useRef<HTMLElement | null>(null)
+  const pending = React.useRef<((discard: boolean) => void) | null>(null)
+  const state = React.useRef({ dirty, busy, onClose })
+  state.current = { dirty, busy, onClose }
+  const settle = (discard: boolean) => {
+    if (state.current.busy) return
+    const finish = pending.current
+    pending.current = null
+    setConfirming(false)
+    finish?.(discard)
+  }
+  const requestClose = () => {
+    if (state.current.busy) return
+    if (!state.current.dirty) return state.current.onClose()
+    if (!confirming) returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    pending.current?.(false)
+    pending.current = discard => { if (discard) state.current.onClose() }
+    setConfirming(true)
+  }
+  React.useEffect(() => {
+    if (!dirty && !busy) return
+    const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', beforeUnload)
+    const unblock = router?.history.block({
+      enableBeforeUnload: false,
+      blockerFn: () => {
+        if (state.current.busy) return true
+        if (!state.current.dirty) return false
+        pending.current?.(false)
+        returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+        setConfirming(true)
+        return new Promise<boolean>(resolve => { pending.current = discard => resolve(!discard) })
+      },
+    })
+    return () => { window.removeEventListener('beforeunload', beforeUnload); unblock?.() }
+  }, [router, dirty, busy])
+  React.useEffect(() => () => { pending.current?.(false) }, [])
+  React.useEffect(() => {
+    if (confirming) keepEditing.current?.focus()
+    else if (returnFocus.current?.isConnected) returnFocus.current.focus()
+  }, [confirming])
+  const prompt = confirming ? (
+    <div role="group" aria-label={label} className="mt-4 flex flex-wrap items-center gap-3 border-t border-default pt-4 text-sm text-strong">
+      <p className="basis-full font-medium">{label}</p>
+      <Button ref={keepEditing} type="button" size="sm" disabled={busy} onClick={() => settle(false)}>Keep editing</Button>
+      <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => settle(true)}>Discard</Button>
+    </div>
+  ) : null
+  return {
+    requestClose,
+    prompt,
+    onPointerDownOutside: (event: { preventDefault: () => void }) => { if (dirty || busy) event.preventDefault() },
+  }
+}
 
 const Sheet = Dialog.Root
 const SheetPortal = Dialog.Portal

@@ -112,6 +112,24 @@ describe('query tracking contract', () => {
 
     expect(workspace.markets[0]?.usageEdges[0]?.executionNodeKey).toBe('exec-1')
     expect(workspace.tracked[0]?.assignments[0]?.contexts[0]?.location).toMatchObject({ label: 'northbridge' })
+    expect(workspace.tracked[0]?.assignments[0]?.classifiedContexts).toBeUndefined()
+  })
+
+  it('preserves optional class and market membership for each exact assignment context', () => {
+    const base = advancedWorkspace()
+    const row = base.tracked[0]!
+    const assignment = row.assignments[0]!
+    const context = assignment.contexts[0]!
+    const classifiedContexts = [
+      { ...context, queryClass: 'branded', marketKeys: [] },
+      { ...context, queryClass: 'non-brand', marketKeys: ['alpha'] },
+    ]
+    const withContexts = (contexts: unknown[]) => ({ ...base, tracked: [{ ...row, assignments: [{ ...assignment, classifiedContexts: contexts }] }] })
+    expect(queryTrackingWorkspaceResponseSchema.parse(withContexts(classifiedContexts)).tracked[0]?.assignments[0]?.classifiedContexts)
+      .toEqual(classifiedContexts)
+    for (const contexts of [[], [{ ...context, marketKeys: [] }], [{ ...context, queryClass: 'all', marketKeys: [] }]]) {
+      expect(queryTrackingWorkspaceResponseSchema.safeParse(withContexts(contexts)).success).toBe(false)
+    }
   })
 
   it('still parses a workspace without scope options from an older server', () => {

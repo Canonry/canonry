@@ -12,6 +12,27 @@ import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from './ToneBadge.js'
 
+function TrackingHistoryDetail({ entry }: { entry: AuditLogEntry }) {
+  const diff = entry.diff && typeof entry.diff === 'object' ? entry.diff as Record<string, unknown> : {}
+  const queries = diff.queries && typeof diff.queries === 'object' ? diff.queries as Record<string, unknown> : null
+  const counts = queries?.counts && typeof queries.counts === 'object' ? queries.counts as Record<string, unknown> : null
+  const kinds = ['added', 'stopped', 'removed', 'changed'] as const
+  const lists = kinds.map(kind => ({ kind, texts: Array.isArray(queries?.[kind]) ? (queries[kind] as unknown[]).filter((text): text is string => typeof text === 'string') : [] }))
+  const summary = queries ? lists.flatMap(({ kind, texts }) => {
+    const recorded = counts?.[kind]
+    const total = typeof recorded === 'number' ? recorded : texts.length
+    return total ? [`${total.toLocaleString('en-US')} ${kind}`] : []
+  }).join(' · ') : [typeof diff.added === 'number' ? `${diff.added} added` : '', typeof diff.removed === 'number' ? `${diff.removed} ${entry.action === 'query-tracking.updated' ? 'removed' : 'stopped'}` : '', typeof diff.reused === 'number' && diff.reused > 0 ? `${diff.reused} matched` : ''].filter(Boolean).join(' · ')
+  return <div className="text-sm text-secondary">
+    <p>{summary || 'Tracked queries updated'}</p>
+    {lists.some(list => list.texts.length > 0) ? <details>
+      <summary className="min-h-11 cursor-pointer py-3">View queries</summary>
+      <ul className="max-h-72 space-y-2 overflow-auto">{lists.flatMap(({ kind, texts }) => texts.map((text, index) => <li key={`${kind}:${index}`}>{kind[0]!.toUpperCase() + kind.slice(1)} · {text}</li>))}</ul>
+      {queries?.truncated === true ? <p>More queries changed.</p> : null}
+    </details> : null}
+  </div>
+}
+
 const PAGE_SIZE = 100
 
 type HistoryWindow = '30d' | '90d' | '365d' | 'all'
@@ -192,7 +213,7 @@ export function AuditHistoryPanel({ projectName }: { projectName?: string }) {
                     {entry.actorSession ? <span className="mt-0.5 block max-w-40 truncate font-mono text-[11px] text-faint" title={entry.actorSession}>Session {entry.actorSession}</span> : null}
                   </td>
                   <td>
-                    {entry.diff == null ? <span className="text-faint">No field diff</span> : (
+                    {entry.action === 'query-tracking.published' || entry.action === 'query-tracking.updated' ? <TrackingHistoryDetail entry={entry} /> : entry.diff == null ? <span className="text-faint">No field diff</span> : (
                       <details>
                         <summary className="min-h-11 cursor-pointer py-3 text-sm text-secondary hover:text-strong">View diff</summary>
                         <pre className="max-h-72 max-w-xl overflow-auto whitespace-pre-wrap break-words rounded-md bg-bg-elevated p-3 text-xs text-secondary">{JSON.stringify(entry.diff, null, 2)}</pre>

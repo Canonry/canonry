@@ -39,8 +39,10 @@ import {
   type MeasurementV2UsageEdge,
   type QueryClass,
   type QueryTrackingAddition,
+  type QueryTrackingAssignment,
   type QueryTrackingAudience,
   type QueryTrackingChangeRow,
+  type QueryTrackingClassifiedContext,
   type QueryTrackingDiff,
   type QueryTrackingEdit,
   type QueryTrackingFocus,
@@ -261,6 +263,17 @@ function uniqueContexts(contexts: readonly MeasurementV2ExecutionContext[]): Mea
   const byKey = new Map<string, MeasurementV2ExecutionContext>()
   for (const context of contexts) byKey.set(contextKey(context), context)
   return [...byKey.values()].sort((left, right) => compareText(contextKey(left), contextKey(right)))
+}
+
+function uniqueClassifiedContexts(contexts: readonly QueryTrackingClassifiedContext[]): QueryTrackingClassifiedContext[] {
+  const byKey = new Map<string, QueryTrackingClassifiedContext>()
+  const keyOf = (context: QueryTrackingClassifiedContext) => `${contextKey(context)}\u0000${context.queryClass}`
+  for (const context of contexts) {
+    const key = keyOf(context)
+    const existing = byKey.get(key)
+    byKey.set(key, { ...context, marketKeys: sortedUnique([...(existing?.marketKeys ?? []), ...context.marketKeys]) })
+  }
+  return [...byKey.values()].sort((left, right) => compareText(keyOf(left), keyOf(right)))
 }
 
 function defaultContexts(project: ProjectRow, opts: QueryTrackingRoutesOptions, mode: QueryTrackingMode): MeasurementV2ExecutionContext[] {
@@ -855,14 +868,7 @@ function trackedRows(
     if (queryText === undefined || !queryText.trim()) {
       throw validationError(`Tracked query "${queryId}" has no usable text.`)
     }
-    const assignments = new Map<string, {
-      targetKey: string
-      groupKeys: string[]
-      marketKeys: string[]
-      queryClass: QueryClass | null
-      classificationSource: 'frozen' | 'server' | 'operator'
-      contexts: MeasurementV2ExecutionContext[]
-    }>()
+    const assignments = new Map<string, QueryTrackingAssignment & { classifiedContexts: QueryTrackingClassifiedContext[] }>()
     // One location can hold both classes across its search locations, so read every assignment.
     const classes: QueryClass[] = []
     for (const assignment of assignmentsByQuery.get(queryId) ?? []) {
@@ -876,8 +882,10 @@ function trackedRows(
         queryId,
       })
       const source = assignment.classificationSource ?? 'frozen'
+      const classifiedContext = { ...node.context, queryClass: assignment.queryClass, marketKeys: marketsByEdge.get(edgeKey) ?? [] }
       if (existing) {
         existing.contexts.push(node.context)
+        existing.classifiedContexts.push(classifiedContext)
         existing.marketKeys.push(...(marketsByEdge.get(edgeKey) ?? []))
       } else {
         assignments.set(assignment.targetKey, {
@@ -887,6 +895,7 @@ function trackedRows(
           queryClass: assignment.queryClass,
           classificationSource: source,
           contexts: [node.context],
+          classifiedContexts: [classifiedContext],
         })
       }
     }
@@ -903,6 +912,7 @@ function trackedRows(
           ...assignment,
           marketKeys: unique(assignment.marketKeys).sort(compareText),
           contexts: uniqueContexts(assignment.contexts),
+          classifiedContexts: uniqueClassifiedContexts(assignment.classifiedContexts),
         }))
         .sort((left, right) => compareText(left.targetKey, right.targetKey)),
       focus: focusOf(queryId),
@@ -2430,7 +2440,7 @@ function auditDiff(candidate: Candidate) {
     stopped: diff.removed.filter(stays),
     removed: diff.removed.filter(row => !stays(row)),
     // A simple basket's reused row is one an addition named and left as it was.
-    changed: plan === null ? [] : diff.reused.filter(row => !started(row)),
+    changed: plan === null ? [] : diff.reused.filter(row => !started(row) && placement.get(row.queryId)?.altered !== false),
   }
   const texts = (rows: readonly QueryTrackingChangeRow[]) => rows.slice(0, AUDIT_QUERY_TEXT_LIMIT).map(row => row.queryText)
   return {

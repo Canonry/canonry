@@ -92,7 +92,7 @@ export function mutationForAction(
       input,
       ...(audience ? { audience } : {}),
       ...(advanced && !hasMarketOnlyAudience(draft) && draft.contexts.length > 0 ? { contexts: draft.contexts } : {}),
-      ...(advanced && draft.queryClass !== 'auto' && draft.queryClass !== 'keep' ? { queryClass: draft.queryClass } : {}),
+      ...(advanced && !hasMarketOnlyAudience(draft) && draft.queryClass !== 'auto' && draft.queryClass !== 'keep' ? { queryClass: draft.queryClass } : {}),
     }],
     removals: [],
   }
@@ -122,7 +122,7 @@ export function hasMarketOnlyAudience(draft: TrackingDraft): boolean {
 }
 
 export function needsTemplateMarket(draft: TrackingDraft): boolean {
-  return draft.source === 'template' && draft.template.includes('{market}') && (draft.wholeSite || draft.marketKeys.length === 0)
+  return draft.source === 'template' && (/\{(?:market|submarket)\}/.test(draft.template)) && (draft.wholeSite || draft.marketKeys.length === 0)
 }
 
 export function audienceForSelection(selection: NonNullable<QueriesSectionProps['selection']>): QueryTrackingMutation['removals'][number]['audience'] {

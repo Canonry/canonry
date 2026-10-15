@@ -13,12 +13,14 @@ import {
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
   RunKinds,
   RunStatuses,
+  RunTriggers,
   brandKeyFromText,
   measurementPropertyQuestionsQuerySchema,
   measurementPropertyQuestionsResponseSchema,
   measurementQuestionResultQuerySchema,
   measurementQuestionResultResponseSchema,
   notFound,
+  parseStoredMeasurementPlanAnyVersion,
   validationError,
   type MeasurementPlanV2,
   type MeasurementReadFallback,
@@ -208,6 +210,38 @@ export function selectMeasurementQuestionRun(
     throw validationError(`Run "${run.id}" is not terminal. Wait for it to finish before reading its question results.`)
   }
   return run
+}
+
+/**
+ * An answer id already selects its sweep. With the historical fallback it
+ * may come from any completed or partial whole-project v2 sweep returned by
+ * query-tracking/results, even after a newer sweep completes. Keep comparable
+ * revisions under the active presentation and every other read under the
+ * existing selector's restrictions.
+ */
+function questionResultReading(
+  db: DatabaseClient,
+  projectId: string,
+  active: ActiveMeasurementPlan,
+  run: typeof runs.$inferSelect,
+  fallback: MeasurementReadFallback | undefined,
+): MeasurementReading {
+  const own = { ...active, active }
+  if (fallback === undefined
+    || run.measurementPlanVersionId === null
+    || run.measurementScope !== null
+    || run.trigger === RunTriggers.probe
+    || run.kind !== RunKinds['answer-visibility']
+    || !TERMINAL_STATUSES.has(run.status)
+    || runVersionServesActiveVersion(db, projectId, active.version.id, run.measurementPlanVersionId)) return own
+  const version = db.select().from(measurementPlanVersions).where(and(
+    eq(measurementPlanVersions.projectId, projectId),
+    eq(measurementPlanVersions.id, run.measurementPlanVersionId),
+  )).get()
+  if (!version || version.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) return own
+  const plan = parseStoredMeasurementPlanAnyVersion(version.canonicalJson)
+  if (plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) return own
+  return { version, plan, active, lastSweepRun: run }
 }
 
 function slotKey(executionId: string, provider: string): string {
@@ -432,7 +466,7 @@ function recommendedInstead(
   candidates: readonly string[],
   target: MeasurementPlanV2['targets'][number],
 ): string[] {
-  const ownNames = new Set([target.label, ...target.aliases]
+  const ownNames = new Set([target.label, ...target.aliases, ...(target.identityAliases ?? [])]
     .map(brandKeyFromText)
     .filter(key => key.length > 0))
   return candidates.filter(candidate => {
@@ -538,12 +572,7 @@ export async function measurementQuestionReadRoutes(app: FastifyInstance) {
       const project = resolveProject(app.db, request.params.name)
       const query = parseQuestionResultQuery(request.query)
       const { active, plan: activePlan } = activeV2Plan(app.db, project.id)
-      // The last sweep's plan can hold a location the active plan dropped, so
-      // a key is refused only when neither plan holds it.
-      const lastSweep = measurementReading(app.db, project.id, active, { fallback: query.fallback })
-      const inLastSweepPlan = lastSweep.lastSweepRun !== undefined
-        && lastSweep.plan.targets.some(candidate => candidate.stableKey === query.targetKey)
-      if (!inLastSweepPlan) requireTarget(activePlan, query.targetKey)
+      if (query.fallback === undefined) requireTarget(activePlan, query.targetKey)
 
       const snapshot = app.db.select(measurementQuestionSnapshotColumns)
         .from(querySnapshots).where(eq(querySnapshots.id, query.resultId)).get()
@@ -553,11 +582,13 @@ export async function measurementQuestionReadRoutes(app: FastifyInstance) {
         eq(runs.projectId, project.id),
       )).get()
       if (!run) throw notFound('Measurement question result', query.resultId)
-      // The reading comes from the result's own run: the last sweep's plan for
-      // a result of that sweep, the active plan for any other.
-      const reading: MeasurementReading = lastSweep.lastSweepRun?.id === run.id ? lastSweep : { ...active, active }
-      // The shared selector owns the cross-revision and terminal-policy checks.
-      const selected = reading.lastSweepRun ?? selectMeasurementQuestionRun(app.db, project.id, active, run.id)
+      const reading = questionResultReading(app.db, project.id, active, run, query.fallback)
+      const inSweepPlan = reading.lastSweepRun !== undefined
+        && reading.plan.targets.some(candidate => candidate.stableKey === query.targetKey)
+      if (!inSweepPlan) requireTarget(activePlan, query.targetKey)
+      // Validate the exact run against the plan it will be read under. This
+      // retains the shared kind, terminal-state and probe checks.
+      const selected = selectMeasurementQuestionRun(app.db, project.id, reading, run.id)
       if (!selected) throw notFound('Measurement question result', query.resultId)
       const plan = reading.lastSweepRun ? reading.plan : activePlan
       const target = reading.lastSweepRun

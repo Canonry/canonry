@@ -298,7 +298,7 @@ const measurementPropertyQuestionsInputSchema = measurementPropertyQuestionsQuer
 const measurementQuestionResultInputSchema = measurementQuestionResultQuerySchema.extend({
   project: projectNameSchema,
   fallback: measurementQuestionResultQuerySchema.shape.fallback
-    .describe('Omit it and the result must come from a run of the active plan. last-sweep also opens a result of the last completed sweep after a tracking change, read under the plan it ran with.'),
+    .describe('Omit it and the result must come from a run of the active plan. last-sweep also opens the requested historical result from a completed or partial whole-project v2 sweep, read under the frozen plan it ran with.'),
 }).strict()
 const measurementPropertyCompetitorsInputSchema = measurementPropertyCompetitorsQuerySchema.extend({
   project: projectNameSchema,

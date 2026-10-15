@@ -22,7 +22,7 @@ import { TrackedRowMenu } from '../queries/advanced/TrackedRowMenu.js'
 import { TrackedTable } from '../queries/advanced/TrackedTable.js'
 import type { TrackedPlace } from '../queries/advanced/tracked-actions.js'
 import type { TrackedRowAction, TrackedRowVm, TrackedType } from '../queries/advanced/tracked-types.js'
-import { engineSignal, locationCountLabel, resultClasses, sortTrackedRows, toTrackedRows, trackedEngineColumnWidth, typeLabel, type TrackedColumn, type TrackedCoverage } from '../queries/advanced/tracked-view-model.js'
+import { NOT_ASKED, rowSignal, locationCountLabel, resultClasses, sortTrackedRows, toTrackedRows, trackedEngineColumnWidth, typeLabel, type TrackedColumn, type TrackedCoverage } from '../queries/advanced/tracked-view-model.js'
 import { contextInput, contextLabel, searchLocationNames, uniqueContextInputs } from '../queries/tracking-contexts.js'
 import { useTrackedResults } from '../queries/use-tracked-results.js'
 
@@ -224,9 +224,9 @@ function TrackedFor({ projectName, workspace, target, results, canWrite, trackin
       const links = row.tracked.assignments.filter(assignment => assignment.targetKey === targetKey)
       if (links.length === 0) continue
       wholeRows.set(row.queryId, row)
-      const queryClasses = [...new Set(links.flatMap(link => link.queryClass ?? []))].sort()
+      const queryClasses = [...new Set(links.flatMap(link => link.classifiedContexts?.map(context => context.queryClass) ?? link.queryClass ?? []))].sort()
       const type: TrackedType = queryClasses.length === 0 ? 'not-set' : queryClasses.length === 1 ? queryClasses[0]! : 'mixed'
-      here.push(queryClasses.length === row.queryClasses.length ? row : { ...row, queryClasses, type })
+      here.push({ ...row, queryClasses, type, displayAssignments: links })
     }
     const sorted = sortTrackedRows(here)
     return {
@@ -354,7 +354,7 @@ function TrackedFor({ projectName, workspace, target, results, canWrite, trackin
 
       <Block title="From its markets" count={counts?.marketQueries} aside={legendAt === 'market' ? legend : undefined}>
         {marketGroups.length > 0
-          ? <MarketQueries projectName={projectName} groups={marketGroups} engines={engines} coverage={results.coverage} />
+          ? <MarketQueries projectName={projectName} targetLabel={target.label} groups={marketGroups} engines={engines} coverage={results.coverage} />
           : target.marketKeys?.length === 0
             ? <StatusNote icon={AlertTriangle} tone="caution" label="In no market" detail={COPY.inNoMarket} />
             : <StatusNote icon={Info} label="No market queries" />}
@@ -518,8 +518,9 @@ const LINE = '@max-[40rem]:flex @max-[40rem]:flex-wrap @max-[40rem]:items-center
  * results read, joined by query and type. A query added since that sweep has
  * no result, so its chips read Not checked.
  */
-function MarketQueries({ projectName, groups, engines, coverage }: {
+function MarketQueries({ projectName, targetLabel, groups, engines, coverage }: {
   projectName: string
+  targetLabel: string
   groups: readonly MarketGroup[]
   engines: readonly string[]
   /** Undefined while the results load, so the chips draw their skeleton. */
@@ -576,14 +577,20 @@ function MarketQueries({ projectName, groups, engines, coverage }: {
                         <span className={FACT_NAME}>{engine.label}</span>
                         {/* Branded and non-brand results are never combined: a query asked both ways has a pair per type, each named by its type. */}
                         <span className={classes.length > 1 ? 'inline-flex flex-col items-center gap-1 align-middle' : 'contents'}>
-                          {classes.map(queryClass => (
-                            <SignalPair
-                              key={queryClass}
-                              signal={engineSignal(coverage, row.queryId, queryClass, engine.key)}
-                              engineLabel={engine.label}
-                              classLabel={classes.length > 1 ? typeLabel(queryClass as TrackedType) : undefined}
-                            />
-                          ))}
+                          {classes.map(queryClass => {
+                            const signal = rowSignal(row, coverage, queryClass, engine.key)
+                            return signal === NOT_ASKED ? (
+                              <span key={queryClass} className={classes.length > 1 ? 'tracked-pair-label' : undefined}><span className="sr-only">{classes.length > 1 ? `${typeLabel(queryClass as TrackedType)}: ` : ''}Not asked</span></span>
+                            ) : (
+                              <SignalPair
+                                key={queryClass}
+                                signal={signal}
+                                subject={targetLabel}
+                                engineLabel={engine.label}
+                                classLabel={classes.length > 1 ? typeLabel(queryClass as TrackedType) : undefined}
+                              />
+                            )
+                          })}
                         </span>
                       </td>
                     )

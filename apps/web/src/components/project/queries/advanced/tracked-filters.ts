@@ -25,7 +25,7 @@ export const TRACKED_FILTER_OPTIONS: FilterOptions = {
     { value: 'not-set', label: 'Not set' },
   ],
   status: [
-    { value: 'asked', label: 'Measured + First answers' },
+    { value: 'asked', label: 'Asked' },
     { value: 'measured', label: 'Measured' },
     { value: 'first-answers', label: 'First answers' },
     { value: 'not-asked', label: 'Not asked' },
@@ -41,9 +41,14 @@ export const TRACKED_FILTER_OPTIONS: FilterOptions = {
   ],
   result: [
     { value: 'any', label: 'Any' },
+    { value: 'mentioned', label: 'Mentioned' },
+    { value: 'partly-mentioned', label: 'Partly mentioned' },
     { value: 'not-mentioned', label: 'Not mentioned' },
+    { value: 'cited', label: 'Cited' },
+    { value: 'partly-cited', label: 'Partly cited' },
     { value: 'not-cited', label: 'Not cited' },
     { value: 'not-checked', label: 'Not checked' },
+    { value: 'other-location', label: 'Other location' },
   ],
 }
 
@@ -98,9 +103,14 @@ export interface TrackedResultCell { queryClass: QueryClass; signal: EngineSigna
  * no cell is asked on no engine, so it shows no result at all.
  */
 function matchesResult(result: Exclude<TrackedFilters['result'], 'any'>, signals: readonly (EngineSignal | null | undefined)[]): boolean {
-  if (result === 'not-mentioned') return signals.some(signal => signal?.mentioned === false)
-  if (result === 'not-cited') return signals.some(signal => signal?.cited === false)
-  return signals.some(signal => signal === null || (signal !== undefined && (signal.mentioned === null || signal.cited === null)))
+  if (result === 'not-checked') return signals.some(signal => signal === null || (signal !== undefined && (signal.mentioned === null || signal.cited === null)))
+  if (result === 'other-location') return signals.some(signal => (signal?.otherLocationMentionedAnswers ?? 0) > 0 || (signal?.otherLocationCitedAnswers ?? 0) > 0)
+  const field = result.endsWith('mentioned') ? 'mentioned' : 'cited'
+  const yes = signals.some(signal => signal?.[field] === true)
+  const no = signals.some(signal => signal?.[field] === false)
+  if (result.startsWith('not-')) return no && !yes
+  if (result.startsWith('partly-')) return yes && no
+  return yes
 }
 
 /**
@@ -115,7 +125,10 @@ export function matchesTrackedFilters(row: TrackedRowVm, filters: TrackedFilters
   if (filters.type !== 'all' && row.type !== filters.type && !(row.type === 'mixed' && (filters.type === 'branded' || filters.type === 'non-brand'))) return false
   if (filters.status === 'asked' ? row.status === 'not-asked' : filters.status !== 'all' && row.status !== filters.status) return false
   if (filters.source !== 'any' && row.source.kind !== filters.source) return false
-  if (filters.result === 'any') return true
+  const result = filters.result
+  if (result === 'any') return true
   const ofType = filters.type === 'branded' || filters.type === 'non-brand' ? cells.filter(cell => cell.queryClass === filters.type) : cells
-  return matchesResult(filters.result, ofType.map(cell => cell.signal))
+  return [...new Set(ofType.map(cell => cell.queryClass))].some(queryClass =>
+    matchesResult(result, ofType.filter(cell => cell.queryClass === queryClass).map(cell => cell.signal)),
+  )
 }

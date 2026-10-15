@@ -5,6 +5,7 @@ import type { QueryTrackingMutation } from '@ainyc/canonry-contracts'
 import {
   allowedTypes,
   canChangeSubject,
+  canChangeType,
   changeSubject,
   changeType,
   editWording,
@@ -94,17 +95,17 @@ describe('changeSubject and moveLocation', () => {
   it('names a location with every market that holds it, and no search location', () => {
     // Harbor Point sits in Uptown and Downtown, so the query counts in both.
     expect(sent(changeSubject(rows.market, { kind: 'location', key: 'harbor' }, workspace))).toStrictEqual({
-      additions: [{ input: uptownText, audience: { targetKeys: ['harbor'], marketKeys: ['uptown', 'downtown'] } }],
+      additions: [{ input: uptownText, audience: { targetKeys: ['harbor'], marketKeys: ['uptown', 'downtown'] }, queryClass: 'branded' }],
       removals: [{ queryId: 'q-uptown' }],
     })
     expect(sent(changeSubject(rows.market, { kind: 'location', key: 'pier' }, workspace)).additions)
-      .toStrictEqual([{ input: uptownText, audience: { targetKeys: ['pier'], marketKeys: ['solo'] } }])
+      .toStrictEqual([{ input: uptownText, audience: { targetKeys: ['pier'], marketKeys: ['solo'] }, queryClass: 'branded' }])
   })
 
   it('names a location in no market alone, with the one search location chosen for it', () => {
     const chosen = contextChoices[1]!.input
     expect(sent(changeSubject(rows.market, { kind: 'location', key: 'lone' }, workspace, chosen))).toStrictEqual({
-      additions: [{ input: uptownText, audience: { targetKeys: ['lone'] }, contexts: [chosen] }],
+      additions: [{ input: uptownText, audience: { targetKeys: ['lone'] }, contexts: [chosen], queryClass: 'branded' }],
       removals: [{ queryId: 'q-uptown' }],
     })
     // Until one is chosen there is no request: the server would refuse a location outside a market without it.
@@ -117,29 +118,17 @@ describe('changeSubject and moveLocation', () => {
 
   it('moves a location query to another location with the same one removal and one addition', () => {
     expect(sent(moveLocation(rows.location, 'river', workspace))).toStrictEqual({
-      additions: [{ input: { source: 'manual', text: 'Harbor Point reviews' }, audience: { targetKeys: ['river'], marketKeys: ['uptown'] } }],
+      additions: [{ input: { source: 'manual', text: 'Harbor Point reviews' }, audience: { targetKeys: ['river'], marketKeys: ['uptown'] }, queryClass: 'branded' }],
       removals: [{ queryId: 'q-harbor' }],
     })
     expect(moveLocation(rows.location, 'river', workspace)).toStrictEqual(changeSubject(rows.location, { kind: 'location', key: 'river' }, workspace))
   })
 
-  it('sends the type again only when an operator set every pairing to one type', () => {
-    const toRiver = (row: TrackedRowVm) => sent(moveLocation(row, 'river', workspace)).additions[0]!
-    expect(toRiver(rows.operatorSet).queryClass).toBe('non-brand')
-    // The server chose this type, so it is left out and the server classifies for the new Subject.
-    expect(toRiver(rows.location)).not.toHaveProperty('queryClass')
-
-    const [first] = rows.operatorSet.tracked.assignments
-    const withPairings = (assignments: TrackedRowVm['tracked']['assignments'], queryClasses = rows.operatorSet.queryClasses): TrackedRowVm =>
-      ({ ...rows.operatorSet, queryClasses, tracked: { ...rows.operatorSet.tracked, assignments } })
-    const elsewhere = { ...first!, targetKey: 'river' }
-    expect(toRiver(withPairings([first!, elsewhere])).queryClass).toBe('non-brand')
-    // One pairing the server chose, or a second type anywhere, and the operator did not set one type.
-    expect(toRiver(withPairings([first!, { ...elsewhere, classificationSource: 'server' }]))).not.toHaveProperty('queryClass')
-    expect(toRiver(withPairings([first!, { ...elsewhere, queryClass: 'branded' }], ['branded', 'non-brand']))).not.toHaveProperty('queryClass')
-    // `assignments` lists one type per location; the row's types hold every search location's.
-    expect(toRiver(withPairings([first!], ['branded', 'non-brand']))).not.toHaveProperty('queryClass')
-    expect(toRiver(withPairings([{ ...first!, classificationSource: 'frozen' }]))).not.toHaveProperty('queryClass')
+  it('sets a location Subject to Branded and lets the server classify a market without a stale override', () => {
+    for (const row of [rows.market, rows.location, rows.operatorSet, rows.handPicked]) {
+      expect(sent(moveLocation(row, 'river', workspace)).additions[0]!.queryClass).toBe('branded')
+      expect(sent(changeSubject(row, { kind: 'market', key: 'uptown' }, workspace)).additions[0]).not.toHaveProperty('queryClass')
+    }
   })
 
   it('never sends an addition without the places it is for', () => {
@@ -202,21 +191,31 @@ describe('guards', () => {
   })
 
   it('offers each Subject its own type, and both where the Subject does not fix one', () => {
-    expect(allowedTypes(rows.market, workspace)).toEqual(['auto', 'non-brand'])
-    expect(allowedTypes(rows.downtown, workspace)).toEqual(['auto', 'non-brand'])
-    expect(allowedTypes(rows.location, workspace)).toEqual(['auto', 'branded'])
+    expect(allowedTypes(rows.market, workspace)).toEqual(['non-brand'])
+    expect(allowedTypes(rows.downtown, workspace)).toEqual(['non-brand'])
+    expect(allowedTypes(rows.location, workspace)).toEqual(['branded'])
     expect(allowedTypes(rows.handPicked, workspace)).toEqual(['auto', 'branded', 'non-brand'])
     expect(allowedTypes({ ...rows.market, subject: { kind: 'company' } }, workspace)).toEqual(['auto', 'branded', 'non-brand'])
     // In Solo the type is what moves a query between the market and its one location.
     expect(allowedTypes(rows.soloMarket, workspace)).toEqual(['auto', 'branded', 'non-brand'])
     expect(allowedTypes(rows.soloLocation, workspace)).toEqual(['auto', 'branded', 'non-brand'])
     // Among several rows it keeps its own type, so a bulk change moves no query to the other Subject.
-    expect(allowedTypes(rows.soloMarket, workspace, true)).toEqual(['auto', 'non-brand'])
-    expect(allowedTypes(rows.soloLocation, workspace, true)).toEqual(['auto', 'branded'])
+    expect(allowedTypes(rows.soloMarket, workspace, true)).toEqual(['non-brand'])
+    expect(allowedTypes(rows.soloLocation, workspace, true)).toEqual(['branded'])
     expect(allowedTypes(rows.handPicked, workspace, true)).toEqual(['auto', 'branded', 'non-brand'])
     // The server refuses any type for a query with no pairing, Automatic included.
     expect(allowedTypes(rows.notAsked, workspace)).toEqual([])
     expect(allowedTypes(rows.notAsked, workspace, true)).toEqual([])
+  })
+
+  it('hides a redundant type action but lets a mismatched location type be repaired', () => {
+    expect(canChangeType(rows.market, workspace)).toBe(false)
+    expect(canChangeType(rows.location, workspace)).toBe(false)
+    expect(canChangeType(rows.operatorSet, workspace)).toBe(true)
+    expect(allowedTypes(rows.operatorSet, workspace)).toEqual(['branded'])
+    expect(canChangeType(rows.handPicked, workspace)).toBe(true)
+    expect(canChangeType(rows.soloMarket, workspace)).toBe(true)
+    expect(canChangeType(rows.notAsked, workspace)).toBe(false)
   })
 
   it('skips the rows of a bulk type change that cannot take the type', () => {
@@ -225,16 +224,16 @@ describe('guards', () => {
     expect(changed).toEqual([rows.handPicked])
     expect(skipped).toEqual([rows.market, rows.marketB, rows.marketC])
     expect(typeChangeRows(selected, 'non-brand', workspace)).toEqual({ changed: selected, skipped: [] })
-    expect(typeChangeRows([...selected, rows.location], 'auto', workspace).skipped).toEqual([])
+    expect(typeChangeRows([...selected, rows.location], 'auto', workspace)).toEqual({ changed: [rows.handPicked], skipped: [rows.market, rows.marketB, rows.marketC, rows.location] })
     // A query that is not asked is skipped for every type, so one such row never has the whole change refused.
-    expect(typeChangeRows([rows.market, rows.notAsked], 'auto', workspace)).toEqual({ changed: [rows.market], skipped: [rows.notAsked] })
+    expect(typeChangeRows([rows.market, rows.notAsked], 'auto', workspace)).toEqual({ changed: [], skipped: [rows.market, rows.notAsked] })
   })
 
   it('moves no Subject in bulk: a one-location market row keeps its own type and is skipped for the other', () => {
     const selected = [rows.market, rows.soloMarket, rows.soloLocation, rows.handPicked]
     expect(typeChangeRows(selected, 'branded', workspace)).toEqual({ changed: [rows.soloLocation, rows.handPicked], skipped: [rows.market, rows.soloMarket] })
     expect(typeChangeRows(selected, 'non-brand', workspace)).toEqual({ changed: [rows.market, rows.soloMarket, rows.handPicked], skipped: [rows.soloLocation] })
-    expect(typeChangeRows(selected, 'auto', workspace).skipped).toEqual([])
+    expect(typeChangeRows(selected, 'auto', workspace)).toEqual({ changed: [rows.handPicked], skipped: [rows.market, rows.soloMarket, rows.soloLocation] })
     // One row alone takes either: there the type is the only way to move it.
     expect(typeChangeRows([rows.soloMarket], 'branded', workspace)).toEqual({ changed: [rows.soloMarket], skipped: [] })
     expect(typeChangeRows([rows.soloLocation], 'non-brand', workspace)).toEqual({ changed: [rows.soloLocation], skipped: [] })
@@ -285,8 +284,8 @@ describe('guards', () => {
 
 describe('rowMenuActions', () => {
   it.each([
-    ['a market query', rows.market, ['edit-wording', 'change-subject', 'change-type', 'stop', 'copy-link']],
-    ['a location query', rows.location, ['edit-wording', 'change-subject', 'move-location', 'change-type', 'stop', 'copy-link']],
+    ['a market query', rows.market, ['edit-wording', 'change-subject', 'stop', 'copy-link']],
+    ['a location query', rows.location, ['edit-wording', 'change-subject', 'stop', 'copy-link']],
     ['a hand-picked query', rows.handPicked, ['edit-wording', 'change-subject', 'change-type', 'stop', 'copy-link']],
     ['a market query where the type sets the Subject', rows.soloMarket, ['edit-wording', 'change-type', 'stop', 'copy-link']],
     ['a location query where the type sets the Subject', rows.soloLocation, ['edit-wording', 'move-location', 'change-type', 'stop', 'copy-link']],

@@ -4357,6 +4357,20 @@ test.each(['admin', 'viewer'] as const)('Queries links a location chosen as the 
   expect(project.page.container.querySelector('a[href*="/properties/"]')).toBeNull()
 })
 
+test.each([
+  { trackedType: 'branded', priorClass: 'non-brand', expected: 'branded' },
+  { trackedType: 'non-brand', priorClass: 'branded', expected: 'non-brand' },
+  { trackedType: 'all', priorClass: 'branded', expected: 'all' },
+])('Queries location details carries $trackedType instead of the previous report type', async ({ trackedType, priorClass, expected }) => {
+  const { page } = await renderScopeRoute(`/projects/project_citypoint/queries?measurementScope=property&measurementScopeKey=citypoint&trackedType=${trackedType}&queryClass=${priorClass}&measurementQueryKey=old-query`, trackingRoute(), { accountRole: 'viewer' })
+  await rowTrigger(page.container)
+  const link = within(contextRow(page.container)).getByRole('link', { name: 'Location details for Citypoint Dental' })
+  const search = Object.fromEntries(new URL(link.getAttribute('href')!, window.location.origin).searchParams)
+  expect(parseVisibilitySelection(search).queryClass).toBe(expected)
+  expect(search).toMatchObject({ measurementScope: 'property', measurementScopeKey: 'citypoint' })
+  expect(search.measurementQueryKey).toBeUndefined()
+})
+
 /** Bulk setup on a draft over the published setup of revision 7, opened at `entry`. */
 async function renderSetupRoute(entry: string, draft = measurementDraftResponse()) {
   const realFetch = globalThis.fetch

@@ -1,5 +1,6 @@
 import { useId, useRef, useState } from 'react'
 import { AlertTriangle, Ban, GitBranch, Info } from 'lucide-react'
+import { QUERY_TRACKING_TEXT_MAX_LENGTH } from '@ainyc/canonry-contracts'
 import type {
   QueryTrackingCommitResponse,
   QueryTrackingContextInput,
@@ -14,9 +15,9 @@ import { InfoTooltip } from '../../../shared/InfoTooltip.js'
 import { SegmentedRadioGroup, type SegmentedRadioOption } from '../../../shared/SegmentedRadioGroup.js'
 import { StatusNote } from '../../../shared/StatusNote.js'
 import { Button } from '../../../ui/button.js'
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../../../ui/sheet.js'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, useSheetDiscardGuard } from '../../../ui/sheet.js'
 import { placesOf } from '../../AddQueriesSheet.js'
-import { expectedSubject, TrackingReview, TrackingReviewActions, TYPE_SETS_SUBJECT, type TrackingReviewState } from '../../TrackingReview.js'
+import { expectedSubject, TrackingReview, TrackingReviewActions, TYPE_SETS_SUBJECT, TYPE_FOLLOWS_SUBJECT, type TrackingReviewState } from '../../TrackingReview.js'
 import { VisibilityScopePicker } from '../../VisibilityScopePicker.js'
 import { contextLabels } from '../tracking-contexts.js'
 import {
@@ -34,7 +35,6 @@ import {
   TRACKED_ACTION_LABEL,
   TRACKED_BULK_MAX,
   typeChangeRows,
-  typeSetsSubject,
   typeWouldChange,
   type TrackedPlace,
   type TrackedTypeChoice,
@@ -73,7 +73,6 @@ const LISTED = 5
 /** A location's markets are named up to this many, then counted, with the names in the help. */
 const NAMED_MARKETS = 2
 const NEW_TREND_LINE = 'New wording is tracked as a new query. Its trend starts at the next sweep and its Source becomes Manual. Past answers stay with the old wording.'
-const TYPE_FOLLOWS_SUBJECT = 'Set a market query to Non-brand and a location query to Branded. A hand-picked query takes either.'
 const COUNTS_IN = "Asked with these markets' engines and search locations."
 const FIELD_LABEL = 'mb-1 block text-sm font-medium text-heading'
 const FIELD_HINT = 'mt-2 text-[13px] leading-5 text-secondary'
@@ -132,7 +131,7 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
   // One row opens on the type an operator gave it, when that is one it can be set to. Anything else opens on Automatic.
   const [type, setType] = useState<TrackedTypeChoice>(() => {
     const current = bulk ? null : operatorType(row)
-    return current && allowedTypes(row, workspace).includes(current) ? current : 'auto'
+    return current && allowedTypes(row, workspace).includes(current) ? current : allowedTypes(row, workspace, bulk)[0] ?? 'auto'
   })
   // The type the control opens on is not a choice: Review waits for one, so nothing is handed back to the classifier unasked.
   const [typePicked, setTypePicked] = useState(false)
@@ -158,12 +157,13 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
   const locationMarkets = subject === 'location' && chosen ? marketsHolding(workspace, chosen.id) : []
   const marketNames = locationMarkets.map(market => market.label).join(' · ')
   // The same pairings read as the market's or the location's query there, whichever Subject was picked.
-  const landsByType = target !== null && typeSetsSubject(target, workspace)
   // A project with one search location and engines choice needs no pick.
   const context = contextChoices.length === 1 ? contextChoices[0] : contextChoices.find(choice => choice.label === contextLabel)
   const mutation = draft()
   const tooMany = rows.length > TRACKED_BULK_MAX
-  const canReview = mutation !== null && !tooMany && !publish.isPreviewing
+  const tooLong = action === 'edit-wording' && text.trim().length > QUERY_TRACKING_TEXT_MAX_LENGTH
+  const guard = useSheetDiscardGuard({ dirty: text !== row.queryText || typePicked || (placed && (subject !== (action === 'move-location' || row.subject.kind === 'location' ? 'location' : 'market') || placeKey !== (row.subject.kind === 'market' || row.subject.kind === 'location' ? row.subject.key : undefined))) || contextLabel !== '' || appliesTo !== 'place', busy: publish.isCommitting, onClose })
+  const canReview = mutation !== null && !tooMany && !tooLong && !publish.isPreviewing
   const preview = reviewed ? publish.preview : null
   // The toast for a refused review or publish sits under this sheet, so the review stays up to show the
   // refusal and offer another review. Back keeps showing it beside the form, until the next request.
@@ -264,8 +264,8 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
   }
 
   return (
-    <Sheet open onOpenChange={open => { if (!open) onClose() }}>
-      <SheetContent onCloseAutoFocus={restoreFocus} onEscapeKeyDown={keepOpenForInner}>
+    <Sheet open onOpenChange={open => { if (!open) guard.requestClose() }}>
+      <SheetContent onPointerDownOutside={guard.onPointerDownOutside} onCloseAutoFocus={restoreFocus} onEscapeKeyDown={keepOpenForInner}>
         <SheetHeader>
           <SheetTitle>{action === 'remove' && bulk ? 'Remove queries' : TRACKED_ACTION_LABEL[action]}</SheetTitle>
           <SheetDescription className="sr-only">{DESCRIPTION[action]}</SheetDescription>
@@ -367,8 +367,8 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
                         </>}
                   </div>
                 )}
-                {/* A caution here: the publish can land as the other Subject than the one picked. */}
-                {landsByType ? <div className="mt-2"><StatusNote icon={AlertTriangle} tone="caution" label="Type sets Subject" detail={TYPE_SETS_SUBJECT} /></div> : null}
+                {/* Review checks the chosen Subject independently of the resulting type. */}
+                <div className="mt-2"><StatusNote icon={Info} label="Type follows Subject" detail={TYPE_FOLLOWS_SUBJECT} /></div>
               </div>
             ) : null}
             {narrowTo ? (
@@ -384,6 +384,7 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
                 />
               </div>
             ) : null}
+            {tooLong ? <StatusNote icon={AlertTriangle} tone="negative" label="1 line too long" detail="A query holds at most 4,000 characters. Shorten the wording to review." /> : null}
             {/* No sentence behind it: with Review off this would be the sheet's first stop, and focus would open its bubble. */}
             {tooMany ? <div><StatusNote icon={Ban} tone="caution" label={`Max ${TRACKED_BULK_MAX} rows`} /></div> : null}
           </div>
@@ -392,9 +393,10 @@ function ActionSheet({ projectName, workspace, action, rows, row, place, context
             <WriteButton type="button" size="sm" className="max-md:h-11" disabled={!canReview} onClick={review}>
               {publish.isPreviewing ? 'Reviewing…' : 'Review'}
             </WriteButton>
-            <Button type="button" variant="ghost" size="sm" className="max-md:h-11" onClick={onClose}>Cancel</Button>
+            <Button type="button" variant="ghost" size="sm" className="max-md:h-11" onClick={guard.requestClose}>Cancel</Button>
           </div>
         </>}
+        {guard.prompt}
       </SheetContent>
     </Sheet>
   )

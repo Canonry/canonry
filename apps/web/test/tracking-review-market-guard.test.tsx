@@ -149,7 +149,7 @@ test('clears the confirmation when another review arrives', () => {
   expect(publish().disabled).toBe(false)
 
   // A refusal takes the review away; the next one starts unticked too.
-  show({ preview: null, error: { title: 'Could not confirm tracking changes', detail: 'Workspace changed. Review again.' } })
+  show({ preview: null, error: { title: 'Could not update tracked queries', detail: 'Workspace changed. Review again.' } })
   expect(screen.queryByRole('checkbox')).toBeNull()
   expect(screen.getByRole('button', { name: 'Review again' })).toBeTruthy()
   show({ preview: preview({ previewToken: `qtp_${'e'.repeat(64)}` }), error: null })
@@ -203,16 +203,16 @@ test('names each change\'s Subject and Type after the publish, and a removed que
       diff: { added: [row(gym, 2), row(lofts, 1)], reused: [row(picked, 2)], removed: [row(pool, 3)], unchanged: [row(idle, 0)], noOp: false },
     }),
   })
-  expect(within(screen.getByRole('table', { name: 'Changes' })).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Subject', 'Type', 'Location links'])
+  expect(within(screen.getByRole('table', { name: 'Changes' })).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Subject', 'Type', 'Pairs'])
   // Uptown holds two locations once this is published, and three now: the added row counts the first, the removed row the second.
   expect(reviewRow(gym.queryText)).toMatchObject({ change: 'Added', subject: 'Market · Uptown (2)', type: 'Non-brand', assignments: '2' })
   // The removed query is gone from the post-change rows, so its Type is the one it has now, like its Subject.
   expect(reviewRow(pool.queryText)).toMatchObject({ change: 'Removed', subject: 'Market · Uptown (3)', type: 'Non-brand', assignments: '−3' })
   expect(reviewRow(lofts.queryText)).toMatchObject({ change: 'Added', subject: 'Location · Acme Homes Lofts', type: 'Branded' })
-  expect(reviewRow(picked.queryText)).toMatchObject({ change: 'Reused', subject: 'Hand-picked · 2 locations', type: 'Mixed' })
+  expect(reviewRow(picked.queryText)).toMatchObject({ change: 'Changed', subject: 'Hand-picked · 2 locations', type: 'Mixed' })
   // The unchanged rows are drawn once their list is opened. A query asked nowhere has no type set.
   expect(screen.queryByRole('table', { name: 'Unchanged queries' })).toBeNull()
-  fireEvent.click(screen.getByText('1 unchanged query'))
+  fireEvent.click(screen.getByText('0 unchanged queries · 1 not asked'))
   await screen.findByRole('table', { name: 'Unchanged queries' })
   expect(reviewRow(idle.queryText, 'Unchanged queries')).toMatchObject({ change: 'Unchanged', subject: 'None', type: 'Not set' })
   // A market's count stays on the line of the name's last word.
@@ -226,7 +226,7 @@ test('shows no Subject column for a server that sends no Subject', () => {
   const bare = (query: typeof gym) => ({ ...query, focus: undefined })
   const data = { ...workspace, tracked: [bare(pool), bare(harbor)] } as unknown as QueryTrackingWorkspaceResponse
   renderReview({ workspace: data, preview: preview({ tracked: [bare(gym)] }) })
-  expect(within(screen.getByRole('table', { name: 'Changes' })).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Type', 'Location links'])
+  expect(within(screen.getByRole('table', { name: 'Changes' })).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Type', 'Pairs'])
   expect(reviewRow(gym.queryText).subject).toBeUndefined()
 })
 
@@ -265,7 +265,7 @@ test('keeps a column for rows asked differently, with each Type under its Subjec
   const quay = tracked('query-quay', 'apartments near the quay', { kind: 'market', key: 'uptown' }, ['court', 'lofts', 'square'].map(key => pairing(key, ['uptown'])))
   renderReview({ preview: adds(park, river, quay) })
   // Six columns pass a sheet's width, so beside the search location column the Type shares the Subject's.
-  expect(within(screen.getByRole('table', { name: 'Changes' })).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Subject and type', 'Location links', 'Search location and engines'])
+  expect(within(screen.getByRole('table', { name: 'Changes' })).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Subject and type', 'Pairs', 'Search location and engines'])
   expect(sharedSearchLocation()).toBeNull()
   // Two rows that differ only by model would both read "Northbridge · OpenAI": each keeps its model id, and has nothing more to open.
   expect(reviewRow(park.queryText)).toMatchObject({ subject: 'Location · Acme Homes Court', type: 'Branded', searchLocation: 'Northbridge · openai (gpt-5)' })
@@ -303,4 +303,35 @@ test.each([
     expect(note.closest('button')).toBeNull()
   }
   expect(screen.queryByText(/^First answers/) !== null).toBe(shown)
+})
+
+test('warns when the last market query leaves even if location queries keep its membership intact', () => {
+  renderReview({ preview: preview({
+    marketChanges: [],
+    marketQueryChanges: [
+      { marketKey: 'uptown', before: { marketQueries: 1 }, after: { marketQueries: 0 } },
+      { marketKey: 'harbor', before: { marketQueries: 2 }, after: { marketQueries: 1 } },
+    ],
+  }) })
+  noteButton('1 market without queries', 'No market queries will remain in Uptown. Location queries may still be asked there.', screen.getByRole('region', { name: 'Review' }))
+  expect(screen.queryByRole('table', { name: 'Market changes' })).toBeNull()
+  expect(screen.queryByRole('checkbox')).toBeNull()
+  expect(publish().disabled).toBe(false)
+})
+
+test('stopping a query names retained history and keeps unasked rows separate in the unchanged count', async () => {
+  const stopped = { ...pool, focus: { kind: 'not-asked' }, assignments: [] }
+  const idle = tracked('query-idle', 'short term rentals', { kind: 'not-asked' }, [])
+  renderReview({ preview: preview({
+    tracked: [stopped, harbor, idle], marketChanges: [],
+    diff: { added: [], reused: [], removed: [row(pool, 3)], unchanged: [row(harbor, 1), row(idle, 0)], noOp: false },
+  }) })
+  expect(reviewRow(pool.queryText).change).toBe('Stopped')
+  expect(screen.getByText('1 stopped')).toBeTruthy()
+  noteButton('Past answers kept', 'Stopping keeps the query and its past answers. A query with no remaining locations stays under Not asked; one still asked elsewhere stays under Asked.', screen.getByRole('region', { name: 'Review' }))
+  expect(screen.queryByText('Starts over if re-added')).toBeNull()
+  fireEvent.click(screen.getByText('1 unchanged query · 1 not asked'))
+  const unchanged = await screen.findByRole('table', { name: 'Unchanged queries' })
+  expect(within(unchanged).getByText(idle.queryText)).toBeTruthy()
+  expect(within(unchanged).getByText(harbor.queryText)).toBeTruthy()
 })

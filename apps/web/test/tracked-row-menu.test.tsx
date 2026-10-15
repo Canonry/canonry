@@ -24,8 +24,8 @@ const labels = () => items().map(item => item.textContent)
 
 describe('TrackedRowMenu', () => {
   it.each([
-    ['a market query', rows.market, ['Edit wording', 'Change Subject', 'Change type', 'Stop tracking', 'Copy link']],
-    ['a location query', rows.location, ['Edit wording', 'Change Subject', 'Move to another location', 'Change type', 'Stop tracking', 'Copy link']],
+    ['a market query', rows.market, ['Edit wording', 'Change Subject', 'Stop tracking', 'Copy link']],
+    ['a location query', rows.location, ['Edit wording', 'Change Subject', 'Stop tracking', 'Copy link']],
     ['a hand-picked query', rows.handPicked, ['Edit wording', 'Change Subject', 'Change type', 'Stop tracking', 'Copy link']],
     // Solo has one location, so the type decides the Subject there and Change Subject is not offered.
     ['a query in a one-location market', rows.soloMarket, ['Edit wording', 'Change type', 'Stop tracking', 'Copy link']],
@@ -54,8 +54,8 @@ describe('TrackedRowMenu', () => {
     expect(trigger.getAttribute('aria-controls')).toBe(screen.getByRole('menu').id)
     // Focus is on the button before the page hears the choice: a sheet it opens returns focus there when it closes.
     onAction.mockImplementation(() => expect(document.activeElement).toBe(trigger))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Move to another location' }))
-    expect(onAction).toHaveBeenCalledExactlyOnceWith('move-location', rows.location)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Change Subject' }))
+    expect(onAction).toHaveBeenCalledExactlyOnceWith('change-subject', rows.location)
     expect(menu()).toBeNull()
     expect(trigger.getAttribute('aria-expanded')).toBe('false')
     expect(document.activeElement).toBe(trigger)

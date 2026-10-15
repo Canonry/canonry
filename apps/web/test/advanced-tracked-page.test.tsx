@@ -340,10 +340,12 @@ test('sends a filter change to the host, lists by the filters the host holds, an
   expect(listed()).toHaveLength(6)
   rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, subject: 'location' } })
   expect(listed()).toEqual([HARBOR, PIER_NEW])
-  expect(count()).toBe('2 of 8 queries')
+  expect(count()).toBe('2 of 6 queries')
 
-  // Result lists a row when one of its chips is in that state: here a No on Cited.
+  // No engine cites the non-brand type of this query; split outcomes have their own filter.
   rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, result: 'not-cited' } })
+  expect(listed()).toEqual([PICKED])
+  rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, result: 'partly-cited' } })
   expect(listed()).toEqual([DOWNTOWN, UPTOWN_BEST, PICKED])
   rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' } })
   expect(listed()).toEqual([OLD_TOWN, CAMPUS])
@@ -353,7 +355,7 @@ test('sends a filter change to the host, lists by the filters the host holds, an
   onTrackedFiltersChange.mockClear()
   fireEvent.change(screen.getByRole('searchbox', { name: 'Search queries' }), { target: { value: 'harbor' } })
   expect(listed()).toEqual([HARBOR])
-  expect(count()).toBe('1 of 8 queries')
+  expect(count()).toBe('1 of 6 queries')
   // A market's name finds its queries, though no query text holds it.
   fireEvent.change(screen.getByRole('searchbox', { name: 'Search queries' }), { target: { value: 'lakeshore' } })
   expect(listed()).toEqual([DOWNTOWN])
@@ -488,7 +490,7 @@ test('the Add query form opens on the engines the plan is asked with, though the
   expect(choice.selectedOptions[0]!.text).toBe('No search location · Claude, Gemini, OpenAI')
   fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'apartments with a gym' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'Pier House, Location' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Review' }))
   await waitFor(() => expect(previews).toHaveLength(1))
   expect(previews[0]).toEqual(['/query-tracking/preview', {
     expectedWorkspaceVersion: `qtw_${'a'.repeat(64)}`,
@@ -676,7 +678,7 @@ test('each empty state offers an action that changes what is listed, and the foc
   await screen.findByText(UPTOWN_BEST)
   fireEvent.change(searchBox(), { target: { value: 'old town' } })
   const match = screen.getByText('No queries match').closest('td')!
-  expect(count()).toBe('0 of 8 queries')
+  expect(count()).toBe('0 of 6 queries')
   expect(screen.queryAllByRole('checkbox')).toEqual([])
   fireEvent.click(within(match).getByRole('button', { name: 'Show not asked' }))
   expect(onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' })
@@ -722,7 +724,7 @@ test('a Result filter waits for the results: skeleton rows and no count, never a
   // Each results read waits here until the test lets it go.
   const waiting: Array<() => void> = []
   installApi({ results: () => new Promise<Response>(resolve => waiting.push(() => resolve(jsonResponse(sweep())))) })
-  const { rerender } = renderWorkspace({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, result: 'not-mentioned' }, onTrackedFiltersChange: () => {} })
+  const { rerender } = renderWorkspace({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, result: 'partly-mentioned' }, onTrackedFiltersChange: () => {} })
   const pending = () => {
     expect(screen.getByRole('status', { name: 'Loading queries' })).toBeTruthy()
     expect(screen.queryByRole('table', { name: 'Queries' })).toBeNull()
@@ -736,7 +738,7 @@ test('a Result filter waits for the results: skeleton rows and no count, never a
   pending()
   waiting.shift()!()
   await waitFor(() => expect(listed()).toEqual([DOWNTOWN, UPTOWN_BEST, PICKED]))
-  expect(count()).toBe('3 of 8 queries')
+  expect(count()).toBe('3 of 6 queries')
 
   // Another place reads its own results, so the list waits again, and the ticked row is still ticked after it.
   select(UPTOWN_BEST)
@@ -778,6 +780,55 @@ test('inside a place a query asked both ways reads the type it is asked under th
   expect(typeOf(PICKED)).toBe('MixedBrandedNon-brand')
 })
 
+test('a place keeps only its own engine assignments even when the query has the same type elsewhere', async () => {
+  const on = (targetKey: string, provider: string) => ({
+    ...pairing(targetKey, [], 'non-brand'),
+    contexts: [{ ...context, providers: [provider], models: {} }],
+  })
+  const workspace = portfolio({ tracked: [tracked('q-picked', PICKED, { kind: 'custom' }, [on('harbor', 'openai'), on('pier', 'gemini')])] })
+  installApi({
+    workspace: () => workspace,
+    results: search => jsonResponse(sweep({
+      scope: search.get('scope') === 'property' ? { kind: 'property', key: 'harbor' } : { kind: 'project', key: null },
+      engines: ['openai', 'gemini'],
+      rows: [resultRow('q-picked', PICKED, 'non-brand', [engine('openai', true, false)])],
+    })),
+  })
+  const { rerender } = renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'harbor', queryClass: 'all' }, trackedFilters: DEFAULT_TRACKED_FILTERS, onTrackedFiltersChange: () => {} })
+  await screen.findByText(PICKED)
+  await waitFor(() => expect(engineCells(PICKED)).toEqual(['OpenAI: Mentioned, Not cited', 'Not asked']))
+
+  // Gemini belongs only to Pier House, so Harbor Point has no missing answer to filter for.
+  rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, result: 'not-checked' } })
+  expect(listed()).toEqual([])
+  // At project scope Gemini really was asked; its absent result is a sweep gap.
+  rerender({ selection: PROJECT, trackedFilters: DEFAULT_TRACKED_FILTERS })
+  await waitFor(() => expect(engineCells(PICKED)).toEqual(['OpenAI: Mentioned, Not cited', 'Gemini: Not checked']))
+})
+
+test('a location keeps both query types and only the engine contexts each type uses', async () => {
+  const branded = { ...context, providers: ['openai'], models: {}, queryClass: 'branded' as const, marketKeys: ['uptown'] }
+  const nonBrand = { ...context, providers: ['gemini'], models: {}, queryClass: 'non-brand' as const, marketKeys: ['downtown'] }
+  installApi({
+    workspace: () => portfolio({ tracked: [tracked('q-picked', PICKED, { kind: 'custom' }, [{
+      ...pairing('harbor', ['uptown', 'downtown'], 'non-brand'),
+      contexts: [{ ...context, providers: ['openai'], models: {} }, { ...context, providers: ['gemini'], models: {} }],
+      classifiedContexts: [branded, nonBrand],
+    }], { queryClasses: ['branded', 'non-brand'] })] }),
+    results: () => jsonResponse(sweep({ engines: ['openai', 'gemini'], rows: [] })),
+  })
+  const { rerender } = renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'harbor', queryClass: 'all' }, trackedFilters: DEFAULT_TRACKED_FILTERS, onTrackedFiltersChange: () => {} })
+  await screen.findByText(PICKED)
+  await waitFor(() => expect(chips(PICKED)).toEqual(['OpenAI, Branded: Not checked', 'Gemini, Non-brand: Not checked']))
+  expect(within(rowOf(PICKED)).queryByRole('button', { name: 'OpenAI, Non-brand: Not checked' })).toBeNull()
+  expect(within(rowOf(PICKED)).queryByRole('button', { name: 'Gemini, Branded: Not checked' })).toBeNull()
+
+  // The same location belongs to two markets, each with its own context and type.
+  rerender({ selection: UPTOWN_PLACE })
+  await waitFor(() => expect(chips(PICKED)).toEqual(['OpenAI: Not checked']))
+  expect(engineCells(PICKED)).toEqual(['OpenAI: Not checked', 'Not asked'])
+})
+
 test('the bulk bar offers what every selected row can take, and its actions open the sheets with the rows and the Place', async () => {
   const previews: unknown[] = []
   installApi({ write: (path, body) => { previews.push([path, body]); return jsonResponse({ error: { code: 'VALIDATION_ERROR', message: 'not reviewed here' } }, 400) } })
@@ -789,7 +840,8 @@ test('the bulk bar offers what every selected row can take, and its actions open
   select(HARBOR)
   const bar = within(bulkBar()!)
   expect(bar.getByText('2 selected')).toBeTruthy()
-  expect(bar.getAllByRole('button').map(button => button.textContent)).toEqual(['Change type', 'Stop tracking', 'Select all 4', 'Clear'])
+  // These Market and Location rows already have their fixed type, so only Stop applies to both.
+  expect(bar.getAllByRole('button').map(button => button.textContent)).toEqual(['Stop tracking', 'Select all 4', 'Clear'])
   expect(rowOf(HARBOR).hasAttribute('data-selected')).toBe(true)
 
   // Stop tracking takes both rows and the Place: Harbor Point reviews is asked in Downtown too, so the sheet opens on "Only Uptown".
@@ -822,7 +874,8 @@ test('"Selected actions" jumps from the list to the bar, and the focus comes bac
   await screen.findByText(UPTOWN_BEST)
   expect(screen.queryByRole('link', { name: 'Selected actions' })).toBeNull()
 
-  select(UPTOWN_BEST)
+  // A hand-picked row can change type, so the first action has a different position from Clear.
+  select(PICKED)
   // Before the table in the page, so one step back from its first control: the bar itself follows the last page of rows.
   const jump = screen.getByRole('link', { name: 'Selected actions' })
   const order = [searchBox(), jump, table(), bulkBar()!]
@@ -884,7 +937,11 @@ test('each page of rows takes its own height: one line where its text fits and t
 })
 
 test('ticked rows stay ticked from page to page, the whole list is offered only when one change can take it, and a longer selection is told the limit', async () => {
-  installApi({ workspace: longPortfolio, results: () => jsonResponse(sweep({ rows: [] })) })
+  // Hand-picked rows can change type as well as stop, so the limit must disable both available actions.
+  const handPickedPortfolio = () => portfolio({ tracked: longPortfolio().tracked.map(row => tracked(
+    row.queryId, row.queryText, { kind: 'custom' }, [pairing('harbor', ['uptown', 'downtown'], 'branded', ['north']), pairing('pier', [], 'non-brand')],
+  )) })
+  installApi({ workspace: handPickedPortfolio, results: () => jsonResponse(sweep({ rows: [] })) })
   renderWorkspace()
   await screen.findByText('apartments query 01')
   select('apartments query 01')
@@ -966,7 +1023,7 @@ test('asked and not asked rows share no bulk action, rows that are not asked can
   fireEvent.click(within(bulkBar()!).getByRole('button', { name: 'Track' }))
   const sheet = within(screen.getByRole('dialog', { name: 'Add queries' }))
   expect((sheet.getByLabelText('Queries') as HTMLTextAreaElement).value).toBe(`${OLD_TOWN}\n${CAMPUS}`)
-  expect(sheet.getByText('2 queries')).toBeTruthy()
+  expect(sheet.getByText('2 queries · 957 left')).toBeTruthy()
 })
 
 test('a row menu opens the action sheet for one row, tracks a row that is not asked, and copies a link that marks the row', async () => {
@@ -976,7 +1033,7 @@ test('a row menu opens the action sheet for one row, tracks a row that is not as
   const props = renderWorkspace({ trackedFilters: ALL_STATUS, onTrackedFiltersChange: () => {} })
   await screen.findByText(OLD_TOWN)
 
-  const sheet = await openRowSheet(HARBOR, 'Move to another location')
+  const sheet = await openRowSheet(HARBOR, 'Change Subject')
   expect(sheet.getByText(HARBOR)).toBeTruthy()
   fireEvent.click(sheet.getByRole('button', { name: 'Cancel' }))
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
@@ -1463,6 +1520,10 @@ test('Add from a view\'s row opens the Add queries sheet on that market or locat
   }])
   fireEvent.click(await screen.findByRole('button', { name: 'Back' }))
   fireEvent.click(sheet.getByRole('button', { name: 'Cancel' }))
+  // Returning from Review keeps the draft: closing it needs an explicit discard.
+  expect((sheet.getByLabelText('Queries') as HTMLTextAreaElement).value).toBe('lofts downtown')
+  expect(screen.getByRole('dialog', { name: 'Add queries' })).toBeTruthy()
+  fireEvent.click(sheet.getByRole('button', { name: 'Discard' }))
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 
   // The server would refuse a query for a market with no location, so the row says why in place of the button.

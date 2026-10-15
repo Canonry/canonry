@@ -1,7 +1,23 @@
-import type { QueryTrackingContextInput, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import type { QueryTrackingAssignment, QueryTrackingContextInput, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
 
 import { providerDisplayName } from '../../../lib/visibility-trend-helpers.js'
 import type { TrackedContextLabels } from './advanced/TrackedRowDetail.js'
+
+/** Each type with only its own search locations, engines and markets. Older servers name one type per location. */
+export function assignmentTypeContexts(assignment: QueryTrackingAssignment): Pick<QueryTrackingAssignment, 'queryClass' | 'contexts' | 'marketKeys'>[] {
+  if (!assignment.classifiedContexts) return [assignment]
+  const types = new Map<QueryTrackingAssignment['queryClass'], Pick<QueryTrackingAssignment, 'queryClass' | 'contexts' | 'marketKeys'>>()
+  for (const context of assignment.classifiedContexts) {
+    let type = types.get(context.queryClass)
+    if (!type) {
+      type = { queryClass: context.queryClass, contexts: [], marketKeys: [] }
+      types.set(context.queryClass, type)
+    }
+    type.contexts.push(context)
+    type.marketKeys = [...new Set([...type.marketKeys, ...context.marketKeys])]
+  }
+  return [...types.values()].sort((left, right) => (left.queryClass ?? '').localeCompare(right.queryClass ?? ''))
+}
 
 export function contextInput(context: QueryTrackingWorkspaceResponse['defaultContexts'][number]): QueryTrackingContextInput {
   return {
@@ -47,7 +63,7 @@ type StoredContexts = Pick<QueryTrackingWorkspaceResponse, 'defaultContexts' | '
  */
 function searchLocationNamer(workspace: StoredContexts, more: readonly QueryTrackingContextInput[] = []): (detail: string) => { label: string; detail: string } {
   const names = new Map<string, string>()
-  const stored = [...workspace.defaultContexts, ...workspace.tracked.flatMap(row => row.assignments.flatMap(assignment => assignment.contexts))]
+  const stored = [...workspace.defaultContexts, ...workspace.tracked.flatMap(row => row.assignments.flatMap(assignment => assignment.classifiedContexts ?? assignment.contexts))]
   for (const context of [...stored.map(contextInput), ...more]) {
     const detail = contextLabel(context)
     if (!names.has(detail)) names.set(detail, `${context.location ?? 'No search location'} · ${context.providers.map(providerDisplayName).join(', ')}`)

@@ -594,6 +594,17 @@ describe('query tracking: what a publish writes to the audit log', () => {
     })
   })
 
+  it('does not audit unchanged reuse as a change beside a new query', async () => {
+    seedSweptPortfolio()
+    const fresh = 'homes with a rooftop terrace in lakeshore'
+    const { preview } = await publish({ additions: [toMarket(fresh), toMarket(QUERY.market.text)] })
+    expect(preview.changes?.find(change => change.queryId === QUERY.market.id)).toMatchObject({ altered: false })
+    expect(trackingAudit()[0]!.diff.queries).toMatchObject({
+      added: [fresh], changed: [],
+      counts: { added: 1, stopped: 0, removed: 0, changed: 0 },
+    })
+  })
+
   it('lists at most 50 texts of a kind, keeps the exact count, and says the list was cut', async () => {
     seedSweptPortfolio()
     const texts = Array.from({ length: 51 }, (_, index) => `homes with feature ${String(index).padStart(2, '0')} in lakeshore`)

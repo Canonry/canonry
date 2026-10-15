@@ -660,7 +660,7 @@ function advancedResults(
       .filter(assignment => assignment.queryId === query.queryId)
       .map(assignment => assignment.executionNodeKey))
     const sweep = materializeAdvancedSweep(db, source, presentation, versions, true, executionIds)
-    const ownNameKeys = nameKeys(sweepPlan.targets.flatMap(target => [target.label, ...target.aliases]))
+    const ownNameKeys = nameKeys(sweepPlan.targets.flatMap(target => [target.label, ...target.aliases, ...(target.identityAliases ?? [])]))
     return {
       run: runDto(run, chosen.version.revision, underActivePlan),
       engines: engines(sweep),

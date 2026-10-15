@@ -110,8 +110,8 @@ export function TrackedToolbar({ search, onSearchChange, filters, onFiltersChang
   return (
     <div className="@container">
       <div className="flex flex-wrap items-center gap-2 py-3">
-        {/* The search shares a row with the selects where the toolbar holds them all at their widest, 66rem or more, and takes a row of its own in less. The width decides, never the choices. */}
-        <div className="flex min-w-[9.5rem] grow basis-full gap-2 @[66rem]:basis-0">
+        {/* The search shares a row with the selects where the toolbar holds them all at their widest, 68rem or more, and takes a row of its own in less. The width decides, never the choices. */}
+        <div className="flex min-w-[9.5rem] grow basis-full gap-2 @[68rem]:basis-0">
           <DataTableSearch size="sm" value={search} onChange={onSearchChange} label="Search queries" placeholder="Search queries" className="min-w-0 flex-1" />
           <Button ref={filtersButton} type="button" variant="outline" className="hidden min-h-11 pointer-coarse:inline-flex max-md:inline-flex" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(value => !value)} onKeyDown={closeOnEscape}>
             {active === 0 ? 'Filters' : `Filters · ${active}`}

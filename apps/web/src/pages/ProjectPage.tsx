@@ -2614,8 +2614,10 @@ function ProjectPageContent({
   const shownNextSweepDate = isEmbed() || isDashboardManagedSweeps() || hasActiveVisibilitySweep ? undefined : nextSweepDate ?? undefined
 
   // The way from a location chosen as the Place to its own page, on AI Visibility and on Queries.
-  const locationDetailsLink = ({ id, label }: { id: string; label: string }) => (
-    <Link to="/projects/$projectName/properties/$targetKey" params={{ projectName, targetKey: id }} search={carryVisibilitySearch} aria-label={`Location details for ${label}`} className="inline-flex min-h-11 items-center whitespace-nowrap text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
+  const locationDetailsLink = ({ id, label }: { id: string; label: string }, fromTracked = false) => (
+    <Link to="/projects/$projectName/properties/$targetKey" params={{ projectName, targetKey: id }} search={previous => fromTracked
+      ? patchVisibilitySelection(carryVisibilitySearch(previous), { queryClass: trackedFilters.type === 'branded' || trackedFilters.type === 'non-brand' ? trackedFilters.type : 'all' })
+      : carryVisibilitySearch(previous)} aria-label={`Location details for ${label}`} className="inline-flex min-h-11 items-center whitespace-nowrap text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
       Location details
     </Link>
   )
@@ -2722,7 +2724,7 @@ function ProjectPageContent({
             onSelect={scope => updateVisibilitySearch({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id })}
           />,
           // A location links to its own page from here. The counts are the whole project's, and show only for it.
-          selected.kind === 'property' && !isEmbed() ? locationDetailsLink(selected) : placeCounts(selected, workspace.targets.length, workspace.markets.length),
+          selected.kind === 'property' && !isEmbed() ? locationDetailsLink(selected, true) : placeCounts(selected, workspace.targets.length, workspace.markets.length),
         ) : null
       }
       case 'scope-unavailable':

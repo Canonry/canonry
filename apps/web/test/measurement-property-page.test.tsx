@@ -3456,7 +3456,7 @@ describe('Add query about this location', () => {
   // The server files a query by its text: one that names the location it is
   // added to is Branded for that location, any other is Non-brand
   // (`proposeQueryClassForTarget`). The fixtures give each text its real class.
-  const MARKET_QUERY = { text: 'quiet hotels with a harbor view', queryClass: 'non-brand' as const }
+  const LOCATION_QUERY = { text: 'quiet hotels with a harbor view', queryClass: 'branded' as const }
   const NAMED_QUERY = { text: 'is Harbor House a good place to stay', queryClass: 'branded' as const }
   const PREVIEW_TOKEN = `qtp_${'b'.repeat(64)}`
   const REVIEWED_AT = '2026-08-03T12:15:00.000Z'
@@ -3464,7 +3464,7 @@ describe('Add query about this location', () => {
   const OTHER_LOCATION = { id: 'other-house', label: 'Other House', kind: 'property', targetCount: 1 }
 
   /** The plan the server publishes for the commit: the new query assigned to Harbor House, in the class its text gets. */
-  function planAfterPublish(query: typeof MARKET_QUERY | typeof NAMED_QUERY) {
+  function planAfterPublish(query: typeof LOCATION_QUERY | typeof NAMED_QUERY) {
     const { active } = planResponse()
     return {
       active: {
@@ -3480,7 +3480,7 @@ describe('Add query about this location', () => {
   }
 
   /** The workspace after the commit: the new query is about Harbor House, in the type its text gets, and waits for its first sweep. */
-  function workspaceAfterPublish(query: typeof MARKET_QUERY | typeof NAMED_QUERY) {
+  function workspaceAfterPublish(query: typeof LOCATION_QUERY | typeof NAMED_QUERY) {
     const before = trackingWorkspace()
     return trackingWorkspace({
       targets: [{ ...before.targets[0]!, counts: { ...TRACKING_COUNTS, propertyQueries: TRACKING_COUNTS.propertyQueries + 1 } }],
@@ -3496,7 +3496,7 @@ describe('Add query about this location', () => {
     account?: SignedInAccount
     workspace?: () => Response | Promise<Response>
     plan?: () => ReturnType<typeof planResponse>
-    publishes?: typeof MARKET_QUERY | typeof NAMED_QUERY
+    publishes?: typeof LOCATION_QUERY | typeof NAMED_QUERY
     queryClient?: QueryClient
     /** Answers the page's own reads once the commit has landed. Before it, and without it, they are a measured page's. */
     afterPublish?: (url: string) => Response | Promise<Response>
@@ -3505,7 +3505,7 @@ describe('Add query about this location', () => {
     /** Every request as "METHOD /path" under the project, in the order it was made. */
     const requests: string[] = []
     const writes: Array<{ operation: string; body: unknown }> = []
-    const publishes = options.publishes ?? MARKET_QUERY
+    const publishes = options.publishes ?? LOCATION_QUERY
     const diff = { added: [{ queryId: 'query-new', queryText: publishes.text, assignmentCount: 1 }], removed: [], reused: [], unchanged: [], noOp: false }
     let published = false
     const page = propertyPageResponses()
@@ -3654,31 +3654,31 @@ describe('Add query about this location', () => {
 
   it('publishes each line for this location in its markets, closes, and lists the new query with no sweep', async () => {
     onTestFinished(resetToasts)
-    const { header, writes, requests, resultsReads } = await renderWithTracking({ publishes: MARKET_QUERY })
+    const { header, writes, requests, resultsReads } = await renderWithTracking({ publishes: LOCATION_QUERY })
     const own = await ownQueries()
     const sheet = await openSheet(header)
-    fireEvent.change(sheet.getByLabelText('Queries'), { target: { value: MARKET_QUERY.text } })
+    fireEvent.change(sheet.getByLabelText('Queries'), { target: { value: LOCATION_QUERY.text } })
     fireEvent.click(sheet.getByRole('button', { name: 'Review' }))
 
     await sheet.findByRole('heading', { name: 'Review 1 change' })
-    // Type stays on Automatic, so the server classes the query: no `queryClass` is sent.
+    // A location Subject explicitly asks for Branded, even when its wording is generic.
     const mutation = {
-      additions: [{ input: { source: 'manual', text: MARKET_QUERY.text }, audience: { targetKeys: [TARGET_KEY], marketKeys: ['north-coast'] } }],
+      additions: [{ input: { source: 'manual', text: LOCATION_QUERY.text }, audience: { targetKeys: [TARGET_KEY], marketKeys: ['north-coast'] }, queryClass: 'branded' }],
       removals: [],
     }
     expect(writes).toEqual([{ operation: 'preview', body: { ...mutation, expectedWorkspaceVersion: WORKSPACE_VERSION } }])
     expect(queryTrackingPreviewRequestSchema.safeParse(writes[0]!.body).success).toBe(true)
     // Nothing is published until Publish, so the list is still the one the page loaded with.
-    expect(within(own).queryByText(MARKET_QUERY.text)).toBeNull()
+    expect(within(own).queryByText(LOCATION_QUERY.text)).toBeNull()
 
     fireEvent.click(sheet.getByRole('button', { name: 'Publish 1 change' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(writes[1]).toEqual({ operation: 'commit', body: { ...mutation, expectedWorkspaceVersion: WORKSPACE_VERSION, previewToken: PREVIEW_TOKEN, reviewedAt: REVIEWED_AT } })
     // The list and its count are read again from the workspace. No sweep ran, so the new row waits
     // for its first answers and its chips read Not checked, never No.
-    const added = rowOf(own, MARKET_QUERY.text)
+    const added = rowOf(own, LOCATION_QUERY.text)
     await waitFor(() => expect(within(added).getByRole('button', { name: 'OpenAI: Not checked' })).toBeTruthy())
-    expect(added.querySelector('.tracked-cell-type')!.textContent).toBe('Non-brand')
+    expect(added.querySelector('.tracked-cell-type')!.textContent).toBe('Branded')
     expect(added.querySelector('.tracked-cell-status')!.textContent).toBe('First answers')
     expect(within(rowOf(own, OWN_QUESTION)).getByRole('button', { name: 'OpenAI: Mentioned, Not cited' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Queries about this location' }).nextElementSibling!.textContent).toBe('6 queries')
@@ -3687,14 +3687,14 @@ describe('Add query about this location', () => {
     await waitFor(() => expect(resultsReads()).toBe(2))
     expect(requests.filter(request => !request.startsWith('GET '))).toEqual(['POST /query-tracking/preview', 'POST /query-tracking/commit'])
     expect(requests.filter(request => /\/runs?\b/.test(request))).toEqual([])
-    await waitFor(() => expect(getToasts().map(toast => toast.title)).toEqual(['Tracked queries updated']))
+    await waitFor(() => expect(getToasts().map(toast => toast.title)).toEqual(['1 added']))
   })
 
   it('keeps the numbers after its own publish and says the tracking changed, with no reload and no sweep', async () => {
     onTestFinished(resetToasts)
     // Once revision 8 is published, the reads answer with the sweep that ran with revision 7.
     const { header, requests } = await renderWithTracking({
-      publishes: MARKET_QUERY,
+      publishes: LOCATION_QUERY,
       afterPublish: afterTrackingChange(propertyPageResponses(), { activeRevision: 8, measuredRevision: 7 }),
     })
     const own = await ownQueries()
@@ -3703,7 +3703,7 @@ describe('Add query about this location', () => {
     await waitFor(() => expect(nonBrand()).toEqual(['75.0%3 of 4', '50.0%2 of 4']))
     expect(screen.queryByText(/^Tracking changed/)).toBeNull()
 
-    await publish(await openSheet(header), MARKET_QUERY.text)
+    await publish(await openSheet(header), LOCATION_QUERY.text)
 
     // The publish reads the page again. The numbers are the same sweep's, now marked once, in the header: the
     // tracked section's results say the same and leave it to the header.
@@ -3713,7 +3713,7 @@ describe('Add query about this location', () => {
     expect(await within(await answersTable()).findByText(NEARBY_QUESTION)).toBeTruthy()
     expect(screen.queryByRole('region', { name: 'Measurement next step' })).toBeNull()
     // The new query is listed and waits for its first answers.
-    await waitFor(() => expect(within(rowOf(own, MARKET_QUERY.text)).getByRole('button', { name: 'OpenAI: Not checked' })).toBeTruthy())
+    await waitFor(() => expect(within(rowOf(own, LOCATION_QUERY.text)).getByRole('button', { name: 'OpenAI: Not checked' })).toBeTruthy())
     await waitFor(() => expect(screen.getAllByText(/^Tracking changed/)).toHaveLength(1))
     expect(requests.filter(request => !request.startsWith('GET '))).toEqual(['POST /query-tracking/preview', 'POST /query-tracking/commit'])
     expect(requests.filter(request => /\/runs?\b/.test(request))).toEqual([])
@@ -3725,9 +3725,9 @@ describe('Add query about this location', () => {
     const own = await ownQueries()
     await publish(await openSheet(header), NAMED_QUERY.text)
 
-    // The sheet never sends a class of its own, which would file this query as Non-brand.
+    // The location choice sends Branded explicitly in the reviewed and committed request.
     expect(writes[1]!.body).toMatchObject({ additions: [{ input: { source: 'manual', text: NAMED_QUERY.text }, audience: { targetKeys: [TARGET_KEY], marketKeys: ['north-coast'] } }] })
-    expect(JSON.stringify(writes.map(write => write.body))).not.toContain('queryClass')
+    for (const write of writes) expect(write.body).toMatchObject({ additions: [{ queryClass: 'branded' }] })
     // The server filed it as Branded. Both types share one list with a Type column, so it is in view
     // while the results below stay on Non-brand, and nothing has to point to it.
     await waitFor(() => expect(rowOf(own, NAMED_QUERY.text).querySelector('.tracked-cell-type')!.textContent).toBe('Branded'))

@@ -49,8 +49,8 @@ test('focuses the preview outcome and shows the before and after numbers under t
   expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
   // Visible under the heading, not folded into a disclosure.
   expect(heading.textContent).toBe('Review 1 change')
-  expect(reviewNumbers()).toEqual({ Queries: '2 → 1', 'Answers per sweep': '6 → 3', 'Answers added': '0', 'Answers removed': '−3' })
-  expect(screen.getByText('Queries', { selector: 'dt' }).closest('details')).toBeNull()
+  expect(reviewNumbers()).toEqual({ 'Queries asked': '2 → 1', 'Answers per sweep': '6 → 3', 'Answers added': '0', 'Answers removed': '−3' })
+  expect(within(heading.parentElement!).getByText('Queries asked', { selector: 'dt' }).closest('details')).toBeNull()
   // One short caution note; the full notice, sweep sentence included, is the note's own help and not visible text.
   expect(noteButton(advancedResetLine, advancedResetNotice, heading.parentElement!).classList.contains('text-caution')).toBe(true)
   // The words are the notice's own, so this check cannot go on passing over a reworded notice.
@@ -75,7 +75,7 @@ test('keeps added and removed queries and answers separate in the review numbers
   })
   renderWorkspace()
   await reviewRemoval()
-  expect(reviewNumbers()).toEqual({ Queries: '2 → 3', 'Answers per sweep': '1,228 → 1,236', 'Answers added': '+12', 'Answers removed': '−4' })
+  expect(reviewNumbers()).toEqual({ 'Queries asked': '2 → 3', 'Answers per sweep': '1,228 → 1,236', 'Answers added': '+12', 'Answers removed': '−4' })
   expect(screen.getByText('2 added · 1 removed')).toBeTruthy()
 })
 
@@ -92,7 +92,7 @@ test('counts a location-scoped removal as answers, not as a query leaving tracki
   renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
   await reviewRemoval()
   expect(previewBody).toEqual({ expectedWorkspaceVersion: workspaceVersion, additions: [], removals: [{ queryId: 'query-acme', audience: { targetKeys: ['acme'] } }] })
-  expect(reviewNumbers()).toEqual({ Queries: '2 → 2', 'Answers per sweep': '6 → 3', 'Answers added': '0', 'Answers removed': '−3' })
+  expect(reviewNumbers()).toEqual({ 'Queries asked': '2 → 2', 'Answers per sweep': '6 → 3', 'Answers added': '0', 'Answers removed': '−3' })
 })
 
 test('reads the query count from the server when a scoped removal takes the last assignment of a query', async () => {
@@ -106,7 +106,7 @@ test('reads the query count from the server when a scoped removal takes the last
   })
   renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
   await reviewRemoval()
-  expect(reviewNumbers()).toMatchObject({ Queries: '2 → 1' })
+  expect(reviewNumbers()).toMatchObject({ 'Queries asked': '2 → 1' })
 })
 
 test('lists each added, reused and removed query in one table, with unchanged queries behind a disclosure', async () => {
@@ -137,17 +137,17 @@ test('lists each added, reused and removed query in one table, with unchanged qu
   const heading = await reviewRemoval()
 
   expect(heading.textContent).toBe('Review 3 changes')
-  expect(reviewNumbers()).toEqual({ Queries: '3 → 3', 'Answers per sweep': '6 → 8', 'Answers added': '+4', 'Answers removed': '−2' })
-  expect(screen.getByText('1 added · 1 reused · 1 removed')).toBeTruthy()
+  expect(reviewNumbers()).toEqual({ 'Queries asked': '3 → 3', 'Answers per sweep': '6 → 8', 'Answers added': '+4', 'Answers removed': '−2' })
+  expect(screen.getByText('1 added · 1 changed · 1 removed')).toBeTruthy()
   const changes = screen.getByRole('table', { name: 'Changes' })
-  expect(within(changes).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Type', 'Location links', 'Search location and engines'])
-  expect([...changes.querySelectorAll('tbody tr')].map(line => line.firstElementChild?.textContent)).toEqual(['Added', 'Reused', 'Removed'])
+  expect(within(changes).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Type', 'Pairs', 'Search location and engines'])
+  expect([...changes.querySelectorAll('tbody tr')].map(line => line.firstElementChild?.textContent)).toEqual(['Added', 'Changed', 'Removed'])
   const added = reviewRow('Acme hours')
   // The server's link count, which passes the two locations the row lists.
   expect(added).toMatchObject({ change: 'Added', type: 'Non-brand', assignments: '3', searchLocation: '2 combinations' })
   // The rows differ, so each names its own: the engine by its display name, with the model id behind the value.
   expect(sharedSearchLocation()).toBeNull()
-  expect(reviewRow('Best AEO platform')).toMatchObject({ change: 'Reused', type: 'Non-brand', assignments: '1', searchLocation: 'New York · OpenAI' })
+  expect(reviewRow('Best AEO platform')).toMatchObject({ change: 'Changed', type: 'Non-brand', assignments: '1', searchLocation: 'New York · OpenAI' })
   expect(searchLocationModels(reviewRow('Best AEO platform').row, 'New York · OpenAI')).toBe('New York · openai (gpt-5)')
   expect(searchLocationModels(added.row, '2 combinations')).toBe('New York · openai (gpt-5); Chicago · openai (gpt-5)')
   // A removed row reads the type the query has now, as its Subject does.
@@ -175,7 +175,7 @@ test('lists each added, reused and removed query in one table, with unchanged qu
   // Every unchanged row is asked the same way, so that is said once above the table, in place of a column.
   expect(kept).toMatchObject({ change: 'Unchanged', type: 'Branded', assignments: '1', searchLocation: undefined })
   expect(sharedSearchLocation('Unchanged queries')).toEqual({ label: 'New York · OpenAI', models: 'New York · openai (gpt-5)' })
-  expect(within(screen.getByRole('table', { name: 'Unchanged queries' })).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Type', 'Location links'])
+  expect(within(screen.getByRole('table', { name: 'Unchanged queries' })).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Type', 'Pairs'])
   // An unchanged query still names its location, group and market. Where it is asked is on the line above the table.
   expect(listLocations(kept.row, '1 location')).toEqual(['Acme · Branded · Groups: North East · Markets: New York'])
   expect((screen.getByRole('button', { name: 'Publish 3 changes' }) as HTMLButtonElement).disabled).toBe(false)
@@ -201,14 +201,14 @@ test.each([
 })
 
 test.each([
-  { name: 'an advanced commit', mode: 'advanced', committed: true, title: 'Tracked queries updated', detail: 'New numbers after the next sweep.' },
+  { name: 'an advanced commit', mode: 'advanced', committed: true, title: '1 stopped', detail: 'New numbers next sweep' },
   { name: 'a no-op commit', mode: 'advanced', committed: false, title: 'No tracked-query change', detail: undefined },
 ])('names when new numbers arrive only after $name', async ({ mode, committed, title, detail }) => {
   resetToasts()
   onTestFinished(resetToasts)
   installWorkspaceApi(path => {
     if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({ mode, diff: removalDiff }))
-    if (path.endsWith('/query-tracking/commit')) return jsonResponse({ committed, mode, workspaceVersion, reviewedAt: '2026-09-04T12:15:00.000Z', active, diff: removalDiff, workload: removalWorkload })
+    if (path.endsWith('/query-tracking/commit')) return jsonResponse({ committed, mode, workspaceVersion, reviewedAt: '2026-09-04T12:15:00.000Z', active: { ...active, revision: active.revision + 1 }, diff: removalDiff, workload: removalWorkload })
     throw new Error(`Unexpected fetch: ${path}`)
   }, [], { ...workspace(), mode })
   renderWorkspace()
@@ -220,7 +220,7 @@ test.each([
 
 test.each([
   {
-    name: 'a commit that meets a sweep', operation: 'commit', title: 'Could not confirm tracking changes', status: 409,
+    name: 'a commit that meets a sweep', operation: 'commit', title: 'Could not update tracked queries', status: 409,
     error: {
       code: 'RUN_IN_PROGRESS',
       message: "Sweep run run_1 is running for 'demo'. Publish tracked query and setup changes after it finishes, or cancel it first: canonry run cancel demo run_1",
@@ -228,7 +228,8 @@ test.each([
     },
   },
   {
-    name: 'a commit past the query limit', operation: 'commit', title: 'Could not confirm tracking changes', status: 400,
+    detail: 'This change would track 1,001 queries. The limit is 1,000. Add fewer, or stop some first.',
+    name: 'a commit past the query limit', operation: 'commit', title: 'Could not update tracked queries', status: 400,
     error: {
       code: 'VALIDATION_ERROR',
       message: 'This change would track 1,001 queries, over the 1,000-query limit. Remove queries or add fewer, then preview the change again.',
@@ -236,10 +237,11 @@ test.each([
     },
   },
   {
+    detail: 'Tracking changed since this review. Review again.',
     name: 'a refused preview', operation: 'preview', title: 'Could not review tracking changes', status: 409,
     error: { code: 'QUERY_TRACKING_PREVIEW_STALE', message: 'Workspace changed. Review again.' },
   },
-])('shows the server message in one toast and in the review for $name', async ({ operation, title, status, error }) => {
+])('shows the server message in one toast and in the review for $name', async ({ operation, title, status, error, detail = error.message }) => {
   resetToasts()
   onTestFinished(resetToasts)
   installWorkspaceApi(path => {
@@ -253,9 +255,9 @@ test.each([
   render(<QueryClientProvider client={queryClient}><QueriesSection projectName="demo" /></QueryClientProvider>)
   fireEvent.click((await openRowSheet('Acme pricing', 'Stop tracking')).getByRole('button', { name: 'Review' }))
   if (operation === 'commit') fireEvent.click(await screen.findByRole('button', { name: 'Publish 1 change' }))
-  await waitFor(() => expect(getToasts().map(toast => [toast.title, toast.detail])).toEqual([[title, error.message]]))
+  await waitFor(() => expect(getToasts().map(toast => [toast.title, toast.detail])).toEqual([[title, detail]]))
   // The review stays up with the same refusal and a way to review the change again.
-  expect(screen.getByRole('alert').textContent).toBe(`${title}. ${error.message}`)
+  expect(screen.getByRole('alert').textContent).toBe(`${title}. ${detail}`)
   // Focus moves to the refusal; the button that held it left with the review.
   await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('alert')))
   expect(screen.getByRole('button', { name: 'Review again' })).toBeTruthy()
@@ -343,7 +345,7 @@ test('requires a preview before removing a named tracked query and commits its e
   expect(requests).toEqual([])
   fireEvent.click(sheet.getByRole('button', { name: 'Review' }))
 
-  await screen.findByText('1 removed')
+  await screen.findByText('1 stopped')
   fireEvent.click(screen.getByRole('button', { name: 'Publish 1 change' }))
   await waitFor(() => expect(requests).toHaveLength(2))
   expect(requests[0].body).toEqual({ expectedWorkspaceVersion: workspaceVersion, additions: [], removals: [{ queryId: 'query-acme' }] })
@@ -370,10 +372,10 @@ test('describes removed assignments without attributing the retained Property to
   }, [], shared)
   renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
   await reviewRemoval()
-  await screen.findByText('1 removed')
+  await screen.findByText('1 stopped')
   const removed = reviewRow('Acme pricing')
   // The post-change row holds only what survives (Beta), so the removal names no search location. Its type is the query's own, now.
-  expect(removed).toMatchObject({ change: 'Removed', type: 'Branded', assignments: '−1', searchLocation: undefined })
+  expect(removed).toMatchObject({ change: 'Stopped', type: 'Branded', assignments: '−1', searchLocation: undefined })
   expect(sharedSearchLocation()).toBeNull()
   expect(removed.row.textContent).not.toContain('Beta')
 })
@@ -471,7 +473,7 @@ test.each([
   if (failedOperation === 'commit') fireEvent.click(await screen.findByRole('button', { name: 'Publish changes' }))
   await waitFor(() => expect(refused).toBe(true))
   await waitFor(() => expect(queryClient.getQueryCache().getAll().some(query => (query.state.data as { workspaceVersion?: string } | undefined)?.workspaceVersion === refreshedVersion)).toBe(true))
-  const refusal = `Could not ${failedOperation === 'preview' ? 'review' : 'confirm'} tracking changes. Workspace changed. Review again.`
+  const refusal = `${failedOperation === 'preview' ? 'Could not review tracking changes' : 'Could not update tracked queries'}. Tracking changed since this review. Review again.`
   expect((await screen.findByRole('alert')).textContent).toBe(refusal)
   // The refusal follows the change back to the form, until the next request.
   if (again === 'Review') {

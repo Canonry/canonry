@@ -68,7 +68,7 @@ An advanced project's Tracked table lists each query with its Subject, its type,
 Ticking rows opens a bar with the actions every ticked row can take: **Change type** and **Stop tracking**, or **Track** and **Remove query** for queries that are asked nowhere. One change takes at most 50 rows. By keyboard, **Selected actions** just before the table jumps to the bar.
 **Copy link** in the menu copies a link that opens the table on that row, marked and open. A link never opens a form. Where the link's place or filters would leave the row out, such as a query stopped since the link was copied, the table clears them once so the row is listed.
 A view-only account sees the table, each row's locations and **Copy link**, and no way to change tracking.
-The chips come from `GET /query-tracking/results` (see "Results per query and engine"). A query changed or added since the last sweep reads **Not checked** until the next one, and **Tracking changed** shows beside the legend.
+The chips come from `GET /query-tracking/results` (see "Results per query and engine"). A query changed or added since the last sweep reads **Not checked** until the next one, and **Tracking changed** shows beside the legend. Engine eligibility under a selected place comes from the workspace's `assignments[].classifiedContexts`: each context carries its class and exact market membership. A location can ask one query under both classes; the table keeps both and shows only the engines that class is asked on. Older servers can omit this additive field.
 
 A simple site keeps **Edit** and **Remove** beside each query, then **Review changes** and **Confirm changes**.
 
@@ -224,7 +224,7 @@ After a tracking change, a sweep of the new plan has to complete before these fi
 - Answer text (`GET /measurement-question-result`) refuses a result of the older sweep (422 `MEASUREMENT_RUN_REVISION_MISMATCH`).
 
 Send `fallback=last-sweep` to read the last completed sweep instead: `--fallback last-sweep` on `canonry measurement-plan property` and `property-evidence`, `"fallback":"last-sweep"` in a `measurement-plan advanced` input, or `fallback` on the five MCP tools.
-The sweep is read under the plan it ran with, so its numbers are the ones it had before the change. With the param, `runId` may name that sweep; any other run of an older plan is still refused. The response `measurement` then carries four more fields:
+The sweep is read under the plan it ran with, so its numbers are the ones it had before the change. On aggregate and location-list reads, `runId` may name that sweep; any other run of an older plan is still refused. Answer text selects an exact `resultId`: with the param, it opens that answer's own completed or partial whole-project sweep under its frozen plan, including older results and after a newer sweep completes. Historical probes and spot checks remain unavailable through this fallback. The response `measurement` then carries four more fields:
 
 | Field | Meaning |
 | --- | --- |

@@ -517,6 +517,39 @@ describe('query tracking workspace summary: advanced portfolio', () => {
     // The one location row shows a single class; the Type still reports both.
     expect(rows.find(row => row.queryId === 'q-lone')?.assignments.map(assignment => [assignment.targetKey, assignment.queryClass]))
       .toStrictEqual([['lone', 'non-brand']])
+    expect(rows.find(row => row.queryId === 'q-lone')?.assignments[0]?.classifiedContexts)
+      .toEqual(expect.arrayContaining([
+        { ...ONE_ENGINE, queryClass: 'non-brand', marketKeys: [] },
+        { ...TWO_ENGINES, queryClass: 'branded', marketKeys: [] },
+      ]))
+    expect(rows.find(row => row.queryId === 'q-mixed')?.assignments.map(assignment => assignment.classifiedContexts))
+      .toStrictEqual([
+        [{ ...TWO_ENGINES, queryClass: 'branded', marketKeys: ['uptown'] }],
+        [{ ...TWO_ENGINES, queryClass: 'non-brand', marketKeys: ['uptown'] }],
+      ])
+  })
+
+  it('keeps both classes and their exact markets when one location reuses the same context', async () => {
+    const plan = portfolioPlan()
+    const branded = plan.executionNodes.find(node => node.stableKey === 'n-lone-b')!
+    branded.context = ONE_ENGINE
+    branded.expectedSnapshots = 1
+    for (const [stableKey, executionNodeKey] of [['lone-nonbrand', 'n-lone-a'], ['lone-brand', 'n-lone-b']]) {
+      plan.reportingScopes.push({
+        stableKey: stableKey!, label: stableKey!, kind: 'market',
+        usageEdges: [{ executionNodeKey: executionNodeKey!, targetKey: 'lone', queryId: 'q-lone' }],
+      })
+    }
+    activate(sealed(plan))
+    const assignment = (await workspace()).tracked.find(row => row.queryId === 'q-lone')?.assignments[0]
+
+    // The additive projection retains both classes without changing legacy context cardinality.
+    expect(assignment?.contexts).toStrictEqual([ONE_ENGINE])
+    expect(assignment?.queryClass).toBe('non-brand')
+    expect(assignment?.classifiedContexts).toStrictEqual([
+      { ...ONE_ENGINE, queryClass: 'branded', marketKeys: ['lone-brand'] },
+      { ...ONE_ENGINE, queryClass: 'non-brand', marketKeys: ['lone-nonbrand'] },
+    ])
   })
 
   it('counts each location, market and group, with a shared execution once per place', async () => {

@@ -147,17 +147,26 @@ describe('Result', () => {
     for (const signals of [[], [BOTH], [null], [undefined], [signal(false, false)]]) expect(lists('any', signals)).toBe(true)
   })
 
-  test('Not mentioned lists a row when any engine cell is not mentioned', () => {
-    expect(lists('not-mentioned', [BOTH, signal(false, true)])).toBe(true)
-    expect(lists('not-mentioned', [BOTH, BOTH])).toBe(false)
-    // Cited is its own signal: a No there is not a No here, and neither is a mention that was not checked.
-    expect(lists('not-mentioned', [signal(true, false), signal(null, false), null])).toBe(false)
+  test.each([
+    ['mentioned', 'partly-mentioned', 'not-mentioned', false, true],
+    ['cited', 'partly-cited', 'not-cited', true, false],
+  ] as const)('%s separates complete misses from split results', (positive, partial, negative, mentioned, cited) => {
+    const miss = signal(mentioned, cited)
+    expect(lists(negative, [BOTH, miss])).toBe(false)
+    expect(lists(partial, [BOTH, miss])).toBe(true)
+    expect(lists(positive, [BOTH, miss])).toBe(true)
+    expect(lists(negative, [miss, miss, null])).toBe(true)
+    expect(lists(partial, [miss, miss, null])).toBe(false)
+    expect(lists(negative, [BOTH, BOTH])).toBe(false)
+    expect(lists(partial, [BOTH, BOTH])).toBe(false)
+    expect(lists(negative, [signal(null, null), null])).toBe(false)
+    expect(parseTrackedFilters(trackedFiltersPatch({ result: partial })).result).toBe(partial)
   })
 
-  test('Not cited lists a row when any engine cell is not cited', () => {
-    expect(lists('not-cited', [BOTH, signal(true, false)])).toBe(true)
-    expect(lists('not-cited', [BOTH, BOTH])).toBe(false)
-    expect(lists('not-cited', [signal(false, true), signal(false, null), null])).toBe(false)
+  test('Other location uses the server counts, independently of the intended subject', () => {
+    expect(lists('other-location', [{ ...BOTH, otherLocationMentionedAnswers: 1 }])).toBe(true)
+    expect(lists('other-location', [{ ...BOTH, otherLocationCitedAnswers: 1 }])).toBe(true)
+    expect(lists('other-location', [BOTH, signal(false, false), null])).toBe(false)
   })
 
   test('Not checked lists a row with a cell that has no result, or with either chip not checked', () => {
@@ -176,7 +185,7 @@ describe('Result', () => {
   test('under Non-brand or Branded, only a mixed row\'s chips of that type decide the result', () => {
     const mixed = ROWS[3]!
     // Mentioned and cited as Non-brand; neither as Branded.
-    const cells = [...cellsOf('non-brand', [BOTH, BOTH]), ...cellsOf('branded', [BOTH, signal(false, false)])]
+    const cells = [...cellsOf('non-brand', [BOTH, BOTH]), ...cellsOf('branded', [signal(false, false), signal(false, false)])]
     const listsMixed = (type: TrackedFilters['type'], result: TrackedFilters['result'], given = cells) => matchesTrackedFilters(mixed, { ...DEFAULT_TRACKED_FILTERS, type, result }, given)
     for (const result of ['not-mentioned', 'not-cited'] as const) {
       expect([result, listsMixed('non-brand', result)]).toEqual([result, false])
@@ -184,6 +193,9 @@ describe('Result', () => {
       // Every type in view: either type's chips list the row.
       expect([result, listsMixed('all', result), listsMixed('mixed', result)]).toEqual([result, true, true])
     }
+    // Opposite outcomes in different types do not make either type partial.
+    expect(listsMixed('all', 'partly-mentioned')).toBe(false)
+    expect(listsMixed('all', 'partly-cited')).toBe(false)
     // The row is still a Non-brand row whatever its chips show.
     expect(listsMixed('non-brand', 'any')).toBe(true)
     // Not checked reads the same way: a Branded cell with no result is not a Non-brand one.

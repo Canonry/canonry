@@ -1,9 +1,10 @@
-import { useId, useMemo, type ReactNode } from 'react'
+import { Fragment, useId, useMemo, type ReactNode } from 'react'
 import type { QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
 
 import { formatSweepDay } from '../../../../lib/format-helpers.js'
 import { DataTablePagination, useClientTable } from '../../../shared/DataTableControls.js'
 import { SearchLocationText } from '../../TrackingReview.js'
+import { assignmentTypeContexts } from '../tracking-contexts.js'
 import type { TrackedRowVm } from './tracked-types.js'
 import { sourceDetailLabel, typeLabel } from './tracked-view-model.js'
 
@@ -50,19 +51,22 @@ export function TrackedRowDetail({ row, workspace, contextLabels }: {
         key: assignment.targetKey,
         location: target(assignment.targetKey),
         groups: assignment.groupKeys.map(group),
-        markets: assignment.marketKeys.map(market),
-        type: typeLabel(assignment.queryClass ?? 'not-set'),
-        searchLocations: contextLabels(assignment.contexts).map(named => typeof named === 'string' ? { label: named, detail: named } : named),
+        types: assignmentTypeContexts(assignment).map(type => ({
+          markets: type.marketKeys.map(market),
+          type: typeLabel(type.queryClass ?? 'not-set'),
+          searchLocations: contextLabels(type.contexts).map(named => typeof named === 'string' ? { label: named, detail: named } : named),
+        })),
       }))
       .sort((left, right) => left.location.localeCompare(right.location, 'en', { sensitivity: 'base', numeric: true }))
   }, [row.tracked.assignments, workspace.targets, workspace.groups, workspace.markets, contextLabels])
   const table = useClientTable({ rows: links, pageSize: LINKS_PAGE_SIZE })
   // One value for every location is said once, under the list.
-  const asked = (link: (typeof links)[number]) => link.searchLocations.map(named => named.detail).join('\n')
-  const sharedSearch = links.length > 0 && links.every(link => asked(link) === asked(links[0]!))
-    ? links[0]!.searchLocations
+  const types = links.flatMap(link => link.types)
+  const asked = (type: (typeof types)[number]) => type.searchLocations.map(named => named.detail).join('\n')
+  const sharedSearch = types.length > 0 && types.every(type => asked(type) === asked(types[0]!))
+    ? types[0]!.searchLocations
     : null
-  const searchLines = (named: (typeof links)[number]['searchLocations']) => named.map(({ label, detail }) => <span key={detail} className="block"><SearchLocationText label={label} detail={detail} /></span>)
+  const searchLines = (named: (typeof types)[number]['searchLocations']) => named.map(({ label, detail }) => <span key={detail} className="block"><SearchLocationText label={label} detail={detail} /></span>)
   // Set widths keep the columns in place from one page of locations to the next. A phone-width frame has none to spare, so there each column takes what its words need.
   const width = sharedSearch
     ? { location: '@min-[40rem]:w-[36%]', groups: '@min-[40rem]:w-[26%]', markets: '' }
@@ -87,14 +91,18 @@ export function TrackedRowDetail({ row, workspace, contextLabels }: {
             </thead>
             <tbody>
               {table.rows.map(link => (
-                <tr key={link.key}>
-                  <td className={`${CELL} font-medium text-strong`}>{link.location}</td>
-                  {/* A name can hold a comma, so a comma cannot part two of them. */}
-                  <td className={`${CELL} text-secondary`}>{link.groups.length > 0 ? link.groups.join(' · ') : 'None'}</td>
-                  <td className={`${CELL} text-secondary`}>{link.markets.length > 0 ? link.markets.join(' · ') : 'None'}</td>
-                  <td className={`${CELL} whitespace-nowrap`}>{link.type}</td>
-                  {sharedSearch ? null : <td className={`${CELL} text-secondary`}>{searchLines(link.searchLocations)}</td>}
-                </tr>
+                <Fragment key={link.key}>
+                  {link.types.map((type, index) => <tr key={type.type}>
+                    {index === 0 ? <>
+                      <td rowSpan={link.types.length} className={`${CELL} font-medium text-strong`}>{link.location}</td>
+                      {/* A name can hold a comma, so a comma cannot part two of them. */}
+                      <td rowSpan={link.types.length} className={`${CELL} text-secondary`}>{link.groups.length > 0 ? link.groups.join(' · ') : 'None'}</td>
+                    </> : null}
+                    <td className={`${CELL} text-secondary`}>{type.markets.length > 0 ? type.markets.join(' · ') : 'None'}</td>
+                    <td className={`${CELL} whitespace-nowrap`}>{type.type}</td>
+                    {sharedSearch ? null : <td className={`${CELL} text-secondary`}>{searchLines(type.searchLocations)}</td>}
+                  </tr>)}
+                </Fragment>
               ))}
             </tbody>
           </table>

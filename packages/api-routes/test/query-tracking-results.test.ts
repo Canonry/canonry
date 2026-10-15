@@ -1905,6 +1905,87 @@ describe('query tracking results: one query and its answers', () => {
     expect(changed).toMatchObject({ rows: [], pendingRows: 1 })
   })
 
+  it.each(['completed', 'partial'])('keeps a %s historical answer open after tracking and newer sweeps change', async status => {
+    const { versionId, plan } = seedPortfolio()
+    seedSweep({ versionId, plan, createdAt: FIRST_SWEEP, answers: NAMED })
+    const runId = seedSweep({ versionId, plan, createdAt: LAST_SWEEP, answers: NAMED, status })
+    await publish({ edits: [{ queryId: 'q-harbor', text: 'Harbor Point resident reviews' }] })
+
+    const body = await results('queryId=q-market')
+    expect(body.run).toMatchObject({ id: runId, status, revision: 1, matchesCurrentTracking: false })
+    const answer = body.rows[0]!.engines.find(entry => entry.provider === 'claude')!.answerRows![0]!
+    const selection = `/measurement-question-result?targetKey=cedar&resultId=${answer.resultId}`
+    // An explicit historical result still needs the opt-in.
+    expect((await request('GET', selection)).statusCode).toBe(422)
+    const opened = await request('GET', `${selection}&fallback=last-sweep`)
+    expect(opened.statusCode, opened.body).toBe(200)
+    expect(opened.json()).toMatchObject({
+      measurement: { displayedRunId: runId, planRevision: 2, activeRevision: 2, measuredRevision: 1, awaitingSweep: true },
+      question: { resultId: answer.resultId, queryId: 'q-market', provider: 'claude' },
+      answer: 'Cedar Court is a strong option in Uptown.',
+    })
+
+    // A result id keeps selecting the same frozen answer after the new plan
+    // gets its own sweep; aggregate fallback selection must not break its link.
+    const active = db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.revision, 2)).get()!
+    const currentPlan = parseStoredMeasurementPlanAnyVersion(active.canonicalJson) as MeasurementPlanV2
+    seedSweep({ versionId: active.id, plan: currentPlan, createdAt: LATER, answers: () => nobody })
+    const listedAgain = await results(`queryId=q-market&runId=${runId}`)
+    expect(listedAgain.rows).toEqual(body.rows)
+    const reopened = await request('GET', `${selection}&fallback=last-sweep`)
+    expect(reopened.statusCode, reopened.body).toBe(200)
+    expect(reopened.json()).toEqual(opened.json())
+    // The historical run grants neither another location's execution nor a
+    // result from another project.
+    expect((await request('GET', `/measurement-question-result?targetKey=maple&resultId=${answer.resultId}&fallback=last-sweep`)).statusCode).toBe(404)
+    db.insert(projects).values({
+      id: 'elsewhere', name: 'elsewhere', displayName: 'Elsewhere', canonicalDomain: 'elsewhere.example',
+      country: 'US', language: 'en', createdAt: NOW, updatedAt: NOW,
+    }).run()
+    const historical = db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.id, versionId)).get()!
+    db.insert(measurementPlanVersions).values({ ...historical, id: 'elsewhere-v1', projectId: 'elsewhere' }).run()
+    db.update(runs).set({ projectId: 'elsewhere', measurementPlanVersionId: 'elsewhere-v1' }).where(eq(runs.id, runId)).run()
+    expect((await request('GET', `${selection}&fallback=last-sweep`)).statusCode).toBe(404)
+  })
+
+  it('does not grant historical result access to probes, scoped runs, nonterminal runs or other run kinds', async () => {
+    const { versionId, plan } = seedPortfolio()
+    await publish({ edits: [{ queryId: 'q-harbor', text: 'Harbor Point resident reviews' }] })
+    const excluded: Array<Partial<typeof runs.$inferInsert>> = [
+      { trigger: RunTriggers.probe },
+      { measurementScope: { groups: [], targets: ['cedar'], queries: [], resolvedTargets: ['cedar'] } },
+      { status: RunStatuses.running },
+      { status: RunStatuses.failed },
+      { kind: RunKinds['gsc-sync'] },
+      { measurementPlanVersionId: null },
+    ]
+    for (const change of excluded) {
+      const runId = seedSweep({ versionId, plan, createdAt: LAST_SWEEP, answers: NAMED })
+      db.update(runs).set(change).where(eq(runs.id, runId)).run()
+      const answer = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()
+        .find(snapshot => snapshot.queryText === MARKET_TEXT && snapshot.provider === 'claude')!
+      const response = await request('GET', `/measurement-question-result?targetKey=cedar&resultId=${answer.id}&fallback=last-sweep`)
+      expect(response.statusCode, JSON.stringify(change)).toBe(422)
+      expect(response.json()).toMatchObject({ error: { code: 'MEASUREMENT_RUN_REVISION_MISMATCH' } })
+    }
+  })
+
+  it('excludes approved qualified location names from named-instead rows and their opened answers', async () => {
+    const plan = planOf()
+    plan.targets.find(target => target.stableKey === 'harbor')!.identityAliases = ['Harbor Point in Riverside']
+    const { versionId } = seedPortfolio(plan)
+    seedSweep({ versionId, plan, createdAt: LAST_SWEEP, answers: ({ queryId }) => queryId === 'q-market'
+      ? { ...says('Harbor Point in Riverside is a strong option beside Oakline Residences.'), names: ['Harbor Point in Riverside', 'Oakline Residences'] }
+      : nobody })
+
+    const body = await results('queryId=q-market')
+    const answer = body.rows[0]!.engines[0]!.answerRows![0]!
+    expect(answer).toMatchObject({ mentioned: true, mentionedTargetKeys: ['harbor'], namedInstead: ['Oakline Residences'] })
+    const opened = await request('GET', `/measurement-question-result?targetKey=harbor&resultId=${answer.resultId}&fallback=last-sweep`)
+    expect(opened.statusCode, opened.body).toBe(200)
+    expect(opened.json()).toMatchObject({ mentioned: true, recommendedInstead: ['Oakline Residences'] })
+  })
+
   it('has no run and counts the query as pending before the first sweep', async () => {
     seedPortfolio()
     expect(await results('queryId=q-parking')).toStrictEqual({

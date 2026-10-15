@@ -10,6 +10,8 @@ import { InfoTooltip } from '../../shared/InfoTooltip.js'
 import { StatusNote } from '../../shared/StatusNote.js'
 import { Button } from '../../ui/button.js'
 import { Card } from '../../ui/card.js'
+import { useSheetDiscardGuard } from '../../ui/sheet.js'
+import { TYPE_FOLLOWS_SUBJECT } from './tracking-review-model.js'
 import { contextChoices, contextKey } from './tracking-contexts.js'
 import { hasMarketOnlyAudience, needsTemplateMarket, type TrackingAction, type TrackingDraft } from './tracking-draft.js'
 
@@ -22,6 +24,7 @@ export function TrackingComposer({
   onClose,
   canReview,
   isPreviewing,
+  isCommitting = false,
   editorHeadingRef,
   onReview,
 }: {
@@ -33,13 +36,18 @@ export function TrackingComposer({
   onClose: () => void
   canReview: boolean
   isPreviewing: boolean
+  isCommitting?: boolean
   editorHeadingRef: RefObject<HTMLHeadingElement | null>
   onReview: () => void
 }) {
   const hasSavedTemplates = templates.length > 0
+  const [initialDraft] = useState(() => JSON.stringify(draft))
+  const guard = useSheetDiscardGuard({ dirty: workspace.mode === 'advanced' && JSON.stringify(draft) !== initialDraft, busy: isCommitting, onClose })
+  const close = workspace.mode === 'advanced' ? guard.requestClose : onClose
   if (action.kind === 'remove') {
     return (
       <Card className="surface-card">
+        <fieldset disabled={isCommitting} className="min-w-0">
         <div className="section-head">
           <div>
             <h3>Remove query</h3>
@@ -47,7 +55,9 @@ export function TrackingComposer({
             <ChangeFacts action={action} advanced={workspace.mode === 'advanced'} detail="Removal applies to future sweeps. Earlier results stay unchanged." />
           </div>
         </div>
-        <ComposerActions canReview={canReview} isPreviewing={isPreviewing} onCancel={onClose} onReview={onReview} />
+        <ComposerActions canReview={canReview} isPreviewing={isPreviewing} onCancel={close} onReview={onReview} advanced={workspace.mode === 'advanced'} />
+        {guard.prompt}
+        </fieldset>
       </Card>
     )
   }
@@ -55,9 +65,10 @@ export function TrackingComposer({
   if (action.kind === 'edit') {
     return (
       <Card className="surface-card">
+        <fieldset disabled={isCommitting} className="min-w-0">
         <div className="section-head section-head-inline gap-4">
           <h3 ref={editorHeadingRef} tabIndex={-1}>Edit query</h3>
-          <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          {workspace.mode === 'simple' ? <Button type="button" variant="ghost" size="sm" onClick={close}>Cancel</Button> : null}
         </div>
         <ChangeFacts action={action} advanced={workspace.mode === 'advanced'} detail="Changes apply to future sweeps. Earlier results stay unchanged." />
         <div className="mt-4 max-w-2xl space-y-4">
@@ -88,16 +99,19 @@ export function TrackingComposer({
           )}
           <div><StatusNote icon={Info} label="Locations and engines kept" detail={`An edit keeps the query's locations and engines. Use ${workspace.mode === 'advanced' ? 'Add queries' : 'Add query'} to track it somewhere else.`} /></div>
         </div>
-        <ComposerActions canReview={canReview} isPreviewing={isPreviewing} onCancel={onClose} onReview={onReview} />
+        <ComposerActions canReview={canReview} isPreviewing={isPreviewing} onCancel={close} onReview={onReview} advanced={workspace.mode === 'advanced'} />
+        {guard.prompt}
+        </fieldset>
       </Card>
     )
   }
 
   return (
     <Card className="surface-card">
+        <fieldset disabled={isCommitting} className="min-w-0">
       <div className="section-head section-head-inline gap-4">
         <h3 ref={editorHeadingRef} tabIndex={-1}>Add query</h3>
-        <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+        {workspace.mode === 'simple' ? <Button type="button" variant="ghost" size="sm" onClick={close}>Cancel</Button> : null}
       </div>
 
       <div className={`mt-4 grid gap-4 ${workspace.mode === 'advanced' ? 'lg:grid-cols-[minmax(250px,0.8fr)_minmax(0,1.2fr)]' : 'max-w-2xl'}`}>
@@ -133,7 +147,7 @@ export function TrackingComposer({
           {draft.source === 'discovery' ? (
             <SavedSourceField
               id="tracking-discovery-source"
-              label="Discovery query"
+              label={workspace.mode === 'advanced' ? 'Find ideas result' : 'Discovery query'}
               value={draft.discoveryProbeId}
               options={workspace.savedSources.discovery.map(candidate => ({ id: candidate.discoveryProbeId, label: candidate.queryText, detail: candidate.discoverySessionId }))}
               onChange={(discoveryProbeId) => onDraftChange({ ...draft, discoveryProbeId })}
@@ -141,7 +155,7 @@ export function TrackingComposer({
           ) : null}
 
           <label className="block" htmlFor="tracking-query-source">
-            <span className="text-sm font-medium text-secondary">Query source</span>
+            <span className="text-sm font-medium text-secondary">{workspace.mode === 'advanced' ? 'Source' : 'Query source'}</span>
             <select
               id="tracking-query-source"
               aria-describedby={hasSavedTemplates ? undefined : 'tracking-query-source-no-templates'}
@@ -152,7 +166,7 @@ export function TrackingComposer({
               <option value="manual">Write a query</option>
               {hasSavedTemplates ? <option value="template">Saved pattern</option> : null}
               <option value="research" disabled={workspace.savedSources.research.length === 0}>Saved research{workspace.savedSources.research.length === 0 ? ' (none available)' : ''}</option>
-              <option value="discovery" disabled={workspace.savedSources.discovery.length === 0}>Discovery result{workspace.savedSources.discovery.length === 0 ? ' (none available)' : ''}</option>
+              <option value="discovery" disabled={workspace.savedSources.discovery.length === 0}>{workspace.mode === 'advanced' ? 'Find ideas result' : 'Discovery result'}{workspace.savedSources.discovery.length === 0 ? ' (none available)' : ''}</option>
             </select>
           </label>
           {!hasSavedTemplates ? <div id="tracking-query-source-no-templates"><StatusNote icon={Info} label="No saved patterns" detail="No saved patterns are set up for this project. Write a query, or use saved research or a discovery result." /></div> : null}
@@ -167,9 +181,11 @@ export function TrackingComposer({
         </div>
       ) : null}
       <details className="mt-4 border-t border-default text-sm text-secondary">
-        <summary className="min-h-11 cursor-pointer py-3">Measurement options</summary>
+        <summary className="min-h-11 cursor-pointer py-3">{workspace.mode === 'advanced' ? 'More options' : 'Measurement options'}</summary>
         <div className="grid gap-4 pb-3 sm:grid-cols-2">
-          {workspace.mode === 'advanced' ? (
+          {workspace.mode === 'advanced' && hasMarketOnlyAudience(draft) ? (
+            <div className="space-y-2 text-sm text-strong"><p>Type: Non-brand</p><StatusNote icon={Info} label="Type follows Subject" detail={TYPE_FOLLOWS_SUBJECT} /></div>
+          ) : workspace.mode === 'advanced' ? (
             <div className="block">
               <label className="text-xs font-medium text-secondary" htmlFor="tracking-query-class">Type</label>
               <select
@@ -195,8 +211,10 @@ export function TrackingComposer({
       {draft.source === 'research' && (
         <div className="mt-4"><StatusNote icon={Info} label="Saved query only" detail="Only the saved query is added, not its saved answer." /></div>
       )}
-      <ComposerActions canReview={canReview} isPreviewing={isPreviewing} onCancel={onClose} onReview={onReview} />
-    </Card>
+      <ComposerActions canReview={canReview} isPreviewing={isPreviewing} onCancel={close} onReview={onReview} advanced={workspace.mode === 'advanced'} />
+      {guard.prompt}
+      </fieldset>
+      </Card>
   )
 }
 
@@ -242,7 +260,7 @@ function TemplateSourceField({
             tone="caution"
             label="Needs a market"
             detail={advanced
-              ? 'This pattern needs a market. Choose one under Apply to. A location alone does not select a market.'
+              ? 'This pattern needs a market. Choose one under Places. A location alone does not select a market.'
               : 'This pattern needs a market, and this project has no markets. Write a query instead.'}
           />
         </div>
@@ -357,10 +375,10 @@ function AssignmentSelector({
     const target = workspace.targets.find(candidate => candidate.stableKey === draft.targetKeys[0])
     return (
       <fieldset className="min-w-0 self-start rounded-md border border-default bg-surface-subtle p-3">
-        <legend className="px-1 text-xs font-medium text-secondary">Apply to</legend>
+        <legend className="px-1 text-xs font-medium text-secondary">Places</legend>
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm text-strong">Location: {target?.label ?? draft.targetKeys[0]}</p>
-          <Button type="button" variant="ghost" size="sm" aria-label="Change tracking destination" onClick={() => setChangingDestination(true)}>Change</Button>
+          <Button type="button" variant="ghost" size="sm" aria-label="Change place" onClick={() => setChangingDestination(true)}>Change</Button>
         </div>
       </fieldset>
     )
@@ -368,7 +386,7 @@ function AssignmentSelector({
 
   return (
     <fieldset className="min-w-0 rounded-md border border-default bg-surface-subtle p-3">
-      <legend className="px-1 text-xs font-medium text-secondary">Apply to</legend>
+      <legend className="px-1 text-xs font-medium text-secondary">Places</legend>
       {canWrite ? (
         <label className="flex min-h-9 items-center gap-2 rounded px-1 text-sm text-strong">
           <input
@@ -408,6 +426,7 @@ function AssignmentSelector({
 }
 
 function ComposerActions({
+  advanced = false,
   canReview,
   isPreviewing,
   onCancel,
@@ -417,11 +436,12 @@ function ComposerActions({
   isPreviewing: boolean
   onCancel: () => void
   onReview: () => void
+  advanced?: boolean
 }) {
   return (
     <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-default pt-4">
       <WriteButton type="button" size="sm" disabled={!canReview} onClick={onReview}>
-        {isPreviewing ? 'Reviewing…' : 'Review changes'}
+        {isPreviewing ? 'Reviewing…' : advanced ? 'Review' : 'Review changes'}
       </WriteButton>
       <Button type="button" variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
       <StatusNote icon={Info} label="No sweep on publish" detail="Publishing does not run a sweep." />

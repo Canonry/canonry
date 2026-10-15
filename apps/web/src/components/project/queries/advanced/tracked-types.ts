@@ -45,6 +45,8 @@ export interface TrackedRowVm {
   addedAt: string | null
   /** The workspace row behind this one: its location links for the row detail, and what an action changes. */
   tracked: QueryTrackingTrackedRow
+  /** Assignments in the displayed place; the full row remains available to editing actions. */
+  displayAssignments?: readonly QueryTrackingTrackedRow['assignments'][number][]
 }
 
 /** What the row menu and the bulk bar can do. Track and Remove are for a row that is not asked. */
@@ -64,6 +66,6 @@ export interface TrackedFilters {
   type: 'all' | TrackedType
   status: 'asked' | TrackedStatus | 'all'
   source: 'any' | TrackedSource['kind']
-  /** Matches a row when any of its engine chips is in that state. */
-  result: 'any' | 'not-mentioned' | 'not-cited' | 'not-checked'
+  /** Evaluated separately for each query type across its asked engines. */
+  result: 'any' | 'mentioned' | 'partly-mentioned' | 'not-mentioned' | 'cited' | 'partly-cited' | 'not-cited' | 'not-checked' | 'other-location'
 }

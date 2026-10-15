@@ -202,15 +202,15 @@ function fillLocation(sheet: Sheet, label: string, text: string) {
 }
 
 /** Acme sits in New York and Remote searches, so its queries name both and no contexts. */
-const acmeAddition = (text: string) => ({ input: { source: 'manual', text }, audience: { targetKeys: ['acme'], marketKeys: ['new-york', 'remote'] } })
+const acmeAddition = (text: string) => ({ queryClass: 'branded', input: { source: 'manual', text }, audience: { targetKeys: ['acme'], marketKeys: ['new-york', 'remote'] } })
 /** Birch House is in no market, so its queries name it alone and one search location and engines. */
-const birchAddition = (text: string, chosen: Record<string, unknown>) => ({ input: { source: 'manual', text }, audience: { targetKeys: ['birch'] }, contexts: [chosen] })
+const birchAddition = (text: string, chosen: Record<string, unknown>) => ({ queryClass: 'branded', input: { source: 'manual', text }, audience: { targetKeys: ['birch'] }, contexts: [chosen] })
 
 /** After a hand-off the sheet is gone, the form holds the first line, and focus stays on the form. */
 async function expectAddQueryForm(firstLine: string) {
   const heading = await screen.findByRole('heading', { name: 'Add query' })
   expect(sheetIsOpen()).toBe(false)
-  expect(screen.getByRole('group', { name: 'Apply to' })).toBeTruthy()
+  expect(screen.getByRole('group', { name: 'Places' })).toBeTruthy()
   expect((screen.getByLabelText('Query') as HTMLTextAreaElement).value).toBe(firstLine)
   // The market chosen in the sheet stays behind: checked here it would narrow hand-picked locations to it.
   expect((screen.getByRole('checkbox', { name: 'New York, Market' }) as HTMLInputElement).checked).toBe(false)
@@ -226,7 +226,8 @@ test('opens from Tracked on an advanced project and keeps Review off until a mar
   // The open sheet hides the page behind it from assistive tech, so look past that for the form.
   expect(screen.queryByRole('heading', { name: 'Add query', hidden: true })).toBeNull()
   expect(within(sheet.getByRole('radiogroup', { name: 'Subject' })).getByRole('radio', { name: 'Market' }).getAttribute('aria-checked')).toBe('true')
-  expect(sheet.getByText('More options', { selector: 'summary' })).toBeTruthy()
+  expect(sheet.getByText('Type: Non-brand')).toBeTruthy()
+  expect(sheet.queryByRole('radiogroup', { name: 'Type' })).toBeNull()
   // The market list is in the sheet too, group rows and their location counts included.
   expect(sheetText()).not.toMatch(/question|propert/i)
   expect(reviewButton(sheet).disabled).toBe(true)
@@ -310,43 +311,21 @@ test('sends one addition per line for the chosen market, with no contexts, and d
   }])
 })
 
-test.each([
-  ['Branded', 'branded'],
-  ['Non-brand', 'non-brand'],
-])('sends a %s Type choice on every addition', async (label, queryClass) => {
-  const writes = installApi()
-  renderTracked()
-  const { sheet } = await openSheet()
-  fill(sheet, 'Acme reviews\nAcme pricing plans')
-  const type = sheet.getByRole('radiogroup', { name: 'Type' })
-  expect(type.closest('details')!.open).toBe(false)
-  expect(within(type).getByRole('radio', { name: 'Automatic' }).getAttribute('aria-checked')).toBe('true')
-  fireEvent.click(within(type).getByRole('radio', { name: label }))
-  fireEvent.click(reviewButton(sheet))
-
-  await reviewHeading(sheet)
-  expect(writes[0]!.body.additions).toEqual([
-    { ...newYorkAddition('Acme reviews'), queryClass },
-    { ...newYorkAddition('Acme pricing plans'), queryClass },
-  ])
-})
-
-test('keeps a Type choice across a Subject change, in view while More options is closed', async () => {
+test('derives Type from Subject and leaves market wording to the server classifier', async () => {
   const writes = installApi()
   renderTracked()
   const { sheet } = await openSheet()
   fill(sheet, 'Acme reviews')
-  fireEvent.click(within(sheet.getByRole('radiogroup', { name: 'Type' })).getByRole('radio', { name: 'Branded' }))
+  expect(sheet.getByText('Type: Non-brand')).toBeTruthy()
+  expect(sheet.queryByRole('radiogroup', { name: 'Type' })).toBeNull()
   fireEvent.click(sheet.getByRole('radio', { name: 'Location' }))
-  expect(sheet.getByText('More options · Type: Branded', { selector: 'summary' }).closest('details')!.open).toBe(false)
+  expect(sheet.getByText('Type: Branded')).toBeTruthy()
   fireEvent.click(sheet.getByRole('radio', { name: 'Market' }))
-  expect(sheet.getByText('More options · Type: Branded', { selector: 'summary' }).closest('details')!.open).toBe(false)
-  // The Subject change dropped the market, so it is chosen again.
+  expect(sheet.getByText('Type: Non-brand')).toBeTruthy()
   chooseNewYork(sheet)
   fireEvent.click(reviewButton(sheet))
-
   await reviewHeading(sheet)
-  expect(writes[0]!.body.additions).toEqual([{ ...newYorkAddition('Acme reviews'), queryClass: 'branded' }])
+  expect(writes[0]!.body.additions).toEqual([newYorkAddition('Acme reviews')])
 })
 
 test('lists only the groups that lead to a market', async () => {
@@ -377,8 +356,8 @@ test('reviews inside the sheet, keeps the draft on Back, and publishes with the 
   fireEvent.click(reviewButton(sheet))
 
   await sheet.findByRole('heading', { name: 'Review 2 changes' })
-  expect(Object.fromEntries(within(sheet.getByText('Queries', { selector: 'dt' }).closest('dl')!).getAllByRole('term').map(term => [term.textContent, term.nextElementSibling?.textContent]))).toEqual({
-    Queries: '1 → 3', 'Answers per sweep': '3 → 9', 'Answers added': '+6', 'Answers removed': '0',
+  expect(Object.fromEntries(within(sheet.getByText('Queries asked', { selector: 'dt' }).closest('dl')!).getAllByRole('term').map(term => [term.textContent, term.nextElementSibling?.textContent]))).toEqual({
+    'Queries asked': '1 → 3', 'Answers per sweep': '3 → 9', 'Answers added': '+6', 'Answers removed': '0',
   })
   expect(sheet.getByText('2 added')).toBeTruthy()
   // One short note; what a publish does to the numbers, and that it runs no sweep, is the note's own help.
@@ -406,7 +385,7 @@ test('reviews inside the sheet, keeps the draft on Back, and publishes with the 
     { operation: 'preview', body: reviewed },
     { operation: 'commit', body: { ...reviewed, previewToken, reviewedAt } },
   ])
-  await waitFor(() => expect(getToasts().map(toast => toast.title)).toEqual(['Tracked queries updated']))
+  await waitFor(() => expect(getToasts().map(toast => toast.title)).toEqual(['2 added']))
   await waitFor(() => expect(document.activeElement).toBe(opener))
 })
 
@@ -513,7 +492,7 @@ test.each(['preview', 'commit'] as const)('shows a refused %s in the review, rev
     respond: write => {
       if (write.operation !== refused || stale) return undefined
       stale = true
-      return jsonResponse({ error: { code: 'QUERY_TRACKING_PREVIEW_STALE', message: 'Workspace changed. Review again.' } }, 409)
+      return jsonResponse({ error: { code: 'QUERY_TRACKING_PREVIEW_STALE', message: 'Tracking changed since this review. Review again.' } }, 409)
     },
   })
   const { queryClient } = renderTracked()
@@ -522,9 +501,9 @@ test.each(['preview', 'commit'] as const)('shows a refused %s in the review, rev
   fireEvent.click(reviewButton(sheet))
   if (refused === 'commit') fireEvent.click(await sheet.findByRole('button', { name: 'Publish 1 change' }))
 
-  await waitFor(() => expect(getToasts().map(toast => toast.detail)).toEqual(['Workspace changed. Review again.']))
+  await waitFor(() => expect(getToasts().map(toast => toast.detail)).toEqual(['Tracking changed since this review. Review again.']))
   // The toast sits under the open sheet, so the review shows the refusal itself, in place of the changes.
-  const refusal = `Could not ${refused === 'preview' ? 'review' : 'confirm'} tracking changes. Workspace changed. Review again.`
+  const refusal = `Could not ${refused === 'preview' ? 'review tracking changes' : 'update tracked queries'}. Tracking changed since this review. Review again.`
   expect(sheet.getByRole('alert').textContent).toBe(refusal)
   expect(document.activeElement).toBe(sheet.getByRole('alert'))
   expect(sheet.queryByRole('button', { name: /^Publish/ })).toBeNull()
@@ -559,7 +538,7 @@ test('reviews an expired review again from the review, then publishes it', async
   fireEvent.click(reviewButton(sheet))
   fireEvent.click(await sheet.findByRole('button', { name: 'Publish 1 change' }))
 
-  expect((await sheet.findByRole('alert')).textContent).toBe('Could not confirm tracking changes. The reviewed preview has expired or has an invalid review time. Preview the changes again.')
+  expect((await sheet.findByRole('alert')).textContent).toBe('Could not update tracked queries. The reviewed preview has expired or has an invalid review time. Preview the changes again.')
   // Review again and Back share the pinned footer, as Publish and Back do.
   const again = sheet.getByRole('button', { name: 'Review again' })
   expect(again.parentElement).toBe(sheet.getByRole('button', { name: 'Back' }).parentElement)
@@ -585,7 +564,7 @@ test('sends the reviewed change again when the refreshed workspace no longer hol
       if (gone) return jsonResponse({ error: { code: 'VALIDATION_ERROR', message: 'Selected market "new-york" is not in the active plan.' } }, 400)
       if (write.operation !== 'commit') return undefined
       gone = true
-      return jsonResponse({ error: { code: 'QUERY_TRACKING_PREVIEW_STALE', message: 'Workspace changed. Review again.' } }, 409)
+      return jsonResponse({ error: { code: 'QUERY_TRACKING_PREVIEW_STALE', message: 'Tracking changed since this review. Review again.' } }, 409)
     },
   })
   const { queryClient } = renderTracked()
@@ -606,7 +585,7 @@ test('sends the reviewed change again when the refreshed workspace no longer hol
   expect(sheet.getByText('Choose a market')).toBeTruthy()
 })
 
-test('keeps Back off while a publish is in flight', async () => {
+test('blocks Back, Close and Escape while a publish is in flight', async () => {
   let finish: ((response: Response) => void) | undefined
   installApi({ respond: write => write.operation === 'commit' ? new Promise<Response>(resolve => { finish = resolve }) : undefined })
   renderTracked()
@@ -618,6 +597,10 @@ test('keeps Back off while a publish is in flight', async () => {
   // Going back would let another draft be reviewed while this publish still closes the sheet.
   expect((sheet.getByRole('button', { name: 'Publishing…' }) as HTMLButtonElement).disabled).toBe(true)
   expect((sheet.getByRole('button', { name: 'Back' }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(sheet.getByRole('button', { name: 'Close' }))
+  fireEvent.keyDown(sheet.getByRole('button', { name: 'Close' }), { key: 'Escape' })
+  expect(sheetIsOpen()).toBe(true)
+  expect(sheet.queryByRole('button', { name: 'Discard' })).toBeNull()
 
   await act(async () => finish!(jsonResponse({ committed: true, mode: 'advanced', workspaceVersion, reviewedAt, active })))
   await waitFor(() => expect(sheetIsOpen()).toBe(false))
@@ -660,12 +643,12 @@ test('adds a location query to every market that location is in, with no context
   expect(queryTrackingPreviewRequestSchema.safeParse(writes[0]!.body).success).toBe(true)
 })
 
-test('sends a Type choice on every location addition', async () => {
+test('sets every location addition to Branded', async () => {
   const writes = installApi({ workspace: locationWorkspace })
   renderTracked()
   const { sheet } = await openSheet()
   fillLocation(sheet, 'Acme', 'Acme reviews\nAcme parking')
-  fireEvent.click(within(sheet.getByRole('radiogroup', { name: 'Type' })).getByRole('radio', { name: 'Branded' }))
+  expect(sheet.getByText('Type: Branded')).toBeTruthy()
   fireEvent.click(reviewButton(sheet))
 
   await reviewHeading(sheet)
@@ -737,7 +720,7 @@ test('asks for one search location and engines when a location is in no market a
   fireEvent.click(reviewButton(sheet))
   await reviewHeading(sheet)
   expect(writes[1]!.body.additions).toEqual([
-    { input: { source: 'manual', text: 'Birch House reviews' }, audience: { targetKeys: ['cedar'], marketKeys: ['boston'] } },
+    { input: { source: 'manual', text: 'Birch House reviews' }, audience: { targetKeys: ['cedar'], marketKeys: ['boston'] }, queryClass: 'branded' },
   ])
 })
 
@@ -800,7 +783,7 @@ test.each([
   await reviewHeading(sheet)
   const changes = sheet.getByRole('table', { name: 'Changes' })
   // One added query, so where it is asked is one line above the table, not a column.
-  expect(within(changes).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Type', 'Location links'])
+  expect(within(changes).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Change', 'Query', 'Type', 'Pairs'])
   const where = changes.parentElement!.previousElementSibling as HTMLElement
   expect(within(where).getByRole('term').textContent).toBe('Search location and engines')
   // Engines by display name; the model ids are behind the value, which is its own help button.
@@ -999,6 +982,9 @@ test('closes an open help bubble on Escape before the sheet', async () => {
   expect(queriesField(sheet).value).toBe('best pizza in New York')
 
   fireEvent.keyDown(help, { key: 'Escape' })
+  expect(sheetIsOpen()).toBe(true)
+  expect(sheet.getByRole('group', { name: 'Discard 1 query?' })).toBeTruthy()
+  fireEvent.click(sheet.getByRole('button', { name: 'Discard' }))
   expect(sheetIsOpen()).toBe(false)
 })
 
@@ -1060,4 +1046,46 @@ test('gives a viewer and an embed no button to open the sheet', async () => {
   renderTracked()
   await screen.findByText('Acme pricing')
   expect(screen.queryByRole('button', { name: /^Add quer/ })).toBeNull()
+})
+
+test('keeps a dirty Add draft until discard is explicit, with Keep editing preserving every line', async () => {
+  installApi()
+  renderTracked()
+  const { sheet } = await openSheet()
+  fill(sheet, 'best family resorts\nhotels near the park')
+  fireEvent.click(sheet.getByRole('button', { name: 'Cancel' }))
+  expect(sheetIsOpen()).toBe(true)
+  expect(sheet.getByRole('group', { name: 'Discard 2 queries?' })).toBeTruthy()
+  expect(document.activeElement).toBe(sheet.getByRole('button', { name: 'Keep editing' }))
+  fireEvent.click(sheet.getByRole('button', { name: 'Keep editing' }))
+  expect(queriesField(sheet).value).toBe('best family resorts\nhotels near the park')
+  expect(sheet.getByText('New York · Market')).toBeTruthy()
+  fireEvent.click(sheet.getByRole('button', { name: 'Close' }))
+  fireEvent.click(sheet.getByRole('button', { name: 'Discard' }))
+  expect(sheetIsOpen()).toBe(false)
+})
+
+test('guards a changed Subject even when seeded wording has not changed', async () => {
+  installApi()
+  const queryClient = new QueryClient()
+  onTestFinished(() => queryClient.clear())
+  let closed = false
+  render(<QueryClientProvider client={queryClient}><TrackingAddQueriesSheet projectName="demo" workspace={workspace() as never} sweepActive={false} defaultMarketKey="new-york" defaultText="apartments with parking" onClose={() => { closed = true }} /></QueryClientProvider>)
+  const sheet = within(screen.getByRole('dialog', { name: 'Add queries' }))
+  fireEvent.click(sheet.getByRole('radio', { name: 'Location' }))
+  fireEvent.click(sheet.getByRole('button', { name: 'Cancel' }))
+  expect(closed).toBe(false)
+  expect(sheet.getByRole('group', { name: 'Discard 1 query?' })).toBeTruthy()
+})
+
+test('blocks lines beyond the server text limit while keeping the draft editable', async () => {
+  const writes = installApi()
+  renderTracked()
+  const { sheet } = await openSheet()
+  fill(sheet, 'a'.repeat(4001))
+  expect(reviewButton(sheet).disabled).toBe(true)
+  expect(sheet.getByText('1 line too long')).toBeTruthy()
+  expect(writes).toEqual([])
+  fireEvent.change(queriesField(sheet), { target: { value: 'a'.repeat(4000) } })
+  expect(reviewButton(sheet).disabled).toBe(false)
 })

@@ -18,7 +18,7 @@ import { StatusNote } from '../../../shared/StatusNote.js'
 import { Button } from '../../../ui/button.js'
 import { Card } from '../../../ui/card.js'
 import type { TrackedPageHostProps } from '../../DiscoverySection.js'
-import { TrackingReview } from '../../TrackingReview.js'
+import { expectedSubject, TrackingReview } from '../../TrackingReview.js'
 import { MARKET_SCOPE_COPY } from '../../VisibilityScopePicker.js'
 import { VISIBILITY_SCOPE_RECOVERY_COPY, VISIBILITY_TOOLBAR_COPY } from '../../VisibilityTrendSection.js'
 import { TrackingAddQueriesSheet } from '../AddQueriesEntry.js'
@@ -36,7 +36,7 @@ import { TrackedSavedViews, trackedPlaceView, type TrackedSavedView } from './Tr
 import { TrackedSummaryGrid, type TrackedSummaryPlace } from './TrackedSummaryGrid.js'
 import { TrackedTable, TrackedTableSkeleton } from './TrackedTable.js'
 import { TrackedToolbar } from './TrackedToolbar.js'
-import { TRACKED_BULK_MAX, type TrackedPlace } from './tracked-actions.js'
+import { canChangeType, TRACKED_BULK_MAX, type TrackedPlace } from './tracked-actions.js'
 import { downloadTrackedCsv, trackedRowsCsv } from './tracked-export.js'
 import { activeFilterCount, DEFAULT_TRACKED_FILTERS, matchesTrackedFilters, trackedFiltersPatch, type TrackedResultCell } from './tracked-filters.js'
 import type { TrackedFilters, TrackedRowAction, TrackedRowVm, TrackedType } from './tracked-types.js'
@@ -146,6 +146,12 @@ function TrackedPage({
   trackedFilters: filters, onTrackedFiltersChange, trackedView, trackingChangedAt, nextSweepDate, rootLabel, actionsSlot, composer, showAll, showingAll,
 }: PageProps & { rootLabel: string; showAll: () => void; showingAll: RefObject<boolean> }) {
   const { action, draft, setDraft, reviewedMutation, setReviewedMutation, addSheetOpen, setAddSheetOpen, editorHeadingRef, openAdd, closeAction, mutation, canReview, sweepActive, commitReviewed } = composer
+  // A market selected in the full composer is just as explicit as one selected
+  // in the sheet. Use expanded preview text so templates and saved ideas also
+  // keep that Subject when the classifier recognises a location name.
+  const expectedSubjects = preview && !draft.wholeSite && draft.targetKeys.length === 0 && draft.groupKeys.length === 0 && draft.marketKeys.length === 1
+    ? [...preview.diff.added, ...preview.diff.reused].map(row => expectedSubject(row.queryText, { kind: 'market', key: draft.marketKeys[0]! }, workspace))
+    : undefined
   const { canWrite, isAdmin, account } = useAccount()
   const queryClient = useQueryClient()
   const embedded = isEmbed()
@@ -195,12 +201,15 @@ function TrackedPage({
     if (!place) return allRows
     const within = { measurementScope, measurementScopeKey, queryClass: 'all' as const }
     return allRows.flatMap(row => {
-      const here = row.tracked.assignments.filter(assignment => assignmentMatchesSelection(assignment, within))
+      const here = row.tracked.assignments.filter(assignment => assignmentMatchesSelection(assignment, within)).map(assignment =>
+        measurementScope === 'market' && assignment.classifiedContexts
+          ? { ...assignment, classifiedContexts: assignment.classifiedContexts.filter(context => context.marketKeys.includes(measurementScopeKey ?? '')) }
+          : assignment,
+      )
       if (here.length === 0) return []
-      const queryClasses = [...new Set(here.flatMap(assignment => assignment.queryClass ?? []))].sort()
-      if (queryClasses.length === row.queryClasses.length) return [row]
+      const queryClasses = [...new Set(here.flatMap(assignment => assignment.classifiedContexts?.map(context => context.queryClass) ?? assignment.queryClass ?? []))].sort()
       const type: TrackedType = queryClasses.length === 0 ? 'not-set' : queryClasses.length === 1 ? queryClasses[0]! : 'mixed'
-      return [{ ...row, queryClasses, type }]
+      return [{ ...row, queryClasses, type, displayAssignments: here }]
     })
   }, [allRows, place, measurementScope, measurementScopeKey])
   const tokens = useMemo(() => search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean), [search])
@@ -219,9 +228,8 @@ function TrackedPage({
   // Whose mention or citation a row's marks are here: the locations it is asked for in the Place, as the results read them.
   const marksFor = useMemo(() => {
     const targetLabels = new Map(workspace.targets.map(target => [target.stableKey, target.label]))
-    const within = { measurementScope, measurementScopeKey, queryClass: 'all' as const }
-    return (row: TrackedRowVm, queryClass: string) => marksSubject(row, place ? row.tracked.assignments.filter(assignment => assignmentMatchesSelection(assignment, within)) : row.tracked.assignments, targetLabels, queryClass)
-  }, [workspace.targets, place, measurementScope, measurementScopeKey])
+    return (row: TrackedRowVm, queryClass: string) => marksSubject(row, row.displayAssignments ?? row.tracked.assignments, targetLabels, queryClass)
+  }, [workspace.targets])
 
   // The page number belongs to one list: another search, filter, place, order or page size starts at the first page.
   const listKey = JSON.stringify([filters, search, measurementScope, measurementScopeKey, sort, pageSize])
@@ -351,6 +359,7 @@ function TrackedPage({
   const adding = action?.kind === 'add'
   // The Add query form and the sheet are two ways in to one change, so the sheet takes the form's place.
   function openAddSheet(text?: string, to?: TrackedPlace) {
+    if (isCommitting) return
     if (adding) closeAction()
     setAddText(text)
     setAddPlace(to)
@@ -379,6 +388,7 @@ function TrackedPage({
   }
 
   function act(rowAction: TrackedRowAction, rows: readonly TrackedRowVm[]) {
+    if (isCommitting) return
     const first = rows.at(0)
     if (!first) return
     if (rowAction === 'copy-link') void copyLink(first)
@@ -393,7 +403,7 @@ function TrackedPage({
   const bulkBarButton = (index: number) => [...document.getElementById(bulkBarId)?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? []].at(index)
   // The bar offers what applies to every selected row. Asked and not asked rows share no action.
   const askedSelected = selectedRows.filter(row => row.subject.kind !== 'none').length
-  const bulkActions: TrackedBulkAction[] = selectedRows.length === 0 ? [] : askedSelected === selectedRows.length ? ['change-type', 'stop'] : askedSelected === 0 ? ['track', 'remove'] : []
+  const bulkActions: TrackedBulkAction[] = selectedRows.length === 0 ? [] : askedSelected === selectedRows.length ? [...(selectedRows.some(row => canChangeType(row, workspace)) ? ['change-type' as const] : []), 'stop'] : askedSelected === 0 ? ['track', 'remove'] : []
 
   const setFilters = (next: TrackedFilters) => onTrackedFiltersChange(next)
   const narrowed = tokens.length > 0 || activeFilterCount(filters) > 0
@@ -441,7 +451,7 @@ function TrackedPage({
   const { run } = results
   // The Add button beside the tabs is the page's one primary action, so this one is outlined.
   const emptyState = workspace.tracked.length === 0 ? (
-    <StatusNote icon={Inbox} label="No queries yet" action={canEdit ? <WriteButton type="button" variant="outline" size="sm" className={TOUCH} onClick={() => openAddSheet()}>{addLabel}</WriteButton> : undefined} />
+    <StatusNote icon={Inbox} label="No queries yet" action={canEdit ? <WriteButton type="button" variant="outline" size="sm" className={TOUCH} disabled={isCommitting} onClick={() => openAddSheet()}>{addLabel}</WriteButton> : undefined} />
   ) : placeRows.length === 0 ? (
     <StatusNote icon={MapPinOff} label="No queries here" action={<Button type="button" variant="outline" size="sm" className={TOUCH} aria-label={VISIBILITY_SCOPE_RECOVERY_COPY.showRoot(rootLabel)} onClick={showAll}>{VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite}</Button>} />
   ) : !narrowed ? (
@@ -499,7 +509,7 @@ function TrackedPage({
             </Button>
           ) : null}
           {canEdit ? (
-            <WriteButton type="button" size="sm" className={TOUCH} onClick={() => openAddSheet()}>
+            <WriteButton type="button" size="sm" className={TOUCH} disabled={isCommitting} onClick={() => openAddSheet()}>
               <Plus aria-hidden="true" size={14} />
               {addLabel}
             </WriteButton>
@@ -549,7 +559,7 @@ function TrackedPage({
         {/* With nothing to list there is nothing to search or filter. A view has its own search. */}
         {!view && placeRows.length > 0 ? (
           <div ref={toolbar}>
-            <TrackedToolbar search={search} onSearchChange={setSearch} filters={filters} onFiltersChange={setFilters} shown={awaitingResults ? undefined : sorted.length} total={placeRows.length} legend={legend} />
+            <TrackedToolbar search={search} onSearchChange={setSearch} filters={filters} onFiltersChange={setFilters} shown={awaitingResults ? undefined : sorted.length} total={filters.status === 'asked' ? placeRows.filter(row => row.status !== 'not-asked').length : placeRows.length} legend={legend} />
           </div>
         ) : null}
         {/* The bar follows the list and its pages, a long way off by keyboard. This is the way there, drawn only under focus. */}
@@ -619,6 +629,7 @@ function TrackedPage({
           onClose={closeAction}
           canReview={canReview}
           isPreviewing={isPreviewing}
+          isCommitting={isCommitting}
           editorHeadingRef={editorHeadingRef}
           onReview={() => {
             if (!mutation) return
@@ -633,6 +644,7 @@ function TrackedPage({
         <Card className="surface-card">
           <TrackingReview
             preview={preview}
+            expectedSubjects={expectedSubjects}
             error={publishError}
             workspace={workspace}
             contextLabels={contextLabels}

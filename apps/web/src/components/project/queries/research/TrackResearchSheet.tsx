@@ -19,7 +19,7 @@ import { InfoTooltip } from '../../../shared/InfoTooltip.js'
 import { SegmentedRadioGroup, type SegmentedRadioOption } from '../../../shared/SegmentedRadioGroup.js'
 import { StatusNote } from '../../../shared/StatusNote.js'
 import { Button } from '../../../ui/button.js'
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../../../ui/sheet.js'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, useSheetDiscardGuard } from '../../../ui/sheet.js'
 import { placesOf } from '../../AddQueriesSheet.js'
 import { expectedSubject, SearchLocationText, TrackingReview, TrackingReviewActions, type TrackingReviewState } from '../../TrackingReview.js'
 import { VisibilityScopePicker } from '../../VisibilityScopePicker.js'
@@ -271,6 +271,7 @@ function TrackSheet({ projectName, workspace, contextChoices, sweepActive, nextS
   const canReview = rows.every(row => row.placement !== null && !row.clash) && !tooMany && !publish.isPreviewing
   // The last row has Cancel.
   const removable = onRemove !== undefined && rows.length > 1
+  const guard = useSheetDiscardGuard({ dirty: subject !== 'market' || placeKey !== undefined || reviewed !== null, busy: publish.isCommitting, onClose })
   const preview = reviewed ? publish.preview : null
   // The toast for a refused review or publish sits under this sheet, so the review stays up to show the
   // refusal and offer another review. Back keeps showing it beside the rows, until the next request.
@@ -323,7 +324,7 @@ function TrackSheet({ projectName, workspace, contextChoices, sweepActive, nextS
   function review() {
     if (!canReview) return
     const mutation: QueryTrackingMutation = {
-      additions: rows.map(row => ({ input: row.item.input, ...row.placement })),
+      additions: rows.map(row => ({ input: row.item.input, ...row.placement, ...(row.target?.kind === 'location' ? { queryClass: 'branded' as const } : {}) })),
       removals: [],
     }
     setReviewed(mutation)
@@ -351,8 +352,8 @@ function TrackSheet({ projectName, workspace, contextChoices, sweepActive, nextS
   }
 
   return (
-    <Sheet open onOpenChange={open => { if (!open) onClose() }}>
-      <SheetContent onOpenAutoFocus={openOnActions} onCloseAutoFocus={restoreFocus} onEscapeKeyDown={keepOpenForInner}>
+    <Sheet open onOpenChange={open => { if (!open) guard.requestClose() }}>
+      <SheetContent onPointerDownOutside={guard.onPointerDownOutside} onOpenAutoFocus={openOnActions} onCloseAutoFocus={restoreFocus} onEscapeKeyDown={keepOpenForInner}>
         <SheetHeader>
           <SheetTitle>Track {count(rows.length)} {rows.length === 1 ? 'query' : 'queries'}</SheetTitle>
           <SheetDescription className="sr-only">Each query is tracked for one market or one location. Review the change before it is published.</SheetDescription>
@@ -445,12 +446,13 @@ function TrackSheet({ projectName, workspace, contextChoices, sweepActive, nextS
             <WriteButton type="button" size="sm" className="max-md:h-11" disabled={!canReview} onClick={review}>
               {publish.isPreviewing ? 'Reviewing…' : 'Review'}
             </WriteButton>
-            <Button type="button" variant="ghost" size="sm" className="max-md:h-11" onClick={onClose}>Cancel</Button>
+            <Button type="button" variant="ghost" size="sm" className="max-md:h-11" onClick={guard.requestClose}>Cancel</Button>
             {/* After the buttons, so neither is ever the sheet's first stop. */}
             {unplaced ? <StatusNote icon={AlertTriangle} tone="caution" label="In no market" detail={contextChoices.length === 0 ? IN_NO_MARKET.none : IN_NO_MARKET.several} /> : null}
             {clashing ? <StatusNote icon={AlertTriangle} tone="caution" label="Keep one Subject" detail={ONE_SUBJECT} /> : null}
           </div>
         </>}
+        {guard.prompt}
       </SheetContent>
     </Sheet>
   )

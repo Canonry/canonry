@@ -856,7 +856,7 @@ describe('last-sweep fallback on the location reads', () => {
     expect(location.metrics.mentionCoverage).toStrictEqual(available(1, 2))
   })
 
-  it('accepts the last sweep by id and refuses any other old run', async () => {
+  it('restricts aggregate reads to the last sweep but opens an explicitly named older answer', async () => {
     const plan = firstPlan()
     const firstVersion = seedVersion(1, plan, FIRST_PLAN_AT)
     activate(firstVersion)
@@ -876,9 +876,9 @@ describe('last-sweep fallback on the location reads', () => {
       expect(older.body.error.details, route).toStrictEqual({ runId: 'sweep-oct-5', runRevision: 1, activeRevision: 2 })
       expect((await refused(route, `${query}&runId=no-such-run&${FALLBACK}`)).status, route).toBe(404)
     }
-    const olderResult = await refused('measurement-question-result', `targetKey=harbor&resultId=sweep-oct-5:exec-nearby:openai&${FALLBACK}`)
-    expect(olderResult.status).toBe(422)
-    expect(olderResult.body.error.details).toStrictEqual({ runId: 'sweep-oct-5', runRevision: 1, activeRevision: 2 })
+    const olderResult = await get<MeasurementQuestionResultResponse>('measurement-question-result', `targetKey=harbor&resultId=sweep-oct-5:exec-nearby:openai&${FALLBACK}`)
+    expect(olderResult.status).toBe(200)
+    expect(olderResult.body.measurement).toMatchObject({ displayedRunId: 'sweep-oct-5', measuredRevision: 1, activeRevision: 2, awaitingSweep: true })
   })
 
   it('refuses the param with a date window', async () => {

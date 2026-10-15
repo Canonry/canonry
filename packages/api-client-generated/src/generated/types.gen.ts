@@ -1649,6 +1649,21 @@ export type QueryTrackingWorkspaceResponse = {
                     timezone?: string;
                 } | null;
             }>;
+            classifiedContexts?: Array<{
+                providers: Array<string>;
+                models: {
+                    [key: string]: string;
+                };
+                location: {
+                    label: string;
+                    city: string;
+                    region: string;
+                    country: string;
+                    timezone?: string;
+                } | null;
+                queryClass: 'branded' | 'non-brand';
+                marketKeys: Array<string>;
+            }>;
         }>;
         focus?: {
             kind: 'market';
@@ -1849,6 +1864,21 @@ export type QueryTrackingPreviewResponse = {
                     country: string;
                     timezone?: string;
                 } | null;
+            }>;
+            classifiedContexts?: Array<{
+                providers: Array<string>;
+                models: {
+                    [key: string]: string;
+                };
+                location: {
+                    label: string;
+                    city: string;
+                    region: string;
+                    country: string;
+                    timezone?: string;
+                } | null;
+                queryClass: 'branded' | 'non-brand';
+                marketKeys: Array<string>;
             }>;
         }>;
         focus?: {

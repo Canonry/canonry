@@ -32,7 +32,7 @@ type Pairing = TrackedRowVm['tracked']['assignments'][number]
 export const TRACKED_ACTION_LABEL: Record<TrackedRowAction, string> = {
   'edit-wording': 'Edit wording',
   'change-subject': 'Change Subject',
-  'move-location': 'Move to another location',
+  'move-location': 'Change Subject',
   'change-type': 'Change type',
   stop: 'Stop tracking',
   track: 'Track',
@@ -134,7 +134,7 @@ export function allowedTypes(row: TrackedRowVm, workspace: QueryTrackingWorkspac
   const { subject } = row
   if (subject.kind === 'none') return []
   if (subject.kind === 'hand-picked' || subject.kind === 'company' || (!bulk && typeSetsSubject(subject, workspace))) return ['auto', 'branded', 'non-brand']
-  return ['auto', OWN_TYPE[subject.kind]]
+  return [OWN_TYPE[subject.kind]]
 }
 
 /** A type change skips the rows that cannot take the chosen type. More than one row is a bulk change. */
@@ -174,6 +174,11 @@ export function typeWouldChange(row: TrackedRowVm, type: TrackedTypeChoice): boo
   return operatorType(row) !== type
 }
 
+export function canChangeType(row: TrackedRowVm, workspace: QueryTrackingWorkspaceResponse): boolean {
+  if ((row.subject.kind === 'market' || row.subject.kind === 'location') && !typeSetsSubject(row.subject, workspace)) return row.type !== OWN_TYPE[row.subject.kind]
+  return allowedTypes(row, workspace).length > 0
+}
+
 /** A Subject change to the Subject the row already has changes nothing. */
 export function sameSubject(row: TrackedRowVm, target: TrackedSubjectTarget): boolean {
   const { subject } = row
@@ -186,9 +191,8 @@ export function rowMenuActions(row: TrackedRowVm, workspace: QueryTrackingWorksp
   if (row.subject.kind === 'none') return ['track', 'remove', 'copy-link']
   return [
     'edit-wording',
-    ...(canChangeSubject(row, workspace) ? ['change-subject' as const] : []),
-    ...(row.subject.kind === 'location' ? ['move-location' as const] : []),
-    'change-type',
+    ...(canChangeSubject(row, workspace) ? ['change-subject' as const] : row.subject.kind === 'location' ? ['move-location' as const] : []),
+    ...(canChangeType(row, workspace) ? ['change-type' as const] : []),
     'stop',
     'copy-link',
   ]
@@ -231,8 +235,8 @@ export function subjectPlacement(
 /**
  * A Subject change is one removal of the whole query and one addition of its
  * own text for the new Subject, in one publish. The server matches the text,
- * so the query keeps its id and Source. A type an operator set is sent again;
- * any other is left out and the server classifies for the new Subject. Null
+ * so the query keeps its id and Source. A location gets Branded; a market's
+ * wording is classified by the server without an inherited override. Null
  * while the new Subject's placement is not complete.
  */
 export function changeSubject(
@@ -243,7 +247,7 @@ export function changeSubject(
 ): QueryTrackingMutation | null {
   const placement = subjectPlacement(target, workspace, context)
   if (!placement) return null
-  const queryClass = operatorType(row)
+  const queryClass = target.kind === 'location' ? 'branded' : undefined
   return {
     additions: [{ input: { source: 'manual', text: row.queryText }, ...placement, ...(queryClass ? { queryClass } : {}) }],
     removals: [{ queryId: row.queryId }],

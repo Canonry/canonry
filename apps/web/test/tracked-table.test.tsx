@@ -939,6 +939,33 @@ describe('TrackedTable', () => {
       expect(linkRows().map(row => [row[0], row[3]])).toEqual([['Acme Homes Harbor Point', 'Branded'], ['Acme Homes Residence 12', 'Non-brand']])
     })
 
+    it('keeps each type with its own engines, search location and markets when one location is asked both ways', () => {
+      const source = workspace()
+      const branded = { ...context('Lakeshore'), providers: ['openai'], models: { openai: 'model-a' } }
+      const nonBrand = { ...context('Northbridge'), providers: ['gemini'], models: { gemini: 'model-b' } }
+      source.tracked = source.tracked.map(row => row.queryId === 'mixed' ? {
+        ...row,
+        assignments: [assignment('harbor-point', 'branded', ['uptown', 'downtown'], {
+          contexts: [branded, nonBrand],
+          classifiedContexts: [
+            { ...nonBrand, queryClass: 'non-brand', marketKeys: ['downtown'] },
+            { ...branded, queryClass: 'branded', marketKeys: ['uptown'] },
+          ],
+        })],
+      } : row)
+      setup({}, source)
+      fireEvent.click(query(MIXED))
+      const rows = within(links()).getAllByRole('row').slice(1)
+      expect(rows).toHaveLength(2)
+      const brandedRow = within(links()).getByRole('cell', { name: 'Branded' }).closest('tr')!
+      const nonBrandRow = within(links()).getByRole('cell', { name: 'Non-brand' }).closest('tr')!
+      expect(within(brandedRow).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['Acme Homes Harbor Point', 'None', 'Uptown', 'Branded', 'Lakeshore · openai'])
+      expect(within(nonBrandRow).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['Downtown, Lakeshore metro', 'Non-brand', 'Northbridge · gemini'])
+      // One location owns both rows; its count and pagination still count locations.
+      expect(within(brandedRow).getByRole('cell', { name: 'Acme Homes Harbor Point' }).getAttribute('rowspan')).toBe('2')
+      expect(facts(MIXED).some(fact => fact[0] === 'Search location and engines')).toBe(false)
+    })
+
     it('opens from the Subject count too, and closes from either', () => {
       setup()
       const count = within(rowOf(HAND_PICKED)).getByRole('button', { name: '12 locations' })

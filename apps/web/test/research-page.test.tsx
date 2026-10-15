@@ -823,7 +823,7 @@ test('a run saved under a location tracks for it and its markets, and one saved 
     expectedWorkspaceVersion: workspaceVersion, removals: [],
     additions: [
       { input: { source: 'research', researchRunQueryId: 'bare-run-query-0' }, audience: { marketKeys: ['riverside'] } },
-      { input: { source: 'research', researchRunQueryId: 'lofts-run-query-0' }, audience: { targetKeys: ['lofts'], marketKeys: ['harbor-point'] } },
+      { input: { source: 'research', researchRunQueryId: 'lofts-run-query-0' }, audience: { targetKeys: ['lofts'], marketKeys: ['harbor-point'] }, queryClass: 'branded' },
     ],
   } }])
 })
@@ -1009,6 +1009,7 @@ test('Select this page ticks the results on the page that are worth tracking and
   } }])
   fireEvent.click(sheet.getByRole('button', { name: 'Back' }))
   fireEvent.click(sheet.getByRole('button', { name: 'Cancel' }))
+  fireEvent.click(sheet.getByRole('button', { name: 'Discard' }))
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 
   // Unticking the header box clears the page, and the bar leaves with the last tick.

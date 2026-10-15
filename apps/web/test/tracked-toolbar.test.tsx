@@ -47,10 +47,10 @@ describe('TrackedToolbar', () => {
     expect(within(screen.getByRole('group', { name: 'Filters' })).getAllByRole('combobox').map(control => control.getAttribute('aria-label'))).toEqual(['Subject', 'Type', 'Status', 'Source', 'Result'])
     expect(choices('Subject')).toEqual(['Any', 'Market', 'Location', 'Company', 'Hand-picked', 'None'])
     expect(choices('Type')).toEqual(['All', 'Non-brand', 'Branded', 'Mixed', 'Not set'])
-    expect(choices('Status')).toEqual(['Measured + First answers', 'Measured', 'First answers', 'Not asked', 'All'])
+    expect(choices('Status')).toEqual(['Asked', 'Measured', 'First answers', 'Not asked', 'All'])
     expect(choices('Source')).toEqual(['Any', 'Pattern', 'Manual', 'Research', 'Setup', 'Older list'])
-    expect(choices('Result')).toEqual(['Any', 'Not mentioned', 'Not cited', 'Not checked'])
-    expect(['Subject', 'Type', 'Status', 'Source', 'Result'].map(chosen)).toEqual(['Any', 'All', 'Measured + First answers', 'Any', 'Any'])
+    expect(choices('Result')).toEqual(['Any', 'Mentioned', 'Partly mentioned', 'Not mentioned', 'Cited', 'Partly cited', 'Not cited', 'Not checked', 'Other location'])
+    expect(['Subject', 'Type', 'Status', 'Source', 'Result'].map(chosen)).toEqual(['Any', 'All', 'Asked', 'Any', 'Any'])
   })
 
   test('the control reads as its label and its current choice, drawn once and spoken by the select', () => {
@@ -58,8 +58,8 @@ describe('TrackedToolbar', () => {
     const drawn = (name: string) => [...select(name).parentElement!.querySelectorAll('span[aria-hidden="true"]')].map(part => part.textContent)
     expect(drawn('Subject')).toEqual(['Subject', 'Hand-picked'])
     expect(drawn('Result')).toEqual(['Result', 'Not cited'])
-    expect(drawn('Status')).toEqual(['Status', 'Measured + First answers'])
-    expect([chosen('Subject'), chosen('Result'), chosen('Status')]).toEqual(['Hand-picked', 'Not cited', 'Measured + First answers'])
+    expect(drawn('Status')).toEqual(['Status', 'Asked'])
+    expect([chosen('Subject'), chosen('Result'), chosen('Status')]).toEqual(['Hand-picked', 'Not cited', 'Asked'])
   })
 
   test('beside a mouse a control is as wide as its widest choice, so choosing never moves the row', async () => {
@@ -148,7 +148,7 @@ describe('TrackedToolbar', () => {
     expect(screen.getByRole('group', { name: 'Filters' }).contains(clear)).toBe(false)
     clear.focus()
     fireEvent.click(clear)
-    expect(['Subject', 'Type', 'Status', 'Source', 'Result'].map(chosen)).toEqual(['Any', 'All', 'Measured + First answers', 'Any', 'Any'])
+    expect(['Subject', 'Type', 'Status', 'Source', 'Result'].map(chosen)).toEqual(['Any', 'All', 'Asked', 'Any', 'Any'])
     expect(screen.queryByRole('button', { name: 'Clear filters' })).toBeNull()
     // The button went with the last filter: focus is on the way back to the filters, not lost. The search is left as it was.
     expect(document.activeElement).toBe(filtersButton())
@@ -244,12 +244,12 @@ describe('TrackedToolbar', () => {
     }
   })
 
-  test('the toolbar\'s width decides its rows: the search joins the selects from 66rem, where they fit at their widest', async () => {
+  test('the toolbar\'s width decides its rows: the search joins the selects from 68rem, where they fit at their widest', async () => {
     const { container } = renderToolbar()
     const rules = await rulesFor(container)
     const searchRow = screen.getByRole('searchbox').parentElement!.parentElement!
     expect(compiledElementProperty(rules, container.firstElementChild!, 'container-type')).toBe('inline-size')
-    expect([compiledElementProperty(rules, searchRow, 'flex-basis'), compiledElementProperty(rules, searchRow, 'flex-basis', '@container (width >= 66rem)')]).toEqual(['100%', 'calc(var(--spacing) * 0)'])
+    expect([compiledElementProperty(rules, searchRow, 'flex-basis'), compiledElementProperty(rules, searchRow, 'flex-basis', '@container (width >= 68rem)')]).toEqual(['100%', 'calc(var(--spacing) * 0)'])
     // No control is pushed past the page: each can shrink, and the row wraps.
     expect(compiledElementProperty(rules, searchRow.parentElement!, 'flex-wrap')).toBe('wrap')
     for (const control of [...screen.getAllByRole('combobox').map(control => control.parentElement!), screen.getByRole('searchbox').parentElement!]) expect(cssLengthPx(compiledElementProperty(rules, control, 'min-width')!, rules)).toBe(0)

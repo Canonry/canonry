@@ -17,6 +17,8 @@ export interface EngineSignal {
   citedAnswers?: number
   /** Answers among them whose sources could not be checked. They are in neither side of the cited count, so the bubble says them after it. */
   uncheckedSourceAnswers?: number
+  otherLocationMentionedAnswers?: number
+  otherLocationCitedAnswers?: number
 }
 
 /** Research checks company names and the project domain, so its first chip is N (Named), not M (Mentioned). */

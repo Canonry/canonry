@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { TrackResearchBar, TrackResearchSheet, useTrackSelection, type TrackResearchItem } from '../src/components/project/queries/research/TrackResearchSheet.js'
@@ -23,7 +23,7 @@ const reviewedAt = '2026-09-04T12:15:00.000Z'
 const reviewedVersion = `qtw_${'f'.repeat(64)}`
 const active = { revision: 4, compiledChecksum: 'c'.repeat(64) }
 const committed = { committed: true, mode: 'advanced', workspaceVersion: `qtw_${'d'.repeat(64)}`, reviewedAt, active: { ...active, revision: 5 } }
-const refusal = () => jsonResponse({ error: { code: 'QUERY_TRACKING_PREVIEW_STALE', message: 'Workspace changed. Review again.' } }, 409)
+const refusal = () => jsonResponse({ error: { code: 'QUERY_TRACKING_PREVIEW_STALE', message: 'Tracking changed since this review. Review again.' } }, 409)
 
 type Body = { expectedWorkspaceVersion: string; additions: Array<Record<string, unknown>>; removals: unknown[] }
 type Write = { operation: 'preview' | 'commit'; body: Body }
@@ -39,7 +39,7 @@ function preview(body: Body) {
 }
 
 /** Records every review and publish the sheet sends. Any other request fails the test: nothing here runs research or reaches an engine. */
-function installApi(respond?: (write: Write) => Response | undefined) {
+function installApi(respond?: (write: Write) => Response | Promise<Response> | undefined) {
   const writes: Write[] = []
   onTestFinished(mockFetch((url, init) => {
     const operation = new URL(url).pathname.replace('/api/v1/projects/demo/query-tracking/', '')
@@ -125,7 +125,7 @@ describe('TrackResearchSheet', () => {
     const additions = [
       { input: { source: 'research', researchRunQueryId: 'rq-1' }, audience: { marketKeys: ['uptown'] } },
       { input: { source: 'research', researchRunQueryId: 'rq-2' }, audience: { marketKeys: ['downtown'] } },
-      { input: { source: 'research', researchRunQueryId: 'rq-3' }, audience: { targetKeys: ['harbor'], marketKeys: ['uptown', 'downtown'] } },
+      { input: { source: 'research', researchRunQueryId: 'rq-3' }, audience: { targetKeys: ['harbor'], marketKeys: ['uptown', 'downtown'] }, queryClass: 'branded' },
       { input: { source: 'research', researchRunQueryId: 'rq-4' }, audience: { marketKeys: ['uptown'] } },
     ]
     expect(await review(sheet, writes)).toStrictEqual({ ...version, additions, removals: [] })
@@ -178,8 +178,8 @@ describe('TrackResearchSheet', () => {
     // The rows that take the chosen location say nothing more: the line under the picker speaks for them.
     expect(listed(sheet)[0]).toEqual(['lofts near transit', 'Location · Harbor Point'])
     expect((await review(sheet, writes)).additions).toStrictEqual([
-      { input: { source: 'discovery', discoveryProbeId: 'probe-1' }, audience: location },
-      { input: { source: 'discovery', discoveryProbeId: 'probe-2' }, audience: location },
+      { input: { source: 'discovery', discoveryProbeId: 'probe-1' }, audience: location, queryClass: 'branded' },
+      { input: { source: 'discovery', discoveryProbeId: 'probe-2' }, audience: location, queryClass: 'branded' },
       { input: { source: 'research', researchRunQueryId: 'rq-1' }, audience: { marketKeys: ['uptown'] } },
     ])
   })
@@ -202,7 +202,7 @@ describe('TrackResearchSheet', () => {
     expect(one.queryByRole('button', { name: /^In no market/ })).toBeNull()
     expect(reviewButton(one).disabled).toBe(false)
     expect((await review(one, writes)).additions).toStrictEqual([
-      { input: { source: 'research', researchRunQueryId: 'rq-1' }, audience: { targetKeys: ['lone'] }, contexts: [contextChoices[1]!.input] },
+      { input: { source: 'research', researchRunQueryId: 'rq-1' }, audience: { targetKeys: ['lone'] }, contexts: [contextChoices[1]!.input], queryClass: 'branded' },
       { input: { source: 'research', researchRunQueryId: 'rq-2' }, audience: { marketKeys: ['uptown'] } },
     ])
 
@@ -238,8 +238,8 @@ describe('TrackResearchSheet', () => {
     expect(listed(sheet)[0]).toEqual(['lofts near transit', 'Location · Lone Pine'])
     const everyMarket = { targetKeys: ['harbor'], marketKeys: ['uptown', 'downtown', 'solo'] }
     expect((await review(sheet, writes)).additions).toStrictEqual([
-      { input: { source: 'discovery', discoveryProbeId: 'probe-1' }, audience: { targetKeys: ['lone'] }, contexts: [contextChoices[1]!.input] },
-      { input: { source: 'research', researchRunQueryId: 'rq-1' }, audience: everyMarket },
+      { input: { source: 'discovery', discoveryProbeId: 'probe-1' }, audience: { targetKeys: ['lone'] }, contexts: [contextChoices[1]!.input], queryClass: 'branded' },
+      { input: { source: 'research', researchRunQueryId: 'rq-1' }, audience: everyMarket, queryClass: 'branded' },
     ])
 
     fireEvent.click(sheet.getByRole('button', { name: 'Back' }))
@@ -314,7 +314,7 @@ describe('TrackResearchSheet', () => {
     const { sheet, onClose } = renderSheet({ items: [research('rq-1', 'apartments with a dog park in Uptown', uptown)] })
     expect(screen.getByRole('dialog', { name: 'Track 1 query' })).toBeTruthy()
     fireEvent.click(reviewButton(sheet))
-    expect((await sheet.findByRole('alert')).textContent).toBe('Could not review tracking changes. Workspace changed. Review again.')
+    expect((await sheet.findByRole('alert')).textContent).toBe('Could not review tracking changes. Tracking changed since this review. Review again.')
     expect(onClose).not.toHaveBeenCalled()
 
     refuse = false
@@ -435,7 +435,7 @@ describe('TrackResearchBar', () => {
     const sheet = await openSheet('Track 2', 'Track 2 queries')
     // The choice is built from the project's default: its engine, its model and its search location by name.
     expect((await review(sheet, writes)).additions).toStrictEqual([
-      { input: { source: 'research', researchRunQueryId: 'rq-1' }, audience: { targetKeys: ['lone'] }, contexts: [{ providers: ['openai'], models: { openai: 'gpt-5' }, location: 'New York' }] },
+      { input: { source: 'research', researchRunQueryId: 'rq-1' }, audience: { targetKeys: ['lone'] }, contexts: [{ providers: ['openai'], models: { openai: 'gpt-5' }, location: 'New York' }], queryClass: 'branded' },
       { input: { source: 'research', researchRunQueryId: 'rq-2' }, audience: { marketKeys: ['uptown'] } },
     ])
   })
@@ -513,4 +513,19 @@ describe('TrackResearchBar', () => {
     renderBar({ items: [] })
     expect(screen.queryByRole('region', { name: 'Selected queries' })).toBeNull()
   })
+})
+
+it('blocks dismissal during a pending research publish and closes only on success', async () => {
+  let finish: ((response: Response) => void) | undefined
+  const writes = installApi(write => write.operation === 'commit' ? new Promise<Response>(resolve => { finish = resolve }) : undefined)
+  const { sheet, onClose, onPublished } = renderSheet({ items: [research('rq-1', 'apartments with a dog park in Uptown', uptown)] })
+  await review(sheet, writes)
+  fireEvent.click(sheet.getByRole('button', { name: 'Publish 1 change' }))
+  await waitFor(() => expect(finish).toBeTypeOf('function'))
+  fireEvent.click(sheet.getByRole('button', { name: 'Close' }))
+  fireEvent.keyDown(sheet.getByRole('button', { name: 'Close' }), { key: 'Escape' })
+  expect(onClose).not.toHaveBeenCalled()
+  await act(async () => finish!(jsonResponse(committed)))
+  await waitFor(() => expect(onClose).toHaveBeenCalledOnce())
+  expect(onPublished).toHaveBeenCalledOnce()
 })

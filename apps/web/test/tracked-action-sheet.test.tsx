@@ -21,7 +21,7 @@ const reviewedAt = '2026-09-04T12:15:00.000Z'
 const reviewedVersion = `qtw_${'f'.repeat(64)}`
 const active = { revision: 4, compiledChecksum: 'c'.repeat(64) }
 const committed = { committed: true, mode: 'advanced', workspaceVersion: `qtw_${'d'.repeat(64)}`, reviewedAt, active: { ...active, revision: 5 } }
-const refusal = () => jsonResponse({ error: { code: 'QUERY_TRACKING_PREVIEW_STALE', message: 'Workspace changed. Review again.' } }, 409)
+const refusal = () => jsonResponse({ error: { code: 'QUERY_TRACKING_PREVIEW_STALE', message: 'Tracking changed since this review. Review again.' } }, 409)
 
 type Body = {
   expectedWorkspaceVersion: string
@@ -232,18 +232,18 @@ describe('Change type', () => {
   const types = (sheet: Sheet) => radios(sheet, 'Type').map(radio => radio.textContent)
   /** The row's own type, printed over the control. */
   const now = (sheet: Sheet) => sheet.getByText('Now').nextElementSibling?.textContent
-  const followsSubject = /^Type follows Subject\. Set a market query to Non-brand and a location query to Branded\. A hand-picked query takes either\.$/
+  const followsSubject = /^Type follows Subject\. A market query is Non-brand and a location query is Branded\. A hand-picked query takes either\.$/
   const setsSubject = /^Type sets Subject\. In a market with one location, the type decides the Subject\./
 
   it('offers a market query Non-brand, a location query Branded and a hand-picked query both', () => {
     installApi()
     const market = renderSheet({ action: 'change-type', rows: [rows.market] }).sheet
-    expect(types(market)).toEqual(['Automatic', 'Non-brand'])
+    expect(types(market)).toEqual(['Non-brand'])
     // Why Branded is missing is a short label; its sentence is the note's name and tooltip.
     expect(market.getByRole('button', { name: followsSubject }).textContent).toBe('Type follows Subject')
     cleanup()
     const location = renderSheet({ action: 'change-type', rows: [rows.location] }).sheet
-    expect(types(location)).toEqual(['Automatic', 'Branded'])
+    expect(types(location)).toEqual(['Branded'])
     expect(location.getByRole('button', { name: followsSubject })).toBeTruthy()
     cleanup()
     const { sheet } = renderSheet({ action: 'change-type', rows: [rows.handPicked] })
@@ -253,7 +253,7 @@ describe('Change type', () => {
     expect(sheet.queryByText('Type sets Subject')).toBeNull()
     cleanup()
     // A type no selected row can take is not offered at all.
-    expect(types(renderSheet({ action: 'change-type', rows: [rows.market, rows.marketB] }).sheet)).toEqual(['Automatic', 'Non-brand'])
+    expect(types(renderSheet({ action: 'change-type', rows: [rows.market, rows.marketB] }).sheet)).toEqual(['Non-brand'])
   })
 
   it('shows the type one row has now, and none for several rows', () => {
@@ -285,50 +285,38 @@ describe('Change type', () => {
     expect(reviewButton(sheet).disabled).toBe(true)
   })
 
-  it('opens one row on the type an operator set, keeps Review off until it changes, and sends null for Automatic', async () => {
-    const writes = installApi()
+  it('keeps a location on Branded and offers no automatic escape from its Subject', () => {
+    installApi()
     const { sheet } = renderSheet({ action: 'change-type', rows: [withSource(rows.location, 'operator')] })
     expect(checked(sheet, 'Type')).toBe('Branded')
     expect(now(sheet)).toBe('Branded')
+    expect(types(sheet)).toEqual(['Branded'])
     expect(reviewButton(sheet).disabled).toBe(true)
-    // A press on the type it has is no change.
     choose(sheet, 'Type', 'Branded')
     expect(reviewButton(sheet).disabled).toBe(true)
-    choose(sheet, 'Type', 'Automatic')
-    expect((await review(sheet, writes)).edits).toStrictEqual([{ queryId: 'q-harbor', queryClass: null }])
   })
 
-  it('never hands an operator\'s type back to the classifier unasked', async () => {
+  it('requires a choice to repair a location query set to Non-brand', async () => {
     const writes = installApi()
-    // A location query an operator set to Non-brand, which a location query cannot be set to here: the control cannot show it.
     const { sheet } = renderSheet({ action: 'change-type', rows: [rows.operatorSet] })
     expect(now(sheet)).toBe('Non-brand')
-    expect(types(sheet)).toEqual(['Automatic', 'Branded'])
-    expect(checked(sheet, 'Type')).toBe('Automatic')
-    // Automatic is only where the control opens. Review waits for a choice.
+    expect(types(sheet)).toEqual(['Branded'])
+    expect(checked(sheet, 'Type')).toBe('Branded')
     expect(reviewButton(sheet).disabled).toBe(true)
     fireEvent.click(reviewButton(sheet))
     expect(writes).toEqual([])
-    choose(sheet, 'Type', 'Automatic')
-    expect((await review(sheet, writes)).edits).toStrictEqual([{ queryId: 'q-harbor-parking', queryClass: null }])
+    choose(sheet, 'Type', 'Branded')
+    expect((await review(sheet, writes)).edits).toStrictEqual([{ queryId: 'q-harbor-parking', queryClass: 'branded' }])
   })
 
-  it('waits for a choice in bulk, where the control always opens on Automatic', async () => {
+  it('requires an explicit type choice to repair several location queries', async () => {
     const writes = installApi()
     const second: TrackedRowVm = { ...rows.operatorSet, queryId: 'q-harbor-gym', queryText: 'Harbor Point gym' }
     const { sheet } = renderSheet({ action: 'change-type', rows: [rows.operatorSet, second] })
-    expect(checked(sheet, 'Type')).toBe('Automatic')
+    expect(checked(sheet, 'Type')).toBe('Branded')
     expect(reviewButton(sheet).disabled).toBe(true)
-    choose(sheet, 'Type', 'Automatic')
-    expect((await review(sheet, writes)).edits).toStrictEqual([{ queryId: 'q-harbor-parking', queryClass: null }, { queryId: 'q-harbor-gym', queryClass: null }])
-
-    cleanup()
-    // Rows the server classified have nothing to hand back, so Automatic stays off for them even when chosen.
-    const server = renderSheet({ action: 'change-type', rows: [rows.market, rows.marketB] }).sheet
-    choose(server, 'Type', 'Automatic')
-    expect(reviewButton(server).disabled).toBe(true)
-    choose(server, 'Type', 'Non-brand')
-    expect(reviewButton(server).disabled).toBe(false)
+    choose(sheet, 'Type', 'Branded')
+    expect((await review(sheet, writes)).edits).toStrictEqual([{ queryId: 'q-harbor-parking', queryClass: 'branded' }, { queryId: 'q-harbor-gym', queryClass: 'branded' }])
   })
 
   it('lets the server answer where the row cannot tell: no recorded source, or two search locations', async () => {
@@ -364,7 +352,7 @@ describe('Change type', () => {
     const writes = installApi()
     const { sheet } = renderSheet({ action: 'change-type', rows: [rows.market, rows.marketB, rows.handPicked, rows.marketC] })
     expect(sheet.getByText('4 queries')).toBeTruthy()
-    // Every type some row can take is offered; Automatic fits every row, so nothing is skipped yet.
+    // Every type some row can take is offered; the initial Non-brand choice fits every row.
     expect(types(sheet)).toEqual(['Automatic', 'Branded', 'Non-brand'])
     expect(sheet.queryByText(/skipped$/)).toBeNull()
 
@@ -379,7 +367,7 @@ describe('Change type', () => {
     const writes = installApi()
     const { sheet } = renderSheet({ action: 'change-type', rows: [rows.market, rows.soloMarket, rows.handPicked] })
     expect(types(sheet)).toEqual(['Automatic', 'Branded', 'Non-brand'])
-    // Automatic can still land a one-location market row on its location, so the form says so.
+    // Non-brand initially includes the one-location market row.
     expect(sheet.getByRole('button', { name: setsSubject })).toBeTruthy()
 
     choose(sheet, 'Type', 'Branded')
@@ -439,7 +427,7 @@ describe('Change Subject', () => {
     expect(sheet.queryByText('Type sets Subject')).toBeNull()
     expect(await review(sheet, writes)).toStrictEqual({
       ...version,
-      additions: [{ input: { source: 'manual', text: 'best apartments uptown' }, audience: { targetKeys: ['harbor'], marketKeys: ['uptown', 'downtown'] } }],
+      additions: [{ input: { source: 'manual', text: 'best apartments uptown' }, audience: { targetKeys: ['harbor'], marketKeys: ['uptown', 'downtown'] }, queryClass: 'branded' }],
       removals: [{ queryId: 'q-uptown' }],
     })
   })
@@ -458,13 +446,13 @@ describe('Change Subject', () => {
     expect(reviewButton(sheet).disabled).toBe(true)
   })
 
-  it('sends an operator-set type with the addition and starts a hand-picked row with no place', async () => {
+  it('leaves market type to the classifier and starts a hand-picked row with no place', async () => {
     const writes = installApi()
     const { sheet } = renderSheet({ action: 'change-subject', rows: [rows.operatorSet] })
     expect(checked(sheet, 'Subject')).toBe('Location')
     choose(sheet, 'Subject', 'Market')
     pick(sheet, 'Choose a market', 'Uptown')
-    expect((await review(sheet, writes)).additions).toStrictEqual([{ input: { source: 'manual', text: 'Harbor Point parking' }, audience: { marketKeys: ['uptown'] }, queryClass: 'non-brand' }])
+    expect((await review(sheet, writes)).additions).toStrictEqual([{ input: { source: 'manual', text: 'Harbor Point parking' }, audience: { marketKeys: ['uptown'] } }])
 
     cleanup()
     const picked = renderSheet({ action: 'change-subject', rows: [rows.handPicked] }).sheet
@@ -482,17 +470,17 @@ describe('Change Subject', () => {
     expect(reviewButton(sheet).disabled).toBe(true)
   })
 
-  it('warns that the type sets the Subject when the new place is a one-location market', () => {
+  it('keeps explicit Subject changes distinct from type-driven changes in a one-location market', () => {
     installApi()
     const { sheet } = renderSheet({ action: 'change-subject', rows: [rows.market] })
     pick(sheet, 'Uptown · Market', 'Solo')
-    const note = sheet.getByRole('button', { name: /^Type sets Subject\. In a market with one location, the type decides the Subject\./ })
-    // A caution here, not a tip: the publish can land as the other Subject than the one picked.
-    expect(note.className).toContain('text-caution')
+    expect(sheet.getByText('Type follows Subject')).toBeTruthy()
+    expect(sheet.queryByText('Type sets Subject')).toBeNull()
     choose(sheet, 'Subject', 'Location')
     pick(sheet, 'Choose a location', 'Pier House')
     expect(sheet.getByText('Counts in: Solo')).toBeTruthy()
-    expect(sheet.getByRole('button', { name: /^Type sets Subject\./ }).className).toContain('text-caution')
+    expect(sheet.getByText('Type follows Subject')).toBeTruthy()
+    expect(sheet.queryByText('Type sets Subject')).toBeNull()
   })
 
   it('counts a location\'s markets past two and names them in the help', () => {
@@ -517,7 +505,7 @@ describe('Change Subject', () => {
     expect(checked(sheet, 'Subject')).toBe(label)
     // The field keeps its label over the note, so the note does not read as a caption of the Subject control.
     const note = sheet.getByText(none)
-    expect(note.closest('div')!.textContent).toBe(`${label}${none}`)
+    expect(note.closest('div')!.textContent).toBe(`${label}${none}Type follows Subject`)
     expect(sheet.queryByText(`Choose a ${label.toLowerCase()}`)).toBeNull()
     expect(reviewButton(sheet).disabled).toBe(true)
     fireEvent.click(reviewButton(sheet))
@@ -529,14 +517,14 @@ describe('Move to another location', () => {
   it('shows the location picker alone, on the location the query has', async () => {
     const writes = installApi()
     const { sheet } = renderSheet({ action: 'move-location', rows: [rows.location] })
-    expect(screen.getByRole('dialog', { name: 'Move to another location' })).toBeTruthy()
+    expect(screen.getByRole('dialog', { name: 'Change Subject' })).toBeTruthy()
     expect(sheet.queryByRole('radiogroup', { name: 'Subject' })).toBeNull()
     expect(reviewButton(sheet).disabled).toBe(true)
     pick(sheet, 'Harbor Point · Location', 'River Point')
     expect(sheet.getByText('Counts in: Uptown')).toBeTruthy()
     expect(await review(sheet, writes)).toStrictEqual({
       ...version,
-      additions: [{ input: { source: 'manual', text: 'Harbor Point reviews' }, audience: { targetKeys: ['river'], marketKeys: ['uptown'] } }],
+      additions: [{ input: { source: 'manual', text: 'Harbor Point reviews' }, audience: { targetKeys: ['river'], marketKeys: ['uptown'] }, queryClass: 'branded' }],
       removals: [{ queryId: 'q-harbor' }],
     })
   })
@@ -552,7 +540,7 @@ describe('Move to another location', () => {
     fireEvent.change(select, { target: { value: contextChoices[1]!.label } })
     expect(await review(sheet, writes)).toStrictEqual({
       ...version,
-      additions: [{ input: { source: 'manual', text: 'Harbor Point reviews' }, audience: { targetKeys: ['lone'] }, contexts: [contextChoices[1]!.input] }],
+      additions: [{ input: { source: 'manual', text: 'Harbor Point reviews' }, audience: { targetKeys: ['lone'] }, contexts: [contextChoices[1]!.input], queryClass: 'branded' }],
       removals: [{ queryId: 'q-harbor' }],
     })
   })
@@ -563,7 +551,7 @@ describe('Move to another location', () => {
     pick(sheet, 'Harbor Point · Location', 'Lone Pine')
     expect(sheet.queryByLabelText('Search location and engines')).toBeNull()
     expect(sheet.getByText(`Search location and engines: ${contextChoices[0]!.label}`)).toBeTruthy()
-    expect((await review(sheet, writes)).additions).toStrictEqual([{ input: { source: 'manual', text: 'Harbor Point reviews' }, audience: { targetKeys: ['lone'] }, contexts: [contextChoices[0]!.input] }])
+    expect((await review(sheet, writes)).additions).toStrictEqual([{ input: { source: 'manual', text: 'Harbor Point reviews' }, audience: { targetKeys: ['lone'] }, contexts: [contextChoices[0]!.input], queryClass: 'branded' }])
 
     cleanup()
     const none = renderSheet({ action: 'move-location', rows: [rows.location], contextChoices: [] }).sheet
@@ -585,7 +573,7 @@ describe('review step', () => {
     fireEvent.click(reviewButton(sheet))
     if (refused === 'commit') fireEvent.click(await sheet.findByRole('button', { name: 'Publish 1 change' }))
 
-    const message = `Could not ${refused === 'preview' ? 'review' : 'confirm'} tracking changes. Workspace changed. Review again.`
+    const message = `Could not ${refused === 'preview' ? 'review tracking changes' : 'update tracked queries'}. Tracking changed since this review. Review again.`
     await waitFor(() => expect(sheet.getByRole('alert').textContent).toBe(message))
     expect(onClose).not.toHaveBeenCalled()
     // Back shows the form again with the refusal still beside it.
@@ -673,7 +661,7 @@ describe('review step', () => {
     show({ workspace: { ...workspace, workspaceVersion: refreshed, markets: workspace.markets.map(market => market.stableKey === 'downtown' ? { ...market, usageEdges: [...market.usageEdges, edge] } : market) } })
     fireEvent.click(again)
     await sheet.findByRole('heading', { name: 'Review 1 change' })
-    const change = (marketKeys: string[]) => ({ additions: [{ input: { source: 'manual', text: 'Harbor Point reviews' }, audience: { targetKeys: ['river'], marketKeys } }], removals: [{ queryId: 'q-harbor' }] })
+    const change = (marketKeys: string[]) => ({ additions: [{ input: { source: 'manual', text: 'Harbor Point reviews' }, audience: { targetKeys: ['river'], marketKeys }, queryClass: 'branded' }], removals: [{ queryId: 'q-harbor' }] })
     expect(writes.map(write => write.body)).toStrictEqual([{ ...version, ...change(['uptown']) }, { expectedWorkspaceVersion: refreshed, ...change(['uptown', 'downtown']) }])
   })
 
@@ -755,4 +743,34 @@ describe('focus', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     await waitFor(() => expect(document.activeElement).toBe(opener))
   })
+})
+
+it('blocks dismissal during a pending action publish and closes once the commit succeeds', async () => {
+  let finish: ((response: Response) => void) | undefined
+  const writes = installApi(write => write.operation === 'commit' ? new Promise<Response>(resolve => { finish = resolve }) : undefined)
+  const { sheet, onClose, onPublished } = renderSheet({ action: 'stop', rows: [rows.market] })
+  await review(sheet, writes)
+  fireEvent.click(sheet.getByRole('button', { name: 'Publish 1 change' }))
+  await waitFor(() => expect(finish).toBeTypeOf('function'))
+  fireEvent.click(sheet.getByRole('button', { name: 'Close' }))
+  fireEvent.keyDown(sheet.getByRole('button', { name: 'Close' }), { key: 'Escape' })
+  expect(onClose).not.toHaveBeenCalled()
+  expect(sheet.queryByRole('button', { name: 'Discard' })).toBeNull()
+  await act(async () => finish!(jsonResponse(committed)))
+  await waitFor(() => expect(onClose).toHaveBeenCalledOnce())
+  expect(onPublished).toHaveBeenCalledOnce()
+})
+
+it('keeps edited wording after Cancel and Keep editing', () => {
+  installApi()
+  const { sheet, onClose } = renderSheet({ action: 'edit-wording', rows: [rows.market] })
+  const text = sheet.getByRole('textbox')
+  fireEvent.change(text, { target: { value: 'apartments beside transit' } })
+  fireEvent.click(sheet.getByRole('button', { name: 'Cancel' }))
+  expect(onClose).not.toHaveBeenCalled()
+  fireEvent.click(sheet.getByRole('button', { name: 'Keep editing' }))
+  expect((text as HTMLTextAreaElement).value).toBe('apartments beside transit')
+  fireEvent.click(sheet.getByRole('button', { name: 'Close' }))
+  fireEvent.click(sheet.getByRole('button', { name: 'Discard' }))
+  expect(onClose).toHaveBeenCalledOnce()
 })
