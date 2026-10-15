@@ -62,7 +62,7 @@ import { heyClient, isDashboardManagedRunKind, isEmbed, isPublicDemo } from '../
 import { useAccount } from '../../contexts/account-context.js'
 import { ManagedSweepStatus, MANAGED_SCANS_COPY } from './ManagedSweepStatus.js'
 import { cn } from '../../lib/utils.js'
-import { PAGE_BUDGET_PRESETS, oneOffFullSiteChoice, projectDefaultPageBudgetLabel } from '../../lib/site-audit-page-budget.js'
+import { PAGE_BUDGET_HELP, PAGE_BUDGET_PRESETS, oneOffFullSiteChoice, projectDefaultPageBudgetLabel } from '../../lib/site-audit-page-budget.js'
 import { useTriggerSiteAudit } from '../../queries/mutations.js'
 import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
 import type { MetricTone } from '../../view-models.js'
@@ -2230,7 +2230,7 @@ export function SiteHealthSection({
                   <div className="mt-4">
                     <span className="flex items-center gap-1.5 text-sm font-medium text-heading">
                       Page budget
-                      <InfoTooltip text="How many pages one scan may read before it stops." />
+                      <InfoTooltip text={PAGE_BUDGET_HELP} placement="bottom" />
                     </span>
                     <select
                       aria-label="Page budget"
