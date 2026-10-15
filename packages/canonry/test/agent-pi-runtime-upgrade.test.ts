@@ -21,8 +21,8 @@ import {
   type ToolCall,
 } from '@earendil-works/pi-ai'
 import type { Agent, AgentMessage, AgentOptions, AgentTool } from '@earendil-works/pi-agent-core'
-import { AppError } from '@ainyc/canonry-contracts'
-import { agentSessions, agentToolEvents, createClient, llmUsageEvents, migrate, parseJsonColumn, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { AppError } from '@canonry/canonry-contracts'
+import { agentSessions, agentToolEvents, createClient, llmUsageEvents, migrate, parseJsonColumn, projects, type DatabaseClient } from '@canonry/canonry-db'
 import { registerAeroFaux, type AeroFaux } from './helpers/aero-faux.js'
 import { aeroStreamFn, completeOnce } from '../src/agent/pi-models.js'
 import { aeroTurnStatus, configureAeroRuntime, isRunFailureMessage, isSystemMessage, setAeroSystemPrompt } from '../src/agent/runtime.js'

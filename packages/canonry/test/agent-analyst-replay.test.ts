@@ -1,7 +1,7 @@
 import { afterAll, expect, it, vi } from 'vitest'
 import { Agent } from '@earendil-works/pi-agent-core'
 import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai'
-import { agentViewContextSchema, evaluateAgentTrace, type AgentEvaluationTrace, type AgentVisibilityEvidence } from '@ainyc/canonry-contracts'
+import { agentViewContextSchema, evaluateAgentTrace, type AgentEvaluationTrace, type AgentVisibilityEvidence } from '@canonry/canonry-contracts'
 import { buildAeroViewTool, readAeroViewEvidence, aeroViewPrompt } from '../src/agent/view-context.js'
 import { configureAeroRuntime, aeroTurnStatus } from '../src/agent/runtime.js'
 import { aeroStreamFn } from '../src/agent/pi-models.js'

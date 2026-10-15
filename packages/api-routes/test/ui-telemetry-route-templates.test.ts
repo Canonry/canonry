@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isUiApiRouteTemplate } from '@ainyc/canonry-contracts'
+import { isUiApiRouteTemplate } from '@canonry/canonry-contracts'
 import { buildOpenApiDocument } from '../src/openapi.js'
 
 /**

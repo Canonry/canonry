@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import type { GaSyncResponse } from '@ainyc/canonry-contracts'
+import type { GaSyncResponse } from '@canonry/canonry-contracts'
 
 const mockGaSync = vi.fn()
 

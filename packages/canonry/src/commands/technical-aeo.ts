@@ -1,4 +1,4 @@
-import { formatPercent, RatioUnits, SiteAuditIssueRecommendationScopes, type SiteAuditIssuesResponseDto, type SiteCrawlAvailableScanDatesDto, type SiteCrawlInventorySummaryDto, type SiteHealthChangeRecordDto } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits, SiteAuditIssueRecommendationScopes, type SiteAuditIssuesResponseDto, type SiteCrawlAvailableScanDatesDto, type SiteCrawlInventorySummaryDto, type SiteHealthChangeRecordDto } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'

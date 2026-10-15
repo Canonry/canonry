@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, sql, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, readNegativeReviewMaxStars, runs, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, readNegativeReviewMaxStars, runs, projects, type DatabaseClient } from '@canonry/canonry-db'
 import {
   validationError, notFound, normalizeProjectDomain, parseWindow,
   forbidden, quotaExceeded, providerError, escapeLikePattern, AppError,
@@ -29,8 +29,8 @@ import {
   OutcomeStatuses,
   RunKinds,
   RunStatuses,
-} from '@ainyc/canonry-contracts'
-import { extractPlaceAmenities, type PlaceDetails } from '@ainyc/canonry-integration-google-places'
+} from '@canonry/canonry-contracts'
+import { extractPlaceAmenities, type PlaceDetails } from '@canonry/canonry-integration-google-places'
 import { computeGscPeriodComparison, type GscComparisonBasis } from './gsc-period-comparison.js'
 import { buildGbpSummary } from './gbp-summary.js'
 import {
@@ -142,8 +142,8 @@ import {
   GoogleApiError,
   GoogleAuthError,
   GSC_REPORTING_TIME_ZONE,
-} from '@ainyc/canonry-integration-google'
-import { GA4_SCOPE } from '@ainyc/canonry-integration-google-analytics'
+} from '@canonry/canonry-integration-google'
+import { GA4_SCOPE } from '@canonry/canonry-integration-google-analytics'
 import {
   GBP_SCOPE,
   GbpApiError,
@@ -151,7 +151,7 @@ import {
   listLocations as gbpListLocations,
   formatStorefrontAddress,
   buildLocationProfileFields,
-} from '@ainyc/canonry-integration-google-business-profile'
+} from '@canonry/canonry-integration-google-business-profile'
 
 const GOOGLE_OAUTH_COMPLETE_MESSAGE = 'canonry:google-oauth-complete'
 

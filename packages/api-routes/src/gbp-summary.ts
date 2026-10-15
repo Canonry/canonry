@@ -13,7 +13,7 @@
  *   - Empty input yields zeros / empty maps, never `NaN`.
  */
 
-import { deltaPercent, percentOf } from '@ainyc/canonry-contracts'
+import { deltaPercent, percentOf } from '@canonry/canonry-contracts'
 
 export interface DailyMetricInput {
   metric: string

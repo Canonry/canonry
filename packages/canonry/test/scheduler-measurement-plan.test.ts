@@ -9,7 +9,7 @@ import {
   compileMeasurementPlan,
   parseMeasurementRunManifestV1,
   type LocationContext,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   measurementPlans,
@@ -19,7 +19,7 @@ import {
   queries,
   runs,
   schedules,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { Scheduler } from '../src/scheduler.js'
 
 const NORTH: LocationContext = { label: 'north-city', city: 'North City', region: 'NC', country: 'US' }

@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import type { InsightDto } from '@ainyc/canonry-contracts'
+import type { InsightDto } from '@canonry/canonry-contracts'
 
 const mockGetInsights = vi.fn()
 const mockDismissInsight = vi.fn()

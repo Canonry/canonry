@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits } from '@canonry/canonry-contracts'
 import { buildMentionShare, type MentionShareSnapshot, type MentionShareCompetitor } from '../src/mention-share.js'
 
 function snap(projectMentioned: boolean, answerText: string): MentionShareSnapshot {

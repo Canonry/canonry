@@ -1,4 +1,4 @@
-import type { NormalizedTrafficRequest, VercelTrafficEnvironment } from '@ainyc/canonry-contracts'
+import type { NormalizedTrafficRequest, VercelTrafficEnvironment } from '@canonry/canonry-contracts'
 
 /**
  * One entry in a request-log row's compute timeline (`events` / `proxyEvents`

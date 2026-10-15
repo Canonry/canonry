@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
-import { CheckCategories, CheckScopes, CheckStatuses } from '@ainyc/canonry-contracts'
-import { adsConnections } from '@ainyc/canonry-db'
+import { CheckCategories, CheckScopes, CheckStatuses } from '@canonry/canonry-contracts'
+import { adsConnections } from '@canonry/canonry-db'
 import type { CheckDefinition } from '../types.js'
 
 export const ADS_RECENT_SYNC_WARN_DAYS = 7

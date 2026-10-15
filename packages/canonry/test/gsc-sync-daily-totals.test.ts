@@ -11,7 +11,7 @@ import {
   gscSearchData,
   gscDailyTotals,
   gscDataWatermarks,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import type { CanonryConfig } from '../src/config.js'
 
 // --- mock the integration HTTP clients (no network in unit tests) ---
@@ -19,9 +19,9 @@ const fetchSearchAnalyticsMock = vi.fn()
 const inspectUrlMock = vi.fn()
 const refreshAccessTokenMock = vi.fn()
 
-vi.mock('@ainyc/canonry-integration-google', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google')>(
-    '@ainyc/canonry-integration-google',
+vi.mock('@canonry/canonry-integration-google', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-google')>(
+    '@canonry/canonry-integration-google',
   )
   return {
     ...actual,

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
+import { createClient, migrate, projects } from '@canonry/canonry-db'
 import { backfillNormalizedPathsCommand } from '../src/commands/backfill.js'
 
 /**

@@ -11,7 +11,7 @@ import {
   agentSessions,
   parseJsonColumn,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { SessionRegistry } from '../src/agent/session-registry.js'
 import { AGENT_PROVIDERS, type SupportedAgentProvider } from '../src/agent/providers.js'

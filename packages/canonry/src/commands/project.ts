@@ -1,5 +1,5 @@
-import type { CompetitorAutoAliasMode, MeasurementConfig, ProjectDto, ProjectPatchRequest, ProjectUpsertRequest, ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
-import { DEFAULT_MEASUREMENT_CONFIG, formatPercent, RatioUnits, effectiveDomains, measurementConfigSchema, normalizeProjectAliases, normalizeProjectDomain, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases } from '@ainyc/canonry-contracts'
+import type { CompetitorAutoAliasMode, MeasurementConfig, ProjectDto, ProjectPatchRequest, ProjectUpsertRequest, ProviderDispatchModesMap } from '@canonry/canonry-contracts'
+import { DEFAULT_MEASUREMENT_CONFIG, formatPercent, RatioUnits, effectiveDomains, measurementConfigSchema, normalizeProjectAliases, normalizeProjectDomain, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, isEndpointMissing, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'

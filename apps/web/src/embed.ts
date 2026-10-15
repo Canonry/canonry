@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { embedProjectTabsError } from '@ainyc/canonry-contracts'
+import { embedProjectTabsError } from '@canonry/canonry-contracts'
 
 /**
  * Read-only embed mode (issue #716) — presentational helpers for the chromeless

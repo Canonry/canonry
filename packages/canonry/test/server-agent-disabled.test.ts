@@ -3,7 +3,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, type DatabaseClient } from '@ainyc/canonry-db'
+import { createClient, migrate, type DatabaseClient } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
 import type { CanonryConfig } from '../src/config.js'
 

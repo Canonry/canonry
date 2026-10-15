@@ -4,8 +4,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, gbpLocations, gbpReviewRatings, gbpReviews, notifications, projects, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
-import type { GbpReviewAlertState, GbpReviewOrigin, RatingWebhookPayload, ReviewWebhookPayload } from '@ainyc/canonry-contracts'
+import { createClient, migrate, gbpLocations, gbpReviewRatings, gbpReviews, notifications, projects, writeNegativeReviewMaxStars } from '@canonry/canonry-db'
+import type { GbpReviewAlertState, GbpReviewOrigin, RatingWebhookPayload, ReviewWebhookPayload } from '@canonry/canonry-contracts'
 import { Notifier } from '../src/notifier.js'
 
 // The sync decides what is news (see gbp-sync.test.ts); these tests pin what

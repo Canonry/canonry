@@ -1,7 +1,7 @@
 name: Bump aeo-audit
 
-# Keeps the local runtime's pinned @canonry/aeo-audit engine current. The cloud
-# worker remains pinned to @ainyc/aeo-audit@4.2.0. aeo-audit ships often, so
+# Keeps the local runtime's pinned @canonry/aeo-audit engine current.
+# aeo-audit ships often, so
 # this checks npm on a schedule, bumps the exact pin, and — only if the bump
 # survives typecheck, lint, build, and the full test suite — opens a PR.
 #
@@ -115,7 +115,7 @@ jobs:
             Automated bump of **`@canonry/aeo-audit`** `${{ steps.bump.outputs.from }}` → `${{ steps.bump.outputs.to }}` for the local Canonry runtime.
 
             - ${{ steps.bump.outputs.version_note }}
-            - `apps/worker` intentionally remains pinned to `@ainyc/aeo-audit@4.2.0`.
+            - `apps/worker` has no audit-engine dependency.
             - This job already ran the workspace gates (typecheck, lint, build, test) against the bump — all passed.
             - The Val Town sample under `apps/vals/` is not gated here; re-lock and check it by hand before its next manual deploy.
 

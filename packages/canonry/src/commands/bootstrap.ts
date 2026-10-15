@@ -3,9 +3,9 @@ import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 
 import { eq } from 'drizzle-orm'
-import { getBootstrapEnv, withBootstrapProviderDefaults, type BootstrapProviderName } from '@ainyc/canonry-config'
-import { ProviderNames, ProviderReloadErrorReasons } from '@ainyc/canonry-contracts'
-import { createClient, migrate, apiKeys, dashboardSessions } from '@ainyc/canonry-db'
+import { getBootstrapEnv, withBootstrapProviderDefaults, type BootstrapProviderName } from '@canonry/canonry-config'
+import { ProviderNames, ProviderReloadErrorReasons } from '@canonry/canonry-contracts'
+import { createClient, migrate, apiKeys, dashboardSessions } from '@canonry/canonry-db'
 
 import { configExists, getConfigDir, getConfigPath, loadConfig, loadConfigRaw, saveConfig, type ProviderConfigEntry } from '../config.js'
 import { CliError, isEndpointMissing, isMachineFormat, systemError, type CliFormat } from '../cli-error.js'

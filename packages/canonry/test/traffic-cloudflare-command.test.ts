@@ -5,7 +5,7 @@ import type {
   TrafficConnectCloudflareRequest,
   TrafficConnectCloudflareResponse,
   TrafficSourceDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CliError } from '../src/cli-error.js'
 import type { CanonryConfig } from '../src/config.js'

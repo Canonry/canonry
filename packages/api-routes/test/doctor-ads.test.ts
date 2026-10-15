@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createClient, migrate, projects, adsConnections } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, adsConnections } from '@canonry/canonry-db'
 import { ADS_CHECKS } from '../src/doctor/checks/ads.js'
 import type { DoctorContext, ProjectInfo } from '../src/doctor/types.js'
 

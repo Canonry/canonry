@@ -13,10 +13,10 @@ import {
   migrate,
   projects,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { backlinksRoutes, type BacklinksRoutesOptions } from '../src/backlinks.js'
 import { BACKLINKS_CHECKS } from '../src/doctor/checks/backlinks.js'
-import type { BacklinkSource, BacklinkSourcesResponseDto } from '@ainyc/canonry-contracts'
+import type { BacklinkSource, BacklinkSourcesResponseDto } from '@canonry/canonry-contracts'
 import { createOutcomeEmitter, type OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
 import { featureOutcomes } from './feature-outcome-capture.js'
 

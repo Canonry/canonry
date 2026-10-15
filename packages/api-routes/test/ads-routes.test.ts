@@ -5,8 +5,8 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { AdsOperationKinds, AdsOperationStates, AppError, RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
-import type { AdsDeliveryDiagnosticsDto, AdsUnresolvedOperationListResponse } from '@ainyc/canonry-contracts'
+import { AdsOperationKinds, AdsOperationStates, AppError, RunKinds, RunStatuses } from '@canonry/canonry-contracts'
+import type { AdsDeliveryDiagnosticsDto, AdsUnresolvedOperationListResponse } from '@canonry/canonry-contracts'
 import {
   createClient,
   migrate,
@@ -19,7 +19,7 @@ import {
   adsAds,
   adsInsightsDaily,
   adsOperations,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { adsRoutes } from '../src/ads.js'
 import type { AdsConnectionConfigEntryLike, AdsOperator, AdsReader, VerifiedAdsAccount } from '../src/ads.js'
 import type { AdsOperatorEntityResult } from '../src/ads.js'

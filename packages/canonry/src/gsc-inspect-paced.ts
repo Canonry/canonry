@@ -1,4 +1,4 @@
-import { withRetry, isRetryableHttpError, describeError } from '@ainyc/canonry-contracts'
+import { withRetry, isRetryableHttpError, describeError } from '@canonry/canonry-contracts'
 import { sharedRateGate } from './inspect-rate-gate.js'
 
 /**

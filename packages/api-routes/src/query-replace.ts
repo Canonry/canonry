@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { measurementPlanDrafts, measurementPlans, measurementPlanVersions, queries, querySnapshots, runs } from '@ainyc/canonry-db'
-import { RunKinds, RunStatuses, normalizeQueryText, parseStoredMeasurementPlanAnyVersion, runInProgress, validationError } from '@ainyc/canonry-contracts'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { measurementPlanDrafts, measurementPlans, measurementPlanVersions, queries, querySnapshots, runs } from '@canonry/canonry-db'
+import { RunKinds, RunStatuses, normalizeQueryText, parseStoredMeasurementPlanAnyVersion, runInProgress, validationError } from '@canonry/canonry-contracts'
 import { parseStoredAuthoring } from './measurement-draft-repo.js'
 
 /**

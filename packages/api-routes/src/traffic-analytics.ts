@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, lt, lte, ne, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { aiReferralEventsHourly, aiUserFetchEventsHourly, crawlerEventsHourly, trafficSources, type DatabaseClient } from '@ainyc/canonry-db'
+import { aiReferralEventsHourly, aiUserFetchEventsHourly, crawlerEventsHourly, trafficSources, type DatabaseClient } from '@canonry/canonry-db'
 import {
   aiReferralClassCounts,
   deltaPercent,
@@ -10,7 +10,7 @@ import {
   VerificationStatuses,
   type TrafficActivitySummary,
   type TrafficAnalyticsResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { countableReferralCondition, nonSubresourceReferralPathCondition } from './ai-referral-status.js'
 import { resolveProject } from './helpers.js'
 

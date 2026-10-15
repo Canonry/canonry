@@ -19,7 +19,7 @@ import type {
   GtmStoredSnapshotReadEnvelope,
   GtmWorkspaceListResponse,
   RunDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   canonicalizeGtmAccountId,
   canonicalizeGtmResourceSelection,
@@ -27,7 +27,7 @@ import {
   describeError,
   formatMicros,
   formatPercent,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 

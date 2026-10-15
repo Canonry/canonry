@@ -13,13 +13,13 @@ import {
   type AgentProviderOption,
   type AgentProvidersResponse,
   type LlmCapability,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /**
  * Registry of LLM providers the built-in Aero agent can drive.
  *
  * The canonical `AgentProviderId` union lives in
- * `@ainyc/canonry-contracts` (`providers.ts`) so both sweep and agent
+ * `@canonry/canonry-contracts` (`providers.ts`) so both sweep and agent
  * surfaces reference the same vocabulary. This file adds the agent-side
  * metadata: pi-ai vendor mapping, per-capability models, priority, label.
  *
@@ -138,7 +138,7 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderEntry> = {
 /**
  * Backwards-compatible alias for the canonical `AgentProviderId`. Existing
  * callers can continue to use `SupportedAgentProvider`; new code should
- * import `AgentProviderId` from `@ainyc/canonry-contracts`.
+ * import `AgentProviderId` from `@canonry/canonry-contracts`.
  */
 export type SupportedAgentProvider = AgentProviderId
 

@@ -2,7 +2,7 @@ import {
   CheckCategories,
   CheckScopes,
   CheckStatuses,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
 
 /** Required read-only Google OAuth scopes for the project-scoped marketing integrations. */

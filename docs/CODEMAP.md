@@ -33,7 +33,7 @@ Bundled via `packages/canonry/build-web.ts` → `packages/canonry/assets/`. Lowe
 | `src/components/shared/*` | `ChartPrimitives` (Recharts wrapper), `AeroBar`, `BrandLockup`, `ToneBadge`, `ProviderBadge`, `StatusBadge` | |
 | `src/components/ui/*` | `button`, `card`, `badge`, `sheet` (Radix + Tailwind) | |
 | `src/components/layout/*` | `Drawer`, `ErrorBoundary`, `TaskCenter`, `Toaster` | |
-| `src/api.ts` | `heyClient`, `apiFetch<T>`, typed wrappers over `@ainyc/canonry-api-client` | **All web API calls must go through generated SDK** (`@ainyc/canonry-api-client/react-query`) — `fetch()` banned except here |
+| `src/api.ts` | `heyClient`, `apiFetch<T>`, typed wrappers over `@canonry/canonry-api-client` | **All web API calls must go through generated SDK** (`@canonry/canonry-api-client/react-query`) — `fetch()` banned except here |
 | `src/api-aero.ts` | Aero SSE client | |
 | `src/embed.ts` | Presentational embed helpers: `embedViewIdForPath`, `isEmbedProjectTabAllowed`, `embedThemeStyle` | Pure, testable |
 | `src/lib/*` | `health-helpers`, `onboarding-telemetry`, `format-helpers`, `run-tracker-store`, `tone-helpers`, `write-guard`, `base-path`, `safe-url`, `measurement-view-url` (shared measurement URL selection and the first-page visibility-report query key), `project-scope` (which scope control the project context row shows on each tab), etc. | `VisibilityTrendSection` exports `VisibilityOverview` (results toolbar above the keyed workspace) and `useVisibilityReportFirstPage`. |
@@ -94,7 +94,7 @@ cannot resolve until the version it pins exists on npm.
 | `ui` | Server-rendered evidence UI: markup, styles, and the client script (no inline styles — the page CSP blocks them) |
 | `config` | Environment-driven limits and feature configuration |
 
-### `packages/canonry/` — Publishable npm (`@canonry/canonry`, compat `@ainyc/canonry`)
+### `packages/canonry/` — Publishable npm (`@canonry/canonry`)
 CLI + Fastify server + job runner + scheduler + bundled SPA. The published product package (`packages/val-kit` is the
 only other published artifact; every remaining internal package is bundled into this one).
 

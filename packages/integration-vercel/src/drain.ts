@@ -1,4 +1,4 @@
-import type { NormalizedTrafficRequest, VercelTrafficEnvironment } from '@ainyc/canonry-contracts'
+import type { NormalizedTrafficRequest, VercelTrafficEnvironment } from '@canonry/canonry-contracts'
 
 import { VercelLogsApiError } from './client.js'
 import type { ListVercelTrafficEventsOptions, VercelTrafficEventsPage } from './types.js'

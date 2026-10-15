@@ -24,7 +24,7 @@ import {
   gtmRawSnapshotDtoSchema,
   gtmWorkspaceListResponseSchema,
   shiftIsoCalendarDate,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type {
   GoogleAdsAccessibleCustomerDto,
   GoogleAdsAccessibleCustomersResponse,
@@ -46,13 +46,13 @@ import type {
   GtmSnapshotKind,
   GtmSnapshotPayload,
   GtmWorkspaceListResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   GOOGLE_ADS_MAX_CUSTOMER_CLIENTS,
   GOOGLE_ADS_MAX_RESULT_ROWS,
   GoogleAdsClient,
   normalizeGoogleAdsCustomerId,
-} from '@ainyc/canonry-integration-google-ads'
+} from '@canonry/canonry-integration-google-ads'
 import type {
   GoogleAdsCampaign,
   GoogleAdsCampaignMetrics,
@@ -61,7 +61,7 @@ import type {
   GoogleAdsCustomer,
   GoogleAdsCustomerClient,
   GoogleAdsDailyCampaignMetricsRow,
-} from '@ainyc/canonry-integration-google-ads'
+} from '@canonry/canonry-integration-google-ads'
 import {
   checksumJson,
   createGoogleTagManagerClient,
@@ -70,14 +70,14 @@ import {
   toGtmDraftWorkspaceGraphDto,
   toGtmLiveContainerGraphDto,
   toGtmWorkspaceDto,
-} from '@ainyc/canonry-integration-google-tag-manager'
+} from '@canonry/canonry-integration-google-tag-manager'
 import type {
   GoogleTagManagerClient,
   GtmContainerSnapshot,
   GtmDtoAdapterOptions,
-} from '@ainyc/canonry-integration-google-tag-manager'
-import { refreshAccessToken } from '@ainyc/canonry-integration-google'
-import type { GoogleTokenResponse } from '@ainyc/canonry-integration-google'
+} from '@canonry/canonry-integration-google-tag-manager'
+import { refreshAccessToken } from '@canonry/canonry-integration-google'
+import type { GoogleTokenResponse } from '@canonry/canonry-integration-google'
 import type {
   CanonryConfig,
   GoogleAdsConnectionConfigEntry,

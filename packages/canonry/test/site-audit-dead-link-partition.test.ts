@@ -11,10 +11,10 @@ import {
   runs,
   siteCrawlFindings,
   siteCrawlSnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 
 vi.mock('@canonry/aeo-audit', () => ({ runSiteCrawl: vi.fn() }))
-vi.mock('@ainyc/canonry-api-routes', () => ({
+vi.mock('@canonry/canonry-api-routes', () => ({
   resolvePublicHttpTarget: vi.fn(),
   resolveWebhookTarget: vi.fn().mockResolvedValue({ ok: true }),
 }))

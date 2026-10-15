@@ -2,7 +2,7 @@ import { configExists, getConfigPath } from '../config.js'
 import { CliError, type CliFormat, isMachineFormat, usageError } from '../cli-error.js'
 import { createApiClient } from '../client.js'
 import { getTelemetryStatus, setTelemetryPreference } from '../telemetry.js'
-import { normalizeTelemetryStatus, type TelemetryStatusDto, type TelemetryTarget } from '@ainyc/canonry-contracts'
+import { normalizeTelemetryStatus, type TelemetryStatusDto, type TelemetryTarget } from '@canonry/canonry-contracts'
 
 type TelemetryPayload = TelemetryStatusDto & { configPath?: string; anonymousIdMasked?: string }
 

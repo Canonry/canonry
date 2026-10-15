@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, trafficSources, aiReferralEventsHourly, gaAiReferrals, gaTrafficSummaries } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, trafficSources, aiReferralEventsHourly, gaAiReferrals, gaTrafficSummaries } from '@canonry/canonry-db'
 import { ALL_CHECKS } from '../src/doctor/registry.js'
 import { runChecks } from '../src/doctor/runner.js'
 

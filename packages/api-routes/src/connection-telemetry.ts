@@ -9,7 +9,7 @@ import {
   type OutcomeReasonCode,
   type OutcomeSurface,
   type WebhookTarget,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { FastifyInstance } from 'fastify'
 import { getRequestContext } from './request-context.js'
 import { resolveDestination, type WebhookDestination } from './notifications/destinations.js'

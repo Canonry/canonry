@@ -10,7 +10,7 @@ import type {
   ServedModelAttribution,
   TrendDirection,
   WindowRateChange,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { MetricTone } from '../view-models.js'
 import {
   observedInstant,

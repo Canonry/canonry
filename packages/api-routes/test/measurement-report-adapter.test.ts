@@ -9,7 +9,7 @@ import {
   compileMeasurementPlan,
   type MeasurementPlan,
   type MeasurementPlanV2,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   measurementPlanVersions,
@@ -18,7 +18,7 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   buildMeasurementPlanV2Manifest,
   buildMeasurementPlanV2ReportInput,

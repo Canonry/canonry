@@ -1,8 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
-import type { SnapshotReportDto } from '@ainyc/canonry-contracts'
-import { factorStatusFromScore } from '@ainyc/canonry-contracts'
+import type { SnapshotReportDto } from '@canonry/canonry-contracts'
+import { factorStatusFromScore } from '@canonry/canonry-contracts'
 import { formatAuditFactorScore } from './snapshot-format.js'
 
 const PAGE_WIDTH = 612

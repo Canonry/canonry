@@ -5,8 +5,8 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { and, eq } from 'drizzle-orm'
-import { createClient, migrate, projects, schedules, trafficSources } from '@ainyc/canonry-db'
-import { SchedulableRunKinds, TrafficSourceStatuses, TrafficSourceTypes, type SchedulableRunKind } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, schedules, trafficSources } from '@canonry/canonry-db'
+import { SchedulableRunKinds, TrafficSourceStatuses, TrafficSourceTypes, type SchedulableRunKind } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
 interface Harness {

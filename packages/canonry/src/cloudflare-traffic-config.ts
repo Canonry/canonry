@@ -1,5 +1,5 @@
 import type { CanonryConfig, CloudflareTrafficConnectionConfigEntry } from './config.js'
-import { cloudflareQueueNameSchema } from '@ainyc/canonry-contracts'
+import { cloudflareQueueNameSchema } from '@canonry/canonry-contracts'
 
 function unsupportedDeliveryMode(deliveryMode: unknown): Error {
   const label = typeof deliveryMode === 'string' ? ` "${deliveryMode}"` : ''

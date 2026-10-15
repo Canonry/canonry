@@ -1,4 +1,4 @@
-import type { SentimentSelection, SentimentSummary, SentimentEvidenceSelection, SentimentJobSummary } from '@ainyc/canonry-contracts'
+import type { SentimentSelection, SentimentSummary, SentimentEvidenceSelection, SentimentJobSummary } from '@canonry/canonry-contracts'
 import type { VisibilitySelectionState } from '../lib/measurement-view-url.js'
 
 export function sentimentSelectionFromVisibility(selection: VisibilitySelectionState, mode: 'simple' | 'advanced', evaluationDefinitionId?: string): SentimentSelection {

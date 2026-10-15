@@ -14,7 +14,7 @@ import {
   type MeasurementPlan,
   type MeasurementRunManifestV1,
   type MeasurementRunScopeRequest,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   measurementPlans,
@@ -24,8 +24,8 @@ import {
   queries,
   querySnapshots,
   runs,
-} from '@ainyc/canonry-db'
-import { buildMeasurementRunManifest, buildStoredMeasurementReport, measurementRunSlotState } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-db'
+import { buildMeasurementRunManifest, buildStoredMeasurementReport, measurementRunSlotState } from '@canonry/canonry-api-routes'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import { fakeAdapter, type RecordedCall } from './fake-measurement-provider.js'

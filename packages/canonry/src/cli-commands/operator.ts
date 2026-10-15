@@ -1,4 +1,4 @@
-import { WINDOW_SETS } from '@ainyc/canonry-contracts'
+import { WINDOW_SETS } from '@canonry/canonry-contracts'
 import { applyConfigs } from '../commands/apply.js'
 import { showAnalytics } from '../commands/analytics.js'
 import { SOURCES_USAGE, parseSourcesIncludeByQuery, parseSourcesQueryClass, showSources } from '../commands/sources.js'

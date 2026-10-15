@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { sql } from 'drizzle-orm'
 import { expect, onTestFinished, test } from 'vitest'
-import { TEMPLATE_LINK_MIN_FETCHED_PAGES } from '@ainyc/canonry-contracts'
+import { TEMPLATE_LINK_MIN_FETCHED_PAGES } from '@canonry/canonry-contracts'
 import {
   createClient,
   migrate,

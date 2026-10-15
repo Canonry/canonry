@@ -13,7 +13,7 @@ import {
   TrafficSourceStatuses,
   TrafficSourceTypes,
   type RunKind,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   adsConnections,
   createClient,
@@ -24,7 +24,7 @@ import {
   projects,
   runs,
   trafficSources,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { syncRunClaimKey } from '../src/helpers.js'
 

@@ -11,9 +11,9 @@ import {
   type QueryClass,
   type VisibilityStatsShareOfVoice,
   type CompetitorLandscapeResponse,
-} from '@ainyc/canonry-contracts'
-import { storedDirectCompetitorDomains, type MentionShareCompetitor, type MentionShareSnapshot, type CompetitorLandscapeSurfaceClass } from '@ainyc/canonry-intelligence'
-import { domainClassifications, type DatabaseClient } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import { storedDirectCompetitorDomains, type MentionShareCompetitor, type MentionShareSnapshot, type CompetitorLandscapeSurfaceClass } from '@canonry/canonry-intelligence'
+import { domainClassifications, type DatabaseClient } from '@canonry/canonry-db'
 import { eq } from 'drizzle-orm'
 
 /**

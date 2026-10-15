@@ -1,7 +1,7 @@
 import { and, asc, eq, sql, max, min } from 'drizzle-orm'
-import { gscDailyTotals, gscQueryDailyTotals, gscSearchData, gscDataWatermarks } from '@ainyc/canonry-db'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { shiftIsoCalendarDate, type MetricsWindow } from '@ainyc/canonry-contracts'
+import { gscDailyTotals, gscQueryDailyTotals, gscSearchData, gscDataWatermarks } from '@canonry/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { shiftIsoCalendarDate, type MetricsWindow } from '@canonry/canonry-contracts'
 
 export interface GscDailyTotal {
   date: string

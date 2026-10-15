@@ -4,7 +4,7 @@ import {
   isGhostTelemetryEvent,
   maskTelemetryAnonymousId,
   type TelemetryStatusDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { loadConfig, saveConfigPatch, configExists, loadConfigRaw, getConfigPath } from './config.js'
 import type { SetupState } from './setup-state.js'
 import { cliRuntimeContext } from './runtime-context.js'

@@ -1,5 +1,5 @@
 import { and, eq, isNull, lte, or } from 'drizzle-orm'
-import { trafficSources, type DatabaseClient } from '@ainyc/canonry-db'
+import { trafficSources, type DatabaseClient } from '@canonry/canonry-db'
 
 export interface TrafficSyncLeaseClaimInput {
   db: DatabaseClient

@@ -10,7 +10,7 @@ import {
   type ContentBriefDto,
   type ContentTargetRowDto,
   type DemandSource,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type {
   ExplainContentRecommendationFn,
   ExplainContentRecommendationInput,
@@ -18,7 +18,7 @@ import type {
   SynthesizeContentBriefFn,
   SynthesizeContentBriefInput,
   SynthesizeContentBriefResult,
-} from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-api-routes'
 import type { CanonryConfig } from '../config.js'
 import {
   agentProviderApiKeyEnvVar,

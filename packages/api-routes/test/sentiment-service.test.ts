@@ -4,12 +4,12 @@ import {
   buildSimpleMeasurementDefinition, canonicalMeasurementPlanV2Json, formatPercent, RatioUnits, rankCriticizedProperties, SENTIMENT_CRITICIZED_PROPERTY_LIMIT, sentimentBackfillPreviewSchema,
   sentimentEvidencePageSchema, sentimentOutcomeSchema, sentimentSelectionSchema, sentimentSummarySchema, sentimentOverviewSchema, storedSentimentClassifierInputSchema,
   type MeasurementPlanV2, type SentimentClassifierOutput, type SentimentEvidencePage, type SentimentOutcome, type SentimentSelection,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { eq } from 'drizzle-orm'
 import {
   apiKeys, createClient, measurementPlanVersions, migrate, projects, queries, querySnapshots, runs,
   sentimentWorkItems, simpleMeasurementDefinitions, SentimentRepository, type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 
 /** Counts frozen source selections; the real selector still answers every call. */
 const selections = vi.hoisted(() => ({ count: 0 }))

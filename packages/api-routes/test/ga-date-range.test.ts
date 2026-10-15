@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
-import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaTrafficSnapshots, gaDailyTotals } from '@ainyc/canonry-db'
+import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaTrafficSnapshots, gaDailyTotals } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialStore, Ga4CredentialRecord } from '../src/ga.js'
 

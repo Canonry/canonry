@@ -23,7 +23,7 @@ import {
   getApiV1ProjectsQueryKey,
   getApiV1RunsByIdQueryKey,
   getApiV1RunsQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { useTriggerAllRuns, useTriggerGscSync, useTriggerRun, useTriggerSiteAudit } from '../src/queries/mutations.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 

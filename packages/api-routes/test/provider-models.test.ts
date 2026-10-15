@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AppError } from '@ainyc/canonry-contracts'
+import { AppError } from '@canonry/canonry-contracts'
 import { pruneProviderModelsForProviders, validateProviderModels } from '../src/provider-models.js'
 
 const adapters = [

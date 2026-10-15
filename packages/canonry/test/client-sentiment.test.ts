@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { emptySentimentCounts, sentimentOutcomeSchema, type SentimentBackfillPreview, type SentimentEvidencePage, type SentimentJob } from '@ainyc/canonry-contracts'
+import { emptySentimentCounts, sentimentOutcomeSchema, type SentimentBackfillPreview, type SentimentEvidencePage, type SentimentJob } from '@canonry/canonry-contracts'
 import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'
 import * as clientModule from '../src/client.js'
 import { ApiClient } from '../src/client.js'

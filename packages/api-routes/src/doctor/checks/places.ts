@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
-import { gbpLocations } from '@ainyc/canonry-db'
-import { CheckCategories, CheckScopes, CheckStatuses } from '@ainyc/canonry-contracts'
+import { gbpLocations } from '@canonry/canonry-db'
+import { CheckCategories, CheckScopes, CheckStatuses } from '@canonry/canonry-contracts'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
 
 /**

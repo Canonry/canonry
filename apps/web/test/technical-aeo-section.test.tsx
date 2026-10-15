@@ -9,7 +9,7 @@ import {
   getApiV1ProjectsByNameTechnicalAeoPagesQueryKey,
   getApiV1ProjectsByNameTechnicalAeoQueryKey,
   getApiV1ProjectsByNameTechnicalAeoTrendQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { FACTOR_SHARE_NOT_RECORDED, TechnicalAeoSection } from '../src/components/project/TechnicalAeoSection.js'
 import { factorShareOfScoreLabel } from '../src/components/project/PageAuditEvidence.js'

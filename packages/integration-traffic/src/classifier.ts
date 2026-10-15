@@ -1,10 +1,10 @@
-import type { AiReferralTrafficClass, NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
+import type { AiReferralTrafficClass, NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 import {
   AiReferralTrafficClasses,
   classifyAiReferralTrafficClass,
   hostMatchesDomain,
   hostOf,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { verifyIpForRuleDecision } from './ip-verify.js'
 import { DEFAULT_AI_CRAWLER_RULES, DEFAULT_AI_REFERRER_RULES, SELF_TRAFFIC_USER_AGENT_PATTERNS } from './rules.js'
 import type {

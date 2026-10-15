@@ -1,4 +1,4 @@
-import { WINDOW_SETS } from '@ainyc/canonry-contracts'
+import { WINDOW_SETS } from '@canonry/canonry-contracts'
 import {
   googleConnect,
   googleCoverage,

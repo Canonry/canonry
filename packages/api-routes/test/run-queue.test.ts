@@ -2,9 +2,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, onTestFinished } from 'vitest'
-import { createClient, migrate, projects, runs, schedules } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, schedules } from '@canonry/canonry-db'
 import { eq } from 'drizzle-orm'
-import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import { queueRunIfProjectIdle } from '../src/run-queue.js'
 
 function createTempDb() {

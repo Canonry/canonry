@@ -1,7 +1,7 @@
 /** Offline evaluator for captured `canonry agent ask --format json` events. */
 import { readFileSync } from 'node:fs'
 import { z } from 'zod'
-import { describeError, evaluateAgentTrace, type AgentEvaluationTrace } from '@ainyc/canonry-contracts'
+import { describeError, evaluateAgentTrace, type AgentEvaluationTrace } from '@canonry/canonry-contracts'
 
 const expectationSchema = z.object({
   requiredTools: z.array(z.string().min(1)),

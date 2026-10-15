@@ -15,7 +15,7 @@ OpenAI adapter — implements `ProviderAdapter` for OpenAI's Responses API using
 
 ## Patterns
 
-All provider packages follow the same 4-file structure and implement the same `ProviderAdapter` interface from `@ainyc/canonry-contracts`:
+All provider packages follow the same 4-file structure and implement the same `ProviderAdapter` interface from `@canonry/canonry-contracts`:
 
 - **`validateConfig(config)`** — verify API key and model are valid
 - **`healthcheck(config)`** — test connectivity to the provider

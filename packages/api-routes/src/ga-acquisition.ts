@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gaAcquisitionDaily as acquisition, gaMeasurementSyncStates } from '@ainyc/canonry-db'
-import { gaAcquisitionDimensionSchema, gaAcquisitionQuerySchema, GaAcquisitionDimensions, normalizePathPrefix, normalizeUrlPath, parseWindow, resolveDateRange, validationError, formatValidationIssues, type GaAcquisitionDimension, type GaAcquisitionResponse } from '@ainyc/canonry-contracts'
+import { gaAcquisitionDaily as acquisition, gaMeasurementSyncStates } from '@canonry/canonry-db'
+import { gaAcquisitionDimensionSchema, gaAcquisitionQuerySchema, GaAcquisitionDimensions, normalizePathPrefix, normalizeUrlPath, parseWindow, resolveDateRange, validationError, formatValidationIssues, type GaAcquisitionDimension, type GaAcquisitionResponse } from '@canonry/canonry-contracts'
 import { resolveProject } from './helpers.js'
 import { literalPathPrefixCondition } from './path-prefix-condition.js'
 

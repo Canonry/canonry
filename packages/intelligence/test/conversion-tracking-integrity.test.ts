@@ -4,7 +4,7 @@ import {
   type ConversionTrackingContract,
   type GoogleAdsInventoryDto,
   type GtmLiveContainerGraphDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { assessConversionTrackingIntegrity } from '../src/conversion-tracking-integrity.js'
 
 const contract: ConversionTrackingContract = {

@@ -10,7 +10,7 @@ import {
   type AssistantMessage,
   type AssistantMessageEventStream,
 } from '@earendil-works/pi-ai'
-import { agentTurnLimitsSchema, MeasurementPortfolioLists, type AgentTurnLimits } from '@ainyc/canonry-contracts'
+import { agentTurnLimitsSchema, MeasurementPortfolioLists, type AgentTurnLimits } from '@canonry/canonry-contracts'
 import { canonryMcpTools, CanonryMcpToolNames } from '../mcp/tool-registry.js'
 import { CANONRY_MCP_TOOLKITS } from '../mcp/toolkits.js'
 import { isStoredPageReadTool, isStoredReadTool, truncateToolResult } from './mcp-to-agent-tool.js'

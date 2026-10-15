@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { RunKinds, RunStatuses, type RunKind, type RunStatus } from '@ainyc/canonry-contracts'
-import { getApiV1ProjectsOptions, getApiV1RunsOptions } from '@ainyc/canonry-api-client/react-query'
+import { RunKinds, RunStatuses, type RunKind, type RunStatus } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsOptions, getApiV1RunsOptions } from '@canonry/canonry-api-client/react-query'
 
 import { MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'
 import { Button } from '../components/ui/button.js'

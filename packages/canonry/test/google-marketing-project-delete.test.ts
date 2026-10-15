@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, type DatabaseClient } from '@canonry/canonry-db'
 import type { CanonryConfig } from '../src/config.js'
 import { loadConfig, loadConfigRaw, saveConfig, saveConfigPatch } from '../src/config.js'
 import {

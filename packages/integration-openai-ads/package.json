@@ -1,5 +1,5 @@
 {
-  "name": "@ainyc/canonry-integration-openai-ads",
+  "name": "@canonry/canonry-integration-openai-ads",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -17,6 +17,6 @@
     "lint": "eslint src/ test/"
   },
   "dependencies": {
-    "@ainyc/canonry-contracts": "workspace:*"
+    "@canonry/canonry-contracts": "workspace:*"
   }
 }

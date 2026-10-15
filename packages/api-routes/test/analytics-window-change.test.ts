@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { RatioUnits, formatPercent, formatSignedPointDelta, roundRatio, windowChangeSchema, type TimeBucket } from '@ainyc/canonry-contracts'
+import { RatioUnits, formatPercent, formatSignedPointDelta, roundRatio, windowChangeSchema, type TimeBucket } from '@canonry/canonry-contracts'
 import { computeWindowChange } from '../src/analytics.js'
 
 /** A bucket carrying exact counts, with rates rounded to the fraction wire precision as `computeBuckets` stores them. */

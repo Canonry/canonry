@@ -5,7 +5,7 @@ import {
   buildContentTargetRows,
   buildContentSourceRows,
   buildContentGapRows,
-} from '@ainyc/canonry-intelligence'
+} from '@canonry/canonry-intelligence'
 import {
   AppError,
   contentTargetDismissRequestSchema,
@@ -30,14 +30,14 @@ import {
   type RecommendationExplanationDto,
   type OutcomeReasonCode,
   type WinnabilityClass,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   contentTargetDismissals,
   domainClassifications,
   recommendationBriefs,
   recommendationExplanations,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 
 import { resolveProject } from './helpers.js'
 import { loadOrchestratorInput } from './content-data.js'

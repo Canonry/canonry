@@ -12,9 +12,9 @@ import {
   type OutcomeReasonCode,
   type OutcomeSurface,
   type OutcomeTrigger,
-} from '@ainyc/canonry-contracts'
-import type { OutcomeAttribution, OutcomeTelemetryEvent } from '@ainyc/canonry-api-routes'
-import { currentOutcomeAttribution } from '@ainyc/canonry-api-routes/request-context'
+} from '@canonry/canonry-contracts'
+import type { OutcomeAttribution, OutcomeTelemetryEvent } from '@canonry/canonry-api-routes'
+import { currentOutcomeAttribution } from '@canonry/canonry-api-routes/request-context'
 import fs from 'node:fs'
 import path from 'node:path'
 import { getConfigDir } from './config.js'

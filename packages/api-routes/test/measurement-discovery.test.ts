@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compileMeasurementPlan } from '@ainyc/canonry-contracts'
+import { compileMeasurementPlan } from '@canonry/canonry-contracts'
 import {
   classifyMeasurementSitemapUrls,
   type MeasurementDiscoveryInput,

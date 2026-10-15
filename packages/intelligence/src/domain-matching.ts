@@ -1,4 +1,4 @@
-import { hostMatchesAnyDomain } from '@ainyc/canonry-contracts'
+import { hostMatchesAnyDomain } from '@canonry/canonry-contracts'
 
 /**
  * True when `citedDomain` is the project's canonical domain or a subdomain of any

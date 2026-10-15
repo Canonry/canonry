@@ -4,7 +4,7 @@ import {
   formatPageCount,
   formatSiteAuditPageBudget,
   type ProjectDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /**
  * Site Health page budgets in words, shared by Project Settings (where a

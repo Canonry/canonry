@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { measurementDraftAuthoringSchema } from '@ainyc/canonry-contracts'
+import { measurementDraftAuthoringSchema } from '@canonry/canonry-contracts'
 import { compileMeasurementDraft } from '../src/measurement-draft-compile.js'
 
 describe('measurement draft compiler', () => {

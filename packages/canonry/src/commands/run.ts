@@ -17,7 +17,7 @@ import {
   type RunDto,
   type RunErrorDto,
   type RunUsageSummaryRow,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { CliError, EXIT_SYSTEM_ERROR, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 

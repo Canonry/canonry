@@ -10,7 +10,7 @@ import {
   type UiPage,
   type UiProjectTab,
   type UiTelemetryEvent,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { createUuid, getOrCreateTabSessionId } from './onboarding-telemetry.js'
 
 /**

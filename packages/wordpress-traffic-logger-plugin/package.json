@@ -1,5 +1,5 @@
 {
-  "name": "@ainyc/canonry-wordpress-traffic-logger-plugin",
+  "name": "@canonry/canonry-wordpress-traffic-logger-plugin",
   "version": "1.1.1",
   "private": true,
   "license": "MIT",

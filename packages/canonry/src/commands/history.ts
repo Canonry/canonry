@@ -1,8 +1,8 @@
 import { createApiClient } from '../client.js'
 import { CliError, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import type { AuditHistoryOptions, AuditLogEntry } from '@ainyc/canonry-contracts'
-import { auditHistoryQuerySchema, formatValidationIssues, resultsClearRequestSchema, describeError } from '@ainyc/canonry-contracts'
+import type { AuditHistoryOptions, AuditLogEntry } from '@canonry/canonry-contracts'
+import { auditHistoryQuerySchema, formatValidationIssues, resultsClearRequestSchema, describeError } from '@canonry/canonry-contracts'
 
 function getClient() {
   return createApiClient()

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { cdpChatgptAdapter } from '../src/adapter.js'
-import type { ProviderConfig } from '@ainyc/canonry-contracts'
+import type { ProviderConfig } from '@canonry/canonry-contracts'
 
 const baseConfig = (overrides: Partial<ProviderConfig> = {}): ProviderConfig => ({
   provider: 'cdp:chatgpt',

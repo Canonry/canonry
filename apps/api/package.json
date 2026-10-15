@@ -1,5 +1,5 @@
 {
-  "name": "@ainyc/canonry-api",
+  "name": "@canonry/canonry-api",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,10 +11,10 @@
     "lint": "eslint src/ test/"
   },
   "dependencies": {
-    "@ainyc/canonry-api-routes": "workspace:*",
-    "@ainyc/canonry-config": "workspace:*",
-    "@ainyc/canonry-contracts": "workspace:*",
-    "@ainyc/canonry-db": "workspace:*",
+    "@canonry/canonry-api-routes": "workspace:*",
+    "@canonry/canonry-config": "workspace:*",
+    "@canonry/canonry-contracts": "workspace:*",
+    "@canonry/canonry-db": "workspace:*",
     "fastify": "^5.8.5",
     "tsx": "^4.20.5"
   }

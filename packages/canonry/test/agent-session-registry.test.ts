@@ -13,11 +13,11 @@ import {
   llmUsageEvents,
   parseJsonColumn,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { Type, fauxAssistantMessage, fauxToolCall, type Message, type FauxResponseFactory } from '@earendil-works/pi-ai'
 import { eq } from 'drizzle-orm'
 import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core'
-import { MemorySources } from '@ainyc/canonry-contracts'
+import { MemorySources } from '@canonry/canonry-contracts'
 import { SessionRegistry } from '../src/agent/session-registry.js'
 import { upsertMemoryEntry } from '../src/agent/memory-store.js'
 import { loadAeroSystemPrompt } from '../src/agent/session.js'

@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto } from '@ainyc/canonry-contracts'
+import type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto } from '@canonry/canonry-contracts'
 
 const mockGetMetrics = vi.fn()
 const mockGetGaps = vi.fn()

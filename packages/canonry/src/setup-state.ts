@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-import { createClient, projects, queries as queriesTable } from '@ainyc/canonry-db'
+import { createClient, projects, queries as queriesTable } from '@canonry/canonry-db'
 import { loadConfigRaw, configExists } from './config.js'
 import { registeredProviderNames } from './provider-registration.js'
 

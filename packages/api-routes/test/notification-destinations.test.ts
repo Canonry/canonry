@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import type { HealthWebhookPayload, RatingWebhookPayload, ReviewWebhookPayload, WebhookPayload } from '@ainyc/canonry-contracts'
+import type { HealthWebhookPayload, RatingWebhookPayload, ReviewWebhookPayload, WebhookPayload } from '@canonry/canonry-contracts'
 import { AlertSeverities, AlertFieldLabels, toAlertView } from '../src/notifications/alert.js'
 import {
   DESTINATION_ADAPTERS,

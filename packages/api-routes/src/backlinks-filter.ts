@@ -1,6 +1,6 @@
 import { and, ne, notLike, type SQL } from 'drizzle-orm'
-import { backlinkDomains } from '@ainyc/canonry-db'
-import { hostMatchesDomain, hostOf } from '@ainyc/canonry-contracts'
+import { backlinkDomains } from '@canonry/canonry-db'
+import { hostMatchesDomain, hostOf } from '@canonry/canonry-contracts'
 
 // Crawler / SERP / proxy hosts that show up in the Common Crawl hyperlink graph
 // but don't represent editorial backlinks. Industry tools (Ahrefs, Semrush,

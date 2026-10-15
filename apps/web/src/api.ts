@@ -1,8 +1,8 @@
-import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@ainyc/canonry-contracts'
-import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@ainyc/canonry-api-client'
-import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@ainyc/canonry-contracts'
+import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@canonry/canonry-api-client'
+import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@canonry/canonry-contracts'
 import { recordUiApiResult, trackUiAction } from './lib/ui-telemetry.js'
-import type { ApiKeyDto, CalendarRecurrence, SchedulableRunKind, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4ChannelBreakdownDto, GA4ChannelBucketDto, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaTrafficResponse, InsightDto, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GoogleOAuthStartResponse, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto } from '@ainyc/canonry-contracts'
+import type { ApiKeyDto, CalendarRecurrence, SchedulableRunKind, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4ChannelBreakdownDto, GA4ChannelBucketDto, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaTrafficResponse, InsightDto, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GoogleOAuthStartResponse, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto } from '@canonry/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -126,8 +126,8 @@ import {
   postApiV1ProjectsByNameBacklinksExtract,
   postApiV1TelemetryOnboarding,
   getApiV1KeysSelf,
-} from '@ainyc/canonry-api-client'
-import type { RunDto, RunDetailDto } from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client'
+import type { RunDto, RunDetailDto } from '@canonry/canonry-api-client'
 export type { ProjectOverviewDto }
 export type { BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
 export type { TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse }
@@ -514,7 +514,7 @@ export function handleAuthExpired(): void {
  *
  * Exported so TanStack Query hooks can pass it to the generated
  * `<op>Options(...)` / `<op>Mutation(...)` helpers from
- * `@ainyc/canonry-api-client/react-query`. The hooks import this client
+ * `@canonry/canonry-api-client/react-query`. The hooks import this client
  * rather than re-creating one so the dashboard's auth + basePath + test
  * stubs stay in one place.
  */
@@ -2249,9 +2249,9 @@ import {
   putApiV1ProjectsByNameSentimentSettings, getApiV1ProjectsByNameSentimentEvidence,
   getApiV1ProjectsByNameSentimentBackfillPreview, postApiV1ProjectsByNameSentimentBackfills,
   getApiV1ProjectsByNameSentimentJobs, getApiV1ProjectsByNameSentimentCompare, getApiV1ProjectsByNameSentimentJobsByJobId,
-} from '@ainyc/canonry-api-client'
-import { SENTIMENT_QUERY_PAGE_MAX } from '@ainyc/canonry-contracts'
-import type { SentimentSelection, SentimentSummary, SentimentSettings, SentimentBackfillSelection, SentimentBackfillPreview, SentimentJob, SentimentJobSummary, SentimentEvidenceSelection, SentimentEvidencePage, SentimentComparison } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-api-client'
+import { SENTIMENT_QUERY_PAGE_MAX } from '@canonry/canonry-contracts'
+import type { SentimentSelection, SentimentSummary, SentimentSettings, SentimentBackfillSelection, SentimentBackfillPreview, SentimentJob, SentimentJobSummary, SentimentEvidenceSelection, SentimentEvidencePage, SentimentComparison } from '@canonry/canonry-contracts'
 
 /**
  * The dashboard lays out every query row with its per-engine assessments and

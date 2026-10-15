@@ -1,13 +1,13 @@
-import { trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@ainyc/canonry-contracts'
+import { trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
   sentimentBackfillSelectionSchema, sentimentBackfillRequestSchema, sentimentSummaryReadSchema, sentimentSettingsReadSchema,
   sentimentEvidencePageReadSchema, sentimentComparisonReadSchema, sentimentBackfillPreviewReadSchema, sentimentJobsReadSchema,
   sentimentJobReadSchema, sentimentSummaryIncludeSchema, sentimentEvidenceOutcomeFilterSchema, queryClassSchema, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_MAX,
-} from '@ainyc/canonry-contracts'
-import { agentConversationCreateSchema, reportedQueryClasses } from '@ainyc/canonry-contracts'
-import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import { agentConversationCreateSchema, reportedQueryClasses } from '@canonry/canonry-contracts'
+import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS } from '@canonry/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
   AGENT_MEMORY_KEY_MAX_LENGTH,
@@ -113,7 +113,7 @@ import {
   canonicalizeGtmResourceSelection,
   type NotificationEvent,
   runListFilterQuerySchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { z } from 'zod'
 import type { ApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
@@ -126,7 +126,7 @@ import {
   measurementDraftOperationSchema as sharedMeasurementDraftOperationSchema,
   runMeasurementDraftAction as runSharedMeasurementDraftAction,
 } from '../measurement-draft-actions.js'
-import { gscPerformanceOrderBySchema } from '@ainyc/canonry-contracts'
+import { gscPerformanceOrderBySchema } from '@canonry/canonry-contracts'
 import {
   analyticsWindowSchema,
   compactStringParams,

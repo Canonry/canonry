@@ -1,8 +1,8 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { Api, Context, Message, Model } from '@earendil-works/pi-ai'
 import { completeOnce } from './pi-models.js'
-import { AGENT_MEMORY_VALUE_MAX_BYTES } from '@ainyc/canonry-contracts'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import { AGENT_MEMORY_VALUE_MAX_BYTES } from '@canonry/canonry-contracts'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import {
   COMPACTION_MAX_MESSAGES,
   COMPACTION_PRESERVE_TAIL_MESSAGES,

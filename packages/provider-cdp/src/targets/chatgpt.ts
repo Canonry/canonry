@@ -1,5 +1,5 @@
 import type CDP from 'chrome-remote-interface'
-import { AI_ENGINE_DOMAINS, AI_ENGINE_SELF_DOMAINS, type GroundingSource } from '@ainyc/canonry-contracts'
+import { AI_ENGINE_DOMAINS, AI_ENGINE_SELF_DOMAINS, type GroundingSource } from '@canonry/canonry-contracts'
 import type { CDPTarget } from './types.js'
 import { CDPProviderError } from './types.js'
 import { waitForStabilization } from '../connection.js'

@@ -30,7 +30,7 @@ import {
   siteAuditPageBudgetSchema,
   type CompetitorAutoAliasMode,
   type ProviderDispatchModesMap,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { MeasurementUpdateFlags } from '../commands/project.js'
 
 export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [

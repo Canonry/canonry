@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
-import { apiKeys, createClient, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { apiKeys, createClient, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
 
 // The local server's `onCompetitorAliasesChanged` wiring, end to end: an alias

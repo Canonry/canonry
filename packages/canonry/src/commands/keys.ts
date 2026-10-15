@@ -1,7 +1,7 @@
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
 import { isMachineFormat, CliError } from '../cli-error.js'
-import { READ_ONLY_SCOPE, formatIsoDate, type ApiKeyDto, type CreateApiKeyRequest } from '@ainyc/canonry-contracts'
+import { READ_ONLY_SCOPE, formatIsoDate, type ApiKeyDto, type CreateApiKeyRequest } from '@canonry/canonry-contracts'
 
 function getClient() {
   return createApiClient()

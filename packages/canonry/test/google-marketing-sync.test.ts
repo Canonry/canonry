@@ -12,14 +12,14 @@ import {
   migrate,
   projects,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   RunKinds,
   RunStatuses,
   RunTriggers,
   type GoogleAdsRawSnapshotDto,
   type GtmRawSnapshotDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { GoogleMarketingRuntimeError, type GoogleMarketingRuntime } from '../src/google-marketing-runtime.js'
 import {
   executeGoogleAdsMarketingSync,

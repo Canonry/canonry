@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { CheckCategories, CheckScopes, CheckStatuses, formatIsoDateInTimeZone } from '@ainyc/canonry-contracts'
-import { gaDailyTotals, gscDailyTotals, gscDataWatermarks, runs } from '@ainyc/canonry-db'
+import { CheckCategories, CheckScopes, CheckStatuses, formatIsoDateInTimeZone } from '@canonry/canonry-contracts'
+import { gaDailyTotals, gscDailyTotals, gscDataWatermarks, runs } from '@canonry/canonry-db'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
 
 /**

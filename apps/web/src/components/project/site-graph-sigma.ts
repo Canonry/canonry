@@ -1,5 +1,5 @@
 import { MultiDirectedGraph } from 'graphology'
-import { deriveSiteHealthState, type SiteHealthState, compareText as lexical } from '@ainyc/canonry-contracts'
+import { deriveSiteHealthState, type SiteHealthState, compareText as lexical } from '@canonry/canonry-contracts'
 
 export type SiteGraphVisualState = SiteHealthState
 

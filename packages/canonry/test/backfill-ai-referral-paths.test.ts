@@ -7,7 +7,7 @@ import {
   gaAiReferrals,
   migrate,
   projects,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { eq } from 'drizzle-orm'
 import { backfillAiReferralPaths } from '../src/commands/backfill.js'
 

@@ -3,7 +3,7 @@ import {
   validationError,
   type ProviderDispatchModesMap,
   type ProviderModels,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { ProviderAdapterInfo } from './settings.js'
 
 /**

@@ -4,7 +4,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { describe, expect, it } from 'vitest'
-import { createClient, migrate, projects, runs, queries, querySnapshots } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, queries, querySnapshots } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canonicalSentimentJson, createSentimentEvaluationDefinition } from '@ainyc/canonry-contracts'
+import { canonicalSentimentJson, createSentimentEvaluationDefinition } from '@canonry/canonry-contracts'
 import { evaluateSentimentCorpus, frozenSentimentEvaluationDefinitionId } from '../src/evaluation.js'
 import type { SentimentEvaluationExample } from '../src/evaluation.js'
 import { createHash } from 'node:crypto'

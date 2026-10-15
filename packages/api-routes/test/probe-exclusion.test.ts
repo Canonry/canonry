@@ -5,7 +5,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { RunKinds, RunStatuses, RunTriggers, type ContentTargetsResponseDto, type VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, type ContentTargetsResponseDto, type VisibilityReportResponse } from '@canonry/canonry-contracts'
 import {
   createClient,
   migrate,
@@ -15,7 +15,7 @@ import {
   runs,
   querySnapshots,
   siteCrawlSnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 /**

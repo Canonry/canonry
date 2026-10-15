@@ -5,7 +5,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, queries, runs, querySnapshots } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, queries, runs, querySnapshots } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 // Tracked-query rows are the FK anchor for every historical snapshot

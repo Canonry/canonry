@@ -1,8 +1,8 @@
 import Fastify from 'fastify'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
-import { projectDtoSchema } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects } from '@canonry/canonry-db'
+import { projectDtoSchema } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 let db: ReturnType<typeof createClient>
 let app: ReturnType<typeof Fastify>

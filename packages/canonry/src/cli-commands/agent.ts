@@ -1,5 +1,5 @@
 import { agentConversations, type ConversationAction } from '../commands/agent-conversations.js'
-import { agentConversationListQuerySchema, agentViewContextSchema, agentTurnLimitsSchema, describeError, isRetiredAgentProviderId, type AgentViewContext } from '@ainyc/canonry-contracts'
+import { agentConversationListQuerySchema, agentViewContextSchema, agentTurnLimitsSchema, describeError, isRetiredAgentProviderId, type AgentViewContext } from '@canonry/canonry-contracts'
 import { agentAttach, agentDetach } from '../commands/agent.js'
 import { agentAsk, type AgentAskProfile, type AgentAskScope } from '../commands/agent-ask.js'
 import { agentProviders } from '../commands/agent-providers.js'

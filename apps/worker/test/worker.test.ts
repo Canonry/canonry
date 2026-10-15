@@ -1,7 +1,7 @@
 import { test, expect, onTestFinished } from 'vitest'
 import { createServer } from 'node:net'
 
-import { getPlatformEnv } from '@ainyc/canonry-config'
+import { getPlatformEnv } from '@canonry/canonry-config'
 
 import { startHealthServer } from '../src/health-server.js'
 import { createHeartbeatLog } from '../src/jobs/healthcheck.js'

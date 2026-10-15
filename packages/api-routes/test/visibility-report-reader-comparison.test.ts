@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { VisibilityReportPopulationClass, VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import type { VisibilityReportPopulationClass, VisibilityReportResponse } from '@canonry/canonry-contracts'
 import {
   buildVisibilityReport,
   type VisibilityReportDefinitionInput,

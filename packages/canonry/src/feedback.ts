@@ -9,8 +9,8 @@ import {
   type FeedbackAcceptedDto,
   type FeedbackSource,
   type FeedbackSubmission,
-} from '@ainyc/canonry-contracts'
-import type { FeedbackRequestContext } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-contracts'
+import type { FeedbackRequestContext } from '@canonry/canonry-api-routes'
 import { PACKAGE_VERSION } from './package-version.js'
 import { getOrCreateAnonymousId, isTelemetryEnabled } from './telemetry.js'
 import { classifyUsageSurface } from './usage-telemetry.js'

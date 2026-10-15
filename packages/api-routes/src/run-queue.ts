@@ -44,9 +44,9 @@ import {
   type RunDispatchResolution,
   compareText,
   sortedUnique,
-} from '@ainyc/canonry-contracts'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { auditLog, measurementPlans, measurementPlanVersions, parseJsonColumn, projects, querySnapshots, runs, schedules } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { auditLog, measurementPlans, measurementPlanVersions, parseJsonColumn, projects, querySnapshots, runs, schedules } from '@canonry/canonry-db'
 import { writeAuditLog } from './helpers.js'
 import { buildMeasurementRunManifest } from './measurement-report-adapter.js'
 import { ensureCurrentQueryBasketRevision } from './query-basket.js'

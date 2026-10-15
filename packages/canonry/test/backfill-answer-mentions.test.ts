@@ -11,9 +11,9 @@ import {
   projects,
   querySnapshots,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { eq } from 'drizzle-orm'
-import { RunKinds } from '@ainyc/canonry-contracts'
+import { RunKinds } from '@canonry/canonry-contracts'
 import { backfillAnswerMentionsCommand } from '../src/commands/backfill.js'
 
 describe('backfill answer-mentions', () => {

@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, expect, it, onTestFinished, vi } from 'vitest'
-import { createClient, migrate, type DatabaseClient } from '@ainyc/canonry-db'
+import { createClient, migrate, type DatabaseClient } from '@canonry/canonry-db'
 import type { CanonryConfig } from '../src/config.js'
 
 // The server owns the daily `install.state` loop: it starts once the listener

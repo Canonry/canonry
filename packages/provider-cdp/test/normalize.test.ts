@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { extractCitedDomains, normalizeResult } from '../src/normalize.js'
-import type { RawQueryResult, GroundingSource } from '@ainyc/canonry-contracts'
+import type { RawQueryResult, GroundingSource } from '@canonry/canonry-contracts'
 
 describe('extractCitedDomains', () => {
   it('extracts domains from valid URLs', () => {

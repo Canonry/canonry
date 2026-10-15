@@ -1,4 +1,4 @@
-import { TrafficEventKinds, VerificationStatuses, type TrafficEventEntry, type VerificationStatus } from '@ainyc/canonry-contracts'
+import { TrafficEventKinds, VerificationStatuses, type TrafficEventEntry, type VerificationStatus } from '@canonry/canonry-contracts'
 
 export type EventGranularity = 'hour' | 'day'
 

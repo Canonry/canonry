@@ -7,8 +7,8 @@ import { buildCompetitorSuggestions } from '../src/competitor-suggestions.js'
  * fails on a slow runner, so the bound is on the work itself.
  */
 const matcherWork = vi.hoisted(() => ({ builds: 0, textWalks: 0 }))
-vi.mock('@ainyc/canonry-contracts', async importOriginal => {
-  const actual = await importOriginal<typeof import('@ainyc/canonry-contracts')>()
+vi.mock('@canonry/canonry-contracts', async importOriginal => {
+  const actual = await importOriginal<typeof import('@canonry/canonry-contracts')>()
   return {
     ...actual,
     compileBrandAliases: (...args: Parameters<typeof actual.compileBrandAliases>) => {

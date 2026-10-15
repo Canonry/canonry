@@ -1,7 +1,7 @@
 import { and, count, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { rawEventSamples } from '@ainyc/canonry-db'
-import { escapeLikePattern, TrafficSampleKinds, trafficSampleClassifierSchema, trafficSamplesQuerySchema, validationError, formatValidationIssues, type TrafficSampleKind, type TrafficSamplesResponse } from '@ainyc/canonry-contracts'
+import { rawEventSamples } from '@canonry/canonry-db'
+import { escapeLikePattern, TrafficSampleKinds, trafficSampleClassifierSchema, trafficSamplesQuerySchema, validationError, formatValidationIssues, type TrafficSampleKind, type TrafficSamplesResponse } from '@canonry/canonry-contracts'
 import { requireAdminSession } from './auth.js'
 import { resolveProject } from './helpers.js'
 

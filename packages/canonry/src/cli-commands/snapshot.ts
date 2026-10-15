@@ -1,7 +1,7 @@
 import { createSnapshotReport } from '../commands/snapshot.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, requirePositional, requireStringOption, stringOption } from '../cli-command-helpers.js'
-import { snapshotProviderModeSchema } from '@ainyc/canonry-contracts'
+import { snapshotProviderModeSchema } from '@canonry/canonry-contracts'
 import { usageError } from '../cli-error.js'
 
 const SNAPSHOT_USAGE = 'canonry snapshot <company-name> --domain <domain> [--provider <name>...] [--provider-mode all|api|browser] [--queries "a,b"] [--phrases "a,b" (legacy alias)] [--competitors "x,y"] [--md] [--output <path>] [--pdf] [--format table|json]'

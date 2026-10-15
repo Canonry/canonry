@@ -11,12 +11,12 @@ import {
   migrate,
   projects,
   queries,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   canonicalMeasurementPlanJson,
   canonicalMeasurementPlanV2Json,
   compileMeasurementPlan,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { HARBOR_CONTEXT, measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 

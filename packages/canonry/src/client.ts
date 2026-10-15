@@ -1,52 +1,52 @@
-import type { TrafficSamplesQuery, TrafficSamplesResponse } from '@ainyc/canonry-contracts'
-import { getApiV1ProjectsByNameTrafficSamples } from '@ainyc/canonry-api-client'
+import type { TrafficSamplesQuery, TrafficSamplesResponse } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameTrafficSamples } from '@canonry/canonry-api-client'
 
-import type { GaAcquisitionQuery, GaAcquisitionResponse } from '@ainyc/canonry-contracts'
-import { getApiV1ProjectsByNameGaAcquisition } from '@ainyc/canonry-api-client'
-import type { AuditHistoryOptions } from '@ainyc/canonry-contracts'
-import type { ReferralAssessment, ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
-import { getApiV1ProjectsByNameTrafficReferralAssessment } from '@ainyc/canonry-api-client'
-import { getApiV1ProjectsByNameCompetitorSuggestions } from '@ainyc/canonry-api-client'
-import { postApiV1ProjectsByNameCompetitorChangesPreview } from '@ainyc/canonry-api-client'
+import type { GaAcquisitionQuery, GaAcquisitionResponse } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameGaAcquisition } from '@canonry/canonry-api-client'
+import type { AuditHistoryOptions } from '@canonry/canonry-contracts'
+import type { ReferralAssessment, ReferralAssessmentQuery } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameTrafficReferralAssessment } from '@canonry/canonry-api-client'
+import { getApiV1ProjectsByNameCompetitorSuggestions } from '@canonry/canonry-api-client'
+import { postApiV1ProjectsByNameCompetitorChangesPreview } from '@canonry/canonry-api-client'
 
 import type { z } from 'zod'
 import type {
   SentimentBackfillSelection, sentimentSettingsUpdateSchema, sentimentEvidenceRequestSchema, sentimentSummaryRequestSchema,
   sentimentCompareRequestSchema, sentimentBackfillRequestSchema, sentimentJobRequestSchema, SentimentSummaryRead, SentimentSettingsRead,
   SentimentEvidencePageRead, SentimentComparisonRead, SentimentBackfillPreviewRead, SentimentJobRead, SentimentJobsRead,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   sentimentSummaryReadSchema, sentimentSettingsReadSchema, sentimentEvidencePageReadSchema, sentimentComparisonReadSchema,
   sentimentBackfillPreviewReadSchema, sentimentJobReadSchema, sentimentJobsReadSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameSentiment, getApiV1ProjectsByNameSentimentSettings, putApiV1ProjectsByNameSentimentSettings,
   getApiV1ProjectsByNameSentimentEvidence, getApiV1ProjectsByNameSentimentCompare, getApiV1ProjectsByNameSentimentBackfillPreview,
   postApiV1ProjectsByNameSentimentBackfills, getApiV1ProjectsByNameSentimentJobs, getApiV1ProjectsByNameSentimentJobsByJobId,
-} from '@ainyc/canonry-api-client'
-import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@ainyc/canonry-contracts'
-import type { RunCompletenessDto, RunFillRequest, RunFillResponseDto } from '@ainyc/canonry-contracts'
-import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client'
+import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@canonry/canonry-contracts'
+import type { RunCompletenessDto, RunFillRequest, RunFillResponseDto } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@canonry/canonry-api-client'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { detectAgentRuntime, normalizeAgentSlug, USAGE_TELEMETRY_HEADERS, type OutcomeSurface } from '@ainyc/canonry-contracts'
+import { detectAgentRuntime, normalizeAgentSlug, USAGE_TELEMETRY_HEADERS, type OutcomeSurface } from '@canonry/canonry-contracts'
 import { CliError, EXIT_SYSTEM_ERROR, EXIT_USER_ERROR } from './cli-error.js'
 import { loadConfig } from './config.js'
 import { connectionFailureMessage, httpErrorDetails, isConnectionFailure, redactRequestTarget } from './client-reliability.js'
 import { PACKAGE_VERSION } from './package-version.js'
-import { getApiV1ProjectsByNameSchedules, getApiV1NotificationsEvents } from '@ainyc/canonry-api-client'
-import type { LogQuery, OperationalLogListDto, NotificationEvent } from '@ainyc/canonry-contracts'
-import { normalizeTelemetryStatus, type FeedbackAcceptedDto, type FeedbackSubmission, type TelemetryStatusInput } from '@ainyc/canonry-contracts'
-import { OPERATIONAL_LOG_FIELDS_HEADER, OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS, OPERATION_ACCESS_HEADER, STORED_ONLY_HEADER, OperationAccesses, matchOperationTemplate, operationAccess, operationalLogListReadSchema } from '@ainyc/canonry-contracts'
-import { getApiV1OperationsLogs } from '@ainyc/canonry-api-client'
+import { getApiV1ProjectsByNameSchedules, getApiV1NotificationsEvents } from '@canonry/canonry-api-client'
+import type { LogQuery, OperationalLogListDto, NotificationEvent } from '@canonry/canonry-contracts'
+import { normalizeTelemetryStatus, type FeedbackAcceptedDto, type FeedbackSubmission, type TelemetryStatusInput } from '@canonry/canonry-contracts'
+import { OPERATIONAL_LOG_FIELDS_HEADER, OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS, OPERATION_ACCESS_HEADER, STORED_ONLY_HEADER, OperationAccesses, matchOperationTemplate, operationAccess, operationalLogListReadSchema } from '@canonry/canonry-contracts'
+import { getApiV1OperationsLogs } from '@canonry/canonry-api-client'
 import type {
   VisibilityReportRequest, VisibilityReportResponse,
   QueryTrackingWorkspaceResponse, QueryTrackingPreviewRequest, QueryTrackingPreviewResponse,
   QueryTrackingCommitRequest, QueryTrackingCommitResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameVisibilityReport, getApiV1ProjectsByNameQueryTracking,
   postApiV1ProjectsByNameQueryTrackingPreview, postApiV1ProjectsByNameQueryTrackingCommit,
-} from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client'
 import type {
   ProjectDto,
   ProjectConfig,
@@ -323,7 +323,7 @@ import type {
   ProviderReloadRequest,
   ProviderReloadResponseDto,
   TelemetryStatusDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient as createHeyClient,
   type Client,
@@ -712,7 +712,7 @@ import {
   type GetApiV1ProjectsByNameMeasurementQueryTemplatesResponse,
   type PostApiV1ProjectsByNameMeasurementPlanDraftActionsDiscardResponse,
   type PostApiV1ProjectsByNameMeasurementPlanActionsDeactivateResponse,
-} from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client'
 import {
   CANONRY_NPM_PACKAGE_URL,
   compareSemver,
@@ -721,7 +721,7 @@ import {
   isStrictSemver,
   upgradeCommandFor,
   type InstallMethod,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /** A newer published canonry, as the connected server reports it on `/health`. */
 export interface ServerUpdateAvailable {
@@ -757,11 +757,11 @@ export function parseServerUpdateAvailable(value: unknown): ServerUpdateAvailabl
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto, QueryDto }
 
 /** Settings response from GET /settings. */
-export type SettingsDto = import('@ainyc/canonry-contracts').SettingsDto
+export type SettingsDto = import('@canonry/canonry-contracts').SettingsDto
 
 /** Apply response */
 export type ApplyResultDto = ProjectDto
-export type ApplyPreviewDto = import('@ainyc/canonry-contracts').ApplyPreviewDto
+export type ApplyPreviewDto = import('@canonry/canonry-contracts').ApplyPreviewDto
 
 export interface ProjectDeletePreviewDto {
   project: { id: string; name: string }
@@ -785,7 +785,7 @@ export interface QueriesReplacePreviewDto {
   snapshotImpact: { affectedQueries: number; snapshotsDetached: number }
 }
 
-/** @deprecated Use `TelemetryStatusDto` from `@ainyc/canonry-contracts`. */
+/** @deprecated Use `TelemetryStatusDto` from `@canonry/canonry-contracts`. */
 export type TelemetryDto = TelemetryStatusDto
 
 /** Aero transcript response from GET /projects/{name}/agent/transcript. Loose shape — messages are pi-agent-core `AgentMessage` union types which we don't re-export here. */

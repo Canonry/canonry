@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import { normalizeInstallRef, type InstallSource, type TelemetryEnvironmentFlag } from '@ainyc/canonry-contracts'
+import { normalizeInstallRef, type InstallSource, type TelemetryEnvironmentFlag } from '@canonry/canonry-contracts'
 import { getConfigDir, loadConfigRaw, saveConfigPatch } from './config.js'
 import { detectInstallMethod } from './update-check.js'
 

@@ -1,6 +1,6 @@
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import { and, asc, desc, eq, inArray } from 'drizzle-orm'
-import { competitors, projects, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { competitors, projects, querySnapshots, runs, type DatabaseClient } from '@canonry/canonry-db'
 import {
   AUTO_ALIAS_SCAN_MAX_RUNS,
   AUTO_ALIAS_SCAN_MAX_SNAPSHOTS,
@@ -16,7 +16,7 @@ import {
   type CompetitorAliasMarketPin,
   type CompetitorAutoAliasDetectionDto,
   type CompetitorAutoAliasResolution,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { readStoredCompetitors, type StoredCompetitor } from './competitor-writes.js'
 import { notProbeRun, writeAuditLog } from './helpers.js'
 import { readMarketCompetitors, writeMarketCompetitorNames, type MarketCompetitor } from './market-competitor-names.js'

@@ -27,7 +27,7 @@ Individual commands:
 ```bash
 pnpm check                  # Fast lint of changed JS/TS files
 pnpm lint:staged            # Fast lint of staged JS/TS content
-pnpm --filter @ainyc/canonry-contracts typecheck  # Type-check one affected package
+pnpm --filter @canonry/canonry-contracts typecheck  # Type-check one affected package
 pnpm exec vitest run --project contracts        # Run one affected test project
 pnpm verify                 # Full workspace check; required before outside code PRs
 pnpm build:cli              # CLI/server bundle only
@@ -47,7 +47,7 @@ packages/provider-*/      Provider adapters (Gemini, OpenAI, Claude, local)
 apps/web/                 Vite SPA source (bundled into packages/canonry/assets/)
 ```
 
-`@canonry/canonry` is the primary npm package. `@ainyc/canonry` is also published at the same versions for compatibility. All other packages are internal workspace dependencies bundled by tsup at build time.
+`@canonry/canonry` is the application package; `@canonry/val-kit` is published independently for Val Town hosts. All other packages are private workspace dependencies under `@canonry` and are bundled by tsup at build time.
 
 ## Guidelines
 

@@ -13,8 +13,8 @@ import {
   RatioUnits,
   type CompetitorShareImpact,
   validationError,
-} from '@ainyc/canonry-contracts'
-import { runs } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import { runs } from '@canonry/canonry-db'
 import { readCompetitorLandscape } from './competitor-landscape.js'
 import { projectQueryClassifier, shareOfVoiceFromLandscape } from './mention-share-inputs.js'
 import { bulkCompetitorAddPreview, summarizeBulkCompetitorAdd, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, type CompetitorSetPlan, type StoredCompetitor } from './competitor-writes.js'

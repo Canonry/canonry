@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { competitors, marketCompetitorNames, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { competitors, marketCompetitorNames, runs, type DatabaseClient } from '@canonry/canonry-db'
 import { and, eq, inArray, ne } from 'drizzle-orm'
 import {
   brandKeyFromText,
@@ -31,7 +31,7 @@ import {
   type CompetitorAutoAliasDrop,
   type CompetitorEntry,
   type CompetitorIdentityInput,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { changedMarketPins, readMarketCompetitorPins, type MarketPinGroup } from './plan-competitors.js'
 
 /**
@@ -148,7 +148,7 @@ export const competitorIdentityColumns = {
   blockedAliases: competitors.blockedAliases,
 }
 
-export type { CompetitorAliasChange } from '@ainyc/canonry-contracts'
+export type { CompetitorAliasChange } from '@canonry/canonry-contracts'
 
 export interface CompetitorSetPlan {
   /** Every competitor after the write, existing rows first (by domain, as `readStoredCompetitors` returns them). */

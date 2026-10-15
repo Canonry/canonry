@@ -1,4 +1,4 @@
-import { visibilityCompareSelectionSchema, type VisibilityCompareSelection } from '@ainyc/canonry-contracts'
+import { visibilityCompareSelectionSchema, type VisibilityCompareSelection } from '@canonry/canonry-contracts'
 import { showVisibilityStats, showVisibilityCompare } from '../commands/visibility-stats.js'
 import type { CliCommandSpec, CliValues } from '../cli-dispatch.js'
 import {

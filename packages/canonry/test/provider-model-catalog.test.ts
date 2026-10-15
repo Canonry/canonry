@@ -1,8 +1,8 @@
-import type { ProviderConfig } from '@ainyc/canonry-contracts'
+import type { ProviderConfig } from '@canonry/canonry-contracts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createProviderModelCatalog } from '../src/provider-model-catalog.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
-import { openaiAdapter } from '@ainyc/canonry-provider-openai'
+import { openaiAdapter } from '@canonry/canonry-provider-openai'
 
 const oldModels = openaiAdapter.modelRegistry.knownModels
 const freshModels = [{ id: 'gpt-next', displayName: 'Next GPT', tier: 'standard' as const }]

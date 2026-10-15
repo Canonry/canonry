@@ -154,7 +154,7 @@ const mockWaitForServerRuntimeStartup = vi.fn()
 const mockCreateServer = vi.fn(async () => ({ listen: mockListen, close: mockClose, server: { closeIdleConnections: mockCloseIdleConnections } }))
 const mockRepairNormalizedPaths = vi.fn()
 const mockRepairAiReferralPaths = vi.fn()
-vi.mock('@ainyc/canonry-db', () => ({
+vi.mock('@canonry/canonry-db', () => ({
   createClient: () => ({}),
   migrate: vi.fn(),
 }))

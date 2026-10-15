@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { createClient, migrate, apiKeys, projects } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys, projects } from '@canonry/canonry-db'
 import Fastify from 'fastify'
 import { expect, test } from 'vitest'
 

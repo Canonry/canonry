@@ -1,4 +1,4 @@
-import { CitationStates, percentOf, type ScoreSummaryDto } from '@ainyc/canonry-contracts'
+import { CitationStates, percentOf, type ScoreSummaryDto } from '@canonry/canonry-contracts'
 import { gapTone } from './score-tones.js'
 
 export interface GapQueryScoreSnapshot {

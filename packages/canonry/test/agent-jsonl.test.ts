@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import type { AgentMemoryListResponse, AgentProvidersResponse } from '@ainyc/canonry-contracts'
+import type { AgentMemoryListResponse, AgentProvidersResponse } from '@canonry/canonry-contracts'
 
 const mockListAgentMemory = vi.fn()
 const mockSetAgentMemory = vi.fn()

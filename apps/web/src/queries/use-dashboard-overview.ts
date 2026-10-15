@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { useQuery, useQueries } from '@tanstack/react-query'
-import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import {
   fetchProjectOverview,
   heyClient,
@@ -10,7 +10,7 @@ import {
   getApiV1ProjectsOptions,
   getApiV1RunsOptions,
   getApiV1SettingsOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { buildDashboard, toRunListItem } from '../build-dashboard.js'
 import type { ProjectData } from '../build-dashboard.js'
 import type { DashboardVm } from '../view-models.js'

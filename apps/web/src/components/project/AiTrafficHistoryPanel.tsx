@@ -38,8 +38,8 @@ import { TRAFFIC_STALE_MS } from '../../queries/query-client.js'
 // threshold made the same magnitude read "5,000" in one tile and "5.0K" in the
 // next. ActivitySection and TrafficPage still carry their own `formatCompact`
 // with identical behaviour; folding those into this import is a separate change.
-import { formatNumber } from '@ainyc/canonry-contracts'
-import { getApiV1ProjectsByNameGaAiReferralDailyOptions, getApiV1ProjectsByNameGaStatusOptions } from '@ainyc/canonry-api-client/react-query'
+import { formatNumber } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameGaAiReferralDailyOptions, getApiV1ProjectsByNameGaStatusOptions } from '@canonry/canonry-api-client/react-query'
 import { useQuery } from '@tanstack/react-query'
 import { heyClient } from '../../api.js'
 import type { GA4AiReferralDailyDto } from '../../api.js'

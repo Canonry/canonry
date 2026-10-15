@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import type { BacklinksInstallStatusDto } from '@ainyc/canonry-contracts'
+import type { BacklinksInstallStatusDto } from '@canonry/canonry-contracts'
 
 const mockBacklinksStatus = vi.fn()
 

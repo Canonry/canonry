@@ -22,10 +22,10 @@ tsconfig.test.json   # compiler-checks source, runtime tests, and type contracts
 ## Commands
 
 ```bash
-pnpm --filter @ainyc/canonry-api-client gen        # regenerate src/generated
-pnpm --filter @ainyc/canonry-api-client gen:check  # compare temporary output with src/generated
-pnpm --filter @ainyc/canonry-api-client typecheck
-pnpm --filter @ainyc/canonry-api-client test       # SDK smoke tests
+pnpm --filter @canonry/canonry-api-client gen        # regenerate src/generated
+pnpm --filter @canonry/canonry-api-client gen:check  # compare temporary output with src/generated
+pnpm --filter @canonry/canonry-api-client typecheck
+pnpm --filter @canonry/canonry-api-client test       # SDK smoke tests
 ```
 
 `typecheck` compiles the source and all SDK tests through `tsconfig.test.json`,
@@ -36,7 +36,7 @@ and cannot enforce them. Vitest runs the request-wiring tests in `smoke.test.ts`
 ## How to use
 
 ```typescript
-import { createClient, getApiV1Projects } from '@ainyc/canonry-api-client'
+import { createClient, getApiV1Projects } from '@canonry/canonry-api-client'
 
 const client = createClient({
   baseUrl: 'https://api.example.com',

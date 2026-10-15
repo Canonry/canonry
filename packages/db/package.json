@@ -1,5 +1,5 @@
 {
-  "name": "@ainyc/canonry-db",
+  "name": "@canonry/canonry-db",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -17,7 +17,7 @@
     "lint": "eslint src/ test/"
   },
   "dependencies": {
-    "@ainyc/canonry-contracts": "workspace:*",
+    "@canonry/canonry-contracts": "workspace:*",
     "better-sqlite3": "^12.11.1",
     "drizzle-orm": "^0.45.2"
   },

@@ -6,8 +6,8 @@ import Fastify from 'fastify'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, describe, expect, it } from 'vitest'
-import { siteAuditIssuesResponseSchema } from '@ainyc/canonry-contracts'
-import { apiRoutes } from '@ainyc/canonry-api-routes'
+import { siteAuditIssuesResponseSchema } from '@canonry/canonry-contracts'
+import { apiRoutes } from '@canonry/canonry-api-routes'
 import {
   createClient,
   migrate,
@@ -17,7 +17,7 @@ import {
   siteCrawlAttempts,
   siteCrawlPages,
   siteCrawlSnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { ApiClient } from '../src/client.js'
 import { createCanonryMcpServer } from '../src/mcp/server.js'
 

@@ -1,4 +1,4 @@
-import { isSensitiveDiagnosticQueryKey } from '@ainyc/canonry-contracts'
+import { isSensitiveDiagnosticQueryKey } from '@canonry/canonry-contracts'
 
 /** Parse a Retry-After header into a non-negative millisecond delay. */
 export function parseRetryAfterMs(header: string | null, now = Date.now()): number | undefined {

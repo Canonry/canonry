@@ -14,7 +14,7 @@ import {
   queries,
   queryBasketVersions,
   schedules,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 
 import { createServer, waitForServerRuntimeStartup } from '../src/server.js'
 import { Scheduler } from '../src/scheduler.js'

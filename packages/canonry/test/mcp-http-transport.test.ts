@@ -3,8 +3,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { createClient, migrate, apiKeys, oauthClients, users, type DatabaseClient } from '@ainyc/canonry-db'
-import { createUserSession, USER_SESSION_COOKIE_NAME } from '@ainyc/canonry-api-routes'
+import { createClient, migrate, apiKeys, oauthClients, users, type DatabaseClient } from '@canonry/canonry-db'
+import { createUserSession, USER_SESSION_COOKIE_NAME } from '@canonry/canonry-api-routes'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CanonryConfig } from '../src/config.js'

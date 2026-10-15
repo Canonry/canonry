@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { z } from 'zod'
-import { RATIO_UNIT_META_KEY, fraction, undeclaredRatioFields } from '@ainyc/canonry-contracts'
+import { RATIO_UNIT_META_KEY, fraction, undeclaredRatioFields } from '@canonry/canonry-contracts'
 import { canonryMcpTools } from '../src/mcp/tool-registry.js'
 
 /**

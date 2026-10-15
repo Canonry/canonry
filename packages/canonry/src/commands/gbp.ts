@@ -1,5 +1,5 @@
-import type { GbpAccountListResponse, GbpLocationListResponse, GbpSummaryDto } from '@ainyc/canonry-contracts'
-import { formatGbpMetricLabel, formatPercent } from '@ainyc/canonry-contracts'
+import type { GbpAccountListResponse, GbpLocationListResponse, GbpSummaryDto } from '@canonry/canonry-contracts'
+import { formatGbpMetricLabel, formatPercent } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 

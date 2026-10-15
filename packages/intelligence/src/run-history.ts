@@ -1,4 +1,4 @@
-import { CitationStates, percentOf, type RunHistoryPointDto } from '@ainyc/canonry-contracts'
+import { CitationStates, percentOf, type RunHistoryPointDto } from '@canonry/canonry-contracts'
 
 export interface RunHistoryRun {
   id: string

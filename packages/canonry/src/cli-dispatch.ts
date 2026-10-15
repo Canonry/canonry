@@ -1,7 +1,7 @@
 import { readWindowOptions, windowOptions, type WindowAliases } from './cli-command-helpers.js'
 import { parseArgs } from 'node:util'
 import type { ParseArgsOptionsConfig } from 'node:util'
-import { OperationAccesses, type OperationAccess } from '@ainyc/canonry-contracts'
+import { OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
 import { CliError, EXIT_USER_ERROR, type CliFormat, usageError } from './cli-error.js'
 import { resolveCliAccessForInvocation } from './cli-access.js'
 

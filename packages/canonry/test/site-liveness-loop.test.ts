@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
+import { createClient, migrate, projects } from '@canonry/canonry-db'
 import { runSiteLivenessPass, startSiteLivenessLoop, SITE_LIVENESS_INTERVAL_MS, type SiteLivenessCheckResult } from '../src/site-liveness-loop.js'
 
 const trackEvent = vi.hoisted(() => vi.fn())

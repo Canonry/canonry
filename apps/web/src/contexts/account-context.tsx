@@ -12,7 +12,7 @@
  * somebody's time.
  */
 import { createContext, useContext, type ReactNode } from 'react'
-import { WILDCARD_SCOPE, type ApiKeyDto } from '@ainyc/canonry-contracts'
+import { WILDCARD_SCOPE, type ApiKeyDto } from '@canonry/canonry-contracts'
 
 export interface SignedInAccount {
   name: string

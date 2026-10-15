@@ -7,7 +7,7 @@
  * prevents a read from mutating or re-fetching evidence.
  */
 
-import { answerProseForMentions, escapeRegExp, measurementNameKey, measurementNameWords, normalizeIdentityText, normalizeMeasurementHost, rateOverChecked, compareText, sortedUnique } from '@ainyc/canonry-contracts'
+import { answerProseForMentions, escapeRegExp, measurementNameKey, measurementNameWords, normalizeIdentityText, normalizeMeasurementHost, rateOverChecked, compareText, sortedUnique } from '@canonry/canonry-contracts'
 
 export type MeasurementAttributionClass =
   | 'assigned'

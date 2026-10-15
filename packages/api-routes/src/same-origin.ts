@@ -7,7 +7,7 @@
  * hand. Two copies would drift, and the copy that drifts is a hole.
  */
 import type { FastifyRequest } from 'fastify'
-import { forbidden } from '@ainyc/canonry-contracts'
+import { forbidden } from '@canonry/canonry-contracts'
 
 /** HTTP methods that change something. Safe methods are never checked. */
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])

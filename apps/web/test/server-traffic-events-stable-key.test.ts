@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } fro
 import { cleanup, renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createElement, type ReactNode } from 'react'
-import type { TrafficEventsResponse } from '@ainyc/canonry-api-client'
+import type { TrafficEventsResponse } from '@canonry/canonry-api-client'
 import { useServerTrafficEvents, type ServerTrafficEventsFilters } from '../src/queries/server-traffic.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 

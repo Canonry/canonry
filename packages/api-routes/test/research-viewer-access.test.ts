@@ -15,8 +15,8 @@ import {
   researchRuns,
   runs,
   users,
-} from '@ainyc/canonry-db'
-import { canonicalMeasurementPlanV2Json } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-db'
+import { canonicalMeasurementPlanV2Json } from '@canonry/canonry-contracts'
 import { apiRoutes, hashApiKey, hashUserPassword, type ApiRoutesOptions } from '../src/index.js'
 import { USER_SESSION_COOKIE_NAME } from '../src/user-session.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'

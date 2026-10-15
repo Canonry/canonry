@@ -9,8 +9,8 @@ import {
   migrate,
   projects,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
-import { MemorySources } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-db'
+import { MemorySources } from '@canonry/canonry-contracts'
 import { SessionRegistry } from '../src/agent/session-registry.js'
 import { upsertMemoryEntry } from '../src/agent/memory-store.js'
 import type { ApiClient } from '../src/client.js'

@@ -6,7 +6,7 @@ import type {
   RatingWebhookPayload,
   ReviewWebhookPayload,
   WebhookPayload,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /**
  * The destination-neutral view of a notification.

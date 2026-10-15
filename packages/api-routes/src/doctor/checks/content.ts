@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { projects } from '@ainyc/canonry-db'
+import { projects } from '@canonry/canonry-db'
 import {
   CheckCategories,
   CheckNotificationPolicies,
@@ -7,7 +7,7 @@ import {
   CheckStatuses,
   classifyCitedSurface,
   formatPercent,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { loadOrchestratorInput } from '../../content-data.js'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
 

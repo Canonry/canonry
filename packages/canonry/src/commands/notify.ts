@@ -1,7 +1,7 @@
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
 import { isMachineFormat, usageError } from '../cli-error.js'
-import { notificationEventSchema } from '@ainyc/canonry-contracts'
+import { notificationEventSchema } from '@canonry/canonry-contracts'
 
 function getClient() {
   return createApiClient()

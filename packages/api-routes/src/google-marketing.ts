@@ -1,4 +1,4 @@
-import { WINDOW_SETS, parseWindowIn } from '@ainyc/canonry-contracts'
+import { WINDOW_SETS, parseWindowIn } from '@canonry/canonry-contracts'
 import crypto from 'node:crypto'
 import { and, desc, eq, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
@@ -11,7 +11,7 @@ import {
   gtmRawSnapshots,
   projects,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   GOOGLE_MARKETING_LIVE_READ_SCOPE,
   GOOGLE_MARKETING_STORED_SNAPSHOT_PAGE_MAX,
@@ -81,7 +81,7 @@ import {
   type GtmWorkspaceListResponse,
   describeError,
   AppError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { assertNotProjectScoped, requireAdminSession, requireBroadInstanceKey, requireScope } from './auth.js'
 import { auditFromRequest, resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'

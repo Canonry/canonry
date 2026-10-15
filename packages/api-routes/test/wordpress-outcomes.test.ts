@@ -5,8 +5,8 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
-import { WordpressApiError, type WordpressConnectionRecord } from '@ainyc/canonry-integration-wordpress'
+import { createClient, migrate, projects } from '@canonry/canonry-db'
+import { WordpressApiError, type WordpressConnectionRecord } from '@canonry/canonry-integration-wordpress'
 import { apiRoutes, type OutcomeTelemetryEvent } from '../src/index.js'
 import { EgressRefusedError } from '../src/guarded-fetch.js'
 import { featureOutcomes } from './feature-outcome-capture.js'
@@ -69,7 +69,7 @@ const PAGE = { id: 7, slug: 'pricing', title: 'Pricing', status: 'draft', link: 
 
 describe('WordPress write outcomes', () => {
   it('reports page publishes: written, refused without a connection, and refused credentials', async () => {
-    const wordpress = await import('@ainyc/canonry-integration-wordpress')
+    const wordpress = await import('@canonry/canonry-integration-wordpress')
     const pageBody = { title: 'Pricing', slug: 'pricing', content: '<p>Plans</p>' }
     expect((await post('/pages', pageBody)).statusCode).toBe(400)
     connect()
@@ -87,7 +87,7 @@ describe('WordPress write outcomes', () => {
   })
 
   it('reports SEO meta writes by entries applied, left as manual steps, and errored', async () => {
-    const wordpress = await import('@ainyc/canonry-integration-wordpress')
+    const wordpress = await import('@canonry/canonry-integration-wordpress')
     connect()
     const bulk = vi.spyOn(wordpress, 'bulkSetSeoMeta')
     const entries = { entries: [{ slug: 'home', title: 'Home' }, { slug: 'about', title: 'About' }] }
@@ -109,7 +109,7 @@ describe('WordPress write outcomes', () => {
   })
 
   it('reports schema deploys by pages deployed, stripped or missing, and manual-only writes as skipped', async () => {
-    const wordpress = await import('@ainyc/canonry-integration-wordpress')
+    const wordpress = await import('@canonry/canonry-integration-wordpress')
     connect({ stagingUrl: 'https://staging.example.com' })
     const deploy = vi.spyOn(wordpress, 'deploySchemaFromProfile')
     deploy.mockResolvedValueOnce({
@@ -145,7 +145,7 @@ describe('WordPress write outcomes', () => {
   })
 
   it('reports the onboard meta and schema steps as the writes they are', async () => {
-    const wordpress = await import('@ainyc/canonry-integration-wordpress')
+    const wordpress = await import('@canonry/canonry-integration-wordpress')
     vi.spyOn(wordpress, 'verifyWordpressConnection').mockResolvedValue({
       url: 'https://example.com', reachable: true, pageCount: 1, version: '6.8.1', plugins: [], authenticatedUser: { id: 1, slug: 'admin' },
     })

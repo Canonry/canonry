@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClient, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@canonry/canonry-db'
 import { apiRoutes, type OutcomeTelemetryEvent } from '../src/index.js'
 import { featureOutcomes } from './feature-outcome-capture.js'
 

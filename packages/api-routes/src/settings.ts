@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import type { ProviderModelRegistry, ProviderQuotaPolicy, ProviderReloadRequest } from '@ainyc/canonry-contracts'
+import type { ProviderModelRegistry, ProviderQuotaPolicy, ProviderReloadRequest } from '@canonry/canonry-contracts'
 import {
   AppError,
   validationError,
@@ -9,7 +9,7 @@ import {
   OutcomeStatuses,
   providerReloadRequestSchema,
   providerReloadResponseDtoSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { requireAdminSession, requireInstanceAdministrator, requireScope } from './auth.js'
 import { auditFromRequest, type AuditEntry } from './helpers.js'
 import { connectionRoute, outcomeProviderName } from './connection-telemetry.js'

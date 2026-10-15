@@ -15,7 +15,7 @@
  * 3. TypeScript enforces the schema name is registered — typos become
  *    compile errors, not silent broken `$ref`s.
  *
- * If a response shape has no matching Zod schema in `@ainyc/canonry-contracts`,
+ * If a response shape has no matching Zod schema in `@canonry/canonry-contracts`,
  * either:
  *   (a) add it to contracts first (preferred — keeps contracts the single
  *       source of truth), or
@@ -23,9 +23,9 @@
  *       hatch and TODO it for migration.
  */
 import { z, type ZodType } from 'zod'
-import { sentimentSummarySchema, sentimentSettingsSchema, sentimentSettingsUpdateSchema, sentimentEvidencePageSchema, sentimentComparisonSchema, sentimentBackfillPreviewSchema, sentimentBackfillRequestSchema, sentimentJobsSchema, sentimentJobSchema } from '@ainyc/canonry-contracts'
-import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
-import { queryTrackingWorkspaceResponseSchema, queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema, queryTrackingCommitRequestSchema, queryTrackingCommitResponseSchema } from '@ainyc/canonry-contracts'
+import { sentimentSummarySchema, sentimentSettingsSchema, sentimentSettingsUpdateSchema, sentimentEvidencePageSchema, sentimentComparisonSchema, sentimentBackfillPreviewSchema, sentimentBackfillRequestSchema, sentimentJobsSchema, sentimentJobSchema } from '@canonry/canonry-contracts'
+import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
+import { queryTrackingWorkspaceResponseSchema, queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema, queryTrackingCommitRequestSchema, queryTrackingCommitResponseSchema } from '@canonry/canonry-contracts'
 import {
   agentProvidersResponseDtoSchema,
   applyPreviewDtoSchema,
@@ -328,7 +328,7 @@ import {
   wordpressSchemaDeployResultDtoSchema,
   wordpressSchemaStatusResultDtoSchema,
   wordpressStatusDtoSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /**
  * Schemas registered here become referenceable by their component name from

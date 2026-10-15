@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { ResultsExportFormat } from '@ainyc/canonry-contracts'
+import type { ResultsExportFormat } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 
 export interface ExportResultsOptions {

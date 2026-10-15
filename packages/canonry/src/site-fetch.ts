@@ -1,7 +1,7 @@
 import https from 'node:https'
-import { resolveWebhookTarget } from '@ainyc/canonry-api-routes'
-import { hostOf } from '@ainyc/canonry-contracts'
-import type { SafeWebhookTarget } from '@ainyc/canonry-api-routes'
+import { resolveWebhookTarget } from '@canonry/canonry-api-routes'
+import { hostOf } from '@canonry/canonry-contracts'
+import type { SafeWebhookTarget } from '@canonry/canonry-api-routes'
 
 const FETCH_TIMEOUT_MS = 10_000
 const MAX_TEXT_LENGTH = 4000

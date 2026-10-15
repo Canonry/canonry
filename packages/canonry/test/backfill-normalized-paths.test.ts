@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import * as contracts from '@ainyc/canonry-contracts'
+import * as contracts from '@canonry/canonry-contracts'
 import {
   createClient,
   gaTrafficSnapshots,
   migrate,
   projects,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { eq, sql } from 'drizzle-orm'
 import { backfillNormalizedPaths, backfillNormalizedPathsCommand } from '../src/commands/backfill.js'
 

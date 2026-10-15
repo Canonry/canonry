@@ -7,7 +7,7 @@ import {
   RunKinds,
   truncateUtf16,
   type CompetitorAutoAliasMode,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { CliError } from '../cli-error.js'
 import { runWithUsageTags, type ApiClient } from '../client.js'
 import {

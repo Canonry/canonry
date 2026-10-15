@@ -4,7 +4,7 @@ import {
   MEASUREMENT_DRAFT_MAX_AUTHORING_BYTES,
   MEASUREMENT_DRAFT_MAX_GROUPS,
   measurementDraftAuthoringSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   applyAssignmentsToAuthoring,
   applyDraftAction,

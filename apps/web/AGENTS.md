@@ -41,7 +41,7 @@ subtle borders, no visual noise.
 
 ### Build workflow
 
-`pnpm --filter @ainyc/canonry-web build` builds into a temporary directory before updating `dist/`.
+`pnpm --filter @canonry/canonry-web build` builds into a temporary directory before updating `dist/`.
 It reuses output only when source, workspace dependencies, configuration, build environment, and output contents match the cache.
 The cache lives under `.tmp/web-build/`. `build --force` bypasses it. `pnpm build:web` also copies the SPA into Canonry.
 The cache includes Vite's resolved environment, including variable expansion and symlinked environment files.
@@ -272,7 +272,7 @@ supplies the initial error signal, and live property errors appear on opening
 setup or refreshing properties. Both resubmit actions wait for a sitemap load.
 
 **Every web call into the canonry API MUST flow through the generated
-`@ainyc/canonry-api-client` SDK.** Raw `fetch()` and `XMLHttpRequest` are
+`@canonry/canonry-api-client` SDK.** Raw `fetch()` and `XMLHttpRequest` are
 banned in `apps/web/src/` (ESLint-enforced) — the only exceptions are
 `src/api.ts` and `src/api-aero.ts`, which are the SDK wrappers /
 EventSource consumers respectively.
@@ -287,12 +287,12 @@ Two ways to call the API; pick by what you're building:
 
 **1. TanStack Query hooks (preferred for cached reads + mutations)** —
 generated `<op>Options(...)` / `<op>QueryKey(...)` / `<op>Mutation(...)`
-helpers from `@ainyc/canonry-api-client/react-query`, passing the
+helpers from `@canonry/canonry-api-client/react-query`, passing the
 exported `heyClient` from `src/api.ts`:
 
 ```typescript
 import { useQuery } from '@tanstack/react-query'
-import { getApiV1ProjectsByNameOptions } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1ProjectsByNameOptions } from '@canonry/canonry-api-client/react-query'
 import { heyClient } from '../api.js'
 
 function useProject(name: string) {
@@ -605,7 +605,7 @@ consistent):
 raw Tailwind palette utility across the whole `apps/web/src` tree; only
 `ProviderBadge` + `ChartPrimitives` are permanently excluded (engine identity /
 chart hex fallbacks). The migration allowlist has been emptied and removed, so any
-new literal palette utility now fails lint. `pnpm --filter @ainyc/canonry-web scan:colors`
+new literal palette utility now fails lint. `pnpm --filter @canonry/canonry-web scan:colors`
 reports per-file counts (now 0 — a progress view; the lint rule is the gate). New
 themeable UI must use a semantic or scale token; if you ever introduce a run of
 literals, migrate them in the same PR (class-only, no redesign) and keep these

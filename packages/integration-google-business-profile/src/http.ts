@@ -1,4 +1,4 @@
-import { describeFetchError, withRetry } from '@ainyc/canonry-contracts'
+import { describeFetchError, withRetry } from '@canonry/canonry-contracts'
 import { GBP_REQUEST_TIMEOUT_MS } from './constants.js'
 import { GbpApiError } from './types.js'
 import type { GbpFetchOptions } from './types.js'
@@ -50,7 +50,7 @@ function extractQuotaLimitValue(body: unknown): number | null {
  *   - 503 Service Unavailable  → retry (transient).
  *   - Everything else (401/403/404/4xx/5xx) → don't retry.
  *
- * Passed to the shared `withRetry` from `@ainyc/canonry-contracts`, which
+ * Passed to the shared `withRetry` from `@canonry/canonry-contracts`, which
  * handles the actual loop / backoff math.
  */
 function isRetryable(err: unknown): boolean {
@@ -109,7 +109,7 @@ async function gbpFetchOnce<T>(url: string, accessToken: string, opts: GbpFetchO
  * or on a non-retryable error).
  *
  * The retry math (jittered exponential backoff) lives in the shared
- * `withRetry` helper in `@ainyc/canonry-contracts`. The only GBP-specific
+ * `withRetry` helper in `@canonry/canonry-contracts`. The only GBP-specific
  * piece is the `isRetryable` predicate above, which distinguishes a
  * transient rate limit (retryable) from the 0-QPM access-form gate (not).
  *

@@ -4,9 +4,9 @@ import {
   CheckScopes,
   CheckStatuses,
   describeError,
-} from '@ainyc/canonry-contracts'
-import { auditLog, bingCoverageSnapshots, bingKeywordStats, bingUrlInspections } from '@ainyc/canonry-db'
-import { getSites } from '@ainyc/canonry-integration-bing'
+} from '@canonry/canonry-contracts'
+import { auditLog, bingCoverageSnapshots, bingKeywordStats, bingUrlInspections } from '@canonry/canonry-db'
+import { getSites } from '@canonry/canonry-integration-bing'
 import type { CheckDefinition, DoctorContext, ProjectInfo } from '../types.js'
 
 const BING_CONNECTION_ENTITY = 'bing_connection'

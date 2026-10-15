@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import Fastify from 'fastify'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
-import { AppError, googleConnectionDtoSchema } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects } from '@canonry/canonry-db'
+import { AppError, googleConnectionDtoSchema } from '@canonry/canonry-contracts'
 import { googleRoutes, type GoogleConnectionRecord } from '../src/google.js'
 
 const NOW = '2026-10-14T00:00:00.000Z'

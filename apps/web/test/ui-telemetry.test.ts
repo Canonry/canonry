@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { UiTelemetryEvent } from '@ainyc/canonry-contracts'
-import { uiTelemetryEventSchema } from '@ainyc/canonry-contracts'
+import type { UiTelemetryEvent } from '@canonry/canonry-contracts'
+import { uiTelemetryEventSchema } from '@canonry/canonry-contracts'
 import {
   configureUiTelemetry,
   recordUiApiResult,

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { AgentViewContext } from '@ainyc/canonry-contracts'
+import type { AgentViewContext } from '@canonry/canonry-contracts'
 
 interface PublishedView { project: string; context: AgentViewContext }
 const AeroView = createContext<{ view: PublishedView | null; publish: (view: PublishedView) => () => void }>({ view: null, publish: () => () => {} })

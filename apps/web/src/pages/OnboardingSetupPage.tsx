@@ -10,7 +10,7 @@ import {
   getApiV1TelemetryOptions,
   getApiV1TelemetryQueryKey,
   putApiV1TelemetryMutation,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import {
   ApiError,
@@ -29,7 +29,7 @@ import {
   SITE_AUDIT_ONBOARDING_PAGE_LIMIT,
   type OnboardingSurface as OnboardingTelemetrySurface,
   type OnboardingTelemetryEvent,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { asyncHandler } from '../lib/async-handler.js'
 import { addToast } from '../lib/toast-store.js'
 import {
