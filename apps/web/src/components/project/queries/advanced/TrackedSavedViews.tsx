@@ -1,7 +1,9 @@
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import type { QueryTrackingViews, QueryTrackingWeakMarkets } from '@ainyc/canonry-contracts'
 
 import { InfoTooltip } from '../../../shared/InfoTooltip.js'
+import { Button } from '../../../ui/button.js'
 
 /** The views that list places or patterns in place of the queries. Each is a value of the URL's `trackedView`. */
 export const TRACKED_PLACE_VIEWS = ['no-location-queries', 'thin-markets', 'pattern-gaps', 'weak-markets'] as const
@@ -46,30 +48,7 @@ function shortHelp(view: TrackedPlaceView, floor: number): string {
   }
 }
 
-// The ring is clear of the border, so focus shows as plainly on a view that is on as on one that is off.
-const VIEW = 'group inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-[13px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 focus-visible:ring-offset-2 focus-visible:ring-offset-bg pointer-coarse:h-11 max-md:h-11'
-const VIEW_OFF = 'border-default bg-surface/50 text-strong hover:border-strong hover:text-heading'
-// A view with none: the same button with its name and its number set back, so the views that hold something stand out. Under the pointer it reads as any other.
-const VIEW_EMPTY = 'border-default bg-surface/50 text-muted hover:border-strong hover:text-heading'
-// The same weight on and off, so choosing a view moves no button.
-const VIEW_ON = 'border-mono-400 bg-surface text-heading'
-
-/**
- * The saved views of the Tracked page: one row of rectangular buttons under
- * the number strip, each with the server's own count. Presentation only: the
- * caller holds which views are on and what choosing one does. Every count is
- * a field of a read, never a count of rows. A view with none still opens, and
- * is drawn quieter while it is off (`data-empty`); a view with no number yet
- * is not.
- * What each view lists is one help beside "Views", so it can be read before a
- * view is opened and on a screen with no hover. The label stays put on a
- * narrow screen and the buttons scroll beside it, with the view that is on
- * brought into sight. Weakest markets reads the last sweep's non-brand
- * results, so it names that type to a screen reader. It keeps its place with
- * no number while those results load (`pending`) and after they fail
- * (`failed`), so the row does not move, and it is not drawn where there is no
- * sweep to read.
- */
+/** Saved place views and quick filters, disclosed only when choosing one. The caller owns every selection and count. */
 export function TrackedSavedViews({ views, weakMarkets, notAsked, handPicked, active, onSelect }: {
   views: QueryTrackingViews
   /** The results read's field, `pending` while that read is in flight, or `failed` when it did not load. Left out with no sweep to read, and the view with it. */
@@ -81,8 +60,18 @@ export function TrackedSavedViews({ views, weakMarkets, notAsked, handPicked, ac
   active: readonly TrackedSavedView[]
   onSelect: (view: TrackedSavedView) => void
 }) {
-  const labelId = useId()
-  const scroller = useRef<HTMLDivElement>(null)
+  const panelId = useId()
+  const trigger = useRef<HTMLButtonElement>(null)
+  const container = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !container.current?.contains(event.target)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', outside)
+    return () => document.removeEventListener('pointerdown', outside)
+  }, [open])
   const { floor } = views.thinMarkets
   const items: { view: TrackedSavedView; count: number | 'pending' | undefined; note?: string }[] = [
     { view: 'no-location-queries', count: views.noPropertyQueries.count },
@@ -97,42 +86,41 @@ export function TrackedSavedViews({ views, weakMarkets, notAsked, handPicked, ac
     'Not asked, Hand-picked: filter the list.',
   ].join(' ')
 
-  // On a phone the buttons are one line that scrolls, and a view opened from a link can be out of it. The line is moved, never the page.
-  const on = active.join(' ')
-  useEffect(() => {
-    const line = scroller.current
-    const pressed = line?.querySelector('[aria-pressed="true"]')
-    if (!line || !pressed) return
-    const [frame, button] = [line.getBoundingClientRect(), pressed.getBoundingClientRect()]
-    // 4px past the button, for its focus ring.
-    if (button.left < frame.left) line.scrollLeft -= frame.left - button.left + 4
-    else if (button.right > frame.right) line.scrollLeft += button.right - frame.right + 4
-  }, [on])
+  const activeLabels = items.filter(item => active.includes(item.view)).map(item => TRACKED_VIEW_LABEL[item.view])
+  const close = () => {
+    setOpen(false)
+    trigger.current?.focus()
+  }
 
   return (
-    <div className="flex items-start gap-2 border-b border-default py-2">
-      {/* The help is beside the label, never inside it, so the group is named "Views" alone. As tall as a button, so it stays on the first line where they wrap. */}
-      <div className="flex h-8 shrink-0 items-center pointer-coarse:h-11 max-md:h-11">
-        <span id={labelId} className="text-[13px] leading-5 text-secondary">Views</span>
-        {/* Hung from the icon's left edge, so the bubble stays inside the page's column. */}
-        <InfoTooltip text={help} placement="bottom" align="start" />
-      </div>
-      {/* One line that scrolls inside itself where the row is too narrow. The padding is room for a focus ring. */}
-      <div ref={scroller} role="group" aria-labelledby={labelId} className="-my-1 flex min-w-0 items-center gap-2 overflow-x-auto p-1 md:flex-wrap">
-        {items.map(({ view, count, note }) => {
-          const pressed = active.includes(view)
-          const empty = count === 0
-          // A view that is on reads the same whatever it holds.
-          const quiet = empty && !pressed
-          return (
-            // Named in full, since the gap before the number is only drawn: "Thin markets, 11". The type a number is of travels in the name, for a reader who hears only this button.
-            <button key={view} type="button" aria-pressed={pressed} data-empty={empty ? '' : undefined} aria-label={[TRACKED_VIEW_LABEL[view], note, typeof count === 'number' ? whole(count) : undefined].filter(Boolean).join(', ')} className={`${VIEW} ${pressed ? VIEW_ON : quiet ? VIEW_EMPTY : VIEW_OFF}`} onClick={() => onSelect(view)}>
-              {TRACKED_VIEW_LABEL[view]}
+    <div ref={container} className="relative inline-block min-w-0 max-w-full shrink-0" onKeyDown={event => {
+      if (event.key === 'Escape' && open) {
+        event.stopPropagation()
+        close()
+      }
+    }}>
+      <Button ref={trigger} type="button" variant="outline" size="sm" className="h-8 max-w-full text-[13px] pointer-coarse:h-11 max-md:h-11" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(value => !value)}>
+        <span className="truncate">{activeLabels.length > 0 ? `Views · ${activeLabels.join(', ')}` : 'Views'}</span>
+        <ChevronDown aria-hidden="true" className={`size-3.5 shrink-0 transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`} />
+      </Button>
+      <div id={panelId} hidden={!open} className="absolute right-0 top-full z-20 mt-2 max-h-[70vh] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-md border border-default bg-bg p-2 shadow-lg">
+        <div className="mb-1 flex items-center text-[13px] text-secondary">
+          Choose a view
+          <InfoTooltip text={help} placement="bottom" align="start" />
+        </div>
+        <div role="group" aria-label="Views" className="grid gap-1">
+          {items.map(({ view, count, note }) => {
+            const pressed = active.includes(view)
+            return <Button key={view} type="button" variant={pressed ? 'secondary' : 'ghost'} size="sm" aria-pressed={pressed} aria-label={[TRACKED_VIEW_LABEL[view], note, typeof count === 'number' ? whole(count) : undefined].filter(Boolean).join(', ')} className="min-w-0 justify-between gap-2 text-[13px] pointer-coarse:min-h-11 max-md:min-h-11" onClick={() => {
+              onSelect(view)
+              close()
+            }}>
+              <span className="truncate">{TRACKED_VIEW_LABEL[view]}</span>
               {count === 'pending' ? <span aria-hidden="true" className="skeleton-text w-3" />
-                : count !== undefined ? <span className={`tabular-nums ${quiet ? 'group-hover:text-secondary' : 'text-secondary'}`}>{whole(count)}</span> : null}
-            </button>
-          )
-        })}
+                : count !== undefined ? <span className="tabular-nums text-secondary">{whole(count)}</span> : null}
+            </Button>
+          })}
+        </div>
       </div>
     </div>
   )

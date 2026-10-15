@@ -1,5 +1,5 @@
 import { forwardRef, useId, useState, type CSSProperties, type ReactNode } from 'react'
-import { AlertTriangle, Ban, ChevronRight, Loader, type LucideProps } from 'lucide-react'
+import { AlertTriangle, ChevronRight, Loader, type LucideProps } from 'lucide-react'
 import type { QueryTrackingGroup, QueryTrackingLimits, QueryTrackingMarket, QueryTrackingSummary, QueryTrackingTarget } from '@ainyc/canonry-contracts'
 
 import { formatObservedInstantLabel, formatObservedInstantMonthDay, observedInstant, observedInstantYear } from '../../../shared/ChartPrimitives.js'
@@ -13,7 +13,7 @@ export type TrackedSummaryPlace =
   | { kind: 'location'; target: QueryTrackingTarget }
   | { kind: 'group'; group: QueryTrackingGroup }
 
-interface Stat { label: string; value: number; of?: number; help?: string }
+interface Stat { label: string; value: number; help?: string }
 
 const whole = (value: number) => value.toLocaleString('en-US')
 /** The cells that have a number to print, in order. */
@@ -29,15 +29,12 @@ const HELP = {
 /** A list the server returned gives its length; one it left out gives no cell. Nothing is counted in its place. */
 const listed = (label: string, list: readonly unknown[] | undefined): Stat | false => list !== undefined && { label, value: list.length }
 
-function projectStats(summary: QueryTrackingSummary, limits: QueryTrackingLimits | undefined): Stat[] {
-  const queries = limits?.queries
-  return cells([
+function projectStats(summary: QueryTrackingSummary): Stat[] {
+  return [
     { label: 'Queries asked', value: summary.asked },
     { label: 'Non-brand', value: summary.byClass.nonBrand },
     { label: 'Branded', value: summary.byClass.branded },
-    { label: 'Answers per sweep', value: summary.answersPerSweep, help: HELP.answers },
-    queries?.left && { label: 'Left under limit', value: queries.left.current, of: queries.max },
-  ])
+  ]
 }
 
 /**
@@ -47,6 +44,7 @@ function projectStats(summary: QueryTrackingSummary, limits: QueryTrackingLimits
  */
 function detailStats(summary: QueryTrackingSummary): Stat[] {
   return cells([
+    { label: 'Answers per sweep', value: summary.answersPerSweep, help: HELP.answers },
     { label: 'Market queries', value: summary.byFocus.market },
     { label: 'Location queries', value: summary.byFocus.property },
     { label: 'Hand-picked queries', value: summary.byFocus.custom },
@@ -121,14 +119,6 @@ const SWEEP_BOX = 'min-w-[10rem] flex-1 contain-inline-size [clip-path:inset(-0.
 const SWEEP = '-ml-4 flex flex-wrap items-center'
 const SWEEP_PART = 'flex items-center whitespace-nowrap'
 const SWEEP_DOT = 'w-4 shrink-0 text-center'
-// Details stands on the strip's own columns, so each number is under one of the strip's: two and three columns
-// as the strip has them, and from 62rem the columns of the row. From there each number's cell keeps room for the
-// labels that open under it, unseen and as generated text, so opening Details moves no column. A row narrower
-// than that cannot hold every label on its own columns, so there Details is four columns of its own.
-const DETAILS = 'col-span-full grid grid-cols-subgrid border-t border-subtle @[52rem]:@max-[62rem]:grid-cols-4'
-const DETAIL_CELL = 'min-w-0 border-subtle py-3 @xl:pr-4'
-const RESERVE = 'invisible hidden h-0 whitespace-nowrap text-[13px] font-normal before:content-[attr(data-reserve)] @[62rem]:block'
-
 /** A place's four numbers or fewer fit one row sooner than five do. */
 const shapeOf = (count: number, place: boolean): Shape => place && count <= 4 ? 'few' : 'many'
 /** The row's columns: one for each number and two for the last cell. */
@@ -156,11 +146,6 @@ function lastCellClass(count: number, shape: Shape): string {
   return `${LAST}${three}${row} ${ROW[shape].flat}`
 }
 
-/** A Details cell is set in from every column but the first, behind a hairline wherever the strip draws one. */
-function detailCellClass(index: number, columns: number): string {
-  return `${DETAIL_CELL}${index % 2 ? ' @max-xl:pl-4' : ''}${index % 3 ? ' @xl:@max-[52rem]:border-l @xl:@max-[52rem]:pl-4' : ''}${index % 4 ? ' @[52rem]:@max-[62rem]:border-l @[52rem]:@max-[62rem]:pl-4' : ''}${index % columns ? ' @[62rem]:border-l @[62rem]:pl-4' : ''}`
-}
-
 const LABEL = 'flex items-center text-[13px] leading-5 text-secondary'
 const NUMBER = 'text-[19px] font-semibold leading-7 tabular-nums text-heading'
 const LINK = 'inline-flex items-center gap-1 rounded-sm font-medium text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 pointer-coarse:min-h-11 max-md:min-h-11'
@@ -176,17 +161,12 @@ function sweepDate(at: string): string {
   return observedInstantYear(instant) === new Date().getFullYear() ? formatObservedInstantMonthDay(instant) : formatObservedInstantLabel(instant)
 }
 
-function StatCell({ stat, className, numberClassName = NUMBER, reserve }: { stat: Stat; className: string; numberClassName?: string; reserve?: readonly Stat[] }) {
+function StatCell({ stat, className, numberClassName = NUMBER, onClick }: { stat: Stat; className: string; numberClassName?: string; onClick?: () => void }) {
   return (
     <div className={className}>
       <dt className={LABEL}>{stat.label}{stat.help ? <InfoTooltip text={stat.help} /> : null}</dt>
       <dd className={numberClassName}>
-        {/* The limit is spent: the note stands where the number was, on the number's own line. */}
-        {stat.of !== undefined && stat.value === 0
-          ? <span className="flex min-h-7 items-center"><StatusNote icon={Ban} tone="negative" label="Limit reached" detail={`The limit is ${whole(stat.of)} queries. Stop tracking one to add another.`} /></span>
-          : <>{whole(stat.value)}{stat.of !== undefined ? <span className="text-[13px] font-normal text-secondary"> of {whole(stat.of)}</span> : null}</>}
-        {/* Room for each label that opens under this number, and for its help icon. */}
-        {reserve?.map(below => <span key={below.label} aria-hidden="true" data-reserve={below.label} className={`${RESERVE}${below.help ? ' pr-5' : ''}`} />)}
+        {onClick ? <button type="button" className={LINK} aria-label={`${whole(stat.value)} not asked`} onClick={onClick}>{whole(stat.value)}</button> : whole(stat.value)}
       </dd>
     </div>
   )
@@ -202,7 +182,7 @@ function StatCell({ stat, className, numberClassName = NUMBER, reserve }: { stat
  * is not known yet. `nextSweepDate` is the schedule's own date ("Oct 21"); a
  * sweep under way (`sweepActive`) takes its place.
  */
-export function TrackedSummaryGrid({ summary, limits, place, lastSweepAt, nextSweepDate, sweepActive = false, onShowNotAsked, onRetry }: {
+export function TrackedSummaryGrid({ summary, place, lastSweepAt, nextSweepDate, sweepActive = false, onShowNotAsked, onRetry }: {
   summary: QueryTrackingSummary | undefined
   limits?: QueryTrackingLimits
   place?: TrackedSummaryPlace
@@ -216,9 +196,8 @@ export function TrackedSummaryGrid({ summary, limits, place, lastSweepAt, nextSw
 }) {
   const [open, setOpen] = useState(false)
   const detailsId = useId()
-  const stats = place ? placeStats(place) : summary ? projectStats(summary, limits) : null
+  const stats = place ? placeStats(place) : summary ? projectStats(summary) : null
   const details = !place && summary ? detailStats(summary) : null
-  const notAsked = !place && summary ? summary.notAsked : 0
   // Without its numbers the strip is one note over the full row of three.
   const count = stats?.length ?? 3
   const shape = shapeOf(count, place !== undefined)
@@ -227,61 +206,66 @@ export function TrackedSummaryGrid({ summary, limits, place, lastSweepAt, nextSw
   if (sweepActive) sweep.push(<StatusNote key="next" icon={Turning} label="Sweep running" detail="Answers are being collected now. Numbers update when the sweep finishes." />)
   else if (nextSweepDate) sweep.push(<span key="next">Next {nextSweepDate}</span>)
 
+  const sweepDates = sweep.length > 0 ? (
+    <div className={SWEEP_BOX}>
+      <p className={SWEEP}>
+        {sweep.map((part, index) => <span key={index} className={SWEEP_PART}><span aria-hidden="true" className={SWEEP_DOT}>{index > 0 ? '·' : null}</span>{part}</span>)}
+      </p>
+    </div>
+  ) : null
+  const unavailable = <StatusNote
+    icon={AlertTriangle}
+    tone="caution"
+    label="Numbers unavailable"
+    detail="These numbers did not load."
+    action={onRetry ? <Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11 max-md:min-h-11" onClick={onRetry}>Retry</Button> : undefined}
+  />
+
+  if (!place) return (
+    <div className="@container border-b border-default">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3">
+        {stats ? <dl className="flex min-w-0 flex-wrap items-baseline gap-x-5 gap-y-1">
+          {stats.map((stat, index) => <StatCell key={stat.label} stat={stat} className="flex min-w-0 flex-row-reverse items-baseline gap-1.5" numberClassName={index === 0 ? NUMBER : 'text-[13px] tabular-nums text-secondary'} />)}
+        </dl> : unavailable}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 text-[13px] leading-5 text-secondary">
+          {sweepDates}
+          {details ? <button type="button" className={LINK} aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen(value => !value)}>
+            Details
+            <ChevronRight aria-hidden="true" className={`size-3.5 transition-transform motion-reduce:transition-none ${open ? 'rotate-90' : ''}`} />
+          </button> : null}
+        </div>
+      </div>
+      {details ? <div id={detailsId} hidden={!open} className="border-t border-subtle py-3">
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 @lg:grid-cols-3 @3xl:grid-cols-4">
+          {details.map(stat => <StatCell key={stat.label} stat={stat} className="min-w-0" numberClassName="text-[15px] font-medium leading-6 tabular-nums text-heading" onClick={stat.label === 'Not asked' && stat.value > 0 ? onShowNotAsked : undefined} />)}
+        </dl>
+      </div> : null}
+    </div>
+  )
+
   return (
     <div className="@container">
       <div className={`${STRIP} ${ROW[shape].strip}`} style={stripStyle(count)}>
-        {stats ? (
-          <dl className="contents">
-            {stats.map((stat, index) => <StatCell key={stat.label} stat={stat} className={cellClass(index, count, shape)} reserve={details?.filter((_, below) => below % (count + 2) === index)} />)}
-          </dl>
-        ) : (
-          <div className="col-span-2 flex min-h-[4.5rem] min-w-0 items-center py-3 @xl:col-span-3 @xl:pr-4">
-            <StatusNote
-              icon={AlertTriangle}
-              tone="caution"
-              label="Numbers unavailable"
-              detail="These numbers did not load."
-              action={onRetry ? <Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11 max-md:min-h-11" onClick={onRetry}>Retry</Button> : undefined}
-            />
-          </div>
-        )}
-        {details || sweep.length > 0 ? (
-          <div className={lastCellClass(count, shape)}>
-            {details ? (
-              <div className="flex flex-wrap items-center gap-x-3">
-                <button type="button" className={LINK} aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen(value => !value)}>
-                  Details
-                  <ChevronRight aria-hidden="true" className={`size-3.5 transition-transform motion-reduce:transition-none ${open ? 'rotate-90' : ''}`} />
-                </button>
-                {notAsked > 0 ? (onShowNotAsked
-                  ? <button type="button" className={`${LINK} tabular-nums`} onClick={onShowNotAsked}>{whole(notAsked)} not asked</button>
-                  : <span className="tabular-nums">{whole(notAsked)} not asked</span>) : null}
-              </div>
-            ) : null}
-            {sweep.length > 0 ? (
-              <div className={SWEEP_BOX}>
-                <p className={SWEEP}>
-                  {sweep.map((part, index) => <span key={index} className={SWEEP_PART}><span aria-hidden="true" className={SWEEP_DOT}>{index > 0 ? '·' : null}</span>{part}</span>)}
-                </p>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-        {details ? (
-          <div id={detailsId} hidden={!open} className={DETAILS}>
-            <dl className="contents">
-              {details.map((stat, index) => <StatCell key={stat.label} stat={stat} className={detailCellClass(index, count + 2)} numberClassName="text-[15px] font-semibold leading-6 tabular-nums text-heading" />)}
-            </dl>
-          </div>
-        ) : null}
+        {stats ? <dl className="contents">
+          {stats.map((stat, index) => <StatCell key={stat.label} stat={stat} className={cellClass(index, count, shape)} />)}
+        </dl> : <div className="col-span-2 flex min-h-[4.5rem] min-w-0 items-center py-3 @xl:col-span-3 @xl:pr-4">{unavailable}</div>}
+        {sweepDates ? <div className={lastCellClass(count, shape)}>{sweepDates}</div> : null}
       </div>
     </div>
   )
 }
 
-/** The strip while the workspace loads: the same cells at the same height, so nothing jumps when the numbers land. A place has four numbers, the project five. */
+/** Loading space for the compact project summary (the default) or a place’s number strip. */
 export function TrackedSummaryGridSkeleton({ cells = 5 }: { cells?: number }) {
   const shape = shapeOf(cells, true)
+  if (cells === 5) return (
+    <div className="@container border-b border-default" aria-hidden="true">
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3"><div className="skeleton-text w-32" /><div className="skeleton-text w-24" /><div className="skeleton-text w-20" /></div>
+        <div className="flex h-8 items-center pointer-coarse:h-11 max-md:h-11"><div className="skeleton-text w-40" /></div>
+      </div>
+    </div>
+  )
   return (
     <div className="@container" aria-hidden="true"><div className={`${STRIP} ${ROW[shape].strip}`} style={stripStyle(cells)}>
       {Array.from({ length: cells }, (_, index) => (

@@ -2,6 +2,7 @@ import React from 'react'
 import { expect, onTestFinished, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider, useRouterState } from '@tanstack/react-router'
 
 import { QueriesSection } from '../../src/components/project/DiscoverySection.js'
 import { AccountProvider } from '../../src/contexts/account-context.js'
@@ -101,8 +102,32 @@ export function preview(overrides: Record<string, unknown> = {}) {
   }
 }
 
-export function renderWorkspace(props: Partial<React.ComponentProps<typeof QueriesSection>> = {}) {
+/** The section's real route boundary; form and list tests still supply their own API and host props. */
+export function renderQuerySection(props: React.ComponentProps<typeof QueriesSection>, role?: 'viewer') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+  const SectionProps = React.createContext(props)
+  function RouteContent() {
+    const current = React.useContext(SectionProps)
+    const addQueriesPage = useRouterState({ select: state => state.location.pathname.endsWith('/queries/add') })
+    return <QueriesSection key={addQueriesPage ? 'add' : 'list'} {...current} addQueriesPage={addQueriesPage} />
+  }
+  const root = createRootRoute({ component: RouteContent, validateSearch: (search: Record<string, unknown>) => search })
+  const list = createRoute({ getParentRoute: () => root, path: '/projects/$projectName/queries' })
+  const add = createRoute({ getParentRoute: () => root, path: '/projects/$projectName/queries/add' })
+  const router = createRouter({
+    routeTree: root.addChildren([list, add]),
+    history: createMemoryHistory({ initialEntries: [`/projects/${encodeURIComponent(props.projectName)}/queries`] }),
+  })
+  const section = (next: React.ComponentProps<typeof QueriesSection>) => {
+    const content = <SectionProps.Provider value={next}><QueryClientProvider client={queryClient}><RouterProvider router={router} /></QueryClientProvider></SectionProps.Provider>
+    return role ? <AccountProvider account={{ name: role, role }}>{content}</AccountProvider> : content
+  }
+  const view = render(section(props))
+  return { queryClient, router, rerender: (next: Partial<React.ComponentProps<typeof QueriesSection>>) => view.rerender(section({ ...props, ...next })) }
+}
+
+export function renderWorkspace(props: Partial<React.ComponentProps<typeof QueriesSection>> = {}) {
   const base = {
     projectName: 'demo',
     queryWorkspace: 'tracked' as const,
@@ -114,14 +139,11 @@ export function renderWorkspace(props: Partial<React.ComponentProps<typeof Queri
     onTrackingQueryIdChange: vi.fn(),
   }
   const all = { ...base, ...props }
-  const section = (next: typeof all) => <QueryClientProvider client={queryClient}><QueriesSection {...next} /></QueryClientProvider>
-  const view = render(section(all))
   // `rerender` draws the section again with other props, as the host does when the URL changes.
-  return { ...all, queryClient, rerender: (next: Partial<React.ComponentProps<typeof QueriesSection>>) => view.rerender(section({ ...all, ...next })) }
+  return { ...all, ...renderQuerySection(all) }
 }
 
 export function renderViewerWorkspace(props: Partial<React.ComponentProps<typeof QueriesSection>> = {}) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const all = {
     projectName: 'demo',
     queryWorkspace: 'tracked' as const,
@@ -129,11 +151,7 @@ export function renderViewerWorkspace(props: Partial<React.ComponentProps<typeof
     selection: { measurementScope: 'project' as const, queryClass: 'all' as const },
     ...props,
   }
-  render(
-    <AccountProvider account={{ name: 'viewer', role: 'viewer' }}>
-      <QueryClientProvider client={queryClient}><QueriesSection {...all} /></QueryClientProvider>
-    </AccountProvider>,
-  )
+  renderQuerySection(all, 'viewer')
   return all
 }
 
@@ -168,10 +186,10 @@ export function chooseContext(location = 'New York') {
 /** The Tracked page's Add button, which names the Place when the page is narrowed to one market or one location. */
 export const addButton = () => screen.getByRole('button', { name: /^Add (queries|market query|location query)$/ })
 
-/** An advanced project opens the Add queries sheet first; its link opens the Add query form the legacy-form tests cover. */
-export function openLegacyAdd() {
+/** The Add page's link opens the additional query form the legacy-form tests cover. */
+export async function openLegacyAdd() {
   fireEvent.click(addButton())
-  fireEvent.click(screen.getByRole('button', { name: 'More ways to add' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'More ways to add' }))
 }
 
 /** Chooses an action from a Tracked row's menu. The actions that change tracking open a sheet under the action's name. */

@@ -22,6 +22,7 @@ import { DEFAULT_TRACKED_FILTERS } from './queries/advanced/tracked-filters.js'
 import type { TrackedFilters } from './queries/advanced/tracked-types.js'
 import { useTrackingComposer, type TrackedQueriesPageProps } from './queries/use-tracking-composer.js'
 import { canUseResearchWorkspace, effectiveQueryWorkspace, type QueryWorkspace } from '../../lib/project-scope.js'
+import { useAddQueriesNavigation } from './queries/AddQueriesEntry.js'
 import { useAccount } from '../../contexts/account-context.js'
 
 export { AddLocationQueryButton } from './queries/AddQueriesEntry.js'
@@ -42,6 +43,7 @@ export type PendingTrackingSource = SavedTrackingSource & { trackingSelection?: 
  */
 export interface QueriesSectionProps {
   projectName: string
+  addQueriesPage?: boolean
   queryWorkspace?: QueryWorkspace
   onQueryWorkspaceChange?: (workspace: QueryWorkspace) => void
   /** Left out when the URL names none: the research page picks where that lands. */
@@ -75,7 +77,7 @@ export interface QueriesSectionProps {
 }
 
 /** What the Tracked page gets from this host beside the composer's props. */
-export type TrackedPageHostProps = Pick<QueriesSectionProps, 'trackedView' | 'trackingChangedAt' | 'nextSweepDate' | 'rootLabel'> & {
+export type TrackedPageHostProps = Pick<QueriesSectionProps, 'addQueriesPage' | 'trackedView' | 'trackingChangedAt' | 'nextSweepDate' | 'rootLabel'> & {
   trackedFilters: TrackedFilters
   onTrackedFiltersChange: (patch: Partial<TrackedFilters>) => void
   /** Where the page portals its actions: the right of the Tracked | Research row, or the line under it in a narrow frame. Null until the row has mounted. */
@@ -89,6 +91,7 @@ export type TrackingPublishGuard = {
 
 export function QueriesSection({
   projectName,
+  addQueriesPage = false,
   queryWorkspace: controlledWorkspace,
   onQueryWorkspaceChange,
   researchMode: controlledResearchMode,
@@ -115,7 +118,7 @@ export function QueriesSection({
   const viewerResearchConfig = account?.role === 'viewer' ? getViewerResearchConfig() : null
   const showResearchWorkspace = canUseResearchWorkspace(account?.role, viewerResearchConfig)
   const requestedWorkspace = controlledWorkspace ?? uncontrolledWorkspace
-  const queryWorkspace = effectiveQueryWorkspace(requestedWorkspace, showResearchWorkspace)
+  const queryWorkspace = addQueriesPage ? 'tracked' : effectiveQueryWorkspace(requestedWorkspace, showResearchWorkspace)
   const researchMode = controlledResearchMode ?? uncontrolledResearchMode
   const trackedFilters = controlledTrackedFilters ?? uncontrolledTrackedFilters
 
@@ -154,7 +157,7 @@ export function QueriesSection({
     <section aria-labelledby="queries-heading">
       <h2 id="queries-heading" className="sr-only">Queries</h2>
       {/* The tab row keeps one height with or without actions, so the tabs never move. In a row too narrow for both, the actions take the first line under the rule. */}
-      <div className="@container">
+      {!addQueriesPage ? <div className="@container">
         <div className="grid @xl:grid-cols-[1fr_auto]">
           <div className="flex min-h-12 items-end border-b border-default" role="tablist" aria-label="Query workspace">
             <WorkspaceTab active={queryWorkspace === 'tracked'} label="Tracked" onClick={() => selectWorkspace('tracked')} />
@@ -163,9 +166,11 @@ export function QueriesSection({
           <div ref={setActionsSlot} className="flex flex-wrap items-center justify-end gap-2 pt-3 empty:hidden @xl:border-b @xl:border-default @xl:pt-0 @xl:pl-3" />
         </div>
       </div>
+      : null}
       <div className="mt-4">
         {queryWorkspace === 'tracked' ? (
           <TrackedQueriesSection
+            addQueriesPage={addQueriesPage}
             projectName={projectName}
             selection={selection}
             onSelectionChange={onSelectionChange}
@@ -232,7 +237,11 @@ function TrackedQueriesSection({
   onPendingTrackingSourceHandled: () => void
 }) {
   const { canWrite } = useAccount()
-  const publish = useQueryTrackingPublish(projectName, { onCommitted: () => onTrackingQueryIdChange?.(undefined) })
+  const { returnToQueries } = useAddQueriesNavigation(projectName)
+  const publish = useQueryTrackingPublish(projectName, { onCommitted: () => {
+    if (host.addQueriesPage) returnToQueries(true)
+    else onTrackingQueryIdChange?.(undefined)
+  } })
   const workspaceQuery = useQuery({
     ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
   })
@@ -242,7 +251,14 @@ function TrackedQueriesSection({
   })
 
   if (workspaceQuery.isLoading) {
-    // An advanced page opens on its number strip, its Views row and its toolbar, so their room is held and the rows land where they were drawn.
+    if (host.addQueriesPage) return <div role="status" aria-label="Loading Add queries" className="mx-auto max-w-3xl py-6">
+      <div aria-hidden="true" className="space-y-6">
+        <div className="skeleton-text h-7 w-36" />
+        <div className="skeleton-text h-11 w-full" />
+        <div className="skeleton-text h-48 w-full" />
+      </div>
+    </div>
+    // Hold the compact summary and toolbar while the advanced workspace loads.
     const action = <div aria-hidden="true" className="skeleton-text h-8 w-28 pointer-coarse:h-11 max-md:h-11" />
     const wholeProject = selection.measurementScope === 'project'
     // A view's list draws no Export CSV, so a link that opens on one holds no room for it. A link to a row opens the queries.
@@ -253,15 +269,12 @@ function TrackedQueriesSection({
           {/* The page's actions take a line of their own in a narrow frame, so that line is held too: Export CSV for every role, and Add for a writer. */}
           {host.actionsSlot && !isEmbed() ? createPortal(<>{opensOnView ? null : action}{canWrite ? action : null}</>, host.actionsSlot) : null}
           <TrackedSummaryGridSkeleton cells={wholeProject ? 5 : 4} />
-          {/* The Views row is the whole project's, so its room is held only where no Place is chosen: its label and one line of buttons, as tall as the row's. */}
-          {wholeProject ? (
-            <div aria-hidden="true" className="flex items-center gap-2 overflow-hidden border-b border-default py-2">
-              <div className="skeleton-text w-12 shrink-0" />
-              {Array.from({ length: 6 }, (_, index) => <div key={index} className="skeleton-text h-8 w-28 shrink-0 pointer-coarse:h-11 max-md:h-11" />)}
-            </div>
-          ) : null}
           <div aria-hidden="true" className="py-3">
-            <div className="skeleton-text h-8 w-full max-md:h-11" />
+            <div className="flex items-center gap-2">
+              <div className="skeleton-text h-8 min-w-0 flex-1 pointer-coarse:h-11 max-md:h-11" />
+              <div className="skeleton-text h-8 w-20 shrink-0 pointer-coarse:h-11 max-md:h-11" />
+              {wholeProject ? <div className="skeleton-text h-8 w-20 shrink-0 pointer-coarse:h-11 max-md:h-11" /> : null}
+            </div>
             <div className="mt-2 flex h-5 items-center"><div className="skeleton-text w-24" /></div>
           </div>
         </> : null}
@@ -302,8 +315,8 @@ function TrackedQueriesSection({
       workspace={workspaceQuery.data}
       selection={selection}
       onSelectionChange={onSelectionChange}
-      trackingQueryId={trackingQueryId}
-      onTrackingQueryIdChange={onTrackingQueryIdChange}
+      trackingQueryId={host.addQueriesPage ? undefined : trackingQueryId}
+      onTrackingQueryIdChange={host.addQueriesPage ? undefined : onTrackingQueryIdChange}
       pendingTrackingSource={pendingTrackingSource}
       onPendingTrackingSourceHandled={onPendingTrackingSourceHandled}
       publishGuard={publishGuard}
@@ -324,6 +337,14 @@ const NO_TEMPLATES: readonly MeasurementQueryTemplate[] = []
 /** The mode gate: each mode has its own page. One composer sits above both, so a mode change keeps the open form, its draft and the search. */
 function TrackedQueriesGate(props: TrackedQueriesPageProps & TrackedPageHostProps) {
   const composer = useTrackingComposer(props)
+  const { returnToQueries } = useAddQueriesNavigation(props.projectName)
+  const { canWrite } = useAccount()
+  if (props.addQueriesPage && (!canWrite || isEmbed() || props.workspace.mode !== 'advanced')) return (
+    <section aria-label="Add queries" className="py-8 text-center">
+      <StatusNote icon={AlertTriangle} label={canWrite && !isEmbed() ? 'Open Queries to add a query' : 'View only'} />
+      <div className="mt-4"><Button type="button" variant="outline" onClick={() => returnToQueries()}>Back to queries</Button></div>
+    </section>
+  )
   const TrackedPage = props.workspace.mode === 'advanced' ? AdvancedTrackedPage : SimpleTrackedQueries
   return <TrackedPage {...props} composer={composer} />
 }

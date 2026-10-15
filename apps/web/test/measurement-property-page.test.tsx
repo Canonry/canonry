@@ -1,14 +1,14 @@
 import { afterEach, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { RouterProvider } from '@tanstack/react-router'
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router'
 
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { heyClient } from '../src/api.js'
-import { EVIDENCE_LABELS, OTHER_QUERIES_COPY } from '../src/pages/MeasurementPropertyPage.js'
+import { EVIDENCE_LABELS, MeasurementPropertyPage, OTHER_QUERIES_COPY } from '../src/pages/MeasurementPropertyPage.js'
 import { nameIssueDetail, PROPERTY_NAMES_COPY, PropertyNamesSection } from '../src/components/project/advanced-measurement/PropertyNamesEditor.js'
 import { AccountProvider, type SignedInAccount } from '../src/contexts/account-context.js'
 import {
@@ -21,7 +21,8 @@ import {
   queryTrackingWorkspaceResponseSchema,
   RunKinds,
 } from '@ainyc/canonry-contracts'
-import { createQueryClient } from '../src/queries/query-client.js'
+import { createQueryClient, DEFAULT_QUERY_STALE_MS } from '../src/queries/query-client.js'
+import { QueriesSection } from '../src/components/project/DiscoverySection.js'
 import { invalidateQueriesForRunKind } from '../src/queries/run-invalidations.js'
 import { formatMonthDay } from '../src/lib/format-helpers.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
@@ -3488,6 +3489,24 @@ describe('Add query about this location', () => {
     })
   }
 
+  /** Real sibling routes exercise navigation and unmounts while keeping this suite focused on location tracking. */
+  async function renderTrackingRoutes(handler: (url: string, init?: RequestInit) => Response | Promise<Response>, options: { account: SignedInAccount; queryClient?: QueryClient }) {
+    const fixture = createDashboardFixture({})
+    const projectName = fixture.dashboard.projects.find(project => project.project.id === 'project_citypoint')!.project.name
+    const queryClient = options.queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: DEFAULT_QUERY_STALE_MS } } })
+    onTestFinished(() => queryClient.clear())
+    onTestFinished(mockFetch(handler))
+    const root = createRootRoute({ component: Outlet, validateSearch: (search: Record<string, unknown>) => search })
+    const project = createRoute({ getParentRoute: () => root, path: '/projects/$projectName', component: Outlet })
+    const location = createRoute({ getParentRoute: () => project, path: '/properties/$targetKey', component: MeasurementPropertyPage })
+    const queries = createRoute({ getParentRoute: () => project, path: '/queries', component: () => <QueriesSection projectName={projectName} /> })
+    const add = createRoute({ getParentRoute: () => project, path: '/queries/add', component: () => <QueriesSection projectName={projectName} addQueriesPage /> })
+    const router = createRouter({ routeTree: root.addChildren([project.addChildren([location, queries, add])]), history: createMemoryHistory({ initialEntries: [`/projects/${encodeURIComponent(projectName)}/properties/${TARGET_KEY}`] }) })
+    await router.load()
+    render(<QueryClientProvider client={queryClient}><AccountProvider account={options.account}><DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}><RouterProvider router={router} /></DashboardProvider></AccountProvider></QueryClientProvider>)
+    return { projectName, queryClient, router }
+  }
+
   /**
    * The page's own reads plus the tracking API, with every request path and every review or publish recorded.
    * `workspace` answers every read of the tracking workspace: the page's own on load, and each press of the button.
@@ -3509,7 +3528,7 @@ describe('Add query about this location', () => {
     const diff = { added: [{ queryId: 'query-new', queryText: publishes.text, assignmentCount: 1 }], removed: [], reused: [], unchanged: [], noOp: false }
     let published = false
     const page = propertyPageResponses()
-    const rendered = await renderPropertyPageFromApi((url, init) => {
+    const rendered = await renderTrackingRoutes((url, init) => {
       const path = new URL(url).pathname
       paths.push(path)
       requests.push(`${init?.method ?? 'GET'} ${path.replace(/^.*\/projects\/[^/]+/, '')}`)
@@ -3523,6 +3542,7 @@ describe('Add query about this location', () => {
         published = true
         return jsonResponse(queryTrackingCommitResponseSchema.parse({ committed: true, mode: 'advanced', workspaceVersion: WORKSPACE_VERSION, reviewedAt: REVIEWED_AT, active: { ...TRACKING_ACTIVE, revision: 8 }, diff, workload }))
       }
+      if (path.endsWith('/measurement-query-templates')) return jsonResponse({ templates: [] })
       if (path.endsWith('/measurement-plan')) return jsonResponse(published ? planAfterPublish(publishes) : options.plan?.() ?? planResponse())
       return published && options.afterPublish ? options.afterPublish(url) : page(url)
     }, { account: options.account ?? ADMIN, queryClient: options.queryClient })
@@ -3541,7 +3561,7 @@ describe('Add query about this location', () => {
     const button = within(header).getByRole('button', { name })
     button.focus()
     fireEvent.click(button)
-    return within(await screen.findByRole('dialog', { name: 'Add queries' }))
+    return within(await screen.findByRole('region', { name: 'Add queries' }))
   }
 
   /** Type one query in the open sheet, review it and publish. Resolves once the sheet has closed. */
@@ -3550,10 +3570,10 @@ describe('Add query about this location', () => {
     fireEvent.click(sheet.getByRole('button', { name: 'Review' }))
     await sheet.findByRole('heading', { name: 'Review 1 change' })
     fireEvent.click(sheet.getByRole('button', { name: 'Publish 1 change' }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Add queries' })).toBeNull())
   }
 
-  it('makes two tracking reads on load, and reads the workspace again on the press that opens the sheet on this location', async () => {
+  it('makes two tracking reads on load, and reads the workspace again on the press that opens the Add page on this location', async () => {
     const { header, workspaceReads, resultsReads, queryClient } = await renderWithTracking()
     await ownQueries()
     await waitFor(() => expect(queryClient.isFetching()).toBe(0))
@@ -3572,16 +3592,16 @@ describe('Add query about this location', () => {
     const countsIn = sheet.getByText('Counts in: North coast')
     expect(within(countsIn.nextElementSibling as HTMLElement).getByRole('button', { name: "Asked with these markets' engines and search locations." })).toBeTruthy()
     expect(sheet.queryByText(/^Engines and search locations come from/)).toBeNull()
-    // This page has no Add query form to hand off to.
-    expect(sheet.queryByRole('button', { name: 'More ways to add' })).toBeNull()
-    expect(screen.getByRole('dialog', { name: 'Add queries' }).textContent).not.toMatch(/propert|—/i)
+    // The shared page also offers patterns and hand-picked assignments.
+    expect(sheet.getByRole('button', { name: 'More ways to add' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Add queries' }).textContent).not.toMatch(/propert|—/i)
     // The press read the workspace once more, and opening the sheet does not read it again.
     await new Promise(resolve => setTimeout(resolve, 50))
     expect([workspaceReads(), resultsReads()]).toEqual([2, 1])
 
     fireEvent.click(sheet.getByRole('button', { name: 'Cancel' }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    await waitFor(() => expect(document.activeElement).toBe(button))
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Add queries' })).toBeNull())
+    expect(await screen.findByRole('heading', { name: 'Harbor House', level: 1 })).toBeTruthy()
   })
 
   it('reads the workspace on the press however fresh the page\'s own read of it is', async () => {
@@ -3604,13 +3624,13 @@ describe('Add query about this location', () => {
 
     expect((await within(header).findByRole('button', { name: 'Opening…' })).textContent).toBe('Opening…')
     expect(within(header).queryByRole('button', { name: ADD_QUERY })).toBeNull()
-    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Add queries' })).toBeNull()
 
     await waitFor(() => expect(reads).toBe(2))
     respond(jsonResponse(trackingWorkspace()))
-    expect(await screen.findByRole('dialog', { name: 'Add queries' })).toBeTruthy()
-    // The open sheet hides the page behind it from assistive tech.
-    expect(within(header).getByRole('button', { name: ADD_QUERY, hidden: true })).toBeTruthy()
+    expect(await screen.findByRole('region', { name: 'Add queries' })).toBeTruthy()
+    // Navigation unmounts the location page instead of hiding it under a drawer.
+    expect(header.isConnected).toBe(false)
   })
 
   it('keeps saying it is opening while offline, and opens once the read can run', async () => {
@@ -3624,10 +3644,10 @@ describe('Add query about this location', () => {
     await new Promise(resolve => setTimeout(resolve, 50))
     // Only the page's own read so far: the press waits for the network.
     expect(workspaceReads()).toBe(1)
-    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Add queries' })).toBeNull()
 
     onlineManager.setOnline(true)
-    expect(await screen.findByRole('dialog', { name: 'Add queries' })).toBeTruthy()
+    expect(await screen.findByRole('region', { name: 'Add queries' })).toBeTruthy()
     expect(workspaceReads()).toBe(2)
   })
 
@@ -3655,7 +3675,7 @@ describe('Add query about this location', () => {
   it('publishes each line for this location in its markets, closes, and lists the new query with no sweep', async () => {
     onTestFinished(resetToasts)
     const { header, writes, requests, resultsReads } = await renderWithTracking({ publishes: LOCATION_QUERY })
-    const own = await ownQueries()
+    await ownQueries()
     const sheet = await openSheet(header)
     fireEvent.change(sheet.getByLabelText('Queries'), { target: { value: LOCATION_QUERY.text } })
     fireEvent.click(sheet.getByRole('button', { name: 'Review' }))
@@ -3668,15 +3688,17 @@ describe('Add query about this location', () => {
     }
     expect(writes).toEqual([{ operation: 'preview', body: { ...mutation, expectedWorkspaceVersion: WORKSPACE_VERSION } }])
     expect(queryTrackingPreviewRequestSchema.safeParse(writes[0]!.body).success).toBe(true)
-    // Nothing is published until Publish, so the list is still the one the page loaded with.
-    expect(within(own).queryByText(LOCATION_QUERY.text)).toBeNull()
+    // Review remains on Add and makes no commit or provider call.
+    expect(screen.getByRole('region', { name: 'Add queries' })).toBeTruthy()
+    expect(writes).toHaveLength(1)
 
     fireEvent.click(sheet.getByRole('button', { name: 'Publish 1 change' }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Add queries' })).toBeNull())
     expect(writes[1]).toEqual({ operation: 'commit', body: { ...mutation, expectedWorkspaceVersion: WORKSPACE_VERSION, previewToken: PREVIEW_TOKEN, reviewedAt: REVIEWED_AT } })
     // The list and its count are read again from the workspace. No sweep ran, so the new row waits
     // for its first answers and its chips read Not checked, never No.
-    const added = rowOf(own, LOCATION_QUERY.text)
+    const own = await ownQueries()
+    const added = await waitFor(() => rowOf(own, LOCATION_QUERY.text))
     await waitFor(() => expect(within(added).getByRole('button', { name: 'OpenAI: Not checked' })).toBeTruthy())
     expect(added.querySelector('.tracked-cell-type')!.textContent).toBe('Branded')
     expect(added.querySelector('.tracked-cell-status')!.textContent).toBe('First answers')
@@ -3697,9 +3719,9 @@ describe('Add query about this location', () => {
       publishes: LOCATION_QUERY,
       afterPublish: afterTrackingChange(propertyPageResponses(), { activeRevision: 8, measuredRevision: 7 }),
     })
-    const own = await ownQueries()
-    const contrast = await screen.findByRole('table', { name: 'Mention and citation coverage for this location, by query type' })
-    const nonBrand = () => [...within(contrast).getByText('Non-brand').closest('tr')!.querySelectorAll('td')].slice(1).map(cell => cell.textContent)
+    await ownQueries()
+    await screen.findByRole('table', { name: 'Mention and citation coverage for this location, by query type' })
+    const nonBrand = () => [...within(screen.getByRole('table', { name: 'Mention and citation coverage for this location, by query type' })).getByText('Non-brand').closest('tr')!.querySelectorAll('td')].slice(1).map(cell => cell.textContent)
     await waitFor(() => expect(nonBrand()).toEqual(['75.0%3 of 4', '50.0%2 of 4']))
     expect(screen.queryByText(/^Tracking changed/)).toBeNull()
 
@@ -3707,12 +3729,14 @@ describe('Add query about this location', () => {
 
     // The publish reads the page again. The numbers are the same sweep's, now marked once, in the header: the
     // tracked section's results say the same and leave it to the header.
-    expect((await within(header).findByRole('status')).textContent).toBe(`Tracking changed ${CHANGED_ON}`)
-    expect(within(header).getByText('Measured')).toBeTruthy()
+    const returnedHeader = (await screen.findByRole('heading', { name: 'Harbor House', level: 1 })).closest<HTMLElement>('.page-header')!
+    expect((await within(returnedHeader).findByRole('status')).textContent).toBe(`Tracking changed ${CHANGED_ON}`)
+    expect(within(returnedHeader).getByText('Measured')).toBeTruthy()
     expect(nonBrand()).toEqual(['75.0%3 of 4', '50.0%2 of 4'])
     expect(await within(await answersTable()).findByText(NEARBY_QUESTION)).toBeTruthy()
     expect(screen.queryByRole('region', { name: 'Measurement next step' })).toBeNull()
     // The new query is listed and waits for its first answers.
+    const own = await ownQueries()
     await waitFor(() => expect(within(rowOf(own, LOCATION_QUERY.text)).getByRole('button', { name: 'OpenAI: Not checked' })).toBeTruthy())
     await waitFor(() => expect(screen.getAllByText(/^Tracking changed/)).toHaveLength(1))
     expect(requests.filter(request => !request.startsWith('GET '))).toEqual(['POST /query-tracking/preview', 'POST /query-tracking/commit'])
@@ -3722,7 +3746,7 @@ describe('Add query about this location', () => {
   it('lists a query that names this location with its type, whichever type the results show', async () => {
     onTestFinished(resetToasts)
     const { header, writes } = await renderWithTracking({ publishes: NAMED_QUERY })
-    const own = await ownQueries()
+    await ownQueries()
     await publish(await openSheet(header), NAMED_QUERY.text)
 
     // The location choice sends Branded explicitly in the reviewed and committed request.
@@ -3730,6 +3754,7 @@ describe('Add query about this location', () => {
     for (const write of writes) expect(write.body).toMatchObject({ additions: [{ queryClass: 'branded' }] })
     // The server filed it as Branded. Both types share one list with a Type column, so it is in view
     // while the results below stay on Non-brand, and nothing has to point to it.
+    const own = await ownQueries()
     await waitFor(() => expect(rowOf(own, NAMED_QUERY.text).querySelector('.tracked-cell-type')!.textContent).toBe('Branded'))
     expect((screen.getByLabelText('Query type') as HTMLSelectElement).value).toBe('non-brand')
     expect(screen.queryByText(/added under/)).toBeNull()
@@ -3747,7 +3772,7 @@ describe('Add query about this location', () => {
     fireEvent.click(within(header).getByRole('button', { name: ADD_QUERY }))
 
     expect((await within(header).findByRole('alert')).textContent).toBe(NO_WORKSPACE)
-    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Add queries' })).toBeNull()
     // The same button is the one action: it reads Retry, and a press reads again.
     expect(within(header).getByRole('button', { name: RETRY_ADD }).textContent).toBe('Retry')
     expect(within(header).queryByRole('button', { name: ADD_QUERY })).toBeNull()
@@ -3758,8 +3783,9 @@ describe('Add query about this location', () => {
     expect(sheet.getByText('Harbor House · Location')).toBeTruthy()
     expect(within(header).queryByRole('alert', { hidden: true })).toBeNull()
     expect(workspaceReads()).toBe(3)
-    // The press's read is the page's read: the tracked section has its lists too.
-    expect(screen.getByRole('table', { name: 'Location queries', hidden: true })).toBeTruthy()
+    // Returning reads the same refreshed workspace on the location page.
+    fireEvent.click(sheet.getByRole('button', { name: 'Cancel' }))
+    expect(await ownQueries()).toBeTruthy()
   })
 
   it('opens nothing when the cache is refreshed after a failed read, only on a press', async () => {
@@ -3776,7 +3802,7 @@ describe('Add query about this location', () => {
     failing = false
     await queryClient.invalidateQueries()
     await new Promise(resolve => setTimeout(resolve, 50))
-    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Add queries' })).toBeNull()
     expect(workspaceReads()).toBe(3)
     expect(within(header).getByRole('alert').textContent).toBe(NO_WORKSPACE)
 
@@ -3784,7 +3810,7 @@ describe('Add query about this location', () => {
     expect(workspaceReads()).toBe(4)
   })
 
-  it('opens no sheet when the tracking workspace does not hold this location, and reads the setup again', async () => {
+  it('opens no Add page when the tracking workspace does not hold this location, and reads the setup again', async () => {
     const { header, planReads } = await renderWithTracking({
       workspace: () => jsonResponse(trackingWorkspace({ scopeOptions: [{ id: 'project', label: 'Project', kind: 'project', targetCount: 1 }, OTHER_LOCATION] })),
     })
@@ -3796,19 +3822,36 @@ describe('Add query about this location', () => {
     expect(within(header).getByRole('button', { name: 'Location not found. This location was not found in tracked queries.' })).toBeTruthy()
     await waitFor(() => expect(planReads()).toBe(planReadsBefore + 1))
     // Another location is never offered in this one's place.
-    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Add queries' })).toBeNull()
     expect(within(header).getByRole('button', { name: RETRY_ADD }).textContent).toBe('Retry')
   })
 
-  it('points to no Add query form when the project has no markets', async () => {
+  it('offers the shared additional form when the project has no markets', async () => {
     const { header } = await renderWithTracking({
       workspace: () => jsonResponse(trackingWorkspace({ markets: [], scopeOptions: [{ id: TARGET_KEY, label: 'Harbor House', kind: 'property', targetCount: 1 }] })),
     })
     const sheet = await openSheet(header)
     fireEvent.click(sheet.getByRole('radio', { name: 'Market' }))
 
-    // Plain text: with no form to point to, the note has no help to open.
-    expect(sheet.getByText('No markets yet').closest('button')).toBeNull()
+    expect(sheet.getByRole('button', { name: 'No markets yet. Use More ways to add for hand-picked locations.' })).toBeTruthy()
+    expect(sheet.getByRole('button', { name: 'More ways to add' })).toBeTruthy()
+  })
+
+  it('does not navigate to Add after a pending location read finishes on another page', async () => {
+    let reads = 0
+    let respond: (response: Response) => void = () => {}
+    const { header, router, projectName } = await renderWithTracking({
+      workspace: () => ++reads === 1 ? jsonResponse(trackingWorkspace()) : new Promise<Response>(resolve => { respond = resolve }),
+    })
+    await ownQueries()
+    fireEvent.click(within(header).getByRole('button', { name: ADD_QUERY }))
+    await waitFor(() => expect(reads).toBe(2))
+    await act(async () => { await router.navigate({ to: '/projects/$projectName/queries', params: { projectName } }) })
+    expect(await screen.findByRole('region', { name: 'Queries' })).toBeTruthy()
+    await act(async () => { respond(jsonResponse(trackingWorkspace())); await Promise.resolve() })
+    await waitFor(() => expect(screen.getByText(OWN_QUESTION)).toBeTruthy())
+    expect(router.state.location.pathname).toBe(`/projects/${projectName}/queries`)
+    expect(screen.queryByRole('region', { name: 'Add queries' })).toBeNull()
   })
 
   it('carries a failed read to no other location the page moves to', async () => {

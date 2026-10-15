@@ -235,6 +235,7 @@ test('draws the Add button beside the tabs, then the number strip, the toolbar a
 
   // One column per engine, by display name: the project's own, then one only the sweep asked.
   expect(within(table()).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Perplexity', 'Last measured', 'Status', 'Source', 'Actions'])
+  fireEvent.click(screen.getByRole('button', { name: /^Filters/ }))
   expect(within(screen.getByRole('group', { name: 'Filters' })).getAllByRole('combobox').map(filter => filter.getAttribute('aria-label'))).toEqual(['Subject', 'Type', 'Status', 'Source', 'Result'])
   // The legend of the chips, beside the count: each entry is a chip and its word, and a No names its own signal.
   expect(within(region()).getAllByRole('listitem').map(entry => entry.textContent)).toEqual(['M Mentioned', 'C Cited', 'M Not mentioned', 'C Not cited', 'MNot checked'])
@@ -270,6 +271,7 @@ test('in the 1152px content column the table keeps Query wide: Status carries th
   expect(within(rowOf(UPTOWN_BEST)).getByText(`Measured ${day(MEASURED_AT)}`)).toBeTruthy()
   expect(within(rowOf(PIER_NEW)).getByText('First answers Oct 21')).toBeTruthy()
   // No filter went with the columns.
+  fireEvent.click(screen.getByRole('button', { name: /^Filters/ }))
   expect(within(screen.getByRole('group', { name: 'Filters' })).getAllByRole('combobox').map(filter => filter.getAttribute('aria-label'))).toEqual(['Subject', 'Type', 'Status', 'Source', 'Result'])
 
   // Status sorts by status: the row that waits for its first answers goes after every measured one.
@@ -289,12 +291,18 @@ test('prints the server\'s numbers in the strip, for the project and for a place
   const { rerender } = renderWorkspace({ nextSweepDate: 'Oct 21' })
   await screen.findByText(UPTOWN_BEST)
   // Eight rows are loaded, six of them asked. Every cell is the server's own field.
-  expect(strip()).toEqual({ 'Queries asked': '41', 'Non-brand': '27', Branded: '12', 'Answers per sweep': '300', 'Left under limit': '957 of 1,000' })
+  expect(strip()).toEqual({ 'Queries asked': '41', 'Non-brand': '27', Branded: '12' })
+  expect(screen.queryByRole('button', { name: '7 not asked' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }))
   expect(within(region()).getByRole('button', { name: '7 not asked' })).toBeTruthy()
+  const details = screen.getByRole('button', { name: 'Details' }).getAttribute('aria-controls')!
+  expect(within(document.getElementById(details)!).getByText('300')).toBeTruthy()
+  expect(screen.queryByText('Left under limit')).toBeNull()
   expect(await within(region()).findByText(`Last sweep ${day(SWEPT_AT)}`)).toBeTruthy()
   expect(within(region()).getByText('Next Oct 21')).toBeTruthy()
-  // The count under the search is the length of the list shown.
-  expect(count()).toBe('6 queries')
+  // The default header does not repeat a row count; its 41 asked comes from the server, while six rows are loaded.
+  expect(within(region()).queryAllByRole('status')).toEqual([])
+  expect(listed()).toHaveLength(6)
 
   rerender({ selection: { measurementScope: 'market', measurementScopeKey: 'uptown', queryClass: 'all' } })
   expect(strip()).toEqual({ 'Market queries': '7', 'Location queries': '9', Locations: '3', 'Answers per sweep': '96' })
@@ -334,6 +342,7 @@ test('sends a filter change to the host, lists by the filters the host holds, an
   await screen.findByText(UPTOWN_BEST)
   await waitFor(() => expect(chips(UPTOWN_BEST)).toHaveLength(3))
 
+  fireEvent.click(screen.getByRole('button', { name: /^Filters/ }))
   fireEvent.change(screen.getByRole('combobox', { name: 'Subject' }), { target: { value: 'location' } })
   expect(onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...DEFAULT_TRACKED_FILTERS, subject: 'location' })
   // The URL owns the filters: nothing changes until the host passes them back.
@@ -370,6 +379,7 @@ test('"7 not asked" lists the queries asked nowhere, whatever was filtered befor
   renderWorkspace({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, subject: 'market' }, onTrackedFiltersChange })
   await screen.findByText(UPTOWN_BEST)
   fireEvent.change(screen.getByRole('searchbox', { name: 'Search queries' }), { target: { value: 'uptown' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }))
   fireEvent.click(screen.getByRole('button', { name: '7 not asked' }))
   // Status alone, on a clean search: a Subject filter would list none of them.
   expect(onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' })
@@ -482,7 +492,7 @@ test('the Add query form opens on the engines the plan is asked with, though the
   renderWorkspace()
   await screen.findByText(UPTOWN_BEST)
   fireEvent.click(addButton())
-  fireEvent.click(within(screen.getByRole('dialog', { name: 'Add queries' })).getByRole('button', { name: 'More ways to add' }))
+  fireEvent.click(within(await screen.findByRole('region', { name: 'Add queries' })).getByRole('button', { name: 'More ways to add' }))
   await screen.findByRole('heading', { name: 'Add query' })
   const choice = screen.getByRole('combobox', { name: 'Search location and engines' }) as HTMLSelectElement
   // The plan's own first and chosen, each engine by its display name. The project's two stay a choice.
@@ -644,8 +654,18 @@ test('pages fifty rows by default and offers 25, 50 and 100', async () => {
 
 test('each empty state offers an action that changes what is listed, and the focus lands on the search when that action leaves the page', async () => {
   // No query at all: the action adds one. The Add button beside the tabs stays the page's one primary action.
-  installApi({ workspace: () => portfolio({ tracked: [] }) })
+  installApi({ workspace: () => portfolio({ tracked: [], views: VIEWS }) })
   const first = renderWorkspace()
+  await screen.findByText('No queries yet')
+  // Empty tracking still has places to inspect and fill: Views must remain reachable without a search toolbar.
+  fireEvent.click(viewButton('Location gaps'))
+  expect(first.onSelectionChange).toHaveBeenLastCalledWith({ trackedView: 'no-location-queries' })
+  first.rerender({ trackedView: 'no-location-queries' })
+  expect(await screen.findByRole('table', { name: 'Location gaps' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Add location query for River Point' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Back to queries' }))
+  expect(first.onSelectionChange).toHaveBeenLastCalledWith({ trackedView: undefined })
+  first.rerender({ trackedView: undefined })
   const none = (await screen.findByText('No queries yet')).closest('td')!
   expect(screen.queryByRole('searchbox', { name: 'Search queries' })).toBeNull()
   // Nothing to tick, so no box is drawn.
@@ -655,7 +675,7 @@ test('each empty state offers an action that changes what is listed, and the foc
   expect(primary.className.split(' ')).toContain('bg-accent')
   expect(add.className.split(' ')).not.toContain('bg-accent')
   fireEvent.click(add)
-  expect(screen.getByRole('dialog', { name: 'Add queries' })).toBeTruthy()
+  expect(await screen.findByRole('region', { name: 'Add queries' })).toBeTruthy()
   cleanup()
 
   // A Place with none: the action shows the whole project.
@@ -696,7 +716,7 @@ test('each empty state offers an action that changes what is listed, and the foc
   // With no hidden row to show, only Clear all is offered.
   fireEvent.change(searchBox(), { target: { value: 'no such query' } })
   expect(within(screen.getByText('No queries match').closest('td')!).getAllByRole('button').map(button => button.textContent)).toEqual(['Clear all'])
-  expect(first.onSelectionChange).not.toHaveBeenCalled()
+  expect(first.onSelectionChange).toHaveBeenCalledTimes(2)
 })
 
 test('when every query is one the clean view leaves out, the list says none is asked and offers them, with nothing to clear', async () => {
@@ -1019,9 +1039,9 @@ test('asked and not asked rows share no bulk action, rows that are not asked can
   rerender({ trackedFilters: ALL_STATUS })
   expect(within(bulkBar()!).getByText('2 selected')).toBeTruthy()
 
-  // Track opens the Add queries sheet with the texts, one query per line.
+  // Track opens the Add queries page with the texts, one query per line.
   fireEvent.click(within(bulkBar()!).getByRole('button', { name: 'Track' }))
-  const sheet = within(screen.getByRole('dialog', { name: 'Add queries' }))
+  const sheet = within(await screen.findByRole('region', { name: 'Add queries' }))
   expect((sheet.getByLabelText('Queries') as HTMLTextAreaElement).value).toBe(`${OLD_TOWN}\n${CAMPUS}`)
   expect(sheet.getByText('2 queries · 957 left')).toBeTruthy()
 })
@@ -1039,16 +1059,16 @@ test('a row menu opens the action sheet for one row, tracks a row that is not as
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 
   await chooseRowAction(OLD_TOWN, 'Track')
-  const add = within(screen.getByRole('dialog', { name: 'Add queries' }))
+  const add = within(await screen.findByRole('region', { name: 'Add queries' }))
   expect((add.getByLabelText('Queries') as HTMLTextAreaElement).value).toBe(OLD_TOWN)
   fireEvent.click(add.getByRole('button', { name: 'Cancel' }))
-  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Add queries' })).toBeNull())
   // The Add button opens the sheet empty: the tracked text was for that one opening.
   fireEvent.click(addButton())
-  const plain = within(screen.getByRole('dialog', { name: 'Add queries' }))
+  const plain = within(await screen.findByRole('region', { name: 'Add queries' }))
   expect((plain.getByLabelText('Queries') as HTMLTextAreaElement).value).toBe('')
   fireEvent.click(plain.getByRole('button', { name: 'Cancel' }))
-  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Add queries' })).toBeNull())
 
   await chooseRowAction(UPTOWN_PETS, 'Copy link')
   await waitFor(() => expect(getToasts().map(toast => [toast.title, toast.tone])).toEqual([['Link copied', 'positive']]))
@@ -1169,11 +1189,11 @@ test('/ moves to the search from anywhere but a field, and Escape in the toolbar
   fireEvent.keyDown(screen.getByRole('button', { name: 'Filters' }), { key: 'Escape' })
   expect(within(bulkBar()!).getByText('1 selected')).toBeTruthy()
 
-  // In a sheet the key is the sheet's: focus stays inside it.
+  // The Add page unmounts the list: its slash shortcut no longer intercepts form input.
   fireEvent.click(addButton())
-  const queries = within(screen.getByRole('dialog', { name: 'Add queries' })).getByLabelText('Queries')
+  const queries = within(await screen.findByRole('region', { name: 'Add queries' })).getByLabelText('Queries')
   expect(slash(queries)).toBe(true)
-  expect(slash(within(screen.getByRole('dialog', { name: 'Add queries' })).getByRole('button', { name: 'Cancel' }))).toBe(true)
+  expect(slash(within(await screen.findByRole('region', { name: 'Add queries' })).getByRole('button', { name: 'Cancel' }))).toBe(true)
   expect(document.activeElement).not.toBe(search)
 })
 
@@ -1313,8 +1333,12 @@ function heldResults() {
   return { waiting, results: () => new Promise<Response>(resolve => waiting.push(resolve)) }
 }
 const weakSweep = () => jsonResponse(sweep({ weakMarkets: WEAK }))
-const viewsRow = () => screen.getByRole('group', { name: 'Views' })
-const viewButtons = () => within(viewsRow()).getAllByRole('button')
+function openViews() {
+  const trigger = screen.getByRole('button', { name: /^Views(?: ·|$)/ })
+  if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger)
+  return screen.getByRole('group', { name: 'Views' })
+}
+const viewButtons = () => within(openViews()).getAllByRole('button')
 /** Each view by its name: the view, the type its number is of where it has one, and the number. */
 const viewNames = () => viewButtons().map(button => button.getAttribute('aria-label'))
 const viewButton = (label: string) => viewButtons().find(button => button.getAttribute('aria-label')!.startsWith(label))!
@@ -1323,7 +1347,7 @@ const pressedViews = () => viewButtons().filter(button => button.getAttribute('a
 const placeRows = (name: string) => within(screen.getByRole('table', { name })).getAllByRole('row').slice(1).map(row => [...(row as HTMLTableRowElement).cells].map(cell => cell.textContent))
 const lastPatch = (props: { onSelectionChange?: unknown }) => vi.mocked(props.onSelectionChange as (patch: Record<string, unknown>) => void).mock.calls.at(-1)![0]
 
-test('the Views row sits under the number strip and prints each read\'s own count, for the whole project only', async () => {
+test('Views opens beside the search and prints each read\'s own count, for the whole project only', async () => {
   installApi({ workspace: withViews, results: search => search.get('scope') ? jsonResponse(sweep({ scope: { kind: search.get('scope'), key: search.get('scopeKey') } })) : weakSweep() })
   const { rerender } = renderWorkspace()
   await screen.findByText(UPTOWN_BEST)
@@ -1332,7 +1356,7 @@ test('the Views row sits under the number strip and prints each read\'s own coun
     'Location gaps, 5', 'Thin markets, 9', 'Pattern gaps, 2', 'Weakest markets, non-brand queries, 4', 'Not asked, 7', 'Hand-picked, 3',
   ]))
   expect(pressedViews()).toEqual([])
-  const order = [region().querySelector('dl')!, viewsRow(), searchBox(), table()]
+  const order = [region().querySelector('dl')!, searchBox(), screen.getByRole('button', { name: 'Views' }), table()]
   for (const [index, element] of order.slice(1).entries()) expect(order[index]!.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expectNoSentence(region())
 
@@ -1409,6 +1433,7 @@ test('Not asked and Hand-picked set a filter of the query list on a clean search
   props.rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' } })
   expect(listed()).toEqual([OLD_TOWN, CAMPUS])
   expect(pressedViews()).toEqual(['Not asked, 7'])
+  fireEvent.click(screen.getByRole('button', { name: /^Filters/ }))
   expect((screen.getByRole('combobox', { name: 'Status' }) as HTMLSelectElement).value).toBe('not-asked')
   // A second press puts Status back.
   fireEvent.click(viewButton('Not asked'))
@@ -1475,6 +1500,7 @@ test('a view lists its places in place of the queries, with its name and the way
   // The strip's own link lists queries, so it closes the view as well, and sets its filter on a clean list.
   vi.mocked(props.onSelectionChange).mockClear()
   vi.mocked(props.onTrackedFiltersChange!).mockClear()
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }))
   fireEvent.click(screen.getByRole('button', { name: '7 not asked' }))
   expect(vi.mocked(props.onSelectionChange).mock.calls).toEqual([[{ trackedView: undefined }]])
   expect(vi.mocked(props.onTrackedFiltersChange!).mock.calls).toEqual([[{ ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' }]])
@@ -1500,13 +1526,13 @@ test('a view lists its places in place of the queries, with its name and the way
   expect(exportButton()).toBeTruthy()
 })
 
-test('Add from a view\'s row opens the Add queries sheet on that market or location, and a market with no location offers none', async () => {
+test('Add from a view\'s row opens the Add queries page on that market or location, and a market with no location offers none', async () => {
   const previews: unknown[] = []
   installApi({ workspace: withViews, write: (path, body) => { previews.push([path, body]); return jsonResponse({ error: { code: 'VALIDATION_ERROR', message: 'not reviewed here' } }, 400) } })
   const { rerender } = renderWorkspace({ trackedView: 'thin-markets' })
 
   fireEvent.click(await screen.findByRole('button', { name: 'Add market query for Downtown, Lakeshore' }))
-  let sheet = within(screen.getByRole('dialog', { name: 'Add queries' }))
+  let sheet = within(await screen.findByRole('region', { name: 'Add queries' }))
   expect(sheet.getByRole('radio', { name: 'Market' }).getAttribute('aria-checked')).toBe('true')
   expect(sheet.getByText('Downtown · Market')).toBeTruthy()
   fireEvent.change(sheet.getByLabelText('Queries'), { target: { value: 'lofts downtown' } })
@@ -1522,9 +1548,9 @@ test('Add from a view\'s row opens the Add queries sheet on that market or locat
   fireEvent.click(sheet.getByRole('button', { name: 'Cancel' }))
   // Returning from Review keeps the draft: closing it needs an explicit discard.
   expect((sheet.getByLabelText('Queries') as HTMLTextAreaElement).value).toBe('lofts downtown')
-  expect(screen.getByRole('dialog', { name: 'Add queries' })).toBeTruthy()
+  expect(await screen.findByRole('region', { name: 'Add queries' })).toBeTruthy()
   fireEvent.click(sheet.getByRole('button', { name: 'Discard' }))
-  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Add queries' })).toBeNull())
 
   // The server would refuse a query for a market with no location, so the row says why in place of the button.
   const emptied = within(screen.getByRole('table', { name: 'Thin markets' })).getByText('Lakeview').closest('tr')!
@@ -1533,25 +1559,25 @@ test('Add from a view\'s row opens the Add queries sheet on that market or locat
 
   // "More ways to add" hands the sheet's place on: the Add query form opens with that market ticked, not on the page's place.
   fireEvent.click(screen.getByRole('button', { name: 'Add market query for Downtown, Lakeshore' }))
-  fireEvent.click(within(screen.getByRole('dialog', { name: 'Add queries' })).getByRole('button', { name: 'More ways to add' }))
+  fireEvent.click(within(await screen.findByRole('region', { name: 'Add queries' })).getByRole('button', { name: 'More ways to add' }))
   await screen.findByRole('heading', { name: 'Add query' })
   expect((screen.getByRole('checkbox', { name: 'Downtown, Lakeshore, Market' }) as HTMLInputElement).checked).toBe(true)
   expect(screen.getAllByRole('checkbox').filter(box => (box as HTMLInputElement).checked)).toHaveLength(1)
   fireEvent.click(screen.getAllByRole('button', { name: 'Cancel' })[0]!)
-  expect(screen.queryByRole('heading', { name: 'Add query' })).toBeNull()
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Add queries' })).toBeNull())
 
   rerender({ trackedView: 'no-location-queries' })
   expect(placeRows('Location gaps')).toEqual([['River Point', 'North', '', 'Add location query'], ['Summit Lofts', 'None', '', 'Add location query']])
   fireEvent.click(screen.getByRole('button', { name: 'Add location query for River Point' }))
-  sheet = within(screen.getByRole('dialog', { name: 'Add queries' }))
+  sheet = within(await screen.findByRole('region', { name: 'Add queries' }))
   expect(sheet.getByRole('radio', { name: 'Location' }).getAttribute('aria-checked')).toBe('true')
   expect(sheet.getByText('river · Location')).toBeTruthy()
   fireEvent.click(sheet.getByRole('button', { name: 'Cancel' }))
-  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Add queries' })).toBeNull())
 
   // The page's own Add button opens the sheet on no place: the row's place was for that one opening.
   fireEvent.click(addButton())
-  sheet = within(screen.getByRole('dialog', { name: 'Add queries' }))
+  sheet = within(await screen.findByRole('region', { name: 'Add queries' }))
   expect(sheet.getByRole('radio', { name: 'Market' }).getAttribute('aria-checked')).toBe('true')
   expect(sheet.queryByText(/ · (Market|Location)$/)).toBeNull()
 })

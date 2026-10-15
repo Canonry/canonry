@@ -63,6 +63,7 @@ test.each([
   await screen.findByText('Acme pricing')
   expect(queryRows()).toEqual(['Acme pricing', 'Best AEO platform'])
 
+  fireEvent.click(screen.getByRole('button', { name: /^Filters/ }))
   const type = screen.getByRole('combobox', { name: 'Type' }) as HTMLSelectElement
   expect(type.value).toBe('all')
   expect([...type.options].map(option => option.text)).toEqual(['All', 'Non-brand', 'Branded', 'Mixed', 'Not set'])

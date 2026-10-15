@@ -20,7 +20,7 @@ import { SegmentedRadioGroup, type SegmentedRadioOption } from '../../../shared/
 import { StatusNote } from '../../../shared/StatusNote.js'
 import { Button } from '../../../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, useSheetDiscardGuard } from '../../../ui/sheet.js'
-import { placesOf } from '../../AddQueriesSheet.js'
+import { placesOf } from '../../AddQueriesForm.js'
 import { expectedSubject, SearchLocationText, TrackingReview, TrackingReviewActions, type TrackingReviewState } from '../../TrackingReview.js'
 import { VisibilityScopePicker } from '../../VisibilityScopePicker.js'
 import { TrackedBulkBar } from '../advanced/TrackedBulkBar.js'

@@ -36,7 +36,7 @@ const LIMITS: QueryTrackingLimits = { queries: { current: 932, next: 932, max: 1
 const LAST_SWEEP = '2026-10-07T15:00:00.000Z'
 // The strip dates a sweep in the viewer's own timezone, so the day it names is read the same way here: the 7th in most zones, the 8th east of UTC+9.
 const LAST_SWEEP_DAY = formatObservedInstantMonthDay(observedInstant(LAST_SWEEP))
-const DETAIL_LABELS = ['Market queries', 'Location queries', 'Hand-picked queries', 'Not asked', 'Location links', 'Non-brand links', 'Branded links']
+const DETAIL_LABELS = ['Answers per sweep', 'Market queries', 'Location queries', 'Hand-picked queries', 'Not asked', 'Location links', 'Non-brand links', 'Branded links']
 
 /** The number under a label, as it reads. */
 const stat = (label: string, scope: HTMLElement = document.body) => within(scope).getByText(label).closest('div')!.querySelector('dd')!.textContent
@@ -52,14 +52,14 @@ const helpFor = (text: string) => screen.getByRole('button', { name: text }).clo
 describe('TrackedSummaryGrid, project strip', () => {
   test('prints the server\'s own fields, branded and non-brand in separate cells', () => {
     const { container } = render(<TrackedSummaryGrid summary={SUMMARY} limits={LIMITS} lastSweepAt={LAST_SWEEP} nextSweepDate="Oct 21" />)
-    expect(labels(container.querySelector('dl')!)).toEqual(['Queries asked', 'Non-brand', 'Branded', 'Answers per sweep', 'Left under limit'])
+    expect(labels(container.querySelector('dl')!)).toEqual(['Queries asked', 'Non-brand', 'Branded'])
     expect(stat('Queries asked')).toBe('932')
     expect(stat('Non-brand')).toBe('541')
     expect(stat('Branded')).toBe('384')
+    expect(screen.getAllByRole('term').map(term => term.textContent)).toEqual(['Queries asked', 'Non-brand', 'Branded'])
+    expect(screen.queryByText('Left under limit')).toBeNull()
+    fireEvent.click(details())
     expect(stat('Answers per sweep')).toBe('2,796')
-    // The server's `left.current`, never the limit less the count (which would read 68).
-    expect(stat('Left under limit')).toBe('61 of 1,000')
-    expect(visibleText(container)).not.toContain('68')
     expect(helpFor('Answers one sweep collects: each query on every engine and search location it is asked on.')).toBe('Answers per sweep')
   })
 
@@ -105,18 +105,10 @@ describe('TrackedSummaryGrid, project strip', () => {
     expect([compiledElementProperty(rules, icon, 'animation'), compiledElementProperty(rules, icon, 'animation', '@media (prefers-reduced-motion: no-preference)')]).toEqual([undefined, 'var(--animate-spin)'])
   })
 
-  test('a spent limit reads Limit reached, with the limit behind it', () => {
+  test('keeps query capacity out of the header even when the cap is reached', () => {
     const { container } = render(<TrackedSummaryGrid summary={SUMMARY} limits={{ queries: { current: 1004, next: 1004, max: 1000, left: { current: 0, next: 0 } } }} />)
-    expect(stat('Left under limit')).toBe('Limit reached')
-    expect(screen.getByRole('button', { name: 'Limit reached. The limit is 1,000 queries. Stop tracking one to add another.' })).toBeTruthy()
-    expect(visibleText(container)).not.toContain('of 1,000')
-  })
-
-  test('leaves out Left under limit when the server sent no limit or no count of what is left', () => {
-    const { container, rerender } = render(<TrackedSummaryGrid summary={SUMMARY} />)
-    expect(labels(container.querySelector('dl')!)).toEqual(['Queries asked', 'Non-brand', 'Branded', 'Answers per sweep'])
-    rerender(<TrackedSummaryGrid summary={SUMMARY} limits={{ queries: { current: 932, next: 932, max: 1000 } }} />)
-    expect(screen.queryByText('Left under limit')).toBeNull()
+    fireEvent.click(details())
+    expect(visibleText(container)).not.toMatch(/limit|1,000/i)
   })
 
   test('Details is closed until asked for, then lists the rarer numbers, each Subject named as queries', () => {
@@ -128,7 +120,7 @@ describe('TrackedSummaryGrid, project strip', () => {
     expect(details().getAttribute('aria-expanded')).toBe('true')
     expect(detailsList().hidden).toBe(false)
     expect(labels(detailsList())).toEqual(DETAIL_LABELS)
-    expect(DETAIL_LABELS.map(label => stat(label, detailsList()))).toEqual(['547', '371', '12', '38', '2,412', '2,017', '390'])
+    expect(DETAIL_LABELS.map(label => stat(label, detailsList()))).toEqual(['2,796', '547', '371', '12', '38', '2,412', '2,017', '390'])
     expect(helpFor('One link for each query, location and search location it is asked for.')).toBe('Location links')
 
     fireEvent.click(details())
@@ -140,17 +132,18 @@ describe('TrackedSummaryGrid, project strip', () => {
     for (const label of ['Company queries', 'Mixed type', 'Not set']) expect(within(detailsList()).queryByText(label)).toBeNull()
 
     rerender(<TrackedSummaryGrid summary={{ ...SUMMARY, byFocus: { ...SUMMARY.byFocus, company: 7 } }} limits={LIMITS} />)
-    expect(labels(detailsList())).toEqual(['Market queries', 'Location queries', 'Hand-picked queries', 'Company queries', 'Not asked', 'Location links', 'Non-brand links', 'Branded links'])
+    expect(labels(detailsList())).toEqual(['Answers per sweep', 'Market queries', 'Location queries', 'Hand-picked queries', 'Company queries', 'Not asked', 'Location links', 'Non-brand links', 'Branded links'])
     expect(stat('Company queries', detailsList())).toBe('7')
 
     rerender(<TrackedSummaryGrid summary={{ ...SUMMARY, byClass: { ...SUMMARY.byClass, mixed: 5, unknown: 2 } }} limits={LIMITS} />)
-    expect(labels(detailsList())).toEqual(['Market queries', 'Location queries', 'Hand-picked queries', 'Mixed type', 'Not set', 'Not asked', 'Location links', 'Non-brand links', 'Branded links'])
+    expect(labels(detailsList())).toEqual(['Answers per sweep', 'Market queries', 'Location queries', 'Hand-picked queries', 'Mixed type', 'Not set', 'Not asked', 'Location links', 'Non-brand links', 'Branded links'])
     expect([stat('Mixed type', detailsList()), stat('Not set', detailsList())]).toEqual(['5', '2'])
   })
 
   test('the not-asked count asks for the rows that are not asked, and is absent at zero', () => {
     const onShowNotAsked = vi.fn()
     const { rerender } = render(<TrackedSummaryGrid summary={SUMMARY} limits={LIMITS} onShowNotAsked={onShowNotAsked} />)
+    fireEvent.click(details())
     fireEvent.click(screen.getByRole('button', { name: '38 not asked' }))
     expect(onShowNotAsked).toHaveBeenCalledTimes(1)
 
@@ -161,7 +154,7 @@ describe('TrackedSummaryGrid, project strip', () => {
 
     // With nothing to set, the count is text, not a button that does nothing.
     rerender(<TrackedSummaryGrid summary={{ ...SUMMARY, notAsked: 1204 }} limits={LIMITS} />)
-    expect(screen.getByText('1,204 not asked').tagName).toBe('SPAN')
+    expect(stat('Not asked', detailsList())).toBe('1,204')
     expect(screen.queryByRole('button', { name: /not asked/ })).toBeNull()
   })
 
@@ -175,8 +168,10 @@ describe('TrackedSummaryGrid, project strip', () => {
       </>
     }
     render(<Host />)
+    fireEvent.click(screen.getByRole('button', { name: /^Filters/ }))
     const chosen = () => ['Subject', 'Type', 'Status', 'Source', 'Result'].map(name => screen.getByRole<HTMLSelectElement>('combobox', { name }).selectedOptions[0]!.textContent)
     expect(chosen()).toEqual(['Any', 'Branded', 'Asked', 'Any', 'Any'])
+    fireEvent.click(details())
     fireEvent.click(screen.getByRole('button', { name: '38 not asked' }))
     expect(chosen()).toEqual(['Any', 'Branded', 'Not asked', 'Any', 'Any'])
   })
@@ -266,53 +261,13 @@ async function stateStyle(element: Element, variant: string): Promise<Record<str
 
 describe('TrackedSummaryGrid, layout', () => {
   // The strip's own width decides its shape: pairs under 36rem, three columns from there, one row from 52rem.
-  const PAIRS = '@container (width < 36rem)'
   const THREE = '@container (width >= 36rem)'
   const ROW = '@container (width >= 52rem)'
   const ROW_COLUMNS = 'repeat(var(--tracked-strip-columns),minmax(max-content,1fr))'
   const COARSE = '@media (pointer: coarse)'
   const BELOW_MD = '@media (width < 48rem)'
   const strip = (container: HTMLElement) => container.firstElementChild!.firstElementChild as HTMLElement
-  const cellsOf = (container: HTMLElement) => [...container.querySelector('dl')!.children]
   const columns = (rules: Rules, element: Element, context?: string) => compiledElementProperty(rules, element, 'grid-template-columns', context)
-  const span = (rules: Rules, element: Element, context?: string) => compiledElementProperty(rules, element, 'grid-column', context)
-  const lineAbove = (rules: Rules, element: Element, context?: string) => compiledElementProperty(rules, element, 'border-top-width', context)
-  const lineBefore = (rules: Rules, element: Element, context?: string) => compiledElementProperty(rules, element, 'border-left-width', context)
-
-  test('is pairs of cells on a phone, three columns in a middling strip and one row in a wide one, by the strip\'s own width', async () => {
-    const { container } = render(<TrackedSummaryGrid summary={SUMMARY} limits={LIMITS} lastSweepAt={LAST_SWEEP} />)
-    const rules = await rulesFor(container)
-    const cells = cellsOf(container)
-    const last = details().parentElement!.parentElement!
-    expect(compiledElementProperty(rules, container.firstElementChild!, 'container-type')).toBe('inline-size')
-    expect([compiledElementProperty(rules, strip(container), 'display'), columns(rules, strip(container)), columns(rules, strip(container), THREE), columns(rules, strip(container), ROW)])
-      .toEqual(['grid', 'repeat(2, minmax(0, 1fr))', 'repeat(3, minmax(0, 1fr))', ROW_COLUMNS])
-    // The row: a column for each number and two for the last cell, none narrower than its own label and number.
-    expect(strip(container).style.getPropertyValue('--tracked-strip-columns')).toBe('7')
-    // Five numbers: the first takes a row of the pairs to itself, so the rest pair up.
-    expect(cells.map(cell => span(rules, cell, PAIRS))).toEqual(['span 2 / span 2', undefined, undefined, undefined, undefined])
-    // The last cell is a row of the pairs, the sixth cell of three columns, and two columns of the row.
-    expect([span(rules, last), span(rules, last, THREE), span(rules, last, ROW)]).toEqual(['span 2 / span 2', 'span 1 / span 1', 'span 2 / span 2'])
-
-    // Hairlines. Pairs: a line over every row but the first. Three columns: a line over the second row, and before every column but the first.
-    expect(cells.map(cell => [lineAbove(rules, cell), lineAbove(rules, cell, PAIRS)])).toEqual([[undefined, undefined], [undefined, '1px'], [undefined, '1px'], ['1px', undefined], ['1px', undefined]])
-    expect(cells.map(cell => lineBefore(rules, cell, THREE))).toEqual([undefined, '1px', '1px', undefined, '1px'])
-    expect([lineAbove(rules, last), lineBefore(rules, last, THREE)]).toEqual(['1px', '1px'])
-    // The row: no line over any cell, and one before every cell but the first.
-    expect([cells[3]!, cells[4]!, last].map(cell => lineAbove(rules, cell, ROW))).toEqual(['0px', '0px', '0px'])
-    expect(lineBefore(rules, cells[3]!, ROW)).toBe('1px')
-    // No cell holds its column wider than the strip gives it, so a phone has no sideways scroll (checked in a browser at 390px and 320px).
-    expect([...cells, last].map(cell => cssLengthPx(compiledElementProperty(rules, cell, 'min-width')!, rules))).toEqual(Array(6).fill(0))
-  })
-
-  test('an even count of numbers pairs up from the first cell, and the last cell takes the two columns they leave of three', async () => {
-    const { container } = render(<TrackedSummaryGrid summary={SUMMARY} lastSweepAt={LAST_SWEEP} />)
-    const rules = await rulesFor(container)
-    const last = details().parentElement!.parentElement!
-    expect(cellsOf(container).map(cell => span(rules, cell, PAIRS))).toEqual([undefined, undefined, undefined, undefined])
-    expect([span(rules, last), span(rules, last, THREE), lineBefore(rules, last, THREE)]).toEqual(['span 2 / span 2', undefined, '1px'])
-    expect(strip(container).style.getPropertyValue('--tracked-strip-columns')).toBe('6')
-  })
 
   test('a place\'s four numbers are one row sooner, from 44rem', async () => {
     const { container } = render(<><TrackedSummaryGrid summary={SUMMARY} place={market} lastSweepAt={LAST_SWEEP} /><TrackedSummaryGridSkeleton cells={4} /></>)
@@ -327,36 +282,6 @@ describe('TrackedSummaryGrid, layout', () => {
     cleanup()
     const picked = render(<TrackedSummaryGrid summary={SUMMARY} place={{ kind: 'location', target: { ...location.target, counts: { ...location.target.counts!, customQueries: 3 } } }} />)
     expect(columns(await rulesFor(picked.container), strip(picked.container), ROW)).toBe(ROW_COLUMNS)
-  })
-
-  test('Details opens on the strip\'s own columns, and the row keeps room for its labels so opening it moves nothing', async () => {
-    const { container, rerender } = render(<TrackedSummaryGrid summary={SUMMARY} limits={LIMITS} />)
-    fireEvent.click(details())
-    const rules = await rulesFor(container)
-    const list = detailsList()
-    // A grid of the strip's own columns, across all of them: two, three, then the columns of the row.
-    expect(list.parentElement).toBe(strip(container))
-    expect([compiledElementProperty(rules, list, 'display'), columns(rules, list), span(rules, list)]).toEqual(['grid', 'subgrid', '1 / -1'])
-    // A row under 62rem cannot hold every label on its own columns: there Details is four columns of its own.
-    expect(columns(rules, list, '@container (width < 62rem)')).toBe('repeat(4, minmax(0, 1fr))')
-    // From 62rem each number's cell holds the label that opens under it, unseen and as generated text.
-    const reserved = () => cellsOf(container).map(cell => [...cell.querySelectorAll<HTMLElement>('[data-reserve]')].map(room => room.dataset.reserve))
-    expect(reserved()).toEqual([['Market queries'], ['Location queries'], ['Hand-picked queries'], ['Not asked'], ['Location links']])
-    const room = cellsOf(container)[4]!.querySelector('[data-reserve]')!
-    expect([room.textContent, room.getAttribute('aria-hidden')]).toEqual(['', 'true'])
-    expect([compiledElementProperty(rules, room, 'display'), compiledElementProperty(rules, room, 'display', '@container (width >= 62rem)'), compiledElementProperty(rules, room, 'visibility'), compiledElementProperty(rules, room, 'white-space')])
-      .toEqual(['none', 'block', 'hidden', 'nowrap'])
-    expect(cssLengthPx(compiledElementProperty(rules, room, 'height')!, rules)).toBe(0)
-    // Location links has a help icon beside it: its room is that much wider.
-    expect(cssLengthPx(compiledElementProperty(rules, room, 'padding-right')!, rules)).toBe(20)
-
-    // The rare numbers wrap to a second row of the same columns, so a cell holds room for both labels under it.
-    rerender(<TrackedSummaryGrid summary={{ ...SUMMARY, byFocus: { ...SUMMARY.byFocus, company: 7 }, byClass: { ...SUMMARY.byClass, mixed: 5, unknown: 2 } }} limits={LIMITS} />)
-    expect(reserved()).toEqual([['Market queries', 'Location links'], ['Location queries', 'Non-brand links'], ['Hand-picked queries', 'Branded links'], ['Company queries'], ['Mixed type']])
-    // The eighth number starts that second row: no line before it, as before no first cell.
-    const eighth = [...detailsList().querySelectorAll('dl > div')][7]!
-    const wide = await rulesFor(container)
-    expect([lineBefore(wide, eighth, '@container (width >= 62rem)'), lineBefore(wide, eighth.previousElementSibling!, '@container (width >= 62rem)')]).toEqual([undefined, '1px'])
   })
 
   test('the sweep dates wrap as whole dates: a dot shows between two on a line and never at the end of one', async () => {
@@ -378,6 +303,7 @@ describe('TrackedSummaryGrid, layout', () => {
 
   test('the links and Retry are 44px targets under a finger, and the links show keyboard focus as a ring', async () => {
     const { container } = render(<><TrackedSummaryGrid summary={SUMMARY} limits={LIMITS} onShowNotAsked={() => {}} /><TrackedSummaryGrid summary={undefined} onRetry={() => {}} /></>)
+    fireEvent.click(details())
     const rules = await rulesFor(container)
     const links = [details(), screen.getByRole('button', { name: '38 not asked' })]
     for (const control of [...links, screen.getByRole('button', { name: 'Retry' })]) {
@@ -390,14 +316,10 @@ describe('TrackedSummaryGrid, layout', () => {
     }
   })
 
-  test('the skeleton is the same strip with nothing to read', async () => {
-    const { container } = render(<><TrackedSummaryGrid summary={SUMMARY} limits={LIMITS} lastSweepAt={LAST_SWEEP} /><TrackedSummaryGridSkeleton /></>)
-    const [grid, skeleton] = [...container.children] as [HTMLElement, HTMLElement]
-    expect(skeleton.getAttribute('aria-hidden')).toBe('true')
-    expect(skeleton.textContent).toBe('')
-    // The same strip, cell for cell, so nothing moves when the numbers land.
-    const [row, bones] = [grid.firstElementChild as HTMLElement, skeleton.firstElementChild as HTMLElement]
-    expect([bones.className, bones.style.getPropertyValue('--tracked-strip-columns')]).toEqual([row.className, row.style.getPropertyValue('--tracked-strip-columns')])
-    expect([...bones.children].map(cell => cell.className)).toEqual([...grid.querySelector('dl')!.children, details().parentElement!.parentElement!].map(cell => cell.className))
+  test('the compact project skeleton holds no readable data or controls', () => {
+    const { container } = render(<TrackedSummaryGridSkeleton />)
+    expect(container.firstElementChild!.getAttribute('aria-hidden')).toBe('true')
+    expect(container.textContent).toBe('')
+    expect(screen.queryAllByRole('button')).toEqual([])
   })
 })

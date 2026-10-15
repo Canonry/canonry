@@ -6,7 +6,7 @@ import { queryTrackingPreviewResponseSchema } from '@ainyc/canonry-contracts'
 import type { QueryTrackingPreviewResponse, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
 
 import { expectedSubject, TrackingReview, TrackingReviewActions, type ExpectedSubject } from '../src/components/project/TrackingReview.js'
-import { TrackingAddQueriesSheet } from '../src/components/project/queries/AddQueriesEntry.js'
+import { TrackingAddQueriesPage } from '../src/components/project/queries/AddQueriesEntry.js'
 import { TrackedActionSheet } from '../src/components/project/queries/advanced/TrackedActionSheet.js'
 import { TrackResearchSheet, type TrackResearchItem } from '../src/components/project/queries/research/TrackResearchSheet.js'
 import { contextLabels } from '../src/components/project/queries/tracking-contexts.js'
@@ -563,11 +563,11 @@ function installReview(answer: (body: Body) => Answer[], marketChanges: unknown[
   return bodies
 }
 
-function renderSheet(sheet: React.ReactElement) {
+function renderSheet(sheet: React.ReactElement, role: 'dialog' | 'region' = 'dialog') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   onTestFinished(() => queryClient.clear())
   render(<QueryClientProvider client={queryClient}>{sheet}</QueryClientProvider>)
-  return within(screen.getByRole('dialog'))
+  return within(screen.getByRole(role, role === 'region' ? { name: 'Add queries' } : undefined))
 }
 type Sheet = ReturnType<typeof renderSheet>
 
@@ -600,7 +600,7 @@ const sheetRow = (sheet: Sheet, queryText: string) => sheet.getByText(queryText)
 const UPTOWN_SHEET = ['harbor', 'river', 'summit']
 const sheetProps = { projectName: 'demo', workspace: sheetWorkspace, sweepActive: false, onClose: () => {} }
 
-describe('the Add queries sheet', () => {
+describe('the Add queries page', () => {
   const lines = ['apartments with a gym uptown', 'quiet apartments uptown']
 
   it('states the chosen market for every line, and blocks the publish when one would land elsewhere', async () => {
@@ -608,7 +608,7 @@ describe('the Add queries sheet', () => {
     const bodies = installReview(body => body.additions.map((addition, index) => handPick && index === 1
       ? { text: addition.input.text!, focus: { kind: 'custom' }, after: [...UPTOWN_SHEET, 'pier', 'lone'] }
       : { text: addition.input.text!, focus: { kind: 'market', key: 'uptown' }, after: UPTOWN_SHEET }))
-    const sheet = renderSheet(<TrackingAddQueriesSheet {...sheetProps} defaultMarketKey="uptown" defaultText={lines.join('\n')} />)
+    const sheet = renderSheet(<TrackingAddQueriesPage {...sheetProps} defaultMarketKey="uptown" defaultText={lines.join('\n')} />, 'region')
     expect(await reviewed(sheet)).toEqual({ ...landed, columns: ['Change', 'Query', 'Subject and type', 'Locations', 'Pairs'] })
     // The request is the one the sheet always sent: the check reads the answer and adds nothing to it.
     expect(bodies[0]!.additions).toEqual(lines.map(text => ({ input: { source: 'manual', text }, audience: { marketKeys: ['uptown'] } })))
@@ -624,7 +624,7 @@ describe('the Add queries sheet', () => {
     installReview(body => body.additions.map(addition => spread
       ? { text: addition.input.text!, focus: { kind: 'market', key: 'uptown' }, after: UPTOWN_SHEET }
       : { text: addition.input.text!, focus: { kind: 'market', key: 'solo' }, after: ['pier'] }))
-    const sheet = renderSheet(<TrackingAddQueriesSheet {...sheetProps} defaultLocationKey="pier" defaultText="apartments by the water" />)
+    const sheet = renderSheet(<TrackingAddQueriesPage {...sheetProps} defaultLocationKey="pier" defaultText="apartments by the water" />, 'region')
     expect(await reviewed(sheet)).toMatchObject({ ...missedOnce, locations: 'met', byType: 0 })
     // The table names the Subject the server gives it, and the mismatch blocks the chosen location's publish.
     expect(sheetRow(sheet, 'apartments by the water').cells[2]!.textContent).toBe('Market · Solo (1)Non-brand')
@@ -641,7 +641,7 @@ describe('the Add queries sheet', () => {
     const bodies = installReview(body => body.additions.map(addition => spread
       ? { text: addition.input.text!, focus: { kind: 'custom' }, after: ['lone', 'pier'] }
       : { text: addition.input.text!, focus: { kind: 'property', key: 'lone' }, after: ['lone'] }))
-    const sheet = renderSheet(<TrackingAddQueriesSheet {...sheetProps} defaultLocationKey="lone" defaultText="Lone Pine reviews" />)
+    const sheet = renderSheet(<TrackingAddQueriesPage {...sheetProps} defaultLocationKey="lone" defaultText="Lone Pine reviews" />, 'region')
     expect(await reviewed(sheet)).toMatchObject(landed)
     // With no market to take them from, the request names the location and the project's one search location and engines.
     expect(bodies[0]!.additions).toEqual([{ input: { source: 'manual', text: 'Lone Pine reviews' }, audience: { targetKeys: ['lone'] }, contexts: [expect.anything()], queryClass: 'branded' }])

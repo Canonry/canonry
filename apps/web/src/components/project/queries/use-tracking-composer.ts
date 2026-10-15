@@ -29,7 +29,7 @@ import {
  * The generated SDK transport is attached in `TrackedQueriesSection`. Keeping
  * the two tracked pages transport-free makes the review boundary explicit:
  * the browser builds a requested mutation, but the server resolves duplicates,
- * class, exact diff, and next-sweep workload. `AddQueriesSheet` is the one
+ * class, exact diff, and next-sweep workload. `AddQueriesForm` is the one
  * exception: it publishes through its own instance of the same hook, so the
  * advanced page passes it `projectName`.
  */
@@ -75,7 +75,6 @@ export function useTrackingComposer({
   const [action, setAction] = useState<TrackingAction | null>(null)
   const [draft, setDraft] = useState<TrackingDraft>(() => defaultTrackingDraft(selection))
   const [reviewedMutation, setReviewedMutation] = useState<QueryTrackingMutation | null>(null)
-  const [addSheetOpen, setAddSheetOpen] = useState(false)
   const editorHeadingRef = useRef<HTMLHeadingElement>(null)
   const handledRouteAction = useRef<string | null>(null)
   const unavailableScope = unavailableTrackingScope(workspace, selection)
@@ -117,7 +116,6 @@ export function useTrackingComposer({
     if (!unavailableScope) return
     setAction(null)
     setReviewedMutation(null)
-    setAddSheetOpen(false)
     if (trackingQueryId !== undefined) onTrackingQueryIdChange?.(undefined)
   }, [onTrackingQueryIdChange, trackingQueryId, unavailableScope])
 
@@ -157,12 +155,6 @@ export function useTrackingComposer({
     onTrackingQueryIdChange?.(undefined)
   }
 
-  // Advanced projects add through the sheet; it hands off to the Add query form for the rest.
-  function openAddSheet() {
-    closeAction()
-    setAddSheetOpen(true)
-  }
-
   const mutation = action ? mutationForAction(action, draft, workspace) : null
   const needsExplicitContext = action !== null
     && action.kind === 'add'
@@ -187,8 +179,6 @@ export function useTrackingComposer({
     setDraft,
     reviewedMutation,
     setReviewedMutation,
-    addSheetOpen,
-    setAddSheetOpen,
     editorHeadingRef,
     unavailableScope,
     table,
@@ -196,7 +186,6 @@ export function useTrackingComposer({
     openEdit,
     openRemoval,
     closeAction,
-    openAddSheet,
     mutation,
     canReview,
     sweepActive,

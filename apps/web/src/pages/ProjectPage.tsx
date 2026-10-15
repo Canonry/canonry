@@ -1309,7 +1309,7 @@ function OverviewSignals({
  * render that follows. See PR #592 for the matching fix on the
  * pre-refactor code path.
  */
-export function ProjectPage(props: { tab: ProjectPageTab }) {
+export function ProjectPage(props: { tab: ProjectPageTab; addQueriesPage?: boolean }) {
   const { projectName: routeIdentifier } = useParams({ from: '/projects/$projectName' })
   // The URL carries the project name (the canonical identifier). Match by name
   // first; fall back to matching by id so a legacy UUID-shaped URL that wasn't
@@ -1634,6 +1634,7 @@ const SENTIMENT_BACKFILL_SWEEP_OPTIONS = 5
 
 function ProjectPageContent({
   tab: requestedTab,
+  addQueriesPage = false,
   model,
   refetch,
   latestVisibilityRevision,
@@ -1644,6 +1645,7 @@ function ProjectPageContent({
   onRequestOverview,
 }: {
   tab: ProjectPageTab
+  addQueriesPage?: boolean
   model: ProjectCommandCenterVm
   refetch: () => Promise<void>
   latestVisibilityRevision: string
@@ -3298,6 +3300,7 @@ function ProjectPageContent({
         />
       ) : tab === 'queries' || tab === 'discovery' ? (
         <QueriesSection
+          addQueriesPage={addQueriesPage}
           projectName={projectName}
           queryWorkspace={requestedQueryWorkspace}
           onQueryWorkspaceChange={value => updateVisibilitySearch({ queryWorkspace: value, trackingQueryId: undefined })}

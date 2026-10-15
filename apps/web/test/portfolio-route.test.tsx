@@ -1440,6 +1440,7 @@ test('the Queries route reads the workspace and the results once, lists every ty
   expect(await page.findByRole('heading', { name: 'Queries' })).toBeTruthy()
   expect(await page.findByText('Citypoint dentist')).toBeTruthy()
   expect(page.getByText('Best dentist nearby')).toBeTruthy()
+  fireEvent.click(page.getByRole('button', { name: /^Filters/ }))
   expect((page.getByRole('combobox', { name: 'Type' }) as HTMLSelectElement).value).toBe('all')
   expect(page.getByRole('tab', { name: 'Tracked' }).getAttribute('aria-selected')).toBe('true')
   // One workspace read and one results read, for the Place in the URL.
@@ -1498,6 +1499,7 @@ test('a row link whose query the URL\'s place and filters leave out lands on the
   expect(router.state.location.search).toMatchObject({ trackingQueryId: 'query-stopped', trackedStatus: 'all', measurementScope: 'project' })
   expect(router.state.location.search.trackedSubject).toBeUndefined()
   expect(router.state.location.search.measurementScopeKey).toBeUndefined()
+  fireEvent.click(page.getByRole('button', { name: /^Filters/ }))
   expect((page.getByRole('combobox', { name: 'Status' }) as HTMLSelectElement).value).toBe('all')
   expect(page.getByText('Citypoint dentist')).toBeTruthy()
   expect(page.queryByRole('dialog')).toBeNull()

@@ -1,6 +1,6 @@
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { AlertTriangle, CornerDownRight, Info, MapPinOff } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CornerDownRight, Info, MapPinOff } from 'lucide-react'
 import { normalizeIdentityText, QUERY_TRACKING_TEXT_MAX_LENGTH } from '@ainyc/canonry-contracts'
 import type {
   QueryTrackingCommitResponse,
@@ -16,7 +16,7 @@ import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { SegmentedRadioGroup, type SegmentedRadioOption } from '../shared/SegmentedRadioGroup.js'
 import { StatusNote } from '../shared/StatusNote.js'
 import { Button } from '../ui/button.js'
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, useSheetDiscardGuard } from '../ui/sheet.js'
+import { useSheetDiscardGuard } from '../ui/sheet.js'
 import { expectedSubject, SearchLocationText, TYPE_FOLLOWS_SUBJECT, type TrackingReviewState } from './TrackingReview.js'
 import { VisibilityScopePicker } from './VisibilityScopePicker.js'
 
@@ -27,7 +27,7 @@ const SUBJECTS: readonly SegmentedRadioOption<Subject>[] = [
   { value: 'location', label: 'Location' },
   { value: 'company', label: 'Company', description: 'Not available yet', disabled: true },
 ]
-/** The wire calls a location a property; this sheet never does. */
+/** The wire calls a location a property; this form never does. */
 const LOCATION_NOUN = ['location', 'locations'] as const
 const PLACES = {
   market: { kind: 'market', label: 'Market', placeholder: 'Choose a market', none: 'No markets yet' },
@@ -78,27 +78,27 @@ export function placesOf(options: NonNullable<QueryTrackingWorkspaceResponse['sc
  * which `onOpenComposer` opens. The form holds one query, so a hand-off takes
  * the first line with it and says so when there are more. The chosen place
  * stays behind: a market checked in the form would narrow hand-picked
- * locations to that market. A caller with no form (the location page) leaves
- * `onOpenComposer` out, and the sheet shows no link to it.
+ * locations to that market. The route also offers the full form for hand-picked locations, patterns and saved research.
  */
-export function AddQueriesSheet({ projectName, workspace, contextChoices, defaultMarketKey, defaultLocationKey, defaultText, onOpenComposer, onPublished, onClose, renderReview }: {
+export function AddQueriesForm({ projectName, workspace, contextChoices, defaultMarketKey, defaultLocationKey, defaultText, onOpenComposer, onPublished, onClose, renderReview, backLabel = 'Back to queries' }: {
+  backLabel?: string
   projectName: string
   workspace: QueryTrackingWorkspaceResponse
   /** The search location and engines choices the Add query form offers, so a location in no market gets the same ones. */
   contextChoices: readonly { label: string; input: QueryTrackingContextInput }[]
   /** The market the Tracked view is filtered to, chosen to start with. */
   defaultMarketKey?: string
-  /** The location the Tracked view is filtered to, or the location page the sheet opened from. Subject starts on Location with it chosen. */
+  /** The location the Tracked view is filtered to, or the location page the form opened from. Subject starts on Location with it chosen. */
   defaultLocationKey?: string
-  /** The query lines the sheet opens with, one per line. */
+  /** The query lines the form opens with, one per line. */
   defaultText?: string
   /** `text` is the first query line, or empty when nothing is typed yet. */
   onOpenComposer?: (carried: { text: string }) => void
-  /** Runs once a publish succeeds, just before the sheet closes, with what the server published. */
+  /** Runs once a publish succeeds, just before the form closes, with what the server published. */
   onPublished?: (result: QueryTrackingCommitResponse) => void
   onClose: () => void
   /**
-   * The caller draws the review, so this sheet shows the same one as every other advanced tracking change.
+   * The caller draws the review, so this form shows the same one as every other advanced tracking change.
    * `actions` (publish or review again, Back and the sweep pause) go in the footer, in reach however long the list is.
    */
   renderReview: (review: TrackingReviewState) => { changes: ReactNode; actions: ReactNode }
@@ -109,9 +109,8 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
   const [contextLabel, setContextLabel] = useState('')
   const [text, setText] = useState(defaultText ?? '')
   const [reviewed, setReviewed] = useState<QueryTrackingMutation | null>(null)
-  const picker = useRef<HTMLDivElement>(null)
-  const [opener] = useState(() => document.activeElement)
-  const openingComposer = useRef(false)
+  const heading = useRef<HTMLHeadingElement>(null)
+  useEffect(() => { heading.current?.focus() }, [])
   const id = useId()
 
   const placing = PLACES[subject === 'location' ? 'location' : 'market']
@@ -137,8 +136,8 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
   })
   const preview = reviewed ? publish.preview : null
   const canReview = placement !== null && lines.length > 0 && tooLong === 0 && !publish.isPreviewing
-  // The toast for a refused review or publish sits under this sheet, so the review stays up to show the
-  // refusal and offer another review. Back keeps showing it beside the draft, until the next request.
+  // Keep a refused review in place so it offers recovery. Back keeps the refusal
+  // beside the draft until the next request.
   const reviewStep = reviewed && (preview || publish.error) ? renderReview({
     preview,
     error: publish.error,
@@ -163,7 +162,7 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
   }) : null
   const refusal = publish.error ? <p role="alert" className="mt-4 text-sm leading-5 text-negative"><span className="font-medium">{publish.error.title}.</span> {publish.error.detail}</p> : null
 
-  /** A change to the draft drops a review still in flight, so the sheet never shows a review of an older draft. */
+  /** A change to the draft drops a review still in flight, so the form never shows a review of an older draft. */
   function edit<T>(set: (value: T) => void) {
     return (value: T) => {
       set(value)
@@ -179,22 +178,7 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
   }
 
   function openComposer() {
-    openingComposer.current = true
     onOpenComposer?.({ text: lines[0] ?? '' })
-  }
-
-  // A sheet opened without a Radix trigger returns focus to its opener itself.
-  // The Add query form focuses its own heading, so a hand-off leaves focus there.
-  function restoreFocus(event: Event) {
-    event.preventDefault()
-    if (!openingComposer.current && opener instanceof HTMLElement) opener.focus()
-  }
-
-  // Escape closes an open place picker or an open help bubble first, not the whole sheet.
-  function keepOpenForInner(event: KeyboardEvent) {
-    const target = event.target
-    if (!(target instanceof Element)) return
-    if (picker.current?.querySelector('details[open]')?.contains(target) || target.closest('.info-tooltip-trigger[aria-expanded="true"]')) event.preventDefault()
   }
 
   function review() {
@@ -211,28 +195,22 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
     publish.requestPreview({ ...mutation, expectedWorkspaceVersion: workspace.workspaceVersion })
   }
 
-  return (
-    <Sheet open onOpenChange={open => { if (!open) guard.requestClose() }}>
-      <SheetContent onPointerDownOutside={guard.onPointerDownOutside} onCloseAutoFocus={restoreFocus} onEscapeKeyDown={keepOpenForInner}>
-        <SheetHeader>
-          <SheetTitle>Add queries</SheetTitle>
-          <SheetDescription className="sr-only">Each query is tracked for one market or one location.</SheetDescription>
-        </SheetHeader>
+  const content = <>
         {reviewStep ? <>
-          <div className="mt-4 min-h-0 flex-1 overflow-y-auto">{reviewStep.changes}</div>
+          <div className="mt-6">{reviewStep.changes}</div>
           {/* The review's buttons are 44px on a phone. */}
           <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-default pt-4 max-md:[&>button]:h-11">{reviewStep.actions}</div>
         </> : <>
-          <div className="-mx-1 mt-4 min-h-0 flex-1 space-y-5 overflow-y-auto px-1">
+          <div className="-mx-1 mt-6 max-w-2xl space-y-5 px-1">
             <div>
               <span aria-hidden="true" className={FIELD_LABEL}>Subject</span>
-              {/* A hover title shows on neither a tap nor keyboard focus, so the help says why Company is off. After the control, so the sheet opens with focus on the Subject, not on the help. */}
+              {/* A hover title shows on neither a tap nor keyboard focus, so the help says why Company is off. After the control, so the form opens with focus on the Subject, not on the help. */}
               <div className="flex items-center">
                 <SegmentedRadioGroup label="Subject" options={SUBJECTS} value={subject} onChange={changeSubject} />
                 <InfoTooltip text="Company is not available yet." placement="bottom" />
               </div>
             </div>
-            <div ref={picker}>
+            <div>
               {places.some(option => option.kind === placing.kind)
                 ? <VisibilityScopePicker key={subject} label={placing.label} placeholder={placing.placeholder} options={places} selected={place} allowGroupSelect={false} propertyNoun={LOCATION_NOUN} onSelect={scope => edit(setPlaceKey)(scope.id)} />
                 : <>
@@ -314,7 +292,14 @@ export function AddQueriesSheet({ projectName, workspace, contextChoices, defaul
           </div>
         </>}
         {guard.prompt}
-      </SheetContent>
-    </Sheet>
+  </>
+  return (
+    <section aria-label="Add queries" className="mx-auto w-full max-w-5xl pb-8">
+      <Button type="button" variant="ghost" size="sm" className="mb-4 -ml-2" disabled={publish.isCommitting} onClick={guard.requestClose}>
+        <ArrowLeft aria-hidden="true" size={16} /> {backLabel}
+      </Button>
+      <h2 ref={heading} tabIndex={-1} className="text-xl font-medium text-heading outline-none">Add queries</h2>
+      {content}
+    </section>
   )
 }

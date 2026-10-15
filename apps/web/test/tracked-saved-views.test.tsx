@@ -12,7 +12,6 @@ import { expectNoSentence, noteButton } from './support/query-tracking-fixtures.
 afterEach(cleanup)
 
 const BELOW_MD = '@media (width < 48rem)'
-const FROM_MD = '@media (width >= 48rem)'
 const NARROW_FRAME = '@container (width < 52rem)'
 const PHONE_FRAME = '@container (width < 30rem)'
 
@@ -58,165 +57,66 @@ describe('TrackedSavedViews', () => {
     const view = render(<TrackedSavedViews views={VIEWS} weakMarkets={{ count: 4 }} notAsked={38} handPicked={0} active={[]} onSelect={onSelect} {...props} />)
     return { ...view, onSelect }
   }
-  const row = () => screen.getByRole('group', { name: 'Views' })
-  const buttons = () => within(row()).getAllByRole('button')
-  /** Each button by its name: the view, the type its number is of where it has one, and the number. */
-  const names = () => buttons().map(button => button.getAttribute('aria-label'))
+  const toggle = () => screen.getByRole('button', { name: /^Views/ })
+  const buttons = () => within(screen.getByRole('group', { name: 'Views' })).getAllByRole('button')
 
-  test('each view is a button with the server\'s own count, in one group named Views', () => {
+  test('keeps the choices behind one disclosure and shows the server counts when opened', () => {
     renderViews()
-    // 31, 12 and 7 are the read's counts: the lists hold 3, 3 and 2.
-    expect(names()).toEqual(['Location gaps, 31', 'Thin markets, 12', 'Pattern gaps, 7', 'Weakest markets, non-brand queries, 4', 'Not asked, 38', 'Hand-picked, 0'])
-    // What is drawn is the view and its number. Weakest markets reads non-brand results only, and says so to someone who hears only its button.
-    expect(buttons().map(button => button.textContent)).toEqual(['Location gaps31', 'Thin markets12', 'Pattern gaps7', 'Weakest markets4', 'Not asked38', 'Hand-picked0'])
+    expect(screen.getAllByRole('button')).toEqual([toggle()])
+    expect(toggle().getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(toggle())
+    expect(buttons().map(button => button.getAttribute('aria-label'))).toEqual(['Location gaps, 31', 'Thin markets, 12', 'Pattern gaps, 7', 'Weakest markets, non-brand queries, 4', 'Not asked, 38', 'Hand-picked, 0'])
     expect(buttons().map(button => button.getAttribute('aria-pressed'))).toEqual(Array(6).fill('false'))
-    expectNoSentence(row())
   })
 
-  test('a view with none still opens, and choosing a view reports which', () => {
-    const { onSelect } = renderViews({ views: { ...VIEWS, thinMarkets: { count: 0, floor: 6, marketKeys: [] } } })
-    const thin = screen.getByRole('button', { name: 'Thin markets, 0' }) as HTMLButtonElement
-    expect(thin.disabled).toBe(false)
-    fireEvent.click(thin)
-    fireEvent.click(screen.getByRole('button', { name: 'Hand-picked, 0' }))
-    expect(onSelect.mock.calls).toEqual([['thin-markets'], ['hand-picked']])
+  test('zero-count choices still work and selection closes the disclosure back to its button', () => {
+    const { onSelect } = renderViews()
+    fireEvent.click(toggle())
+    const choice = screen.getByRole<HTMLButtonElement>('button', { name: 'Hand-picked, 0' })
+    expect(choice.disabled).toBe(false)
+    choice.focus()
+    fireEvent.click(choice)
+    expect(onSelect).toHaveBeenCalledWith('hand-picked')
+    expect(screen.queryByRole('group', { name: 'Views' })).toBeNull()
+    expect(document.activeElement).toBe(toggle())
+    fireEvent.click(toggle())
+    screen.getByRole('button', { name: 'Thin markets, 12' }).focus()
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    expect(toggle().getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(toggle())
+    fireEvent.click(toggle())
+    fireEvent.pointerDown(document.body)
+    expect(toggle().getAttribute('aria-expanded')).toBe('false')
   })
 
-  test('a view with none is set back while it is off, with the border and the size of any other, and reads as any other once it is on', async () => {
-    const none = { ...VIEWS, thinMarkets: { count: 0, floor: 6, marketKeys: [] } }
-    const { container, rerender, onSelect } = renderViews({ views: none, weakMarkets: 'pending', notAsked: undefined })
-    // Only a count of none marks a view: one that holds something, one still loading and one with no number are as they were.
-    expect(buttons().filter(button => button.hasAttribute('data-empty')).map(button => button.getAttribute('aria-label'))).toEqual(['Thin markets, 0', 'Hand-picked, 0'])
-    const rules = await rulesFor(container)
-    const [full, empty] = [buttons()[0]!, buttons()[1]!]
-    const tone = (element: Element) => compiledElementProperty(rules, element, 'color')
-    // Its name is in the muted tone, and its number takes that tone from it.
-    expect([tone(full), tone(full.querySelector('span')!)]).toEqual(['var(--color-text-strong)', 'var(--color-text-secondary)'])
-    expect([tone(empty), tone(empty.querySelector('span')!)]).toEqual(['var(--color-text-muted)', undefined])
-    for (const property of ['border-color', 'height', 'font-size', 'padding-inline']) expect(compiledElementProperty(rules, empty, property), property).toBe(compiledElementProperty(rules, full, property))
-    expect((empty as HTMLButtonElement).disabled).toBe(false)
-
-    // On, it is drawn as any view that is on. It still holds none, and still says so.
-    rerender(<TrackedSavedViews views={none} weakMarkets={{ count: 4 }} notAsked={38} handPicked={0} active={['thin-markets', 'not-asked']} onSelect={onSelect} />)
-    const pressed = await rulesFor(container)
-    const [on, onEmpty] = [buttons()[4]!, buttons()[1]!]
-    expect([on.getAttribute('aria-label'), onEmpty.getAttribute('aria-label'), onEmpty.hasAttribute('data-empty')]).toEqual(['Not asked, 38', 'Thin markets, 0', true])
-    for (const property of ['color', 'border-color', 'background-color']) expect(compiledElementProperty(pressed, onEmpty, property), property).toBe(compiledElementProperty(pressed, on, property))
-    expect(compiledElementProperty(pressed, onEmpty.querySelector('span')!, 'color')).toBe('var(--color-text-secondary)')
-  })
-
-  test('the views that are on read as pressed', () => {
+  test('URL selections remain visible in the closed control and retain independent pressed states', () => {
     const { rerender, onSelect } = renderViews({ active: ['thin-markets'] })
-    const pressed = () => buttons().filter(button => button.getAttribute('aria-pressed') === 'true').map(button => button.getAttribute('aria-label'))
-    expect(pressed()).toEqual(['Thin markets, 12'])
+    expect(toggle().textContent).toBe('Views · Thin markets')
     rerender(<TrackedSavedViews views={VIEWS} notAsked={38} handPicked={0} active={['not-asked', 'hand-picked']} onSelect={onSelect} />)
-    expect(pressed()).toEqual(['Not asked, 38', 'Hand-picked, 0'])
+    expect(toggle().textContent).toBe('Views · Not asked, Hand-picked')
+    fireEvent.click(toggle())
+    expect(buttons().filter(button => button.getAttribute('aria-pressed') === 'true').map(button => button.getAttribute('aria-label'))).toEqual(['Not asked, 38', 'Hand-picked, 0'])
+    fireEvent.click(screen.getByRole('button', { name: 'Not asked, 38' }))
+    expect(onSelect).toHaveBeenCalledWith('not-asked')
   })
 
-  test('a view that is on is marked by its border and ground at the same weight, and focus is a ring clear of the border on either', async () => {
-    const { container } = renderViews({ active: ['thin-markets'] })
-    const rules = await rulesFor(container)
-    const [off, on] = [buttons()[0]!, buttons()[1]!]
-    // A heavier weight would widen the button and move every view after it.
-    expect([off, on].map(button => compiledElementProperty(rules, button, 'font-weight'))).toEqual([undefined, undefined])
-    expect(compiledElementProperty(rules, on, 'border-color')).not.toBe(compiledElementProperty(rules, off, 'border-color'))
-    // The same ring on both: 2px, 2px off the button, so it does not merge with the border of a pressed one.
-    for (const button of [off, on]) {
-      const focus = await compileAppStyles([...button.classList].filter(candidate => candidate.startsWith('focus-visible:')))
-      expect(focus).toMatch(/&:focus-visible \{[^}]*--tw-ring-offset-width: 2px/)
-      expect(focus).toMatch(/&:focus-visible \{[^}]*--tw-ring-shadow:[^;]*calc\(2px \+ var\(--tw-ring-offset-width\)\)/)
-      // Focus changes no border, so the pressed view's own border still shows inside the ring.
-      expect([...button.classList].filter(candidate => candidate.startsWith('focus-visible:border'))).toEqual([])
-    }
-    // The ring is 4px past the button, and the line that scrolls keeps that much room for it.
-    expect(compiledElementProperty(rules, row(), 'padding')).toBe('calc(var(--spacing) * 1)')
-  })
-
-  test('on a line that scrolls, the view that is on is brought into it and the page is not moved', () => {
-    // A phone: the line holds 60px to 350px, and Weakest markets is drawn past its right edge.
-    const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
-      if (this.getAttribute('role') === 'group') return { left: 60, right: 350 } as DOMRect
-      return (this.getAttribute('aria-label')?.startsWith('Weakest markets') ? { left: 520, right: 660 } : { left: 70, right: 200 }) as DOMRect
-    })
-    // jsdom has no scrollIntoView. One is stood in, to show the page's own scroll is never asked for.
-    const scrolled = vi.fn()
-    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scrolled })
-    try {
-      const { rerender, onSelect } = renderViews({ active: ['weak-markets'] })
-      // Its right edge and 4px for its focus ring.
-      expect(row().scrollLeft).toBe(314)
-      // A view already in the line moves nothing.
-      row().scrollLeft = 0
-      rerender(<TrackedSavedViews views={VIEWS} weakMarkets={{ count: 4 }} notAsked={38} handPicked={0} active={['thin-markets']} onSelect={onSelect} />)
-      expect(row().scrollLeft).toBe(0)
-      expect(scrolled).not.toHaveBeenCalled()
-    } finally {
-      rect.mockRestore()
-      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
-    }
-  })
-
-  test('Weakest markets is drawn only with a sweep to read, and holds its place while the results load and after they fail', () => {
+  test('Weakest markets requires a sweep and keeps unavailable counts distinct from zero', () => {
     const { rerender, onSelect } = renderViews({ weakMarkets: undefined })
+    fireEvent.click(toggle())
     expect(screen.queryByRole('button', { name: /^Weakest markets/ })).toBeNull()
-    expect(buttons()).toHaveLength(5)
-
     rerender(<TrackedSavedViews views={VIEWS} weakMarkets="pending" notAsked={38} handPicked={0} active={[]} onSelect={onSelect} />)
-    // No number yet, and none made up: the name is the view and its type.
     const waiting = screen.getByRole('button', { name: 'Weakest markets, non-brand queries' })
-    expect(buttons().indexOf(waiting)).toBe(3)
-    expect(waiting.textContent).toBe('Weakest markets')
     expect(waiting.querySelector('.skeleton-text')).not.toBeNull()
-
-    // The read failed: the button stays where it was, so its open view still has a pressed button, with no number and nothing left loading.
-    rerender(<TrackedSavedViews views={VIEWS} weakMarkets="failed" notAsked={38} handPicked={0} active={['weak-markets']} onSelect={onSelect} />)
+    rerender(<TrackedSavedViews views={VIEWS} weakMarkets="failed" active={['weak-markets']} onSelect={onSelect} />)
     const failed = screen.getByRole('button', { name: 'Weakest markets, non-brand queries' })
-    expect([buttons().indexOf(failed), failed.textContent, failed.getAttribute('aria-pressed')]).toEqual([3, 'Weakest markets', 'true'])
     expect(failed.querySelector('.skeleton-text')).toBeNull()
-    fireEvent.click(failed)
-    expect(onSelect).toHaveBeenLastCalledWith('weak-markets')
-  })
-
-  test('a number the summary did not send is left out, never shown as zero', () => {
-    renderViews({ notAsked: undefined, handPicked: undefined })
-    expect(names().slice(-2)).toEqual(['Not asked', 'Hand-picked'])
-    expect(buttons().slice(-2).map(button => button.textContent)).toEqual(['Not asked', 'Hand-picked'])
-  })
-
-  test('what each view lists is one help beside the label, with the server\'s own floor for a thin market', () => {
-    const { rerender, onSelect } = renderViews()
-    const help = 'Location gaps: no location query. Thin markets: under 6 market queries. Pattern gaps: patterns some markets lack. Weakest markets: no non-brand mention, last sweep. Not asked, Hand-picked: filter the list.'
-    const trigger = screen.getByRole('button', { name: help })
-    // Beside the label and outside the group, so the group is named "Views" alone and the help is no view.
-    expect(row().contains(trigger)).toBe(false)
-    expect(trigger.closest('div')!.textContent).toBe('Views')
-
-    // The bubble hangs from the button's own left edge, so it stays inside the page's column: 224px wide from x=300.
-    const rect = vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue({ left: 300, right: 316, top: 340, bottom: 356, width: 16, height: 16 } as DOMRect)
-    act(() => trigger.focus())
-    const bubble = [...document.body.querySelectorAll<HTMLElement>('span[aria-hidden="true"]')].find(candidate => candidate.textContent === help)!
-    expect([bubble.style.left, bubble.style.transform]).toEqual(['412px', 'translateX(-50%) translateY(8px)'])
-    act(() => trigger.blur())
-    rect.mockRestore()
-
-    // With no sweep there is no Weakest markets view to explain.
-    rerender(<TrackedSavedViews views={VIEWS} notAsked={38} handPicked={0} active={[]} onSelect={onSelect} />)
-    expect(screen.getByRole('button', { name: help.replace(' Weakest markets: no non-brand mention, last sweep.', '') })).toBeTruthy()
-  })
-
-  test('on a phone the buttons are one line that scrolls inside the row, each a 44px target, and from md they wrap', async () => {
-    const { container } = renderViews()
-    const rules = await rulesFor(container)
-    expect(compiledElementProperty(rules, row(), 'overflow-x')).toBe('auto')
-    expect(compiledElementProperty(rules, row(), 'flex-wrap')).toBeUndefined()
-    expect(compiledElementProperty(rules, row(), 'flex-wrap', FROM_MD)).toBe('wrap')
-    const button = buttons()[0]!
-    expect([compiledElementProperty(rules, button, 'flex-shrink'), compiledElementProperty(rules, button, 'white-space')]).toEqual(['0', 'nowrap'])
-    expect(compiledElementProperty(rules, button, 'height', BELOW_MD)).toBe('calc(var(--spacing) * 11)')
+    expect(failed.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Not asked' }).textContent).toBe('Not asked')
+    expect(screen.getByRole('button', { name: 'Hand-picked' }).textContent).toBe('Hand-picked')
+    expect(screen.getByRole('button', { name: /Thin markets: under 6 market queries/ })).toBeTruthy()
   })
 
   test('only the four views that list places are values of the URL', () => {
-    // The URL says location, as the page does. The read's own field name, `noPropertyQueries`, is no value of it.
     expect(['no-location-queries', 'thin-markets', 'pattern-gaps', 'weak-markets', 'no-property-queries', 'not-asked', 'hand-picked', 'other', undefined].map(trackedPlaceView))
       .toEqual(['no-location-queries', 'thin-markets', 'pattern-gaps', 'weak-markets', undefined, undefined, undefined, undefined, undefined])
   })

@@ -21,11 +21,11 @@ import type { TrackedPageHostProps } from '../../DiscoverySection.js'
 import { expectedSubject, TrackingReview } from '../../TrackingReview.js'
 import { MARKET_SCOPE_COPY } from '../../VisibilityScopePicker.js'
 import { VISIBILITY_SCOPE_RECOVERY_COPY, VISIBILITY_TOOLBAR_COPY } from '../../VisibilityTrendSection.js'
-import { TrackingAddQueriesSheet } from '../AddQueriesEntry.js'
+import { useAddQueriesNavigation } from '../AddQueriesEntry.js'
+import { AddTrackedQueriesPage } from './AddTrackedQueriesPage.js'
 import { TrackingComposer } from '../TrackingComposer.js'
 import { assignmentMatchesSelection } from '../tracked-rows.js'
 import { contextInput, contextLabel, contextLabels, searchLocationNames, uniqueContextInputs } from '../tracking-contexts.js'
-import { defaultTrackingDraft } from '../tracking-draft.js'
 import { useTrackedResults } from '../use-tracked-results.js'
 import type { TrackedQueriesPageProps, TrackingComposerState } from '../use-tracking-composer.js'
 import { TrackedActionSheet, type TrackedSheetAction } from './TrackedActionSheet.js'
@@ -99,8 +99,8 @@ function searchParamValue(value: string): string {
 /**
  * Tracked queries on an advanced project: the number strip, the saved views,
  * the toolbar, the table with its row menu, the bulk bar, and the sheets every
- * change goes through. The Add query form and its review stay below the
- * table, reached from the Add queries sheet and from a saved Research result.
+ * change goes through. Add queries has its own route; saved Research hand-offs may still open the
+ * existing composer below the table.
  *
  * Rows come from the workspace the gate read. The last sweep's Mentioned and
  * Cited come from one results read for the Place. Every number in the strip is
@@ -124,6 +124,7 @@ export function AdvancedTrackedPage(props: PageProps) {
     showingAll.current = true
     onSelectionChange?.({ measurementScope: 'project', measurementScopeKey: undefined })
   }
+  if (props.addQueriesPage) return <AddTrackedQueriesPage {...props} />
   if (props.composer.unavailableScope) {
     return (
       // Centred, as the page's empty states are.
@@ -145,7 +146,7 @@ function TrackedPage({
   projectName, workspace, selection, onSelectionChange, trackingQueryId, templates, preview, publishError, isPreviewing, isCommitting, onPreview,
   trackedFilters: filters, onTrackedFiltersChange, trackedView, trackingChangedAt, nextSweepDate, rootLabel, actionsSlot, composer, showAll, showingAll,
 }: PageProps & { rootLabel: string; showAll: () => void; showingAll: RefObject<boolean> }) {
-  const { action, draft, setDraft, reviewedMutation, setReviewedMutation, addSheetOpen, setAddSheetOpen, editorHeadingRef, openAdd, closeAction, mutation, canReview, sweepActive, commitReviewed } = composer
+  const { action, draft, setDraft, reviewedMutation, setReviewedMutation, editorHeadingRef, closeAction, mutation, canReview, sweepActive, commitReviewed } = composer
   // A market selected in the full composer is just as explicit as one selected
   // in the sheet. Use expanded preview text so templates and saved ideas also
   // keep that Subject when the classifier recognises a location name.
@@ -165,10 +166,7 @@ function TrackedPage({
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE)
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set<string>())
   const [sheet, setSheet] = useState<{ action: TrackedSheetAction; rows: readonly TrackedRowVm[] } | null>(null)
-  // The lines the Add queries sheet opens with, when Track opened it.
-  const [addText, setAddText] = useState<string>()
-  // The place it opens on, when a row of a saved view opened it. The Add button opens it on the Place.
-  const [addPlace, setAddPlace] = useState<TrackedPlace>()
+  const { openAddPage: navigateToAdd } = useAddQueriesNavigation(projectName)
   const toolbar = useRef<HTMLDivElement>(null)
   const list = useRef<HTMLDivElement>(null)
   const bulkBarId = useId()
@@ -319,7 +317,7 @@ function TrackedPage({
   }, [showingAll, measurementScope, measurementScopeKey])
 
   // A sheet hands the focus back to what opened it. When that has left the page, as the bar does once its rows are changed, the list takes it.
-  const sheetOpen = sheet !== null || addSheetOpen
+  const sheetOpen = sheet !== null
   const sheetWasOpen = useRef(false)
   useEffect(() => {
     const closed = sheetWasOpen.current && !sheetOpen
@@ -353,19 +351,14 @@ function TrackedPage({
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [bulkBarId])
 
-  // The sheet opens on the Place when it is one market or one location. A market with no location left takes no query, so it is not offered.
+  // The Add queries page starts on the Place when it is one market or one location. A market with no location left takes no query, so it is not offered.
   const addTo = place?.summary.kind === 'location' || (place?.summary.kind === 'market' && place.summary.market.targetKeys?.length !== 0) ? place.narrow : undefined
   const addLabel = addTo?.kind === 'market' ? 'Add market query' : addTo?.kind === 'location' ? 'Add location query' : 'Add queries'
   const adding = action?.kind === 'add'
-  // The Add query form and the sheet are two ways in to one change, so the sheet takes the form's place.
-  function openAddSheet(text?: string, to?: TrackedPlace) {
+  function openAddPage(rows?: readonly TrackedRowVm[], to = addTo) {
     if (isCommitting) return
-    if (adding) closeAction()
-    setAddText(text)
-    setAddPlace(to)
-    setAddSheetOpen(true)
+    navigateToAdd({ market: to?.kind === 'market' ? to.key : undefined, location: to?.kind === 'location' ? to.key : undefined, queryIds: rows?.map(row => row.queryId) })
   }
-  const sheetPlace = addPlace ?? addTo
 
   // The list as it is filtered, searched and sorted, over every page, and named for what narrowed it.
   // Telemetry hears that a file was taken, and none of its text.
@@ -392,7 +385,7 @@ function TrackedPage({
     const first = rows.at(0)
     if (!first) return
     if (rowAction === 'copy-link') void copyLink(first)
-    else if (rowAction === 'track') openAddSheet(rows.map(row => row.queryText).join('\n'))
+    else if (rowAction === 'track') openAddPage(rows)
     // A sheet changes the query, so it takes the whole row, with every type it is asked under, not the place's reading of it.
     else setSheet({ action: rowAction, rows: rows.map(row => allRows.find(whole => whole.queryId === row.queryId) ?? row) })
   }
@@ -451,7 +444,7 @@ function TrackedPage({
   const { run } = results
   // The Add button beside the tabs is the page's one primary action, so this one is outlined.
   const emptyState = workspace.tracked.length === 0 ? (
-    <StatusNote icon={Inbox} label="No queries yet" action={canEdit ? <WriteButton type="button" variant="outline" size="sm" className={TOUCH} disabled={isCommitting} onClick={() => openAddSheet()}>{addLabel}</WriteButton> : undefined} />
+    <StatusNote icon={Inbox} label="No queries yet" action={canEdit ? <WriteButton type="button" variant="outline" size="sm" className={TOUCH} disabled={isCommitting} onClick={() => openAddPage()}>{addLabel}</WriteButton> : undefined} />
   ) : placeRows.length === 0 ? (
     <StatusNote icon={MapPinOff} label="No queries here" action={<Button type="button" variant="outline" size="sm" className={TOUCH} aria-label={VISIBILITY_SCOPE_RECOVERY_COPY.showRoot(rootLabel)} onClick={showAll}>{VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite}</Button>} />
   ) : !narrowed ? (
@@ -491,10 +484,26 @@ function TrackedPage({
           detail={VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(formatObservedInstantMonthDay(observedInstant(run.completedAt ?? run.createdAt)), nextSweepDate ?? null)}
         />
       ) : null}
-      <StatusNote icon={MapPin} {...marksNote({ location: place?.narrow.kind === 'location' ? place.narrow.label : undefined, rootLabel })} />
-      <SignalLegend />
+      <details className="relative text-sm text-secondary">
+        <summary className="cursor-pointer py-1 text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">About results</summary>
+        <div className="absolute right-0 z-20 mt-2 grid w-max max-w-[min(32rem,80vw)] gap-3 rounded-md border border-default bg-surface p-4 shadow-lg">
+          <StatusNote icon={MapPin} {...marksNote({ location: place?.narrow.kind === 'location' ? place.narrow.label : undefined, rootLabel })} />
+          <SignalLegend />
+        </div>
+      </details>
     </div>
   )
+
+  const savedViews = views ? (
+    <TrackedSavedViews
+      views={views}
+      weakMarkets={weakButton}
+      notAsked={workspace.summary?.notAsked}
+      handPicked={workspace.summary?.byFocus.custom}
+      active={activeViews}
+      onSelect={selectView}
+    />
+  ) : null
 
   return (
     <div className="query-tracking-workspace space-y-4">
@@ -509,7 +518,7 @@ function TrackedPage({
             </Button>
           ) : null}
           {canEdit ? (
-            <WriteButton type="button" size="sm" className={TOUCH} disabled={isCommitting} onClick={() => openAddSheet()}>
+            <WriteButton type="button" size="sm" className={TOUCH} disabled={isCommitting} onClick={() => openAddPage()}>
               <Plus aria-hidden="true" size={14} />
               {addLabel}
             </WriteButton>
@@ -529,16 +538,7 @@ function TrackedPage({
           onShowNotAsked={showNotAsked}
           onRetry={() => { void queryClient.invalidateQueries({ queryKey: getApiV1ProjectsByNameQueryTrackingQueryKey({ client: heyClient, path: { name: projectName } }) }) }}
         />
-        {views ? (
-          <TrackedSavedViews
-            views={views}
-            weakMarkets={weakButton}
-            notAsked={workspace.summary?.notAsked}
-            handPicked={workspace.summary?.byFocus.custom}
-            active={activeViews}
-            onSelect={selectView}
-          />
-        ) : null}
+        {view || placeRows.length === 0 ? <div className="flex justify-end">{savedViews}</div> : null}
         {view && views ? (
           <div ref={list}>
             <TrackedPlaceList
@@ -551,15 +551,15 @@ function TrackedPage({
               onRetry={() => { void results.refetch() }}
               onBack={closeView}
               onOpen={openPlace}
-              // The sheet opens on the row's market or location, whatever the Place.
-              onAdd={canEdit ? to => openAddSheet(undefined, to) : undefined}
+              // The page starts on the row's market or location, whatever the Place.
+              onAdd={canEdit ? to => openAddPage(undefined, to) : undefined}
             />
           </div>
         ) : null}
         {/* With nothing to list there is nothing to search or filter. A view has its own search. */}
         {!view && placeRows.length > 0 ? (
           <div ref={toolbar}>
-            <TrackedToolbar search={search} onSearchChange={setSearch} filters={filters} onFiltersChange={setFilters} shown={awaitingResults ? undefined : sorted.length} total={filters.status === 'asked' ? placeRows.filter(row => row.status !== 'not-asked').length : placeRows.length} legend={legend} />
+            <TrackedToolbar views={savedViews} search={search} onSearchChange={setSearch} filters={filters} onFiltersChange={setFilters} shown={awaitingResults || !narrowed ? undefined : sorted.length} total={filters.status === 'asked' ? placeRows.filter(row => row.status !== 'not-asked').length : placeRows.length} legend={legend} />
           </div>
         ) : null}
         {/* The bar follows the list and its pages, a long way off by keyboard. This is the way there, drawn only under focus. */}
@@ -655,25 +655,6 @@ function TrackedPage({
             onReviewAgain={() => onPreview(reviewedMutation)}
           />
         </Card>
-      )}
-
-      {addSheetOpen && (
-        <TrackingAddQueriesSheet
-          projectName={projectName}
-          workspace={workspace}
-          sweepActive={sweepActive}
-          defaultMarketKey={sheetPlace?.kind === 'market' ? sheetPlace.key : undefined}
-          defaultLocationKey={sheetPlace?.kind === 'location' ? sheetPlace.key : undefined}
-          defaultText={addText}
-          onOpenComposer={({ text }) => {
-            setAddSheetOpen(false)
-            openAdd('manual', text)
-            // The form opens on the Place. A sheet opened from a view's row was on that row's place, so the form is too.
-            if (addPlace) setDraft({ ...defaultTrackingDraft({ measurementScope: addPlace.kind === 'location' ? 'property' : addPlace.kind, measurementScopeKey: addPlace.key, queryClass: 'all' }, workspace), text })
-          }}
-          onPublished={() => setSelectedIds(new Set<string>())}
-          onClose={() => setAddSheetOpen(false)}
-        />
       )}
 
       {sheet && (

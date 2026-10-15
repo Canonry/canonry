@@ -25,6 +25,7 @@ export function TrackingComposer({
   canReview,
   isPreviewing,
   isCommitting = false,
+  initiallyDirty = false,
   editorHeadingRef,
   onReview,
 }: {
@@ -37,12 +38,14 @@ export function TrackingComposer({
   canReview: boolean
   isPreviewing: boolean
   isCommitting?: boolean
+  /** Text carried from another editor still needs a discard confirmation. */
+  initiallyDirty?: boolean
   editorHeadingRef: RefObject<HTMLHeadingElement | null>
   onReview: () => void
 }) {
   const hasSavedTemplates = templates.length > 0
   const [initialDraft] = useState(() => JSON.stringify(draft))
-  const guard = useSheetDiscardGuard({ dirty: workspace.mode === 'advanced' && JSON.stringify(draft) !== initialDraft, busy: isCommitting, onClose })
+  const guard = useSheetDiscardGuard({ dirty: workspace.mode === 'advanced' && (initiallyDirty || JSON.stringify(draft) !== initialDraft), busy: isCommitting, onClose })
   const close = workspace.mode === 'advanced' ? guard.requestClose : onClose
   if (action.kind === 'remove') {
     return (

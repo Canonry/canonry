@@ -44,6 +44,7 @@ const filtersButton = () => screen.getByRole('button', { name: /^Filters/ })
 describe('TrackedToolbar', () => {
   test('each filter is a labelled select holding its choices, on its default', () => {
     renderToolbar()
+    fireEvent.click(filtersButton())
     expect(within(screen.getByRole('group', { name: 'Filters' })).getAllByRole('combobox').map(control => control.getAttribute('aria-label'))).toEqual(['Subject', 'Type', 'Status', 'Source', 'Result'])
     expect(choices('Subject')).toEqual(['Any', 'Market', 'Location', 'Company', 'Hand-picked', 'None'])
     expect(choices('Type')).toEqual(['All', 'Non-brand', 'Branded', 'Mixed', 'Not set'])
@@ -55,6 +56,7 @@ describe('TrackedToolbar', () => {
 
   test('the control reads as its label and its current choice, drawn once and spoken by the select', () => {
     renderToolbar({ filters: { ...DEFAULT_TRACKED_FILTERS, subject: 'hand-picked', result: 'not-cited' } })
+    fireEvent.click(filtersButton())
     const drawn = (name: string) => [...select(name).parentElement!.querySelectorAll('span[aria-hidden="true"]')].map(part => part.textContent)
     expect(drawn('Subject')).toEqual(['Subject', 'Hand-picked'])
     expect(drawn('Result')).toEqual(['Result', 'Not cited'])
@@ -64,6 +66,7 @@ describe('TrackedToolbar', () => {
 
   test('beside a mouse a control is as wide as its widest choice, so choosing never moves the row', async () => {
     const { container } = renderToolbar({ filters: { ...DEFAULT_TRACKED_FILTERS, subject: 'hand-picked' } })
+    fireEvent.click(filtersButton())
     const rules = await rulesFor(container)
     // Every choice is set under the current one as generated text: nothing to read, to find or to announce.
     const rooms = (name: string) => [...select(name).parentElement!.querySelectorAll<HTMLElement>('[data-choice]')]
@@ -83,6 +86,7 @@ describe('TrackedToolbar', () => {
 
   test('choosing changes that filter and no other', () => {
     const { onFiltersChange } = renderToolbar({ filters: { ...DEFAULT_TRACKED_FILTERS, type: 'branded' } })
+    fireEvent.click(filtersButton())
     fireEvent.change(select('Status'), { target: { value: 'not-asked' } })
     expect(onFiltersChange).toHaveBeenLastCalledWith({ subject: 'any', type: 'branded', status: 'not-asked', source: 'any', result: 'any' })
     fireEvent.change(select('Type'), { target: { value: 'all' } })
@@ -142,6 +146,7 @@ describe('TrackedToolbar', () => {
       return <TrackedToolbar search="harbor" onSearchChange={() => {}} filters={filters} onFiltersChange={setFilters} shown={40} total={970} />
     }
     render(<Host />)
+    fireEvent.click(filtersButton())
     const clear = screen.getByRole('button', { name: 'Clear filters' })
     // It sits with the count, outside the panel, so a phone reaches it without opening Filters.
     expect(clear.parentElement).toBe(screen.getByRole('status').parentElement)
@@ -160,25 +165,14 @@ describe('TrackedToolbar', () => {
     expect(screen.queryByRole('button', { name: 'Clear filters' })).toBeNull()
   })
 
-  test('where the Filters button is not shown, Clear filters moves focus to the first filter', () => {
-    function Host() {
-      const [filters, setFilters] = useState<TrackedFilters>({ ...DEFAULT_TRACKED_FILTERS, result: 'not-cited' })
-      return <TrackedToolbar search="" onSearchChange={() => {}} filters={filters} onFiltersChange={setFilters} />
-    }
-    render(<Host />)
-    // With a mouse from md up the button is not drawn, and a control that is not drawn takes no focus.
-    filtersButton().focus = () => {}
-    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
-    expect(document.activeElement).toBe(select('Subject'))
-  })
-
   test('Filters says how many filters are set, opens the panel, and Escape closes it back to the button', () => {
     function Host() {
       const [filters, setFilters] = useState<TrackedFilters>({ ...DEFAULT_TRACKED_FILTERS, subject: 'market', result: 'not-mentioned' })
       return <TrackedToolbar search="" onSearchChange={() => {}} filters={filters} onFiltersChange={setFilters} />
     }
     render(<Host />)
-    const panel = screen.getByRole('group', { name: 'Filters' })
+    const panel = document.getElementById(filtersButton().getAttribute('aria-controls')!)!
+    expect(screen.queryAllByRole('combobox')).toEqual([])
     expect(filtersButton().textContent).toBe('Filters · 2')
     expect([filtersButton().getAttribute('aria-expanded'), filtersButton().getAttribute('aria-controls')]).toEqual(['false', panel.id])
 
@@ -199,60 +193,31 @@ describe('TrackedToolbar', () => {
     expect(filtersButton().getAttribute('aria-expanded')).toBe('false')
   })
 
-  test('with the panel closed, Escape in a select leaves focus where it is', () => {
-    renderToolbar()
-    expect(filtersButton().textContent).toBe('Filters')
-    select('Type').focus()
-    fireEvent.keyDown(select('Type'), { key: 'Escape' })
-    expect(document.activeElement).toBe(select('Type'))
-  })
-
-  test('with a mouse from md up the selects sit in the row; below md or under a finger they sit behind Filters at 44px', async () => {
+  test('the filters stay collapsed on every screen size, then all five are available together', async () => {
     const { container } = renderToolbar()
-    const panel = screen.getByRole('group', { name: 'Filters' })
-    const control = select('Status').parentElement!
-    const search = screen.getByRole('searchbox')
-    const display = (rules: Awaited<ReturnType<typeof rulesFor>>, element: Element) => [undefined, BELOW_MD, COARSE].map(context => compiledElementProperty(rules, element, 'display', context))
-    const height = (rules: Awaited<ReturnType<typeof rulesFor>>, element: Element) => [undefined, BELOW_MD, COARSE].map(context => cssLengthPx(compiledElementProperty(rules, element, 'height', context)!, rules))
-
-    const closed = await rulesFor(container)
-    // Closed: the selects are items of the toolbar row with a mouse, and not drawn at all otherwise.
-    expect(display(closed, panel)).toEqual(['contents', 'none', 'none'])
-    expect(display(closed, filtersButton())).toEqual(['none', 'inline-flex', 'inline-flex'])
-    // The search and a filter share one height: 32px with a mouse, 44px under a finger.
-    expect(height(closed, control)).toEqual([32, 44, 44])
-    expect(height(closed, search)).toEqual([32, 44, 44])
-    expect(cssLengthPx(compiledElementProperty(closed, filtersButton(), 'min-height')!, closed)).toBe(44)
-    // The select lies unseen over the whole of its control, so a click or a tap anywhere on it opens the choices.
-    expect(compiledElementProperty(closed, control, 'position')).toBe('relative')
-    expect(['position', 'inset', 'width', 'height', 'opacity'].map(property => compiledElementProperty(closed, select('Status'), property))).toEqual(['absolute', 'calc(var(--spacing) * 0)', '100%', '100%', '0%'])
-
+    const panel = document.getElementById(filtersButton().getAttribute('aria-controls')!)!
+    expect(panel.hidden).toBe(true)
+    expect(screen.queryAllByRole('combobox')).toEqual([])
     fireEvent.click(filtersButton())
-    const open = await rulesFor(container)
-    // Open: a panel on a row of its own; with a mouse it is still the same row of selects.
-    expect(display(open, panel)).toEqual(['contents', 'grid', 'grid'])
-    expect(compiledElementProperty(open, panel, 'flex-basis')).toBe('100%')
+    expect(panel.hidden).toBe(false)
+    expect(screen.getAllByRole('combobox')).toHaveLength(5)
+    const rules = await rulesFor(container)
+    const control = select('Status').parentElement!
+    const height = (element: Element, context?: string) => cssLengthPx(compiledElementProperty(rules, element, 'height', context)!, rules)
+    expect([height(control), height(control, BELOW_MD), height(control, COARSE)]).toEqual([32, 44, 44])
+    fireEvent.click(filtersButton())
+    expect(screen.queryAllByRole('combobox')).toEqual([])
   })
 
   test('the select is unseen, so its control shows keyboard focus: a ring and a brighter border', async () => {
     renderToolbar()
+    fireEvent.click(filtersButton())
     for (const name of ['Subject', 'Type', 'Status', 'Source', 'Result']) {
       const focus = await stateStyle(select(name).parentElement!, 'has-[:focus-visible]')
       expect(focus, name).toMatchObject({ 'border-color': 'var(--color-mono-500)', '--tw-ring-color': 'var(--color-mono-500)' })
       expect(focus['--tw-ring-shadow'], name).toContain('calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color')
       expect(focus['box-shadow'], name).toContain('var(--tw-ring-shadow)')
     }
-  })
-
-  test('the toolbar\'s width decides its rows: the search joins the selects from 68rem, where they fit at their widest', async () => {
-    const { container } = renderToolbar()
-    const rules = await rulesFor(container)
-    const searchRow = screen.getByRole('searchbox').parentElement!.parentElement!
-    expect(compiledElementProperty(rules, container.firstElementChild!, 'container-type')).toBe('inline-size')
-    expect([compiledElementProperty(rules, searchRow, 'flex-basis'), compiledElementProperty(rules, searchRow, 'flex-basis', '@container (width >= 68rem)')]).toEqual(['100%', 'calc(var(--spacing) * 0)'])
-    // No control is pushed past the page: each can shrink, and the row wraps.
-    expect(compiledElementProperty(rules, searchRow.parentElement!, 'flex-wrap')).toBe('wrap')
-    for (const control of [...screen.getAllByRole('combobox').map(control => control.parentElement!), screen.getByRole('searchbox').parentElement!]) expect(cssLengthPx(compiledElementProperty(rules, control, 'min-width')!, rules)).toBe(0)
   })
 
   test('Clear filters is set into the count\'s line beside a mouse, and is a 44px target under a finger', async () => {
