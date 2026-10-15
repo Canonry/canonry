@@ -6,7 +6,7 @@ import {
   type GroundingSource,
   type RawQueryResult,
   type NormalizedQueryResult,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /**
  * Extract unique domains from grounding sources.

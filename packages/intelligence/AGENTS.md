@@ -27,8 +27,8 @@ Pure analysis library for computing intelligence insights from run data. Takes r
 ### Usage
 
 ```typescript
-import { analyzeRuns } from '@ainyc/canonry-intelligence'
-import type { RunData, AnalysisResult } from '@ainyc/canonry-intelligence'
+import { analyzeRuns } from '@canonry/canonry-intelligence'
+import type { RunData, AnalysisResult } from '@canonry/canonry-intelligence'
 
 const result: AnalysisResult = analyzeRuns(currentRun, previousRun)
 // result.regressions, result.gains, result.health, result.insights

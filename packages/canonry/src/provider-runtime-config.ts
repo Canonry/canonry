@@ -1,4 +1,4 @@
-import type { ProviderAdapter, ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import type { ProviderAdapter, ProviderQuotaPolicy } from '@canonry/canonry-contracts'
 import type { CanonryConfig } from './config.js'
 import { providerConfigFromEntry } from './provider-batch-config.js'
 import { isApiProviderRegistrable, isCdpProviderRegistrable } from './provider-registration.js'

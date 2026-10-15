@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { isReadOnlyKey, restrictedWriteScopes, RESEARCH_RUN_SCOPE, OperationAccesses, upgradeCaveatFor } from '@ainyc/canonry-contracts'
+import { isReadOnlyKey, restrictedWriteScopes, RESEARCH_RUN_SCOPE, OperationAccesses, upgradeCaveatFor } from '@canonry/canonry-contracts'
 import { createApiClient, runWithUsageTags, type ApiClient, type ServerUpdateAvailable } from '../client.js'
 import { PACKAGE_VERSION } from '../package-version.js'
 import { canonryMcpTools, toolOperationAccess, type CanonryMcpTool } from './tool-registry.js'

@@ -4,7 +4,7 @@ import {
   TrafficSourceTypes,
   type CloudflareEdgeEvent,
   type NormalizedTrafficRequest,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 function emptyToNull(value: string | null): string | null {
   if (value === null || value.trim() === '') return null

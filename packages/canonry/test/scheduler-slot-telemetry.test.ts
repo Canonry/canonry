@@ -3,8 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from 'vitest'
-import type { SchedulableRunKind } from '@ainyc/canonry-contracts'
-import { createClient, migrate, projects, runs, schedules, type DatabaseClient } from '@ainyc/canonry-db'
+import type { SchedulableRunKind } from '@canonry/canonry-contracts'
+import { createClient, migrate, projects, runs, schedules, type DatabaseClient } from '@canonry/canonry-db'
 import { Scheduler, type SchedulerCallbacks } from '../src/scheduler.js'
 
 // A `schedules.slot` outcome says whether a slot fired or why it did not; the

@@ -1,5 +1,5 @@
-import { postApiV1TelemetryUi } from '@ainyc/canonry-api-client'
-import type { TelemetryEventAcceptedDto, UiTelemetryEvent } from '@ainyc/canonry-contracts'
+import { postApiV1TelemetryUi } from '@canonry/canonry-api-client'
+import type { TelemetryEventAcceptedDto, UiTelemetryEvent } from '@canonry/canonry-contracts'
 import { heyClient, isEmbed, isPublicDemo } from '../api.js'
 import {
   configureUiTelemetry,

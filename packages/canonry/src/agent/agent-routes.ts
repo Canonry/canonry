@@ -1,4 +1,4 @@
-import { OutcomeTriggers, USAGE_TELEMETRY_HEADERS, UserRoles, agentBusy } from '@ainyc/canonry-contracts'
+import { OutcomeTriggers, USAGE_TELEMETRY_HEADERS, UserRoles, agentBusy } from '@canonry/canonry-contracts'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import {
@@ -6,7 +6,7 @@ import {
   parseJsonColumn,
   projects,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   AGENT_MEMORY_VALUE_MAX_BYTES,
   MemorySources,
@@ -18,9 +18,9 @@ import {
   validationError,
   type AgentMemoryListResponse,
   describeError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { Agent, AgentEvent, AgentMessage } from '@earendil-works/pi-agent-core'
-import { registerAgentConversationRoutes, requireInstanceAdministrator, type OutcomeAttribution } from '@ainyc/canonry-api-routes'
+import { registerAgentConversationRoutes, requireInstanceAdministrator, type OutcomeAttribution } from '@canonry/canonry-api-routes'
 import type { SessionRegistry } from './session-registry.js'
 import { VIEWER_AERO_MAX_PROMPT_CHARS, type ViewerAeroSessions } from './viewer-sessions.js'
 import { aeroTurnStatus, isRunFailureMessage, isSystemMessage } from './runtime.js'

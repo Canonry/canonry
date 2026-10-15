@@ -1,4 +1,4 @@
-import { CheckCategories, CheckScopes, CheckStatuses, compareSemver, isStrictSemver, upgradeCaveatFor } from '@ainyc/canonry-contracts'
+import { CheckCategories, CheckScopes, CheckStatuses, compareSemver, isStrictSemver, upgradeCaveatFor } from '@canonry/canonry-contracts'
 import type { CheckDefinition } from '../types.js'
 
 const versionCurrentCheck: CheckDefinition = {

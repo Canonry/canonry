@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { RunCompletenessDto, RunFillDto, RunFillResponseDto } from '@ainyc/canonry-contracts'
+import type { RunCompletenessDto, RunFillDto, RunFillResponseDto } from '@canonry/canonry-contracts'
 
 const client = {
   fillRun: vi.fn<(id: string, body: unknown) => Promise<RunFillResponseDto>>(),

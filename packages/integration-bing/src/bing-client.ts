@@ -1,4 +1,4 @@
-import { withRetry, isRetryableHttpError, retryAfterDelayMs, escapeRegExp, describeFetchError } from '@ainyc/canonry-contracts'
+import { withRetry, isRetryableHttpError, retryAfterDelayMs, escapeRegExp, describeFetchError } from '@canonry/canonry-contracts'
 import crypto from 'node:crypto'
 import { BING_WMT_API_BASE, BING_SUBMIT_URL_BATCH_LIMIT, BING_SUBMIT_URL_DAILY_LIMIT, BING_REQUEST_TIMEOUT_MS, BING_MAX_RETRIES, BING_RETRY_BASE_DELAY_MS, BING_RETRY_MAX_DELAY_MS, BING_THROTTLE_COOLDOWN_MS } from './constants.js'
 import type {

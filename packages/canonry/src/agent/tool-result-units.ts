@@ -1,5 +1,5 @@
-import { buildOpenApiDocument } from '@ainyc/canonry-api-routes'
-import { RATIO_UNIT_META_KEY, formatPercent, ratioUnitSchema, type RatioUnit } from '@ainyc/canonry-contracts'
+import { buildOpenApiDocument } from '@canonry/canonry-api-routes'
+import { RATIO_UNIT_META_KEY, formatPercent, ratioUnitSchema, type RatioUnit } from '@canonry/canonry-contracts'
 
 /**
  * Aero reads tool results as JSON text, and a bare ratio there is ambiguous:

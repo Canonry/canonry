@@ -1,6 +1,6 @@
 import { and, asc, eq, gte, lte } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { parseJsonColumn, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { parseJsonColumn, queries, querySnapshots, runs } from '@canonry/canonry-db'
 import {
   CitationStates,
   OutcomeStatuses,
@@ -14,7 +14,7 @@ import {
   type ResultsExportDto,
   type ResultsExportFormat,
   type ResultsExportRecord,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { withFeatureOutcome } from './feature-outcome.js'
 

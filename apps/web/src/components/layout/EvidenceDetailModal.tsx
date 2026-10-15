@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Search, X } from 'lucide-react'
-import { brandKeyFromText, CitationStates, effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
+import { brandKeyFromText, CitationStates, effectiveDomains, normalizeProjectDomain } from '@canonry/canonry-contracts'
 
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { SourceLink } from '../shared/SourceLink.js'

@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 
-import { isReadOnlyKey, type McpHealth } from '@ainyc/canonry-contracts'
-import { apiKeys, dashboardSessions, type DatabaseClient } from '@ainyc/canonry-db'
-import { hashApiKey } from '@ainyc/canonry-api-routes'
+import { isReadOnlyKey, type McpHealth } from '@canonry/canonry-contracts'
+import { apiKeys, dashboardSessions, type DatabaseClient } from '@canonry/canonry-db'
+import { hashApiKey } from '@canonry/canonry-api-routes'
 import { eq } from 'drizzle-orm'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'

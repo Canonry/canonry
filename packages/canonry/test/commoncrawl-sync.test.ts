@@ -12,7 +12,7 @@ import {
   migrate,
   projects,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { executeReleaseSync, syncLatestReleaseOnSchedule, type ReleaseSyncDeps } from '../src/commoncrawl-sync.js'
 
 const trackEvent = vi.hoisted(() => vi.fn())

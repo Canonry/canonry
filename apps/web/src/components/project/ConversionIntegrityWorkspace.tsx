@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { RunKinds } from '@ainyc/canonry-contracts'
+import { RunKinds } from '@canonry/canonry-contracts'
 import type {
   ConversionTrackingOptionsDto,
   ConversionTrackingContractWriteRequest,
   GoogleAdsConnectionStatusDto,
   GtmConnectionStatusDto,
-} from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client'
 import {
   deleteApiV1ProjectsByNameGoogleAdsConnectionMutation,
   deleteApiV1ProjectsByNameGtmConnectionMutation,
@@ -28,7 +28,7 @@ import {
   postApiV1ProjectsByNameGtmSyncMutation,
   putApiV1ProjectsByNameGoogleAdsSelectionMutation,
   putApiV1ProjectsByNameGtmSelectionMutation,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { heyClient, type ApiRun } from '../../api.js'
 import { useAccount } from '../../contexts/account-context.js'

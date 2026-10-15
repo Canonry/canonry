@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { test, expect } from 'vitest'
 import Fastify from 'fastify'
-import { createClient, gscDailyTotals, migrate, notifications, projects, schedules } from '@ainyc/canonry-db'
+import { createClient, gscDailyTotals, migrate, notifications, projects, schedules } from '@canonry/canonry-db'
 import { eq } from 'drizzle-orm'
 import { apiRoutes } from '../src/index.js'
 

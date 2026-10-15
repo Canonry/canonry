@@ -19,7 +19,7 @@ import {
   type ResearchBatchCreate,
   type ResearchTemplateSelection,
   type VisibilityReportScopeOption,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import { heyClient, isEmbed, isPublicDemo, type ViewerResearchConfig } from '../../api.js'
 import {
@@ -30,7 +30,7 @@ import {
   getApiV1ProjectsByNameMeasurementQueryTemplatesQueryKey,
   postApiV1ProjectsByNameResearchBatchesMutation,
   putApiV1ProjectsByNameMeasurementQueryTemplatesByTemplateIdMutation,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { addToast } from '../../lib/toast-store.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
 import { SourceLink } from '../shared/SourceLink.js'

@@ -2,7 +2,7 @@ import { MANAGED_SWEEPS_COPY } from '../src/components/project/ManagedSweepStatu
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
-import { getApiV1ProjectsByNameSchedulesQueryKey } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1ProjectsByNameSchedulesQueryKey } from '@canonry/canonry-api-client/react-query'
 
 import { ScheduleSection, SCHEDULE_COPY } from '../src/components/project/ScheduleSection.js'
 import { heyClient, type ApiSchedule } from '../src/api.js'

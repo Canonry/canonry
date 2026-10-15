@@ -1,4 +1,4 @@
-import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
+import type { NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 
 /**
  * Wire shape of one event row emitted by the canonry traffic-logger plugin's

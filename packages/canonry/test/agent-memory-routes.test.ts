@@ -9,8 +9,8 @@ import {
   migrate,
   projects,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
-import { AppError, MemorySources } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-db'
+import { AppError, MemorySources } from '@canonry/canonry-contracts'
 import { registerAgentRoutes } from '../src/agent/agent-routes.js'
 import { SessionRegistry } from '../src/agent/session-registry.js'
 import {

@@ -6,7 +6,7 @@ import {
   discoverySessions,
   queries,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   DEFAULT_DISCOVERY_PROMOTE_BUCKETS,
   DEFAULT_DISCOVERY_PROMOTE_COMPETITOR_TYPES,
@@ -52,7 +52,7 @@ import {
   type DiscoverySessionDto,
   type DiscoverySessionStatus,
   type LocationContext,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { resolveProject, writeAuditLog } from '../helpers.js'
 import { pruneQualifiedAliasesForCompetitors } from '../projects.js'
 import {

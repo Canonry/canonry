@@ -18,7 +18,7 @@ import {
   runs,
   auditLog,
   schedules,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   trafficEventsResponseSchema,
   TrafficEventKinds,
@@ -28,19 +28,19 @@ import {
   SchedulableRunKinds,
   RunKinds,
   RunStatuses,
-} from '@ainyc/canonry-contracts'
-import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
-import type { CloudRunTrafficEventsPage } from '@ainyc/canonry-integration-cloud-run'
+} from '@canonry/canonry-contracts'
+import type { NormalizedTrafficRequest } from '@canonry/canonry-contracts'
+import type { CloudRunTrafficEventsPage } from '@canonry/canonry-integration-cloud-run'
 import type {
   ListWordpressTrafficEventsOptions,
   WordpressTrafficEventsPage,
-} from '@ainyc/canonry-integration-wordpress-traffic'
-import { WordpressTrafficApiError } from '@ainyc/canonry-integration-wordpress-traffic'
+} from '@canonry/canonry-integration-wordpress-traffic'
+import { WordpressTrafficApiError } from '@canonry/canonry-integration-wordpress-traffic'
 import type {
   ListVercelTrafficEventsOptions,
   VercelTrafficEventsPage,
-} from '@ainyc/canonry-integration-vercel'
-import { VercelLogsApiError } from '@ainyc/canonry-integration-vercel'
+} from '@canonry/canonry-integration-vercel'
+import { VercelLogsApiError } from '@canonry/canonry-integration-vercel'
 import { apiRoutes } from '../src/index.js'
 import type { OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
 import { tryClaimTrafficSyncLease } from '../src/traffic-sync-lease.js'
@@ -437,7 +437,7 @@ async function seedForeignSource(h: Awaited<ReturnType<typeof buildHarness>>) {
     })
     expect(connected.statusCode).toBe(200)
   }
-  const { projects } = await import('@ainyc/canonry-db')
+  const { projects } = await import('@canonry/canonry-db')
   const foreignProject = h.db.select().from(projects).all().find(row => row.name === 'foreign-project')!
   const foreign = h.db.select().from(trafficSources).all().find(row => row.projectId === foreignProject.id)!
   const allowed = await h.app.inject({ method: 'GET', url: `/api/v1/projects/foreign-project/traffic/sources/${foreign.id}` })
@@ -550,7 +550,7 @@ describe('traffic source cutover staging', () => {
   ])('serializes $adapter authority selection with a competing connect', async ({
     path, body, targetId, competingType,
   }) => {
-    const project = (await import('@ainyc/canonry-db')).projects
+    const project = (await import('@canonry/canonry-db')).projects
     const projectId = h.db.select().from(project).all()[0]!.id
     const competingSourceId = `race-authority-${crypto.randomUUID()}`
     const now = new Date().toISOString()
@@ -1441,7 +1441,7 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
     // 400 that points to the connect CLI rather than a 500.
     const h = await buildHarness([])
     try {
-      const { projects } = await import('@ainyc/canonry-db')
+      const { projects } = await import('@canonry/canonry-db')
       const projectRow = h.db.select().from(projects).all()[0]
       const now = new Date().toISOString()
       h.db.insert(trafficSources).values({
@@ -2171,7 +2171,7 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
   it('returns validationError pointing to `canonry traffic connect vercel` when no Vercel credential is stored', async () => {
     const h = await buildHarness([])
     try {
-      const { projects } = await import('@ainyc/canonry-db')
+      const { projects } = await import('@canonry/canonry-db')
       const projectRow = h.db.select().from(projects).all()[0]
       const now = new Date().toISOString()
       h.db.insert(trafficSources).values({
@@ -2228,7 +2228,7 @@ describe('POST /traffic/sources/:id/sync', () => {
   it('errors when no credentials are stored for the project', async () => {
     const h = await buildHarness([])
     try {
-      const { projects } = await import('@ainyc/canonry-db')
+      const { projects } = await import('@canonry/canonry-db')
       const projectRow = h.db.select().from(projects).all()[0]
       h.db.insert(trafficSources).values({
         id: 'src_orphan',
@@ -2979,7 +2979,7 @@ describe('POST /traffic/sources/:id/sync — WordPress', () => {
     // that points to the connect CLI rather than a 500.
     const h = await buildHarness([])
     try {
-      const { projects } = await import('@ainyc/canonry-db')
+      const { projects } = await import('@canonry/canonry-db')
       const projectRow = h.db.select().from(projects).all()[0]
       const now = new Date().toISOString()
       h.db.insert(trafficSources).values({
@@ -4337,7 +4337,7 @@ describe('GET /traffic/sources', () => {
   it('omits archived sources', async () => {
     const h = await buildHarness([])
     try {
-      const { projects } = await import('@ainyc/canonry-db')
+      const { projects } = await import('@canonry/canonry-db')
       const projectRow = h.db.select().from(projects).all()[0]
       const now = new Date().toISOString()
       h.db.insert(trafficSources).values({
@@ -4599,7 +4599,7 @@ describe('GET /traffic/sources/:id', () => {
 
       // Seed a second non-archived source for the same project (manual insert; the API
       // doesn't currently support multi-source connect, but DB and reads must be correct).
-      const { projects } = await import('@ainyc/canonry-db')
+      const { projects } = await import('@canonry/canonry-db')
       const projectRow = h.db.select().from(projects).all()[0]
       const now = new Date().toISOString()
       const sourceBId = 'src_b_isolation_test'
@@ -4697,7 +4697,7 @@ describe('GET /traffic/status', () => {
   it('omits archived sources', async () => {
     const h = await buildHarness([])
     try {
-      const { projects } = await import('@ainyc/canonry-db')
+      const { projects } = await import('@canonry/canonry-db')
       const projectRow = h.db.select().from(projects).all()[0]
       const now = new Date().toISOString()
       h.db.insert(trafficSources).values({

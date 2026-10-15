@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 import { eq, and, desc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { bingUrlInspections, bingCoverageSnapshots, runs } from '@ainyc/canonry-db'
-import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError, percentOf, classifyOutcomeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses } from '@ainyc/canonry-contracts'
+import { bingUrlInspections, bingCoverageSnapshots, runs } from '@canonry/canonry-db'
+import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError, percentOf, classifyOutcomeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses } from '@canonry/canonry-contracts'
 import { assertNotProjectScoped } from './auth.js'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
@@ -18,7 +18,7 @@ import {
   getKeywordStats,
   BING_SUBMIT_URL_BATCH_LIMIT,
   BING_SUBMIT_URL_DAILY_LIMIT,
-} from '@ainyc/canonry-integration-bing'
+} from '@canonry/canonry-integration-bing'
 
 /**
  * Convert Bing's /Date(epoch-offset)/ format to an ISO 8601 string.

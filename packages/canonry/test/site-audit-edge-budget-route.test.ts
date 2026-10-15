@@ -4,8 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
-import { apiRoutes } from '@ainyc/canonry-api-routes'
+import { createClient, migrate, projects } from '@canonry/canonry-db'
+import { apiRoutes } from '@canonry/canonry-api-routes'
 
 // The whole point of this file is the seam BETWEEN the HTTP route and the
 // crawl engine: the clamp unit alone cannot prove that an unset --max-edges

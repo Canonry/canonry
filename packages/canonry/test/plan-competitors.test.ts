@@ -14,9 +14,9 @@ import {
   type NormalizedQueryResult,
   type ProviderAdapter,
   type RawQueryResult,
-} from '@ainyc/canonry-contracts'
-import { createRunCompetitorResolver, measurementPlanCompetitorDomains, measurementPlanCompetitors, queueRunIfProjectIdle, readMarketCompetitorNames } from '@ainyc/canonry-api-routes'
-import { competitors, createClient, marketCompetitorNames, measurementPlans, measurementPlanVersions, migrate, projects, queries, querySnapshots, type DatabaseClient } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import { createRunCompetitorResolver, measurementPlanCompetitorDomains, measurementPlanCompetitors, queueRunIfProjectIdle, readMarketCompetitorNames } from '@canonry/canonry-api-routes'
+import { competitors, createClient, marketCompetitorNames, measurementPlans, measurementPlanVersions, migrate, projects, queries, querySnapshots, type DatabaseClient } from '@canonry/canonry-db'
 import { backfillProjectAnswerMentions } from '../src/commands/backfill.js'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'

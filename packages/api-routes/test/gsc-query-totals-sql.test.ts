@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, test, expect, beforeEach, afterEach } from 'vitest'
-import { createClient, migrate, projects, runs, gscQueryDailyTotals, gscSearchData } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, gscQueryDailyTotals, gscSearchData } from '@canonry/canonry-db'
 import {
   mergeGscQueryTotalsWithFallback, readGscQueryDailyFallbackRows, readGscQueryDailyRows,
   readGscQueryTotalsPage, type GscQueryAggregate,

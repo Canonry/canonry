@@ -1,7 +1,7 @@
 import { test, expect, vi, beforeEach, afterEach, describe } from 'vitest'
 
-import { ProviderBatchSubmitError } from '@ainyc/canonry-contracts'
-import type { ProviderBatchRequestInput, ProviderBatchResultLine, ProviderConfig } from '@ainyc/canonry-contracts'
+import { ProviderBatchSubmitError } from '@canonry/canonry-contracts'
+import type { ProviderBatchRequestInput, ProviderBatchResultLine, ProviderConfig } from '@canonry/canonry-contracts'
 
 import { claudeAdapter } from '../src/adapter.js'
 import { createClaudeBatchCapability, claudeBatch } from '../src/batch.js'

@@ -9,7 +9,7 @@ import {
   measurementDiscoveryResponseSchema,
   measurementPlanResponseSchema,
   measurementReportResponseSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   apiKeys,
   createClient,
@@ -20,7 +20,7 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { hashApiKey } from '../src/auth.js'
 import { apiRoutes } from '../src/index.js'
 import { buildMeasurementRunManifest } from '../src/measurement-report-adapter.js'

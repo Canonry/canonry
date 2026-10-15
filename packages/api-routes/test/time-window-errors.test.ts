@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import Fastify from 'fastify'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
+import { createClient, migrate, projects } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 const metrics = ['7d', '30d', '90d', 'all']

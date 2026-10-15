@@ -1,9 +1,9 @@
 import crypto from 'node:crypto'
 import { and, eq, ne, asc, desc, inArray, notInArray, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn } from '@ainyc/canonry-db'
-import { compileCompetitiveSignalResolver } from '@ainyc/canonry-intelligence'
-import type { CitationState, LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderAccountStreak, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery } from '@ainyc/canonry-contracts'
+import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn } from '@canonry/canonry-db'
+import { compileCompetitiveSignalResolver } from '@canonry/canonry-intelligence'
+import type { CitationState, LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderAccountStreak, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery } from '@canonry/canonry-contracts'
 import {
   AppError as AppErrorClass,
   type AppError,
@@ -32,7 +32,7 @@ import {
   validationError,
   parseRunError,
   serializeRunError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
 import { assertProjectScope } from './auth.js'
 import { gte } from 'drizzle-orm'

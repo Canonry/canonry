@@ -1,6 +1,6 @@
 import Fastify from 'fastify'
-import { AppError, integrationConnectionPropertiesSchema, type IntegrationConnectionProperties } from '@ainyc/canonry-contracts'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import { AppError, integrationConnectionPropertiesSchema, type IntegrationConnectionProperties } from '@canonry/canonry-contracts'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import { createOutcomeEmitter, type OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
 import { registerRequestContext } from '../src/request-context.js'
 

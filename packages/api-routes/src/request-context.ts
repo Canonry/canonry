@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { redactLogString, USAGE_TELEMETRY_HEADERS } from '@ainyc/canonry-contracts'
+import { redactLogString, USAGE_TELEMETRY_HEADERS } from '@canonry/canonry-contracts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { OutcomeAttribution } from './outcome-telemetry.js'
 

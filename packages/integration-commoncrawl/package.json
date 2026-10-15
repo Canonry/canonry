@@ -1,5 +1,5 @@
 {
-  "name": "@ainyc/canonry-integration-commoncrawl",
+  "name": "@canonry/canonry-integration-commoncrawl",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -17,7 +17,7 @@
     "lint": "eslint src/ test/"
   },
   "dependencies": {
-    "@ainyc/canonry-contracts": "workspace:*"
+    "@canonry/canonry-contracts": "workspace:*"
   },
   "devDependencies": {
     "@duckdb/node-api": "1.4.4-r.3"

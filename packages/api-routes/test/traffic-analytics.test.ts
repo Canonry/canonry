@@ -13,7 +13,7 @@ import {
   type TrafficAnalyticsResponse,
   type TrafficEventsResponse,
   type TrafficSourceStatus,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   aiReferralEventsHourly,
   aiUserFetchEventsHourly,
@@ -26,7 +26,7 @@ import {
   projects,
   trafficSources,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { hashApiKey } from '../src/auth.js'
 import { apiRoutes } from '../src/index.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'

@@ -1,5 +1,5 @@
-import { AiReferralTrafficClasses } from '@ainyc/canonry-contracts'
-import type { AiReferralTrafficClass, GA4AiReferralDailyDto } from '@ainyc/canonry-contracts'
+import { AiReferralTrafficClasses } from '@canonry/canonry-contracts'
+import type { AiReferralTrafficClass, GA4AiReferralDailyDto } from '@canonry/canonry-contracts'
 
 /**
  * CONSERVATION INVARIANT for `ga_ai_referrals`. Read this before changing any

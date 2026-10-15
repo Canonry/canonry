@@ -10,7 +10,7 @@ import {
   migrate,
   projects,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import {
   executeDiscoveryRun,

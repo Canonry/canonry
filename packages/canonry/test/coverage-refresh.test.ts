@@ -3,8 +3,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, runs, type DatabaseClient } from '@ainyc/canonry-db'
-import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, runs, type DatabaseClient } from '@canonry/canonry-db'
+import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import type { CanonryConfig } from '../src/config.js'
 import {
   maybeRefreshGscCoverage,

@@ -19,7 +19,7 @@ import {
   type GtmLiveContainerGraphDto,
   type GtmTagDto,
   type GtmVariableDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 export interface ConversionTrackingIntegrityInput {
   contract: ConversionTrackingContract

@@ -6,8 +6,8 @@ import Fastify from 'fastify'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, expect, it, vi } from 'vitest'
-import { apiRoutes } from '@ainyc/canonry-api-routes'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
+import { apiRoutes } from '@canonry/canonry-api-routes'
+import { createClient, migrate, projects } from '@canonry/canonry-db'
 
 vi.mock('../src/client.js', async (original) => ({
   ...await original<typeof import('../src/client.js')>(),

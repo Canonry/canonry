@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import type { DoctorReportDto } from '@ainyc/canonry-contracts'
+import type { DoctorReportDto } from '@canonry/canonry-contracts'
 import { CliError } from '../src/cli-error.js'
 
 const mockRunDoctor = vi.fn()

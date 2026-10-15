@@ -9,8 +9,8 @@ import type {
   MeasurementDraftWarning,
   MeasurementPlanV2PublishResponse,
   MeasurementSetupResponse,
-} from '@ainyc/canonry-contracts'
-import type { QueryDto } from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-contracts'
+import type { QueryDto } from '@canonry/canonry-api-client'
 
 import { ApiError } from '../src/api.js'
 import {

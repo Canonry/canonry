@@ -14,7 +14,7 @@ import {
   runStatusSchema,
   sentimentOutcomeSchema,
   operationAccess,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   buildComponentSchemas,
   errorResponse,

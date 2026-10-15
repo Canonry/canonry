@@ -1,4 +1,4 @@
-import { formatValidationIssues, trafficSamplesQuerySchema, type TrafficSamplesQuery, referralAssessmentQuerySchema, type ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
+import { formatValidationIssues, trafficSamplesQuerySchema, type TrafficSamplesQuery, referralAssessmentQuerySchema, type ReferralAssessmentQuery } from '@canonry/canonry-contracts'
 import type {
   RunDetailDto,
   TrafficBackfillResponse,
@@ -10,8 +10,8 @@ import type {
   TrafficSourceListResponse,
   TrafficStatusResponse,
   TrafficSyncResponse,
-} from '@ainyc/canonry-contracts'
-import { RunStatuses, TrafficEventKinds, TrafficSeriesGranularities, describeError, formatPercent, parseTrafficAnalyticsPeriod } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import { RunStatuses, TrafficEventKinds, TrafficSeriesGranularities, describeError, formatPercent, parseTrafficAnalyticsPeriod } from '@canonry/canonry-contracts'
 import fs from 'node:fs'
 import { getCloudflareTrafficConnectionBySourceId } from '../cloudflare-traffic-config.js'
 import {

@@ -1,4 +1,4 @@
-import type { ErrorCode } from '@ainyc/canonry-contracts'
+import type { ErrorCode } from '@canonry/canonry-contracts'
 import { isMachineFormat, type CliFormat } from './cli-error.js'
 import type { SetupState } from './setup-state.js'
 

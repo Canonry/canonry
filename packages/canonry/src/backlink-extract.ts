@@ -1,19 +1,19 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { and, desc, eq } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import {
   backlinkDomains,
   backlinkSummaries,
   ccReleaseSyncs,
   projects,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   queryBacklinks,
   loadDuckdb as defaultLoadDuckdb,
   type BacklinkRow,
-} from '@ainyc/canonry-integration-commoncrawl'
+} from '@canonry/canonry-integration-commoncrawl'
 import {
   BacklinkSources,
   CcReleaseSyncStatuses,
@@ -23,7 +23,7 @@ import {
   computeBacklinkSummaryMetrics,
   describeError,
   type OutcomeReasonCode,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { createLogger } from './logger.js'
 import { outcomeFailure } from './outcome-telemetry.js'
 import { startRunOutcome } from './sync-outcome.js'

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
-import { marketCompetitorNames, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { marketCompetitorNames, projects, type DatabaseClient } from '@canonry/canonry-db'
 import {
   competitorAliasProjectIdentity,
   normalizeCompetitorAliases,
@@ -8,7 +8,7 @@ import {
   planCompetitorAutoAliases,
   type CompetitorAutoAlias,
   type CompetitorDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { readStoredCompetitors, type StoredCompetitor } from './competitor-writes.js'
 import { activePlanMarketPins, readMarketCompetitorPins } from './plan-competitors.js'
 

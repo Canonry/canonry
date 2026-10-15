@@ -7,8 +7,8 @@ import {
   type CandidateQuery,
   type OrchestratorInput,
 } from '../src/content-targets.js'
-import { DiscoveryCompetitorTypes, WinnabilityClasses } from '@ainyc/canonry-contracts'
-import type { DiscoveryCompetitorType } from '@ainyc/canonry-contracts'
+import { DiscoveryCompetitorTypes, WinnabilityClasses } from '@canonry/canonry-contracts'
+import type { DiscoveryCompetitorType } from '@canonry/canonry-contracts'
 
 function emptyInput(overrides: Partial<OrchestratorInput> = {}): OrchestratorInput {
   return {

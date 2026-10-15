@@ -3,7 +3,7 @@ import {
   TrafficEvidenceKinds,
   TrafficSourceTypes,
   type NormalizedTrafficRequest,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { VercelRequestLogRow } from './types.js'
 
 function numberOrNull(value: number | undefined): number | null {

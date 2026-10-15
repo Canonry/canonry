@@ -9,7 +9,7 @@ import {
   getApiV1ProjectsByNameMeasurementSetupQueryKey,
   getApiV1ProjectsByNameQueriesQueryKey,
   getApiV1ProjectsByNameQueryTrackingQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
 import { QueriesSection } from '../src/components/project/DiscoverySection.js'
 import { RESEARCH_COPY } from '../src/components/project/ResearchQueriesSection.js'

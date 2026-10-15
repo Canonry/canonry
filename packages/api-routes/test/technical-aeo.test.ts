@@ -21,7 +21,7 @@ import {
   siteCrawlPages,
   siteCrawlRunRequests,
   siteCrawlSnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import type {
   SiteAuditFactorSummaryDto,
   SiteAuditLivePageHealthDto,
@@ -42,8 +42,8 @@ import type {
   SiteHealthPathResponseDto,
   SiteHealthScansResponseDto,
   SiteHealthSubgraphResponseDto,
-} from '@ainyc/canonry-contracts'
-import { deriveSiteHealthState, siteHealthStateSchema } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import { deriveSiteHealthState, siteHealthStateSchema } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
 interface Ctx {

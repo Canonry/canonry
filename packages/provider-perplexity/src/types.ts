@@ -5,7 +5,7 @@ import type {
   LocationContext,
   RetrievalContract,
   RetrievalStatus,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 export type { GroundingSource, RetrievalContract, RetrievalStatus }
 

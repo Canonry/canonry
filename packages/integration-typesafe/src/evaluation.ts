@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { SENTIMENT_MODEL, SentimentOutcomes, canonicalSentimentDefinitionJson, createSentimentEvaluationDefinition, wilsonInterval } from '@ainyc/canonry-contracts'
-import type { SentimentEvidence, SentimentOutcome } from '@ainyc/canonry-contracts'
+import { SENTIMENT_MODEL, SentimentOutcomes, canonicalSentimentDefinitionJson, createSentimentEvaluationDefinition, wilsonInterval } from '@canonry/canonry-contracts'
+import type { SentimentEvidence, SentimentOutcome } from '@canonry/canonry-contracts'
 
 const STANCES = [SentimentOutcomes.favorable, SentimentOutcomes.mixed, SentimentOutcomes.unfavorable] as const
 type Stance = typeof STANCES[number]

@@ -5,8 +5,8 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, auditLog, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
-import { AppError, gbpReviewListResponseSchema, type GoogleConnectionType } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, auditLog, writeNegativeReviewMaxStars } from '@canonry/canonry-db'
+import { AppError, gbpReviewListResponseSchema, type GoogleConnectionType } from '@canonry/canonry-contracts'
 import { googleRoutes } from '../src/google.js'
 
 interface StoredConnection {

@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExt
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, ChevronDown, ChevronRight, LoaderCircle, Play, RefreshCw, ScanSearch } from 'lucide-react'
 import type { MetricTone } from '../../view-models.js'
-import { formatPercent, RatioUnits, RunKinds, SiteAuditFactorStatuses, type SiteAuditFactorSummaryDto, type SiteAuditPageDto } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits, RunKinds, SiteAuditFactorStatuses, type SiteAuditFactorSummaryDto, type SiteAuditPageDto } from '@canonry/canonry-contracts'
 
 import { heyClient, isDashboardManagedRunKind, isEmbed } from '../../api.js'
 import {
@@ -11,7 +11,7 @@ import {
   getApiV1ProjectsByNameTechnicalAeoPagesOptions,
   getApiV1ProjectsByNameTechnicalAeoTrendOptions,
   getApiV1ProjectsByNameRunsOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import {
   CartesianGrid,
   ComposedChart,

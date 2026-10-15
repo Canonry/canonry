@@ -1,11 +1,11 @@
 import {
   deriveSiteHealthState, factorStatusFromScore, placementLinkDecision, roundPreservingTotal, SiteCrawlFetchStates,
   SiteCrawlIndexabilityReasons, SiteCrawlIndexabilityStates, type SiteCrawlAuditFactorDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   siteCrawlAttempts, siteCrawlEdges, siteCrawlFindings, siteCrawlPages, siteCrawlSnapshots,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   layoutSiteCrawlGraphInput, persistSiteCrawlGraphLayout,
   type PreparedSiteCrawlGraphLayout, type SiteCrawlGraphLayoutInput,

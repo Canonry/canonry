@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { QueryClient } from '@tanstack/react-query'
 
-import { RunKinds } from '@ainyc/canonry-contracts'
-import { getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey } from '@ainyc/canonry-api-client/react-query'
+import { RunKinds } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey } from '@canonry/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
 
 import { invalidateQueriesForRunKind } from '../src/queries/run-invalidations.js'

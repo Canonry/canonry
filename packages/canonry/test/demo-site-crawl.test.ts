@@ -5,8 +5,8 @@ import Fastify from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { scoreFactors } from '@canonry/aeo-audit/scoring'
 import { and, eq } from 'drizzle-orm'
-import { apiRoutes } from '@ainyc/canonry-api-routes'
-import { createClient, migrate, projects, runs, siteCrawlGraphLayouts, siteCrawlGraphNodes, type DatabaseClient } from '@ainyc/canonry-db'
+import { apiRoutes } from '@canonry/canonry-api-routes'
+import { createClient, migrate, projects, runs, siteCrawlGraphLayouts, siteCrawlGraphNodes, type DatabaseClient } from '@canonry/canonry-db'
 import { SITE_CRAWL_GRAPH_LAYOUT_VERSION } from '../src/site-crawl-graph-layout.js'
 import {
   buildDemoSiteCrawl, DEMO_AUDIT_FACTORS, seedSiteCrawl,

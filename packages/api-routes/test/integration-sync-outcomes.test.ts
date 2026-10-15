@@ -3,10 +3,10 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createClient, migrate } from '@ainyc/canonry-db'
-import { BingApiError } from '@ainyc/canonry-integration-bing'
-import { GA4ApiError } from '@ainyc/canonry-integration-google-analytics'
-import { GoogleAuthError } from '@ainyc/canonry-integration-google'
+import { createClient, migrate } from '@canonry/canonry-db'
+import { BingApiError } from '@canonry/canonry-integration-bing'
+import { GA4ApiError } from '@canonry/canonry-integration-google-analytics'
+import { GoogleAuthError } from '@canonry/canonry-integration-google'
 import { apiRoutes, credentialFailure, type OutcomeTelemetryEvent } from '../src/index.js'
 import type { BingConnectionRecord } from '../src/bing.js'
 import type { Ga4CredentialRecord } from '../src/ga.js'
@@ -195,7 +195,7 @@ describe('bing inspect outcome', () => {
 
   it('reports a single inspection and a throttled one as rate limited', async () => {
     connectBing()
-    const bing = await import('@ainyc/canonry-integration-bing')
+    const bing = await import('@canonry/canonry-integration-bing')
     vi.spyOn(bing, 'getCrawlIssues').mockResolvedValue([])
     const getUrlInfo = vi.spyOn(bing, 'getUrlInfo').mockResolvedValue({ Url: 'https://example.com/a', HttpStatus: 200, DocumentSize: 1024 })
     await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/harborline/bing/inspect-url', headers: CLI, payload: { url: 'https://example.com/a' } })
@@ -238,7 +238,7 @@ describe('ga4 sync outcome', () => {
   }
 
   async function mockGa(options: { rows?: boolean; acquisition?: Error } = {}) {
-    const ga = await import('@ainyc/canonry-integration-google-analytics')
+    const ga = await import('@canonry/canonry-integration-google-analytics')
     const withData = options.rows ?? true
     vi.spyOn(ga, 'getAccessToken').mockResolvedValue('ga-token')
     vi.spyOn(ga, 'fetchAggregateSummary').mockResolvedValue({
@@ -314,7 +314,7 @@ describe('ga4 sync outcome', () => {
     await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/harborline/ga/sync', headers: CLI, payload: {} })
     connectGa()
     await mockGa()
-    const ga = await import('@ainyc/canonry-integration-google-analytics')
+    const ga = await import('@canonry/canonry-integration-google-analytics')
     vi.spyOn(ga, 'fetchAggregateSummary').mockRejectedValue(new GA4ApiError('GA4 API error (404)', 404))
     await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/harborline/ga/sync', headers: CLI, payload: {} })
 

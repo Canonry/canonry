@@ -4,7 +4,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { auditLog, createClient, measurementPlans, measurementPlanVersions, migrate, projects } from '@ainyc/canonry-db'
+import { auditLog, createClient, measurementPlans, measurementPlanVersions, migrate, projects } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 

@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, onTestFinished } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, runs, queries, competitors, querySnapshots, insights, healthSnapshots } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, queries, competitors, querySnapshots, insights, healthSnapshots } from '@canonry/canonry-db'
 import { IntelligenceService } from '../src/intelligence-service.js'
 
 function createTempDb(prefix: string) {

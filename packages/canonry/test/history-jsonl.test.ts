@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import type { AuditLogEntry } from '@ainyc/canonry-contracts'
+import type { AuditLogEntry } from '@canonry/canonry-contracts'
 import { CliError } from '../src/cli-error.js'
 
 const mockClearResults = vi.fn()

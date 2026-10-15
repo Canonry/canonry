@@ -19,8 +19,8 @@ import {
   type ProviderHealthcheckResult,
   type RawQueryResult,
   type TrackedQueryInput,
-} from '@ainyc/canonry-contracts'
-import { apiRoutes, evaluateRunFill, queueRunFill, queueRunIfProjectIdle, readRunCompleteness } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-contracts'
+import { apiRoutes, evaluateRunFill, queueRunFill, queueRunIfProjectIdle, readRunCompleteness } from '@canonry/canonry-api-routes'
 import {
   createClient,
   measurementPlans,
@@ -34,7 +34,7 @@ import {
   runs,
   usageCounters,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
 import { ProviderRegistry } from '../src/provider-registry.js'

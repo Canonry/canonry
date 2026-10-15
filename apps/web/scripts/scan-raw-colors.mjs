@@ -3,7 +3,7 @@
 // Counts remaining raw Tailwind palette utilities per file under apps/web/src.
 // The ENFORCED gate is the `design-tokens/no-literal-palette` ESLint rule (plus
 // its allowlist in eslint.config.js); this script is just a "how much is left"
-// view for tracking the ratchet across slices. Run: `pnpm --filter @ainyc/canonry-web scan:colors`.
+// view for tracking the ratchet across slices. Run: `pnpm --filter @canonry/canonry-web scan:colors`.
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'

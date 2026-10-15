@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { aeroPreviewResponseSchema, aeroPreviewStarterIds, formatPercent, type AeroPreviewResponse } from '@ainyc/canonry-contracts'
+import { aeroPreviewResponseSchema, aeroPreviewStarterIds, formatPercent, type AeroPreviewResponse } from '@canonry/canonry-contracts'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createDemoServer } from '../src/demo-server.js'
 import { canonryMcpTools } from '../src/mcp/tool-registry.js'

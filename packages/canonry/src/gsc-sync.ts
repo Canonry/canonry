@@ -1,14 +1,14 @@
 import crypto from 'node:crypto'
 import { eq, and, sql } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, projects, gscSearchData, gscDailyTotals, gscQueryDailyTotals, gscDataWatermarks } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { runs, projects, gscSearchData, gscDailyTotals, gscQueryDailyTotals, gscDataWatermarks } from '@canonry/canonry-db'
 import {
   fetchSearchAnalytics,
   refreshAccessToken,
   GSC_DATA_LAG_DAYS,
   GSC_REPORTING_TIME_ZONE,
-} from '@ainyc/canonry-integration-google'
-import { formatIsoDateInTimeZone, shiftIsoCalendarDate, describeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-integration-google'
+import { formatIsoDateInTimeZone, shiftIsoCalendarDate, describeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses } from '@canonry/canonry-contracts'
 import type { CanonryConfig } from './config.js'
 import { saveConfigPatch } from './config.js'
 import { writeCoverageSnapshot } from './gsc-coverage-snapshot.js'

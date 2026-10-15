@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { GaMeasurementAnalysisDto } from '@ainyc/canonry-contracts'
+import type { GaMeasurementAnalysisDto } from '@canonry/canonry-contracts'
 import type { ApiClient } from '../src/client.js'
 
 const gaMeasurementAnalysisMock = vi.fn()

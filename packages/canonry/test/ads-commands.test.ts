@@ -15,7 +15,7 @@ import type {
   AdsOperationResponse,
   AdsSummaryDto,
   AdsUnresolvedOperationListResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 const mockCreateAdsCampaign = vi.fn()
 const mockUpdateAdsCampaign = vi.fn()

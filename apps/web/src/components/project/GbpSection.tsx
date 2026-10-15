@@ -10,14 +10,14 @@ import {
   getApiV1ProjectsByNameGbpPlacesOptions,
   postApiV1ProjectsByNameGbpSyncMutation,
   putApiV1ProjectsByNameGbpLocationsByLocationNameSelectionMutation,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import type {
   GbpLocationDto,
   GbpLodgingListResponse,
   GbpPlaceActionListResponse,
   GbpPlaceDetailsListResponse,
   GbpSummaryDto,
-} from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client'
 
 import {
   formatGbpMetricLabel,
@@ -28,7 +28,7 @@ import {
   RatioUnits,
   RunKinds,
   type InsightType,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
 import { WriteButton } from '../shared/AccessControls.js'

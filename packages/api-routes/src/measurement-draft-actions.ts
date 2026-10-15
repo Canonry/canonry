@@ -33,7 +33,7 @@ import {
   type MeasurementDraftTarget,
   type MeasurementDraftWarning,
   compareText,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { proposeQueryClassForTarget } from './measurement-draft-compile.js'
 import type { ZodType } from 'zod'
 

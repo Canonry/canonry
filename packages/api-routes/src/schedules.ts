@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { and, asc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { schedules, trafficSources } from '@ainyc/canonry-db'
+import { schedules, trafficSources } from '@canonry/canonry-db'
 import {
   type ScheduleDto,
   type CalendarRecurrence,
@@ -16,7 +16,7 @@ import {
   validationError,
   notFound,
   describeError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { resolvePreset, validateCron, isValidTimezone, nextRunFromSchedule } from './schedule-utils.js'
 

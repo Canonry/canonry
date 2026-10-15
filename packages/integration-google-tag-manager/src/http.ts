@@ -1,4 +1,4 @@
-import { describeFetchError, isRetryableHttpError, retryAfterDelayMs, withRetry } from '@ainyc/canonry-contracts'
+import { describeFetchError, isRetryableHttpError, retryAfterDelayMs, withRetry } from '@canonry/canonry-contracts'
 import { GTM_REQUEST_TIMEOUT_MS } from './constants.js'
 import { GtmApiError } from './types.js'
 import type { GtmClientOptions } from './types.js'

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { compileQueryClassifier } from '@ainyc/canonry-contracts'
-import type { BrandMetricsDto, ModelAttribution, ModelEvidenceState, ModelPointerChangeDisclosure } from '@ainyc/canonry-contracts'
+import { compileQueryClassifier } from '@canonry/canonry-contracts'
+import type { BrandMetricsDto, ModelAttribution, ModelEvidenceState, ModelPointerChangeDisclosure } from '@canonry/canonry-contracts'
 import {
   buildMentionShareTrendRows,
   buildSelectedTrendRows,

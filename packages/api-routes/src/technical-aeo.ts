@@ -16,7 +16,7 @@ import {
   siteCrawlPages,
   siteCrawlRunRequests,
   siteCrawlSnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   RunKinds,
   RunStatuses,
@@ -94,7 +94,7 @@ import {
   SITE_HEALTH_SUBGRAPH_DEFAULT_MAX_NODES,
   SITE_HEALTH_SUBGRAPH_MAX_EDGES,
   SITE_HEALTH_SUBGRAPH_MAX_NODES,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { parseSiteAuditIssueQuery, readSiteAuditIssues } from './technical-aeo-issues.js'
 

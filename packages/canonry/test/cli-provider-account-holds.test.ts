@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { skippedProviderRunError, type ProviderAccountStreak, type RunAdmissionDto, type RunDetailDto } from '@ainyc/canonry-contracts'
+import { skippedProviderRunError, type ProviderAccountStreak, type RunAdmissionDto, type RunDetailDto } from '@canonry/canonry-contracts'
 
 // What the CLI prints about providers held back because they keep failing on
 // their accounts: the next sweep's admission in `canonry status`, and a run's

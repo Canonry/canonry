@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ApiRequestCompletedInfo } from '@ainyc/canonry-api-routes'
+import type { ApiRequestCompletedInfo } from '@canonry/canonry-api-routes'
 import type { TelemetryProperties, TrackEventOptions } from '../src/telemetry.js'
 import { API_REQUEST_BUCKET_CAPACITY, classifyUsageSurface, createApiUsageTelemetry } from '../src/usage-telemetry.js'
 

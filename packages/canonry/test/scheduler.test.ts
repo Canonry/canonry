@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, schedules, runs, siteCrawlRunRequests } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, schedules, runs, siteCrawlRunRequests } from '@canonry/canonry-db'
 import { Scheduler } from '../src/scheduler.js'
 
 /**

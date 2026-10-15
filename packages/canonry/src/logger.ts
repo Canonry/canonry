@@ -7,4 +7,4 @@ export {
   type Logger,
   type LogEntry,
   type LogLevel,
-} from '@ainyc/canonry-api-routes/runtime-logger'
+} from '@canonry/canonry-api-routes/runtime-logger'

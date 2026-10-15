@@ -13,9 +13,9 @@ import type {
   NormalizedQueryResult,
   RetrievalContract,
   RetrievalStatus,
-} from '@ainyc/canonry-contracts'
-import { createClient, migrate, queries, projects, querySnapshots, runs } from '@ainyc/canonry-db'
-import { openaiAdapter } from '@ainyc/canonry-provider-openai'
+} from '@canonry/canonry-contracts'
+import { createClient, migrate, queries, projects, querySnapshots, runs } from '@canonry/canonry-db'
+import { openaiAdapter } from '@canonry/canonry-provider-openai'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 

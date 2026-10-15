@@ -1,4 +1,4 @@
-import { agentProviderIdSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, providerQuotaPolicySchema, resolveProviderModel, schedulableRunKindSchema, type ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import { agentProviderIdSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, providerQuotaPolicySchema, resolveProviderModel, schedulableRunKindSchema, type ProviderQuotaPolicy } from '@canonry/canonry-contracts'
 import { z } from 'zod'
 
 /** Presentation only. A missing or blank YAML value leaves the opt-in unset. */

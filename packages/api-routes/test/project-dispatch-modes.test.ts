@@ -4,7 +4,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClient, migrate, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, type DatabaseClient } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ProviderAdapterInfo } from '../src/settings.js'
 

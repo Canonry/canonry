@@ -5,8 +5,8 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { eq, inArray } from 'drizzle-orm'
-import { percentOf, RunKinds, RunStatuses, RunTriggers, formatPercent, gaAttributionTrendResponseSchema, gaSocialReferralTrendResponseSchema, gaTrafficResponseSchema } from '@ainyc/canonry-contracts'
-import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, runs } from '@ainyc/canonry-db'
+import { percentOf, RunKinds, RunStatuses, RunTriggers, formatPercent, gaAttributionTrendResponseSchema, gaSocialReferralTrendResponseSchema, gaTrafficResponseSchema } from '@canonry/canonry-contracts'
+import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, runs } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialStore, Ga4CredentialRecord } from '../src/ga.js'
 
@@ -225,7 +225,7 @@ describe('GA4 routes', () => {
     })
 
     // Mock the GA integration functions used by the sync endpoint
-    const gaModule = await import('@ainyc/canonry-integration-google-analytics')
+    const gaModule = await import('@canonry/canonry-integration-google-analytics')
     const getAccessTokenSpy = vi.spyOn(gaModule, 'getAccessToken').mockResolvedValue('mock-token')
     const fetchTrafficSpy = vi.spyOn(gaModule, 'fetchTrafficByLandingPage').mockResolvedValue([
       { date: '2026-03-19', landingPage: '/synced-a', sessions: 50, organicSessions: 20, users: 40 },
@@ -401,7 +401,7 @@ describe('GA4 routes', () => {
       syncedAt: now,
     }).run()
 
-    const gaModule = await import('@ainyc/canonry-integration-google-analytics')
+    const gaModule = await import('@canonry/canonry-integration-google-analytics')
     const getAccessTokenSpy = vi.spyOn(gaModule, 'getAccessToken').mockResolvedValue('mock-token')
     const fetchTrafficSpy = vi.spyOn(gaModule, 'fetchTrafficByLandingPage').mockResolvedValue([])
     const fetchAggregateSpy = vi.spyOn(gaModule, 'fetchAggregateSummary').mockResolvedValue({
@@ -482,7 +482,7 @@ describe('GA4 routes', () => {
       updatedAt: now,
     })
 
-    const gaModule = await import('@ainyc/canonry-integration-google-analytics')
+    const gaModule = await import('@canonry/canonry-integration-google-analytics')
     const getAccessTokenSpy = vi.spyOn(gaModule, 'getAccessToken').mockResolvedValue('mock-token')
     const fetchTrafficSpy = vi.spyOn(gaModule, 'fetchTrafficByLandingPage').mockResolvedValue([
       { date: today, landingPage: '/foundation', sessions: 30000, organicSessions: 12000, directSessions: 5000, users: 22000 },
@@ -3088,7 +3088,7 @@ describe('GA4 routes', () => {
         updatedAt: now,
       })
 
-      const gaModule = await import('@ainyc/canonry-integration-google-analytics')
+      const gaModule = await import('@canonry/canonry-integration-google-analytics')
       const spies = [
         vi.spyOn(gaModule, 'getAccessToken').mockResolvedValue('mock-token'),
         vi.spyOn(gaModule, 'fetchTrafficByLandingPage').mockResolvedValue([]),

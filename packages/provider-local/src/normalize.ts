@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
-import { hostOf, normalizeServedModel, registrableDomain, describeError, usageCount } from '@ainyc/canonry-contracts'
-import type { ProviderUsage, TrackedQueryRequest } from '@ainyc/canonry-contracts'
+import { hostOf, normalizeServedModel, registrableDomain, describeError, usageCount } from '@canonry/canonry-contracts'
+import type { ProviderUsage, TrackedQueryRequest } from '@canonry/canonry-contracts'
 import { withRetry } from './utils.js'
 import type {
   GroundingSource,

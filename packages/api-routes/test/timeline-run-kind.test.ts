@@ -11,7 +11,7 @@ import {
   queries as queriesTable,
   runs,
   querySnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 /**

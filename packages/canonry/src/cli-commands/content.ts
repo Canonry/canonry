@@ -11,7 +11,7 @@ import {
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { requireProject, requirePositional, parseIntegerOption, getString } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
-import { winnabilityClassSchema } from '@ainyc/canonry-contracts'
+import { winnabilityClassSchema } from '@canonry/canonry-contracts'
 
 export const CONTENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {

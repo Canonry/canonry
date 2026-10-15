@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import type { ProviderConfig, RawQueryResult } from '@ainyc/canonry-contracts'
+import type { ProviderConfig, RawQueryResult } from '@canonry/canonry-contracts'
 import { museAdapter, reparseStoredResult } from '../src/index.js'
 
 const quotaPolicy = { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 }

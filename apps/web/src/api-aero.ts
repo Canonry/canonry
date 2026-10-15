@@ -1,7 +1,7 @@
 import { recordUiApiResult, trackUiAction } from './lib/ui-telemetry.js'
-import type { AgentViewContext, AgentTurnLimits } from '@ainyc/canonry-contracts'
+import type { AgentViewContext, AgentTurnLimits } from '@canonry/canonry-contracts'
 import { ApiError, handleAuthExpired } from './api.js'
-import type { AeroPreviewResponse, AgentProviderId, AgentProvidersResponse, ErrorCode } from '@ainyc/canonry-contracts'
+import type { AeroPreviewResponse, AgentProviderId, AgentProvidersResponse, ErrorCode } from '@canonry/canonry-contracts'
 
 interface ApiErrorBody {
   error?: { message?: string; code?: ErrorCode }
@@ -15,8 +15,8 @@ async function parseErrorBody(res: Response): Promise<ApiErrorBody> {
   }
 }
 
-export type { AgentProviderId, AgentProviderOption, AgentProvidersResponse } from '@ainyc/canonry-contracts'
-export type { AeroPreviewResponse, AeroPreviewStarter, AeroPreviewStep } from '@ainyc/canonry-contracts'
+export type { AgentProviderId, AgentProviderOption, AgentProvidersResponse } from '@canonry/canonry-contracts'
+export type { AeroPreviewResponse, AeroPreviewStarter, AeroPreviewStep } from '@canonry/canonry-contracts'
 
 function getApiBase(): string {
   if (typeof window !== 'undefined' && window.__CANONRY_CONFIG__?.basePath) {

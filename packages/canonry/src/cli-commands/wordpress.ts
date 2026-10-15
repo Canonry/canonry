@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-import type { WordpressEnv } from '@ainyc/canonry-contracts'
+import type { WordpressEnv } from '@canonry/canonry-contracts'
 import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, requirePositional, requireProject, requireStringOption, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
@@ -25,7 +25,7 @@ import {
   wordpressStatus,
   wordpressUpdatePage,
 } from '../commands/wordpress.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
 
 function resolveEnv(input: CliCommandInput, command: string, usage: string): WordpressEnv | undefined {
   const live = getBoolean(input.values, 'live')

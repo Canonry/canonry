@@ -54,7 +54,7 @@
  * writes pretty-printed JSON so diffs show exactly which prefixes the
  * operator added/removed.
  */
-import type { TrafficVerificationManifest } from '@ainyc/canonry-contracts'
+import type { TrafficVerificationManifest } from '@canonry/canonry-contracts'
 import amazonbotRaw from './ip-ranges/amazonbot.json' with { type: 'json' }
 import amznSearchbotRaw from './ip-ranges/amzn-searchbot.json' with { type: 'json' }
 import amznUserRaw from './ip-ranges/amzn-user.json' with { type: 'json' }

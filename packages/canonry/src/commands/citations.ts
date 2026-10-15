@@ -1,4 +1,4 @@
-import type { CitationVisibilityResponse } from '@ainyc/canonry-contracts'
+import type { CitationVisibilityResponse } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 
 export async function showCitationVisibility(

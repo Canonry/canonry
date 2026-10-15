@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { RunKinds, RunTriggers, type RunKind } from '@ainyc/canonry-contracts'
+import { RunKinds, RunTriggers, type RunKind } from '@canonry/canonry-contracts'
 import { syncRunClaimKey, syncRunTrigger } from '../src/helpers.js'
 
 describe('scheduled sync trigger provenance', () => {

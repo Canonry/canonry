@@ -4,7 +4,7 @@ import {
   CheckScopes,
   CheckStatuses,
   type BacklinkSource,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { readCommonCrawlSourceState } from '../../backlinks-source-state.js'
 import type { CheckDefinition, CheckOutput } from '../types.js'
 

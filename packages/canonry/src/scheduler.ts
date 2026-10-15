@@ -1,10 +1,10 @@
 import crypto from 'node:crypto'
 import cron from 'node-cron'
 import { and, eq, inArray, notExists, sql } from 'drizzle-orm'
-import { queueRunIfProjectIdle, nextRunFromCron, nextRunFromSchedule, ensureCurrentQueryBasketRevision, hasOutstandingProviderBatch, latestQueryBasketRevision } from '@ainyc/canonry-api-routes'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { schedules, projects, runs, siteCrawlRunRequests } from '@ainyc/canonry-db'
-import type { CalendarRecurrence, ProviderName, LocationContext, SchedulableRunKind } from '@ainyc/canonry-contracts'
+import { queueRunIfProjectIdle, nextRunFromCron, nextRunFromSchedule, ensureCurrentQueryBasketRevision, hasOutstandingProviderBatch, latestQueryBasketRevision } from '@canonry/canonry-api-routes'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { schedules, projects, runs, siteCrawlRunRequests } from '@canonry/canonry-db'
+import type { CalendarRecurrence, ProviderName, LocationContext, SchedulableRunKind } from '@canonry/canonry-contracts'
 import {
   SchedulableRunKinds,
   calendarRecurrenceSchema,
@@ -23,7 +23,7 @@ import {
   type FeatureCompletedProperties,
   type OutcomeReasonCode,
   type OutcomeTrigger,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { createLogger } from './logger.js'
 import { createOutcomeSampler, outcomeFailure, trackFeatureCompleted } from './outcome-telemetry.js'
 import { buildRunRefusedProps } from './run-telemetry.js'

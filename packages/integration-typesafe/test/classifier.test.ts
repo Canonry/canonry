@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
-import { canonicalSentimentJson } from '@ainyc/canonry-contracts'
+import { canonicalSentimentJson } from '@canonry/canonry-contracts'
 import { buildJevSentimentRequest, createTypeSafeClassifier } from '../src/classifier.js'
 import type { JevRequest } from '../src/client.js'
 import { inputFixture, responseFixture } from './fixtures.js'

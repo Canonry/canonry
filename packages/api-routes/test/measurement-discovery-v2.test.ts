@@ -15,8 +15,8 @@ import {
   migrate,
   projects,
   runs,
-} from '@ainyc/canonry-db'
-import type { MeasurementDraftAuthoring } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-db'
+import type { MeasurementDraftAuthoring } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 import { measurementDiscoveryIdentity } from '../src/measurement-discovery-v2.js'

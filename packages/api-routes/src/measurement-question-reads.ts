@@ -23,13 +23,13 @@ import {
   type MeasurementPlanV2,
   compareText,
   normalizeIdentityText as normalizeText,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   measurementPlanVersions,
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { resolveProject } from './helpers.js'
 import {
   activeMeasurementPlan,

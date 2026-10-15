@@ -1,17 +1,17 @@
 import { eq, desc, asc, and, ne, or, inArray, gte, lte, isNull, sql, exists } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { competitors, groupRunsByCreatedAt, gscSearchData, healthSnapshots, insights, projects, queries, querySnapshots, runs, gbpLocations, gbpDailyMetrics, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, parseJsonColumn } from '@ainyc/canonry-db'
-import { analyzeRuns, analyzeGbp, classifyRegressionSeverity, compileCompetitiveSignalResolver, PERSISTENT_GAP_THRESHOLD, GBP_INSIGHT_PROVIDER } from '@ainyc/canonry-intelligence'
-import type { RunData, Snapshot, AnalysisResult, Insight, GbpLocationSignals, GbpKeywordPoint } from '@ainyc/canonry-intelligence'
-import { extractPlaceAmenities, type PlaceDetails } from '@ainyc/canonry-integration-google-places'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { competitors, groupRunsByCreatedAt, gscSearchData, healthSnapshots, insights, projects, queries, querySnapshots, runs, gbpLocations, gbpDailyMetrics, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, parseJsonColumn } from '@canonry/canonry-db'
+import { analyzeRuns, analyzeGbp, classifyRegressionSeverity, compileCompetitiveSignalResolver, PERSISTENT_GAP_THRESHOLD, GBP_INSIGHT_PROVIDER } from '@canonry/canonry-intelligence'
+import type { RunData, Snapshot, AnalysisResult, Insight, GbpLocationSignals, GbpKeywordPoint } from '@canonry/canonry-intelligence'
+import { extractPlaceAmenities, type PlaceDetails } from '@canonry/canonry-integration-google-places'
 import {
   buildGbpSummary,
   competitorIdentityColumns,
   mergeGscQueryTotalsWithFallback,
   readGscQueryDailyRows,
   readLatestGscDataDate,
-} from '@ainyc/canonry-api-routes'
-import { CitationStates, RunKinds, RunStatuses, RunTriggers, effectiveDomains, type CompetitorIdentityInput } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-api-routes'
+import { CitationStates, RunKinds, RunStatuses, RunTriggers, effectiveDomains, type CompetitorIdentityInput } from '@canonry/canonry-contracts'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 import { pickProjectCitedDomain } from './citation-utils.js'
@@ -918,7 +918,7 @@ export class IntelligenceService {
   /**
    * Re-classify each regression insight's severity using GSC traffic +
    * recurrence signals via the pure `classifyRegressionSeverity` primitive
-   * in @ainyc/canonry-intelligence. Non-regression insights are returned
+   * in @canonry/canonry-intelligence. Non-regression insights are returned
    * untouched.
    */
   private applySeverityTiering(

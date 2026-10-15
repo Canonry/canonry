@@ -1,4 +1,4 @@
-import type { InstanceStatusDto, LatestProjectRunDto, ProjectDto, RunDto } from '@ainyc/canonry-contracts'
+import type { InstanceStatusDto, LatestProjectRunDto, ProjectDto, RunDto } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isEndpointMissing, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'

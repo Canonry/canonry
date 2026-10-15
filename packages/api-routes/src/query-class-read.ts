@@ -1,10 +1,10 @@
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import {
   compileQueryClassifier,
   effectiveBrandNames,
   parseStoredMeasurementPlanAnyVersion,
   type QueryClass,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { activePlanVersionRow } from './measurement-draft-repo.js'
 
 /**

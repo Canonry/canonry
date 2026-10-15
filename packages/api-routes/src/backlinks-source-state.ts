@@ -1,6 +1,6 @@
 import { and, eq, isNotNull, or } from 'drizzle-orm'
-import { BacklinkSources, CcReleaseSyncStatuses } from '@ainyc/canonry-contracts'
-import { backlinkSummaries, ccReleaseSyncs, type DatabaseClient } from '@ainyc/canonry-db'
+import { BacklinkSources, CcReleaseSyncStatuses } from '@canonry/canonry-contracts'
+import { backlinkSummaries, ccReleaseSyncs, type DatabaseClient } from '@canonry/canonry-db'
 
 export interface CommonCrawlSourceState {
   /**

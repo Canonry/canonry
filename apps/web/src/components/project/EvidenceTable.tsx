@@ -1,6 +1,6 @@
 import { Fragment, useId, useMemo, useState, type ReactNode } from 'react'
 import { ChevronRight } from 'lucide-react'
-import { CitationStates, hostOf, normalizeQueryText, type QueryClass } from '@ainyc/canonry-contracts'
+import { CitationStates, hostOf, normalizeQueryText, type QueryClass } from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
 import { CitationBadge } from '../shared/CitationBadge.js'

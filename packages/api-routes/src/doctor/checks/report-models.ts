@@ -1,6 +1,6 @@
 import { and, eq, gte, inArray, lte } from 'drizzle-orm'
-import { calendarMonthBounds, CheckCategories, CheckNotificationPolicies, CheckScopes, CheckStatuses, gradedReportMonths, reportMonthsForDoctor, RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
-import { querySnapshots, runs } from '@ainyc/canonry-db'
+import { calendarMonthBounds, CheckCategories, CheckNotificationPolicies, CheckScopes, CheckStatuses, gradedReportMonths, reportMonthsForDoctor, RunKinds, RunStatuses } from '@canonry/canonry-contracts'
+import { querySnapshots, runs } from '@canonry/canonry-db'
 import { notProbeRun } from '../../helpers.js'
 import { readVisibilityContinuity } from '../../visibility-stats.js'
 import type { CheckDefinition } from '../types.js'

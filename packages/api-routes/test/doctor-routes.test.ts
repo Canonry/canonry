@@ -4,7 +4,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createClient, migrate, projects, trafficSources } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, trafficSources } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 import type { GoogleConnectionRecord, GoogleConnectionStore } from '../src/google.js'
@@ -15,15 +15,15 @@ import type {
   VercelTrafficCredentialRecord,
   VercelTrafficCredentialStore,
 } from '../src/traffic.js'
-import { VercelLogsApiError } from '@ainyc/canonry-integration-vercel'
-import { TrafficSourceStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
-import type { DoctorReportDto } from '@ainyc/canonry-contracts'
+import { VercelLogsApiError } from '@canonry/canonry-integration-vercel'
+import { TrafficSourceStatuses, TrafficSourceTypes } from '@canonry/canonry-contracts'
+import type { DoctorReportDto } from '@canonry/canonry-contracts'
 
 const refreshAccessTokenMock = vi.fn()
 const listSitesMock = vi.fn()
 
-vi.mock('@ainyc/canonry-integration-google', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google')>('@ainyc/canonry-integration-google')
+vi.mock('@canonry/canonry-integration-google', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-google')>('@canonry/canonry-integration-google')
   return {
     ...actual,
     refreshAccessToken: (...args: unknown[]) => refreshAccessTokenMock(...args),

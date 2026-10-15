@@ -3,8 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { expect, it } from 'vitest'
-import { apiRoutes, hashApiKey } from '@ainyc/canonry-api-routes'
-import { apiKeys, createClient, migrate, OperationalLogStore } from '@ainyc/canonry-db'
+import { apiRoutes, hashApiKey } from '@canonry/canonry-api-routes'
+import { apiKeys, createClient, migrate, OperationalLogStore } from '@canonry/canonry-db'
 import { addLogListener, createFastifyLogger, createLogger } from '../src/logger.js'
 
 it('keeps authenticated identity, error detail, and typed diagnostics through log capture and REST', async () => {

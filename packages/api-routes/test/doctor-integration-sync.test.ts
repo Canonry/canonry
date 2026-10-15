@@ -3,8 +3,8 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createClient, gbpLocations, migrate, projects, runs } from '@ainyc/canonry-db'
-import { CheckCategories, GBP_NO_SELECTED_LOCATIONS_ERROR, serializeRunError } from '@ainyc/canonry-contracts'
+import { createClient, gbpLocations, migrate, projects, runs } from '@canonry/canonry-db'
+import { CheckCategories, GBP_NO_SELECTED_LOCATIONS_ERROR, serializeRunError } from '@canonry/canonry-contracts'
 import { INTEGRATION_SYNC_CHECKS } from '../src/doctor/checks/integration-sync.js'
 import type { GoogleMarketingDoctorInput } from '../src/doctor/checks/google-marketing.js'
 import { ALL_CHECKS, scheduledHealthCheckIds } from '../src/doctor/registry.js'
@@ -14,8 +14,8 @@ import type { GoogleConnectionStore } from '../src/google.js'
 
 // The Search Console auth checks refresh the token live; nothing here may reach Google.
 const refreshAccessTokenMock = vi.fn()
-vi.mock('@ainyc/canonry-integration-google', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google')>('@ainyc/canonry-integration-google')
+vi.mock('@canonry/canonry-integration-google', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-google')>('@canonry/canonry-integration-google')
   return { ...actual, refreshAccessToken: (...args: unknown[]) => refreshAccessTokenMock(...args) }
 })
 
@@ -376,7 +376,7 @@ describe('integration sync failure checks', () => {
   })
 
   it('stands aside while Google rejects the Search Console grant', async () => {
-    const { GoogleAuthError } = await vi.importActual<typeof import('@ainyc/canonry-integration-google')>('@ainyc/canonry-integration-google')
+    const { GoogleAuthError } = await vi.importActual<typeof import('@canonry/canonry-integration-google')>('@canonry/canonry-integration-google')
     refreshAccessTokenMock.mockRejectedValue(new GoogleAuthError('Token refresh failed (400): invalid_grant'))
 
     const report = await runChecks(gscWithFailingSyncs(), ALL_CHECKS, { checkIds: scheduledHealthCheckIds() })

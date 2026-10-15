@@ -1,5 +1,5 @@
-import type { RunDetailDto } from '@ainyc/canonry-contracts'
-import { describeError, formatPercent } from '@ainyc/canonry-contracts'
+import type { RunDetailDto } from '@canonry/canonry-contracts'
+import { describeError, formatPercent } from '@canonry/canonry-contracts'
 import { type ApiClient, createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'

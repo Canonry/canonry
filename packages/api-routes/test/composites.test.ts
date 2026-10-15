@@ -18,10 +18,10 @@ import {
   projects,
   querySnapshots,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
-import { PROJECT_OVERVIEW_QUERY_CLASS_SCOPE, projectOverviewDtoSchema, type ProjectOverviewDto, type ProjectSearchResponseDto } from '@ainyc/canonry-contracts'
+import { PROJECT_OVERVIEW_QUERY_CLASS_SCOPE, projectOverviewDtoSchema, type ProjectOverviewDto, type ProjectSearchResponseDto } from '@canonry/canonry-contracts'
 
 function buildApp() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-composites-'))

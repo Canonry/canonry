@@ -3,7 +3,7 @@ import type {
   ContentTargetsResponseDto,
   ContentSourcesResponseDto,
   ContentGapsResponseDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 const mockGetContentTargets = vi.fn()
 const mockGetContentSources = vi.fn()

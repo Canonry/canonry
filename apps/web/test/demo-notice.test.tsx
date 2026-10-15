@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { escapeRegExp } from '@ainyc/canonry-contracts'
+import { escapeRegExp } from '@canonry/canonry-contracts'
 import { DemoNotice } from '../src/components/layout/DemoNotice.js'
 
 afterEach(() => { cleanup(); delete window.__CANONRY_CONFIG__ })

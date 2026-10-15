@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
-import { calendarDateRange, calendarMonthBounds, CheckCategories, CheckNotificationPolicies, CheckScopes, CheckStatuses, inclusiveDayCount, isoDateDaysBeforeInTimeZone, reportMonthsForDoctor, groupIsoDateRanges } from '@ainyc/canonry-contracts'
-import { gaDailyTotals, gaTrafficSummaries, gscDailyTotals, gscDataWatermarks, projects } from '@ainyc/canonry-db'
+import { calendarDateRange, calendarMonthBounds, CheckCategories, CheckNotificationPolicies, CheckScopes, CheckStatuses, inclusiveDayCount, isoDateDaysBeforeInTimeZone, reportMonthsForDoctor, groupIsoDateRanges } from '@canonry/canonry-contracts'
+import { gaDailyTotals, gaTrafficSummaries, gscDailyTotals, gscDataWatermarks, projects } from '@canonry/canonry-db'
 import type { CheckDefinition, DoctorContext } from '../types.js'
 
 type DateRange = { start: string; end: string }

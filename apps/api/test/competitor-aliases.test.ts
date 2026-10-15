@@ -4,9 +4,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { addLogListener, type LogEntry } from '@ainyc/canonry-api-routes/runtime-logger'
-import { getPlatformEnv } from '@ainyc/canonry-config'
-import { apiKeys, competitors, createClient, migrate, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { addLogListener, type LogEntry } from '@canonry/canonry-api-routes/runtime-logger'
+import { getPlatformEnv } from '@canonry/canonry-config'
+import { apiKeys, competitors, createClient, migrate, projects, queries, querySnapshots, runs } from '@canonry/canonry-db'
 
 import { buildApp } from '../src/app.js'
 

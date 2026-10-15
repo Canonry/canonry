@@ -18,14 +18,14 @@ import {
   type MeasurementPlanContext,
   type MeasurementPlanCounts,
   type MeasurementPlanInput,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   measurementPlans,
   measurementPlanVersions,
   measurementSegments,
   projects,
   queries,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { requireScope } from './auth.js'
 import { requireMarketPinsClearOfCompetitorAliases } from './competitor-writes.js'
 import { beginMarketPinWrite, marketPinWriteAuditFields, notifyMarketPinWrite, type MarketPinWriteEffect, type MarketPinWriteHooks } from './market-pin-writes.js'

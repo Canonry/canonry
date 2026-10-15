@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import {
   sentimentBackfillRequestSchema, sentimentBackfillSelectionSchema, sentimentCompareRequestSchema,
   sentimentEvidenceRequestSchema, sentimentJobRequestSchema, sentimentSettingsUpdateSchema, sentimentSummaryRequestSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { resolveProject } from './helpers.js'
 import { canAdministerSentiment, requireSentimentAdministrator } from './sentiment-auth.js'
 import { parseSentimentRequest, SentimentService, type SentimentServiceOptions } from './sentiment-service.js'

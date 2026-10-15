@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import React from 'react'
-import { brandKeyFromText, brandLabelFromDomain, escapeRegExp } from '@ainyc/canonry-contracts'
+import { brandKeyFromText, brandLabelFromDomain, escapeRegExp } from '@canonry/canonry-contracts'
 
 export interface HighlightTermGroup {
   terms: string[]

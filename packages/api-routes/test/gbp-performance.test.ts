@@ -5,8 +5,8 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, runs, gbpDailyMetrics, gbpKeywordImpressions } from '@ainyc/canonry-db'
-import { AppError } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, runs, gbpDailyMetrics, gbpKeywordImpressions } from '@canonry/canonry-db'
+import { AppError } from '@canonry/canonry-contracts'
 import { googleRoutes } from '../src/google.js'
 
 function buildApp() {

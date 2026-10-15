@@ -41,7 +41,7 @@ import {
   type SiteHealthScanDto,
   type SiteHealthState,
   type SiteHealthTemplateDetection,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameOptions,
   getApiV1ProjectsByNameTechnicalAeoCrawlOptions,
@@ -55,7 +55,7 @@ import {
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewOptions,
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressOptions,
   getApiV1ProjectsByNameTechnicalAeoStructureInfiniteOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { heyClient, isDashboardManagedRunKind, isEmbed, isPublicDemo } from '../../api.js'
 import { useAccount } from '../../contexts/account-context.js'

@@ -14,14 +14,14 @@ import {
   type MeasurementDraftCounts,
   type MeasurementPlanDraft,
   compareText,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   measurementOperationReceipts,
   measurementPlanDrafts,
   measurementPlans,
   measurementPlanVersions,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 
 export type DraftRow = typeof measurementPlanDrafts.$inferSelect
 export type PlanVersionRow = typeof measurementPlanVersions.$inferSelect

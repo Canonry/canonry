@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-import { reportedQueryClasses, type QueryClass } from '@ainyc/canonry-contracts'
+import { reportedQueryClasses, type QueryClass } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'

@@ -13,7 +13,7 @@ import {
   type MeasurementDraftSegmentDescriptor,
   compareText,
   sortedUnique,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /** Errors are data-only so route wiring can map the status to the host's error envelope. */
 export class MeasurementGroupMembershipImportError extends Error {

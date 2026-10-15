@@ -1,5 +1,5 @@
-import type { AiReferralTrafficClass, NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
-import { AiReferralTrafficClasses, hostOf } from '@ainyc/canonry-contracts'
+import type { AiReferralTrafficClass, NormalizedTrafficRequest } from '@canonry/canonry-contracts'
+import { AiReferralTrafficClasses, hostOf } from '@canonry/canonry-contracts'
 import { classifyAiReferral, classifyAiUserFetch, classifyCrawler, isSelfTraffic } from './classifier.js'
 import type {
   AiReferralEventHourlyBucket,

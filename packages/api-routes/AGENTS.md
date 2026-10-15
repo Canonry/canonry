@@ -16,7 +16,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/request-context.ts` / `src/runtime-logger.ts` / `src/operational-logs.ts` | Request-local actor context; shared redacting logger; `GET /operations/logs` reader |
 | `src/openapi.ts` | OpenAPI spec generation, the source of the generated SDK (see "Typed responses") |
 
-Every API operation carries `x-canonry-access` metadata and responses expose the same value in the `x-canonry-access` header. When adding a live provider GET or other live operation, update `LIVE_READ_OPERATIONS` in `@ainyc/canonry-contracts` and its route-map test.
+Every API operation carries `x-canonry-access` metadata and responses expose the same value in the `x-canonry-access` header. When adding a live provider GET or other live operation, update `LIVE_READ_OPERATIONS` in `@canonry/canonry-contracts` and its route-map test.
 | `src/projects.ts` / `src/runs.ts` | Project CRUD routes (largest route file); run trigger, status, and list routes |
 | `src/query-replace.ts` | `replaceProjectQueries`, the declarative tracked-query replace (see "Declarative query replacement") |
 | `src/competitor-writes.ts` | The one path that adds competitors or changes their curated aliases: `planCompetitorSet` / `syncCompetitorSet` (see "Competitor aliases") |
@@ -244,7 +244,7 @@ export async function myRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
 The global error handler in `index.ts` catches `AppError` instances. **Never catch and manually reply.** Call `resolveProject(app.db, name)` directly — no try/catch, no `resolveProjectSafe` helper.
 
 ```typescript
-import { validationError, notFound } from '@ainyc/canonry-contracts'
+import { validationError, notFound } from '@canonry/canonry-contracts'
 import { resolveProject } from './helpers.js'
 
 // ✅ Correct — let the global handler serialize
@@ -255,15 +255,15 @@ if (!body.queries?.length) throw validationError('"queries" must be non-empty')
 try { resolveProject(app.db, name) } catch (e) { reply.status(e.statusCode).send(e.toJSON()) }
 ```
 
-Always use the factory functions from `@ainyc/canonry-contracts` (`validationError()`, `notFound()`, `authRequired()`, `providerError()`, …); never hand-construct `{ error: { code, message } }`. A new error code goes in the `ErrorCode` union in `packages/contracts/src/errors.ts` with a factory.
+Always use the factory functions from `@canonry/canonry-contracts` (`validationError()`, `notFound()`, `authRequired()`, `providerError()`, …); never hand-construct `{ error: { code, message } }`. A new error code goes in the `ErrorCode` union in `packages/contracts/src/errors.ts` with a factory.
 
 ### Validation
 
-Use Zod schemas from `@ainyc/canonry-contracts`. Parse with `.safeParse()`, throw `validationError()` on failure.
+Use Zod schemas from `@canonry/canonry-contracts`. Parse with `.safeParse()`, throw `validationError()` on failure.
 
 ### Typed responses (Critical)
 
-**Every new route MUST register a Zod schema for its response and reference it via `jsonResponse(...)`.** The SDK (`@ainyc/canonry-api-client`) is regenerated from this spec on every `pnpm gen`; routes that return `rawJsonResponse(..., looseObjectSchema)` give web consumers `Record<string, unknown>` and silently break the end-to-end type pipeline.
+**Every new route MUST register a Zod schema for its response and reference it via `jsonResponse(...)`.** The SDK (`@canonry/canonry-api-client`) is regenerated from this spec on every `pnpm gen`; routes that return `rawJsonResponse(..., looseObjectSchema)` give web consumers `Record<string, unknown>` and silently break the end-to-end type pipeline.
 
 The pattern:
 
@@ -287,7 +287,7 @@ The pattern:
      404: errorResponse('Not found.'),
    },
    ```
-4. Run `pnpm --filter @ainyc/canonry-api-client gen` to regenerate the SDK.
+4. Run `pnpm --filter @canonry/canonry-api-client gen` to regenerate the SDK.
 
 `rawJsonResponse(..., looseObjectSchema)` is **capped** by the test
 `packages/api-routes/test/no-new-loose-routes.test.ts` — the current count is
@@ -387,7 +387,7 @@ Every read-time competitor reader scores stored answers with the names the proje
 - **Do not hand out `cnry_…` API keys outside the trust boundary you'd give a teammate.** A leaked key reads and writes every project on the instance.
 - **API key management (`canonry key create` / `list` / `revoke`, `POST /keys`, `POST /keys/:id/revoke`) is gated by the `keys.write` scope.** The default `*` key written by `canonry init` satisfies it; narrower delegate keys must declare `keys.write` explicitly. Listing keys is ungated but returns SAFE metadata only (id, name, prefix, scopes, timestamps, and the scoped project's id and name) — never the stored hash or the plaintext token. The raw `cnry_…` token is returned exactly once, at creation. Revoke sets `revokedAt` (it does not delete the row) and takes effect on the next request; you cannot revoke the key you are currently authenticating with. `GET /keys/self` (CLI `canonry key whoami`) returns the SAFE metadata of the key the request authenticated with, including the derived `readOnly` flag.
 - **Read-only keys (`canonry key create --read-only`, scopes `['read']`).** A key is read-only when it carries `read` or a named `*.read` scope and no explicit write grant. The auth plugin's global `onRequest` gate denies mutating HTTP methods (POST/PUT/PATCH/DELETE) with `403 FORBIDDEN`; GET/HEAD/OPTIONS remain subject to their route permissions. POST-based preview/dry-run routes are unavailable to read-only keys by design; MCP transport envelopes allow reads but never bypass per-operation authorization. Wildcard and explicit write grants retain their existing route gates. Empty or unrecognized legacy scope lists are unchanged. `GET .../bing/coverage` upserts an idempotent derived daily snapshot, so its operation metadata is write even though the HTTP method is GET. `canonry-mcp` probes `GET /keys/self` at startup and auto-restricts the catalog to read tools when its configured key is read-only.
-- **Operation access tables.** Keep `LIVE_READ_OPERATIONS`, `READ_SEMANTIC_OPERATIONS`, `STORED_READ_OPERATIONS`, and `WRITE_OPERATIONS` in `@ainyc/canonry-contracts` synchronized with registered route templates. `STORED_READ_OPERATIONS` describes effect and response provenance; a pure preview can remain write-scope authorized while its access metadata is stored. A live provider GET must also carry the route's paid-read marker and call `requirePaidReadScope` when it spends an operator budget. GET OAuth callbacks that persist credentials belong in `WRITE_OPERATIONS`; they are not stored reads.
+- **Operation access tables.** Keep `LIVE_READ_OPERATIONS`, `READ_SEMANTIC_OPERATIONS`, `STORED_READ_OPERATIONS`, and `WRITE_OPERATIONS` in `@canonry/canonry-contracts` synchronized with registered route templates. `STORED_READ_OPERATIONS` describes effect and response provenance; a pure preview can remain write-scope authorized while its access metadata is stored. A live provider GET must also carry the route's paid-read marker and call `requirePaidReadScope` when it spends an operator budget. GET OAuth callbacks that persist credentials belong in `WRITE_OPERATIONS`; they are not stored reads.
 - **A GET that SPENDS is gated separately from one that reads (`requirePaidReadScope`).** A few GETs return no stored data at all: they resolve the operator's OpenAI Ads credential and call the provider on demand, spending on the ad account and disclosing account identity and conversion configuration. The method-based read-only gate cannot see this — a billed GET looks exactly like a free one — so those routes carry their own ALLOW-list gate (`*`, `ads.write`, `ads.approve`, `ads.activate`) plus `requireAdminSession`, refusing a read-only key, a key scoped to something unrelated, and a view-only account. Covered today: `GET .../ads/live-delivery`, `.../ads/account`, `.../ads/geo/search`, `.../ads/conversions/pixels`, `.../ads/conversions/event-settings`. **Any new route that calls a provider live on the caller's behalf must be added to this gate** — leaving it on the read/write split means every narrow credential on the install can spend the operator's budget.
 - **If a multi-tenant story becomes a requirement,** the work is substantial — add `owner_id` to every domain table, attach `apiKey.ownerId` to `request` in `authPlugin`, AND-in `eq(table.ownerId, request.apiKey.ownerId)` on every read/write, rekey `google_connections` / `bing_connections` to include `project_id`, and gate `/settings/*` on a real `admin` scope. The trade-off is real — a schema migration that touches ~15 tables and every route file. Plan accordingly.
 

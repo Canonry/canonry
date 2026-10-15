@@ -10,7 +10,7 @@ import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, onTestFinished, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { compileQueryClassifier, formatPercent } from '@ainyc/canonry-contracts'
+import { compileQueryClassifier, formatPercent } from '@canonry/canonry-contracts'
 
 /** What the chart's hover tooltip is showing, set per test: Recharts itself is inert in jsdom. */
 const tooltip: { current: Record<string, unknown> | null } = { current: null }

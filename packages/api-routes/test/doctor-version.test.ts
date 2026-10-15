@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { CheckStatuses } from '@ainyc/canonry-contracts'
+import { CheckStatuses } from '@canonry/canonry-contracts'
 import { VERSION_CHECKS } from '../src/doctor/checks/version.js'
 import { ALL_CHECKS } from '../src/doctor/registry.js'
 import type { DoctorContext, DoctorUpdateStatus } from '../src/doctor/types.js'

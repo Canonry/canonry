@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { and, eq, gte, lt, lte, sql } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import {
   aiReferralEventsHourly,
   aiUserFetchEventsHourly,
@@ -10,9 +10,9 @@ import {
   rawEventSamples,
   trafficEventReceipts,
   trafficSources,
-} from '@ainyc/canonry-db'
-import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
-import { buildTrafficProbeReport } from '@ainyc/canonry-integration-traffic'
+} from '@canonry/canonry-db'
+import type { NormalizedTrafficRequest } from '@canonry/canonry-contracts'
+import { buildTrafficProbeReport } from '@canonry/canonry-integration-traffic'
 import {
   enforceRawEventSampleRetention,
   retainedRawEventSampleTimestamp,

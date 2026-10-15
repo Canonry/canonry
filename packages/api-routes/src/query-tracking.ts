@@ -51,7 +51,7 @@ import {
   type SimpleMeasurementDefinition,
   compareText,
   normalizeIdentityText as normalizeText,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   discoveryProbes,
   discoverySessions,
@@ -66,7 +66,7 @@ import {
   runs,
   simpleMeasurementDefinitions,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { requireScope } from './auth.js'
 import {
   compileMeasurementDraftAssignmentExecution,

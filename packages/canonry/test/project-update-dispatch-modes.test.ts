@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ProjectDto } from '@ainyc/canonry-contracts'
+import type { ProjectDto } from '@canonry/canonry-contracts'
 
 // The server keeps a dispatch preference only for an engine the project's runs
 // measure. When it drops one, `canonry project update` must not report a plain

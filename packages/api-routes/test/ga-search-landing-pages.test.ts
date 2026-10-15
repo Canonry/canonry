@@ -4,7 +4,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { gaSearchLandingPagesResponseSchema, ga4SyncResponseDtoSchema, RunStatuses } from '@ainyc/canonry-contracts'
+import { gaSearchLandingPagesResponseSchema, ga4SyncResponseDtoSchema, RunStatuses } from '@canonry/canonry-contracts'
 import {
   createClient,
   gaAcquisitionDaily,
@@ -13,9 +13,9 @@ import {
   gaSearchLandingWindows,
   migrate,
   runs,
-} from '@ainyc/canonry-db'
-import { GA4ApiError } from '@ainyc/canonry-integration-google-analytics'
-import type { GA4SearchLandingReport, GA4SearchLandingWindowReport } from '@ainyc/canonry-integration-google-analytics'
+} from '@canonry/canonry-db'
+import { GA4ApiError } from '@canonry/canonry-integration-google-analytics'
+import type { GA4SearchLandingReport, GA4SearchLandingWindowReport } from '@canonry/canonry-integration-google-analytics'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialRecord, Ga4CredentialStore } from '../src/ga.js'
 import type { GoogleConnectionRecord, GoogleConnectionStore } from '../src/google.js'
@@ -147,7 +147,7 @@ function readyReport(variant: 'first' | 'second' = 'first'): GA4SearchLandingRep
 }
 
 async function mockGa(searchLanding: () => Promise<GA4SearchLandingReport>) {
-  const ga = await import('@ainyc/canonry-integration-google-analytics')
+  const ga = await import('@canonry/canonry-integration-google-analytics')
   vi.spyOn(ga, 'getAccessToken').mockResolvedValue('fake-token')
   vi.spyOn(ga, 'fetchAggregateSummary').mockResolvedValue({
     periodStart: dateDaysAgo(29), periodEnd: dateDaysAgo(0), totalSessions: 10, totalOrganicSessions: 4, totalUsers: 8,
@@ -458,7 +458,7 @@ describe('GA4 Search Console landing pages', () => {
 
   it('clears the snapshot when a service-account connect points the project at another property, and keeps it for the same one', async () => {
     await mockGa(async () => readyReport())
-    const ga = await import('@ainyc/canonry-integration-google-analytics')
+    const ga = await import('@canonry/canonry-integration-google-analytics')
     const verify = vi.spyOn(ga, 'verifyConnection').mockResolvedValue(true)
     expect((await sync(ctx)).statusCode).toBe(200)
     const connect = (propertyId: string) => ctx.app.inject({
@@ -488,7 +488,7 @@ describe('GA4 Search Console landing pages', () => {
 
   it('clears the snapshot when an OAuth connect changes the property the project resolves to', async () => {
     await mockGa(async () => readyReport())
-    const ga = await import('@ainyc/canonry-integration-google-analytics')
+    const ga = await import('@canonry/canonry-integration-google-analytics')
     const verify = vi.spyOn(ga, 'verifyConnectionWithToken').mockResolvedValue(true)
     // OAuth only: no service account for this project.
     ctx.credentials.delete(PROJECT)
@@ -515,7 +515,7 @@ describe('GA4 Search Console landing pages', () => {
 
   it('keeps the snapshot when an OAuth connect changes a property the service account overrides', async () => {
     await mockGa(async () => readyReport())
-    const ga = await import('@ainyc/canonry-integration-google-analytics')
+    const ga = await import('@canonry/canonry-integration-google-analytics')
     vi.spyOn(ga, 'verifyConnectionWithToken').mockResolvedValue(true)
     ctx.googleConnections.set('example.com:ga4', oauthConnection('777777'))
     expect((await sync(ctx)).statusCode).toBe(200)

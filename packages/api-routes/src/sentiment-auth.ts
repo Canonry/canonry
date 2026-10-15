@@ -1,5 +1,5 @@
 import type { FastifyRequest } from 'fastify'
-import { forbidden } from '@ainyc/canonry-contracts'
+import { forbidden } from '@canonry/canonry-contracts'
 
 /** Spending opt-in requires the full install authority, including delegated identity. */
 export function canAdministerSentiment(request: FastifyRequest): boolean {

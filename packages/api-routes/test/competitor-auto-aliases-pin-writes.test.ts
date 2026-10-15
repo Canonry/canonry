@@ -17,13 +17,13 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   canonicalMeasurementPlanV2Json,
   competitorLandscapeResponseSchema,
   measurementPlanV2Schema,
   type CompetitorAutoAlias,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { apiRoutes, backfillProjectAnswerMentions, readMarketCompetitorNames } from '../src/index.js'
 
 // A market pin write can claim a name a competitor learned from answers: a

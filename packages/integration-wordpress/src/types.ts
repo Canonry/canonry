@@ -1,4 +1,4 @@
-import type { WordpressEnv } from '@ainyc/canonry-contracts'
+import type { WordpressEnv } from '@canonry/canonry-contracts'
 
 export interface WordpressConnectionRecord {
   projectName: string

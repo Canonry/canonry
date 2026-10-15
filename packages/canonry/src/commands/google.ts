@@ -4,11 +4,11 @@ import type {
   GscSubmitSitemapsResponseDto,
   GscUrlInspectionDto,
   IndexingRequestResultDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { type ApiClient, createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import { formatPercent } from '@ainyc/canonry-contracts'
+import { formatPercent } from '@canonry/canonry-contracts'
 import {
   dedupeGscSitemapUrls,
   requireGscSitemapUrls,

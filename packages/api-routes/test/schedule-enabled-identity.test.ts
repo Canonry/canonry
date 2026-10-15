@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { and, eq } from 'drizzle-orm'
-import { createClient, migrate, projects, schedules } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, schedules } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 // A schedule's `enabled` flag is operator state, not config-as-code state.

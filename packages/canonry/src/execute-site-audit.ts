@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { and, eq, ne, sql } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import {
   projects,
   runs,
@@ -12,7 +12,7 @@ import {
   siteCrawlFindings,
   siteCrawlPages,
   siteCrawlSnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { runSiteCrawl } from '@canonry/aeo-audit'
 import type {
   CrawlEdgeObservation,
@@ -40,8 +40,8 @@ import {
   RunTriggers,
   bucketOnboardingCount,
   describeError,
-} from '@ainyc/canonry-contracts'
-import { resolvePublicHttpTarget, resolveWebhookTarget } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-contracts'
+import { resolvePublicHttpTarget, resolveWebhookTarget } from '@canonry/canonry-api-routes'
 import { createLogger } from './logger.js'
 import {
   buildSiteAuditCompletedProps,
@@ -66,7 +66,7 @@ export {
   SITE_AUDIT_DEFAULT_PAGE_LIMIT,
   SITE_AUDIT_MAX_EDGE_LIMIT,
   SITE_AUDIT_MAX_PAGE_LIMIT,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 export interface SiteAuditOptions extends Partial<SiteAuditRunRequest> {
   /** The local server owns this controller; never accepted from an HTTP body. */

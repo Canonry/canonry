@@ -36,8 +36,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const DEP = '@canonry/aeo-audit'
 // The local Canonry runtime and Val Town's self-contained production host use
-// the full-crawl engine. apps/worker intentionally remains pinned to
-// @ainyc/aeo-audit@4.2.0 and is not part of this bump.
+// the full-crawl engine. apps/worker has no audit-engine dependency.
 const DEP_TARGETS = [
   {
     path: 'packages/canonry/package.json',

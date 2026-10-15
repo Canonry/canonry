@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, trafficSources } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, trafficSources } from '@canonry/canonry-db'
 import { releaseTrafficSyncLease, tryClaimTrafficSyncLease } from '../src/traffic-sync-lease.js'
 
 const directories: string[] = []

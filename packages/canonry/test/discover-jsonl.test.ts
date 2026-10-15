@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import type { DiscoverySessionDetailDto, DiscoverySessionDto } from '@ainyc/canonry-contracts'
+import type { DiscoverySessionDetailDto, DiscoverySessionDto } from '@canonry/canonry-contracts'
 
 const mockListDiscoverySessions = vi.fn()
 const mockGetDiscoverySession = vi.fn()

@@ -1,6 +1,6 @@
 import { createApiClient } from '../client.js'
 import type { ApiClient, DiscoveryRunStartResponse } from '../client.js'
-import { CitationStates, describeError, DiscoveryPromoteCompetitorSkipReasons } from '@ainyc/canonry-contracts'
+import { CitationStates, describeError, DiscoveryPromoteCompetitorSkipReasons } from '@canonry/canonry-contracts'
 import type {
   DiscoveryBucket,
   DiscoveryCompetitorType,
@@ -10,7 +10,7 @@ import type {
   DiscoveryPromoteResult,
   DiscoverySessionDetailDto,
   DiscoverySessionDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 

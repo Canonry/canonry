@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
-import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
+import type { NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 
 import { VercelLogsApiError } from '../src/client.js'
 import { drainVercelTrafficEvents } from '../src/drain.js'

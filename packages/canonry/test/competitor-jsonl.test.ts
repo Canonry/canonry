@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import type { CompetitorDto } from '@ainyc/canonry-contracts'
+import type { CompetitorDto } from '@canonry/canonry-contracts'
 
 const mockListCompetitors = vi.fn()
 

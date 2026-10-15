@@ -11,8 +11,8 @@ import type {
   ProviderHealthcheckResult,
   RawQueryResult,
   TrackedQueryInput,
-} from '@ainyc/canonry-contracts'
-import { createClient, queries, migrate, projects, querySnapshots, runs, usageCounters } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import { createClient, queries, migrate, projects, querySnapshots, runs, usageCounters } from '@canonry/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'

@@ -1,6 +1,6 @@
 import { ChevronRight } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
-import { formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits } from '@canonry/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'

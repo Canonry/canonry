@@ -1,4 +1,4 @@
-import type { GA4SessionHistoryEntry } from '@ainyc/canonry-contracts'
+import type { GA4SessionHistoryEntry } from '@canonry/canonry-contracts'
 
 /** One day's landing-page-dimensioned aggregation from `ga_traffic_snapshots`. */
 export interface LandingPageDayAggregate {

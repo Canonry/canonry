@@ -1,4 +1,4 @@
-import { isLocationRedirectStatus } from '@ainyc/canonry-contracts'
+import { isLocationRedirectStatus } from '@canonry/canonry-contracts'
 import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici'
 import { isLoopbackAddress } from './egress-policy.js'
 import {

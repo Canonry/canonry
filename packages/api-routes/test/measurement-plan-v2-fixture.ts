@@ -6,7 +6,7 @@
  * is the Branded basket, so a class filter has something to exclude.
  */
 
-import { measurementPlanV2Schema, type MeasurementPlanV2 } from '@ainyc/canonry-contracts'
+import { measurementPlanV2Schema, type MeasurementPlanV2 } from '@canonry/canonry-contracts'
 
 export const HARBOR_CONTEXT = { label: 'Harbor', city: 'Harbor', region: 'EX', country: 'US' } as const
 

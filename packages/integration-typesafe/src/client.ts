@@ -1,5 +1,5 @@
-import { SENTIMENT_MODEL, isRetryableHttpError, retryAfterDelayMs, withRetry } from '@ainyc/canonry-contracts'
-import type { SentimentUsage } from '@ainyc/canonry-contracts'
+import { SENTIMENT_MODEL, isRetryableHttpError, retryAfterDelayMs, withRetry } from '@canonry/canonry-contracts'
+import type { SentimentUsage } from '@canonry/canonry-contracts'
 
 export const TYPESAFE_URL = 'https://api.typesafe.ai/v1/systemone'
 export const JEV_MODEL = SENTIMENT_MODEL

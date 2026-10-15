@@ -13,7 +13,7 @@ import {
   createClient,
   migrate,
   projects,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { bootstrapCommand } from '../src/commands/bootstrap.js'
 import { initCommand } from '../src/commands/init.js'
 import { getConfigDir, loadConfig, type CanonryConfig } from '../src/config.js'

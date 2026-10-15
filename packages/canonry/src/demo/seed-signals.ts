@@ -43,7 +43,7 @@ import {
   insights,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { DEMO_GA4_PROPERTY_ID, type DemoSeedContext, type DemoSeedProject } from './types.js'
 import { seedSiteCrawl } from './seed-site-crawl.js'
 import { harborResortsInventory } from './site-inventories/harbor-resorts.js'

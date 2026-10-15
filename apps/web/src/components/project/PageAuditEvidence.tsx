@@ -3,7 +3,7 @@ import {
   RatioUnits,
   type SiteAuditFactorStatus,
   type SiteCrawlPageAuditDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { ChevronRight } from 'lucide-react'
 
 import type { MetricTone } from '../../view-models.js'

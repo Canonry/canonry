@@ -1,4 +1,4 @@
-import { DEFAULT_MEASUREMENT_CONFIG, type ProjectDto } from '@ainyc/canonry-contracts'
+import { DEFAULT_MEASUREMENT_CONFIG, type ProjectDto } from '@canonry/canonry-contracts'
 
 import type {
   CitationInsightVm,

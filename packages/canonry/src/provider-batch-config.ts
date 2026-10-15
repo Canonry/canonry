@@ -4,7 +4,7 @@ import {
   type ProviderAdapter,
   type ProviderConfig,
   type ProviderQuotaPolicy,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { CliError } from './cli-error.js'
 import type { ProviderConfigEntry } from './config.js'
 import type { ProviderRegistry } from './provider-registry.js'

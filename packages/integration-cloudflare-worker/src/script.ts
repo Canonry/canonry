@@ -1,7 +1,7 @@
 import {
   DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS,
   DEFAULT_AI_REFERRER_RULES,
-} from '@ainyc/canonry-integration-traffic'
+} from '@canonry/canonry-integration-traffic'
 import { canonicalizeCloudflareJson } from './canonical-json.js'
 import {
   CLOUDFLARE_DIRECT_PUSH_SECRET_BINDINGS,

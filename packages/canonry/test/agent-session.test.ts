@@ -3,8 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { fauxAssistantMessage } from '@earendil-works/pi-ai'
-import type { HealthSnapshotDto, ProjectDto, RunDto } from '@ainyc/canonry-contracts'
-import { createClient, migrate, type DatabaseClient } from '@ainyc/canonry-db'
+import type { HealthSnapshotDto, ProjectDto, RunDto } from '@canonry/canonry-contracts'
+import { createClient, migrate, type DatabaseClient } from '@canonry/canonry-db'
 import {
   createAeroSession,
   detectAgentProvider,

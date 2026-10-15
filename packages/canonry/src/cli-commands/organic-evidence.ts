@@ -1,9 +1,9 @@
-import { WINDOW_SETS } from '@ainyc/canonry-contracts'
+import { WINDOW_SETS } from '@canonry/canonry-contracts'
 import { showOrganicEvidence } from '../commands/organic-evidence.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, requireProject, stringOption } from '../cli-command-helpers.js'
-import { parseOrganicEvidencePeriod } from '@ainyc/canonry-contracts'
-import type { OrganicEvidencePeriodDays } from '@ainyc/canonry-contracts'
+import { parseOrganicEvidencePeriod } from '@canonry/canonry-contracts'
+import type { OrganicEvidencePeriodDays } from '@canonry/canonry-contracts'
 
 const USAGE = 'canonry organic-evidence <project> [--period 60|90] [--format json|jsonl]'
 

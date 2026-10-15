@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { eq } from 'drizzle-orm'
-import { competitors, createClient, migrate, queries } from '@ainyc/canonry-db'
+import { competitors, createClient, migrate, queries } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 /**

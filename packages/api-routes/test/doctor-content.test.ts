@@ -12,7 +12,7 @@ import {
   runs,
   querySnapshots,
   domainClassifications,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   CitationStates,
   DiscoveryCompetitorTypes,
@@ -20,9 +20,9 @@ import {
   RunKinds,
   RunStatuses,
   RunTriggers,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { CONTENT_CHECK_BY_ID } from '../src/doctor/checks/content.js'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import type { DoctorContext, ProjectInfo } from '../src/doctor/types.js'
 
 const check = CONTENT_CHECK_BY_ID['content.winnability.coverage']!

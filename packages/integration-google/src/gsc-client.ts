@@ -1,5 +1,5 @@
 import { GSC_API_BASE, URL_INSPECTION_API, GSC_MAX_ROWS_PER_REQUEST, INDEXING_API_BASE, GOOGLE_REQUEST_TIMEOUT_MS, GSC_MAX_PAGES } from './constants.js'
-import { describeFetchError } from '@ainyc/canonry-contracts'
+import { describeFetchError } from '@canonry/canonry-contracts'
 import type {
   GscSite,
   GscSitemap,

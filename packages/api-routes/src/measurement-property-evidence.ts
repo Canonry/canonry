@@ -38,13 +38,13 @@ import {
   type MeasurementQueryClassFilter,
   normalizeIdentityText as normalizedText,
   sortedUnique,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   measurementPlanVersions,
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { resolveProject } from './helpers.js'
 import {
   activeMeasurementPlan,

@@ -1,6 +1,6 @@
 import { eq, lt } from 'drizzle-orm'
-import { URL_PATH_NORMALIZATION_VERSION } from '@ainyc/canonry-contracts'
-import { dataRepairCompletions, type DatabaseClient } from '@ainyc/canonry-db'
+import { URL_PATH_NORMALIZATION_VERSION } from '@canonry/canonry-contracts'
+import { dataRepairCompletions, type DatabaseClient } from '@canonry/canonry-db'
 import {
   backfillAiReferralPaths,
   backfillNormalizedPaths,

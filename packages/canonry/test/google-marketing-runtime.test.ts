@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   googleAdsRawSnapshotDtoSchema,
   gtmRawSnapshotDtoSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { CanonryConfig } from '../src/config.js'
 import { upsertGoogleAdsConnection } from '../src/google-ads-config.js'
 import {

@@ -1,6 +1,6 @@
 import { useId } from 'react'
 import { ChevronDown } from 'lucide-react'
-import { RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses } from '@canonry/canonry-contracts'
 import type { RunListItemVm } from '../../view-models.js'
 import { useDrawer } from '../../hooks/use-drawer.js'
 import { Disclosure } from '../shared/Disclosure.js'

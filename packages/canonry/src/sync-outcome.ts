@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
-import { credentialFailure } from '@ainyc/canonry-api-routes'
-import { runs, type DatabaseClient } from '@ainyc/canonry-db'
-import { GoogleApiError, GoogleAuthError } from '@ainyc/canonry-integration-google'
+import { credentialFailure } from '@canonry/canonry-api-routes'
+import { runs, type DatabaseClient } from '@canonry/canonry-db'
+import { GoogleApiError, GoogleAuthError } from '@canonry/canonry-integration-google'
 import {
   OutcomeReasonCodes,
   OutcomeStatuses,
@@ -15,7 +15,7 @@ import {
   type OutcomeStatus,
   type OutcomeSurface,
   type OutcomeTrigger,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { currentOutcomeOrigin, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
 /** Who started a run: the request that queued it, or the server itself. */

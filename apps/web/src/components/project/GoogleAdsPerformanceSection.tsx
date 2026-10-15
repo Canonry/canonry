@@ -6,8 +6,8 @@ import {
   type GoogleAdsCampaignStatus,
   type GoogleAdsMetricsWindow,
   type GoogleAdsPerformanceDto,
-} from '@ainyc/canonry-contracts'
-import { getApiV1ProjectsByNameGoogleAdsPerformanceOptions } from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameGoogleAdsPerformanceOptions } from '@canonry/canonry-api-client/react-query'
 
 import { heyClient } from '../../api.js'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'

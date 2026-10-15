@@ -9,7 +9,7 @@ import {
   gscDailyTotals,
   gscQueryDailyTotals,
   gscSearchData,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   AiEngineLeadRateUnavailableReasons,
   aiEngineForReferralSource,
@@ -28,7 +28,7 @@ import {
   RatioUnits,
   roundRatio,
   validationError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type {
   AiEngineLeadRateUnavailableReason,
   AiReferralEngine,
@@ -36,7 +36,7 @@ import type {
   GaMeasurementAnalysisDto,
   GaMeasurementAnalysisWindow,
   GaMeasurementComponentStatus,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { resolveProject } from './helpers.js'
 
 type Database = FastifyInstance['db']

@@ -10,12 +10,12 @@ import {
   type MetricTone,
   type QueryClass,
   type ScoreSummaryDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 // The alias floor and filter live in contracts so write-time validation (which
 // cannot import this package) and every matcher apply one rule. Re-exported
 // here for existing intelligence consumers.
-export { MIN_BRAND_ALIAS_KEY_LENGTH, usableBrandAliases } from '@ainyc/canonry-contracts'
+export { MIN_BRAND_ALIAS_KEY_LENGTH, usableBrandAliases } from '@canonry/canonry-contracts'
 
 export interface MentionShareSnapshot {
   /** True when the project's brand or domain appears in the LLM's answer text.
