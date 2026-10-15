@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { DiscoverySessionDto } from '@ainyc/canonry-contracts'
+import type { DiscoverySessionDto } from '@canonry/canonry-contracts'
 import { CliError, EXIT_USER_ERROR } from '../cli-error.js'
 import { createApiClient } from '../client.js'
 import {

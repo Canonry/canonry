@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { getProviderLocationHandling, providerSupportsLocationContext, type ProviderAdapter } from '@ainyc/canonry-contracts'
-import { claudeAdapter } from '@ainyc/canonry-provider-claude'
-import { openaiAdapter } from '@ainyc/canonry-provider-openai'
-import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
-import { perplexityAdapter } from '@ainyc/canonry-provider-perplexity'
-import { museAdapter } from '@ainyc/canonry-provider-muse'
-import { localAdapter } from '@ainyc/canonry-provider-local'
-import { cdpChatgptAdapter } from '@ainyc/canonry-provider-cdp'
+import { getProviderLocationHandling, providerSupportsLocationContext, type ProviderAdapter } from '@canonry/canonry-contracts'
+import { claudeAdapter } from '@canonry/canonry-provider-claude'
+import { openaiAdapter } from '@canonry/canonry-provider-openai'
+import { geminiAdapter } from '@canonry/canonry-provider-gemini'
+import { perplexityAdapter } from '@canonry/canonry-provider-perplexity'
+import { museAdapter } from '@canonry/canonry-provider-muse'
+import { localAdapter } from '@canonry/canonry-provider-local'
+import { cdpChatgptAdapter } from '@canonry/canonry-provider-cdp'
 
 /**
  * The geo capability has to be verifiable, not asserted. Each expectation

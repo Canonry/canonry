@@ -17,7 +17,7 @@ import {
   technicalAeoSubgraph,
   technicalAeoTrend,
 } from '../commands/technical-aeo.js'
-import { siteAuditIssueListQuerySchema } from '@ainyc/canonry-contracts'
+import { siteAuditIssueListQuerySchema } from '@canonry/canonry-contracts'
 import { CliError, usageError } from '../cli-error.js'
 import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import {

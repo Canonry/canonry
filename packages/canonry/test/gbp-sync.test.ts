@@ -17,10 +17,10 @@ import {
   gbpReviews,
   gbpReviewRatings,
   writeNegativeReviewMaxStars,
-} from '@ainyc/canonry-db'
-import { hashPlaceDetails } from '@ainyc/canonry-integration-google-places'
-import { hashLodging, countPopulatedGroups, hashAttributes, GbpApiError, type GbpLocation } from '@ainyc/canonry-integration-google-business-profile'
-import { GBP_NO_SELECTED_LOCATIONS_ERROR, serializeRunError } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-db'
+import { hashPlaceDetails } from '@canonry/canonry-integration-google-places'
+import { hashLodging, countPopulatedGroups, hashAttributes, GbpApiError, type GbpLocation } from '@canonry/canonry-integration-google-business-profile'
+import { GBP_NO_SELECTED_LOCATIONS_ERROR, serializeRunError } from '@canonry/canonry-contracts'
 import { executeGbpSync } from '../src/gbp-sync.js'
 import type { CanonryConfig } from '../src/config.js'
 
@@ -42,9 +42,9 @@ const listReviewsMock = vi.fn()
 const getPlaceReviewSignalsMock = vi.fn()
 const refreshAccessTokenMock = vi.fn()
 
-vi.mock('@ainyc/canonry-integration-google-business-profile', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google-business-profile')>(
-    '@ainyc/canonry-integration-google-business-profile',
+vi.mock('@canonry/canonry-integration-google-business-profile', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-google-business-profile')>(
+    '@canonry/canonry-integration-google-business-profile',
   )
   return {
     ...actual,
@@ -57,16 +57,16 @@ vi.mock('@ainyc/canonry-integration-google-business-profile', async () => {
     listReviews: (...a: unknown[]) => listReviewsMock(...a),
   }
 })
-vi.mock('@ainyc/canonry-integration-google', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google')>(
-    '@ainyc/canonry-integration-google',
+vi.mock('@canonry/canonry-integration-google', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-google')>(
+    '@canonry/canonry-integration-google',
   )
   return { ...actual, refreshAccessToken: (...a: unknown[]) => refreshAccessTokenMock(...a) }
 })
 // Keep hashPlaceDetails real (snapshot-on-change depends on it); mock only the network call.
-vi.mock('@ainyc/canonry-integration-google-places', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google-places')>(
-    '@ainyc/canonry-integration-google-places',
+vi.mock('@canonry/canonry-integration-google-places', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-google-places')>(
+    '@canonry/canonry-integration-google-places',
   )
   return {
     ...actual,

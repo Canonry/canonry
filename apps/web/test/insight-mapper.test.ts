@@ -1,6 +1,6 @@
 import { test, expect, describe } from 'vitest'
 
-import type { InsightDto } from '@ainyc/canonry-contracts'
+import type { InsightDto } from '@canonry/canonry-contracts'
 import { mapInsightDtoToVm, mapInsightDtosToVms } from '../src/mappers/insight-mapper.js'
 
 /* ── helpers ─────────────────────────────────────────── */

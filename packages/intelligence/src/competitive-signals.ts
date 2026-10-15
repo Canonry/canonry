@@ -8,7 +8,7 @@ import {
   hostOf,
   matchedAliasKeys,
   type CompetitorIdentityInput,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 export interface CompetitiveSignalSource {
   uri: string

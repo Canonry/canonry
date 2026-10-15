@@ -1,4 +1,4 @@
-import { CheckNotificationPolicies, CheckScopes } from '@ainyc/canonry-contracts'
+import { CheckNotificationPolicies, CheckScopes } from '@canonry/canonry-contracts'
 import { reportSweepsCheck } from './checks/report-sweeps.js'
 import { reportModelsCheck } from './checks/report-models.js'
 import { reportDailyDataCheck } from './checks/report-daily-data.js'

@@ -1,4 +1,4 @@
-import { OperationAccesses, WINDOW_SETS, competitorLandscapeQuerySchema, competitorSuggestionsQuerySchema } from '@ainyc/canonry-contracts'
+import { OperationAccesses, WINDOW_SETS, competitorLandscapeQuerySchema, competitorSuggestionsQuerySchema } from '@canonry/canonry-contracts'
 import { addCompetitors, competitorAliases, detectCompetitorAutoAliases, importCompetitors, listCompetitors, removeCompetitors, showCompetitorLandscape, suggestCompetitors } from '../commands/competitor.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, parseIntegerOption, requirePositional, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'

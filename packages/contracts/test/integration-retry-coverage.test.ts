@@ -95,7 +95,7 @@ describe('integration retry coverage', () => {
       `These integrations make HTTP calls but never use withRetry:\n` +
       `  ${unprotected.join('\n  ')}\n\n` +
       `A third party that rate-limits or blips will fail the call outright. Wrap the ` +
-      `HTTP layer in withRetry from @ainyc/canonry-contracts (see ` +
+      `HTTP layer in withRetry from @canonry/canonry-contracts (see ` +
       `packages/integration-bing/src/bing-client.ts), or, if it genuinely cannot be ` +
       `retried, add it to KNOWN_WITHOUT_RETRY in this file with a reason.`,
     ).toEqual([])

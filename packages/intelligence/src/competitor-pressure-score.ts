@@ -1,5 +1,5 @@
-import type { ProjectOverviewCompetitorDto, ScoreSummaryDto } from '@ainyc/canonry-contracts'
-import { hostMatchesAnyDomain, hostMatchesDomain } from '@ainyc/canonry-contracts'
+import type { ProjectOverviewCompetitorDto, ScoreSummaryDto } from '@canonry/canonry-contracts'
+import { hostMatchesAnyDomain, hostMatchesDomain } from '@canonry/canonry-contracts'
 import { pressureTone } from './score-tones.js'
 
 export interface CompetitorPressureSnapshot {

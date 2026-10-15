@@ -9,8 +9,8 @@ import type {
   RawQueryResult,
   NormalizedQueryResult,
   RetrievalStatus,
-} from '@ainyc/canonry-contracts'
-import { RetrievalStatuses, usageCount } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import { RetrievalStatuses, usageCount } from '@canonry/canonry-contracts'
 import {
   validateConfig as geminiValidateConfig,
   healthcheck as geminiHealthcheck,

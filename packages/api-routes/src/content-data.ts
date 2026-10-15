@@ -26,8 +26,8 @@ import {
   gaTrafficSnapshots,
   gaAiReferrals,
   domainClassifications,
-} from '@ainyc/canonry-db'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import {
   buildInventory,
   type CandidateQuery,
@@ -37,7 +37,7 @@ import {
   type SitePage,
   isBlogShapedQuery,
   compileCompetitiveSignalResolver,
-} from '@ainyc/canonry-intelligence'
+} from '@canonry/canonry-intelligence'
 import {
   CitationStates,
   hostMatchesDomain,
@@ -49,7 +49,7 @@ import {
   type LocationContext,
   type ProviderName,
   type DiscoveryCompetitorType,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { notProbeRun } from './helpers.js'
 import { competitorIdentityColumns } from './competitor-writes.js'
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { getTableColumns, getTableName, is, Table } from 'drizzle-orm'
 import { z } from 'zod'
-import * as dbSchema from '@ainyc/canonry-db'
+import * as dbSchema from '@canonry/canonry-db'
 import {
   adsAdDtoSchema,
   adsAdGroupDtoSchema,
@@ -71,12 +71,12 @@ import {
   userDtoSchema,
   measurementQuerySetSchema,
   measurementQueryTemplateSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /**
  * Dynamic DB ↔ DTO coverage check.
  *
- * Auto-discovers every `sqliteTable` exported from `@ainyc/canonry-db` and
+ * Auto-discovers every `sqliteTable` exported from `@canonry/canonry-db` and
  * requires each one to be classified in the `COVERAGE` map below:
  *
  *   - `kind: 'dto'`         → the table is exposed via a Zod DTO. The check
@@ -91,7 +91,7 @@ import {
  * Adding a new table → the "every table has a classification" assertion
  * fails until the author picks one of the two kinds. Adding a new column
  * to a `kind: 'dto'` table → the per-table column check fails until the
- * author either exposes it on the DTO (in `@ainyc/canonry-contracts`) or
+ * author either exposes it on the DTO (in `@canonry/canonry-contracts`) or
  * lists it in `internal` with a justification.
  *
  * Why dynamic: the previous static version (#572) listed `{table, dto,

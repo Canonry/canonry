@@ -1,14 +1,14 @@
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import { and, asc, eq, inArray } from 'drizzle-orm'
-import type { GroundingSource, NormalizedQueryResult } from '@ainyc/canonry-contracts'
+import type { GroundingSource, NormalizedQueryResult } from '@canonry/canonry-contracts'
 import {
   computeCompetitorOverlap,
   determineAnswerMentioned,
   extractRecommendedCompetitors,
   RunKinds,
-} from '@ainyc/canonry-contracts'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { parseJsonColumn, querySnapshots, runs } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { parseJsonColumn, querySnapshots, runs } from '@canonry/canonry-db'
 import { answerIdentityChanged, readAnswerIdentity, type AnswerIdentity } from './answer-identity.js'
 import { createRunCompetitorResolver } from './plan-competitors.js'
 

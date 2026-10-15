@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { TrafficEventKinds, VerificationStatuses, type TrafficEventEntry } from '@ainyc/canonry-contracts'
+import { TrafficEventKinds, VerificationStatuses, type TrafficEventEntry } from '@canonry/canonry-contracts'
 
 import {
   bucketForChartClick,

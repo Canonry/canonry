@@ -1,4 +1,4 @@
-import { CitationStates } from '@ainyc/canonry-contracts'
+import { CitationStates } from '@canonry/canonry-contracts'
 import { createApiClient, type TimelineDto } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
 

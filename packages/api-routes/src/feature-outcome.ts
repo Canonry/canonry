@@ -12,7 +12,7 @@ import {
   type OutcomeReasonCode,
   type OutcomeStatus,
   type OutcomeTrigger,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { OutcomeAttribution } from './outcome-telemetry.js'
 
 /** What an operation ended as. The helpers add the feature, operation, trigger and duration. */

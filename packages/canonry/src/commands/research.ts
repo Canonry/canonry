@@ -10,7 +10,7 @@ import {
   type ResearchRunDetailDto,
   type ResearchRunStatus,
   type ResearchRunSummaryDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 

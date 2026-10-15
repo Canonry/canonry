@@ -14,7 +14,7 @@ import {
   type LocationContext,
   type MeasurementPlanV2,
   type SnapshotUsage,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   measurementPlans,
@@ -28,7 +28,7 @@ import {
   runs,
   schedules,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { queueRunIfProjectIdle, type QueueRunParams } from '../src/run-queue.js'
 import type { ProviderAdapterInfo } from '../src/settings.js'

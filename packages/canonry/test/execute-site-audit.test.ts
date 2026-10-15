@@ -19,13 +19,13 @@ import {
   siteCrawlGraphNodes,
   siteCrawlPages,
   siteCrawlSnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 
 // The executor is intentionally tested at the event boundary.  The audit
 // engine has its own HTTP/BFS suite; Canonry owns receipt, graph, and publish
 // semantics.
 vi.mock('@canonry/aeo-audit', () => ({ runSiteCrawl: vi.fn() }))
-vi.mock('@ainyc/canonry-api-routes', () => ({
+vi.mock('@canonry/canonry-api-routes', () => ({
   resolvePublicHttpTarget: vi.fn(),
   resolveWebhookTarget: vi.fn().mockResolvedValue({ ok: true }),
 }))
@@ -48,7 +48,7 @@ import { isNonPageMedia,
 import { hashDomain } from '../src/run-telemetry.js'
 import { resolveSiteAuditRootUrl } from '../src/site-audit-root.js'
 import { SITE_CRAWL_GRAPH_LAYOUT_VERSION } from '../src/site-crawl-graph-layout.js'
-import { deriveSiteHealthState } from '@ainyc/canonry-contracts'
+import { deriveSiteHealthState } from '@canonry/canonry-contracts'
 
 const NOW = '2026-08-08T00:00:00.000Z'
 

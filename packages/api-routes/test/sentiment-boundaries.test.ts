@@ -4,11 +4,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   buildSimpleMeasurementDefinition, canonicalMeasurementPlanV2Json, createSentimentEvaluationDefinition, sentimentClassifierInputSchema,
   sentimentComparisonSchema, sentimentSummarySchema, type SentimentClassifierOutput,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   apiKeys, createClient, measurementPlanVersions, migrate, projects, queries, querySnapshots, runs,
   sentimentAttempts, sentimentJobs, simpleMeasurementDefinitions, users, SentimentRepository, type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes, createUserSession, USER_SESSION_COOKIE_NAME } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 import { sentimentHash } from '../src/sentiment-input.js'

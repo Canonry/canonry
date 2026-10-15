@@ -1,7 +1,7 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { parseRunError } from '@ainyc/canonry-contracts'
-import { providerBatches, providerBatchRequests, querySnapshots, runFills, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { parseRunError } from '@canonry/canonry-contracts'
+import { providerBatches, providerBatchRequests, querySnapshots, runFills, runs, type DatabaseClient } from '@canonry/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import {
   PROVIDER_BATCH_CANCEL_GRACE_MS,

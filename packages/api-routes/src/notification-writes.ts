@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
-import { notifications, type DatabaseClient } from '@ainyc/canonry-db'
-import { isRedactedNotificationUrl, validationError, type ConfigNotification } from '@ainyc/canonry-contracts'
+import { notifications, type DatabaseClient } from '@canonry/canonry-db'
+import { isRedactedNotificationUrl, validationError, type ConfigNotification } from '@canonry/canonry-contracts'
 
 export type StoredNotification = typeof notifications.$inferSelect
 

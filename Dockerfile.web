@@ -12,7 +12,7 @@ COPY apps ./apps
 COPY packages ./packages
 
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @ainyc/canonry-web build
+RUN pnpm --filter @canonry/canonry-web build
 
 FROM nginx:alpine
 

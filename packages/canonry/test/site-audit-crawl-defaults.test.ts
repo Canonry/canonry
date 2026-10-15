@@ -1,5 +1,5 @@
 import { DEFAULT_SITE_CRAWL_LIMITS } from '@canonry/aeo-audit'
-import { SITE_AUDIT_DEFAULT_MAX_DEPTH, siteAuditRunRequestSchema } from '@ainyc/canonry-contracts'
+import { SITE_AUDIT_DEFAULT_MAX_DEPTH, siteAuditRunRequestSchema } from '@canonry/canonry-contracts'
 import { expect, test } from 'vitest'
 
 test('the named default crawl depth is the one the crawler actually applies', () => {

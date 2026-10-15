@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, onTestFinished, test } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { formatDate } from '@ainyc/canonry-contracts'
-import type { GaSearchLandingPagesResponse } from '@ainyc/canonry-contracts'
+import { formatDate } from '@canonry/canonry-contracts'
+import type { GaSearchLandingPagesResponse } from '@canonry/canonry-contracts'
 
 import { GoogleOrganicSearchPagesPanel, SEARCH_LANDING_COPY } from '../src/components/project/ActivitySection.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'

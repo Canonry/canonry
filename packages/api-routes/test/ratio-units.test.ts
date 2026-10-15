@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { RATIO_UNIT_META_KEY, undeclaredRatioFields } from '@ainyc/canonry-contracts'
+import { RATIO_UNIT_META_KEY, undeclaredRatioFields } from '@canonry/canonry-contracts'
 import { buildComponentSchemas } from '../src/openapi-schemas.js'
 
 /**

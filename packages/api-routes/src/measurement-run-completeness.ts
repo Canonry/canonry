@@ -15,8 +15,8 @@
  */
 
 import { eq } from 'drizzle-orm'
-import { parseMeasurementRunManifestV1 } from '@ainyc/canonry-contracts'
-import { querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { parseMeasurementRunManifestV1 } from '@canonry/canonry-contracts'
+import { querySnapshots, runs, type DatabaseClient } from '@canonry/canonry-db'
 
 export interface MeasurementRunCompleteness {
   /** Whether this run measured a published plan at all. */

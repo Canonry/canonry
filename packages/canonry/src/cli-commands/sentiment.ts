@@ -2,7 +2,7 @@ import { z } from 'zod'
 import {
   sentimentSummaryRequestSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentJobRequestSchema,
   sentimentSettingsUpdateSchema, sentimentBackfillSelectionSchema, sentimentBackfillRequestSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, requirePositional, requireProject, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'

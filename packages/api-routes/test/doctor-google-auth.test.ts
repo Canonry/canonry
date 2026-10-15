@@ -7,8 +7,8 @@ import type { GoogleConnectionRecord, GoogleConnectionStore } from '../src/googl
 const refreshAccessTokenMock = vi.fn()
 const listSitesMock = vi.fn()
 
-vi.mock('@ainyc/canonry-integration-google', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google')>('@ainyc/canonry-integration-google')
+vi.mock('@canonry/canonry-integration-google', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-google')>('@canonry/canonry-integration-google')
   return {
     ...actual,
     refreshAccessToken: (...args: unknown[]) => refreshAccessTokenMock(...args),
@@ -155,7 +155,7 @@ describe('google.auth.property-access', () => {
   })
 
   it('returns principal-forbidden when listSites returns 403', async () => {
-    const { GoogleApiError } = await import('@ainyc/canonry-integration-google')
+    const { GoogleApiError } = await import('@canonry/canonry-integration-google')
     refreshAccessTokenMock.mockResolvedValue({ access_token: 'tok', expires_in: 3600 })
     listSitesMock.mockRejectedValue(new GoogleApiError('forbidden', 403))
     const result = await check.run(ctx({}))
@@ -175,7 +175,7 @@ describe('google.auth.property-access', () => {
   })
 
   it('returns list-sites-failed when Search Console answers with an error', async () => {
-    const { GoogleApiError } = await import('@ainyc/canonry-integration-google')
+    const { GoogleApiError } = await import('@canonry/canonry-integration-google')
     refreshAccessTokenMock.mockResolvedValue({ access_token: 'tok', expires_in: 3600 })
     listSitesMock.mockRejectedValue(new GoogleApiError('backend error', 503))
     const result = await check.run(ctx({}))

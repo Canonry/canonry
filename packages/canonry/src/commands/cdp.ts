@@ -1,7 +1,7 @@
 import { loadConfig, saveConfigPatch } from '../config.js'
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
 import { trackCliConnection } from '../cli-connection-telemetry.js'
 import { outcomeFailure } from '../outcome-telemetry.js'
 

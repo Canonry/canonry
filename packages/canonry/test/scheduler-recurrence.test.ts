@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, runs, schedules } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, schedules } from '@canonry/canonry-db'
 import { Scheduler } from '../src/scheduler.js'
 
 const recurrence = { everyDays: 14, startDate: '2026-09-23', time: '00:00' }

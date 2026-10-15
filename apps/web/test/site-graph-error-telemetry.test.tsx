@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
-import type { UiTelemetryEvent } from '@ainyc/canonry-contracts'
+import type { UiTelemetryEvent } from '@canonry/canonry-contracts'
 import { GraphRenderBoundary } from '../src/components/project/SiteGraphSigma.js'
 import { configureUiTelemetry, resetUiTelemetryForTests, setUiPageFromRoute } from '../src/lib/ui-telemetry.js'
 

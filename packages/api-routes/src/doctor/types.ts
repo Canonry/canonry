@@ -1,5 +1,5 @@
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import type { AgentPluginState, AgentProviderOption, InstallMethod, BundledSkillSnapshot, CheckCategory, CheckResultDto, CheckScope, CheckStatus } from '@ainyc/canonry-contracts'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import type { AgentPluginState, AgentProviderOption, InstallMethod, BundledSkillSnapshot, CheckCategory, CheckResultDto, CheckScope, CheckStatus } from '@canonry/canonry-contracts'
 import type { GoogleConnectionStore } from '../google.js'
 import type { BingConnectionStore } from '../bing.js'
 import type { WordpressConnectionStore } from '../wordpress.js'
@@ -195,7 +195,7 @@ export type CheckOutput = Pick<CheckResultDto, 'status' | 'code' | 'summary'> & 
 }
 
 export interface CheckDefinition {
-  notificationPolicy?: import('@ainyc/canonry-contracts').CheckNotificationPolicy
+  notificationPolicy?: import('@canonry/canonry-contracts').CheckNotificationPolicy
   id: string
   category: CheckCategory
   scope: CheckScope

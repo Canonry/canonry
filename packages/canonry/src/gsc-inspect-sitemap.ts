@@ -1,11 +1,11 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, projects, gscUrlInspections } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { runs, projects, gscUrlInspections } from '@canonry/canonry-db'
 import {
   inspectUrl,
   refreshAccessToken,
-} from '@ainyc/canonry-integration-google'
+} from '@canonry/canonry-integration-google'
 import type { CanonryConfig } from './config.js'
 import { saveConfigPatch } from './config.js'
 import { getGoogleAuthConfig, getGoogleConnection, patchGoogleConnection } from './google-config.js'
@@ -13,7 +13,7 @@ import { fetchAndParseSitemap } from './sitemap-parser.js'
 import { writeCoverageSnapshot } from './gsc-coverage-snapshot.js'
 import { createLogger } from './logger.js'
 import { inspectUrlsPaced, INSPECT_FAILFAST_THRESHOLD, INSPECT_SWEEP_MAX_URLS, INSPECT_DAILY_QUOTA } from './gsc-inspect-paced.js'
-import { describeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunStatuses } from '@ainyc/canonry-contracts'
+import { describeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunStatuses } from '@canonry/canonry-contracts'
 import { googleRunFailure, startRunOutcome, withOutcomeReason } from './sync-outcome.js'
 
 const log = createLogger('InspectSitemap')

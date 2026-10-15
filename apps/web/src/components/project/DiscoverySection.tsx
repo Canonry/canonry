@@ -14,7 +14,7 @@ import type {
   MeasurementQueryTemplate,
   VisibilityReportScopeOption,
   ResearchRunScope,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import {
   getViewerResearchConfig,
@@ -32,7 +32,7 @@ import {
   getApiV1RunsQueryKey,
   postApiV1ProjectsByNameQueryTrackingCommitMutation,
   postApiV1ProjectsByNameQueryTrackingPreviewMutation,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { addToast } from '../../lib/toast-store.js'
 import { invalidateProjectQueryDomain, invalidateQueryTrackingPublication } from '../../queries/query-invalidation.js'
 import { Button } from '../ui/button.js'

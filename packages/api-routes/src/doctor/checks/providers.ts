@@ -2,7 +2,7 @@ import {
   CheckCategories,
   CheckScopes,
   CheckStatuses,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { CheckDefinition } from '../types.js'
 
 const providersConfiguredCheck: CheckDefinition = {

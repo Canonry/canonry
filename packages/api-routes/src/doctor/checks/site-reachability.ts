@@ -1,4 +1,4 @@
-import { CheckCategories, CheckScopes, CheckStatuses } from '@ainyc/canonry-contracts'
+import { CheckCategories, CheckScopes, CheckStatuses } from '@canonry/canonry-contracts'
 import { probeSiteReachability } from '../../site-reachability.js'
 import type { CheckDefinition, CheckOutput } from '../types.js'
 

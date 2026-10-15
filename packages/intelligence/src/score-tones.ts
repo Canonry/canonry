@@ -1,4 +1,4 @@
-import type { MetricTone } from '@ainyc/canonry-contracts'
+import type { MetricTone } from '@canonry/canonry-contracts'
 
 /** 70+ = positive, 40–69 = caution, <40 = negative. Used by visibility, gap, and per-model gauges. */
 export function scoreTone(score: number): MetricTone {

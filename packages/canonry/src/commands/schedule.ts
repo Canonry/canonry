@@ -1,4 +1,4 @@
-import type { ScheduleDto } from '@ainyc/canonry-contracts'
+import type { ScheduleDto } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'

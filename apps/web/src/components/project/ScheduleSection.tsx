@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { formatZonedTimestamp } from '@ainyc/canonry-contracts'
+import { formatZonedTimestamp } from '@canonry/canonry-contracts'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getApiV1ProjectsByNameSchedulesOptions, getApiV1ProjectsByNameSchedulesQueryKey } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1ProjectsByNameSchedulesOptions, getApiV1ProjectsByNameSchedulesQueryKey } from '@canonry/canonry-api-client/react-query'
 
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'

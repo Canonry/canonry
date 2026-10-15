@@ -17,7 +17,7 @@ import {
   type CompetitorIdentityInput,
   type CompetitorSuggestion,
   type CompetitorSuggestionReason,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { groupStoredCompetitorClassifications, type CompetitorLandscapeSurfaceClass } from './competitor-landscape-history.js'
 
 export interface CompetitorSuggestionAnswer {

@@ -11,7 +11,7 @@ import { heyClient } from '../src/api.js'
 import { EVIDENCE_LABELS, OTHER_QUERIES_COPY } from '../src/pages/MeasurementPropertyPage.js'
 import { PROPERTY_NAMES_COPY, PropertyNamesSection } from '../src/components/project/advanced-measurement/PropertyNamesEditor.js'
 import { AccountProvider, type SignedInAccount } from '../src/contexts/account-context.js'
-import { answerProseForMentions, measurementTargetNameIssueMessage, MeasurementTargetNameIssueCodes } from '@ainyc/canonry-contracts'
+import { answerProseForMentions, measurementTargetNameIssueMessage, MeasurementTargetNameIssueCodes } from '@canonry/canonry-contracts'
 import { createQueryClient } from '../src/queries/query-client.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { ANSWER_SOURCES_LABEL } from '../src/components/shared/AnswerMarkdown.js'
@@ -19,8 +19,8 @@ import {
   getApiV1ProjectsByNameMeasurementOverviewQueryKey,
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameMeasurementPropertyEvidenceInfiniteQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
-import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-api-client/react-query'
+import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 
 const TARGET_KEY = 'harbor-house'

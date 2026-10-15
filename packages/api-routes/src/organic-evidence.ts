@@ -14,7 +14,7 @@ import {
   querySnapshots,
   runs,
   trafficSources,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   AiReferralTrafficClasses,
   CitationStates,
@@ -29,8 +29,8 @@ import {
   normalizeUrlPath,
   parseOrganicEvidencePeriod,
   type OrganicEvidenceDto,
-} from '@ainyc/canonry-contracts'
-import { buildBrandTokens, categorizeQueryByIntent } from '@ainyc/canonry-intelligence'
+} from '@canonry/canonry-contracts'
+import { buildBrandTokens, categorizeQueryByIntent } from '@canonry/canonry-intelligence'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { buildGaMeasurementAnalysis } from './ga-measurement-analysis.js'
 

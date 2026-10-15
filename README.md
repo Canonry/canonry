@@ -60,6 +60,8 @@ Connect the [Agent Plugin](docs/plugins.md) or [MCP adapter](docs/mcp.md) to you
    npm install -g @canonry/canonry
    ```
 
+   If you previously installed `@ainyc/canonry`, run `npm uninstall -g @ainyc/canonry` first to release the shared command names. Existing configuration and data in `~/.canonry` stay in place. New releases are published only under `@canonry`.
+
 2. Initialize Canonry.
 
    ```bash

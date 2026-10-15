@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { and, desc, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm'
-import { parseJsonColumn, querySnapshots, runFills, runs, usageCounters, type DatabaseClient } from '@ainyc/canonry-db'
+import { parseJsonColumn, querySnapshots, runFills, runs, usageCounters, type DatabaseClient } from '@canonry/canonry-db'
 import {
   RUN_FILL_MAX_AGE_MS,
   runFillAgeAnchor,
@@ -13,7 +13,7 @@ import {
   type RunFillRefusalCode,
   type RunFillStatus,
   type RunStatus,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { writeAuditLog } from './helpers.js'
 import { activePlanVersionRow } from './measurement-draft-repo.js'
 import { runVersionServesActiveVersion } from './measurement-report-adapter.js'

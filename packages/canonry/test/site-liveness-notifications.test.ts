@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, doctorHealthState, notifications, projects, siteLivenessState } from '@ainyc/canonry-db'
+import { createClient, migrate, doctorHealthState, notifications, projects, siteLivenessState } from '@canonry/canonry-db'
 import { Notifier, SITE_LIVENESS_FAILURES_TO_PAGE, SITE_LIVENESS_MIN_PASS_GAP_MS, SITE_LIVENESS_MAX_PASS_GAP_MS } from '../src/notifier.js'
 
 // A site-down page has to mean the site is down for real, and a recovery has to

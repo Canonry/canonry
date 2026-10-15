@@ -6,7 +6,7 @@ import type {
   MessageBatchIndividualResponse,
 } from '@anthropic-ai/sdk/resources/messages/batches.js'
 import type { MessageCreateParamsNonStreaming } from '@anthropic-ai/sdk/resources/messages/messages.js'
-import { ProviderBatchSubmitError, describeError, isRetryableHttpError, retryAfterDelayMs } from '@ainyc/canonry-contracts'
+import { ProviderBatchSubmitError, describeError, isRetryableHttpError, retryAfterDelayMs } from '@canonry/canonry-contracts'
 import type {
   ProviderBatchCapability,
   ProviderBatchPollResult,
@@ -14,7 +14,7 @@ import type {
   ProviderBatchResultLine,
   ProviderBatchSubmitResult,
   ProviderConfig,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { CLAUDE_MESSAGES_ENDPOINT, responseToRecord } from './normalize.js'
 import { withRetry } from './utils.js'
 

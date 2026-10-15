@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import { apiKeys, projects, runs, users } from '@ainyc/canonry-db'
+import { apiKeys, projects, runs, users } from '@canonry/canonry-db'
 import {
   ADS_ACTIVATE_SCOPE,
   ADS_APPROVE_SCOPE,
@@ -20,7 +20,7 @@ import {
   UserRoles,
   WILDCARD_SCOPE,
   type UserRole,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { assertSameOriginWrite } from './same-origin.js'
 import {
   anyUsersExist,

@@ -8,7 +8,7 @@ import {
   type McpClientFormat,
 } from '../mcp-clients.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
 
 export interface McpInstallOptions {
   client: string

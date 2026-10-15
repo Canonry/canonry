@@ -3,8 +3,8 @@ import {
   normalizeAgentSlug,
   usageSurfaceSchema,
   type UsageSurface,
-} from '@ainyc/canonry-contracts'
-import type { ApiRequestCompletedInfo } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-contracts'
+import type { ApiRequestCompletedInfo } from '@canonry/canonry-api-routes'
 import { bucketCliCommandDuration, trackEvent, type TelemetryProperties, type TrackEventOptions } from './telemetry.js'
 
 /**

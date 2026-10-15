@@ -1,4 +1,4 @@
-import type { InsightDto } from '@ainyc/canonry-contracts'
+import type { InsightDto } from '@canonry/canonry-contracts'
 import type { MetricTone, CitationState, InsightActionGroup, ProjectInsightVm } from '../view-models.js'
 
 const TONE_MAP: Record<InsightDto['type'], MetricTone> = {

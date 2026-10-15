@@ -1,11 +1,11 @@
 import Fastify from 'fastify'
-import { createClient, migrate } from '@ainyc/canonry-db'
+import { createClient, migrate } from '@canonry/canonry-db'
 import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { buildOpenApiDocument } from '../src/openapi.js'
-import { LIVE_READ_OPERATIONS, READ_SEMANTIC_OPERATIONS, STORED_READ_OPERATIONS, WRITE_OPERATIONS } from '@ainyc/canonry-contracts'
+import { LIVE_READ_OPERATIONS, READ_SEMANTIC_OPERATIONS, STORED_READ_OPERATIONS, WRITE_OPERATIONS } from '@canonry/canonry-contracts'
 import { apiRoutes, canonicalRouteTemplate } from '../src/index.js'
 
 describe('OpenAPI operation access metadata', () => {

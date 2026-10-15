@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
-import { createClient, migrate, projects, queries, competitors, runs, querySnapshots, insights, auditLog } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, queries, competitors, runs, querySnapshots, insights, auditLog } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 const cleanups: Array<() => void> = []

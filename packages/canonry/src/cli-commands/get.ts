@@ -1,5 +1,5 @@
 import { getCommand, GET_SOURCES } from '../commands/get.js'
-import { OperationAccesses } from '@ainyc/canonry-contracts'
+import { OperationAccesses } from '@canonry/canonry-contracts'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, requirePositional, requireProject, stringOption } from '../cli-command-helpers.js'
 

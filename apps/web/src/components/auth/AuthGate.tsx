@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
-import type { ApiKeyDto } from '@ainyc/canonry-contracts'
+import type { ApiKeyDto } from '@canonry/canonry-contracts'
 
 import {
   ApiError,

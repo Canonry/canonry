@@ -24,7 +24,7 @@ import {
   type MeasurementV2UsageEdge,
   compareText,
   sortedUnique as canonicalStrings,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { canonicalJson, canonicalJsonValue, sha256Hex } from './measurement-draft-repo.js'
 import { measurementMentionAliasKey } from './measurement-report.js'
 

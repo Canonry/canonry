@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, inArray, lt } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, gbpAttributesSnapshots, readNegativeReviewMaxStars } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { runs, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, gbpAttributesSnapshots, readNegativeReviewMaxStars } from '@canonry/canonry-db'
 import {
   buildRunErrorFromMessages,
   serializeRunError,
@@ -13,8 +13,8 @@ import {
   resolveNegativeReviewMaxStars,
   type GbpReviewsAccess,
   type OutcomeReasonCode,
-} from '@ainyc/canonry-contracts'
-import { refreshAccessToken } from '@ainyc/canonry-integration-google'
+} from '@canonry/canonry-contracts'
+import { refreshAccessToken } from '@canonry/canonry-integration-google'
 import {
   listLocations,
   formatStorefrontAddress,
@@ -30,8 +30,8 @@ import {
   hashAttributes,
   GbpApiError,
   GBP_DAILY_METRICS,
-} from '@ainyc/canonry-integration-google-business-profile'
-import { getPlaceDetails, hashPlaceDetails } from '@ainyc/canonry-integration-google-places'
+} from '@canonry/canonry-integration-google-business-profile'
+import { getPlaceDetails, hashPlaceDetails } from '@canonry/canonry-integration-google-places'
 import type { CanonryConfig } from './config.js'
 import { saveConfigPatch } from './config.js'
 import { getGoogleAuthConfig, getGoogleConnection, patchGoogleConnection } from './google-config.js'

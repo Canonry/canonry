@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { canonicalSentimentJson, createSentimentEvaluationDefinition } from '@ainyc/canonry-contracts'
-import type { SentimentClassifierInput } from '@ainyc/canonry-contracts'
+import { canonicalSentimentJson, createSentimentEvaluationDefinition } from '@canonry/canonry-contracts'
+import type { SentimentClassifierInput } from '@canonry/canonry-contracts'
 import type { JevRequest } from '../src/client.js'
 
 export function inputFixture(): SentimentClassifierInput {

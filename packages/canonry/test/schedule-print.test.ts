@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import type { ScheduleDto } from '@ainyc/canonry-contracts'
+import type { ScheduleDto } from '@canonry/canonry-contracts'
 import { formatNextRun, printSchedule } from '../src/commands/schedule.js'
 
 describe('printSchedule (text-mode output)', () => {

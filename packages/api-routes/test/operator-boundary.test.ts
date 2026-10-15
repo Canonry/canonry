@@ -1,7 +1,7 @@
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { expect, it, onTestFinished, vi } from 'vitest'
-import { apiKeys, createClient, migrate, projects, users } from '@ainyc/canonry-db'
+import { apiKeys, createClient, migrate, projects, users } from '@canonry/canonry-db'
 import { apiRoutes, createUserSession, hashApiKey, USER_SESSION_COOKIE_NAME } from '../src/index.js'
 
 async function fixture(operatorApiKeyIds = ['operator', 'writer', 'project', 'delegated'], accountless = false) {

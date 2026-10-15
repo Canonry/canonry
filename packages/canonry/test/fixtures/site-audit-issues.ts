@@ -1,4 +1,4 @@
-import type { SiteAuditIssuePagesResponseDto, SiteAuditIssuesResponseDto } from '@ainyc/canonry-contracts'
+import type { SiteAuditIssuePagesResponseDto, SiteAuditIssuesResponseDto } from '@canonry/canonry-contracts'
 
 export const storedIssuePages: SiteAuditIssuePagesResponseDto = {
   project: 'sample-store',

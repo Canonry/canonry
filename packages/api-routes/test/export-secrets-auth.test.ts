@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { expect, test } from 'vitest'
-import { apiKeys, createClient, migrate, notifications, projects, users } from '@ainyc/canonry-db'
+import { apiKeys, createClient, migrate, notifications, projects, users } from '@canonry/canonry-db'
 import { apiRoutes, hashApiKey, hashUserPassword } from '../src/index.js'
 import { USER_SESSION_COOKIE_NAME } from '../src/user-session.js'
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { querySnapshots } from '@ainyc/canonry-db'
+import type { querySnapshots } from '@canonry/canonry-db'
 import { snapshotEvidenceFingerprint } from '../src/snapshot-evidence-fingerprint.js'
 
 type SnapshotRow = typeof querySnapshots.$inferSelect

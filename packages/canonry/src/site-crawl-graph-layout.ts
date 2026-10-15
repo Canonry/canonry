@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import { Worker } from 'node:worker_threads'
 import { and, asc, count, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import {
   siteCrawlEdges,
   siteCrawlGraphEdges,
@@ -11,13 +11,13 @@ import {
   siteCrawlGraphNodes,
   siteCrawlPages,
   siteCrawlSnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   SITE_CRAWL_GRAPH_MAX_EDGES,
   SITE_CRAWL_GRAPH_MAX_NODES,
   TEMPLATE_LINK_RATIO_THRESHOLD,
   compareText,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 export const SITE_CRAWL_GRAPH_LAYOUT_TIMEOUT_MS = 15_000
 /** Persisted points are normalized; fresh hash seeds occupy this FA2-scale space. */

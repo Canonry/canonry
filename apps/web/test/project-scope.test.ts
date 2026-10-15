@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { QueryTrackingWorkspaceResponse, VisibilityReportScopeOption } from '@ainyc/canonry-contracts'
+import type { QueryTrackingWorkspaceResponse, VisibilityReportScopeOption } from '@canonry/canonry-contracts'
 import type { ProjectPageTab } from '../src/pages/ProjectPage.js'
 import {
   canUseResearchWorkspace,

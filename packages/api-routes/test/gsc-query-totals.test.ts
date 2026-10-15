@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { test, expect, describe, beforeEach, afterEach } from 'vitest'
-import { createClient, migrate, projects, runs, gscQueryDailyTotals, gscSearchData } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, gscQueryDailyTotals, gscSearchData } from '@canonry/canonry-db'
 import { mergeGscQueryTotalsWithFallback, readGscQueryDailyFallbackRows, readGscQueryDailyRows } from '../src/gsc-totals.js'
 
 /**

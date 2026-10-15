@@ -43,7 +43,7 @@ import {
   compareText as compareGroupText,
   measurementV2UsageEdgeKey,
   normalizeIdentityText as normalizedText,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   measurementPlanDrafts,
   measurementPlans,
@@ -51,7 +51,7 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { resolveProject } from './helpers.js'
 import {
   buildMeasurementOverview,

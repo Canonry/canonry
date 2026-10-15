@@ -1,4 +1,4 @@
-import { formatRunErrorOneLine, normalizeProjectDomain, unattributedAnswersLabel, uncheckedSourcesLabel, type RunErrorDto } from '@ainyc/canonry-contracts'
+import { formatRunErrorOneLine, normalizeProjectDomain, unattributedAnswersLabel, uncheckedSourcesLabel, type RunErrorDto } from '@canonry/canonry-contracts'
 import type { CitationState } from '../view-models.js'
 
 /** Common search-analytics metrics shared across GSC, Bing, etc. */

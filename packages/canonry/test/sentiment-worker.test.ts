@@ -1,17 +1,17 @@
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildSimpleMeasurementDefinition, createSentimentEvaluationDefinition, type SentimentClassifierInput, type SentimentClassifierOutput } from '@ainyc/canonry-contracts'
-import { createClient, llmUsageEvents, migrate, projects, queries, querySnapshots, recordSentimentCompletion, runs, SentimentRepository, sentimentAttempts, sentimentJobs, sentimentSettings, sentimentWorkItems, simpleMeasurementDefinitions, type DatabaseClient } from '@ainyc/canonry-db'
-import { SentimentService, selectSentimentSources, sentimentHash } from '@ainyc/canonry-api-routes'
-import { resolveSentimentInstallConfig, type SentimentInstallConfig } from '@ainyc/canonry-config'
+import { buildSimpleMeasurementDefinition, createSentimentEvaluationDefinition, type SentimentClassifierInput, type SentimentClassifierOutput } from '@canonry/canonry-contracts'
+import { createClient, llmUsageEvents, migrate, projects, queries, querySnapshots, recordSentimentCompletion, runs, SentimentRepository, sentimentAttempts, sentimentJobs, sentimentSettings, sentimentWorkItems, simpleMeasurementDefinitions, type DatabaseClient } from '@canonry/canonry-db'
+import { SentimentService, selectSentimentSources, sentimentHash } from '@canonry/canonry-api-routes'
+import { resolveSentimentInstallConfig, type SentimentInstallConfig } from '@canonry/canonry-config'
 import { SentimentWorker, createSentimentPoller, sentimentRateLimitDelayMs } from '../src/sentiment-worker.js'
 
 const trackEvent = vi.hoisted(() => vi.fn())
 vi.mock('../src/telemetry.js', () => ({ trackEvent }))
 
 // Pass-through spy: counts the worker's source selections without changing them.
-vi.mock('@ainyc/canonry-api-routes', async importOriginal => {
-  const actual = await importOriginal<typeof import('@ainyc/canonry-api-routes')>()
+vi.mock('@canonry/canonry-api-routes', async importOriginal => {
+  const actual = await importOriginal<typeof import('@canonry/canonry-api-routes')>()
   return { ...actual, selectSentimentSources: vi.fn(actual.selectSentimentSources) }
 })
 

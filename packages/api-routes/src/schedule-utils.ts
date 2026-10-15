@@ -5,7 +5,7 @@
  */
 
 import { CronExpressionParser } from 'cron-parser'
-import type { CalendarRecurrence } from '@ainyc/canonry-contracts'
+import type { CalendarRecurrence } from '@canonry/canonry-contracts'
 
 const DAY_MAP: Record<string, string> = {
   sun: '0', mon: '1', tue: '2', wed: '3', thu: '4', fri: '5', sat: '6',

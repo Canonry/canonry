@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
 import { Link } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import type { GscPerformanceDailyDto, MetricsWindow } from '@ainyc/canonry-contracts'
+import type { GscPerformanceDailyDto, MetricsWindow } from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
@@ -25,7 +25,7 @@ import {
   formatChartDateTick,
   type TrendChartSeries,
 } from '../shared/ChartPrimitives.js'
-import { calendarDateRange, formatPercent, formatRunErrorOneLine, RunKinds, RunStatuses, type GscPeriodComparison } from '@ainyc/canonry-contracts'
+import { calendarDateRange, formatPercent, formatRunErrorOneLine, RunKinds, RunStatuses, type GscPeriodComparison } from '@canonry/canonry-contracts'
 import { formatTimestamp, formatBooleanState, SearchMetric, SEARCH_METRIC_LABELS } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
@@ -63,7 +63,7 @@ import {
   getApiV1ProjectsByNameGoogleGscPerformanceOptions,
   getApiV1ProjectsByNameGoogleGscSitemapsQueryKey,
   getApiV1ProjectsByNameGooglePropertiesOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import {
   useTriggerGscSync,
   useTriggerInspectSitemap,

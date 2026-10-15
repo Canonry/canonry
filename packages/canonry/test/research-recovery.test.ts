@@ -2,8 +2,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createClient, migrate, projects, researchRunQueries, researchRuns } from '@ainyc/canonry-db'
-import { ResearchQueryStatuses, ResearchRunStatuses } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, researchRunQueries, researchRuns } from '@canonry/canonry-db'
+import { ResearchQueryStatuses, ResearchRunStatuses } from '@canonry/canonry-contracts'
 import { createServer, waitForServerRuntimeStartup } from '../src/server.js'
 
 const telemetry = vi.hoisted(() => ({ trackEvent: vi.fn() }))

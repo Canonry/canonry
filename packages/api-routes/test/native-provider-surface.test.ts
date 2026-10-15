@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createClient, migrate } from '@ainyc/canonry-db'
+import { createClient, migrate } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { buildOpenApiDocument } from '../src/openapi.js'
 

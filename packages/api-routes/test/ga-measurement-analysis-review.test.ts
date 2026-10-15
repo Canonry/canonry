@@ -12,7 +12,7 @@ import {
   gscQueryDailyTotals,
   migrate,
   projects,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { buildGaMeasurementAnalysis } from '../src/ga-measurement-analysis.js'
 
 const NOW = '2026-07-23T12:00:00.000Z'

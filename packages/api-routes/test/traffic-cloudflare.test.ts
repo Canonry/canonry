@@ -16,9 +16,9 @@ import {
   rawEventSamples,
   auditLog,
   trafficEventReceipts,
-} from '@ainyc/canonry-db'
-import { TrafficSourceStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
-import { canonicalizeCloudflareJson } from '@ainyc/canonry-integration-cloudflare-worker'
+} from '@canonry/canonry-db'
+import { TrafficSourceStatuses, TrafficSourceTypes } from '@canonry/canonry-contracts'
+import { canonicalizeCloudflareJson } from '@canonry/canonry-integration-cloudflare-worker'
 import { apiRoutes } from '../src/index.js'
 import { CURRENT_CLOUDFLARE_WORKER_VERSION } from '../src/cloudflare-worker-version.js'
 import type {

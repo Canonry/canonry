@@ -13,8 +13,8 @@ import {
   describeError,
   usageCount,
   RetrievalContracts,
-} from "@ainyc/canonry-contracts";
-import type { ProviderUsage, TrackedQueryRequest } from "@ainyc/canonry-contracts";
+} from "@canonry/canonry-contracts";
+import type { ProviderUsage, TrackedQueryRequest } from "@canonry/canonry-contracts";
 import { withRetry } from "./utils.js";
 import type {
   ClaudeConfig,
@@ -107,7 +107,7 @@ export function claudeModelRejectsForcedToolChoice(model: string): boolean {
  * runs `native-auto-v1`: the same unmodified query, the same `web_search` tool,
  * no system prompt, and `tool_choice: auto`, which leaves the search decision to
  * Claude. That is exactly the definition of `native-auto-v1` in
- * `@ainyc/canonry-contracts`, and the request this adapter sent before
+ * `@canonry/canonry-contracts`, and the request this adapter sent before
  * `search-required-v1` existed, when `tool_choice` was left at its `auto`
  * default. It guarantees no retrieval. Per-answer `retrievalStatus` detection is
  * unchanged, so an answer written without a search is stored as `not-used`
@@ -123,7 +123,7 @@ export function claudeRetrievalContractForModel(
 
 /**
  * The `tool_choice` each retrieval contract sends. Keyed on every contract, so
- * adding a contract to `@ainyc/canonry-contracts` fails typecheck here until
+ * adding a contract to `@canonry/canonry-contracts` fails typecheck here until
  * its request shape is decided.
  */
 const CLAUDE_TOOL_CHOICE_BY_CONTRACT: Record<RetrievalContract, ToolChoice> = {

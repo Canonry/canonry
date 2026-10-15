@@ -5,10 +5,10 @@ import {
   parseJsonColumn,
   projects,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import type { Agent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
-import { agentBusy, AgentProviderIds, OutcomeTriggers, describeError, missingDependency } from '@ainyc/canonry-contracts'
+import { agentBusy, AgentProviderIds, OutcomeTriggers, describeError, missingDependency } from '@canonry/canonry-contracts'
 import { createLogger } from '../logger.js'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
@@ -38,7 +38,7 @@ import { configureAeroRuntime, isSystemMessage, setAeroSystemPrompt } from './ru
 import { trackAeroTurn } from './turn-telemetry.js'
 import { buildAeroViewTool, aeroViewPrompt, readAeroViewEvidence } from './view-context.js'
 import { aeroProjectShape } from './project-shape.js'
-import type { AgentViewContext, AgentTurnLimits } from '@ainyc/canonry-contracts'
+import type { AgentViewContext, AgentTurnLimits } from '@canonry/canonry-contracts'
 import { compactMessages, shouldCompact } from './compaction.js'
 
 const log = createLogger('SessionRegistry')

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import {
   RunStatuses,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   gaAcquisitionDaily,
@@ -15,7 +15,7 @@ import {
   gaMeasurementSyncStates,
   migrate,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialRecord, Ga4CredentialStore } from '../src/ga.js'
 
@@ -83,7 +83,7 @@ async function seedProject(ctx: ReturnType<typeof buildApp>): Promise<string> {
 }
 
 async function mockLegacyGa() {
-  const ga = await import('@ainyc/canonry-integration-google-analytics')
+  const ga = await import('@canonry/canonry-integration-google-analytics')
   vi.spyOn(ga, 'getAccessToken').mockResolvedValue('fake-token')
   vi.spyOn(ga, 'fetchAggregateSummary').mockResolvedValue({
     periodStart: dateDaysAgo(29),

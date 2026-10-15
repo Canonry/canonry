@@ -1,4 +1,4 @@
-import type { UiTelemetryEvent } from '@ainyc/canonry-contracts'
+import type { UiTelemetryEvent } from '@canonry/canonry-contracts'
 import { isTelemetryEnabled, recordDashboardEvent } from './telemetry.js'
 
 /** Burst of 60, refilling one per second. */

@@ -1,8 +1,8 @@
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
 import { isMachineFormat, CliError, usageError } from '../cli-error.js'
-import { formatPercent, contentTargetDismissRequestSchema } from '@ainyc/canonry-contracts'
-import type { CheckResultDto, RecommendationBriefDto, WinnabilityClass, ContentTargetDismissRequest } from '@ainyc/canonry-contracts'
+import { formatPercent, contentTargetDismissRequestSchema } from '@canonry/canonry-contracts'
+import type { CheckResultDto, RecommendationBriefDto, WinnabilityClass, ContentTargetDismissRequest } from '@canonry/canonry-contracts'
 
 const WINNABILITY_COVERAGE_CHECK_ID = 'content.winnability.coverage'
 

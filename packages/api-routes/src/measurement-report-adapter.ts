@@ -34,13 +34,13 @@ import {
   type StoredMeasurementPlan,
   compareText,
   validationError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   measurementPlanVersions,
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   buildMeasurementReport,
   normalizeMeasurementLocation,

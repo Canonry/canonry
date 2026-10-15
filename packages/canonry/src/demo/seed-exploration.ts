@@ -1,10 +1,10 @@
 import { and, eq } from 'drizzle-orm'
-import { percentOf, siteAuditPageFactorSchema } from '@ainyc/canonry-contracts'
+import { percentOf, siteAuditPageFactorSchema } from '@canonry/canonry-contracts'
 import {
   aiReferralEventsHourly, aiUserFetchEventsHourly, crawlerEventsHourly,
   discoverySessions, discoveryProbes, researchRuns, researchRunQueries, siteAuditPages, siteAuditSnapshots, siteCrawlPages,
   trafficSources, type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { computeFactorAverages } from '../site-audit-factors.js'
 import type { DemoSeedContext } from './types.js'
 

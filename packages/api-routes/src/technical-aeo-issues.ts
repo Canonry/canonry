@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto'
 import { and, asc, eq, gt, sql } from 'drizzle-orm'
-import { siteCrawlPages, type DatabaseClient, type siteCrawlSnapshots } from '@ainyc/canonry-db'
+import { siteCrawlPages, type DatabaseClient, type siteCrawlSnapshots } from '@canonry/canonry-db'
 import {
   notFound, siteAuditIssueListQuerySchema, siteCrawlAuditFindingSchema,
   siteCrawlIssueEvidenceSchema, siteCrawlCriticalDefectSchema, validationError, SITE_AUDIT_ISSUES_DEFAULT_LIMIT,
   type RunStatus, type SiteAuditIssueDto, type SiteAuditIssueListQuery,
   type SiteAuditIssuePageDto, type SiteAuditIssuePagesResponseDto,
   type SiteAuditIssuesResponseDto, type SiteAuditRunSelectionDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 type Snapshot = typeof siteCrawlSnapshots.$inferSelect
 type Provenance = Omit<SiteAuditIssuesResponseDto, 'issues'>

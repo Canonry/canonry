@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util'
 import { and, inArray } from 'drizzle-orm'
-import { providerBatches, type DatabaseClient } from '@ainyc/canonry-db'
-import { operationInProgress, ProviderBatchStatuses, type ProviderConfig } from '@ainyc/canonry-contracts'
+import { providerBatches, type DatabaseClient } from '@canonry/canonry-db'
+import { operationInProgress, ProviderBatchStatuses, type ProviderConfig } from '@canonry/canonry-contracts'
 import { resolveRegistration, type RegisteredProvider } from './provider-registry.js'
 
 function pendingBatchIdentity(provider: RegisteredProvider): Omit<ProviderConfig, 'quotaPolicy'> {

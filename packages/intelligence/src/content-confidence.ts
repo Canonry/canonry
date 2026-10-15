@@ -12,7 +12,7 @@
  * the constant + run the snapshot tests if a new threshold is needed.
  */
 
-import type { ActionConfidence } from '@ainyc/canonry-contracts'
+import type { ActionConfidence } from '@canonry/canonry-contracts'
 
 export interface ConfidenceInput {
   hasGsc: boolean

@@ -5,8 +5,8 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, runs, auditLog, gscCoverageSnapshots, gscUrlInspections, gscSearchData, gscDailyTotals, gscDataWatermarks } from '@ainyc/canonry-db'
-import { AppError, formatPercent, googleOAuthStartResponseSchema, gscCoverageSummaryDtoSchema, RatioUnits, type GscCoverageSummaryDto, type GscPerformanceDailyDto } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, runs, auditLog, gscCoverageSnapshots, gscUrlInspections, gscSearchData, gscDailyTotals, gscDataWatermarks } from '@canonry/canonry-db'
+import { AppError, formatPercent, googleOAuthStartResponseSchema, gscCoverageSummaryDtoSchema, RatioUnits, type GscCoverageSummaryDto, type GscPerformanceDailyDto } from '@canonry/canonry-contracts'
 import { googleOAuthSuccessHtml, googleRoutes, type GoogleConnectionRecord } from '../src/google.js'
 
 // Independently sign callback fixtures to exercise the production OAuth verifier.

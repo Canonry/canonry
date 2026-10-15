@@ -1,4 +1,4 @@
-import type { IntegrationConnectionProperties } from '@ainyc/canonry-contracts'
+import type { IntegrationConnectionProperties } from '@canonry/canonry-contracts'
 import { trackIntegrationConnection } from './outcome-telemetry.js'
 import { cliRuntimeContext } from './runtime-context.js'
 

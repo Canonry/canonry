@@ -3,7 +3,7 @@ import {
   type MetricTone,
   type MovementComparisonDto,
   type MovementSummaryDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 export interface MovementSummarySnapshot {
   queryId: string

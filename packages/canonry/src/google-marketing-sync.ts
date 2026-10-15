@@ -7,7 +7,7 @@ import {
   projects,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   FeatureNames,
   GoogleAdsSnapshotKinds,
@@ -21,7 +21,7 @@ import {
   type GoogleAdsRawSnapshotDto,
   type GtmRawSnapshotDto,
   type OutcomeReasonCode,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { GoogleMarketingRuntimeError, type GoogleMarketingRuntime } from './google-marketing-runtime.js'
 import { googleRunFailure, runFailure, startRunOutcome, withOutcomeReason, type RunOutcome } from './sync-outcome.js'
 

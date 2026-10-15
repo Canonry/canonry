@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import type { VisibilityCompareDto, VisibilityStatsDto } from '@ainyc/canonry-contracts'
+import type { VisibilityCompareDto, VisibilityStatsDto } from '@canonry/canonry-contracts'
 
 const mockGetVisibilityStats = vi.fn()
 const mockGetVisibilityCompare = vi.fn()

@@ -1,5 +1,5 @@
-import { WINDOW_SETS, parseWindowIn, AppError } from '@ainyc/canonry-contracts'
-import { type GoogleAdsMetricsWindow } from '@ainyc/canonry-contracts'
+import { WINDOW_SETS, parseWindowIn, AppError } from '@canonry/canonry-contracts'
+import { type GoogleAdsMetricsWindow } from '@canonry/canonry-contracts'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getString,

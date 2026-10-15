@@ -6,7 +6,7 @@ PHP WordPress plugin that ships the **producer side** of canonry's WordPress
 traffic-ingestion path. It captures every non-admin, non-AJAX GET page-load
 that reaches WordPress PHP, records the real client IP, and exposes the resulting
 event log through a Basic-auth (Application Password) REST endpoint that the
-`@ainyc/canonry-integration-wordpress-traffic` TS adapter pulls. Non-GET
+`@canonry/canonry-integration-wordpress-traffic` TS adapter pulls. Non-GET
 requests (comment submissions, logins, admin saves) are skipped — AI
 crawlers and human clicks from AI referrers are always GET, and the
 server-side classifier in `packages/integration-traffic/` is GET-shaped.

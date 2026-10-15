@@ -1,8 +1,8 @@
-import { withRetry as sharedWithRetry, isRetryableHttpError, describeError } from '@ainyc/canonry-contracts'
+import { withRetry as sharedWithRetry, isRetryableHttpError, describeError } from '@canonry/canonry-contracts'
 
 /**
  * Provider-flavored `withRetry` — pre-binds the shared retry helper (in
- * `@ainyc/canonry-contracts`) with the predicate every API provider uses:
+ * `@canonry/canonry-contracts`) with the predicate every API provider uses:
  * retry 429s and 5xxs, plus network-level errors (`fetch failed`,
  * `ECONNRESET`, etc.). Logs each retry to stderr for debugging.
  *

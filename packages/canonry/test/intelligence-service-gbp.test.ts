@@ -16,7 +16,7 @@ import {
   gbpLodgingSnapshots,
   gbpKeywordMonthly,
   gbpPlaceDetails,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { IntelligenceService } from '../src/intelligence-service.js'
 
 function createTempDb() {

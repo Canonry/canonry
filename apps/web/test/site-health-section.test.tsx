@@ -17,7 +17,7 @@ import {
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewQueryKey,
   getApiV1ProjectsByNameTechnicalAeoStructureInfiniteQueryKey,
   getApiV1ProjectsByNameTechnicalAeoStructureQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import {
   LivePageHealthFindings,
@@ -26,7 +26,7 @@ import {
 } from '../src/components/project/SiteHealthSection.js'
 import { compileAppStyles, parseCompiledCss, compiledElementProperty, cssLengthPx } from './compiled-app-css.js'
 import { heyClient } from '../src/api.js'
-import type { SiteCrawlPageDto, SiteCrawlSummaryDto } from '@ainyc/canonry-contracts'
+import type { SiteCrawlPageDto, SiteCrawlSummaryDto } from '@canonry/canonry-contracts'
 import { AccountProvider } from '../src/contexts/account-context.js'
 
 const mutationMock = vi.hoisted(() => ({

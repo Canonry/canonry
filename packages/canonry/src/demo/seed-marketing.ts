@@ -7,7 +7,7 @@ import {
   gtmRawSnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import type { DemoSeedContext, DemoSeedProject } from './types.js'
 
 const checksum = 'd'.repeat(64)

@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { SKILL_MANIFEST_FILENAME, SkillsClients, type SkillsClient } from '@ainyc/canonry-contracts'
+import { SKILL_MANIFEST_FILENAME, SkillsClients, type SkillsClient } from '@canonry/canonry-contracts'
 import { BUNDLED_SKILL_NAMES, installSkills } from './commands/skills.js'
 import { configExists, loadConfigRaw, saveConfigPatch } from './config.js'
 import { PACKAGE_VERSION } from './package-version.js'

@@ -2,7 +2,7 @@ import { cancelRun, fillRun, listRuns, showRun, showRunCompleteness, triggerRun,
 import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, parseIntegerOption, requirePositional, requireProject, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
-import { providerDispatchModeSchema, type ProviderDispatchMode } from '@ainyc/canonry-contracts'
+import { providerDispatchModeSchema, type ProviderDispatchMode } from '@canonry/canonry-contracts'
 
 const RUN_TRIGGER_USAGE = 'canonry run trigger <project> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--force] [--wait] [--format json]'
 const RUN_USAGE = 'canonry run <project|--all> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--force] [--wait] [--format json]'

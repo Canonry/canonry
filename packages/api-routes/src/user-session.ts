@@ -14,8 +14,8 @@
 import crypto from 'node:crypto'
 import { eq, lte } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { users, userSessions } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { users, userSessions } from '@canonry/canonry-db'
 import {
   AppError,
   authRequired,
@@ -25,7 +25,7 @@ import {
   validationError,
   type AuthSessionDto,
   type UserRole,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { verifyUserPassword } from './user-password.js'
 import { resolveCallerKey } from './trust-proxy.js'
 import { assertCookieWriteOrigin } from './same-origin.js'

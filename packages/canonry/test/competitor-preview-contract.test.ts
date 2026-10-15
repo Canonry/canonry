@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { competitorChangePreviewRequestSchema } from '@ainyc/canonry-contracts'
+import { competitorChangePreviewRequestSchema } from '@canonry/canonry-contracts'
 import { canonryMcpTools } from '../src/mcp/tool-registry.js'
 
 it('uses the same replacement domain contract in MCP and HTTP', () => {

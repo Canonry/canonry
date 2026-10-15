@@ -5,7 +5,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, queries } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, queries } from '@canonry/canonry-db'
 import { apiRoutes, type ApiRoutesOptions } from '../src/index.js'
 
 /**

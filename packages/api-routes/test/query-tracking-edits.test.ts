@@ -13,7 +13,7 @@ import {
   queryTrackingPreviewResponseSchema,
   queryTrackingWorkspaceResponseSchema,
   type MeasurementPlanV2,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   apiKeys,
   createClient,
@@ -26,7 +26,7 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 

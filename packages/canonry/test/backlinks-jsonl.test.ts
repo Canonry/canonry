@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import type { BacklinkListResponse, CcCachedRelease } from '@ainyc/canonry-contracts'
+import type { BacklinkListResponse, CcCachedRelease } from '@canonry/canonry-contracts'
 
 const mockBacklinksDomains = vi.fn()
 const mockBacklinksCachedReleases = vi.fn()

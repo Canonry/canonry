@@ -3,8 +3,8 @@ import {
   backfillProjectAnswerMentionsInChunks,
   createProjectPassQueue,
   type ProjectAnswerMentionsBackfillResult,
-} from '@ainyc/canonry-api-routes'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+} from '@canonry/canonry-api-routes'
+import type { DatabaseClient } from '@canonry/canonry-db'
 
 /** What one recompute request covers. */
 export interface AnswerFieldRecomputeRequest {

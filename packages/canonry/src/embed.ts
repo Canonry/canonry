@@ -1,5 +1,5 @@
-import type { ResolvedEmbedConfig } from '@ainyc/canonry-contracts'
-import { embedProjectTabsError, normalizeIdTokens, parseOriginList, splitList } from '@ainyc/canonry-contracts'
+import type { ResolvedEmbedConfig } from '@canonry/canonry-contracts'
+import { embedProjectTabsError, normalizeIdTokens, parseOriginList, splitList } from '@canonry/canonry-contracts'
 import type { CanonryConfig } from './config.js'
 
 const DEFAULT_EMBED_PROJECT_TABS = ['overview']

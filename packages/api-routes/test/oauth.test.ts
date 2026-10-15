@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { createClient, migrate, oauthClients, oauthTokens, users } from '@ainyc/canonry-db'
+import { createClient, migrate, oauthClients, oauthTokens, users } from '@canonry/canonry-db'
 import { eq } from 'drizzle-orm'
 import Fastify from 'fastify'
 import { beforeEach, afterEach, expect, test } from 'vitest'

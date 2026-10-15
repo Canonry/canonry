@@ -1,6 +1,6 @@
 import { and, count, eq } from 'drizzle-orm'
-import { MEASUREMENT_CHANGES_NOISE_ANSWERS, MEASUREMENT_PLAN_V2_SCHEMA_VERSION } from '@ainyc/canonry-contracts'
-import { measurementPlans, measurementPlanVersions, queries, type DatabaseClient } from '@ainyc/canonry-db'
+import { MEASUREMENT_CHANGES_NOISE_ANSWERS, MEASUREMENT_PLAN_V2_SCHEMA_VERSION } from '@canonry/canonry-contracts'
+import { measurementPlans, measurementPlanVersions, queries, type DatabaseClient } from '@canonry/canonry-db'
 
 interface StoredPlanShape {
   schemaVersion?: number

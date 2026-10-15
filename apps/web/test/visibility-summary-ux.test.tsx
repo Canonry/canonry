@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
-import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import type { VisibilityReportResponse } from '@canonry/canonry-contracts'
 import { VisibilityReportView, VisibilityResultsToolbar } from '../src/components/project/VisibilityTrendSection.js'
 import { formatObservedInstantLabel, observedInstant } from '../src/components/shared/ChartPrimitives.js'
 import { parseVisibilitySelection } from '../src/lib/measurement-view-url.js'

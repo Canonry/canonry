@@ -3,9 +3,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
-import { createClient, migrate, gscSearchData, gscUrlInspections, gscCoverageSnapshots, projects, runs, siteAuditPages, siteAuditSnapshots, siteCrawlAttempts, siteCrawlPages, siteCrawlSnapshots } from '@ainyc/canonry-db'
+import { createClient, migrate, gscSearchData, gscUrlInspections, gscCoverageSnapshots, projects, runs, siteAuditPages, siteAuditSnapshots, siteCrawlAttempts, siteCrawlPages, siteCrawlSnapshots } from '@canonry/canonry-db'
 import { and, asc, eq, inArray } from 'drizzle-orm'
-import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import { writeCoverageSnapshot } from '../src/gsc-coverage-snapshot.js'
 
 /**

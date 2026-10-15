@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify'
-import { AppError, bucketDuration, notFound, OutcomeReasonCodes, OutcomeStatuses, providerError, validationError, describeError } from '@ainyc/canonry-contracts'
+import { AppError, bucketDuration, notFound, OutcomeReasonCodes, OutcomeStatuses, providerError, validationError, describeError } from '@canonry/canonry-contracts'
 import type {
   OutcomeReasonCode,
   WordpressBulkMetaEntryResultDto,
   WordpressEnv,
   WordpressSchemaDeployEntryResultDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   buildManualLlmsTxtUpdate,
   buildManualSchemaUpdate,
@@ -28,8 +28,8 @@ import {
   updatePageBySlug,
   verifyWordpressConnection,
   WordpressApiError,
-} from '@ainyc/canonry-integration-wordpress'
-import type { SchemaProfileFile, WordpressClientConnection, WordpressConnectionRecord } from '@ainyc/canonry-integration-wordpress'
+} from '@canonry/canonry-integration-wordpress'
+import type { SchemaProfileFile, WordpressClientConnection, WordpressConnectionRecord } from '@canonry/canonry-integration-wordpress'
 import { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
 import { failedOutcome, reportFeatureOutcome, withFeatureOutcome, type FeatureOutcome } from './feature-outcome.js'
 import { resolveProject, writeAuditLog } from './helpers.js'

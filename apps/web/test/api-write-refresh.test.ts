@@ -12,8 +12,8 @@ import {
   getApiV1RunsOptions,
   getApiV1ProjectsQueryKey,
   getApiV1SettingsOptions,
-} from '@ainyc/canonry-api-client/react-query'
-import { postApiV1ProjectsByNameAdsSync, postApiV1ProjectsByNameGbpSync, postApiV1ProjectsByNameGoogleAdsSync, postApiV1ProjectsByNameGtmSync, postApiV1ProjectsByNameQueryTrackingCommit, postApiV1ProjectsByNameQueryTrackingPreview, putApiV1ProjectsByName } from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client/react-query'
+import { postApiV1ProjectsByNameAdsSync, postApiV1ProjectsByNameGbpSync, postApiV1ProjectsByNameGoogleAdsSync, postApiV1ProjectsByNameGtmSync, postApiV1ProjectsByNameQueryTrackingCommit, postApiV1ProjectsByNameQueryTrackingPreview, putApiV1ProjectsByName } from '@canonry/canonry-api-client'
 import { appendQueries, applyProjectConfig, deleteProject, fetchSettings, heyClient, inspectBingSitemap, recordOnboardingEvent, removeLocation, triggerAllRuns, triggerGscSync, triggerInspectSitemap, triggerRun, triggerSiteAudit, updateGoogleAuthConfig } from '../src/api.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 import { jsonResponse, mockFetch as installMockFetch, pathOf } from './mock-fetch.js'

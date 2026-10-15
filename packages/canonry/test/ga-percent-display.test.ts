@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { GaAttributionTrendResponse, GaChannelTrend, GaSocialReferralTrendResponse, GaSourceMover, GaTrafficResponse } from '@ainyc/canonry-contracts'
-import { gaAttributionTrendResponseSchema, gaSocialReferralTrendResponseSchema } from '@ainyc/canonry-contracts'
+import type { GaAttributionTrendResponse, GaChannelTrend, GaSocialReferralTrendResponse, GaSourceMover, GaTrafficResponse } from '@canonry/canonry-contracts'
+import { gaAttributionTrendResponseSchema, gaSocialReferralTrendResponseSchema } from '@canonry/canonry-contracts'
 
 const gaTraffic = vi.fn()
 const gaAttributionTrend = vi.fn()

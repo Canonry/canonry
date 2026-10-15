@@ -1,4 +1,4 @@
-import { AI_ENGINE_DOMAINS } from '@ainyc/canonry-contracts'
+import { AI_ENGINE_DOMAINS } from '@canonry/canonry-contracts'
 import type { AiCrawlerRule, AiReferrerRule } from './types.js'
 
 /**

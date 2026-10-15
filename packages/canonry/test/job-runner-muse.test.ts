@@ -11,12 +11,12 @@ import {
   compileMeasurementPlan,
   measurementPlanV2ChecksumJson,
   type MeasurementPlanV2,
-} from '@ainyc/canonry-contracts'
-import { buildMeasurementRunManifest, queueRunFill } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-contracts'
+import { buildMeasurementRunManifest, queueRunFill } from '@canonry/canonry-api-routes'
 import {
   createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries, querySnapshots, runs,
-} from '@ainyc/canonry-db'
-import { museAdapter } from '@ainyc/canonry-provider-muse'
+} from '@canonry/canonry-db'
+import { museAdapter } from '@canonry/canonry-provider-muse'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'

@@ -1,5 +1,5 @@
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { competitorAliasProjectIdentity } from '@ainyc/canonry-contracts'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { competitorAliasProjectIdentity } from '@canonry/canonry-contracts'
 import { answerIdentityChanged, readAnswerIdentity, type AnswerIdentityFingerprint } from './answer-identity.js'
 import { replanCompetitorAutoAliases, type CompetitorSetPlan } from './competitor-writes.js'
 import { marketNameAuditFields, marketNameChanges, type MarketNameChange } from './market-competitor-names.js'

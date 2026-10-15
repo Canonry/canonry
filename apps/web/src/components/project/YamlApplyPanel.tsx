@@ -5,7 +5,7 @@ import { Button } from '../ui/button.js'
 import { applyProjectConfig, isEmbed } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
 import { useAccount } from '../../contexts/account-context.js'
 
 export function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {

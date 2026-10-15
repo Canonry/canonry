@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm'
-import { assessConversionTrackingIntegrity } from '@ainyc/canonry-intelligence'
-import { bingConnections, googleConnections, type DatabaseClient } from '@ainyc/canonry-db'
-import type { ApiRoutesOptions } from '@ainyc/canonry-api-routes'
+import { assessConversionTrackingIntegrity } from '@canonry/canonry-intelligence'
+import { bingConnections, googleConnections, type DatabaseClient } from '@canonry/canonry-db'
+import type { ApiRoutesOptions } from '@canonry/canonry-api-routes'
 import { DEMO_GA4_PROPERTY_ID, type DemoSeedContext } from './types.js'
 
 function refuseMutation(): never { throw new Error('The public demo stores are view only.') }

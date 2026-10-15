@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ResearchRunDetailDto } from '@ainyc/canonry-contracts'
+import type { ResearchRunDetailDto } from '@canonry/canonry-contracts'
 
 const { readFileSync, startResearchBatch, getResearchRun } = vi.hoisted(() => ({
   readFileSync: vi.fn(), startResearchBatch: vi.fn(), getResearchRun: vi.fn(),

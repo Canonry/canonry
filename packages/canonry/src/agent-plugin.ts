@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { AgentPluginClient, AgentPluginState } from '@ainyc/canonry-contracts'
+import type { AgentPluginClient, AgentPluginState } from '@canonry/canonry-contracts'
 
 interface DetectAgentPluginOptions {
   home?: string | null

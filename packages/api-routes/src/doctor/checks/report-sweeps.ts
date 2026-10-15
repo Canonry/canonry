@@ -3,8 +3,8 @@ import {
   calendarMonthBounds, CheckCategories, CheckNotificationPolicies, CheckScopes, CheckStatuses, gradedReportMonths,
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION, parseStoredMeasurementPlanAnyVersion,
   reportMonthsForDoctor, RunKinds, RunStatuses, simpleMeasurementDefinitionSchema,
-} from '@ainyc/canonry-contracts'
-import { measurementPlanVersions, projects, queries, querySnapshots, runs, simpleMeasurementDefinitions } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import { measurementPlanVersions, projects, queries, querySnapshots, runs, simpleMeasurementDefinitions } from '@canonry/canonry-db'
 import { notProbeRun } from '../../helpers.js'
 import { measurementRunExpectedSlots } from '../../measurement-report-adapter.js'
 import { measurementSlotKey } from '../../measurement-run-completeness.js'

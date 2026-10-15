@@ -1,4 +1,4 @@
-import { FEEDBACK_KINDS, feedbackSubmissionSchema } from '@ainyc/canonry-contracts'
+import { FEEDBACK_KINDS, feedbackSubmissionSchema } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat, usageError, type CliFormat } from '../cli-error.js'
 

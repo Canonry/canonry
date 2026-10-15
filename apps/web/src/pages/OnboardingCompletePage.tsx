@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { getApiV1ProjectsByNameRunsOptions, getApiV1ProjectsByNameTechnicalAeoOptions } from '@ainyc/canonry-api-client/react-query'
-import { ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, type OnboardingNextAction, type RunKind } from '@ainyc/canonry-contracts'
+import { getApiV1ProjectsByNameRunsOptions, getApiV1ProjectsByNameTechnicalAeoOptions } from '@canonry/canonry-api-client/react-query'
+import { ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, type OnboardingNextAction, type RunKind } from '@canonry/canonry-contracts'
 import { ArrowRight, Bell, CalendarClock, Check, Copy, LineChart, MapPin, Search, Server } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 

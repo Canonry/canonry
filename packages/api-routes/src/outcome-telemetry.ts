@@ -1,7 +1,7 @@
 import type {
   FeatureCompletedProperties,
   IntegrationConnectionProperties,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { currentOutcomeAttribution } from './request-context.js'
 
 /**

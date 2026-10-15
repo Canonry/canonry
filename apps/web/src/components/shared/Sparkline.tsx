@@ -1,5 +1,5 @@
 import { useId } from 'react'
-import { isTrendBaseline } from '@ainyc/canonry-contracts'
+import { isTrendBaseline } from '@canonry/canonry-contracts'
 import type { MetricTone } from '../../view-models.js'
 
 /**

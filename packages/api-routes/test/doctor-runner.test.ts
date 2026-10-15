@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { CheckCategories, CheckScopes, CheckStatuses } from '@ainyc/canonry-contracts'
+import { CheckCategories, CheckScopes, CheckStatuses } from '@canonry/canonry-contracts'
 import { runChecks, matchesCheckId } from '../src/doctor/runner.js'
 import type { CheckDefinition, DoctorContext } from '../src/doctor/types.js'
 

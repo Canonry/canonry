@@ -17,8 +17,8 @@ import {
   type AdsActivationManifest,
   type AdsCampaignBiddingType,
   type AdsOperationStepDto,
-} from '@ainyc/canonry-contracts'
-import type { adsOperations } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import type { adsOperations } from '@canonry/canonry-db'
 
 /**
  * Approval-bound activation is dependency-injected so the route layer can own

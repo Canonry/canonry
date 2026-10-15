@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { getApiV1RunsByIdOptions } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1RunsByIdOptions } from '@canonry/canonry-api-client/react-query'
 import { heyClient } from '../api.js'
 
 export function useRunDetail(runId: string | null) {

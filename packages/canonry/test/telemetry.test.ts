@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { parse } from 'yaml'
-import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs } from '@canonry/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 

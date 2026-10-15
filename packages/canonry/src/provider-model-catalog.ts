@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { retryAfterDelayMs, type ModelDefinition } from '@ainyc/canonry-contracts'
+import { retryAfterDelayMs, type ModelDefinition } from '@canonry/canonry-contracts'
 import type { ProviderRegistry } from './provider-registry.js'
 
 const TTL_MS = 60 * 60 * 1000

@@ -3,7 +3,7 @@ import {
   type ModelAttribution,
   type ModelEvidenceState,
   type ServedModelAttribution,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import {
   classifyModelEvidence,

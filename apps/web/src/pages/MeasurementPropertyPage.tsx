@@ -3,12 +3,12 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
-import { formatPercent, MeasurementEvidenceShapes, UNATTRIBUTED_MENTION_REASON } from '@ainyc/canonry-contracts'
+import { formatPercent, MeasurementEvidenceShapes, UNATTRIBUTED_MENTION_REASON } from '@canonry/canonry-contracts'
 import type {
   MeasurementOverviewResponse,
   MeasurementPlanResponse,
   MeasurementPropertyEvidenceResponse,
-} from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client'
 import {
   getApiV1ProjectsByNameMeasurementOverviewOptions,
   getApiV1ProjectsByNameMeasurementPlanOptions,
@@ -16,7 +16,7 @@ import {
   getApiV1ProjectsByNameMeasurementPropertyEvidenceInfiniteOptions,
   getApiV1ProjectsByNameMeasurementQuestionResultOptions,
   getApiV1ProjectsByNameVisibilityReportOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { getEmbedConfig, heyClient, isDashboardManagedSweeps } from '../api.js'
 import { MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'

@@ -8,13 +8,13 @@ import {
   TrafficSourceStatuses,
   TrafficSourceTypes,
   describeError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   aiReferralEventsHourly,
   aiUserFetchEventsHourly,
   crawlerEventsHourly,
   trafficSources,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   DEFAULT_CLOUDFLARE_QUEUE_DRAIN_BUDGET,
   TRAFFIC_SOURCE_MAX_CATCHUP_MS,

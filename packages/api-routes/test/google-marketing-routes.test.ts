@@ -12,7 +12,7 @@ import {
   RunTriggers,
   UserRoles,
   type ConversionTrackingIntegrityAssessmentDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   googleAdsConnections,
@@ -22,7 +22,7 @@ import {
   migrate,
   projects,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { shouldSkipAuth } from '../src/auth.js'
 import {
   googleMarketingRoutes,

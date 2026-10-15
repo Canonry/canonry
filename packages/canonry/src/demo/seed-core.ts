@@ -11,7 +11,7 @@ import {
   type LocationContext,
   type MeasurementDraftAuthoring,
   type MeasurementPlanV2,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   competitors,
   measurementPlanDrafts,
@@ -24,7 +24,7 @@ import {
   runs,
   simpleMeasurementDefinitions,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import type { DemoSeedContext } from './types.js'
 import { HARBOR_MARKETS as MARKETS, harborProperties } from './portfolio.js'
 import { seedDemoAnswerIntelligence } from './seed-answer-intelligence.js'

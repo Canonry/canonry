@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ScheduleDto } from '@ainyc/canonry-contracts'
+import type { ScheduleDto } from '@canonry/canonry-contracts'
 
 const mockGetSchedule = vi.fn()
 const mockPutSchedule = vi.fn()

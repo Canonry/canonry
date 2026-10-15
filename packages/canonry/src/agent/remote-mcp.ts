@@ -4,7 +4,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core'
 import { createLogger } from '../logger.js'
 import type { ExternalMcpServerConfig } from '../config.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
 import { truncateToolResult } from './mcp-to-agent-tool.js'
 
 const log = createLogger('RemoteMcp')

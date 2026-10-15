@@ -51,7 +51,7 @@ site and shares only the Application-Password auth pattern.
   plugin (pre-0.3.0) omits the field, so those events stay
   `claimed_unverified` until the site updates the plugin.
 - **Provider-neutral output.** Every adapter in the traffic stack emits the
-  same `NormalizedTrafficRequest` shape from `@ainyc/canonry-contracts`. Do
+  same `NormalizedTrafficRequest` shape from `@canonry/canonry-contracts`. Do
   not leak WordPress-specific types past the package boundary.
 
 ## Common Mistakes

@@ -70,7 +70,6 @@ function compareSemver(left: string, right: string): number {
 describe('AEO audit dependency boundary', () => {
   it('keeps the public full-crawl engine exact across Canonry and Val Town', () => {
     const canonryPackage = readJson('packages/canonry/package.json')
-    const workerPackage = readJson('apps/worker/package.json')
     const valTownDeno = readJson('apps/vals/ai-visibility-check/deno.json')
     const valTownLock = readJson('apps/vals/ai-visibility-check/deno.lock')
 
@@ -79,8 +78,6 @@ describe('AEO audit dependency boundary', () => {
     expect(localEngineVersion).toBeDefined()
     expect(localEngineVersion).toMatch(/^\d+\.\d+\.\d+$/)
     expect(compareSemver(localEngineVersion!, '4.6.2')).toBeGreaterThanOrEqual(0)
-    expect(canonryPackage.dependencies?.['@ainyc/aeo-audit']).toBeUndefined()
-    expect(workerPackage.dependencies?.['@ainyc/aeo-audit']).toBe('4.2.0')
     // The Val imports the engine, and every place it does agrees with Canonry.
     const valSpecifiers = valTownEngineSpecifiers()
     expect(valSpecifiers.length).toBeGreaterThan(0)

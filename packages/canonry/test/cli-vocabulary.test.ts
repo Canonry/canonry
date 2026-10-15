@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { RunDetailDto } from '@ainyc/canonry-contracts'
+import type { RunDetailDto } from '@canonry/canonry-contracts'
 import { printRunDetail } from '../src/commands/run.js'
 import { listEvents } from '../src/commands/notify.js'
 

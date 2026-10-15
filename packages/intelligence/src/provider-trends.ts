@@ -1,4 +1,4 @@
-import { CitationStates, percentOf } from '@ainyc/canonry-contracts'
+import { CitationStates, percentOf } from '@canonry/canonry-contracts'
 
 export interface ProviderTrendRun {
   id: string

@@ -13,7 +13,7 @@ import {
   projects,
   rawEventSamples,
   trafficSources,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { and, eq } from 'drizzle-orm'
 import { backfillTrafficClassificationCommand } from '../src/commands/backfill.js'
 

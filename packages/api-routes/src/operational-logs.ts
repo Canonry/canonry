@@ -10,7 +10,7 @@ import {
   type LogQuery,
   type OperationalLogListDto,
   type OperationalLogOptInContextField,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { requireOperator, requireScope } from './auth.js'
 
 export interface OperationalLogsRoutesOptions {

@@ -7,7 +7,7 @@ import {
   mapWithConcurrency,
   type CitedUrlCaptureStatus,
   type GroundingSource,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 const RESOLUTION_CONCURRENCY = 5
 const RESOLUTION_TIMEOUT_MS = 5_000

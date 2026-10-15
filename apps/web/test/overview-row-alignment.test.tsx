@@ -1,4 +1,4 @@
-import { aggregateSentiment } from '@ainyc/canonry-contracts'
+import { aggregateSentiment } from '@canonry/canonry-contracts'
 import { beforeAll, expect, test } from 'vitest'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'

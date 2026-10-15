@@ -23,7 +23,7 @@ import {
 import {
   getApiV1ProjectsByNameAgentProvidersQueryKey,
   getApiV1ProjectsQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { heyClient } from '../src/api.js'
 import * as aero from '../src/api-aero.js'

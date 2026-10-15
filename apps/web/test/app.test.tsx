@@ -5,12 +5,12 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 
-import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
-import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
+import type { VisibilityReportResponse } from '@canonry/canonry-contracts'
+import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameVisibilityReportQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { fetchHealthCheck, fetchServiceStatus, heyClient } from '../src/api.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import { parseVisibilitySelection, visibilityReportFirstPageQuery } from '../src/lib/measurement-view-url.js'

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import type { ConversionTrackingContract } from '@ainyc/canonry-contracts'
+import type { ConversionTrackingContract } from '@canonry/canonry-contracts'
 
 import {
   ConversionIntegritySection,

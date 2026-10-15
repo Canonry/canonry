@@ -1,7 +1,7 @@
 import { stringify } from 'yaml'
 import { createApiClient, type ApiClient, type ExportDto } from '../client.js'
 import { isEndpointMissing, isMachineFormat } from '../cli-error.js'
-import { isRedactedNotificationUrl } from '@ainyc/canonry-contracts'
+import { isRedactedNotificationUrl } from '@canonry/canonry-contracts'
 
 export async function exportProject(
   project: string,

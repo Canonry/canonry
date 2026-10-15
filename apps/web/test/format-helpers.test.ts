@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatPercent } from '@ainyc/canonry-contracts'
+import { formatPercent } from '@canonry/canonry-contracts'
 import {
   formatHour,
   buildPreset,

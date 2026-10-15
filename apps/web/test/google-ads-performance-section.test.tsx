@@ -2,7 +2,7 @@ import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, onTestFinished, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import type { GoogleAdsPerformanceDto } from '@ainyc/canonry-contracts'
+import type { GoogleAdsPerformanceDto } from '@canonry/canonry-contracts'
 
 // Recharts is stubbed: this suite is about the VALUES the section renders.
 // The SVG is Recharts' problem, and jsdom cannot lay it out anyway.

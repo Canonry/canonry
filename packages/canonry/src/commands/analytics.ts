@@ -1,4 +1,4 @@
-import { buildModelChangeNotice, formatPercent, formatSignedPointDelta, type ModelPointerChangeDisclosure, type WindowRateChange } from '@ainyc/canonry-contracts'
+import { buildModelChangeNotice, formatPercent, formatSignedPointDelta, type ModelPointerChangeDisclosure, type WindowRateChange } from '@canonry/canonry-contracts'
 import { createApiClient, type BrandMetricsDto, type GapAnalysisDto, type SourceBreakdownDto } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 

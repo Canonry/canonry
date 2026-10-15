@@ -23,7 +23,7 @@ import type {
 } from 'sigma/types'
 import type { AnimateOptions } from 'sigma/utils'
 
-import { SITE_GRAPH_LEGEND_STATES, type SiteCrawlGraphLayoutUnavailableReason } from '@ainyc/canonry-contracts'
+import { SITE_GRAPH_LEGEND_STATES, type SiteCrawlGraphLayoutUnavailableReason } from '@canonry/canonry-contracts'
 
 import { cn } from '../../lib/utils.js'
 import { recordUiError } from '../../lib/ui-telemetry.js'

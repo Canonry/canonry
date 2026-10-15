@@ -1,4 +1,4 @@
-import { CitationStates, percentOf, type ProjectOverviewProviderScoreDto } from '@ainyc/canonry-contracts'
+import { CitationStates, percentOf, type ProjectOverviewProviderScoreDto } from '@canonry/canonry-contracts'
 
 export interface ProviderScoreSnapshot {
   provider: string

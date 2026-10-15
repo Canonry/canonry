@@ -5,13 +5,13 @@ import {
   describeError,
   describeFetchError,
   isFetchTransportError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   GA4_DATA_API_BASE,
   verifyConnection,
   verifyConnectionWithToken,
-} from '@ainyc/canonry-integration-google-analytics'
-import { GOOGLE_TOKEN_URL, refreshAccessToken } from '@ainyc/canonry-integration-google'
+} from '@canonry/canonry-integration-google-analytics'
+import { GOOGLE_TOKEN_URL, refreshAccessToken } from '@canonry/canonry-integration-google'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
 
 /**

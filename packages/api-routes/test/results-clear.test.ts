@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createClient, migrate, projects, queries, runs, querySnapshots, researchRuns, researchRunQueries, auditLog } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, queries, runs, querySnapshots, researchRuns, researchRunQueries, auditLog } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 const cleanup: Array<() => Promise<void>> = []

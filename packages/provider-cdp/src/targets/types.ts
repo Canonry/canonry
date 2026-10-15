@@ -1,4 +1,4 @@
-import type { GroundingSource } from '@ainyc/canonry-contracts'
+import type { GroundingSource } from '@canonry/canonry-contracts'
 import type CDP from 'chrome-remote-interface'
 
 /** A CDP-driven extraction target for a specific AI web UI */

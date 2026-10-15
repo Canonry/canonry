@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { answerProseForMentions, extractDomainsFromText } from '@ainyc/canonry-contracts'
+import { answerProseForMentions, extractDomainsFromText } from '@canonry/canonry-contracts'
 import { compileCompetitiveSignalResolver } from '../src/competitive-signals.js'
 
 describe('compileCompetitiveSignalResolver', () => {

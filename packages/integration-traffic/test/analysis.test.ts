@@ -3,7 +3,7 @@ import {
   TrafficEvidenceKinds,
   TrafficSourceTypes,
   type NormalizedTrafficRequest,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { describe, expect, it } from 'vitest'
 import anthropicRaw from '../src/ip-ranges/anthropic.json' with { type: 'json' }
 import {

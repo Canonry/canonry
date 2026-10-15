@@ -11,7 +11,7 @@ const repoRoot = path.resolve(dirname, '../..')
 const args = process.argv.slice(2)
 if (args.some(arg => arg !== '--force')) throw new Error('Usage: build-web.ts [--force]')
 
-execFileSync('pnpm', ['--filter', '@ainyc/canonry-web', 'build', ...args], {
+execFileSync('pnpm', ['--filter', '@canonry/canonry-web', 'build', ...args], {
   cwd: repoRoot,
   stdio: 'inherit',
 })

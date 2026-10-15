@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import type { HealthSnapshotDto } from '@ainyc/canonry-contracts'
+import type { HealthSnapshotDto } from '@canonry/canonry-contracts'
 
 const mockGetHealth = vi.fn()
 const mockGetHealthHistory = vi.fn()

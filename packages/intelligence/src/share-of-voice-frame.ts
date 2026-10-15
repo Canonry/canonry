@@ -1,4 +1,4 @@
-import { percentOf, type ShareOfVoiceContext } from '@ainyc/canonry-contracts'
+import { percentOf, type ShareOfVoiceContext } from '@canonry/canonry-contracts'
 
 // Three rivals seen in three distinct answers each rules out a lone alternative
 // or a one-answer list. This is a publication floor, not a confidence interval.

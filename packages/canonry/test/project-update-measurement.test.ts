@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ProjectDto } from '@ainyc/canonry-contracts'
+import type { ProjectDto } from '@canonry/canonry-contracts'
 import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
 import { CliError } from '../src/cli-error.js'
 

@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { discoverySessions, runs } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { discoverySessions, runs } from '@canonry/canonry-db'
 import {
   OutcomeReasonCodes,
   OutcomeStatuses,
@@ -14,11 +14,11 @@ import {
   type RunCompletionOrigin,
   type RunKind,
   describeError,
-} from '@ainyc/canonry-contracts'
-import { measurementRunCompleteness } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-contracts'
+import { measurementRunCompleteness } from '@canonry/canonry-api-routes'
 import type { Notifier } from './notifier.js'
 import type { IntelligenceService } from './intelligence-service.js'
-import type { AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
+import type { AnalysisResult, Insight } from '@canonry/canonry-intelligence'
 import { createLogger } from './logger.js'
 import { outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 

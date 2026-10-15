@@ -1,4 +1,4 @@
-import { formatPercent } from '@ainyc/canonry-contracts'
+import { formatPercent } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
 

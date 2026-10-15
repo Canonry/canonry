@@ -21,8 +21,8 @@ import type {
   CitedSurfaceDomain,
   DiscoveryCompetitorType,
   ProviderName,
-} from '@ainyc/canonry-contracts'
-import { deriveWinnabilityClass, classifyCitedSurface } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import { deriveWinnabilityClass, classifyCitedSurface } from '@canonry/canonry-contracts'
 
 import { classifyContentAction } from './content-classifier.js'
 import { scoreContentTarget } from './content-scorer.js'

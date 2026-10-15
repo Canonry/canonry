@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import type { NormalizedQueryResult } from '@ainyc/canonry-contracts'
+import type { NormalizedQueryResult } from '@canonry/canonry-contracts'
 
 import { determineCitationState } from '../src/citation-utils.js'
 

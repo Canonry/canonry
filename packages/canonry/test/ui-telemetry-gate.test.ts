@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { UiTelemetryEvent } from '@ainyc/canonry-contracts'
+import type { UiTelemetryEvent } from '@canonry/canonry-contracts'
 import { createUiTelemetryGate, UI_EVENT_HOUR_CAPACITY, UI_EVENT_MINUTE_CAPACITY } from '../src/ui-telemetry-gate.js'
 
 const event = {

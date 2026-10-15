@@ -1,6 +1,6 @@
 import { and, asc, eq } from 'drizzle-orm'
-import { healthSnapshots, insights, runs, type DatabaseClient } from '@ainyc/canonry-db'
-import { RunKinds } from '@ainyc/canonry-contracts'
+import { healthSnapshots, insights, runs, type DatabaseClient } from '@canonry/canonry-db'
+import { RunKinds } from '@canonry/canonry-contracts'
 import { HISTORY_WINDOW_RUNS, IntelligenceService } from '../intelligence-service.js'
 import type { DemoSeedProject } from './types.js'
 

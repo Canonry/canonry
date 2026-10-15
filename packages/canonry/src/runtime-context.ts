@@ -1,4 +1,4 @@
-import { detectAgentRuntime } from '@ainyc/canonry-contracts'
+import { detectAgentRuntime } from '@canonry/canonry-contracts'
 
 export interface CliRuntimeContext {
   /** Coding agent the process runs under (`claude`, `codex`, ...), or `none`. */

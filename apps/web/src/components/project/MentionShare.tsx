@@ -1,5 +1,5 @@
 import React, { useId, useState } from 'react'
-import { formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits } from '@canonry/canonry-contracts'
 import type { ProjectCommandCenterVm } from '../../view-models.js'
 import { splitPercentSign } from '../../lib/format-helpers.js'
 import { METRIC_TONE_TEXT_CLASS } from '../../lib/tone-helpers.js'

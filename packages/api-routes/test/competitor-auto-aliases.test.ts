@@ -5,7 +5,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { and, eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { auditLog, competitors, createClient, marketCompetitorNames, measurementPlans, measurementPlanVersions, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { auditLog, competitors, createClient, marketCompetitorNames, measurementPlans, measurementPlanVersions, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@canonry/canonry-db'
 import {
   canonicalMeasurementPlanV2Json,
   competitorLandscapeResponseSchema,
@@ -13,7 +13,7 @@ import {
   type AnchoredAnswerSpan,
   type CompetitorAutoAliasDetectionDto,
   type CompetitorDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { apiRoutes, createRunCompetitorResolver, readMarketCompetitorNames } from '../src/index.js'
 
 // Answer-derived competitor aliases over the API: detection reads stored

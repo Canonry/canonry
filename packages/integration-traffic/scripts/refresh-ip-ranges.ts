@@ -7,7 +7,7 @@
  * creates no repository churn.
  *
  * Usage (from repo root):
- *   pnpm --filter @ainyc/canonry-integration-traffic exec tsx scripts/refresh-ip-ranges.ts
+ *   pnpm --filter @canonry/canonry-integration-traffic exec tsx scripts/refresh-ip-ranges.ts
  *
  * Or directly:
  *   tsx packages/integration-traffic/scripts/refresh-ip-ranges.ts
@@ -34,7 +34,7 @@ import {
   validateIpRangeManifestPayload,
 } from '../src/ip-range-manifest.js'
 import type { ValidatedIpRangeManifestPayload } from '../src/ip-range-manifest.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const rangesDir = path.resolve(dirname, '..', 'src', 'ip-ranges')
