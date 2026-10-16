@@ -177,7 +177,7 @@ describe('GA4 connect, repeated', () => {
   })
 
   it('always checks again for the CLI and the dashboard, while an API client waits', async () => {
-    const ga = await import('@ainyc/canonry-integration-google-analytics')
+    const ga = await import('@canonry/canonry-integration-google-analytics')
     const verify = vi.spyOn(ga, 'verifyConnection').mockRejectedValue(new ga.GA4ApiError('The caller does not have permission', 403))
     const body = { propertyId: '123', keyJson: KEY_JSON }
 
@@ -195,7 +195,7 @@ describe('GA4 connect, repeated', () => {
   })
 
   it('checks a new key file straight away, even while backing off', async () => {
-    const ga = await import('@ainyc/canonry-integration-google-analytics')
+    const ga = await import('@canonry/canonry-integration-google-analytics')
     const verify = vi.spyOn(ga, 'verifyConnection').mockRejectedValue(new ga.GA4ApiError('The caller does not have permission', 403))
 
     for (let i = 0; i < 4; i++) await gaConnect({ propertyId: '123', keyJson: KEY_JSON })
