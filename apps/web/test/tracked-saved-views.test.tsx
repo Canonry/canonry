@@ -373,6 +373,40 @@ describe('TrackedPlaceList', () => {
     expect(screen.queryByText(/^1 to /)).toBeNull()
   })
 
+  test('Weakest markets lists the server\'s rows weakest first, each with its own answers, citations and other-location mentions, and leads to its queries', () => {
+    // The server's order is not the names' and not any one column's, so only keeping it gives this order.
+    const markets = [
+      { marketKey: 'uptown', queries: 4, mentionCheckedAnswers: 12, mentionedAnswers: 0, otherLocationMentionedAnswers: 8, citationCheckedAnswers: 11, citedAnswers: 0 },
+      { marketKey: 'midtown', queries: 9, mentionCheckedAnswers: 9, mentionedAnswers: 0, otherLocationMentionedAnswers: 2, citationCheckedAnswers: 9, citedAnswers: 1 },
+    ]
+    const { onOpen, onAdd } = renderList({ view: 'weak-markets', weakMarkets: { count: 2, marketKeys: ['midtown', 'uptown'], markets } })
+    expect(headers('Weakest markets')).toEqual(['Market', 'Group', 'Locations', 'Answers', 'Cited', 'Other location', 'Actions'])
+    expect(cells('Weakest markets')).toEqual([
+      ['Uptown', 'North, Lakeshore', '2', '12', '0 of 11', '8 of 12', 'View queries'],
+      ['Midtown', 'Lakeshore Metro', '2', '9', '1 of 9', '2 of 9', 'View queries'],
+    ])
+    expect(count()).toBe('2 markets · no non-brand mention')
+    // Each column that counts answers says what of.
+    expect(screen.getByRole('button', { name: 'Of the answers read, those that mention another of your locations instead.' })).toBeTruthy()
+    // A weak market's next step is its queries: every row offers them, and no row adds one here.
+    fireEvent.click(screen.getByRole('button', { name: 'View queries for Uptown' }))
+    expect(onOpen.mock.calls).toEqual([[{ kind: 'market', key: 'uptown', label: 'Uptown' }]])
+    expect(screen.queryByRole('button', { name: /^Add market query/ })).toBeNull()
+    expect(onAdd).not.toHaveBeenCalled()
+    // Any column can still put the list in order; the server's order is the first.
+    sortBy('Weakest markets', 'Other location')
+    expect(firstCells('Weakest markets')).toEqual(['Midtown', 'Uptown'])
+    expectNoSentence(table('Weakest markets'))
+  })
+
+  test('a market\'s Group names the group above the market\'s own, which usually only repeats the market\'s name', () => {
+    const workspace = { ...WORKSPACE, groups: WORKSPACE.groups.map(group => group.stableKey === 'north' ? { ...group, parentGroupKey: 'metro' } : group) } as typeof WORKSPACE
+    renderList({ workspace })
+    expect(cells('Thin markets').find(row => row[0] === 'Uptown')![1]).toBe('Lakeshore Metro')
+    // A market whose group has none above it keeps that group.
+    expect(cells('Thin markets').find(row => row[0] === 'Lakeview')![1]).toBe('Lakeshore Metro')
+  })
+
   test('Weakest markets names the type of the mentions its count is of, waits for the results and says when they did not load', () => {
     const onRetry = vi.fn()
     // The results count four weak markets and list one here.

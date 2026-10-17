@@ -35,6 +35,8 @@ export function useTrackedResults(
     pendingRows: data?.pendingRows,
     // The whole project's read, after a sweep. Left out for a place, before the first sweep and while the read is in flight.
     weakMarkets: data?.weakMarkets,
+    // Mentioned and Cited over the listed rows, one entry per type, never pooled. Left out before the first sweep.
+    totals: data?.totals,
     isError: failed,
     refetch: query.refetch,
   }

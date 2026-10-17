@@ -19,6 +19,7 @@ import { MARKET_SCOPE_COPY } from '../VisibilityScopePicker.js'
 import { VISIBILITY_TOOLBAR_COPY } from '../VisibilityTrendSection.js'
 import { TrackedActionSheet, type TrackedSheetAction } from '../queries/advanced/TrackedActionSheet.js'
 import { TrackedRowMenu } from '../queries/advanced/TrackedRowMenu.js'
+import { TrackedRowAnswers } from '../queries/advanced/TrackedRowAnswers.js'
 import { TrackedTable } from '../queries/advanced/TrackedTable.js'
 import type { TrackedPlace } from '../queries/advanced/tracked-actions.js'
 import type { TrackedRowAction, TrackedRowVm, TrackedType } from '../queries/advanced/tracked-types.js'
@@ -326,7 +327,19 @@ function TrackedFor({ projectName, workspace, target, results, canWrite, trackin
   // The legend goes with the first list that draws chips.
   const legendAt = listed.location.length > 0 ? 'location' : marketGroups.length > 0 ? 'market' : 'picked'
   const table = (rows: readonly TrackedRowVm[], label: string) => (
-    <TrackedTable rows={rows} engines={engines} coverage={results.coverage} renderRowMenu={renderRowMenu} workspace={workspace} contextLabels={rowContextLabels} columns={COLUMNS} label={label} />
+    <TrackedTable
+      rows={rows}
+      engines={engines}
+      coverage={results.coverage}
+      renderRowMenu={renderRowMenu}
+      workspace={workspace}
+      contextLabels={rowContextLabels}
+      columns={COLUMNS}
+      label={label}
+      projectName={projectName}
+      currentTargetKey={targetKey}
+      renderRowAnswers={row => row.tracked.assignments.length === 0 ? null : <TrackedRowAnswers projectName={projectName} selection={{ measurementScope: 'property', measurementScopeKey: targetKey }} queryId={row.queryId} runId={results.run?.id} targetLabel={key => workspace.targets.find(target => target.stableKey === key)?.label ?? key} />}
+    />
   )
 
   return (

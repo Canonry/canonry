@@ -212,7 +212,7 @@ function measuredDay(iso: string): string {
  */
 export function TrackedTable({
   rows, engines, coverage, sort, onSortChange, selectedIds, onSelectedIdsChange, highlightedId, renderRowMenu, nextSweepDate, workspace, contextLabels,
-  columns, label = 'Tracked queries', emptyState, marksFor,
+  columns, label = 'Tracked queries', emptyState, marksFor, renderRowAnswers, projectName, currentTargetKey,
 }: {
   rows: readonly TrackedRowVm[]
   /** Engine keys, one column each, in this order. */
@@ -247,6 +247,12 @@ export function TrackedTable({
   emptyState?: ReactNode
   /** Whose mention or citation a row's marks of one type are in the Place shown (`marksSubject`). Each pair's bubble opens with it. */
   marksFor?: (row: TrackedRowVm, queryClass: string) => string | undefined
+  /** What each engine answered for an opened row, drawn first in it. */
+  renderRowAnswers?: (row: TrackedRowVm) => ReactNode
+  /** With it, an opened row links each location to its page and each market to its queries. */
+  projectName?: string
+  /** The location whose page the table is on: its own name is not a link. */
+  currentTargetKey?: string
 }) {
   const tableId = useId()
   const [frameRef, frameWidth] = useFrameWidth()
@@ -501,7 +507,7 @@ export function TrackedTable({
                 </tr>
                 {open ? (
                   <tr id={detailId} className="tracked-detail-row" data-highlighted={row.queryId === highlightedId ? '' : undefined}>
-                    <td colSpan={columnCount}><TrackedRowDetail row={row} workspace={workspace} contextLabels={contextLabels} /></td>
+                    <td colSpan={columnCount}><TrackedRowDetail row={row} workspace={workspace} contextLabels={contextLabels} answers={renderRowAnswers?.(row)} projectName={projectName} currentTargetKey={currentTargetKey} /></td>
                   </tr>
                 ) : null}
               </Fragment>

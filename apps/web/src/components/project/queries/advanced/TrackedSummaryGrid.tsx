@@ -1,7 +1,9 @@
 import { forwardRef, useId, useState, type CSSProperties, type ReactNode } from 'react'
-import { AlertTriangle, ChevronRight, Loader, type LucideProps } from 'lucide-react'
-import type { QueryTrackingGroup, QueryTrackingLimits, QueryTrackingMarket, QueryTrackingSummary, QueryTrackingTarget } from '@canonry/canonry-contracts'
+import { AlertTriangle, ChevronRight, Info, Loader, type LucideProps } from 'lucide-react'
+import { formatPercent } from '@canonry/canonry-contracts'
+import type { QueryTrackingGroup, QueryTrackingLimits, QueryTrackingMarket, QueryTrackingResultTotals, QueryTrackingSummary, QueryTrackingTarget } from '@canonry/canonry-contracts'
 
+import { excludedAnswersLabel } from '../../../../lib/format-helpers.js'
 import { formatObservedInstantLabel, formatObservedInstantMonthDay, observedInstant, observedInstantYear } from '../../../shared/ChartPrimitives.js'
 import { InfoTooltip } from '../../../shared/InfoTooltip.js'
 import { StatusNote } from '../../../shared/StatusNote.js'
@@ -23,7 +25,7 @@ const HELP = {
   answers: 'Answers one sweep collects: each query on every engine and search location it is asked on.',
   placeAnswers: 'Answers one sweep collects for this place. Places share answers, so they do not add up to the project total.',
   locationAnswers: 'Answers one sweep collects for this location, its market queries included. Locations share answers, so they do not add up to the project total.',
-  links: 'One link for each query, location and search location it is asked for.',
+  links: 'One for each location a query counts for, on each search location.',
 }
 
 /** A list the server returned gives its length; one it left out gives no cell. Nothing is counted in its place. */
@@ -52,9 +54,9 @@ function detailStats(summary: QueryTrackingSummary): Stat[] {
     summary.byClass.mixed > 0 && { label: 'Mixed type', value: summary.byClass.mixed },
     summary.byClass.unknown > 0 && { label: 'Not set', value: summary.byClass.unknown },
     { label: 'Not asked', value: summary.notAsked },
-    { label: 'Location links', value: summary.assignments.total, help: HELP.links },
-    { label: 'Non-brand links', value: summary.assignments.nonBrand },
-    { label: 'Branded links', value: summary.assignments.branded },
+    { label: 'Query-location pairs', value: summary.assignments.total, help: HELP.links },
+    { label: 'Non-brand pairs', value: summary.assignments.nonBrand },
+    { label: 'Branded pairs', value: summary.assignments.branded },
   ])
 }
 
@@ -86,6 +88,79 @@ function placeStats(place: TrackedSummaryPlace): Stat[] | null {
     { label: 'Markets', value: counts.markets },
     { label: 'Answers per sweep', value: counts.answersPerSweep, help: HELP.placeAnswers },
   ]) : null
+}
+
+/**
+ * What the results read says about the listed queries: `loading` while it is in flight, `none` before the
+ * first sweep, `error` after a failed read, otherwise `ready` with the server's totals.
+ */
+export type TrackedResultsState =
+  | { state: 'loading' }
+  | { state: 'none' }
+  | { state: 'error' }
+  | { state: 'ready'; totals: readonly QueryTrackingResultTotals[] | undefined }
+
+/** Non-brand leads, as every report does; the two types are never one number. */
+const TYPE_ORDER = ['non-brand', 'branded', 'unknown'] as const
+const TYPE_LABEL: Record<(typeof TYPE_ORDER)[number], string> = { 'non-brand': 'Non-brand', branded: 'Branded', unknown: 'Not set' }
+const RATE_REASON: Record<string, string> = {
+  'no-population': 'No answer in the last sweep for these queries.',
+  incomplete: 'The last sweep did not finish for these queries.',
+  'evidence-incomplete': 'Sources were not saved for these answers.',
+  'identity-ambiguous': 'No answer could be tied to one location.',
+  'not-applicable': 'Not counted for this place.',
+}
+
+type Rate = QueryTrackingResultTotals['mentionCoverage']
+
+/** The rate's own sentence: its two counts, and the answers it left out. The figure itself is the server's rate. */
+function rateDetail(rate: Rate, signal: 'mentioned' | 'cited'): string {
+  if (rate.rate === null || rate.numerator === null || rate.denominator === null) return RATE_REASON[rate.reason ?? ''] ?? 'Not measured in the last sweep.'
+  const verb = signal === 'mentioned' ? 'mention' : 'cite'
+  const counted = `${whole(rate.numerator)} of ${whole(rate.denominator)} answers in the last sweep ${verb} a location the query is asked for.`
+  const left = excludedAnswersLabel(rate, signal)
+  return left ? `${counted} ${left}.` : counted
+}
+
+/** The figure reads before its word, as the counts do: the term leads in the markup and follows on screen. */
+function RateFigure({ rate, signal, lead }: { rate: Rate; signal: 'mentioned' | 'cited'; lead: boolean }) {
+  const measured = rate.rate !== null
+  return (
+    <div className="flex min-w-0 flex-row-reverse items-baseline justify-end gap-1.5">
+      <dt className={LABEL}>{signal}<InfoTooltip text={rateDetail(rate, signal)} /></dt>
+      <dd className={lead && measured ? NUMBER : 'text-[15px] font-medium leading-6 tabular-nums text-heading'}>{measured ? formatPercent(rate.rate) : 'Not measured'}</dd>
+    </div>
+  )
+}
+
+/**
+ * The last sweep's result for the listed queries: per type, the share of answers that mention and that cite
+ * a location the query is asked for. Every figure is a field of the results read.
+ */
+export function TrackedResultFigures({ results }: { results: TrackedResultsState }) {
+  if (results.state === 'none') return null
+  if (results.state === 'loading') return (
+    <div role="status" aria-label="Loading results" className="flex min-w-0 flex-wrap items-baseline gap-x-6 gap-y-1">
+      <div aria-hidden="true" className="flex items-center gap-3"><div className="skeleton-text w-16" /><div className="skeleton-text h-6 w-20" /><div className="skeleton-text w-16" /></div>
+      <div aria-hidden="true" className="flex items-center gap-3"><div className="skeleton-text w-14" /><div className="skeleton-text w-16" /><div className="skeleton-text w-14" /></div>
+    </div>
+  )
+  if (results.state === 'error') return <StatusNote icon={AlertTriangle} tone="caution" label="Results unavailable" detail="The last sweep's results did not load." />
+  const totals = TYPE_ORDER.flatMap(type => results.totals?.filter(total => total.queryClass === type) ?? [])
+  if (totals.length === 0) return <StatusNote icon={Info} label="Not measured" detail="No query listed here was in the last sweep." />
+  return (
+    <div className="flex min-w-0 flex-wrap items-baseline gap-x-6 gap-y-1">
+      {totals.map((total, index) => (
+        <div key={total.queryClass} role="group" aria-label={`${TYPE_LABEL[total.queryClass]} results`} className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span className="text-[13px] font-medium leading-5 text-strong">{TYPE_LABEL[total.queryClass]}</span>
+          <dl className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+            <RateFigure rate={total.mentionCoverage} signal="mentioned" lead={index === 0} />
+            <RateFigure rate={total.citationCoverage} signal="cited" lead={false} />
+          </dl>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 // The strip has three shapes, decided by its own width, not the window's: the sidebar takes its share of a
@@ -182,10 +257,12 @@ function StatCell({ stat, className, numberClassName = NUMBER, onClick }: { stat
  * is not known yet. `nextSweepDate` is the schedule's own date ("Oct 21"); a
  * sweep under way (`sweepActive`) takes its place.
  */
-export function TrackedSummaryGrid({ summary, place, lastSweepAt, nextSweepDate, sweepActive = false, onShowNotAsked, onRetry }: {
+export function TrackedSummaryGrid({ summary, place, results, lastSweepAt, nextSweepDate, sweepActive = false, onShowNotAsked, onRetry }: {
   summary: QueryTrackingSummary | undefined
   limits?: QueryTrackingLimits
   place?: TrackedSummaryPlace
+  /** The last sweep's result for the listed queries. Left out, the strip shows counts only. */
+  results?: TrackedResultsState
   lastSweepAt?: string | null
   nextSweepDate?: string
   sweepActive?: boolean
@@ -220,13 +297,18 @@ export function TrackedSummaryGrid({ summary, place, lastSweepAt, nextSweepDate,
     detail="These numbers did not load."
     action={onRetry ? <Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11 max-md:min-h-11" onClick={onRetry}>Retry</Button> : undefined}
   />
+  // The result leads the strip; the counts of queries follow it.
+  const figures = results && results.state !== 'none' ? <TrackedResultFigures results={results} /> : null
 
   if (!place) return (
     <div className="@container border-b border-default">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3">
-        {stats ? <dl className="flex min-w-0 flex-wrap items-baseline gap-x-5 gap-y-1">
-          {stats.map((stat, index) => <StatCell key={stat.label} stat={stat} className="flex min-w-0 flex-row-reverse items-baseline gap-1.5" numberClassName={index === 0 ? NUMBER : 'text-[13px] tabular-nums text-secondary'} />)}
-        </dl> : unavailable}
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-6 gap-y-2">
+          {figures}
+          {stats ? <dl className="flex min-w-0 flex-wrap items-baseline gap-x-5 gap-y-1">
+            {stats.map((stat, index) => <StatCell key={stat.label} stat={stat} className="flex min-w-0 flex-row-reverse items-baseline gap-1.5" numberClassName={index === 0 && !figures ? NUMBER : 'text-[13px] tabular-nums text-secondary'} />)}
+          </dl> : unavailable}
+        </div>
         <div className="flex min-w-0 flex-wrap items-center gap-x-4 text-[13px] leading-5 text-secondary">
           {sweepDates}
           {details ? <button type="button" className={LINK} aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen(value => !value)}>
@@ -245,6 +327,7 @@ export function TrackedSummaryGrid({ summary, place, lastSweepAt, nextSweepDate,
 
   return (
     <div className="@container">
+      {figures ? <div className="border-t border-default py-3">{figures}</div> : null}
       <div className={`${STRIP} ${ROW[shape].strip}`} style={stripStyle(count)}>
         {stats ? <dl className="contents">
           {stats.map((stat, index) => <StatCell key={stat.label} stat={stat} className={cellClass(index, count, shape)} />)}

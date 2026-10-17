@@ -901,7 +901,7 @@ describe('TrackedTable', () => {
   })
 
   describe('row detail', () => {
-    const links = () => screen.getByRole('table', { name: 'Location links' })
+    const links = () => screen.getByRole('table', { name: 'Counts for' })
     const linkRows = () => within(links()).getAllByRole('row').slice(1).map(row => [...row.children].map(cell => cell.textContent))
     const facts = (text: string) => [...rowOf(text).nextElementSibling!.querySelectorAll('dl > div')].map(fact => [...fact.children].map(part => part.textContent))
 
@@ -912,7 +912,7 @@ describe('TrackedTable', () => {
           <TrackedTable rows={toTrackedRows(source, [])} engines={['openai']} coverage={undefined} workspace={source} contextLabels={contextLabels} />
         </AccountProvider>,
       )
-      expect(screen.queryByRole('table', { name: 'Location links' })).toBeNull()
+      expect(screen.queryByRole('table', { name: 'Counts for' })).toBeNull()
       fireEvent.click(query(HAND_PICKED))
       expect(query(HAND_PICKED).getAttribute('aria-expanded')).toBe('true')
       // One location is asked from two search locations, so each row says its own.
@@ -974,7 +974,7 @@ describe('TrackedTable', () => {
       expect([count, query(HAND_PICKED)].map(button => button.getAttribute('aria-expanded'))).toEqual(['true', 'true'])
       expect(document.getElementById(count.getAttribute('aria-controls')!)).toBe(rowOf(HAND_PICKED).nextElementSibling)
       fireEvent.click(query(HAND_PICKED))
-      expect(screen.queryByRole('table', { name: 'Location links' })).toBeNull()
+      expect(screen.queryByRole('table', { name: 'Counts for' })).toBeNull()
 
       // A market's count is named in words for a reader of the page.
       fireEvent.click(within(rowOf(MARKET)).getByRole('button', { name: '3 locations' }))
@@ -1024,7 +1024,7 @@ describe('TrackedTable', () => {
     it('shows the facts alone for a row that is not asked', () => {
       setup()
       fireEvent.click(query(NOT_ASKED))
-      expect(screen.queryByRole('table', { name: 'Location links' })).toBeNull()
+      expect(screen.queryByRole('table', { name: 'Counts for' })).toBeNull()
       expect(facts(NOT_ASKED)).toEqual([['Source', 'Older list'], ['Last measured', 'Never']])
     })
 
@@ -1048,7 +1048,7 @@ describe('TrackedTable', () => {
       // Closed by hand, it stays closed until the link changes.
       fireEvent.click(query(LOCATION))
       rerender({ highlightedId: 'location' })
-      expect(screen.queryByRole('table', { name: 'Location links' })).toBeNull()
+      expect(screen.queryByRole('table', { name: 'Counts for' })).toBeNull()
       rerender({ highlightedId: 'not-asked' })
       expect(query(NOT_ASKED).getAttribute('aria-expanded')).toBe('true')
       expect(scrollIntoView.mock.contexts).toEqual([rowOf(LOCATION), rowOf(NOT_ASKED)])

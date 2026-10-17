@@ -31,6 +31,7 @@ import type { TrackedQueriesPageProps, TrackingComposerState } from '../use-trac
 import { TrackedActionSheet, type TrackedSheetAction } from './TrackedActionSheet.js'
 import { TrackedBulkBar, type TrackedBulkAction } from './TrackedBulkBar.js'
 import { TrackedPlaceList } from './TrackedPlaceList.js'
+import { TrackedRowAnswers } from './TrackedRowAnswers.js'
 import { TrackedRowMenu } from './TrackedRowMenu.js'
 import { TrackedSavedViews, trackedPlaceView, type TrackedSavedView } from './TrackedSavedViews.js'
 import { TrackedSummaryGrid, type TrackedSummaryPlace } from './TrackedSummaryGrid.js'
@@ -227,6 +228,11 @@ function TrackedPage({
   const marksFor = useMemo(() => {
     const targetLabels = new Map(workspace.targets.map(target => [target.stableKey, target.label]))
     return (row: TrackedRowVm, queryClass: string) => marksSubject(row, row.displayAssignments ?? row.tracked.assignments, targetLabels, queryClass)
+  }, [workspace.targets])
+  // A location's name by its key, for the locations an answer mentions.
+  const targetLabel = useMemo(() => {
+    const labels = new Map(workspace.targets.map(target => [target.stableKey, target.label]))
+    return (key: string) => labels.get(key) ?? key
   }, [workspace.targets])
 
   // The page number belongs to one list: another search, filter, place, order or page size starts at the first page.
@@ -532,6 +538,7 @@ function TrackedPage({
           summary={workspace.summary}
           limits={workspace.limits}
           place={place?.summary}
+          results={results.isError ? { state: 'error' } : results.coverage === undefined || run === undefined ? { state: 'loading' } : run === null ? { state: 'none' } : { state: 'ready', totals: results.totals }}
           lastSweepAt={run === undefined ? undefined : run ? run.completedAt ?? run.createdAt : null}
           nextSweepDate={nextSweepDate}
           sweepActive={sweepActive}
@@ -584,6 +591,9 @@ function TrackedPage({
               nextSweepDate={nextSweepDate}
               workspace={workspace}
               contextLabels={rowContextLabels}
+              projectName={embedded ? undefined : projectName}
+              // A query no sweep asks has no answers to read.
+              renderRowAnswers={row => row.tracked.assignments.length === 0 ? null : <TrackedRowAnswers projectName={projectName} selection={selection} queryId={row.queryId} runId={run?.id} targetLabel={targetLabel} />}
               // The section is Tracked queries, so the table inside it has a name of its own.
               label="Queries"
               emptyState={emptyState}

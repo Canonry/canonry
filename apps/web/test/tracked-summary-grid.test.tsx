@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import type { QueryTrackingLimits, QueryTrackingSummary } from '@canonry/canonry-contracts'
+import type { QueryTrackingLimits, QueryTrackingResultTotals, QueryTrackingSummary } from '@canonry/canonry-contracts'
 
-import { TrackedSummaryGrid, TrackedSummaryGridSkeleton, type TrackedSummaryPlace } from '../src/components/project/queries/advanced/TrackedSummaryGrid.js'
+import { TrackedSummaryGrid, TrackedSummaryGridSkeleton, type TrackedResultsState, type TrackedSummaryPlace } from '../src/components/project/queries/advanced/TrackedSummaryGrid.js'
 import { TrackedToolbar } from '../src/components/project/queries/advanced/TrackedToolbar.js'
 import { parseTrackedFilters, trackedFiltersPatch } from '../src/components/project/queries/advanced/tracked-filters.js'
 import { formatObservedInstantLabel, formatObservedInstantMonthDay, observedInstant } from '../src/components/shared/ChartPrimitives.js'
@@ -36,7 +36,7 @@ const LIMITS: QueryTrackingLimits = { queries: { current: 932, next: 932, max: 1
 const LAST_SWEEP = '2026-10-07T15:00:00.000Z'
 // The strip dates a sweep in the viewer's own timezone, so the day it names is read the same way here: the 7th in most zones, the 8th east of UTC+9.
 const LAST_SWEEP_DAY = formatObservedInstantMonthDay(observedInstant(LAST_SWEEP))
-const DETAIL_LABELS = ['Answers per sweep', 'Market queries', 'Location queries', 'Hand-picked queries', 'Not asked', 'Location links', 'Non-brand links', 'Branded links']
+const DETAIL_LABELS = ['Answers per sweep', 'Market queries', 'Location queries', 'Hand-picked queries', 'Not asked', 'Query-location pairs', 'Non-brand pairs', 'Branded pairs']
 
 /** The number under a label, as it reads. */
 const stat = (label: string, scope: HTMLElement = document.body) => within(scope).getByText(label).closest('div')!.querySelector('dd')!.textContent
@@ -121,7 +121,7 @@ describe('TrackedSummaryGrid, project strip', () => {
     expect(detailsList().hidden).toBe(false)
     expect(labels(detailsList())).toEqual(DETAIL_LABELS)
     expect(DETAIL_LABELS.map(label => stat(label, detailsList()))).toEqual(['2,796', '547', '371', '12', '38', '2,412', '2,017', '390'])
-    expect(helpFor('One link for each query, location and search location it is asked for.')).toBe('Location links')
+    expect(helpFor('One for each location a query counts for, on each search location.')).toBe('Query-location pairs')
 
     fireEvent.click(details())
     expect(detailsList().hidden).toBe(true)
@@ -132,11 +132,11 @@ describe('TrackedSummaryGrid, project strip', () => {
     for (const label of ['Company queries', 'Mixed type', 'Not set']) expect(within(detailsList()).queryByText(label)).toBeNull()
 
     rerender(<TrackedSummaryGrid summary={{ ...SUMMARY, byFocus: { ...SUMMARY.byFocus, company: 7 } }} limits={LIMITS} />)
-    expect(labels(detailsList())).toEqual(['Answers per sweep', 'Market queries', 'Location queries', 'Hand-picked queries', 'Company queries', 'Not asked', 'Location links', 'Non-brand links', 'Branded links'])
+    expect(labels(detailsList())).toEqual(['Answers per sweep', 'Market queries', 'Location queries', 'Hand-picked queries', 'Company queries', 'Not asked', 'Query-location pairs', 'Non-brand pairs', 'Branded pairs'])
     expect(stat('Company queries', detailsList())).toBe('7')
 
     rerender(<TrackedSummaryGrid summary={{ ...SUMMARY, byClass: { ...SUMMARY.byClass, mixed: 5, unknown: 2 } }} limits={LIMITS} />)
-    expect(labels(detailsList())).toEqual(['Answers per sweep', 'Market queries', 'Location queries', 'Hand-picked queries', 'Mixed type', 'Not set', 'Not asked', 'Location links', 'Non-brand links', 'Branded links'])
+    expect(labels(detailsList())).toEqual(['Answers per sweep', 'Market queries', 'Location queries', 'Hand-picked queries', 'Mixed type', 'Not set', 'Not asked', 'Query-location pairs', 'Non-brand pairs', 'Branded pairs'])
     expect([stat('Mixed type', detailsList()), stat('Not set', detailsList())]).toEqual(['5', '2'])
   })
 
@@ -323,3 +323,67 @@ describe('TrackedSummaryGrid, layout', () => {
     expect(screen.queryAllByRole('button')).toEqual([])
   })
 })
+
+// No rate here is its counts divided: printing anything but the server's own rate gives a different figure.
+const rate = (numerator: number, denominator: number, value: number, extra: Partial<QueryTrackingResultTotals['mentionCoverage']> = {}) => ({ numerator, denominator, rate: value, ...extra })
+const TOTALS: QueryTrackingResultTotals[] = [
+  { queryClass: 'branded', queries: 384, answers: 1152, mentionCoverage: rate(1144, 1145, 0.99913, { unattributed: 7 }), citationCoverage: rate(1069, 1152, 0.928) },
+  { queryClass: 'non-brand', queries: 548, answers: 1644, mentionCoverage: rate(541, 1644, 0.4), citationCoverage: rate(192, 1643, 0.1168, { unchecked: 1 }) },
+]
+const READY: TrackedResultsState = { state: 'ready', totals: TOTALS }
+const resultsOf = (type: string) => screen.getByRole('group', { name: `${type} results` })
+
+describe('TrackedSummaryGrid, results', () => {
+  test('leads with the last sweep\'s result, Non-brand first, each figure the server\'s own rate, the two types never one number', () => {
+    render(<TrackedSummaryGrid summary={SUMMARY} limits={LIMITS} results={READY} lastSweepAt={LAST_SWEEP} />)
+    const groups = screen.getAllByRole('group').filter(group => / results$/.test(group.getAttribute('aria-label') ?? ''))
+    expect(groups.map(group => group.getAttribute('aria-label'))).toEqual(['Non-brand results', 'Branded results'])
+    // In the markup each word leads its figure; on screen the figure reads first.
+    expect(visibleText(groups[0]!)).toBe('Non-brandmentioned40.0%cited11.7%')
+    expect(visibleText(groups[1]!)).toBe('Brandedmentioned99.9%cited92.8%')
+    // Each rate's counts, and the answers it left out, are its help.
+    expect(screen.getByRole('button', { name: '541 of 1,644 answers in the last sweep mention a location the query is asked for.' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '192 of 1,643 answers in the last sweep cite a location the query is asked for. 1 of 1644 answers had sources that could not be checked.' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '1,144 of 1,145 answers in the last sweep mention a location the query is asked for. 7 of 1152 answers could not be tied to one location.' })).toBeTruthy()
+    // The counts of queries follow the result, every one in the small type.
+    expect(stat('Queries asked')).toBe('932')
+    expect(screen.getByText('Queries asked').closest('div')!.querySelector('dd')!.className).not.toMatch(/font-semibold/)
+    expect(resultsOf('Non-brand').querySelector('dd')!.className).toMatch(/font-semibold/)
+    expect(resultsOf('Branded').querySelector('dd')!.className).not.toMatch(/font-semibold/)
+  })
+
+  test('says while the results are read, before any sweep, after a failed read, and when no listed query was swept', () => {
+    const { rerender } = render(<TrackedSummaryGrid summary={SUMMARY} results={{ state: 'loading' }} />)
+    expect(screen.getByRole('status', { name: 'Loading results' }).textContent).toBe('')
+    // Before the first sweep the strip is the counts, the first one leading as it always has.
+    rerender(<TrackedSummaryGrid summary={SUMMARY} results={{ state: 'none' }} />)
+    expect(screen.queryByRole('status', { name: 'Loading results' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Non-brand results' })).toBeNull()
+    expect(screen.getByText('Queries asked').closest('div')!.querySelector('dd')!.className).toMatch(/font-semibold/)
+    rerender(<TrackedSummaryGrid summary={SUMMARY} results={{ state: 'error' }} />)
+    expect(screen.getByText('Results unavailable')).toBeTruthy()
+    expect(screen.getByRole('button', { name: "Results unavailable. The last sweep's results did not load." })).toBeTruthy()
+    rerender(<TrackedSummaryGrid summary={SUMMARY} results={{ state: 'ready', totals: [] }} />)
+    expect(screen.getByText('Not measured')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Not measured. No query listed here was in the last sweep.' })).toBeTruthy()
+  })
+
+  test('a rate the server could not give reads Not measured, with its reason', () => {
+    const unavailable = { numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous' as const }
+    render(<TrackedSummaryGrid summary={SUMMARY} results={{ state: 'ready', totals: [{ ...TOTALS[1]!, mentionCoverage: unavailable }] }} />)
+    expect(visibleText(resultsOf('Non-brand'))).toBe('Non-brandmentionedNot measuredcited11.7%')
+    expect(screen.getByRole('button', { name: 'No answer could be tied to one location.' })).toBeTruthy()
+    expect(screen.queryByRole('group', { name: 'Branded results' })).toBeNull()
+  })
+
+  test('a place leads with its own result, above its counts', () => {
+    const place: TrackedSummaryPlace = { kind: 'market', market: { stableKey: 'uptown', label: 'Uptown', groupKey: null, targetKeys: ['a', 'b', 'c'], usageEdges: [], contexts: [], counts: { marketQueries: 4, propertyQueries: 6, customQueries: 0, answersPerSweep: 30, queries: 10, byClass: { branded: 6, nonBrand: 4, mixed: 0, unknown: 0 } } } as never }
+    const { container } = render(<TrackedSummaryGrid summary={SUMMARY} place={place} results={READY} lastSweepAt={LAST_SWEEP} />)
+    const results = resultsOf('Non-brand')
+    const counts = screen.getByText('Market queries').closest('dl')!
+    expect(results.compareDocumentPosition(counts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(stat('Market queries')).toBe('4')
+    expect(container.textContent).not.toMatch(/Queries asked/)
+  })
+})
+

@@ -569,7 +569,7 @@ test.each([['a viewer', true], ['a writer', false]] as const)('a row link opens 
   expect(screen.getByText('51 to 60 of 60 queries')).toBeTruthy()
   expect(linked.hasAttribute('data-highlighted')).toBe(true)
   expect(within(linked).getByRole('button', { name: 'apartments query 57' }).getAttribute('aria-expanded')).toBe('true')
-  expect(within(linked.nextElementSibling as HTMLElement).getByRole('table', { name: 'Location links' })).toBeTruthy()
+  expect(within(linked.nextElementSibling as HTMLElement).getByRole('table', { name: 'Counts for' })).toBeTruthy()
   // A link is a place in the list, never an action.
   expect(screen.queryByRole('dialog')).toBeNull()
   expect(screen.queryByRole('heading', { name: /^(Edit|Remove|Add) query$/ })).toBeNull()
@@ -1125,7 +1125,7 @@ test('two search locations that read alike by engine name keep the Add query for
   installApi({ workspace: () => portfolio({ defaultContexts: [on('gpt-5')], tracked: [tracked('q-two-models', UPTOWN_BEST, { kind: 'market', key: 'uptown' }, asked)] }) })
   renderWorkspace()
   fireEvent.click(await screen.findByRole('button', { name: UPTOWN_BEST }))
-  const links = within(rowOf(UPTOWN_BEST).nextElementSibling as HTMLElement).getByRole('table', { name: 'Location links' })
+  const links = within(rowOf(UPTOWN_BEST).nextElementSibling as HTMLElement).getByRole('table', { name: 'Counts for' })
   expect(within(links).getAllByRole('row').slice(1).map(row => [row.cells[0]!.textContent, row.cells[4]!.textContent])).toEqual([
     ['Harbor Point', 'Lakeshore · openai (gpt-5)'],
     ['River Point', 'Lakeshore · openai (gpt-5-mini)'],

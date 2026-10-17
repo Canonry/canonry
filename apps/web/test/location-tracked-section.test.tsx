@@ -796,10 +796,15 @@ test('shows a viewer the same lists and numbers with no row menu, and opens a ro
   expect(within(main()).getByRole('table', { name: 'Market queries' })).toBeTruthy()
 
   fireEvent.click(within(own).getByRole('button', { name: HARBOR_REVIEWS }))
-  const links = within(own).getByRole('table', { name: 'Location links' })
+  const links = within(own).getByRole('table', { name: 'Counts for' })
   // Groups and markets are parted by a dot, and engines read by their display names.
   expect(cells(links)).toEqual([['Harbor Point', 'North, Lakeshore', 'Uptown, Lakeshore · Downtown', 'Branded']])
   expect(within(own).getByText('Lakeshore · OpenAI, Gemini')).toBeTruthy()
+  // Each market leads to its queries; the location the page is about is not a link to itself.
+  expect(within(links).getByRole('link', { name: 'Open market Uptown, Lakeshore' }).getAttribute('href')).toMatch(/measurementScope=market&measurementScopeKey=uptown/)
+  expect(within(links).queryByRole('link', { name: /^Location details for / })).toBeNull()
+  // Opening the row reads what each engine answered for that one query, on the sweep the list reads.
+  await waitFor(() => expect(requests.some(request => /^GET \/query-tracking\/results\?scope=property&scopeKey=harbor&queryId=[^&]+&runId=run-1$/.test(request))).toBe(true))
 })
 
 test('shows skeleton rows while the workspace loads, then Could not load with a Retry that reads it again', async () => {

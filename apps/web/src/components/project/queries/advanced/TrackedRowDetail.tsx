@@ -1,7 +1,9 @@
 import { Fragment, useId, useMemo, type ReactNode } from 'react'
+import { Link } from '@tanstack/react-router'
 import type { QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import { formatSweepDay } from '../../../../lib/format-helpers.js'
+import { carryVisibilitySearch, patchVisibilitySelection } from '../../../../lib/measurement-view-url.js'
 import { DataTablePagination, useClientTable } from '../../../shared/DataTableControls.js'
 import { SearchLocationText } from '../../TrackingReview.js'
 import { assignmentTypeContexts } from '../tracking-contexts.js'
@@ -16,7 +18,11 @@ type Assignment = QueryTrackingTrackedRow['assignments'][number]
 export type TrackedContextLabels = (contexts: Assignment['contexts']) => (string | { label: string; detail: string })[]
 
 const LINKS_PAGE_SIZE = 25
-// The first column starts at the heading's edge, under "Location links". In a phone-width frame the columns close up.
+const LINK = 'rounded-sm underline-offset-[3px] hover:underline focus-visible:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
+/** Queries narrowed to one market, its rows on a clean list. */
+const marketSearch = (marketKey: string) => (previous: Record<string, unknown>) =>
+  patchVisibilitySelection(carryVisibilitySearch(previous), { measurementScope: 'market', measurementScopeKey: marketKey, queryWorkspace: 'tracked', trackingQueryId: undefined, trackedView: undefined })
+// The first column starts at the heading's edge, under "Counts for". In a phone-width frame the columns close up.
 const PAD = 'px-2.5 py-1.5 first:pl-0 last:pr-0 @max-[40rem]:px-1.5'
 const HEAD = `border-b border-default text-left text-[13px] font-medium leading-5 text-secondary ${PAD}`
 const CELL = `border-b border-subtle align-top ${PAD}`
@@ -36,29 +42,50 @@ const nameOf = (items: readonly { stableKey: string; label: string }[]) => {
  * column only when they differ. A row that is not asked has no locations, so
  * it shows the facts alone.
  */
-export function TrackedRowDetail({ row, workspace, contextLabels }: {
+export function TrackedRowDetail({ row, workspace, contextLabels, answers, projectName, currentTargetKey }: {
   row: TrackedRowVm
   workspace: Pick<QueryTrackingWorkspaceResponse, 'targets' | 'groups' | 'markets'>
   contextLabels: TrackedContextLabels
+  /** What each engine answered, first in the row. */
+  answers?: ReactNode
+  /** With it each location links to its page and each market to its queries. */
+  projectName?: string
+  /** The location whose page the row is on: it is not linked to itself. */
+  currentTargetKey?: string
 }) {
   const headingId = useId()
   const links = useMemo(() => {
     const target = nameOf(workspace.targets)
     const group = nameOf(workspace.groups)
     const market = nameOf(workspace.markets)
+    const listedTargets = new Set(workspace.targets.map(item => item.stableKey))
+    const listedMarkets = new Set(workspace.markets.map(item => item.stableKey))
     return row.tracked.assignments
       .map(assignment => ({
         key: assignment.targetKey,
+        listed: listedTargets.has(assignment.targetKey),
         location: target(assignment.targetKey),
         groups: assignment.groupKeys.map(group),
         types: assignmentTypeContexts(assignment).map(type => ({
-          markets: type.marketKeys.map(market),
+          markets: type.marketKeys.map(key => ({ key, label: market(key), listed: listedMarkets.has(key) })),
           type: typeLabel(type.queryClass ?? 'not-set'),
           searchLocations: contextLabels(type.contexts).map(named => typeof named === 'string' ? { label: named, detail: named } : named),
         })),
       }))
       .sort((left, right) => left.location.localeCompare(right.location, 'en', { sensitivity: 'base', numeric: true }))
   }, [row.tracked.assignments, workspace.targets, workspace.groups, workspace.markets, contextLabels])
+  // A key the workspace no longer lists has no page and no queries, so it stays text.
+  const locationCell = (link: (typeof links)[number]) => projectName && link.listed && link.key !== currentTargetKey
+    ? <Link to="/projects/$projectName/properties/$targetKey" params={{ projectName, targetKey: link.key }} search={carryVisibilitySearch} className={LINK} aria-label={`Location details for ${link.location}`}>{link.location}</Link>
+    : link.location
+  const marketsCell = (markets: readonly { key: string; label: string; listed: boolean }[]) => markets.length === 0 ? 'None' : markets.map((item, index) => (
+    <Fragment key={item.key}>
+      {index > 0 ? ' · ' : null}
+      {projectName && item.listed
+        ? <Link to="/projects/$projectName/queries" params={{ projectName }} search={marketSearch(item.key)} className={LINK} aria-label={`Open market ${item.label}`}>{item.label}</Link>
+        : item.label}
+    </Fragment>
+  ))
   const table = useClientTable({ rows: links, pageSize: LINKS_PAGE_SIZE })
   // One value for every location is said once, under the list.
   const types = links.flatMap(link => link.types)
@@ -75,8 +102,9 @@ export function TrackedRowDetail({ row, workspace, contextLabels }: {
 
   return (
     <div>
+      {answers}
       {links.length > 0 ? <>
-        <h4 id={headingId} className="text-[13px] font-medium leading-5 text-strong">Location links</h4>
+        <h4 id={headingId} className="text-[13px] font-medium leading-5 text-strong">Counts for</h4>
         {/* Five columns are wider than a phone, so with the last one the list scrolls inside its own frame. */}
         <div className="mt-1 overflow-x-auto">
           <table aria-labelledby={headingId} className={`w-full border-separate border-spacing-0 text-[13px] leading-5 text-neutral ${sharedSearch ? '' : 'min-w-[44rem]'}`}>
@@ -94,11 +122,11 @@ export function TrackedRowDetail({ row, workspace, contextLabels }: {
                 <Fragment key={link.key}>
                   {link.types.map((type, index) => <tr key={type.type}>
                     {index === 0 ? <>
-                      <td rowSpan={link.types.length} className={`${CELL} font-medium text-strong`}>{link.location}</td>
+                      <td rowSpan={link.types.length} className={`${CELL} font-medium text-strong`}>{locationCell(link)}</td>
                       {/* A name can hold a comma, so a comma cannot part two of them. */}
                       <td rowSpan={link.types.length} className={`${CELL} text-secondary`}>{link.groups.length > 0 ? link.groups.join(' · ') : 'None'}</td>
                     </> : null}
-                    <td className={`${CELL} text-secondary`}>{type.markets.length > 0 ? type.markets.join(' · ') : 'None'}</td>
+                    <td className={`${CELL} text-secondary`}>{marketsCell(type.markets)}</td>
                     <td className={`${CELL} whitespace-nowrap`}>{type.type}</td>
                     {sharedSearch ? null : <td className={`${CELL} text-secondary`}>{searchLines(type.searchLocations)}</td>}
                   </tr>)}
