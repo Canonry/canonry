@@ -34,7 +34,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "aero skill",
     description: "Diagnose AEO regressions and interpret Canonry AI visibility, Advanced multi-property portfolios, and Site Health evidence. Use when a mention or citation coverage number moved and needs explaining, when comparing Properties or markets, diagnosing crawl or page findings, preparing a client report or month-over-month comparison, or analyzing a completed `cnry` sweep or site audit. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations.",
     entryPoint: true,
-    characters: 19031,
+    characters: 20019,
     content: aeroSkillPart0,
   },
   {
@@ -84,7 +84,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Portfolio analysis",
     description: "Interpret Simple and Advanced portfolios, compare Properties and markets, trace answer evidence, and qualify missing or incompatible measurements.",
     entryPoint: false,
-    characters: 11287,
+    characters: 12496,
     content: aeroReferencesPortfolioAnalysisPart0,
   },
   {
@@ -164,7 +164,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 185094,
+    characters: 187145,
     content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2, canonryReferencesCanonryCliPart3].join(''),
   },
   {

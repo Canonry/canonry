@@ -15,19 +15,26 @@ import {
   QUERY_TRACKING_WEAK_MARKET_CLASS,
   QUERY_TRACKING_WEAK_MARKET_RULE,
   VisibilityReportScopeErrorReasons,
+  alternativeNames,
   brandKeyFromText,
   compareText,
   compileQueryClassifier,
   effectiveBrandNames,
+  hostOf,
+  normalizeIdentityText,
   measurementV2UsageEdgeKey,
   parseStoredMeasurementPlanAnyVersion,
   queryTrackingResultsRequestSchema,
   queryTrackingResultsResponseSchema,
+  registrableDomain,
   sortedUnique,
   validationError,
   type MeasurementPlanV2,
   type QueryTrackingAnswerRow,
+  type QueryTrackingCitedSource,
   type QueryTrackingEngineResult,
+  type QueryTrackingResultGroup,
+  type QueryTrackingResultTotals,
   type QueryTrackingResultRow,
   type QueryTrackingResultsQuery,
   type QueryTrackingResultsResponse,
@@ -36,6 +43,7 @@ import {
   type QueryTrackingWeakMarkets,
   type SimpleMeasurementDefinition,
   type VisibilityReportPopulationClass,
+  type VisibilityReportRate,
 } from '@canonry/canonry-contracts'
 import { measurementPlanVersions, projects, queries, runs, type DatabaseClient } from '@canonry/canonry-db'
 import { resolveProject } from './helpers.js'
@@ -105,6 +113,22 @@ export interface FoldDetail {
   checked: Map<QueryTrackingResultRow, { mention: number; citation: number }>
   /** The query and class pairs counted in `pendingRows`. */
   withheld: Array<Pick<QueryTrackingResultRow, 'queryId' | 'queryClass'>>
+  /** When set: each returned row's expected answers, so a subset of rows can be rated by the report's own rule. */
+  candidates?: Map<QueryTrackingResultRow, Candidate[]>
+  /** When set (a sweep read with its evidence): each returned row's saved answers, for the "who won" lists. */
+  evidence?: Map<QueryTrackingResultRow, AnswerEvidence[]>
+}
+
+/** One saved answer of a row, as the "who won" lists read it. */
+export interface AnswerEvidence {
+  provider: string
+  mention: boolean | null
+  /** Null when not checked, including sources only partly saved. */
+  citation: boolean | null
+  names: readonly string[]
+  sources: readonly string[]
+  competitorMentionDomains: readonly string[]
+  competitorCitationDomains: readonly string[]
 }
 
 /**
@@ -114,6 +138,19 @@ export interface FoldDetail {
  */
 export interface FoldAnswerRows {
   ownNameKeys: ReadonlySet<string>
+  /** The project's own sites, as registrable domains, for each cited source's `ours`. */
+  ownDomains: ReadonlySet<string>
+}
+
+/** Each source of one answer, with whose site it is. A competitor is one whose domain this answer's own evidence cites. */
+function citedSources(sources: readonly string[], ownDomains: ReadonlySet<string>, competitorDomains: readonly string[]): QueryTrackingCitedSource[] {
+  const competitors = new Set(competitorDomains.map(domain => registrableDomain(domain)).filter(Boolean))
+  return sources.flatMap(url => {
+    const host = hostOf(url)
+    if (!host) return []
+    const domain = registrableDomain(host)
+    return [{ url, host: host.replace(/^www\./, ''), ours: ownDomains.has(domain), competitor: competitors.has(domain) ? domain : null }]
+  })
 }
 
 function nameKeys(names: readonly string[]): Set<string> {
@@ -215,6 +252,8 @@ export function foldQueryTrackingResults(
     for (const edges of pair.edges.values()) for (const edge of edges) covered.add(edge.targetKey)
     const tallies = new Map<string, EngineTally>()
     const checked = { mention: 0, citation: 0 }
+    const rowCandidates: Candidate[] = []
+    const rowEvidence: AnswerEvidence[] = []
     for (const [executionId, edges] of pair.edges) {
       const expected = slots.get(executionId)
       if (!expected || expected.length === 0) throw new Error(`Frozen usage edge ${edges[0]!.id} has no execution slot`)
@@ -233,6 +272,7 @@ export function foldQueryTrackingResults(
         const observation = observations.get(slot.id) ?? null
         const candidate: Candidate = { run: sweep, slot, edges, observation }
         total.candidates.push(candidate)
+        rowCandidates.push(candidate)
         const values = targetValues(candidate, targets)
         tally.expectedAnswers++
         if (observation !== null) tally.answers++
@@ -250,6 +290,17 @@ export function foldQueryTrackingResults(
         } else if (values.citation === true) tally.citedAnswers++
         else if (values.citation === null) tally.citationUnknown = true
         if (sourcesSaved && values.citation !== null) checked.citation++
+        if (detail?.evidence && observation !== null) {
+          rowEvidence.push({
+            provider: slot.provider,
+            mention: values.mention,
+            citation: sourcesSaved ? values.citation : null,
+            names: observation.observedCompetitorNames,
+            sources: observation.sources,
+            competitorMentionDomains: observation.competitorMentionDomains,
+            competitorCitationDomains: observation.competitorCitationDomains,
+          })
+        }
 
         // Which covered locations made the answer a yes. Only a yes lists any,
         // so these lists never say more than the signals beside them.
@@ -274,6 +325,8 @@ export function foldQueryTrackingResults(
           for (const key of others) tally.otherLocationCitedTargetKeys.add(key)
         }
         if (answerRows) {
+          // A name is "instead" only when the answer did not mention the row; otherwise it was also named.
+          const names = alternativeNames(observation?.observedCompetitorNames ?? [], answerRows.ownNameKeys)
           tally.answerRows.push({
             // The answer read needs saved text, so an answer saved without it has no id here.
             resultId: observation !== null && observation.answerText !== null ? observation.answerId : null,
@@ -283,10 +336,9 @@ export function foldQueryTrackingResults(
             cited: observation !== null && !observation.citationComplete ? null : values.citation,
             mentionedTargetKeys: mentionedKeys,
             citedTargetKeys: citedKeys,
-            namedInstead: (observation?.observedCompetitorNames ?? []).filter(name => {
-              const key = brandKeyFromText(name)
-              return key.length > 0 && !answerRows.ownNameKeys.has(key)
-            }),
+            namedInstead: values.mention === false ? names : [],
+            alsoNamed: values.mention === false ? [] : names,
+            citedSources: observation === null ? [] : citedSources(observation.sources, answerRows.ownDomains, observation.competitorCitationDomains),
           })
         }
       }
@@ -325,6 +377,8 @@ export function foldQueryTrackingResults(
     const row = { queryId: pair.queryId, queryText: pair.queryText, queryClass: pair.queryClass, engines }
     rows.push(row)
     detail?.checked.set(row, checked)
+    detail?.candidates?.set(row, rowCandidates)
+    detail?.evidence?.set(row, rowEvidence)
   }
   rows.sort((left, right) => compareText(left.queryId, right.queryId) || compareText(left.queryClass, right.queryClass))
   if (answerRows) return { rows, pendingRows }
@@ -616,12 +670,334 @@ function weakMarkets(
   }
 }
 
+
+type ResultSignal = 'mentioned' | 'cited'
+type FoldedSweep = { rows: QueryTrackingResultRow[]; detail: FoldDetail; targets: Map<string, VisibilityReportRunInput['definition']['targets'][number]> }
+
+const rowKey = (row: Pick<QueryTrackingResultRow, 'queryId' | 'queryClass'>) => `${row.queryId}\u0000${row.queryClass}`
+
+function targetIndex(sweep: VisibilityReportRunInput): FoldedSweep['targets'] {
+  return new Map(sweep.definition.targets.map(target => [target.id, target]))
+}
+
+/** The project's own sites as registrable domains: a cited source on one is ours. */
+function ownDomainsOf(project: Pick<ProjectRow, 'canonicalDomain' | 'ownedDomains'>): Set<string> {
+  return new Set([project.canonicalDomain, ...(project.ownedDomains ?? [])].map(domain => registrableDomain(domain)).filter(Boolean))
+}
+
+/** A row's share of checked answers that show the signal, over its engines; null when none was checked. */
+function rowShare(row: QueryTrackingResultRow, signal: ResultSignal): number | null {
+  let shown = 0
+  let checked = 0
+  for (const engine of row.engines) {
+    if (signal === 'mentioned') {
+      shown += engine.mentionedAnswers
+      checked += engine.answers - (engine.unattributedMentionAnswers ?? 0)
+    } else {
+      shown += engine.citedAnswers
+      checked += engine.answers - engine.uncheckedSourceAnswers
+    }
+  }
+  return checked > 0 ? shown / checked : null
+}
+
+/** Losing first is the lowest share first, winning first the highest. A share that could not be read goes last either way. */
+function compareShares(left: number | null, right: number | null, sort: 'losing' | 'winning'): number {
+  if (left === null || right === null) return left === right ? 0 : left === null ? 1 : -1
+  return sort === 'losing' ? left - right : right - left
+}
+
+function sortRows(rows: readonly QueryTrackingResultRow[], signal: ResultSignal, sort: 'losing' | 'winning'): QueryTrackingResultRow[] {
+  return [...rows].sort((left, right) => (
+    compareShares(rowShare(left, signal), rowShare(right, signal), sort)
+    || compareText(normalizeIdentityText(left.queryText), normalizeIdentityText(right.queryText))
+    || compareText(left.queryClass, right.queryClass)
+  ))
+}
+
+/**
+ * Marks each engine's signal gained or lost since the previous sweep's row of
+ * the same query and class. Only two checked results compare: a not-checked
+ * answer on either side is no change.
+ */
+function markChanges(rows: readonly QueryTrackingResultRow[], previous: readonly QueryTrackingResultRow[]): void {
+  const before = new Map(previous.map(row => [rowKey(row), row]))
+  for (const row of rows) {
+    const prior = before.get(rowKey(row))
+    if (!prior) continue
+    for (const engine of row.engines) {
+      const old = prior.engines.find(candidate => candidate.provider === engine.provider)
+      if (!old) continue
+      if (engine.mentioned !== null && old.mentioned !== null && engine.mentioned !== old.mentioned) engine.mentionChange = engine.mentioned ? 'won' : 'lost'
+      if (engine.cited !== null && old.cited !== null && engine.cited !== old.cited) engine.citationChange = engine.cited ? 'won' : 'lost'
+    }
+  }
+}
+
+/** The filters narrow rows only: with `engine`, `result` and `change` must hold on that engine; without it, on one engine. */
+function keepRow(row: QueryTrackingResultRow, query: QueryTrackingResultsQuery, signal: ResultSignal): boolean {
+  if (query.engine === undefined && query.result === undefined && query.change === undefined) return true
+  const engines = query.engine === undefined ? row.engines : row.engines.filter(engine => engine.provider === query.engine)
+  return engines.some(engine => {
+    const result = query.result === undefined
+      || (query.result === 'mentioned' && engine.mentioned === true)
+      || (query.result === 'not-mentioned' && engine.mentioned === false)
+      || (query.result === 'cited' && engine.cited === true)
+      || (query.result === 'not-cited' && engine.cited === false)
+    const change = query.change === undefined || (signal === 'cited' ? engine.citationChange : engine.mentionChange) === query.change
+    return result && change
+  })
+}
+
+/** Totals over a set of rows, by the report's own rule, one type at a time. */
+function totalsOver(rows: readonly QueryTrackingResultRow[], folded: FoldedSweep): QueryTrackingResultTotals[] {
+  const byClass = new Map<VisibilityReportPopulationClass, QueryTrackingResultRow[]>()
+  for (const row of rows) {
+    const list = byClass.get(row.queryClass)
+    if (list) list.push(row)
+    else byClass.set(row.queryClass, [row])
+  }
+  return [...byClass].sort(([left], [right]) => compareText(left, right)).map(([queryClass, list]) => {
+    const coverage = answerCoverage(list.flatMap(row => folded.detail.candidates?.get(row) ?? []), folded.targets)
+    return { queryClass, queries: list.length, answers: coverage.answerCount, mentionCoverage: coverage.mentionCoverage, citationCoverage: coverage.citationCoverage }
+  })
+}
+
+/** Each type's rates in both sweeps over the rows both measured, so a change compares the same queries. */
+/** One rate minus the same rate of the previous sweep, or null when either is not a number. */
+function rateDelta(current: VisibilityReportRate, previous: VisibilityReportRate): number | null {
+  return current.rate === null || previous.rate === null ? null : current.rate - previous.rate
+}
+
+function withComparison(totals: readonly QueryTrackingResultTotals[], rows: readonly QueryTrackingResultRow[], now: FoldedSweep, previous: FoldedSweep): QueryTrackingResultTotals[] {
+  const before = new Map(previous.rows.map(row => [rowKey(row), row]))
+  return totals.map(total => {
+    const matched = rows.filter(row => row.queryClass === total.queryClass && before.has(rowKey(row)))
+    if (matched.length === 0) return total
+    const current = answerCoverage(matched.flatMap(row => now.detail.candidates?.get(row) ?? []), now.targets)
+    const prior = answerCoverage(matched.flatMap(row => previous.detail.candidates?.get(before.get(rowKey(row))!) ?? []), previous.targets)
+    return {
+      ...total,
+      comparison: {
+        queries: matched.length,
+        mentionCoverage: current.mentionCoverage,
+        citationCoverage: current.citationCoverage,
+        previousMentionCoverage: prior.mentionCoverage,
+        previousCitationCoverage: prior.citationCoverage,
+        mentionDelta: rateDelta(current.mentionCoverage, prior.mentionCoverage),
+        citationDelta: rateDelta(current.citationCoverage, prior.citationCoverage),
+      },
+    }
+  })
+}
+
+const WINNER_LIST_LIMIT = 5
+
+function topCounts<T>(counts: Map<string, { item: T; answers: number }>, label: (item: T) => string): Array<{ item: T; answers: number }> {
+  return [...counts.values()].sort((left, right) => right.answers - left.answers || compareText(label(left.item), label(right.item))).slice(0, WINNER_LIST_LIMIT)
+}
+
+/**
+ * One market's or group's roll-up over its rows. A market holds the queries
+ * whose Subject is that market and its locations' own queries; a row counts
+ * once however many of its locations sit there. The rates are the report's
+ * own over the rows of each type. The "who won" lists read the non-brand
+ * answers that missed each signal.
+ */
+function rollup(
+  entry: Pick<QueryTrackingResultGroup, 'kind' | 'key' | 'label' | 'parentKey' | 'locations' | 'marketKeys'>,
+  rows: readonly QueryTrackingResultRow[],
+  folded: FoldedSweep,
+  engineOrder: readonly string[],
+  ownNameKeys: ReadonlySet<string>,
+  ownDomains: ReadonlySet<string>,
+  compared: boolean,
+): QueryTrackingResultGroup {
+  const unique = [...new Set(rows)]
+  const byClass = new Map<VisibilityReportPopulationClass, QueryTrackingResultRow[]>()
+  for (const row of unique) {
+    const list = byClass.get(row.queryClass)
+    if (list) list.push(row)
+    else byClass.set(row.queryClass, [row])
+  }
+  const types = [...byClass].sort(([left], [right]) => compareText(left, right)).map(([queryClass, list]) => {
+    const coverage = answerCoverage(list.flatMap(row => folded.detail.candidates?.get(row) ?? []), folded.targets)
+    const engineEntries = list.flatMap(row => row.engines)
+    const count = (test: (engine: QueryTrackingEngineResult) => boolean) => engineEntries.filter(test).length
+    return {
+      queryClass,
+      queries: list.length,
+      answers: coverage.answerCount,
+      mentionCoverage: coverage.mentionCoverage,
+      citationCoverage: coverage.citationCoverage,
+      otherLocationMentionedAnswers: engineEntries.reduce((sum, engine) => sum + (engine.otherLocationMentionedAnswers ?? 0), 0),
+      engines: engineOrder.map(provider => {
+        const own = engineEntries.filter(engine => engine.provider === provider)
+        return {
+          provider,
+          answers: own.reduce((sum, engine) => sum + engine.answers, 0),
+          mentionedAnswers: own.reduce((sum, engine) => sum + engine.mentionedAnswers, 0),
+          citedAnswers: own.reduce((sum, engine) => sum + engine.citedAnswers, 0),
+        }
+      }),
+      ...(compared ? {
+        change: {
+          mentionsWon: count(engine => engine.mentionChange === 'won'),
+          mentionsLost: count(engine => engine.mentionChange === 'lost'),
+          citationsWon: count(engine => engine.citationChange === 'won'),
+          citationsLost: count(engine => engine.citationChange === 'lost'),
+        },
+      } : {}),
+    }
+  })
+  const named = new Map<string, { item: string; answers: number }>()
+  const cited = new Map<string, { item: string; answers: number }>()
+  const competitors = new Map<string, { mentionedAnswers: number; citedAnswers: number }>()
+  for (const row of unique) {
+    if (row.queryClass !== QUERY_TRACKING_WEAK_MARKET_CLASS) continue
+    for (const answer of folded.detail.evidence?.get(row) ?? []) {
+      if (answer.mention === false) {
+        for (const name of alternativeNames(answer.names, ownNameKeys)) {
+          const key = brandKeyFromText(name)
+          const entry = named.get(key)
+          if (entry) entry.answers++
+          else named.set(key, { item: name, answers: 1 })
+        }
+      }
+      if (answer.citation === false) {
+        const hosts = new Set(answer.sources.flatMap(url => {
+          const host = hostOf(url)
+          return host && !ownDomains.has(registrableDomain(host)) ? [host.replace(/^www\./, '')] : []
+        }))
+        for (const host of hosts) {
+          const entry = cited.get(host)
+          if (entry) entry.answers++
+          else cited.set(host, { item: host, answers: 1 })
+        }
+      }
+      for (const domain of new Set(answer.competitorMentionDomains)) {
+        const entry = competitors.get(domain) ?? { mentionedAnswers: 0, citedAnswers: 0 }
+        entry.mentionedAnswers++
+        competitors.set(domain, entry)
+      }
+      for (const domain of new Set(answer.competitorCitationDomains)) {
+        const entry = competitors.get(domain) ?? { mentionedAnswers: 0, citedAnswers: 0 }
+        entry.citedAnswers++
+        competitors.set(domain, entry)
+      }
+    }
+  }
+  return {
+    ...entry,
+    types,
+    namedInstead: topCounts(named, item => item).map(({ item, answers }) => ({ name: item, answers })),
+    citedInstead: topCounts(cited, item => item).map(({ item, answers }) => ({ host: item, answers })),
+    competitors: [...competitors].map(([domain, counts]) => ({ domain, ...counts }))
+      .sort((left, right) => (right.mentionedAnswers + right.citedAnswers) - (left.mentionedAnswers + left.citedAnswers) || compareText(left.domain, right.domain)),
+  }
+}
+
+/**
+ * The grouped read: one entry per market, or per group of markets (the group a
+ * market's own group sits in, else that group). Only markets with a returned
+ * row are listed. Ordered by the signal's non-brand share when `sort` is set.
+ */
+function groupRollups(
+  plan: MeasurementPlanV2,
+  folded: FoldedSweep,
+  query: QueryTrackingResultsQuery,
+  engineOrder: readonly string[],
+  ownDomains: ReadonlySet<string>,
+  compared: boolean,
+): QueryTrackingResultGroup[] {
+  const focusOf = planQueryFocus(plan)
+  const markets = plan.reportingScopes ?? []
+  const groups = new Map(plan.groups.map(group => [group.stableKey, group]))
+  const ownNameKeys = nameKeys(plan.targets.flatMap(target => [target.label, ...target.aliases, ...(target.identityAliases ?? [])]))
+  const marketTargets = new Map(markets.map(market => [market.stableKey, new Set(market.usageEdges.map(edge => edge.targetKey))]))
+  const rowsOf = new Map<string, QueryTrackingResultRow[]>()
+  const add = (key: string, row: QueryTrackingResultRow) => {
+    const list = rowsOf.get(key)
+    if (list) list.push(row)
+    else rowsOf.set(key, [row])
+  }
+  for (const row of folded.rows) {
+    const focus = focusOf(row.queryId)
+    if (focus.kind === 'market') add(focus.key, row)
+    else if (focus.kind === 'property') for (const [key, targets] of marketTargets) if (targets.has(focus.key)) add(key, row)
+  }
+  const metroOf = (market: (typeof markets)[number]) => {
+    const own = market.groupKey === undefined ? undefined : groups.get(market.groupKey)
+    return own?.parentGroupKey ?? market.groupKey ?? null
+  }
+  // Under a group, a market is listed only when every one of its locations is in it,
+  // never one outside that a shared location's own query reaches.
+  const placeTargets = query.scope === 'group' ? new Set(groups.get(query.scopeKey!)?.targetKeys ?? []) : null
+  const listed = markets.filter(market => rowsOf.has(market.stableKey)
+    && (placeTargets === null || [...marketTargets.get(market.stableKey)!].every(target => placeTargets.has(target))))
+  const signal = query.signal ?? 'mentioned'
+  let entries: QueryTrackingResultGroup[]
+  if (query.group === 'market') {
+    entries = listed.map(market => rollup(
+      { kind: 'market', key: market.stableKey, label: market.label, parentKey: metroOf(market), locations: marketTargets.get(market.stableKey)?.size ?? 0 },
+      rowsOf.get(market.stableKey)!, folded, engineOrder, ownNameKeys, ownDomains, compared,
+    ))
+  } else {
+    const byMetro = new Map<string, { rows: QueryTrackingResultRow[]; marketKeys: string[]; targets: Set<string> }>()
+    for (const market of listed) {
+      const metro = metroOf(market)
+      const own = rowsOf.get(market.stableKey)
+      if (metro === null || !own) continue
+      const entry = byMetro.get(metro) ?? { rows: [], marketKeys: [], targets: new Set<string>() }
+      entry.rows.push(...own)
+      entry.marketKeys.push(market.stableKey)
+      for (const target of marketTargets.get(market.stableKey) ?? []) entry.targets.add(target)
+      byMetro.set(metro, entry)
+    }
+    entries = [...byMetro].map(([key, entry]) => rollup(
+      { kind: 'group', key, label: groups.get(key)?.label ?? key, parentKey: groups.get(key)?.parentGroupKey ?? null, locations: entry.targets.size, marketKeys: sortedUnique(entry.marketKeys) },
+      entry.rows, folded, engineOrder, ownNameKeys, ownDomains, compared,
+    ))
+  }
+  const shareOf = (entry: QueryTrackingResultGroup) => {
+    const nonBrand = entry.types.find(type => type.queryClass === QUERY_TRACKING_WEAK_MARKET_CLASS)
+    return (signal === 'cited' ? nonBrand?.citationCoverage.rate : nonBrand?.mentionCoverage.rate) ?? null
+  }
+  return entries.sort((left, right) => (
+    (query.sort ? compareShares(shareOf(left), shareOf(right), query.sort) : 0) || compareText(left.key, right.key)
+  ))
+}
+
+/**
+ * Narrows, rates and orders a folded read for its request: changes against the
+ * previous sweep, the filters (totals then cover the rows returned), and the
+ * sort. Rows are mutated only to carry their changes.
+ */
+function shapeRead(
+  folded: FoldedSweep & { pendingRows: number; totals?: QueryTrackingResultTotals[] },
+  previous: FoldedSweep | null,
+  query: QueryTrackingResultsQuery,
+): Pick<QueryTrackingResultsResponse, 'rows' | 'pendingRows' | 'totals'> {
+  const signal = query.signal ?? 'mentioned'
+  if (previous) markChanges(folded.rows, previous.rows)
+  const kept = folded.rows.filter(row => keepRow(row, query, signal))
+  const filtered = query.engine !== undefined || query.result !== undefined || query.change !== undefined
+  let totals = filtered ? totalsOver(kept, folded) : folded.totals
+  if (totals && previous) totals = withComparison(totals, kept, folded, previous)
+  return {
+    rows: query.sort ? sortRows(kept, signal, query.sort) : kept,
+    pendingRows: folded.pendingRows,
+    ...(totals ? { totals } : {}),
+  }
+}
+
 function advancedResults(
   db: DatabaseClient,
-  projectId: string,
+  project: ProjectRow,
   active: { version: typeof measurementPlanVersions.$inferSelect; plan: MeasurementPlanV2 },
   query: QueryTrackingResultsQuery,
 ): Omit<QueryTrackingResultsResponse, 'mode' | 'scope'> {
+  const projectId = project.id
   // Refuse an unknown place before any sweep is read.
   const inPlace = placeAssignments(active.plan, query)
   const assignments = query.queryId === undefined ? inPlace : inPlace.filter(assignment => assignment.queryId === query.queryId)
@@ -633,16 +1009,23 @@ function advancedResults(
     comparableToVersionId: measurementPlanVersions.comparableToVersionId,
   }).from(measurementPlanVersions).where(eq(measurementPlanVersions.projectId, projectId)).all().map(row => [row.id, row]))
   const activeChain = new Set(comparableVersionIds(versions, active.version.id))
-  const candidates = sweepCandidates(db, projectId, false, query.runId).flatMap(candidate => {
+  const v2Sweeps = (runId: string | undefined) => sweepCandidates(db, projectId, false, runId).flatMap(candidate => {
     const version = candidate.versionId === null ? undefined : versions.get(candidate.versionId)
     return version?.schemaVersion === MEASUREMENT_PLAN_V2_SCHEMA_VERSION ? [{ id: candidate.id, version }] : []
   })
+  const candidates = v2Sweeps(query.runId)
   const chosen = query.runId === undefined
     ? defaultSweep(candidates, candidate => candidate.version.id, activeChain)
     : candidates.at(0)
   if (!chosen) {
     if (query.runId !== undefined) throw notASweep(query.runId)
-    return { run: null, engines: [], ...foldQueryTrackingResults(null, advancedPairings(active.plan, assignments, null)) }
+    return {
+      run: null,
+      engines: [],
+      ...foldQueryTrackingResults(null, advancedPairings(active.plan, assignments, null)),
+      ...(query.compare ? { compareRun: null } : {}),
+      ...(query.group ? { groups: [] } : {}),
+    }
   }
 
   const underActivePlan = activeChain.has(chosen.version.id)
@@ -664,18 +1047,43 @@ function advancedResults(
     return {
       run: runDto(run, chosen.version.revision, underActivePlan),
       engines: engines(sweep),
-      ...foldQueryTrackingResults(sweep, pairings(sweep), undefined, { ownNameKeys }),
+      ...foldQueryTrackingResults(sweep, pairings(sweep), undefined, { ownNameKeys, ownDomains: ownDomainsOf(project) }),
     }
   }
-  const sweep = materializeAdvancedSweep(db, source, presentation, versions, false)
-  const detail: FoldDetail = { checked: new Map(), withheld: [] }
-  const folded = foldQueryTrackingResults(sweep, pairings(sweep), detail)
+  // The grouped read lists who won each market, so it reads the answers' evidence too.
+  const withEvidence = query.group !== undefined
+  const sweep = materializeAdvancedSweep(db, source, presentation, versions, withEvidence)
+  const detail: FoldDetail = { checked: new Map(), withheld: [], candidates: new Map(), ...(withEvidence ? { evidence: new Map() } : {}) }
+  const folded = { ...foldQueryTrackingResults(sweep, pairings(sweep), detail), detail, targets: targetIndex(sweep) }
+  // The sweep before the one read, on the same plan chain when the read is on the active one.
+  let previous: (FoldedSweep & { run: QueryTrackingResultsRun }) | null = null
+  if (query.compare === 'previous') {
+    const all = query.runId === undefined ? candidates : v2Sweeps(undefined)
+    const at = all.findIndex(candidate => candidate.id === chosen.id)
+    const older = at < 0 ? [] : all.slice(at + 1)
+    const prior = underActivePlan ? older.find(candidate => activeChain.has(candidate.version.id)) : older.at(0)
+    if (prior) {
+      const priorUnderActive = activeChain.has(prior.version.id)
+      const priorPlan = priorUnderActive ? active.plan : storedPlan(db, projectId, prior.version.id)
+      const priorRun = sweepRow(db, prior.id)
+      const priorSweep = materializeAdvancedSweep(db, { run: priorRun, source: { row: prior.version, plan: priorPlan } }, presentation, versions, false)
+      const priorDetail: FoldDetail = { checked: new Map(), withheld: [], candidates: new Map() }
+      const priorRows = foldQueryTrackingResults(priorSweep, advancedPairings(active.plan, assignments, { sweep: priorSweep, plan: priorPlan, underActivePlan: priorUnderActive }), priorDetail).rows
+      previous = { rows: priorRows, detail: priorDetail, targets: targetIndex(priorSweep), run: runDto(priorRun, prior.version.revision, priorUnderActive) }
+    }
+  }
+  const shaped = shapeRead(folded, previous, query)
+  const engineOrder = engines(sweep)
   return {
     run: runDto(run, chosen.version.revision, underActivePlan),
-    engines: engines(sweep),
-    ...folded,
+    engines: engineOrder,
+    ...shaped,
+    // A grouped read is the list of markets; a market's queries are a read of that market.
+    ...(query.group ? { rows: [] } : {}),
     // Only the project read holds every market's pairings, so only it lists weak markets.
     ...(query.scope === 'project' ? { weakMarkets: weakMarkets(active.plan, folded.rows, detail) } : {}),
+    ...(query.compare ? { compareRun: previous?.run ?? null } : {}),
+    ...(query.group ? { groups: groupRollups(active.plan, folded, query, engineOrder, ownDomainsOf(project), previous !== null) } : {}),
   }
 }
 
@@ -698,6 +1106,7 @@ function simpleResults(
   if (query.scope !== 'project') {
     throw validationError(`${PLACE_WORDS[query.scope]} "${query.scopeKey}" does not exist: a simple project is read as a whole.`)
   }
+  if (query.group !== undefined) throw validationError('group is read on an advanced portfolio: a simple project has no markets.')
   const tracked = db.select({ id: queries.id, query: queries.query }).from(queries).where(eq(queries.projectId, project.id)).all()
   /** The pairings a read returns: every tracked query, or the one named. */
   const read = (pairings: TrackedPairing[]) => (
@@ -710,7 +1119,12 @@ function simpleResults(
   const chosen = simpleSweepChoice(db, project.id, sweepCandidates(db, project.id, true, query.runId), definition => compare(definition).sameDispatch)
   if (!chosen) {
     if (query.runId !== undefined) throw notASweep(query.runId)
-    return { run: null, engines: [], ...foldQueryTrackingResults(null, read(simplePairings(tracked, classOf, null))) }
+    return {
+      run: null,
+      engines: [],
+      ...foldQueryTrackingResults(null, read(simplePairings(tracked, classOf, null))),
+      ...(query.compare && query.queryId === undefined ? { compareRun: null } : {}),
+    }
   }
   const { definition } = chosen
   const run = sweepRow(db, chosen.id)
@@ -721,12 +1135,6 @@ function simpleResults(
   // As an advanced row whose engines, models or search location changed: a
   // sweep that sent the engines something else leaves every query pending.
   const pairings = simplePairings(tracked, classOf, comparison?.sameDispatch === false ? null : sweep)
-  const folded = foldQueryTrackingResults(
-    sweep,
-    read(pairings),
-    undefined,
-    query.queryId === undefined ? undefined : { ownNameKeys: nameKeys(effectiveBrandNames(project)) },
-  )
   // Tracking matches when nothing the workspace compares changed, the sweep
   // measured every tracked query as it is tracked now, and it asked nothing
   // else. A sweep that cannot be compared never claims a match.
@@ -736,7 +1144,38 @@ function simpleResults(
   const matchesCurrentTracking = comparison?.sameTracking === true && everyQueryMeasured && sweep.definition.edges.every(edge => (
     edge.queryId !== null && trackedPairs.has(`${edge.queryId}\u0000${edge.queryClass}`)
   ))
-  return { run: runDto(run, null, matchesCurrentTracking), engines: engines(sweep), ...folded }
+  if (query.queryId !== undefined) {
+    const folded = foldQueryTrackingResults(sweep, read(pairings), undefined, { ownNameKeys: nameKeys(effectiveBrandNames(project)), ownDomains: ownDomainsOf(project) })
+    return { run: runDto(run, null, matchesCurrentTracking), engines: engines(sweep), ...folded }
+  }
+  const detail: FoldDetail = { checked: new Map(), withheld: [], candidates: new Map() }
+  const folded = { ...foldQueryTrackingResults(sweep, read(pairings), detail), detail, targets: targetIndex(sweep) }
+  // The sweep before the one read that sent the engines what the project sends now.
+  let previous: (FoldedSweep & { run: QueryTrackingResultsRun }) | null = null
+  if (query.compare === 'previous') {
+    const all = sweepCandidates(db, project.id, true, undefined)
+    const at = all.findIndex(candidate => candidate.id === chosen.id)
+    const older = at < 0 ? [] : all.slice(at + 1)
+    const definitions = older.length === 0 ? new Map<string, SimpleMeasurementDefinition>() : frozenSimpleDefinitions(db, project.id, older.map(candidate => candidate.id))
+    const prior = older.find(candidate => {
+      const frozen = definitions.get(candidate.id)
+      return frozen !== undefined && compare(frozen).sameDispatch
+    })
+    if (prior) {
+      const priorDefinition = definitions.get(prior.id)!
+      const priorRun = sweepRow(db, prior.id)
+      const priorSweep = simpleRunInput(db, project, priorRun, priorDefinition, false)
+      const priorDetail: FoldDetail = { checked: new Map(), withheld: [], candidates: new Map() }
+      const priorRows = foldQueryTrackingResults(priorSweep, read(simplePairings(tracked, classOf, priorSweep)), priorDetail).rows
+      previous = { rows: priorRows, detail: priorDetail, targets: targetIndex(priorSweep), run: runDto(priorRun, null, compare(priorDefinition).sameTracking) }
+    }
+  }
+  return {
+    run: runDto(run, null, matchesCurrentTracking),
+    engines: engines(sweep),
+    ...shapeRead(folded, previous, query),
+    ...(query.compare ? { compareRun: previous?.run ?? null } : {}),
+  }
 }
 
 /**
@@ -760,7 +1199,7 @@ export function readQueryTrackingResults(
   if (plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) {
     throw validationError('Query tracking requires a schema-v2 measurement plan. Republish setup before reading query results.')
   }
-  return queryTrackingResultsResponseSchema.parse({ mode: 'advanced', scope, ...advancedResults(db, project.id, { version, plan }, query) })
+  return queryTrackingResultsResponseSchema.parse({ mode: 'advanced', scope, ...advancedResults(db, project, { version, plan }, query) })
 }
 
 export async function queryTrackingResultsRoutes(app: FastifyInstance, opts: QueryTrackingRoutesOptions) {

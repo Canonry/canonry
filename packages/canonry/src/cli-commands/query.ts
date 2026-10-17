@@ -14,7 +14,16 @@ import {
 import { usageError } from '../cli-error.js'
 import { runAdvancedMeasurementOperation, showQueryTrackingResults } from '../commands/measurement-plan.js'
 
-const QUERY_RESULTS_USAGE = 'canonry query results <project> [--scope <project|group|market|property>] [--scope-key <key>] [--run <id>] [--query <id>] [--format json]'
+const QUERY_RESULTS_USAGE = 'canonry query results <project> [--scope <project|group|market|property>] [--scope-key <key>] [--run <id>] [--query <id>]'
+  + ' [--signal <mentioned|cited>] [--sort <losing|winning>] [--group <market|group>] [--compare previous]'
+  + ' [--engine <name>] [--result <mentioned|not-mentioned|cited|not-cited>] [--change <won|lost>] [--format json]'
+
+/** Each field of the read by the flag that sets it, so an error names the flag. */
+const QUERY_RESULTS_FLAGS = {
+  scope: 'scope', scopeKey: 'scope-key', runId: 'run', queryId: 'query', signal: 'signal', sort: 'sort',
+  group: 'group', compare: 'compare', engine: 'engine', result: 'result', change: 'change',
+} as const
+type QueryResultsField = keyof typeof QUERY_RESULTS_FLAGS
 
 export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...(['workspace', 'preview', 'commit'] as const).map(action => ({
@@ -32,35 +41,30 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['query', 'results'],
     usage: QUERY_RESULTS_USAGE,
-    options: { scope: stringOption(), 'scope-key': stringOption(), run: stringOption(), query: stringOption() },
+    options: Object.fromEntries(Object.values(QUERY_RESULTS_FLAGS).map(flag => [flag, stringOption()])),
     run: async (input) => {
       const project = requireProject(input, 'query.results', QUERY_RESULTS_USAGE)
-      const scope = getString(input.values, 'scope')
-      const scopeKey = getString(input.values, 'scope-key')
-      const runId = getString(input.values, 'run')
-      const queryId = getString(input.values, 'query')
       // The endpoint's own selection rules, checked before any request is sent.
-      const request = queryTrackingResultsRequestSchema.safeParse({
-        ...(scope === undefined ? {} : { scope }),
-        ...(scopeKey === undefined ? {} : { scopeKey }),
-        ...(runId === undefined ? {} : { runId }),
-        ...(queryId === undefined ? {} : { queryId }),
-      })
+      const request = queryTrackingResultsRequestSchema.safeParse(Object.fromEntries(
+        (Object.entries(QUERY_RESULTS_FLAGS) as Array<[QueryResultsField, string]>).flatMap(([field, flag]) => {
+          const value = getString(input.values, flag)
+          return value === undefined ? [] : [[field, value]]
+        }),
+      ))
       if (!request.success) {
-        // A failed parse always carries at least one issue.
+        // A failed parse always carries at least one issue, on one of the fields above.
         const issue = request.error.issues[0]
-        const field = issue.path[0]
-        // Only the two scope-key rules are worded by the contract. Any other
-        // issue is a blank or malformed value, named here by its flag.
-        const message = field === 'scope'
-          ? '--scope must be one of project, group, market, property'
-          : field === 'runId'
-            ? '--run needs a value'
-            : field === 'queryId'
-              ? '--query needs a value'
-              : field === 'scopeKey' && issue.code !== 'custom'
-                ? '--scope-key needs a value'
-                : issue.message.replace('scopeKey', '--scope-key')
+        const flag = `--${QUERY_RESULTS_FLAGS[issue.path[0] as QueryResultsField]}`
+        // The contract words its own rules by field name; here they name the flag.
+        // Any other issue is a blank value, as an unset shell variable leaves.
+        const message = issue.code === 'invalid_value'
+          ? issue.values.length === 1
+            ? `${flag} must be ${String(issue.values[0])}`
+            : `${flag} must be one of ${issue.values.map(String).join(', ')}`
+          : issue.code === 'custom'
+            ? issue.message.replace(/^\w+/, flag).replace('queryId', '--query').replace('compare=previous', '--compare previous')
+              .replace('engine, result or change', '--engine, --result or --change')
+            : `${flag} needs a value`
         throw usageError(`Error: ${message}\nUsage: ${QUERY_RESULTS_USAGE}`, {
           message,
           details: { command: 'query.results', usage: QUERY_RESULTS_USAGE },

@@ -256,15 +256,17 @@ function simpleSweep(): string {
   return runId
 }
 
+/** Each field of the read by its CLI flag. */
+const FLAGS: Record<keyof QueryTrackingResultsRequest, string> = {
+  scope: '--scope', scopeKey: '--scope-key', runId: '--run', queryId: '--query', signal: '--signal', sort: '--sort',
+  group: '--group', compare: '--compare', engine: '--engine', result: '--result', change: '--change',
+}
+
 /** The same read through the REST client, the CLI and the MCP tool, each over its real transport. */
 async function readEverywhere(selection: QueryTrackingResultsRequest = {}) {
   const rest = await api.getQueryTrackingResults(PROJECT, selection)
-  const flags = [
-    ...(selection.scope ? ['--scope', selection.scope] : []),
-    ...(selection.scopeKey ? ['--scope-key', selection.scopeKey] : []),
-    ...(selection.runId ? ['--run', selection.runId] : []),
-    ...(selection.queryId ? ['--query', selection.queryId] : []),
-  ]
+  const flags = (Object.entries(selection) as Array<[keyof QueryTrackingResultsRequest, string | undefined]>)
+    .flatMap(([field, value]) => value === undefined ? [] : [FLAGS[field], value])
   const cli = await invokeCli(['query', 'results', PROJECT, ...flags, '--format', 'json'])
   expect(cli.exitCode, cli.stderr).toBeUndefined()
   const mcp = await connect()
@@ -377,7 +379,7 @@ describe('query tracking results CLI/REST/MCP parity', () => {
     const { rest, viaCli, viaMcp } = await readEverywhere({ queryId: 'q-east' })
     const answerRow = (resultId: string, extra: Record<string, unknown>) => ({
       resultId, searchLocation: 'nyc', targetKeys: ['gadgets', 'widgets'], mentioned: false, cited: false,
-      mentionedTargetKeys: [], citedTargetKeys: [], namedInstead: [], ...extra,
+      mentionedTargetKeys: [], citedTargetKeys: [], namedInstead: [], alsoNamed: [], ...extra,
     })
     expect(rest).toStrictEqual({
       mode: 'advanced',
@@ -392,12 +394,18 @@ describe('query tracking results CLI/REST/MCP parity', () => {
             provider: 'gemini', expectedAnswers: 1, answers: 1, mentionedAnswers: 0, citedAnswers: 0, uncheckedSourceAnswers: 0, mentioned: false, cited: false,
             otherLocationMentionedAnswers: 1, otherLocationMentionedTargetKeys: ['tools'],
             // Tools is one of the project's own locations, so it is not named instead.
-            answerRows: [answerRow('n-east-gemini', { namedInstead: ['Acme Supply'] })],
+            answerRows: [answerRow('n-east-gemini', {
+              namedInstead: ['Acme Supply'],
+              citedSources: [{ url: 'https://directory.example/suppliers', host: 'directory.example', ours: false, competitor: null }],
+            })],
           },
           {
             provider: 'openai', expectedAnswers: 1, answers: 1, mentionedAnswers: 0, citedAnswers: 1, uncheckedSourceAnswers: 0, mentioned: false, cited: true,
             citedTargetKeys: ['gadgets'],
-            answerRows: [answerRow('n-east-openai', { cited: true, citedTargetKeys: ['gadgets'] })],
+            answerRows: [answerRow('n-east-openai', {
+              cited: true, citedTargetKeys: ['gadgets'],
+              citedSources: [{ url: 'https://northwind.example/gadgets/catalog', host: 'northwind.example', ours: true, competitor: null }],
+            })],
           },
         ],
       }],
@@ -415,9 +423,9 @@ describe('query tracking results CLI/REST/MCP parity', () => {
       'best supplier in the east  Non-brand  mc      mC      gemini',
       '',
       'Answers',
-      'Type       Engine  Result  Search location  Location mentioned  Named instead  Answer',
-      'Non-brand  gemini  mc      nyc              None                Acme Supply    n-east-gemini',
-      'Non-brand  openai  mC      nyc              None                None           n-east-openai',
+      'Type       Engine  Result  Search location  Location mentioned  Named instead  Cited sources             Answer',
+      'Non-brand  gemini  mc      nyc              None                Acme Supply    directory.example         n-east-gemini',
+      'Non-brand  openai  mC      nyc              None                None           northwind.example (ours)  n-east-openai',
     ])
 
     // A later sweep in which only Gemini answered the Branded query. A row of one location has no column
@@ -430,6 +438,109 @@ describe('query tracking results CLI/REST/MCP parity', () => {
       'Type     Engine  Result  Search location  Named instead  Answer',
       'Branded  gemini  Mc      nyc              None           run-later-n-tools-gemini',
       'Branded  openai  --      nyc              None           No answer saved',
+    ])
+  })
+
+  it('returns the markets, the comparison and each engine\'s change on every surface, and prints them', async () => {
+    marketPortfolioWithSweep()
+    // A later sweep: Gemini now names Widgets, and OpenAI no longer cites Gadgets' page.
+    marketPortfolioSweep('run-later', NOW, {
+      'n-east-gemini': { text: 'Northwind Widgets is the usual pick.', cites: [] },
+      'n-east-openai': { text: 'Several suppliers stand out.', cites: ['https://directory.example/suppliers'] },
+      'n-tools-gemini': { text: 'Northwind Tools lists its prices online.', cites: [] },
+      'n-tools-openai': { text: 'Northwind Tools publishes a price list.', cites: [] },
+    })
+
+    const grouped = await readEverywhere({ group: 'market', compare: 'previous', sort: 'losing' })
+    // The list of markets carries no rows; East holds its own query only, as Tools is outside it.
+    expect(grouped.rest.rows).toStrictEqual([])
+    expect(grouped.rest.compareRun?.id).toBe('run-market')
+    expect(grouped.rest.groups).toStrictEqual([{
+      kind: 'market', key: 'east', label: 'East', parentKey: null, locations: 2,
+      types: [{
+        queryClass: 'non-brand', queries: 1, answers: 2,
+        mentionCoverage: { numerator: 1, denominator: 2, rate: 0.5 },
+        citationCoverage: { numerator: 0, denominator: 2, rate: 0 },
+        otherLocationMentionedAnswers: 0,
+        engines: [
+          { provider: 'gemini', answers: 1, mentionedAnswers: 1, citedAnswers: 0 },
+          { provider: 'openai', answers: 1, mentionedAnswers: 0, citedAnswers: 0 },
+        ],
+        change: { mentionsWon: 1, mentionsLost: 0, citationsWon: 0, citationsLost: 1 },
+      }],
+      namedInstead: [],
+      citedInstead: [{ host: 'directory.example', answers: 1 }],
+      competitors: [],
+    }])
+    // Both sweeps over the same queries, and the server's own change.
+    expect(grouped.rest.totals?.map(total => [total.queryClass, total.comparison])).toStrictEqual([
+      ['branded', {
+        queries: 1,
+        mentionCoverage: { numerator: 2, denominator: 2, rate: 1 }, citationCoverage: { numerator: 0, denominator: 2, rate: 0 },
+        previousMentionCoverage: { numerator: 2, denominator: 2, rate: 1 }, previousCitationCoverage: { numerator: 0, denominator: 2, rate: 0 },
+        mentionDelta: 0, citationDelta: 0,
+      }],
+      ['non-brand', {
+        queries: 1,
+        mentionCoverage: { numerator: 1, denominator: 2, rate: 0.5 }, citationCoverage: { numerator: 0, denominator: 2, rate: 0 },
+        previousMentionCoverage: { numerator: 0, denominator: 2, rate: 0 }, previousCitationCoverage: { numerator: 1, denominator: 2, rate: 0.5 },
+        mentionDelta: 0.5, citationDelta: -0.5,
+      }],
+    ])
+    expect(grouped.viaCli).toStrictEqual(grouped.rest)
+    expect(grouped.viaMcp).toStrictEqual(grouped.rest)
+
+    const sweepLines = [
+      'Sweep 2026-10-09 · run run-later',
+      'Compared with the previous sweep · run run-market',
+      'Non-brand: mentioned 1 of 2 · cited 0 of 2',
+      '  Same 1 query vs previous sweep: mentioned 0 of 2 → 1 of 2 (+50.0 pts) · cited 1 of 2 → 0 of 2 (-50.0 pts)',
+      'Branded: mentioned 2 of 2 · cited 0 of 2',
+      '  Same 1 query vs previous sweep: mentioned 2 of 2 → 2 of 2 (0 pts) · cited 0 of 2 → 0 of 2 (0 pts)',
+    ]
+    const markets = await invokeCli(['query', 'results', PROJECT, '--group', 'market', '--compare', 'previous'])
+    expect(markets.exitCode, markets.stderr).toBeUndefined()
+    expect(markets.stdout.split('\n')).toStrictEqual([
+      ...sweepLines,
+      'Market  Locations  Type       Mentioned  gemini  openai  Another location  Change',
+      'East    2          Non-brand  1 of 2     1 of 1  0 of 1  0                 won 1 · lost 0',
+    ])
+    // The cited view counts citations per engine and lists the sites cited instead.
+    const cited = await invokeCli(['query', 'results', PROJECT, '--group', 'market', '--compare', 'previous', '--signal', 'cited'])
+    expect(cited.stdout.split('\n').slice(-2)).toStrictEqual([
+      'Market  Locations  Type       Cited   gemini  openai  Change          Cited instead',
+      'East    2          Non-brand  0 of 2  0 of 1  0 of 1  won 0 · lost 1  directory.example (1)',
+    ])
+
+    const compared = await readEverywhere({ compare: 'previous' })
+    expect(compared.rest.rows.map(row => [row.queryId, row.engines.map(entry => [entry.provider, entry.mentionChange ?? null, entry.citationChange ?? null])])).toStrictEqual([
+      ['q-east', [['gemini', 'won', null], ['openai', null, 'lost']]],
+      ['q-tools', [['gemini', null, null], ['openai', null, null]]],
+    ])
+    expect(compared.viaCli).toStrictEqual(compared.rest)
+    expect(compared.viaMcp).toStrictEqual(compared.rest)
+    const rows = await invokeCli(['query', 'results', PROJECT, '--compare', 'previous'])
+    expect(rows.stdout.split('\n')).toStrictEqual([
+      ...sweepLines,
+      LEGEND,
+      'Query                      Type       gemini  openai  Change',
+      'best supplier in the east  Non-brand  Mc      mc      gemini won mention, openai lost citation',
+      'northwind tools pricing    Branded    Mc      Mc',
+    ])
+
+    // Filters and sort run on the server, so every surface returns the same rows.
+    const lost = await readEverywhere({ compare: 'previous', change: 'lost', signal: 'cited' })
+    expect(lost.rest.rows.map(row => row.queryId)).toStrictEqual(['q-east'])
+    expect(lost.viaCli).toStrictEqual(lost.rest)
+    expect(lost.viaMcp).toStrictEqual(lost.rest)
+    const named = await readEverywhere({ engine: 'openai', result: 'mentioned' })
+    expect(named.rest.rows.map(row => row.queryId)).toStrictEqual(['q-tools'])
+    expect(named.viaCli).toStrictEqual(named.rest)
+    // A sorted read keeps the server's order: the Branded query wins on mentions, so it leads.
+    const winning = await invokeCli(['query', 'results', PROJECT, '--sort', 'winning'])
+    expect(winning.stdout.split('\n').slice(-2)).toStrictEqual([
+      'northwind tools pricing    Branded    Mc      Mc',
+      'best supplier in the east  Non-brand  Mc      mc',
     ])
   })
 
@@ -548,12 +659,21 @@ describe('query tracking results CLI/REST/MCP parity', () => {
     expect(strayKey.exitCode).toBe(1)
     expect(JSON.parse(strayKey.stderr)).toMatchObject({ error: { code: 'CLI_USAGE_ERROR', message: '--scope-key is not valid for project scope' } })
 
-    // A blank value, as an unset shell variable leaves, is named by its flag.
+    // A blank value, as an unset shell variable leaves, and every rule of the read are named by flag.
     for (const [flags, message] of [
       [['--scope-key', ''], '--scope-key needs a value'],
       [['--scope', 'market', '--scope-key', ' '], '--scope-key needs a value'],
       [['--run', ''], '--run needs a value'],
       [['--query', ''], '--query needs a value'],
+      [['--engine', ''], '--engine needs a value'],
+      [['--signal', 'shown'], '--signal must be one of mentioned, cited'],
+      [['--sort', 'name'], '--sort must be one of losing, winning'],
+      [['--compare', 'last'], '--compare must be previous'],
+      [['--result', 'missed'], '--result must be one of mentioned, not-mentioned, cited, not-cited'],
+      [['--change', 'lost'], '--change needs --compare previous'],
+      [['--group', 'market', '--scope', 'market', '--scope-key', 'east'], '--group is read at project or group scope'],
+      [['--group', 'market', '--query', 'q-east'], '--group is not read with --query'],
+      [['--group', 'market', '--engine', 'gemini'], '--group is not read with --engine, --result or --change'],
     ] as const) {
       const blank = await invokeCli(['query', 'results', PROJECT, ...flags, '--format', 'json'])
       expect(blank.exitCode, flags.join(' ')).toBe(1)

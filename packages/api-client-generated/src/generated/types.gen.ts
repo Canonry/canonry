@@ -2145,7 +2145,16 @@ export type QueryTrackingResultsResponse = {
                 mentionedTargetKeys: Array<string>;
                 citedTargetKeys: Array<string>;
                 namedInstead: Array<string>;
+                alsoNamed?: Array<string>;
+                citedSources?: Array<{
+                    url: string;
+                    host: string;
+                    ours: boolean;
+                    competitor: string | null;
+                }>;
             }>;
+            mentionChange?: 'won' | 'lost';
+            citationChange?: 'won' | 'lost';
         }>;
     }>;
     pendingRows: number;
@@ -2169,6 +2178,43 @@ export type QueryTrackingResultsResponse = {
             unattributed?: number;
             unchecked?: number;
         };
+        comparison?: {
+            queries: number;
+            mentionCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                unattributed?: number;
+                unchecked?: number;
+            };
+            citationCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                unattributed?: number;
+                unchecked?: number;
+            };
+            previousMentionCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                unattributed?: number;
+                unchecked?: number;
+            };
+            previousCitationCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                unattributed?: number;
+                unchecked?: number;
+            };
+            mentionDelta: number | null;
+            citationDelta: number | null;
+        };
     }>;
     weakMarkets?: {
         rule: 'no-mention-latest-sweep';
@@ -2185,6 +2231,69 @@ export type QueryTrackingResultsResponse = {
             citedAnswers: number;
         }>;
     };
+    compareRun?: {
+        id: string;
+        createdAt: string;
+        completedAt: string | null;
+        status: 'completed' | 'partial';
+        revision: number | null;
+        matchesCurrentTracking: boolean;
+    } | null;
+    groups?: Array<{
+        kind: 'market' | 'group';
+        key: string;
+        label: string;
+        parentKey: string | null;
+        locations: number;
+        marketKeys?: Array<string>;
+        types: Array<{
+            queryClass: 'branded' | 'non-brand' | 'unknown';
+            queries: number;
+            answers: number;
+            mentionCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                unattributed?: number;
+                unchecked?: number;
+            };
+            citationCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                unattributed?: number;
+                unchecked?: number;
+            };
+            otherLocationMentionedAnswers: number;
+            engines: Array<{
+                provider: string;
+                answers: number;
+                mentionedAnswers: number;
+                citedAnswers: number;
+            }>;
+            change?: {
+                mentionsWon: number;
+                mentionsLost: number;
+                citationsWon: number;
+                citationsLost: number;
+            };
+        }>;
+        namedInstead: Array<{
+            name: string;
+            answers: number;
+        }>;
+        citedInstead: Array<{
+            host: string;
+            answers: number;
+        }>;
+        competitors: Array<{
+            domain: string;
+            mentionedAnswers: number;
+            citedAnswers: number;
+        }>;
+    }>;
 };
 
 export type AgentPromptRequest = {
@@ -20604,6 +20713,34 @@ export type GetApiV1ProjectsByNameQueryTrackingResultsData = {
          * One tracked query. Returns only its rows, with `answerRows` per engine and no `totals` or `weakMarkets`. A query the place does not ask returns no rows. Read-selection identity.
          */
         queryId?: string;
+        /**
+         * The signal `sort`, `groups` and the "who won" lists read: answer text (`mentioned`) or sources (`cited`). Default `mentioned`. Read-selection identity.
+         */
+        signal?: 'mentioned' | 'cited';
+        /**
+         * Orders `rows` and `groups` by the signal's share of checked answers: `losing` lowest first, `winning` highest first. Omit for query-id order. Read-selection identity.
+         */
+        sort?: 'losing' | 'winning';
+        /**
+         * An advanced portfolio's roll-ups in `groups`: one per `market`, or one per `group` of markets, and no `rows` (a market's queries are a read of that market). Project or group scope only; not with `queryId`, `engine`, `result` or `change`. Read-selection identity.
+         */
+        group?: 'market' | 'group';
+        /**
+         * `previous`: compare with the sweep before the one read on the same queries. Each engine gains `mentionChange` / `citationChange`, each total a `comparison`, and the response a `compareRun`. Read-selection identity.
+         */
+        compare?: 'previous';
+        /**
+         * Keep only rows whose `result` and `change` hold on this engine; without it, on any engine. Read-selection identity.
+         */
+        engine?: string;
+        /**
+         * Keep only rows with this result. Not checked is never a no. Totals then cover the rows returned. Read-selection identity.
+         */
+        result?: 'mentioned' | 'not-mentioned' | 'cited' | 'not-cited';
+        /**
+         * Keep only rows that `won` or `lost` the signal since the previous sweep. Needs `compare=previous`. Read-selection identity.
+         */
+        change?: 'won' | 'lost';
     };
     url: '/api/v1/projects/{name}/query-tracking/results';
 };

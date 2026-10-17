@@ -108,7 +108,9 @@ function planOf(input: {
   targets?: ReadonlyArray<readonly [stableKey: string, label: string]>
   texts?: Readonly<Record<string, string>>
   pairings?: readonly Pairing[]
-  groups?: ReadonlyArray<{ stableKey: string; label: string; targetKeys: string[] }>
+  groups?: ReadonlyArray<{ stableKey: string; label: string; targetKeys: string[]; parentGroupKey?: string }>
+  /** A market's own group, by market key. */
+  marketGroups?: Readonly<Record<string, string>>
 } = {}): MeasurementPlanV2 {
   const texts = input.texts ?? TEXTS
   const pairings = input.pairings ?? PAIRINGS
@@ -135,6 +137,7 @@ function planOf(input: {
     usageEdges: pairings.map(edge),
     reportingScopes: markets.map(stableKey => ({
       stableKey, label: stableKey, kind: 'market', usageEdges: pairings.filter(pairing => pairing.market === stableKey).map(edge),
+      ...(input.marketGroups?.[stableKey] ? { groupKey: input.marketGroups[stableKey] } : {}),
     })),
     compiledChecksum: '0'.repeat(64),
   })
@@ -1110,9 +1113,11 @@ describe('query tracking results: a simple project', () => {
     expect(body.run?.matchesCurrentTracking).toBe(true)
     expect(body.engines).toEqual(['claude', 'gemini', 'openai'])
     expect(body).not.toHaveProperty('totals')
-    const answerRow = (resultId: string | null, mentioned: boolean | null, cited: boolean | null, namedInstead: string[] = []) => ({
+    const answerRow = (resultId: string | null, mentioned: boolean | null, cited: boolean | null, names: string[] = []) => ({
       resultId, searchLocation: 'riverside', targetKeys: ['project'], mentioned, cited,
-      mentionedTargetKeys: mentioned ? ['project'] : [], citedTargetKeys: cited ? ['project'] : [], namedInstead,
+      mentionedTargetKeys: mentioned ? ['project'] : [], citedTargetKeys: cited ? ['project'] : [],
+      // Names are "instead" only when the answer did not mention the project; otherwise they were also named.
+      namedInstead: mentioned === false ? names : [], alsoNamed: mentioned === false ? [] : names, citedSources: [],
     })
     expect(body.rows).toStrictEqual([{
       queryId: 'q-category', queryText: CATEGORY_QUERY[1], queryClass: 'non-brand',
@@ -1155,7 +1160,7 @@ describe('query tracking results: a simple project', () => {
         provider: 'claude', expectedAnswers: 1, answers: 1, mentionedAnswers: 1, citedAnswers: 1, uncheckedSourceAnswers: 0, mentioned: true, cited: true,
         answerRows: [{
           resultId: simpleAnswerId('q-brand', 'claude'), searchLocation: null, targetKeys: ['project'],
-          mentioned: true, cited: true, mentionedTargetKeys: ['project'], citedTargetKeys: ['project'], namedInstead: [],
+          mentioned: true, cited: true, mentionedTargetKeys: ['project'], citedTargetKeys: ['project'], namedInstead: [], alsoNamed: [], citedSources: [],
         }],
       }],
     }])
@@ -1781,8 +1786,10 @@ describe('query tracking results: one query and its answers', () => {
           answerRows: [{
             resultId: answerId(MARKET_TEXT, 'claude'), searchLocation: 'riverside', targetKeys: ['cedar', 'harbor'],
             mentioned: true, cited: false, mentionedTargetKeys: ['cedar'], citedTargetKeys: [],
-            // Neither Cedar's own name nor Maple's: a location of the plan is never a rival.
-            namedInstead: ['Oakline Residences'],
+            // Neither Cedar's own name nor Maple's: a location of the plan is never a rival. The answer
+            // mentioned the row, so the other name was also named, not named instead.
+            namedInstead: [], alsoNamed: ['Oakline Residences'],
+            citedSources: [{ url: OTHER_SOURCE, host: 'listings.example', ours: false, competitor: null }],
           }],
         },
         {
@@ -1790,7 +1797,8 @@ describe('query tracking results: one query and its answers', () => {
           citedTargetKeys: ['cedar'],
           answerRows: [{
             resultId: answerId(MARKET_TEXT, 'gemini'), searchLocation: 'riverside', targetKeys: ['cedar', 'harbor'],
-            mentioned: false, cited: true, mentionedTargetKeys: [], citedTargetKeys: ['cedar'], namedInstead: [],
+            mentioned: false, cited: true, mentionedTargetKeys: [], citedTargetKeys: ['cedar'], namedInstead: [], alsoNamed: [],
+            citedSources: [{ url: cedarPage, host: 'northbridge.example', ours: true, competitor: null }],
           }],
         },
         {
@@ -1798,7 +1806,7 @@ describe('query tracking results: one query and its answers', () => {
           // No answer was saved, so there is none to open.
           answerRows: [{
             resultId: null, searchLocation: 'riverside', targetKeys: ['cedar', 'harbor'],
-            mentioned: null, cited: null, mentionedTargetKeys: [], citedTargetKeys: [], namedInstead: [],
+            mentioned: null, cited: null, mentionedTargetKeys: [], citedTargetKeys: [], namedInstead: [], alsoNamed: [], citedSources: [],
           }],
         },
       ],
@@ -1980,7 +1988,7 @@ describe('query tracking results: one query and its answers', () => {
 
     const body = await results('queryId=q-market')
     const answer = body.rows[0]!.engines[0]!.answerRows![0]!
-    expect(answer).toMatchObject({ mentioned: true, mentionedTargetKeys: ['harbor'], namedInstead: ['Oakline Residences'] })
+    expect(answer).toMatchObject({ mentioned: true, mentionedTargetKeys: ['harbor'], namedInstead: [], alsoNamed: ['Oakline Residences'] })
     const opened = await request('GET', `/measurement-question-result?targetKey=harbor&resultId=${answer.resultId}&fallback=last-sweep`)
     expect(opened.statusCode, opened.body).toBe(200)
     expect(opened.json()).toMatchObject({ mentioned: true, recommendedInstead: ['Oakline Residences'] })
@@ -2237,3 +2245,146 @@ function largePortfolio(locations: number, markets: number) {
   const order = new Map(Object.keys(texts).map((queryId, index) => [queryId, index]))
   return { targets, texts, pairings, groups: [], subject, order, marketPhrases }
 }
+
+
+describe('query tracking results: grouped, compared, filtered and sorted', () => {
+  /**
+   * Every engine answers. On `q-market` (Uptown's market query) Claude names
+   * Harbor; Gemini and OpenAI name nobody tracked but other places, and only
+   * Gemini cites one of the project's pages (Cedar's).
+   */
+  const NAMED: Answers = ({ queryId, provider }) => {
+    if (queryId === 'q-market') {
+      if (provider === 'claude') return { text: 'Harbor Point is a strong option in Uptown.', cites: [OTHER_SOURCE], names: ['Rival Commons'] }
+      if (provider === 'gemini') return { text: 'A few communities are worth a look.', cites: ['https://northbridge.example/cedar/floor-plans'], names: ['Rival Commons (12 Main St)', 'listings.example', 'Brook Lofts'] }
+      return { text: 'Brook Lofts and others are popular.', cites: [OTHER_SOURCE, 'https://www.listings.example/brook'], names: ['Brook Lofts'] }
+    }
+    if (queryId === 'q-harbor') return says('Harbor Point gets good reviews.', ['https://northbridge.example/harbor/reviews'])
+    return says('Maple Row has covered parking.')
+  }
+
+  it('rolls a market up by type, never pooled, with who won its non-brand answers', async () => {
+    const { versionId, plan } = seedPortfolio()
+    seedSweep({ versionId, plan, createdAt: LAST_SWEEP, answers: NAMED })
+    const body = await results('group=market&sort=losing')
+    expect(body.groups?.map(group => group.key)).toEqual(['uptown'])
+    // The list of markets carries no rows, and the totals are still every row's.
+    expect(body.rows).toEqual([])
+    expect(body.totals?.map(total => [total.queryClass, total.queries])).toEqual((await results('')).totals?.map(total => [total.queryClass, total.queries]))
+    const uptown = body.groups![0]!
+    expect(uptown).toMatchObject({ kind: 'market', label: 'uptown', parentKey: null, locations: 2 })
+    const nonBrand = uptown.types.find(type => type.queryClass === 'non-brand')!
+    // The market's own query only: Claude mentioned, Gemini cited one of the project's pages.
+    expect(nonBrand).toMatchObject({ queries: 1, answers: 3, otherLocationMentionedAnswers: 0 })
+    expect([nonBrand.mentionCoverage.numerator, nonBrand.mentionCoverage.denominator]).toEqual([1, 3])
+    expect([nonBrand.citationCoverage.numerator, nonBrand.citationCoverage.denominator]).toEqual([1, 3])
+    expect(nonBrand.engines).toEqual([
+      { provider: 'claude', answers: 1, mentionedAnswers: 1, citedAnswers: 0 },
+      { provider: 'gemini', answers: 1, mentionedAnswers: 0, citedAnswers: 1 },
+      { provider: 'openai', answers: 1, mentionedAnswers: 0, citedAnswers: 0 },
+    ])
+    // Harbor's own branded query is the market's too, as its own type.
+    const branded = uptown.types.find(type => type.queryClass === 'branded')!
+    expect([branded.queries, branded.mentionCoverage.numerator, branded.mentionCoverage.denominator]).toEqual([1, 3, 3])
+    // Names only from the answers that did not mention: cleaned, a host dropped, one count per answer.
+    expect(uptown.namedInstead).toEqual([{ name: 'Brook Lofts', answers: 2 }, { name: 'Rival Commons', answers: 1 }])
+    // Sites only from the answers that did not cite, the project's own left out; www. dropped, once per answer.
+    expect(uptown.citedInstead).toEqual([{ host: 'listings.example', answers: 2 }])
+  })
+
+  it('rolls markets up into the group their own group sits in', async () => {
+    const { versionId, plan } = seedPortfolio(planOf({
+      groups: [
+        { stableKey: 'metro', label: 'Metro', targetKeys: ['harbor', 'cedar', 'maple'] },
+        { stableKey: 'uptown-area', label: 'Uptown area', parentGroupKey: 'metro', targetKeys: ['harbor', 'cedar'] },
+        { stableKey: 'harbor-only', label: 'Harbor only', targetKeys: ['harbor'] },
+      ],
+      marketGroups: { uptown: 'uptown-area' },
+    }))
+    seedSweep({ versionId, plan, createdAt: LAST_SWEEP, answers: NAMED })
+    const markets = await results('group=market')
+    expect(markets.groups?.[0]?.parentKey).toBe('metro')
+    const groups = await results('group=group')
+    expect(groups.groups?.map(group => [group.kind, group.key, group.label, group.marketKeys, group.locations])).toEqual([
+      ['group', 'metro', 'Metro', ['uptown'], 2],
+    ])
+    // Under a group, a market is listed only when all of its locations are in it:
+    // Harbor's own query reaches Uptown, but Cedar is outside that group.
+    expect((await results('scope=group&scopeKey=uptown-area&group=market')).groups?.map(group => group.key)).toEqual(['uptown'])
+    expect((await results('scope=group&scopeKey=harbor-only&group=market')).groups).toEqual([])
+  })
+
+  it('splits the other names by whether the answer mentioned the row, and says whose site each source is', async () => {
+    const { versionId, plan } = seedPortfolio()
+    seedSweep({ versionId, plan, createdAt: LAST_SWEEP, answers: NAMED })
+    const body = await results('queryId=q-market')
+    const rowsOf = (provider: Engine) => engine(body, 'q-market', 'non-brand', provider).answerRows![0]!
+    expect([rowsOf('claude').namedInstead, rowsOf('claude').alsoNamed]).toEqual([[], ['Rival Commons']])
+    expect([rowsOf('gemini').namedInstead, rowsOf('gemini').alsoNamed]).toEqual([['Rival Commons', 'Brook Lofts'], []])
+    expect(rowsOf('gemini').citedSources).toEqual([{ url: 'https://northbridge.example/cedar/floor-plans', host: 'northbridge.example', ours: true, competitor: null }])
+    expect(rowsOf('openai').citedSources?.map(source => [source.host, source.ours])).toEqual([['listings.example', false], ['listings.example', false]])
+  })
+
+  it('marks each engine that gained or lost a signal since the previous sweep, and rates both sweeps over the same rows', async () => {
+    const { versionId, plan } = seedPortfolio()
+    const before: Answers = ({ queryId, provider }) => {
+      if (queryId === 'q-market' && provider === 'gemini') return says('A few communities are worth a look.', ['https://northbridge.example/cedar/floor-plans'])
+      if (queryId === 'q-market') return nobody
+      return NAMED({ queryId, provider, at: 'riverside' })
+    }
+    const after: Answers = ({ queryId, provider }) => {
+      if (queryId === 'q-market' && provider === 'claude') return says('Harbor Point is a strong option in Uptown.')
+      if (queryId === 'q-market') return nobody
+      return NAMED({ queryId, provider, at: 'riverside' })
+    }
+    const firstId = seedSweep({ versionId, plan, createdAt: FIRST_SWEEP, answers: before })
+    seedSweep({ versionId, plan, createdAt: LAST_SWEEP, answers: after })
+    const body = await results('compare=previous')
+    expect(body.compareRun?.id).toBe(firstId)
+    expect(extras(engine(body, 'q-market', 'non-brand', 'claude'))).toMatchObject({ mentionChange: 'won' })
+    expect(extras(engine(body, 'q-market', 'non-brand', 'gemini'))).toMatchObject({ citationChange: 'lost' })
+    expect(extras(engine(body, 'q-market', 'non-brand', 'openai'))).toEqual({})
+    // Non-brand rows both sweeps measured: the market query and the hand-picked query's Maple row.
+    const nonBrand = body.totals!.find(total => total.queryClass === 'non-brand')!
+    expect(nonBrand.comparison).toMatchObject({ queries: 2 })
+    const pair = (rate: { numerator: number | null; denominator: number | null }) => [rate.numerator, rate.denominator]
+    expect(pair(nonBrand.comparison!.mentionCoverage)).toEqual([4, 6])
+    expect(pair(nonBrand.comparison!.previousMentionCoverage)).toEqual([3, 6])
+    expect(pair(nonBrand.comparison!.citationCoverage)).toEqual([0, 6])
+    expect(pair(nonBrand.comparison!.previousCitationCoverage)).toEqual([1, 6])
+    // The changes are the server's own: this sweep's rate minus the previous one.
+    expect(nonBrand.comparison!.mentionDelta).toBeCloseTo(4 / 6 - 3 / 6, 12)
+    expect(nonBrand.comparison!.citationDelta).toBeCloseTo(0 / 6 - 1 / 6, 12)
+    // The change filter follows the signal, and the totals then cover the rows returned.
+    expect(rowKeys(await results('compare=previous&change=lost'))).toEqual([])
+    const lost = await results('compare=previous&change=lost&signal=cited')
+    expect(rowKeys(lost)).toEqual(['q-market non-brand'])
+    expect(lost.totals?.map(total => [total.queryClass, total.queries])).toEqual([['non-brand', 1]])
+    // With no earlier sweep there is nothing to compare.
+    const only = await results(`compare=previous&runId=${firstId}`)
+    expect(only.compareRun).toBeNull()
+  })
+
+  it('filters rows by one engine\'s result and sorts them by the signal\'s share', async () => {
+    const { versionId, plan } = seedPortfolio()
+    seedSweep({ versionId, plan, createdAt: LAST_SWEEP, answers: NAMED })
+    const gemini = await results('engine=gemini&result=not-mentioned')
+    expect(rowKeys(gemini).sort()).toEqual(['q-market non-brand', 'q-parking branded'])
+    expect(gemini.totals?.map(total => [total.queryClass, total.queries])).toEqual([['branded', 1], ['non-brand', 1]])
+    // Winning first: every answer mentions, then one in three, then none; ties by query text.
+    expect(rowKeys(await results('sort=winning'))).toEqual(['q-harbor branded', 'q-parking non-brand', 'q-market non-brand', 'q-parking branded'])
+    expect(rowKeys(await results('sort=losing&signal=cited')).at(-1)).toBe('q-harbor branded')
+  })
+
+  it('refuses a grouped read of one place or one query, a change without a comparison, and grouping a simple project', async () => {
+    expect((await refused('change=lost')).code).toBe('VALIDATION_ERROR')
+    expect((await refused('group=market&queryId=q-market')).code).toBe('VALIDATION_ERROR')
+    // A list of markets has no rows to filter.
+    expect(JSON.stringify((await refused('group=market&engine=gemini&result=not-mentioned')).details)).toContain('group is not read with engine, result or change')
+    expect((await refused('group=market')).message).toMatch(/advanced portfolio/)
+    seedPortfolio()
+    expect((await refused('group=market&scope=market&scopeKey=uptown')).code).toBe('VALIDATION_ERROR')
+    const empty = await results('group=market&compare=previous')
+    expect([empty.run, empty.groups, empty.compareRun]).toEqual([null, [], null])
+  })
+})

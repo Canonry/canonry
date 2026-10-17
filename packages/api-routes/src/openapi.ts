@@ -1824,6 +1824,13 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'scopeKey', in: 'query', description: 'Stable key of the group, market or property. Required for non-project scopes. A key the active plan holds and the sweep never measured returns no rows.', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'One completed or partial whole-project sweep. Omit for the default sweep.', schema: stringSchema },
       { name: 'queryId', in: 'query', description: 'One tracked query. Returns only its rows, with `answerRows` per engine and no `totals` or `weakMarkets`. A query the place does not ask returns no rows. Read-selection identity.', schema: stringSchema },
+      { name: 'signal', in: 'query', description: 'The signal `sort`, `groups` and the "who won" lists read: answer text (`mentioned`) or sources (`cited`). Default `mentioned`. Read-selection identity.', schema: { type: 'string', enum: ['mentioned', 'cited'] } },
+      { name: 'sort', in: 'query', description: 'Orders `rows` and `groups` by the signal\'s share of checked answers: `losing` lowest first, `winning` highest first. Omit for query-id order. Read-selection identity.', schema: { type: 'string', enum: ['losing', 'winning'] } },
+      { name: 'group', in: 'query', description: 'An advanced portfolio\'s roll-ups in `groups`: one per `market`, or one per `group` of markets, and no `rows` (a market\'s queries are a read of that market). Project or group scope only; not with `queryId`, `engine`, `result` or `change`. Read-selection identity.', schema: { type: 'string', enum: ['market', 'group'] } },
+      { name: 'compare', in: 'query', description: '`previous`: compare with the sweep before the one read on the same queries. Each engine gains `mentionChange` / `citationChange`, each total a `comparison`, and the response a `compareRun`. Read-selection identity.', schema: { type: 'string', enum: ['previous'] } },
+      { name: 'engine', in: 'query', description: 'Keep only rows whose `result` and `change` hold on this engine; without it, on any engine. Read-selection identity.', schema: stringSchema },
+      { name: 'result', in: 'query', description: 'Keep only rows with this result. Not checked is never a no. Totals then cover the rows returned. Read-selection identity.', schema: { type: 'string', enum: ['mentioned', 'not-mentioned', 'cited', 'not-cited'] } },
+      { name: 'change', in: 'query', description: 'Keep only rows that `won` or `lost` the signal since the previous sweep. Needs `compare=previous`. Read-selection identity.', schema: { type: 'string', enum: ['won', 'lost'] } },
     ],
     responses: {
       200: jsonResponse('Per-query engine results for one sweep, or an empty list with no sweep.', 'QueryTrackingResultsResponse'),

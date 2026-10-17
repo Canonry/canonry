@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { queryTrackingModeSchema } from './query-tracking.js'
+import { fraction } from './ratio-unit.js'
 import { RunStatuses } from './run.js'
 import {
   visibilityReportPopulationClassSchema,
@@ -21,6 +22,14 @@ const positiveCountSchema = z.number().int().positive()
 /** Location keys, sorted. Omitted when empty. */
 const targetKeysSchema = z.array(nonBlankIdSchema).min(1)
 
+/** The signal a list is read by: answer text (mentioned) or sources (cited). The two are never computed from each other. */
+export const queryTrackingSignalSchema = z.enum(['mentioned', 'cited'])
+export type QueryTrackingSignal = z.output<typeof queryTrackingSignalSchema>
+/** A sweep-to-sweep change of one engine's signal on the same query: gained or lost. */
+export const queryTrackingChangeSchema = z.enum(['won', 'lost'])
+export type QueryTrackingChange = z.output<typeof queryTrackingChangeSchema>
+export const queryTrackingResultFilterSchema = z.enum(['mentioned', 'not-mentioned', 'cited', 'not-cited'])
+
 const queryTrackingResultsRequestShape = {
   /** The place whose pairings are read. Resolved against the active plan. */
   scope: visibilityReportScopeKindSchema.default('project'),
@@ -32,6 +41,24 @@ const queryTrackingResultsRequestShape = {
    * engine entry with `answerRows`, and neither `totals` nor `weakMarkets`.
    */
   queryId: nonBlankIdSchema.optional(),
+  /** The signal `sort`, `groups` and the "who won" lists read. Default `mentioned`. */
+  signal: queryTrackingSignalSchema.optional(),
+  /** Orders `rows` (and `groups`) by the signal's share of answers: lowest first, or highest first. Omit for query-id order. */
+  sort: z.enum(['losing', 'winning']).optional(),
+  /**
+   * An advanced portfolio's roll-ups in `groups`: one per market, or one per
+   * group of markets. Read at project or group scope, with no row filter. A
+   * grouped read returns no `rows`: a market's queries are a read of that market.
+   */
+  group: z.enum(['market', 'group']).optional(),
+  /** `previous`: compare with the sweep before the one read, on the same queries; rows gain each engine's change. */
+  compare: z.literal('previous').optional(),
+  /** Keep only rows whose `result` (and `change`) hold on this engine; without it, on any engine. */
+  engine: nonBlankIdSchema.optional(),
+  /** Keep only rows with this result on `engine`, or on any engine. Not checked is never a no. */
+  result: queryTrackingResultFilterSchema.optional(),
+  /** Keep only rows that won or lost the signal since the previous sweep. Needs `compare=previous`. */
+  change: queryTrackingChangeSchema.optional(),
 }
 
 /** Plain serializable wire schema used by MCP and generated clients. */
@@ -42,9 +69,33 @@ export const queryTrackingResultsRequestSchema = z.object(queryTrackingResultsRe
   if (value.scope === 'project' && value.scopeKey !== undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['scopeKey'], message: 'scopeKey is not valid for project scope' })
   }
+  if (value.group !== undefined && (value.scope === 'market' || value.scope === 'property')) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['group'], message: 'group is read at project or group scope' })
+  }
+  if (value.group !== undefined && value.queryId !== undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['group'], message: 'group is not read with queryId' })
+  }
+  if (value.group !== undefined && (value.engine !== undefined || value.result !== undefined || value.change !== undefined)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['group'], message: 'group is not read with engine, result or change' })
+  }
+  if (value.change !== undefined && value.compare === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['change'], message: 'change needs compare=previous' })
+  }
 })
 export type QueryTrackingResultsRequest = z.input<typeof queryTrackingResultsRequestSchema>
 export type QueryTrackingResultsQuery = z.output<typeof queryTrackingResultsRequestSchema>
+
+/** One source an answer cited, with whose site it is. */
+export const queryTrackingCitedSourceSchema = z.object({
+  url: z.string().trim().min(1),
+  /** The source's host, `www.` dropped. */
+  host: z.string().trim().min(1),
+  /** The host is one of the project's own sites. */
+  ours: z.boolean(),
+  /** The tracked competitor whose domain the source is, or null. */
+  competitor: z.string().trim().min(1).nullable(),
+}).strict()
+export type QueryTrackingCitedSource = z.output<typeof queryTrackingCitedSourceSchema>
 
 /**
  * One expected answer of one engine, returned only by a read of one query
@@ -66,8 +117,16 @@ export const queryTrackingAnswerRowSchema = z.object({
   mentionedTargetKeys: z.array(nonBlankIdSchema),
   /** The locations in `targetKeys` the fully saved sources cite, sorted. */
   citedTargetKeys: z.array(nonBlankIdSchema),
-  /** Names the answer wrote that are no location of the sweep's plan, in stored order. */
+  /**
+   * Names the answer wrote in place of the row's locations: set only when the
+   * answer did not mention the row. Cleaned (addresses trimmed, headings and
+   * place names dropped, one spelling per name), in stored order.
+   */
   namedInstead: z.array(z.string().trim().min(1)),
+  /** The same names when the answer mentioned the row or could not be checked. Absent from a server that predates it. */
+  alsoNamed: z.array(z.string().trim().min(1)).optional(),
+  /** The sources the answer cited, in stored order. Absent from a server that predates it. */
+  citedSources: z.array(queryTrackingCitedSourceSchema).optional(),
 }).strict()
 export type QueryTrackingAnswerRow = z.output<typeof queryTrackingAnswerRowSchema>
 
@@ -114,6 +173,10 @@ export const queryTrackingEngineResultSchema = z.object({
   otherLocationCitedTargetKeys: targetKeysSchema.optional(),
   /** Only on a read of one query (`queryId`): one entry per expected answer. */
   answerRows: z.array(queryTrackingAnswerRowSchema).optional(),
+  /** With `compare=previous`: the mention gained or lost on this engine since that sweep. Absent when unchanged or not comparable. */
+  mentionChange: queryTrackingChangeSchema.optional(),
+  /** The same for the citation. */
+  citationChange: queryTrackingChangeSchema.optional(),
 }).strict().superRefine((value, ctx) => {
   // Saved answers that do not mention the row: each is a checked no or was left unchecked, never both.
   const notMentioned = value.answers - value.mentionedAnswers
@@ -187,6 +250,23 @@ export const queryTrackingResultTotalsSchema = z.object({
   answers: countSchema,
   mentionCoverage: visibilityReportRateSchema,
   citationCoverage: visibilityReportRateSchema,
+  /**
+   * With `compare=previous` and a previous sweep: both sweeps' rates over the
+   * rows of this type that both measured, so a change is the same queries in
+   * both. Absent with nothing to compare.
+   */
+  comparison: z.object({
+    /** Rows of this type both sweeps measured. */
+    queries: countSchema,
+    mentionCoverage: visibilityReportRateSchema,
+    citationCoverage: visibilityReportRateSchema,
+    previousMentionCoverage: visibilityReportRateSchema,
+    previousCitationCoverage: visibilityReportRateSchema,
+    /** The server's own `mentionCoverage.rate - previousMentionCoverage.rate`; null when either is. */
+    mentionDelta: fraction(z.number().min(-1).max(1)).nullable(),
+    /** The same for the citation rates. */
+    citationDelta: fraction(z.number().min(-1).max(1)).nullable(),
+  }).strict().optional(),
 }).strict()
 export type QueryTrackingResultTotals = z.output<typeof queryTrackingResultTotalsSchema>
 
@@ -232,6 +312,60 @@ export const queryTrackingWeakMarketsSchema = z.object({
 }).strict()
 export type QueryTrackingWeakMarkets = z.output<typeof queryTrackingWeakMarketsSchema>
 
+const positiveNamedCountSchema = z.number().int().positive()
+
+/** One type's result in a group: the rates are the report's own, over the group's rows of that type. */
+export const queryTrackingGroupTypeSchema = z.object({
+  queryClass: visibilityReportPopulationClassSchema,
+  queries: countSchema,
+  answers: countSchema,
+  mentionCoverage: visibilityReportRateSchema,
+  citationCoverage: visibilityReportRateSchema,
+  /** Answers that named another location of the plan instead of the group's own. */
+  otherLocationMentionedAnswers: countSchema,
+  /** Per engine, in the response's engine order. */
+  engines: z.array(z.object({
+    provider: nonBlankIdSchema,
+    answers: countSchema,
+    mentionedAnswers: countSchema,
+    citedAnswers: countSchema,
+  }).strict()),
+  /** With `compare=previous`: query and engine pairs that gained or lost each signal since that sweep. */
+  change: z.object({
+    mentionsWon: countSchema,
+    mentionsLost: countSchema,
+    citationsWon: countSchema,
+    citationsLost: countSchema,
+  }).strict().optional(),
+}).strict()
+
+/**
+ * One market (or one group of markets) on a grouped read. A market's queries
+ * are the queries whose Subject is that market, plus its locations' own
+ * queries; a group holds its markets. Each answer counts once. The "who won"
+ * lists read the group's non-brand answers that missed the signal.
+ */
+export const queryTrackingResultGroupSchema = z.object({
+  kind: z.enum(['market', 'group']),
+  key: nonBlankIdSchema,
+  label: z.string().trim().min(1),
+  /** The group a market sits in, or the group above a group. Null at the top. */
+  parentKey: nonBlankIdSchema.nullable(),
+  /** Locations in the market or group. */
+  locations: countSchema,
+  /** On a group: the markets in it, in key order. */
+  marketKeys: z.array(nonBlankIdSchema).optional(),
+  /** One entry per type that has a row, never pooled. */
+  types: z.array(queryTrackingGroupTypeSchema),
+  /** Names the non-brand answers gave when they did not mention the group, most answers first. */
+  namedInstead: z.array(z.object({ name: z.string().trim().min(1), answers: positiveNamedCountSchema }).strict()),
+  /** Sites the non-brand answers cited when they did not cite the group, ours left out, most answers first. */
+  citedInstead: z.array(z.object({ host: z.string().trim().min(1), answers: positiveNamedCountSchema }).strict()),
+  /** Tracked competitors the non-brand answers named or cited. */
+  competitors: z.array(z.object({ domain: z.string().trim().min(1), mentionedAnswers: countSchema, citedAnswers: countSchema }).strict()),
+}).strict()
+export type QueryTrackingResultGroup = z.output<typeof queryTrackingResultGroupSchema>
+
 export const queryTrackingResultsResponseSchema = z.object({
   mode: queryTrackingModeSchema,
   /** The place read. `key` is null for the whole project. */
@@ -266,5 +400,9 @@ export const queryTrackingResultsResponseSchema = z.object({
    * that predates it.
    */
   weakMarkets: queryTrackingWeakMarketsSchema.optional(),
+  /** With `compare=previous`: the sweep compared with, or null when there is none. */
+  compareRun: queryTrackingResultsRunSchema.nullable().optional(),
+  /** With `group`: one entry per market or group, ordered by `sort` when given, else by key. `rows` is then empty. */
+  groups: z.array(queryTrackingResultGroupSchema).optional(),
 }).strict()
 export type QueryTrackingResultsResponse = z.output<typeof queryTrackingResultsResponseSchema>
