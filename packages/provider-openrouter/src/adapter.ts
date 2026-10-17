@@ -113,6 +113,48 @@ function parseResponse(body: Record<string, unknown>, model: string, provider = 
   }
 }
 
+/** A catalog price (US dollars per token, as a decimal string) per million tokens. */
+function perMillionTokens(value: unknown): number | undefined {
+  if (typeof value === 'string' ? !value.trim() : typeof value !== 'number') return undefined
+  const perToken = Number(value)
+  // Routers publish -1 for a price that depends on the model they pick.
+  if (!Number.isFinite(perToken) || perToken < 0) return undefined
+  return Number((perToken * 1_000_000).toPrecision(12))
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined
+}
+
+/**
+ * What Aero needs to call a model it has no bundled definition for, read from
+ * the same `GET /models` entry. Sweeps ignore it; each field is left out when
+ * the entry does not carry it.
+ */
+function catalogMetadata(model: Record<string, unknown>): Omit<ModelDefinition, 'id' | 'displayName' | 'tier'> {
+  const topProvider = asRecord(model.top_provider)
+  const pricing = asRecord(model.pricing)
+  const input = perMillionTokens(pricing?.prompt)
+  const output = perMillionTokens(pricing?.completion)
+  const cacheRead = perMillionTokens(pricing?.input_cache_read)
+  const cacheWrite = perMillionTokens(pricing?.input_cache_write)
+  const modalities = asRecord(model.architecture)?.input_modalities
+  const parameters = Array.isArray(model.supported_parameters) ? model.supported_parameters : undefined
+  const contextWindow = positiveInteger(model.context_length) ?? positiveInteger(topProvider?.context_length)
+  const maxOutputTokens = positiveInteger(topProvider?.max_completion_tokens)
+  return {
+    ...(contextWindow ? { contextWindow } : {}),
+    ...(maxOutputTokens ? { maxOutputTokens } : {}),
+    ...(input !== undefined && output !== undefined ? { pricing: {
+      input, output,
+      ...(cacheRead !== undefined ? { cacheRead } : {}),
+      ...(cacheWrite !== undefined ? { cacheWrite } : {}),
+    } } : {}),
+    ...(Array.isArray(modalities) ? { inputModalities: modalities.filter((entry): entry is string => typeof entry === 'string') } : {}),
+    ...(parameters ? { supportsTools: parameters.includes('tools'), supportsReasoning: parameters.includes('reasoning') } : {}),
+  }
+}
+
 function buildRequest(input: TrackedQueryInput, config: ProviderConfig): TrackedQueryRequest {
   const model = modelOf(config)
   return { endpoint: '/chat/completions', body: {
@@ -163,7 +205,7 @@ export const openrouterAdapter: ProviderAdapter = {
       // Sweeps need a text answer. A model that can also return images or audio
       // is an image, music or speech generator, not an answer engine.
       if (Array.isArray(output) && (!output.includes('text') || output.includes('image') || output.includes('audio'))) return []
-      return [{ id: model.id, displayName: typeof model.name === 'string' ? model.name : model.id, tier: 'standard' as const }]
+      return [{ id: model.id, displayName: typeof model.name === 'string' ? model.name : model.id, tier: 'standard' as const, ...catalogMetadata(model) }]
     })
   },
   buildTrackedQueryRequest: buildRequest,

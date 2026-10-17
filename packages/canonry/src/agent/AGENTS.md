@@ -10,7 +10,8 @@ consume Canonry through the external-agent webhook.
 - **CLI**: `canonry agent ask <project> "<prompt>"` — one-shot turn. Streams
   `AgentEvent` lines to stdout (or JSON with `--format json`). Supports
   `--provider claude|openai|gemini|zai|openrouter` and `--model <id>`. `zai` is
-  agent-only. Every provider resolves its models from pi-ai's catalog and
+  agent-only. Every provider resolves its models from pi-ai's catalog (for
+  OpenRouter, a live one: see "Model tiers and upgrades") and
   authenticates with that vendor's own key (a proxied deployment can route
   Gemini through `GEMINI_BASE_URL` or Z.ai through `ZAI_BASE_URL`). The `deepinfra` provider was removed:
   config load and `--provider` reject it as removed (not unknown), and stored
@@ -369,6 +370,27 @@ self-starting), and `disabled` (off entirely).
 (`validateAgentProviderRegistry` throws if they desync). Every provider resolves
 models from pi-ai's catalog.
 
+OpenRouter's entry in that catalog is live. `openrouter-models.ts` replaces pi's
+fixed OpenRouter provider (`MutableModels.setProvider`) with one that keeps pi's
+auth, stream, image and classifier transports and its bundled models, and adds
+each model from Canonry's shared OpenRouter catalog (`provider-model-catalog.ts`,
+the one sweeps use: one fetch, one hour) that the bundled list lacks, as an
+`openai-completions` model at pi's OpenRouter base URL with the catalog's limits,
+prices, modalities and reasoning flag (captured by `provider-openrouter`'s
+`listModels`). The list changes only through pi's `refreshModels`/`publish`.
+`server.ts` connects the catalog; with none connected, or while it cannot be
+read, the bundled list stands. `refreshAgentModels(provider)` runs before a
+model is resolved (operator and viewer turns, `/agent/providers`, the analyze
+tier, discovery classification) and reads the cache unless it expired, so a turn
+never adds a fetch. Validation never rejects a well-formed OpenRouter ID for
+missing from the bundled list (`validateAgentProviderRegistry`,
+`isAgentModelAccepted` for `classification.model`, doctor's pin check before the
+live list loads). The agent picker (`models` on the OpenRouter provider option)
+lists only catalog entries with tool support, or the bundled list offline. The
+OpenRouter defaults (`anthropic/claude-sonnet-5.5`, `google/gemini-3.8-flash`,
+`google/gemini-3.5-flash-lite`) must stay in pi-ai's bundled list so they
+resolve offline.
+
 OpenRouter uses `providers.openrouter.apiKey` or `OPENROUTER_API_KEY` for Aero,
 domain categorization and routed Jev. Aero defaults to the provider's agent tier;
 `agent.model` never inherits the model selected for visibility sweeps.
@@ -430,7 +452,8 @@ Aero's rules live in `src/agent/AGENTS.md` (see "Agent layer (Aero)" below). The
 - `packages/canonry/src/agent/runtime.ts` — progressive schemas and execution budgets
 - `packages/canonry/src/agent/view-context.ts` — authoritative view evidence
 - `packages/canonry/src/agent/session.ts` — `createAeroSession` (pi integration)
-- `packages/canonry/src/agent/pi-models.ts` — the one pi-ai model collection (`aeroModels`: the built-in catalog), the Agent's `aeroStreamFn`, and `completeOnce` for one-shot calls. Every request gets 2 retries (pi 0.76 made it 0), an output cap of min(model max, 32K) (streaming used that cap before pi 0.74; one-shot calls now get it too, where each API used to apply its own default), and a `canonry` User-Agent instead of pi's, which names the host OS and architecture. The other SDK headers that name the host are removed per API (`HOST_HEADERS`): X-Stainless-OS, -Arch and -Runtime-Version are nulled on the Anthropic and OpenAI APIs (zai included), where a null drops the SDK default, and Gemini's `x-goog-api-client`, which carries the Node version, is overwritten with `canonry`, since pi drops a null header before @google/genai sees it. A caller's explicit header still wins. `test/agent-request-headers.test.ts` checks every provider's real catalog model against a local server.
+- `packages/canonry/src/agent/openrouter-models.ts`: the live OpenRouter provider installed into `aeroModels` (see "Model tiers and upgrades")
+- `packages/canonry/src/agent/pi-models.ts` — the one pi-ai model collection (`aeroModels`: the built-in catalog, with OpenRouter's provider replaced by `openRouterModels`), the Agent's `aeroStreamFn`, and `completeOnce` for one-shot calls. Every request gets 2 retries (pi 0.76 made it 0), an output cap of min(model max, 32K) (streaming used that cap before pi 0.74; one-shot calls now get it too, where each API used to apply its own default), and a `canonry` User-Agent instead of pi's, which names the host OS and architecture. The other SDK headers that name the host are removed per API (`HOST_HEADERS`): X-Stainless-OS, -Arch and -Runtime-Version are nulled on the Anthropic and OpenAI APIs (zai included), where a null drops the SDK default, and Gemini's `x-goog-api-client`, which carries the Node version, is overwritten with `canonry`, since pi drops a null header before @google/genai sees it. A caller's explicit header still wins. `test/agent-request-headers.test.ts` checks every provider's real catalog model against a local server.
 - `packages/canonry/src/agent/session-registry.ts` — hybrid in-memory + DB registry
 - `packages/canonry/src/agent/tools.ts` — thin wrapper that exposes the entire MCP tool registry to Aero via `mcp-to-agent-tool.ts`
 - `packages/canonry/src/agent/mcp-to-agent-tool.ts` — adapter; new MCP tools flow into Aero with no second registration

@@ -1956,6 +1956,10 @@ export type AgentProvidersResponseDto = {
         defaultModel: string;
         configured: boolean;
         keySource: 'config' | 'env' | null;
+        models?: Array<{
+            id: string;
+            displayName: string;
+        }>;
     }>;
     defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai' | 'openrouter' | null;
 };

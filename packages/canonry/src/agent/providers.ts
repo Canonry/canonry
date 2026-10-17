@@ -2,12 +2,13 @@ import {
   type KnownProvider,
   type Model,
 } from '@earendil-works/pi-ai'
-import { aeroModels } from './pi-models.js'
+import { aeroModels, openRouterModels } from './pi-models.js'
 import {
   AGENT_PROVIDER_IDS,
   AgentProviderIds,
   LLM_CAPABILITIES,
   LlmCapabilities,
+  OPENROUTER_MODEL_PATTERN,
   isAgentProviderId,
   type AgentProviderId,
   type AgentProviderOption,
@@ -48,7 +49,7 @@ export interface AgentProviderEntry {
    * Default model when the caller doesn't specify one and didn't pass a
    * capability. Equals `PROVIDER_MODELS[id].agent` — the `agent`-tier
    * model is the historical default since Aero was the only consumer.
-   * Validated against pi-ai's catalog at module load.
+   * Validated at module load (see `validateAgentProviderRegistry`).
    */
   defaultModel: string
   /** Lower = higher priority in auto-detect. Used when no `--provider` is passed. */
@@ -73,6 +74,9 @@ export interface AgentProviderEntry {
  *     model. All three tiers point at flash.
  *   - Zai: glm-5.2 is the agent tier; glm-5-turbo is the cheap tier
  *     for analyze + classify.
+ *   - OpenRouter: the cheaper tier of each family. Every default is in
+ *     pi-ai's bundled OpenRouter list, so it resolves while OpenRouter's live
+ *     catalog cannot be read; other models come from that catalog.
  */
 export const PROVIDER_MODELS = {
   [AgentProviderIds.claude]: {
@@ -107,9 +111,9 @@ export const PROVIDER_MODELS = {
     [LlmCapabilities.classify]: 'glm-5-turbo',
   },
   [AgentProviderIds.openrouter]: {
-    [LlmCapabilities.agent]: 'anthropic/claude-opus-4.7',
-    [LlmCapabilities.analyze]: 'anthropic/claude-sonnet-4.6',
-    [LlmCapabilities.classify]: 'anthropic/claude-haiku-4.5',
+    [LlmCapabilities.agent]: 'anthropic/claude-sonnet-5.5',
+    [LlmCapabilities.analyze]: 'google/gemini-3.8-flash',
+    [LlmCapabilities.classify]: 'google/gemini-3.5-flash-lite',
   },
 } as const satisfies Record<AgentProviderId, Record<LlmCapability, string>>
 
@@ -212,7 +216,8 @@ export function resolveModelForProvider(
  * mid-tier for synthesis) without hand-coding model names at every
  * call site.
  *
- * Throws if the model isn't in pi-ai's catalog.
+ * Throws if the model isn't in pi-ai's catalog. For OpenRouter that catalog
+ * includes the live models loaded by `refreshAgentModels`, so call it first.
  */
 export function resolveModelForCapability(
   provider: AgentProviderId,
@@ -222,6 +227,12 @@ export function resolveModelForCapability(
   const entry = AGENT_PROVIDERS[provider]
   const id = modelIdOverride ?? PROVIDER_MODELS[provider][capability]
   const model = aeroModels.getModel(entry.piAiProvider, id) as Model<never> | undefined
+  if (!model && provider === AgentProviderIds.openrouter) {
+    throw new Error(
+      `OpenRouter model '${id}' is not in OpenRouter's model list. ` +
+        `Check the ID against the OpenRouter catalog, or pick a model from the Aero model list.`,
+    )
+  }
   if (!model) {
     throw new Error(
       `Model '${id}' not found for pi-ai provider '${entry.piAiProvider}'. ` +
@@ -259,9 +270,32 @@ export function resolveModelForCapability(
   return model
 }
 
-/** Whether `id` resolves for `provider` in the installed pi-ai catalog. */
+/**
+ * Whether `id` resolves for `provider` now: in the installed pi-ai catalog,
+ * plus, for OpenRouter, the live models loaded so far.
+ */
 export function isAgentModelAvailable(provider: AgentProviderId, id: string): boolean {
   return !!aeroModels.getModel(AGENT_PROVIDERS[provider].piAiProvider, id)
+}
+
+/**
+ * Whether configuration may name `id` for `provider`. OpenRouter's list is
+ * live, so any well-formed `publisher/model` ID is accepted there and checked
+ * against the catalog when it runs; other providers need a catalog model.
+ */
+export function isAgentModelAccepted(provider: AgentProviderId, id: string): boolean {
+  if (provider === AgentProviderIds.openrouter && OPENROUTER_MODEL_PATTERN.test(id)) return true
+  return isAgentModelAvailable(provider, id)
+}
+
+/**
+ * Load the live model list a provider's models come from before resolving
+ * one. Only OpenRouter has one: this follows the catalog Canonry caches for
+ * sweeps and fetches only when that cache has expired. Other providers
+ * resolve from pi-ai's fixed catalog and return at once.
+ */
+export async function refreshAgentModels(provider: AgentProviderId | undefined, signal?: AbortSignal): Promise<void> {
+  if (provider === AgentProviderIds.openrouter) await openRouterModels.refresh(signal)
 }
 
 /**
@@ -273,6 +307,8 @@ export function isAgentModelAvailable(provider: AgentProviderId, id: string): bo
  *      `PROVIDER_MODELS` mapping was forgotten for one of the providers.
  *   2. A model id is bumped in `PROVIDER_MODELS` but no longer exists in
  *      pi-ai's catalog (vendor renamed it, pi-ai version drifted, etc.).
+ *      OpenRouter's list is live, so its defaults only need a well-formed
+ *      `publisher/model` ID here; a bundled-list miss is not drift.
  *   3. `AGENT_PROVIDERS[id].defaultModel` diverged from
  *      `PROVIDER_MODELS[id].agent` (would silently surface the wrong
  *      model in the CLI / dashboard provider picker).
@@ -280,7 +316,14 @@ export function isAgentModelAvailable(provider: AgentProviderId, id: string): bo
 export function validateAgentProviderRegistry(): void {
   for (const provider of listAgentProviders()) {
     for (const capability of LLM_CAPABILITIES) {
-      resolveModelForCapability(provider, capability)
+      if (provider !== AgentProviderIds.openrouter) {
+        resolveModelForCapability(provider, capability)
+        continue
+      }
+      const id = PROVIDER_MODELS[provider][capability]
+      if (!OPENROUTER_MODEL_PATTERN.test(id)) {
+        throw new Error(`PROVIDER_MODELS[${provider}][${capability}] ('${id}') is not an OpenRouter publisher/model ID.`)
+      }
     }
     const entry = AGENT_PROVIDERS[provider]
     const agentModel = PROVIDER_MODELS[provider][LlmCapabilities.agent]
@@ -374,11 +417,14 @@ function resolveAgentId(providerOrPiAi: string): AgentProviderId | undefined {
  * Build the `AgentProvidersResponse` DTO the `/agent/providers` endpoint
  * serves. Lives alongside the registry so the provider list and the
  * key-source derivation stay in lockstep with `AGENT_PROVIDERS`.
+ *
+ * `models: true` adds OpenRouter's model choices (the route; doctor needs
+ * only key status). They reflect the last `refreshAgentModels('openrouter')`.
  */
 export function buildAgentProvidersResponse(config: {
   providers?: Record<string, { apiKey?: string } | undefined>
   agent?: { provider?: string | null; model?: string | null }
-}): AgentProvidersResponse {
+}, opts: { models?: boolean } = {}): AgentProvidersResponse {
   // `agent.provider` is what Aero answers with when a caller names none, so it
   // is the default to report, and `agent.model` is that provider's model. A pin
   // without a key is still reported as the default, unconfigured: that is the
@@ -394,6 +440,7 @@ export function buildAgentProvidersResponse(config: {
       defaultModel: id === pinned && pinnedModel ? pinnedModel : entry.defaultModel,
       configured: source !== undefined,
       keySource: source?.source ?? null,
+      ...(opts.models && id === AgentProviderIds.openrouter ? { models: openRouterModels.agentModels() } : {}),
     }
   })
   const firstConfigured = agentProvidersByPriority().find((p) => resolveApiKeySource(p, config))

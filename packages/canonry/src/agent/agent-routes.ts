@@ -1,4 +1,4 @@
-import { OutcomeTriggers, USAGE_TELEMETRY_HEADERS, UserRoles, agentBusy } from '@canonry/canonry-contracts'
+import { AgentProviderIds, OutcomeTriggers, USAGE_TELEMETRY_HEADERS, UserRoles, agentBusy } from '@canonry/canonry-contracts'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import {
@@ -30,7 +30,7 @@ import {
   AeroToolScopes,
   isAeroToolProfile,
 } from './tools.js'
-import { buildAgentProvidersResponse } from './providers.js'
+import { buildAgentProvidersResponse, refreshAgentModels, resolveApiKeyFor } from './providers.js'
 import {
   COMPACTION_KEY_PREFIX,
   deleteMemoryEntry,
@@ -361,7 +361,11 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     async (request) => {
       requireInstanceAdministrator(request)
       resolveProject(opts.db, request.params.name)
-      return buildAgentProvidersResponse(opts.sessionRegistry.getConfig())
+      const config = opts.sessionRegistry.getConfig()
+      // OpenRouter's choices come from the catalog sweeps already cache; this
+      // reads it again only once that cache has expired.
+      if (resolveApiKeyFor(AgentProviderIds.openrouter, config)) await refreshAgentModels(AgentProviderIds.openrouter)
+      return buildAgentProvidersResponse(config, { models: true })
     },
   )
 

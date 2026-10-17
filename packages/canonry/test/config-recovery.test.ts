@@ -27,12 +27,19 @@ describe('invalid config recovery guidance', () => {
   it.each([
     { provider: 'missing-provider' },
     { provider: 'openrouter', model: '   ' },
-    { provider: 'openrouter', model: 'missing-vendor/missing-model' },
+    { provider: 'openrouter', model: 'Not an OpenRouter model' },
+    { provider: 'claude', model: 'missing-claude-model' },
   ])('rejects an invalid independent classification role without rewriting the file: %j', classification => {
     const document = stringify({ apiUrl: 'http://127.0.0.1:4100', database: ':memory:', apiKey: 'cnry_fixture', providers: { openrouter: { apiKey: 'synthetic-shared-key' } }, classification })
     fs.writeFileSync(getConfigPath(), document, { mode: 0o600 })
     expect(loadConfig).toThrow(/classification/)
     expect(fs.readFileSync(getConfigPath(), 'utf8')).toBe(document)
+  })
+
+  it('accepts an OpenRouter classification model newer than pi-ai, to be checked against the live catalog when it runs', () => {
+    const classification = { provider: 'openrouter', model: 'vendor/released-after-pi' }
+    fs.writeFileSync(getConfigPath(), stringify({ apiUrl: 'http://127.0.0.1:4100', database: ':memory:', apiKey: 'cnry_fixture', providers: { openrouter: { apiKey: 'synthetic-shared-key' } }, classification }), { mode: 0o600 })
+    expect(loadConfig().classification).toEqual(classification)
   })
 
   it('keeps independent OpenRouter classification and Aero models separate from the measured model', () => {

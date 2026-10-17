@@ -7,7 +7,7 @@ import { agentAllowViewersSchema, agentModelSchema, agentProviderSchema, classif
 import type { SentimentInstallConfigInput } from '@canonry/canonry-config'
 import { AGENT_PROVIDER_IDS, isRetiredAgentProviderId } from '@canonry/canonry-contracts'
 import type { AgentProviderId, EmbedConfigEntry, ProviderBatchConfig, ProviderPricing, ProviderQuotaPolicy, SchedulableRunKind } from '@canonry/canonry-contracts'
-import { isAgentModelAvailable } from './agent/providers.js'
+import { isAgentModelAccepted } from './agent/providers.js'
 import { CliError } from './cli-error.js'
 import { normalizeProviderBatchSettings } from './provider-batch-config.js'
 
@@ -668,7 +668,7 @@ export function loadConfig(configPath = getConfigPath()): CanonryConfig {
   }
   if (parsed.classification !== undefined) {
     const classification = classificationConfigSchema.safeParse(parsed.classification)
-    if (!classification.success || (classification.data.model && !isAgentModelAvailable(classification.data.provider, classification.data.model))) {
+    if (!classification.success || (classification.data.model && !isAgentModelAccepted(classification.data.provider, classification.data.model))) {
       throw new CliError({
         code: 'CONFIG_INVALID',
         message: `Invalid config at ${configPath}: classification requires a supported provider and an available non-empty model.`,

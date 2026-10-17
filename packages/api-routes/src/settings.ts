@@ -99,7 +99,10 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
           mode: adapter.mode,
           modelConfigurable: adapter.modelConfigurable,
           defaultModel: adapter.defaultModel,
-          knownModels: discovered.length ? discovered : adapter.knownModels,
+          // Catalog entries can carry Aero's model metadata (limits, prices,
+          // tool support); the documented choice shape is id, name and tier.
+          knownModels: (discovered.length ? discovered : adapter.knownModels)
+            .map(({ id, displayName, tier }) => ({ id, displayName, tier })),
           modelValidationPattern: {
             source: adapter.modelValidationPattern.source,
             flags: adapter.modelValidationPattern.flags,

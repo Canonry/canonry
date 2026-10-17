@@ -1013,6 +1013,7 @@ function ProviderPicker({
 }) {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const modelListId = useId()
 
   useEffect(() => {
     if (!open) return
@@ -1089,7 +1090,7 @@ function ProviderPicker({
               )
             })}
           </ul>
-          {active?.id === AgentProviderIds.openrouter && <div className="border-t border-default px-3 py-3"><label className="block text-sm text-secondary">Aero OpenRouter model<input className="setup-input mt-1 w-full" value={modelId} placeholder={active.defaultModel} disabled={disabled} onChange={event => onModelChange(event.target.value)} /></label><p className="mt-2 text-sm text-secondary">Applies to Aero. Your sweep models stay separate.</p></div>}
+          {active?.id === AgentProviderIds.openrouter && <div className="border-t border-default px-3 py-3"><label className="block text-sm text-secondary">Aero OpenRouter model<input className="setup-input mt-1 w-full" value={modelId} placeholder={active.defaultModel} disabled={disabled} list={active.models?.length ? modelListId : undefined} autoComplete="off" onChange={event => onModelChange(event.target.value)} /></label>{active.models && active.models.length > 0 && <datalist id={modelListId}>{active.models.map(model => <option key={model.id} value={model.id}>{model.displayName}</option>)}</datalist>}<p className="mt-2 text-sm text-secondary">Type to search models that can use tools. Applies to Aero. Your sweep models stay separate.</p></div>}
           {override && (
             <button
               type="button"

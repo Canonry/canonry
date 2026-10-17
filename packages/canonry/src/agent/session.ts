@@ -3,6 +3,7 @@ import path from 'node:path'
 import { Agent } from '@earendil-works/pi-agent-core'
 import type { AgentOptions, AgentTool } from '@earendil-works/pi-agent-core'
 import type { Model } from '@earendil-works/pi-ai'
+import { AgentProviderIds } from '@canonry/canonry-contracts'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
@@ -11,6 +12,7 @@ import {
   agentProvidersByPriority,
   coerceAgentProvider,
   getAgentProvider,
+  isAgentModelAccepted,
   resolveApiKeyFor,
   resolveModelForProvider,
   validateAgentProviderRegistry,
@@ -35,7 +37,7 @@ import { splitAeroAnthropicSystemCachePayload } from './prompt-cache.js'
 import { configureAeroRuntime, isRunFailureMessage } from './runtime.js'
 import { buildAeroViewTool, AERO_RUNTIME_PROMPT } from './view-context.js'
 import { createAeroToolUsageHooks } from './tool-usage.js'
-import { aeroStreamFn } from './pi-models.js'
+import { aeroStreamFn, openRouterModels } from './pi-models.js'
 
 export type { SupportedAgentProvider } from './providers.js'
 export { AgentProviders, listAgentProviders, coerceAgentProvider } from './providers.js'
@@ -178,7 +180,10 @@ export function describeAgentPin(config: CanonryConfig): AgentPinStatus | null {
   try {
     resolveAeroModel(provider, model)
   } catch (err) {
-    modelError = err instanceof Error ? err.message : String(err)
+    // OpenRouter's live list loads on the first OpenRouter turn. Until then a
+    // well-formed ID missing from the bundled list is unchecked, not broken.
+    const unchecked = provider === AgentProviderIds.openrouter && !openRouterModels.hasLiveList() && isAgentModelAccepted(provider, model)
+    if (!unchecked) modelError = err instanceof Error ? err.message : String(err)
   }
   return {
     provider,

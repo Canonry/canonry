@@ -23,7 +23,7 @@ import {
   resolveSessionProviderAndModel,
   type SupportedAgentProvider,
 } from './session.js'
-import { agentProviderApiKeyEnvVar, coerceAgentProvider, getAgentProvider, isAgentModelAvailable, resolveApiKeyFor } from './providers.js'
+import { agentProviderApiKeyEnvVar, coerceAgentProvider, getAgentProvider, isAgentModelAvailable, refreshAgentModels, resolveApiKeyFor } from './providers.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import {
   AeroToolProfiles,
@@ -434,6 +434,12 @@ export class SessionRegistry {
    */
   async acquireForTurn(projectName: string, preferences?: SessionPreferences): Promise<Agent> {
     preferences?.signal?.throwIfAborted()
+    // Before anything resolves the model: on OpenRouter this loads the live
+    // list (a cached read unless the shared catalog expired), so a model newer
+    // than pi-ai's bundled list resolves. It changes no session state, so it
+    // runs ahead of the busy check.
+    await refreshAgentModels(this.turnProvider(projectName, preferences), preferences?.signal)
+    preferences?.signal?.throwIfAborted()
     if (this.acquisitions.has(projectName)) throw agentBusy(projectName)
     // Preferences reach construction too: a cold session built from the pin
     // alone would throw on a bad `agent.model` even for a request that named
@@ -624,6 +630,17 @@ export class SessionRegistry {
       ?? carried
       ?? getAgentProvider(provider).defaultModel
     return { provider, modelId }
+  }
+
+  /** The provider the next turn would run on; undefined when none can (the turn then fails as before). */
+  private turnProvider(projectName: string, preferences?: SessionPreferences): SupportedAgentProvider | undefined {
+    const projectId = this.tryResolveProjectId(projectName)
+    const row = projectId ? this.loadRow(projectId) : null
+    try {
+      return this.resolveTurnModel(preferences, { provider: row?.modelProvider, modelId: row?.modelId }).provider
+    } catch {
+      return undefined
+    }
   }
 
   private alignModel(

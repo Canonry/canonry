@@ -96,6 +96,13 @@ export const agentProviderOptionDtoSchema = z.object({
    * Surfaced so the UI can nudge users toward their preferred source of truth.
    */
   keySource: z.enum(['config', 'env']).nullable(),
+  /**
+   * Models Aero can run on this provider, when it is picked from a live
+   * catalog (OpenRouter): the catalog's models that support tool calling, or
+   * the bundled list when the catalog cannot be read. Absent for providers
+   * with a fixed model list.
+   */
+  models: z.array(z.object({ id: z.string(), displayName: z.string() })).optional(),
 })
 export type AgentProviderOption = z.infer<typeof agentProviderOptionDtoSchema>
 

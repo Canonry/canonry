@@ -265,6 +265,7 @@ import { registeredProviderNames } from "./provider-registration.js";
 import { configuredProviderEntries, DEFAULT_CDP_QUOTA, DEFAULT_PROVIDER_QUOTA, resolveProviderQuotaPolicy } from "./provider-runtime-config.js";
 import { assertProviderReloadKeepsPendingBatches } from "./provider-reload-batch-guard.js";
 import { createProviderModelCatalog } from "./provider-model-catalog.js";
+import { openRouterModels } from "./agent/pi-models.js";
 import { Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
 import { startSiteLivenessLoop } from "./site-liveness-loop.js";
 import { startProviderBatchPoller } from "./provider-batch-poller.js";
@@ -2974,6 +2975,13 @@ export async function createServer(opts: {
   app.addHook("onClose", async () => { clearInterval(sentimentTimer); sentimentPoller.stop(); await sentimentPoller.settled(); });
 
   const providerModelCatalog = createProviderModelCatalog(registry);
+  // Aero, analysis and classification on OpenRouter take their models from
+  // this same catalog (one fetch, one cache lifetime) instead of pi-ai's fixed list.
+  const disconnectOpenRouterModels = openRouterModels.connect({
+    read: () => providerModelCatalog(ProviderNames.openrouter),
+    cached: () => providerModelCatalog.cached(ProviderNames.openrouter),
+  });
+  app.addHook("onClose", async () => { disconnectOpenRouterModels(); });
   const recordProviderChange = (
     name: string,
     before: RegisteredProvider | undefined,

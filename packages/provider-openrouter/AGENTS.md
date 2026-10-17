@@ -15,8 +15,12 @@ Direct and routed observations never share snapshot or comparison identity.
   use the shared retry wrapper and honor Retry-After.
 - The catalog lists models that answer in text. It leaves out `:batch` variants
   (batch routing, not a model) and image, music or speech generators (any `image` or `audio` output);
-  `:free` variants stay.
+  `:free` variants stay. Each entry also carries the optional context window,
+  output cap, per-million prices, input modalities, tool and reasoning support
+  read from the same response; Aero builds models pi-ai lacks from them. Sweeps
+  ignore them and `GET /settings` strips them.
 - Jev and model routers are excluded from sweep choices. Jev uses the dedicated
-  decisions API in `integration-typesafe`; Aero/domain classification use pi.
+  decisions API in `integration-typesafe`; Aero/domain classification use pi,
+  with models from this catalog (`packages/canonry/src/agent/openrouter-models.ts`).
 
 Read root AGENTS.md and the test-audit skill before changing tests.

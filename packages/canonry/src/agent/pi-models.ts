@@ -10,6 +10,7 @@ import { builtinModels } from '@earendil-works/pi-ai/providers/all'
 import type { StreamFn } from '@earendil-works/pi-agent-core'
 import { ProviderIds } from '@canonry/canonry-contracts'
 import { getSharedProviderExecutionGate } from '../provider-execution-gate.js'
+import { installOpenRouterModelCatalog } from './openrouter-models.js'
 
 /**
  * The one pi-ai model collection Canonry streams through: every built-in
@@ -20,6 +21,13 @@ import { getSharedProviderExecutionGate } from '../provider-execution-gate.js'
  * wins over provider auth.
  */
 export const aeroModels = builtinModels()
+
+/**
+ * OpenRouter's entry in `aeroModels` follows the catalog Canonry caches for
+ * sweeps instead of pi-ai's fixed list. `server.ts` connects that catalog;
+ * without it (one-shot CLI paths, tests) Aero uses pi-ai's bundled list.
+ */
+export const openRouterModels = installOpenRouterModelCatalog(aeroModels)
 
 /**
  * Request defaults Canonry sets itself instead of taking pi's:

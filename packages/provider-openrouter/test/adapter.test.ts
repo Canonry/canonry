@@ -57,12 +57,15 @@ test('legacy chat-completions token fields remain compatible', async () => {
 })
 
 /** One `GET /models` entry in the shape OpenRouter publishes it. */
-function catalogEntry(id: string, name: string, { input = ['text'], output = ['text'], parameters = ['max_tokens', 'temperature', 'tools', 'tool_choice'] }: { input?: string[]; output?: string[]; parameters?: string[] } = {}) {
+function catalogEntry(id: string, name: string, {
+  input = ['text'], output = ['text'], parameters = ['max_tokens', 'temperature', 'tools', 'tool_choice'],
+  pricing = { prompt: '0.0000001', completion: '0.0000004', request: '0', image: '0' }, maxCompletion = 65536,
+}: { input?: string[]; output?: string[]; parameters?: string[]; pricing?: Record<string, string>; maxCompletion?: number | null } = {}) {
   return {
     id, canonical_slug: id.replace(/:.*$/, ''), name, created: 1758067200, context_length: 1048576,
     architecture: { modality: `${input.join('+')}->${output.join('+')}`, input_modalities: input, output_modalities: output, tokenizer: 'Other', instruct_type: null },
-    pricing: { prompt: '0.0000001', completion: '0.0000004', request: '0', image: '0' },
-    top_provider: { context_length: 1048576, max_completion_tokens: 65536, is_moderated: false },
+    pricing,
+    top_provider: { context_length: 1048576, max_completion_tokens: maxCompletion, is_moderated: false },
     per_request_limits: null, supported_parameters: parameters,
   }
 }
@@ -86,19 +89,26 @@ test('connection health and catalog use metadata calls and expose usable text mo
       // Music and speech generators also return text alongside audio.
       catalogEntry('google/lyria-3-pro-preview', 'Google: Lyria 3 Pro Preview', { input: ['text', 'image'], output: ['text', 'audio'] }),
       catalogEntry('openai/gpt-audio', 'OpenAI: GPT Audio', { input: ['text', 'audio'], output: ['text', 'audio'] }),
-      // Reads images but answers in text.
-      catalogEntry('meta-llama/llama-4-maverick', 'Meta: Llama 4 Maverick', { input: ['text', 'image'] }),
+      // Reads images but answers in text. Cache prices, reasoning and an
+      // unpublished output cap reach Aero as catalog metadata.
+      catalogEntry('meta-llama/llama-4-maverick', 'Meta: Llama 4 Maverick', {
+        input: ['text', 'image'], parameters: ['max_tokens', 'tools', 'tool_choice', 'reasoning', 'include_reasoning'], maxCompletion: null,
+        pricing: { prompt: '0.000003', completion: '0.000015', request: '0', image: '0', input_cache_read: '0.0000003', input_cache_write: '0.00000375' },
+      }),
       catalogEntry('vendor/no-tools', 'Server-search fallback', { parameters: [] }),
     ] })
   })
   vi.stubGlobal('fetch', transport)
   expect((await openrouterAdapter.healthcheck({ ...config, provider: 'openrouter', model: undefined })).ok).toBe(true)
+  // Sweeps list the same IDs and names; the rest is what Aero needs to call a model pi-ai lacks.
+  const limits = { contextWindow: 1048576, maxOutputTokens: 65536, pricing: { input: 0.1, output: 0.4 } }
   expect(await openrouterAdapter.listModels!(config, AbortSignal.timeout(3000))).toEqual([
-    { id: config.model, displayName: 'Gemini', tier: 'standard' },
-    { id: 'openai/gpt-5-mini', displayName: 'OpenAI: GPT-5 Mini', tier: 'standard' },
-    { id: 'deepseek/deepseek-chat-v3.1:free', displayName: 'DeepSeek: DeepSeek V3.1 (free)', tier: 'standard' },
-    { id: 'meta-llama/llama-4-maverick', displayName: 'Meta: Llama 4 Maverick', tier: 'standard' },
-    { id: 'vendor/no-tools', displayName: 'Server-search fallback', tier: 'standard' },
+    { id: config.model, displayName: 'Gemini', tier: 'standard', ...limits, inputModalities: ['text', 'image', 'file'], supportsTools: true, supportsReasoning: false },
+    { id: 'openai/gpt-5-mini', displayName: 'OpenAI: GPT-5 Mini', tier: 'standard', ...limits, inputModalities: ['text', 'image', 'file'], supportsTools: true, supportsReasoning: false },
+    { id: 'deepseek/deepseek-chat-v3.1:free', displayName: 'DeepSeek: DeepSeek V3.1 (free)', tier: 'standard', ...limits, inputModalities: ['text'], supportsTools: true, supportsReasoning: false },
+    { id: 'meta-llama/llama-4-maverick', displayName: 'Meta: Llama 4 Maverick', tier: 'standard', contextWindow: 1048576,
+      pricing: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 }, inputModalities: ['text', 'image'], supportsTools: true, supportsReasoning: true },
+    { id: 'vendor/no-tools', displayName: 'Server-search fallback', tier: 'standard', ...limits, inputModalities: ['text'], supportsTools: false, supportsReasoning: false },
   ])
   expect(transport.mock.calls.map(([url]) => url)).toEqual(['https://openrouter.ai/api/v1/auth/key', 'https://openrouter.ai/api/v1/models'])
 })

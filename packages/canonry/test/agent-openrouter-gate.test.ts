@@ -23,7 +23,7 @@ it('holds one OpenRouter connection through streaming, shares it across models a
   })
   const context = { messages: [{ role: 'user' as const, content: 'Synthetic query.', timestamp: 1 }] }
   const first = await aeroStreamFn(resolveModelForProvider('openrouter'), normalizeContext(context), { apiKey: 'shared-key' })
-  await vi.waitFor(() => expect(dispatched).toEqual(['anthropic/claude-opus-4.7']))
+  await vi.waitFor(() => expect(dispatched).toEqual(['anthropic/claude-sonnet-5.5']))
   const nextModel = resolveModelForProvider('openrouter', 'anthropic/claude-haiku-4.5')
   const next = completeOnce(nextModel, context, { apiKey: 'shared-key' })
   const controller = new AbortController()
@@ -34,5 +34,5 @@ it('holds one OpenRouter connection through streaming, shares it across models a
   release()
   expect(await first.result()).toMatchObject({ stopReason: 'stop', content: [{ type: 'text', text: 'Streaming answer.' }] })
   expect(await next).toMatchObject({ stopReason: 'stop', content: [{ type: 'text', text: 'Next answer.' }] })
-  expect(dispatched).toEqual(['anthropic/claude-opus-4.7', 'anthropic/claude-haiku-4.5'])
+  expect(dispatched).toEqual(['anthropic/claude-sonnet-5.5', 'anthropic/claude-haiku-4.5'])
 })

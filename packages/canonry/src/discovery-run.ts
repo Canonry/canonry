@@ -42,7 +42,7 @@ import { createLogger } from './logger.js'
 import { startRunOutcome } from './sync-outcome.js'
 import type { CanonryConfig } from './config.js'
 import { completeOnce } from './agent/pi-models.js'
-import { resolveApiKeyFor, resolveModelForCapability } from './agent/providers.js'
+import { refreshAgentModels, resolveApiKeyFor, resolveModelForCapability } from './agent/providers.js'
 import { getSharedProviderExecutionGate } from './provider-execution-gate.js'
 
 const log = createLogger('DiscoveryRun')
@@ -195,9 +195,12 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
       competitorDomains: projectCompetitors,
     }
 
+    const classifierConfig = opts.getClassifierConfig?.() ?? opts.classifierConfig
+    // A classifier on OpenRouter resolves its model from the live list.
+    await refreshAgentModels(classifierConfig?.classification?.provider)
     // buildDefaultDeps throws only when Gemini is not set up for discovery.
     notConfigured = true
-    const deps = buildDefaultDeps(opts.registry, opts.getClassifierConfig?.() ?? opts.classifierConfig)
+    const deps = buildDefaultDeps(opts.registry, classifierConfig)
     notConfigured = false
 
     const result = await executeDiscovery({
