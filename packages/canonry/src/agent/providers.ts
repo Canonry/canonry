@@ -14,6 +14,7 @@ import {
   type AgentProvidersResponse,
   type LlmCapability,
 } from '@canonry/canonry-contracts'
+import type { AgentReasoningLevel } from '@canonry/canonry-config'
 
 /**
  * Registry of LLM providers the built-in Aero agent can drive.
@@ -107,6 +108,23 @@ export const PROVIDER_MODELS = {
     [LlmCapabilities.classify]: 'glm-5-turbo',
   },
 } as const satisfies Record<AgentProviderId, Record<LlmCapability, string>>
+
+/**
+ * The reasoning level Aero asks for when neither `agent.reasoning` nor
+ * `CANONRY_AGENT_REASONING` is set (resolved by `resolveAgentReasoning`).
+ *
+ * OpenAI defaults to `low`. On a 10-question analyst eval (40 graded turns per
+ * setting, 2026-10-17), GPT-6 Luna answered 83-88% of turns correctly at `low`
+ * against 55% at `off`, with a shorter median turn and about half the tool
+ * calls; `medium` was slower and no more accurate. The other providers stay
+ * `off` until they are measured the same way.
+ */
+export const PROVIDER_DEFAULT_REASONING = {
+  [AgentProviderIds.claude]: 'off',
+  [AgentProviderIds.openai]: 'low',
+  [AgentProviderIds.gemini]: 'off',
+  [AgentProviderIds.zai]: 'off',
+} as const satisfies Record<AgentProviderId, AgentReasoningLevel>
 
 export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderEntry> = {
   [AgentProviderIds.claude]: {
