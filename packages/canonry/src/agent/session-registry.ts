@@ -12,6 +12,7 @@ import { agentBusy, AgentProviderIds, OutcomeTriggers, describeError, missingDep
 import { createLogger } from '../logger.js'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
+import { resolveAgentReasoning } from '../agent-config.js'
 import {
   buildApiKeyResolver,
   createAeroSession,
@@ -646,6 +647,8 @@ export class SessionRegistry {
     if (nextProvider === currentProvider && nextModelId === currentModelId) return
 
     agent.state.model = resolveAeroModel(nextProvider, nextModelId)
+    // The reasoning level follows the provider: each one has its own default.
+    agent.state.thinkingLevel = resolveAgentReasoning(process.env, this.opts.config, nextProvider)
     this.opts.db
       .update(agentSessions)
       .set({

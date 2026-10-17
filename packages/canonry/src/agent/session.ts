@@ -6,6 +6,7 @@ import type { Model } from '@earendil-works/pi-ai'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
+import { resolveAgentReasoning } from '../agent-config.js'
 import {
   agentProviderApiKeyEnvVar,
   agentProvidersByPriority,
@@ -223,6 +224,7 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
   if (!provider) throw new Error(missingProviderMessage())
 
   const model = resolveAeroModel(provider, opts.modelId)
+  const thinkingLevel = resolveAgentReasoning(process.env, opts.config, provider)
 
   const toolScope = opts.toolScope ?? AeroToolScopes.all
   const toolProfile = opts.toolProfile ?? AeroToolProfiles.default
@@ -248,6 +250,7 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
     initialState: {
       systemPrompt,
       model,
+      thinkingLevel,
       tools,
       ...(opts.initialMessages ? { messages: opts.initialMessages } : {}),
     },
