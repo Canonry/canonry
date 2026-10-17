@@ -55,7 +55,7 @@ describe('resolveSessionProviderAndModel', () => {
   it('a pin beats auto-detection even though claude sorts first and has a key', () => {
     const { provider, modelId } = resolveSessionProviderAndModel(cfg({ provider: 'zai' }))
     expect(provider).toBe('zai')
-    expect(modelId).toBe('glm-5.2')
+    expect(modelId).toBe('glm-5.3-flash')
   })
 
   it('agent.model pins the model id alongside the provider', () => {
@@ -203,7 +203,7 @@ describe('a pin that cannot run fails early and by name', () => {
     const r = registry({ provider: 'claude', model: 'not-a-claude-model' })
     const agent = await r.acquireForTurn('demo', { provider: 'zai' })
     expect(row()?.modelProvider).toBe('zai')
-    expect(agent.state.model.id).toBe('glm-5.2')
+    expect(agent.state.model.id).toBe('glm-5.3-flash')
   })
 })
 

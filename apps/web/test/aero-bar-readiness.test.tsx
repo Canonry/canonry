@@ -305,15 +305,60 @@ test('chooses an Aero OpenRouter model independently and includes it in the copi
   await renderWithProviderReadiness({ providers: [{ id: 'openrouter', label: 'OpenRouter', defaultModel: 'anthropic/claude-default', configured: true, keySource: 'config' }], defaultProvider: 'openrouter' }, 'admin')
   fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
   fireEvent.click(await screen.findByRole('button', { name: 'Switch agent model' }))
-  const model = screen.getByRole('textbox', { name: 'Aero OpenRouter model' })
+  const model = screen.getByRole('textbox', { name: 'Other model ID' })
   fireEvent.change(model, { target: { value: 'anthropic/claude-custom' } })
   fireEvent.keyDown(model, { key: 'Escape' })
-  expect(screen.queryByRole('textbox', { name: 'Aero OpenRouter model' })).toBeNull()
+  expect(screen.queryByRole('textbox', { name: 'Other model ID' })).toBeNull()
   fireEvent.change(screen.getByPlaceholderText('Ask Aero, or / for commands…'), { target: { value: 'Explain my saved results' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ provider: 'openrouter', modelId: 'anthropic/claude-custom' })))
   fireEvent.click(await screen.findByRole('button', { name: 'Copy as CLI command' }))
   await waitFor(() => expect(writeText).toHaveBeenCalledWith("canonry agent ask citypoint 'Explain my saved results' --provider openrouter --model anthropic/claude-custom --scope read-only"))
+})
+
+test('offers a short model list for a direct provider and sends a model only when it is not the default', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const prompt = vi.spyOn(aero, 'promptAero').mockRejectedValue(new Error('Provider temporarily unavailable'))
+  await renderWithProviderReadiness({
+    providers: [{
+      id: 'openai', label: 'OpenAI', defaultModel: 'gpt-cheap', configured: true, keySource: 'config',
+      models: [{ id: 'gpt-cheap', displayName: 'GPT Cheap' }, { id: 'gpt-strong', displayName: 'GPT Strong' }],
+    }],
+    defaultProvider: 'openai',
+  }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  const picker = await screen.findByRole('button', { name: 'Switch agent model' })
+  expect(picker.textContent).toContain('OpenAI · GPT Cheap')
+  fireEvent.click(picker)
+  const list = screen.getByRole('listbox', { name: 'Model' })
+  expect(within(list).getAllByRole('option').map(option => option.textContent)).toEqual(['GPT CheapDefault', 'GPT Strong'])
+  fireEvent.click(within(list).getByRole('option', { name: /GPT Strong/ }))
+  expect(window.localStorage.getItem('canonry:aero:model:citypoint:openai')).toBe('gpt-strong')
+  expect(picker.textContent).toContain('OpenAI · GPT Strong')
+  const input = screen.getByPlaceholderText('Ask Aero, or / for commands…')
+  fireEvent.change(input, { target: { value: 'First question' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(prompt).toHaveBeenLastCalledWith(expect.objectContaining({ provider: 'openai', modelId: 'gpt-strong' })))
+
+  fireEvent.click(picker)
+  fireEvent.click(within(screen.getByRole('listbox', { name: 'Model' })).getByRole('option', { name: /GPT Cheap/ }))
+  expect(window.localStorage.getItem('canonry:aero:model:citypoint:openai')).toBeNull()
+  fireEvent.change(input, { target: { value: 'Second question' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(prompt).toHaveBeenCalledTimes(2))
+  expect(prompt.mock.lastCall?.[0]).toMatchObject({ modelId: undefined })
+})
+
+test('keeps an OpenRouter model chosen before every provider had a model list', async () => {
+  window.localStorage.setItem('canonry:aero:openrouter-model:citypoint', 'anthropic/claude-saved')
+  onTestFinished(() => window.localStorage.clear())
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const prompt = vi.spyOn(aero, 'promptAero').mockRejectedValue(new Error('Provider temporarily unavailable'))
+  await renderWithProviderReadiness({ providers: [{ id: 'openrouter', label: 'OpenRouter', defaultModel: 'openai/gpt-default', configured: true, keySource: 'config' }], defaultProvider: 'openrouter' }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  fireEvent.change(await screen.findByPlaceholderText('Ask Aero, or / for commands…'), { target: { value: 'Explain my saved results' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ provider: 'openrouter', modelId: 'anthropic/claude-saved' })))
 })
 
 test('keeps intermediate responses and renders a completed tool call once, behind its run header', async () => {

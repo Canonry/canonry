@@ -368,7 +368,19 @@ self-starting), and `disabled` (off entirely).
 `PROVIDER_MODELS` maps each provider to an agent, analyze and classify model, and
 `AGENT_PROVIDERS[x].defaultModel` derives from the agent tier
 (`validateAgentProviderRegistry` throws if they desync). Every provider resolves
-models from pi-ai's catalog.
+models from pi-ai's catalog. Each provider uses its newest low-cost model for all
+three tiers (`claude-haiku-5-5`, `gpt-6-luna`, `gemini-3.5-flash-lite`,
+`glm-5.3-flash`, `openai/gpt-6-luna`).
+
+`AGENT_MODEL_CHOICES` is the short list the Aero picker offers per provider: the
+default first, then one to three stronger current models. `/agent/providers`
+serves it as `models` on every provider (a pinned `agent.model` outside the list
+is listed first); the picker adds an "Other model ID" box for anything else.
+Validation requires every listed ID to be in pi-ai's bundled catalog. Keeping
+defaults current is a code change: when bumping pi-ai, revisit `PROVIDER_MODELS`
+and `AGENT_MODEL_CHOICES` together. Nothing switches a conversation's model on
+its own: a conversation keeps the model it started with, and a new default
+reaches new conversations only.
 
 OpenRouter's entry in that catalog is live. `openrouter-models.ts` replaces pi's
 fixed OpenRouter provider (`MutableModels.setProvider`) with one that keeps pi's
@@ -387,17 +399,17 @@ with the key Aero uses: the registered sweep connection, or an
 cache entry; sweeps and `GET /settings` still see no OpenRouter provider). With
 no catalog connected, or while it cannot be read, the bundled list stands.
 `refreshAgentModels(provider)` runs before a model is resolved (operator and
-viewer turns, `/agent/providers`, the analyze tier, discovery classification,
-doctor's `describeAgentPin`) and reads the cache unless it expired, so a turn
+viewer turns, the analyze tier, discovery classification, doctor's
+`describeAgentPin`) and reads the cache unless it expired, so a turn
 never adds a fetch. Validation never rejects a well-formed OpenRouter ID for
 missing from the bundled list (`validateAgentProviderRegistry`,
 `isAgentModelAccepted` for `classification.model`). `isAgentModelUnchecked`
 names the case where no live list is loaded: doctor does not report such a pin
 as invalid, and `resolveTurnModel` keeps such a stored model without rewriting
 the row, so the turn fails naming the model instead of moving the conversation
-to the default.
-The agent picker (`models` on the OpenRouter provider option) lists only catalog
-entries with tool support, or the bundled list offline. The OpenRouter default
+to the default. That carry needs an OpenRouter key: with none, the list can
+never load, so the turn takes the default and fails with the missing-key error.
+The OpenRouter default
 (`openai/gpt-6-luna` for every tier) must stay in pi-ai's bundled list so it
 resolves offline.
 

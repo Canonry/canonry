@@ -97,10 +97,9 @@ export const agentProviderOptionDtoSchema = z.object({
    */
   keySource: z.enum(['config', 'env']).nullable(),
   /**
-   * Models Aero can run on this provider, when it is picked from a live
-   * catalog (OpenRouter): the catalog's models that support tool calling, or
-   * the bundled list when the catalog cannot be read. Absent for providers
-   * with a fixed model list.
+   * A short list of models to offer for this provider: the default first,
+   * then a few stronger current models. A pinned model outside the list is
+   * listed first. Any other model ID can still be requested.
    */
   models: z.array(z.object({ id: z.string(), displayName: z.string() })).optional(),
 })

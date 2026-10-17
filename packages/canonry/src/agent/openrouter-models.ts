@@ -5,7 +5,7 @@ import {
   type MutableModels,
   type Provider,
 } from '@earendil-works/pi-ai'
-import { OPENROUTER_MODEL_PATTERN, ProviderIds, type ModelDefinition } from '@canonry/canonry-contracts'
+import { ProviderIds, type ModelDefinition } from '@canonry/canonry-contracts'
 
 /**
  * Where Aero's OpenRouter models come from: the catalog Canonry already
@@ -19,11 +19,6 @@ export interface OpenRouterModelSource {
   cached(): readonly ModelDefinition[]
 }
 
-export interface AgentModelChoice {
-  id: string
-  displayName: string
-}
-
 export interface OpenRouterModelCatalog {
   /** Follow `source`. Returns a function that stops following it. */
   connect(source: OpenRouterModelSource): () => void
@@ -33,21 +28,12 @@ export interface OpenRouterModelCatalog {
    * before every turn costs no request.
    */
   refresh(signal?: AbortSignal): Promise<void>
-  /**
-   * The models Aero can run: live entries that support tool calling, or pi's
-   * bundled list while no live list is loaded.
-   */
-  agentModels(): AgentModelChoice[]
   /** Whether a live list is loaded. */
   hasLiveList(): boolean
 }
 
 /** The API pi's OpenRouter provider uses for every model it does not route through Anthropic's. */
 const COMPLETIONS_API = 'openai-completions'
-
-function newestFirst(a: { id: string }, b: { id: string }): number {
-  return b.id.localeCompare(a.id, 'en', { numeric: true })
-}
 
 /**
  * Replace pi's built-in, fixed OpenRouter provider in `models` with one whose
@@ -184,20 +170,6 @@ export function installOpenRouterModelCatalog(models: MutableModels): OpenRouter
       // The catalog was just read, so pi's refresh takes its cached list
       // rather than reaching the network again.
       await models.refresh({ providers: [provider.id], allowNetwork: false, signal })
-    },
-    agentModels() {
-      if (live.length > 0) {
-        const runnable = new Set(chatModels.map(model => model.id))
-        return live
-          .filter(definition => definition.supportsTools === true && runnable.has(definition.id))
-          .map(({ id, displayName }) => ({ id, displayName }))
-      }
-      // pi's bundled list carries no tool flag, so every bundled chat model is
-      // offered, minus batch routing and unversioned `~` aliases.
-      return bundled
-        .filter(model => OPENROUTER_MODEL_PATTERN.test(model.id) && !model.id.endsWith(':batch'))
-        .map(({ id, name }) => ({ id, displayName: name }))
-        .sort(newestFirst)
     },
     hasLiveList: () => live.length > 0,
   }

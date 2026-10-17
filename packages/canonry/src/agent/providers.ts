@@ -63,28 +63,26 @@ export interface AgentProviderEntry {
  * provider (enforced at module load + by tests). Bumping model versions
  * (e.g. opus-4-7 → opus-5-0) happens here — one place, no hunting.
  *
- * Cost tiers (rough order of magnitude):
- *   agent    — $$$  (premium quality for multi-step reasoning)
- *   analyze  — $$   (mid-tier for structured single-shot synthesis)
- *   classify — $    (cheapest for short yes/no or label-set outputs)
+ * Every provider uses its newest low-cost model for all three tiers: it is
+ * the cheapest current model and handles Aero's tool use, structured
+ * synthesis and classification. Update these when bumping pi-ai, together
+ * with `AGENT_MODEL_CHOICES`. Existing conversations keep the model they
+ * started with; a new default reaches new conversations only.
  *
- * Provider notes:
- *   - Gemini: 2.5-flash is already cheap + capable; no separate analyze /
- *     classify tier worth using until Gemini ships a dedicated micro
- *     model. All three tiers point at flash.
- *   - Zai: glm-5.2 is the agent tier; glm-5-turbo is the cheap tier
- *     for analyze + classify.
- *   - OpenAI: GPT-6 Luna fills all three tiers.
- *   - OpenRouter: the same GPT-6 Luna, through OpenRouter, for all three
- *     tiers. It is in pi-ai's bundled OpenRouter list, so it resolves while
- *     OpenRouter's live catalog cannot be read; other models come from that
- *     catalog.
+ * Exact IDs, never `-latest` aliases: pi-ai derives request options (thinking
+ * level) from the catalog entry for the ID it is given, and an alias entry can
+ * lag the model it serves. `gemini-flash-latest` allowed MINIMAL thinking
+ * while the 3.8 Flash it resolved to rejected it, so every Aero turn failed.
+ * Sweeps can use aliases; Aero cannot.
+ *
+ * OpenRouter's default is in pi-ai's bundled OpenRouter list, so it resolves
+ * while OpenRouter's live catalog cannot be read.
  */
 export const PROVIDER_MODELS = {
   [AgentProviderIds.claude]: {
-    [LlmCapabilities.agent]: 'claude-opus-4-7',
-    [LlmCapabilities.analyze]: 'claude-sonnet-4-6',
-    [LlmCapabilities.classify]: 'claude-haiku-4-5',
+    [LlmCapabilities.agent]: 'claude-haiku-5-5',
+    [LlmCapabilities.analyze]: 'claude-haiku-5-5',
+    [LlmCapabilities.classify]: 'claude-haiku-5-5',
   },
   [AgentProviderIds.openai]: {
     [LlmCapabilities.agent]: 'gpt-6-luna',
@@ -92,25 +90,14 @@ export const PROVIDER_MODELS = {
     [LlmCapabilities.classify]: 'gpt-6-luna',
   },
   [AgentProviderIds.gemini]: {
-    // Gemini's Flash is already cheap + capable; Flash-Lite is the
-    // dedicated micro tier for classify. Analyze stays on flash because
-    // flash-lite drops too much quality for structured synthesis.
-    // Exact IDs, never Google's `-latest` aliases: pi-ai derives request
-    // options (thinking level) from the catalog entry for the ID it is given,
-    // and an alias entry can lag the model it serves. `gemini-flash-latest`
-    // allows MINIMAL thinking while the 3.8 Flash it resolves to rejects it,
-    // so every Aero turn failed. Sweeps can use the alias; Aero cannot.
-    [LlmCapabilities.agent]: 'gemini-3.8-flash',
-    [LlmCapabilities.analyze]: 'gemini-3.8-flash',
+    [LlmCapabilities.agent]: 'gemini-3.5-flash-lite',
+    [LlmCapabilities.analyze]: 'gemini-3.5-flash-lite',
     [LlmCapabilities.classify]: 'gemini-3.5-flash-lite',
   },
   [AgentProviderIds.zai]: {
-    // GLM lineage: 5.2 replaced 5.1, which pi-ai 0.87 dropped from its
-    // catalog; 5-turbo is the cheaper tier good for structured tasks and
-    // classification.
-    [LlmCapabilities.agent]: 'glm-5.2',
-    [LlmCapabilities.analyze]: 'glm-5-turbo',
-    [LlmCapabilities.classify]: 'glm-5-turbo',
+    [LlmCapabilities.agent]: 'glm-5.3-flash',
+    [LlmCapabilities.analyze]: 'glm-5.3-flash',
+    [LlmCapabilities.classify]: 'glm-5.3-flash',
   },
   [AgentProviderIds.openrouter]: {
     [LlmCapabilities.agent]: 'openai/gpt-6-luna',
@@ -118,6 +105,20 @@ export const PROVIDER_MODELS = {
     [LlmCapabilities.classify]: 'openai/gpt-6-luna',
   },
 } as const satisfies Record<AgentProviderId, Record<LlmCapability, string>>
+
+/**
+ * The short list of Aero models offered per provider: the default first, then
+ * one to three stronger current models. Any other model ID can still be typed
+ * in. Every ID must be in pi-ai's bundled catalog (checked at load), so the
+ * list works offline and shows the catalog's display names.
+ */
+export const AGENT_MODEL_CHOICES = {
+  [AgentProviderIds.claude]: ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5'],
+  [AgentProviderIds.openai]: ['gpt-6-luna', 'gpt-6.1-sol'],
+  [AgentProviderIds.gemini]: ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-4-argon'],
+  [AgentProviderIds.zai]: ['glm-5.3-flash', 'glm-5.3'],
+  [AgentProviderIds.openrouter]: ['openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'anthropic/claude-sonnet-5.5', 'google/gemini-3.8-flash'],
+} as const satisfies Record<AgentProviderId, readonly string[]>
 
 export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderEntry> = {
   [AgentProviderIds.claude]: {
@@ -342,6 +343,15 @@ export function validateAgentProviderRegistry(): void {
     }
     const entry = AGENT_PROVIDERS[provider]
     const agentModel = PROVIDER_MODELS[provider][LlmCapabilities.agent]
+    const choices: readonly string[] = AGENT_MODEL_CHOICES[provider]
+    if (choices[0] !== agentModel) {
+      throw new Error(`AGENT_MODEL_CHOICES[${provider}] must start with the default model '${agentModel}'.`)
+    }
+    for (const id of choices) {
+      if (!isAgentModelAvailable(provider, id)) {
+        throw new Error(`AGENT_MODEL_CHOICES[${provider}] lists '${id}', which pi-ai's bundled catalog does not have.`)
+      }
+    }
     if (entry.defaultModel !== agentModel) {
       throw new Error(
         `AGENT_PROVIDERS[${provider}].defaultModel ('${entry.defaultModel}') ` +
@@ -429,12 +439,22 @@ function resolveAgentId(providerOrPiAi: string): AgentProviderId | undefined {
 }
 
 /**
+ * A provider's short model list with display names. A pinned model outside
+ * the list is shown first, since it is what Aero answers with.
+ */
+function agentModelChoices(provider: AgentProviderId, pinnedModel: string | undefined): Array<{ id: string; displayName: string }> {
+  const ids: string[] = [...AGENT_MODEL_CHOICES[provider]]
+  if (pinnedModel && !ids.includes(pinnedModel)) ids.unshift(pinnedModel)
+  return ids.map(id => ({ id, displayName: aeroModels.getModel(AGENT_PROVIDERS[provider].piAiProvider, id)?.name ?? id }))
+}
+
+/**
  * Build the `AgentProvidersResponse` DTO the `/agent/providers` endpoint
  * serves. Lives alongside the registry so the provider list and the
  * key-source derivation stay in lockstep with `AGENT_PROVIDERS`.
  *
- * `models: true` adds OpenRouter's model choices (the route; doctor needs
- * only key status). They reflect the last `refreshAgentModels('openrouter')`.
+ * `models: true` adds each provider's short model list (the route; doctor
+ * needs only key status).
  */
 export function buildAgentProvidersResponse(config: {
   providers?: Record<string, { apiKey?: string } | undefined>
@@ -455,7 +475,7 @@ export function buildAgentProvidersResponse(config: {
       defaultModel: id === pinned && pinnedModel ? pinnedModel : entry.defaultModel,
       configured: source !== undefined,
       keySource: source?.source ?? null,
-      ...(opts.models && id === AgentProviderIds.openrouter ? { models: openRouterModels.agentModels() } : {}),
+      ...(opts.models ? { models: agentModelChoices(id, id === pinned ? pinnedModel : undefined) } : {}),
     }
   })
   const firstConfigured = agentProvidersByPriority().find((p) => resolveApiKeySource(p, config))

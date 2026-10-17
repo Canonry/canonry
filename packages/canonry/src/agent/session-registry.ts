@@ -623,9 +623,12 @@ export class SessionRegistry {
     // checked because no live list is loaded (the catalog could not be read)
     // is kept too, and the row is not rewritten: if the turn cannot resolve
     // it, the turn fails naming the model rather than moving to the default.
+    // With no key the list can never load, so that case takes the default and
+    // fails with the missing-key error instead of blaming the model.
     const carried = !preferences?.provider && !pinned && provider === current.provider
       && current.modelId
-      && (isAgentModelAvailable(provider, current.modelId) || isAgentModelUnchecked(provider, current.modelId))
+      && (isAgentModelAvailable(provider, current.modelId)
+        || (isAgentModelUnchecked(provider, current.modelId) && !!resolveApiKeyFor(provider, this.opts.config)))
       ? current.modelId
       : undefined
     const pinnedModelId = provider === pinned ? this.opts.config.agent?.model ?? undefined : undefined
@@ -915,14 +918,15 @@ export class SessionRegistry {
     followUpQueue: AgentMessage[]
   }): void {
     const now = new Date().toISOString()
+    const modelProvider = params.provider ?? params.modelProvider ?? AgentProviderIds.claude
     this.opts.db
       .insert(agentSessions)
       .values({
         id: params.id ?? crypto.randomUUID(),
         projectId: params.projectId,
         systemPrompt: params.systemPrompt,
-        modelProvider: params.provider ?? params.modelProvider ?? AgentProviderIds.claude,
-        modelId: params.modelId ?? 'claude-opus-4-7',
+        modelProvider,
+        modelId: params.modelId ?? getAgentProvider(coerceAgentProvider(modelProvider) ?? AgentProviderIds.claude).defaultModel,
         messages: JSON.stringify(withoutPersistedToolDetails(params.messages)),
         followUpQueue: JSON.stringify(params.followUpQueue),
         createdAt: now,

@@ -162,7 +162,19 @@ const SLASH_COMMANDS: Array<SlashCommand> = [
 ]
 
 const PROVIDER_PREF_KEY = (project: string) => `canonry:aero:provider:${project}`
-const OPENROUTER_MODEL_PREF_KEY = (project: string) => `canonry:aero:openrouter-model:${project}`
+const MODEL_PREF_KEY = (project: string, provider: AgentProviderId) => `canonry:aero:model:${project}:${provider}`
+// Where the OpenRouter model choice lived before every provider had one.
+const LEGACY_OPENROUTER_MODEL_PREF_KEY = (project: string) => `canonry:aero:openrouter-model:${project}`
+
+function readModelPreferences(project: string): Partial<Record<AgentProviderId, string>> {
+  const prefs: Partial<Record<AgentProviderId, string>> = {}
+  for (const id of Object.values(AgentProviderIds)) {
+    const stored = readPreference(MODEL_PREF_KEY(project, id))
+      ?? (id === AgentProviderIds.openrouter ? readPreference(LEGACY_OPENROUTER_MODEL_PREF_KEY(project)) : null)
+    if (stored) prefs[id] = stored
+  }
+  return prefs
+}
 const SCOPE_PREF_KEY = (project: string) => `canonry:aero:scope:${project}`
 
 function readPreference(key: string): string | null {
@@ -232,7 +244,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
   // clear would otherwise repin the session's provider on every prompt, and
   // the server persists that pin. Keep it stored for operator deployments.
   const providerOverride = managedSweeps || viewerMode || preview ? null : preferredProviderOverride
-  const [preferredOpenRouterModel, setOpenRouterModel] = useState(() => readPreference(OPENROUTER_MODEL_PREF_KEY(projectName)) ?? '')
+  const [modelPreferences, setModelPreferences] = useState(() => readModelPreferences(projectName))
   // Per-project tool scope. `read-only` (the server default) is the safe
   // choice; `all` lets Aero fire write tools like run_sweep without a
   // confirmation UX. Persist so the user doesn't have to re-opt-in each
@@ -311,7 +323,23 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
   // the install's configured model or reports why it cannot. The preview
   // answers from its script.
   const ready = viewerMode || preview || activeProvider !== null
-  const modelOverride = !managedSweeps && !viewerMode && !preview && activeProvider?.id === AgentProviderIds.openrouter ? preferredOpenRouterModel.trim() || undefined : undefined
+  const preferredModel = activeProvider ? modelPreferences[activeProvider.id] ?? '' : ''
+  // A model is sent only when the operator picked one other than the
+  // provider's default, so an unpicked conversation follows the default.
+  const modelOverride = !managedSweeps && !viewerMode && !preview && activeProvider && preferredModel.trim() && preferredModel.trim() !== activeProvider.defaultModel
+    ? preferredModel.trim()
+    : undefined
+  const turnProvider = (modelOverride ? activeProvider?.id : undefined) ?? providerOverride ?? undefined
+  const pickModel = useCallback(
+    (provider: AgentProviderId, value: string) => {
+      const modelId = value.trim()
+      setModelPreferences((prefs) => ({ ...prefs, [provider]: value }))
+      if (modelId) writePreference(MODEL_PREF_KEY(projectName, provider), modelId)
+      else removePreference(MODEL_PREF_KEY(projectName, provider))
+      if (provider === AgentProviderIds.openrouter) removePreference(LEGACY_OPENROUTER_MODEL_PREF_KEY(projectName))
+    },
+    [projectName],
+  )
 
   // The preview's scripts, fetched once the bar first opens.
   useQuery({ ...aeroPreviewQuery(projectName), enabled: preview && open })
@@ -436,7 +464,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
         project: projectName,
         prompt: trimmed,
         conversationId,
-        provider: modelOverride ? AgentProviderIds.openrouter : providerOverride ?? undefined,
+        provider: turnProvider,
         modelId: modelOverride,
         scope,
         context: turnContext,
@@ -754,8 +782,8 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
                     active={activeProvider}
                     override={providerOverride}
                     onPick={pickProvider}
-                    modelId={preferredOpenRouterModel}
-                    onModelChange={value => { setOpenRouterModel(value); if (value.trim()) writePreference(OPENROUTER_MODEL_PREF_KEY(projectName), value.trim()); else removePreference(OPENROUTER_MODEL_PREF_KEY(projectName)) }}
+                    modelId={preferredModel}
+                    onModelChange={value => { if (activeProvider) pickModel(activeProvider.id, value) }}
                     disabled={streaming}
                   />
                 )}
@@ -836,7 +864,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
                   <StarterButtons onPick={(prompt) => { void send(prompt) }} />
                 </div>
               )}
-              {renderTranscript(messages, projectName, modelOverride ? AgentProviderIds.openrouter : providerOverride, scope, liveTrail, streaming, Boolean(streamingText.trim()), !viewerMode && !preview, modelOverride)}
+              {renderTranscript(messages, projectName, turnProvider ?? null, scope, liveTrail, streaming, Boolean(streamingText.trim()), !viewerMode && !preview, modelOverride)}
               {streaming && streamingText && (
                 <div className="mt-3">
                   <div className="mb-0.5 text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
@@ -1012,8 +1040,13 @@ function ProviderPicker({
   disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  // What the operator is typing in "Other model ID"; null while they are not.
+  const [otherDraft, setOtherDraft] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const modelListId = useId()
+
+  useEffect(() => {
+    if (!open) setOtherDraft(null)
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -1036,7 +1069,11 @@ function ProviderPicker({
 
   if (providers.length === 0) return null
 
-  const label = active?.id === AgentProviderIds.openrouter ? `OpenRouter · ${modelId || active.defaultModel}` : active?.label.replace(/\s+\(.+\)$/, '') ?? 'No provider'
+  const choices = active?.configured ? active.models ?? [] : []
+  const selectedModel = modelId.trim() || active?.defaultModel || ''
+  const selectedName = choices.find(model => model.id === selectedModel)?.displayName ?? selectedModel
+  const customModel = choices.some(model => model.id === modelId.trim()) ? '' : modelId
+  const label = active ? `${active.label.replace(/\s+\(.+\)$/, '')} · ${selectedName}` : 'No provider'
   return (
     <div ref={containerRef} className="relative">
       <button
@@ -1046,7 +1083,7 @@ function ProviderPicker({
         className="flex items-center gap-1 rounded-md px-2 py-1 text-sm text-secondary transition hover:bg-surface-inset hover:text-strong disabled:opacity-50"
         aria-label="Switch agent model"
         aria-expanded={open}
-        title={active ? `${active.label} · ${active.defaultModel}` : 'Pick a provider'}
+        title={active ? `${active.label} · ${selectedModel}` : 'Pick a provider'}
       >
         <span className="max-w-64 truncate font-medium text-strong">{label}</span>
         <ChevronDown className="h-3 w-3" aria-hidden="true" />
@@ -1090,7 +1127,48 @@ function ProviderPicker({
               )
             })}
           </ul>
-          {active?.id === AgentProviderIds.openrouter && <div className="border-t border-default px-3 py-3"><label className="block text-sm text-secondary">Aero OpenRouter model<input className="setup-input mt-1 w-full" value={modelId} placeholder={active.defaultModel} disabled={disabled} list={active.models?.length ? modelListId : undefined} autoComplete="off" onChange={event => onModelChange(event.target.value)} /></label>{active.models && active.models.length > 0 && <datalist id={modelListId}>{active.models.map(model => <option key={model.id} value={model.id}>{model.displayName}</option>)}</datalist>}<p className="mt-2 text-sm text-secondary">Type to search models that can use tools. Applies to Aero. Your sweep models stay separate.</p></div>}
+          {active?.configured && (
+            <div className="border-t border-default">
+              <div className="px-3 py-2 text-sm font-medium text-secondary">Model</div>
+              {choices.length > 0 && <ul role="listbox" aria-label="Model" className="pb-1">
+                {choices.map((model) => {
+                  const isSelected = model.id === selectedModel
+                  return (
+                    <li key={model.id}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        disabled={disabled}
+                        onClick={() => {
+                          onModelChange(model.id === active?.defaultModel ? '' : model.id)
+                          setOpen(false)
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition enabled:hover:bg-bg-elevated disabled:opacity-60"
+                        title={model.id}
+                      >
+                        <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                          {isSelected ? <Check className="h-3 w-3 text-positive-400" aria-hidden="true" /> : null}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-heading">{model.displayName}</span>
+                        {model.id === active?.defaultModel && <span className="rounded-md border border-base px-2 py-0.5 text-[11px] text-secondary">Default</span>}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>}
+              <div className="px-3 pb-3">
+                <label className="block text-sm text-secondary">
+                  Other model ID
+                  <input className="setup-input mt-1 w-full" value={otherDraft ?? customModel} placeholder="Any model this provider serves" disabled={disabled} autoComplete="off" onChange={(event) => {
+                    setOtherDraft(event.target.value)
+                    onModelChange(event.target.value)
+                  }} />
+                </label>
+                <p className="mt-2 text-sm text-secondary">Applies to Aero. Sweep models stay separate.</p>
+              </div>
+            </div>
+          )}
           {override && (
             <button
               type="button"
