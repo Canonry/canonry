@@ -98,3 +98,51 @@ test('a route cannot silently switch models', async () => {
   await expect(openrouterAdapter.executeTrackedQuery(input, { ...config, model: 'anthropic/claude-sonnet-4.6' })).rejects.toThrow('cannot be overridden')
   expect(transport).not.toHaveBeenCalled()
 })
+
+// The documented shape of a provider failure after headers were sent on a
+// non-streaming request: HTTP 200, partial text, finish_reason "error" and an
+// error object on the choice (openrouter.ai/docs/api-reference/errors).
+function failedMidAnswer(code = 502) {
+  return {
+    id: 'gen-1', model: 'google/gemini-3.1-flash-lite-20260917', object: 'chat.completion',
+    choices: [{
+      index: 0, finish_reason: 'error', native_finish_reason: 'error',
+      message: { role: 'assistant', content: 'Popular widget makers include Northstar and' },
+      error: { code, message: 'Provider disconnected mid-stream', metadata: { error_type: 'provider_error' } },
+    }],
+  }
+}
+
+test('a cut-off answer is a failed request, never a stored answer', async () => {
+  vi.useFakeTimers()
+  const transport = vi.fn(async () => json(failedMidAnswer()))
+  vi.stubGlobal('fetch', transport)
+  const pending = openrouterAdapter.executeTrackedQuery(input, config)
+  const outcome = expect(pending).rejects.toThrow('HTTP 502')
+  await vi.runAllTimersAsync()
+  await outcome
+  // A provider disconnect is transient, so it was retried before giving up.
+  expect(transport.mock.calls.length).toBeGreaterThan(1)
+  expect(() => openrouterAdapter.parseTrackedQueryResponse!(failedMidAnswer(), config.model!)).toThrow('HTTP 502')
+})
+
+test('a cut-off answer is retried, and the next complete answer is the one kept', async () => {
+  vi.useFakeTimers()
+  const transport = vi.fn(async () => json(response([], 1))).mockResolvedValueOnce(json(failedMidAnswer()))
+  vi.stubGlobal('fetch', transport)
+  const pending = openrouterAdapter.executeTrackedQuery(input, config)
+  await vi.runAllTimersAsync()
+  const raw = await pending
+  expect(transport).toHaveBeenCalledTimes(2)
+  expect(openrouterAdapter.normalizeResult(raw).answerText).toBe('Northstar has widgets. https://uncited.example')
+})
+
+test('a choice-level error without a code still fails, and a client error is not retried', async () => {
+  const noCode = failedMidAnswer()
+  delete (noCode.choices[0] as { error?: unknown }).error
+  expect(() => openrouterAdapter.parseTrackedQueryResponse!(noCode, config.model!)).toThrow('HTTP 502')
+  const transport = vi.fn(async () => json(failedMidAnswer(400)))
+  vi.stubGlobal('fetch', transport)
+  await expect(openrouterAdapter.executeTrackedQuery(input, config)).rejects.toThrow('HTTP 400')
+  expect(transport).toHaveBeenCalledTimes(1)
+})

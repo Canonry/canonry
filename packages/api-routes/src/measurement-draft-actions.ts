@@ -385,6 +385,7 @@ function mutableAssignmentExactContext(
   authoring: MeasurementDraftAuthoring,
   assignment: MeasurementDraftAssignment,
   context: DraftActionContext,
+  frozenKeys: ReadonlyMap<string, string>,
 ): ExactExecutionContext {
   const { providers, models, locationLabels } = mutableAssignmentContext(authoring, assignment)
   if (locationLabels.length > 1) {
@@ -405,7 +406,16 @@ function mutableAssignmentExactContext(
   const locationIdentity = resolvedLocation
     ? [resolvedLocation.label, resolvedLocation.city, resolvedLocation.region, resolvedLocation.country].join('\u0000')
     : ''
-  const executionNodeKey = `execution-${sha256Hex(canonicalJson({
+  // Identical provider work that is already frozen keeps its key, exactly as
+  // the compiler reuses it. A second key for the same question, location and
+  // provider/model map compiles into a second node that the run queue drops,
+  // and the run's report then fails its slot count.
+  const executionNodeKey = frozenKeys.get(canonicalJson({
+    queryId: assignment.queryId,
+    location: resolvedLocation,
+    providers,
+    models,
+  })) ?? `execution-${sha256Hex(canonicalJson({
     queryId: assignment.queryId,
     location: locationIdentity,
     providers,
@@ -426,6 +436,7 @@ function normalizeSelectedOneToOneMarketEdges(
   ]))
   const successorByPair = new Map<string, ExactExecutionContext>()
   const mutableIndexes = new Set<number>()
+  const frozenKeys = frozenMeasurementDraftExecutionKeys(authoring)
 
   for (const scope of authoring.reportingScopes ?? []) {
     if (!selectedMarkets.has(scope.stableKey)) continue
@@ -448,7 +459,7 @@ function normalizeSelectedOneToOneMarketEdges(
         continue
       }
 
-      successorByPair.set(pair, mutableAssignmentExactContext(authoring, found.assignment, context))
+      successorByPair.set(pair, mutableAssignmentExactContext(authoring, found.assignment, context, frozenKeys))
       mutableIndexes.add(found.index)
     }
   }

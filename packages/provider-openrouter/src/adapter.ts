@@ -23,6 +23,23 @@ class OpenRouterHttpError extends Error {
   }
 }
 
+/**
+ * The HTTP status a failed choice stands for, or null when the answer finished.
+ *
+ * OpenRouter reports a provider failure that happens after headers were sent
+ * as HTTP 200, with whatever text was produced, `finish_reason: "error"` and
+ * an `error` object on the choice. That text is a cut-off answer: stored, it
+ * would count as a full observation and, usually, as a miss in every mention
+ * and citation rate. A failed choice is therefore a failed request, retried
+ * like any other provider error.
+ */
+function choiceFailure(body: Record<string, unknown>): number | null {
+  const choice = Array.isArray(body.choices) ? asRecord(body.choices[0]) : undefined
+  const error = asRecord(choice?.error)
+  if (!error && choice?.finish_reason !== 'error') return null
+  return typeof error?.code === 'number' ? error.code : 502
+}
+
 async function fetchOnce(config: ProviderConfig, resource: string, body?: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
   const response = await fetch(`${(config.baseUrl || BASE_URL).replace(/\/+$/, '')}/${resource}`, {
     method: body ? 'POST' : 'GET',
@@ -35,6 +52,8 @@ async function fetchOnce(config: ProviderConfig, resource: string, body?: Record
   if (!value) throw new Error('OpenRouter returned an invalid response')
   const error = asRecord(value.error)
   if (error) throw new OpenRouterHttpError(typeof error.code === 'number' ? error.code : 502)
+  const failed = choiceFailure(value)
+  if (failed !== null) throw new OpenRouterHttpError(failed)
   return value
 }
 
@@ -68,6 +87,9 @@ function sourcesOf(body: Record<string, unknown>): GroundingSource[] {
 }
 
 function parseResponse(body: Record<string, unknown>, model: string, provider = openRouterRouteName(model)): RawQueryResult {
+  // Also exported as parseTrackedQueryResponse, which never passes fetchOnce.
+  const failed = choiceFailure(body)
+  if (failed !== null) throw new OpenRouterHttpError(failed)
   const message = messageOf(body)
   if (typeof message?.content !== 'string' || !message.content.trim()) throw new Error('OpenRouter returned no answer text')
   const groundingSources = sourcesOf(body)

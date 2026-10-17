@@ -565,6 +565,50 @@ describe('measurement draft market routing', () => {
     expect(merged.authoring.assignments).toHaveLength(1)
   })
 
+  it('freezes an editable assignment onto the key its identical provider work already has', () => {
+    // Dallas Two already runs openai/gpt-test with no location under a frozen
+    // key. Dallas One asks the same question with the same work, editably, and
+    // two markets still hold a stale edge for it. Routing one of those markets
+    // freezes Dallas One for the other. Minting a fresh key for that identical
+    // work compiled a second node the run queue drops, and the run's report then
+    // failed with a slot count mismatch.
+    const authoring = audienceFixture()
+    const openai = { providers: ['openai'], models: { openai: 'gpt-test' } }
+    authoring.assignments = [
+      {
+        targetKey: 'dallas-2', queryId: 'q-market', queryClass: 'non-brand', classificationSource: 'operator',
+        executionContexts: [{ ...openai, location: null, executionNodeKey: 'frozen-openai' }],
+      },
+      {
+        targetKey: 'dallas-1', queryId: 'q-market', queryClass: 'non-brand', classificationSource: 'operator',
+        contextOverride: { ...openai, locations: [] },
+      },
+    ]
+    authoring.reportingScopes = [
+      { stableKey: 'widgets-a', label: 'Widgets A', kind: 'market', usageEdges: [{ targetKey: 'dallas-1', queryId: 'q-market', executionNodeKey: 'stale-shared' }] },
+      { stableKey: 'widgets-b', label: 'Widgets B', kind: 'market', usageEdges: [{ targetKey: 'dallas-1', queryId: 'q-market', executionNodeKey: 'stale-shared' }] },
+    ]
+
+    const routed = routeMarketsInAuthoring(authoring, {
+      marketKeys: ['widgets-a'],
+      contextOverride: { providers: ['gemini'], models: { gemini: 'gemini-test' } },
+    }, audienceContext)
+
+    const widgetsB = routed.authoring.reportingScopes?.find(scope => scope.stableKey === 'widgets-b')!.usageEdges
+    expect(widgetsB).toEqual([{ targetKey: 'dallas-1', queryId: 'q-market', executionNodeKey: 'frozen-openai' }])
+    const compiled = compileMeasurementDraft({ ...routed.authoring, groups: [] }, {
+      canonicalDomain: 'portfolio.example', ownedDomains: [], brandNames: ['Example Portfolio'],
+      locations: [], trackedQueries: [{ id: 'q-market', query: 'best apartments downtown' }],
+    })
+    expect(compiled.ok).toBe(true)
+    if (!compiled.ok) throw new Error('Routed authoring should compile')
+    // One node per distinct piece of provider work: the shared openai node and
+    // the new gemini node, never two openai nodes.
+    const work = compiled.plan.executionNodes.map(node => JSON.stringify([node.queryId, node.context]))
+    expect(new Set(work).size).toBe(work.length)
+    expect(compiled.plan.executionNodes).toHaveLength(2)
+  })
+
   it('self-heals stale market edges already stored in a draft and excludes them from preview counts', () => {
     const stale = marketAuthoring()
     stale.assignments = []
