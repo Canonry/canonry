@@ -1,6 +1,6 @@
 import { useId, useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { describeError, openRouterRouteModel, openRouterRouteName } from '@canonry/canonry-contracts'
+import { OPENROUTER_RECOMMENDED_SWEEP_MODELS, describeError, openRouterRouteModel, openRouterRouteName } from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
 
@@ -12,18 +12,19 @@ export interface OpenRouterPickerCatalog {
 }
 
 /**
- * Common vendors offered as one-click filters, by their OpenRouter ID prefix.
- * Only vendors with at least one model in the loaded catalog are shown.
+ * Common vendors offered as one-click filters, by their OpenRouter ID
+ * prefixes. Only vendors with at least one model in the loaded catalog are
+ * shown.
  */
 const VENDOR_FILTERS = [
-  { label: 'OpenAI', prefix: 'openai/' },
-  { label: 'Google', prefix: 'google/' },
-  { label: 'Anthropic', prefix: 'anthropic/' },
-  { label: 'Perplexity', prefix: 'perplexity/' },
-  { label: 'xAI', prefix: 'x-ai/' },
-  { label: 'DeepSeek', prefix: 'deepseek/' },
-  { label: 'Mistral', prefix: 'mistralai/' },
-  { label: 'Meta', prefix: 'meta-llama/' },
+  { label: 'OpenAI', prefixes: ['openai/'] },
+  { label: 'Google', prefixes: ['google/'] },
+  { label: 'Anthropic', prefixes: ['anthropic/'] },
+  { label: 'Perplexity', prefixes: ['perplexity/'] },
+  { label: 'xAI', prefixes: ['x-ai/'] },
+  { label: 'DeepSeek', prefixes: ['deepseek/'] },
+  { label: 'Mistral', prefixes: ['mistralai/'] },
+  { label: 'Meta', prefixes: ['meta/', 'meta-llama/'] },
 ] as const
 
 function modelCount(count: number): string {
@@ -32,9 +33,12 @@ function modelCount(count: number): string {
 
 /**
  * Concrete sweep models share the OpenRouter connection, but each remains a
- * separate selection. Project Answer engines opens it behind "Add models" and
- * stages the chosen routes for "Save engines"; first-sweep setup renders it
- * `inline`, always open, and saves the chosen routes with "Save models".
+ * separate selection. The picker leads with a few recommended models and keeps
+ * OpenRouter's full catalog behind "Browse all", so the common choice takes
+ * one click and the long list stays out of the way. Project Answer engines
+ * opens it behind "Add models" and stages the chosen routes for "Save
+ * engines"; first-sweep setup renders it `inline`, always open, and saves the
+ * chosen routes with "Save N models".
  *
  * `onAdd` receives only routes not already in `selected`. When it returns a
  * promise the picker stays busy until it settles and shows a rejection as an
@@ -47,7 +51,12 @@ export function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = fal
   disabled?: boolean
   inline?: boolean
 }) {
+  const names = new Map(catalog.knownModels.map(model => [model.id, model.displayName]))
+  const recommended = OPENROUTER_RECOMMENDED_SWEEP_MODELS.filter(model => names.has(model.id))
+  const catalogEmpty = catalog.knownModels.length === 0
   const [open, setOpen] = useState(false)
+  const [browsing, setBrowsing] = useState(recommended.length === 0)
+  const [vendor, setVendor] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [draft, setDraft] = useState<string[]>([])
   const [manual, setManual] = useState('')
@@ -56,10 +65,21 @@ export function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = fal
   const id = useId()
   const busy = disabled || submitting
   const query = search.trim().toLowerCase()
-  const catalogEmpty = catalog.knownModels.length === 0
-  const vendors = VENDOR_FILTERS.filter(vendor => catalog.knownModels.some(model => model.id.startsWith(vendor.prefix)))
-  const matches = catalog.knownModels.filter(model => `${model.displayName} ${model.id}`.toLowerCase().includes(query))
+  const vendors = VENDOR_FILTERS.filter(filter => catalog.knownModels.some(model => filter.prefixes.some(prefix => model.id.startsWith(prefix))))
+  const vendorPrefixes = VENDOR_FILTERS.find(filter => filter.label === vendor)?.prefixes ?? []
+  const matches = catalog.knownModels
+    .filter(model => vendorPrefixes.length === 0 || vendorPrefixes.some(prefix => model.id.startsWith(prefix)))
+    .filter(model => `${model.displayName} ${model.id}`.toLowerCase().includes(query))
+    .sort((a, b) => a.displayName.localeCompare(b.displayName))
   const candidates = draft.filter(route => !selected.includes(route))
+  const candidateNames = candidates.map((route) => {
+    const model = openRouterRouteModel(route) ?? route
+    return names.get(model) ?? model
+  })
+
+  function toggle(route: string, checked: boolean) {
+    setDraft(current => (checked ? [...new Set([...current, route])] : current.filter(value => value !== route)))
+  }
 
   function addManual() {
     const model = manual.trim()
@@ -97,6 +117,29 @@ export function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = fal
       .finally(() => { setSubmitting(false) })
   }
 
+  const modelRow = (modelId: string, title: string, detail: string) => {
+    const route = openRouterRouteName(modelId)
+    const added = selected.includes(route)
+    const detailId = `${id}-${modelId}`
+    return (
+      <label key={modelId} data-model-id={modelId} className="flex min-h-11 items-center gap-3 py-2 text-sm text-secondary">
+        <input type="checkbox" aria-label={title} aria-describedby={detailId} checked={added || draft.includes(route)} disabled={added} onChange={event => toggle(route, event.target.checked)} />
+        <span className="min-w-0">
+          <span className="block text-heading">{title}</span>
+          <span id={detailId} className="block break-all text-sm">{detail}</span>
+        </span>
+        {added && <span className="ml-auto">Added</span>}
+      </label>
+    )
+  }
+
+  const manualEntry = (
+    <div className="flex flex-wrap items-end gap-2">
+      <label className="min-w-0 flex-1 text-sm text-secondary">Model ID<input className="setup-input mt-1 w-full" value={manual} placeholder="vendor/model" onChange={event => setManual(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); if (manual.trim()) addManual() } }} /></label>
+      <Button type="button" variant="outline" disabled={busy || !manual.trim()} onClick={addManual}>Add ID</Button>
+    </div>
+  )
+
   const panel = (
     <div
       id={id}
@@ -105,53 +148,69 @@ export function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = fal
       className={inline ? 'space-y-3' : 'space-y-3 border-y border-default py-3'}
     >
       {catalogEmpty ? (
-        <p className="text-sm text-secondary">
-          Couldn't load OpenRouter's model list. Check the OpenRouter key in{' '}
-          {/* In the setup wizard a new tab keeps the operator on this step while they fix the key. */}
-          <Link to="/settings" className="text-link hover:underline" {...(inline ? { target: '_blank', rel: 'noopener noreferrer' } : {})}>Settings</Link>
-          , or enter a model ID below.
-        </p>
+        <>
+          <p className="text-sm text-secondary">
+            Couldn't load OpenRouter's model list. Check the OpenRouter key in{' '}
+            {/* In the setup wizard a new tab keeps the operator on this step while they fix the key. */}
+            <Link to="/settings" className="text-link hover:underline" {...(inline ? { target: '_blank', rel: 'noopener noreferrer' } : {})}>Settings</Link>
+            , or enter a model ID below.
+          </p>
+          {manualEntry}
+        </>
       ) : (
         <>
-          {vendors.length > 0 && (
-            <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by vendor">
-              {vendors.map(vendor => {
-                const active = search === vendor.prefix
-                return (
-                  <button
-                    key={vendor.prefix}
-                    type="button"
-                    aria-pressed={active}
-                    disabled={busy}
-                    onClick={() => setSearch(active ? '' : vendor.prefix)}
-                    className={`filter-chip ${active ? 'filter-chip-active' : ''}`}
-                  >
-                    {vendor.label}
-                  </button>
-                )
-              })}
+          {recommended.length > 0 && (
+            <fieldset disabled={busy} className="divide-y divide-default">
+              <legend className="mb-1 text-sm font-medium text-heading">Recommended</legend>
+              {recommended.map(model => modelRow(model.id, names.get(model.id) ?? model.id, `From the maker of ${model.engine}`))}
+            </fieldset>
+          )}
+          {recommended.length > 0 && (
+            <Button type="button" variant="ghost" size="sm" className="-ml-3 text-sm" aria-expanded={browsing} aria-controls={`${id}-browse`} onClick={() => setBrowsing(value => !value)}>
+              {browsing ? 'Hide the full list' : `Browse all OpenRouter models (${catalog.knownModels.length})`}
+            </Button>
+          )}
+          {browsing && (
+            <div id={`${id}-browse`} className="space-y-3">
+              {vendors.length > 0 && (
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by vendor">
+                  {vendors.map((filter) => {
+                    const active = vendor === filter.label
+                    return (
+                      <button
+                        key={filter.label}
+                        type="button"
+                        aria-pressed={active}
+                        disabled={busy}
+                        onClick={() => setVendor(active ? null : filter.label)}
+                        className={`filter-chip ${active ? 'filter-chip-active' : ''}`}
+                      >
+                        {filter.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              <label className="block text-sm text-secondary">Search OpenRouter models<input className="setup-input mt-1 w-full" type="search" value={search} onChange={event => setSearch(event.target.value)} /></label>
+              <fieldset disabled={busy} className="max-h-64 overflow-y-auto divide-y divide-default">
+                <legend className="sr-only">OpenRouter models</legend>
+                {matches.map(model => modelRow(model.id, model.displayName, model.id))}
+                {matches.length === 0 && <p className="py-3 text-sm text-secondary">{search.trim() ? `No models match "${search.trim()}".` : `No ${vendor ?? ''} models in OpenRouter's list.`}</p>}
+              </fieldset>
+              {manualEntry}
             </div>
           )}
-          <label className="block text-sm text-secondary">Search OpenRouter models<input className="setup-input mt-1 w-full" type="search" value={search} onChange={event => setSearch(event.target.value)} /></label>
-          <fieldset disabled={busy} className="max-h-64 overflow-y-auto divide-y divide-default">
-            <legend className="sr-only">OpenRouter models</legend>
-            {matches.map(model => {
-              const route = openRouterRouteName(model.id)
-              const added = selected.includes(route)
-              return <label key={model.id} className="flex min-h-11 items-center gap-3 py-2 text-sm text-secondary"><input type="checkbox" aria-label={`${model.displayName} ${model.id}`} checked={added || draft.includes(route)} disabled={added} onChange={event => setDraft(current => event.target.checked ? [...current, route] : current.filter(value => value !== route))} /><span className="min-w-0"><span className="block text-heading">{model.displayName}</span><span className="block break-all text-sm">{model.id}</span></span>{added && <span className="ml-auto">Added</span>}</label>
-            })}
-            {matches.length === 0 && <p className="py-3 text-sm text-secondary">{`No models match "${search.trim()}".`}</p>}
-          </fieldset>
         </>
       )}
-      <div className="flex flex-wrap items-end gap-2"><label className="min-w-0 flex-1 text-sm text-secondary">Model ID<input className="setup-input mt-1 w-full" value={manual} placeholder="vendor/model" onChange={event => setManual(event.target.value)} /></label><Button type="button" variant="outline" disabled={busy || !manual.trim()} onClick={addManual}>Include model ID</Button></div>
-      {draft.filter(route => !catalog.knownModels.some(model => openRouterRouteName(model.id) === route)).map(route => <p key={route} className="break-all text-sm text-secondary">{openRouterRouteModel(route)} selected</p>)}
+      {candidateNames.length > 0 && <p className="break-words text-sm text-secondary">Selected: {candidateNames.join(', ')}</p>}
       {error && <p role="alert" className="text-sm text-negative">{error}</p>}
       <div className="flex gap-2">
         <Button type="button" disabled={busy || candidates.length === 0} onClick={submit}>
-          {inline ? (submitting ? 'Saving models…' : 'Save models') : `Add ${modelCount(candidates.length)}`}
+          {inline
+            ? (submitting ? 'Saving models…' : candidates.length > 0 ? `Save ${modelCount(candidates.length)}` : 'Save models')
+            : candidates.length > 0 ? `Add ${modelCount(candidates.length)}` : 'Add selected'}
         </Button>
-        {!inline && <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>}
+        {!inline && <Button type="button" variant="outline" onClick={() => setOpen(false)}>Close</Button>}
       </div>
     </div>
   )

@@ -252,7 +252,7 @@ function SetupPageBody({ visibilityProjectName, siteHealthOnboarding, onboarding
         {siteHealthOnboarding ? <OnboardingProgress current="visibility" /> : null}
         <div className="page-header">
           <div className="page-header-left">
-            <h1 ref={visibilityHeadingRef} tabIndex={-1} className="page-title">Set up AI Visibility</h1>
+            <h1 ref={visibilityHeadingRef} tabIndex={-1} className="page-title outline-none">Set up AI Visibility</h1>
             <p className="page-subtitle">Choose what to track, then run your first visibility sweep.</p>
           </div>
           {siteHealthOnboarding ? (
@@ -440,9 +440,23 @@ function ReadySetupPage({
   const [queriesGenerated, setQueriesGenerated] = useState(false)
 
   const projectProviders = (setupEngineProject?.providers ?? resumeProject?.project.providers ?? []).map(normalizeProviderName)
+  // OpenRouter routes are named from OpenRouter's catalog (the administrator
+  // settings read), so setup shows "OpenAI: GPT-6 Luna via OpenRouter" rather
+  // than the raw model ID.
+  const settingsCatalogQuery = useQuery({
+    queryKey: ['settings'],
+    queryFn: fetchSettings,
+    staleTime: 60_000,
+    enabled: isAdmin && openRouterConnected && projectProviders.some(isOpenRouterRoute),
+  })
+  const openRouterModelNames = new Map((settingsCatalogQuery.data?.providerCatalog ?? []).find(provider => provider.name === 'openrouter')?.knownModels.map(model => [model.id, model.displayName]) ?? [])
+  const openRouterRouteLabel = (route: string) => {
+    const model = openRouterRouteModel(route)
+    return model && openRouterModelNames.has(model) ? `${openRouterModelNames.get(model)} via OpenRouter` : providerDisplayName(route)
+  }
   const readyProviders = [
     ...settings.providerStatuses.filter(provider => provider.state === 'ready' && provider.name !== 'openrouter'),
-    ...(openRouterConnected ? projectProviders.filter(isOpenRouterRoute).map(name => ({ name, displayName: providerDisplayName(name), model: openRouterRouteModel(name), state: 'ready' as const, detail: 'OpenRouter model configured.' })) : []),
+    ...(openRouterConnected ? projectProviders.filter(isOpenRouterRoute).map(name => ({ name, displayName: openRouterRouteLabel(name), model: openRouterRouteModel(name), state: 'ready' as const, detail: 'OpenRouter model configured.' })) : []),
   ]
   const runnableApiProviders = readyProviders.filter(provider => (
     projectProviders.length === 0 || projectProviders.includes(normalizeProviderName(provider.name))
@@ -1117,7 +1131,7 @@ function ReadySetupPage({
           {openRouterModelsNeeded ? 'Choose sweep models' : providerNeedsConnection ? 'Connect a provider' : 'Answer engine provider'}
         </h2>
         <ToneBadge tone={providerReadiness === true ? 'positive' : 'neutral'}>
-          {providerReadiness === true ? 'Configured' : openRouterModelsNeeded ? 'Models needed' : providerNeedsConnection ? 'Not connected' : 'Checking'}
+          {providerReadiness === true ? 'Ready' : openRouterModelsNeeded ? 'Models needed' : providerNeedsConnection ? 'Not connected' : 'Checking'}
         </ToneBadge>
       </div>
       <p className="max-w-prose text-sm text-secondary">
@@ -1177,6 +1191,7 @@ function ReadySetupPage({
                 </div>
               )}
               secondaryActions={providerRefreshAction}
+              offerFreeTier={providerNeedsConnection}
               providerName={providerToConfigure.name}
               keyUrl={providerToConfigure.keyUrl}
               modelHint={providerToConfigure.modelHint}
@@ -1196,8 +1211,8 @@ function ReadySetupPage({
       ) : null}
       <div className="flex flex-wrap items-center gap-2">
         {(providerReadiness === true || openRouterModelsNeeded) && !showProviderConfig && providerToConfigure ? (
-          <Button type="button" variant="outline" size="sm" onClick={() => setShowProviderConfig(true)}>
-            Configure a provider
+          <Button type="button" variant="ghost" size="sm" className="-ml-3 text-sm" onClick={() => setShowProviderConfig(true)}>
+            Use a different provider
           </Button>
         ) : null}
         {!providerToConfigure || cdpConfigured === true ? (
@@ -1205,7 +1220,7 @@ function ReadySetupPage({
             <Link to="/settings" target="_blank" rel="noopener noreferrer">Open provider settings</Link>
           </Button>
         ) : null}
-        {!providerFormVisible ? providerRefreshAction : null}
+        {!providerFormVisible && !inlineModelPicker ? providerRefreshAction : null}
       </div>
     </section>
     )
@@ -1477,7 +1492,7 @@ function ReadySetupPage({
                           onChange={(e) => setSelectedProvider(e.target.value)}
                         >
                           {runnableApiProviders.map((p) => (
-                            <option key={p.name} value={p.name}>{p.displayName ?? p.name}{p.model ? ` (${p.model})` : ''}</option>
+                            <option key={p.name} value={p.name}>{p.displayName ?? p.name}{p.model && !isOpenRouterRoute(p.name) ? ` (${p.model})` : ''}</option>
                           ))}
                         </select>
                       </div>

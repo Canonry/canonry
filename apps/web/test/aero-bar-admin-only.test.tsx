@@ -147,7 +147,7 @@ test('offers the public demo read-only key the Aero bar as a scripted preview', 
   expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toMatch(/\/agent\/preview$/)
   expect(transcript).not.toHaveBeenCalled()
   expect(screen.queryByRole('button', { name: /History/i })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Switch agent model' })).toBeNull()
+  expect(screen.queryByRole('button', { name: /^Aero model:/ })).toBeNull()
   expect(screen.getByRole('link', { name: /Aero answers from your own Canonry data/ }).getAttribute('href')).toBe('https://canonry.ai')
 })
 

@@ -218,6 +218,9 @@ export function ProjectEngineSettingsSection({
         <p className="project-engine-help">{openRouterAvailable
           ? 'Includes direct engines configured later in Settings. OpenRouter models run only when you add them below.'
           : 'Includes engines configured later in global Settings.'}</p>
+        {automatic && openRouterAvailable && [...configured].every(name => name === 'openrouter') && (
+          <p role="alert" className="text-sm text-negative-400">Only OpenRouter is connected, so this runs no engine. Add OpenRouter models below.</p>
+        )}
         <label><input type="radio" checked={!automatic} onChange={chooseEngines} /> Choose engines</label>
         {!automatic && (
           <div className="project-engine-list">

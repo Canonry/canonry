@@ -86,7 +86,7 @@ function SettingsPageBody() {
                   </div>
                   <div className="flex items-center gap-2">
                     <ToneBadge tone={provider.state === 'ready' ? 'positive' : 'caution'}>
-                      {provider.state === 'ready' ? 'Ready' : 'Needs config'}
+                      {provider.state === 'ready' ? 'Ready' : 'Not connected'}
                     </ToneBadge>
                     <Button
                       type="button"
@@ -164,7 +164,7 @@ function SettingsPageBody() {
               <h2>Google OAuth</h2>
             </div>
             <ToneBadge tone={settings.google.state === 'ready' ? 'positive' : 'caution'}>
-              {settings.google.state === 'ready' ? 'Ready' : 'Needs config'}
+              {settings.google.state === 'ready' ? 'Ready' : 'Not connected'}
             </ToneBadge>
           </div>
           <p className="mt-2 text-sm text-secondary">{settings.google.detail}</p>
@@ -207,7 +207,7 @@ function SettingsPageBody() {
               <h2>Webmaster Tools</h2>
             </div>
             <ToneBadge tone={settings.bing.state === 'ready' ? 'positive' : 'caution'}>
-              {settings.bing.state === 'ready' ? 'Ready' : 'Needs config'}
+              {settings.bing.state === 'ready' ? 'Ready' : 'Not connected'}
             </ToneBadge>
           </div>
           <p className="mt-2 text-sm text-secondary">{settings.bing.detail}</p>

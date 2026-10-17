@@ -46,6 +46,17 @@ export type ApiProviderName = string
 /** Canonical OpenRouter model slugs. Routing aliases are not fixed sweep models. */
 export const OPENROUTER_MODEL_PATTERN = /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*$/
 
+/**
+ * OpenRouter sweep models offered first, one from the maker of each major
+ * consumer answer engine. Pickers show only the ones OpenRouter's live
+ * catalog still lists; every other model stays one search away.
+ */
+export const OPENROUTER_RECOMMENDED_SWEEP_MODELS = [
+  { id: 'openai/gpt-6-luna', engine: 'ChatGPT' },
+  { id: 'google/gemini-3.8-flash', engine: 'Gemini' },
+  { id: 'anthropic/claude-sonnet-5.5', engine: 'Claude' },
+] as const
+
 export function openRouterRouteModel(name: string): string | undefined {
   if (!name.startsWith('openrouter:')) return undefined
   const model = name.slice('openrouter:'.length)

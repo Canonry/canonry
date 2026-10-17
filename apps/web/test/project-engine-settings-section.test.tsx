@@ -58,12 +58,23 @@ test.each([
   expect(screen.getByText(hint)).toBeTruthy()
 })
 
+test('warns that All configured engines runs nothing when OpenRouter is the only connection', async () => {
+  const openRouterOnly = { ...openRouterSettings, providers: [{ name: 'openrouter', displayName: 'OpenRouter', configured: true }] }
+  const warning = 'Only OpenRouter is connected, so this runs no engine. Add OpenRouter models below.'
+  renderSection(undefined, undefined, openRouterOnly)
+  expect((await screen.findByRole('alert')).textContent).toBe(warning)
+  cleanup()
+  renderSection(undefined, undefined, openRouterSettings)
+  await screen.findByText('All configured engines')
+  expect(screen.queryByText(warning)).toBeNull()
+})
+
 test('adds several concrete OpenRouter models beside direct Gemini, without selecting the connection', async () => {
   const onSave = renderSection(undefined, { name: 'demo', providers: [], providerModels: {} }, openRouterSettings)
   fireEvent.click(await screen.findByRole('button', { name: 'Add models', exact: true }))
-  fireEvent.click(screen.getByRole('checkbox', { name: /Gemini via OpenRouter google\/gemini-model/ }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Gemini via OpenRouter' }))
   fireEvent.change(screen.getByRole('searchbox', { name: 'Search OpenRouter models' }), { target: { value: 'claude' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: /Claude via OpenRouter anthropic\/claude-model/ }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Claude via OpenRouter' }))
   const saveEngines = screen.getByRole('button', { name: 'Save engines' })
   // Nothing to save yet, so Save engines is not the primary action.
   expect(saveEngines.className).not.toContain('bg-accent')
@@ -92,10 +103,10 @@ test('manual OpenRouter models remain selectable after saving and classifier-onl
   expect(screen.getByText(/^Couldn't load OpenRouter's model list\./).textContent).toBe("Couldn't load OpenRouter's model list. Check the OpenRouter key in Settings, or enter a model ID below.")
   expect(screen.queryByText(/No models match/)).toBeNull()
   fireEvent.change(screen.getByRole('textbox', { name: 'Model ID' }), { target: { value: 'typesafe/jev-1.13' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Include model ID' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add ID' }))
   expect(screen.getByRole('alert').textContent).toContain('fixed vendor/model slug')
   fireEvent.change(screen.getByRole('textbox', { name: 'Model ID' }), { target: { value: 'vendor/new-model' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Include model ID' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add ID' }))
   fireEvent.click(screen.getByRole('button', { name: 'Add 1 model' }))
   // The saved model is already in use; only the new one waits for Save engines.
   expect(screen.getByRole('status').textContent).toBe('1 model added. Save engines to start using it.')

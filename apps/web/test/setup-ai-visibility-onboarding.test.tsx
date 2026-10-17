@@ -163,10 +163,10 @@ test('picks and saves several OpenRouter models in the provider step before allo
   const picker = await screen.findByRole('group', { name: 'Choose OpenRouter models' })
   expect(screen.queryByRole('button', { name: 'Add models', exact: true })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Save engines' })).toBeNull()
-  expect(screen.getByRole('button', { name: 'Configure a provider' })).toBeTruthy()
-  fireEvent.click(within(picker).getByRole('checkbox', { name: /Model A vendor\/model-a/ }))
-  fireEvent.click(within(picker).getByRole('checkbox', { name: /Model B vendor\/model-b/ }))
-  fireEvent.click(within(picker).getByRole('button', { name: 'Save models' }))
+  expect(screen.getByRole('button', { name: 'Use a different provider' })).toBeTruthy()
+  fireEvent.click(within(picker).getByRole('checkbox', { name: 'Model A' }))
+  fireEvent.click(within(picker).getByRole('checkbox', { name: 'Model B' }))
+  fireEvent.click(within(picker).getByRole('button', { name: 'Save 2 models' }))
   await waitFor(() => expect(launch.disabled).toBe(false))
   const projectPath = `/api/v1/projects/${encodeURIComponent(projectName)}`
   const saveIndex = requests.findIndex(request => request.path === projectPath && request.method === 'PUT')
@@ -174,7 +174,9 @@ test('picks and saves several OpenRouter models in the provider step before allo
   // Readiness is read again after the save, and the step now reads as configured.
   expect(requests.slice(saveIndex + 1).some(request => request.path === '/api/v1/projects' && request.method === 'GET')).toBe(true)
   expect(screen.getByRole('heading', { name: 'Answer engine provider' })).toBeTruthy()
-  expect(screen.getByText('Configured')).toBeTruthy()
+  expect(screen.getByText('Ready')).toBeTruthy()
+  // The saved models are named from OpenRouter's catalog, not by raw ID.
+  expect(await screen.findByText(/^Model A via OpenRouter, Model B via OpenRouter available for this project\./)).toBeTruthy()
   expect(screen.queryByText('Models needed')).toBeNull()
   expect(screen.queryByRole('group', { name: 'Choose OpenRouter models' })).toBeNull()
   expect(requests.some(request => request.path.endsWith('/runs') && request.method === 'POST')).toBe(false)
@@ -194,12 +196,18 @@ test('a corrected OpenRouter key refreshes the model list without leaving the st
   const settingsLink = screen.getByRole('link', { name: 'Settings' })
   expect(settingsLink.getAttribute('target')).toBe('_blank')
 
-  fireEvent.click(screen.getByRole('button', { name: 'Configure a provider' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Use a different provider' }))
+  // OpenRouter is already connected: no free-tier pitch, and the OpenRouter
+  // form says how it bills.
+  expect(screen.queryByRole('heading', { name: 'Start with Gemini’s free tier' })).toBeNull()
+  fireEvent.change(screen.getByLabelText('Provider to connect'), { target: { value: 'openrouter' } })
+  expect(screen.getByText('OpenRouter bills your account for each answer, including its web search. A sweep asks every query once per model.')).toBeTruthy()
+  expect(screen.getByPlaceholderText('Enter OpenRouter API key')).toBeTruthy()
   fireEvent.change(await screen.findByLabelText('API key'), { target: { value: 'sk-or-v1-corrected' } })
   models = [{ id: 'vendor/model-a', displayName: 'Model A' }]
   fireEvent.click(screen.getByRole('button', { name: 'Save connection' }))
   const picker = await screen.findByRole('group', { name: 'Choose OpenRouter models' })
-  expect(await within(picker).findByRole('checkbox', { name: /Model A vendor\/model-a/ })).toBeTruthy()
+  expect(await within(picker).findByRole('checkbox', { name: 'Model A' })).toBeTruthy()
 })
 
 test('shows the model list loading, and a failed read offers Retry', async () => {
@@ -222,7 +230,7 @@ test('shows the model list loading, and a failed read offers Retry', async () =>
   respond = () => jsonResponse(openRouterSettings([{ id: 'vendor/model-a', displayName: 'Model A' }]))
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
   const picker = await screen.findByRole('group', { name: 'Choose OpenRouter models' })
-  expect(await within(picker).findByRole('checkbox', { name: /Model A vendor\/model-a/ })).toBeTruthy()
+  expect(await within(picker).findByRole('checkbox', { name: 'Model A' })).toBeTruthy()
 })
 
 test('marks AI Visibility as the optional final onboarding stage and can skip to the finish step', async () => {
@@ -586,7 +594,7 @@ test('offers provider setup before queries and keeps the draft after saving and 
 
   // Readiness comes from refreshed settings, not an optimistic key-save result.
   markProviderReady('gemini')
-  expect(await screen.findByText('Configured')).toBeTruthy()
+  expect(await screen.findByText('Ready')).toBeTruthy()
   expect(screen.queryByLabelText('API key')).toBeNull()
   expect((screen.getByLabelText('Queries (one per line)') as HTMLTextAreaElement).value).toBe('unsubmitted customer question')
   expect(navigate).not.toHaveBeenCalled()
@@ -718,7 +726,7 @@ test('treats a registered project-selected CDP provider as runnable', async () =
   expect(await screen.findByText('Step 2 of 2')).toBeTruthy()
   const launch = screen.getByRole('button', { name: 'Launch visibility sweep' }) as HTMLButtonElement
   expect(launch.disabled).toBe(false)
-  expect(screen.queryByRole('link', { name: 'Configure a provider' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Use a different provider' })).toBeNull()
 })
 
 test('invalidates project query and dashboard caches after project-scoped query setup', async () => {

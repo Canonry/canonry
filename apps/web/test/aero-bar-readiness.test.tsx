@@ -205,7 +205,7 @@ test.each([false, true])('managed=%s uses the effective Aero scope even with a s
   expect(screen.queryByText('Read only')).toBeNull()
   // Managed deployments additionally hide the provider picker, and with it the
   // title that named the exact model behind Aero.
-  const picker = screen.queryByRole('button', { name: 'Switch agent model' })
+  const picker = screen.queryByRole('button', { name: /^Aero model:/ })
   if (managed) {
     expect(picker).toBeNull()
     expect(screen.queryByTitle(/OpenAI/)).toBeNull()
@@ -272,7 +272,7 @@ async function openAeroWithSavedProvider(managedSweeps: boolean) {
 // provider a prompt carries.
 test.each([false, true])('managed=%s honors a saved provider override only when the picker is visible', async managed => {
   const { prompt, input } = await openAeroWithSavedProvider(managed)
-  expect(screen.queryByRole('button', { name: 'Switch agent model' }) === null).toBe(managed)
+  expect(screen.queryByRole('button', { name: /^Aero model:/ }) === null).toBe(managed)
   fireEvent.change(input, { target: { value: 'Show the latest sweep results' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
@@ -304,11 +304,18 @@ test('chooses an Aero OpenRouter model independently and includes it in the copi
   onTestFinished(() => { if (descriptor) Object.defineProperty(navigator, 'clipboard', descriptor); else Reflect.deleteProperty(navigator, 'clipboard') })
   await renderWithProviderReadiness({ providers: [{ id: 'openrouter', label: 'OpenRouter', defaultModel: 'anthropic/claude-default', configured: true, keySource: 'config' }], defaultProvider: 'openrouter' }, 'admin')
   fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
-  fireEvent.click(await screen.findByRole('button', { name: 'Switch agent model' }))
+  fireEvent.click(await screen.findByRole('button', { name: /^Aero model:/ }))
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Other model…' }))
   const model = screen.getByRole('textbox', { name: 'Other model ID' })
+  // A typed ID is checked before it is saved, and nothing is stored while it is wrong.
+  fireEvent.change(model, { target: { value: 'claude custom' } })
+  fireEvent.submit(model)
+  expect(screen.getByRole('alert').textContent).toBe('Model IDs have no spaces.')
+  expect(window.localStorage.getItem('canonry:aero:model:citypoint:openrouter')).toBeNull()
   fireEvent.change(model, { target: { value: 'anthropic/claude-custom' } })
-  fireEvent.keyDown(model, { key: 'Escape' })
-  expect(screen.queryByRole('textbox', { name: 'Other model ID' })).toBeNull()
+  fireEvent.submit(model)
+  expect(screen.queryByRole('menu', { name: 'Aero model' })).toBeNull()
+  expect(window.localStorage.getItem('canonry:aero:model:citypoint:openrouter')).toBe('anthropic/claude-custom')
   fireEvent.change(screen.getByPlaceholderText('Ask Aero, or / for commands…'), { target: { value: 'Explain my saved results' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ provider: 'openrouter', modelId: 'anthropic/claude-custom' })))
@@ -327,12 +334,13 @@ test('offers a short model list for a direct provider and sends a model only whe
     defaultProvider: 'openai',
   }, 'admin')
   fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
-  const picker = await screen.findByRole('button', { name: 'Switch agent model' })
+  const picker = await screen.findByRole('button', { name: /^Aero model:/ })
   expect(picker.textContent).toContain('OpenAI · GPT Cheap')
   fireEvent.click(picker)
-  const list = screen.getByRole('listbox', { name: 'Model' })
-  expect(within(list).getAllByRole('option').map(option => option.textContent)).toEqual(['GPT CheapDefault', 'GPT Strong'])
-  fireEvent.click(within(list).getByRole('option', { name: /GPT Strong/ }))
+  const list = screen.getByRole('group', { name: 'Model' })
+  expect(within(list).getAllByRole('menuitemradio').map(option => option.textContent)).toEqual(['GPT CheapDefault', 'GPT Strong'])
+  expect(within(list).getByRole('menuitemradio', { name: /GPT Cheap/ }).getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(within(list).getByRole('menuitemradio', { name: /GPT Strong/ }))
   expect(window.localStorage.getItem('canonry:aero:model:citypoint:openai')).toBe('gpt-strong')
   expect(picker.textContent).toContain('OpenAI · GPT Strong')
   const input = screen.getByPlaceholderText('Ask Aero, or / for commands…')
@@ -341,12 +349,47 @@ test('offers a short model list for a direct provider and sends a model only whe
   await waitFor(() => expect(prompt).toHaveBeenLastCalledWith(expect.objectContaining({ provider: 'openai', modelId: 'gpt-strong' })))
 
   fireEvent.click(picker)
-  fireEvent.click(within(screen.getByRole('listbox', { name: 'Model' })).getByRole('option', { name: /GPT Cheap/ }))
+  fireEvent.click(within(screen.getByRole('group', { name: 'Model' })).getByRole('menuitemradio', { name: /GPT Cheap/ }))
   expect(window.localStorage.getItem('canonry:aero:model:citypoint:openai')).toBeNull()
   fireEvent.change(input, { target: { value: 'Second question' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   await waitFor(() => expect(prompt).toHaveBeenCalledTimes(2))
   expect(prompt.mock.lastCall?.[0]).toMatchObject({ modelId: undefined })
+})
+
+test('lists only providers with a key, moves by arrow keys, and Escape closes the menu but not Aero', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  await renderWithProviderReadiness({
+    providers: [
+      { id: 'claude', label: 'Anthropic (Claude)', defaultModel: 'claude-cheap', configured: false, keySource: null },
+      {
+        id: 'openai', label: 'OpenAI', defaultModel: 'gpt-cheap', configured: true, keySource: 'config',
+        models: [{ id: 'gpt-cheap', displayName: 'GPT Cheap' }, { id: 'gpt-strong', displayName: 'GPT Strong' }],
+      },
+    ],
+    defaultProvider: 'openai',
+  }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  const picker = await screen.findByRole('button', { name: /^Aero model:/ })
+  expect(picker.getAttribute('aria-haspopup')).toBe('menu')
+  fireEvent.click(picker)
+  const menu = screen.getByRole('menu', { name: 'Aero model' })
+  const providers = within(screen.getByRole('group', { name: 'Provider' })).getAllByRole('menuitemradio')
+  expect(providers.map(item => item.textContent)).toEqual(['OpenAI'])
+  expect(within(menu).getByRole('menuitem', { name: 'Connect another provider' }).getAttribute('href')).toBe('/settings')
+
+  // The checked model has focus; arrow keys move through the items and wrap.
+  const cheap = within(menu).getByRole('menuitemradio', { name: /GPT Cheap/ })
+  await waitFor(() => expect(document.activeElement).toBe(cheap))
+  fireEvent.keyDown(cheap, { key: 'ArrowDown' })
+  expect(document.activeElement).toBe(within(menu).getByRole('menuitemradio', { name: /GPT Strong/ }))
+  fireEvent.keyDown(document.activeElement as Element, { key: 'Home' })
+  expect(document.activeElement).toBe(providers[0])
+
+  fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' })
+  expect(screen.queryByRole('menu', { name: 'Aero model' })).toBeNull()
+  expect(document.activeElement).toBe(picker)
+  expect(screen.getByRole('button', { name: 'Close Aero' })).toBeTruthy()
 })
 
 test('keeps an OpenRouter model chosen before every provider had a model list', async () => {
@@ -1073,7 +1116,7 @@ test('the demo preview shows the bar with no provider check and no operator cont
   await waitFor(() => expect(requestedUrls()).toEqual([PREVIEW_URL]))
   expect(screen.getByRole('button', { name: /New conversation/i })).toBeTruthy()
   expect(screen.queryByRole('button', { name: /History/i })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Switch agent model' })).toBeNull()
+  expect(screen.queryByRole('button', { name: /^Aero model:/ })).toBeNull()
   expect(screen.getByPlaceholderText('Type / for a starting point')).toBeTruthy()
 
   expect(screen.getByText(/Sample answers on demo data\./)).toBeTruthy()

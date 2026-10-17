@@ -1,6 +1,6 @@
 # OpenRouter models
 
-Add an OpenRouter key once in Settings → Providers. Select **Choose project models**, then use **Add models** in the project's Answer engines settings. Search the model catalog and select several models, or enter a concrete `publisher/model` ID. Save the selection before the next sweep.
+Add an OpenRouter key once in Settings → Providers. Select **Choose project models**, then use **Add models** in the project's Answer engines settings. Pick from the recommended models (one from the maker of ChatGPT, Gemini and Claude), or use **Browse all OpenRouter models** to search the full catalog or enter a concrete `publisher/model` ID. Save the selection before the next sweep. OpenRouter bills your OpenRouter account for each answer, including its web search; a sweep asks every query once per selected model.
 
 Each model appears as a separate answer engine. Gemini through its direct API and Gemini through OpenRouter have separate results, filters and history. OpenRouter models share one connection and its concurrency, minute and daily limits. An empty project provider list includes configured direct engines; it does not select every OpenRouter model.
 
