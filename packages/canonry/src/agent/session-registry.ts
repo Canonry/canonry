@@ -23,7 +23,7 @@ import {
   resolveSessionProviderAndModel,
   type SupportedAgentProvider,
 } from './session.js'
-import { agentProviderApiKeyEnvVar, coerceAgentProvider, getAgentProvider, isAgentModelAvailable, refreshAgentModels, resolveApiKeyFor } from './providers.js'
+import { agentProviderApiKeyEnvVar, coerceAgentProvider, getAgentProvider, isAgentModelAvailable, isAgentModelUnchecked, refreshAgentModels, resolveApiKeyFor } from './providers.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import {
   AeroToolProfiles,
@@ -619,9 +619,13 @@ export class SessionRegistry {
     // A stored model the installed catalog no longer has (pi-ai drops retired
     // ids, e.g. glm-5.1 in 0.87) falls back to the provider default instead of
     // failing every turn. Only the stored value: a request or pin is kept, so
-    // a mistyped one still fails loudly.
+    // a mistyped one still fails loudly. An OpenRouter model that cannot be
+    // checked because no live list is loaded (the catalog could not be read)
+    // is kept too, and the row is not rewritten: if the turn cannot resolve
+    // it, the turn fails naming the model rather than moving to the default.
     const carried = !preferences?.provider && !pinned && provider === current.provider
-      && current.modelId && isAgentModelAvailable(provider, current.modelId)
+      && current.modelId
+      && (isAgentModelAvailable(provider, current.modelId) || isAgentModelUnchecked(provider, current.modelId))
       ? current.modelId
       : undefined
     const pinnedModelId = provider === pinned ? this.opts.config.agent?.model ?? undefined : undefined

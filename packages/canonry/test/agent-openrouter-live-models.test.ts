@@ -14,11 +14,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { normalizeContext } from '@earendil-works/pi-ai'
 import { builtinModels } from '@earendil-works/pi-ai/providers/all'
 import type { AgentProviderId, LlmCapability, ProviderConfig } from '@canonry/canonry-contracts'
-import { createClient, migrate, projects } from '@canonry/canonry-db'
+import { agentSessions, createClient, migrate, projects } from '@canonry/canonry-db'
 import { openrouterAdapter } from '@canonry/canonry-provider-openrouter'
-import { aeroModels, completeOnce, openRouterModels } from '../src/agent/pi-models.js'
+import { aeroModels, aeroStreamFn, completeOnce, openRouterModels } from '../src/agent/pi-models.js'
 import {
   AGENT_PROVIDERS,
   buildAgentProvidersResponse,
@@ -35,6 +36,7 @@ import { resetSharedProviderExecutionGates } from '../src/provider-execution-gat
 import { createProviderModelCatalog } from '../src/provider-model-catalog.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import { createServer } from '../src/server.js'
+import { openRouterCompletionsReply } from './openrouter-pi-fixture.js'
 
 const MODELS_URL = 'https://openrouter.ai/api/v1/models'
 const KEY_A = 'or-key-a'
@@ -43,7 +45,12 @@ const KEY_B = 'or-key-b'
 const FRESH = 'canonrytest/released-after-pi-1'
 const NO_TOOLS = 'canonrytest/no-tools-1'
 const SECOND_KEY_ONLY = 'canonrytest/second-key-1'
+/** In pi-ai's bundled list on Anthropic's messages API. */
 const SONNET = 'anthropic/claude-sonnet-5.5'
+/** The OpenRouter default for every tier, in pi-ai's bundled list. */
+const LUNA = 'openai/gpt-6-luna'
+const UNLISTED = 'canonrytest/not-listed-1'
+const notInList = (id: string) => `OpenRouter model '${id}' is not in OpenRouter's model list. Check the ID against the OpenRouter catalog, or pick a model from the Aero model list.`
 
 /** One `GET /api/v1/models` entry in the shape OpenRouter documents. */
 function catalogEntry(id: string, name: string, opts: { parameters?: string[]; contextLength?: number; prompt?: string; completion?: string } = {}) {
@@ -102,19 +109,17 @@ function tempDatabase(prefix: string) {
   return { db, file }
 }
 
-/** An OpenAI-compatible streamed completion, as OpenRouter's chat completions endpoint sends it. */
-function completionReply(model: string, text: string): string {
-  const chunk = (choice: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
-    `data: ${JSON.stringify({ id: 'gen-synthetic', object: 'chat.completion.chunk', created: 1790000000, model, choices: [{ index: 0, ...choice }], ...extra })}\n\n`
-  return chunk({ delta: { role: 'assistant', content: text }, finish_reason: null })
-    + chunk({ delta: {}, finish_reason: 'stop' }, { usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 } })
-    + 'data: [DONE]\n\n'
-}
-
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
+
+/** A project row for session tests. */
+function seedProject(db: ReturnType<typeof createClient>, name: string): void {
+  const now = new Date().toISOString()
+  db.insert(projects).values({ id: crypto.randomUUID(), name, displayName: name, canonicalDomain: `${name}.example.com`, country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
+}
 
 describe('Aero OpenRouter models follow the shared catalog', () => {
   it('makes a model pi-ai lacks resolvable after a refresh and calls it through pi\'s OpenRouter completions transport', async () => {
@@ -127,7 +132,7 @@ describe('Aero OpenRouter models follow the shared catalog', () => {
     const model = resolveModelForProvider('openrouter', FRESH)
     expect(model).toEqual({
       type: 'chat', id: FRESH, name: 'Canonry Test: Released After Pi', api: 'openai-completions', provider: 'openrouter',
-      baseUrl: 'https://openrouter.ai/api/v1', reasoning: true, input: ['text', 'image'],
+      baseUrl: 'https://openrouter.ai/api/v1', reasoning: true, thinkingLevelMap: { off: null }, input: ['text', 'image'],
       cost: { input: 0.5, output: 2, cacheRead: 0.05, cacheWrite: 0 }, contextWindow: 400_000, maxTokens: 64_000,
     })
     expect(requests).toEqual([{ url: MODELS_URL, key: KEY_A }])
@@ -137,7 +142,7 @@ describe('Aero OpenRouter models follow the shared catalog', () => {
     vi.stubGlobal('fetch', async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const request = new Request(input, init)
       sent.push({ url: request.url, authorization: request.headers.get('authorization'), model: (await request.json() as { model?: unknown }).model })
-      return new Response(completionReply(FRESH, 'Live answer.'), { headers: { 'content-type': 'text/event-stream' } })
+      return new Response(openRouterCompletionsReply(FRESH, 'Live answer.'), { headers: { 'content-type': 'text/event-stream' } })
     })
     const reply = await completeOnce(model, { messages: [{ role: 'user', content: 'Synthetic question.', timestamp: 1 }] }, { apiKey: KEY_A })
     expect(sent).toEqual([{ url: 'https://openrouter.ai/api/v1/chat/completions', authorization: `Bearer ${KEY_A}`, model: FRESH }])
@@ -153,6 +158,33 @@ describe('Aero OpenRouter models follow the shared catalog', () => {
     const bundled = builtinModels().getModel('openrouter', SONNET)
     expect(bundled?.api).toBe('anthropic-messages')
     expect(resolveModelForProvider('openrouter', SONNET)).toEqual(bundled)
+  })
+
+  it('sends no reasoning field with thinking off for a live-only reasoning model, and leaves pi-ai\'s bundled models as pi tuned them', async () => {
+    stubCatalog({ [KEY_A]: [catalogEntry(FRESH, 'Canonry Test: Released After Pi'), catalogEntry(LUNA, 'OpenAI: GPT-6 Luna (catalog)')] })
+    connectCatalog(KEY_A)
+    await refreshAgentModels('openrouter')
+
+    onTestFinished(resetSharedProviderExecutionGates)
+    const bodies: Array<Record<string, unknown>> = []
+    vi.stubGlobal('fetch', async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const body = await new Request(input, init).json() as Record<string, unknown>
+      bodies.push(body)
+      return new Response(openRouterCompletionsReply(String(body.model), 'Answer.'), { headers: { 'content-type': 'text/event-stream' } })
+    })
+    // An Aero turn with thinking off: pi-agent-core passes no reasoning level.
+    const context = normalizeContext({ messages: [{ role: 'user', content: 'Synthetic question.', timestamp: 1 }] })
+    for (const id of [FRESH, LUNA]) {
+      const stream = await aeroStreamFn(resolveModelForProvider('openrouter', id), context, { apiKey: KEY_A })
+      expect(await stream.result()).toMatchObject({ stopReason: 'stop' })
+    }
+
+    expect(bodies.map(body => body.model)).toEqual([FRESH, LUNA])
+    // The catalog marks FRESH as taking reasoning controls; OpenRouter picks its default.
+    expect(bodies[0]).not.toHaveProperty('reasoning')
+    // pi-ai's own definition maps thinking off to effort "none" for this model, and that stands.
+    expect(builtinModels().getModel('openrouter', LUNA)?.thinkingLevelMap?.off).toBe('none')
+    expect(bodies[1]).toHaveProperty('reasoning', { effort: 'none' })
   })
 
   it('offers Aero only the catalog models that support tools, while analysis and classification can still use the rest', async () => {
@@ -179,9 +211,9 @@ describe('Aero OpenRouter models follow the shared catalog', () => {
 
     expect(fetchMock).toHaveBeenCalled()
     expect(aeroModels.getModels('openrouter')).toEqual(builtinModels().getModels('openrouter'))
-    expect(resolveModelForProvider('openrouter').id).toBe(SONNET)
+    expect(resolveModelForProvider('openrouter').id).toBe(LUNA)
     const choices = buildAgentProvidersResponse({}, { models: true }).providers.find(provider => provider.id === 'openrouter')?.models ?? []
-    expect(choices).toContainEqual({ id: SONNET, displayName: 'Anthropic: Claude Sonnet 5.5' })
+    expect(choices).toContainEqual({ id: LUNA, displayName: 'OpenAI: GPT-6 Luna' })
     expect(choices.filter(choice => choice.id.endsWith(':batch') || choice.id.startsWith('~'))).toEqual([])
     for (const choice of choices) expect(isAgentModelAvailable('openrouter', choice.id)).toBe(true)
   })
@@ -231,16 +263,58 @@ describe('Aero OpenRouter models follow the shared catalog', () => {
     expect(requests).toEqual([{ url: MODELS_URL, key: KEY_A }])
   })
 
-  it('doctor leaves a well-formed OpenRouter pin unchecked until the live list loads, then checks it against that list', async () => {
-    const pinned = (model: string): CanonryConfig => ({ apiUrl: 'http://localhost:4100', database: ':memory:', apiKey: 'cnry_test', providers: { openrouter: { apiKey: KEY_A } }, agent: { provider: 'openrouter', model } } as CanonryConfig)
-    expect(describeAgentPin(pinned(FRESH))?.modelError).toBeNull()
-    expect(describeAgentPin(pinned('Not an OpenRouter model'))?.modelError).toBe("OpenRouter model 'Not an OpenRouter model' is not in OpenRouter's model list. Check the ID against the OpenRouter catalog, or pick a model from the Aero model list.")
+  it('keeps a session on its live-only model, without rewriting the row, while the list cannot be loaded', async () => {
+    const { db } = tempDatabase('canonry-openrouter-carried-')
+    seedProject(db, 'demo')
+    // Unpinned: the session's stored model decides when a turn names none.
+    const config = { apiUrl: 'http://localhost:4100', database: ':memory:', apiKey: 'cnry_test', providers: { openrouter: { apiKey: KEY_A } } } as CanonryConfig
+    const newRegistry = () => new SessionRegistry({ db, client: {} as unknown as ApiClient, config })
+    const row = () => db.select().from(agentSessions).get()
 
     stubCatalog({ [KEY_A]: LIST_A })
     connectCatalog(KEY_A)
+    await newRegistry().acquireForTurn('demo', { provider: 'openrouter', modelId: FRESH })
+    expect(row()).toMatchObject({ modelProvider: 'openrouter', modelId: FRESH })
+
+    // A restart while OpenRouter refuses every catalog read (HTTP 404): the
+    // turn fails naming the model, and the row still holds it.
+    const refused = stubCatalog({})
+    connectCatalog(KEY_A)
+    await expect(newRegistry().acquireForTurn('demo')).rejects.toThrow(notInList(FRESH))
+    expect(refused).toEqual([{ url: MODELS_URL, key: KEY_A }])
+    expect(row()).toMatchObject({ modelProvider: 'openrouter', modelId: FRESH })
+
+    // Once the catalog answers again, the session resumes on that model.
+    stubCatalog({ [KEY_A]: LIST_A })
+    connectCatalog(KEY_A)
+    expect((await newRegistry().acquireForTurn('demo')).state.model.id).toBe(FRESH)
+    expect(row()).toMatchObject({ modelProvider: 'openrouter', modelId: FRESH })
+  })
+
+  it('doctor checks an OpenRouter pin against the live list, with the same answer before and after the first OpenRouter turn', async () => {
+    const requests = stubCatalog({ [KEY_A]: LIST_A })
+    connectCatalog(KEY_A)
+    const pinned = (model: string): CanonryConfig => ({ apiUrl: 'http://localhost:4100', database: ':memory:', apiKey: 'cnry_test', providers: { openrouter: { apiKey: KEY_A } }, agent: { provider: 'openrouter', model } } as CanonryConfig)
+    const check = async () => {
+      const errors: Array<string | null | undefined> = []
+      for (const model of [FRESH, UNLISTED, 'Not an OpenRouter model']) errors.push((await describeAgentPin(pinned(model)))?.modelError)
+      return errors
+    }
+    const expected = [null, notInList(UNLISTED), notInList('Not an OpenRouter model')]
+
+    // No OpenRouter turn has loaded the list yet; doctor loads it itself.
+    expect(await check()).toEqual(expected)
     await refreshAgentModels('openrouter')
-    expect(describeAgentPin(pinned(FRESH))?.modelError).toBeNull()
-    expect(describeAgentPin(pinned('canonrytest/not-listed-1'))?.modelError).toContain("OpenRouter model 'canonrytest/not-listed-1' is not in OpenRouter's model list.")
+    expect(await check()).toEqual(expected)
+    expect(requests).toEqual([{ url: MODELS_URL, key: KEY_A }])
+  })
+
+  it('doctor leaves a well-formed OpenRouter pin unchecked while the catalog cannot be read', async () => {
+    stubCatalog({})
+    connectCatalog(KEY_A)
+    const pinned = (model: string): CanonryConfig => ({ apiUrl: 'http://localhost:4100', database: ':memory:', apiKey: 'cnry_test', providers: { openrouter: { apiKey: KEY_A } }, agent: { provider: 'openrouter', model } } as CanonryConfig)
+    expect((await describeAgentPin(pinned(UNLISTED)))?.modelError).toBeNull()
+    expect((await describeAgentPin(pinned('Not an OpenRouter model')))?.modelError).toBe(notInList('Not an OpenRouter model'))
   })
 
   it('serves the Aero picker and the sweep model settings from one catalog request, without exposing Aero metadata in settings', async () => {
@@ -273,13 +347,45 @@ describe('Aero OpenRouter models follow the shared catalog', () => {
     ])
     expect(requests).toEqual([{ url: MODELS_URL, key: KEY_A }])
   })
+
+  it('reads the live list for Aero with only OPENROUTER_API_KEY in the environment, while sweeps still need the key in config.yaml', async () => {
+    vi.stubEnv('OPENROUTER_API_KEY', KEY_B)
+    const requests = stubCatalog({ [KEY_B]: LIST_B })
+    const { db, file } = tempDatabase('canonry-openrouter-env-')
+    const apiKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    const app = await createServer({
+      config: { apiUrl: 'http://localhost:4100', database: file, apiKey } as CanonryConfig,
+      db,
+      logger: false,
+    })
+    onTestFinished(() => app.close())
+    const headers = { authorization: `Bearer ${apiKey}` }
+    const seeded = await app.inject({ method: 'PUT', url: '/api/v1/projects/acme', headers, payload: { displayName: 'acme', canonicalDomain: 'acme.example.com', country: 'US', language: 'en' } })
+    expect(seeded.statusCode).toBe(201)
+
+    const providers = await app.inject({ method: 'GET', url: '/api/v1/projects/acme/agent/providers', headers })
+    expect(providers.statusCode).toBe(200)
+    expect((providers.json() as { providers: Array<{ id: string }> }).providers.find(provider => provider.id === 'openrouter')).toMatchObject({
+      configured: true,
+      keySource: 'env',
+      models: [{ id: SECOND_KEY_ONLY, displayName: 'Canonry Test: Second Key' }],
+    })
+    expect(isAgentModelAvailable('openrouter', SECOND_KEY_ONLY)).toBe(true)
+
+    const settings = await app.inject({ method: 'GET', url: '/api/v1/settings', headers })
+    expect(settings.statusCode).toBe(200)
+    const body = settings.json() as { providers: Array<{ name: string; configured: boolean }>; providerCatalog: Array<{ name: string; knownModels: unknown }> }
+    expect(body.providers.find(provider => provider.name === 'openrouter')?.configured).toBe(false)
+    expect(body.providerCatalog.find(entry => entry.name === 'openrouter')?.knownModels).toEqual([])
+    expect(requests).toEqual([{ url: MODELS_URL, key: KEY_B }])
+  })
 })
 
 describe('default models', () => {
   const DEFAULTS: Array<[AgentProviderId, Record<LlmCapability, string>]> = [
-    ['openrouter', { agent: SONNET, analyze: 'google/gemini-3.8-flash', classify: 'google/gemini-3.5-flash-lite' }],
+    ['openrouter', { agent: LUNA, analyze: LUNA, classify: LUNA }],
     ['claude', { agent: 'claude-opus-4-7', analyze: 'claude-sonnet-4-6', classify: 'claude-haiku-4-5' }],
-    ['openai', { agent: 'gpt-5.1', analyze: 'gpt-5-mini', classify: 'gpt-5-nano' }],
+    ['openai', { agent: 'gpt-6-luna', analyze: 'gpt-6-luna', classify: 'gpt-6-luna' }],
     ['gemini', { agent: 'gemini-3.8-flash', analyze: 'gemini-3.8-flash', classify: 'gemini-3.5-flash-lite' }],
     ['zai', { agent: 'glm-5.2', analyze: 'glm-5-turbo', classify: 'glm-5-turbo' }],
   ]

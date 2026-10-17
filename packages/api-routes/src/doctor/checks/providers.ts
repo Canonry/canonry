@@ -50,7 +50,7 @@ const agentProvidersConfiguredCheck: CheckDefinition = {
   category: CheckCategories.providers,
   scope: CheckScopes.global,
   title: 'Agent provider keys',
-  run: (ctx) => {
+  run: async (ctx) => {
     // Which provider drives the agent, and that a key is configured for it, is
     // administrator knowledge: `GET /agent/providers` refuses a non-administrator
     // outright rather than serving a trimmed catalog, on the grounds that naming
@@ -87,7 +87,7 @@ const agentProvidersConfiguredCheck: CheckDefinition = {
     }
     // A pin overrides detection, so its health is Aero's health, whatever the
     // other providers look like.
-    const pin = ctx.getAgentPin?.() ?? null
+    const pin = (await ctx.getAgentPin?.()) ?? null
     if (pin && !pin.configured) {
       return {
         status: CheckStatuses.warn,

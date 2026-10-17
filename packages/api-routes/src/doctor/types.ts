@@ -101,9 +101,10 @@ export interface DoctorContext {
    * The `agent.provider` pin, when one is set, for the same check. A pin
    * bypasses auto-detection's key check, so a pinned provider with no key, or
    * a pinned model that does not resolve, fails every Aero turn even while
-   * other providers are configured. Null when nothing is pinned.
+   * other providers are configured. Null when nothing is pinned. May resolve
+   * asynchronously: the host can load a live model list before checking.
    */
-  getAgentPin?: () => AgentPinStatus | null
+  getAgentPin?: () => AgentPinStatus | null | Promise<AgentPinStatus | null>
   /**
    * Whether the caller is an administrator of this install, as opposed to a
    * signed-in viewer or an API key narrower than the install. Wired from the

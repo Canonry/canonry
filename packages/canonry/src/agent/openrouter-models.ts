@@ -85,6 +85,7 @@ export function installOpenRouterModelCatalog(models: MutableModels): OpenRouter
     // pi needs a context window; OpenRouter publishes one for every model.
     if (!definition.contextWindow) return undefined
     const pricing = definition.pricing
+    const reasoning = definition.supportsReasoning === true
     return {
       type: 'chat',
       id: definition.id,
@@ -92,7 +93,12 @@ export function installOpenRouterModelCatalog(models: MutableModels): OpenRouter
       api: COMPLETIONS_API,
       provider: base.id,
       baseUrl,
-      reasoning: definition.supportsReasoning === true,
+      reasoning,
+      // With thinking off, pi's OpenRouter request sends `reasoning: {effort:
+      // "none"}` unless the model maps `off` to null. Null sends no reasoning
+      // field, so OpenRouter applies the model's own default, as it does for
+      // pi's bundled reasoning models that map `off` to null.
+      ...(reasoning ? { thinkingLevelMap: { off: null } } : {}),
       input: definition.inputModalities?.includes('image') ? ['text', 'image'] : ['text'],
       cost: {
         input: pricing?.input ?? 0,

@@ -74,9 +74,11 @@ export interface AgentProviderEntry {
  *     model. All three tiers point at flash.
  *   - Zai: glm-5.2 is the agent tier; glm-5-turbo is the cheap tier
  *     for analyze + classify.
- *   - OpenRouter: the cheaper tier of each family. Every default is in
- *     pi-ai's bundled OpenRouter list, so it resolves while OpenRouter's live
- *     catalog cannot be read; other models come from that catalog.
+ *   - OpenAI: GPT-6 Luna fills all three tiers.
+ *   - OpenRouter: the same GPT-6 Luna, through OpenRouter, for all three
+ *     tiers. It is in pi-ai's bundled OpenRouter list, so it resolves while
+ *     OpenRouter's live catalog cannot be read; other models come from that
+ *     catalog.
  */
 export const PROVIDER_MODELS = {
   [AgentProviderIds.claude]: {
@@ -85,9 +87,9 @@ export const PROVIDER_MODELS = {
     [LlmCapabilities.classify]: 'claude-haiku-4-5',
   },
   [AgentProviderIds.openai]: {
-    [LlmCapabilities.agent]: 'gpt-5.1',
-    [LlmCapabilities.analyze]: 'gpt-5-mini',
-    [LlmCapabilities.classify]: 'gpt-5-nano',
+    [LlmCapabilities.agent]: 'gpt-6-luna',
+    [LlmCapabilities.analyze]: 'gpt-6-luna',
+    [LlmCapabilities.classify]: 'gpt-6-luna',
   },
   [AgentProviderIds.gemini]: {
     // Gemini's Flash is already cheap + capable; Flash-Lite is the
@@ -111,9 +113,9 @@ export const PROVIDER_MODELS = {
     [LlmCapabilities.classify]: 'glm-5-turbo',
   },
   [AgentProviderIds.openrouter]: {
-    [LlmCapabilities.agent]: 'anthropic/claude-sonnet-5.5',
-    [LlmCapabilities.analyze]: 'google/gemini-3.8-flash',
-    [LlmCapabilities.classify]: 'google/gemini-3.5-flash-lite',
+    [LlmCapabilities.agent]: 'openai/gpt-6-luna',
+    [LlmCapabilities.analyze]: 'openai/gpt-6-luna',
+    [LlmCapabilities.classify]: 'openai/gpt-6-luna',
   },
 } as const satisfies Record<AgentProviderId, Record<LlmCapability, string>>
 
@@ -286,6 +288,19 @@ export function isAgentModelAvailable(provider: AgentProviderId, id: string): bo
 export function isAgentModelAccepted(provider: AgentProviderId, id: string): boolean {
   if (provider === AgentProviderIds.openrouter && OPENROUTER_MODEL_PATTERN.test(id)) return true
   return isAgentModelAvailable(provider, id)
+}
+
+/**
+ * Whether `id` cannot be checked yet: an OpenRouter ID that is well formed
+ * while no live list is loaded (no catalog connected, or it could not be
+ * read). pi-ai's bundled list lacking such an ID says nothing about whether
+ * OpenRouter serves it.
+ */
+export function isAgentModelUnchecked(provider: AgentProviderId, id: string): boolean {
+  return provider === AgentProviderIds.openrouter
+    && !openRouterModels.hasLiveList()
+    && OPENROUTER_MODEL_PATTERN.test(id)
+    && !isAgentModelAvailable(provider, id)
 }
 
 /**

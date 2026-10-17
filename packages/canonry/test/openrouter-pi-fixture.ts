@@ -9,3 +9,12 @@ export function openRouterMessagesReply(text: string): string {
     { type: 'message_stop' },
   ].map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('')
 }
+
+/** An OpenAI-compatible streamed completion, as OpenRouter's chat completions endpoint sends it. */
+export function openRouterCompletionsReply(model: string, text: string): string {
+  const chunk = (choice: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+    `data: ${JSON.stringify({ id: 'gen-synthetic', object: 'chat.completion.chunk', created: 1790000000, model, choices: [{ index: 0, ...choice }], ...extra })}\n\n`
+  return chunk({ delta: { role: 'assistant', content: text }, finish_reason: null })
+    + chunk({ delta: {}, finish_reason: 'stop' }, { usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 } })
+    + 'data: [DONE]\n\n'
+}

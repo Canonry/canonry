@@ -377,19 +377,29 @@ each model from Canonry's shared OpenRouter catalog (`provider-model-catalog.ts`
 the one sweeps use: one fetch, one hour) that the bundled list lacks, as an
 `openai-completions` model at pi's OpenRouter base URL with the catalog's limits,
 prices, modalities and reasoning flag (captured by `provider-openrouter`'s
-`listModels`). The list changes only through pi's `refreshModels`/`publish`.
-`server.ts` connects the catalog; with none connected, or while it cannot be
-read, the bundled list stands. `refreshAgentModels(provider)` runs before a
-model is resolved (operator and viewer turns, `/agent/providers`, the analyze
-tier, discovery classification) and reads the cache unless it expired, so a turn
+`listModels`). A live-only reasoning model maps thinking `off` to null, as pi's
+bundled reasoning models do, so a turn with thinking off sends no `reasoning`
+field and OpenRouter applies the model default (without the map, pi sends
+`effort: "none"`). Bundled models keep pi's own map. The list changes only
+through pi's `refreshModels`/`publish`. `server.ts` connects the catalog, read
+with the key Aero uses: the registered sweep connection, or an
+`OPENROUTER_API_KEY`-only key through `providerModelCatalog.orUnregistered` (same
+cache entry; sweeps and `GET /settings` still see no OpenRouter provider). With
+no catalog connected, or while it cannot be read, the bundled list stands.
+`refreshAgentModels(provider)` runs before a model is resolved (operator and
+viewer turns, `/agent/providers`, the analyze tier, discovery classification,
+doctor's `describeAgentPin`) and reads the cache unless it expired, so a turn
 never adds a fetch. Validation never rejects a well-formed OpenRouter ID for
 missing from the bundled list (`validateAgentProviderRegistry`,
-`isAgentModelAccepted` for `classification.model`, doctor's pin check before the
-live list loads). The agent picker (`models` on the OpenRouter provider option)
-lists only catalog entries with tool support, or the bundled list offline. The
-OpenRouter defaults (`anthropic/claude-sonnet-5.5`, `google/gemini-3.8-flash`,
-`google/gemini-3.5-flash-lite`) must stay in pi-ai's bundled list so they
-resolve offline.
+`isAgentModelAccepted` for `classification.model`). `isAgentModelUnchecked`
+names the case where no live list is loaded: doctor does not report such a pin
+as invalid, and `resolveTurnModel` keeps such a stored model without rewriting
+the row, so the turn fails naming the model instead of moving the conversation
+to the default.
+The agent picker (`models` on the OpenRouter provider option) lists only catalog
+entries with tool support, or the bundled list offline. The OpenRouter default
+(`openai/gpt-6-luna` for every tier) must stay in pi-ai's bundled list so it
+resolves offline.
 
 OpenRouter uses `providers.openrouter.apiKey` or `OPENROUTER_API_KEY` for Aero,
 domain categorization and routed Jev. Aero defaults to the provider's agent tier;

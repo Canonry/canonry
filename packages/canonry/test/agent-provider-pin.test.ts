@@ -208,18 +208,18 @@ describe('a pin that cannot run fails early and by name', () => {
 })
 
 describe('describeAgentPin', () => {
-  it('is null without a pin', () => {
-    expect(describeAgentPin(cfg())).toBeNull()
+  it('is null without a pin', async () => {
+    expect(await describeAgentPin(cfg())).toBeNull()
   })
 
-  it('reports a keyed, resolvable pin as healthy', () => {
-    expect(describeAgentPin(cfg({ provider: 'zai', model: 'glm-5-turbo' }))).toMatchObject({
+  it('reports a keyed, resolvable pin as healthy', async () => {
+    expect(await describeAgentPin(cfg({ provider: 'zai', model: 'glm-5-turbo' }))).toMatchObject({
       provider: 'zai', model: 'glm-5-turbo', configured: true, envVar: 'ZAI_API_KEY', modelError: null,
     })
   })
 
-  it('reports an unkeyed pin and an unresolvable catalog model', () => {
-    expect(describeAgentPin(cfg({ provider: 'zai' }, { claude: { apiKey: 'k' } }))?.configured).toBe(false)
-    expect(describeAgentPin(cfg({ provider: 'claude', model: 'not-a-claude-model' }))?.modelError).toBeTruthy()
+  it('reports an unkeyed pin and an unresolvable catalog model', async () => {
+    expect((await describeAgentPin(cfg({ provider: 'zai' }, { claude: { apiKey: 'k' } })))?.configured).toBe(false)
+    expect((await describeAgentPin(cfg({ provider: 'claude', model: 'not-a-claude-model' })))?.modelError).toBeTruthy()
   })
 })

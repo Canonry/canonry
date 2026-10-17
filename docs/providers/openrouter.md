@@ -29,10 +29,10 @@ providers:
       maxRequestsPerDay: 1000
 agent:
   provider: openrouter
-  model: anthropic/claude-sonnet-5.5
+  model: openai/gpt-6-luna
 classification:
   provider: openrouter
-  model: google/gemini-3.5-flash-lite
+  model: openai/gpt-6-luna
 sentiment:
   enabled: true
   provider: openrouter
@@ -41,9 +41,13 @@ sentiment:
 
 Aero uses pi's OpenRouter transport. Its model can be selected separately in the Aero picker or with the existing `--provider openrouter --model <id>` flags. Domain classification uses the independent `classification` role; its evaluator metadata records the requested model and prompt version.
 
-Aero, recommendation analysis and domain classification read their OpenRouter models from the same live catalog as the sweep picker: one request to OpenRouter's model list, cached for an hour per key (retried after a minute when it fails). A model OpenRouter adds is usable without a Canonry update. Models pi-ai already knows keep pi's settings; a newer model is called through OpenRouter's chat completions API with the limits and prices the catalog lists. When the catalog cannot be read, Aero uses pi-ai's bundled OpenRouter list. The Aero picker and `GET /projects/:name/agent/providers` (`models` on the OpenRouter entry) list only models the catalog marks as supporting tools, since Aero calls tools.
+Aero, recommendation analysis and domain classification read their OpenRouter models from the same live catalog as the sweep picker: one request to OpenRouter's model list, cached for an hour per key (retried after a minute when it fails). A model OpenRouter adds is usable without a Canonry update. Models pi-ai already knows keep pi's settings; a newer model is called through OpenRouter's chat completions API with the limits and prices the catalog lists. With reasoning off, such a model gets no reasoning setting in the request, so OpenRouter applies the model's default. When the catalog cannot be read, Aero uses pi-ai's bundled OpenRouter list. A conversation already on a model outside that list keeps it: the turn fails with a message naming the model until the catalog can be read again, and the conversation is not moved to the default. The Aero picker and `GET /projects/:name/agent/providers` (`models` on the OpenRouter entry) list only models the catalog marks as supporting tools, since Aero calls tools.
 
-Defaults when no model is set: Aero `anthropic/claude-sonnet-5.5`, analysis `google/gemini-3.8-flash`, classification `google/gemini-3.5-flash-lite`. Each is in pi-ai's bundled list, so it works while the catalog is unreachable. A served model that the transport does not disclose remains unknown. Branded/non-brand query classification and citation/mention matching remain deterministic shared operations.
+The catalog is read with whichever OpenRouter key Aero uses: `providers.openrouter.apiKey` in config.yaml, or `OPENROUTER_API_KEY` when only the environment sets one. An environment-only key gives Aero, analysis and classification the live list, but sweeps still need the key in config.yaml (`cnry settings provider openrouter --api-key <key>`, or bootstrap, which saves it there).
+
+`canonry doctor` checks a pinned `agent.model` against the live list, loading it first when an OpenRouter key is set, so the result does not depend on whether Aero has run since the server started. While the catalog cannot be read, a well-formed `publisher/model` ID is not reported as invalid.
+
+Defaults when no model is set: Aero, analysis and classification all use `openai/gpt-6-luna`. It is in pi-ai's bundled list, so it works while the catalog is unreachable. A served model that the transport does not disclose remains unknown. Branded/non-brand query classification and citation/mention matching remain deterministic shared operations.
 
 Sentiment remains a separate, opt-in Jev evaluator. OpenRouter uses pi's classifier transport with the shared OpenRouter key. Evaluator definitions and usage identify the route separately from the answer model being assessed. Changing evaluator provider requires reconfiguring project sentiment; queued work never silently changes evaluators.
 

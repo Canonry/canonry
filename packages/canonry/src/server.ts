@@ -275,7 +275,7 @@ import { IntelligenceService } from "./intelligence-service.js";
 import { RunCoordinator } from "./run-coordinator.js";
 import { SessionRegistry } from "./agent/session-registry.js";
 import { ViewerAeroSessions } from "./agent/viewer-sessions.js";
-import { buildAgentProvidersResponse } from "./agent/providers.js";
+import { buildAgentProvidersResponse, resolveApiKeyFor } from "./agent/providers.js";
 import { describeAgentPin } from "./agent/session.js";
 import { registerMcpHttpRoutes, mcpTransportPaths, mcpHttpHealth } from "./mcp-http.js";
 import { registerOAuthRoutes, registerOAuthAdminRoutes, cookieIsSecure, createCredentialChecker, hashSessionToken, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@canonry/canonry-api-routes";
@@ -2977,9 +2977,17 @@ export async function createServer(opts: {
   const providerModelCatalog = createProviderModelCatalog(registry);
   // Aero, analysis and classification on OpenRouter take their models from
   // this same catalog (one fetch, one cache lifetime) instead of pi-ai's fixed list.
+  // Their key may come from OPENROUTER_API_KEY alone, which registers no sweep
+  // provider; the catalog is then read with that key, in the same cache entry.
+  const aeroOpenRouterCatalog = providerModelCatalog.orUnregistered(() => {
+    const apiKey = resolveApiKeyFor(ProviderNames.openrouter, opts.config);
+    return apiKey
+      ? { adapter: openrouterAdapter, config: { provider: ProviderNames.openrouter, apiKey, quotaPolicy: DEFAULT_PROVIDER_QUOTA } }
+      : undefined;
+  });
   const disconnectOpenRouterModels = openRouterModels.connect({
-    read: () => providerModelCatalog(ProviderNames.openrouter),
-    cached: () => providerModelCatalog.cached(ProviderNames.openrouter),
+    read: () => aeroOpenRouterCatalog.read(ProviderNames.openrouter),
+    cached: () => aeroOpenRouterCatalog.cached(ProviderNames.openrouter),
   });
   app.addHook("onClose", async () => { disconnectOpenRouterModels(); });
   const recordProviderChange = (
