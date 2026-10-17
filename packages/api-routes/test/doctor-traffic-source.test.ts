@@ -7,6 +7,7 @@ import {
   createClient,
   migrate,
   projects,
+  runs,
   trafficSources,
   crawlerEventsHourly,
   aiUserFetchEventsHourly,
@@ -207,6 +208,29 @@ describe('traffic.source.connected', () => {
     expect(r.status).toBe('fail')
     expect(r.code).toBe('traffic.source.all-errored')
     expect(r.remediation).toContain('auth bad')
+  })
+
+  // A source reads `error` after one failed sync, until its next success.
+  it.each([
+    { failed: 1, status: 'warn', code: 'traffic.source.all-errored-recently' },
+    { failed: 3, status: 'fail', code: 'traffic.source.all-errored' },
+  ])('is $status after $failed failed sync(s) in a row since the last success', async ({ failed, status, code }) => {
+    const hoursAgo = (hours: number) => new Date(Date.now() - hours * 60 * 60_000).toISOString()
+    const lastSyncedAt = hoursAgo(failed + 1)
+    const sourceId = insertTrafficSource(h, {
+      sourceType: 'wordpress', status: 'error', lastError: 'hostname could not be resolved', lastSyncedAt,
+    })
+    const syncRun = (runStatus: string, hours: number) => h.db.insert(runs).values({
+      id: crypto.randomUUID(), projectId: h.project.id, kind: 'traffic-sync', status: runStatus, trigger: 'manual',
+      sourceId, createdAt: hoursAgo(hours), finishedAt: hoursAgo(hours - 0.01),
+    }).run()
+    syncRun('completed', failed + 1)
+    for (let hours = failed; hours >= 1; hours--) syncRun('failed', hours)
+
+    const r = await sourceConnectedCheck.run(ctxFor(h))
+
+    expect(r).toMatchObject({ status, code })
+    expect(r.summary).toContain(`No new data since ${lastSyncedAt}`)
   })
 
   it('treats archived-only sources as no source', async () => {
