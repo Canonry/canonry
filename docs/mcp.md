@@ -508,7 +508,8 @@ Tool input schemas are Zod schemas tied to `packages/contracts` and exposed as J
 
 Native Aero uses the same authorized registry, starting with core tools and
 loading toolkits on demand. `aero_inspect_view` composes existing visibility
-report or Site Health API reads; external agents use those public reads directly.
+report, query tracking results or Site Health API reads; external agents use
+those public reads directly.
 The native prompt remains an `excluded-protocol` SSE operation: external agents
 call Canonry tools directly rather than recursively delegate to Aero. Native
 view context and execution limits are available through REST and `agent ask`.

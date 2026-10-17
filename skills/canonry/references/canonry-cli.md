@@ -1643,6 +1643,7 @@ cnry agent ask <project> "<prompt>" --scope all
 # Carry the selected view (also included by dashboard Copy as CLI).
 cnry agent ask <project> "Explain this Property" --scope read-only --context '{"view":"property","selection":{"scope":"property","scopeKey":"hotel","queryClass":"non-brand","runId":"run-3"}}'
 cnry agent ask <project> "Explain this page" --scope read-only --context '{"view":"site-health","page":{"runId":"scan-1","nodeKey":"page-2"}}'
+cnry agent ask <project> "Why is this market losing?" --scope read-only --context '{"view":"queries","results":{"group":"market","sort":"losing"},"opened":{"kind":"market","key":"east"}}'
 cnry agent ask <project> "Top insights" --max-tool-calls 15 --timeout-ms 120000
 
 # Session + provider introspection

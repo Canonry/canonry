@@ -9,6 +9,7 @@ import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai'
 import { aeroEvidenceFixture } from '../../contracts/test/fixtures/aero-evidence.js'
 import { registerAeroFaux, type AeroFaux } from './helpers/aero-faux.js'
 import { SessionRegistry } from '../src/agent/session-registry.js'
+import { readAeroViewEvidence } from '../src/agent/view-context.js'
 import { registerAgentRoutes } from '../src/agent/agent-routes.js'
 import type { ApiClient } from '../src/client.js'
 import type { CanonryConfig } from '../src/config.js'
@@ -93,4 +94,34 @@ it('reserves the session during context reads and honors cancellation before gen
   release()
   await expect(acquiring).rejects.toMatchObject({ name: 'AbortError' })
   expect(registry.isBusy('demo')).toBe(false)
+})
+
+it('reads the Queries page\'s own results read, narrowed to what is opened in it', async () => {
+  const results = vi.fn().mockResolvedValue({ mode: 'advanced', scope: { kind: 'project', key: null }, run: null, engines: [], rows: [], pendingRows: 0 })
+  const client = { getQueryTrackingResults: results } as unknown as ApiClient
+  const screen = { group: 'market', sort: 'losing', signal: 'cited', compare: 'previous' } as const
+  const read = (opened?: { kind: 'market' | 'group' | 'query'; key: string }) => readAeroViewEvidence({
+    client, projectName: 'demo', basePath: '/canonry/',
+    context: agentViewContextSchema.parse({ view: 'queries', results: screen, ...(opened ? { opened } : {}) }),
+  })
+
+  // Nothing opened: the screen's read as it is, scope defaulted.
+  expect(await read()).toMatchObject({
+    read: { scope: 'project', ...screen },
+    source: { label: 'Open stored results', href: '/canonry/api/v1/projects/demo/query-tracking/results?scope=project&signal=cited&sort=losing&group=market&compare=previous' },
+  })
+  // An opened market reads its queries with the screen's signal, sort and comparison.
+  await read({ kind: 'market', key: 'east' })
+  expect(results).toHaveBeenLastCalledWith('demo', { scope: 'market', scopeKey: 'east', signal: 'cited', sort: 'losing', compare: 'previous' })
+  // An opened group reads its markets; an opened query reads its answers.
+  await read({ kind: 'group', key: 'metro' })
+  expect(results).toHaveBeenLastCalledWith('demo', { scope: 'group', scopeKey: 'metro', group: 'market', signal: 'cited', sort: 'losing', compare: 'previous' })
+  await read({ kind: 'query', key: 'q-east' })
+  expect(results).toHaveBeenLastCalledWith('demo', { queryId: 'q-east' })
+  expect(results).toHaveBeenCalledTimes(4)
+
+  // A results read belongs to the Queries view, and an opened row to a results read.
+  expect(agentViewContextSchema.safeParse({ view: 'visibility', results: screen }).success).toBe(false)
+  expect(agentViewContextSchema.safeParse({ view: 'queries', opened: { kind: 'query', key: 'q-east' } }).success).toBe(false)
+  expect(agentViewContextSchema.safeParse({ view: 'queries', results: { group: 'market', queryId: 'q-east' } }).success).toBe(false)
 })

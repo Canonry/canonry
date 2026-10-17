@@ -783,7 +783,9 @@ Keep fixture dates and behavior checks independent of display wording.
 
 `AeroViewProvider` carries effective Property/Site Health selection to the native
 bar. URL-backed report filters use `aero-view.ts`; publish component-owned run/page
-selection with `usePublishAeroView`. Never send a carried filter a page does not
+selection with `usePublishAeroView`. The Queries page publishes its results read
+(`results`: signal, grouping, sort, filters, comparison) and the opened market,
+group or query (`opened`). Never send a carried filter a page does not
 apply. Context is frozen per prompt and included in Copy as CLI. The server
 validates it; it cannot grant tool access. Join tool events by call ID, retain
 intermediate messages, and avoid transcript polling over an active turn. Stop
