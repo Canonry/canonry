@@ -18,13 +18,13 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   AppError,
   canonicalMeasurementPlanV2Json,
   competitorLandscapeResponseSchema,
   measurementPlanV2Schema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { requireMarketPinsClearOfCompetitorAliases } from '../src/competitor-writes.js'
 import { readMarketCompetitorPins, type MarketPinGroup } from '../src/plan-competitors.js'

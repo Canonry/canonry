@@ -4,7 +4,7 @@ import {
   isGhostTelemetryEvent,
   maskTelemetryAnonymousId,
   type TelemetryStatusDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { loadConfig, saveConfigPatch, configExists, loadConfigRaw, getConfigPath } from './config.js'
 import type { SetupState } from './setup-state.js'
 import { cliRuntimeContext } from './runtime-context.js'
@@ -51,6 +51,8 @@ export interface TelemetryEvent {
   eventId: string
   /** Stable per-install UUID stored in `~/.canonry/config.yaml`. */
   anonymousId: string
+  /** Stable per-machine UUID-shaped hash of hostname + MAC; see `getMachineId`. */
+  machineId?: string
   /** Per-process UUID — groups the events from one CLI invocation or one
    *  server boot together so a single user-session can be reconstructed. */
   sessionId: string
@@ -325,10 +327,15 @@ function readEnvAnonymousId(): string | undefined {
  * version nibble to "5" (name-based) just to keep parsers happy.
  */
 function getDeterministicAnonymousId(): string | undefined {
+  return hostDerivedId('canonry-anon')
+}
+
+/** Hash `<prefix>:<hostname>:<mac>` into the UUID shape described above. */
+function hostDerivedId(prefix: string): string | undefined {
   try {
     const hostname = os.hostname() || ''
     const mac = firstNonInternalMac()
-    const seed = `canonry-anon:${hostname}:${mac}`
+    const seed = `${prefix}:${hostname}:${mac}`
     const hex = crypto.createHash('sha256').update(seed).digest('hex')
     // Reformat the first 32 hex chars as 8-4-4-4-12, with the UUID version
     // nibble set to 5 so consumers that validate UUID shape accept it.
@@ -343,6 +350,19 @@ function getDeterministicAnonymousId(): string | undefined {
   } catch {
     return undefined
   }
+}
+
+let machineId: { value: string | undefined } | undefined
+
+/**
+ * Per-machine ID sent beside `anonymousId` on every event, so analysis can
+ * group several config dirs (install IDs) on one machine. Same derivation as
+ * the anonymousId fallback with a different seed, so the two never match.
+ * Computed once per process; undefined when derivation fails.
+ */
+export function getMachineId(): string | undefined {
+  machineId ??= { value: hostDerivedId('canonry-machine') }
+  return machineId.value
 }
 
 function firstNonInternalMac(): string {
@@ -517,10 +537,12 @@ function deliverEvent(
 
   const anonymousId = getOrCreateAnonymousId()
   if (!anonymousId) return Promise.resolve()
+  const machine = getMachineId()
 
   const payload: TelemetryEvent = {
     eventId: options?.eventId ?? crypto.randomUUID(),
     anonymousId,
+    ...(machine ? { machineId: machine } : {}),
     sessionId: SESSION_ID,
     source: options?.source ?? envSourceOverride() ?? CURRENT_SOURCE,
     event,

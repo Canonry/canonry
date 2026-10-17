@@ -1,4 +1,4 @@
-import { isLocationRedirectStatus, compareText, sortedUnique as sortedUniqueUrls } from '@ainyc/canonry-contracts'
+import { isLocationRedirectStatus, compareText, sortedUnique as sortedUniqueUrls } from '@canonry/canonry-contracts'
 import crypto from 'node:crypto'
 import dns from 'node:dns/promises'
 import { gunzip } from 'node:zlib'

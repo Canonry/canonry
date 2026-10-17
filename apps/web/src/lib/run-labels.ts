@@ -1,4 +1,4 @@
-import { RunKinds, type RunKind } from '@ainyc/canonry-contracts'
+import { RunKinds, type RunKind } from '@canonry/canonry-contracts'
 
 export function formatTrackedRunKind(kind: RunKind): string {
   switch (kind) {

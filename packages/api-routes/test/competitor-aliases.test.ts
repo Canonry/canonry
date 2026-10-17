@@ -5,8 +5,8 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { and, eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { apiKeys, auditLog, competitors, createClient, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
-import { formatPercent, percentOf } from '@ainyc/canonry-contracts'
+import { apiKeys, auditLog, competitors, createClient, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@canonry/canonry-db'
+import { formatPercent, percentOf } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
 // Operator-curated competitor aliases: one stored list per competitor, written

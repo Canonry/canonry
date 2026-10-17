@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { sql } from 'drizzle-orm'
-import { deriveSiteHealthState, siteHealthStateSchema } from '@ainyc/canonry-contracts'
+import { deriveSiteHealthState, siteHealthStateSchema } from '@canonry/canonry-contracts'
 import { createClient, migrate, projects, runs, siteCrawlAttempts, siteCrawlPages } from '../src/index.js'
 import { backfillSiteCrawlPageHealthState } from '../src/migrate.js'
 

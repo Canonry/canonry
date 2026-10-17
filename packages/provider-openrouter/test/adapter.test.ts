@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import { openrouterAdapter } from '../src/index.js'
-import type { ProviderConfig } from '@ainyc/canonry-contracts'
+import type { ProviderConfig } from '@canonry/canonry-contracts'
 
 const config: ProviderConfig = {
   provider: 'openrouter:google/gemini-3.1-flash-lite', model: 'google/gemini-3.1-flash-lite', apiKey: 'test-key',

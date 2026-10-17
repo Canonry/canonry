@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, onTestFinished } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, usageCounters } from '@ainyc/canonry-db'
+import { createClient, migrate, usageCounters } from '@canonry/canonry-db'
 import { incrementUsage } from '../src/helpers.js'
 
 function createTempDb() {

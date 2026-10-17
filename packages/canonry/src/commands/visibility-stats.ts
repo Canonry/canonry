@@ -9,7 +9,7 @@ import {
   type VisibilityCompareSelection,
   type VisibilityCompareMetric,
   type VisibilityCompareMetricPeriod,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'

@@ -5,9 +5,9 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
-import { registerRequestContext } from '@ainyc/canonry-api-routes/request-context'
-import { GoogleApiError, GoogleAuthError } from '@ainyc/canonry-integration-google'
+import { createClient, migrate, projects, runs } from '@canonry/canonry-db'
+import { registerRequestContext } from '@canonry/canonry-api-routes/request-context'
+import { GoogleApiError, GoogleAuthError } from '@canonry/canonry-integration-google'
 
 const trackEvent = vi.hoisted(() => vi.fn())
 vi.mock('../src/telemetry.js', async (importOriginal) => ({

@@ -4,8 +4,8 @@ import path from 'node:path'
 import os from 'node:os'
 import { describe, it, beforeEach, afterEach, expect } from 'vitest'
 import Fastify from 'fastify'
-import { createClient, migrate, projects, runs, gscSearchData } from '@ainyc/canonry-db'
-import { AppError } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, runs, gscSearchData } from '@canonry/canonry-db'
+import { AppError } from '@canonry/canonry-contracts'
 import { googleRoutes } from '../src/google.js'
 
 /**

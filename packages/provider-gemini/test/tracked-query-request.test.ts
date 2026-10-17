@@ -1,6 +1,6 @@
 import { test, expect, vi, afterEach } from 'vitest'
 
-import type { RawQueryResult } from '@ainyc/canonry-contracts'
+import type { RawQueryResult } from '@canonry/canonry-contracts'
 import { geminiAdapter } from '../src/adapter.js'
 
 // Pins the build/parse split of the sync path. The SDK does not send what it is

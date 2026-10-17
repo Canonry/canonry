@@ -13,7 +13,7 @@ import {
   formatCanonryPluginVersionMismatch,
   type AgentPluginClient,
   type SkillManifest,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { CheckDefinition } from '../types.js'
 
 const REQUIRED_SKILLS = ['canonry', 'aero'] as const

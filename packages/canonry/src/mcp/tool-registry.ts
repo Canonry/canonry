@@ -1,13 +1,13 @@
-import { trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@ainyc/canonry-contracts'
+import { trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
   sentimentBackfillSelectionSchema, sentimentBackfillRequestSchema, sentimentSummaryReadSchema, sentimentSettingsReadSchema,
   sentimentEvidencePageReadSchema, sentimentComparisonReadSchema, sentimentBackfillPreviewReadSchema, sentimentJobsReadSchema,
   sentimentJobReadSchema, sentimentSummaryIncludeSchema, sentimentEvidenceOutcomeFilterSchema, queryClassSchema, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_MAX,
-} from '@ainyc/canonry-contracts'
-import { agentConversationCreateSchema, reportedQueryClasses } from '@ainyc/canonry-contracts'
-import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import { agentConversationCreateSchema, reportedQueryClasses } from '@canonry/canonry-contracts'
+import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS } from '@canonry/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
   AGENT_MEMORY_KEY_MAX_LENGTH,
@@ -64,6 +64,7 @@ import {
   scheduleUpsertRequestSchema,
   scheduleDtoSchema,
   siteAuditPageBudgetSchema,
+  siteAuditRunRequestSchema,
   siteAuditIssueListQuerySchema,
   siteAuditIssuesResponseSchema,
   siteAuditIssuePagesResponseSchema,
@@ -113,7 +114,7 @@ import {
   canonicalizeGtmResourceSelection,
   type NotificationEvent,
   runListFilterQuerySchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { z } from 'zod'
 import type { ApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
@@ -126,7 +127,7 @@ import {
   measurementDraftOperationSchema as sharedMeasurementDraftOperationSchema,
   runMeasurementDraftAction as runSharedMeasurementDraftAction,
 } from '../measurement-draft-actions.js'
-import { gscPerformanceOrderBySchema } from '@ainyc/canonry-contracts'
+import { gscPerformanceOrderBySchema } from '@canonry/canonry-contracts'
 import {
   analyticsWindowSchema,
   compactStringParams,
@@ -1218,6 +1219,8 @@ const technicalAeoRunInputSchema = z.object({
   maxEdges: z.number().int().positive().max(1_000_000).optional().describe('Maximum link observations retained for this crawl. When omitted the crawl engine derives the budget from the page count; hard maximum 1,000,000.'),
   maxDepth: z.number().int().min(0).max(100).optional().describe('Maximum internal-link depth from the root page.'),
   checkDeadLinks: z.boolean().optional().describe('Opt in to internal dead-link checks. Omitted and false both disable checks.'),
+  includeGeo: siteAuditRunRequestSchema.shape.includeGeo.removeDefault().optional().describe('Opt in to geographic signals for a location or service-area business.'),
+  includeAgentSkills: siteAuditRunRequestSchema.shape.includeAgentSkills.removeDefault().optional().describe('Check discoverable actions, forms, and agent integrations by default. Set false to disable.'),
 })
 
 const AGENT_WEBHOOK_EVENTS = [
@@ -3903,6 +3906,8 @@ const rawCanonryMcpTools = [
       maxEdges: input.maxEdges,
       maxDepth: input.maxDepth,
       checkDeadLinks: input.checkDeadLinks,
+      includeGeo: input.includeGeo,
+      includeAgentSkills: input.includeAgentSkills,
     }),
   }),
   // ----- Google Marketing: Google Ads + Google Tag Manager -----

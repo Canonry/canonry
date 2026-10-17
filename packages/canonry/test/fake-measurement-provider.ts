@@ -6,7 +6,7 @@ import type {
   ProviderHealthcheckResult,
   RawQueryResult,
   TrackedQueryInput,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /**
  * One provider call, recorded verbatim. Tests assert on these rather than on

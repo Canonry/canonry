@@ -8,10 +8,10 @@ import type {
   MeasurementDraftResponse,
   MeasurementDraftWarning,
   MeasurementSetupResponse,
-} from '@ainyc/canonry-contracts'
-import { isOpenRouterRoute, isSweepProvider } from '@ainyc/canonry-contracts'
-import type { QueryDto } from '@ainyc/canonry-api-client'
-import type { MeasurementPlanResponse } from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-contracts'
+import { isOpenRouterRoute, isSweepProvider } from '@canonry/canonry-contracts'
+import type { QueryDto } from '@canonry/canonry-api-client'
+import type { MeasurementPlanResponse } from '@canonry/canonry-api-client'
 
 import { Button } from '../../ui/button.js'
 import { AdvancedMeasurementSetup } from './AdvancedMeasurementSetup.js'

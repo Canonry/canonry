@@ -3,6 +3,7 @@
   "specifiers": {
     "npm:@canonry/aeo-audit@7.2.0": "7.2.0",
     "npm:@canonry/aeo-audit@7.3.0": "7.3.0",
+    "npm:@canonry/aeo-audit@7.4.1": "7.4.1",
     "npm:@canonry/val-kit@0.2.0": "0.2.0",
     "npm:@libsql/client@0.17.2": "0.17.2",
     "npm:hono@4.12.25": "4.12.25"
@@ -19,6 +20,15 @@
     },
     "@canonry/aeo-audit@7.3.0": {
       "integrity": "sha512-jQwx9J7R85YPQ6vY7wQYK7D8xXw/3fY9U8S6FM30PTRs2N+R8x+YnpnaLsks3MY+zXsYYvCgyO2CTseWH6oIhg==",
+      "dependencies": [
+        "cheerio",
+        "ipaddr.js",
+        "undici"
+      ],
+      "bin": true
+    },
+    "@canonry/aeo-audit@7.4.1": {
+      "integrity": "sha512-W2xm0jeS+RjHFp8OMe4J+1AUzVb4X7oaGgCUxNJD54bNjESGFzfzkgn+HoR8Qm+qyxdnk+WhWnZjtiDYl5/njA==",
       "dependencies": [
         "cheerio",
         "ipaddr.js",

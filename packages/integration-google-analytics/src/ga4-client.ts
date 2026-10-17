@@ -11,8 +11,8 @@ import {
   isoDateDaysBeforeInTimeZone,
   parseBoundedRate,
   withRetry,
-} from '@ainyc/canonry-contracts'
-import type { GaSearchLandingWindow } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import type { GaSearchLandingWindow } from '@canonry/canonry-contracts'
 
 async function fetchWithContext(input: string | URL, init?: RequestInit): Promise<Response> {
   try {

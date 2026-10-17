@@ -32,7 +32,7 @@ subtle borders, no visual noise.
 | `src/components/project/` | Project page section components (GscSection, TrafficSection, `SiteHealthSection`, etc.) |
 | `src/components/project/SiteGraphSigma.tsx` / `site-graph-sigma.ts` | Site Health WebGL map and its Graphology adapter; consumes server-published coordinates only. The map defaults to content links and hides nav/header/footer links; the toggle changes only which edges are DRAWN, never the positions, which the server laid out without them. When `isTemplateDetectionApplied(templateDetection)` is false the toggle is disabled with plain-word copy and nothing is hidden, because the per-link flag proves nothing then. The header strip is ONE line of numbers (`site-map-link-counts`, built by `siteMapLinkCountsLabel`); why the split is worth having, which rule produced it, and any stale-layout warning live in an `InfoTooltip` beside it (`siteMapLinkRuleHelp`), always, in every state, because `applied` means the weaker ubiquity rule that cannot see an editorial link whose wording matches the menu. CUSTOMER-FACING COPY SAYS "links in your page text" and "menu and footer links", never "content link", "template link", "nav", or "chrome": those are our words, and the reader's distinction is WHERE the link was written. The wire vocabulary is unchanged and must stay (`linkKind=content|template|all`, `isTemplate`, `templateDetection`); this split is copy only. Short visible label, detail in a tooltip is the rule across this surface: an InfoTooltip is placed as a SIBLING of a heading, never a child, or its help text joins the heading's accessible name and any `aria-labelledby` landmark that points at it. Site Health tests assert complete independent help literals through mounted controls and real SDK reads. Keep copy and count helpers private unless another production caller needs them; retain compiled style contracts through the shared test-only Tailwind producer. |
 | `src/components/project/PageAuditEvidence.tsx` | Site Health "Findings and fixes": the per-factor technical checks. Every check starts COLLAPSED so the page opens scannable; the `<summary>` row carries factor name, score, and pass/partial/fail, which is everything needed to decide what to open. Native `<details>` is the disclosure primitive here, so the toggle is a real button with browser-managed expanded state and closed content stays out of the tab order. Critical defects render in their OWN always-visible section above the checks, so collapsing hides nothing that demands attention. |
-| `src/components/project/SiteHealthSection.tsx` | Site Health scan controls and results. Ordinary default selection uses the API scan history's `preferredRunId`, labelled "Most complete scan from latest day"; explicit historical and onboarding active-run selections remain pinned, and a scan started from the header is shown once it finishes (completed or partial) until the operator picks another. Technical factor badges use the API's worst-page `status`, separately from the displayed mean score. The page-budget picker's first choice sends no `maxPages`, so the server applies the project's saved `siteAuditMaxPages`, else the full site; never fill in a number client-side, which would bypass the saved budget. When the project saved a smaller budget, a one-off "Full site" choice sends the 50,000 hard limit explicitly (`oneOffFullSiteChoice`). Project Settings edits the saved budget in `SiteHealthScanSettingsSection` (`ProjectEngineSettingsSection.tsx`): admins only when `isDashboardManagedRunKind('site-audit')`, read-only in embeds and the public demo. `updateProject` sends `siteAuditMaxPages` only when the caller sets it, so every other save keeps the stored value. Budget wording comes from `formatSiteAuditPageBudget` / `formatPageCount` in contracts, shared with the CLI. |
+| `src/components/project/SiteHealthSection.tsx` | Site Health scan controls and results. Agent integration checks default on and can be disabled for a scan; geographic checks default off. `site-health-check-help.ts` owns the plain-language info-icon copy shared by settings, factor rows, and per-page findings. Help buttons stay outside row/disclosure triggers. Ordinary default selection uses the API scan history's `preferredRunId`, labelled "Latest scan" with the selection rule in an adjacent info icon; explicit historical and onboarding active-run selections remain pinned, and a scan started from the header is shown once it finishes (completed or partial) until the operator picks another. Technical factor badges use the API's worst-page `status`, separately from the displayed mean score. The page-budget picker's first choice sends no `maxPages`, so the server applies the project's saved `siteAuditMaxPages`, else the full site; never fill in a number client-side, which would bypass the saved budget. When the project saved a smaller budget, a one-off "Full site" choice sends the 50,000 hard limit explicitly (`oneOffFullSiteChoice`). Project Settings edits the saved budget in `SiteHealthScanSettingsSection` (`ProjectEngineSettingsSection.tsx`): admins only when `isDashboardManagedRunKind('site-audit')`, read-only in embeds and the public demo. `updateProject` sends `siteAuditMaxPages` only when the caller sets it, so every other save keeps the stored value. Budget wording comes from `formatSiteAuditPageBudget` / `formatPageCount` in contracts, shared with the CLI. |
 | `src/components/project/RunAdmissionNotice.tsx` | The AI Visibility notice for a sweep that is refused, or leaves out providers that keep failing on their accounts, from `GET /projects/:name/run-admission` (`useRunAdmission`, read once by `ProjectPage` above both overviews and their loading state). While refused, the header sweep button reads "AI sweeps on hold" and is disabled, because the API would refuse it; the confirm sheet names the providers a sweep leaves out. Copy states when the hold lifts, never that a sweep will run (a project may have no schedule). The settings action appears only for a rejected key and deep-links to `/settings#provider-<name>`; credit is added in the provider's console. Saving a provider invalidates every project's admission (`invalidateProjectQueryDomain(…, 'runAdmission')`). |
 | `src/queries/` | TanStack Query hooks for data fetching |
 | `src/view-models.ts` | Data transformation from API DTOs to display format |
@@ -51,7 +51,7 @@ with no search-backend controls. Aero and classifiers choose their own models.
 
 ### Build workflow
 
-`pnpm --filter @ainyc/canonry-web build` builds into a temporary directory before updating `dist/`.
+`pnpm --filter @canonry/canonry-web build` builds into a temporary directory before updating `dist/`.
 It reuses output only when source, workspace dependencies, configuration, build environment, and output contents match the cache.
 The cache lives under `.tmp/web-build/`. `build --force` bypasses it. `pnpm build:web` also copies the SPA into Canonry.
 The cache includes Vite's resolved environment, including variable expansion and symlinked environment files.
@@ -282,7 +282,7 @@ supplies the initial error signal, and live property errors appear on opening
 setup or refreshing properties. Both resubmit actions wait for a sitemap load.
 
 **Every web call into the canonry API MUST flow through the generated
-`@ainyc/canonry-api-client` SDK.** Raw `fetch()` and `XMLHttpRequest` are
+`@canonry/canonry-api-client` SDK.** Raw `fetch()` and `XMLHttpRequest` are
 banned in `apps/web/src/` (ESLint-enforced) — the only exceptions are
 `src/api.ts` and `src/api-aero.ts`, which are the SDK wrappers /
 EventSource consumers respectively.
@@ -297,12 +297,12 @@ Two ways to call the API; pick by what you're building:
 
 **1. TanStack Query hooks (preferred for cached reads + mutations)** —
 generated `<op>Options(...)` / `<op>QueryKey(...)` / `<op>Mutation(...)`
-helpers from `@ainyc/canonry-api-client/react-query`, passing the
+helpers from `@canonry/canonry-api-client/react-query`, passing the
 exported `heyClient` from `src/api.ts`:
 
 ```typescript
 import { useQuery } from '@tanstack/react-query'
-import { getApiV1ProjectsByNameOptions } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1ProjectsByNameOptions } from '@canonry/canonry-api-client/react-query'
 import { heyClient } from '../api.js'
 
 function useProject(name: string) {
@@ -615,7 +615,7 @@ consistent):
 raw Tailwind palette utility across the whole `apps/web/src` tree; only
 `ProviderBadge` + `ChartPrimitives` are permanently excluded (engine identity /
 chart hex fallbacks). The migration allowlist has been emptied and removed, so any
-new literal palette utility now fails lint. `pnpm --filter @ainyc/canonry-web scan:colors`
+new literal palette utility now fails lint. `pnpm --filter @canonry/canonry-web scan:colors`
 reports per-file counts (now 0 — a progress view; the lint rule is the gate). New
 themeable UI must use a semantic or scale token; if you ever introduce a run of
 literals, migrate them in the same PR (class-only, no redesign) and keep these

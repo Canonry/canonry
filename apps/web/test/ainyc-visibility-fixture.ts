@@ -1,5 +1,5 @@
-import { percentOf } from '@ainyc/canonry-contracts'
-import type { CitationVisibilityResponse, CompetitorLandscapeResponse, CompetitorLandscapeRow, MovementSummaryDto, QueryClass, RunDto } from '@ainyc/canonry-contracts'
+import { percentOf } from '@canonry/canonry-contracts'
+import type { CitationVisibilityResponse, CompetitorLandscapeResponse, CompetitorLandscapeRow, MovementSummaryDto, QueryClass, RunDto } from '@canonry/canonry-contracts'
 import type { CitationInsightVm, MovementComparisonVm, ProjectCommandCenterVm, RunHistoryPoint } from '../src/view-models.js'
 
 /**

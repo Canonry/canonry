@@ -9,11 +9,11 @@ import { rankCriticizedProperties,
   type SentimentComparison, type SentimentCounts, type SentimentEvidenceItem, type SentimentHeadline, type SentimentJob, type SentimentOutcome,
   type SentimentQuerySummary, type SentimentResolvedSelection, type SentimentSelection, type SentimentEvidenceSelection,
   type SentimentSettings, type SentimentSummary, type SentimentOverview, type SentimentOverallHeadline, type SentimentSummaryInclude, type SentimentJobSummary, type SentimentEvaluatorProvider,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   measurementPlanVersions, querySnapshots, runs, sentimentAttempts, sentimentDefinitions, sentimentJobItems, sentimentJobs,
   sentimentResults, sentimentWorkItems, SentimentIdempotencyConflict, SentimentRepository, type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { matchesSentimentEdge, selectSentimentSources, type SentimentSourceAssessment, type SentimentSourceEdge, type SentimentSourceSelection, type SentimentSourceFilter } from './sentiment-source.js'
 import { sentimentClassifierIdentity, sentimentClassifierInput, sentimentHash, sentimentSourceHashes } from './sentiment-input.js'
 import { notProbeRun } from './helpers.js'

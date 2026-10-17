@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentTool } from '@earendil-works/pi-agent-core'
-import type { CompetitorAutoAliasMode } from '@ainyc/canonry-contracts'
+import type { CompetitorAutoAliasMode } from '@canonry/canonry-contracts'
 import type { ApiClient } from '../src/client.js'
 import { CliError } from '../src/cli-error.js'
 import { canonryMcpTools } from '../src/mcp/tool-registry.js'

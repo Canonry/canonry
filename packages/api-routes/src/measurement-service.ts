@@ -10,7 +10,7 @@ import {
   type MeasurementQueryClassFilter,
   validationError,
   describeError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { requireScope } from './auth.js'
 import {
   classifyMeasurementSitemapUrls,

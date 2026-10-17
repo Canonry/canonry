@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createSentimentEvaluationDefinition } from '@ainyc/canonry-contracts'
-import { resolveSentimentInstallConfig } from '@ainyc/canonry-config'
+import { createSentimentEvaluationDefinition } from '@canonry/canonry-contracts'
+import { resolveSentimentInstallConfig } from '@canonry/canonry-config'
 import { inputFixture } from '../../integration-typesafe/test/fixtures.js'
 import { createConfiguredSentimentClassifier } from '../src/sentiment-openrouter.js'
 import { getSharedProviderExecutionGate, resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'

@@ -1,4 +1,4 @@
-import type { DiscoverySessionDto } from '@ainyc/canonry-contracts'
+import type { DiscoverySessionDto } from '@canonry/canonry-contracts'
 
 /**
  * Discovery quality eval: the live half of the discovery regression harness.

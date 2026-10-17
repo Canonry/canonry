@@ -3,9 +3,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { deliverWebhook, measurementRunCompleteness } from '@ainyc/canonry-api-routes'
-import { CitationStates, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
-import type { CitationState, LocationContext, RunStatus, RunTrigger, WebhookPayload } from '@ainyc/canonry-contracts'
+import { deliverWebhook, measurementRunCompleteness } from '@canonry/canonry-api-routes'
+import { CitationStates, RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
+import type { CitationState, LocationContext, RunStatus, RunTrigger, WebhookPayload } from '@canonry/canonry-contracts'
 import {
   createClient,
   migrate,
@@ -15,11 +15,11 @@ import {
   runs,
   notifications,
   auditLog,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { Notifier } from '../src/notifier.js'
 
-vi.mock('@ainyc/canonry-api-routes', async importOriginal => {
-  const actual = await importOriginal<typeof import('@ainyc/canonry-api-routes')>()
+vi.mock('@canonry/canonry-api-routes', async importOriginal => {
+  const actual = await importOriginal<typeof import('@canonry/canonry-api-routes')>()
   return {
     ...actual,
     resolveWebhookTarget: vi.fn(async (url: string) => ({

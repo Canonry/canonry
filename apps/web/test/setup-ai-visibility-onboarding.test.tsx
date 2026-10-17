@@ -1,9 +1,9 @@
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { getApiV1ProjectsByNameQueriesQueryKey } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1ProjectsByNameQueriesQueryKey } from '@canonry/canonry-api-client/react-query'
 import type { ReactNode } from 'react'
-import { querySnapshotDtoSchema, runDetailDtoSchema, type RunDetailDto } from '@ainyc/canonry-contracts'
+import { querySnapshotDtoSchema, runDetailDtoSchema, type RunDetailDto } from '@canonry/canonry-contracts'
 
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { AccountProvider, type ApiKeyAccess } from '../src/contexts/account-context.js'

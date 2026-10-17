@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, schedules, runs, siteCrawlRunRequests } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, schedules, runs, siteCrawlRunRequests } from '@canonry/canonry-db'
 import { Scheduler } from '../src/scheduler.js'
 
 /**
@@ -657,13 +657,15 @@ for (const { label, saved, expectedPages } of [
     expect(db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, calls[0]!.runId)).get()).toMatchObject({
       projectId: 'proj_site_audit',
       effectiveOptions: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         sitemapUrl: null,
         maxPages: expectedPages,
         // Unattended crawls set no edge budget; the engine derives it.
         maxEdges: null,
         maxDepth: null,
         checkDeadLinks: false,
+        includeGeo: false,
+        includeAgentSkills: true,
       },
     })
 

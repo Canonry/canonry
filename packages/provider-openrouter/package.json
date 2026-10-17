@@ -1,5 +1,5 @@
 {
-  "name": "@ainyc/canonry-provider-openrouter",
+  "name": "@canonry/canonry-provider-openrouter",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,5 +11,5 @@
     "test": "vitest run --config ../../vitest.package.config.ts",
     "lint": "eslint src/ test/"
   },
-  "dependencies": { "@ainyc/canonry-contracts": "workspace:*" }
+  "dependencies": { "@canonry/canonry-contracts": "workspace:*" }
 }

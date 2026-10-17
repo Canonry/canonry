@@ -26,8 +26,8 @@ describe('MCP stdout safety', () => {
     expect(combined).not.toMatch(/cli-dispatch|src\/commands|\/commands/)
     expect(combined).not.toMatch(/from ['"][^'"]*telemetry|import\([^)]*telemetry|telemetry\./)
     expect(combined).not.toMatch(/from ['"][^'"]*logger|import\([^)]*logger|logger\./)
-    expect(combined).not.toMatch(/@ainyc\/canonry-db|canonry-db/)
-    expect(combined).not.toMatch(/@ainyc\/canonry-api-routes|api-routes/)
+    expect(combined).not.toMatch(/@canonry\/canonry-db|canonry-db/)
+    expect(combined).not.toMatch(/@canonry\/canonry-api-routes|api-routes/)
     expect(combined).not.toMatch(/\bmigrate\b/)
   })
 

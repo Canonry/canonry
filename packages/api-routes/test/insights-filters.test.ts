@@ -4,10 +4,10 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createClient, migrate, insights, projects } from '@ainyc/canonry-db'
+import { createClient, migrate, insights, projects } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
-import type { InsightDto } from '@ainyc/canonry-contracts'
+import type { InsightDto } from '@canonry/canonry-contracts'
 
 const cleanups: Array<() => void> = []
 afterEach(() => { for (const fn of cleanups.splice(0)) fn() })

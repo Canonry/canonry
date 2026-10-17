@@ -17,8 +17,8 @@ import type {
   WordpressSchemaStatusResultDto,
   WordpressSeoStateDto,
   WordpressSiteStatusDto,
-} from '@ainyc/canonry-contracts'
-import { wordpressEnvSchema, describeError, escapeRegExp } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import { wordpressEnvSchema, describeError, escapeRegExp } from '@canonry/canonry-contracts'
 import type { WordpressClientConnection, WordpressConnectionRecord, WordpressRestPage, WordpressSiteContext } from './types.js'
 import { WordpressApiError } from './types.js'
 import type { SchemaPageEntry, SchemaProfileFile } from './schema-templates.js'

@@ -15,7 +15,7 @@ import {
   shiftIsoCalendarDate,
   type GoogleAdsCampaignMetricDto,
   type GoogleAdsPerformanceDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   googleAdsConnections,
@@ -23,7 +23,7 @@ import {
   migrate,
   projects,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { googleMarketingRoutes } from '../src/google-marketing.js'
 
 /**

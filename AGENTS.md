@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`canonry` is an **agent-first** open-source AEO operating platform that tracks how AI answer engines cite a domain for tracked queries and acts on the signal through the content engine and integrations. Published as `@canonry/canonry` on npm, with `@ainyc/canonry` kept as a compatibility package at the same versions. The CLI and API are the primary interfaces — the web dashboard is supplementary.
+`canonry` is an **agent-first** open-source AEO operating platform that tracks how AI answer engines cite a domain for tracked queries and acts on the signal through the content engine and integrations. Published exclusively as `@canonry/canonry` on npm. The CLI and API are the primary interfaces — the web dashboard is supplementary.
 
 It ships a built-in analyst agent, Aero (`packages/canonry/src/agent/`), and a stdio MCP adapter, `canonry-mcp` (`packages/canonry/src/mcp/`).
 
@@ -42,7 +42,8 @@ Key types, scope gates, read-only keys, `keys.write`, and what a multi-tenant mi
 ## Local validation and merging (Critical)
 
 - During local iteration, do not run tests, test watchers, or `pnpm verify`. Run tests only after changes are finalized and ready for push or review.
-- At final validation, run `pnpm check`, affected package **tests, typechecks, and type-aware lint**. Include dependent packages for shared runtime, contract, dependency, DB, or auth changes. Reuse passing results while their inputs remain unchanged. `pnpm verify` is optional locally, not a per-push requirement.
+- At final validation, run `pnpm check`, affected package **tests, typechecks, and type-aware lint**. Include dependent packages for shared runtime, contract, dependency, DB, or auth changes. Reuse passing results while their inputs remain unchanged. For owner changes, `pnpm verify` is optional locally, not a per-push requirement.
+- Before opening an outside code PR (including drafts), run `pnpm check` and `pnpm verify`. Follow [CONTRIBUTING.md](CONTRIBUTING.md#before-submitting-a-pr) and the [PR template](.github/pull_request_template.md): 1–3 summary bullets, security review, styling checks, and exact-head results. Missing or failed required checks block submission without an explicit maintainer exception.
 - Build and smoke affected CLI/API/MCP/UI surfaces; smoke installed tarballs for packaging changes. Check SDK/plugin/Val drift; fix its source.
 - Fetch and integrate the latest target, resolve conflicts, and review the full PR diff. At final validation, rerun only checks whose inputs changed. Recheck release versions against the target tip and npm.
 - After pushing, match the tested SHA to the remote branch and PR head; require GitHub `MERGEABLE` before handoff or merge. Report commands, results, SHA, and blockers; failed or unrun required checks block readiness. Skipped owner CI proves nothing.
@@ -57,7 +58,7 @@ Key types, scope gates, read-only keys, `keys.write`, and what a multi-tenant mi
 pnpm install
 pnpm check                      # fast lint of staged, unstaged, and untracked JS/TS files
 pnpm lint:staged                # fast lint of the exact staged JS/TS content
-pnpm verify                     # optional full check: drift checks + all workspace checks
+pnpm verify                     # full check; required before outside code PRs
 pnpm build:cli                  # CLI/server bundle only; skips the dashboard
 pnpm build:web                  # build or reuse dashboard output and copy changed assets
 pnpm build                      # complete publishable package
@@ -99,7 +100,7 @@ When proposing work, requesting feedback, or showcasing changes:
   shared host kit. Every other package is internal and bundled via tsup.
 - `packages/val-kit/` must stay runtime-neutral (web standards + Deno-compatible): it is consumed by the Val Town Vals,
   not by the Node server, so it must not import `packages/canonry/`, `packages/db/`, or anything Node-only.
-- All internal packages use `@ainyc/canonry-*` naming convention.
+- All internal packages use `@canonry/canonry-*` naming convention.
 - Keep environment parsing in `packages/config`, provider logic in `packages/provider-*/`, and route plugins in `packages/api-routes` (no app-level concerns; thin handlers).
 - Keep the canonry app independent from the audit package repo except for the published npm dependency.
 - Store raw observation snapshots only (`cited` / `not-cited`); compute transitions at query time.
@@ -144,7 +145,7 @@ The tracked thing (`canonry query add`, the `queries` / `query_snapshots` tables
 
 ## Enum Constants (Critical)
 
-Never compare domain values as raw string literals: write `kind === RunKinds['answer-visibility']`, not `kind === 'answer-visibility'`. The constant objects (`RunKinds`, `RunStatuses`, `RunTriggers`, `CitationStates`, `VisibilityStates`, `ComputedTransitions`) come from `packages/contracts/src/run.ts` via `@ainyc/canonry-contracts`.
+Never compare domain values as raw string literals: write `kind === RunKinds['answer-visibility']`, not `kind === 'answer-visibility'`. The constant objects (`RunKinds`, `RunStatuses`, `RunTriggers`, `CitationStates`, `VisibilityStates`, `ComputedTransitions`) come from `packages/contracts/src/run.ts` via `@canonry/canonry-contracts`.
 
 1. Type parameters with the union type (`kind: RunKind`, not `string`).
 2. Use exhaustive switches with no `default`, or `default: { const _exhaustive: never = value }`.
@@ -216,7 +217,7 @@ Fit trends and other statistics server-side (`linearTrend`, `wilsonInterval`) an
 
 Each rule is detailed in the linked file. The one-liners live here because these have caused real bugs.
 
-- **API errors.** Throw `AppError` factories from `@ainyc/canonry-contracts` (`notFound()`, `validationError()`, …) and let the global handler serialize them; never catch-and-reply or hand-build an `{ error }` envelope. → `packages/api-routes/AGENTS.md` "Error handling"
+- **API errors.** Throw `AppError` factories from `@canonry/canonry-contracts` (`notFound()`, `validationError()`, …) and let the global handler serialize them; never catch-and-reply or hand-build an `{ error }` envelope. → `packages/api-routes/AGENTS.md` "Error handling"
 - **Schema changes.** Every new table or column in `packages/db/src/schema.ts` needs a new `MIGRATION_VERSIONS` entry in `migrate.ts`; never edit `MIGRATION_SQL` or a shipped version. → `packages/db/AGENTS.md`
 - **JSON / boolean columns.** `projects` uses Drizzle's native modes (direct access); other tables still need `parseJsonColumn<T>()` and manual boolean coercion. → `packages/db/AGENTS.md`
 - **Transactions and counters.** Wrap multi-table writes in one `db.transaction()` (async I/O before it, the audit log inside it, callbacks after commit). Increment counters with `INSERT … ON CONFLICT DO UPDATE`, never read-then-write. → `packages/db/AGENTS.md`
@@ -225,7 +226,7 @@ Each rule is detailed in the linked file. The one-liners live here because these
 
 ## Third-party HTTP calls (Critical)
 
-Every integration that calls a third party over HTTP must back off when that service pushes back. Wrap the package's HTTP layer in `withRetry` from `@ainyc/canonry-contracts` — one private `fetchOnce`, one exported wrapper (reference: `packages/integration-bing/src/bing-client.ts`) — and use `isRetryableHttpError` rather than a hand-written status check. `packages/contracts/test/integration-retry-coverage.test.ts` fails CI for a new HTTP-calling integration without it. Throttles that aren't HTTP 429, `Retry-After`, base-delay tuning, and testing both directions: `packages/contracts/AGENTS.md` → "Third-party HTTP calls".
+Every integration that calls a third party over HTTP must back off when that service pushes back. Wrap the package's HTTP layer in `withRetry` from `@canonry/canonry-contracts` — one private `fetchOnce`, one exported wrapper (reference: `packages/integration-bing/src/bing-client.ts`) — and use `isRetryableHttpError` rather than a hand-written status check. `packages/contracts/test/integration-retry-coverage.test.ts` fails CI for a new HTTP-calling integration without it. Throttles that aren't HTTP 429, `Retry-After`, base-delay tuning, and testing both directions: `packages/contracts/AGENTS.md` → "Third-party HTTP calls".
 
 ## Authentication Storage
 
@@ -258,7 +259,7 @@ Canonry can run behind a reverse proxy sub-path (e.g. `/canonry/`); code that ig
 
 ## Versioning
 
-**Bump the package version only for non-documentation changes of more than 100 changed lines** (features, bug fixes, refactors, dependency updates, and the tests that accompany them); documentation-only changes (README, `docs/`, `AGENTS.md`) and smaller changes don't bump. A bump updates the root `package.json` and `packages/canonry/package.json` together, in sync with the latest published `@canonry/canonry` (and the compatibility `@ainyc/canonry`). Use semver: patch for fixes, minor for features, major for breaking changes.
+**Bump the package version only for non-documentation changes of more than 100 changed lines** (features, bug fixes, refactors, dependency updates, and the tests that accompany them); documentation-only changes (README, `docs/`, `AGENTS.md`) and smaller changes don't bump. A bump updates the root `package.json` and `packages/canonry/package.json` together, in sync with the latest published `@canonry/canonry`. Use semver: patch for fixes, minor for features, major for breaking changes.
 
 - **Native-plugin exception:** any change shipped through `plugins/canonry/` or its canonical `skills/canonry/` / `skills/aero/` sources bumps Canonry, the portable manifest, and both client manifests even when the diff is small — clients use the manifest version to discover updates. `pnpm plugin:sync` copies the package version into all three manifests.
 
@@ -270,7 +271,7 @@ Canonry can run behind a reverse proxy sub-path (e.g. `/canonry/`); code that ig
 
 - Test the public API of each module, not internals. Cover the happy path plus meaningful edge cases (invalid input, env var overrides, error handling).
 - CLI tests capture stdout/stderr and assert on the output, not only side effects. File-system tests use `os.tmpdir()` and clean up in `afterEach`.
-- Run focused tests only when changes are finalized and ready for push or review. Do not run tests during local iteration. Owner changes rely on this validation. Outside contributions also run the full suite in CI. Hooks never run tests or builds.
+- Run tests only when changes are finalized and ready for push or review. Do not run tests during local iteration. Owner changes use affected checks. Outside code contributions require full workspace results before opening a PR and full CI afterward. Hooks never run tests or builds.
 - **Test boundary matchers with data as STORED, not idealized.** Check how a column is actually populated before matching on it (project upsert/apply store `canonicalDomain` raw — full URLs and mixed case included) and use the canonical helpers (`hostOf`, `normalizeQueryText`). A clean-fixture-only suite passes while production values miss the match.
 - **Test default-value propagation end-to-end.** When a stored default (e.g. a project's `defaultLocation`) feeds another feature (run creation), exercise the full path with no explicit override — not just "the default is stored" and "the consumer accepts a value".
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { AGENT_PROVIDER_IDS } from '@ainyc/canonry-contracts'
+import { AGENT_PROVIDER_IDS } from '@canonry/canonry-contracts'
 import { GA_AUTH_CHECKS } from '../src/doctor/checks/ga-auth.js'
 import { PROVIDERS_CHECKS } from '../src/doctor/checks/providers.js'
 import type { DoctorContext, ProjectInfo } from '../src/doctor/types.js'
@@ -10,8 +10,8 @@ const verifyConnectionMock = vi.fn()
 const verifyConnectionWithTokenMock = vi.fn()
 const refreshAccessTokenMock = vi.fn()
 
-vi.mock('@ainyc/canonry-integration-google-analytics', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google-analytics')>('@ainyc/canonry-integration-google-analytics')
+vi.mock('@canonry/canonry-integration-google-analytics', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-google-analytics')>('@canonry/canonry-integration-google-analytics')
   return {
     ...actual,
     verifyConnection: (...args: unknown[]) => verifyConnectionMock(...args),
@@ -19,8 +19,8 @@ vi.mock('@ainyc/canonry-integration-google-analytics', async () => {
   }
 })
 
-vi.mock('@ainyc/canonry-integration-google', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google')>('@ainyc/canonry-integration-google')
+vi.mock('@canonry/canonry-integration-google', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-google')>('@canonry/canonry-integration-google')
   return {
     ...actual,
     refreshAccessToken: (...args: unknown[]) => refreshAccessTokenMock(...args),

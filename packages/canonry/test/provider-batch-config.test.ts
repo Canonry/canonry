@@ -9,7 +9,7 @@ import type {
   ProviderBatchCapability,
   ProviderConfig,
   RawQueryResult,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { CliError } from '../src/cli-error.js'
 import { loadConfig } from '../src/config.js'
 import {

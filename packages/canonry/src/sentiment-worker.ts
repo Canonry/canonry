@@ -4,10 +4,10 @@ import {
   backoffDelayMs, canonicalSentimentJson, hasCurrentSentimentTemplate, storedSentimentClassifierInputSchema, sentimentClassifierOutputSchema, sentimentEvaluatorProvider,
   sentimentSelectionSchema, type SentimentClassifier, type SentimentClassifierInput, type SentimentClassifierOutput, type SentimentOutcome,
   OutcomeReasonCodes, OutcomeStatuses, OutcomeSurfaces, OutcomeTriggers, type FeatureCompletedProperties, type OutcomeReasonCode,
-} from '@ainyc/canonry-contracts'
-import { SentimentIdempotencyConflict, SentimentRepository, sentimentCompletionReceipts, sentimentSettings, type DatabaseClient, type SentimentDispatchBlock } from '@ainyc/canonry-db'
-import { SentimentService, selectSentimentSources, sentimentClassifierInput, sentimentHash } from '@ainyc/canonry-api-routes'
-import { sentimentInstallReadiness, type SentimentInstallConfig } from '@ainyc/canonry-config'
+} from '@canonry/canonry-contracts'
+import { SentimentIdempotencyConflict, SentimentRepository, sentimentCompletionReceipts, sentimentSettings, type DatabaseClient, type SentimentDispatchBlock } from '@canonry/canonry-db'
+import { SentimentService, selectSentimentSources, sentimentClassifierInput, sentimentHash } from '@canonry/canonry-api-routes'
+import { sentimentInstallReadiness, type SentimentInstallConfig } from '@canonry/canonry-config'
 import { createOutcomeSampler, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
 export interface SentimentWorkerOptions {

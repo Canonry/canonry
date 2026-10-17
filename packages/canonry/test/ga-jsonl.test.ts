@@ -4,7 +4,7 @@ import type {
   GA4SessionHistoryEntry,
   GA4SocialReferralHistoryEntry,
   GaCoverageResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 const mockGaAiReferralHistory = vi.fn()
 const mockGaSocialReferralHistory = vi.fn()

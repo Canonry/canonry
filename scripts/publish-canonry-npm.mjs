@@ -9,14 +9,13 @@ import { fileURLToPath } from 'node:url'
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const packageDir = path.join(repoRoot, 'packages/canonry')
 const manifestPath = path.join(packageDir, 'package.json')
-const originalManifestText = fs.readFileSync(manifestPath, 'utf8')
-const originalManifest = JSON.parse(originalManifestText)
-const packageNames = ['@canonry/canonry', '@ainyc/canonry']
+const originalManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+const packageName = '@canonry/canonry'
 const dryRun = process.env.CANONRY_NPM_PUBLISH_DRY_RUN === '1'
 const publishTarball = process.env.CANONRY_NPM_PUBLISH_TARBALL
 
-if (originalManifest.name !== packageNames[0]) {
-  throw new Error(`Expected packages/canonry/package.json name to be ${packageNames[0]}, got ${originalManifest.name}`)
+if (originalManifest.name !== packageName) {
+  throw new Error(`Expected packages/canonry/package.json name to be ${packageName}, got ${originalManifest.name}`)
 }
 
 if (typeof originalManifest.version !== 'string' || originalManifest.version.length === 0) {
@@ -45,11 +44,6 @@ function packageVersionExists(name, version) {
   throw new Error(`Unable to check ${spec} on npm:\n${output.trim()}`)
 }
 
-function writeManifestName(name) {
-  const manifest = { ...originalManifest, name }
-  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
-}
-
 function run(command, args, cwd = repoRoot, capture = false) {
   const result = spawnSync(command, args, {
     cwd,
@@ -65,7 +59,7 @@ function run(command, args, cwd = repoRoot, capture = false) {
   return result.stdout
 }
 
-function prepareTarballs(tempDir, names) {
+function validateTarball(tempDir) {
   if (!path.isAbsolute(publishTarball) || !publishTarball.endsWith('.tgz') || !fs.statSync(publishTarball).isFile()) {
     throw new Error('CANONRY_NPM_PUBLISH_TARBALL must be an absolute path to a .tgz file')
   }
@@ -84,49 +78,30 @@ function prepareTarballs(tempDir, names) {
   if (manifest.name !== originalManifest.name || manifest.version !== originalManifest.version) {
     throw new Error(`Publish tarball must contain ${originalManifest.name}@${originalManifest.version}; got ${manifest.name}@${manifest.version}`)
   }
-
-  const tarballs = new Map([[packageNames[0], publishTarball]])
-  if (names.includes(packageNames[1])) {
-    fs.writeFileSync(extractedManifestPath, `${JSON.stringify({ ...manifest, name: packageNames[1] }, null, 2)}\n`)
-    const compatibilityTarball = path.join(tempDir, 'compatibility.tgz')
-    // npm 10 runs prepare during pack even with --ignore-scripts. Reuse the archive entries directly.
-    run('tar', ['-czf', compatibilityTarball, '-C', tempDir, '--no-recursion', '--', ...entries])
-    tarballs.set(packageNames[1], compatibilityTarball)
-  }
-  return tarballs
 }
 
-function publish(name, tarball) {
+function publish(tarball) {
   const command = tarball ? 'npm' : 'pnpm'
   const args = tarball
     ? ['publish', tarball, '--ignore-scripts', '--access', 'public']
     : ['publish', 'packages/canonry', '--no-git-checks', '--access', 'public']
   if (dryRun) args.push('--dry-run')
 
-  console.log(`${dryRun ? 'Dry-run publishing' : 'Publishing'} ${name}@${originalManifest.version}`)
+  console.log(`${dryRun ? 'Dry-run publishing' : 'Publishing'} ${packageName}@${originalManifest.version}`)
   run(command, args)
 }
 
 let tempDir
 try {
-  const pendingNames = packageNames.filter(name => {
-    if (!dryRun && packageVersionExists(name, originalManifest.version)) {
-      console.log(`${name}@${originalManifest.version} already exists on npm; skipping`)
-      return false
+  if (!dryRun && packageVersionExists(packageName, originalManifest.version)) {
+    console.log(`${packageName}@${originalManifest.version} already exists on npm; skipping`)
+  } else {
+    if (publishTarball !== undefined) {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-npm-publish-'))
+      validateTarball(tempDir)
     }
-    return true
-  })
-  let tarballs
-  if (publishTarball !== undefined && pendingNames.length > 0) {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-npm-publish-'))
-    tarballs = prepareTarballs(tempDir, pendingNames)
-  }
-
-  for (const name of pendingNames) {
-    if (!tarballs) writeManifestName(name)
-    publish(name, tarballs?.get(name))
+    publish(publishTarball)
   }
 } finally {
-  if (publishTarball === undefined) fs.writeFileSync(manifestPath, originalManifestText)
   if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true })
 }

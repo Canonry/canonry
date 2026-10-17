@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parse, stringify } from 'yaml'
-import { apiKeys, createClient, migrate, projects } from '@ainyc/canonry-db'
+import { apiKeys, createClient, migrate, projects } from '@canonry/canonry-db'
 import { bootstrapCommand } from '../src/commands/bootstrap.js'
 import { getConfigPath, loadConfig, type CanonryConfig } from '../src/config.js'
 

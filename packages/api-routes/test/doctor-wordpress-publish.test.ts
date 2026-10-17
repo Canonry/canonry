@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { WordpressApiError } from '@ainyc/canonry-integration-wordpress'
-import type { WordpressConnectionRecord } from '@ainyc/canonry-integration-wordpress'
+import { WordpressApiError } from '@canonry/canonry-integration-wordpress'
+import type { WordpressConnectionRecord } from '@canonry/canonry-integration-wordpress'
 import { WORDPRESS_PUBLISH_CHECKS } from '../src/doctor/checks/wordpress-publish.js'
 import type { DoctorContext, ProjectInfo } from '../src/doctor/types.js'
 import type { WordpressConnectionStore } from '../src/wordpress.js'
 
 const verifyMock = vi.fn()
 
-vi.mock('@ainyc/canonry-integration-wordpress', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-wordpress')>(
-    '@ainyc/canonry-integration-wordpress',
+vi.mock('@canonry/canonry-integration-wordpress', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-wordpress')>(
+    '@canonry/canonry-integration-wordpress',
   )
   return {
     ...actual,

@@ -1,12 +1,12 @@
 import Fastify from 'fastify'
 import { randomUUID } from 'node:crypto'
 
-import type { PlatformEnv } from '@ainyc/canonry-config'
-import { resolveOperatorApiKeyIds } from '@ainyc/canonry-config'
-import { OPENROUTER_MODEL_PATTERN } from '@ainyc/canonry-contracts'
-import { createClient, migrate, OperationalLogStore } from '@ainyc/canonry-db'
-import { apiRoutes, backfillProjectAnswerMentions, resolveTrustProxy } from '@ainyc/canonry-api-routes'
-import { addLogListener, createFastifyLogger } from '@ainyc/canonry-api-routes/runtime-logger'
+import type { PlatformEnv } from '@canonry/canonry-config'
+import { resolveOperatorApiKeyIds } from '@canonry/canonry-config'
+import { OPENROUTER_MODEL_PATTERN } from '@canonry/canonry-contracts'
+import { createClient, migrate, OperationalLogStore } from '@canonry/canonry-db'
+import { apiRoutes, backfillProjectAnswerMentions, resolveTrustProxy } from '@canonry/canonry-api-routes'
+import { addLogListener, createFastifyLogger } from '@canonry/canonry-api-routes/runtime-logger'
 
 import { registerHealthRoutes } from './routes/health.js'
 import { registerTelemetryCollectorRoutes } from './routes/telemetry-collector.js'
@@ -237,7 +237,7 @@ export function buildApp(env: PlatformEnv) {
 
   // NO MCP TRANSPORT AND NO OAUTH HERE, deliberately.
   //
-  // The MCP server lives in the engine package (@ainyc/canonry) and this app
+  // The MCP server lives in the engine package (@canonry/canonry) and this app
   // depends only on api-routes/config/contracts/db. Wiring it would mean taking
   // a dependency on the whole engine — providers, browser automation, the run
   // coordinator — inside a deployable that exists precisely to stay light.

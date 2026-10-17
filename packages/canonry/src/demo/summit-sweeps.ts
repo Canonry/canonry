@@ -14,7 +14,7 @@ import {
   effectiveDomains,
   extractRecommendedCompetitors,
   type NormalizedQueryResult,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { determineCitationState } from '../citation-utils.js'
 
 export const SUMMIT_SWEEP_COUNT = 6

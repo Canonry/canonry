@@ -3,21 +3,21 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, expect, it, vi } from 'vitest'
-import { createClient, migrate, notifications, runs, type DatabaseClient } from '@ainyc/canonry-db'
-import type { HealthWebhookPayload } from '@ainyc/canonry-contracts'
+import { createClient, migrate, notifications, runs, type DatabaseClient } from '@canonry/canonry-db'
+import type { HealthWebhookPayload } from '@canonry/canonry-contracts'
 import type { CanonryConfig } from '../src/config.js'
 import { Notifier } from '../src/notifier.js'
 
 // The Search Console auth check refreshes the token live; nothing here may reach Google.
 const refreshAccessTokenMock = vi.fn()
-vi.mock('@ainyc/canonry-integration-google', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google')>('@ainyc/canonry-integration-google')
+vi.mock('@canonry/canonry-integration-google', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-google')>('@canonry/canonry-integration-google')
   return { ...actual, refreshAccessToken: (...args: unknown[]) => refreshAccessTokenMock(...args) }
 })
 
 // Imported after the mock is registered so the doctor checks pick it up.
 const { createServer } = await import('../src/server.js')
-const { GoogleAuthError } = await vi.importActual<typeof import('@ainyc/canonry-integration-google')>('@ainyc/canonry-integration-google')
+const { GoogleAuthError } = await vi.importActual<typeof import('@canonry/canonry-integration-google')>('@canonry/canonry-integration-google')
 
 interface DoctorReport {
   checks: Array<{ id: string; category: string; status: string; code: string; summary: string; remediation: string | null; details?: Record<string, unknown> }>

@@ -3,7 +3,7 @@
  * accepts only literal path templates: caller input is never compiled as regex.
  */
 
-import { measurementStableKeySchema, normalizeMeasurementHost, compareText, sortedUnique } from '@ainyc/canonry-contracts'
+import { measurementStableKeySchema, normalizeMeasurementHost, compareText, sortedUnique } from '@canonry/canonry-contracts'
 
 export type MeasurementDiscoveryClassification = 'proposed' | 'alias' | 'shared' | 'unmatched' | 'excluded'
 

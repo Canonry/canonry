@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { and, desc, eq, like } from 'drizzle-orm'
-import { agentConversations, agentMemory, agentSessions, agentToolEvents, llmUsageEvents, parseJsonColumn, type DatabaseClient } from '@ainyc/canonry-db'
-import { agentBusy, agentConversationCreateSchema, agentConversationListQuerySchema, agentConversationTitle, alreadyExists, notFound, validationError, type AgentConversation, type AgentConversationSummary } from '@ainyc/canonry-contracts'
+import { agentConversations, agentMemory, agentSessions, agentToolEvents, llmUsageEvents, parseJsonColumn, type DatabaseClient } from '@canonry/canonry-db'
+import { agentBusy, agentConversationCreateSchema, agentConversationListQuerySchema, agentConversationTitle, alreadyExists, notFound, validationError, type AgentConversation, type AgentConversationSummary } from '@canonry/canonry-contracts'
 import { requireInstanceAdministrator } from './auth.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 

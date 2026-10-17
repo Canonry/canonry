@@ -1,5 +1,5 @@
 import { or, sql, type SQL } from 'drizzle-orm'
-import { escapeLikePattern } from '@ainyc/canonry-contracts'
+import { escapeLikePattern } from '@canonry/canonry-contracts'
 
 /** Match the path itself or descendants, treating SQL wildcard characters literally. */
 export function literalPathPrefixCondition(path: SQL, prefix: string): SQL {

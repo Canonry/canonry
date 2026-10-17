@@ -5,9 +5,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { getPlatformEnv } from '@ainyc/canonry-config'
-import { isSweepProvider, PROVIDER_NAMES } from '@ainyc/canonry-contracts'
-import { createClient, migrate, MIGRATION_VERSIONS, apiKeys, queries, runs } from '@ainyc/canonry-db'
+import { getPlatformEnv } from '@canonry/canonry-config'
+import { isSweepProvider, PROVIDER_NAMES } from '@canonry/canonry-contracts'
+import { createClient, migrate, MIGRATION_VERSIONS, apiKeys, queries, runs } from '@canonry/canonry-db'
 
 import { buildApp } from '../src/app.js'
 import { loadApiEnv } from '../src/plugins/env.js'
@@ -36,7 +36,7 @@ afterEach(() => {
  * (`packages/canonry/src/server.ts`) — the registry local `canonry serve`
  * validates writes against — read from source rather than imported.
  *
- * apps/api deliberately does not depend on `@ainyc/canonry`: importing
+ * apps/api deliberately does not depend on `@canonry/canonry`: importing
  * `server.ts` pulls every provider SDK graph, which is the whole reason the
  * cloud catalog in `src/app.ts` is hand-mirrored in the first place. A
  * test-only workspace dependency would drag the same graphs into CI. So the
@@ -68,11 +68,11 @@ function registeredAdapterNames(): string[] {
   expect(identifiers.length).toBeGreaterThan(0)
 
   return identifiers.map(identifier => {
-    // e.g. `import { openaiAdapter } from "@ainyc/canonry-provider-openai";`
+    // e.g. `import { openaiAdapter } from "@canonry/canonry-provider-openai";`
     // (the gemini import is a multi-name block, hence the `[^}]*` on both sides).
     const importSite = server.match(
       new RegExp(
-        `import\\s*\\{[^}]*\\b${identifier}\\b[^}]*\\}\\s*from\\s*["']@ainyc/canonry-provider-([\\w-]+)["']`,
+        `import\\s*\\{[^}]*\\b${identifier}\\b[^}]*\\}\\s*from\\s*["']@canonry/canonry-provider-([\\w-]+)["']`,
       ),
     )
     expect(

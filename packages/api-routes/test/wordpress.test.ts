@@ -5,9 +5,9 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
-import { WordpressApiError } from '@ainyc/canonry-integration-wordpress'
-import { wordpressPageListDtoSchema } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects } from '@canonry/canonry-db'
+import { WordpressApiError } from '@canonry/canonry-integration-wordpress'
+import { wordpressPageListDtoSchema } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import type { WordpressConnectionStore } from '../src/wordpress.js'
 
@@ -121,7 +121,7 @@ describe('WordPress routes', () => {
   })
 
   it('connects, reports status, and disconnects a project-scoped WordPress connection', async () => {
-    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const wordpressModule = await import('@canonry/canonry-integration-wordpress')
     vi.spyOn(wordpressModule, 'verifyWordpressConnection').mockResolvedValue({
       url: 'https://example.com',
       reachable: true,
@@ -186,7 +186,7 @@ describe('WordPress routes', () => {
   })
 
   it('returns an actionable error when wordpress connect fails with invalid credentials', async () => {
-    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const wordpressModule = await import('@canonry/canonry-integration-wordpress')
     vi.spyOn(wordpressModule, 'verifyWordpressConnection').mockRejectedValue(
       new WordpressApiError(
         'AUTH_INVALID',
@@ -215,7 +215,7 @@ describe('WordPress routes', () => {
   })
 
   it('rejects a connect URL that resolves to a private / metadata / loopback address (SSRF guard)', async () => {
-    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const wordpressModule = await import('@canonry/canonry-integration-wordpress')
     const verifySpy = vi.spyOn(wordpressModule, 'verifyWordpressConnection')
 
     // Literal addresses — no DNS needed, deterministically blocked.
@@ -247,7 +247,7 @@ describe('WordPress routes', () => {
   })
 
   it('rejects a private stagingUrl on connect even when the live URL is public', async () => {
-    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const wordpressModule = await import('@canonry/canonry-integration-wordpress')
     const verifySpy = vi.spyOn(wordpressModule, 'verifyWordpressConnection')
 
     const res = await app.inject({
@@ -278,7 +278,7 @@ describe('WordPress routes', () => {
       updatedAt: now,
     })
 
-    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const wordpressModule = await import('@canonry/canonry-integration-wordpress')
     const listPagesSpy = vi.spyOn(wordpressModule, 'listPages').mockResolvedValue([
       {
         id: 1,
@@ -325,7 +325,7 @@ describe('WordPress routes', () => {
       updatedAt: now,
     })
 
-    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const wordpressModule = await import('@canonry/canonry-integration-wordpress')
     vi.spyOn(wordpressModule, 'setSeoMeta').mockRejectedValue(
       new WordpressApiError(
         'UNSUPPORTED',
@@ -364,7 +364,7 @@ describe('WordPress routes', () => {
       updatedAt: now,
     })
 
-    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const wordpressModule = await import('@canonry/canonry-integration-wordpress')
     const createPageSpy = vi.spyOn(wordpressModule, 'createPage')
 
     const res = await app.inject({
@@ -401,7 +401,7 @@ describe('WordPress routes', () => {
       updatedAt: now,
     })
 
-    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const wordpressModule = await import('@canonry/canonry-integration-wordpress')
     vi.spyOn(wordpressModule, 'diffPageAcrossEnvironments').mockResolvedValue({
       slug: 'pricing',
       live: {
@@ -479,7 +479,7 @@ describe('WordPress routes', () => {
       updatedAt: now,
     })
 
-    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const wordpressModule = await import('@canonry/canonry-integration-wordpress')
     vi.spyOn(wordpressModule, 'buildManualStagingPush').mockResolvedValue({
       manualRequired: true,
       targetUrl: 'https://example.com/wp-admin/admin.php?page=wpstg_clone',
@@ -515,7 +515,7 @@ describe('WordPress routes', () => {
       updatedAt: now,
     })
 
-    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const wordpressModule = await import('@canonry/canonry-integration-wordpress')
     vi.spyOn(wordpressModule, 'bulkSetSeoMeta').mockResolvedValue({
       env: 'live',
       strategy: 'plugin',
@@ -584,7 +584,7 @@ describe('WordPress routes', () => {
       updatedAt: now,
     })
 
-    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const wordpressModule = await import('@canonry/canonry-integration-wordpress')
     vi.spyOn(wordpressModule, 'deploySchemaFromProfile').mockResolvedValue({
       env: 'live',
       results: [
@@ -684,7 +684,7 @@ describe('WordPress routes', () => {
       updatedAt: now,
     })
 
-    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const wordpressModule = await import('@canonry/canonry-integration-wordpress')
     vi.spyOn(wordpressModule, 'getSchemaStatus').mockResolvedValue({
       env: 'live',
       pages: [
@@ -706,7 +706,7 @@ describe('WordPress routes', () => {
   })
 
   it('onboard runs all steps sequentially and returns step results', async () => {
-    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const wordpressModule = await import('@canonry/canonry-integration-wordpress')
     vi.spyOn(wordpressModule, 'verifyWordpressConnection').mockResolvedValue({
       url: 'https://example.com',
       reachable: true,
@@ -785,7 +785,7 @@ describe('WordPress routes', () => {
   })
 
   it('onboard halts and reports on connection failure', async () => {
-    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const wordpressModule = await import('@canonry/canonry-integration-wordpress')
     vi.spyOn(wordpressModule, 'verifyWordpressConnection').mockRejectedValue(
       new WordpressApiError('AUTH_INVALID', 'Authentication failed', 401),
     )
@@ -829,7 +829,7 @@ describe('WordPress routes', () => {
       updatedAt: now,
     })
 
-    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const wordpressModule = await import('@canonry/canonry-integration-wordpress')
     vi.spyOn(wordpressModule, 'bulkSetSeoMeta').mockResolvedValue({
       env: 'live',
       strategy: 'manual',

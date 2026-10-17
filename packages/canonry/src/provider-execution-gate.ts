@@ -2,7 +2,7 @@
  * Per-provider in-process concurrency and rolling-minute dispatch guard.
  * Daily quota is persisted separately because it must survive restarts.
  */
-import { providerConnectionName } from '@ainyc/canonry-contracts'
+import { providerConnectionName } from '@canonry/canonry-contracts'
 
 export class ProviderExecutionGate {
   private readonly window: number[] = []

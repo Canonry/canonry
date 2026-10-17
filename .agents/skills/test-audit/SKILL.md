@@ -161,8 +161,8 @@ Run tests only after changes are finalized and ready for push or review.
    dry-run that owns the real contract.
 5. Run `pnpm check`, relevant package typechecks for code changes, and
    `git diff --check`. Run generation or drift checks only when their inputs
-   change. Follow repository policy; full workspace validation belongs to CI
-   unless the user requests it or a CI failure needs reproduction.
+   change. Follow `CONTRIBUTING.md`: outside code contributions require full
+   workspace results before opening a PR; owner changes use affected checks.
 6. Inspect `git diff --numstat`; report production/tooling separately from
    tests and test support. Report local tests, fault probes, and CI separately.
 7. After audit edits to tests or production, obtain an independent preservation

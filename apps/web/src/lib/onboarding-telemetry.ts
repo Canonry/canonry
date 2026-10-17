@@ -1,4 +1,4 @@
-import type { OnboardingBlockReason, OnboardingStep } from '@ainyc/canonry-contracts'
+import type { OnboardingBlockReason, OnboardingStep } from '@canonry/canonry-contracts'
 import type { HealthSnapshot } from '../view-models.js'
 
 const SESSION_KEY = 'canonry.onboarding-session.v1'

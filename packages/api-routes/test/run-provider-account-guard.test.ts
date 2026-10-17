@@ -14,8 +14,8 @@ import {
   serializeRunError,
   withSkippedProviders,
   type ProviderAccountStreak,
-} from '@ainyc/canonry-contracts'
-import { auditLog, createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries, querySnapshots, runs, schedules } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import { auditLog, createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries, querySnapshots, runs, schedules } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 /**

@@ -1,9 +1,9 @@
-import { isProviderAvailable, isSweepProvider } from '@ainyc/canonry-contracts'
+import { isProviderAvailable, isSweepProvider } from '@canonry/canonry-contracts'
 import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import { projects, schedules, notifications, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
-import { competitorAliasProjectIdentity, DEFAULT_COMPETITOR_AUTO_ALIAS_MODE, diffProjectConfigState, forbidden, isRedactedNotificationUrl, nextScheduleUpdatedAt, normalizeProjectAliases, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError, type ApplyPreviewDto } from '@ainyc/canonry-contracts'
+import { projects, schedules, notifications, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@canonry/canonry-db'
+import { competitorAliasProjectIdentity, DEFAULT_COMPETITOR_AUTO_ALIAS_MODE, diffProjectConfigState, forbidden, isRedactedNotificationUrl, nextScheduleUpdatedAt, normalizeProjectAliases, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError, type ApplyPreviewDto } from '@canonry/canonry-contracts'
 import { competitorSetChangeAuditFields, competitorAliasAuditFields, competitorIdentityChanged, competitorNames, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
 import type { ProviderAdapterInfo } from './settings.js'
 import { assertOpenRouterRouteScope, pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
@@ -26,7 +26,7 @@ class ApplyPreviewRollback extends Error {
 }
 
 export interface ApplyRoutesOptions {
-  onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: import('@ainyc/canonry-contracts').SchedulableRunKind) => void
+  onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: import('@canonry/canonry-contracts').SchedulableRunKind) => void
   onProjectUpserted?: (projectId: string, projectName: string) => void
   /** Post-commit lifecycle hook; failures must not turn a committed create into an HTTP 500. */
   onProjectCreated?: (projectId: string, projectName: string) => void
@@ -103,7 +103,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     const competitorWrites = competitorWritesFromEntries(config.spec.competitors)
 
     // Validate schedule before entering transaction
-    let resolvedSchedule: { cronExpr: string; preset: string | null; recurrence: import('@ainyc/canonry-contracts').CalendarRecurrence | null; timezone: string } | null = null
+    let resolvedSchedule: { cronExpr: string; preset: string | null; recurrence: import('@canonry/canonry-contracts').CalendarRecurrence | null; timezone: string } | null = null
     let deleteSchedule = false
     if (config.spec.schedule) {
       const schedSpec = config.spec.schedule

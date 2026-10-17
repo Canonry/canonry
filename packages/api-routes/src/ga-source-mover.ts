@@ -1,5 +1,5 @@
-import { GaMoverChangeBases, MIN_PCT_BASE, compareText, deltaPercent } from '@ainyc/canonry-contracts'
-import type { GaMoverChangeBasis, GaSourceMover } from '@ainyc/canonry-contracts'
+import { GaMoverChangeBases, MIN_PCT_BASE, compareText, deltaPercent } from '@canonry/canonry-contracts'
+import type { GaMoverChangeBasis, GaSourceMover } from '@canonry/canonry-contracts'
 
 /**
  * The biggest-mover calculation behind `/ga/social-referral-trend` and

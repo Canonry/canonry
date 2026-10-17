@@ -1,4 +1,4 @@
-import { buildMentionShare } from '@ainyc/canonry-intelligence'
+import { buildMentionShare } from '@canonry/canonry-intelligence'
 import {
   answerProseForMentions,
   CitationStates,
@@ -17,7 +17,7 @@ import {
   type VisibilityCompareContinuityStatus,
   type VisibilityCompareProviderRow,
   type VisibilityStatsShareCompetitor,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { buildQueryAttribution, resolveCurrentQuery } from './visibility-stats.js'
 import { classifyModelEvidence, compareModelContinuity } from './model-evidence.js'
 

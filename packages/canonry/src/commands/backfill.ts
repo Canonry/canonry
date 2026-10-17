@@ -1,16 +1,16 @@
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
-import { backfillProjectAnswerMentions, competitorIdentityColumns, createRunCompetitorResolver, readMarketCompetitorNames } from '@ainyc/canonry-api-routes'
+import { backfillProjectAnswerMentions, competitorIdentityColumns, createRunCompetitorResolver, readMarketCompetitorNames } from '@canonry/canonry-api-routes'
 import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
-import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest, RetrievalContract, RetrievalStatus } from '@ainyc/canonry-contracts'
-import { aiUserFetchEventsHourly, auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, rawEventSamples, runs } from '@ainyc/canonry-db'
-import { computeCompetitorOverlap, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, extractRecommendedCompetitors, normalizeUrlPath, openRouterRouteModel, ProviderNames, RetrievalContracts, RunKinds, TrafficEventConfidences, TrafficEventKinds, TrafficEvidenceKinds, TrafficSourceTypes } from '@ainyc/canonry-contracts'
-import { classifyAiUserFetch, classifyCrawler } from '@ainyc/canonry-integration-traffic'
-import { OPENAI_RETRIEVAL_CONTRACT, reparseStoredResult as reparseOpenAIStoredResult } from '@ainyc/canonry-provider-openai'
-import { reparseStoredResult as reparseClaudeStoredResult } from '@ainyc/canonry-provider-claude'
-import { reparseStoredResult as reparseGeminiStoredResult } from '@ainyc/canonry-provider-gemini'
-import { reparseStoredResult as reparsePerplexityStoredResult } from '@ainyc/canonry-provider-perplexity'
-import { reparseStoredResult as reparseMuseStoredResult } from '@ainyc/canonry-provider-muse'
-import { openrouterAdapter } from '@ainyc/canonry-provider-openrouter'
+import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest, RetrievalContract, RetrievalStatus } from '@canonry/canonry-contracts'
+import { aiUserFetchEventsHourly, auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, rawEventSamples, runs } from '@canonry/canonry-db'
+import { computeCompetitorOverlap, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, extractRecommendedCompetitors, normalizeUrlPath, openRouterRouteModel, ProviderNames, RetrievalContracts, RunKinds, TrafficEventConfidences, TrafficEventKinds, TrafficEvidenceKinds, TrafficSourceTypes } from '@canonry/canonry-contracts'
+import { classifyAiUserFetch, classifyCrawler } from '@canonry/canonry-integration-traffic'
+import { OPENAI_RETRIEVAL_CONTRACT, reparseStoredResult as reparseOpenAIStoredResult } from '@canonry/canonry-provider-openai'
+import { reparseStoredResult as reparseClaudeStoredResult } from '@canonry/canonry-provider-claude'
+import { reparseStoredResult as reparseGeminiStoredResult } from '@canonry/canonry-provider-gemini'
+import { reparseStoredResult as reparsePerplexityStoredResult } from '@canonry/canonry-provider-perplexity'
+import { reparseStoredResult as reparseMuseStoredResult } from '@canonry/canonry-provider-muse'
+import { openrouterAdapter } from '@canonry/canonry-provider-openrouter'
 import { loadConfig } from '../config.js'
 import { resolveStoredApiResponse } from '../stored-answer-anchors.js'
 import type { CliFormat } from '../cli-error.js'
@@ -23,7 +23,7 @@ export {
   backfillProjectAnswerMentions,
   backfillProjectAnswerMentionsInChunks,
   type ProjectAnswerMentionsBackfillResult,
-} from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-api-routes'
 
 const SNAPSHOT_BATCH_SIZE = 500
 // Short pages keep each write transaction brief while a server shares the database.

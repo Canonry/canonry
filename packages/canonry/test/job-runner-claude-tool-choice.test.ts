@@ -10,8 +10,8 @@ import {
   type LocationContext,
   type MeasurementPlanV2,
   type ProviderModels,
-} from '@ainyc/canonry-contracts'
-import { queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-contracts'
+import { queueRunIfProjectIdle } from '@canonry/canonry-api-routes'
 import {
   createClient,
   measurementPlans,
@@ -22,8 +22,8 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
-import { claudeAdapter } from '@ainyc/canonry-provider-claude'
+} from '@canonry/canonry-db'
+import { claudeAdapter } from '@canonry/canonry-provider-claude'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 

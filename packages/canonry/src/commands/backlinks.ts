@@ -9,8 +9,8 @@ import type {
   CcCachedRelease,
   CcReleaseSyncDto,
   RunDto,
-} from '@ainyc/canonry-contracts'
-import { BacklinkSources, CcReleaseSyncStatuses, RunStatuses, backlinkSourceSchema, formatPercent, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import { BacklinkSources, CcReleaseSyncStatuses, RunStatuses, backlinkSourceSchema, formatPercent, formatRunErrorOneLine } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
 import { CliError, isMachineFormat } from '../cli-error.js'

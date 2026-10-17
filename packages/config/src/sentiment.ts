@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { SENTIMENT_MODEL, SENTIMENT_OPENROUTER_MODEL, sentimentEvaluatorProviderSchema } from '@ainyc/canonry-contracts'
+import { SENTIMENT_MODEL, SENTIMENT_OPENROUTER_MODEL, sentimentEvaluatorProviderSchema } from '@canonry/canonry-contracts'
 
 /** Private install configuration. Never serialize this object in public DTOs. */
 export const sentimentInstallConfigSchema = z.object({

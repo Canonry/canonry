@@ -4,7 +4,7 @@ import {
   registrableDomain,
   VERTEX_AI_SEARCH_PROXY_DOMAIN,
   type AnchoredAnswerSpan,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)

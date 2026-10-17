@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { ContentTargetRowDto } from '@ainyc/canonry-contracts'
+import type { ContentTargetRowDto } from '@canonry/canonry-contracts'
 
 // Stub `completeOnce` at module-load time so the explainer's
 // `import { completeOnce }` resolves to the mock. Each test seeds

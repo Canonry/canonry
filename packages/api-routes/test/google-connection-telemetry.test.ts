@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createClient, gbpLocations, migrate, projects } from '@ainyc/canonry-db'
-import { exchangeCode, GoogleAuthError } from '@ainyc/canonry-integration-google'
+import { createClient, gbpLocations, migrate, projects } from '@canonry/canonry-db'
+import { exchangeCode, GoogleAuthError } from '@canonry/canonry-integration-google'
 import { googleRoutes, type GoogleConnectionRecord } from '../src/google.js'
 import { buildSignedGoogleOAuthState, GOOGLE_OAUTH_STATE_MAX_AGE_MS } from '../src/google-oauth-state.js'
 import { connectionOutcomes, outcomeApp } from './outcome-capture.js'
 
-vi.mock('@ainyc/canonry-integration-google', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@ainyc/canonry-integration-google')>(),
+vi.mock('@canonry/canonry-integration-google', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@canonry/canonry-integration-google')>(),
   exchangeCode: vi.fn(),
 }))
 

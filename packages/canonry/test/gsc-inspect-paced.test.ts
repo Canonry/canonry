@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { GscUrlInspectionResult } from '@ainyc/canonry-integration-google'
+import type { GscUrlInspectionResult } from '@canonry/canonry-integration-google'
 import {
   inspectUrlsPaced,
   isRetryableGscInspectError,

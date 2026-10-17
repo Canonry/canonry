@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import { RunKinds } from '@ainyc/canonry-contracts'
+import { RunKinds } from '@canonry/canonry-contracts'
 import {
   ApiError,
   type ApiRun,

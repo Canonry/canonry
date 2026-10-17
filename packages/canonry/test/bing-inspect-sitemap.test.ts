@@ -5,9 +5,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
-import { bingCoverageSnapshots, bingUrlInspections, createClient, migrate, projects, runs } from '@ainyc/canonry-db'
-import { BingApiError } from '@ainyc/canonry-integration-bing'
+import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
+import { bingCoverageSnapshots, bingUrlInspections, createClient, migrate, projects, runs } from '@canonry/canonry-db'
+import { BingApiError } from '@canonry/canonry-integration-bing'
 import { executeBingInspectSitemap } from '../src/bing-inspect-sitemap.js'
 import type { CanonryConfig } from '../src/config.js'
 
@@ -99,7 +99,7 @@ describe('executeBingInspectSitemap', () => {
     db.delete(bingCoverageSnapshots).run()
     db.delete(runs).run()
 
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     vi.spyOn(bingModule, 'getCrawlIssues').mockResolvedValue([])
   })
 
@@ -158,7 +158,7 @@ describe('executeBingInspectSitemap', () => {
     const s = await startSitemapServer({ '/sitemap.xml': sitemapXml })
     server = s.server
 
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     const lastCrawledMs = new Date('2026-04-25T10:00:00Z').getTime()
     vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _site, url) => ({
       Url: url,
@@ -217,7 +217,7 @@ describe('executeBingInspectSitemap', () => {
     const s = await startSitemapServer({ '/sitemap.xml': sitemapXml })
     server = s.server
 
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _site, url) => {
       if (url.endsWith('/fail')) throw new Error('Bing API error')
       return { Url: url, HttpStatus: 200, DocumentSize: 1000 }
@@ -273,7 +273,7 @@ describe('executeBingInspectSitemap', () => {
       createdAt: '2026-08-01T00:00:00.000Z',
     }).run()
 
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async () => {
       throw Object.assign(new Error('Bing API error (400): {"ErrorCode":4,"Message":"ERROR!!! ThrottleUser"}'), {
         status: 429,
@@ -311,7 +311,7 @@ describe('executeBingInspectSitemap', () => {
     const s = await startSitemapServer({ '/sitemap.xml': sitemapXml })
     server = s.server
 
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _site, url) => {
       if (url.endsWith('/fail')) throw new Error('Bing API error')
       return { Url: url, HttpStatus: 200, DocumentSize: 1000 }
@@ -391,7 +391,7 @@ describe('executeBingInspectSitemap', () => {
     const s = await startSitemapServer({ '/sitemap.xml': sitemapXml })
     server = s.server
 
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _site, url) => ({
       Url: url, HttpStatus: 200, DocumentSize: 1234,
     }))
@@ -434,7 +434,7 @@ describe('executeBingInspectSitemap', () => {
     it('reports the coverage sweep as the bing sync, with URL counts, after it is saved', async () => {
       const s = await startSitemapServer({ '/sitemap.xml': sitemapOf(2) })
       server = s.server
-      const bingModule = await import('@ainyc/canonry-integration-bing')
+      const bingModule = await import('@canonry/canonry-integration-bing')
       vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _site, url) => ({ Url: url, HttpStatus: 200, DocumentSize: 1000 }))
 
       const runId = await queueRun()
@@ -454,7 +454,7 @@ describe('executeBingInspectSitemap', () => {
     it('reports a URL Bing throttled as partial on rate limit, not as a client error', async () => {
       const s = await startSitemapServer({ '/sitemap.xml': sitemapOf(2) })
       server = s.server
-      const bingModule = await import('@ainyc/canonry-integration-bing')
+      const bingModule = await import('@canonry/canonry-integration-bing')
       vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _site, url) => {
         if (url.endsWith('/p1')) throw throttled()
         return { Url: url, HttpStatus: 200, DocumentSize: 1000 }
@@ -477,7 +477,7 @@ describe('executeBingInspectSitemap', () => {
     it('reports a sweep that inspected nothing by the throttle behind it', async () => {
       const s = await startSitemapServer({ '/sitemap.xml': sitemapOf(6) })
       server = s.server
-      const bingModule = await import('@ainyc/canonry-integration-bing')
+      const bingModule = await import('@canonry/canonry-integration-bing')
       vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async () => { throw throttled() })
 
       const runId = await queueRun()

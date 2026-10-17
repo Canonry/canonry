@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { UserDto, UserListDto } from '@ainyc/canonry-contracts'
+import type { UserDto, UserListDto } from '@canonry/canonry-contracts'
 
 const mockListUsers = vi.fn()
 const mockCreateUser = vi.fn()

@@ -1,4 +1,4 @@
-import { missingDependency } from '@ainyc/canonry-contracts'
+import { missingDependency } from '@canonry/canonry-contracts'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'

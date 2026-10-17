@@ -1,7 +1,7 @@
 {
   "name": "canonry",
   "private": true,
-  "version": "7.46.0",
+  "version": "7.47.0",
   "type": "module",
   "packageManager": "pnpm@10.28.2",
   "scripts": {
@@ -15,8 +15,8 @@
     "lint:changed": "node scripts/lint-changed.mjs",
     "lint:staged": "node scripts/lint-changed.mjs --staged",
     "lint": "pnpm -r --no-sort --workspace-concurrency=4 run lint",
-    "gen": "pnpm --filter @ainyc/canonry-api-client gen",
-    "gen:check": "pnpm --filter @ainyc/canonry-api-client gen:check",
+    "gen": "pnpm --filter @canonry/canonry-api-client gen",
+    "gen:check": "pnpm --filter @canonry/canonry-api-client gen:check",
     "verify": "pnpm gen:check && pnpm plugin:check && pnpm val:skills:check && pnpm run typecheck && pnpm run lint && pnpm run test",
     "plugin:sync": "node scripts/sync-canonry-plugin.mjs",
     "guide:sync": "node scripts/sync-agent-operations.mjs && pnpm plugin:sync && pnpm val:skills",
@@ -24,9 +24,9 @@
     "plugin:check": "node scripts/sync-canonry-plugin.mjs --check",
     "val:skills": "node scripts/sync-val-town-skills.mjs",
     "val:skills:check": "node scripts/sync-val-town-skills.mjs --check",
-    "dev:api": "pnpm --filter @ainyc/canonry-api run dev",
-    "dev:worker": "pnpm --filter @ainyc/canonry-worker run dev",
-    "dev:web": "pnpm --filter @ainyc/canonry-web run dev",
+    "dev:api": "pnpm --filter @canonry/canonry-api run dev",
+    "dev:worker": "pnpm --filter @canonry/canonry-worker run dev",
+    "dev:web": "pnpm --filter @canonry/canonry-web run dev",
     "prepare": "husky || true"
   },
   "devDependencies": {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { sentimentOutcomeSchema, sentimentSummarySchema } from '@ainyc/canonry-contracts'
+import { sentimentOutcomeSchema, sentimentSummarySchema } from '@canonry/canonry-contracts'
 import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'
 import type { ApiClient } from '../src/client.js'
 import { CliError } from '../src/cli-error.js'

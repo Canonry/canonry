@@ -1,4 +1,4 @@
-import { logQuerySchema } from '@ainyc/canonry-contracts'
+import { logQuerySchema } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat, usageError, type CliFormat } from '../cli-error.js'
 

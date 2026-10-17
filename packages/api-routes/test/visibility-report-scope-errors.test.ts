@@ -8,7 +8,7 @@ import {
   canonicalMeasurementPlanV2Json,
   parseVisibilityReportScopeErrorDetails,
   type VisibilityReportScopeErrorDetails,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   apiKeys,
   createClient,
@@ -17,7 +17,7 @@ import {
   migrate,
   projects,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import type { VisibilityReportDefinitionInput, VisibilityReportReaderInput } from '../src/visibility-report-reader.js'
 
 type DefinitionOverride = (definition: VisibilityReportDefinitionInput) => VisibilityReportDefinitionInput

@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
-import { createClient, migrate, runs, projects } from '@ainyc/canonry-db'
+import { createClient, migrate, runs, projects } from '@canonry/canonry-db'
 import { eq } from 'drizzle-orm'
 import { apiRoutes } from '../src/index.js'
 

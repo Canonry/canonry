@@ -21,7 +21,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-import { CitationStates, RunKinds, RunStatuses, embedProjectTabsError, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
+import { CitationStates, RunKinds, RunStatuses, embedProjectTabsError, formatRunErrorOneLine } from '@canonry/canonry-contracts'
 
 import { asyncHandler } from './lib/async-handler.js'
 import { formatErrorLog } from './lib/format-helpers.js'
@@ -39,7 +39,7 @@ import { viewerRoleLabel,
 } from './api.js'
 import { useAccount } from './contexts/account-context.js'
 import { embedThemeMode, embedThemeStyle, embedViewIdForPath } from './embed.js'
-import { getApiV1ProjectsOptions, getApiV1RunsOptions } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1ProjectsOptions, getApiV1RunsOptions } from '@canonry/canonry-api-client/react-query'
 import { serviceStatusTooltip } from './lib/health-helpers.js'
 import { addToast, type ToastTone } from './lib/toast-store.js'
 import {

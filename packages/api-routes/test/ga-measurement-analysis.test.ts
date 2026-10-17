@@ -14,8 +14,8 @@ import {
   gscSearchData,
   migrate,
   runs,
-} from '@ainyc/canonry-db'
-import { gaMeasurementAnalysisDtoSchema, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-db'
+import { gaMeasurementAnalysisDtoSchema, RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialRecord, Ga4CredentialStore } from '../src/ga.js'
 

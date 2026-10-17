@@ -10,14 +10,14 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router'
-import { getApiV1ProjectsByNameAgentProvidersQueryKey } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1ProjectsByNameAgentProvidersQueryKey } from '@canonry/canonry-api-client/react-query'
 
 import { heyClient } from '../src/api.js'
 import * as api from '../src/api.js'
 import { AeroBar } from '../src/components/shared/AeroBar.js'
 import { AccountProvider, type ApiKeyAccess } from '../src/contexts/account-context.js'
 import * as aero from '../src/api-aero.js'
-import type { AeroPreviewResponse, AgentProvidersResponse } from '@ainyc/canonry-contracts'
+import type { AeroPreviewResponse, AgentProvidersResponse } from '@canonry/canonry-contracts'
 
 const PROJECT_NAME = 'citypoint'
 

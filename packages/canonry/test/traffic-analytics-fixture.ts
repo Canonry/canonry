@@ -1,4 +1,4 @@
-import type { TrafficAnalyticsResponse } from '@ainyc/canonry-contracts'
+import type { TrafficAnalyticsResponse } from '@canonry/canonry-contracts'
 
 export const TRAFFIC_ANALYTICS_FIXTURE: TrafficAnalyticsResponse = {
   activity: {

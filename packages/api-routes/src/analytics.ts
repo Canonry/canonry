@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, lt } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, queryBasketVersions, competitors, domainClassifications, type DatabaseClient } from '@ainyc/canonry-db'
+import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, queryBasketVersions, competitors, domainClassifications, type DatabaseClient } from '@canonry/canonry-db'
 import {
   AI_PROVIDER_INFRA_DOMAINS, categorizeSource, categoryLabel, CitationStates,
   classifySurfaceFromCategory, surfaceClassFromCompetitorType, surfaceClassLabel,
@@ -8,7 +8,7 @@ import {
   RunTriggers, windowCutoff, validationError, notFound, compileBrandAliases, hostMatchesAnyDomain, hostMatchesDomain,
   hostOf, matcherMatchesText, normalizeQueryText, sourceBreakdownQuerySchema, answerProseForMentions,
   prepareBrandMatchText, LATEST_RUN_ID, SOURCE_BREAKDOWN_COUNT_UNITS, RatioUnits, roundRatio,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
   TimeBucket, TrendDirection, GapQuery, GapCategory,
@@ -16,8 +16,8 @@ import type {
   RankedSourceList, SourceRankEntry, SurfaceClass, SurfaceClassCount, ModelEvidenceState,
   ModelExposureWindow, ModelPointerChangeDisclosure, ModelServiceMismatch, ExecutionIdentityChangeEvent,
   WindowChange, WindowRateChange,
-} from '@ainyc/canonry-contracts'
-import { buildMentionShare, type MentionShareCompetitor } from '@ainyc/canonry-intelligence'
+} from '@canonry/canonry-contracts'
+import { buildMentionShare, type MentionShareCompetitor } from '@canonry/canonry-intelligence'
 import { mentionShareCompetitors as mentionShareCompetitorsFor, projectQueryClassifier } from './mention-share-inputs.js'
 import { latestSweepRuns, planQueryClassesByRun, pooledRunIds, readCompetitorIdentityChangedAt, readCompetitorSetChangedAt } from './competitor-landscape.js'
 import { activeMeasurementPlan } from './measurement-overview.js'

@@ -1,6 +1,7 @@
 import { usePublishAeroView } from '../../contexts/aero-view-context.js'
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -41,7 +42,7 @@ import {
   type SiteHealthScanDto,
   type SiteHealthState,
   type SiteHealthTemplateDetection,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameOptions,
   getApiV1ProjectsByNameTechnicalAeoCrawlOptions,
@@ -55,13 +56,13 @@ import {
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewOptions,
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressOptions,
   getApiV1ProjectsByNameTechnicalAeoStructureInfiniteOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { heyClient, isDashboardManagedRunKind, isEmbed, isPublicDemo } from '../../api.js'
 import { useAccount } from '../../contexts/account-context.js'
 import { ManagedSweepStatus, MANAGED_SCANS_COPY } from './ManagedSweepStatus.js'
 import { cn } from '../../lib/utils.js'
-import { PAGE_BUDGET_PRESETS, oneOffFullSiteChoice, projectDefaultPageBudgetLabel } from '../../lib/site-audit-page-budget.js'
+import { PAGE_BUDGET_HELP, PAGE_BUDGET_PRESETS, oneOffFullSiteChoice, projectDefaultPageBudgetLabel } from '../../lib/site-audit-page-budget.js'
 import { useTriggerSiteAudit } from '../../queries/mutations.js'
 import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
 import type { MetricTone } from '../../view-models.js'
@@ -74,6 +75,7 @@ import {
 } from './site-graph-sigma.js'
 import { displayPagePath, siteHostFromUrl } from './site-health-paths.js'
 import { PageAuditEvidence } from './PageAuditEvidence.js'
+import { SITE_HEALTH_CHECK_HELP } from './site-health-check-help.js'
 import { TechnicalAeoSection } from './TechnicalAeoSection.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { OnboardingProgress } from '../shared/OnboardingProgress.js'
@@ -303,12 +305,8 @@ function scanTone(status: string | null | undefined): MetricTone {
   return 'neutral'
 }
 
-/**
- * The scan history default is the API's preferred scan: the latest scan date,
- * a complete scan first, then the most pages checked. It is not always the
- * newest scan, so the label names the rule rather than saying "latest".
- */
-const DEFAULT_SCAN_OPTION_LABEL = 'Most complete scan from latest day'
+const DEFAULT_SCAN_OPTION_LABEL = 'Latest scan'
+const DEFAULT_SCAN_HELP = 'Shows the most complete scan from the latest day with results. Choose a dated entry to view another scan.'
 
 /**
  * A scan that kept no crawl is still real, selectable history. Say what it
@@ -1656,6 +1654,7 @@ export function SiteHealthSection({
   /** Leaves the explicit onboarding flow. */
   onSkipOnboarding?: () => void
 }) {
+  const scanHistoryId = useId()
   const [view, setView] = useState<SiteHealthView>('map')
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const [selectedRunId, setSelectedRunId] = useState<string | null>(() => initialRunId ?? null)
@@ -1664,6 +1663,8 @@ export function SiteHealthSection({
   const previousInitialRunId = useRef(initialRunId)
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null)
   const [checkDeadLinks, setCheckDeadLinks] = useState(false)
+  const [includeGeo, setIncludeGeo] = useState(false)
+  const [includeAgentSkills, setIncludeAgentSkills] = useState(true)
   // `null` on both = send nothing: the server applies the project's saved
   // page budget (else the full site) and the crawler's default depth.
   const [pageBudget, setPageBudget] = useState<number | null>(null)
@@ -2101,6 +2102,8 @@ export function SiteHealthSection({
       projectId,
       body: {
         checkDeadLinks: explicitOnboarding || checkDeadLinks,
+        ...(includeGeo ? { includeGeo: true } : {}),
+        ...(!includeAgentSkills ? { includeAgentSkills: false } : {}),
         // Onboarding is a bounded first look, so it does not spend the full
         // crawl budget before the operator has seen any result. Everywhere
         // else the budget is whatever Scan settings says, and an unset budget
@@ -2152,9 +2155,13 @@ export function SiteHealthSection({
         </div>
 
         <div className="flex flex-wrap items-start gap-2">
-          <label className="grid gap-1 text-xs text-muted">
-            Scan history
+          <div className="grid gap-1 text-xs text-muted">
+            <div className="flex items-center gap-1.5">
+              <label htmlFor={scanHistoryId}>Scan history</label>
+              <InfoTooltip text={DEFAULT_SCAN_HELP} placement="bottom" />
+            </div>
             <select
+              id={scanHistoryId}
               aria-label="View a Site Health scan"
               value={selectedRunId ?? finishedRescanRunId ?? ''}
               onChange={(event) => selectRun(event.target.value)}
@@ -2165,7 +2172,7 @@ export function SiteHealthSection({
                 <option key={scan.runId} value={scan.runId}>{scanOptionLabel(scan)}</option>
               ))}
             </select>
-          </label>
+          </div>
 
           {!embedded && !managedScanForViewer && (
             <div className="flex items-end gap-2 pt-5">
@@ -2174,7 +2181,7 @@ export function SiteHealthSection({
                   <Settings2 className="size-4" aria-hidden="true" />
                   Scan settings
                 </summary>
-                <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-strong bg-bg-elevated p-4 shadow-[0_12px_32px_var(--color-shadow-panel)]">
+                <div className="absolute left-0 z-20 mt-2 w-72 rounded-lg border border-strong bg-bg-elevated p-4 shadow-[0_12px_32px_var(--color-shadow-panel)] sm:left-auto sm:right-0">
                   <div className="flex items-center justify-between gap-3 text-sm text-heading">
                     <span className="flex items-center gap-1.5 font-medium">
                       Check dead links
@@ -2189,13 +2196,41 @@ export function SiteHealthSection({
                       className="size-4 rounded border-base accent-mono-200 focus:ring-2 focus:ring-mono-400"
                     />
                   </div>
+                  <div className="mt-3 flex items-center justify-between gap-3 text-sm text-heading">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      Geographic signals
+                      <InfoTooltip text={SITE_HEALTH_CHECK_HELP['geographic-signals']!} placement="bottom" />
+                    </span>
+                    <input
+                      type="checkbox"
+                      aria-label="Geographic signals"
+                      checked={includeGeo}
+                      disabled={scanBusy}
+                      onChange={(event) => setIncludeGeo(event.target.checked)}
+                      className="size-4 rounded border-base accent-mono-200 focus:ring-2 focus:ring-mono-400"
+                    />
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-3 text-sm text-heading">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      Agent integrations
+                      <InfoTooltip text={SITE_HEALTH_CHECK_HELP['agent-skill-exposure']!} placement="bottom" />
+                    </span>
+                    <input
+                      type="checkbox"
+                      aria-label="Agent integrations"
+                      checked={includeAgentSkills}
+                      disabled={scanBusy}
+                      onChange={(event) => setIncludeAgentSkills(event.target.checked)}
+                      className="size-4 rounded border-base accent-mono-200 focus:ring-2 focus:ring-mono-400"
+                    />
+                  </div>
                   {/* The tooltip sits OUTSIDE the label: inside it, its own
                       accessible name folds into the control's, and both answer
                       to the same name. */}
                   <div className="mt-4">
                     <span className="flex items-center gap-1.5 text-sm font-medium text-heading">
                       Page budget
-                      <InfoTooltip text="How many pages one scan may read before it stops." />
+                      <InfoTooltip text={PAGE_BUDGET_HELP} placement="bottom" />
                     </span>
                     <select
                       aria-label="Page budget"

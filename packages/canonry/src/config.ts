@@ -3,10 +3,10 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
-import { agentAllowViewersSchema, agentModelSchema, agentProviderSchema, classificationConfigSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@ainyc/canonry-config'
-import type { SentimentInstallConfigInput } from '@ainyc/canonry-config'
-import { AGENT_PROVIDER_IDS, isRetiredAgentProviderId } from '@ainyc/canonry-contracts'
-import type { AgentProviderId, EmbedConfigEntry, ProviderBatchConfig, ProviderPricing, ProviderQuotaPolicy, SchedulableRunKind } from '@ainyc/canonry-contracts'
+import { agentAllowViewersSchema, agentModelSchema, agentProviderSchema, classificationConfigSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@canonry/canonry-config'
+import type { SentimentInstallConfigInput } from '@canonry/canonry-config'
+import { AGENT_PROVIDER_IDS, isRetiredAgentProviderId } from '@canonry/canonry-contracts'
+import type { AgentProviderId, EmbedConfigEntry, ProviderBatchConfig, ProviderPricing, ProviderQuotaPolicy, SchedulableRunKind } from '@canonry/canonry-contracts'
 import { isAgentModelAvailable } from './agent/providers.js'
 import { CliError } from './cli-error.js'
 import { normalizeProviderBatchSettings } from './provider-batch-config.js'
@@ -442,7 +442,7 @@ export interface PlacesConfigEntry {
 
 export interface CanonryConfig {
   /** Model for domain classification, separate from the measured sweep engines and Aero. */
-  classification?: import('@ainyc/canonry-config').ClassificationConfig
+  classification?: import('@canonry/canonry-config').ClassificationConfig
   /**
    * Private opt-in TypeSafe classifier credentials and limits. Reloaded from
    * config.yaml before dispatch; the in-memory copy is a startup snapshot that

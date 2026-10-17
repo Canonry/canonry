@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 
-import type { McpHealth } from '@ainyc/canonry-contracts'
-import type { PlatformEnv } from '@ainyc/canonry-config'
+import type { McpHealth } from '@canonry/canonry-contracts'
+import type { PlatformEnv } from '@canonry/canonry-config'
 
 interface HealthResponse {
   service: 'canonry'

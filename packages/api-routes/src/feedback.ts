@@ -6,7 +6,7 @@ import {
   validationError,
   type FeedbackAcceptedDto,
   type FeedbackSubmission,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /**
  * Who sent the feedback, read from the same caller headers usage telemetry

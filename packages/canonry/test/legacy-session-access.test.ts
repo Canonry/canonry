@@ -3,10 +3,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { apiKeys, auditLog, createClient, dashboardSessions, migrate, type DatabaseClient } from '@ainyc/canonry-db'
-import { hashSessionToken } from '@ainyc/canonry-api-routes'
+import { apiKeys, auditLog, createClient, dashboardSessions, migrate, type DatabaseClient } from '@canonry/canonry-db'
+import { hashSessionToken } from '@canonry/canonry-api-routes'
 import { createServer } from '../src/server.js'
-import { operationAccess } from '@ainyc/canonry-contracts'
+import { operationAccess } from '@canonry/canonry-contracts'
 
 describe('legacy dashboard session operation boundary', () => {
   let dir: string

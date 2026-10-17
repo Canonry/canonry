@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { KeyboardEvent, ReactNode } from 'react'
-import { formatPercent, UNATTRIBUTED_MENTION_REASON } from '@ainyc/canonry-contracts'
+import { formatPercent, UNATTRIBUTED_MENTION_REASON } from '@canonry/canonry-contracts'
 import type { MetricTone } from '../../../view-models.js'
 import { excludedAnswersLabel, type CoverageSignal } from '../../../lib/format-helpers.js'
 import { providerDisplayName } from '../../../lib/visibility-trend-helpers.js'

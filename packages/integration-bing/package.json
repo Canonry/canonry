@@ -1,5 +1,5 @@
 {
-  "name": "@ainyc/canonry-integration-bing",
+  "name": "@canonry/canonry-integration-bing",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -17,6 +17,6 @@
     "lint": "eslint src/ test/"
   },
   "dependencies": {
-    "@ainyc/canonry-contracts": "workspace:*"
+    "@canonry/canonry-contracts": "workspace:*"
   }
 }

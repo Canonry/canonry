@@ -26,7 +26,7 @@ import {
   measurementPlanV2Schema,
   type MeasurementPlanV2,
   type MeasurementPortfolioSummaryResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   measurementPlans,
@@ -36,7 +36,7 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
 import { HARBOR_CONTEXT } from './measurement-plan-v2-fixture.js'
@@ -47,8 +47,8 @@ import { HARBOR_CONTEXT } from './measurement-plan-v2-fixture.js'
  * and a paged walk reads the whole portfolio once per page.
  */
 const hostParses = vi.hoisted(() => ({ count: 0 }))
-vi.mock('@ainyc/canonry-contracts', async importOriginal => {
-  const actual = await importOriginal<typeof import('@ainyc/canonry-contracts')>()
+vi.mock('@canonry/canonry-contracts', async importOriginal => {
+  const actual = await importOriginal<typeof import('@canonry/canonry-contracts')>()
   return {
     ...actual,
     hostOf: (value: string | null | undefined) => {

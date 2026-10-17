@@ -11,8 +11,8 @@ import {
   type LocationContext,
   type MeasurementPlanV2,
   type ProviderAdapter,
-} from '@ainyc/canonry-contracts'
-import { queueRunFill, queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-contracts'
+import { queueRunFill, queueRunIfProjectIdle } from '@canonry/canonry-api-routes'
 import {
   competitors,
   measurementPlans,
@@ -25,7 +25,7 @@ import {
   runs,
   simpleMeasurementDefinitions,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'

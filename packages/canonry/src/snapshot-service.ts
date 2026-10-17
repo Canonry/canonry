@@ -11,7 +11,7 @@ import {
   SnapshotProviderModes,
   isSweepProvider,
   validationError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type {
   GroundingSource,
   SnapshotAccuracy,
@@ -21,8 +21,8 @@ import type {
   SnapshotQueryResultDto,
   SnapshotReportDto,
   SnapshotRequestDto,
-} from '@ainyc/canonry-contracts'
-import type { ProviderName } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import type { ProviderName } from '@canonry/canonry-contracts'
 import { fetchSiteText } from './site-fetch.js'
 import type { RegisteredProvider, ProviderRegistry } from './provider-registry.js'
 import { createLogger } from './logger.js'

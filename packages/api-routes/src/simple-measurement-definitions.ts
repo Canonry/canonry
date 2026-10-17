@@ -13,8 +13,8 @@ import {
   simpleMeasurementDefinitionSchema,
   validationError,
   type SimpleMeasurementDefinition,
-} from '@ainyc/canonry-contracts'
-import { competitors, queries, querySnapshots, runs, simpleMeasurementDefinitions, type DatabaseClient } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import { competitors, queries, querySnapshots, runs, simpleMeasurementDefinitions, type DatabaseClient } from '@canonry/canonry-db'
 
 /**
  * Record actual dispatch inputs, not the configuration at queue time.

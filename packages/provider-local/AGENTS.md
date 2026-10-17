@@ -15,7 +15,7 @@ Local LLM adapter — implements `ProviderAdapter` for any OpenAI-compatible loc
 
 ## Patterns
 
-All provider packages follow the same 4-file structure and implement the same `ProviderAdapter` interface from `@ainyc/canonry-contracts`:
+All provider packages follow the same 4-file structure and implement the same `ProviderAdapter` interface from `@canonry/canonry-contracts`:
 
 - **`validateConfig(config)`** — verify base URL and model are configured
 - **`healthcheck(config)`** — test connectivity to the local endpoint

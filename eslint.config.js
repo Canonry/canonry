@@ -186,12 +186,12 @@ const inlineAiHostnameRule = createRestrictedSyntaxRule({
   description: 'Disallow raw AI-provider hostname literals in production code.',
   restrictions: [{
     selector: "Literal[value=/^(openai\\.com|chatgpt\\.com|chat\\.openai\\.com|claude\\.ai|perplexity\\.ai|gemini\\.google\\.com|bard\\.google\\.com|copilot\\.microsoft\\.com|copilot\\.com|deepseek\\.com|meta\\.ai|grok\\.com|you\\.com|phind\\.com|anthropic\\.com|googleapis\\.com|vertexaisearch\\.cloud\\.google\\.com)$/]",
-    message: 'Use AI_ENGINE_DOMAINS / AI_PROVIDER_INFRA_DOMAINS / ANTHROPIC_API_DOMAIN / GOOGLE_APIS_DOMAIN / VERTEX_AI_SEARCH_PROXY_DOMAIN from @ainyc/canonry-contracts — never inline raw AI-provider hostnames in production code.',
+    message: 'Use AI_ENGINE_DOMAINS / AI_PROVIDER_INFRA_DOMAINS / ANTHROPIC_API_DOMAIN / GOOGLE_APIS_DOMAIN / VERTEX_AI_SEARCH_PROXY_DOMAIN from @canonry/canonry-contracts — never inline raw AI-provider hostnames in production code.',
   }],
 })
 
 // SDK enforcement (web): every web call into the canonry API must flow through
-// the generated `@ainyc/canonry-api-client` SDK (raw call or TanStack helper),
+// the generated `@canonry/canonry-api-client` SDK (raw call or TanStack helper),
 // with auth + 401/403 handling provided by the shared `heyClient` from
 // `apps/web/src/api.ts`. Raw `fetch()` to API URLs bypasses every spec-derived
 // contract and the auth interceptor.
@@ -199,10 +199,10 @@ const rawHttpWebRule = createRestrictedSyntaxRule({
   description: 'Disallow raw fetch() / XMLHttpRequest in web code — call the generated SDK.',
   restrictions: [{
     selector: "CallExpression[callee.name='fetch']",
-    message: 'Use the generated `@ainyc/canonry-api-client` SDK (via `heyClient` from `apps/web/src/api.ts`) instead of raw `fetch()`. Spec drift + auth interceptor bypass is silent and pernicious. For an endpoint missing a typed DTO, add a Zod schema in `packages/contracts` and flip the route to `jsonResponse(...)` first.',
+    message: 'Use the generated `@canonry/canonry-api-client` SDK (via `heyClient` from `apps/web/src/api.ts`) instead of raw `fetch()`. Spec drift + auth interceptor bypass is silent and pernicious. For an endpoint missing a typed DTO, add a Zod schema in `packages/contracts` and flip the route to `jsonResponse(...)` first.',
   }, {
     selector: "NewExpression[callee.name='XMLHttpRequest']",
-    message: 'Use the generated `@ainyc/canonry-api-client` SDK (via `heyClient` from `apps/web/src/api.ts`) instead of `XMLHttpRequest`.',
+    message: 'Use the generated `@canonry/canonry-api-client` SDK (via `heyClient` from `apps/web/src/api.ts`) instead of `XMLHttpRequest`.',
   }],
 })
 
@@ -213,7 +213,7 @@ const rawHttpCliRule = createRestrictedSyntaxRule({
   description: 'Disallow raw fetch() in CLI code — call the canonry API through ApiClient.',
   restrictions: [{
     selector: "CallExpression[callee.name='fetch']",
-    message: 'Use the generated `@ainyc/canonry-api-client` SDK via `ApiClient` / `createApiClient()` (which routes through `invoke()` for tracing, CliError mapping, and the base-path probe) instead of raw `fetch()`. If you genuinely need raw `fetch()` for an external (non-canonry) HTTP call, add the file to the `ignores` list in `eslint.config.js` with a one-line comment naming the external service.',
+    message: 'Use the generated `@canonry/canonry-api-client` SDK via `ApiClient` / `createApiClient()` (which routes through `invoke()` for tracing, CliError mapping, and the base-path probe) instead of raw `fetch()`. If you genuinely need raw `fetch()` for an external (non-canonry) HTTP call, add the file to the `ignores` list in `eslint.config.js` with a one-line comment naming the external service.',
   }],
 })
 

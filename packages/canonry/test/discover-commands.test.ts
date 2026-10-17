@@ -12,8 +12,8 @@ import {
   migrate,
   projects,
   queries,
-} from '@ainyc/canonry-db'
-import type { DiscoveryCompetitorType, DiscoveryHarvestDto, DiscoveryPromoteResult, DiscoverySessionDetailDto } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-db'
+import type { DiscoveryCompetitorType, DiscoveryHarvestDto, DiscoveryPromoteResult, DiscoverySessionDetailDto } from '@canonry/canonry-contracts'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import type { DiscoveryRunStartResponse } from '../src/client.js'

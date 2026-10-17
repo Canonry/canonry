@@ -1,5 +1,5 @@
 import { test, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { ProviderConfig, RawQueryResult, TrackedQueryInput } from '@ainyc/canonry-contracts'
+import type { ProviderConfig, RawQueryResult, TrackedQueryInput } from '@canonry/canonry-contracts'
 import { fixture, stubAgentHttp } from './support/agent-api.js'
 
 import { perplexityAdapter } from '../src/adapter.js'

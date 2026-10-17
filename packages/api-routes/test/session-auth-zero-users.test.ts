@@ -14,7 +14,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { apiKeys, createClient, migrate, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { apiKeys, createClient, migrate, projects, type DatabaseClient } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 

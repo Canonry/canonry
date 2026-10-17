@@ -18,7 +18,7 @@ import {
   type AeroPreviewResponse,
   type AeroPreviewStarter,
   type AeroPreviewStep,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   insights,
   measurementPlanVersions,
@@ -28,7 +28,7 @@ import {
   siteCrawlFindings,
   siteCrawlSnapshots,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { canonryMcpTools } from '../mcp/tool-registry.js'
 import { SUMMIT_QUERIES } from './summit-sweeps.js'
 import type { DemoSeedContext, DemoSeedProject } from './types.js'

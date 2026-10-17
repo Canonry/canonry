@@ -1,5 +1,5 @@
 import { OPENAI_ADS_API_BASE, OPENAI_ADS_MAX_PAGES, OPENAI_ADS_REQUEST_TIMEOUT_MS } from './constants.js'
-import { describeFetchError } from '@ainyc/canonry-contracts'
+import { describeFetchError } from '@canonry/canonry-contracts'
 import type {
   OpenAiAdsAccount,
   OpenAiAdsAd,
@@ -549,7 +549,7 @@ export async function pauseCampaign(apiKey: string, campaignId: string): Promise
  * consistent: a campaign the direct `campaigns/{id}` read already reported as
  * `archived` was still reported as `paused` by the campaigns list. An archive
  * must therefore only ever be confirmed by a single-entity read; see the
- * archive routes and reconciler in @ainyc/canonry-api-routes.
+ * archive routes and reconciler in @canonry/canonry-api-routes.
  */
 export async function archiveCampaign(apiKey: string, campaignId: string): Promise<OpenAiAdsCampaign> {
   validateApiKey(apiKey)

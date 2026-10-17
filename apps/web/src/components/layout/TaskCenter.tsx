@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, LoaderCircle } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 
-import { getApiV1RunsOptions } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1RunsOptions } from '@canonry/canonry-api-client/react-query'
 
 import { heyClient } from '../../api.js'
 import { formatTrackedRunKind } from '../../lib/run-labels.js'

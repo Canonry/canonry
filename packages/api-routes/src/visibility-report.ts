@@ -29,14 +29,14 @@ import {
   type VisibilityReportPopulationClass,
   type VisibilityReportQuery,
   normalizeIdentityText as normalizedText,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   measurementPlanVersions,
   querySnapshots,
   runs,
   simpleMeasurementDefinitions,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 import {

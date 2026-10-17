@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { apiKeys, createClient, migrate, projects } from '@ainyc/canonry-db'
+import { apiKeys, createClient, migrate, projects } from '@canonry/canonry-db'
 
 import { createServer, resolveGooglePublicUrl } from '../src/server.js'
 

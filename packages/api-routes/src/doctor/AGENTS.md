@@ -99,7 +99,7 @@ Branch-by-branch cases: `packages/canonry/test/urgent-health-notifications.test.
 
 ## Adding a new check
 
-1. Implement a `CheckDefinition` in `packages/api-routes/src/doctor/checks/<topic>.ts`. Use `@ainyc/canonry-contracts` `CheckStatuses` / `CheckCategories` / `CheckScopes` enums — never raw strings.
+1. Implement a `CheckDefinition` in `packages/api-routes/src/doctor/checks/<topic>.ts`. Use `@canonry/canonry-contracts` `CheckStatuses` / `CheckCategories` / `CheckScopes` enums — never raw strings.
    A check that reports a symptom of another check's failure (a sync failing because its credential is revoked) lists that check's id in `supersededBy`, so the cause leads the health alert. A cause check whose provider call got no answer reports a code ending in `-unreachable`, so it never hides the symptom's evidence.
 2. Register it in `packages/api-routes/src/doctor/registry.ts` (`ALL_CHECKS`).
 3. Add a `<topic>.ts` test under `packages/api-routes/test/doctor-*` covering the happy path + each `code` value the check can emit.

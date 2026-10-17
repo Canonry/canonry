@@ -1,5 +1,5 @@
-import type { NormalizedQueryResult } from '@ainyc/canonry-contracts'
-import { hostMatchesDomain } from '@ainyc/canonry-contracts'
+import type { NormalizedQueryResult } from '@canonry/canonry-contracts'
+import { hostMatchesDomain } from '@canonry/canonry-contracts'
 
 /**
  * Of the domains an engine cited for a (query, provider) snapshot, return the

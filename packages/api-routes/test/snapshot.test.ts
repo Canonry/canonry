@@ -3,10 +3,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
-import { apiKeys, createClient, migrate } from '@ainyc/canonry-db'
+import { apiKeys, createClient, migrate } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
-import { validationError } from '@ainyc/canonry-contracts'
+import { validationError } from '@canonry/canonry-contracts'
 import { hashApiKey } from '../src/auth.js'
 
 function buildApp(opts: Partial<Omit<ApiRoutesOptions, 'db'>> = {}) {

@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import type { ParseArgsOptionsConfig } from 'node:util'
-import { OperationAccesses, type CliCatalogDto, type OperationAccess } from '@ainyc/canonry-contracts'
+import { OperationAccesses, type CliCatalogDto, type OperationAccess } from '@canonry/canonry-contracts'
 import { CLI_GLOBAL_OPTIONS, commandOptions, commandUsage, printGroupHelp, type CliCommandSpec } from './cli-dispatch.js'
 import { type CliFormat, usageError } from './cli-error.js'
 import { emitJsonl } from './cli-output.js'

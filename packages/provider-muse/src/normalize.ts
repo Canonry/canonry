@@ -14,7 +14,7 @@ import {
   type GroundingSource,
   type ProviderUsage,
   type RetrievalStatus,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { MuseConfig, MuseNormalizedResult, MuseRawResult, MuseTrackedQueryInput } from './types.js'
 
 export const MUSE_DEFAULT_MODEL = 'muse-spark-1.3'

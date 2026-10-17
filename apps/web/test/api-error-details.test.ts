@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseVisibilityReportScopeErrorDetails } from '@ainyc/canonry-contracts'
+import { parseVisibilityReportScopeErrorDetails } from '@canonry/canonry-contracts'
 import { ApiError, apiErrorDetails } from '../src/api.js'
 
 const retiredMarket = { reason: 'retired-market', kind: 'market', key: 'coastal-maine' }

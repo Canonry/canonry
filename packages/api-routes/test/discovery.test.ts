@@ -16,7 +16,7 @@ import {
   projects,
   queries,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 import {
@@ -36,7 +36,7 @@ import type {
   DiscoverySessionDetailDto,
   DiscoverySessionDto,
   LocationContext,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 function buildApp() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-discovery-'))

@@ -16,7 +16,7 @@ import {
   querySnapshots,
   readNegativeReviewMaxStars,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { SentimentService, type SentimentServiceOptions } from './sentiment-service.js'
 import { buildMentionShareInputs } from './mention-share-inputs.js'
 import {
@@ -59,7 +59,7 @@ import {
   normalizeQueryText,
   summarizeObservedQueryCounts,
   validationError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   buildCompetitorPressureScore,
   compileCompetitiveSignalResolver,
@@ -79,7 +79,7 @@ import {
   DEFAULT_RUN_HISTORY_LIMIT,
   providerKey,
   type SuggestedQueryGscRow,
-} from '@ainyc/canonry-intelligence'
+} from '@canonry/canonry-intelligence'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { runAdmissionState } from './run-queue.js'
 import {

@@ -1,4 +1,4 @@
-import { visibilityReportRequestSchema, type AgentViewContext } from '@ainyc/canonry-contracts'
+import { visibilityReportRequestSchema, type AgentViewContext } from '@canonry/canonry-contracts'
 import { parseVisibilitySelection, visibilityReportFirstPageQuery } from './measurement-view-url.js'
 
 export function aeroViewFromLocation(path: string, search: Record<string, unknown>): AgentViewContext {

@@ -1,5 +1,5 @@
 import { it, expect } from 'vitest'
-import { discoveryProbes, discoverySessions, runs } from '@ainyc/canonry-db'
+import { discoveryProbes, discoverySessions, runs } from '@canonry/canonry-db'
 import { executeDiscoveryRun } from '../src/discovery-run.js'
 import { nativeDiscoveryFixture } from './discovery-native-fixture.js'
 

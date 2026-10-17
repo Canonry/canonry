@@ -3,11 +3,11 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
-import type { BrandMetricsDto, SourceBreakdownDto } from '@ainyc/canonry-contracts'
-import { formatCalendarDay as day } from '@ainyc/canonry-contracts'
+import type { BrandMetricsDto, SourceBreakdownDto } from '@canonry/canonry-contracts'
+import { formatCalendarDay as day } from '@canonry/canonry-contracts'
 
 function captureOutput(fn: () => Promise<void>): Promise<{ stdout: string; stderr: string }> {
   const logs: string[] = []

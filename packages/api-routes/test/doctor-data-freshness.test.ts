@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createClient, migrate, projects, runs, gaDailyTotals, gscDailyTotals, gscDataWatermarks } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, gaDailyTotals, gscDailyTotals, gscDataWatermarks } from '@canonry/canonry-db'
 import {
   DATA_FRESHNESS_CHECKS,
   daysBetweenIsoDates,
@@ -15,7 +15,7 @@ import {
   GSC_DATA_STALE_DAYS,
   GSC_REPORTING_TIME_ZONE,
 } from '../src/doctor/checks/data-freshness.js'
-import { formatIsoDateInTimeZone } from '@ainyc/canonry-contracts'
+import { formatIsoDateInTimeZone } from '@canonry/canonry-contracts'
 import type { CheckDefinition, DoctorContext, ProjectInfo } from '../src/doctor/types.js'
 import type { GoogleConnectionStore } from '../src/google.js'
 

@@ -1,4 +1,4 @@
-import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
+import type { NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 
 export interface CloudRunLogFilterOptions {
   serviceName?: string

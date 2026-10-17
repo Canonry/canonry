@@ -3,13 +3,13 @@ import { useQueries, useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { ArrowRight, Plus } from 'lucide-react'
 
-import type { TrafficSourceDto } from '@ainyc/canonry-contracts'
+import type { TrafficSourceDto } from '@canonry/canonry-contracts'
 
 import { heyClient, isEmbed, type ApiProject, type ApiTrafficSourceDetail } from '../api.js'
 import {
   getApiV1ProjectsByNameTrafficSourcesByIdOptions,
   getApiV1ProjectsOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'

@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
-import { apiKeys, createClient, migrate } from '@ainyc/canonry-db'
+import { apiKeys, createClient, migrate } from '@canonry/canonry-db'
 
 const setTelemetryPreference = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('../src/telemetry.js', async (importOriginal) => ({

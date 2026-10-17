@@ -15,8 +15,8 @@ import {
   type QueryWorkspace,
 } from '../lib/project-scope.js'
 import { useQueryClient } from '@tanstack/react-query'
-import { COMPETITOR_BULK_ADD_REFUSAL_REASON, COMPETITOR_BULK_ADD_WINDOW_HOURS, compileQueryClassifier, effectiveBrandNames, formatPercent, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
-import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
+import { COMPETITOR_BULK_ADD_REFUSAL_REASON, COMPETITOR_BULK_ADD_WINDOW_HOURS, compileQueryClassifier, effectiveBrandNames, formatPercent, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses } from '@canonry/canonry-contracts'
+import type { MeasurementOverviewSort } from '@canonry/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
@@ -125,12 +125,12 @@ import {
   getApiV1ProjectsByNameQueriesOptions,
   getApiV1ProjectsByNameQueryTrackingOptions,
   getApiV1ProjectsByNameQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { useAppendQueries, useTriggerRun } from '../queries/mutations.js'
 import { GSC_STALE_MS } from '../queries/query-client.js'
 import { invalidateProjectQueryDomain } from '../queries/query-invalidation.js'
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
-import { getApiV1ProjectsOptions } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1ProjectsOptions } from '@canonry/canonry-api-client/react-query'
 import { useProjectDashboard } from '../queries/use-project-dashboard.js'
 import { STATIC_VISIBILITY_STALE_MS } from '../queries/query-client.js'
 import { useCompetitorLandscapeRefresh } from '../queries/competitor-landscape-refresh.js'

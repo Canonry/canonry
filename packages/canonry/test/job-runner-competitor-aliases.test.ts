@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { beforeEach, expect, test } from 'vitest'
-import { buildSimpleMeasurementDefinition, RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@ainyc/canonry-contracts'
-import { captureSimpleMeasurementDefinition } from '@ainyc/canonry-api-routes'
+import { buildSimpleMeasurementDefinition, RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@canonry/canonry-contracts'
+import { captureSimpleMeasurementDefinition } from '@canonry/canonry-api-routes'
 import {
   competitors,
   createClient,
@@ -13,7 +13,7 @@ import {
   runs,
   simpleMeasurementDefinitions,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'

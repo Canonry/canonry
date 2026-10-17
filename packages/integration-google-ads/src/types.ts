@@ -1,4 +1,4 @@
-import type { RetryOptions } from '@ainyc/canonry-contracts'
+import type { RetryOptions } from '@canonry/canonry-contracts'
 
 export interface GoogleAdsCredentials {
   accessToken: string

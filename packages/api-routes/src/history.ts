@@ -1,8 +1,8 @@
 import { and, asc, count, getTableColumns, desc, eq, gte, inArray, like, lte, ne, notInArray, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { runFills, auditLog, projects, competitors, querySnapshots, runs, queries, parseJsonColumn, researchRuns, researchRunQueries, insights, healthSnapshots } from '@ainyc/canonry-db'
-import { compileCompetitiveSignalResolver } from '@ainyc/canonry-intelligence'
+import { runFills, auditLog, projects, competitors, querySnapshots, runs, queries, parseJsonColumn, researchRuns, researchRunQueries, insights, healthSnapshots } from '@canonry/canonry-db'
+import { compileCompetitiveSignalResolver } from '@canonry/canonry-intelligence'
 import { runFillInProgress,
   auditHistoryQuerySchema,
   escapeLikePattern,
@@ -18,7 +18,7 @@ import { runFillInProgress,
   visibilityStateFromAnswerMentioned,
   type CitationState,
   type SnapshotDiffRow,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { requireAdminSession, requireScope } from './auth.js'
 import { writeAuditLog, notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState } from './helpers.js'
 import { redactNotificationDiff } from './notification-redaction.js'

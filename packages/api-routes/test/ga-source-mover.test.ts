@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { GaMoverChangeBases, MIN_PCT_BASE, gaSourceMoverSchema } from '@ainyc/canonry-contracts'
+import { GaMoverChangeBases, MIN_PCT_BASE, gaSourceMoverSchema } from '@canonry/canonry-contracts'
 import { buildSourceMover, findBiggestMover, moverChangeBasis } from '../src/ga-source-mover.js'
 
 describe('buildSourceMover', () => {

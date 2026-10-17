@@ -12,7 +12,7 @@ import {
   type ProviderDispatchMode,
   type ProviderErrorCode,
   type SnapshotUsage,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /**
  * Extract the registrable host part of a domain string for non-PII telemetry
@@ -52,7 +52,7 @@ export function extractRegistrableHost(input: string | null | undefined): string
  * first so `Example.com`, `https://www.example.com/foo`, and `example.com`
  * all hash to the same value.
  *
- * Lives in the canonry package (not `@ainyc/canonry-contracts`) because
+ * Lives in the canonry package (not `@canonry/canonry-contracts`) because
  * `node:crypto` is Node-only — pulling it into shared contracts would force
  * Vite to externalize it for the browser build.
  */

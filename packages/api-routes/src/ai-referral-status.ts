@@ -1,6 +1,6 @@
 import { and, sql, type SQL } from 'drizzle-orm'
-import { isLocationRedirectStatus, LOCATION_REDIRECT_STATUSES } from '@ainyc/canonry-contracts'
-import { aiReferralEventsHourly } from '@ainyc/canonry-db'
+import { isLocationRedirectStatus, LOCATION_REDIRECT_STATUSES } from '@canonry/canonry-contracts'
+import { aiReferralEventsHourly } from '@canonry/canonry-db'
 
 /**
  * An AI referral row records a REQUEST carrying AI-origin evidence, together

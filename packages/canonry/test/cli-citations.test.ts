@@ -12,7 +12,7 @@ import {
   competitors,
   runs,
   querySnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'

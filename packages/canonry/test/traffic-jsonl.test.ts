@@ -3,7 +3,7 @@ import type {
   TrafficEventsResponse,
   TrafficSourceListResponse,
   TrafficStatusResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 const mockTrafficListEvents = vi.fn()
 const mockTrafficListSources = vi.fn()

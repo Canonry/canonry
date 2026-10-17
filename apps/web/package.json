@@ -1,5 +1,5 @@
 {
-  "name": "@ainyc/canonry-web",
+  "name": "@canonry/canonry-web",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,8 +13,8 @@
     "scan:colors": "node scripts/scan-raw-colors.mjs"
   },
   "dependencies": {
-    "@ainyc/canonry-api-client": "workspace:*",
-    "@ainyc/canonry-contracts": "workspace:*",
+    "@canonry/canonry-api-client": "workspace:*",
+    "@canonry/canonry-contracts": "workspace:*",
     "@fontsource-variable/geist": "5.3.0",
     "@fontsource-variable/geist-mono": "5.3.0",
     "@radix-ui/react-dialog": "^1.1.15",

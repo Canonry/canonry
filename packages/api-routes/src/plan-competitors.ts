@@ -12,8 +12,8 @@ import {
   parseStoredMeasurementPlanAnyVersion,
   type CompetitorAliasMarketPin,
   type CompetitorIdentityInput,
-} from '@ainyc/canonry-contracts'
-import { measurementPlans, measurementPlanVersions, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import { measurementPlans, measurementPlanVersions, querySnapshots, runs, type DatabaseClient } from '@canonry/canonry-db'
 import { draftRow, parseStoredAuthoring } from './measurement-draft-repo.js'
 
 /** One competitor a plan revision names: its host and the names it goes by. */

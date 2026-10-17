@@ -1,7 +1,7 @@
 import { and, count, eq, isNull } from 'drizzle-orm'
-import { competitors, notifications, projects, queries, querySnapshots, runs, schedules, readNegativeReviewMaxStars, type DatabaseClient } from '@ainyc/canonry-db'
+import { competitors, notifications, projects, queries, querySnapshots, runs, schedules, readNegativeReviewMaxStars, type DatabaseClient } from '@canonry/canonry-db'
 import { redactNotificationUrl } from './notification-redaction.js'
-import { SchedulableRunKinds, type ProjectConfigState } from '@ainyc/canonry-contracts'
+import { SchedulableRunKinds, type ProjectConfigState } from '@canonry/canonry-contracts'
 
 export interface ProjectConfigStateOptions {
   managed?: Partial<ProjectConfigState['managed']>

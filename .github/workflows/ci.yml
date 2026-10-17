@@ -183,14 +183,14 @@ jobs:
     # Regenerates the hey-api client from the OpenAPI spec and fails if the
     # committed output differs. Run separately from `lint` so a stale client
     # surfaces as its own check name and a contributor knows to run
-    # `pnpm --filter @ainyc/canonry-api-client gen` locally.
+    # `pnpm --filter @canonry/canonry-api-client gen` locally.
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
-      - run: pnpm --filter @ainyc/canonry-api-client gen:check
+      - run: pnpm --filter @canonry/canonry-api-client gen:check
         name: Verify generated API client matches OpenAPI spec
 
   plugin-drift:

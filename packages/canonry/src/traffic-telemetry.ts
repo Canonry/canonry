@@ -1,5 +1,5 @@
-import { bucketDuration } from '@ainyc/canonry-contracts'
-import type { TrafficIngestedEvent, TrafficSyncedEvent } from '@ainyc/canonry-api-routes'
+import { bucketDuration } from '@canonry/canonry-contracts'
+import type { TrafficIngestedEvent, TrafficSyncedEvent } from '@canonry/canonry-api-routes'
 import { createOutcomeSampler, trackFeatureCompleted } from './outcome-telemetry.js'
 import { trackEvent } from './telemetry.js'
 

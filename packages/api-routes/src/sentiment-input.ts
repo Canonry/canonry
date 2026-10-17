@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { canonicalSentimentJson, type SentimentClassifierInput, type SentimentEvaluationDefinition } from '@ainyc/canonry-contracts'
+import { canonicalSentimentJson, type SentimentClassifierInput, type SentimentEvaluationDefinition } from '@canonry/canonry-contracts'
 import type { SentimentSourceAssessment } from './sentiment-source.js'
 
 export function sentimentHash(value: unknown): string {

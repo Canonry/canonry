@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useQueryClient, type QueryClient } from '@tanstack/react-query'
-import type { RunDto } from '@ainyc/canonry-contracts'
+import type { RunDto } from '@canonry/canonry-contracts'
 
 /** Every contributing run, not just the latest: older runs can finish later. */
 export function competitorEvidenceRevision(runs: readonly Pick<RunDto, 'id' | 'kind' | 'status' | 'trigger'>[]): string {

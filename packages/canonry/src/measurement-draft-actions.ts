@@ -23,7 +23,7 @@ import {
   measurementDraftUpsertGroupRequestSchema,
   measurementDraftUpsertMarketRequestSchema,
   measurementDraftUpsertTargetRequestSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { z } from 'zod'
 import type { ApiClient } from './client.js'
 

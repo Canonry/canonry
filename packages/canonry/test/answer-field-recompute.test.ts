@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { describe, expect, it, onTestFinished } from 'vitest'
-import { competitors, createClient, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { competitors, createClient, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@canonry/canonry-db'
 import { createAnswerFieldRecomputeQueue } from '../src/answer-field-recompute.js'
 
 // The one queue every identity-change recompute of the stored answer fields

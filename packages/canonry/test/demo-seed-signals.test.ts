@@ -22,8 +22,8 @@ import {
   siteCrawlGraphNodes,
   siteCrawlSnapshots,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
-import { apiRoutes } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-db'
+import { apiRoutes } from '@canonry/canonry-api-routes'
 import { seedDemoSignals } from '../src/demo/seed-signals.js'
 import { demoReadOptions } from '../src/demo/stores.js'
 import { createDemoSeedContext } from '../src/demo/types.js'

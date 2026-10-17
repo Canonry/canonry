@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'vitest'
-import type { UiTelemetryEvent } from '@ainyc/canonry-contracts'
+import type { UiTelemetryEvent } from '@canonry/canonry-contracts'
 import { sendTestNotification } from '../src/api.js'
 import { configureUiTelemetry, recordUiApiResult, resetUiTelemetryForTests } from '../src/lib/ui-telemetry.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'

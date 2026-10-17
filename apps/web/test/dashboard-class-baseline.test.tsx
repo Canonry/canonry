@@ -8,7 +8,7 @@ import { RouterProvider } from '@tanstack/react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { compile } from 'tailwindcss'
 import ts from 'typescript'
-import { escapeRegExp, visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
+import { escapeRegExp, visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { createDashboardFixture } from '../src/mock-data.js'
@@ -17,7 +17,7 @@ import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import {
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameVisibilityReportQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
 import { parseVisibilitySelection } from '../src/lib/measurement-view-url.js'
 

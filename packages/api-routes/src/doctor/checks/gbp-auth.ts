@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm'
-import { gbpLocations } from '@ainyc/canonry-db'
+import { gbpLocations } from '@canonry/canonry-db'
 import {
   CheckCategories,
   CheckScopes,
@@ -7,9 +7,9 @@ import {
   describeError,
   describeFetchError,
   isFetchTransportError,
-} from '@ainyc/canonry-contracts'
-import { GOOGLE_TOKEN_URL, refreshAccessToken } from '@ainyc/canonry-integration-google'
-import { GBP_ACCOUNT_MANAGEMENT_BASE, GBP_SCOPE, listAccounts, GbpApiError } from '@ainyc/canonry-integration-google-business-profile'
+} from '@canonry/canonry-contracts'
+import { GOOGLE_TOKEN_URL, refreshAccessToken } from '@canonry/canonry-integration-google'
+import { GBP_ACCOUNT_MANAGEMENT_BASE, GBP_SCOPE, listAccounts, GbpApiError } from '@canonry/canonry-integration-google-business-profile'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
 import type { GoogleConnectionRecord } from '../../google.js'
 

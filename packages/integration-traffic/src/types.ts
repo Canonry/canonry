@@ -2,7 +2,7 @@ import type {
   AiReferralTrafficClass,
   NormalizedTrafficRequest,
   TrafficVerificationManifest,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 export type CrawlerVerificationStatus = 'verified' | 'claimed_unverified' | 'unknown_ai_like'
 export type AiReferralEvidenceType = 'referer' | 'utm' | 'referer-utm'

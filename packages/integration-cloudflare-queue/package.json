@@ -1,5 +1,5 @@
 {
-  "name": "@ainyc/canonry-integration-cloudflare-queue",
+  "name": "@canonry/canonry-integration-cloudflare-queue",
   "version": "0.0.0",
   "private": true,
   "type": "module",

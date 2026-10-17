@@ -2,7 +2,7 @@ import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { formatCalendarDay } from '@ainyc/canonry-contracts'
+import { formatCalendarDay } from '@canonry/canonry-contracts'
 
 afterEach(cleanup)
 

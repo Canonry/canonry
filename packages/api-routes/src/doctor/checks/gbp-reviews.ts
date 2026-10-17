@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm'
-import { gbpLocations, gbpReviewRatings, notifications } from '@ainyc/canonry-db'
-import { CheckCategories, CheckScopes, CheckStatuses, businessProfileReviewsCover } from '@ainyc/canonry-contracts'
+import { gbpLocations, gbpReviewRatings, notifications } from '@canonry/canonry-db'
+import { CheckCategories, CheckScopes, CheckStatuses, businessProfileReviewsCover } from '@canonry/canonry-contracts'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
 
 const REVIEW_EVENTS = new Set(['review.negative', 'review.rating-dropped'])

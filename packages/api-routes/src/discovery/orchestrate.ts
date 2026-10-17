@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { discoveryProbes, discoverySessions, domainClassifications } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { discoveryProbes, discoverySessions, domainClassifications } from '@canonry/canonry-db'
 import {
   CitationStates,
   computeDedupSimilarityStats,
@@ -25,7 +25,7 @@ import {
   type DiscoveryCompetitorMapEntry,
   type DiscoveryCompetitorType,
   type LocationContext,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 const DEFAULT_MAX_PROBES = 100
 

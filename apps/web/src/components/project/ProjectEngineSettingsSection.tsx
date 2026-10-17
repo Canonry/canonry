@@ -12,7 +12,7 @@ import {
 } from '../../lib/site-audit-page-budget.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { Button } from '../ui/button.js'
-import { describeError, isOpenRouterRoute, openRouterRouteModel, openRouterRouteName, providerConnectionName, RunKinds, SITE_AUDIT_MAX_PAGE_LIMIT, SITE_AUDIT_ONBOARDING_PAGE_LIMIT, siteAuditPageBudgetSchema } from '@ainyc/canonry-contracts'
+import { describeError, isOpenRouterRoute, openRouterRouteModel, openRouterRouteName, providerConnectionName, RunKinds, SITE_AUDIT_MAX_PAGE_LIMIT, SITE_AUDIT_ONBOARDING_PAGE_LIMIT, siteAuditPageBudgetSchema } from '@canonry/canonry-contracts'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 
 type EngineProject = Pick<ApiProject, 'name' | 'providers' | 'providerModels'>

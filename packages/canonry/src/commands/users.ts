@@ -8,7 +8,7 @@ import {
   USER_PASSWORD_MIN_LENGTH,
   type UserDto,
   type UserRole,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 function getClient() {
   return createApiClient()

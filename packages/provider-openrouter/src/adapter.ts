@@ -5,7 +5,7 @@ import {
   type GroundingSource, type ModelDefinition, type NormalizedQueryResult,
   type ProviderAdapter, type ProviderConfig, type RawQueryResult, type TrackedQueryInput,
   type TrackedQueryRequest,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 const BASE_URL = 'https://openrouter.ai/api/v1'
 function modelOf(config: ProviderConfig): string {

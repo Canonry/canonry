@@ -4,9 +4,9 @@ import {
   createProjectPassQueue,
   type AppliedCompetitorAutoAliases,
   type CompetitorAnswerAnchorReader,
-} from '@ainyc/canonry-api-routes'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { describeError } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-api-routes'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { describeError } from '@canonry/canonry-contracts'
 import { createLogger } from './logger.js'
 
 const log = createLogger('CompetitorAutoAliases')

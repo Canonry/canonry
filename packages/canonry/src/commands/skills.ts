@@ -18,7 +18,7 @@ import {
   type AgentPluginState,
   type SkillManifest,
   type SkillsClient,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { PACKAGE_VERSION } from '../package-version.js'
 

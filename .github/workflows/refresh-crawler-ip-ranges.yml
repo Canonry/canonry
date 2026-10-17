@@ -26,7 +26,7 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: Refresh and validate every publisher manifest
-        run: pnpm --filter @ainyc/canonry-integration-traffic run refresh-ip-ranges
+        run: pnpm --filter @canonry/canonry-integration-traffic run refresh-ip-ranges
 
       - name: Check for executable range changes
         id: changes

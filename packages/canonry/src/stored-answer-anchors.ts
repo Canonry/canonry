@@ -1,9 +1,9 @@
-import { ProviderNames, type AnchoredAnswerSpan } from '@ainyc/canonry-contracts'
-import { parseJsonColumn } from '@ainyc/canonry-db'
-import { extractAnchoredSpans as extractClaudeAnchoredSpans } from '@ainyc/canonry-provider-claude'
-import { extractAnchoredSpans as extractGeminiAnchoredSpans } from '@ainyc/canonry-provider-gemini'
-import { extractAnchoredSpans as extractOpenAIAnchoredSpans } from '@ainyc/canonry-provider-openai'
-import { extractAnchoredSpans as extractPerplexityAnchoredSpans } from '@ainyc/canonry-provider-perplexity'
+import { ProviderNames, type AnchoredAnswerSpan } from '@canonry/canonry-contracts'
+import { parseJsonColumn } from '@canonry/canonry-db'
+import { extractAnchoredSpans as extractClaudeAnchoredSpans } from '@canonry/canonry-provider-claude'
+import { extractAnchoredSpans as extractGeminiAnchoredSpans } from '@canonry/canonry-provider-gemini'
+import { extractAnchoredSpans as extractOpenAIAnchoredSpans } from '@canonry/canonry-provider-openai'
+import { extractAnchoredSpans as extractPerplexityAnchoredSpans } from '@canonry/canonry-provider-perplexity'
 
 /**
  * The provider body inside a stored `query_snapshots.raw_response` envelope

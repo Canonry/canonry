@@ -1,4 +1,4 @@
-import { isOpenRouterRoute } from '@ainyc/canonry-contracts'
+import { isOpenRouterRoute } from '@canonry/canonry-contracts'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 
 export function ProviderBadge({ provider }: { provider: string }) {

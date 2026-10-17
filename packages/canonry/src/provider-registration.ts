@@ -1,4 +1,4 @@
-import { API_PROVIDER_NAMES, ProviderNames } from '@ainyc/canonry-contracts'
+import { API_PROVIDER_NAMES, ProviderNames } from '@canonry/canonry-contracts'
 import type { CanonryConfig, CdpConfigEntry, ProviderConfigEntry } from './config.js'
 
 /**

@@ -11,7 +11,7 @@ import {
   crawlerEventsHourly,
   aiUserFetchEventsHourly,
   aiReferralEventsHourly,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { CURRENT_CLOUDFLARE_WORKER_VERSION } from '../src/cloudflare-worker-version.js'
 import { TRAFFIC_SOURCE_CHECKS } from '../src/doctor/checks/traffic-source.js'
 import type { CheckOutput, DoctorContext, ProjectInfo, TrafficSourceProbe, TrafficSourceValidator } from '../src/doctor/types.js'

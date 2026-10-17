@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { SentimentOutcomes, answerProseForMentions, asRecord, compileBrandAliases, hostOf, matcherMatchesText, sentimentClassifierInputSchema } from '@ainyc/canonry-contracts'
-import type { SentimentClassifier, SentimentClassifierInput, SentimentClassifierOutput, SentimentEvidence, SentimentOutcome, SentimentUsage } from '@ainyc/canonry-contracts'
+import { SentimentOutcomes, answerProseForMentions, asRecord, compileBrandAliases, hostOf, matcherMatchesText, sentimentClassifierInputSchema } from '@canonry/canonry-contracts'
+import type { SentimentClassifier, SentimentClassifierInput, SentimentClassifierOutput, SentimentEvidence, SentimentOutcome, SentimentUsage } from '@canonry/canonry-contracts'
 import { requestJev } from './client.js'
 import type { JevChoiceQuestion, JevClientOptions, JevRequest } from './client.js'
 

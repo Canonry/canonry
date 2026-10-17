@@ -1,15 +1,15 @@
 import crypto from 'node:crypto'
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from 'vitest'
-import { deliverWebhook } from '@ainyc/canonry-api-routes'
-import { auditLog, createClient, insightNotifyState, migrate, notifications, projects, runs } from '@ainyc/canonry-db'
-import type { AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
-import type { InsightWebhookPayload } from '@ainyc/canonry-contracts'
+import { deliverWebhook } from '@canonry/canonry-api-routes'
+import { auditLog, createClient, insightNotifyState, migrate, notifications, projects, runs } from '@canonry/canonry-db'
+import type { AnalysisResult, Insight } from '@canonry/canonry-intelligence'
+import type { InsightWebhookPayload } from '@canonry/canonry-contracts'
 import { Notifier } from '../src/notifier.js'
 
 // Keep the dispatcher, retry loop, payload assembly and SQLite receipts real;
 // replace only destination lookup and the external HTTP delivery boundary.
-vi.mock('@ainyc/canonry-api-routes', async importOriginal => {
-  const actual = await importOriginal<typeof import('@ainyc/canonry-api-routes')>()
+vi.mock('@canonry/canonry-api-routes', async importOriginal => {
+  const actual = await importOriginal<typeof import('@canonry/canonry-api-routes')>()
   return {
     ...actual,
     resolveWebhookTarget: vi.fn(async (url: string) => ({

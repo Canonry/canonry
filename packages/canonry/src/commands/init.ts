@@ -8,19 +8,19 @@ import {
   type BootstrapProviderEnvConfig,
   type BootstrapProviderName,
   type LocalBootstrapProviderConfig,
-} from '@ainyc/canonry-config'
+} from '@canonry/canonry-config'
 import { getConfigDir, getConfigPath, configExists, saveConfig } from '../config.js'
 import type { CanonryConfig } from '../config.js'
 import { trackEvent, showFirstRunNotice, isTelemetryEnabled } from '../telemetry.js'
 import { buildSetupState } from '../setup-state.js'
 import { cliRuntimeContext } from '../runtime-context.js'
 import { trackCliConnection } from '../cli-connection-telemetry.js'
-import { createClient, migrate } from '@ainyc/canonry-db'
-import { apiKeys } from '@ainyc/canonry-db'
+import { createClient, migrate } from '@canonry/canonry-db'
+import { apiKeys } from '@canonry/canonry-db'
 import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
 import { installSkills, type SkillsInstallSummary } from './skills.js'
 import { installMcp, type McpInstallResult } from './mcp.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
 import { installAttribution, recordInstallRef } from '../telemetry-environment.js'
 
 /**

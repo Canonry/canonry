@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, ne, sql, type SQL } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { projects, runs, auditLog, usageCounters, parseJsonColumn } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { projects, runs, auditLog, usageCounters, parseJsonColumn } from '@canonry/canonry-db'
 import {
   extractAnswerMentions,
   effectiveBrandNames,
@@ -14,7 +14,7 @@ import {
   visibilityStateFromAnswerMentioned,
   type MentionState,
   type VisibilityState,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { getRequestContext, requestAuditIdentity, sanitizeRequestContext } from './request-context.js'
 
 /**

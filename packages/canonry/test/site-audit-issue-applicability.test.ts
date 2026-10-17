@@ -2,14 +2,14 @@ import { randomUUID } from 'node:crypto'
 import Fastify from 'fastify'
 import { describe, expect, it } from 'vitest'
 import { auditHtmlPage } from '@canonry/aeo-audit'
-import { apiRoutes } from '@ainyc/canonry-api-routes'
+import { apiRoutes } from '@canonry/canonry-api-routes'
 import {
   factorStatusFromScore, siteAuditIssuePagesResponseSchema, siteAuditIssuesResponseSchema,
   type SiteAuditIssueDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient, migrate, projects, runs, siteCrawlAttempts, siteCrawlPages, siteCrawlSnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 
 describe('stored audit issue applicability', () => {
   it('excludes explicitly inapplicable findings while preserving applicable, legacy and independent defects', async () => {

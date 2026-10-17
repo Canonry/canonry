@@ -7,7 +7,7 @@ import {
   ccReleaseSyncs,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   AppError,
   BacklinkSources,
@@ -34,8 +34,8 @@ import {
   type CcReleaseSyncDto,
   type CcReleaseSyncStatus,
   type RunDto,
-} from '@ainyc/canonry-contracts'
-import { isValidReleaseId } from '@ainyc/canonry-integration-commoncrawl'
+} from '@canonry/canonry-contracts'
+import { isValidReleaseId } from '@canonry/canonry-integration-commoncrawl'
 import { resolveProject } from './helpers.js'
 import { backlinkCrawlerExclusionClause } from './backlinks-filter.js'
 import { readCommonCrawlSourceState } from './backlinks-source-state.js'

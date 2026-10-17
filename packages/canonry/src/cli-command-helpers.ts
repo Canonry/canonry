@@ -1,4 +1,4 @@
-import { AppError, parseWindowIn, resolveDateRange } from '@ainyc/canonry-contracts'
+import { AppError, parseWindowIn, resolveDateRange } from '@canonry/canonry-contracts'
 import type { ParseArgsOptionsConfig } from 'node:util'
 import type { CliCommandInput, CliValues } from './cli-dispatch.js'
 import { usageError } from './cli-error.js'

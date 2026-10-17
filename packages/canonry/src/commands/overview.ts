@@ -1,4 +1,4 @@
-import { formatPercent, type MentionShareDto, type ProjectOverviewDto, type ScoreSummaryDto } from '@ainyc/canonry-contracts'
+import { formatPercent, type MentionShareDto, type ProjectOverviewDto, type ScoreSummaryDto } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { runAdmissionLines } from './run.js'

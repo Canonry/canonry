@@ -17,7 +17,7 @@ import {
   visibilityReportResponseSchema,
   type MeasurementPlanV2,
   type VisibilityReportResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   measurementPlans,
@@ -29,7 +29,7 @@ import {
   runs,
   simpleMeasurementDefinitions,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
 import { readVisibilityReport } from '../src/visibility-report.js'

@@ -18,7 +18,7 @@ import {
   type MeasurementPortfolioSummaryResponse,
   type VisibilityReportRate,
   type VisibilityReportResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   apiKeys,
   competitors,
@@ -32,7 +32,7 @@ import {
   runs,
   simpleMeasurementDefinitions,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 import { plansAreLabelOnlyVariants } from '../src/measurement-draft-compile.js'

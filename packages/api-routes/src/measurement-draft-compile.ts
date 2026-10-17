@@ -26,7 +26,7 @@ import {
   sortedUnique as canonicalStrings,
   isSweepProvider,
   openRouterRouteModel,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { canonicalJson, canonicalJsonValue, sha256Hex } from './measurement-draft-repo.js'
 import { measurementMentionAliasKey } from './measurement-report.js'
 

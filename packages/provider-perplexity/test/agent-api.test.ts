@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fixture, stubAgentHttp as stubAgent } from './support/agent-api.js'
-import { PROVIDER_MODEL_ALIASES } from '@ainyc/canonry-contracts'
+import { PROVIDER_MODEL_ALIASES } from '@canonry/canonry-contracts'
 
 import { perplexityAdapter } from '../src/adapter.js'
 import {

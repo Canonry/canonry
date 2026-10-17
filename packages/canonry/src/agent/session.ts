@@ -3,7 +3,7 @@ import path from 'node:path'
 import { Agent } from '@earendil-works/pi-agent-core'
 import type { AgentOptions, AgentTool } from '@earendil-works/pi-agent-core'
 import type { Model } from '@earendil-works/pi-ai'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
 import {

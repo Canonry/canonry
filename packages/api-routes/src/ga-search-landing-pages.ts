@@ -5,7 +5,7 @@ import {
   gaMeasurementSyncStates,
   gaSearchLandingPages,
   gaSearchLandingWindows,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   GA_SEARCH_LANDING_DEFAULT_LIMIT,
   GA_SEARCH_LANDING_DEFAULT_WINDOW,
@@ -16,13 +16,13 @@ import {
   inclusiveDayCount,
   roundRatio,
   validationError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type {
   GaSearchLandingMetrics,
   GaSearchLandingPagesResponse,
   GaSearchLandingSyncResult,
-} from '@ainyc/canonry-contracts'
-import type { GA4SearchLandingMetrics, GA4SearchLandingWindowReport } from '@ainyc/canonry-integration-google-analytics'
+} from '@canonry/canonry-contracts'
+import type { GA4SearchLandingMetrics, GA4SearchLandingWindowReport } from '@canonry/canonry-integration-google-analytics'
 import type { Ga4CredentialStore } from './ga.js'
 import type { GoogleConnectionStore } from './google.js'
 import { resolveProject } from './helpers.js'

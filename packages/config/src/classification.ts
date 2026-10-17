@@ -1,4 +1,4 @@
-import { agentProviderIdSchema } from '@ainyc/canonry-contracts'
+import { agentProviderIdSchema } from '@canonry/canonry-contracts'
 import { z } from 'zod'
 
 /** Independent role selection. It never changes which engines a sweep measures. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { RATIO_UNIT_META_KEY } from '@ainyc/canonry-contracts'
+import { RATIO_UNIT_META_KEY } from '@canonry/canonry-contracts'
 import type { ApiClient } from '../src/client.js'
 import { mcpToAgentTool } from '../src/agent/mcp-to-agent-tool.js'
 import { renderRatioUnits, responseSchemasFor } from '../src/agent/tool-result-units.js'

@@ -5,7 +5,7 @@ import {
   diagnosticIdentity,
   type OperationalLogLevel,
   type RuntimeLogEvent,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { FastifyBaseLogger } from 'fastify'
 import { getRequestContext } from './request-context.js'
 

@@ -8,8 +8,8 @@ import {
   type OutcomeReasonCode,
   type OutcomeTrigger,
   type ProviderErrorCode,
-} from '@ainyc/canonry-contracts'
-import type { OutcomeAttribution } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-contracts'
+import type { OutcomeAttribution } from '@canonry/canonry-api-routes'
 import { outcomeAttribution, outcomeFailure, trackFeatureCompleted } from '../outcome-telemetry.js'
 import { AGENT_PROVIDERS } from './providers.js'
 import { aeroTurnStatus, aeroTurnUsage } from './runtime.js'

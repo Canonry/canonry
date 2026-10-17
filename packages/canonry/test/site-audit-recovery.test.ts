@@ -3,8 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
-import { RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
-import { createClient, migrate, projects, runs, siteCrawlAttempts } from '@ainyc/canonry-db'
+import { RunKinds, RunStatuses } from '@canonry/canonry-contracts'
+import { createClient, migrate, projects, runs, siteCrawlAttempts } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
 
 const cleanup: string[] = []

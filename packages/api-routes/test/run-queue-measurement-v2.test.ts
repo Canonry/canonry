@@ -13,7 +13,7 @@ import {
   type LocationContext,
   type MeasurementPlanV2,
   type MeasurementV2ExecutionNode,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   measurementPlans,
@@ -23,7 +23,7 @@ import {
   queries,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { assertMeasurementRunStampable, queueRunIfProjectIdle } from '../src/run-queue.js'
 import { apiRoutes } from '../src/index.js'
 

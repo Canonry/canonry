@@ -1,4 +1,4 @@
-import { modelIdsEquivalent, normalizeModelId, type ModelEvidenceState, type VisibilityCompareProviderContinuity } from '@ainyc/canonry-contracts'
+import { modelIdsEquivalent, normalizeModelId, type ModelEvidenceState, type VisibilityCompareProviderContinuity } from '@canonry/canonry-contracts'
 
 export type ModelEvidenceValue = string | null | undefined
 

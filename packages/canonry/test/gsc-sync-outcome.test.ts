@@ -2,8 +2,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
-import { GoogleApiError, GoogleAuthError } from '@ainyc/canonry-integration-google'
+import { createClient, migrate, projects, runs } from '@canonry/canonry-db'
+import { GoogleApiError, GoogleAuthError } from '@canonry/canonry-integration-google'
 import type { CanonryConfig } from '../src/config.js'
 
 const trackEvent = vi.hoisted(() => vi.fn())
@@ -16,8 +16,8 @@ vi.mock('../src/telemetry.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/telemetry.js')>()),
   trackEvent,
 }))
-vi.mock('@ainyc/canonry-integration-google', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@ainyc/canonry-integration-google')>()),
+vi.mock('@canonry/canonry-integration-google', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@canonry/canonry-integration-google')>()),
   fetchSearchAnalytics: fetchSearchAnalyticsMock,
   inspectUrl: inspectUrlMock,
   refreshAccessToken: refreshAccessTokenMock,

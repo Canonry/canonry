@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import { installStatePropertiesSchema, type LocationContext, type SnapshotUsage } from '@ainyc/canonry-contracts'
+import { installStatePropertiesSchema, type LocationContext, type SnapshotUsage } from '@canonry/canonry-contracts'
 import {
   adsConnections,
   auditLog,
@@ -26,7 +26,7 @@ import {
   schedules,
   trafficSources,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { getAgentProvider } from '../src/agent/providers.js'
 import type { CanonryConfig } from '../src/config.js'
 import { startInstallStateTelemetry } from '../src/install-state-telemetry.js'

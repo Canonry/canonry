@@ -20,7 +20,7 @@ import {
   schedules,
   trafficSources,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   INTEGRATION_NAMES,
   IntegrationNames,
@@ -35,7 +35,7 @@ import {
   providerConnectionName,
   type IntegrationName,
   type InstallStateProperties,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { CanonryConfig } from './config.js'
 import { isCdpProviderRegistrable, registeredProviderNames } from './provider-registration.js'
 import { trackInstallState } from './outcome-telemetry.js'

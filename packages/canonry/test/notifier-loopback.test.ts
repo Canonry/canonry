@@ -1,16 +1,16 @@
 import crypto from 'node:crypto'
 import { beforeEach, expect, it, onTestFinished, vi } from 'vitest'
-import { deliverWebhook } from '@ainyc/canonry-api-routes'
-import { auditLog, createClient, migrate, notifications, projects, runs } from '@ainyc/canonry-db'
-import type { AnalysisResult } from '@ainyc/canonry-intelligence'
+import { deliverWebhook } from '@canonry/canonry-api-routes'
+import { auditLog, createClient, migrate, notifications, projects, runs } from '@canonry/canonry-db'
+import type { AnalysisResult } from '@canonry/canonry-intelligence'
 import { Notifier } from '../src/notifier.js'
 
 // Scheduled delivery must apply the same loopback rule as creating and testing
 // the webhook, so a localhost hook that `canonry serve` accepted is not refused
 // later when an event fires. The real egress gate runs; only the HTTP send is
 // replaced.
-vi.mock('@ainyc/canonry-api-routes', async importOriginal => {
-  const actual = await importOriginal<typeof import('@ainyc/canonry-api-routes')>()
+vi.mock('@canonry/canonry-api-routes', async importOriginal => {
+  const actual = await importOriginal<typeof import('@canonry/canonry-api-routes')>()
   return { ...actual, deliverWebhook: vi.fn() }
 })
 

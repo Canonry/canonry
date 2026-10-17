@@ -86,7 +86,7 @@ describe('generated CLI help', () => {
 describe('CLI catalog drift guard', () => {
   it('covers every root and command exactly once, with no phantom summaries', async () => {
     const { buildCliCatalog, CLI_ROOT_SUMMARIES, renderTopLevelHelp } = await import('../src/cli-catalog.js')
-    const { cliCatalogSchema } = await import('@ainyc/canonry-contracts')
+    const { cliCatalogSchema } = await import('@canonry/canonry-contracts')
     const roots = [...new Set(REGISTERED_CLI_COMMANDS.map(spec => spec.path[0]!))].sort()
     expect(Object.keys(CLI_ROOT_SUMMARIES).sort()).toEqual(roots)
     const catalog = cliCatalogSchema.parse(buildCliCatalog(REGISTERED_CLI_COMMANDS))

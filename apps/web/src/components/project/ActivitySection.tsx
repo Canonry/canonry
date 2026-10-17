@@ -44,7 +44,7 @@ import {
   type GaSearchLandingPagesResponse,
   type GaSearchLandingWindow,
   type MetricsWindow,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { MetricTone } from '../../view-models.js'
 import {
   toneFromTrafficSourceStatus,
@@ -65,7 +65,7 @@ import {
   getApiV1ProjectsByNameGaSocialReferralHistoryOptions,
   getApiV1ProjectsByNameGaStatusOptions,
   getApiV1ProjectsByNameGaTrafficOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficAiLandingPage, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaSocialReferral, GA4AiReferralDailyDto, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '../../api.js'
 import { TRAFFIC_STALE_MS } from '../../queries/query-client.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'

@@ -7,7 +7,7 @@ import type {
   TrackedQueryRequest,
   RawQueryResult,
   NormalizedQueryResult,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   validateConfig as localValidateConfig,
   healthcheck as localHealthcheck,

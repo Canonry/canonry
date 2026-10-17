@@ -5,7 +5,7 @@ import type {
   ConversionTrackingIntegrityAssessmentDto,
   ConversionTrackingIntegrityStatus,
   GoogleAdsConnectionState,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import type { MetricTone } from '../../view-models.js'
 import { formatTimestamp } from '../../lib/format-helpers.js'

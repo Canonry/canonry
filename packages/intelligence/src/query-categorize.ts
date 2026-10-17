@@ -14,7 +14,7 @@ import {
   brandKeyFromText,
   brandLabelFromDomain,
   textContainsAnyBrandAlias,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 export type QueryCategory = 'brand' | 'lead-gen' | 'industry' | 'other'
 

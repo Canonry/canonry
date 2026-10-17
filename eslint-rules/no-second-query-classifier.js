@@ -127,14 +127,14 @@ export const noSecondQueryClassifierRule = {
     messages: {
       derivedClass:
         'This derives a branded / non-brand class by hand. Tracked queries have ONE classifier: '
-        + 'compileQueryClassifier(effectiveBrandNames(project)) from @ainyc/canonry-contracts '
+        + 'compileQueryClassifier(effectiveBrandNames(project)) from @canonry/canonry-contracts '
         + '(packages/contracts/src/query-class.ts). Call it, or read the class the server already resolved '
         + '(queryClass on GET /projects/:name/queries, or the assignment class in an advanced plan). '
         + 'See AGENTS.md "Branded vs non-brand" rule 5.',
       brandMatchOnQueryText:
         'This runs a brand matcher over query text, which is a second branded / non-brand classifier. '
         + 'Use compileQueryClassifier(effectiveBrandNames(project)).classify(queryText) from '
-        + '@ainyc/canonry-contracts instead. See AGENTS.md "Branded vs non-brand" rule 5.',
+        + '@canonry/canonry-contracts instead. See AGENTS.md "Branded vs non-brand" rule 5.',
     },
   },
   create(context) {

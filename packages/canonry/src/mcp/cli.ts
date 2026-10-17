@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { isReadOnlyKey } from '@ainyc/canonry-contracts'
+import { isReadOnlyKey } from '@canonry/canonry-contracts'
 import { createApiClient, type ApiClient } from '../client.js'
 import { autoSyncSkills } from '../skills-autosync.js'
 import { createCanonryMcpServer, type CanonryMcpScope } from './server.js'

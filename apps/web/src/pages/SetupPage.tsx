@@ -10,7 +10,7 @@ import {
   isOpenRouterRoute,
   openRouterRouteModel,
   type OnboardingTelemetryEvent,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
@@ -38,7 +38,7 @@ import {
   getApiV1ProjectsByNameMeasurementSetupOptions,
   getApiV1ProjectsByNameQueriesQueryKey,
   getApiV1RunsByIdOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { isProjectDetailQuery, useTriggerRun } from '../queries/mutations.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'

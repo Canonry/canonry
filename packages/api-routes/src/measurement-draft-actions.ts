@@ -37,7 +37,7 @@ import {
   type LocationContext,
   compareText,
   openRouterRouteModel,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { frozenMeasurementDraftExecutionKeys, proposeQueryClassForTarget } from './measurement-draft-compile.js'
 import { canonicalJson, sha256Hex } from './measurement-draft-repo.js'
 import type { ZodType } from 'zod'

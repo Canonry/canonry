@@ -1,13 +1,13 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
-import { competitors, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { competitors, projects, type DatabaseClient } from '@canonry/canonry-db'
 import {
   compareText,
   competitorIdentityAliases,
   effectiveBrandNames,
   effectiveDomains,
   type CompetitorIdentityInput,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { competitorIdentityColumns } from './competitor-writes.js'
 import { readMarketCompetitorNames } from './market-competitor-names.js'
 

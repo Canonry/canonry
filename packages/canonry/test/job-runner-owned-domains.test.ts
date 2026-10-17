@@ -11,8 +11,8 @@ import type {
   TrackedQueryInput,
   RawQueryResult,
   NormalizedQueryResult,
-} from '@ainyc/canonry-contracts'
-import { createClient, migrate, queries, projects, querySnapshots, runs } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import { createClient, migrate, queries, projects, querySnapshots, runs } from '@canonry/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 

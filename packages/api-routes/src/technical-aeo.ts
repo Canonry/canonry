@@ -16,7 +16,7 @@ import {
   siteCrawlPages,
   siteCrawlRunRequests,
   siteCrawlSnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   RunKinds,
   RunStatuses,
@@ -37,6 +37,7 @@ import {
   siteAuditPageFactorSchema,
   siteAuditRequestIdentity,
   siteAuditRunRequestSchema,
+  type SiteAuditRunRequest,
   siteCrawlAuditFactorSchema,
   siteCrawlCriticalDefectSchema,
   siteHealthLinkKindSchema,
@@ -93,7 +94,7 @@ import {
   SITE_HEALTH_SUBGRAPH_DEFAULT_MAX_NODES,
   SITE_HEALTH_SUBGRAPH_MAX_EDGES,
   SITE_HEALTH_SUBGRAPH_MAX_NODES,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { parseSiteAuditIssueQuery, readSiteAuditIssues } from './technical-aeo-issues.js'
 
@@ -110,15 +111,7 @@ export interface TechnicalAeoRoutesOptions {
    * Fired after a `site-audit` run row is created. Wire this in the host server
    * to `executeSiteAudit(...).then(() => runCoordinator.onRunCompleted(...))`.
    */
-  onSiteAuditRequested?: (runId: string, projectId: string, opts?: {
-    sitemapUrl?: string
-    /** @deprecated Compatibility alias for maxPages. */
-    limit?: number
-    maxPages?: number
-    maxEdges?: number
-    maxDepth?: number
-    checkDeadLinks?: boolean
-  }) => void
+  onSiteAuditRequested?: (runId: string, projectId: string, opts?: Partial<SiteAuditRunRequest>) => void
 }
 
 /** Run statuses that count as a real, surfaceable site audit. */
@@ -2755,7 +2748,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   // POST /projects/:name/technical-aeo/runs — exact-identity consolidation.
   app.post<{
     Params: { name: string }
-    Body: { sitemapUrl?: string; limit?: number; maxPages?: number; maxEdges?: number; maxDepth?: number; checkDeadLinks?: boolean }
+    Body: Partial<SiteAuditRunRequest>
   }>('/projects/:name/technical-aeo/runs', async (request) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -2836,6 +2829,8 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         maxEdges: effectiveRequest.maxEdges ?? undefined,
         maxDepth: effectiveRequest.maxDepth ?? undefined,
         checkDeadLinks: effectiveRequest.checkDeadLinks,
+        includeGeo: effectiveRequest.includeGeo,
+        includeAgentSkills: effectiveRequest.includeAgentSkills,
       })
     }
 

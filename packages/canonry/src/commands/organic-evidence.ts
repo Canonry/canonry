@@ -1,4 +1,4 @@
-import type { OrganicEvidenceDto, OrganicEvidencePeriodDays } from '@ainyc/canonry-contracts'
+import type { OrganicEvidenceDto, OrganicEvidencePeriodDays } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 

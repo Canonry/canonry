@@ -1,6 +1,6 @@
 import { Type } from '@earendil-works/pi-ai'
 import type { AgentTool } from '@earendil-works/pi-agent-core'
-import { agentVisibilityEvidence, validationError, visibilityReportRequestSchema, type AgentViewContext } from '@ainyc/canonry-contracts'
+import { agentVisibilityEvidence, validationError, visibilityReportRequestSchema, type AgentViewContext } from '@canonry/canonry-contracts'
 import type { ApiClient } from '../client.js'
 import { truncateToolResult } from './mcp-to-agent-tool.js'
 

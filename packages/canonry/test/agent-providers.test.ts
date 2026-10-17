@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { LLM_CAPABILITIES, LlmCapabilities, RETIRED_AGENT_PROVIDER_IDS } from '@ainyc/canonry-contracts'
+import { LLM_CAPABILITIES, LlmCapabilities, RETIRED_AGENT_PROVIDER_IDS } from '@canonry/canonry-contracts'
 import {
   AGENT_PROVIDERS,
   AgentProviders,

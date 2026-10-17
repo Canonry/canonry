@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { deliverWebhook, resolveWebhookTarget } from '@ainyc/canonry-api-routes'
-import type { WebhookPayload } from '@ainyc/canonry-contracts'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
+import { deliverWebhook, resolveWebhookTarget } from '@canonry/canonry-api-routes'
+import type { WebhookPayload } from '@canonry/canonry-contracts'
+import { createClient, migrate, projects } from '@canonry/canonry-db'
 
 const trackEvent = vi.hoisted(() => vi.fn())
 vi.mock('../src/telemetry.js', () => ({ trackEvent }))
-vi.mock('@ainyc/canonry-api-routes', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@ainyc/canonry-api-routes')>(),
+vi.mock('@canonry/canonry-api-routes', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@canonry/canonry-api-routes')>(),
   resolveWebhookTarget: vi.fn(),
   deliverWebhook: vi.fn(),
 }))

@@ -1,12 +1,12 @@
 import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import {
   competitors,
   insights,
   projects,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   classifyProviderOutcomeError,
   determineAnswerMentioned,
@@ -25,8 +25,8 @@ import {
   type DiscoveryCompetitorType,
   type LocationContext,
   describeError,
-} from '@ainyc/canonry-contracts'
-import { embedQueries } from '@ainyc/canonry-provider-gemini'
+} from '@canonry/canonry-contracts'
+import { embedQueries } from '@canonry/canonry-provider-gemini'
 import {
   executeDiscovery,
   markSessionFailed,
@@ -36,7 +36,7 @@ import {
   type DiscoveryProbeResult,
   type DiscoverySeedResult,
   type ExecuteDiscoveryResult,
-} from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-api-routes'
 import type { ProviderRegistry } from './provider-registry.js'
 import { createLogger } from './logger.js'
 import { startRunOutcome } from './sync-outcome.js'

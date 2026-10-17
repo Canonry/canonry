@@ -4,8 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { onTestFinished, vi } from 'vitest'
 import { z } from 'zod'
-import { createClient, migrate, projects, competitors, discoverySessions, runs } from '@ainyc/canonry-db'
-import type { ProviderAdapter, ProviderConfig, RawQueryResult, NormalizedQueryResult, TrackedQueryInput } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, competitors, discoverySessions, runs } from '@canonry/canonry-db'
+import type { ProviderAdapter, ProviderConfig, RawQueryResult, NormalizedQueryResult, TrackedQueryInput } from '@canonry/canonry-contracts'
 import { ProviderRegistry } from '../src/provider-registry.js'
 
 export interface LiteralAnswer { answerText: string; citedDomains: string[]; searchQueries?: string[] }

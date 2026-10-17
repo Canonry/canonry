@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, trafficSources, aiReferralEventsHourly, gaAiReferrals, gaTrafficSummaries, measurementPlans, measurementPlanVersions } from '@ainyc/canonry-db'
-import { canonicalMeasurementPlanV2Json } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, trafficSources, aiReferralEventsHourly, gaAiReferrals, gaTrafficSummaries, measurementPlans, measurementPlanVersions } from '@canonry/canonry-db'
+import { canonicalMeasurementPlanV2Json } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 

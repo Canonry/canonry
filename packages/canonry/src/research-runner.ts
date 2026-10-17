@@ -1,6 +1,6 @@
 import { and, eq, inArray, sql } from 'drizzle-orm'
-import { competitorIdentityColumns } from '@ainyc/canonry-api-routes'
-import { competitors, projects, researchRunQueries, researchRuns, type DatabaseClient } from '@ainyc/canonry-db'
+import { competitorIdentityColumns } from '@canonry/canonry-api-routes'
+import { competitors, projects, researchRunQueries, researchRuns, type DatabaseClient } from '@canonry/canonry-db'
 import {
   classifyProviderOutcomeError,
   competitorIdentityAliases,
@@ -22,7 +22,7 @@ import {
   type FeatureCompletedProperties,
   type OutcomeReasonCode,
   type OutcomeTrigger,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { computeCitedCompetitorDomains, determineCitationState } from './citation-utils.js'
 import type { ProviderRegistry } from './provider-registry.js'
 import { getSharedProviderExecutionGate } from './provider-execution-gate.js'

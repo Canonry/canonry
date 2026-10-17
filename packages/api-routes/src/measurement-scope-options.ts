@@ -6,7 +6,7 @@
  * server and never re-derived by a client.
  */
 
-import type { MeasurementPlanV2, VisibilityReportScopeOption } from '@ainyc/canonry-contracts'
+import type { MeasurementPlanV2, VisibilityReportScopeOption } from '@canonry/canonry-contracts'
 
 export interface PlanScopeOptionsSettings {
   /**

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
-import { escapeRegExp } from '@ainyc/canonry-contracts'
+import { escapeRegExp } from '@canonry/canonry-contracts'
 import { compileAppStyles } from './compiled-app-css.js'
 import { expect, test } from 'vitest'
 

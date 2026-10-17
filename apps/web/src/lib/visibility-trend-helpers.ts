@@ -1,4 +1,4 @@
-import { openRouterRouteModel } from '@ainyc/canonry-contracts'
+import { openRouterRouteModel } from '@canonry/canonry-contracts'
 import type {
   BasketChangeEvent,
   BrandMetricsDto,
@@ -11,7 +11,7 @@ import type {
   ServedModelAttribution,
   TrendDirection,
   WindowRateChange,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { MetricTone } from '../view-models.js'
 import {
   observedInstant,

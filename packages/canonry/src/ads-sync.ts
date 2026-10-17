@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { and, eq, inArray, notInArray } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, projects, adsConnections, adsCampaigns, adsAdGroups, adsAds, adsInsightsDaily } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { runs, projects, adsConnections, adsCampaigns, adsAdGroups, adsAds, adsInsightsDaily } from '@canonry/canonry-db'
 import {
   buildRunErrorFromMessages,
   serializeRunError,
@@ -12,7 +12,7 @@ import {
   FeatureNames,
   OutcomeReasonCodes,
   OutcomeStatuses,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   getAdAccount,
   listCampaigns,
@@ -21,7 +21,7 @@ import {
   getCampaignInsights,
   getAdGroupInsights,
   parseLandingPageQueryStringTemplate,
-} from '@ainyc/canonry-integration-openai-ads'
+} from '@canonry/canonry-integration-openai-ads'
 import type {
   OpenAiAdsAd,
   OpenAiAdsAdGroup,
@@ -29,7 +29,7 @@ import type {
   OpenAiAdsInsightHourRange,
   OpenAiAdsInsightRow,
   OpenAiAdsInsightsOptions,
-} from '@ainyc/canonry-integration-openai-ads'
+} from '@canonry/canonry-integration-openai-ads'
 import type { CanonryConfig } from './config.js'
 import { getOpenAiAdsConnection } from './ads-config.js'
 import { createLogger } from './logger.js'

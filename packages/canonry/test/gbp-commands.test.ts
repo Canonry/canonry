@@ -3,7 +3,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, apiKeys, gbpLocations, gbpDailyMetrics, projects } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys, gbpLocations, gbpDailyMetrics, projects } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import {

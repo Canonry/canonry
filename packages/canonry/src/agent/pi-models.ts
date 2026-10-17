@@ -8,7 +8,7 @@ import {
 } from '@earendil-works/pi-ai'
 import { builtinModels } from '@earendil-works/pi-ai/providers/all'
 import type { StreamFn } from '@earendil-works/pi-agent-core'
-import { ProviderIds } from '@ainyc/canonry-contracts'
+import { ProviderIds } from '@canonry/canonry-contracts'
 import { getSharedProviderExecutionGate } from '../provider-execution-gate.js'
 
 /**

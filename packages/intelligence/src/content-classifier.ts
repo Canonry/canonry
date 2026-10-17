@@ -31,7 +31,7 @@
  *   AEO-first thesis.
  */
 
-import type { ContentAction } from '@ainyc/canonry-contracts'
+import type { ContentAction } from '@canonry/canonry-contracts'
 
 export interface ClassifierInput {
   ourPage: { url: string; position: number; source: 'gsc' | 'inventory' } | null

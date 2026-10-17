@@ -6,7 +6,7 @@ import type {
   TrackedQueryRequest,
   RawQueryResult,
   NormalizedQueryResult,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   DEFAULT_MODEL,
   PERPLEXITY_RETRIEVAL_CONTRACT,

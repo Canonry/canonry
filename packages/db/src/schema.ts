@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ConfigSource, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, SiteCrawlIssueEvidence, SnapshotUsage } from '@ainyc/canonry-contracts'
-import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GaSearchLandingStatus, GaSearchLandingWindow, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@ainyc/canonry-contracts'
+import type { CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ConfigSource, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, SiteCrawlIssueEvidence, SnapshotUsage } from '@canonry/canonry-contracts'
+import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GaSearchLandingStatus, GaSearchLandingWindow, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@canonry/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -468,7 +468,7 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   // Flat capture fields are deliberately nullable: historical rows are not
   // backfilled, so all-null means this observation predates URL capture.
   citedUrls: text('cited_urls', { mode: 'json' }).$type<string[]>(),
-  captureStatus: text('capture_status').$type<import('@ainyc/canonry-contracts').CitedUrlCaptureStatus>(),
+  captureStatus: text('capture_status').$type<import('@canonry/canonry-contracts').CitedUrlCaptureStatus>(),
   sourceCount: integer('source_count'),
   resolvedCount: integer('resolved_count'),
   captureVersion: integer('capture_version'),
@@ -476,8 +476,8 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   // that completed having found zero sources says nothing about whether a search
   // ran. Nullable because historical rows are not backfilled, so null means the
   // observation predates the field, NOT that retrieval did not happen.
-  retrievalStatus: text('retrieval_status').$type<import('@ainyc/canonry-contracts').RetrievalStatus>(),
-  retrievalContract: text('retrieval_contract').$type<import('@ainyc/canonry-contracts').RetrievalContract>(),
+  retrievalStatus: text('retrieval_status').$type<import('@canonry/canonry-contracts').RetrievalStatus>(),
+  retrievalContract: text('retrieval_contract').$type<import('@canonry/canonry-contracts').RetrievalContract>(),
   /**
    * LEGACY MIXED SIGNAL — never read this for a mention or a citation metric.
    *
@@ -1805,7 +1805,7 @@ export const gaTrafficSnapshots = sqliteTable('ga_traffic_snapshots', {
   landingPage: text('landing_page').notNull(),
   /**
    * Canonicalized form of `landingPage` produced by `normalizeUrlPath()` in
-   * `@ainyc/canonry-contracts`. Nullable so existing rows survive migration;
+   * `@canonry/canonry-contracts`. Nullable so existing rows survive migration;
    * new GA4 sync writes populate it. Per-page aggregations should
    * `GROUP BY COALESCE(landing_page_normalized, landing_page)` so
    * partially-backfilled state still aggregates correctly.
@@ -2756,19 +2756,19 @@ export const researchRuns = sqliteTable('research_runs', {
   status: text('status').notNull().default('queued'), provider: text('provider').notNull(),
   requestedModel: text('requested_model'), resolvedModel: text('resolved_model').notNull(),
   location: text('location', { mode: 'json' }).$type<LocationContext | null>(),
-  scope: text('scope', { mode: 'json' }).$type<import('@ainyc/canonry-contracts').ResearchRunScope | null>(),
-  template: text('template', { mode: 'json' }).$type<import('@ainyc/canonry-contracts').QueryTrackingTemplateProvenance | null>(),
+  scope: text('scope', { mode: 'json' }).$type<import('@canonry/canonry-contracts').ResearchRunScope | null>(),
+  template: text('template', { mode: 'json' }).$type<import('@canonry/canonry-contracts').QueryTrackingTemplateProvenance | null>(),
   totalQueries: integer('total_queries').notNull(), completedQueries: integer('completed_queries').notNull().default(0), failedQueries: integer('failed_queries').notNull().default(0),
   idempotencyKey: text('idempotency_key'), requestHash: text('request_hash'), error: text('error'),
-  initiatedBy: text('initiated_by', { mode: 'json' }).$type<import('@ainyc/canonry-contracts').ResearchRunPrincipal | null>(),
+  initiatedBy: text('initiated_by', { mode: 'json' }).$type<import('@canonry/canonry-contracts').ResearchRunPrincipal | null>(),
   startedAt: text('started_at'), finishedAt: text('finished_at'), createdAt: text('created_at').notNull(),
 }, (table) => [index('idx_research_runs_project_created').on(table.projectId, table.createdAt), index('idx_research_runs_status').on(table.status), uniqueIndex('idx_research_runs_project_idempotency').on(table.projectId, table.idempotencyKey)])
 
 export const researchRunQueries = sqliteTable('research_run_queries', {
   id: text('id').primaryKey(), researchRunId: text('research_run_id').notNull().references(() => researchRuns.id, { onDelete: 'cascade' }),
-  position: integer('position').notNull(), queryText: text('query_text').notNull(), queryClass: text('query_class').$type<import('@ainyc/canonry-contracts').QueryClass | null>(), status: text('status').notNull().default('queued'),
+  position: integer('position').notNull(), queryText: text('query_text').notNull(), queryClass: text('query_class').$type<import('@canonry/canonry-contracts').QueryClass | null>(), status: text('status').notNull().default('queued'),
   requestedModel: text('requested_model'), resolvedModel: text('resolved_model').notNull(), servedModel: text('served_model'), answerText: text('answer_text'),
-  groundingSources: text('grounding_sources', { mode: 'json' }).$type<import('@ainyc/canonry-contracts').GroundingSource[]>().notNull().default([]),
+  groundingSources: text('grounding_sources', { mode: 'json' }).$type<import('@canonry/canonry-contracts').GroundingSource[]>().notNull().default([]),
   citedDomains: text('cited_domains', { mode: 'json' }).$type<string[]>().notNull().default([]), searchQueries: text('search_queries', { mode: 'json' }).$type<string[]>().notNull().default([]),
   namedCompetitors: text('named_competitors', { mode: 'json' }).$type<string[]>().notNull().default([]), citedCompetitorDomains: text('cited_competitor_domains', { mode: 'json' }).$type<string[]>().notNull().default([]),
   answerMentioned: integer('answer_mentioned', { mode: 'boolean' }), citationState: text('citation_state'), rawResponse: text('raw_response', { mode: 'json' }).$type<Record<string, unknown> | null>(), error: text('error'),

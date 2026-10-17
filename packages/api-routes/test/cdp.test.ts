@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
-import { createClient, migrate } from '@ainyc/canonry-db'
+import { createClient, migrate } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 
@@ -181,7 +181,7 @@ describe('POST /api/v1/cdp/screenshot', () => {
 
 describe('GET /api/v1/screenshots/:snapshotId', () => {
   let app: ReturnType<typeof Fastify>
-  let db: ReturnType<typeof import('@ainyc/canonry-db').createClient>
+  let db: ReturnType<typeof import('@canonry/canonry-db').createClient>
   let tmpDir: string
 
   beforeAll(async () => {
@@ -227,7 +227,7 @@ describe('GET /api/v1/screenshots/:snapshotId', () => {
     const screenshotPath = path.join(screenshotDir, testScreenshotName)
     fs.writeFileSync(screenshotPath, pngBytes)
 
-    const { querySnapshots, runs, projects, queries } = await import('@ainyc/canonry-db')
+    const { querySnapshots, runs, projects, queries } = await import('@canonry/canonry-db')
     const projectId = crypto.randomUUID()
     const runId = crypto.randomUUID()
     const queryId = crypto.randomUUID()
@@ -287,7 +287,7 @@ describe('GET /api/v1/screenshots/:snapshotId', () => {
 
 describe('GET /api/v1/projects/:name/runs/:runId/browser-diff', () => {
   let app: ReturnType<typeof Fastify>
-  let db: ReturnType<typeof import('@ainyc/canonry-db').createClient>
+  let db: ReturnType<typeof import('@canonry/canonry-db').createClient>
   let tmpDir: string
 
   beforeAll(async () => {
@@ -330,7 +330,7 @@ describe('GET /api/v1/projects/:name/runs/:runId/browser-diff', () => {
   })
 
   it('returns a summary and per-query comparison for a run with api + browser snapshots', async () => {
-    const { querySnapshots, runs, queries } = await import('@ainyc/canonry-db')
+    const { querySnapshots, runs, queries } = await import('@canonry/canonry-db')
 
     // Create project via API so it lands in the shared DB
     const createRes = await app.inject({

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { and, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { projects, queries, competitors, schedules, notifications, runs, querySnapshots, insights, auditLog, readAllNegativeReviewMaxStars, readNegativeReviewMaxStars, writeNegativeReviewMaxStars, type DatabaseClient } from '@ainyc/canonry-db'
+import { projects, queries, competitors, schedules, notifications, runs, querySnapshots, insights, auditLog, readAllNegativeReviewMaxStars, readNegativeReviewMaxStars, writeNegativeReviewMaxStars, type DatabaseClient } from '@canonry/canonry-db'
 import type { InferSelectModel } from 'drizzle-orm'
 import {
   isProviderAvailable,
@@ -29,8 +29,8 @@ import {
   PROJECTS_WRITE_SCOPE,
   SchedulableRunKinds,
   buildRedactedNotificationUrl,
-} from '@ainyc/canonry-contracts'
-import type { CompetitorAliasRejection, CompetitorAutoAliasDrop, CompetitorAutoAliasMode, ConfigNotification, LocationContext, MeasurementConfig, ProjectConfigExport, ProjectCreateRequest, ProjectPatchRequest, ProjectUpsertRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import type { CompetitorAliasRejection, CompetitorAutoAliasDrop, CompetitorAutoAliasMode, ConfigNotification, LocationContext, MeasurementConfig, ProjectConfigExport, ProjectCreateRequest, ProjectPatchRequest, ProjectUpsertRequest, ProviderDispatchModesMap, ProviderModels } from '@canonry/canonry-contracts'
 import { requireAdminSession, requireScope, requireSecretExportScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { withFeatureOutcome } from './feature-outcome.js'

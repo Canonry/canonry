@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import type { GscQueryTotalsDto } from '@ainyc/canonry-contracts'
+import type { GscQueryTotalsDto } from '@canonry/canonry-contracts'
 
 const mockGscQueryTotals = vi.fn()
 

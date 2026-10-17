@@ -134,7 +134,7 @@ with **no in-app instrumentation** required on the user's Vercel project.
   Pro/Enterprise plan only) that is not implemented here. Verified Vercel
   hits would require building that receiver.
 - **Provider-neutral output.** Every adapter in the traffic stack emits the
-  same `NormalizedTrafficRequest` shape from `@ainyc/canonry-contracts`. Do not
+  same `NormalizedTrafficRequest` shape from `@canonry/canonry-contracts`. Do not
   leak Vercel-specific types past the package boundary.
 
 ## Common Mistakes

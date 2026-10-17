@@ -9,10 +9,11 @@ import {
   getApiV1ProjectsByNameTechnicalAeoPagesQueryKey,
   getApiV1ProjectsByNameTechnicalAeoQueryKey,
   getApiV1ProjectsByNameTechnicalAeoTrendQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { FACTOR_SHARE_NOT_RECORDED, TechnicalAeoSection } from '../src/components/project/TechnicalAeoSection.js'
 import { factorShareOfScoreLabel } from '../src/components/project/PageAuditEvidence.js'
+import { SITE_HEALTH_CHECK_HELP } from '../src/components/project/site-health-check-help.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { heyClient } from '../src/api.js'
 import { resetRunTracker } from '../src/lib/run-tracker-store.js'
@@ -857,5 +858,32 @@ test('names the site-score share of an expanded check, and nothing for a scan wi
     expect(document.body.textContent).not.toMatch(/(?<![\d.])(?:4|20)% of the site score/)
     cleanup()
     queryClient.clear()
+  }
+})
+
+
+test('explains optional checks without opening their affected-page rows', () => {
+  const queryClient = makeClient()
+  const factors = [
+    { id: 'geographic-signals', name: 'Geographic Signals' },
+    { id: 'agent-skill-exposure', name: 'Agent Skill Exposure' },
+  ]
+  queryClient.setQueryData(scoreKey, {
+    ...score('audit_old'),
+    factors: factors.map(factor => ({ ...factor, weight: 6, avgScore: 80, status: 'pass', pagesPassing: 39, pagesPartial: 0, pagesFailing: 0 })),
+  })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TechnicalAeoSection projectName={projectName} projectId={projectId} integrated />
+    </QueryClientProvider>,
+  )
+  for (const factor of factors) {
+    const row = screen.getByRole('button', { name: factor.name })
+    const help = within(row.closest('tr')!).getByRole('button', { name: SITE_HEALTH_CHECK_HELP[factor.id] })
+    fireEvent.click(help)
+    expect(help.getAttribute('aria-expanded')).toBe('true')
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.keyDown(help, { key: 'Escape' })
+    expect(help.getAttribute('aria-expanded')).toBe('false')
   }
 })

@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createClient, migrate, projects, trafficSources, crawlerEventsHourly } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, trafficSources, crawlerEventsHourly } from '@canonry/canonry-db'
 import { TRAFFIC_SOURCE_CHECKS } from '../src/doctor/checks/traffic-source.js'
 import {
   resolveVercelSyncDeadlineMs,

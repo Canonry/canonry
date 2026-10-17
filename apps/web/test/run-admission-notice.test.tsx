@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
-import { getApiV1RunsByIdOptions } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1RunsByIdOptions } from '@canonry/canonry-api-client/react-query'
 import {
   createMemoryHistory,
   createRootRoute,
@@ -10,7 +10,7 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router'
-import type { ProviderAccountStreak } from '@ainyc/canonry-contracts'
+import type { ProviderAccountStreak } from '@canonry/canonry-contracts'
 import { RunAdmissionNoticeView, useRunAdmission } from '../src/components/project/RunAdmissionNotice.js'
 import { formatSweepInstant } from '../src/lib/format-helpers.js'
 import { heyClient } from '../src/api.js'

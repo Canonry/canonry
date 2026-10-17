@@ -125,7 +125,7 @@ function formatNumber(value: number): string {
 export function formatNumber(value: number): string { /* ... */ }
 
 // packages/canonry/src/commands/traffic.ts
-import { formatNumber } from '@ainyc/canonry-contracts'
+import { formatNumber } from '@canonry/canonry-contracts'
 ```
 
 ```typescript
@@ -150,8 +150,8 @@ import { formatNumber } from '@ainyc/canonry-contracts'
 | `ComputedTransitions` | `ComputedTransition` | `ComputedTransitions.lost`, `ComputedTransitions.emerging`, etc. |
 
 ```typescript
-import type { RunKind } from '@ainyc/canonry-contracts'
-import { RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
+import type { RunKind } from '@canonry/canonry-contracts'
+import { RunKinds, RunStatuses } from '@canonry/canonry-contracts'
 
 // ✅ Correct — enum constant + typed parameter + exhaustive switch
 function kindLabel(kind: RunKind): string {
@@ -174,7 +174,7 @@ function kindLabel(kind: string): string {
 
 ### Third-party HTTP calls
 
-**Every integration that talks to a third party over HTTP must back off when that service pushes back.** Wrap the package's HTTP layer in `withRetry` from `@ainyc/canonry-contracts` — one private `fetchOnce`, one exported wrapper — so retry is the default rather than something each call site remembers. `packages/integration-bing/src/bing-client.ts` is the reference shape.
+**Every integration that talks to a third party over HTTP must back off when that service pushes back.** Wrap the package's HTTP layer in `withRetry` from `@canonry/canonry-contracts` — one private `fetchOnce`, one exported wrapper — so retry is the default rather than something each call site remembers. `packages/integration-bing/src/bing-client.ts` is the reference shape.
 
 #### Rules
 
@@ -237,7 +237,7 @@ Available factories: `validationError()`, `notFound()`, `alreadyExists()`, `auth
 - **Hand-constructing error JSON** — always use factory functions from `errors.ts`.
 - **Defining shared types in consuming packages** — types used across packages belong here.
 - **Defining generic helpers (formatters, parsers, normalizers) inline in consumer files** — they belong in this package. See "Shared Utilities" in the root `AGENTS.md`.
-- **Forgetting to re-export from `index.ts`** — consumers import from `@ainyc/canonry-contracts`.
+- **Forgetting to re-export from `index.ts`** — consumers import from `@canonry/canonry-contracts`.
 - **Creating Zod schema without corresponding TypeScript type** — keep them paired.
 
 ## See Also

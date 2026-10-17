@@ -1,5 +1,5 @@
 import type { McpServer, RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { OperationAccesses } from '@ainyc/canonry-contracts'
+import { OperationAccesses } from '@canonry/canonry-contracts'
 import { toolOperationAccess, type CanonryMcpTool } from './tool-registry.js'
 import {
   CANONRY_MCP_TOOLKITS,

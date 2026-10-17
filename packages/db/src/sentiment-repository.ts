@@ -1,4 +1,4 @@
-import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm'

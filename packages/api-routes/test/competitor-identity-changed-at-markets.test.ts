@@ -16,13 +16,13 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   canonicalMeasurementPlanV2Json,
   competitorLandscapeResponseSchema,
   measurementPlanV2Schema,
   type CompetitorAutoAlias,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { apiRoutes, readMarketCompetitorNames } from '../src/index.js'
 import { marketNameChanges } from '../src/market-competitor-names.js'
 

@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { CheckStatuses } from '@ainyc/canonry-contracts'
+import { CheckStatuses } from '@canonry/canonry-contracts'
 import { RUNTIME_STATE_CHECKS } from '../src/doctor/checks/runtime-state.js'
 import type { DoctorContext } from '../src/doctor/types.js'
 

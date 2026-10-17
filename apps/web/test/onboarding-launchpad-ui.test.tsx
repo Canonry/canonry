@@ -7,7 +7,7 @@ import { RouterProvider } from '@tanstack/react-router'
 import {
   getApiV1ProjectsQueryKey,
   getApiV1TelemetryQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { heyClient } from '../src/api.js'

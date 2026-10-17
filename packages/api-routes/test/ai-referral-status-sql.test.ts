@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { QueryBuilder } from 'drizzle-orm/sqlite-core'
-import { aiReferralEventsHourly } from '@ainyc/canonry-db'
+import { aiReferralEventsHourly } from '@canonry/canonry-db'
 import { countableReferralCondition, referralLandedCondition } from '../src/ai-referral-status.js'
 
 describe('generated SQL sanity', () => {

@@ -1,6 +1,6 @@
 import Fastify from 'fastify'
 import { describe, expect, it } from 'vitest'
-import type { UiTelemetryEvent } from '@ainyc/canonry-contracts'
+import type { UiTelemetryEvent } from '@canonry/canonry-contracts'
 import { telemetryRoutes } from '../src/telemetry.js'
 
 async function buildApp(recordUiEvent?: (event: UiTelemetryEvent) => boolean) {

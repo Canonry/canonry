@@ -3,12 +3,12 @@ import path from 'node:path'
 import os from 'node:os'
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
 import Fastify from 'fastify'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
-import { AppError } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects } from '@canonry/canonry-db'
+import { AppError } from '@canonry/canonry-contracts'
 // `GoogleApiError` / `GoogleAuthError` are spread through from the real module
 // by the mock below, so these are the same class identities google.ts checks
 // `instanceof` against.
-import { GoogleApiError, GoogleAuthError } from '@ainyc/canonry-integration-google'
+import { GoogleApiError, GoogleAuthError } from '@canonry/canonry-integration-google'
 import { googleRoutes } from '../src/google.js'
 
 // Make the live GSC calls throwable on demand without touching the network.
@@ -18,8 +18,8 @@ import { googleRoutes } from '../src/google.js'
 // still matches what we throw.
 const state = vi.hoisted(() => ({ listError: null as Error | null, refreshError: null as Error | null }))
 
-vi.mock('@ainyc/canonry-integration-google', async (importActual) => {
-  const actual = await importActual<typeof import('@ainyc/canonry-integration-google')>()
+vi.mock('@canonry/canonry-integration-google', async (importActual) => {
+  const actual = await importActual<typeof import('@canonry/canonry-integration-google')>()
   return {
     ...actual,
     listSites: vi.fn(async () => {

@@ -3,8 +3,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
-import { createClient, migrate } from '@ainyc/canonry-db'
-import { AppError } from '@ainyc/canonry-contracts'
+import { createClient, migrate } from '@canonry/canonry-db'
+import { AppError } from '@canonry/canonry-contracts'
 import { googleRoutes } from '../src/google.js'
 
 function makeApp() {

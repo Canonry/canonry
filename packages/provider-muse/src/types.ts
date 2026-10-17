@@ -1,4 +1,4 @@
-import type { GroundingSource, LocationContext, ProviderQuotaPolicy, ProviderUsage, RetrievalStatus } from '@ainyc/canonry-contracts'
+import type { GroundingSource, LocationContext, ProviderQuotaPolicy, ProviderUsage, RetrievalStatus } from '@canonry/canonry-contracts'
 
 export type { GroundingSource }
 

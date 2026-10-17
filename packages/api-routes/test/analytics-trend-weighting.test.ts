@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'vitest'
-import type { TimeBucket } from '@ainyc/canonry-contracts'
+import type { TimeBucket } from '@canonry/canonry-contracts'
 import { computeTrend, pooledRate } from '../src/analytics.js'
 
 /**

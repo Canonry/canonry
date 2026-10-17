@@ -5,7 +5,7 @@ import { toolOperationAccess, canonryMcpTools } from '../src/mcp/tool-registry.j
 import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
 import { runCli } from '../src/cli.js'
 import { cliAccessClassificationIds, resolveCliAccess } from '../src/cli-access.js'
-import { operationAccess } from '@ainyc/canonry-contracts'
+import { operationAccess } from '@canonry/canonry-contracts'
 
 describe('CLI and MCP operation access metadata', () => {
   it('declares access for every CLI command and classifies representative commands', () => {
