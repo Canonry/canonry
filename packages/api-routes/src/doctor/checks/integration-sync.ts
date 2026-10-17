@@ -71,6 +71,8 @@ interface SyncFailureSpec {
   causeCheckIds: readonly string[]
   /** Stored `runs.error` values of a run that had nothing to sync: neither a failure nor a success. */
   nothingToSyncErrors?: readonly string[]
+  /** The fix when the latest error says a selected resource no longer exists; a network or credential fix would not help. */
+  notFoundRemediation?: (projectName: string) => string
 }
 
 /**
@@ -140,6 +142,7 @@ const SPECS: readonly SyncFailureSpec[] = [
     connection: googleMarketingConnection('gtm'),
     syncCommand: name => `canonry gtm sync ${name}`,
     causeCheckIds: ['gtm.auth.connection', 'gtm.auth.scopes', 'gtm.container.context', 'gtm.api.reachable'],
+    notFoundRemediation: name => `The selected account or container no longer exists, or this login can no longer see it. List what it can see with \`canonry gtm accounts ${name}\`, then choose again with \`canonry gtm select ${name} --account <id> --container <id>\`.`,
   },
   {
     prefix: 'gbp',
@@ -275,12 +278,15 @@ function gradeSyncFailures(ctx: DoctorContext, spec: SyncFailureSpec): CheckOutp
     const errorText = state.latestError ?? 'no error was recorded'
     const shownError = errorText.length > SUMMARY_ERROR_LIMIT ? `${truncateUtf16(errorText, SUMMARY_ERROR_LIMIT)}...` : errorText
     const lastSuccessText = state.lastSuccessAt ?? (connection.since ? `none since connecting at ${connection.since}` : 'never')
+    const notFound = spec.notFoundRemediation && /\bwas not found\b/i.test(errorText)
     return {
       status: CheckStatuses.fail,
       code: code('repeated-failures'),
       urgent: true,
       summary: `The last ${state.consecutiveFailures} ${spec.label} syncs failed (last success: ${lastSuccessText}). Latest error: ${shownError}`,
-      remediation: `Fix the cause the latest error names (DNS or network filtering of the API host, credentials, or account access), then run \`${spec.syncCommand(project.name)}\`.`,
+      remediation: notFound
+        ? spec.notFoundRemediation!(project.name)
+        : `Fix the cause the latest error names (DNS or network filtering of the API host, credentials, or account access), then run \`${spec.syncCommand(project.name)}\`.`,
       details,
     }
   }

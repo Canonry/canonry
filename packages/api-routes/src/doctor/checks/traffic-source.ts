@@ -5,6 +5,8 @@ import {
   CheckNotificationPolicies,
   CheckScopes,
   CheckStatuses,
+  RunKinds,
+  RunStatuses,
   TrafficSourceStatuses,
   TrafficSourceTypes,
   describeError,
@@ -20,6 +22,7 @@ import {
   TRAFFIC_SOURCE_MAX_CATCHUP_MS,
 } from '../../traffic-limits.js'
 import { CURRENT_CLOUDFLARE_WORKER_VERSION } from '../../cloudflare-worker-version.js'
+import { SYNC_FAILURE_WINDOW, readSyncRunState } from './integration-sync.js'
 import type { CheckDefinition, CheckOutput, DoctorContext, TrafficSourceProbe } from '../types.js'
 
 /**
@@ -145,14 +148,28 @@ const sourceConnectedCheck: CheckDefinition = {
     }
     const errored = activeSources.filter((s) => s.status === 'error')
     if (errored.length > 0 && errored.length === activeSources.length) {
+      // One failed sync flags a source `error` until its next success, so a
+      // passing blip (a DNS miss, a host restart) is not an outage. Fail once a
+      // source has failed SYNC_FAILURE_WINDOW syncs in a row, or when its error
+      // did not come from a sync at all.
+      const streaks = errored.map((s) => readSyncRunState(ctx.db, ctx.project!.id, RunKinds['traffic-sync'], { sourceId: s.id }))
+      const recovering = streaks.every((state) => state.latestStatus === RunStatuses.failed && !state.repeatedFailure)
+      const lastDataAt = errored.map((s) => s.lastSyncedAt).filter((at): at is string => !!at).sort().at(-1) ?? null
+      const failuresInARow = Math.min(...streaks.map((state) => state.consecutiveFailures))
+      const sinceText = lastDataAt ? `No new data since ${lastDataAt}.` : 'No data has arrived yet.'
       return {
-        status: CheckStatuses.fail,
-        code: 'traffic.source.all-errored',
-        summary: `All ${activeSources.length} active traffic source(s) are in error state. No data is being ingested.`,
+        status: recovering ? CheckStatuses.warn : CheckStatuses.fail,
+        code: recovering ? 'traffic.source.all-errored-recently' : 'traffic.source.all-errored',
+        summary: recovering
+          ? `The latest sync failed for all ${activeSources.length} active traffic source(s) (${failuresInARow} in a row; this fails at ${SYNC_FAILURE_WINDOW}). ${sinceText}`
+          : `All ${activeSources.length} active traffic source(s) are in error state. ${sinceText}`,
         remediation: errored[0]!.lastError
           ? `Latest error: "${errored[0]!.lastError}". Re-connect the source or run \`canonry traffic sync <project> --source <id>\` to retry.`
           : 'Run `canonry traffic sources <project>` to inspect the failing source(s) and re-connect.',
-        details: { sourceCount: activeSources.length, pausedCount: sources.length - activeSources.length, erroredIds: errored.map((s) => s.id) },
+        details: {
+          sourceCount: activeSources.length, pausedCount: sources.length - activeSources.length, erroredIds: errored.map((s) => s.id),
+          failuresInARow, lastSyncedAt: lastDataAt,
+        },
       }
     }
     if (errored.length > 0) {

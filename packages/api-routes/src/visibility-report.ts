@@ -107,6 +107,7 @@ type VisibilitySnapshot = Pick<typeof querySnapshots.$inferSelect,
   | 'citedDomains'
   | 'citedUrls'
   | 'captureStatus'
+  | 'retrievalStatus'
   | 'location'
   | 'measurementExecutionId'
   | 'requestedContext'
@@ -146,6 +147,7 @@ function loadVisibilitySnapshots(
     citedDomains: querySnapshots.citedDomains,
     citedUrls: querySnapshots.citedUrls,
     captureStatus: querySnapshots.captureStatus,
+    retrievalStatus: querySnapshots.retrievalStatus,
     location: querySnapshots.location,
     measurementExecutionId: querySnapshots.measurementExecutionId,
     requestedContext: querySnapshots.requestedContext,
@@ -331,6 +333,7 @@ function v2Observations(
       unknownMentionTargetKeys: attribution?.unknownMentionTargetIds ?? [],
       citedTargetKeys: attribution?.citedTargetIds ?? [],
       citationComplete: attribution?.sourceComplete ?? false,
+      retrievalStatus: raw.retrievalStatus ?? null,
       competitorMentionDomains: signals.mentioned,
       competitorCitationDomains: signals.cited,
       observedCompetitorNames: includeEvidence ? observedCompetitorNames(raw.recommendedCompetitors) : [],
@@ -487,6 +490,7 @@ function frozenSimpleRun(
       // Simple citation state comes from the stored cited domains, not from
       // source-URL capture, so a saved Simple answer is never `unchecked`.
       citationComplete: true,
+      retrievalStatus: snapshot.retrievalStatus ?? null,
       competitorMentionDomains: competitorSignalsForSnapshot.mentioned,
       competitorCitationDomains: competitorSignalsForSnapshot.cited,
       observedCompetitorNames: includeEvidence ? observedCompetitorNames(snapshot.recommendedCompetitors) : [],
@@ -578,6 +582,7 @@ function legacySimpleRun(
       citedTargetKeys: snapshot.citationState === 'cited' ? ['project'] : [],
       // Legacy rows carry only the stored citation state (see the frozen-simple note).
       citationComplete: true,
+      retrievalStatus: snapshot.retrievalStatus ?? null,
       competitorMentionDomains: [],
       competitorCitationDomains: [],
       observedCompetitorNames: includeEvidence ? observedCompetitorNames(snapshot.recommendedCompetitors) : [],

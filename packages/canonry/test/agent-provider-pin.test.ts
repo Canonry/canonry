@@ -173,6 +173,13 @@ describe('SessionRegistry keeps the pin across turns', () => {
     await r.acquireForTurn('demo')
     expect(row()).toMatchObject({ modelProvider: 'zai', modelId: 'glm-5-turbo' })
   })
+
+  it('switches the reasoning level with the provider: low on OpenAI, off on Claude', async () => {
+    const r = new SessionRegistry({ db, client: {} as ApiClient, config: cfg(undefined, { claude: { apiKey: 'k' }, openai: { apiKey: 'k' } }), proactive: false })
+    expect((await r.acquireForTurn('demo', { provider: 'claude' })).state.thinkingLevel).toBe('off')
+    expect((await r.acquireForTurn('demo', { provider: 'openai' })).state.thinkingLevel).toBe('low')
+    expect((await r.acquireForTurn('demo', { provider: 'claude' })).state.thinkingLevel).toBe('off')
+  })
 })
 
 describe('a pin that cannot run fails early and by name', () => {

@@ -16015,6 +16015,7 @@ export type VisibilityCompareDto = {
             numerator: number;
             denominator: number;
             excludedUnknown?: number;
+            excludedNoRetrieval?: number;
         };
         to: {
             availability: 'available' | 'no-observations' | 'no-competitive-frame' | 'classification-unavailable';
@@ -16024,6 +16025,7 @@ export type VisibilityCompareDto = {
             numerator: number;
             denominator: number;
             excludedUnknown?: number;
+            excludedNoRetrieval?: number;
         };
         rateRatio: number | null;
         direction: 'up' | 'down' | 'flat' | null;

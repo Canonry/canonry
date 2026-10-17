@@ -7,9 +7,11 @@ import {
   hostOf,
   hostMatchesDomain,
   matcherMatchesText,
+  RetrievalStatuses,
   wilsonInterval,
   type BrandAliasMatcher,
   type QueryClass,
+  type RetrievalStatus,
   type VisibilityCompareDto,
   type VisibilityCompareMetric,
   type VisibilityCompareMetricKey,
@@ -39,6 +41,15 @@ export interface VisibilityCompareSnapshotInput {
   queryClass?: QueryClass | null
   /** Advanced source capture can be incomplete independently of mentions. */
   citationChecked?: boolean
+  /**
+   * Whether this answer ran a retrieval step. An answer written with no web
+   * search has complete source capture and zero cited domains, but it is not a
+   * searched-but-un-cited miss: it never had a chance to cite. The cited-rate
+   * denominator excludes explicit `not-used` rows (and counts them separately);
+   * `unknown` rows stay in, since detection did not prove an absence. The
+   * mention denominator is unaffected — brand recall works without search.
+   */
+  retrievalStatus?: RetrievalStatus | null
   /** False when no selected Target is mention-eligible: the row has no mention signal, known or unknown. */
   mentionApplicable?: boolean
   competitorDomains?: string[]
@@ -209,6 +220,13 @@ interface PeriodCounts {
   cited: number // citationState === 'cited'
   /** Snapshots with incomplete source capture, excluded from every citation figure. */
   citationUnknown: number
+  /**
+   * Snapshots whose source capture completed but whose provider ran no retrieval
+   * step (`retrievalStatus === 'not-used'`). They have zero cited domains by
+   * construction, not as a miss, so they leave the cited denominator without
+   * entering `citationUnknown` (which means "capture unknown", not "no search").
+   */
+  citationNotSearched: number
   /** The frame records capture completeness (Advanced); legacy rows are always complete. */
   citationEvidence: boolean
   projectCited: number // = cited (project's own citation)
@@ -242,6 +260,7 @@ function countPeriod(
   let total = 0
   let cited = 0
   let citationUnknown = 0
+  let citationNotSearched = 0
   let competitorCited = 0
   const perProvider = new Map<string, { checked: number; mentioned: number; cited: number }>()
   const mentionedQueries = new Set<string>()
@@ -262,9 +281,16 @@ function countPeriod(
     // An incomplete source list proves neither a citation nor its absence, for
     // the project or a competitor, so the row leaves every citation figure.
     const citationKnown = snap.citationChecked !== false
-    if (citationKnown) total += 1
-    else citationUnknown += 1
-    const isCited = citationKnown && snap.citationState === CitationStates.cited
+    // A no-search answer has complete capture and zero cited domains by
+    // construction; it never had a chance to cite, so it is not a searched
+    // miss and leaves the cited denominator (counted separately as
+    // citationNotSearched). `unknown` detection stays in: an unobserved absence
+    // must not be laundered into a proven no-search.
+    const noRetrieval = citationKnown && snap.retrievalStatus === RetrievalStatuses['not-used']
+    if (!citationKnown) citationUnknown += 1
+    else if (noRetrieval) citationNotSearched += 1
+    else total += 1
+    const isCited = citationKnown && !noRetrieval && snap.citationState === CitationStates.cited
     if (isCited) cited += 1
 
     const pp = perProvider.get(snap.provider) ?? { checked: 0, mentioned: 0, cited: 0 }
@@ -324,6 +350,7 @@ function countPeriod(
     total,
     cited,
     citationUnknown,
+    citationNotSearched,
     citationEvidence: snaps.some(snapshot => snapshot.citationChecked !== undefined),
     projectCited: cited,
     competitorCited,
@@ -430,7 +457,9 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   // Frames that record capture completeness say how many rows each citation
   // figure had to leave out; legacy frames are complete by construction.
   const citationPeriod = (c: PeriodCounts, value: VisibilityCompareMetricPeriod): VisibilityCompareMetricPeriod =>
-    c.citationEvidence ? { ...value, excludedUnknown: c.citationUnknown } : value
+    c.citationEvidence
+      ? { ...value, excludedUnknown: c.citationUnknown, ...(c.citationNotSearched > 0 ? { excludedNoRetrieval: c.citationNotSearched } : {}) }
+      : value
 
   const metrics: VisibilityCompareMetric[] = [
     metric(
@@ -492,7 +521,8 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
       && (signal === 'cited' || snapshot.mentionApplicable !== false))
     const checked = selected.filter(snapshot => signal === 'mention'
       ? typeof snapshot.answerMentioned === 'boolean'
-      : snapshot.citationChecked !== false)
+      : snapshot.citationChecked !== false
+        && snapshot.retrievalStatus !== RetrievalStatuses['not-used'])
     const numerator = checked.filter(snapshot => signal === 'mention'
       ? snapshot.answerMentioned === true
       : snapshot.citationState === CitationStates.cited).length

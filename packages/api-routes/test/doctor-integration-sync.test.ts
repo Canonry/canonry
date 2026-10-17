@@ -70,7 +70,7 @@ describe('integration sync failure checks', () => {
       },
     }
   }
-  const run = (kind: 'google-ads-sync' | 'gsc-sync' | 'gbp-sync' | 'ga-sync', status: string, createdAt: string, error: string | null = null) => {
+  const run = (kind: 'google-ads-sync' | 'gtm-sync' | 'gsc-sync' | 'gbp-sync' | 'ga-sync', status: string, createdAt: string, error: string | null = null) => {
     db.insert(runs).values({
       id: crypto.randomUUID(), projectId: project.id, kind, status, trigger: 'manual', createdAt,
       ...(status === 'queued' || status === 'running' ? {} : { finishedAt: new Date(Date.parse(createdAt) + 60_000).toISOString() }),
@@ -121,6 +121,23 @@ describe('integration sync failure checks', () => {
     })
     expect(result.summary).toBe(`The last 4 Google Ads syncs failed (last success: ${lastSuccessAt}). Latest error: ${ADS_NETWORK_ERROR}`)
     expect(result.remediation).toContain('canonry google-ads sync client')
+  })
+
+  it('tells GTM to choose again when the selected account or container is gone, instead of checking DNS', async () => {
+    marketing = {
+      ...marketing,
+      gtm: {
+        credentialsPresent: true, grantedScopes: ['https://www.googleapis.com/auth/tagmanager.readonly'],
+        selectedAccountId: 'acct-1', selectedContainerId: 'container-1', selectedWorkspaceId: 'workspace-1', latestSnapshotAt: null,
+      },
+    }
+    for (const days of [3, 2, 1]) run('gtm-sync', 'failed', daysAgo(days), serializeRunError({ message: 'Selected GTM container was not found' }))
+
+    const result = await byId('gtm.sync.recent-failures').run(ctx())
+
+    expect(result).toMatchObject({ status: 'fail', code: 'gtm.sync.repeated-failures' })
+    expect(result.remediation).toContain('canonry gtm select client')
+    expect(result.remediation).not.toContain('DNS')
   })
 
   it('reports a sync that never succeeded as last success "never"', async () => {

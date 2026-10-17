@@ -4,6 +4,7 @@ import path from 'node:path'
 import { eq } from 'drizzle-orm'
 import { beforeEach, expect, onTestFinished, test, vi } from 'vitest'
 import {
+  auditLog,
   createClient,
   googleAdsConnections,
   googleAdsRawSnapshots,
@@ -287,6 +288,49 @@ test('GTM sync rejects a graph whose workspace does not match the selected works
   expect(db.select().from(gtmRawSnapshots).all()).toHaveLength(0)
   expect(db.select().from(runs).where(eq(runs.id, 'gtm_run')).get())
     .toMatchObject({ status: RunStatuses.failed })
+})
+
+// Publishing a GTM workspace deletes it; the runtime reads its replacement.
+test.each([
+  { remaining: ['workspace_2'], adopted: 'workspace_2', adoptedName: 'Default' },
+  { remaining: ['workspace_2', 'workspace_3'], adopted: null, adoptedName: null },
+])('GTM sync saves $adopted as the selection when a publish replaced the selected workspace', async ({
+  remaining, adopted, adoptedName,
+}) => {
+  const db = createTempDb()
+  seedProject(db)
+  db.insert(gtmConnections).values({
+    id: 'gtm_connection', projectId: 'project_1', selectedAccountId: 'account_1',
+    selectedContainerId: 'container_1', selectedWorkspaceId: 'workspace_1',
+    scopes: [], createdAt: NOW, updatedAt: NOW,
+  }).run()
+  db.insert(runs).values({
+    id: 'gtm_run', projectId: 'project_1', kind: RunKinds['gtm-sync'],
+    status: RunStatuses.queued, trigger: RunTriggers.manual, createdAt: NOW,
+  }).run()
+  const runtime = {
+    syncGtm: async () => {
+      const snapshot = gtmSnapshot()
+      if (snapshot.payload.kind !== 'container') throw new Error('Expected container snapshot')
+      const [template] = snapshot.payload.data.workspaces
+      snapshot.payload.data.workspaces = remaining.map(id => ({
+        ...template!, id, path: `accounts/account_1/containers/container_1/workspaces/${id}`,
+      }))
+      snapshot.metadata.workspaceId = adopted
+      return snapshot
+    },
+  } as unknown as GoogleMarketingRuntime
+
+  await executeGtmMarketingSync(db, runtime, 'gtm_run', 'project_1')
+
+  expect(db.select().from(gtmConnections).where(eq(gtmConnections.id, 'gtm_connection')).get())
+    .toMatchObject({ selectedWorkspaceId: adopted, selectedWorkspaceName: adoptedName, lastSnapshotId: 'gtm_snapshot' })
+  expect(db.select().from(gtmRawSnapshots).all()).toHaveLength(1)
+  expect(db.select().from(runs).where(eq(runs.id, 'gtm_run')).get())
+    .toMatchObject({ status: RunStatuses.completed, error: null })
+  expect(db.select().from(auditLog).all()).toEqual([expect.objectContaining({
+    action: 'gtm.workspace-followed', diff: JSON.stringify({ from: 'workspace_1', to: adopted }),
+  })])
 })
 
 test('same-value GTM reselection rejects an in-flight sync at one timestamp', async () => {
@@ -634,7 +678,7 @@ test('reports GTM evidence that failed our own consistency check as internal', a
   seedProject(db)
   db.insert(gtmConnections).values({
     id: 'gtm_connection', projectId: 'project_1', selectedAccountId: 'account_1',
-    selectedContainerId: 'container_1', selectedWorkspaceId: 'workspace_2',
+    selectedContainerId: 'container_2', selectedWorkspaceId: 'workspace_1',
     scopes: [], createdAt: NOW, updatedAt: NOW,
   }).run()
   db.insert(runs).values({

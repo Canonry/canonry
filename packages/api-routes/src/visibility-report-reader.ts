@@ -12,6 +12,7 @@ import {
   rateOverChecked,
   visibilityReportResponseSchema,
   VisibilityReportScopeErrorReasons,
+  type RetrievalStatus,
   type VisibilityReportComparedRun,
   type VisibilityReportComparison,
   type VisibilityReportComparisonUnavailableReason,
@@ -84,6 +85,8 @@ export interface VisibilityReportObservationInput {
   unknownMentionTargetKeys?: readonly string[]
   citedTargetKeys: readonly string[]
   citationComplete: boolean
+  /** Whether the provider ran a retrieval step; null for legacy frames that never recorded it. */
+  retrievalStatus?: RetrievalStatus | null
   competitorMentionDomains: readonly string[]
   competitorCitationDomains: readonly string[]
   /** Stored named alternatives from this answer, never promoted into a rate. */
@@ -1206,6 +1209,7 @@ export function visibilityComparisonPopulation(run: VisibilityReportRunInput, se
       answerMentioned: signals.mention,
       mentionApplicable: candidate.edges.some(edge => targets.get(edge.targetKey)?.mentionEligible === true),
       citation: citationForCoverage(candidate, targets),
+      retrievalStatus: candidate.observation!.retrievalStatus ?? null,
       answerText: candidate.observation!.answerText,
       competitorDomains: [...new Set(candidate.edges.flatMap(edge => edge.competitorDomains))],
       competitorMentions: candidate.observation!.competitorMentionDomains.filter(domain => candidate.edges.some(edge => edge.competitorDomains.includes(domain))),
