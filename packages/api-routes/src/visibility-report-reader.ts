@@ -12,6 +12,7 @@ import {
   rateOverChecked,
   visibilityReportResponseSchema,
   VisibilityReportScopeErrorReasons,
+  type RetrievalStatus,
   type VisibilityReportComparedRun,
   type VisibilityReportComparison,
   type VisibilityReportComparisonUnavailableReason,
@@ -85,7 +86,7 @@ export interface VisibilityReportObservationInput {
   citedTargetKeys: readonly string[]
   citationComplete: boolean
   /** Whether the provider ran a retrieval step; null for legacy frames that never recorded it. */
-  retrievalStatus?: import('@ainyc/canonry-contracts').RetrievalStatus | null
+  retrievalStatus?: RetrievalStatus | null
   competitorMentionDomains: readonly string[]
   competitorCitationDomains: readonly string[]
   /** Stored named alternatives from this answer, never promoted into a rate. */
