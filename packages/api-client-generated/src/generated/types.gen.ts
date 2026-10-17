@@ -2325,6 +2325,23 @@ export type AgentPromptRequest = {
             cursor?: string;
             limit: number;
         };
+        results?: {
+            scope: 'project' | 'group' | 'market' | 'property';
+            scopeKey?: string;
+            runId?: string;
+            queryId?: string;
+            signal?: 'mentioned' | 'cited';
+            sort?: 'losing' | 'winning';
+            group?: 'market' | 'group';
+            compare?: 'previous';
+            engine?: string;
+            result?: 'mentioned' | 'not-mentioned' | 'cited' | 'not-cited';
+            change?: 'won' | 'lost';
+        };
+        opened?: {
+            kind: 'market' | 'group' | 'query';
+            key: string;
+        };
         page?: {
             runId?: string;
             nodeKey?: string;
@@ -20730,15 +20747,15 @@ export type GetApiV1ProjectsByNameQueryTrackingResultsData = {
          */
         compare?: 'previous';
         /**
-         * Keep only rows whose `result` and `change` hold on this engine; without it, on any engine. Read-selection identity.
+         * The engine `result` and `change` are read on; without it, across the row's engines. Read-selection identity.
          */
         engine?: string;
         /**
-         * Keep only rows with this result. Not checked is never a no. Totals then cover the rows returned. Read-selection identity.
+         * Keep only rows with this result: `mentioned` (`cited`) when an engine shows it, `not-mentioned` (`not-cited`) when an engine checked and none shows it. Not checked is never a no. Totals then cover the rows returned. Read-selection identity.
          */
         result?: 'mentioned' | 'not-mentioned' | 'cited' | 'not-cited';
         /**
-         * Keep only rows that `won` or `lost` the signal since the previous sweep. Needs `compare=previous`. Read-selection identity.
+         * Keep only rows where an engine `won` or `lost` the signal since the previous sweep. Needs `compare=previous`. Read-selection identity.
          */
         change?: 'won' | 'lost';
     };
