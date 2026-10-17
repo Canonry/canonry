@@ -10,11 +10,11 @@ import {
   type MeasurementDraftResponse,
   type MeasurementDraftTarget,
   type MeasurementTargetNameIssue,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameMeasurementPlanDraftOptions,
   getApiV1ProjectsByNameOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { heyClient } from '../../../api.js'
 import { useAccount } from '../../../contexts/account-context.js'

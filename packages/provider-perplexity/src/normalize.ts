@@ -9,8 +9,8 @@ import {
   resolveProviderModel,
   describeError,
   usageCount,
-} from '@ainyc/canonry-contracts'
-import type { AnchoredAnswerSpan, ProviderUsage, TrackedQueryRequest } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import type { AnchoredAnswerSpan, ProviderUsage, TrackedQueryRequest } from '@canonry/canonry-contracts'
 import { withRetry } from './utils.js'
 import type {
   PerplexityAgentRequest,

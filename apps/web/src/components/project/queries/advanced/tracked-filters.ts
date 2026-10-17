@@ -1,4 +1,4 @@
-import type { QueryClass } from '@ainyc/canonry-contracts'
+import type { QueryClass } from '@canonry/canonry-contracts'
 
 import type { EngineSignal, TrackedFilters, TrackedRowVm } from './tracked-types.js'
 

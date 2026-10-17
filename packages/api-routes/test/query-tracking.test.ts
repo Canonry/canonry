@@ -15,7 +15,7 @@ import {
   queryTrackingCommitResponseSchema,
   queryTrackingPreviewResponseSchema,
   queryTrackingWorkspaceResponseSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   apiKeys,
   auditLog,
@@ -35,7 +35,7 @@ import {
   runs,
   simpleMeasurementDefinitions,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 import { sweepExpiredMeasurementReceipts } from '../src/measurement-draft-repo.js'

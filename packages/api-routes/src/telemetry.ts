@@ -9,7 +9,7 @@ import {
   type TelemetryStatusInput,
   type UiTelemetryEvent,
   uiTelemetryEventSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { requireOperator, requireScope } from './auth.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import { auditFromRequest, writeAuditLog } from './helpers.js'

@@ -19,7 +19,7 @@ import { accessFilterFromArgs, dispatchRegisteredCommand } from './cli-dispatch.
 import type { CliCommandSpec } from './cli-dispatch.js'
 import { REGISTERED_CLI_COMMANDS } from './cli-commands.js'
 import { resolveCliAccess } from './cli-access.js'
-import { OperationAccesses } from '@ainyc/canonry-contracts'
+import { OperationAccesses } from '@canonry/canonry-contracts'
 import { checkLatestVersionForCli, formatUpdateNotice, notePrintedUpdateAvailable, readCachedUpdateAvailable } from './update-check.js'
 import { buildSetupNudgeLine } from './setup-nudge.js'
 import { consumePendingServeHandoff } from './commands/init.js'

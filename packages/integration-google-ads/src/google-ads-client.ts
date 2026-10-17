@@ -6,7 +6,7 @@ import {
   retryAfterDelayMs,
   withRetry,
   escapeRegExp,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   GOOGLE_ADS_API_BASE,
   GOOGLE_ADS_API_VERSION,

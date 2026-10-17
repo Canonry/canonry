@@ -12,7 +12,7 @@ import {
   queryTrackingPreviewResponseSchema,
   queryTrackingWorkspaceResponseSchema,
   type MeasurementPlanV2,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   apiKeys,
   createClient,
@@ -24,13 +24,13 @@ import {
   queries,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 
 // Counts every whole-plan serialization the routes make. The function itself is unchanged.
-vi.mock('@ainyc/canonry-contracts', async importOriginal => {
-  const actual = await importOriginal<typeof import('@ainyc/canonry-contracts')>()
+vi.mock('@canonry/canonry-contracts', async importOriginal => {
+  const actual = await importOriginal<typeof import('@canonry/canonry-contracts')>()
   return { ...actual, canonicalMeasurementPlanV2Json: vi.fn(actual.canonicalMeasurementPlanV2Json) }
 })
 

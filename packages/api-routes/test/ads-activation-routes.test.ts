@@ -19,7 +19,7 @@ import {
   AppError,
   adsOperationDtoSchema,
   type AdsActivationManifest,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   adsActivationGrants,
   adsConnections,
@@ -30,7 +30,7 @@ import {
   createClient,
   migrate,
   projects,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { adsRoutes, type AdsOperator, type AdsOperatorEntityResult } from '../src/ads.js'
 import {
   buildAdsActivationSteps,

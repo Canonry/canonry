@@ -1,13 +1,13 @@
 import crypto from 'node:crypto'
 import path from 'node:path'
 import { and, eq, sql } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import {
   backlinkDomains,
   backlinkSummaries,
   ccReleaseSyncs,
   projects,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   CC_CACHE_DIR,
   ccReleasePaths,
@@ -16,7 +16,7 @@ import {
   loadDuckdb as defaultLoadDuckdb,
   queryBacklinks,
   type BacklinkRow,
-} from '@ainyc/canonry-integration-commoncrawl'
+} from '@canonry/canonry-integration-commoncrawl'
 import {
   BacklinkSources,
   CcReleaseSyncStatuses,
@@ -28,7 +28,7 @@ import {
   OutcomeTriggers,
   type FeatureCompletedProperties,
   type OutcomeTrigger,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { createLogger } from './logger.js'
 import { currentOutcomeOrigin, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 

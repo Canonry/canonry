@@ -1,7 +1,7 @@
 import { test, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import { openaiAdapter } from '../src/adapter.js'
-import type { ProviderConfig, RawQueryResult } from '@ainyc/canonry-contracts'
+import type { ProviderConfig, RawQueryResult } from '@canonry/canonry-contracts'
 import { stubResponsesApi } from './support/responses-api.js'
 
 // The sync SDK path and the batch builder/parser each meet independent literal

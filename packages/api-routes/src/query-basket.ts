@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 import { and, desc, eq } from 'drizzle-orm'
-import { normalizeQueryText } from '@ainyc/canonry-contracts'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { queries, queryBasketVersions } from '@ainyc/canonry-db'
+import { normalizeQueryText } from '@canonry/canonry-contracts'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { queries, queryBasketVersions } from '@canonry/canonry-db'
 
 /**
  * The set of queries a project was measuring, versioned.

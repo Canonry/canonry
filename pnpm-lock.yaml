@@ -79,16 +79,16 @@ importers:
 
   apps/api:
     dependencies:
-      '@ainyc/canonry-api-routes':
+      '@canonry/canonry-api-routes':
         specifier: workspace:*
         version: link:../../packages/api-routes
-      '@ainyc/canonry-config':
+      '@canonry/canonry-config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@ainyc/canonry-db':
+      '@canonry/canonry-db':
         specifier: workspace:*
         version: link:../../packages/db
       fastify:
@@ -100,10 +100,10 @@ importers:
 
   apps/web:
     dependencies:
-      '@ainyc/canonry-api-client':
+      '@canonry/canonry-api-client':
         specifier: workspace:*
         version: link:../../packages/api-client-generated
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
       '@fontsource-variable/geist':
@@ -203,10 +203,7 @@ importers:
 
   apps/worker:
     dependencies:
-      '@ainyc/aeo-audit':
-        specifier: 4.2.0
-        version: 4.2.0
-      '@ainyc/canonry-config':
+      '@canonry/canonry-config':
         specifier: workspace:*
         version: link:../../packages/config
       tsx:
@@ -215,7 +212,7 @@ importers:
 
   packages/api-client-generated:
     devDependencies:
-      '@ainyc/canonry-api-routes':
+      '@canonry/canonry-api-routes':
         specifier: workspace:*
         version: link:../api-routes
       '@hey-api/openapi-ts':
@@ -227,52 +224,52 @@ importers:
 
   packages/api-routes:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@ainyc/canonry-db':
+      '@canonry/canonry-db':
         specifier: workspace:*
         version: link:../db
-      '@ainyc/canonry-integration-bing':
+      '@canonry/canonry-integration-bing':
         specifier: workspace:*
         version: link:../integration-bing
-      '@ainyc/canonry-integration-cloud-run':
+      '@canonry/canonry-integration-cloud-run':
         specifier: workspace:*
         version: link:../integration-cloud-run
-      '@ainyc/canonry-integration-cloudflare-queue':
+      '@canonry/canonry-integration-cloudflare-queue':
         specifier: workspace:*
         version: link:../integration-cloudflare-queue
-      '@ainyc/canonry-integration-cloudflare-worker':
+      '@canonry/canonry-integration-cloudflare-worker':
         specifier: workspace:*
         version: link:../integration-cloudflare-worker
-      '@ainyc/canonry-integration-commoncrawl':
+      '@canonry/canonry-integration-commoncrawl':
         specifier: workspace:*
         version: link:../integration-commoncrawl
-      '@ainyc/canonry-integration-google':
+      '@canonry/canonry-integration-google':
         specifier: workspace:*
         version: link:../integration-google
-      '@ainyc/canonry-integration-google-analytics':
+      '@canonry/canonry-integration-google-analytics':
         specifier: workspace:*
         version: link:../integration-google-analytics
-      '@ainyc/canonry-integration-google-business-profile':
+      '@canonry/canonry-integration-google-business-profile':
         specifier: workspace:*
         version: link:../integration-google-business-profile
-      '@ainyc/canonry-integration-google-places':
+      '@canonry/canonry-integration-google-places':
         specifier: workspace:*
         version: link:../integration-google-places
-      '@ainyc/canonry-integration-traffic':
+      '@canonry/canonry-integration-traffic':
         specifier: workspace:*
         version: link:../integration-traffic
-      '@ainyc/canonry-integration-vercel':
+      '@canonry/canonry-integration-vercel':
         specifier: workspace:*
         version: link:../integration-vercel
-      '@ainyc/canonry-integration-wordpress':
+      '@canonry/canonry-integration-wordpress':
         specifier: workspace:*
         version: link:../integration-wordpress
-      '@ainyc/canonry-integration-wordpress-traffic':
+      '@canonry/canonry-integration-wordpress-traffic':
         specifier: workspace:*
         version: link:../integration-wordpress-traffic
-      '@ainyc/canonry-intelligence':
+      '@canonry/canonry-intelligence':
         specifier: workspace:*
         version: link:../intelligence
       '@fastify/rate-limit':
@@ -300,8 +297,8 @@ importers:
         specifier: ^0.91.1
         version: 0.91.1(zod@4.3.6)
       '@canonry/aeo-audit':
-        specifier: 7.3.0
-        version: 7.3.0
+        specifier: 7.4.1
+        version: 7.4.1
       '@earendil-works/pi-agent-core':
         specifier: 1.0.0
         version: 1.0.0(@aws-sdk/credential-provider-node@3.972.84)(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))(@smithy/signature-v4@5.7.4)(undici@7.24.4)(ws@8.21.0)(zod@4.3.6)
@@ -320,6 +317,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
+      '@types/better-sqlite3':
+        specifier: ^7.6.13
+        version: 7.6.13
       better-sqlite3:
         specifier: ^12.11.1
         version: 12.11.1
@@ -366,93 +366,90 @@ importers:
         specifier: ^4.1.12
         version: 4.3.6
     devDependencies:
-      '@ainyc/canonry-api-client':
+      '@canonry/canonry-api-client':
         specifier: workspace:*
         version: link:../api-client-generated
-      '@ainyc/canonry-api-routes':
+      '@canonry/canonry-api-routes':
         specifier: workspace:*
         version: link:../api-routes
-      '@ainyc/canonry-config':
+      '@canonry/canonry-config':
         specifier: workspace:*
         version: link:../config
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@ainyc/canonry-db':
+      '@canonry/canonry-db':
         specifier: workspace:*
         version: link:../db
-      '@ainyc/canonry-integration-bing':
+      '@canonry/canonry-integration-bing':
         specifier: workspace:*
         version: link:../integration-bing
-      '@ainyc/canonry-integration-cloud-run':
+      '@canonry/canonry-integration-cloud-run':
         specifier: workspace:*
         version: link:../integration-cloud-run
-      '@ainyc/canonry-integration-cloudflare-queue':
+      '@canonry/canonry-integration-cloudflare-queue':
         specifier: workspace:*
         version: link:../integration-cloudflare-queue
-      '@ainyc/canonry-integration-cloudflare-worker':
+      '@canonry/canonry-integration-cloudflare-worker':
         specifier: workspace:*
         version: link:../integration-cloudflare-worker
-      '@ainyc/canonry-integration-commoncrawl':
+      '@canonry/canonry-integration-commoncrawl':
         specifier: workspace:*
         version: link:../integration-commoncrawl
-      '@ainyc/canonry-integration-google':
+      '@canonry/canonry-integration-google':
         specifier: workspace:*
         version: link:../integration-google
-      '@ainyc/canonry-integration-google-ads':
+      '@canonry/canonry-integration-google-ads':
         specifier: workspace:*
         version: link:../integration-google-ads
-      '@ainyc/canonry-integration-google-business-profile':
+      '@canonry/canonry-integration-google-business-profile':
         specifier: workspace:*
         version: link:../integration-google-business-profile
-      '@ainyc/canonry-integration-google-places':
+      '@canonry/canonry-integration-google-places':
         specifier: workspace:*
         version: link:../integration-google-places
-      '@ainyc/canonry-integration-google-tag-manager':
+      '@canonry/canonry-integration-google-tag-manager':
         specifier: workspace:*
         version: link:../integration-google-tag-manager
-      '@ainyc/canonry-integration-openai-ads':
+      '@canonry/canonry-integration-openai-ads':
         specifier: workspace:*
         version: link:../integration-openai-ads
-      '@ainyc/canonry-integration-traffic':
+      '@canonry/canonry-integration-traffic':
         specifier: workspace:*
         version: link:../integration-traffic
-      '@ainyc/canonry-integration-typesafe':
+      '@canonry/canonry-integration-typesafe':
         specifier: workspace:*
         version: link:../integration-typesafe
-      '@ainyc/canonry-integration-wordpress':
+      '@canonry/canonry-integration-wordpress':
         specifier: workspace:*
         version: link:../integration-wordpress
-      '@ainyc/canonry-intelligence':
+      '@canonry/canonry-intelligence':
         specifier: workspace:*
         version: link:../intelligence
-      '@ainyc/canonry-provider-cdp':
+      '@canonry/canonry-provider-cdp':
         specifier: workspace:*
         version: link:../provider-cdp
-      '@ainyc/canonry-provider-claude':
+      '@canonry/canonry-provider-claude':
         specifier: workspace:*
         version: link:../provider-claude
-      '@ainyc/canonry-provider-gemini':
+      '@canonry/canonry-provider-gemini':
         specifier: workspace:*
         version: link:../provider-gemini
-      '@ainyc/canonry-provider-local':
+      '@canonry/canonry-provider-local':
         specifier: workspace:*
         version: link:../provider-local
-      '@ainyc/canonry-provider-muse':
+      '@canonry/canonry-provider-muse':
         specifier: workspace:*
         version: link:../provider-muse
-      '@ainyc/canonry-provider-openai':
+      '@canonry/canonry-provider-openai':
         specifier: workspace:*
         version: link:../provider-openai
-      '@ainyc/canonry-provider-perplexity':
+      '@canonry/canonry-provider-perplexity':
         specifier: workspace:*
         version: link:../provider-perplexity
-      '@ainyc/canonry-web':
+      '@canonry/canonry-web':
         specifier: workspace:*
         version: link:../../apps/web
-      '@types/better-sqlite3':
-        specifier: ^7.6.13
-        version: 7.6.13
       '@types/node-cron':
         specifier: ^3.0.11
         version: 3.0.11
@@ -465,7 +462,7 @@ importers:
 
   packages/config:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
       zod:
@@ -489,7 +486,7 @@ importers:
 
   packages/db:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
       better-sqlite3:
@@ -511,13 +508,13 @@ importers:
 
   packages/integration-bing:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
 
   packages/integration-cloud-run:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
 
@@ -525,16 +522,16 @@ importers:
 
   packages/integration-cloudflare-worker:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@ainyc/canonry-integration-traffic':
+      '@canonry/canonry-integration-traffic':
         specifier: workspace:*
         version: link:../integration-traffic
 
   packages/integration-commoncrawl:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
     devDependencies:
@@ -544,85 +541,85 @@ importers:
 
   packages/integration-google:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
 
   packages/integration-google-ads:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
 
   packages/integration-google-analytics:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
 
   packages/integration-google-business-profile:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
 
   packages/integration-google-places:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
 
   packages/integration-google-tag-manager:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
 
   packages/integration-openai-ads:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
 
   packages/integration-traffic:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
 
   packages/integration-typesafe:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
 
   packages/integration-vercel:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
 
   packages/integration-wordpress:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
 
   packages/integration-wordpress-traffic:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
 
   packages/intelligence:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
 
   packages/provider-cdp:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
       chrome-remote-interface:
@@ -635,16 +632,16 @@ importers:
 
   packages/provider-claude:
     dependencies:
-      '@ainyc/canonry-contracts':
-        specifier: workspace:*
-        version: link:../contracts
       '@anthropic-ai/sdk':
         specifier: ^0.91.1
         version: 0.91.1(zod@4.3.6)
+      '@canonry/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/provider-gemini:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
       '@google/genai':
@@ -653,7 +650,7 @@ importers:
 
   packages/provider-local:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
       openai:
@@ -662,7 +659,7 @@ importers:
 
   packages/provider-muse:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
       openai:
@@ -671,7 +668,7 @@ importers:
 
   packages/provider-openai:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
       openai:
@@ -680,7 +677,7 @@ importers:
 
   packages/provider-perplexity:
     dependencies:
-      '@ainyc/canonry-contracts':
+      '@canonry/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
       openai:
@@ -700,11 +697,6 @@ importers:
   packages/wordpress-traffic-logger-plugin: {}
 
 packages:
-
-  '@ainyc/aeo-audit@4.2.0':
-    resolution: {integrity: sha512-He2hE8xXvUj2BxxLnCf3tAn38nBDKtj9lzLILvuw1AIdm+K35U8PkuHvJ00pLb3dXLlh/9znkhNHtf20x2VDSw==}
-    engines: {node: '>=20'}
-    hasBin: true
 
   '@anthropic-ai/sdk@0.91.1':
     resolution: {integrity: sha512-LAmu761tSN9r66ixvmciswUj/ZC+1Q4iAfpedTfSVLeswRwnY3n2Nb6Tsk+cLPP28aLOPWeMgIuTuCcMC6W/iw==}
@@ -913,8 +905,8 @@ packages:
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
 
-  '@canonry/aeo-audit@7.3.0':
-    resolution: {integrity: sha512-jQwx9J7R85YPQ6vY7wQYK7D8xXw/3fY9U8S6FM30PTRs2N+R8x+YnpnaLsks3MY+zXsYYvCgyO2CTseWH6oIhg==}
+  '@canonry/aeo-audit@7.4.1':
+    resolution: {integrity: sha512-W2xm0jeS+RjHFp8OMe4J+1AUzVb4X7oaGgCUxNJD54bNjESGFzfzkgn+HoR8Qm+qyxdnk+WhWnZjtiDYl5/njA==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -4723,12 +4715,6 @@ packages:
 
 snapshots:
 
-  '@ainyc/aeo-audit@4.2.0':
-    dependencies:
-      cheerio: 1.2.0
-      ipaddr.js: 2.3.0
-      undici: 7.24.4
-
   '@anthropic-ai/sdk@0.91.1(zod@4.3.6)':
     dependencies:
       json-schema-to-ts: 3.1.1
@@ -5065,7 +5051,7 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
-  '@canonry/aeo-audit@7.3.0':
+  '@canonry/aeo-audit@7.4.1':
     dependencies:
       cheerio: 1.2.0
       ipaddr.js: 2.3.0

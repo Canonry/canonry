@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ResearchRunDetailDto } from '@ainyc/canonry-contracts'
+import type { ResearchRunDetailDto } from '@canonry/canonry-contracts'
 
 const startResearchRun = vi.fn()
 const listResearchRuns = vi.fn()

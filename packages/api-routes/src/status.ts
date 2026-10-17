@@ -9,7 +9,7 @@ import {
   type InstanceStatusDto,
   type ProjectStatus,
   type IntegrationStatusRow,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   adsConnections,
   doctorHealthState,
@@ -18,8 +18,8 @@ import {
   gscDataWatermarks,
   projects,
   trafficSources,
-} from '@ainyc/canonry-db'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import type { GoogleConnectionStore } from './google.js'
 import type { BingConnectionStore } from './bing.js'
 import type { Ga4CredentialStore } from './ga.js'
@@ -164,7 +164,7 @@ function projectRows(opts: StatusRoutesOptions, project: typeof projects.$inferS
   return rows
 }
 
-function projectStatus(opts: StatusRoutesOptions, project: typeof projects.$inferSelect): ReturnType<typeof import('@ainyc/canonry-contracts').projectStatusSchema.parse> {
+function projectStatus(opts: StatusRoutesOptions, project: typeof projects.$inferSelect): ReturnType<typeof import('@canonry/canonry-contracts').projectStatusSchema.parse> {
   const integrations = projectRows(opts, project)
   const healthRow = opts.db.select().from(doctorHealthState).where(eq(doctorHealthState.projectId, project.id)).limit(1).get()
   const health = healthRow ? { status: healthRow.status as 'ok' | 'warn' | 'fail', code: healthRow.code, summary: healthRow.summary, checkedAt: healthRow.checkedAt, notifiedAt: healthRow.notifiedAt } : null

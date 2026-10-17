@@ -19,13 +19,13 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   canonicalMeasurementPlanV2Json,
   measurementPlanV2Schema,
   type CompetitorAutoAlias,
   type CompetitorAutoAliasDetectionDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { apiRoutes, readMarketCompetitorNames } from '../src/index.js'
 
 // Blocked names, plan pins and who asked for an apply. A block must hold:

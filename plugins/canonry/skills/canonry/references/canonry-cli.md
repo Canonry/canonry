@@ -467,6 +467,8 @@ cnry technical-aeo trend <project> [--format json|jsonl] # aggregate-score histo
 cnry schedule set <project> --kind site-audit --preset weekly   # keep it fresh
 ```
 
+Agent integration checks run by default, inspecting discoverable actions, forms, and tool links. Use `--no-agent-skills` to disable them. Geographic checks are off by default; `--include-geo` adds location and service-area signals. Both selections change scan identity. Lighthouse is not exposed by Canonry.
+
 For agent site readiness, begin with `cnry technical-aeo score <project> --format json`. Use `cnry site-health overview <project>` only to add crawl metadata; it never replaces the score. Use `cnry site-health page-audit` (MCP: `canonry_site_health_page_audit`) to tie a selected graph page's audit score to exact findings and fixes. Link score is importance, not an audit verdict. Then request a focused neighborhood, a shortest path, or scan-to-scan changes. Do not ask an agent to materialize the interactive graph: it can exceed the MCP tool-result limit. The matching traversal tools are `canonry_site_health_subgraph`, `canonry_site_health_path`, and `canonry_site_health_changes`; the subgraph tool defaults to a small focused result and should be expanded only when needed.
 
 - The score is only available after at least one audit runs — `score` returns `hasData: false` until then.

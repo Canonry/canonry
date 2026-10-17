@@ -1,4 +1,4 @@
-import { featureCompletedPropertiesSchema } from '@ainyc/canonry-contracts'
+import { featureCompletedPropertiesSchema } from '@canonry/canonry-contracts'
 import type { OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
 
 /**

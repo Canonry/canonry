@@ -3,10 +3,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { eq, sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import * as contracts from '@ainyc/canonry-contracts'
+import * as contracts from '@canonry/canonry-contracts'
 import {
   createClient, dataRepairCompletions, gaAiReferrals, gaTrafficSnapshots, migrate, projects,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   backfillAiReferralPaths, backfillAiReferralPathsCommand,
   backfillNormalizedPaths, backfillNormalizedPathsCommand,

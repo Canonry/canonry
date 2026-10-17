@@ -1,5 +1,5 @@
 {
-  "name": "@ainyc/canonry-provider-cdp",
+  "name": "@canonry/canonry-provider-cdp",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -17,7 +17,7 @@
     "lint": "eslint src/ test/"
   },
   "dependencies": {
-    "@ainyc/canonry-contracts": "workspace:*",
+    "@canonry/canonry-contracts": "workspace:*",
     "chrome-remote-interface": "^0.33.2"
   },
   "devDependencies": {

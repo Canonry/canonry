@@ -36,8 +36,8 @@ import {
   type QueryTrackingWeakMarkets,
   type SimpleMeasurementDefinition,
   type VisibilityReportPopulationClass,
-} from '@ainyc/canonry-contracts'
-import { measurementPlanVersions, projects, queries, runs, type DatabaseClient } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import { measurementPlanVersions, projects, queries, runs, type DatabaseClient } from '@canonry/canonry-db'
 import { resolveProject } from './helpers.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 import { planQueryFocus } from './query-focus.js'

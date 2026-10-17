@@ -53,7 +53,7 @@ import {
   RunStatuses,
   runStatusSchema,
   describeError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type {
   OutcomeReasonCode,
   AdsAdDto,
@@ -95,8 +95,8 @@ import type {
   AdsConversionPixelListResponse,
   AdsConversionEventSettingListResponse,
   AdsActivationEntityType,
-} from '@ainyc/canonry-contracts'
-import { adsConnections, adsCampaigns, adsAdGroups, adsAds, adsInsightsDaily, adsOperations, projects, runs } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import { adsConnections, adsCampaigns, adsAdGroups, adsAds, adsInsightsDaily, adsOperations, projects, runs } from '@canonry/canonry-db'
 import { requireAdminSession, requirePaidReadScope, requireScope } from './auth.js'
 import { createMemoizedAdsActivationProvider } from './ads-activation.js'
 import { registerAdsActivationRoutes } from './ads-activation-routes.js'

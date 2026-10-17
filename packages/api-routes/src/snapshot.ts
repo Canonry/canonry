@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { AppError, internalError, notImplemented, resolveSnapshotRequestQueries, snapshotRequestSchema, validationError, type SnapshotReportDto, type SnapshotRequestDto } from '@ainyc/canonry-contracts'
+import { AppError, internalError, notImplemented, resolveSnapshotRequestQueries, snapshotRequestSchema, validationError, type SnapshotReportDto, type SnapshotRequestDto } from '@canonry/canonry-contracts'
 
 export interface SnapshotRoutesOptions {
   onSnapshotRequested?: (input: SnapshotRequestDto) => Promise<SnapshotReportDto>

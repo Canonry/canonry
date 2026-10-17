@@ -26,7 +26,7 @@ import {
   type QueryTrackingTargetCounts,
   type QueryTrackingTrackedRow,
   type QueryTrackingViews,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /** A tracked row as this server builds it: Subject and Type are always set. */
 export type SummarizedRow = QueryTrackingTrackedRow & { focus: QueryTrackingFocus; queryClasses: QueryClass[] }

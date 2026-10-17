@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
 import { parse } from 'yaml'
-import { apiKeys, createClient, dashboardSessions, migrate, type DatabaseClient } from '@ainyc/canonry-db'
+import { apiKeys, createClient, dashboardSessions, migrate, type DatabaseClient } from '@canonry/canonry-db'
 import { clearDashboardPassword, loadConfig, type CanonryConfig } from '../src/config.js'
 import { createServer } from '../src/server.js'
 

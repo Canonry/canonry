@@ -1,12 +1,12 @@
 import { useId, useRef, useState } from 'react'
 import { AlertTriangle, Ban, GitBranch, Info } from 'lucide-react'
-import { QUERY_TRACKING_TEXT_MAX_LENGTH } from '@ainyc/canonry-contracts'
+import { QUERY_TRACKING_TEXT_MAX_LENGTH } from '@canonry/canonry-contracts'
 import type {
   QueryTrackingCommitResponse,
   QueryTrackingContextInput,
   QueryTrackingMutation,
   QueryTrackingWorkspaceResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import { useAccount } from '../../../../contexts/account-context.js'
 import { useQueryTrackingPublish } from '../../../../queries/use-query-tracking-publish.js'

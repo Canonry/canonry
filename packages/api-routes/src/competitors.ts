@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { competitors, marketCompetitorNames, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { competitors, marketCompetitorNames, projects, type DatabaseClient } from '@canonry/canonry-db'
 import {
   brandKeyFromText,
   COMPETITOR_ALIAS_MAX_LENGTH,
@@ -17,7 +17,7 @@ import {
   validationError,
   type CompetitorAutoAlias,
   type CompetitorDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { ZodType } from 'zod'
 import {
   applyCompetitorAutoAliases,

@@ -10,7 +10,7 @@ import {
 import {
   getApiV1ProjectsByNameOptions,
   getApiV1ProjectsByNameRunsOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { buildProjectCommandCenter } from '../build-dashboard.js'
 import type { ProjectData } from '../build-dashboard.js'
 import type { ProjectCommandCenterVm } from '../view-models.js'

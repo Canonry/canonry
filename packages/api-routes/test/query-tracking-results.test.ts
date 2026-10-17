@@ -23,7 +23,7 @@ import {
   type QueryTrackingEngineResult,
   type QueryTrackingResultsResponse,
   type QueryTrackingWorkspaceResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   apiKeys,
   createClient,
@@ -37,14 +37,14 @@ import {
   runs,
   simpleMeasurementDefinitions,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
 
 // Counts every stored-plan parse the read makes. The function itself is unchanged.
-vi.mock('@ainyc/canonry-contracts', async importOriginal => {
-  const actual = await importOriginal<typeof import('@ainyc/canonry-contracts')>()
+vi.mock('@canonry/canonry-contracts', async importOriginal => {
+  const actual = await importOriginal<typeof import('@canonry/canonry-contracts')>()
   return { ...actual, parseStoredMeasurementPlanAnyVersion: vi.fn(actual.parseStoredMeasurementPlanAnyVersion) }
 })
 

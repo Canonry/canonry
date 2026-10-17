@@ -12,7 +12,7 @@ import { asyncHandler } from '../../lib/async-handler.js'
 import { extractErrorMessage } from '../../lib/extract-error-message.js'
 import { addToast } from '../../lib/toast-store.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
-import { shellQuote } from '@ainyc/canonry-contracts'
+import { shellQuote } from '@canonry/canonry-contracts'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
 

@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createClient, migrate, projects, runs, querySnapshots, measurementPlanVersions, type DatabaseClient } from '@ainyc/canonry-db'
-import * as contracts from '@ainyc/canonry-contracts'
-import { canonicalMeasurementPlanV2Json } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, runs, querySnapshots, measurementPlanVersions, type DatabaseClient } from '@canonry/canonry-db'
+import * as contracts from '@canonry/canonry-contracts'
+import { canonicalMeasurementPlanV2Json } from '@canonry/canonry-contracts'
 import { selectSentimentSources } from '../src/sentiment-source.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
 
 // Count the plan decoder and the usage-edge key without changing what they return.
-vi.mock('@ainyc/canonry-contracts', async importOriginal => {
-  const actual = await importOriginal<typeof import('@ainyc/canonry-contracts')>()
+vi.mock('@canonry/canonry-contracts', async importOriginal => {
+  const actual = await importOriginal<typeof import('@canonry/canonry-contracts')>()
   return { ...actual, parseStoredMeasurementPlanAnyVersion: vi.fn(actual.parseStoredMeasurementPlanAnyVersion), measurementV2UsageEdgeKey: vi.fn(actual.measurementV2UsageEdgeKey) }
 })
 

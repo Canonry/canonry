@@ -1,7 +1,7 @@
 import { eq, desc, and, inArray, like } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { groupRunsByCreatedAt, insights, healthSnapshots, runs } from '@ainyc/canonry-db'
-import { notFound, validationError, RunKinds, RunStatuses, type InsightDto, type HealthSnapshotDto } from '@ainyc/canonry-contracts'
+import { groupRunsByCreatedAt, insights, healthSnapshots, runs } from '@canonry/canonry-db'
+import { notFound, validationError, RunKinds, RunStatuses, type InsightDto, type HealthSnapshotDto } from '@canonry/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
 
 // Severity ordering for the insights `severity` filter (a MINIMUM-level gate:

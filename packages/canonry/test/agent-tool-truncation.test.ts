@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { siteAuditPagesResponseSchema, snapshotListResponseSchema } from '@ainyc/canonry-contracts'
+import { siteAuditPagesResponseSchema, snapshotListResponseSchema } from '@canonry/canonry-contracts'
 import { truncateToolResult } from '../src/agent/mcp-to-agent-tool.js'
 
 const CAP = 20_000

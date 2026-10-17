@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle } from 'lucide-react'
-import type { MeasurementQueryTemplate, QueryTrackingMode, ResearchRunScope } from '@ainyc/canonry-contracts'
+import type { MeasurementQueryTemplate, QueryTrackingMode, ResearchRunScope } from '@canonry/canonry-contracts'
 
 import { getViewerResearchConfig, heyClient, isEmbed } from '../../api.js'
 import {
   getApiV1ProjectsByNameMeasurementQueryTemplatesOptions,
   getApiV1ProjectsByNameQueryTrackingOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { useQueryTrackingPublish } from '../../queries/use-query-tracking-publish.js'
 import { StatusNote } from '../shared/StatusNote.js'
 import { Button } from '../ui/button.js'

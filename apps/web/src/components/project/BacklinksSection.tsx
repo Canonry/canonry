@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { summarizeRunError } from '../../lib/format-helpers.js'
 import { Link2, Play, Download, Loader2, CheckCircle2 } from 'lucide-react'
-import { formatPercent, RunKinds } from '@ainyc/canonry-contracts'
+import { formatPercent, RunKinds } from '@canonry/canonry-contracts'
 import {
   Area,
   ComposedChart,

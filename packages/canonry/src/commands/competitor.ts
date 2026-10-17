@@ -14,11 +14,11 @@ import {
   type CompetitorAutoAliasDetectionDto,
   type CompetitorDto,
   type ShareOfVoiceContext,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import type { CompetitorChangePreviewResponse, CompetitorShareImpact, CompetitorLandscapeQuery, CompetitorLandscapeResponse, CompetitorSuggestionsQuery, CompetitorSuggestionsResponse, ModelEvidenceState } from '@ainyc/canonry-contracts'
+import type { CompetitorChangePreviewResponse, CompetitorShareImpact, CompetitorLandscapeQuery, CompetitorLandscapeResponse, CompetitorSuggestionsQuery, CompetitorSuggestionsResponse, ModelEvidenceState } from '@canonry/canonry-contracts'
 
 function getClient() {
   return createApiClient()

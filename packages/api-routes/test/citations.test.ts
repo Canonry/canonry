@@ -12,9 +12,9 @@ import {
   competitors,
   runs,
   querySnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
-import type { CitationVisibilityResponse } from '@ainyc/canonry-contracts'
+import type { CitationVisibilityResponse } from '@canonry/canonry-contracts'
 
 function buildApp() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-citations-'))

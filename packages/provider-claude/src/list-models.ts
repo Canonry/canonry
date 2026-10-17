@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { withRetry, isRetryableHttpError, retryAfterDelayMs, type ModelDefinition, type ProviderConfig } from '@ainyc/canonry-contracts'
+import { withRetry, isRetryableHttpError, retryAfterDelayMs, type ModelDefinition, type ProviderConfig } from '@canonry/canonry-contracts'
 
 export function listModels(config: ProviderConfig, signal: AbortSignal): Promise<ModelDefinition[]> {
   return withRetry(async () => {

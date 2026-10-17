@@ -10,7 +10,7 @@ import {
   type ResearchRunScope,
   type ResearchRunStatus,
   type ResearchRunSummaryDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import { isEmbed } from '../../../../api.js'
 import { providerDisplayName } from '../../../../lib/visibility-trend-helpers.js'

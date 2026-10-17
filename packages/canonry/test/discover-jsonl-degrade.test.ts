@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import type { DiscoveryRunStartResponse } from '../src/client.js'
-import type { DiscoveryPromotePreview, DiscoveryPromoteResult } from '@ainyc/canonry-contracts'
+import type { DiscoveryPromotePreview, DiscoveryPromoteResult } from '@canonry/canonry-contracts'
 
 // discover run / promote / promote-preview are object-document commands (NOT
 // jsonl-streaming collections). Their machine-output gate must DEGRADE

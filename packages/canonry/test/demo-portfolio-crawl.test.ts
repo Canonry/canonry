@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import type { SiteCrawlGraphResponseDto } from '@ainyc/canonry-contracts'
+import type { SiteCrawlGraphResponseDto } from '@canonry/canonry-contracts'
 import { createDemoServer } from '../src/demo-server.js'
 
 const dir = mkdtempSync(join(tmpdir(), 'canonry-portfolio-map-'))

@@ -1,9 +1,9 @@
-import type { AiEngineLeadRateUnavailableReason, GaConnectResponse, GA4PropertiesDto, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaMeasurementAnalysisDto, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GaSourceMover, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaSearchLandingMetrics, GaSearchLandingPagesResponse } from '@ainyc/canonry-contracts'
+import type { AiEngineLeadRateUnavailableReason, GaConnectResponse, GA4PropertiesDto, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaMeasurementAnalysisDto, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GaSourceMover, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaSearchLandingMetrics, GaSearchLandingPagesResponse } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { formatValidationIssues, gaAcquisitionQuerySchema, type GaAcquisitionQuery } from '@ainyc/canonry-contracts'
+import { formatValidationIssues, gaAcquisitionQuerySchema, type GaAcquisitionQuery } from '@canonry/canonry-contracts'
 import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import { GA_SEARCH_LANDING_WINDOW_DAYS, GaMoverChangeBases, describeError, formatPercent, gaSearchLandingHasSearchData, gaSearchLandingPageLabel } from '@ainyc/canonry-contracts'
+import { GA_SEARCH_LANDING_WINDOW_DAYS, GaMoverChangeBases, describeError, formatPercent, gaSearchLandingHasSearchData, gaSearchLandingPageLabel } from '@canonry/canonry-contracts'
 
 function getClient() {
   return createApiClient()

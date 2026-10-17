@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import type { QueryTrackingLimits, QueryTrackingSummary } from '@ainyc/canonry-contracts'
+import type { QueryTrackingLimits, QueryTrackingSummary } from '@canonry/canonry-contracts'
 
 import { TrackedSummaryGrid, TrackedSummaryGridSkeleton, type TrackedSummaryPlace } from '../src/components/project/queries/advanced/TrackedSummaryGrid.js'
 import { TrackedToolbar } from '../src/components/project/queries/advanced/TrackedToolbar.js'

@@ -1811,6 +1811,10 @@ export const siteAuditRunRequestSchema = z.object({
   maxDepth: z.number().int().min(0).max(100).optional(),
   /** Off by default; derives findings only from observed internal targets. External links are never probed. */
   checkDeadLinks: z.boolean().default(false),
+  /** Opt in to geographic signals for sites serving a location or service area. */
+  includeGeo: z.boolean().default(false),
+  /** Check machine-discoverable actions, forms, and agent integrations unless explicitly disabled. */
+  includeAgentSkills: z.boolean().default(true),
 })
 export type SiteAuditRunRequest = z.infer<typeof siteAuditRunRequestSchema>
 
@@ -1824,18 +1828,19 @@ export type SiteAuditRunRequest = z.infer<typeof siteAuditRunRequestSchema>
  * budget and the engine derives one, which is a DIFFERENT crawl from any
  * explicit number — including the number that used to be substituted here.
  *
- * schemaVersion 2 supersedes 1, where an omitted `maxEdges` was persisted as
- * the literal 100000 and could not be told apart from an explicit 100000.
- * A version-1 row is therefore never identity-equal to a version-2 request.
+ * schemaVersion 3 adds optional factor selection to identity. Earlier rows
+ * cannot be reused: version 1 also conflated derived and explicit edge budgets.
  */
 export interface SiteAuditEffectiveRequest {
-  schemaVersion: 2
+  schemaVersion: 3
   sitemapUrl: string | null
   maxPages: number
   /** `null` = unset; the crawl engine derives the budget from the page count. */
   maxEdges: number | null
   maxDepth: number | null
   checkDeadLinks: boolean
+  includeGeo: boolean
+  includeAgentSkills: boolean
 }
 
 /**
@@ -1846,12 +1851,14 @@ export interface SiteAuditEffectiveRequest {
  */
 export function normalizeSiteAuditRunRequest(request: Partial<SiteAuditRunRequest>, savedMaxPages?: number | null): SiteAuditEffectiveRequest {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     sitemapUrl: request.sitemapUrl ? new URL(request.sitemapUrl).toString() : null,
     maxPages: request.maxPages ?? request.limit ?? savedMaxPages ?? SITE_AUDIT_DEFAULT_PAGE_LIMIT,
     maxEdges: request.maxEdges ?? null,
     maxDepth: request.maxDepth ?? null,
     checkDeadLinks: request.checkDeadLinks === true,
+    includeGeo: request.includeGeo === true,
+    includeAgentSkills: request.includeAgentSkills ?? true,
   }
 }
 
@@ -1868,6 +1875,8 @@ export function siteAuditRequestIdentity(request: SiteAuditEffectiveRequest): st
     request.maxEdges,
     request.maxDepth,
     request.checkDeadLinks,
+    request.includeGeo,
+    request.includeAgentSkills,
   ])
 }
 

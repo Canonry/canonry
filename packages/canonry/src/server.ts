@@ -6,9 +6,9 @@ import { isIP } from "node:net";
 import { fileURLToPath } from "node:url";
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { and, eq, isNotNull, isNull, lte, max, ne, or, sql } from "drizzle-orm";
-import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@ainyc/canonry-config";
+import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@canonry/canonry-config";
 import { CliError } from "./cli-error.js";
-import { createTypeSafeClassifier, buildJevSentimentRequest } from "@ainyc/canonry-integration-typesafe";
+import { createTypeSafeClassifier, buildJevSentimentRequest } from "@canonry/canonry-integration-typesafe";
 import { SentimentWorker, createSentimentPoller } from "./sentiment-worker.js";
 import { loadSentimentInstallConfig } from "./sentiment-config.js";
 
@@ -19,7 +19,7 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { SetHeadersResponse } from "@fastify/static";
-import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, syncRunClaimKey, writeAuditLog, type ApiRoutesOptions } from "@ainyc/canonry-api-routes";
+import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, syncRunClaimKey, writeAuditLog, type ApiRoutesOptions } from "@canonry/canonry-api-routes";
 import {
   apiKeys,
   auditLog,
@@ -34,19 +34,19 @@ import {
   type DatabaseClient,
   type LegacyCredentialRows,
   OperationalLogStore,
-} from "@ainyc/canonry-db";
+} from "@canonry/canonry-db";
 import os from "node:os";
 import {
   embedQueries as embedGeminiQueries,
   extractSearchQueriesFromRaw,
   geminiAdapter,
-} from "@ainyc/canonry-provider-gemini";
-import { openaiAdapter } from "@ainyc/canonry-provider-openai";
-import { claudeAdapter } from "@ainyc/canonry-provider-claude";
-import { localAdapter } from "@ainyc/canonry-provider-local";
-import { cdpChatgptAdapter } from "@ainyc/canonry-provider-cdp";
-import { perplexityAdapter } from "@ainyc/canonry-provider-perplexity";
-import { museAdapter } from "@ainyc/canonry-provider-muse";
+} from "@canonry/canonry-provider-gemini";
+import { openaiAdapter } from "@canonry/canonry-provider-openai";
+import { claudeAdapter } from "@canonry/canonry-provider-claude";
+import { localAdapter } from "@canonry/canonry-provider-local";
+import { cdpChatgptAdapter } from "@canonry/canonry-provider-cdp";
+import { perplexityAdapter } from "@canonry/canonry-provider-perplexity";
+import { museAdapter } from "@canonry/canonry-provider-muse";
 import {
   AppError,
   authInvalid,
@@ -88,7 +88,7 @@ import {
   storedOnlyRefused,
   type OutcomeTrigger,
   type RunKind,
-} from "@ainyc/canonry-contracts";
+} from "@canonry/canonry-contracts";
 import type {
   CanonryConfig,
   CloudflareTrafficConnectionConfigEntry,
@@ -222,20 +222,20 @@ import {
   type OpenAiAdsBiddingConfigRequest,
   type OpenAiAdsInsightRow,
   type OpenAiAdsInsightsOptions,
-} from "@ainyc/canonry-integration-openai-ads";
+} from "@canonry/canonry-integration-openai-ads";
 import {
   exchangeCode as exchangeGoogleOAuthCode,
   getAuthUrl as getGoogleOAuthUrl,
-} from "@ainyc/canonry-integration-google";
-import { GOOGLE_ADS_OAUTH_SCOPE } from "@ainyc/canonry-integration-google-ads";
-import { GTM_READONLY_SCOPE } from "@ainyc/canonry-integration-google-tag-manager";
+} from "@canonry/canonry-integration-google";
+import { GOOGLE_ADS_OAUTH_SCOPE } from "@canonry/canonry-integration-google-ads";
+import { GTM_READONLY_SCOPE } from "@canonry/canonry-integration-google-tag-manager";
 import { executeInspectSitemap } from "./gsc-inspect-sitemap.js";
 import { executeBingInspectSitemap } from "./bing-inspect-sitemap.js";
 import { maybeRefreshGscCoverage, runWasUserInitiated } from "./coverage-refresh.js";
 import { executeReleaseSync, syncLatestReleaseOnSchedule } from "./commoncrawl-sync.js";
 import { executeBacklinkExtract } from "./backlink-extract.js";
 import { executeDiscoveryRun } from "./discovery-run.js";
-import { executeSiteAudit } from "./execute-site-audit.js";
+import { executeSiteAudit, type SiteAuditOptions } from "./execute-site-audit.js";
 import { createAnswerFieldRecomputeQueue, type AnswerFieldRecomputeRequest } from "./answer-field-recompute.js";
 import { createCompetitorAutoAliasRunner } from "./competitor-auto-alias-runner.js";
 import { extractStoredAnswerAnchors } from "./stored-answer-anchors.js";
@@ -249,10 +249,10 @@ import {
   probeLatestRelease,
   pruneCachedRelease,
   readInstalledVersion,
-} from "@ainyc/canonry-integration-commoncrawl";
+} from "@canonry/canonry-integration-commoncrawl";
 import {
   ccReleaseSyncs as ccReleaseSyncsTable,
-} from "@ainyc/canonry-db";
+} from "@canonry/canonry-db";
 import { ProviderRegistry, type RegisteredProvider } from "./provider-registry.js";
 import { batchEligibleProviderNames, providerConfigFromEntry, providersWithUnsupportedBatch } from "./provider-batch-config.js";
 import { handleRouteOutcome, outcomeAttribution } from "./outcome-telemetry.js";
@@ -275,7 +275,7 @@ import { ViewerAeroSessions } from "./agent/viewer-sessions.js";
 import { buildAgentProvidersResponse } from "./agent/providers.js";
 import { describeAgentPin } from "./agent/session.js";
 import { registerMcpHttpRoutes, mcpTransportPaths, mcpHttpHealth } from "./mcp-http.js";
-import { registerOAuthRoutes, registerOAuthAdminRoutes, cookieIsSecure, createCredentialChecker, hashSessionToken, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@ainyc/canonry-api-routes";
+import { registerOAuthRoutes, registerOAuthAdminRoutes, cookieIsSecure, createCredentialChecker, hashSessionToken, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@canonry/canonry-api-routes";
 import { registerAgentRoutes } from "./agent/agent-routes.js";
 import {
   createRecommendationExplainer,
@@ -292,7 +292,7 @@ import {
   executeGoogleAdsMarketingSync,
   executeGtmMarketingSync,
 } from "./google-marketing-sync.js";
-import { assessConversionTrackingIntegrity } from "@ainyc/canonry-intelligence";
+import { assessConversionTrackingIntegrity } from "@canonry/canonry-intelligence";
 
 const log = createLogger("Server");
 
@@ -488,7 +488,7 @@ function runtimePathIdentity(runtimePath: string): string {
 
 // Dashboard password storage uses scrypt (salted, slow KDF) — not plain
 // SHA-256. Bearer tokens still hash with SHA-256 (`hashApiKey` from
-// `@ainyc/canonry-api-routes`) because those are 128-bit random `cnry_…`
+// `@canonry/canonry-api-routes`) because those are 128-bit random `cnry_…`
 // tokens (no brute-force exposure on a 64-hex hash). Dashboard passwords are
 // user-chosen and may be reused from elsewhere, so a leaked `config.yaml`
 // must not be trivially cracked against a wordlist.
@@ -597,7 +597,7 @@ function serializeSessionCookie(opts: {
  * that already exists in config to avoid overwriting refreshed tokens.
  *
  * Pair with `extractLegacyCredentials(db)` + `dropLegacyCredentialColumns(db)`
- * from `@ainyc/canonry-db`: extract first, call this, and only drop the columns
+ * from `@canonry/canonry-db`: extract first, call this, and only drop the columns
  * once this returns — a failed config write must be retryable on next boot.
  */
 export function applyLegacyCredentials(
@@ -1445,14 +1445,7 @@ export async function createServer(opts: {
   const runSiteAudit = (
     runId: string,
     projectId: string,
-    auditOpts?: {
-      sitemapUrl?: string;
-      limit?: number;
-      maxPages?: number;
-      maxEdges?: number;
-      maxDepth?: number;
-      checkDeadLinks?: boolean;
-    },
+    auditOpts?: SiteAuditOptions,
   ): void => {
     const controller = new AbortController();
     siteAuditAbortControllers.set(runId, controller);
@@ -2766,11 +2759,11 @@ export async function createServer(opts: {
 
   const LATEST_RELEASE_TTL_MS = 5 * 60 * 1000;
   let latestReleaseCache: {
-    value: import("@ainyc/canonry-contracts").CcAvailableRelease | null;
+    value: import("@canonry/canonry-contracts").CcAvailableRelease | null;
     expiresAt: number;
   } | null = null;
   const discoverLatestRelease = async (): Promise<
-    import("@ainyc/canonry-contracts").CcAvailableRelease | null
+    import("@canonry/canonry-contracts").CcAvailableRelease | null
   > => {
     const now = Date.now();
     if (latestReleaseCache && latestReleaseCache.expiresAt > now) {
@@ -3375,14 +3368,7 @@ export async function createServer(opts: {
     onSiteAuditRequested: (
       runId: string,
       projectId: string,
-      auditOpts?: {
-        sitemapUrl?: string;
-        limit?: number;
-        maxPages?: number;
-        maxEdges?: number;
-        maxDepth?: number;
-        checkDeadLinks?: boolean;
-      },
+      auditOpts?: SiteAuditOptions,
     ) => {
       // The route already created the site-audit run row; run the shared worker.
       runSiteAudit(runId, projectId, auditOpts);
@@ -3411,7 +3397,7 @@ export async function createServer(opts: {
         return {
           release: entry.release,
           syncStatus: (sync?.status ??
-            null) as import("@ainyc/canonry-contracts").CcCachedRelease["syncStatus"],
+            null) as import("@canonry/canonry-contracts").CcCachedRelease["syncStatus"],
           bytes: entry.bytes,
           lastUsedAt: entry.lastUsedAt,
         };
@@ -3490,7 +3476,7 @@ export async function createServer(opts: {
       runId: string,
       projectId: string,
       providers?: string[],
-      location?: import("@ainyc/canonry-contracts").LocationContext | null,
+      location?: import("@canonry/canonry-contracts").LocationContext | null,
     ) => {
       // Fire and forget — run executes in background
       jobRunner
@@ -3565,7 +3551,7 @@ export async function createServer(opts: {
       model?: string,
       baseUrl?: string,
       incomingQuota?: Partial<
-        import("@ainyc/canonry-contracts").ProviderQuotaPolicy
+        import("@canonry/canonry-contracts").ProviderQuotaPolicy
       >,
       auditContext?,
     ) => {
@@ -3648,7 +3634,7 @@ export async function createServer(opts: {
     onScheduleUpdated: (
       action: "upsert" | "delete",
       projectId: string,
-      kind: import("@ainyc/canonry-contracts").SchedulableRunKind,
+      kind: import("@canonry/canonry-contracts").SchedulableRunKind,
     ) => {
       if (action === "upsert") scheduler.upsert(projectId, kind);
       if (action === "delete") scheduler.remove(projectId, kind);

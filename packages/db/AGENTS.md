@@ -94,7 +94,7 @@ const enabled = project.autoExtractBacklinks // boolean (integer mode: 'boolean'
 Other tables (`runs`, `querySnapshots`, `schedules`, `notifications`, GA/GSC/Bing rollups, agent sessions, traffic sources, etc.) still store JSON as raw `text(...)` for the moment. Reads from those columns use the typed helper:
 
 ```typescript
-import { parseJsonColumn } from '@ainyc/canonry-db'
+import { parseJsonColumn } from '@canonry/canonry-db'
 
 // ✅ Correct — handles null, empty string, invalid JSON for the legacy raw-text columns
 const breakdown = parseJsonColumn<HealthSnapshotDto['providerBreakdown']>(row.providerBreakdown, {})

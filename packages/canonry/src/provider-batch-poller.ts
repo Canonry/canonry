@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNotNull, isNull, notExists, sql } from 'drizzle-orm'
-import { providerBatches, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { providerBatches, runs, type DatabaseClient } from '@canonry/canonry-db'
 import {
   OUTSTANDING_PROVIDER_BATCH_STATUSES,
   ProviderBatchStatuses,
@@ -7,7 +7,7 @@ import {
   describeError,
   type ProviderBatchPollStatus,
   type ProviderBatchStatus,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { JobRunner } from './job-runner.js'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { createLogger } from './logger.js'

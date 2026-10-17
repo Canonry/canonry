@@ -6,7 +6,7 @@ import { ToneBadge } from '../shared/ToneBadge.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { fetchCdpStatus, configureCdp, type ApiCdpStatus } from '../../api.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
 
 function shortCdpError(error: string): string {
   const summary = error.replace(/^Error:\s*/, '').replace(/\s+/g, ' ').trim()

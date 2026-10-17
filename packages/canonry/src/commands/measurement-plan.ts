@@ -43,7 +43,7 @@ import {
   visibilityReportRequestSchema,
   queryTrackingPreviewRequestSchema,
   queryTrackingCommitRequestSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { z } from 'zod'
 import { isMachineFormat, systemError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'

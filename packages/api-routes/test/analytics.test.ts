@@ -4,8 +4,8 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
-import { createClient, migrate, projects, queries, runs, querySnapshots, competitors, domainClassifications } from '@ainyc/canonry-db'
-import { brandMetricsDtoSchema, MODEL_POINTER_REGISTRY_CHECKED_THROUGH, RatioUnits, SOURCE_BREAKDOWN_COUNT_UNITS, roundRatio } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, queries, runs, querySnapshots, competitors, domainClassifications } from '@canonry/canonry-db'
+import { brandMetricsDtoSchema, MODEL_POINTER_REGISTRY_CHECKED_THROUGH, RatioUnits, SOURCE_BREAKDOWN_COUNT_UNITS, roundRatio } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
 function buildApp() {

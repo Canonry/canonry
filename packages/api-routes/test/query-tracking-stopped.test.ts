@@ -19,7 +19,7 @@ import {
   RunTriggers,
   type MeasurementPlanV2,
   type QueryTrackingWorkspaceResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   apiKeys,
   auditLog,
@@ -32,7 +32,7 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 

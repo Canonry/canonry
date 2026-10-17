@@ -1,4 +1,4 @@
-import type { BrandMetricsDto } from '@ainyc/canonry-contracts'
+import type { BrandMetricsDto } from '@canonry/canonry-contracts'
 
 /**
  * GET /analytics/metrics responses around query-set changes, captured from the

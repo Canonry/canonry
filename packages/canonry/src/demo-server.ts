@@ -1,6 +1,6 @@
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createClient, migrate } from '@ainyc/canonry-db'
+import { createClient, migrate } from '@canonry/canonry-db'
 import { buildDemoAeroPreviews } from './demo/aero-preview.js'
 import { createDemoHttpServer } from './demo/http.js'
 import { seedDemoMarketing } from './demo/seed-marketing.js'

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { querySnapshots } from '@ainyc/canonry-db'
+import type { querySnapshots } from '@canonry/canonry-db'
 
 type SnapshotRow = typeof querySnapshots.$inferSelect
 

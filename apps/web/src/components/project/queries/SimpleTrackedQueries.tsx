@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Info, Pencil, Plus, Trash2 } from 'lucide-react'
-import type { QueryTrackingPreviewResponse, QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import type { QueryTrackingPreviewResponse, QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import { isEmbed } from '../../../api.js'
 import { WriteButton } from '../../shared/AccessControls.js'

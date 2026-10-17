@@ -12,8 +12,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, it, describe } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { apiKeys, createClient, migrate, oauthClients, users, userSessions, type DatabaseClient } from '@ainyc/canonry-db'
-import { hashUserPassword, USER_SESSION_COOKIE_NAME } from '@ainyc/canonry-api-routes'
+import { apiKeys, createClient, migrate, oauthClients, users, userSessions, type DatabaseClient } from '@canonry/canonry-db'
+import { hashUserPassword, USER_SESSION_COOKIE_NAME } from '@canonry/canonry-api-routes'
 import { createServer } from '../src/server.js'
 
 let tmpDir: string

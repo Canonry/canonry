@@ -1,5 +1,5 @@
 import { Fragment, useId, useMemo, type ReactNode } from 'react'
-import type { QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import type { QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import { formatSweepDay } from '../../../../lib/format-helpers.js'
 import { DataTablePagination, useClientTable } from '../../../shared/DataTableControls.js'

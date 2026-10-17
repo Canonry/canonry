@@ -37,7 +37,7 @@ import {
   type AdsOperationDto,
   type AdsOperationStepDto,
   type OutcomeReasonCode,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   adsActivationGrants,
   adsOperations,
@@ -45,7 +45,7 @@ import {
   apiKeys,
   projects,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { requireScope } from './auth.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 import { startRouteOutcome, upstreamFailure, type RouteOutcome } from './feature-outcome.js'
@@ -88,7 +88,7 @@ export interface AdsActivationRuntime {
   adAccountId: string
   provider: AdsActivationProvider
   semanticallyMatchesMaterialization?: (
-    entityType: import('@ainyc/canonry-contracts').AdsActivationEntityType,
+    entityType: import('@canonry/canonry-contracts').AdsActivationEntityType,
     entityId: string,
     entity: AdsActivationEntitySnapshot,
   ) => boolean

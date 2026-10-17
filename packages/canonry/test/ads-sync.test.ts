@@ -13,7 +13,7 @@ import {
   adsAdGroups,
   adsAds,
   adsInsightsDaily,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   executeAdsSync,
   liveAdsInsightHourRange,

@@ -12,8 +12,8 @@ import {
   truncateUtf16,
   type RunKind,
   type RunStatus,
-} from '@ainyc/canonry-contracts'
-import { gbpLocations, runs } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import { gbpLocations, runs } from '@canonry/canonry-db'
 import type { CheckDefinition, CheckOutput, DoctorContext, ProjectInfo } from '../types.js'
 import { gaConnected } from './data-freshness.js'
 

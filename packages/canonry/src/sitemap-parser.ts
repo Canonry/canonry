@@ -1,6 +1,6 @@
-import { createGuardedFetch, EgressFailedError, EgressRefusedError } from '@ainyc/canonry-api-routes'
+import { createGuardedFetch, EgressFailedError, EgressRefusedError } from '@canonry/canonry-api-routes'
 import { createLogger } from './logger.js'
-import { classifyOutcomeError, describeError, OutcomeReasonCodes } from '@ainyc/canonry-contracts'
+import { classifyOutcomeError, describeError, OutcomeReasonCodes } from '@canonry/canonry-contracts'
 import { withOutcomeReason } from './sync-outcome.js'
 
 const log = createLogger('SitemapParser')

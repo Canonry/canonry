@@ -11,8 +11,8 @@ import {
   createClient,
   migrate,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
-import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-db'
+import type { NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 import { apiRoutes, type OutcomeTelemetryEvent } from '../src/index.js'
 import type { CloudRunCredentialRecord } from '../src/traffic.js'
 import { featureOutcomes } from './feature-outcome-capture.js'

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { and, eq, ne, sql } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import {
   projects,
   runs,
@@ -12,7 +12,7 @@ import {
   siteCrawlFindings,
   siteCrawlPages,
   siteCrawlSnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { runSiteCrawl } from '@canonry/aeo-audit'
 import type {
   CrawlEdgeObservation,
@@ -33,14 +33,15 @@ import {
   type SiteAuditCrossCuttingIssueDto,
   type SiteAuditFactorSummaryDto,
   type SiteAuditPageFactorDto,
+  type SiteAuditRunRequest,
   type SiteCrawlAuditFactorDto,
   type SiteCrawlCriticalDefectDto,
   ONBOARDING_FLOW_VERSION,
   RunTriggers,
   bucketOnboardingCount,
   describeError,
-} from '@ainyc/canonry-contracts'
-import { resolvePublicHttpTarget, resolveWebhookTarget } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-contracts'
+import { resolvePublicHttpTarget, resolveWebhookTarget } from '@canonry/canonry-api-routes'
 import { createLogger } from './logger.js'
 import {
   buildSiteAuditCompletedProps,
@@ -65,16 +66,9 @@ export {
   SITE_AUDIT_DEFAULT_PAGE_LIMIT,
   SITE_AUDIT_MAX_EDGE_LIMIT,
   SITE_AUDIT_MAX_PAGE_LIMIT,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
-export interface SiteAuditOptions {
-  sitemapUrl?: string
-  /** @deprecated Compatibility alias for maxPages. */
-  limit?: number
-  maxPages?: number
-  maxEdges?: number
-  maxDepth?: number
-  checkDeadLinks?: boolean
+export interface SiteAuditOptions extends Partial<SiteAuditRunRequest> {
   /** The local server owns this controller; never accepted from an HTTP body. */
   signal?: AbortSignal
   /** Internal test/operations seam; never accepted from an HTTP body. */
@@ -751,6 +745,8 @@ export async function executeSiteAudit(
       maxEdges,
       maxDepth: opts.maxDepth,
       checkDeadLinks: opts.checkDeadLinks ?? false,
+      includeGeo: opts.includeGeo ?? false,
+      includeAgentSkills: opts.includeAgentSkills ?? true,
       signal: opts.signal,
       onEvent: persistEvent,
     })
@@ -904,6 +900,7 @@ export async function executeSiteAudit(
           // no edge budget and the engine derived one" from a missing field.
           mode: 'summary', sitemapUrl: opts.sitemapUrl ?? null, maxPages, maxEdges: maxEdges ?? null,
           maxDepth: opts.maxDepth ?? null, checkDeadLinks: opts.checkDeadLinks ?? false,
+          includeGeo: opts.includeGeo ?? false, includeAgentSkills: opts.includeAgentSkills ?? true,
         },
         pageBudget: maxPages,
         edgeBudget: maxEdges ?? null,

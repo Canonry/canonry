@@ -1,5 +1,5 @@
-import { CheckCategories, CheckNotificationPolicies, CheckScopes, CheckStatuses, TrafficSourceStatuses, calendarMonthBounds, gradedReportMonths, reportMonthsForDoctor } from '@ainyc/canonry-contracts'
-import { trafficSources } from '@ainyc/canonry-db'
+import { CheckCategories, CheckNotificationPolicies, CheckScopes, CheckStatuses, TrafficSourceStatuses, calendarMonthBounds, gradedReportMonths, reportMonthsForDoctor } from '@canonry/canonry-contracts'
+import { trafficSources } from '@canonry/canonry-db'
 import { and, eq, ne } from 'drizzle-orm'
 import { buildReferralAssessment } from '../../referral-assessment.js'
 import type { CheckDefinition } from '../types.js'

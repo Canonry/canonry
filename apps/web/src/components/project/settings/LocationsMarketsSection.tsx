@@ -2,8 +2,8 @@ import { useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } 
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { AlertTriangle, ChevronDown, ChevronsUpDown, Info, SearchX } from 'lucide-react'
-import type { MeasurementPlanResponse, MeasurementSetupResponse, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-api-client'
-import { getApiV1ProjectsByNameQueryTrackingOptions } from '@ainyc/canonry-api-client/react-query'
+import type { MeasurementPlanResponse, MeasurementSetupResponse, QueryTrackingWorkspaceResponse } from '@canonry/canonry-api-client'
+import { getApiV1ProjectsByNameQueryTrackingOptions } from '@canonry/canonry-api-client/react-query'
 
 import { heyClient } from '../../../api.js'
 import { useAccount } from '../../../contexts/account-context.js'

@@ -27,7 +27,7 @@ import {
   type MeasurementPlanV2,
   type MeasurementPropertyEvidenceResponse,
   type MeasurementReportResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   measurementPlans,
@@ -37,7 +37,7 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { buildMeasurementEvidence } from '../src/measurement-report.js'
 import {

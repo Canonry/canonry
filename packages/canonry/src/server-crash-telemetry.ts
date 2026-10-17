@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { classifyOutcomeError, OutcomeReasonCodes, OutcomeTriggers, type OutcomeReasonCode } from '@ainyc/canonry-contracts'
+import { classifyOutcomeError, OutcomeReasonCodes, OutcomeTriggers, type OutcomeReasonCode } from '@canonry/canonry-contracts'
 import { getConfigDir } from './config.js'
 import { trackFeatureCompleted } from './outcome-telemetry.js'
 import { isTelemetryEnabled } from './telemetry.js'

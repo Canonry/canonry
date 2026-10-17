@@ -1,12 +1,13 @@
 import crypto from 'node:crypto'
 import { eq, and, desc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { bingUrlInspections, bingCoverageSnapshots, runs } from '@ainyc/canonry-db'
-import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError, percentOf, classifyOutcomeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses } from '@ainyc/canonry-contracts'
+import { bingUrlInspections, bingCoverageSnapshots, runs } from '@canonry/canonry-db'
+import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError, percentOf, classifyOutcomeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses } from '@canonry/canonry-contracts'
 import { assertNotProjectScoped } from './auth.js'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute } from './connection-telemetry.js'
+import { createVerifyCache, isInteractiveCaller, verifyCacheKey } from './connection-verify-cache.js'
 import { startRouteOutcome } from './feature-outcome.js'
 import {
   BingApiError,
@@ -18,7 +19,7 @@ import {
   getKeywordStats,
   BING_SUBMIT_URL_BATCH_LIMIT,
   BING_SUBMIT_URL_DAILY_LIMIT,
-} from '@ainyc/canonry-integration-bing'
+} from '@canonry/canonry-integration-bing'
 
 /**
  * Convert Bing's /Date(epoch-offset)/ format to an ISO 8601 string.
@@ -118,6 +119,10 @@ export interface BingRoutesOptions {
 }
 
 export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) {
+  // Sites a key listed recently. An API client re-sending the same connect
+  // gets them without another call to Bing; the CLI and dashboard always ask.
+  const keyChecks = createVerifyCache<Awaited<ReturnType<typeof getSites>>>()
+
   function requireConnectionStore(): BingConnectionStore {
     if (opts.bingConnectionStore) return opts.bingConnectionStore
     throw validationError('Bing connection storage is not configured for this deployment')
@@ -146,16 +151,21 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     const project = resolveProject(app.db, request.params.name)
 
     // Verify the API key by listing sites
-    let sites
-    try {
-      sites = await getSites(apiKey)
-      bingLog('info', 'connect.verify-key', { domain: project.canonicalDomain, siteCount: sites.length })
-    } catch (e) {
-      const msg = describeError(e)
-      bingLog('error', 'connect.verify-key-failed', { domain: project.canonicalDomain, error: msg })
-      attempt.failed(e)
-      throw validationError(`Failed to verify Bing API key: ${msg}`)
+    const keyCheck = verifyCacheKey('bing-key', apiKey)
+    let sites = isInteractiveCaller() ? undefined : keyChecks.get(keyCheck)
+    if (!sites) {
+      try {
+        sites = await getSites(apiKey)
+        keyChecks.set(keyCheck, sites)
+        bingLog('info', 'connect.verify-key', { domain: project.canonicalDomain, siteCount: sites.length })
+      } catch (e) {
+        const msg = describeError(e)
+        bingLog('error', 'connect.verify-key-failed', { domain: project.canonicalDomain, error: msg })
+        attempt.failed(e)
+        throw validationError(`Failed to verify Bing API key: ${msg}`)
+      }
     }
+    const availableSites = sites.map((s) => ({ url: s.Url, verified: s.IsVerified ?? false }))
 
     const now = new Date().toISOString()
     const existing = store.getConnection(project.canonicalDomain)
@@ -169,6 +179,11 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       throw validationError(
         `This domain already has a Bing connection owned by another project. Disconnect it from that project first before re-connecting from "${project.name}".`,
       )
+    }
+
+    // A repeat of the stored key changes nothing: no rewrite, no audit entry.
+    if (existing?.apiKey === apiKey && existing.createdByProjectId) {
+      return { connected: true, domain: project.canonicalDomain, siteUrl: existing.siteUrl ?? null, availableSites }
     }
 
     store.upsertConnection({
@@ -192,7 +207,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       connected: true,
       domain: project.canonicalDomain,
       siteUrl: existing?.siteUrl ?? null,
-      availableSites: sites.map((s) => ({ url: s.Url, verified: s.IsVerified ?? false })),
+      availableSites,
     }
   }))
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import type { QueryClass } from '@ainyc/canonry-contracts'
+import type { QueryClass } from '@canonry/canonry-contracts'
 
 import {
   activeFilterCount,

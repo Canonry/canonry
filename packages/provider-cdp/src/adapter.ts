@@ -7,13 +7,13 @@ import type {
   TrackedQueryInput,
   RawQueryResult,
   NormalizedQueryResult,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { CDPConnectionManager } from './connection.js'
 import { chatgptTarget } from './targets/chatgpt.js'
 import { captureElementScreenshot } from './screenshot.js'
 import { normalizeResult as cdpNormalizeResult } from './normalize.js'
 import { CDPProviderError } from './targets/types.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
 
 // Connection pool keyed by "host:port" — one manager per distinct CDP endpoint.
 // Using a map (instead of a single shared singleton) prevents concurrent calls

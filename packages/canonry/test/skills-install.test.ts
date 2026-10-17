@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { SKILL_MANIFEST_FILENAME, type SkillManifest } from '@ainyc/canonry-contracts'
+import { SKILL_MANIFEST_FILENAME, type SkillManifest } from '@canonry/canonry-contracts'
 import { CliError } from '../src/cli-error.js'
 import { PACKAGE_VERSION } from '../src/package-version.js'
 import {

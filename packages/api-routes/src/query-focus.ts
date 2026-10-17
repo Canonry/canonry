@@ -13,7 +13,7 @@
  * - Not asked: no pairings. Custom: anything else.
  */
 
-import { QUERY_CLASS_BY_FOCUS, type MeasurementPlanV2, type QueryClass, type QueryTrackingFocus } from '@ainyc/canonry-contracts'
+import { QUERY_CLASS_BY_FOCUS, type MeasurementPlanV2, type QueryClass, type QueryTrackingFocus } from '@canonry/canonry-contracts'
 
 /**
  * The Type a Subject takes: Non-brand for a market query, Branded for a

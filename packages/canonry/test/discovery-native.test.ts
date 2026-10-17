@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 import { expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { discoverySessions, discoveryProbes, domainClassifications, insights, projects, runs } from '@ainyc/canonry-db'
-import type { LocationContext } from '@ainyc/canonry-contracts'
+import { discoverySessions, discoveryProbes, domainClassifications, insights, projects, runs } from '@canonry/canonry-db'
+import type { LocationContext } from '@canonry/canonry-contracts'
 import { executeDiscoveryRun } from '../src/discovery-run.js'
 import { nativeDiscoveryFixture, type LiteralAnswer } from './discovery-native-fixture.js'
 

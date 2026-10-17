@@ -5,8 +5,8 @@ import {
   simpleMeasurementDefinitionSchema, validationError,
   type LocationContext, type MeasurementPlanV2, type MeasurementV2Assignment, type MeasurementV2ExecutionNode,
   type MeasurementV2Target, type MeasurementV2UsageEdge, type SimpleMeasurementDefinition,
-} from '@ainyc/canonry-contracts'
-import { measurementPlanVersions, querySnapshots, runs, simpleMeasurementDefinitions, sentimentCompletionReceipts, type DatabaseClient } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import { measurementPlanVersions, querySnapshots, runs, simpleMeasurementDefinitions, sentimentCompletionReceipts, type DatabaseClient } from '@canonry/canonry-db'
 import { measurementRunSlotState } from './measurement-run-completeness.js'
 
 export interface SentimentSourceFilter {

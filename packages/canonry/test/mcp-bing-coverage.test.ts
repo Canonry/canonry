@@ -1,7 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { BingCoverageSummaryDto } from '@ainyc/canonry-contracts'
+import type { BingCoverageSummaryDto } from '@canonry/canonry-contracts'
 import { ApiClient } from '../src/client.js'
 import { createCanonryMcpServer } from '../src/mcp/server.js'
 

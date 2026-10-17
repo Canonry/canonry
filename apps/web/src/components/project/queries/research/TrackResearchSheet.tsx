@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Ban, MapPinOff, X } from 'lucide-react'
-import { normalizeIdentityText } from '@ainyc/canonry-contracts'
+import { normalizeIdentityText } from '@canonry/canonry-contracts'
 import type {
   QueryTrackingCommitResponse,
   QueryTrackingContextInput,
   QueryTrackingMutation,
   QueryTrackingSourceInput,
   QueryTrackingWorkspaceResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import { isAeroPreview, shouldShowDashboardAgentBar } from '../../../../api.js'
 import { useAccount } from '../../../../contexts/account-context.js'

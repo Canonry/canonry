@@ -2,7 +2,7 @@ import React from 'react'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ResearchBatchCreate, ResearchRunDetailDto } from '@ainyc/canonry-contracts'
+import type { ResearchBatchCreate, ResearchRunDetailDto } from '@canonry/canonry-contracts'
 
 import { QueriesSection, type QueriesSectionProps } from '../src/components/project/DiscoverySection.js'
 import { RESEARCH_COPY, ResearchQueriesSection } from '../src/components/project/ResearchQueriesSection.js'

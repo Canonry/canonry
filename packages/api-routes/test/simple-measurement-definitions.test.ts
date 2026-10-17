@@ -7,7 +7,7 @@ import {
   RunKinds,
   RunStatuses,
   RunTriggers,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   competitors,
@@ -18,7 +18,7 @@ import {
   runs,
   simpleMeasurementDefinitions,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { captureSimpleMeasurementDefinition } from '../src/simple-measurement-definitions.js'
 
 let db: DatabaseClient

@@ -5,7 +5,7 @@ import {
   measurementDraftAuthoringSchema,
   type MeasurementDraftAuthoring,
   type MeasurementDraftSegmentDescriptor,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   MeasurementGroupMembershipImportError,
   applyReviewedGroupMembership,

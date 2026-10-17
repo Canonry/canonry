@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, doctorHealthState, notifications, projects, siteLivenessState } from '@ainyc/canonry-db'
+import { createClient, migrate, doctorHealthState, notifications, projects, siteLivenessState } from '@canonry/canonry-db'
 import { Notifier, receivesHealthEvent } from '../src/notifier.js'
 
 // Health alerts reach every webhook on a project, routine warnings included,

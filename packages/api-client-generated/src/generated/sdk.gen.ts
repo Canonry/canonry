@@ -7331,7 +7331,7 @@ export const getApiV1ProjectsByNameTechnicalAeoRuns = <ThrowOnError extends bool
 /**
  * Trigger a Technical AEO site-audit run
  *
- * Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links. An active run is reused only when its persisted effective sitemap, budgets, depth, and dead-link option match exactly; a semantic mismatch returns 409.
+ * Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links. An active run is reused only when its persisted effective sitemap, budgets, depth, dead-link option, and optional factor selections match exactly; a semantic mismatch returns 409.
  */
 export const postApiV1ProjectsByNameTechnicalAeoRuns = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ProjectsByNameTechnicalAeoRunsData, ThrowOnError>) => {
     return (options.client ?? client).post<PostApiV1ProjectsByNameTechnicalAeoRunsResponses, PostApiV1ProjectsByNameTechnicalAeoRunsErrors, ThrowOnError>({

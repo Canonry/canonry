@@ -1,4 +1,4 @@
-import type { MeasurementEvidenceShape, MeasurementQueryClassFilter, MeasurementReadFallback } from '@ainyc/canonry-contracts'
+import type { MeasurementEvidenceShape, MeasurementQueryClassFilter, MeasurementReadFallback } from '@canonry/canonry-contracts'
 import {
   ADVANCED_MEASUREMENT_OPERATIONS,
   applyMeasurementPlanAssignments,

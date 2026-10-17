@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { MeasurementQueryTemplate, QueryTrackingMode, QueryTrackingWorkspaceResponse, ResearchRunScope } from '@ainyc/canonry-contracts'
+import type { MeasurementQueryTemplate, QueryTrackingMode, QueryTrackingWorkspaceResponse, ResearchRunScope } from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameMeasurementQueryTemplatesOptions,
   getApiV1ProjectsByNameQueryTrackingOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { heyClient, isEmbed, isPublicDemo } from '../../../api.js'
 import type { ViewerResearchConfig } from '../../../api.js'

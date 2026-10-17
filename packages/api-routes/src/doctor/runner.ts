@@ -8,7 +8,7 @@ import {
   type CheckResultDto,
   type DoctorReportDto,
   describeError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { UNREACHABLE_CODE_SUFFIX, type CheckDefinition, type DoctorContext, type RunChecksOptions } from './types.js'
 
 export function matchesCheckId(checkId: string, filters: string[]): boolean {

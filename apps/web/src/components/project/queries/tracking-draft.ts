@@ -3,7 +3,7 @@ import type {
   QueryTrackingMutation,
   QueryTrackingTrackedRow,
   QueryTrackingWorkspaceResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import type { QueriesSectionProps } from '../DiscoverySection.js'
 import { plannedContext } from './tracking-contexts.js'

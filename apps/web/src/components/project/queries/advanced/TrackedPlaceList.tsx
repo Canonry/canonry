@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, ChevronDown, ChevronsUpDown, CircleCheck, FileX, ListFilter, Plus, SearchX } from 'lucide-react'
-import type { QueryTrackingViews, QueryTrackingWeakMarkets, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import type { QueryTrackingViews, QueryTrackingWeakMarkets, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import { WriteButton } from '../../../shared/AccessControls.js'
 import { DataTablePagination, DataTableSearch, useClientTable } from '../../../shared/DataTableControls.js'

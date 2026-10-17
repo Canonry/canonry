@@ -29,7 +29,7 @@ import {
   type SiteGraphSigmaEdge,
   type SiteGraphSigmaNode,
 } from '../src/components/project/site-graph-sigma.js'
-import { SITE_GRAPH_LEGEND_STATES } from '@ainyc/canonry-contracts'
+import { SITE_GRAPH_LEGEND_STATES } from '@canonry/canonry-contracts'
 
 const theme: SigmaSiteGraphTheme = {
   eligible: 'rgb(1, 2, 3)',

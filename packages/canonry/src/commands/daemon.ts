@@ -4,7 +4,7 @@ import path from 'node:path'
 import { getConfigDir, loadConfig } from '../config.js'
 import type { CliFormat } from '../cli-error.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
 import { operatorHttpUrl } from '../operator-url.js'
 import { resolveServePort } from '../serve-endpoint.js'
 

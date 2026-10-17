@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
-import { validationError } from '@ainyc/canonry-contracts'
+import { validationError } from '@canonry/canonry-contracts'
 import { withFeatureOutcome } from '../src/feature-outcome.js'
 import { createOutcomeEmitter, type OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
 import { featureOutcomes } from './feature-outcome-capture.js'

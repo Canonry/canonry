@@ -12,7 +12,7 @@ import {
   type OperationalLogEntryDto,
   type OperationalLogListDto,
   type RuntimeLogEvent,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { DatabaseClient } from './client.js'
 import { parseJsonColumn } from './json.js'
 

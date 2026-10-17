@@ -8,7 +8,7 @@
  * impressions/clicks/position in SQL so this helper just ranks and explains.
  */
 
-import { normalizeQueryText } from '@ainyc/canonry-contracts'
+import { normalizeQueryText } from '@canonry/canonry-contracts'
 
 export interface SuggestedQueryGscRow {
   query: string

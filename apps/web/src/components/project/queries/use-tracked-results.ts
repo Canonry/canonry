@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getApiV1ProjectsByNameQueryTrackingResultsOptions } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1ProjectsByNameQueryTrackingResultsOptions } from '@canonry/canonry-api-client/react-query'
 
 import { heyClient } from '../../../api.js'
 import type { QueriesSectionProps } from '../DiscoverySection.js'

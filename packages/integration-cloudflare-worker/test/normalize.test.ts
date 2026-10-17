@@ -4,7 +4,7 @@ import {
   TrafficEvidenceKinds,
   TrafficSourceTypes,
   type CloudflareWorkerEvent,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { normalizeCloudflareWorkerEvent } from '../src/normalize.js'
 
 const FULL_EVENT: CloudflareWorkerEvent = {

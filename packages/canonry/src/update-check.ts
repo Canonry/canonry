@@ -11,7 +11,7 @@ import {
   upgradeCommandFor,
   type InstallMethod,
   type UpdateCheckEnvOptOut,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { configExists, loadConfigRaw, saveConfigPatch } from './config.js'
 
 export { compareSemver, type InstallMethod }

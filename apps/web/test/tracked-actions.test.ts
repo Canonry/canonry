@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { queryTrackingPreviewRequestSchema } from '@ainyc/canonry-contracts'
-import type { QueryTrackingMutation } from '@ainyc/canonry-contracts'
+import { queryTrackingPreviewRequestSchema } from '@canonry/canonry-contracts'
+import type { QueryTrackingMutation } from '@canonry/canonry-contracts'
 
 import {
   allowedTypes,

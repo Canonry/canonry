@@ -23,7 +23,7 @@ import {
   runs,
   schedules,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   aiReferralClassCounts,
   nextScheduleUpdatedAt,
@@ -54,7 +54,7 @@ import {
   bucketDuration,
   OutcomeReasonCodes,
   OutcomeStatuses,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type {
   NormalizedTrafficRequest,
   OutcomeReasonCode,
@@ -76,57 +76,57 @@ import type {
   TrafficEventsResponse,
   TrafficSeriesGranularity,
   TrafficSeriesPoint,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   listCloudRunTrafficEvents,
   getCloudLoggingAccessToken,
-} from '@ainyc/canonry-integration-cloud-run'
+} from '@canonry/canonry-integration-cloud-run'
 import type {
   CloudRunTrafficEventsPage,
   ListCloudRunTrafficEventsOptions,
-} from '@ainyc/canonry-integration-cloud-run'
-import { buildTrafficProbeReport, isSelfTraffic } from '@ainyc/canonry-integration-traffic'
+} from '@canonry/canonry-integration-cloud-run'
+import { buildTrafficProbeReport, isSelfTraffic } from '@canonry/canonry-integration-traffic'
 import {
   listWordpressTrafficEvents,
   WordpressTrafficApiError,
-} from '@ainyc/canonry-integration-wordpress-traffic'
+} from '@canonry/canonry-integration-wordpress-traffic'
 import type {
   ListWordpressTrafficEventsOptions,
   WordpressTrafficEventsPage,
-} from '@ainyc/canonry-integration-wordpress-traffic'
+} from '@canonry/canonry-integration-wordpress-traffic'
 import {
   drainVercelTrafficEvents,
   listVercelTrafficEvents,
   VercelLogsApiError,
-} from '@ainyc/canonry-integration-vercel'
+} from '@canonry/canonry-integration-vercel'
 import type {
   ListVercelTrafficEventsOptions,
   VercelTrafficEventsPage,
-} from '@ainyc/canonry-integration-vercel'
+} from '@canonry/canonry-integration-vercel'
 import {
   DEFAULT_BOT_LIST,
   generateWorkerScript,
   generateWranglerToml,
   normalizeCloudflareWorkerEvent,
   verifyRequestSignature,
-} from '@ainyc/canonry-integration-cloudflare-worker'
+} from '@canonry/canonry-integration-cloudflare-worker'
 import {
   ackCloudflareQueueMessages,
   CloudflareQueueApiError,
   pullCloudflareQueueMessages,
-} from '@ainyc/canonry-integration-cloudflare-queue'
+} from '@canonry/canonry-integration-cloudflare-queue'
 import type {
   AckCloudflareQueueMessagesOptions,
   CloudflareQueueAckResult,
   CloudflareQueueClientOptions,
   CloudflareQueuePullResult,
   PullCloudflareQueueMessagesOptions,
-} from '@ainyc/canonry-integration-cloudflare-queue'
+} from '@canonry/canonry-integration-cloudflare-queue'
 import {
   cloudflareWorkerIngestRequestSchema,
   trafficConnectCloudflareRequestSchema,
   authRequired,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { auditFromRequest, resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type ConnectionAttempt, type ConnectionSubject } from './connection-telemetry.js'
@@ -3167,7 +3167,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       // Tell the Cloud Run client this is a first-time backfill if no prior
       // cursor exists, so its bounded page budget targets the most-recent
       // entries instead of exhausting on the oldest. Adapter-specific pull
-      // strategy lives in @ainyc/canonry-integration-cloud-run, not here.
+      // strategy lives in @canonry/canonry-integration-cloud-run, not here.
       const isFirstSync = !sourceRow.lastSyncedAt
       try {
         const page = await pullEvents(accessToken, {

@@ -1,5 +1,5 @@
 {
-  "name": "@ainyc/canonry-integration-cloudflare-worker",
+  "name": "@canonry/canonry-integration-cloudflare-worker",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -17,7 +17,7 @@
     "lint": "eslint src/ test/"
   },
   "dependencies": {
-    "@ainyc/canonry-contracts": "workspace:*",
-    "@ainyc/canonry-integration-traffic": "workspace:*"
+    "@canonry/canonry-contracts": "workspace:*",
+    "@canonry/canonry-integration-traffic": "workspace:*"
   }
 }

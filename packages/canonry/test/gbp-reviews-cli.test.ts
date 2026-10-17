@@ -1,5 +1,5 @@
 import { describe, it, beforeEach, expect, vi } from 'vitest'
-import type { GbpReviewListResponse } from '@ainyc/canonry-contracts'
+import type { GbpReviewListResponse } from '@canonry/canonry-contracts'
 
 // Pure output tests: the API client is mocked, so these pin what `canonry gbp
 // reviews` prints and which filters it forwards.

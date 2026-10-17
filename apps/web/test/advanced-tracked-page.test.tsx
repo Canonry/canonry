@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, onTestFinished, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { queryTrackingResultsResponseSchema, queryTrackingWorkspaceResponseSchema } from '@ainyc/canonry-contracts'
-import type { QueryClass, QueryTrackingTrackedRow, UiTelemetryEvent } from '@ainyc/canonry-contracts'
+import { queryTrackingResultsResponseSchema, queryTrackingWorkspaceResponseSchema } from '@canonry/canonry-contracts'
+import type { QueryClass, QueryTrackingTrackedRow, UiTelemetryEvent } from '@canonry/canonry-contracts'
 
 import { DEFAULT_TRACKED_FILTERS } from '../src/components/project/queries/advanced/tracked-filters.js'
 import { formatObservedInstantMonthDay, observedInstant } from '../src/components/shared/ChartPrimitives.js'

@@ -2,7 +2,7 @@ import React from 'react'
 import { afterEach, expect, onTestFinished, test } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema } from '@ainyc/canonry-contracts'
+import { queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema } from '@canonry/canonry-contracts'
 
 import { QueriesSection } from '../src/components/project/DiscoverySection.js'
 import { TrackingAddQueriesPage } from '../src/components/project/queries/AddQueriesEntry.js'

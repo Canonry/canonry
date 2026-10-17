@@ -1,5 +1,5 @@
 // Percent display ratchet: every percentage shown to a person goes through
-// `formatPercent(value, unit)` from @ainyc/canonry-contracts, so the CLI, the
+// `formatPercent(value, unit)` from @canonry/canonry-contracts, so the CLI, the
 // dashboard, both report renderers and Aero show the same number the same way
 // (one decimal, 0% and 100% only when exact, <0.1% and >99.9% at the edges,
 // a dash for a missing value).
@@ -81,7 +81,7 @@ export const noInlinePercentRule = {
     schema: [],
     messages: {
       inlinePercent:
-        'Show percentages with formatPercent(value, unit) from @ainyc/canonry-contracts: one decimal, 0%/100% only ' +
+        'Show percentages with formatPercent(value, unit) from @canonry/canonry-contracts: one decimal, 0%/100% only ' +
         'when exact, <0.1%/>99.9% at the edges, a dash for a missing value. Pass unit "percent" for a 0..100 value; ' +
         'ratio fields declare their unit on the schema (fraction() / percent() in contracts ratio-unit.ts).',
     },

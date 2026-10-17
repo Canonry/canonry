@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { SKILL_MANIFEST_FILENAME, type BundledSkillSnapshot, type SkillManifest } from '@ainyc/canonry-contracts'
+import { SKILL_MANIFEST_FILENAME, type BundledSkillSnapshot, type SkillManifest } from '@canonry/canonry-contracts'
 import { AGENT_CHECKS } from '../src/doctor/checks/agent.js'
 import type { DoctorContext } from '../src/doctor/types.js'
 

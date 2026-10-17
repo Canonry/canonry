@@ -25,7 +25,7 @@ import {
   RunKinds,
   RunStatuses,
   RunTriggers,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   apiKeys,
   auditLog,
@@ -43,7 +43,7 @@ import {
   runs,
   schedules,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes, type OutcomeTelemetryEvent } from '../src/index.js'
 import { plansAreLabelOnlyVariants } from '../src/measurement-draft-compile.js'
 import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'

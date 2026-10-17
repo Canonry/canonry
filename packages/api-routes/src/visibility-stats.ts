@@ -2,7 +2,7 @@ import { readCompetitorIdentityChangedAt, readCompetitorLandscape, readCompetito
 import { activeMeasurementPlan } from './measurement-overview.js'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { competitors, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { competitors, queries, querySnapshots, runs, type DatabaseClient } from '@canonry/canonry-db'
 import {
   calendarMonthBounds,
   CitationStates,
@@ -25,7 +25,7 @@ import {
   type VisibilityStatsQueryEntry,
   type VisibilityStatsShareOfVoice,
   normalizeIdentityText as normalizeText,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { projectQueryClassifier, shareOfVoiceFromLandscape, mentionShareCompetitors } from './mention-share-inputs.js'
 import { computeVisibilityCompare, type VisibilityCompareSnapshotInput } from './visibility-compare.js'

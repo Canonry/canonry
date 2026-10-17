@@ -14,7 +14,7 @@ import {
   type MeasurementPlanV2,
   type VisibilityReportResponse,
   type VisibilityReportScopeOption,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   apiKeys,
   createClient,
@@ -23,7 +23,7 @@ import {
   migrate,
   projects,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'

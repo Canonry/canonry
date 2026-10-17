@@ -21,7 +21,7 @@ import {
   siteCrawlPages,
   siteCrawlRunRequests,
   siteCrawlSnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import type {
   SiteAuditFactorSummaryDto,
   SiteAuditLivePageHealthDto,
@@ -42,8 +42,8 @@ import type {
   SiteHealthPathResponseDto,
   SiteHealthScansResponseDto,
   SiteHealthSubgraphResponseDto,
-} from '@ainyc/canonry-contracts'
-import { deriveSiteHealthState, siteHealthStateSchema } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import { deriveSiteHealthState, siteHealthStateSchema } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
 interface Ctx {
@@ -1377,12 +1377,14 @@ describe('POST /technical-aeo/runs', () => {
     expect(ctx.db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, firstId)).get()).toMatchObject({
       projectId: ctx.projectId,
       effectiveOptions: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         sitemapUrl: null,
         maxPages: 50,
         maxEdges: null,
         maxDepth: null,
         checkDeadLinks: false,
+        includeGeo: false,
+        includeAgentSkills: true,
       },
     })
   })
@@ -1423,12 +1425,14 @@ describe('POST /technical-aeo/runs', () => {
     expect(res.statusCode).toBe(200)
     const runId = (res.json() as { runId: string }).runId
     expect(ctx.db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, runId)).get()!.effectiveOptions).toEqual({
-      schemaVersion: 2,
+      schemaVersion: 3,
       sitemapUrl: null,
       maxPages: 2_500,
       maxEdges: null,
       maxDepth: null,
       checkDeadLinks: false,
+      includeGeo: false,
+      includeAgentSkills: true,
     })
     expect(ctx.siteAuditRequested).toHaveLength(1)
     expect(ctx.siteAuditRequested[0]).toMatchObject({ runId, projectId: ctx.projectId })
@@ -1498,6 +1502,8 @@ describe('POST /technical-aeo/runs', () => {
       { maxEdges: 500 },
       { maxDepth: 4 },
       { checkDeadLinks: true },
+      { includeGeo: true },
+      { includeAgentSkills: false },
     ]
 
     for (const payload of variants) {

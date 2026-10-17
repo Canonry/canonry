@@ -1,5 +1,5 @@
-import { queryTrackingWorkspaceResponseSchema } from '@ainyc/canonry-contracts'
-import type { QueryClass, QueryTrackingContextInput, QueryTrackingTrackedRow } from '@ainyc/canonry-contracts'
+import { queryTrackingWorkspaceResponseSchema } from '@canonry/canonry-contracts'
+import type { QueryClass, QueryTrackingContextInput, QueryTrackingTrackedRow } from '@canonry/canonry-contracts'
 
 import type { TrackedPlace } from '../../src/components/project/queries/advanced/tracked-actions.js'
 import type { TrackedRowVm, TrackedSubject } from '../../src/components/project/queries/advanced/tracked-types.js'

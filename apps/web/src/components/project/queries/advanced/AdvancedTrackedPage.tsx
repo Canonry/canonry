@@ -2,8 +2,8 @@ import { useEffect, useId, useMemo, useRef, useState, type RefObject } from 'rea
 import { createPortal } from 'react-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, CirclePause, Clock, Download, Inbox, Info, MapPin, MapPinOff, Plus, SearchX } from 'lucide-react'
-import type { QueryClass, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
-import { getApiV1ProjectsByNameQueryTrackingQueryKey } from '@ainyc/canonry-api-client/react-query'
+import type { QueryClass, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameQueryTrackingQueryKey } from '@canonry/canonry-api-client/react-query'
 
 import { heyClient, isAeroPreview, isEmbed, shouldShowDashboardAgentBar } from '../../../../api.js'
 import { useAccount } from '../../../../contexts/account-context.js'

@@ -1,6 +1,6 @@
 import { addQueries, generateQueries, importQueries, listQueries, removeQueries, replaceQueries } from '../commands/query.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { queryTrackingResultsRequestSchema } from '@ainyc/canonry-contracts'
+import { queryTrackingResultsRequestSchema } from '@canonry/canonry-contracts'
 import {
   getBoolean,
   getString,

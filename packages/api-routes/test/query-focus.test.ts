@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { MeasurementPlanV2, QueryClass } from '@ainyc/canonry-contracts'
+import type { MeasurementPlanV2, QueryClass } from '@canonry/canonry-contracts'
 import { planQueryFocus, subjectQueryClass } from '../src/query-focus.js'
 import { HARBOR_CONTEXT, measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 

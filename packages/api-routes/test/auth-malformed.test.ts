@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { expect, test } from 'vitest'
-import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 test('malformed Authorization headers return the structured AUTH_REQUIRED envelope', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { ApiKeyDto } from '@ainyc/canonry-contracts'
+import type { ApiKeyDto } from '@canonry/canonry-contracts'
 import { resolveEffectiveScope, resolveEffectiveAuthorization } from '../src/mcp/cli.js'
 import { getCanonryMcpTools } from '../src/mcp/server.js'
 

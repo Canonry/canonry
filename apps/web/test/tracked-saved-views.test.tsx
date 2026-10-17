@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import type { QueryTrackingViews, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import type { QueryTrackingViews, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import { TrackedPlaceList } from '../src/components/project/queries/advanced/TrackedPlaceList.js'
 import { TrackedSavedViews, trackedPlaceView } from '../src/components/project/queries/advanced/TrackedSavedViews.js'

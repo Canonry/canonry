@@ -1,4 +1,4 @@
-import { updateCheckEnvOptOut } from '@ainyc/canonry-contracts'
+import { updateCheckEnvOptOut } from '@canonry/canonry-contracts'
 import type { ApiClient, ServerUpdateAvailable } from '../client.js'
 
 // Function-typed properties, not methods: both are closures with no `this`,

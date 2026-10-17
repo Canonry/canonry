@@ -1,4 +1,4 @@
-import { notificationEventSchema } from '@ainyc/canonry-contracts'
+import { notificationEventSchema } from '@canonry/canonry-contracts'
 import { it, expect } from 'vitest'
 import { listEvents } from '../src/commands/notify.js'
 

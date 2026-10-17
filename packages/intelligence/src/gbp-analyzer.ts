@@ -1,5 +1,5 @@
 import type { InsightSeverity, InsightType } from './types.js'
-import { formatPercent, RatioUnits, relativeChangeRatio, roundRatio } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits, relativeChangeRatio, roundRatio } from '@canonry/canonry-contracts'
 
 /**
  * Pure analyzers for Google Business Profile (local-AEO) signals. Take

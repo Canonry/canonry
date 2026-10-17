@@ -1,8 +1,8 @@
 import { describe, expect, test, vi } from 'vitest'
 
 import { gaRefreshDays, refreshAllIntegrations, type DataRefreshClient } from '../src/data-refresh.js'
-import { RunKinds } from '@ainyc/canonry-contracts'
-import { syncRunClaimKey } from '@ainyc/canonry-api-routes'
+import { RunKinds } from '@canonry/canonry-contracts'
+import { syncRunClaimKey } from '@canonry/canonry-api-routes'
 import { addLogListener, type LogEntry } from '../src/logger.js'
 
 function makeClient(overrides: Partial<DataRefreshClient> = {}): DataRefreshClient {

@@ -1,13 +1,13 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Clock, History, Key, MousePointerClick, Play, RefreshCw } from 'lucide-react'
-import type { DiscoveryBucket, DiscoverySessionDto, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import type { DiscoveryBucket, DiscoverySessionDto, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameDiscoverSessionsByIdOptions,
   getApiV1ProjectsByNameDiscoverSessionsOptions,
   getApiV1RunsQueryKey,
   getApiV1SettingsOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { heyClient, isEmbed, isPublicDemo, triggerDiscoveryRun } from '../../../api.js'
 import { addToast } from '../../../lib/toast-store.js'

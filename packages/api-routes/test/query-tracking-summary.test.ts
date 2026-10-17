@@ -14,7 +14,7 @@ import {
   queryTrackingWorkspaceResponseSchema,
   type MeasurementPlanV2,
   type QueryTrackingWorkspaceResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   apiKeys,
   createClient,
@@ -25,7 +25,7 @@ import {
   projects,
   queries,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'

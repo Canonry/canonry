@@ -1,6 +1,6 @@
 import fs from 'node:fs'
-import { anyUsersExist } from '@ainyc/canonry-api-routes'
-import { createClient } from '@ainyc/canonry-db'
+import { anyUsersExist } from '@canonry/canonry-api-routes'
+import { createClient } from '@canonry/canonry-db'
 import { clearDashboardPassword, loadConfigRaw } from '../config.js'
 import { isMachineFormat } from '../cli-error.js'
 

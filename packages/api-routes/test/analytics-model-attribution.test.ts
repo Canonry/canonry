@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MODEL_ATTRIBUTION_EVENT_LIMIT } from '@ainyc/canonry-contracts'
+import { MODEL_ATTRIBUTION_EVENT_LIMIT } from '@canonry/canonry-contracts'
 
 import { buildModelAttribution, buildServedModelAttribution } from '../src/analytics-model-attribution.js'
 import { classifyModelEvidence, modelEvidenceMismatched } from '../src/model-evidence.js'

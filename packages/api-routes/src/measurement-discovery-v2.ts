@@ -25,13 +25,13 @@ import {
   describeError,
   compareText,
   sortedUnique,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   measurementDiscoveryConfigs,
   measurementOperationReceipts,
   measurementPlanDrafts,
   projects,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { requireAdminSession, requireScope } from './auth.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 import {

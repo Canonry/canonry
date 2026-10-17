@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { AuditLogEntry } from '@ainyc/canonry-contracts'
+import type { AuditLogEntry } from '@canonry/canonry-contracts'
 import {
   getApiV1HistoryOptions,
   getApiV1ProjectsOptions,
   getApiV1ProjectsByNameHistoryOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { heyClient } from '../../api.js'
 import { Button } from '../ui/button.js'

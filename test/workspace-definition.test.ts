@@ -13,7 +13,7 @@ import { parse as parseYaml } from 'yaml'
  * cause. Running any `deno` command from the repository root makes Deno notice
  * `pnpm-workspace.yaml`, announce that it "migrated its workspace configuration
  * into package.json", and WRITE the key. From then on Deno resolves the repo as
- * an npm workspace, so every Val's dev graph pulls in each `@ainyc/canonry-*`
+ * an npm workspace, so every Val's dev graph pulls in each `@canonry/canonry-*`
  * package and its transitive deps — none of which are in the Val's
  * `deno.dev.lock`. `deno check --frozen` then fails with a lockfile diff
  * hundreds of lines long, in a job that never touched the Val.

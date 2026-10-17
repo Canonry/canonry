@@ -1,10 +1,10 @@
 import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { forbidden, internalError, notImplemented, validationError } from '@ainyc/canonry-contracts'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
-import { BingApiError, getSites } from '@ainyc/canonry-integration-bing'
-import { GA4ApiError, verifyConnection } from '@ainyc/canonry-integration-google-analytics'
-import { getSiteStatus, runAudit, verifyWordpressConnection, WordpressApiError } from '@ainyc/canonry-integration-wordpress'
+import { forbidden, internalError, notImplemented, validationError } from '@canonry/canonry-contracts'
+import { createClient, migrate, projects } from '@canonry/canonry-db'
+import { BingApiError, getSites } from '@canonry/canonry-integration-bing'
+import { GA4ApiError, verifyConnection } from '@canonry/canonry-integration-google-analytics'
+import { getSiteStatus, runAudit, verifyWordpressConnection, WordpressApiError } from '@canonry/canonry-integration-wordpress'
 import { apiRoutes, type ApiRoutesOptions } from '../src/index.js'
 import type { AuthPrincipal } from '../src/auth.js'
 import {
@@ -21,16 +21,16 @@ import type { OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
 import { connectionOutcomes } from './outcome-capture.js'
 import { startRecordingSite, type RecordingSite } from './recording-site-fixture.js'
 
-vi.mock('@ainyc/canonry-integration-bing', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@ainyc/canonry-integration-bing')>(),
+vi.mock('@canonry/canonry-integration-bing', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@canonry/canonry-integration-bing')>(),
   getSites: vi.fn(),
 }))
-vi.mock('@ainyc/canonry-integration-google-analytics', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@ainyc/canonry-integration-google-analytics')>(),
+vi.mock('@canonry/canonry-integration-google-analytics', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@canonry/canonry-integration-google-analytics')>(),
   verifyConnection: vi.fn(),
 }))
-vi.mock('@ainyc/canonry-integration-wordpress', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@ainyc/canonry-integration-wordpress')>(),
+vi.mock('@canonry/canonry-integration-wordpress', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@canonry/canonry-integration-wordpress')>(),
   verifyWordpressConnection: vi.fn(),
   getSiteStatus: vi.fn(),
   runAudit: vi.fn(),
@@ -287,7 +287,7 @@ describe('webhook connections', () => {
     h.outcomes.length = 0
     const strict = await harness({ allowLoopbackWebhooks: false })
     // Same stored row, read by a server that no longer admits loopback.
-    const { notifications } = await import('@ainyc/canonry-db')
+    const { notifications } = await import('@canonry/canonry-db')
     const row = h.db.select().from(notifications).all()[0]!
     strict.db.insert(notifications).values(row).run()
     expect((await strict.app.inject({ method: 'POST', url: `/api/v1/projects/acme/notifications/${hook.id}/test` })).statusCode).toBe(400)

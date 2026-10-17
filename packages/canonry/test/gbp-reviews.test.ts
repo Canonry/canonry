@@ -2,8 +2,8 @@ import { describe, test, expect, beforeEach, onTestFinished, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createClient, migrate, gbpReviewRatings, gbpReviews, projects, runs } from '@ainyc/canonry-db'
-import { GbpApiError } from '@ainyc/canonry-integration-google-business-profile'
+import { createClient, migrate, gbpReviewRatings, gbpReviews, projects, runs } from '@canonry/canonry-db'
+import { GbpApiError } from '@canonry/canonry-integration-google-business-profile'
 import {
   fetchLocationReviews,
   persistReviewObservation,
@@ -15,15 +15,15 @@ import {
 const listReviewsMock = vi.fn()
 const getPlaceReviewSignalsMock = vi.fn()
 
-vi.mock('@ainyc/canonry-integration-google-business-profile', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google-business-profile')>(
-    '@ainyc/canonry-integration-google-business-profile',
+vi.mock('@canonry/canonry-integration-google-business-profile', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-google-business-profile')>(
+    '@canonry/canonry-integration-google-business-profile',
   )
   return { ...actual, listReviews: (...a: unknown[]) => listReviewsMock(...a) }
 })
-vi.mock('@ainyc/canonry-integration-google-places', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google-places')>(
-    '@ainyc/canonry-integration-google-places',
+vi.mock('@canonry/canonry-integration-google-places', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-google-places')>(
+    '@canonry/canonry-integration-google-places',
   )
   return { ...actual, getPlaceReviewSignals: (...a: unknown[]) => getPlaceReviewSignalsMock(...a) }
 })

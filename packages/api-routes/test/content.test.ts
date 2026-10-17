@@ -19,8 +19,8 @@ import {
   domainClassifications,
   recommendationExplanations,
   recommendationBriefs,
-} from '@ainyc/canonry-db'
-import { AppError } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-db'
+import { AppError } from '@canonry/canonry-contracts'
 import type { SynthesizeContentBriefFn } from '../src/content.js'
 
 import { contentRoutes } from '../src/content.js'

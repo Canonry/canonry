@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { CompetitorLandscapeResponse, CompetitorSuggestionsResponse } from '@ainyc/canonry-contracts'
+import type { CompetitorLandscapeResponse, CompetitorSuggestionsResponse } from '@canonry/canonry-contracts'
 
 const mockGetCompetitorLandscape = vi.fn()
 const mockSuggestCompetitors = vi.fn()

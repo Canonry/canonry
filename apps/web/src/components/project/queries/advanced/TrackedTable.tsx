@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, ChevronsUpDown } from 'lucide-react'
-import type { QueryClass, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import type { QueryClass, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import { formatMonthDay, formatSweepDay } from '../../../../lib/format-helpers.js'
 import { providerDisplayName } from '../../../../lib/visibility-trend-helpers.js'

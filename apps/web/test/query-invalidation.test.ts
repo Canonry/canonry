@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, vi } from 'vitest'
 import { QueryClient, QueryObserver } from '@tanstack/react-query'
-import { RunKinds } from '@ainyc/canonry-contracts'
+import { RunKinds } from '@canonry/canonry-contracts'
 
 import {
   invalidateProjectQueryDomain,

@@ -15,7 +15,7 @@ import {
   siteCrawlGraphNodes,
   siteCrawlPages,
   siteCrawlSnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   SITE_CRAWL_GRAPH_LAYOUT_VERSION,
   SITE_CRAWL_GRAPH_SEED_SCALE,

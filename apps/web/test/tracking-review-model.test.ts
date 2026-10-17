@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { queryTrackingPreviewResponseSchema, type QueryTrackingPreviewResponse, type QueryTrackingTrackedRow } from '@ainyc/canonry-contracts'
+import { queryTrackingPreviewResponseSchema, type QueryTrackingPreviewResponse, type QueryTrackingTrackedRow } from '@canonry/canonry-contracts'
 
 import { trackingChangeSummary, trackingReviewRows } from '../src/components/project/queries/tracking-review-model.js'
 import { rows, workspace } from './support/tracked-action-fixtures.js'

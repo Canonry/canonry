@@ -12,7 +12,7 @@ import {
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 import { createApiClient } from '../client.js'
-import { deduplicateResearchQueries, type LocationContext, type ResearchRunCreate } from '@ainyc/canonry-contracts'
+import { deduplicateResearchQueries, type LocationContext, type ResearchRunCreate } from '@canonry/canonry-contracts'
 
 const RUN_USAGE = 'canonry research run <project> <query...> [--query <text>] [--provider <name>] [--model <id>] [--market <key>|--property <key>] [--template-id <id> --template-version <version>] [--location <label>|--no-location] [--idempotency-key <key>] [--wait] [--format json|jsonl]'
 const BATCH_USAGE = 'canonry research batch <project> <json-file|-> [--wait] [--format json|jsonl]'

@@ -3,7 +3,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, projects, queries as queriesTable } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, queries as queriesTable } from '@canonry/canonry-db'
 import { saveConfig } from '../src/config.js'
 import { buildSetupState } from '../src/setup-state.js'
 

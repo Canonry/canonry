@@ -10,7 +10,7 @@ import {
   queries,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   brandKeyFromText,
   brandLabelFromDomain,
@@ -39,8 +39,8 @@ import {
   type CompetitorIdentityInput,
   type CompetitorLandscapeModelComparison,
   type CompetitorLandscapeResponse,
-} from '@ainyc/canonry-contracts'
-import { buildCompetitorLandscapeHistory, type CompetitorLandscapeIdentity, type CompetitorLandscapeSurfaceClass } from '@ainyc/canonry-intelligence'
+} from '@canonry/canonry-contracts'
+import { buildCompetitorLandscapeHistory, type CompetitorLandscapeIdentity, type CompetitorLandscapeSurfaceClass } from '@canonry/canonry-intelligence'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { buildMentionShareInputs, observedCompetitorNames, projectQueryClassifier } from './mention-share-inputs.js'
 import { activeMeasurementPlan } from './measurement-overview.js'

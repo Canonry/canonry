@@ -8835,7 +8835,7 @@ export const getApiV1ProjectsByNameTechnicalAeoRunsOptions = (options: Options<G
 /**
  * Trigger a Technical AEO site-audit run
  *
- * Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links. An active run is reused only when its persisted effective sitemap, budgets, depth, and dead-link option match exactly; a semantic mismatch returns 409.
+ * Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links. An active run is reused only when its persisted effective sitemap, budgets, depth, dead-link option, and optional factor selections match exactly; a semantic mismatch returns 409.
  */
 export const postApiV1ProjectsByNameTechnicalAeoRunsMutation = (options?: Partial<Options<PostApiV1ProjectsByNameTechnicalAeoRunsData>>): UseMutationOptions<PostApiV1ProjectsByNameTechnicalAeoRunsResponse, PostApiV1ProjectsByNameTechnicalAeoRunsError, Options<PostApiV1ProjectsByNameTechnicalAeoRunsData>> => {
     const mutationOptions: UseMutationOptions<PostApiV1ProjectsByNameTechnicalAeoRunsResponse, PostApiV1ProjectsByNameTechnicalAeoRunsError, Options<PostApiV1ProjectsByNameTechnicalAeoRunsData>> = {

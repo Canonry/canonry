@@ -15,7 +15,7 @@ import { ProjectsPage } from '../pages/ProjectsPage.js'
 import { OnboardingSetupPage } from '../pages/OnboardingSetupPage.js'
 import { NotFoundPage } from '../pages/NotFoundPage.js'
 import { heyClient } from '../api.js'
-import { getApiV1ProjectsQueryKey, getApiV1ProjectsOptions } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1ProjectsQueryKey, getApiV1ProjectsOptions } from '@canonry/canonry-api-client/react-query'
 
 // `lazyRouteComponent` (not React.lazy) handles route-level code splitting
 // in TanStack Router. The key advantage over `React.lazy` + `Suspense` is

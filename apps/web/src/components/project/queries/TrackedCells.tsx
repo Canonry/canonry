@@ -1,4 +1,4 @@
-import type { QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import type { QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import { ToneBadge } from '../../shared/ToneBadge.js'
 import type { QueriesSectionProps } from '../DiscoverySection.js'

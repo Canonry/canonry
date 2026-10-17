@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import type { MeasurementDraftTarget } from '@ainyc/canonry-contracts'
+import type { MeasurementDraftTarget } from '@canonry/canonry-contracts'
 import { classifyMeasurementSitemapUrls } from '../src/measurement-discovery.js'
 import {
   measurementDiscoveryIdentity,

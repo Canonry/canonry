@@ -5,11 +5,11 @@ import {
   buildSimpleMeasurementDefinition, canonicalMeasurementPlanV2Json, createSentimentEvaluationDefinition,
   sentimentSelectionSchema, sentimentSummarySchema, storedSentimentClassifierInputSchema,
   type SentimentClassifierOutput, type SentimentOutcome,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   apiKeys, createClient, measurementPlanVersions, migrate, projects, queries, querySnapshots, runs,
   sentimentAttempts, sentimentDefinitions, sentimentJobs, sentimentWorkItems, simpleMeasurementDefinitions, SentimentRepository, type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 import { SentimentService } from '../src/sentiment-service.js'

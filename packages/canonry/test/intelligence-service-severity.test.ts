@@ -1,6 +1,6 @@
 /**
  * IntelligenceService severity tiering — verifies that the pure
- * classifier in @ainyc/canonry-intelligence is wired into analyzeAndPersist
+ * classifier in @canonry/canonry-intelligence is wired into analyzeAndPersist
  * so the persisted insight rows carry traffic-aware and recurrence-aware
  * severity instead of the legacy hardcoded 'high'.
  */
@@ -20,7 +20,7 @@ import {
   insights,
   gscQueryDailyTotals,
   gscSearchData,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { IntelligenceService } from '../src/intelligence-service.js'
 
 function createTempDb(prefix: string) {

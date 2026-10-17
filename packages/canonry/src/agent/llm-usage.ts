@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { llmUsageEvents, type DatabaseClient } from '@ainyc/canonry-db'
+import { llmUsageEvents, type DatabaseClient } from '@canonry/canonry-db'
 import type { AssistantMessage } from '@earendil-works/pi-ai'
 
 export const AeroLlmUsageFeatures = {

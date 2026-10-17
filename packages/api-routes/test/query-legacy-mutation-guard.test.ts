@@ -18,13 +18,13 @@ import {
   queries,
   querySnapshots,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   RunStatuses,
   canonicalMeasurementPlanJson,
   canonicalMeasurementPlanV2Json,
   compileMeasurementPlan,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'

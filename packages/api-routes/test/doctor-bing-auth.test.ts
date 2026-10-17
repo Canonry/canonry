@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { auditLog, bingCoverageSnapshots, bingKeywordStats, bingUrlInspections, createClient, migrate, projects } from '@ainyc/canonry-db'
+import { auditLog, bingCoverageSnapshots, bingKeywordStats, bingUrlInspections, createClient, migrate, projects } from '@canonry/canonry-db'
 import { BING_AUTH_CHECKS } from '../src/doctor/checks/bing-auth.js'
 import type { DoctorContext, ProjectInfo } from '../src/doctor/types.js'
 import type { BingConnectionRecord, BingConnectionStore } from '../src/bing.js'
@@ -10,8 +10,8 @@ import type { BingConnectionRecord, BingConnectionStore } from '../src/bing.js'
 // Mock the bing integration
 const getSitesMock = vi.fn()
 
-vi.mock('@ainyc/canonry-integration-bing', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-bing')>('@ainyc/canonry-integration-bing')
+vi.mock('@canonry/canonry-integration-bing', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-bing')>('@canonry/canonry-integration-bing')
   return {
     ...actual,
     getSites: (...args: unknown[]) => getSitesMock(...args),

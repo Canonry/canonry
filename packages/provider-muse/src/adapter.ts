@@ -5,7 +5,7 @@ import type {
   ProviderHealthcheckResult,
   RawQueryResult,
   TrackedQueryInput,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { listModels } from './list-models.js'
 import {
   executeTrackedQuery,

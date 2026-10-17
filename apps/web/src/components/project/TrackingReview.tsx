@@ -1,11 +1,11 @@
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Ban, CalendarClock, Check, ChevronRight, Clock, Info, Pause, X } from 'lucide-react'
-import { normalizeIdentityText } from '@ainyc/canonry-contracts'
+import { normalizeIdentityText } from '@canonry/canonry-contracts'
 import type {
   QueryTrackingPreviewResponse,
   QueryTrackingTrackedRow,
   QueryTrackingWorkspaceResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import { useAccount } from '../../contexts/account-context.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'

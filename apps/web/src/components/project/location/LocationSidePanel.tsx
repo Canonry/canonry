@@ -1,6 +1,6 @@
 import { Fragment, useId, type ReactNode } from 'react'
 import { Info, Lock } from 'lucide-react'
-import type { MeasurementPlanResponse } from '@ainyc/canonry-api-client'
+import type { MeasurementPlanResponse } from '@canonry/canonry-api-client'
 
 import { InfoTooltip } from '../../shared/InfoTooltip.js'
 import { StatusNote } from '../../shared/StatusNote.js'

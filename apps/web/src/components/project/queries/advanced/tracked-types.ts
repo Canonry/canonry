@@ -1,4 +1,4 @@
-import type { QueryClass, QueryTrackingTrackedRow } from '@ainyc/canonry-contracts'
+import type { QueryClass, QueryTrackingTrackedRow } from '@canonry/canonry-contracts'
 
 /**
  * The shared types of the Tracked page: its view model, table, toolbar, row

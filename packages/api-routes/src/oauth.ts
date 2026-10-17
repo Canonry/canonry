@@ -1,11 +1,11 @@
 import crypto from 'node:crypto'
 
-import { oauthAuthorizationCodes, oauthClients, oauthTokens, type DatabaseClient } from '@ainyc/canonry-db'
+import { oauthAuthorizationCodes, oauthClients, oauthTokens, type DatabaseClient } from '@canonry/canonry-db'
 import { and, eq, isNull, lt } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 import { requireAdminSession } from './auth.js'
-import { notFound, RESEARCH_RUN_SCOPE } from '@ainyc/canonry-contracts'
+import { notFound, RESEARCH_RUN_SCOPE } from '@canonry/canonry-contracts'
 import { assertCookieWriteOrigin } from './same-origin.js'
 import type { CredentialChecker } from './user-session.js'
 

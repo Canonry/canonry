@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { getApiV1ProjectsByNameScheduleOptions } from '@ainyc/canonry-api-client/react-query'
-import { RunKinds, type SchedulableRunKind } from '@ainyc/canonry-contracts'
+import { getApiV1ProjectsByNameScheduleOptions } from '@canonry/canonry-api-client/react-query'
+import { RunKinds, type SchedulableRunKind } from '@canonry/canonry-contracts'
 import { ApiError, heyClient } from '../../api.js'
 
 export const MANAGED_SWEEPS_COPY = 'Sweeps are run by your Canonry team'

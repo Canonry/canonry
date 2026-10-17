@@ -1,5 +1,5 @@
-import { normalizeCompetitorDomain } from '@ainyc/canonry-contracts'
-import type { MeasurementPlanResponse, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-api-client'
+import { normalizeCompetitorDomain } from '@canonry/canonry-contracts'
+import type { MeasurementPlanResponse, QueryTrackingWorkspaceResponse } from '@canonry/canonry-api-client'
 
 import { matcherLabel } from '../advanced-measurement/v2-overview-adapter.js'
 

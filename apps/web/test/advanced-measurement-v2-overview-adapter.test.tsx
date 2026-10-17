@@ -4,7 +4,7 @@ import type {
   MeasurementOverviewResponse,
   MeasurementPlanResponse,
   MeasurementReportResponse,
-} from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client'
 
 import { AdvancedMeasurementOverview } from '../src/components/project/advanced-measurement/AdvancedMeasurementOverview.js'
 import { expectCautionNote } from './caution-note.js'

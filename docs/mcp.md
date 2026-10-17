@@ -708,3 +708,5 @@ Competitor previews also report the shared bulk-add limit, new or recently added
 count, and whether acknowledgement is required. Measured writes above five
 domains in 24 hours require `acknowledgeBulkAdd: true`; apply and discovery
 promote are outside this guard. Aero cannot supply this acknowledgement.
+
+Site Health scans (`canonry_technical_aeo_run`) accept `includeGeo` and `includeAgentSkills`. Agent integration checks default on; set `includeAgentSkills: false` to disable them. Geographic checks default off. Both participate in scan identity; differing selections cannot reuse an active scan. Geographic checks suit businesses serving specific places. These checks run inside the instance without a browser.

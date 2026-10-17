@@ -12,9 +12,9 @@ import {
   surfaceClassFromCompetitorType,
   type CompetitorSuggestionsResponse,
   validationError,
-} from '@ainyc/canonry-contracts'
-import { domainClassifications } from '@ainyc/canonry-db'
-import { buildCompetitorSuggestions, type CompetitorLandscapeSurfaceClass } from '@ainyc/canonry-intelligence'
+} from '@canonry/canonry-contracts'
+import { domainClassifications } from '@canonry/canonry-db'
+import { buildCompetitorSuggestions, type CompetitorLandscapeSurfaceClass } from '@canonry/canonry-intelligence'
 import { claimedCompetitorAdds, readStoredCompetitors } from './competitor-writes.js'
 import { readMarketCompetitorPins } from './plan-competitors.js'
 import { readMarketCompetitorNames } from './market-competitor-names.js'

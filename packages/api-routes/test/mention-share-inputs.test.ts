@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { formatPercent, percentOf } from '@ainyc/canonry-contracts'
-import { buildMentionShare } from '@ainyc/canonry-intelligence'
+import { formatPercent, percentOf } from '@canonry/canonry-contracts'
+import { buildMentionShare } from '@canonry/canonry-intelligence'
 import { buildMentionShareInputs, mentionShareCompetitors } from '../src/mention-share-inputs.js'
 
 describe('mention-share input identity', () => {

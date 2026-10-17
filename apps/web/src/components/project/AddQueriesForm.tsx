@@ -1,13 +1,13 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { AlertTriangle, ArrowLeft, CornerDownRight, Info, MapPinOff } from 'lucide-react'
-import { normalizeIdentityText, QUERY_TRACKING_TEXT_MAX_LENGTH } from '@ainyc/canonry-contracts'
+import { normalizeIdentityText, QUERY_TRACKING_TEXT_MAX_LENGTH } from '@canonry/canonry-contracts'
 import type {
   QueryTrackingCommitResponse,
   QueryTrackingContextInput,
   QueryTrackingMutation,
   QueryTrackingWorkspaceResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 import { useQueryTrackingPublish } from '../../queries/use-query-tracking-publish.js'

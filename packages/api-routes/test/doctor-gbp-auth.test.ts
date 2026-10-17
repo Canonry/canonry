@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createClient, migrate, projects, gbpLocations } from '@ainyc/canonry-db'
-import { GbpApiError } from '@ainyc/canonry-integration-google-business-profile'
+import { createClient, migrate, projects, gbpLocations } from '@canonry/canonry-db'
+import { GbpApiError } from '@canonry/canonry-integration-google-business-profile'
 import { GBP_AUTH_CHECK_BY_ID } from '../src/doctor/checks/gbp-auth.js'
 import type { DoctorContext, ProjectInfo } from '../src/doctor/types.js'
 import type { GoogleConnectionRecord, GoogleConnectionStore } from '../src/google.js'
@@ -11,13 +11,13 @@ import type { GoogleConnectionRecord, GoogleConnectionStore } from '../src/googl
 const refreshAccessTokenMock = vi.fn()
 const listAccountsMock = vi.fn()
 
-vi.mock('@ainyc/canonry-integration-google', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google')>('@ainyc/canonry-integration-google')
+vi.mock('@canonry/canonry-integration-google', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-google')>('@canonry/canonry-integration-google')
   return { ...actual, refreshAccessToken: (...args: unknown[]) => refreshAccessTokenMock(...args) }
 })
-vi.mock('@ainyc/canonry-integration-google-business-profile', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google-business-profile')>(
-    '@ainyc/canonry-integration-google-business-profile',
+vi.mock('@canonry/canonry-integration-google-business-profile', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-google-business-profile')>(
+    '@canonry/canonry-integration-google-business-profile',
   )
   return { ...actual, listAccounts: (...args: unknown[]) => listAccountsMock(...args) }
 })

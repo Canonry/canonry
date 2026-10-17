@@ -443,7 +443,7 @@ invalidate histories left behind by an older writer.
 
 ## JSON Columns
 
-Several text columns store serialized JSON. Always use `parseJsonColumn()` from `@ainyc/canonry-db`:
+Several text columns store serialized JSON. Always use `parseJsonColumn()` from `@canonry/canonry-db`:
 
 | Table.Column | Expected Shape |
 |-------------|---------------|

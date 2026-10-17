@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { ResultsExportFormat } from '@ainyc/canonry-contracts'
+import type { ResultsExportFormat } from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
 import { ViewOnlyNote } from '../shared/AccessControls.js'

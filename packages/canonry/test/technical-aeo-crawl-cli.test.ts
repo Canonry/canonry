@@ -76,12 +76,7 @@ describe('Technical AEO full-crawl CLI', () => {
     mocked.triggerSiteAudit.mockResolvedValue({ runId: 'run-defaults', status: 'queued' })
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     try {
-      await command(['technical-aeo', 'run']).run({
-        positionals: ['acme'],
-        values: { wait: false },
-        format: 'json',
-        dryRun: false,
-      })
+      await dispatchRegisteredCommand(['technical-aeo', 'run', 'acme'], 'json', TECHNICAL_AEO_CLI_COMMANDS)
     } finally {
       log.mockRestore()
     }
@@ -91,6 +86,8 @@ describe('Technical AEO full-crawl CLI', () => {
       maxPages: undefined,
       maxEdges: undefined,
       checkDeadLinks: false,
+      includeGeo: false,
+      includeAgentSkills: true,
     }))
   })
 
@@ -107,12 +104,9 @@ describe('Technical AEO full-crawl CLI', () => {
     mocked.triggerSiteAudit.mockResolvedValue({ runId: 'run-1', status: 'queued' })
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     try {
-      await command(['technical-aeo', 'run']).run({
-        positionals: ['acme'],
-        values: { 'max-pages': '50000', 'max-edges': '1000000', 'max-depth': '12', wait: false },
-        format: 'json',
-        dryRun: false,
-      })
+      await dispatchRegisteredCommand([
+        'technical-aeo', 'run', 'acme', '--max-pages', '50000', '--max-edges', '1000000', '--max-depth', '12',
+      ], 'json', TECHNICAL_AEO_CLI_COMMANDS)
     } finally {
       log.mockRestore()
     }
@@ -124,6 +118,8 @@ describe('Technical AEO full-crawl CLI', () => {
       maxEdges: 1_000_000,
       maxDepth: 12,
       checkDeadLinks: false,
+      includeGeo: false,
+      includeAgentSkills: true,
     })
   })
 

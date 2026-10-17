@@ -23,8 +23,8 @@ import {
   users,
   userSessions,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
-import { USER_PASSWORD_MIN_LENGTH, type UiTelemetryEvent } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-db'
+import { USER_PASSWORD_MIN_LENGTH, type UiTelemetryEvent } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 import { hashSessionToken, UNKNOWN_ACCOUNT_DIGEST, USER_SESSION_COOKIE_NAME, USER_SESSION_TTL_MS } from '../src/user-session.js'

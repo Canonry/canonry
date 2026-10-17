@@ -152,8 +152,8 @@ export interface GA4LeadEventReport {
 }
 
 
-export type { AiReferralTrafficClass, GA4SourceDimension } from '@ainyc/canonry-contracts'
-import type { AiReferralTrafficClass, GA4SourceDimension, GaSearchLandingWindow } from '@ainyc/canonry-contracts'
+export type { AiReferralTrafficClass, GA4SourceDimension } from '@canonry/canonry-contracts'
+import type { AiReferralTrafficClass, GA4SourceDimension, GaSearchLandingWindow } from '@canonry/canonry-contracts'
 
 export interface GA4AiReferralRow {
   date: string

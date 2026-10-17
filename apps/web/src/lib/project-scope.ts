@@ -6,7 +6,7 @@
  * would change nothing on the page. Each tab keeps its own recovery for a saved
  * scope that no longer exists; the row only reports it.
  */
-import type { QueryTrackingMode, QueryTrackingWorkspaceResponse, VisibilityReportScopeOption } from '@ainyc/canonry-contracts'
+import type { QueryTrackingMode, QueryTrackingWorkspaceResponse, VisibilityReportScopeOption } from '@canonry/canonry-contracts'
 import type { ViewerResearchConfig } from '../api.js'
 import type { AdvancedMeasurementSurface } from '../components/project/advanced-measurement/model.js'
 import type { ProjectPageTab } from '../pages/ProjectPage.js'

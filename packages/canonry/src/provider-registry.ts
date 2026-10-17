@@ -1,5 +1,5 @@
-import type { ProviderAdapter, ProviderConfig, ProviderName, ProviderHealthcheckResult } from '@ainyc/canonry-contracts'
-import { isBrowserProvider, resolveProviderModel } from '@ainyc/canonry-contracts'
+import type { ProviderAdapter, ProviderConfig, ProviderName, ProviderHealthcheckResult } from '@canonry/canonry-contracts'
+import { isBrowserProvider, resolveProviderModel } from '@canonry/canonry-contracts'
 import { updateSharedProviderExecutionGate } from './provider-execution-gate.js'
 
 export interface RegisteredProvider {

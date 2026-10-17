@@ -4,7 +4,7 @@ import {
   formatPageCount,
   formatSiteAuditPageBudget,
   type ProjectDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /**
  * Site Health page budgets in words, shared by Project Settings (where a
@@ -14,6 +14,8 @@ import {
 
 /** A page count in words: "1 page", "2,500 pages" (the shared contracts wording, as the CLI prints it). */
 export const pageCountLabel = formatPageCount
+
+export const PAGE_BUDGET_HELP = `How many pages one scan may read before it stops. Project default uses your saved budget. Full site checks up to ${pageCountLabel(SITE_AUDIT_MAX_PAGE_LIMIT)}.`
 
 /** What a saved budget of `null` means: the whole site, up to the crawler's hard limit. Sentence case of the shared wording. */
 const fullSite = formatSiteAuditPageBudget(null)
@@ -42,8 +44,8 @@ export function projectDefaultPageBudgetLabel(project: Pick<ProjectDto, 'siteAud
   if (!project) return 'Project default'
   const saved = project.siteAuditMaxPages ?? null
   return saved === null
-    ? `Project default: ${formatSiteAuditPageBudget(null)}`
-    : `Project default (${formatSiteAuditPageBudget(saved)})`
+    ? 'Default: full site'
+    : `Default: ${pageCountLabel(saved)}`
 }
 
 /**
@@ -52,5 +54,5 @@ export function projectDefaultPageBudgetLabel(project: Pick<ProjectDto, 'siteAud
  * project default already is the full site, so the choice would repeat it.
  */
 export function oneOffFullSiteChoice(project: Pick<ProjectDto, 'siteAuditMaxPages'> | undefined): { value: number; label: string } | null {
-  return project?.siteAuditMaxPages == null ? null : { value: SITE_AUDIT_MAX_PAGE_LIMIT, label: FULL_SITE_PAGE_BUDGET_LABEL }
+  return project?.siteAuditMaxPages == null ? null : { value: SITE_AUDIT_MAX_PAGE_LIMIT, label: 'Full site' }
 }

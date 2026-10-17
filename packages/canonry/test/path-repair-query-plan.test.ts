@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createClient, gaAiReferrals, gaTrafficSnapshots, migrate, projects } from '@ainyc/canonry-db'
+import { createClient, gaAiReferrals, gaTrafficSnapshots, migrate, projects } from '@canonry/canonry-db'
 import { backfillAiReferralPaths, backfillNormalizedPaths } from '../src/commands/backfill.js'
 
 const NOW = '2026-10-03T12:00:00.000Z'

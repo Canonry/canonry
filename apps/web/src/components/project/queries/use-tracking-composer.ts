@@ -6,7 +6,7 @@ import type {
   QueryTrackingPreviewResponse,
   QueryTrackingTrackedRow,
   QueryTrackingWorkspaceResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import { unavailableTrackingScope } from '../../../lib/project-scope.js'
 import { useClientTable } from '../../shared/DataTableControls.js'

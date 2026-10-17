@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import type { QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import type { QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import { contextChoices, plannedContext, sheetContextChoices } from '../src/components/project/queries/tracking-contexts.js'
 import { defaultTrackingDraft } from '../src/components/project/queries/tracking-draft.js'

@@ -1,4 +1,4 @@
-import type { QueryTrackingPreviewResponse, QueryTrackingTrackedRow } from '@ainyc/canonry-contracts'
+import type { QueryTrackingPreviewResponse, QueryTrackingTrackedRow } from '@canonry/canonry-contracts'
 
 export const TYPE_FOLLOWS_SUBJECT = 'A market query is Non-brand and a location query is Branded. A hand-picked query takes either.'
 export type TrackingChangeLabel = 'Added' | 'Stopped' | 'Removed' | 'Reworded' | 'Already tracked' | 'Subject changed' | 'Type changed' | 'Changed'

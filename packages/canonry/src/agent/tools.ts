@@ -4,7 +4,7 @@ import type {
   AdsCampaignListResponse,
   AdsInsightsResponse,
   ProjectOverviewDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { ApiClient } from '../client.js'
 import {
   CanonryMcpToolNames,
@@ -12,7 +12,7 @@ import {
   type CanonryMcpToolName,
 } from '../mcp/tool-registry.js'
 import { buildMcpAgentTools, truncateToolResult } from './mcp-to-agent-tool.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
 
 /**
  * Context Aero tools close over so the LLM can never target a different

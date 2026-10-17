@@ -10,7 +10,7 @@ import type {
   MeasurementDraftPreviewGroupMembershipResponse,
   MeasurementPlanV2PublishResponse,
   MeasurementSetupResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameMeasurementPlanDraft,
   getApiV1ProjectsByNameMeasurementSetup,
@@ -34,7 +34,7 @@ import {
   postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertCompetitor,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertGroup,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertTarget,
-} from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client'
 
 import { ApiError, heyClient, invokeWeb } from '../../../api.js'
 

@@ -29220,6 +29220,10 @@ export type PostApiV1ProjectsByNameGaConnectErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * Google refused the property (`details.reason` is `ga4-permission-missing`). Retrying will not help until access is granted; repeated refusals are answered without asking Google again until `details.nextCheckAt`.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project not found.
      */
     404: ErrorEnvelope;
@@ -33000,6 +33004,14 @@ export type PostApiV1ProjectsByNameTechnicalAeoRunsData = {
          * Enable dead-link checking. Defaults to false.
          */
         checkDeadLinks?: boolean;
+        /**
+         * Opt in to geographic signals for location and service-area businesses. Part of scan identity.
+         */
+        includeGeo?: boolean;
+        /**
+         * Check discoverable actions, forms, and agent integrations by default. Set false to disable. Part of scan identity.
+         */
+        includeAgentSkills?: boolean;
     };
     path: {
         /**

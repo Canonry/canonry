@@ -3,7 +3,7 @@ import type { ComponentProps } from 'react'
 import { useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Plus } from 'lucide-react'
-import { getApiV1ProjectsByNameQueryTrackingOptions } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1ProjectsByNameQueryTrackingOptions } from '@canonry/canonry-api-client/react-query'
 
 import { heyClient } from '../../../api.js'
 import { invalidateQueryTrackingPublication } from '../../../queries/query-invalidation.js'

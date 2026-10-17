@@ -2,7 +2,7 @@ import {
   gtmDraftWorkspaceGraphDtoSchema,
   gtmGoogleAdsTagAssessmentDtoSchema,
   gtmLiveContainerGraphDtoSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { describe, expect, it } from 'vitest'
 import {
   buildLiveSnapshot,

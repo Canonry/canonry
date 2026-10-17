@@ -1,5 +1,5 @@
 {
-  "name": "@ainyc/canonry-provider-gemini",
+  "name": "@canonry/canonry-provider-gemini",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -17,7 +17,7 @@
     "lint": "eslint src/ test/"
   },
   "dependencies": {
-    "@ainyc/canonry-contracts": "workspace:*",
+    "@canonry/canonry-contracts": "workspace:*",
     "@google/genai": "^1.46.0"
   }
 }

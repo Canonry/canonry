@@ -8,7 +8,7 @@ import type {
   WordpressSchemaBlockDto,
   WordpressSiteStatusDto,
   WordpressStatusDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 

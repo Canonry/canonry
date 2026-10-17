@@ -1,7 +1,7 @@
 export { registerAgentConversationRoutes } from './agent-conversations.js'
 import type { FastifyInstance, FastifyError } from 'fastify'
 import rateLimit from '@fastify/rate-limit'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { sentimentRoutes, type SentimentRoutesOptions } from './sentiment.js'
@@ -9,7 +9,7 @@ export { SentimentService } from './sentiment-service.js'
 export type { SentimentServiceOptions, SentimentInstallState } from './sentiment-service.js'
 export { selectSentimentSources } from './sentiment-source.js'
 export { sentimentClassifierInput, sentimentHash } from './sentiment-input.js'
-import { AppError, runtimeStateMissing, describeError, operationAccess, OperationAccesses, OPERATION_ACCESS_HEADER, STORED_ONLY_HEADER, matchOperationTemplate, storedOnlyRefused } from '@ainyc/canonry-contracts'
+import { AppError, runtimeStateMissing, describeError, operationAccess, OperationAccesses, OPERATION_ACCESS_HEADER, STORED_ONLY_HEADER, matchOperationTemplate, storedOnlyRefused } from '@canonry/canonry-contracts'
 import { authPlugin } from './auth.js'
 import { registerRequestContext, type RequestContextOptions } from './request-context.js'
 import { createOutcomeEmitter, type OutcomeTelemetryEvent, type OutcomeTelemetryInput } from './outcome-telemetry.js'
@@ -101,12 +101,12 @@ import type { TrafficRoutesOptions, CloudRunCredentialStore } from './traffic.js
 import {
   listWordpressTrafficEvents,
   WordpressTrafficApiError,
-} from '@ainyc/canonry-integration-wordpress-traffic'
+} from '@canonry/canonry-integration-wordpress-traffic'
 import { createGuardedFetch } from './guarded-fetch.js'
 import {
   listVercelTrafficEvents,
   VercelLogsApiError,
-} from '@ainyc/canonry-integration-vercel'
+} from '@canonry/canonry-integration-vercel'
 import { doctorRoutes, type DoctorRoutesOptions } from './doctor.js'
 import { statusRoutes } from './status.js'
 import { discoveryRoutes } from './discovery/index.js'
@@ -115,9 +115,9 @@ import { technicalAeoRoutes } from './technical-aeo.js'
 import type { TechnicalAeoRoutesOptions } from './technical-aeo.js'
 import { researchRoutes } from './research.js'
 import type { ResearchRoutesOptions } from './research.js'
-import { CheckStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
+import { CheckStatuses, TrafficSourceTypes } from '@canonry/canonry-contracts'
 import type { ScheduledSyncClaim } from './helpers.js'
-import type { AgentPluginState, BundledSkillSnapshot } from '@ainyc/canonry-contracts'
+import type { AgentPluginState, BundledSkillSnapshot } from '@canonry/canonry-contracts'
 import type { CheckOutput, DoctorUpdateStatus, TrafficSourceProbe, TrafficSourceValidator } from './doctor/types.js'
 
 declare module 'fastify' {
@@ -194,7 +194,7 @@ export interface ApiRoutesOptions {
   embedProjectTabs?: readonly string[]
 
   /** Callback when a run is created (wire up job runner) */
-  onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => void
+  onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: import('@canonry/canonry-contracts').LocationContext | null) => void
   /** Callback after a run is durably cancelled; local hosts use this to abort active work. */
   onRunCancelled?: RunRoutesOptions['onRunCancelled']
   /** Fired after a run fill is admitted. See `RunRoutesOptions.onRunFillCreated`. */
@@ -217,7 +217,7 @@ export interface ApiRoutesOptions {
   /** Provider configuration summary for settings endpoint */
   providerSummary?: ProviderSummaryEntry[]
   /** Resolves agent LLM provider key status for the `config.agent-providers` doctor check. See `DoctorContext.getAgentProviderSummary`. */
-  getAgentProviderSummary?: () => import('@ainyc/canonry-contracts').AgentProviderOption[]
+  getAgentProviderSummary?: () => import('@canonry/canonry-contracts').AgentProviderOption[]
   /** The `agent.provider` pin for the same check. See `DoctorContext.getAgentPin`. */
   getAgentPin?: DoctorRoutesOptions['getAgentPin']
   /** Offline, secret-free Google Ads/GTM metadata for project Doctor checks. */
@@ -235,7 +235,7 @@ export interface ApiRoutesOptions {
   googleSettingsSummary?: SettingsRoutesOptions['google']
   onGoogleSettingsUpdate?: SettingsRoutesOptions['onGoogleUpdate']
   /** Callback when a schedule is created/updated/deleted. `kind` scopes which run-kind schedule changed. */
-  onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: import('@ainyc/canonry-contracts').SchedulableRunKind) => void
+  onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: import('@canonry/canonry-contracts').SchedulableRunKind) => void
   /** Callback when a project is deleted */
   onProjectDeleted?: (projectId: string) => void
   /** Pre-delete durable cleanup. May throw to abort the database delete. */
@@ -946,7 +946,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
   }, { prefix: opts.routePrefix ?? '/api/v1' })
 }
 
-export type { DatabaseClient } from '@ainyc/canonry-db'
+export type { DatabaseClient } from '@canonry/canonry-db'
 // Whether this install has named accounts. The host needs the same answer the
 // auth layer uses, so it is exported rather than reimplemented.
 export { anyUsersExist, cookieIsSecure, createCredentialChecker, createUserSession, hashSessionToken, parseCookieHeader, resolveUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME, USER_SESSION_TTL_MS } from './user-session.js'

@@ -7,11 +7,11 @@ import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   createClient, migrate, projects, runs, siteCrawlAttempts, siteCrawlPages, siteCrawlSnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   siteAuditIssuesResponseSchema, siteAuditIssuePagesResponseSchema,
   type SiteCrawlIssueEvidence,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
 const NOW = '2026-10-12T12:00:00.000Z'

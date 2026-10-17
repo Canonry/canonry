@@ -11,8 +11,8 @@ import {
   formatIsoDateInTimeZone,
   startOfDayHourInTimeZone,
   startOfNextDayHourInTimeZone,
-} from '@ainyc/canonry-contracts'
-import type { AdsLiveDeliveryDto } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import type { AdsLiveDeliveryDto } from '@canonry/canonry-contracts'
 import {
   createClient,
   migrate,
@@ -22,7 +22,7 @@ import {
   adsAdGroups,
   adsAds,
   adsInsightsDaily,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { adsRoutes } from '../src/ads.js'
 import type {
   AdsLiveDeliveryReader,

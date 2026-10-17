@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`canonry` is an **agent-first** open-source AEO operating platform that tracks how AI answer engines cite a domain for tracked queries and acts on the signal through the content engine and integrations. Published as `@canonry/canonry` on npm, with `@ainyc/canonry` kept as a compatibility package at the same versions. The CLI and API are the primary interfaces — the web dashboard is supplementary.
+`canonry` is an **agent-first** open-source AEO operating platform that tracks how AI answer engines cite a domain for tracked queries and acts on the signal through the content engine and integrations. Published exclusively as `@canonry/canonry` on npm. The CLI and API are the primary interfaces — the web dashboard is supplementary.
 
 It ships a built-in analyst agent, Aero (`packages/canonry/src/agent/`), and a stdio MCP adapter, `canonry-mcp` (`packages/canonry/src/mcp/`).
 
@@ -100,7 +100,7 @@ When proposing work, requesting feedback, or showcasing changes:
   shared host kit. Every other package is internal and bundled via tsup.
 - `packages/val-kit/` must stay runtime-neutral (web standards + Deno-compatible): it is consumed by the Val Town Vals,
   not by the Node server, so it must not import `packages/canonry/`, `packages/db/`, or anything Node-only.
-- All internal packages use `@ainyc/canonry-*` naming convention.
+- All internal packages use `@canonry/canonry-*` naming convention.
 - Keep environment parsing in `packages/config`, provider logic in `packages/provider-*/`, and route plugins in `packages/api-routes` (no app-level concerns; thin handlers).
 - Keep the canonry app independent from the audit package repo except for the published npm dependency.
 - Store raw observation snapshots only (`cited` / `not-cited`); compute transitions at query time.
@@ -145,7 +145,7 @@ The tracked thing (`canonry query add`, the `queries` / `query_snapshots` tables
 
 ## Enum Constants (Critical)
 
-Never compare domain values as raw string literals: write `kind === RunKinds['answer-visibility']`, not `kind === 'answer-visibility'`. The constant objects (`RunKinds`, `RunStatuses`, `RunTriggers`, `CitationStates`, `VisibilityStates`, `ComputedTransitions`) come from `packages/contracts/src/run.ts` via `@ainyc/canonry-contracts`.
+Never compare domain values as raw string literals: write `kind === RunKinds['answer-visibility']`, not `kind === 'answer-visibility'`. The constant objects (`RunKinds`, `RunStatuses`, `RunTriggers`, `CitationStates`, `VisibilityStates`, `ComputedTransitions`) come from `packages/contracts/src/run.ts` via `@canonry/canonry-contracts`.
 
 1. Type parameters with the union type (`kind: RunKind`, not `string`).
 2. Use exhaustive switches with no `default`, or `default: { const _exhaustive: never = value }`.
@@ -217,7 +217,7 @@ Fit trends and other statistics server-side (`linearTrend`, `wilsonInterval`) an
 
 Each rule is detailed in the linked file. The one-liners live here because these have caused real bugs.
 
-- **API errors.** Throw `AppError` factories from `@ainyc/canonry-contracts` (`notFound()`, `validationError()`, …) and let the global handler serialize them; never catch-and-reply or hand-build an `{ error }` envelope. → `packages/api-routes/AGENTS.md` "Error handling"
+- **API errors.** Throw `AppError` factories from `@canonry/canonry-contracts` (`notFound()`, `validationError()`, …) and let the global handler serialize them; never catch-and-reply or hand-build an `{ error }` envelope. → `packages/api-routes/AGENTS.md` "Error handling"
 - **Schema changes.** Every new table or column in `packages/db/src/schema.ts` needs a new `MIGRATION_VERSIONS` entry in `migrate.ts`; never edit `MIGRATION_SQL` or a shipped version. → `packages/db/AGENTS.md`
 - **JSON / boolean columns.** `projects` uses Drizzle's native modes (direct access); other tables still need `parseJsonColumn<T>()` and manual boolean coercion. → `packages/db/AGENTS.md`
 - **Transactions and counters.** Wrap multi-table writes in one `db.transaction()` (async I/O before it, the audit log inside it, callbacks after commit). Increment counters with `INSERT … ON CONFLICT DO UPDATE`, never read-then-write. → `packages/db/AGENTS.md`
@@ -226,7 +226,7 @@ Each rule is detailed in the linked file. The one-liners live here because these
 
 ## Third-party HTTP calls (Critical)
 
-Every integration that calls a third party over HTTP must back off when that service pushes back. Wrap the package's HTTP layer in `withRetry` from `@ainyc/canonry-contracts` — one private `fetchOnce`, one exported wrapper (reference: `packages/integration-bing/src/bing-client.ts`) — and use `isRetryableHttpError` rather than a hand-written status check. `packages/contracts/test/integration-retry-coverage.test.ts` fails CI for a new HTTP-calling integration without it. Throttles that aren't HTTP 429, `Retry-After`, base-delay tuning, and testing both directions: `packages/contracts/AGENTS.md` → "Third-party HTTP calls".
+Every integration that calls a third party over HTTP must back off when that service pushes back. Wrap the package's HTTP layer in `withRetry` from `@canonry/canonry-contracts` — one private `fetchOnce`, one exported wrapper (reference: `packages/integration-bing/src/bing-client.ts`) — and use `isRetryableHttpError` rather than a hand-written status check. `packages/contracts/test/integration-retry-coverage.test.ts` fails CI for a new HTTP-calling integration without it. Throttles that aren't HTTP 429, `Retry-After`, base-delay tuning, and testing both directions: `packages/contracts/AGENTS.md` → "Third-party HTTP calls".
 
 ## Authentication Storage
 
@@ -259,7 +259,7 @@ Canonry can run behind a reverse proxy sub-path (e.g. `/canonry/`); code that ig
 
 ## Versioning
 
-**Bump the package version only for non-documentation changes of more than 100 changed lines** (features, bug fixes, refactors, dependency updates, and the tests that accompany them); documentation-only changes (README, `docs/`, `AGENTS.md`) and smaller changes don't bump. A bump updates the root `package.json` and `packages/canonry/package.json` together, in sync with the latest published `@canonry/canonry` (and the compatibility `@ainyc/canonry`). Use semver: patch for fixes, minor for features, major for breaking changes.
+**Bump the package version only for non-documentation changes of more than 100 changed lines** (features, bug fixes, refactors, dependency updates, and the tests that accompany them); documentation-only changes (README, `docs/`, `AGENTS.md`) and smaller changes don't bump. A bump updates the root `package.json` and `packages/canonry/package.json` together, in sync with the latest published `@canonry/canonry`. Use semver: patch for fixes, minor for features, major for breaking changes.
 
 - **Native-plugin exception:** any change shipped through `plugins/canonry/` or its canonical `skills/canonry/` / `skills/aero/` sources bumps Canonry, the portable manifest, and both client manifests even when the diff is small — clients use the manifest version to discover updates. `pnpm plugin:sync` copies the package version into all three manifests.
 

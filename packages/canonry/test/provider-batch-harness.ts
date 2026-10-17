@@ -23,8 +23,8 @@ import {
   type ProviderPricing,
   type RawQueryResult,
   type TrackedQueryInput,
-} from '@ainyc/canonry-contracts'
-import { queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-contracts'
+import { queueRunIfProjectIdle } from '@canonry/canonry-api-routes'
 import {
   competitors,
   createClient,
@@ -39,7 +39,7 @@ import {
   runs,
   usageCounters,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { ProviderRegistry } from '../src/provider-registry.js'
 
 // Shared fixtures for the provider batch tests (#1201): a project with a

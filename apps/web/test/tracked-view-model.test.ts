@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PROVIDER_NAMES, type QueryTrackingTrackedRow, type QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import { PROVIDER_NAMES, type QueryTrackingTrackedRow, type QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import {
   coverageByQuery,

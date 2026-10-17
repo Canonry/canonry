@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { apiKeys, createClient, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { apiKeys, createClient, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
 
 // A competitor's names change while a sweep is still recording answers,

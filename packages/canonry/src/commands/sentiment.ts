@@ -2,8 +2,8 @@ import type { z } from 'zod'
 import type {
   SentimentSummaryRead, SentimentSettingsRead, SentimentBackfillSelection, sentimentSummaryRequestSchema, sentimentJobRequestSchema,
   sentimentSettingsUpdateSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentBackfillRequestSchema,
-} from '@ainyc/canonry-contracts'
-import { formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import { formatPercent, RatioUnits } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat, type CliFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'

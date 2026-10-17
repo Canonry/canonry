@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, afterEach } from 'vitest'
-import { RetrievalContracts } from '@ainyc/canonry-contracts'
+import { RetrievalContracts } from '@canonry/canonry-contracts'
 
 import { claudeAdapter } from '../src/adapter.js'
 import {

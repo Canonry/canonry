@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { MoreHorizontal } from 'lucide-react'
-import type { QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import type { QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import { useAccount } from '../../../../contexts/account-context.js'
 import { rowMenuActions, TRACKED_ACTION_LABEL } from './tracked-actions.js'

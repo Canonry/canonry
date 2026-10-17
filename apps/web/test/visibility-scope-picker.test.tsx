@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import type { VisibilityReportScopeOption } from '@ainyc/canonry-contracts'
+import type { VisibilityReportScopeOption } from '@canonry/canonry-contracts'
 import { VisibilityScopePicker, MARKET_SCOPE_COPY, placeLabel } from '../src/components/project/VisibilityScopePicker.js'
 
 afterEach(cleanup)

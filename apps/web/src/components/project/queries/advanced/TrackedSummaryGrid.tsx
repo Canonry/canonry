@@ -1,6 +1,6 @@
 import { forwardRef, useId, useState, type CSSProperties, type ReactNode } from 'react'
 import { AlertTriangle, ChevronRight, Loader, type LucideProps } from 'lucide-react'
-import type { QueryTrackingGroup, QueryTrackingLimits, QueryTrackingMarket, QueryTrackingSummary, QueryTrackingTarget } from '@ainyc/canonry-contracts'
+import type { QueryTrackingGroup, QueryTrackingLimits, QueryTrackingMarket, QueryTrackingSummary, QueryTrackingTarget } from '@canonry/canonry-contracts'
 
 import { formatObservedInstantLabel, formatObservedInstantMonthDay, observedInstant, observedInstantYear } from '../../../shared/ChartPrimitives.js'
 import { InfoTooltip } from '../../../shared/InfoTooltip.js'

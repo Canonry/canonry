@@ -13,7 +13,7 @@ import {
   visibilityCompareDtoSchema,
   type MeasurementPlanV2,
   type VisibilityCompareDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   competitors,
   createClient,
@@ -25,7 +25,7 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 /**

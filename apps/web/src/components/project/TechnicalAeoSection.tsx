@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExt
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, ChevronDown, ChevronRight, LoaderCircle, Play, RefreshCw, ScanSearch } from 'lucide-react'
 import type { MetricTone } from '../../view-models.js'
-import { formatPercent, RatioUnits, RunKinds, SiteAuditFactorStatuses, type SiteAuditFactorSummaryDto, type SiteAuditPageDto } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits, RunKinds, SiteAuditFactorStatuses, type SiteAuditFactorSummaryDto, type SiteAuditPageDto } from '@canonry/canonry-contracts'
 
 import { heyClient, isDashboardManagedRunKind, isEmbed } from '../../api.js'
 import {
@@ -11,7 +11,7 @@ import {
   getApiV1ProjectsByNameTechnicalAeoPagesOptions,
   getApiV1ProjectsByNameTechnicalAeoTrendOptions,
   getApiV1ProjectsByNameRunsOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import {
   CartesianGrid,
   ComposedChart,
@@ -47,6 +47,7 @@ import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { useTriggerSiteAudit } from '../../queries/mutations.js'
 import { getRunTrackerState, subscribeRunTracker } from '../../lib/run-tracker-store.js'
 import { PageAuditEvidence, factorShareOfScoreLabel } from './PageAuditEvidence.js'
+import { SITE_HEALTH_CHECK_HELP } from './site-health-check-help.js'
 
 /** Read beside the dash in a scorecard row whose scan recorded no share of the score. */
 export const FACTOR_SHARE_NOT_RECORDED = 'Not recorded by this scan'
@@ -637,17 +638,20 @@ export function TechnicalAeoSection({
                   <Fragment key={f.id}>
                     <tr className={expanded ? 'bg-surface-subtle' : undefined}>
                       <td>
-                        <button
-                          type="button"
-                          className="flex min-h-11 w-full items-center gap-2 text-left font-medium text-strong outline-none hover:text-primary focus-visible:text-primary focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-mono-400"
-                          aria-expanded={expanded}
-                          onClick={() => setExpandedFactor(expanded ? null : f.id)}
-                        >
-                          {expanded
-                            ? <ChevronDown className="size-4 shrink-0 text-muted" aria-hidden="true" />
-                            : <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden="true" />}
-                          {f.name}
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            className="flex min-h-11 w-full items-center gap-2 text-left font-medium text-strong outline-none hover:text-primary focus-visible:text-primary focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-mono-400"
+                            aria-expanded={expanded}
+                            onClick={() => setExpandedFactor(expanded ? null : f.id)}
+                          >
+                            {expanded
+                              ? <ChevronDown className="size-4 shrink-0 text-muted" aria-hidden="true" />
+                              : <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden="true" />}
+                            {f.name}
+                          </button>
+                          {SITE_HEALTH_CHECK_HELP[f.id] && <InfoTooltip text={SITE_HEALTH_CHECK_HELP[f.id]!} placement="bottom" />}
+                        </div>
                       </td>
                       {!integrated ? (
                         <td className="text-right tabular-nums text-muted">

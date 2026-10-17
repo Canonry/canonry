@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { CrawlPageObservation, SiteIssue } from '@canonry/aeo-audit'
-import type { SiteCrawlIssueEvidence } from '@ainyc/canonry-contracts'
+import type { SiteCrawlIssueEvidence } from '@canonry/canonry-contracts'
 
 const GROUP_IDENTITY_VERSION = 'duplicate-metadata-v1'
 

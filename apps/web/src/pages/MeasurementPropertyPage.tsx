@@ -3,19 +3,19 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { AlertTriangle, Clock, Info, type LucideIcon } from 'lucide-react'
-import { formatPercent, MeasurementEvidenceShapes } from '@ainyc/canonry-contracts'
+import { formatPercent, MeasurementEvidenceShapes } from '@canonry/canonry-contracts'
 import type {
   MeasurementOverviewResponse,
   MeasurementPlanResponse,
   MeasurementPropertyEvidenceResponse,
-} from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client'
 import {
   getApiV1ProjectsByNameMeasurementOverviewOptions,
   getApiV1ProjectsByNameMeasurementPlanOptions,
   getApiV1ProjectsByNameMeasurementPropertyCompetitorsOptions,
   getApiV1ProjectsByNameMeasurementPropertyEvidenceInfiniteOptions,
   getApiV1ProjectsByNameMeasurementQuestionResultOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { getEmbedConfig, heyClient, isDashboardManagedSweeps } from '../api.js'
 import { MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'

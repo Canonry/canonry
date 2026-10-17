@@ -3,8 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClient, migrate } from '@ainyc/canonry-db'
-import { DEFAULT_MEASUREMENT_CONFIG, projectConfigSchema, projectDtoSchema } from '@ainyc/canonry-contracts'
+import { createClient, migrate } from '@canonry/canonry-db'
+import { DEFAULT_MEASUREMENT_CONFIG, projectConfigSchema, projectDtoSchema } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
 function buildApp() {

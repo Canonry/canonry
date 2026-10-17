@@ -1,5 +1,5 @@
 import { trackUiAction } from '../../lib/ui-telemetry.js'
-import type { AgentViewContext, AgentConversationList, AgentConversation, AeroPreviewStarterId } from '@ainyc/canonry-contracts'
+import type { AgentViewContext, AgentConversationList, AgentConversation, AeroPreviewStarterId } from '@canonry/canonry-contracts'
 import { useAeroView } from '../../contexts/aero-view-context.js'
 import { aeroViewFromLocation } from '../../lib/aero-view.js'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -30,13 +30,13 @@ import { heyClient, isDashboardManagedSweeps, listAgentConversations, createAgen
 import {
   getApiV1ProjectsByNameAgentProvidersOptions,
   getApiV1ProjectsOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { useAccount } from '../../contexts/account-context.js'
 import { Button } from '../ui/button.js'
 import { MANAGED_SWEEPS_COPY } from '../project/ManagedSweepStatus.js'
 import { InfoTooltip } from './InfoTooltip.js'
-import { shellQuote, describeError } from '@ainyc/canonry-contracts'
+import { shellQuote, describeError } from '@canonry/canonry-contracts'
 import { playAeroPreview, prefersReducedMotion } from '../../lib/aero-preview.js'
 import {
   extractAssistantText,

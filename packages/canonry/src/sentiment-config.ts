@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import { parse } from 'yaml'
-import { resolveSentimentInstallConfig, type SentimentInstallConfig, type SentimentInstallConfigInput } from '@ainyc/canonry-config'
+import { resolveSentimentInstallConfig, type SentimentInstallConfig, type SentimentInstallConfigInput } from '@canonry/canonry-config'
 import { getConfigPath } from './config.js'
 
 /**

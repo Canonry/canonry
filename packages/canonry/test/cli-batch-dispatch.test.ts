@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ProjectDto, RunDetailDto } from '@ainyc/canonry-contracts'
+import type { ProjectDto, RunDetailDto } from '@canonry/canonry-contracts'
 
 const mockTriggerRun = vi.fn()
 const mockListProjects = vi.fn()

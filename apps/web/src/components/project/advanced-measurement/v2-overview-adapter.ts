@@ -2,8 +2,8 @@ import type {
   MeasurementOverviewResponse,
   MeasurementPlanResponse,
   MeasurementReportResponse,
-} from '@ainyc/canonry-api-client'
-import { VISIBILITY_DISPLAY_COPY } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-api-client'
+import { VISIBILITY_DISPLAY_COPY } from '@canonry/canonry-contracts'
 
 import type {
   AdvancedMeasurementEvidence,

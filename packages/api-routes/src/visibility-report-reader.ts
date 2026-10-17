@@ -29,7 +29,7 @@ import {
   compareText,
   normalizeIdentityText as normalizeText,
   sortedUnique,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 export interface VisibilityReportTargetInput {
   id: string

@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
-import { apiKeys, createClient, migrate, OperationalLogStore, projects, runtimeLogs } from '@ainyc/canonry-db'
+import { apiKeys, createClient, migrate, OperationalLogStore, projects, runtimeLogs } from '@canonry/canonry-db'
 import { apiRoutes, hashApiKey } from '../src/index.js'
 import { addLogListener, createFastifyLogger } from '../src/runtime-logger.js'
 

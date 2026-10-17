@@ -1,6 +1,6 @@
 import Fastify from 'fastify'
 import { describe, expect, it } from 'vitest'
-import { USAGE_TELEMETRY_HEADERS, type FeedbackSubmission } from '@ainyc/canonry-contracts'
+import { USAGE_TELEMETRY_HEADERS, type FeedbackSubmission } from '@canonry/canonry-contracts'
 import { feedbackRoutes, type FeedbackRequestContext, type FeedbackRoutesOptions } from '../src/feedback.js'
 
 async function buildApp(submitFeedback?: FeedbackRoutesOptions['submitFeedback']) {

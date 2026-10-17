@@ -8,7 +8,6 @@ const roots: string[] = []
 const realNpm = fs.realpathSync(execFileSync('which', ['npm'], { encoding: 'utf8' }).trim())
 const script = fs.readFileSync(new URL('../scripts/publish-canonry-npm.mjs', import.meta.url), 'utf8')
 const primary = '@canonry/canonry'
-const compatibility = '@ainyc/canonry'
 const version = '1.2.3'
 
 afterEach(() => {
@@ -126,32 +125,26 @@ process.exit(98)
   return { root, tarball, run, calls, releases, expectClean }
 }
 
-test('publishes the exact tested tarball and changes only the compatibility manifest name without builds', () => {
+test('publishes only the exact tested Canonry tarball without builds or manifest changes', () => {
   const f = fixture()
   const originalBytes = fs.readFileSync(f.tarball)
   const result = f.run()
   expect(result.status, result.stderr).toBe(0)
   const releases = f.releases()
-  expect(releases.map(release => release.manifest.name).sort()).toEqual([compatibility, primary].sort())
-  const primaryRelease = releases.find(release => release.manifest.name === primary)!
-  const compatibilityRelease = releases.find(release => release.manifest.name === compatibility)!
+  expect(releases.map(release => release.manifest.name)).toEqual([primary])
+  const primaryRelease = releases[0]!
   expect(fs.readFileSync(path.join(primaryRelease.output, 'published.tgz'))).toEqual(originalBytes)
   expect(fs.readFileSync(f.tarball)).toEqual(originalBytes)
-  expect(compatibilityRelease.manifest).toEqual({ ...primaryRelease.manifest, name: compatibility })
-  const files = ['bin/canonry.mjs', 'dist/index.js', 'dist/payload.bin', 'assets/web/index.html', 'README.md']
-  for (const file of files) {
-    expect(fs.readFileSync(path.join(compatibilityRelease.output, 'package', file)))
-      .toEqual(fs.readFileSync(path.join(primaryRelease.output, 'package', file)))
-  }
-  for (const release of releases) expect(fs.statSync(path.join(release.output, 'package/bin/canonry.mjs')).mode & 0o777).toBe(0o755)
-  expect(execFileSync('tar', ['-tzf', path.join(compatibilityRelease.output, 'published.tgz')], { encoding: 'utf8' }).trim().split('\n').sort())
-    .toEqual(execFileSync('tar', ['-tzf', f.tarball], { encoding: 'utf8' }).trim().split('\n').sort())
-  expect(f.calls().map(call => `${call.command} ${call.args[0]}`)).toEqual(['npm view', 'npm view', 'npm publish', 'npm publish'])
+  expect(fs.statSync(path.join(primaryRelease.output, 'package/bin/canonry.mjs')).mode & 0o777).toBe(0o755)
+  expect(f.calls().map(call => [call.command, ...call.args])).toEqual([
+    ['npm', 'view', `${primary}@${version}`, 'version'],
+    ['npm', 'publish', f.tarball, '--ignore-scripts', '--access', 'public'],
+  ])
   for (const call of f.calls().filter(call => call.args[0] !== 'view')) expect(call.args).toContain('--ignore-scripts')
   f.expectClean()
 })
 
-test.each([{ name: compatibility }, { version: '9.9.9' }])('refuses an artifact with a mismatched manifest: %j', manifest => {
+test.each([{ name: '@example/other' }, { version: '9.9.9' }])('refuses an artifact with a mismatched manifest: %j', manifest => {
   const f = fixture(manifest)
   const result = f.run()
   expect(result.status).not.toBe(0)
@@ -199,12 +192,14 @@ test('refuses archive entries outside package/', () => {
   f.expectClean()
 })
 
-test.each([primary, compatibility, `${primary},${compatibility}`])('skips already published packages: %s', existing => {
+test('skips an already published Canonry version without publishing another package', () => {
   const f = fixture()
-  const result = f.run({ PUBLISH_TEST_EXISTING: existing })
+  const result = f.run({ PUBLISH_TEST_EXISTING: primary })
   expect(result.status, result.stderr).toBe(0)
-  expect(f.releases().map(release => release.manifest.name)).toEqual([primary, compatibility].filter(name => !existing.split(',').includes(name)))
-  expect(f.calls().filter(call => call.args[0] === 'publish')).toHaveLength(existing.split(',').length === 2 ? 0 : 1)
+  expect(f.releases()).toEqual([])
+  expect(f.calls().map(call => [call.command, ...call.args])).toEqual([
+    ['npm', 'view', `${primary}@${version}`, 'version'],
+  ])
   f.expectClean()
 })
 
@@ -218,10 +213,10 @@ test.each(['PUBLISH_TEST_REGISTRY_ERROR', 'PUBLISH_TEST_BAD_RESPONSE'])('fails c
   f.expectClean()
 })
 
-test.each([primary, compatibility])('cleans temporary files after publication fails for %s', name => {
+test('cleans temporary files after publication fails', () => {
   const f = fixture()
-  expect(f.run({ PUBLISH_TEST_FAIL_NAME: name }).status).not.toBe(0)
-  expect(f.releases()).toHaveLength(name === primary ? 1 : 2)
+  expect(f.run({ PUBLISH_TEST_FAIL_NAME: primary }).status).not.toBe(0)
+  expect(f.releases()).toHaveLength(1)
   f.expectClean()
 })
 
@@ -231,29 +226,28 @@ test.each([true, false])('dry run forwards the flag and bypasses registry querie
   expect(result.status, result.stderr).toBe(0)
   expect(f.calls().filter(call => call.args[0] === 'view')).toEqual([])
   const publishes = f.calls().filter(call => call.args[0] === 'publish')
-  expect(publishes).toHaveLength(2)
+  expect(publishes).toHaveLength(1)
   for (const call of publishes) expect(call.args).toContain('--dry-run')
   f.expectClean()
 })
 
-// Shells out to a real `npm publish --dry-run` twice, which can exceed vitest's 5s default on CI.
-test('real npm publishes both tarballs in offline dry-run mode without running lifecycle scripts', () => {
+// A real `npm publish --dry-run` can exceed vitest's 5s default on CI.
+test('real npm publishes the Canonry tarball in offline dry-run mode without running lifecycle scripts', () => {
   const f = fixture()
   const result = f.run({ CANONRY_NPM_PUBLISH_DRY_RUN: '1', PUBLISH_TEST_REAL_DRY_RUN: '1' })
   expect(result.status, result.stderr).toBe(0)
   expect(result.stdout).toContain(`+ ${primary}@${version}`)
-  expect(result.stdout).toContain(`+ ${compatibility}@${version}`)
-  expect(f.releases()).toHaveLength(2)
-  expect(f.calls().map(call => `${call.command} ${call.args[0]}`)).toEqual(['npm publish', 'npm publish'])
+  expect(f.releases()).toHaveLength(1)
+  expect(f.calls().map(call => `${call.command} ${call.args[0]}`)).toEqual(['npm publish'])
   f.expectClean()
 }, 60_000)
 
-test.each([undefined, primary, compatibility])('local publication preserves lifecycle behavior and restores the manifest on failure: %s', failure => {
+test.each([undefined, primary])('local publication preserves lifecycle behavior and leaves the manifest unchanged: %s', failure => {
   const f = fixture()
   const result = f.run({ CANONRY_NPM_PUBLISH_TARBALL: undefined, PUBLISH_TEST_FAIL_NAME: failure })
   expect(result.status === 0).toBe(failure === undefined)
   const publishes = f.calls().filter(call => call.args[0] === 'publish')
-  expect(publishes).toHaveLength(failure === primary ? 1 : 2)
+  expect(publishes).toHaveLength(1)
   for (const call of publishes) {
     expect(call.command).toBe('pnpm')
     expect(call.args).toEqual(['publish', 'packages/canonry', '--no-git-checks', '--access', 'public'])

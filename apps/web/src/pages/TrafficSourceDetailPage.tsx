@@ -6,7 +6,7 @@ import {
   TrafficEventKinds,
   type TrafficEventEntry,
   type TrafficSeriesPoint,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import { isEmbed } from '../api.js'
 import { Button } from '../components/ui/button.js'

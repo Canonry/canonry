@@ -5,7 +5,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { auditLog, competitors, createClient, migrate, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { auditLog, competitors, createClient, migrate, projects, type DatabaseClient } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 // `qualifiedAliases` is a sentiment-only project setting: the subset of aliases

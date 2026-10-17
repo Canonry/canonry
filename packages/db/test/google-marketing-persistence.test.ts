@@ -10,7 +10,7 @@ import {
   type ConversionTrackingContract,
   type GoogleAdsSnapshotPayload,
   type GtmSnapshotPayload,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   MIGRATION_VERSIONS,
   conversionTrackingContracts,

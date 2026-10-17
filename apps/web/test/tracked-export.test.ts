@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import type { QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import type { QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import { trackedCsvFileName, trackedRowsCsv } from '../src/components/project/queries/advanced/tracked-export.js'
 import { coverageByQuery, marksSubject, toTrackedRows, type TrackedResults } from '../src/components/project/queries/advanced/tracked-view-model.js'

@@ -1,5 +1,5 @@
-import type { CheckResultDto, DoctorReportDto } from '@ainyc/canonry-contracts'
-import { CheckScopes, CheckStatuses } from '@ainyc/canonry-contracts'
+import type { CheckResultDto, DoctorReportDto } from '@canonry/canonry-contracts'
+import { CheckScopes, CheckStatuses } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, EXIT_USER_ERROR } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'

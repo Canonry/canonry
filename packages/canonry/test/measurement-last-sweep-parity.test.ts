@@ -7,8 +7,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { apiRoutes } from '@ainyc/canonry-api-routes'
-import { buildMeasurementRunManifestV1, measurementPlanV2Schema } from '@ainyc/canonry-contracts'
+import { apiRoutes } from '@canonry/canonry-api-routes'
+import { buildMeasurementRunManifestV1, measurementPlanV2Schema } from '@canonry/canonry-contracts'
 import {
   apiKeys,
   createClient,
@@ -20,7 +20,7 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { ApiClient } from '../src/client.js'
 import { createDemoServer } from '../src/demo-server.js'
 import { createCanonryMcpServer } from '../src/mcp/server.js'

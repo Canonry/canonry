@@ -14,7 +14,7 @@ import {
   discoveryCompetitorTypeSchema,
   type DiscoveryBucket,
   type DiscoveryCompetitorType,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { CliCommandSpec, CliValues } from '../cli-dispatch.js'
 import {
   getBoolean,

@@ -1,6 +1,6 @@
 import { createLogger } from './logger.js'
-import { asRecord, describeError, inclusiveDayCount, reportMonthsForDoctor, RunKinds, type RunKind } from '@ainyc/canonry-contracts'
-import { syncRunClaimKey } from '@ainyc/canonry-api-routes'
+import { asRecord, describeError, inclusiveDayCount, reportMonthsForDoctor, RunKinds, type RunKind } from '@canonry/canonry-contracts'
+import { syncRunClaimKey } from '@canonry/canonry-api-routes'
 
 const log = createLogger('DataRefresh')
 

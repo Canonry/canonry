@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The publishable npm package (`@canonry/canonry`, plus compatibility publish as `@ainyc/canonry`). Bundles the CLI, local Fastify server, in-process job runner, provider registry, scheduler, and pre-built SPA. This is what users install with `npm install -g @canonry/canonry`.
+The publishable npm package (`@canonry/canonry`). Bundles the CLI, local Fastify server, in-process job runner, provider registry, scheduler, and pre-built SPA. This is what users install with `npm install -g @canonry/canonry`.
 
 ## Key Files
 
@@ -75,12 +75,12 @@ function getClient() {
 }
 ```
 
-All `ApiClient` methods must return typed DTOs from `@ainyc/canonry-contracts`. Never cast responses with `as Record<string, unknown>`. Define response interfaces in `packages/contracts/` when they don't already exist, and add a typed client method for every new API endpoint.
+All `ApiClient` methods must return typed DTOs from `@canonry/canonry-contracts`. Never cast responses with `as Record<string, unknown>`. Define response interfaces in `packages/contracts/` when they don't already exist, and add a typed client method for every new API endpoint.
 
 **Every `ApiClient` method delegates to the generated SDK via `invoke()`.** Adding a new method is:
 
 ```typescript
-import { getApiV1ProjectsByNameMyNewThing } from '@ainyc/canonry-api-client'
+import { getApiV1ProjectsByNameMyNewThing } from '@canonry/canonry-api-client'
 
 async myNewThing(name: string): Promise<MyNewDto> {
   return this.invoke<MyNewDto>(() =>
@@ -89,7 +89,7 @@ async myNewThing(name: string): Promise<MyNewDto> {
 }
 ```
 
-`invoke()` handles base-path probing, CliError mapping, structured-error envelopes, and the `CANONRY_TRACE=1` request log. **Do not call `fetch()` directly** — ESLint blocks it in `packages/canonry/src/**` except in a handful of files that legitimately hit external HTTP (`telemetry.ts` → telemetry collector, `update-check.ts` → npm registry, `commands/daemon.ts` → localhost health probe). If you need raw `fetch()` for a NEW external service, add the file to the `ignores` list in `eslint.config.js` with a one-line comment naming the service. A URL an operator or a third party supplies (a sitemap, a site, a redirect target) never gets raw `fetch()`: use `createGuardedFetch` from `@ainyc/canonry-api-routes`, which checks every request and redirect hop against the egress policy and dials only the checked address (`sitemap-parser.ts` does).
+`invoke()` handles base-path probing, CliError mapping, structured-error envelopes, and the `CANONRY_TRACE=1` request log. **Do not call `fetch()` directly** — ESLint blocks it in `packages/canonry/src/**` except in a handful of files that legitimately hit external HTTP (`telemetry.ts` → telemetry collector, `update-check.ts` → npm registry, `commands/daemon.ts` → localhost health probe). If you need raw `fetch()` for a NEW external service, add the file to the `ignores` list in `eslint.config.js` with a one-line comment naming the service. A URL an operator or a third party supplies (a sitemap, a site, a redirect target) never gets raw `fetch()`: use `createGuardedFetch` from `@canonry/canonry-api-routes`, which checks every request and redirect hop against the egress policy and dials only the checked address (`sitemap-parser.ts` does).
 
 The legacy `request<T>()` raw-fetch wrapper was removed in v4.51; if you find any reference to it, replace with an SDK call through `invoke()`.
 
@@ -496,7 +496,7 @@ It writes retrieval fields in exactly one case: OpenAI rows labelled `native-aut
 
 The command lives in `src/commands/backfill.ts` (historical recomputation for answer visibility fields and insights).
 
-The snapshot rescore behind `canonry backfill answer-mentions`, the alias hooks and `reconcileRunAnswerFields`, `backfillProjectAnswerMentions` (and its chunked form `backfillProjectAnswerMentionsInChunks`), lives in `@ainyc/canonry-api-routes` (`src/snapshot-competitor-refresh.ts`) so Cloud can run it too; `src/commands/backfill.ts` re-exports it. `src/citation-utils.ts` keeps only the citation helpers; the competitor matchers `computeCompetitorOverlap` and `extractRecommendedCompetitors` are in contracts (`competitor-matching.ts`).
+The snapshot rescore behind `canonry backfill answer-mentions`, the alias hooks and `reconcileRunAnswerFields`, `backfillProjectAnswerMentions` (and its chunked form `backfillProjectAnswerMentionsInChunks`), lives in `@canonry/canonry-api-routes` (`src/snapshot-competitor-refresh.ts`) so Cloud can run it too; `src/commands/backfill.ts` re-exports it. `src/citation-utils.ts` keeps only the citation helpers; the competitor matchers `computeCompetitorOverlap` and `extractRecommendedCompetitors` are in contracts (`competitor-matching.ts`).
 
 ### Server and SPA serving
 
@@ -547,7 +547,7 @@ Every field after `version` is optional and is omitted rather than nulled, so co
 `src/embed.ts`:
 
 - `resolveEmbedConfig(env, config)` resolves embed mode (#716) from `CANONRY_EMBED` / `CANONRY_EMBED_ORIGINS` / `CANONRY_EMBED_VIEWS` / `CANONRY_EMBED_PROJECT_TABS` layered over config.yaml `embed:` (env over config, mirroring basePath).
-- Delegates origin normalization + the `frame-ancestors` value + the client block to the pure helpers in `@ainyc/canonry-contracts` (`normalizeFrameOrigin` / `parseOriginList` / `frameAncestorsHeaderValue` / `buildEmbedClientConfig`).
+- Delegates origin normalization + the `frame-ancestors` value + the client block to the pure helpers in `@canonry/canonry-contracts` (`normalizeFrameOrigin` / `parseOriginList` / `frameAncestorsHeaderValue` / `buildEmbedClientConfig`).
 - `enabled` is decoupled from origins so `--embed` without origins fails closed; an empty views/projectTabs list collapses to `undefined` (= all).
 - `projectTabs` is the project-page TAB allowlist (overview/technical-aeo/search-console/activity/backlinks/...) the embedded dashboard renders — finer than `views`, which only gates whole top-level routes.
 - Serve/start flags: `--embed`, `--embed-allow-origin <origin>…`, `--embed-view <view>…`, `--embed-project-tab <tab>…` (in `cli-commands/system.ts` → env via `applyServerEnv`; `start` forwards them through `buildServeForwardArgs` in `commands/daemon.ts`).
@@ -567,6 +567,7 @@ Every field after `version` is optional and is omitted rather than nulled, so co
 - Events update an attempt graph with idempotent receipts. Terminal runs keep immutable complete or partial snapshots. Default reads select the latest UTC scan date, preferring complete scans, then the largest page sample, then the newest scan; `runSelection` exposes same-date ambiguity. Crawl summary/pages accept an exact UTC `date` instead of `runId`; dated no-data reads expose bounded `availableScanDates` with full distinct-date totals and matching month/day candidates, without substituting dates; `inventorySummary` carries whole-snapshot eligibility and disjoint exclusion reasons, while page `healthReasonCounts` belongs to the filtered list; only the `changes` diff is limited to complete snapshots.
 - Stored issue evidence uses the nullable `issueEvidence` envelope (`schemaVersion: 1.0`, `groupIdentityVersion: duplicate-metadata-v1`, and `siteIssues` with nullable stable keys, codes, messages and affected URLs). Missing cross-page results remain unavailable; an emitted empty array is measured empty. Duplicate groups survive regardless of score. Keys derive from the full exact metadata and code, never shortened messages; unknown identity stays null.
 - The page budget is the one the run creator resolved through `normalizeSiteAuditRunRequest`: the request's, else the project's saved `siteAuditMaxPages`, else the full site (`SITE_AUDIT_DEFAULT_PAGE_LIMIT` = the 50,000 hard limit), for manual and scheduled scans alike; onboarding sends its own 100. An unset edge budget is left unset so the engine derives it from the resolved page count (floored at 100,000), and an explicit one is a ceiling that replaces the derivation. Hard limits are 50,000 pages and 1,000,000 edges.
+- `includeGeo` defaults off; `includeAgentSkills` defaults on and can be explicitly disabled (`--no-agent-skills` in the CLI). Both are forwarded to the engine and retained in the published crawl's `effectiveOptions`. Lighthouse is not exposed. Both are request identity, shared by Simple and Advanced projects through the same project-level scan.
 - The engine (>= 7.1.0) derives `maxFetches`/`maxDurationMs`/`maxBytes`/`maxEdges` from the page budget natively and honours explicit values exactly, so this file passes ONLY `maxPages`/`maxEdges` (the operator-facing limits) and never a fetch-side budget — setting one would pin it and fight the derivation.
 - The engine also makes the dead-link split itself (6.0.0+): `deadLinks.findings` always carry a real 4xx/5xx status and `deadLinks.unverified` carries the targets the crawl could not check (timeout, reset socket, throttled 429), and ONLY findings are written to `site_crawl_findings` — every reader of that table renders a row as a broken link, and a crawl timeout is not evidence of one.
 - `deadLinkCheckedCount` excludes unfetchable targets for the same reason — a URL that never answered was attempted, not checked.

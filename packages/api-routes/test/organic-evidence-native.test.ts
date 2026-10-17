@@ -21,12 +21,12 @@ import {
   projects,
   runs,
   trafficSources,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   organicEvidenceDtoSchema,
   type GaMeasurementAnalysisDto,
   type OrganicEvidenceDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
 const NOW = '2026-07-23T12:00:00.000Z'

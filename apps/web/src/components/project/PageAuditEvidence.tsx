@@ -3,12 +3,14 @@ import {
   RatioUnits,
   type SiteAuditFactorStatus,
   type SiteCrawlPageAuditDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { ChevronRight } from 'lucide-react'
 
 import type { MetricTone } from '../../view-models.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { Button } from '../ui/button.js'
+import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { SITE_HEALTH_CHECK_HELP } from './site-health-check-help.js'
 
 /**
  * "Worth 9.7% of the page score": a factor's share of the score as the audit
@@ -158,54 +160,61 @@ function ReadyPageAudit({ audit }: {
             state and the closed content is genuinely out of the tab order.
           */}
           {actionableFactors.map((factor) => (
-            <details key={factor.id} className="group py-1">
-              <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-sm px-1 py-2 outline-none marker:hidden focus-visible:ring-2 focus-visible:ring-mono-400 [&::-webkit-details-marker]:hidden">
-                <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-heading">
-                  <ChevronRight className="size-4 shrink-0 text-muted transition-transform group-open:rotate-90" aria-hidden="true" />
-                  {factor.name}
-                </span>
-                <span className="flex shrink-0 items-center gap-2">
-                  <span className="text-sm tabular-nums text-heading">{Math.round(factor.score)}/100</span>
-                  <ToneBadge tone={factorTone(factor.status)}>{stateLabel(factor.status)}</ToneBadge>
-                </span>
-              </summary>
-              <div className="grid gap-4 px-1 pb-4 pt-1 md:grid-cols-2">
-                <div>
-                  <h5 className="text-xs font-semibold uppercase tracking-wide text-muted">Evidence</h5>
-                  {factor.findings.length > 0 ? (
-                    <ul className="mt-2 space-y-1.5 text-sm text-secondary">
-                      {factor.findings.map((finding, findingIndex) => (
-                        <li key={`${finding.code}:${findingIndex}`}>{finding.message}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="mt-2 text-sm text-secondary">
-                      {audit.evidenceState === 'scores-only'
-                        ? 'This scan did not save the findings here.'
-                        : 'Nothing to report here.'}
-                    </p>
-                  )}
+            <div key={factor.id} className="flex items-start gap-2">
+              <details className="group min-w-0 flex-1 py-1">
+                <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-sm px-1 py-2 outline-none marker:hidden focus-visible:ring-2 focus-visible:ring-mono-400 [&::-webkit-details-marker]:hidden">
+                  <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-heading">
+                    <ChevronRight className="size-4 shrink-0 text-muted transition-transform group-open:rotate-90" aria-hidden="true" />
+                    {factor.name}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className="text-sm tabular-nums text-heading">{Math.round(factor.score)}/100</span>
+                    <ToneBadge tone={factorTone(factor.status)}>{stateLabel(factor.status)}</ToneBadge>
+                  </span>
+                </summary>
+                <div className="grid gap-4 px-1 pb-4 pt-1 md:grid-cols-2">
+                  <div>
+                    <h5 className="text-xs font-semibold uppercase tracking-wide text-muted">Evidence</h5>
+                    {factor.findings.length > 0 ? (
+                      <ul className="mt-2 space-y-1.5 text-sm text-secondary">
+                        {factor.findings.map((finding, findingIndex) => (
+                          <li key={`${finding.code}:${findingIndex}`}>{finding.message}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-2 text-sm text-secondary">
+                        {audit.evidenceState === 'scores-only'
+                          ? 'This scan did not save the findings here.'
+                          : 'Nothing to report here.'}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <h5 className="text-xs font-semibold uppercase tracking-wide text-muted">Recommended fix</h5>
+                    {factor.recommendations.length > 0 ? (
+                      <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-secondary marker:text-muted">
+                        {factor.recommendations.map((recommendation) => <li key={recommendation}>{recommendation}</li>)}
+                      </ol>
+                    ) : (
+                      <p className="mt-2 text-sm text-secondary">
+                        {audit.evidenceState === 'scores-only'
+                          ? 'This scan did not save a fix here.'
+                          : 'No fix suggested here.'}
+                      </p>
+                    )}
+                    {/* A scan that did not record the share shows none: the weight is not one. */}
+                    {typeof factor.sharePct === 'number' ? (
+                      <p className="mt-3 text-xs text-muted">{factorShareOfScoreLabel(factor.sharePct, 'page')}</p>
+                    ) : null}
+                  </div>
                 </div>
-                <div>
-                  <h5 className="text-xs font-semibold uppercase tracking-wide text-muted">Recommended fix</h5>
-                  {factor.recommendations.length > 0 ? (
-                    <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-secondary marker:text-muted">
-                      {factor.recommendations.map((recommendation) => <li key={recommendation}>{recommendation}</li>)}
-                    </ol>
-                  ) : (
-                    <p className="mt-2 text-sm text-secondary">
-                      {audit.evidenceState === 'scores-only'
-                        ? 'This scan did not save a fix here.'
-                        : 'No fix suggested here.'}
-                    </p>
-                  )}
-                  {/* A scan that did not record the share shows none: the weight is not one. */}
-                  {typeof factor.sharePct === 'number' ? (
-                    <p className="mt-3 text-xs text-muted">{factorShareOfScoreLabel(factor.sharePct, 'page')}</p>
-                  ) : null}
+              </details>
+              {SITE_HEALTH_CHECK_HELP[factor.id] && (
+                <div className="flex min-h-14 items-center">
+                  <InfoTooltip text={SITE_HEALTH_CHECK_HELP[factor.id]!} placement="bottom" />
                 </div>
-              </div>
-            </details>
+              )}
+            </div>
           ))}
         </div>
       ) : audit.criticalDefects.length === 0 && audit.evidenceState === 'complete' ? (

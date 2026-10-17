@@ -1,7 +1,7 @@
 import React from 'react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import type { QueryTrackingPreviewResponse, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import type { QueryTrackingPreviewResponse, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import { TrackingReview, TrackingReviewActions } from '../src/components/project/TrackingReview.js'
 import { contextLabels } from '../src/components/project/queries/tracking-contexts.js'

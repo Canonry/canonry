@@ -1,4 +1,4 @@
-import { TrafficSourceTypes, type TrafficSourceType } from '@ainyc/canonry-contracts'
+import { TrafficSourceTypes, type TrafficSourceType } from '@canonry/canonry-contracts'
 
 /**
  * Bounds on incremental traffic sync, shared by the sync route and the doctor

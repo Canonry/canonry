@@ -20,7 +20,7 @@ import {
   queryTrackingResultsResponseSchema,
   queryTrackingWorkspaceResponseSchema,
   RunKinds,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { createQueryClient, DEFAULT_QUERY_STALE_MS } from '../src/queries/query-client.js'
 import { QueriesSection } from '../src/components/project/DiscoverySection.js'
 import { invalidateQueriesForRunKind } from '../src/queries/run-invalidations.js'
@@ -33,7 +33,7 @@ import {
   getApiV1ProjectsByNameMeasurementOverviewQueryKey,
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameMeasurementPropertyEvidenceInfiniteQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 import { expectCautionNote, expectCautionNoteOnOneLine, visibleText } from './caution-note.js'
 import { compileAppStyles, compiledElementProperty, parseCompiledCss } from './compiled-app-css.js'

@@ -1,4 +1,4 @@
-import type { QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import type { QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 import { afterEach, expect, test } from 'vitest'
 import { cleanup, screen } from '@testing-library/react'
 

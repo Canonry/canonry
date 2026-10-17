@@ -1,9 +1,9 @@
 import fs from 'node:fs'
 import { parseAllDocuments } from 'yaml'
-import type { ProjectConfig } from '@ainyc/canonry-contracts'
+import type { ProjectConfig } from '@canonry/canonry-contracts'
 import { createApiClient, type ApplyPreviewDto, type ApplyResultDto } from '../client.js'
 import { CliError, isEndpointMissing, isMachineFormat } from '../cli-error.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
 
 
 

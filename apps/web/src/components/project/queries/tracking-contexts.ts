@@ -1,4 +1,4 @@
-import type { QueryTrackingAssignment, QueryTrackingContextInput, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import type { QueryTrackingAssignment, QueryTrackingContextInput, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import { providerDisplayName } from '../../../lib/visibility-trend-helpers.js'
 import type { TrackedContextLabels } from './advanced/TrackedRowDetail.js'

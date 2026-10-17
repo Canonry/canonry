@@ -16,7 +16,7 @@ import {
   type MeasurementPropertyCompetitorsResponse,
   type MetricValue,
   type VisibilityReportResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   measurementPlans,
@@ -27,7 +27,7 @@ import {
   runFills,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 const portfolioReadWork = vi.hoisted(() => ({
   evaluatorBuilds: 0,
   targetMentionChecks: 0,

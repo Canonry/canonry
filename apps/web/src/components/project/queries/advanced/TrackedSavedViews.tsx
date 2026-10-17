@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
-import type { QueryTrackingViews, QueryTrackingWeakMarkets } from '@ainyc/canonry-contracts'
+import type { QueryTrackingViews, QueryTrackingWeakMarkets } from '@canonry/canonry-contracts'
 
 import { InfoTooltip } from '../../../shared/InfoTooltip.js'
 import { Button } from '../../../ui/button.js'

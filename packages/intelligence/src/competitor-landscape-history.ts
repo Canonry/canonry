@@ -12,7 +12,7 @@ import {
   registrableDomain,
   type BrandAliasMatcher,
   type ShareOfVoiceContext,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { buildShareOfVoiceFrame } from './share-of-voice-frame.js'
 
 /** A stored discovery classification, plus the explicit unknown state. */

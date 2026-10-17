@@ -29,7 +29,7 @@ import type {
   AdsAdCreateRequest,
   AdsAdUpdateRequest,
   AdsPauseRequest,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   adsGeoSearchQuerySchema,
   adsAdCreateRequestSchema,
@@ -51,7 +51,7 @@ import {
   formatMicros,
   formatPercent,
   describeError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { z } from 'zod'
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'

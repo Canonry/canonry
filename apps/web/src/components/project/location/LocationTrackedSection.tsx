@@ -2,8 +2,8 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type Ref }
 import { Link, useRouter } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, Clock, Info } from 'lucide-react'
-import type { QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
-import { getApiV1ProjectsByNameQueryTrackingOptions } from '@ainyc/canonry-api-client/react-query'
+import type { QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameQueryTrackingOptions } from '@canonry/canonry-api-client/react-query'
 
 import { heyClient } from '../../../api.js'
 import { formatSweepDay } from '../../../lib/format-helpers.js'

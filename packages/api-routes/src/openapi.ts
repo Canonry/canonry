@@ -14,7 +14,7 @@ import {
   runStatusSchema,
   sentimentOutcomeSchema,
   operationAccess,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   buildComponentSchemas,
   errorResponse,
@@ -6085,6 +6085,7 @@ const routeCatalog: OpenApiOperation[] = [
       // TODO: Add `GaConnectResponse` Zod schema in contracts.
       200: rawJsonResponse('GA4 connection established.', looseObjectSchema),
       400: errorResponse('Invalid GA4 connection request.'),
+      403: errorResponse('Google refused the property (`details.reason` is `ga4-permission-missing`). Retrying will not help until access is granted; repeated refusals are answered without asking Google again until `details.nextCheckAt`.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -7869,7 +7870,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/technical-aeo/runs',
     summary: 'Trigger a Technical AEO site-audit run',
     description:
-      'Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links. An active run is reused only when its persisted effective sitemap, budgets, depth, and dead-link option match exactly; a semantic mismatch returns 409.',
+      'Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links. An active run is reused only when its persisted effective sitemap, budgets, depth, dead-link option, and optional factor selections match exactly; a semantic mismatch returns 409.',
     tags: ['technical-aeo'],
     parameters: [nameParameter],
     requestBody: {
@@ -7885,6 +7886,8 @@ const routeCatalog: OpenApiOperation[] = [
               maxEdges: { ...integerSchema, minimum: 1, maximum: 1_000_000, description: 'Internal-link observation budget. When omitted the crawl engine derives it from the page count; max 1000000.' },
               maxDepth: { ...integerSchema, minimum: 0, maximum: 100, description: 'Maximum crawl depth from the root. Max 100.' },
               checkDeadLinks: { ...booleanSchema, default: false, description: 'Enable dead-link checking. Defaults to false.' },
+              includeGeo: { ...booleanSchema, default: false, description: 'Opt in to geographic signals for location and service-area businesses. Part of scan identity.' },
+              includeAgentSkills: { ...booleanSchema, default: true, description: 'Check discoverable actions, forms, and agent integrations by default. Set false to disable. Part of scan identity.' },
             },
           },
         },

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { getApiV1ProjectsByNameCitationsVisibilityQueryKey } from '@ainyc/canonry-api-client/react-query'
-import { emptyCitationVisibility, type CitationVisibilityResponse } from '@ainyc/canonry-contracts'
+import { getApiV1ProjectsByNameCitationsVisibilityQueryKey } from '@canonry/canonry-api-client/react-query'
+import { emptyCitationVisibility, type CitationVisibilityResponse } from '@canonry/canonry-contracts'
 
 import { heyClient } from '../src/api.js'
 import { byEngineClasses, CitationVisibilitySection, uncountedCompetitorGaps } from '../src/components/project/CitationVisibilitySection.js'

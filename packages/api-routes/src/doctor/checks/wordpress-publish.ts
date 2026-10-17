@@ -3,8 +3,8 @@ import {
   CheckScopes,
   CheckStatuses,
   describeError,
-} from '@ainyc/canonry-contracts'
-import { verifyWordpressConnection, WordpressApiError } from '@ainyc/canonry-integration-wordpress'
+} from '@canonry/canonry-contracts'
+import { verifyWordpressConnection, WordpressApiError } from '@canonry/canonry-integration-wordpress'
 import { createGuardedFetch } from '../../guarded-fetch.js'
 import type { CheckDefinition } from '../types.js'
 

@@ -5,7 +5,7 @@ import {
   describeError,
   describeFetchError,
   isFetchTransportError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   GOOGLE_TOKEN_URL,
   GSC_API_BASE,
@@ -15,7 +15,7 @@ import {
   GoogleApiError,
   listSites,
   refreshAccessToken,
-} from '@ainyc/canonry-integration-google'
+} from '@canonry/canonry-integration-google'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
 
 interface ResolvedToken {

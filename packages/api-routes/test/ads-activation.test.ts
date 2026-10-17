@@ -9,7 +9,7 @@ import {
   AdsOperationStepStates,
   type AdsActivationEntityType,
   type AdsActivationManifest,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   AdsActivationError,
   AdsActivationErrorCodes,

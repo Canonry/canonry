@@ -61,8 +61,8 @@ import {
   type MetricValue,
   compareText,
   normalizeIdentityText as normalizeText,
-} from '@ainyc/canonry-contracts'
-import { querySnapshots, runFills, runs, type DatabaseClient } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import { querySnapshots, runFills, runs, type DatabaseClient } from '@canonry/canonry-db'
 import { resolveProject } from './helpers.js'
 import {
   activeMeasurementPlan,

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ProjectOverviewDto } from '@ainyc/canonry-contracts'
+import type { ProjectOverviewDto } from '@canonry/canonry-contracts'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'

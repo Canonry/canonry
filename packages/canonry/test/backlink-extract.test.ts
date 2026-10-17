@@ -13,7 +13,7 @@ import {
   projects,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { executeBacklinkExtract, type BacklinkExtractDeps } from '../src/backlink-extract.js'
 
 const trackEvent = vi.hoisted(() => vi.fn())

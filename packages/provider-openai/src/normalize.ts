@@ -9,8 +9,8 @@ import {
   usageCount,
   RetrievalContracts,
   RetrievalStatuses,
-} from '@ainyc/canonry-contracts'
-import type { ProviderUsage, TrackedQueryRequest } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import type { ProviderUsage, TrackedQueryRequest } from '@canonry/canonry-contracts'
 import { withRetry } from './utils.js'
 import type {
   OpenAIConfig,

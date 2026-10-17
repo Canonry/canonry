@@ -5,7 +5,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 function buildApp() {

@@ -2,7 +2,7 @@ import dns from 'node:dns/promises'
 import http from 'node:http'
 import https from 'node:https'
 import net from 'node:net'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
 import { resolveMeasurementSitemapTarget, type MeasurementSitemapAddress } from './measurement-sitemap-fetch.js'
 import type { SafeWebhookTarget } from './webhooks.js'
 

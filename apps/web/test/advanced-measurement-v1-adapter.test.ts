@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { MeasurementPlanResponse, MeasurementReportResponse } from '@ainyc/canonry-api-client'
+import type { MeasurementPlanResponse, MeasurementReportResponse } from '@canonry/canonry-api-client'
 
 import {
   adaptVersionOneMeasurementReport,

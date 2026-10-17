@@ -15,7 +15,7 @@ import {
   type MeasurementPlanV2,
   type MeasurementPropertyRow,
   type MetricValue,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   measurementPlans,
@@ -25,7 +25,7 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import {
   createMeasurementOverviewCache,

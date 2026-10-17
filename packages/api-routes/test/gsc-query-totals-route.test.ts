@@ -7,8 +7,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   createClient, migrate, projects, runs,
   gscSearchData, gscQueryDailyTotals, gscDailyTotals,
-} from '@ainyc/canonry-db'
-import { AppError, gscQueryTotalsDtoSchema, type GscQueryTotalsDto } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-db'
+import { AppError, gscQueryTotalsDtoSchema, type GscQueryTotalsDto } from '@canonry/canonry-contracts'
 import { googleRoutes } from '../src/google.js'
 
 /**

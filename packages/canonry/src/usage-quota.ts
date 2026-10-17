@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { and, eq, lte, sql } from 'drizzle-orm'
-import { usageCounters, type DatabaseClient } from '@ainyc/canonry-db'
+import { usageCounters, type DatabaseClient } from '@canonry/canonry-db'
 
 export function getCurrentUsageDay(): string {
   return new Date().toISOString().slice(0, 10)

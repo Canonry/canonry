@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { aggregateSentiment, sentimentEvidencePageSchema, sentimentSummarySchema, type SentimentOutcome } from '@ainyc/canonry-contracts'
+import { aggregateSentiment, sentimentEvidencePageSchema, sentimentSummarySchema, type SentimentOutcome } from '@canonry/canonry-contracts'
 import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'
 import { SENTIMENT_CLI_COMMANDS } from '../src/cli-commands/sentiment.js'
 import { CRITICIZED_PROPERTIES_TITLE } from '../src/commands/sentiment.js'

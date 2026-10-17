@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it, onTestFinished } from 'vitest'
-import { canonicalMeasurementPlanJson, compileMeasurementPlan, type LocationContext } from '@ainyc/canonry-contracts'
+import { canonicalMeasurementPlanJson, compileMeasurementPlan, type LocationContext } from '@canonry/canonry-contracts'
 import {
   createClient,
   measurementPlans,
@@ -16,7 +16,7 @@ import {
   runs,
   schedules,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { addLogListener, type LogEntry } from '../src/logger.js'
 import { Scheduler } from '../src/scheduler.js'
 

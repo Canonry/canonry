@@ -1,6 +1,6 @@
-import { competitorLabelFromDomain, formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
+import { competitorLabelFromDomain, formatPercent, RatioUnits } from '@canonry/canonry-contracts'
 import React, { useId, useState } from 'react'
-import type { CompetitorLandscapeResponse, CompetitorLandscapeRow as CompetitorLandscapeRowDto, ShareOfVoiceContext } from '@ainyc/canonry-contracts'
+import type { CompetitorLandscapeResponse, CompetitorLandscapeRow as CompetitorLandscapeRowDto, ShareOfVoiceContext } from '@canonry/canonry-contracts'
 
 import { siteCitationLabel, splitPercentSign } from '../../lib/format-helpers.js'
 import { mentionShareTone, METRIC_TONE_TEXT_CLASS } from '../../lib/tone-helpers.js'

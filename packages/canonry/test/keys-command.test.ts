@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ApiKeyDto, ApiKeyListDto, CreatedApiKeyDto } from '@ainyc/canonry-contracts'
+import type { ApiKeyDto, ApiKeyListDto, CreatedApiKeyDto } from '@canonry/canonry-contracts'
 
 const mockListApiKeys = vi.fn()
 const mockCreateApiKey = vi.fn()

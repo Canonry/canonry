@@ -1,12 +1,12 @@
-import { projects } from '@ainyc/canonry-db'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import { projects } from '@canonry/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import {
   OutcomeReasonCodes,
   OutcomeStatuses,
   OutcomeSurfaces,
   OutcomeTriggers,
   type FeatureCompletedProperties,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { createLogger } from './logger.js'
 import { createOutcomeSampler, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 

@@ -4,8 +4,8 @@ import path from 'node:path'
 import type { FastifyListenOptions } from 'fastify'
 import { stringify } from 'yaml'
 import { expect, it, onTestFinished, vi } from 'vitest'
-import { createClient, migrate, projects, runs, type DatabaseClient } from '@ainyc/canonry-db'
-import { RunKinds, RunStatuses, RunTriggers, type RunStatus, type RunTrigger } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, runs, type DatabaseClient } from '@canonry/canonry-db'
+import { RunKinds, RunStatuses, RunTriggers, type RunStatus, type RunTrigger } from '@canonry/canonry-contracts'
 import type { CanonryConfig } from '../src/config.js'
 
 const native = vi.hoisted(() => {

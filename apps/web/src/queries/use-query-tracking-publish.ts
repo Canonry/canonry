@@ -6,12 +6,12 @@ import type {
   QueryTrackingPreviewRequest,
   QueryTrackingPreviewResponse,
   QueryTrackingWorkspaceResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameQueryTrackingQueryKey,
   postApiV1ProjectsByNameQueryTrackingCommitMutation,
   postApiV1ProjectsByNameQueryTrackingPreviewMutation,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { heyClient } from '../api.js'
 import { extractApiErrorInfo } from '../lib/extract-error-message.js'
 import { addToast } from '../lib/toast-store.js'

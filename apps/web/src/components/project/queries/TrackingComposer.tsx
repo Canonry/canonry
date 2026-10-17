@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { RefObject } from 'react'
 import { AlertTriangle, History, Info } from 'lucide-react'
-import type { MeasurementQueryTemplate, QueryTrackingWorkspaceResponse } from '@ainyc/canonry-contracts'
+import type { MeasurementQueryTemplate, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import { useAccount } from '../../../contexts/account-context.js'
 import { WriteButton } from '../../shared/AccessControls.js'

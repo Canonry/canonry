@@ -73,7 +73,7 @@ At final validation for behavior changes, run the relevant tests and package typ
 ```bash
 pnpm exec vitest run --project contracts
 pnpm exec vitest run packages/contracts/test/citations.test.ts
-pnpm --filter @ainyc/canonry-contracts typecheck
+pnpm --filter @canonry/canonry-contracts typecheck
 ```
 
 Replace the project, test path, and package with the affected scope.
@@ -81,7 +81,7 @@ Reuse passing results while their inputs remain unchanged.
 After another edit or rebase, defer affected checks until the changes are ready again.
 
 Generated SDK type contracts live in `packages/api-client-generated/test/*.test-d.ts`.
-Run `pnpm --filter @ainyc/canonry-api-client typecheck` to compile the SDK,
+Run `pnpm --filter @canonry/canonry-api-client typecheck` to compile the SDK,
 its runtime test code, and these contracts through `tsconfig.test.json`.
 CI runs the same package script through the root typecheck.
 Vitest owns the SDK's runtime request-wiring tests; it does not execute the
@@ -134,7 +134,7 @@ Vite resolves environment values before the cache check. Variable expansion and 
 The web package supports standard Vite build flags:
 
 ```bash
-pnpm --filter @ainyc/canonry-web build --mode staging --base /preview/ --sourcemap
+pnpm --filter @canonry/canonry-web build --mode staging --base /preview/ --sourcemap
 ```
 
 These options participate in cache identity. Other Vite flags pass through to the native CLI without caching.
@@ -230,8 +230,8 @@ The scenario covers Simple and Advanced portfolios, credential scopes, idempoten
 Provider requests go to a bounded loopback stub; CI uses no live provider credentials.
 Reports, provider receipts, and redacted failure logs are uploaded as `packaged-sentiment-smoke` artifacts.
 For outside contributions, Publish downloads the artifact from the push CI run whose `validate` job passed for the exact release commit.
-It publishes the tested primary tarball unchanged and repacks its contents with the compatibility package name.
-Neither publication runs build or lifecycle scripts. Missing artifacts or a mismatched package name or version stop publication.
+It publishes only the tested Canonry tarball, unchanged.
+Publication runs no build or lifecycle scripts. Missing artifacts or a mismatched package name or version stop publication.
 Artifacts remain available for seven days; after expiry, rerun CI before retrying publication.
 
 For a local artifact dry run, set `CANONRY_NPM_PUBLISH_TARBALL` to the absolute tarball path and run
@@ -245,7 +245,7 @@ To verify the publishable package:
 
 ```bash
 cd packages/canonry && npm pack
-npm install -g ./ainyc-canonry-*.tgz
+npm install -g ./canonry-canonry-*.tgz
 canonry init
 canonry serve
 ```
@@ -254,7 +254,7 @@ canonry serve
 
 1. Run tests and typechecks for the affected packages.
 2. Run `packages/canonry/test/aeo-audit-dependency-contract.test.ts` to verify the published audit-engine pins and integration boundaries.
-3. Confirm the worker's audit-package descriptor test passes; audit execution belongs to the production full-crawl engine, not an unused worker wrapper.
+3. Confirm the worker starts without an audit-engine dependency; audit execution belongs to the production full-crawl engine.
 4. Confirm `packages/api-routes/` has no direct dependency on `apps/*`.
 5. Confirm `packages/canonry/` bundles SPA assets correctly (`build-web.ts`).
 

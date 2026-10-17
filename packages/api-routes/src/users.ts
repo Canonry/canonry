@@ -10,7 +10,7 @@
 import crypto from 'node:crypto'
 import { asc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { users, userSessions } from '@ainyc/canonry-db'
+import { users, userSessions } from '@canonry/canonry-db'
 import {
   alreadyExists,
   createUserRequestSchema,
@@ -20,7 +20,7 @@ import {
   UserRoles,
   validationError,
   type UserDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   requireAdminSession,
   requireBroadInstanceKey,

@@ -3,7 +3,7 @@ import type {
   QueryClass,
   QueryTrackingTrackedRow,
   QueryTrackingWorkspaceResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import type { EngineSignal, TrackedRowVm, TrackedSource, TrackedStatus, TrackedSubject, TrackedType } from './tracked-types.js'
 

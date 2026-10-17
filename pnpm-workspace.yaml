@@ -6,9 +6,9 @@ packages:
 # lockfile, rather than letting the run fail somewhere confusing later.
 #
 # The failure this prevents, hit twice in one afternoon: a commit adds a
-# workspace dependency (`@ainyc/canonry-contracts` to integration-bing), someone
+# workspace dependency (`@canonry/canonry-contracts` to integration-bing), someone
 # pulls or rebases onto it without installing, and the whole api-routes suite
-# dies at import with `Cannot find package '@ainyc/canonry-contracts' imported
+# dies at import with `Cannot find package '@canonry/canonry-contracts' imported
 # from packages/integration-bing/src/bing-client.ts`. That reads as a broken
 # import in a package nobody touched, and the actual remedy — `pnpm install` —
 # appears nowhere in the message.

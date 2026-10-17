@@ -5,8 +5,8 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
-import { bingUrlInspections, bingCoverageSnapshots, createClient, migrate, projects, runs } from '@ainyc/canonry-db'
+import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
+import { bingUrlInspections, bingCoverageSnapshots, createClient, migrate, projects, runs } from '@canonry/canonry-db'
 import { bingRoutes, __resetBingCrawlIssuesCacheForTest } from '../src/bing.js'
 import type { BingConnectionRecord, BingConnectionStore } from '../src/bing.js'
 
@@ -93,7 +93,7 @@ describe('Bing routes', () => {
     })
 
     // Default: no crawl issues. Individual tests override with mockResolvedValue.
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     vi.spyOn(bingModule, 'getCrawlIssues').mockResolvedValue([])
   })
 
@@ -107,7 +107,7 @@ describe('Bing routes', () => {
   })
 
   it('maps HttpStatus into httpCode and leaves inIndex null when Bing returns no crawl or discovery signals', async () => {
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     vi.spyOn(bingModule, 'getUrlInfo').mockResolvedValue({
       Url: 'https://example.com/page',
       HttpStatus: 200,
@@ -149,7 +149,7 @@ describe('Bing routes', () => {
   })
 
   it('derives indexed=true from positive DocumentSize', async () => {
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     vi.spyOn(bingModule, 'getUrlInfo').mockResolvedValue({
       Url: 'https://example.com/indexed',
       HttpStatus: 200,
@@ -177,7 +177,7 @@ describe('Bing routes', () => {
     // indexed in the Bing UI, as long as LastCrawledDate/DiscoveryDate are set.
     const lastCrawledMs = new Date('2026-03-12T17:37:29Z').getTime()
     const discoveryMs = new Date('2026-03-12T07:00:00Z').getTime()
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     vi.spyOn(bingModule, 'getUrlInfo').mockResolvedValue({
       Url: 'https://example.com/indexed-zero-size',
       HttpStatus: 0,
@@ -205,7 +205,7 @@ describe('Bing routes', () => {
 
   it('derives indexed=false when a crawled URL returned a 4xx HttpStatus', async () => {
     const lastCrawledMs = new Date('2026-03-20T10:00:00Z').getTime()
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     vi.spyOn(bingModule, 'getUrlInfo').mockResolvedValue({
       Url: 'https://example.com/broken',
       HttpStatus: 404,
@@ -227,7 +227,7 @@ describe('Bing routes', () => {
 
   it('derives indexed=false when Bing has discovered a URL but not yet crawled it', async () => {
     const discoveryMs = new Date('2026-03-18T07:00:00Z').getTime()
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     vi.spyOn(bingModule, 'getUrlInfo').mockResolvedValue({
       Url: 'https://example.com/discovered-only',
       HttpStatus: 0,
@@ -250,7 +250,7 @@ describe('Bing routes', () => {
 
   it('demotes an indexed URL to not-indexed when GetCrawlIssues flags a blocking issue', async () => {
     const lastCrawledMs = new Date('2026-03-20T10:00:00Z').getTime()
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     vi.spyOn(bingModule, 'getUrlInfo').mockResolvedValue({
       Url: 'https://example.com/blocked',
       HttpStatus: 200,
@@ -274,7 +274,7 @@ describe('Bing routes', () => {
 
   it('keeps indexed classification when GetCrawlIssues only flags SEO-only concerns', async () => {
     const lastCrawledMs = new Date('2026-03-20T10:00:00Z').getTime()
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     vi.spyOn(bingModule, 'getUrlInfo').mockResolvedValue({
       Url: 'https://example.com/seo-warn',
       HttpStatus: 200,
@@ -298,7 +298,7 @@ describe('Bing routes', () => {
 
   it('keeps indexed classification when GetCrawlIssues lookup fails', async () => {
     const lastCrawledMs = new Date('2026-03-20T10:00:00Z').getTime()
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     vi.spyOn(bingModule, 'getUrlInfo').mockResolvedValue({
       Url: 'https://example.com/ok',
       HttpStatus: 200,
@@ -320,7 +320,7 @@ describe('Bing routes', () => {
 
   it('caches GetCrawlIssues across sequential inspections within the TTL', async () => {
     const lastCrawledMs = new Date('2026-03-20T10:00:00Z').getTime()
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _siteUrl, url) => ({
       Url: url,
       HttpStatus: 200,
@@ -409,7 +409,7 @@ describe('Bing routes', () => {
   })
 
   it('performance normalizes non-finite CTR values to 0', async () => {
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     vi.spyOn(bingModule, 'getKeywordStats').mockResolvedValue([
       { Query: 'normal query', Impressions: 100, Clicks: 5, Ctr: 0.05, AverageClickPosition: 3, AverageImpressionPosition: 3 },
       { Query: 'nan ctr', Impressions: 0, Clicks: 0, Ctr: NaN, AverageClickPosition: 0, AverageImpressionPosition: 0 },
@@ -462,7 +462,7 @@ describe('Bing routes', () => {
       },
     ]).run()
 
-    const bingModule = await import('@ainyc/canonry-integration-bing')
+    const bingModule = await import('@canonry/canonry-integration-bing')
     const submitUrlBatchSpy = vi.spyOn(bingModule, 'submitUrlBatch').mockResolvedValue()
 
     const res = await app.inject({
@@ -681,7 +681,7 @@ describe('Bing routes', () => {
     }).run()
 
     try {
-      const bingModule = await import('@ainyc/canonry-integration-bing')
+      const bingModule = await import('@canonry/canonry-integration-bing')
       vi.spyOn(bingModule, 'getSites').mockResolvedValue([])
 
       const res = await app.inject({

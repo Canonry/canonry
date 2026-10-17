@@ -1,4 +1,4 @@
-import { formatPercent, queryClassFilterSchema, type QueryClassFilter, type RankedSourceList, type SourceBreakdownDto } from '@ainyc/canonry-contracts'
+import { formatPercent, queryClassFilterSchema, type QueryClassFilter, type RankedSourceList, type SourceBreakdownDto } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'

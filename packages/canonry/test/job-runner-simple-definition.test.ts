@@ -12,7 +12,7 @@ import {
   type ProviderConfig,
   type RawQueryResult,
   type TrackedQueryInput,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   competitors,
@@ -26,8 +26,8 @@ import {
   sentimentCompletionReceipts,
   usageCounters,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
-import { captureSimpleMeasurementDefinition, selectSentimentSources } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-db'
+import { captureSimpleMeasurementDefinition, selectSentimentSources } from '@canonry/canonry-api-routes'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
