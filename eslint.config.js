@@ -135,15 +135,15 @@ export const noQuestionUiCopyRule = {
 }
 
 // The two exclusions, both permanent:
-// - DiscoverySection is discovery's GENERATIVE framing ("questions your
-//   customers might ask", "Questions tested"). That is what a person asks
+// - queries/FindQueriesSection is discovery's GENERATIVE framing ("questions
+//   your customers might ask", "Questions tested"). That is what a person asks
 //   before anything is tracked — a genuinely different noun, not a row in
 //   `queries`. No regex separates "Generate customer questions" from "Assign
 //   each question to a Property", so the boundary is the file.
 // - mock-data.ts is a test fixture: `createDashboardFixture` has no production
 //   consumer (App.tsx imports only `findEvidenceForModal` / `findRunById`).
 const QUESTION_COPY_PERMANENT_EXCLUSIONS = [
-  'apps/web/src/components/project/DiscoverySection.tsx',
+  'apps/web/src/components/project/queries/FindQueriesSection.tsx',
   'apps/web/src/mock-data.ts',
 ]
 

@@ -67,7 +67,25 @@ async function workspace() {
 async function preview(payload: Record<string, unknown>) {
   const response = await request('POST', '/query-tracking/preview', payload)
   expect(response.statusCode, response.body).toBe(200)
-  return queryTrackingPreviewResponseSchema.parse(response.json())
+  const review = queryTrackingPreviewResponseSchema.parse(response.json())
+  // Every review places each added, reused, or removed query once; a no-op places none.
+  const listed = review.diff.noOp ? [] : (['added', 'reused', 'removed'] as const)
+    .flatMap(change => review.diff[change].map(row => ({ queryId: row.queryId, queryText: row.queryText, change })))
+  expect(review.changes?.map(({ queryId, queryText, change }) => ({ queryId, queryText, change }))).toEqual(listed)
+  // Only a reused query can be left as it is; an added or removed one always changes.
+  expect(review.changes?.filter(change => change.change !== 'reused').map(change => change.altered)).toEqual(
+    listed.filter(row => row.change !== 'reused').map(() => true))
+  // Only an advanced review reports market changes, and each row agrees with its own before and after.
+  expect(review.marketChanges === undefined).toBe(review.mode === 'simple')
+  for (const market of review.marketChanges ?? []) {
+    expect(market.removedTargetKeys).toEqual(market.before.targetKeys.filter(key => !market.after.targetKeys.includes(key)))
+    expect(market.emptied).toBe(market.after.targetKeys.length === 0)
+  }
+  return review
+}
+
+function placement(targetKeys: string[] = [], marketKeys: string[] = []) {
+  return { targetKeys, marketKeys }
 }
 
 async function commit(payload: Record<string, unknown>) {
@@ -464,6 +482,19 @@ describe('query tracking workspace: simple projects', () => {
     expect((await workspace()).workspaceVersion).toBe(current.workspaceVersion)
   })
 
+  it('reports simple placement changes with no Properties or markets', async () => {
+    const current = await workspace()
+    const review = await preview({
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{ input: { source: 'manual', text: 'apartments with a rooftop terrace' } }],
+      removals: [{ queryId: 'q-existing' }],
+    })
+    expect(review.changes).toEqual([
+      { queryId: review.diff.added[0]!.queryId, queryText: 'apartments with a rooftop terrace', change: 'added', before: placement(), after: placement(), altered: true },
+      { queryId: 'q-existing', queryText: 'best apartments in northbridge', change: 'removed', before: placement(), after: placement(), altered: true },
+    ])
+  })
+
   it('rejects saved sources owned by another project', async () => {
     seedOtherProject()
     db.insert(researchRuns).values({
@@ -633,9 +664,14 @@ describe('query tracking workspace: advanced portfolios', () => {
       groups.push({ stableKey: 'metro', label: 'Metro', targetKeys: ['harbor-point'], competitors: [] })
     })
     const current = await workspace()
+    // No market is attached to either group. Their one location sits in Alpha, so each counts that market.
+    const counts = {
+      queries: 1, byClass: { branded: 0, nonBrand: 1, mixed: 0, unknown: 0 }, marketQueries: 1, propertyQueries: 0, customQueries: 0,
+      markets: 1, answersPerSweep: 3,
+    }
     expect(current.groups).toEqual([
-      { stableKey: 'metro', label: 'Metro', targetKeys: ['harbor-point'] },
-      { stableKey: 'northbridge', label: 'Northbridge', targetKeys: ['harbor-point'], parentGroupKey: 'metro' },
+      { stableKey: 'metro', label: 'Metro', targetKeys: ['harbor-point'], counts },
+      { stableKey: 'northbridge', label: 'Northbridge', targetKeys: ['harbor-point'], parentGroupKey: 'metro', counts },
     ])
   })
 
@@ -649,6 +685,11 @@ describe('query tracking workspace: advanced portfolios', () => {
       removals: [],
     }
     const review = await preview(mutation)
+    const placed = placement(['harbor-point', 'river-point'], ['alpha-market', 'beta-market'])
+    // The placement is the same on both sides: only `altered` says the type moves.
+    expect(review.changes).toEqual([{
+      queryId: 'q-existing', queryText: 'best apartments in northbridge', change: 'reused', before: placed, after: placed, altered: true,
+    }])
     expect(review.workload).toMatchObject({ addedNodes: 0, addedProviderCalls: 0, nextSweepProviderCalls: 3 })
     const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
     expect(response.statusCode, response.body).toBe(200)
@@ -691,7 +732,15 @@ describe('query tracking workspace: advanced portfolios', () => {
       additions: [{ input: { source: 'manual', text: 'best apartments in northbridge' }, audience: { marketKeys: ['alpha-market'] }, queryClass: 'branded' }], removals: [],
     })
     expect(response.statusCode).toBe(400)
-    expect(response.json()).toMatchObject({ error: { message: expect.stringContaining('shared with another market') } })
+    const refusal = { error: { code: 'VALIDATION_ERROR', message: 'This query is shared with another market. Change its type for every location instead.' } }
+    expect(response.json()).toEqual(refusal)
+    // A type edit scoped to that one market is refused in the same words.
+    const edit = await request('POST', '/query-tracking/preview', {
+      expectedWorkspaceVersion: current.workspaceVersion, additions: [], removals: [],
+      edits: [{ queryId: 'q-existing', audience: { marketKeys: ['alpha-market'] }, queryClass: 'branded' }],
+    })
+    expect(edit.statusCode).toBe(400)
+    expect(edit.json()).toEqual(refusal)
     expect(activeV2Plan()).toEqual(before)
   })
 
@@ -803,6 +852,9 @@ describe('query tracking workspace: advanced portfolios', () => {
     const review = await preview(mutation)
     expect(review.tracked.find(row => row.queryText === 'apartments with a rooftop terrace')?.assignments.map(row => row.targetKey).sort())
       .toEqual(['harbor-point', 'river-point'])
+    expect(review.changes).toEqual([expect.objectContaining({
+      change: 'added', before: placement(), after: placement(['harbor-point', 'river-point']),
+    })])
     expect(review.workload.addedProviderCalls).toBe(1)
     const published = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
     expect(published.statusCode, published.body).toBe(200)
@@ -810,9 +862,23 @@ describe('query tracking workspace: advanced portfolios', () => {
     const after = await workspace()
     const removal = { expectedWorkspaceVersion: after.workspaceVersion, additions: [], removals: [{ queryId }] }
     const removalReview = await preview(removal)
+    expect(removalReview.changes).toEqual([{
+      queryId, queryText: 'apartments with a rooftop terrace', change: 'removed',
+      before: placement(['harbor-point', 'river-point']), after: placement(), altered: true,
+    }])
     const removed = await commit({ ...removal, previewToken: removalReview.previewToken, reviewedAt: removalReview.reviewedAt })
     expect(removed.statusCode, removed.body).toBe(200)
     expect(activeV2Plan().plan.assignments.some(row => row.queryId === queryId)).toBe(false)
+    // The stop takes the query out of the plan and keeps its row on the list, not asked.
+    expect(db.select().from(queries).where(eq(queries.id, queryId)).get()).toMatchObject({ query: 'apartments with a rooftop terrace' })
+    const stopped = await workspace()
+    expect(stopped.tracked.find(row => row.queryId === queryId)).toMatchObject({ focus: { kind: 'not-asked' }, assignments: [] })
+    // Removing it again, now that nothing asks it, deletes the row and publishes no revision.
+    const deletion = { expectedWorkspaceVersion: stopped.workspaceVersion, additions: [], removals: [{ queryId }] }
+    const deletionReview = await preview(deletion)
+    const deleted = await commit({ ...deletion, previewToken: deletionReview.previewToken, reviewedAt: deletionReview.reviewedAt })
+    expect(deleted.statusCode, deleted.body).toBe(200)
+    expect(deleted.json()).toMatchObject({ committed: true, active: { revision: removed.json().active.revision } })
     expect(db.select().from(queries).where(eq(queries.id, queryId)).get()).toBeUndefined()
     expect(db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.id, original.id)).get()).toEqual(original)
     expect(db.select().from(runs).all()).toHaveLength(0)
@@ -890,11 +956,11 @@ describe('query tracking workspace: advanced portfolios', () => {
     expect(db.select().from(runs).all()).toHaveLength(0)
   })
 
-  it.each([
-    { targetKeys: ['river-point'], marketKeys: ['beta-market'] },
-    { targetKeys: ['harbor-point', 'river-point'], marketKeys: ['beta-market'] },
-    { groupKeys: ['southbridge'], marketKeys: ['alpha-market', 'beta-market'] },
-  ])('rejects an explicit audience that cannot belong to the selected markets: %j', async audience => {
+  it.each<[Record<string, string[]>, string]>([
+    [{ targetKeys: ['river-point'], marketKeys: ['beta-market'] }, 'Market "beta-market" has no selected location.'],
+    [{ targetKeys: ['harbor-point', 'river-point'], marketKeys: ['beta-market'] }, 'Selected location "river-point" does not belong to any selected market.'],
+    [{ groupKeys: ['southbridge'], marketKeys: ['alpha-market', 'beta-market'] }, 'Market "beta-market" has no selected location.'],
+  ])('rejects an explicit audience that cannot belong to the selected markets: %j', async (audience, message) => {
     seedMultiMarketPlan()
     const current = await workspace()
     const response = await request('POST', '/query-tracking/preview', {
@@ -902,7 +968,56 @@ describe('query tracking workspace: advanced portfolios', () => {
       additions: [{ input: additionSource(null), audience }], removals: [],
     })
     expect(response.statusCode, response.body).toBe(400)
+    expect(response.json()).toEqual({ error: { code: 'VALIDATION_ERROR', message } })
     expect(db.select().from(measurementPlanVersions).all()).toHaveLength(1)
+  })
+
+  it.each<[Record<string, string[]>, string]>([
+    [{ targetKeys: ['harbor-point', 'ghost-point'] }, 'Selected location "ghost-point" is not in the active plan.'],
+    [{}, 'Select at least one location, group or market.'],
+    [{ targetKeys: [], groupKeys: [], marketKeys: [] }, 'Select at least one location, group or market.'],
+  ])('refuses an unknown location and an empty selection in plain words, for an addition, a removal and an edit: %j', async (audience, message) => {
+    seedMultiMarketPlan()
+    const current = await workspace()
+    const refusal = { error: { code: 'VALIDATION_ERROR', message } }
+    for (const mutation of [
+      { additions: [{ input: additionSource(null), audience }], removals: [] },
+      { additions: [], removals: [{ queryId: 'q-existing', audience }] },
+      { additions: [], removals: [], edits: [{ queryId: 'q-existing', audience, queryClass: 'branded' }] },
+    ]) {
+      const response = await request('POST', '/query-tracking/preview', { expectedWorkspaceVersion: current.workspaceVersion, ...mutation })
+      expect(response.statusCode, response.body).toBe(400)
+      expect(response.json()).toEqual(refusal)
+    }
+    expect(db.select().from(measurementPlanVersions).all()).toHaveLength(1)
+  })
+
+  it('gives one Property each selected market\'s frozen contexts when the request names none', async () => {
+    seedMultiMarketPlan()
+    const original = activeV2Plan().version
+    const current = await workspace()
+    // What the web Add queries sheet sends for a location that already has queries in two markets.
+    const mutation = {
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{ input: additionSource(null), audience: { targetKeys: ['harbor-point'], marketKeys: ['alpha-market', 'beta-market'] } }],
+      removals: [],
+    }
+    const review = await preview(mutation)
+    const added = review.tracked.find(row => row.queryText === 'apartments with a rooftop terrace')!
+    expect(added.assignments.map(row => [row.targetKey, [...row.marketKeys].sort()])).toEqual([['harbor-point', ['alpha-market', 'beta-market']]])
+    // Alpha asks openai at alpha; Beta asks gemini and openai at beta.
+    expect(review.workload.addedProviderCalls).toBe(3)
+    const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
+    expect(response.statusCode, response.body).toBe(200)
+    const { plan } = activeV2Plan()
+    const nodes = new Map(plan.executionNodes.map(node => [node.stableKey, node]))
+    // One edge per market, each on that market's own search location.
+    expect((plan.reportingScopes ?? []).map(market => [
+      market.stableKey,
+      market.usageEdges.filter(edge => edge.queryId === added.queryId).map(edge => [edge.targetKey, nodes.get(edge.executionNodeKey)?.context.location?.label]),
+    ])).toEqual([['alpha-market', [['harbor-point', 'alpha']]], ['beta-market', [['harbor-point', 'beta']]]])
+    expect(db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.id, original.id)).get()).toEqual(original)
+    expect(db.select().from(runs).all()).toHaveLength(0)
   })
 
   it('partitions explicit contexts by frozen market membership and rejects incompatible contexts', async () => {
@@ -949,6 +1064,8 @@ describe('query tracking workspace: advanced portfolios', () => {
     }
     const review = await preview(mutation)
     expect(review.workload).toMatchObject({ addedProviderCalls: 3, removedProviderCalls: 3, nextSweepProviderCalls: 3 })
+    // The replacement asks the same locations, so neither market's membership changes.
+    expect(review.marketChanges).toEqual([])
     const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
     expect(response.statusCode, response.body).toBe(200)
     expect(activeV2Plan().plan.reportingScopes?.map(scope => scope.usageEdges.length)).toEqual([2, 1])
@@ -1039,6 +1156,14 @@ describe('query tracking workspace: advanced portfolios', () => {
     }
     const review = await preview(mutation)
     expect(review.diff.removed.find(row => row.queryId === 'q-existing')?.assignmentCount).toBe(1)
+    expect(review.changes).toEqual([{
+      queryId: 'q-existing', queryText: 'best apartments in northbridge', change: 'removed',
+      before: placement(['harbor-point'], ['alpha-market']), after: placement(['harbor-point']), altered: true,
+    }])
+    expect(review.marketChanges).toEqual([{
+      marketKey: 'alpha-market', before: { targetKeys: ['harbor-point'] }, after: { targetKeys: [] },
+      removedTargetKeys: ['harbor-point'], emptied: true,
+    }])
     expect(review.workload).toMatchObject({
       existingProviderCalls: 3,
       nextSweepProviderCalls: 2,
@@ -1074,6 +1199,13 @@ describe('query tracking workspace: advanced portfolios', () => {
     }
     const review = await preview(mutation)
     expect(review.diff.removed.find(row => row.queryId === 'q-existing')?.assignmentCount).toBe(1)
+    expect(review.changes).toEqual([expect.objectContaining({
+      change: 'removed',
+      before: placement(['harbor-point'], ['alpha-market', 'beta-market']),
+      after: placement(['harbor-point'], ['beta-market']),
+    })])
+    // Beta keeps the same execution, so only Alpha loses its location.
+    expect(review.marketChanges?.map(market => [market.marketKey, market.emptied])).toEqual([['alpha-market', true]])
     expect(review.workload).toMatchObject({ removedNodes: 0, removedProviderCalls: 0, nextSweepProviderCalls: 3 })
 
     const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
@@ -1083,6 +1215,53 @@ describe('query tracking workspace: advanced portfolios', () => {
     expect(plan.reportingScopes?.find(scope => scope.stableKey === 'alpha-market')?.usageEdges).toEqual([])
     expect(plan.reportingScopes?.find(scope => scope.stableKey === 'beta-market')?.usageEdges)
       .toContainEqual({ executionNodeKey: 'exec-alpha', targetKey: 'harbor-point', queryId: 'q-existing' })
+  })
+
+  it('reports only the query a market add places, with that market\'s Properties after', async () => {
+    seedMultiMarketPlan()
+    const current = await workspace()
+    const review = await preview({
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{ input: additionSource(null), audience: { marketKeys: ['beta-market'] } }], removals: [],
+    })
+    expect(review.changes).toEqual([{
+      queryId: review.diff.added[0]!.queryId, queryText: 'apartments with a rooftop terrace', change: 'added',
+      before: placement(), after: placement(['harbor-point'], ['beta-market']), altered: true,
+    }])
+  })
+
+  it('shows a move as one removed row that loses one Property and gains another', async () => {
+    seedAdvancedPlan()
+    rewriteActivePlan(plan => {
+      (plan.targets as Array<Record<string, unknown>>).push({
+        stableKey: 'river-point', label: 'River Point', aliases: ['River Point'],
+        urlMatchers: [{ kind: 'prefix', host: 'northwind.example', pathPrefix: '/river-point', pathCase: 'insensitive' }],
+        mentionNotApplicable: false, discoveryIdentity: null,
+      })
+    })
+    const current = await workspace()
+    const review = await preview({
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{
+        input: { source: 'manual', text: 'best apartments in northbridge' },
+        audience: { targetKeys: ['river-point'] },
+        contexts: [{ providers: ['openai'], models: { openai: 'gpt-test' }, location: 'alpha' }],
+      }],
+      removals: [{ queryId: 'q-existing', audience: { targetKeys: ['harbor-point'] } }],
+    })
+    expect(review.diff.reused).toEqual([])
+    expect(review.changes).toEqual([{
+      queryId: 'q-existing', queryText: 'best apartments in northbridge', change: 'removed',
+      before: placement(['harbor-point'], ['alpha-market']), after: placement(['river-point']), altered: true,
+    }])
+  })
+
+  it('returns no placement changes for an empty review', async () => {
+    seedMultiMarketPlan()
+    const current = await workspace()
+    const review = await preview({ expectedWorkspaceVersion: current.workspaceVersion, additions: [], removals: [] })
+    expect(review.diff.noOp).toBe(true)
+    expect(review.changes).toEqual([])
   })
 
   it('leaves an already-assigned question untouched and never publishes a duplicate revision', async () => {
@@ -1099,6 +1278,8 @@ describe('query tracking workspace: advanced portfolios', () => {
     }
     const review = await preview(mutation)
     expect(review.diff.noOp).toBe(true)
+    expect(review.diff.reused.map(row => row.queryId)).toEqual(['q-existing'])
+    expect(review.changes).toEqual([])
     expect(review.workload).toMatchObject({ existingProviderCalls: 3, nextSweepProviderCalls: 3, addedProviderCalls: 0 })
     const response = await commit({ ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt })
     expect(queryTrackingCommitResponseSchema.parse(response.json())).toMatchObject({ committed: false, active: { revision: 1 } })
@@ -1250,5 +1431,413 @@ describe('query tracking workspace: advanced portfolios', () => {
 
     expect((await workspace()).tracked.find(row => row.queryId === 'q-existing'))
       .toMatchObject({ state: 'awaiting-sweep', lastMeasuredAt: null })
+  })
+})
+
+/** Grows the seeded plan to `count` distinct assigned queries, each with its own catalog row. */
+function seedAssignedQueries(count: number) {
+  seedAdvancedPlan()
+  const fillers = Array.from({ length: count - 1 }, (_, index) => ({ id: `q-fill-${index}`, text: `filler query ${index}` }))
+  db.insert(queries).values(fillers.map(filler => ({
+    id: filler.id, projectId: 'project-northwind', query: filler.text, provenance: null, createdAt: NOW,
+  }))).run()
+  rewriteActivePlan(plan => {
+    for (const filler of fillers) {
+      const edge = { executionNodeKey: `exec-${filler.id}`, targetKey: 'harbor-point', queryId: filler.id }
+      ;(plan.querySnapshots as unknown[]).push({ queryId: filler.id, queryText: filler.text, provenance: { source: 'manual', sourceId: null, capturedAt: NOW } })
+      ;(plan.executionNodes as unknown[]).push({
+        stableKey: edge.executionNodeKey, queryId: filler.id, queryText: filler.text, expectedSnapshots: 1,
+        context: { providers: ['openai'], models: { openai: 'gpt-test' }, location: { label: 'alpha', city: 'Alpha', region: 'AA', country: 'US' } },
+      })
+      ;(plan.assignments as unknown[]).push({ ...edge, queryClass: 'non-brand', classificationSource: 'server' })
+      ;(plan.usageEdges as unknown[]).push(edge)
+    }
+  })
+}
+
+function marketAddition(text: string) {
+  return { input: { source: 'manual', text }, audience: { marketKeys: ['alpha-market'] } }
+}
+
+async function reviewed(mutation: Record<string, unknown>) {
+  const review = await preview(mutation)
+  return { review, payload: { ...mutation, previewToken: review.previewToken, reviewedAt: review.reviewedAt } }
+}
+
+function insertSweep(status: 'queued' | 'running', measurementPlanVersionId: string | null = 'plan-v1') {
+  db.insert(runs).values({
+    id: 'sweep-1', projectId: 'project-northwind', kind: 'answer-visibility', status, trigger: 'scheduled',
+    measurementPlanVersionId, createdAt: NOW,
+  }).run()
+}
+
+describe('query tracking guards: sweep in progress', () => {
+  it.each(['queued', 'running'] as const)('previews but refuses an advanced commit while a plan-bound sweep is %s, then commits after it', async status => {
+    seedAdvancedPlan()
+    insertSweep(status)
+    const current = await workspace()
+    const { review, payload } = await reviewed({
+      expectedWorkspaceVersion: current.workspaceVersion, additions: [marketAddition('apartments near a park')], removals: [],
+    })
+    expect(review.diff.added.map(row => row.queryText)).toEqual(['apartments near a park'])
+
+    const refused = await commit(payload)
+    expect(refused.statusCode, refused.body).toBe(409)
+    expect(refused.json()).toEqual({
+      error: {
+        code: 'RUN_IN_PROGRESS',
+        message: `Sweep run sweep-1 is ${status} for 'northwind'. Publish tracked query and setup changes after it finishes, or cancel it first: canonry run cancel northwind sweep-1`,
+        details: { projectName: 'northwind', kind: 'answer-visibility', activeRunId: 'sweep-1', reason: 'sweep-in-progress' },
+      },
+    })
+    expect(activeV2Plan().version.id).toBe('plan-v1')
+    expect(db.select().from(measurementPlanVersions).all()).toHaveLength(1)
+    expect(db.select().from(measurementOperationReceipts).all()).toEqual([])
+    expect(db.select().from(auditLog).all()).toEqual([])
+    expect(db.select({ id: queries.id }).from(queries).all()).toEqual([{ id: 'q-existing' }])
+
+    db.update(runs).set({ status: 'completed', finishedAt: NOW }).where(eq(runs.id, 'sweep-1')).run()
+    const committed = await commit(payload)
+    expect(committed.statusCode, committed.body).toBe(200)
+    expect(committed.json()).toMatchObject({ committed: true, active: { revision: 2 } })
+  })
+
+  it('keeps a no-op confirmation and a replayed commit available during a sweep', async () => {
+    seedAdvancedPlan()
+    const current = await workspace()
+    const { payload } = await reviewed({
+      expectedWorkspaceVersion: current.workspaceVersion, additions: [marketAddition('apartments near a park')], removals: [],
+    })
+    const first = await commit(payload)
+    expect(first.statusCode, first.body).toBe(200)
+    insertSweep('running', activeV2Plan().version.id)
+
+    const replay = await commit(payload)
+    expect(replay.statusCode, replay.body).toBe(200)
+    expect(replay.json()).toEqual(first.json())
+
+    const after = await workspace()
+    const noOp = await reviewed({ expectedWorkspaceVersion: after.workspaceVersion, additions: [], removals: [] })
+    const confirmed = await commit(noOp.payload)
+    expect(confirmed.statusCode, confirmed.body).toBe(200)
+    expect(confirmed.json()).toMatchObject({ committed: false, active: { revision: 2 } })
+    expect(db.select().from(measurementPlanVersions).all()).toHaveLength(2)
+  })
+
+  it('does not refuse for finished sweeps, other run kinds, or another project\'s sweep', async () => {
+    seedAdvancedPlan()
+    seedOtherProject()
+    db.insert(runs).values([
+      ...(['completed', 'partial', 'failed', 'cancelled'] as const).map(status => ({
+        id: `finished-${status}`, projectId: 'project-northwind', kind: 'answer-visibility', status, trigger: 'manual',
+        measurementPlanVersionId: 'plan-v1', createdAt: NOW,
+      })),
+      { id: 'audit-running', projectId: 'project-northwind', kind: 'site-audit', status: 'running', trigger: 'manual', createdAt: NOW },
+      { id: 'other-sweep', projectId: 'project-other', kind: 'answer-visibility', status: 'running', trigger: 'manual', createdAt: NOW },
+    ]).run()
+    const current = await workspace()
+    const { payload } = await reviewed({
+      expectedWorkspaceVersion: current.workspaceVersion, additions: [marketAddition('apartments near a park')], removals: [],
+    })
+    const committed = await commit(payload)
+    expect(committed.statusCode, committed.body).toBe(200)
+    expect(committed.json()).toMatchObject({ committed: true, active: { revision: 2 } })
+  })
+})
+
+describe('query tracking guards: query limit', () => {
+  it('reports the limit on an advanced preview and leaves it off a simple one', async () => {
+    const simple = await workspace()
+    const simplePreview = await request('POST', '/query-tracking/preview', {
+      expectedWorkspaceVersion: simple.workspaceVersion, additions: [{ input: { source: 'manual', text: 'apartments near a park' } }], removals: [],
+    })
+    expect(simplePreview.statusCode, simplePreview.body).toBe(200)
+    expect(simplePreview.json()).not.toHaveProperty('limits')
+
+    seedAdvancedPlan()
+    const advanced = await workspace()
+    const added = await preview({
+      expectedWorkspaceVersion: advanced.workspaceVersion,
+      additions: [marketAddition('apartments near a park'), marketAddition('apartments near a library')], removals: [],
+    })
+    expect(added.limits).toEqual({
+      queries: { current: 1, next: 3, max: 1_000, left: { current: 999, next: 997 }, over: { current: 0, next: 0 }, exceeded: false },
+    })
+    const removed = await preview({ expectedWorkspaceVersion: advanced.workspaceVersion, additions: [], removals: [{ queryId: 'q-existing' }] })
+    expect(removed.limits).toEqual({
+      queries: { current: 1, next: 0, max: 1_000, left: { current: 999, next: 1_000 }, over: { current: 0, next: 0 }, exceeded: false },
+    })
+  })
+
+  it('commits a change that reaches exactly 1,000 queries and refuses one more', async () => {
+    seedAssignedQueries(999)
+    const atLimit = await reviewed({
+      expectedWorkspaceVersion: (await workspace()).workspaceVersion, additions: [marketAddition('apartments near a park')], removals: [],
+    })
+    // Exactly at the limit there is no room left and nothing over: `left.next` alone cannot tell this from one more.
+    expect(atLimit.review.limits).toEqual({
+      queries: { current: 999, next: 1_000, max: 1_000, left: { current: 1, next: 0 }, over: { current: 0, next: 0 }, exceeded: false },
+    })
+    const committed = await commit(atLimit.payload)
+    expect(committed.statusCode, committed.body).toBe(200)
+    expect(committed.json()).toMatchObject({ committed: true, active: { revision: 2 } })
+
+    const overLimit = await reviewed({
+      expectedWorkspaceVersion: (await workspace()).workspaceVersion, additions: [marketAddition('apartments near a library')], removals: [],
+    })
+    // The preview still answers, and says the commit of this change is refused.
+    expect(overLimit.review.limits).toEqual({
+      queries: { current: 1_000, next: 1_001, max: 1_000, left: { current: 0, next: 0 }, over: { current: 0, next: 1 }, exceeded: true },
+    })
+    const refused = await commit(overLimit.payload)
+    expect(refused.statusCode, refused.body).toBe(400)
+    expect(refused.json()).toEqual({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'This change would track 1,001 queries, over the 1,000-query limit. Remove queries or add fewer, then preview the change again.',
+        details: { check: 'query-limit-exceeded', current: 1_000, next: 1_001, max: 1_000, displayToOperator: true },
+      },
+    })
+    expect(activeV2Plan().version.revision).toBe(2)
+    expect(db.select().from(measurementOperationReceipts).all()).toHaveLength(1)
+    expect(db.select().from(queries).where(eq(queries.query, 'apartments near a library')).all()).toEqual([])
+  })
+
+  it('lets a plan already over the limit shrink while it stays over', async () => {
+    seedAssignedQueries(1_002)
+    const shrink = await reviewed({
+      expectedWorkspaceVersion: (await workspace()).workspaceVersion, additions: [], removals: [{ queryId: 'q-fill-0' }],
+    })
+    // Still one over after the change, and not refused: `over.next` does not decide `exceeded`.
+    expect(shrink.review.limits).toEqual({
+      queries: { current: 1_002, next: 1_001, max: 1_000, left: { current: 0, next: 0 }, over: { current: 2, next: 1 }, exceeded: false },
+    })
+    const committed = await commit(shrink.payload)
+    expect(committed.statusCode, committed.body).toBe(200)
+    expect(new Set(activeV2Plan().plan.assignments.map(row => row.queryId)).size).toBe(1_001)
+  })
+
+  it('refuses a commit exactly when its preview said exceeded, also for a plan already over the limit', async () => {
+    seedAssignedQueries(1_002)
+    const version = (await workspace()).workspaceVersion
+    // Swapping one query for another keeps the count: over the limit, and allowed.
+    const swap = await reviewed({
+      expectedWorkspaceVersion: version, additions: [marketAddition('apartments near a park')], removals: [{ queryId: 'q-fill-0' }],
+    })
+    expect(swap.review.limits?.queries).toMatchObject({ current: 1_002, next: 1_002, over: { current: 2, next: 2 }, exceeded: false })
+    const grow = await reviewed({ expectedWorkspaceVersion: version, additions: [marketAddition('apartments near a library')], removals: [] })
+    expect(grow.review.limits?.queries).toMatchObject({ current: 1_002, next: 1_003, over: { current: 2, next: 3 }, exceeded: true })
+
+    const refused = await commit(grow.payload)
+    expect(refused.statusCode, refused.body).toBe(400)
+    expect(refused.json().error.details).toEqual({ check: 'query-limit-exceeded', current: 1_002, next: 1_003, max: 1_000, displayToOperator: true })
+    const allowed = await commit(swap.payload)
+    expect(allowed.statusCode, allowed.body).toBe(200)
+    expect(allowed.json()).toMatchObject({ committed: true, active: { revision: 2 } })
+  })
+})
+
+describe('query tracking preview: what each named query changes', () => {
+  it('marks two new lines altered and an already tracked line not', async () => {
+    seedAdvancedPlan()
+    const current = await workspace()
+    const review = await preview({
+      expectedWorkspaceVersion: current.workspaceVersion, removals: [],
+      additions: [marketAddition('apartments near a park'), marketAddition('apartments near a library'), marketAddition('best apartments in northbridge')],
+    })
+
+    expect(review.changes?.map(change => [change.queryText, change.change, change.altered])).toEqual([
+      ['apartments near a library', 'added', true],
+      ['apartments near a park', 'added', true],
+      // Named again in the market it is already asked in: listed, and nothing about it moves.
+      ['best apartments in northbridge', 'reused', false],
+    ])
+    expect(review.changes?.every(change => change.rewordedFrom === undefined)).toBe(true)
+  })
+
+  it('marks a reused query altered when only where its type came from changes', async () => {
+    seedAdvancedPlan()
+    const current = await workspace()
+    // The same Non-brand type, now set by an operator instead of the server.
+    const review = await preview({
+      expectedWorkspaceVersion: current.workspaceVersion, additions: [], removals: [],
+      edits: [{ queryId: 'q-existing', queryClass: 'non-brand' }],
+    })
+
+    const before = current.tracked.find(row => row.queryId === 'q-existing')!
+    const after = review.tracked.find(row => row.queryId === 'q-existing')!
+    expect([after.focus, after.queryClasses]).toEqual([before.focus, before.queryClasses])
+    expect(after.assignments.map(row => row.classificationSource)).toEqual(['operator'])
+    expect(review.changes).toEqual([{
+      queryId: 'q-existing', queryText: 'best apartments in northbridge', change: 'reused',
+      before: placement(['harbor-point'], ['alpha-market']), after: placement(['harbor-point'], ['alpha-market']), altered: true,
+    }])
+  })
+
+  it('marks a reused query altered when its Subject changes and when it only gains a search location', async () => {
+    seedAdvancedPlan()
+    const current = await workspace()
+    const addition = (extra: Record<string, unknown>) => preview({
+      expectedWorkspaceVersion: current.workspaceVersion, removals: [],
+      additions: [{ input: { source: 'manual', text: 'best apartments in northbridge' }, audience: { targetKeys: ['harbor-point'] }, ...extra }],
+    })
+
+    // Branded in a market of one location makes the query the Location's.
+    const subject = await addition({ queryClass: 'branded' })
+    expect(subject.tracked.find(row => row.queryId === 'q-existing')?.focus).toEqual({ kind: 'property', key: 'harbor-point' })
+    expect(subject.changes?.map(change => [change.queryId, change.change, change.altered])).toEqual([['q-existing', 'reused', true]])
+
+    // One more search location for the same location: the same locations and markets on both sides.
+    rewriteActivePlan(plan => {
+      (plan.assignments as unknown[]).pop()
+      ;(plan.usageEdges as unknown[]).pop()
+      ;(plan.executionNodes as unknown[]).pop()
+    })
+    const fresh = await workspace()
+    const gained = await preview({
+      expectedWorkspaceVersion: fresh.workspaceVersion, removals: [],
+      additions: [{
+        input: { source: 'manual', text: 'best apartments in northbridge' }, audience: { targetKeys: ['harbor-point'] },
+        contexts: [{ providers: ['gemini', 'openai'], models: { gemini: 'gemini-test', openai: 'gpt-test' }, location: 'beta' }],
+      }],
+    })
+    expect(gained.changes).toEqual([{
+      queryId: 'q-existing', queryText: 'best apartments in northbridge', change: 'reused',
+      before: placement(['harbor-point'], ['alpha-market']), after: placement(['harbor-point'], ['alpha-market']), altered: true,
+    }])
+    expect(gained.workload).toMatchObject({ addedNodes: 1, addedProviderCalls: 2 })
+  })
+
+  it('marks a reused query altered when its type changes everywhere or for one of its locations only', async () => {
+    seedMultiMarketPlan()
+    const current = await workspace()
+    const changesOf = async (edit: Record<string, unknown>) => (await preview({
+      expectedWorkspaceVersion: current.workspaceVersion, additions: [], removals: [], edits: [{ queryId: 'q-existing', ...edit }],
+    })).changes?.map(change => [change.queryId, change.change, change.altered])
+
+    expect(await changesOf({ queryClass: 'branded' })).toEqual([['q-existing', 'reused', true]])
+    expect(await changesOf({ audience: { targetKeys: ['river-point'] }, queryClass: 'branded' })).toEqual([['q-existing', 'reused', true]])
+  })
+})
+
+describe('query tracking preview: pattern variable names', () => {
+  it.each([
+    ['best apartments in {submarket}', { marketKeys: ['alpha-market'] }, 'best apartments in Alpha', { submarket: 'Alpha' }],
+    ['{propertyBrand} floor plans', { targetKeys: ['harbor-point'], marketKeys: ['alpha-market'] }, 'Harbor Point floor plans', { propertyBrand: 'Harbor Point' }],
+    ['{locationName} floor plans', { targetKeys: ['harbor-point'], marketKeys: ['alpha-market'] }, 'Harbor Point floor plans', { locationName: 'Harbor Point' }],
+    ['{locationName} homes in {submarket}', { targetKeys: ['harbor-point'], marketKeys: ['alpha-market'] }, 'Harbor Point homes in Alpha', { locationName: 'Harbor Point', submarket: 'Alpha' }],
+  ] as const)('expands a saved pattern written as "%s" and freezes its own names', async (pattern, audience, queryText, bindings) => {
+    seedAdvancedPlan()
+    const current = await workspace()
+    const review = await preview({
+      expectedWorkspaceVersion: current.workspaceVersion, removals: [],
+      additions: [{ input: additionSource(pattern), audience }],
+    })
+
+    expect(review.diff.added.map(row => row.queryText)).toEqual([queryText])
+    expect(review.tracked.find(row => row.queryText === queryText)?.provenance?.template).toMatchObject({ template: pattern, bindings, output: queryText })
+  })
+
+  it('still refuses a search location name, which tracking has nothing to bind, and names what it takes', async () => {
+    seedAdvancedPlan()
+    const current = await workspace()
+    for (const name of ['location', 'searchLocation', 'city']) {
+      const response = await request('POST', '/query-tracking/preview', {
+        expectedWorkspaceVersion: current.workspaceVersion, removals: [],
+        additions: [{ input: additionSource(`apartments in {${name}}`), audience: { marketKeys: ['alpha-market'] } }],
+      })
+      expect(response.statusCode, response.body).toBe(400)
+      expect(response.json().error.message).toBe(`Query tracking templates support only {market} and {locationName}; found {${name}}.`)
+      db.delete(measurementQueryTemplates).run()
+    }
+  })
+
+  it('names the pattern\'s own variable when its place is not selected', async () => {
+    seedAdvancedPlan()
+    const current = await workspace()
+    const refusal = async (pattern: string, audience: Record<string, string[]>) => {
+      const response = await request('POST', '/query-tracking/preview', {
+        expectedWorkspaceVersion: current.workspaceVersion, removals: [],
+        additions: [{ input: additionSource(pattern), audience, contexts: [{ providers: ['openai'], models: { openai: 'gpt-test' }, location: 'alpha' }] }],
+      })
+      db.delete(measurementQueryTemplates).run()
+      return [response.statusCode, response.json().error.message]
+    }
+
+    expect(await refusal('best apartments in {submarket}', { targetKeys: ['harbor-point'] }))
+      .toEqual([400, 'A template containing {submarket} needs a selected market.'])
+    expect(await refusal('best apartments in {market}', { targetKeys: ['harbor-point'] }))
+      .toEqual([400, 'A template containing {market} needs a selected market.'])
+  })
+})
+
+describe('query tracking workspace: subject', () => {
+  it('reports a simple site question as the Company', async () => {
+    const current = await workspace()
+
+    expect(current.mode).toBe('simple')
+    expect(current.tracked.map(row => row.focus)).toEqual([{ kind: 'company' }])
+  })
+
+  it('derives each advanced row from its pairings, including a catalog-only row', async () => {
+    seedAdvancedPlan()
+    db.insert(queries).values({ id: 'q-catalog-only', projectId: 'project-northwind', query: 'northwind parking', createdAt: NOW }).run()
+    const response = await request('GET', '/query-tracking')
+    expect(response.statusCode, response.body).toBe(200)
+    const current = queryTrackingWorkspaceResponseSchema.parse(response.json())
+
+    // A Non-brand question in a market of one location is that market.
+    expect(current.tracked.map(row => [row.queryId, row.focus])).toEqual([
+      ['q-existing', { kind: 'market', key: 'alpha-market' }],
+      ['q-catalog-only', { kind: 'not-asked' }],
+    ])
+    expect(response.json().tracked.map((row: { focus: unknown }) => row.focus)).toEqual(current.tracked.map(row => row.focus))
+  })
+
+  it('reports a question in two markets as Custom', async () => {
+    seedMultiMarketPlan()
+
+    expect((await workspace()).tracked.find(row => row.queryId === 'q-existing')?.focus).toEqual({ kind: 'custom' })
+  })
+
+  it('shows the after-change Subject in a preview: a market add is the Market, a location-only add is Custom', async () => {
+    seedMultiMarketPlan()
+    const current = await workspace()
+    const marketAdd = await preview({
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{ input: { source: 'manual', text: 'apartments with a rooftop terrace' }, audience: { marketKeys: ['alpha-market'] } }],
+      removals: [],
+    })
+    const locationAdd = await preview({
+      expectedWorkspaceVersion: current.workspaceVersion,
+      additions: [{
+        input: { source: 'manual', text: 'apartments with a rooftop terrace' }, audience: { targetKeys: ['harbor-point'] },
+        contexts: [{ providers: ['openai'], models: { openai: 'gpt-test' }, location: 'alpha' }],
+      }],
+      removals: [],
+    })
+
+    const added = (review: typeof marketAdd) => review.tracked.find(row => row.queryId === review.diff.added[0]!.queryId)?.focus
+    expect(added(marketAdd)).toEqual({ kind: 'market', key: 'alpha-market' })
+    expect(added(locationAdd)).toEqual({ kind: 'custom' })
+  })
+
+  it('refuses a Subject sent on an addition', async () => {
+    seedAdvancedPlan()
+    const current = await workspace()
+    for (const field of ['focus', 'subject']) {
+      const response = await request('POST', '/query-tracking/preview', {
+        expectedWorkspaceVersion: current.workspaceVersion,
+        additions: [{
+          input: { source: 'manual', text: 'apartments with a rooftop terrace' }, audience: { marketKeys: ['alpha-market'] },
+          [field]: { kind: 'market', key: 'alpha-market' },
+        }],
+        removals: [],
+      })
+      expect(response.statusCode, response.body).toBe(400)
+      expect(response.json().error.details.issues).toEqual([
+        expect.objectContaining({ code: 'unrecognized_keys', keys: [field], path: ['additions', 0] }),
+      ])
+    }
   })
 })

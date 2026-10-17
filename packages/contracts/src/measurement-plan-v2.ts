@@ -574,6 +574,32 @@ export const measurementNextActionKindSchema = z.enum([
 export type MeasurementNextActionKind = z.output<typeof measurementNextActionKindSchema>
 
 /**
+ * Opt-in on the location reads. After a tracking change, and until a sweep of
+ * the active plan completes, `last-sweep` reads the newest completed
+ * whole-project sweep under the plan it ran with instead of answering "not
+ * measured". It changes what a read returns, so it is part of a cursor's
+ * identity. Omitted, a read needs a sweep of the active plan, as before.
+ */
+export const measurementReadFallbackSchema = z.enum(['last-sweep'])
+export type MeasurementReadFallback = z.output<typeof measurementReadFallbackSchema>
+export const MeasurementReadFallbacks = measurementReadFallbackSchema.enum
+
+/**
+ * Which plan the displayed sweep ran with, beside the active one. Sent only
+ * when the request carries `fallback`, and then always all four.
+ */
+export const measurementLastSweepFieldsShape = {
+  /** The active plan revision at read time. */
+  activeRevision: z.number().int().positive().optional(),
+  /** The revision the displayed sweep ran with; the active one for a sweep of its own chain. Null when no sweep is displayed. */
+  measuredRevision: z.number().int().positive().nullable().optional(),
+  /** True when the displayed sweep ran with another plan, or no sweep is displayed. */
+  awaitingSweep: z.boolean().optional(),
+  /** When the active revision was published. */
+  trackingChangedAt: z.string().datetime().optional(),
+}
+
+/**
  * `runId` is the only way to display a scoped spot check: run selection
  * otherwise falls to the most recent completed run pinned to the active
  * revision. A run pinned to another revision is refused rather than joined.
@@ -591,6 +617,8 @@ export const measurementOverviewQuerySchema = z.object({
   from: z.string().trim().min(1).optional(),
   to: z.string().trim().min(1).optional(),
   runId: z.string().trim().min(1).optional(),
+  /** Read the last completed sweep after a tracking change. Refused with `from` or `to`. */
+  fallback: measurementReadFallbackSchema.optional(),
   /** Filters the returned rows only. Metrics are computed before it is applied. */
   search: z.string().optional(),
   /** Omit for the shipped label-ascending order. Metric-unavailable rows sort first. */
@@ -709,6 +737,7 @@ export const measurementOverviewResponseSchema = z.object({
     completedAt: z.string().datetime().optional(),
     /** Present for v2 reads. True when the selected run used bridged or recovered historical source data. */
     includesHistoricalData: z.boolean().optional(),
+    ...measurementLastSweepFieldsShape,
   }).strict(),
   nextAction: z.object({
     kind: measurementNextActionKindSchema,
@@ -778,6 +807,8 @@ export const measurementPropertyEvidenceQuerySchema = z.object({
   provider: providerNameSchema.optional(),
   location: z.string().trim().min(1).optional(),
   runId: z.string().trim().min(1).optional(),
+  /** Read the last completed sweep after a tracking change. */
+  fallback: measurementReadFallbackSchema.optional(),
   /** Omit for the published per-URL rows. A cursor is bound to the shape that issued it. */
   shape: measurementEvidenceShapeSchema.optional(),
   cursor: z.string().trim().min(1).optional(),

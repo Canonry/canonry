@@ -57,3 +57,39 @@ test('shows retained deleted-project evidence, client attribution, session, and 
   cleanup()
   queryClient.clear()
 })
+
+test('tracking history names the actual queries and distinguishes stopped from deleted', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([{
+    id: 'tracking-publish', projectId: 'demo', actor: 'api', action: 'query-tracking.published', entityType: 'query-tracking', entityId: 'demo',
+    diff: { queries: { counts: { added: 2, stopped: 1, removed: 1, changed: 1 }, added: ['apartments uptown'], stopped: ['old market query'], removed: ['deleted catalog query'], changed: ['reworded query'], truncated: true } },
+    userAgent: 'Mozilla/5.0', actorSession: null, createdAt: '2026-10-15T12:00:00.000Z',
+  }])))
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={queryClient}><AuditHistoryPanel projectName="demo" /></QueryClientProvider>)
+  await screen.findByText('2 added · 1 stopped · 1 removed · 1 changed')
+  expect(screen.queryByText('View diff')).toBeNull()
+  fireEvent.click(screen.getByText('View queries'))
+  for (const text of ['Added · apartments uptown', 'Stopped · old market query', 'Removed · deleted catalog query', 'Changed · reworded query']) expect(screen.getByText(text)).toBeTruthy()
+  expect(screen.getByText('More queries changed.')).toBeTruthy()
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search change history' }), { target: { value: 'old market query' } })
+  expect(screen.getByText('2 added · 1 stopped · 1 removed · 1 changed')).toBeTruthy()
+  cleanup()
+  queryClient.clear()
+})
+
+test.each([
+  ['query-tracking.published', '1 added · 2 stopped · 3 matched'],
+  ['query-tracking.updated', '1 added · 2 removed · 3 matched'],
+])('reads older %s history without inventing query texts', async (action, summary) => {
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([{
+    id: 'tracking-old', projectId: 'demo', actor: 'cli', action, entityType: 'query-tracking', entityId: 'demo',
+    diff: { added: 1, removed: 2, reused: 3 }, userAgent: null, actorSession: null, createdAt: '2026-10-15T12:00:00.000Z',
+  }])))
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={queryClient}><AuditHistoryPanel projectName="demo" /></QueryClientProvider>)
+  await screen.findByText(summary)
+  expect(screen.queryByText('View queries')).toBeNull()
+  expect(screen.queryByText('View diff')).toBeNull()
+  cleanup()
+  queryClient.clear()
+})

@@ -833,8 +833,28 @@
     @apply lg:pl-0;
   }
 
+  /* The topbar's height: its 40px icon button (36px from md), 10px of padding
+     above and below, and its 1px border. A header that sticks under the topbar
+     uses it as its `top`. The setup wizard's topbar has no icon button and is
+     shorter, and an embed has no topbar. */
+  :root {
+    --topbar-h: 3.8125rem;
+  }
+
+  @media (min-width: 48rem) {
+    :root {
+      --topbar-h: 3.5625rem;
+    }
+  }
+
+  .app-shell-focus,
+  .app-shell-embed {
+    --topbar-h: 0px;
+  }
+
   .topbar {
     @apply sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-default bg-bg/95 px-4 py-2.5 backdrop-blur-sm md:px-6;
+    min-height: var(--topbar-h);
   }
 
   .topbar-left {
@@ -1042,7 +1062,7 @@
      returns to DOM order and caps its width. The trigger label wraps
      instead of truncating. */
   .project-context-scope {
-    @apply order-last w-full min-w-0 md:order-none md:w-auto md:min-w-64 md:max-w-md;
+    @apply order-last w-full min-w-0 md:order-none md:w-auto md:min-w-64 md:max-w-2xl;
   }
 
   .project-context-domain {
@@ -3179,6 +3199,643 @@
     .tracking-row-actions { flex-direction: column; align-items: flex-start; gap: 0; }
   }
 
+  /* ── Tracked queries table ── */
+  /* Fixed layout: every column but Query has a width (`TRACKED_COLUMN_WIDTH`
+     in tracked-view-model.ts, and `trackedLayout` for Subject's), set on its
+     <col>, and Query takes the rest. `trackedLayout` keeps that wide enough
+     for a long query: it leaves Last measured and Source to the row detail,
+     narrows Subject, and then stacks the rows, so the frame never scrolls
+     sideways and the header can stick under the topbar. */
+  .tracked-table-frame {
+    container: tracked-table / inline-size;
+    /* What a one-line Subject keeps between its name and its count. */
+    --tracked-subject-gap: 0.25rem;
+  }
+
+  /* Never drawn. `rule` in TrackedTable.tsx sets a text here on one line to
+     take its width, in the type the table sets a query and a Subject in, and
+     the Subject's gap with it. The frame holds it in place, where it takes
+     no room. */
+  .tracked-ruler {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
+    white-space: pre;
+    @apply text-[13px];
+  }
+
+  .tracked-ruler > [data-face='strong'] {
+    @apply font-medium;
+  }
+
+  .tracked-ruler > [data-face='count'] {
+    @apply tabular-nums;
+  }
+
+  .tracked-ruler > [data-face='gap'] {
+    display: inline-block;
+    width: var(--tracked-subject-gap);
+  }
+
+  .tracked-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+    @apply text-[13.5px] leading-5 text-neutral;
+  }
+
+  .tracked-table > thead th {
+    position: sticky;
+    top: var(--topbar-h);
+    z-index: 10;
+    @apply whitespace-nowrap border-b border-default bg-bg px-2.5 py-2 text-left text-[13px] font-medium text-secondary;
+  }
+
+  .tracked-sort {
+    position: relative;
+    @apply inline-flex cursor-pointer items-center rounded-sm text-inherit hover:text-heading pointer-coarse:min-h-11;
+  }
+
+  /* After the header's text and out of its flow, so a sorted column is no wider than an unsorted one. */
+  .tracked-sort-mark {
+    position: absolute;
+    top: 50%;
+    left: calc(100% + 1px);
+    translate: 0 -50%;
+    @apply size-3 text-heading;
+  }
+
+  /* A header that sorts says so under the pointer and under focus. */
+  .tracked-sort-hint {
+    opacity: 0;
+  }
+
+  .tracked-sort:hover > .tracked-sort-hint,
+  .tracked-sort:focus-visible > .tracked-sort-hint {
+    opacity: 0.4;
+  }
+
+  /* The mark of a name as wide as its column hangs in the next header's
+     padding. While it shows, its own header is drawn over that one. */
+  .tracked-table > thead th:hover,
+  .tracked-table > thead th:focus-within,
+  .tracked-table > thead th[aria-sort='ascending'],
+  .tracked-table > thead th[aria-sort='descending'] {
+    z-index: 11;
+  }
+
+  .tracked-row > td {
+    @apply border-b border-subtle px-2.5 py-2 align-middle;
+  }
+
+  .tracked-row:hover > td {
+    @apply bg-surface;
+  }
+
+  /* The header sticks over the rows, so a control that takes focus scrolls
+     clear of it and of the topbar. 4rem covers the header where a finger is
+     the pointer and its buttons are 44px tall. */
+  .tracked-row button,
+  .tracked-row input,
+  .tracked-detail-row button,
+  .tracked-detail-row a {
+    scroll-margin-top: calc(var(--topbar-h) + 4rem);
+  }
+
+  /* A ticked row and the row a link points at: a tint and a 2px marker on the
+     left edge. The marker is a background, so it also covers the cell's border
+     and runs unbroken from a row into its open detail. */
+  .tracked-row[data-selected] > td,
+  .tracked-row[data-highlighted] > td,
+  .tracked-detail-row[data-highlighted] > td {
+    @apply bg-surface-active;
+  }
+
+  .tracked-row[data-selected] > td:first-child,
+  .tracked-row[data-highlighted] > td:first-child,
+  .tracked-detail-row[data-highlighted] > td {
+    background-image: linear-gradient(var(--color-text-primary), var(--color-text-primary));
+    background-repeat: no-repeat;
+    background-size: 2px 100%;
+    background-origin: border-box;
+  }
+
+  /* An open row and its detail read as one block. */
+  .tracked-row[data-open] > td {
+    border-bottom-color: transparent;
+  }
+
+  .tracked-table .tracked-cell-select {
+    @apply p-0 text-center;
+  }
+
+  .tracked-check {
+    @apply inline-grid size-8 cursor-pointer select-none place-items-center align-middle pointer-coarse:size-11 max-md:size-11;
+  }
+
+  /* A quiet outlined box, filled when ticked. A dash is some of the page's rows. */
+  .tracked-check > input {
+    appearance: none;
+    @apply grid size-3.5 cursor-pointer place-content-center rounded-[3.5px] border-[1.5px] border-strong disabled:cursor-default disabled:opacity-50;
+  }
+
+  .tracked-check > input:checked,
+  .tracked-check > input:indeterminate {
+    @apply border-mono-100 bg-mono-100;
+  }
+
+  .tracked-check > input:checked::after {
+    content: '';
+    width: 0.5rem;
+    height: 0.3125rem;
+    margin-top: -0.125rem;
+    border-bottom: 1.5px solid var(--color-on-inverse);
+    border-left: 1.5px solid var(--color-on-inverse);
+    transform: rotate(-45deg);
+  }
+
+  .tracked-check > input:indeterminate::after {
+    content: '';
+    width: 0.5rem;
+    border-bottom: 1.5px solid var(--color-on-inverse);
+  }
+
+  .tracked-query {
+    @apply block w-full cursor-pointer rounded-sm text-left font-medium text-heading hover:text-primary hover:underline pointer-coarse:min-h-11 max-md:min-h-11;
+    text-underline-offset: 3px;
+  }
+
+  /* The mark hangs in the first line's indent, so a second line starts under the text. */
+  .tracked-query > span {
+    padding-left: 1rem;
+    text-indent: -1rem;
+    @apply line-clamp-2 break-words;
+  }
+
+  /* In the table the closed rows of a page are one height. Where every query
+     and Subject fits its column that is one line, and a Source too long for
+     its column is cut short at the column's edge. The open row shows all
+     three whole. */
+  .tracked-table[data-layout='table'] .tracked-row:not([data-open]) .tracked-query > span,
+  .tracked-table[data-layout='table'] .tracked-row:not([data-open]) .tracked-cell-source > span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    -webkit-line-clamp: unset;
+  }
+
+  /* A page with a query or a Subject too long for one line (`data-lines`,
+     from `useRowLines` in TrackedTable.tsx) gives every row two. The query
+     wraps and stops after the second, and each row is as tall as two of its
+     20px lines whatever it holds, so the page keeps one rhythm, with the
+     chips, Status and the menu on the middle of the row. A row asked both
+     ways is taller, as it is among one-line rows. */
+  .tracked-table[data-layout='table'][data-lines='2'] .tracked-row:not([data-open]) .tracked-query > span {
+    display: -webkit-box;
+    white-space: normal;
+    -webkit-line-clamp: 2;
+  }
+
+  .tracked-table[data-layout='table'][data-lines='2'] .tracked-row > td {
+    height: 3.5625rem;
+  }
+
+  /* A finger's 44px button holds two lines, so there the closed row's query
+     takes both on any page and no row is taller for it. */
+  @media (pointer: coarse) {
+    .tracked-table[data-layout='table'] .tracked-row:not([data-open]) .tracked-query > span {
+      display: -webkit-box;
+      white-space: normal;
+      -webkit-line-clamp: 2;
+    }
+  }
+
+  /* The query is the row's identity, so in the table it is set a size down
+     and runs closer to its column's edges: the 420px `trackedLayout` keeps
+     for it hold 60 to 64 characters. The next column's own padding keeps the
+     two apart, as it does after Subject. Its header follows. */
+  .tracked-table[data-layout='table'] .tracked-cell-query,
+  .tracked-table[data-layout='table'] .tracked-cell-subject {
+    padding-right: 0.25rem;
+  }
+
+  /* Where a query or a Subject wraps in the table, closed or open, the
+     browser leaves no word alone on the last line if it can help it. */
+  .tracked-table[data-layout='table'] .tracked-cell-query,
+  .tracked-table[data-layout='table'] .tracked-cell-subject {
+    text-wrap: pretty;
+  }
+
+  /* Beside the checkbox column Query needs no padding on the left, and the
+     open row's detail starts where the query does. A finger's 44px checkbox
+     is wider than its column, so there both keep the padding. */
+  @media not all and (pointer: coarse) {
+    .tracked-table[data-layout='table'][data-selectable] .tracked-cell-query {
+      padding-left: 0;
+    }
+
+    .tracked-table[data-layout='table'][data-selectable] .tracked-detail-row > td {
+      padding-left: 2rem;
+    }
+  }
+
+  .tracked-table[data-layout='table'] .tracked-query {
+    @apply text-[13px];
+  }
+
+  .tracked-table[data-layout='table'] .tracked-query > span {
+    padding-left: 0.875rem;
+    text-indent: -0.875rem;
+  }
+
+  .tracked-table[data-layout='table'] .tracked-query-mark {
+    margin-right: 0.125rem;
+  }
+
+  /* Under keyboard focus a query cut short shows whole on its line, over the
+     cells beside it and never past the frame, so no row changes height. The
+     line takes the button's ring with it, ends a cell's padding before the
+     text it stops at, and lets a click through to the cells under it. On a
+     tinted row it wears the row's tint over its own ground. A finger's 44px
+     button keeps its shape. */
+  @media not all and (pointer: coarse) {
+    .tracked-table[data-layout='table'] .tracked-row:not([data-open]) .tracked-query[data-clipped]:focus-visible > span {
+      position: relative;
+      z-index: 1;
+      width: max-content;
+      max-width: calc(100cqi - 3.5rem);
+      padding-right: 0.625rem;
+      pointer-events: none;
+      @apply rounded-sm bg-bg ring-2 ring-mono-400;
+    }
+
+    /* On a page of two-line rows the line stays as tall as two, so it covers
+       both lines of the cells it is drawn over and starts where it did. */
+    .tracked-table[data-layout='table'][data-lines='2'] .tracked-row:not([data-open]) .tracked-query[data-clipped]:focus-visible > span {
+      min-height: 2.5rem;
+    }
+
+    .tracked-table[data-layout='table'] .tracked-row:not([data-open]):hover .tracked-query[data-clipped]:focus-visible > span {
+      background-image: linear-gradient(var(--color-surface), var(--color-surface));
+    }
+
+    .tracked-table[data-layout='table'] .tracked-row[data-selected]:not([data-open]) .tracked-query[data-clipped]:focus-visible > span,
+    .tracked-table[data-layout='table'] .tracked-row[data-highlighted]:not([data-open]) .tracked-query[data-clipped]:focus-visible > span {
+      background-image: linear-gradient(var(--color-surface-active), var(--color-surface-active));
+    }
+  }
+
+  .tracked-row[data-open] .tracked-query > span {
+    @apply line-clamp-none;
+  }
+
+  /* Says the row opens: it points right, and down while the row is open. */
+  .tracked-query-mark {
+    margin-right: 0.25rem;
+    vertical-align: -1px;
+    @apply inline-block size-3 text-muted transition-transform;
+  }
+
+  .tracked-query[aria-expanded='true'] .tracked-query-mark {
+    rotate: 90deg;
+  }
+
+  .tracked-cell-subject {
+    @apply break-words text-[13px] leading-[1.35] text-secondary;
+  }
+
+  /* A closed row's Subject on one line: the name gives way to the column's edge and the count after it keeps its place. */
+  .tracked-subject {
+    column-gap: var(--tracked-subject-gap);
+    @apply flex min-w-0 items-baseline;
+  }
+
+  .tracked-subject-name {
+    @apply min-w-0 truncate;
+  }
+
+  .tracked-subject > :not(.tracked-subject-name) {
+    flex: none;
+  }
+
+  /* On a page of two-line rows it wraps as the open row's does, the count on
+     the name's last word, on lines level with the query's. Nothing clips
+     it, so a finger's wider target on the count is whole. */
+  .tracked-table[data-layout='table'][data-lines='2'] .tracked-cell-subject {
+    @apply leading-5;
+  }
+
+  /* One that would wrap past two lines (`SubjectCell`): the name is cut short on the second, and the count beside it sits on that line. */
+  .tracked-subject[data-long] {
+    align-items: flex-end;
+  }
+
+  .tracked-subject[data-long] > .tracked-subject-name {
+    @apply line-clamp-2 whitespace-normal;
+  }
+
+  /* A count is a few characters wide. Where a finger is the pointer it takes taps 14px past its box on every side. */
+  .tracked-count {
+    position: relative;
+    @apply cursor-pointer rounded-sm tabular-nums text-secondary underline decoration-current/40 decoration-dotted underline-offset-4 hover:text-heading;
+    @apply pointer-coarse:before:absolute pointer-coarse:before:-inset-3.5 pointer-coarse:before:content-[''] max-md:before:absolute max-md:before:-inset-3.5 max-md:before:content-[''];
+  }
+
+  .tracked-cell-type {
+    @apply whitespace-nowrap;
+  }
+
+  /* In the table Type is set at the size of the query and the Subject beside it. */
+  .tracked-table[data-layout='table'] .tracked-cell-type {
+    @apply text-[13px];
+  }
+
+  .tracked-table .tracked-cell-engine {
+    @apply px-1 text-center;
+  }
+
+  /* Drawn in a stacked row only: an engine's name beside its chips, or over the two pairs of a row asked both ways. */
+  .tracked-engine-name,
+  .tracked-cell-engine .tracked-pair-lead {
+    @apply whitespace-nowrap text-[13px] text-secondary;
+  }
+
+  /* A row asked both ways: the Type cell names it and then its two types, and
+     each engine cell gives its first line to the engine's name, or leaves it
+     blank under a header, so every type sits level with its own pair. A line
+     is as tall as a pair. */
+  .tracked-pair-stack {
+    @apply inline-flex flex-col items-center gap-1 align-middle;
+  }
+
+  .tracked-cell-type .tracked-pair-stack {
+    @apply items-start;
+  }
+
+  .tracked-pair-lead {
+    @apply block h-5;
+  }
+
+  .tracked-pair-label {
+    @apply flex h-[19px] items-center text-[13px] text-secondary pointer-coarse:h-11 max-md:h-11;
+  }
+
+  .tracked-cell-date {
+    @apply whitespace-nowrap tabular-nums text-secondary;
+  }
+
+  /* Status carries the row's date. The widest label, "First answers" and a
+     month and day, fills the cell to its right edge. A longer one, a date
+     with its year, is cut short there. */
+  .tracked-table .tracked-cell-status {
+    overflow: hidden;
+    padding-right: 0;
+  }
+
+  .tracked-cell-source {
+    @apply text-[13px] leading-[1.35] text-secondary;
+  }
+
+  .tracked-cell-source > span {
+    @apply break-words;
+  }
+
+  /* No padding above or below: a menu button is taller than a line of text and must not set the row's height. */
+  .tracked-table .tracked-cell-menu {
+    @apply px-0.5 py-0 text-right;
+  }
+
+  .tracked-empty {
+    @apply px-2.5 py-8 text-center;
+  }
+
+  /* A note whose action wraps under its label fills the cell, and stays centred in it. */
+  .tracked-empty > span {
+    justify-content: center;
+  }
+
+  /* The way from the list to the bar for its ticked rows, which follows the
+     last page of rows. Drawn only while it holds the focus, over the table's
+     first line, so it moves nothing. */
+  .tracked-skip {
+    @apply sr-only;
+  }
+
+  .tracked-skip:focus-visible {
+    top: 0.25rem;
+    left: 0;
+    z-index: 20;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip-path: none;
+    @apply rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium leading-5 text-accent-fg outline-none ring-2 ring-mono-400 ring-offset-2 ring-offset-bg;
+  }
+
+  .tracked-detail-row > td {
+    @apply border-b border-subtle bg-surface-subtle px-2.5 pb-3 pt-1;
+  }
+
+  /* The detail starts under the query, past the checkbox column and the query's own padding. */
+  .tracked-table[data-selectable] .tracked-detail-row > td {
+    padding-left: 2.625rem;
+  }
+
+  .tracked-table-skeleton {
+    container-type: inline-size;
+  }
+
+  .tracked-table-skeleton > div {
+    @apply flex h-[37px] items-center gap-6 overflow-hidden border-b border-subtle px-2.5;
+  }
+
+  .tracked-table-skeleton span {
+    @apply block shrink-0;
+  }
+
+  .tracked-table-skeleton span:first-child {
+    margin-right: auto;
+  }
+
+  /* A phone has room for the query and one more bar. */
+  @container (max-width: 40rem) {
+    .tracked-table-skeleton span:nth-child(n + 3) {
+      display: none;
+    }
+  }
+
+  /* Stacked rows have no header. This line holds what it did: Select this
+     page, its box over the boxes of the rows, and the sort. */
+  .tracked-stack-controls {
+    @apply flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-default pb-2 text-[13px] leading-5 text-secondary;
+  }
+
+  .tracked-check-all {
+    @apply -ml-1.5 inline-flex cursor-pointer select-none items-center gap-2.5 text-secondary hover:text-heading pointer-coarse:gap-0 max-md:gap-0;
+  }
+
+  .tracked-stack-sort {
+    @apply ml-auto inline-flex items-center gap-1.5;
+  }
+
+  .tracked-stack-sort > select {
+    @apply h-9 min-w-0 cursor-pointer rounded-md border border-base bg-bg px-2 text-[13px] text-heading pointer-coarse:h-11 max-md:h-11;
+  }
+
+  /* Stacked: each row is a block. The query, Status and the menu share the
+     first line; Subject, Type and each engine by name follow, Subject and Type
+     at set widths so the engines line up down the list. Source and Last
+     measured are in the row detail. */
+  .tracked-table[data-layout='stacked'] {
+    display: block;
+
+    & > tbody,
+    & > tbody > tr,
+    & > tbody > tr > td {
+      display: block;
+    }
+
+    & .tracked-row {
+      position: relative;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      column-gap: 1rem;
+      @apply border-b border-subtle py-2.5 hover:bg-surface;
+    }
+
+    /* A full-width break after the first line. */
+    & .tracked-row::after {
+      content: '';
+      order: 3;
+      flex-basis: 100%;
+    }
+
+    & .tracked-row > td {
+      display: block;
+      order: 4;
+      margin-top: 0.375rem;
+      border: 0;
+      padding: 0;
+      background: none;
+    }
+
+    & .tracked-row > .tracked-cell-query {
+      order: 0;
+      flex: 1 1 0;
+      min-width: 0;
+      margin-top: 0;
+    }
+
+    & .tracked-row > .tracked-cell-status {
+      order: 1;
+      margin-top: 0;
+      overflow: visible;
+    }
+
+    /* Drawn last on the first line, and next after the query in the markup, so it is the next tab stop. */
+    & .tracked-row > .tracked-cell-menu {
+      order: 2;
+      margin-top: 0;
+    }
+
+    & .tracked-row > .tracked-cell-subject {
+      flex: 0 0 11.25rem;
+    }
+
+    & .tracked-row > .tracked-cell-type {
+      flex: 0 0 5rem;
+    }
+
+    /* The checkbox hangs in the left margin, so every line starts under the query text. */
+    &[data-selectable] .tracked-row {
+      padding-left: 2.25rem;
+    }
+
+    /* With no checkbox the row starts where its detail does, clear of a linked row's marker. */
+    &:not([data-selectable]) .tracked-row {
+      padding-left: 0.625rem;
+    }
+
+    & .tracked-row > .tracked-cell-select {
+      position: absolute;
+      top: 0.375rem;
+      left: -0.375rem;
+      margin: 0;
+    }
+
+    & .tracked-row[data-selected],
+    & .tracked-row[data-highlighted] {
+      background-image: linear-gradient(var(--color-text-primary), var(--color-text-primary));
+      background-repeat: no-repeat;
+      background-size: 2px 100%;
+      background-origin: border-box;
+      @apply bg-surface-active;
+    }
+
+    & .tracked-row[data-open] {
+      border-bottom-color: transparent;
+    }
+
+    & .tracked-row > .tracked-cell-engine {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+      text-align: left;
+    }
+
+    /* A row asked both ways: Mixed over its two types, then each engine's name over its two pairs. */
+    & .tracked-pair-stack {
+      @apply items-start;
+    }
+
+    &[data-selectable] .tracked-detail-row > td {
+      padding-left: 2.25rem;
+    }
+  }
+
+  /* A phone: Subject and Type, then the engines, then Status, each on a line of its own. */
+  @container tracked-table (max-width: 40rem) {
+    .tracked-table[data-layout='stacked'] {
+      & .tracked-row > .tracked-cell-subject {
+        flex: 1 1 0;
+        min-width: 0;
+      }
+
+      & .tracked-row > .tracked-cell-type {
+        flex: none;
+      }
+
+      & .tracked-row::before {
+        content: '';
+        order: 5;
+        flex-basis: 100%;
+      }
+
+      & .tracked-row > .tracked-cell-engine {
+        order: 6;
+      }
+
+      /* A row asked both ways: its types lead the engines' line, each beside its pairs. */
+      & .tracked-row[data-mixed] > .tracked-cell-type {
+        order: 6;
+      }
+
+      & .tracked-row > .tracked-cell-status {
+        order: 7;
+        flex: 0 0 100%;
+        margin-top: 0.375rem;
+      }
+    }
+  }
+
   /* Site Health tables read as prose, not as a spec sheet: sentence-case
      headers at body size instead of the all-caps letterspaced default. Scoped
      to this one surface so the shared .evidence-table stays as it is. */
@@ -3483,6 +4140,20 @@
 
   .info-tooltip-icon {
     @apply size-3;
+  }
+
+  /* Caution variant: the triangle holds the caution tone at rest and on hover.
+     The icon is the only way to its note, so it takes taps 4px past its 16px
+     box on every side (24px) without looking any larger. */
+  .info-tooltip-trigger-caution {
+    position: relative;
+    @apply text-caution hover:text-caution-200;
+  }
+
+  .info-tooltip-trigger-caution::before {
+    content: '';
+    position: absolute;
+    inset: -0.25rem;
   }
 
   /* Portal-rendered tooltip uses inline styles — see InfoTooltip.tsx */

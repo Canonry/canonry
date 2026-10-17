@@ -108,11 +108,11 @@ describe('By engine card', () => {
     expect(details.open).toBe(false)
     // The old tiles, engine counts and competitor gap rows are Details lines.
     expect(bullets(container)).toEqual([
-      'Cited and named: 4 of 11 queries',
-      'Cited but not named: 0 of 11 queries',
-      'Named but not cited: 0 of 11 queries',
-      'Not cited or named: 7 of 11 queries',
-      'All queries: cited by 4 of 4 engines, named by 4 of 4',
+      'Cited and mentioned: 4 of 11 queries',
+      'Cited but not mentioned: 0 of 11 queries',
+      'Mentioned but not cited: 0 of 11 queries',
+      'Not cited or mentioned: 7 of 11 queries',
+      'All queries: cited by 4 of 4 engines, mentioned by 4 of 4',
       '"AEO Agency in NYC" (Claude): pbjmarketing.com cited instead of you',
       '"AEO Agency in NYC" (OpenAI): pbjmarketing.com cited instead of you',
       '"AEO Agency NYC" (Claude): pbjmarketing.com cited instead of you',
@@ -200,20 +200,20 @@ describe('By engine restored figures (a cleanup never removes data)', () => {
     ])
   })
 
-  test('restores the cited-and-named and neither counts beside the other two splits', () => {
+  test('restores the cited-and-mentioned and neither counts beside the other two splits', () => {
     const { container } = renderCard(ainycCitationVisibility())
     expect(bullets(container).slice(0, 4)).toEqual([
-      'Cited and named: 4 of 11 queries',
-      'Cited but not named: 0 of 11 queries',
-      'Named but not cited: 0 of 11 queries',
-      'Not cited or named: 7 of 11 queries',
+      'Cited and mentioned: 4 of 11 queries',
+      'Cited but not mentioned: 0 of 11 queries',
+      'Mentioned but not cited: 0 of 11 queries',
+      'Not cited or mentioned: 7 of 11 queries',
     ])
     fireEvent.click(screen.getByRole('radio', { name: 'Branded' }))
     expect(bullets(container).slice(0, 4)).toEqual([
-      'Cited and named: 3 of 3 queries',
-      'Cited but not named: 0 of 3 queries',
-      'Named but not cited: 0 of 3 queries',
-      'Not cited or named: 0 of 3 queries',
+      'Cited and mentioned: 3 of 3 queries',
+      'Cited but not mentioned: 0 of 3 queries',
+      'Mentioned but not cited: 0 of 3 queries',
+      'Not cited or mentioned: 0 of 3 queries',
     ])
   })
 
@@ -282,6 +282,6 @@ describe('By engine restored figures (a cleanup never removes data)', () => {
     const data = ainycCitationVisibility()
     data.summary = { ...data.summary, providersCiting: 3, providersMentioning: 4 }
     const { container } = renderCard(data)
-    expect(bullets(container)).toContain('All queries: cited by 3 of 4 engines, named by 4 of 4')
+    expect(bullets(container)).toContain('All queries: cited by 3 of 4 engines, mentioned by 4 of 4')
   })
 })

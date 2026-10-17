@@ -507,7 +507,7 @@ const competitorLandscapeRunIdParameter: OpenApiParameter = {
 const sourcesRunIdParameter: OpenApiParameter = {
   name: 'runId',
   in: 'query',
-  description: 'Read one stored answer-visibility run instead of pooling every run in the window. An unknown id is 404; a probe, unfinished, partially measured, or out-of-window run is 400. Pass latest to read the latest sweep: with an active measurement plan, the run the measurement reads display; otherwise the newest completed or partial sweep, every location included. A latest sweep older than the window is 400.',
+  description: 'Read one stored answer-visibility run instead of pooling every run in the window. An unknown id is 404; a probe, unfinished, partially measured, or out-of-window run is 400. Pass latest to read the latest sweep: with an active measurement plan, the run the measurement reads display by default; otherwise the newest completed or partial sweep, every location included. A latest sweep older than the window is 400.',
   schema: stringSchema,
 }
 
@@ -722,6 +722,13 @@ const measurementPropertyEvidenceCursorParameter: OpenApiParameter = {
   schema: stringSchema,
 }
 
+const measurementFallbackParameter: OpenApiParameter = {
+  name: 'fallback',
+  in: 'query',
+  description: 'Omit it and the read needs a completed sweep of the active plan: after a tracking change it answers not measured until one exists, and answer text refuses a result of an older sweep (422). last-sweep reads the newest completed whole-project sweep instead, under the plan that sweep ran with, when the active plan has no completed sweep yet. With it, runId may name that sweep; any other run of an older plan is still refused. The response measurement then carries activeRevision, measuredRevision, awaitingSweep and trackingChangedAt. When awaitingSweep is true and measuredRevision is not null, the numbers are from the completedAt sweep, before the tracking change on trackingChangedAt. With measuredRevision null there is no sweep yet. A place the last sweep did not hold reads no_population on the overview and on measurement-property-competitors, never zero. On measurement-property-evidence and measurement-property-questions it is an empty page with no reason, so with awaitingSweep true an empty page can mean the location was not in that sweep. On the overview the param is refused (400) together with from or to.',
+  schema: { type: 'string', enum: ['last-sweep'] },
+}
+
 const measurementLimitParameter: OpenApiParameter = {
   name: 'limit',
   in: 'query',
@@ -773,6 +780,8 @@ function measurementDraftAction(input: {
   payloadTooLarge?: boolean
   /** The route has a per-caller request budget and can return HTTP 429. */
   rateLimited?: boolean
+  /** Replaces the idempotency-only 409 text when the action has another conflict. */
+  conflictDescription?: string
 }): OpenApiOperation {
   const requiresDraftEtag = !input.readOnly && input.requiresDraftEtag !== false
   const parameters = input.readOnly
@@ -810,7 +819,7 @@ function measurementDraftAction(input: {
       ...(input.readOnly
         ? {}
         : {
-            409: errorResponse('The idempotency key was already used with a different request body.'),
+            409: errorResponse(input.conflictDescription ?? 'The idempotency key was already used with a different request body.'),
             ...(requiresDraftEtag
               ? {
                   412: errorResponse('The draft changed since it was loaded.'),
@@ -1303,10 +1312,11 @@ const routeCatalog: OpenApiOperation[] = [
   measurementDraftAction({
     action: 'publish',
     summary: 'Publish the draft as a new revision',
-    description: 'Recompiles server-side and refuses content that changed after review. Content identical to the active revision is a no-op returning it; content identical to an older revision publishes as a new revision, so a revert is a first-class operation. Publishing never starts a run.',
+    description: 'Recompiles server-side and refuses content that changed after review. Content identical to the active revision is a no-op returning it; content identical to an older revision publishes as a new revision, so a revert is a first-class operation. Publishing never starts a run. Any other publish returns 409 `RUN_IN_PROGRESS` with `details.reason: sweep-in-progress` and `details.activeRunId` while an answer-visibility sweep for the project is queued or running; publish after it finishes or cancel it.',
     request: 'MeasurementDraftPublishRequest',
     response: 'MeasurementPlanV2PublishResponse',
     responseDescription: 'The published revision, or the unchanged active revision when the content was identical to it.',
+    conflictDescription: 'The idempotency key was already used with a different request body, or a sweep is queued or running.',
   }),
   measurementDraftAction({
     action: 'discard',
@@ -1338,7 +1348,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-overview',
     summary: 'Get the scoped measurement overview',
-    description: 'Aggregates one revision-pinned run snapshot for All Properties, a group, a market, or a single Property. A group reads every query its Properties are assigned; a market reads only its own frozen queries, the population the dashboard\'s market view reads, and the response scope names which kind was read. Rates are taken over one query class, non-brand unless queryClass names another; all pools branded with non-brand and is served only when asked for. This is snapshot ranking only: it never infers a trend or compares evidence across revisions. Without runId the most recent completed run pinned to the active revision is used; once paging begins, the cursor pins that revision, displayed run, evidence snapshot, and result filters. A run pinned to another revision is refused rather than joined, and appended evidence on a mutable named run invalidates its cursor. On a schema v2 plan every Property row carries its metro (the top-level group holding it, or null) and, when it sits in several top-level groups, otherMetros. Metrics are computed before search is applied, and a metric with no evidence is unavailable rather than zero. For coverage sorts, unavailable rows form the first bucket in either direction before available numeric rates follow the requested direction.',
+    description: 'Aggregates one revision-pinned run snapshot for All Properties, a group, a market, or a single Property. A group reads every query its Properties are assigned; a market reads only its own frozen queries, the population the dashboard\'s market view reads, and the response scope names which kind was read. Rates are taken over one query class, non-brand unless queryClass names another; all pools branded with non-brand and is served only when asked for. This is snapshot ranking only: it never infers a trend or compares evidence across revisions. Without runId the most recent completed run pinned to the active revision is used; once paging begins, the cursor pins that revision, displayed run, evidence snapshot, and result filters. A run pinned to another revision is refused rather than joined, and appended evidence on a mutable named run invalidates its cursor. On a schema v2 plan every Property row carries its metro (the top-level group holding it, or null) and, when it sits in several top-level groups, otherMetros. Metrics are computed before search is applied, and a metric with no evidence is unavailable rather than zero. For coverage sorts, unavailable rows form the first bucket in either direction before available numeric rates follow the requested direction. By default it needs a completed sweep of the active plan; fallback=last-sweep reads the last completed sweep after a tracking change.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
@@ -1353,6 +1363,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'from', in: 'query', description: 'Inclusive start of the window (YYYY-MM-DD).', schema: stringSchema },
       { name: 'to', in: 'query', description: 'Inclusive end of the window (YYYY-MM-DD).', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'Display this run. It must be pinned to the active revision. This is also the only way to display a scoped spot check.', schema: stringSchema },
+      measurementFallbackParameter,
       measurementSearchParameter,
       measurementOverviewSortParameter,
       measurementOverviewCursorParameter,
@@ -1444,7 +1455,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-property-evidence',
     summary: 'Page one Property\'s evidence',
-    description: 'Returns the evidence rows for exactly one Property out of one revision-pinned run, optionally narrowed to a question class, provider, or location. shape chooses what a row is: sources (the default) is one row per cited URL, answers is one row per measured answer with its cited URLs nested inside, other-queries is one row per answer to a query not assigned to this Property that cited its pages (outside its rates). Prefer answers to explain a gap — an answer that mentioned the Property without linking it, or that named nobody, has no URL to hang a source row on and is invisible in the default shape. Run selection matches the overview: the most recent completed run pinned to the active revision unless runId names another. Use this rather than GET /measurement-report when you want one Property — the report reconstructs every group and Target for a revision and does not paginate. Not available for a schema v1 revision, which records no question class to scope by. An empty page under measurement.state = not_measured means the Property has not been measured, which is not the same statement as a measured Property with no evidence.',
+    description: 'Returns the evidence rows for exactly one Property out of one revision-pinned run, optionally narrowed to a question class, provider, or location. shape chooses what a row is: sources (the default) is one row per cited URL, answers is one row per measured answer with its cited URLs nested inside, other-queries is one row per answer to a query not assigned to this Property that cited its pages (outside its rates). Prefer answers to explain a gap — an answer that mentioned the Property without linking it, or that named nobody, has no URL to hang a source row on and is invisible in the default shape. Run selection matches the overview: the most recent completed run pinned to the active revision unless runId names another. Use this rather than GET /measurement-report when you want one Property — the report reconstructs every group and Target for a revision and does not paginate. Not available for a schema v1 revision, which records no question class to scope by. An empty page under measurement.state = not_measured means the Property has not been measured, which is not the same statement as a measured Property with no evidence. By default it needs a completed sweep of the active plan; fallback=last-sweep reads the last completed sweep after a tracking change.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
@@ -1453,6 +1464,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'provider', in: 'query', description: 'Restrict to one answer provider.', schema: stringSchema },
       { name: 'location', in: 'query', description: 'Restrict to one execution location label.', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'Display this run. It must be pinned to the active revision.', schema: stringSchema },
+      measurementFallbackParameter,
       measurementPropertyEvidenceShapeParameter,
       measurementPropertyEvidenceCursorParameter,
       measurementLimitParameter,
@@ -1495,7 +1507,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-property-questions',
     summary: 'List one Property’s measured questions',
-    description: 'Returns compact provider-expanded question rows from one immutable plan and stored run. Missing answers and incomplete citation capture remain null rather than false. Full answer text and sources are deliberately omitted; use the returned resultId with the question-result read. It never starts provider work.',
+    description: 'Returns compact provider-expanded question rows from one immutable plan and stored run. Missing answers and incomplete citation capture remain null rather than false. Full answer text and sources are deliberately omitted; use the returned resultId with the question-result read. It never starts provider work. By default it needs a completed sweep of the active plan; fallback=last-sweep reads the last completed sweep after a tracking change.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
@@ -1504,6 +1516,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'provider', in: 'query', description: 'Restrict to one answer provider.', schema: stringSchema },
       { name: 'location', in: 'query', description: 'Restrict to one execution location label.', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'Read this completed or partial active-revision run, including a named spot check.', schema: stringSchema },
+      measurementFallbackParameter,
       { name: 'offset', in: 'query', description: 'Zero-based row offset for paging through the full question population.', schema: { type: 'integer', minimum: 0 } },
       measurementLimitParameter,
     ],
@@ -1518,12 +1531,13 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-question-result',
     summary: 'Get one full stored question result',
-    description: 'Expands one resultId returned by the Property-question read into the full stored answer and source attribution for that Property. Raw provider payloads are never returned. It never starts provider work.',
+    description: 'Expands one resultId returned by the Property-question read into the full stored answer and source attribution for that Property. Raw provider payloads are never returned. It never starts provider work. By default the result must come from a run of the active plan; fallback=last-sweep also opens a result of the last completed sweep after a tracking change.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
       { name: 'targetKey', in: 'query', required: true, description: 'Property stable key used for mention and citation attribution.', schema: stringSchema },
       { name: 'resultId', in: 'query', required: true, description: 'Stored result ID returned by measurement-property-questions.', schema: stringSchema },
+      measurementFallbackParameter,
     ],
     responses: {
       200: jsonResponse('Full stored question result returned.', 'MeasurementQuestionResultResponse'),
@@ -1536,7 +1550,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-property-competitors',
     summary: 'Get repeated replacements for one Property',
-    description: 'Counts stored recommended names only for answered slots where the Property was neither mentioned nor assigned a complete citation. citedDomains, citedDomainsTotal and citedDomainsAnswers are the domains cited by the Property\'s own measured answers in the requested run, class and filters, counted by answer; they are sources, never names written instead, and are left out when nothing was measured. It never reparses an answer or starts provider work.',
+    description: 'Counts stored recommended names only for answered slots where the Property was neither mentioned nor assigned a complete citation. citedDomains, citedDomainsTotal and citedDomainsAnswers are the domains cited by the Property\'s own measured answers in the requested run, class and filters, counted by answer; they are sources, never names written instead, and are left out when nothing was measured. It never reparses an answer or starts provider work. By default it needs a completed sweep of the active plan; fallback=last-sweep reads the last completed sweep after a tracking change.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
@@ -1545,6 +1559,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'provider', in: 'query', description: 'Restrict to one answer provider.', schema: stringSchema },
       { name: 'location', in: 'query', description: 'Restrict to one execution location label.', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'Read this completed or partial active-revision run, including a named spot check.', schema: stringSchema },
+      measurementFallbackParameter,
       { name: 'limit', in: 'query', description: 'Maximum competitor rows. Defaults to 10, maximum 50.', schema: { type: 'integer', minimum: 1, maximum: 50 } },
     ],
     responses: {
@@ -1782,22 +1797,39 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get', path: '/api/v1/projects/{name}/query-tracking', summary: 'Read tracked queries and their assignments', tags: ['queries'],
+    description: 'Every count is the server\'s, so a client prints it without recounting rows. On an advanced portfolio each location, market and group carries `counts.queries` (distinct queries with a pairing there, the rows a list under it shows) and `counts.byClass`, those queries by the Type of their pairings at that place: `branded`, `nonBrand`, `mixed` (both) and `unknown`, which add up to `counts.queries`. Branded and non-brand are never pooled. Each advanced assignment also carries optional `classifiedContexts`: its exact provider/model/search-location contexts paired with `queryClass` and the `marketKeys` containing that pairing. One location can ask the same query under both classes, including at the same context. Legacy `contexts` and the single `queryClass` retain their original cardinality; clients use `classifiedContexts` for class and engine selection within a place. A group also carries `counts.marketQueries`, `counts.propertyQueries` and `counts.customQueries` (the same queries by Subject) and `counts.markets`, the distinct markets holding one of its locations. A market\'s `counts.queries` includes a hand-picked query paired inside it, so it can exceed `marketQueries` plus `propertyQueries`. `limits.queries` adds `over` (each count minus `max`, never below zero) and `exceeded`, always false on a read. `views.patternGaps.compared` is the number of patterns the gap rule could read: a pattern is read when its one variable is a market name, `{market}` or `{submarket}`. Zero means nothing was compared, not that no gap was found.',
     parameters: [nameParameter],
     responses: { 200: jsonResponse('Query workspace with exact assignments and frozen contexts.', 'QueryTrackingWorkspaceResponse'), 404: errorResponse('Project not found.') },
   },
   {
     method: 'post', path: '/api/v1/projects/{name}/query-tracking/preview', summary: 'Preview query and template assignment changes', tags: ['queries'],
-    description: 'Resolves normalized query identities, expands templates, checks classification and computes the next sweep workload. Makes no provider calls. The preview token binds the exact mutation and current workspace.',
+    description: 'Resolves normalized query identities, expands templates, checks classification and computes the next sweep workload. Makes no provider calls. The preview token binds the exact mutation and current workspace. For an advanced portfolio, `limits.queries` reports the distinct assigned queries before (`current`) and after (`next`) the change, against the limit (`max`), `limits.queries.left` the room under it before and after, never below zero, and `limits.queries.over` the excess above it, never below zero. `limits.queries.exceeded` is true when a commit of this change is refused for the limit: it grows the plan past `max`. The preview still returns 200, so read `exceeded` before committing. Each `changes` row carries `altered`: false when a reused query stays exactly as the active plan has it (same pairings, type and markets), true for every added and removed row. A wording edit is a new query plus the old one removed; the row the new wording lands on carries `rewordedFrom`, the old query\'s id. An advanced preview also returns `marketChanges`: one row per market whose locations change, with its `targetKeys` `before` and `after`, `removedTargetKeys` and `emptied`. A market holds only the locations that still have a query in it, and an emptied market takes no later addition. `marketQueryChanges` has one row per market whose own-query count changes (`before.marketQueries`, `after.marketQueries`: the queries whose Subject is the market), also when every location stays. `typeMismatches` lists the added and reused queries the change would leave with a type their Subject does not take: a market query is non-brand and a location query is branded, while a hand-picked query takes either. Each row has `focus`, `expectedQueryClass`, `queryClasses` and `brandedWording`, true for a market query whose wording the server classifier reads as branded for one of its locations; such a query is listed even when its type is non-brand. A query the change leaves with the Subject and type it already had is not listed. All three are reports: nothing is refused for them. A template addition reads its variables by kind: `{market}` or `{submarket}` takes the market label, and `{locationName}`, `{property}` or `{propertyBrand}` the location label. A preview is allowed while a sweep runs.',
     parameters: [nameParameter],
     requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/QueryTrackingPreviewRequest' } } } },
     responses: { 200: jsonResponse('Assignment impact and review token.', 'QueryTrackingPreviewResponse'), 400: errorResponse('Invalid assignments or source.'), 403: errorResponse('Write access required.'), 404: errorResponse('Project or source not found.'), 409: errorResponse('Workspace changed; refresh and preview again.') },
   },
   {
     method: 'post', path: '/api/v1/projects/{name}/query-tracking/commit', summary: 'Publish a reviewed query assignment change', tags: ['queries'],
-    description: 'Atomically commits only the reviewed mutation. An exact no-op creates no revision. No sweep or provider call starts. Research answers never become official observations.',
+    description: 'Atomically commits only the reviewed mutation. An exact no-op creates no revision. No sweep or provider call starts. Research answers never become official observations. A change that would grow an advanced plan past its query limit returns 400 with `details.check: query-limit-exceeded`; a plan already over the limit may still shrink. On an advanced portfolio any other change returns 409 `RUN_IN_PROGRESS` with `details.reason: sweep-in-progress` while an answer-visibility sweep is queued or running; a simple basket is refused only when its queries change during a planless sweep.',
     parameters: [nameParameter],
     requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/QueryTrackingCommitRequest' } } } },
-    responses: { 200: jsonResponse('Actual committed revision, or unchanged no-op.', 'QueryTrackingCommitResponse'), 400: errorResponse('Invalid mutation or review token.'), 403: errorResponse('Write access required.'), 404: errorResponse('Project or source not found.'), 409: errorResponse('Workspace changed or a sweep is using the live query catalog.') },
+    responses: { 200: jsonResponse('Actual committed revision, or unchanged no-op.', 'QueryTrackingCommitResponse'), 400: errorResponse('Invalid mutation or review token, or the change exceeds the query limit.'), 403: errorResponse('Write access required.'), 404: errorResponse('Project or source not found.'), 409: errorResponse('Workspace changed, or a sweep is queued or running.') },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/query-tracking/results', summary: 'Read Mentioned and Cited per tracked query and engine', tags: ['queries'],
+    description: 'Stored evidence only: one sweep, every tracked query in the place, one call. Each row is one query under one class (`branded`, `non-brand`, or `unknown` when the workspace row carries no class); the two classes of one query are separate rows, never pooled. Each engine entry carries `expectedAnswers`, `answers`, `mentionedAnswers`, `citedAnswers`, `uncheckedSourceAnswers`, and the two signals `mentioned` (answer text names a location the row covers in the place) and `cited` (a source cites one). Each signal is true when any answer shows it, false only when every expected answer was checked and none did, and null when not checked; neither is computed from the other. An engine entry also carries optional fields, each left out when it has nothing to report, and none changes a signal or a count: `unattributedMentionAnswers` (saved answers left unchecked for the mention because a name could not be tied to one location); on a row that covers more than one location in the place, `mentionedTargetKeys` and `citedTargetKeys` (the covered locations an answer names, or cites with fully saved sources); `otherLocationMentionedAnswers` with `otherLocationMentionedTargetKeys` (saved answers whose text names no location the row covers in the place and does name another location of the plan, and those locations), and `otherLocationCitedAnswers` with `otherLocationCitedTargetKeys` (the same over fully saved sources). Under a group, market or property, a location outside the place is another location. `totals` has one entry per class that has a row, never pooled: `queryClass`, `queries`, `answers`, `mentionCoverage` and `citationCoverage`, the visibility report\'s own rates over the returned rows only, so a query counted in `pendingRows` is in no total; it is absent with no sweep. The sweep is the newest completed or partial whole-project sweep comparable to the active plan, else the newest of any plan. On a simple project it is the newest of the last 100 such sweeps that was sent with the engines, models, search location, country and language the project uses now, else the newest, so a newer run of one engine or at another search location never hides the full sweep before it. Probes and scoped runs are never read. `run.matchesCurrentTracking` is false when tracking changed after that sweep; on a simple project tracking is the tracked queries and the names, sites, engines, models, search location, country and language of the project. A row is returned only when the sweep asked every pairing of that query and class in the place exactly as it is asked now, so a query moved, re-typed or reworded since, or one whose engines, models or search location changed (on a simple project also the country or language), has no row and is counted in `pendingRows` until the next sweep. `run` is null and `rows` is empty when no sweep has finished. A simple project is read at project scope only. The project read of an advanced portfolio with a sweep also returns `weakMarkets` (`rule` `no-mention-latest-sweep`, `queryClass` `non-brand`, `count`, `marketKeys`): the markets where at least one answer to the market\'s own non-brand queries was read in that sweep and none named a member location. A market with no such answer read is left out, never listed, as is one with such a query that has no row since a tracking change, and branded rows never count toward it. The rule name is fixed: with `runId` it reads that named sweep, and `run` says which sweep was read. `marketKeys` are in key order, not ranked. `weakMarkets.markets` lists the same markets weakest first (fewest `citedAnswers`, then fewest `otherLocationMentionedAnswers`, then most `mentionCheckedAnswers`, then key), each with its counts. With `queryId` the response holds only that query\'s rows and neither `totals` nor `weakMarkets`, only that query\'s answers are loaded, and each engine entry gains `answerRows`, one per expected answer: `resultId` (the saved answer, null when no answer text was saved), `searchLocation`, `targetKeys`, `mentioned` and `cited` for that one answer, `mentionedTargetKeys`, `citedTargetKeys` and `namedInstead` (names the answer wrote that are no location of the plan). Never starts a sweep.',
+    parameters: [
+      nameParameter,
+      { name: 'scope', in: 'query', description: 'The place whose pairings are read, resolved against the active plan. Read-selection identity.', schema: { type: 'string', enum: ['project', 'group', 'market', 'property'], default: 'project' } },
+      { name: 'scopeKey', in: 'query', description: 'Stable key of the group, market or property. Required for non-project scopes. A key the active plan holds and the sweep never measured returns no rows.', schema: stringSchema },
+      { name: 'runId', in: 'query', description: 'One completed or partial whole-project sweep. Omit for the default sweep.', schema: stringSchema },
+      { name: 'queryId', in: 'query', description: 'One tracked query. Returns only its rows, with `answerRows` per engine and no `totals` or `weakMarkets`. A query the place does not ask returns no rows. Read-selection identity.', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Per-query engine results for one sweep, or an empty list with no sweep.', 'QueryTrackingResultsResponse'),
+      400: errorResponse('Invalid selection, a place the active plan does not hold, or a run that is not a whole-project sweep.'),
+      404: errorResponse('Project not found.'),
+    },
   },
   {
     method: 'post', path: '/api/v1/projects/{name}/results/clear', summary: 'Preview or clear selected saved visibility and research results', tags: ['runs'],

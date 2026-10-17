@@ -528,7 +528,7 @@ test('the overview embed reads measured visibility but cannot read or change the
   try {
     const report = await embedded.inject({ method: 'GET', url: '/api/v1/projects/sample/visibility-report', headers: withKey(ROOT_KEY) })
     expect(report.statusCode).toBe(200)
-    for (const [method, suffix] of [['GET', ''], ['POST', '/preview'], ['POST', '/commit']] as const) {
+    for (const [method, suffix] of [['GET', ''], ['GET', '/results'], ['POST', '/preview'], ['POST', '/commit']] as const) {
       const denied = await embedded.inject({ method, url: `/api/v1/projects/sample/query-tracking${suffix}`, headers: withKey(ROOT_KEY) })
       expect(denied.statusCode).toBe(403)
     }

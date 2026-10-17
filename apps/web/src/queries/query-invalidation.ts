@@ -21,8 +21,12 @@ export const PROJECT_QUERY_DOMAINS = {
   traffic: 'getApiV1ProjectsByNameTraffic',
   discovery: 'getApiV1ProjectsByNameDiscover',
   researchRuns: 'getApiV1ProjectsByNameResearchRuns',
+  // The measurement plan and every read of it: overview, location evidence, answer text, named instead.
+  measurement: 'getApiV1ProjectsByNameMeasurement',
   visibilityReport: 'getApiV1ProjectsByNameVisibilityReport',
   queryTracking: 'getApiV1ProjectsByNameQueryTracking',
+  // The results read alone. The `queryTracking` prefix above also matches it.
+  queryTrackingResults: 'getApiV1ProjectsByNameQueryTrackingResults',
   technicalAeo: 'getApiV1ProjectsByNameTechnicalAeo',
   runs: 'getApiV1ProjectsByNameRuns',
   runAdmission: 'getApiV1ProjectsByNameRunAdmission',
@@ -43,11 +47,40 @@ export function invalidateProjectQueryDomain(
   })
 }
 
-/** Query publication changes live assignments and the measurement revision. */
+/** Measurement reads keyed by the run they show, or by one answer of it: location evidence and answer text. */
+const RUN_KEYED_MEASUREMENT_READS: readonly string[] = [
+  'getApiV1ProjectsByNameMeasurementPropertyEvidence',
+  'getApiV1ProjectsByNameMeasurementQuestionResult',
+]
+
+/**
+ * A sweep completed, so every measurement read is stale. The plan, the overviews and named instead are
+ * read again now. A read keyed by a run is only marked: the overview's new `displayedRunId` changes its
+ * key, and that is the one read needed. Refetched here it would ask for the sweep before first, a
+ * full-run read on the server, and one the server refuses once the tracking has changed.
+ */
+export function invalidateMeasurementReadsAfterSweep(queryClient: Pick<QueryClient, 'invalidateQueries'>): Promise<void> {
+  const idOf = (query: Query) => (query.queryKey[0] as { _id?: string } | undefined)?._id
+  const runKeyed = (query: Query) => RUN_KEYED_MEASUREMENT_READS.includes(idOf(query) ?? '')
+  const marked = queryClient.invalidateQueries({ predicate: runKeyed, refetchType: 'none' })
+  return queryClient.invalidateQueries({
+    predicate: query => (idOf(query)?.startsWith(PROJECT_QUERY_DOMAINS.measurement) ?? false) && !runKeyed(query),
+  }).then(() => marked)
+}
+
+/** Query publication changes live assignments, the measurement revision and which results still hold. */
 export function invalidateQueryTrackingPublication(
   queryClient: Pick<QueryClient, 'invalidateQueries'>,
   projectName: string,
 ): Promise<void> {
+  // A publish has already started the results refetch through the write refresh. It is the
+  // page's largest read, so it joins that request instead of cancelling it and sending another.
+  const results = queryClient.invalidateQueries({
+    predicate: query => {
+      const head = query.queryKey[0] as { _id?: string; path?: { name?: string } } | undefined
+      return head?.path?.name === projectName && head._id === PROJECT_QUERY_DOMAINS.queryTrackingResults
+    },
+  }, { cancelRefetch: false })
   return queryClient.invalidateQueries({
     predicate: query => {
       const head = query.queryKey[0] as { _id?: string; path?: { name?: string } } | undefined
@@ -58,7 +91,7 @@ export function invalidateQueryTrackingPublication(
         || head._id === 'getApiV1ProjectsByNameQueries'
         || head._id === 'getApiV1ProjectsByName'
     },
-  })
+  }).then(() => results)
 }
 
 

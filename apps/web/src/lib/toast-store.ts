@@ -13,6 +13,14 @@ export type ToastAction =
     intent: 'go-to-runs'
   }
 
+  | {
+    label: string
+    intent: 'view-tracked-queries'
+    projectName: string
+    queryId?: string
+    status?: 'all' | 'not-asked'
+  }
+
 export interface Toast {
   id: string
   title: string

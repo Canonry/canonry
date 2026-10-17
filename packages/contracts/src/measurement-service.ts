@@ -4,6 +4,7 @@ import { locationContextSchema, providerNameSchema } from './provider.js'
 import { measurementStableKeySchema } from './measurement-plan.js'
 import {
   measurementCursorPageSchema,
+  measurementLastSweepFieldsShape,
   measurementQueryClassFilterSchema,
   measurementStateSchema,
   measurementV2StableKeySchema,
@@ -503,6 +504,7 @@ export const measurementPropertyEvidenceResponseSchema = z.object({
     state: measurementStateSchema,
     displayedRunId: z.string().min(1).optional(),
     completedAt: z.string().datetime().optional(),
+    ...measurementLastSweepFieldsShape,
   }).strict(),
   evidence: measurementCursorPageSchema(measurementAttributionEvidenceSchema).optional(),
   answers: measurementCursorPageSchema(measurementAnswerEvidenceSchema).optional(),

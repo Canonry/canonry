@@ -118,6 +118,7 @@ const DEMO_READ_ROUTES: ReadonlySet<string> = new Set([
   '/api/v1/projects/:name/overview',
   '/api/v1/projects/:name/queries',
   '/api/v1/projects/:name/query-tracking',
+  '/api/v1/projects/:name/query-tracking/results',
   '/api/v1/projects/:name/traffic/analytics',
   '/api/v1/projects/:name/research/runs',
   '/api/v1/projects/:name/research/runs/:runId',
