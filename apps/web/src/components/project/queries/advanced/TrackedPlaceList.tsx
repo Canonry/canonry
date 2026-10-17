@@ -1,10 +1,10 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronsUpDown, CircleCheck, FileX, ListFilter, Plus, SearchX } from 'lucide-react'
-import type { QueryTrackingViews, QueryTrackingWeakMarkets, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, ChevronDown, ChevronsUpDown, CircleCheck, FileX, ListFilter, Plus, SearchX } from 'lucide-react'
+import type { QueryTrackingViews, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import { WriteButton } from '../../../shared/AccessControls.js'
 import { DataTablePagination, DataTableSearch, useClientTable } from '../../../shared/DataTableControls.js'
-import { InfoTooltip, useTooltipBubble } from '../../../shared/InfoTooltip.js'
+import { useTooltipBubble } from '../../../shared/InfoTooltip.js'
 import { StatusNote } from '../../../shared/StatusNote.js'
 import { Button } from '../../../ui/button.js'
 import { TRACKED_VIEW_LABEL, trackedViewHelp, type TrackedPlaceView } from './TrackedSavedViews.js'
@@ -13,19 +13,13 @@ import type { TrackedPlace } from './tracked-actions.js'
 type Workspace = Pick<QueryTrackingWorkspaceResponse, 'targets' | 'groups' | 'markets'>
 
 /** One line of a list. Every number is a field of the workspace read, or the length of a list it returned. `listed` is false for a key the workspace no longer lists, which is named by its key. */
-type PlaceRow = { kind: 'location' | 'market'; key: string; label: string; listed: boolean; groups: string[]; locations?: number; marketQueries?: number; results?: WeakResult }
-/**
- * A weak market's own numbers from the results read, over its non-brand answers: how many had their text
- * read, how many cite a member location, and how many name another location instead. `rank` is the
- * server's order, weakest first.
- */
-type WeakResult = { rank: number; read: number; cited: number; citeRead: number; other: number }
+type PlaceRow = { kind: 'location' | 'market'; key: string; label: string; listed: boolean; groups: string[]; locations?: number; marketQueries?: number }
 /** A pattern's two lists hold market names, by name. */
 type PatternRow = { kind: 'pattern'; key: string; label: string; name: string | null; pattern: string; used: string[]; missing: string[] }
 type Row = PlaceRow | PatternRow
 /** Which of a pattern's two lists of markets: the ones it is asked in, or the ones it is missing from. */
 type Side = 'used' | 'missing'
-type SortKey = 'name' | 'locations' | 'marketQueries' | 'rank' | 'read' | 'cited' | 'other' | Side
+type SortKey = 'name' | 'locations' | 'marketQueries' | Side
 type Sort = { key: SortKey; direction: 'asc' | 'desc' }
 
 const PAGE_SIZES = [25, 50, 100] as const
@@ -38,25 +32,17 @@ const collator = new Intl.Collator('en', { sensitivity: 'base', numeric: true })
 const whole = (value: number) => value.toLocaleString('en-US')
 
 const NOUN: Record<Row['kind'], [one: string, many: string]> = { location: ['location', 'locations'], market: ['market', 'markets'], pattern: ['pattern', 'patterns'] }
-const KIND: Record<TrackedPlaceView, Row['kind']> = { 'no-location-queries': 'location', 'thin-markets': 'market', 'weak-markets': 'market', 'pattern-gaps': 'pattern' }
+const KIND: Record<TrackedPlaceView, Row['kind']> = { 'no-location-queries': 'location', 'thin-markets': 'market', 'pattern-gaps': 'pattern' }
 const EMPTY: Record<TrackedPlaceView, string> = {
   'no-location-queries': 'No location gaps',
   'thin-markets': 'No thin markets',
   'pattern-gaps': 'No pattern gaps',
-  'weak-markets': 'No weak markets',
 }
 /** The columns a list can be put in order by, as their headers name them. */
 const SORTS: Record<Row['kind'], readonly (readonly [key: SortKey, text: string])[]> = {
   location: [['name', 'Location'], ['marketQueries', 'Market queries']],
   market: [['name', 'Market'], ['locations', 'Locations'], ['marketQueries', 'Market queries']],
   pattern: [['name', 'Pattern'], ['used', 'Used in'], ['missing', 'Missing in']],
-}
-/** Weakest markets carry their results: these columns in place of Market queries, and the server's order first. */
-const WEAK_SORTS: readonly (readonly [key: SortKey, text: string])[] = [['rank', 'Weakest first'], ['name', 'Market'], ['locations', 'Locations'], ['read', 'Answers'], ['cited', 'Cited'], ['other', 'Other location']]
-const WEAK_HELP = {
-  read: 'Non-brand answers in the last sweep whose text was read. None of them mentions a location in this market.',
-  cited: "Of the answers with sources saved, those that cite a location in this market.",
-  other: 'Of the answers read, those that mention another of your locations instead.',
 }
 const SIDE: Record<Side, string> = { used: 'Used in', missing: 'Missing in' }
 const BY_NAME: Sort = { key: 'name', direction: 'asc' }
@@ -66,9 +52,8 @@ const COPY = {
   noLocations: 'A market with no location takes no query.',
   patternDeleted: 'This saved pattern was deleted. Its queries are still tracked.',
 }
-// Fixed widths in px. The name takes what is left: 508px beside a market's four other columns in the 1152px content column,
-// 384px beside a weak market's six.
-const WIDTH = { groups: 220, number: 112, wideNumber: 136, action: 176, weakGroups: 180, weakAction: 140 } as const
+// Fixed widths in px. The name takes what is left: 508px beside a market's four other columns in the 1152px content column.
+const WIDTH = { groups: 220, number: 112, wideNumber: 136, action: 176 } as const
 /** As many names as a count's bubble previews. The count is of them all, and a press lists them all. */
 const NAMES_SHOWN = 6
 
@@ -122,7 +107,7 @@ function marketRows(keys: readonly string[], workspace: Workspace): PlaceRow[] {
 }
 
 /** The view's lines. They are the keys the server listed: nothing is added, dropped or counted here. */
-function rowsOf(view: TrackedPlaceView, workspace: Workspace, views: QueryTrackingViews, weakMarkets: Pick<QueryTrackingWeakMarkets, 'marketKeys' | 'markets'> | undefined): Row[] {
+function rowsOf(view: TrackedPlaceView, workspace: Workspace, views: QueryTrackingViews): Row[] {
   if (view === 'no-location-queries') {
     const targets = new Map(workspace.targets.map(target => [target.stableKey, target]))
     return views.noPropertyQueries.targetKeys.map(key => ({
@@ -147,21 +132,12 @@ function rowsOf(view: TrackedPlaceView, workspace: Workspace, views: QueryTracki
       missing: names(gap.missingMarketKeys),
     }))
   }
-  if (view === 'weak-markets' && weakMarkets?.markets) {
-    // The server's rows, in its order, each with the counts it read.
-    const listed = weakMarkets.markets
-    return marketRows(listed.map(market => market.marketKey), workspace).map((row, rank) => {
-      const market = listed[rank]!
-      return { ...row, results: { rank, read: market.mentionCheckedAnswers, cited: market.citedAnswers, citeRead: market.citationCheckedAnswers, other: market.otherLocationMentionedAnswers } }
-    })
-  }
-  return marketRows(view === 'thin-markets' ? views.thinMarkets.marketKeys : weakMarkets?.marketKeys ?? [], workspace)
+  return marketRows(views.thinMarkets.marketKeys, workspace)
 }
 
 /** The number a column orders a row by. */
 function sortNumber(row: Row, key: SortKey): number | undefined {
   if (row.kind === 'pattern') return key === 'used' ? row.used.length : key === 'missing' ? row.missing.length : undefined
-  if (key === 'rank' || key === 'read' || key === 'cited' || key === 'other') return row.results?.[key]
   return key === 'locations' ? row.locations : key === 'marketQueries' ? row.marketQueries : undefined
 }
 
@@ -222,24 +198,19 @@ function MarketCount({ pattern, side, onShow }: { pattern: PatternRow; side: Sid
  * where each row is a block, from a Sort control. The parent keys it, so each
  * list starts on its first page with a clean search.
  */
-function PlaceList({ label, kind, rows, total, before, after, empty, defaultSort, token, backLabel, onBack, pending, failed, onRetry, onOpen, onAdd, onShowMarkets }: {
+function PlaceList({ label, kind, rows, total, before, empty, defaultSort, token, backLabel, onBack, onOpen, onAdd, onShowMarkets }: {
   /** The table's name. */
   label: string
   kind: Row['kind']
-  // Rows that carry results (Weakest markets) show them, and their row action opens the market's queries.
   rows: readonly Row[]
   total: number
-  /** What the count is of, where the list's name does not say: drawn before and after it. */
+  /** What the count is of, where the list's name does not say: drawn before it. */
   before?: ReactNode
-  after?: string
   empty: string
   defaultSort: Sort
   token: ReactNode
   backLabel: string
   onBack: () => void
-  pending: boolean
-  failed: boolean
-  onRetry?: () => void
   onOpen?: (place: TrackedPlace) => void
   onAdd?: (place: TrackedPlace) => void
   onShowMarkets?: (templateId: string, side: Side) => void
@@ -251,10 +222,8 @@ function PlaceList({ label, kind, rows, total, before, after, empty, defaultSort
   const sorted = useMemo(() => sortRows(rows, sort), [rows, sort])
   const table = useClientTable({ rows: sorted, getSearchText: searchText, pageSize })
   const [one, many] = NOUN[kind]
-  const ready = !pending && !failed
-  const weak = kind === 'market' && rows.some(row => row.kind === 'market' && row.results !== undefined)
-  const sorts = weak ? WEAK_SORTS : SORTS[kind]
-  const columns = kind === 'pattern' ? 3 : weak ? 6 + (onOpen ? 1 : 0) : (kind === 'market' ? 4 : 3) + (onAdd ? 1 : 0)
+  const sorts = SORTS[kind]
+  const columns = kind === 'pattern' ? 3 : (kind === 'market' ? 4 : 3) + (onAdd ? 1 : 0)
   // Clear search takes its own button off the page, so the search holds the focus for it.
   const clearSearch = () => {
     table.setQuery('')
@@ -272,8 +241,7 @@ function PlaceList({ label, kind, rows, total, before, after, empty, defaultSort
   const sortable = rows.length > 1
   const header = (key: SortKey, numeric = false) => {
     const text = sorts.find(([candidate]) => candidate === key)![1]
-    const help = weak && (key === 'read' || key === 'cited' || key === 'other') ? <InfoTooltip text={WEAK_HELP[key]} placement="bottom" /> : null
-    if (!sortable) return <th scope="col" className={numeric ? 'text-right' : undefined}>{text}{help}</th>
+    if (!sortable) return <th scope="col" className={numeric ? 'text-right' : undefined}>{text}</th>
     const active = sort.key === key
     // A number's header is set to the right, so its mark hangs before the text, inside the column.
     const mark = `tracked-sort-mark ${numeric ? 'left-auto right-[calc(100%+1px)]' : ''}`
@@ -285,7 +253,6 @@ function PlaceList({ label, kind, rows, total, before, after, empty, defaultSort
             ? <ChevronDown aria-hidden="true" className={`${mark} ${sort.direction === 'asc' ? 'rotate-180' : ''}`} />
             : <ChevronsUpDown aria-hidden="true" className={`${mark} tracked-sort-hint`} />}
         </button>
-        {help}
       </th>
     )
   }
@@ -294,7 +261,7 @@ function PlaceList({ label, kind, rows, total, before, after, empty, defaultSort
     <div ref={root}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
         {/* With nothing to list there is nothing to search. */}
-        {ready && rows.length > 0 ? <DataTableSearch size="sm" value={table.query} onChange={table.setQuery} label={`Search ${many}`} placeholder={`Search ${many}`} className="min-w-[9.5rem] grow basis-full md:max-w-sm md:basis-0" /> : null}
+        {rows.length > 0 ? <DataTableSearch size="sm" value={table.query} onChange={table.setQuery} label={`Search ${many}`} placeholder={`Search ${many}`} className="min-w-[9.5rem] grow basis-full md:max-w-sm md:basis-0" /> : null}
         <div className="flex grow flex-wrap items-center justify-between gap-x-3 gap-y-2 md:ml-auto md:grow-0 md:justify-end">
           {token}
           <Button type="button" variant="outline" size="sm" className={TOUCH} onClick={onBack}>
@@ -302,32 +269,11 @@ function PlaceList({ label, kind, rows, total, before, after, empty, defaultSort
             {backLabel}
           </Button>
         </div>
-        {ready && rows.length > 0 ? (
-          <p role="status" className="basis-full text-[13px] leading-5 tabular-nums text-secondary">{before}{count}{after}</p>
+        {rows.length > 0 ? (
+          <p role="status" className="basis-full text-[13px] leading-5 tabular-nums text-secondary">{before}{count}</p>
         ) : null}
       </div>
-      {pending ? (
-        <div role="status" aria-label={`Loading ${many}`} className="tracked-table-skeleton">
-          {Array.from({ length: 8 }, (_, index) => (
-            <div key={index} aria-hidden="true">
-              <span className="skeleton-text" style={{ width: `${24 + (index * 7) % 19}%` }} />
-              <span className="skeleton-text w-28" />
-              <span className="skeleton-text w-12" />
-              <span className="skeleton-text w-12" />
-            </div>
-          ))}
-        </div>
-      ) : failed ? (
-        // Centred, as the page's empty states are.
-        <div role="alert" className="py-8 text-center">
-          <StatusNote
-            icon={AlertTriangle}
-            tone="negative"
-            label="Could not load"
-            action={onRetry ? <Button type="button" variant="outline" size="sm" className={TOUCH} aria-label="Retry results" onClick={onRetry}>Retry</Button> : undefined}
-          />
-        </div>
-      ) : <>
+      <>
         {/* Blocks have no header to sort from. This line holds what it did. */}
         {sortable ? (
           <div className={`tracked-stack-controls ${STACK.only}`}>
@@ -345,11 +291,7 @@ function PlaceList({ label, kind, rows, total, before, after, empty, defaultSort
         <table aria-label={label} className={`tracked-table ${STACK.table}`}>
           <colgroup>
             <col />
-            {kind === 'pattern' ? <><col style={{ width: WIDTH.number }} /><col style={{ width: WIDTH.wideNumber }} /></> : weak ? <>
-              <col style={{ width: WIDTH.weakGroups }} />
-              {[0, 1, 2, 3].map(index => <col key={index} style={{ width: WIDTH.number }} />)}
-              {onOpen ? <col style={{ width: WIDTH.weakAction }} /> : null}
-            </> : <>
+            {kind === 'pattern' ? <><col style={{ width: WIDTH.number }} /><col style={{ width: WIDTH.wideNumber }} /></> : <>
               <col style={{ width: WIDTH.groups }} />
               {kind === 'market' ? <col style={{ width: WIDTH.number }} /> : null}
               <col style={{ width: WIDTH.wideNumber }} />
@@ -359,14 +301,7 @@ function PlaceList({ label, kind, rows, total, before, after, empty, defaultSort
           <thead className={STACK.hide}>
             <tr>
               {header('name')}
-              {kind === 'pattern' ? <>{header('used', true)}{header('missing', true)}</> : weak ? <>
-                <th scope="col">Group</th>
-                {header('locations', true)}
-                {header('read', true)}
-                {header('cited', true)}
-                {header('other', true)}
-                {onOpen ? <th scope="col"><span className="sr-only">Actions</span></th> : null}
-              </> : <>
+              {kind === 'pattern' ? <>{header('used', true)}{header('missing', true)}</> : <>
                 <th scope="col">Group</th>
                 {kind === 'market' ? header('locations', true) : null}
                 {header('marketQueries', true)}
@@ -402,23 +337,8 @@ function PlaceList({ label, kind, rows, total, before, after, empty, defaultSort
                 {/* A name can hold a comma, so a comma cannot part two of them. */}
                 <td data-label="Group" className={`break-words text-secondary ${STACK.cell} ${STACK.group} ${STACK.labelled}`}>{row.groups.length > 0 ? row.groups.join(' · ') : 'None'}</td>
                 {row.kind === 'market' ? <td data-label="Locations" className={`${NUMBER} ${STACK.cell} ${STACK.number} ${STACK.labelled}`}>{row.locations === undefined ? null : whole(row.locations)}</td> : null}
-                {weak ? <>
-                  {/* Each a field of the read: answers read, then the part of a count that holds what the column names. */}
-                  <td data-label="Answers" className={`${NUMBER} ${STACK.cell} ${STACK.number} ${STACK.labelled}`}>{row.results ? whole(row.results.read) : null}</td>
-                  <td data-label="Cited" className={`${NUMBER} ${STACK.cell} ${STACK.number} ${STACK.labelled}`}>{row.results ? `${whole(row.results.cited)} of ${whole(row.results.citeRead)}` : null}</td>
-                  <td data-label="Other location" className={`${NUMBER} ${STACK.cell} ${STACK.number} ${STACK.labelled}`}>{row.results ? `${whole(row.results.other)} of ${whole(row.results.read)}` : null}</td>
-                </> : <td data-label="Market queries" className={`${NUMBER} ${STACK.cell} ${STACK.number} ${STACK.labelled}`}>{row.marketQueries === undefined ? null : whole(row.marketQueries)}</td>}
-                {weak ? (onOpen ? (
-                  // A weak market's next step is to see what its queries were answered: every role can.
-                  <td className={`py-0 text-right ${STACK.cell} ${STACK.action}`}>
-                    {row.listed ? (
-                      <Button type="button" variant="ghost" size="sm" className={`h-7 px-2 text-strong md:h-7 ${TOUCH}`} aria-label={`View queries for ${row.label}`} onClick={() => onOpen({ kind: row.kind, key: row.key, label: row.label })}>
-                        View queries
-                        <ArrowRight aria-hidden="true" size={14} />
-                      </Button>
-                    ) : null}
-                  </td>
-                ) : null) : onAdd ? (
+                <td data-label="Market queries" className={`${NUMBER} ${STACK.cell} ${STACK.number} ${STACK.labelled}`}>{row.marketQueries === undefined ? null : whole(row.marketQueries)}</td>
+                {onAdd ? (
                   // No padding above or below: a button is taller than a line of text and must not set the row's height with a mouse.
                   <td className={`py-0 text-right ${STACK.cell} ${STACK.action}`}>
                     {row.kind === 'market' && row.locations === 0
@@ -457,7 +377,7 @@ function PlaceList({ label, kind, rows, total, before, after, empty, defaultSort
             onPageSizeChange={size => { setPageSize(size); table.setPage(1) }}
           />
         ) : null}
-      </>}
+      </>
     </div>
   )
 }
@@ -477,19 +397,12 @@ function PlaceList({ label, kind, rows, total, before, after, empty, defaultSort
  * viewer, who gets no action column). A market with no location takes no
  * query, so it shows why and offers none. A pattern's two counts each open
  * the markets behind them as that same list of markets, under the pattern's
- * name, with Back to patterns. Weakest markets reads the last sweep's
- * non-brand results, so its count names that type, and it is the one view
- * that can be `pending` (the results are still being read) or `failed` (they
- * did not load).
+ * name, with Back to patterns. A market's results are the Markets view's.
  */
-export function TrackedPlaceList({ view, workspace, views, weakMarkets, pending = false, failed = false, onRetry, onBack, onOpen, onAdd }: {
+export function TrackedPlaceList({ view, workspace, views, onBack, onOpen, onAdd }: {
   view: TrackedPlaceView
   workspace: Workspace
   views: QueryTrackingViews
-  weakMarkets?: Pick<QueryTrackingWeakMarkets, 'count' | 'marketKeys' | 'markets'>
-  pending?: boolean
-  failed?: boolean
-  onRetry?: () => void
   onBack: () => void
   onOpen?: (place: TrackedPlace) => void
   onAdd?: (place: TrackedPlace) => void
@@ -498,7 +411,7 @@ export function TrackedPlaceList({ view, workspace, views, weakMarkets, pending 
   // The pattern whose markets are listed in place of the patterns, and which of its two lists.
   const [opened, setOpened] = useState<{ templateId: string; side: Side } | null>(null)
   const gap = view === 'pattern-gaps' && opened ? views.patternGaps.patterns.find(candidate => candidate.templateId === opened.templateId) : undefined
-  const rows = useMemo(() => rowsOf(view, workspace, views, weakMarkets), [view, workspace, views, weakMarkets])
+  const rows = useMemo(() => rowsOf(view, workspace, views), [view, workspace, views])
   const markets = useMemo(() => gap && opened ? marketRows(opened.side === 'used' ? gap.usedMarketKeys : gap.missingMarketKeys, workspace) : [], [gap, opened, workspace])
   const token = <StatusNote icon={ListFilter} label={`View: ${TRACKED_VIEW_LABEL[view]}`} detail={trackedViewHelp(view, views.thinMarkets.floor)} />
 
@@ -520,8 +433,7 @@ export function TrackedPlaceList({ view, workspace, views, weakMarkets, pending 
 
   const total = view === 'no-location-queries' ? views.noPropertyQueries.count
     : view === 'thin-markets' ? views.thinMarkets.count
-      : view === 'pattern-gaps' ? views.patternGaps.count
-        : weakMarkets?.count ?? 0
+      : views.patternGaps.count
 
   return (
     <div ref={root} className="@container">
@@ -539,8 +451,6 @@ export function TrackedPlaceList({ view, workspace, views, weakMarkets, pending 
           token={token}
           backLabel="Back to patterns"
           onBack={() => { moved.current = opened; setOpened(null) }}
-          pending={false}
-          failed={false}
           onOpen={onOpen}
           onAdd={onAdd}
         />
@@ -551,17 +461,12 @@ export function TrackedPlaceList({ view, workspace, views, weakMarkets, pending 
           kind={KIND[view]}
           rows={rows}
           total={total}
-          // The type travels with the count. It is the mentions' type: the Market queries column counts queries of every type.
-          after={view === 'weak-markets' ? ' · no non-brand mention' : undefined}
           empty={EMPTY[view]}
-          // The thinnest market first; the weakest first, in the server's order.
-          defaultSort={view === 'thin-markets' ? { key: 'marketQueries', direction: 'asc' } : view === 'weak-markets' && weakMarkets?.markets ? { key: 'rank', direction: 'asc' } : BY_NAME}
+          // The thinnest market first.
+          defaultSort={view === 'thin-markets' ? { key: 'marketQueries', direction: 'asc' } : BY_NAME}
           token={token}
           backLabel="Back to queries"
           onBack={onBack}
-          pending={pending}
-          failed={failed}
-          onRetry={onRetry}
           onOpen={onOpen}
           onAdd={onAdd}
           onShowMarkets={(templateId, side) => { moved.current = 'in'; setOpened({ templateId, side }) }}

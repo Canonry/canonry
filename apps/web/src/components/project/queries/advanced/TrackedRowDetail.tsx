@@ -1,5 +1,6 @@
 import { Fragment, useId, useMemo, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
+import { ChevronRight } from 'lucide-react'
 import type { QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import { formatSweepDay } from '../../../../lib/format-helpers.js'
@@ -42,12 +43,14 @@ const nameOf = (items: readonly { stableKey: string; label: string }[]) => {
  * column only when they differ. A row that is not asked has no locations, so
  * it shows the facts alone.
  */
-export function TrackedRowDetail({ row, workspace, contextLabels, answers, projectName, currentTargetKey }: {
+export function TrackedRowDetail({ row, workspace, contextLabels, answers, actions, projectName, currentTargetKey }: {
   row: TrackedRowVm
   workspace: Pick<QueryTrackingWorkspaceResponse, 'targets' | 'groups' | 'markets'>
   contextLabels: TrackedContextLabels
   /** What each engine answered, first in the row. */
   answers?: ReactNode
+  /** What to do next with the query, under its answers. */
+  actions?: ReactNode
   /** With it each location links to its page and each market to its queries. */
   projectName?: string
   /** The location whose page the row is on: it is not linked to itself. */
@@ -103,11 +106,16 @@ export function TrackedRowDetail({ row, workspace, contextLabels, answers, proje
   return (
     <div>
       {answers}
-      {links.length > 0 ? <>
-        <h4 id={headingId} className="text-[13px] font-medium leading-5 text-strong">Counts for</h4>
+      {actions ? <div className="flex flex-wrap items-center gap-2 pb-3">{actions}</div> : null}
+      {/* The locations the query counts for are one press away, closed by default: the answers lead the row. */}
+      {links.length > 0 ? <details className="group/counted">
+        <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-sm py-1 text-[13px] font-medium leading-5 text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 pointer-coarse:min-h-11 max-md:min-h-11 [&::-webkit-details-marker]:hidden">
+          <h4 id={headingId} className="contents">Counted for {links.length.toLocaleString('en-US')} {links.length === 1 ? 'location' : 'locations'}</h4>
+          <ChevronRight aria-hidden="true" className="size-3.5 transition-transform group-open/counted:rotate-90 motion-reduce:transition-none" />
+        </summary>
         {/* Five columns are wider than a phone, so with the last one the list scrolls inside its own frame. */}
         <div className="mt-1 overflow-x-auto">
-          <table aria-labelledby={headingId} className={`w-full border-separate border-spacing-0 text-[13px] leading-5 text-neutral ${sharedSearch ? '' : 'min-w-[44rem]'}`}>
+          <table aria-label="Counts for" className={`w-full border-separate border-spacing-0 text-[13px] leading-5 text-neutral ${sharedSearch ? '' : 'min-w-[44rem]'}`}>
             <thead>
               <tr>
                 <th scope="col" className={`${HEAD} ${width.location}`}>Location</th>
@@ -145,7 +153,7 @@ export function TrackedRowDetail({ row, workspace, contextLabels, answers, proje
             onPageChange={table.setPage}
           />
         ) : null}
-      </> : null}
+      </details> : null}
       <dl className={`flex flex-wrap gap-x-6 gap-y-1 text-[13px] leading-5 ${links.length > 0 ? 'mt-3' : ''}`}>
         {sharedSearch ? <Fact label="Search location and engines">{searchLines(sharedSearch)}</Fact> : null}
         <Fact label="Source">

@@ -60,12 +60,29 @@ export type TrackedRowAction =
   | 'remove'
   | 'copy-link'
 
-/** The Tracked toolbar's filters. They list rows and never sum anything. `asked` is Measured and First answers together. */
+/** The signal a list reads: the answer text (Mentioned) or the sources (Cited). Neither is read from the other. */
+export type TrackedSignal = 'mentioned' | 'cited'
+
+/** How the page lists: one line per market, per group of markets, or per query. `auto` is markets on a portfolio that has any. */
+export type TrackedGrouping = 'auto' | 'market' | 'group' | 'none'
+
+/**
+ * The Tracked toolbar's state, as the URL holds it. The filters list rows and
+ * never sum anything; `asked` is Measured and First answers together. `signal`
+ * and `group` narrow nothing: they are the switch and the grouping, so a
+ * filter count and Clear filters leave them alone.
+ */
 export interface TrackedFilters {
   subject: 'any' | TrackedSubject['kind']
   type: 'all' | TrackedType
   status: 'asked' | TrackedStatus | 'all'
   source: 'any' | TrackedSource['kind']
-  /** Evaluated separately for each query type across its asked engines. */
+  /** Evaluated separately for each query type across its asked engines, or on `engine` alone. */
   result: 'any' | 'mentioned' | 'partly-mentioned' | 'not-mentioned' | 'cited' | 'partly-cited' | 'not-cited' | 'not-checked' | 'other-location'
+  /** The engine Result and Change are read on, or `any`. */
+  engine: string
+  /** Rows that won or lost the switch's signal since the previous sweep. */
+  change: 'any' | 'won' | 'lost'
+  signal: TrackedSignal
+  group: TrackedGrouping
 }

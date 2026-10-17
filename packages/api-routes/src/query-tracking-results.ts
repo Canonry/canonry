@@ -734,19 +734,24 @@ function markChanges(rows: readonly QueryTrackingResultRow[], previous: readonly
   }
 }
 
-/** The filters narrow rows only: with `engine`, `result` and `change` must hold on that engine; without it, on one engine. */
+/**
+ * The filters narrow rows only, read on `engine`, or across the row's engines
+ * without it, as the dashboard's Result filter reads them: mentioned (or
+ * cited) when one engine shows it, not mentioned when one engine checked and
+ * none shows it. Not checked is never a no. A change holds when one of those
+ * engines won or lost the signal.
+ */
 function keepRow(row: QueryTrackingResultRow, query: QueryTrackingResultsQuery, signal: ResultSignal): boolean {
   if (query.engine === undefined && query.result === undefined && query.change === undefined) return true
   const engines = query.engine === undefined ? row.engines : row.engines.filter(engine => engine.provider === query.engine)
-  return engines.some(engine => {
-    const result = query.result === undefined
-      || (query.result === 'mentioned' && engine.mentioned === true)
-      || (query.result === 'not-mentioned' && engine.mentioned === false)
-      || (query.result === 'cited' && engine.cited === true)
-      || (query.result === 'not-cited' && engine.cited === false)
-    const change = query.change === undefined || (signal === 'cited' ? engine.citationChange : engine.mentionChange) === query.change
-    return result && change
-  })
+  let result = true
+  if (query.result !== undefined) {
+    const field = query.result === 'mentioned' || query.result === 'not-mentioned' ? 'mentioned' : 'cited'
+    const yes = engines.some(engine => engine[field] === true)
+    result = query.result.startsWith('not-') ? !yes && engines.some(engine => engine[field] === false) : yes
+  }
+  const changeField = signal === 'cited' ? 'citationChange' : 'mentionChange'
+  return result && (query.change === undefined || engines.some(engine => engine[changeField] === query.change))
 }
 
 /** Totals over a set of rows, by the report's own rule, one type at a time. */

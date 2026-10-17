@@ -10,7 +10,9 @@ import {
   marksSubject,
   nextTrackedSort,
   NOT_ASKED,
+  rankByQuery,
   resultClasses,
+  resultSortOrder,
   rowSignal,
   sortTrackedRows,
   sourceDetailLabel,
@@ -381,13 +383,33 @@ describe('sortTrackedRows', () => {
   ]), [])
   const ids = (sorted: readonly { queryId: string }[]) => sorted.map(item => item.queryId)
 
-  it('orders by Subject kind, then place, then query text by default', () => {
+  it('orders by Subject kind, then place, then query text', () => {
     const expected = ['market-d', 'market-u1', 'market-u2', 'location-a', 'location-b', 'hand-picked', 'company', 'none']
-    expect(DEFAULT_TRACKED_SORT).toEqual({ key: 'subject', direction: 'asc' })
-    expect(ids(sortTrackedRows(rows))).toEqual(expected)
-    expect(ids(sortTrackedRows(rows, DEFAULT_TRACKED_SORT))).toEqual(expected)
+    expect(ids(sortTrackedRows(rows, { key: 'subject', direction: 'asc' }))).toEqual(expected)
     // Reversed, the place order flips and the query text under one place still ascends.
     expect(ids(sortTrackedRows(rows, { key: 'subject', direction: 'desc' }))).toEqual(['none', 'company', 'hand-picked', 'location-b', 'location-a', 'market-u1', 'market-u2', 'market-d'])
+  })
+
+  it('opens winning first, in the order of the sorted read, with the rows it has no place for after it in Subject order', () => {
+    expect(DEFAULT_TRACKED_SORT).toEqual({ key: 'result', direction: 'desc' })
+    expect(resultSortOrder(DEFAULT_TRACKED_SORT)).toBe('winning')
+    expect(resultSortOrder({ key: 'result', direction: 'asc' })).toBe('losing')
+    expect(resultSortOrder({ key: 'query', direction: 'asc' })).toBeUndefined()
+    // The server ranked Northbridge's query first, then one of Uptown's; a row it ranked under another type has no place.
+    const rank = rankByQuery({ rows: [
+      { queryId: 'location-b', queryClass: 'non-brand', engines: [] },
+      { queryId: 'market-u1', queryClass: 'non-brand', engines: [] },
+      { queryId: 'market-d', queryClass: 'branded', engines: [] },
+    ] })
+    const expected = ['location-b', 'market-u1', 'market-d', 'market-u2', 'location-a', 'hand-picked', 'company', 'none']
+    expect(ids(sortTrackedRows(rows, DEFAULT_TRACKED_SORT, undefined, rank))).toEqual(expected)
+    // Losing first is a read sorted the other way, so the order is the server's again and never reversed here.
+    expect(ids(sortTrackedRows(rows, { key: 'result', direction: 'asc' }, undefined, rank))).toEqual(expected)
+    // Before the sorted read arrives no row has a place, so the Subject order holds.
+    expect(ids(sortTrackedRows(rows, DEFAULT_TRACKED_SORT))).toEqual(['market-d', 'market-u1', 'market-u2', 'location-a', 'location-b', 'hand-picked', 'company', 'none'])
+    // A new sort by Result starts winning first; a second press turns it.
+    expect(nextTrackedSort({ key: 'query', direction: 'asc' }, 'result')).toEqual({ key: 'result', direction: 'desc' })
+    expect(nextTrackedSort({ key: 'result', direction: 'desc' }, 'result')).toEqual({ key: 'result', direction: 'asc' })
   })
 
   it('orders query text as read, case aside and numbers by value', () => {

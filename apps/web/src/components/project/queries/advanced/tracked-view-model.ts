@@ -196,6 +196,14 @@ export function coverageByQuery(results: TrackedResults | null | undefined): Tra
   return coverage
 }
 
+/** The server's order of a sorted read, by query and type: 0 first. */
+export type TrackedRank = ReadonlyMap<string, number>
+
+/** Each row's place in a sorted read. A query and type the read has no row for has no place. */
+export function rankByQuery(results: TrackedResults): TrackedRank {
+  return new Map(results.rows.map((row, index) => [coverageKey(row.queryId, row.queryClass), index]))
+}
+
 /** The types a row's results are joined on: its own, or the unset one. A mixed row has two. */
 export function resultClasses(row: Pick<TrackedRowVm, 'queryClasses'>): readonly string[] {
   return row.queryClasses.length > 0 ? row.queryClasses : [UNSET_RESULT_CLASS]
@@ -282,17 +290,22 @@ export function marksNote({ location, label, rootLabel }: { location?: string; l
   }
 }
 
-export type TrackedSortKey = 'query' | 'subject' | 'lastMeasured' | 'status' | `engine:${string}`
+export type TrackedSortKey = 'result' | 'query' | 'subject' | 'lastMeasured' | 'status' | `engine:${string}`
+/** `result` runs by the server's share of answers: `desc` is winning first, `asc` losing first. */
 export interface TrackedSort { key: TrackedSortKey; direction: 'asc' | 'desc' }
 
-/** Subject kind (Market, Location, Hand-picked, Company, None), then place, then query text. */
-export const DEFAULT_TRACKED_SORT: TrackedSort = { key: 'subject', direction: 'asc' }
+/** Winning first: the queries the answers mention most lead. */
+export const DEFAULT_TRACKED_SORT: TrackedSort = { key: 'result', direction: 'desc' }
+
+/** The server order a result sort reads: winning first, or losing first. */
+export const resultSortOrder = (sort: TrackedSort): 'winning' | 'losing' | undefined => sort.key !== 'result' ? undefined : sort.direction === 'desc' ? 'winning' : 'losing'
 
 export const engineSortKey = (provider: string): TrackedSortKey => `engine:${provider}`
 
-/** A second click on the sorted column flips it; a new column starts ascending. */
+/** A second click on the sorted column flips it; a new column starts ascending, and Result starts winning first. */
 export function nextTrackedSort(current: TrackedSort | undefined, key: TrackedSortKey): TrackedSort {
-  return { key, direction: current?.key === key && current.direction === 'asc' ? 'desc' : 'asc' }
+  if (current?.key === key) return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+  return { key, direction: key === 'result' ? 'desc' : 'asc' }
 }
 
 const SUBJECT_ORDER: Record<TrackedSubject['kind'], number> = { market: 0, location: 1, 'hand-picked': 2, company: 3, none: 4 }
@@ -333,23 +346,36 @@ function byLastMeasured(left: TrackedRowVm, right: TrackedRowVm, sign: 1 | -1): 
   return (left.lastMeasuredAt < right.lastMeasuredAt ? -1 : 1) * sign
 }
 
+/** A row's first place in a sorted read, over its types; a row the read has none for goes after every row it has. */
+function rankOf(row: TrackedRowVm, rank: TrackedRank | undefined): number {
+  return Math.min(...resultClasses(row).map(queryClass => rank?.get(coverageKey(row.queryId, queryClass)) ?? Number.POSITIVE_INFINITY))
+}
+
 /**
- * Rows in the order a header asks for. An engine column puts not mentioned
- * first, then not cited. Status orders by status and then by last sweep. Ties
- * fall back to the default order, so a sort is stable across pages.
+ * Rows in the order a header asks for. Result is the server's order, which
+ * already runs winning or losing first (`rank`), so it is never reversed
+ * here. An engine column puts not mentioned first, then not cited. Status
+ * orders by status and then by last sweep. Ties fall back to the Subject
+ * order, so a sort is stable across pages.
  */
-export function sortTrackedRows(rows: readonly TrackedRowVm[], sort: TrackedSort = DEFAULT_TRACKED_SORT, coverage?: TrackedCoverage): TrackedRowVm[] {
+export function sortTrackedRows(rows: readonly TrackedRowVm[], sort: TrackedSort = DEFAULT_TRACKED_SORT, coverage?: TrackedCoverage, rank?: TrackedRank, signal: 'mentioned' | 'cited' = 'mentioned'): TrackedRowVm[] {
   const sign = sort.direction === 'asc' ? 1 : -1
   const { key } = sort
   const primary = (left: TrackedRowVm, right: TrackedRowVm): number => {
+    if (key === 'result') {
+      const [leftRank, rightRank] = [rankOf(left, rank), rankOf(right, rank)]
+      return leftRank === rightRank ? 0 : leftRank < rightRank ? -1 : 1
+    }
     if (key === 'query') return collator.compare(left.queryText, right.queryText) * sign
     if (key === 'subject') return bySubject(left, right) * sign
     // Status carries the date, so its order does too: within a status the newest sweep first, and the oldest first when reversed.
     if (key === 'status') return (STATUS_ORDER[left.status] - STATUS_ORDER[right.status]) * sign || byLastMeasured(left, right, sign === 1 ? -1 : 1)
     if (key === 'lastMeasured') return byLastMeasured(left, right, sign)
+    // An engine column runs by the switch's signal first, then by the other.
     const provider = key.slice('engine:'.length)
-    return byState(sortState(left, coverage, provider, 'mentioned'), sortState(right, coverage, provider, 'mentioned'), sign)
-      || byState(sortState(left, coverage, provider, 'cited'), sortState(right, coverage, provider, 'cited'), sign)
+    const [first, second] = signal === 'cited' ? ['cited', 'mentioned'] as const : ['mentioned', 'cited'] as const
+    return byState(sortState(left, coverage, provider, first), sortState(right, coverage, provider, first), sign)
+      || byState(sortState(left, coverage, provider, second), sortState(right, coverage, provider, second), sign)
   }
   return [...rows].sort((left, right) =>
     primary(left, right) || bySubject(left, right) || collator.compare(left.queryText, right.queryText) || (left.queryId < right.queryId ? -1 : left.queryId > right.queryId ? 1 : 0))
@@ -357,7 +383,8 @@ export function sortTrackedRows(rows: readonly TrackedRowVm[], sort: TrackedSort
 
 /** The table's columns, in order. The checkbox column is not one: it shows when the caller takes a selection. */
 export const TRACKED_COLUMNS = ['query', 'subject', 'type', 'engines', 'lastMeasured', 'status', 'source', 'menu'] as const
-export type TrackedColumn = (typeof TRACKED_COLUMNS)[number]
+/** Change follows the engines, on a read that compares with the sweep before (`TrackedTable`'s `changes`). */
+export type TrackedColumn = (typeof TRACKED_COLUMNS)[number] | 'change'
 
 /**
  * Column widths in px. Query takes what is left: 424px in the 1152px content
@@ -365,7 +392,7 @@ export type TrackedColumn = (typeof TRACKED_COLUMNS)[number]
  * gets short (`trackedLayout`). Status holds its widest label, "First answers"
  * and a month and day.
  */
-export const TRACKED_COLUMN_WIDTH = { select: 32, subject: 250, type: 80, engine: 62, lastMeasured: 108, status: 148, source: 98, menu: 32 } as const
+export const TRACKED_COLUMN_WIDTH = { select: 32, subject: 250, type: 80, engine: 62, change: 120, lastMeasured: 108, status: 148, source: 98, menu: 32 } as const
 /**
  * The query is the row's identity. At this width its line holds 60 to 64
  * characters, by their letters, and a page with a longer one gives every row

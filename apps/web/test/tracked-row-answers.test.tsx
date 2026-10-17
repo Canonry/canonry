@@ -45,8 +45,19 @@ function response(overrides: Partial<QueryTrackingResultsResponse> = {}): QueryT
       queryText: 'best apartments in Uptown',
       queryClass: 'non-brand',
       engines: [
-        engine('gemini', [answer({ resultId: 'result-gemini', mentioned: true, mentionedTargetKeys: ['river'], namedInstead: ['Rival A'] })]),
-        engine('openai', [answer({ resultId: 'result-openai', namedInstead: ['Rival A', 'Rival B', 'Rival C', 'Rival D'] })]),
+        // Gemini names River Point, and Rival A beside it.
+        engine('gemini', [answer({ resultId: 'result-gemini', mentioned: true, mentionedTargetKeys: ['river'], alsoNamed: ['Rival A'], citedSources: [] })]),
+        // OpenAI names four others instead, and cites one site twice, one of the project's own and a competitor's.
+        engine('openai', [answer({
+          resultId: 'result-openai', namedInstead: ['Rival A', 'Rival B', 'Rival C', 'Rival D'], alsoNamed: [],
+          citedSources: [
+            { url: 'https://listings.example/uptown', host: 'listings.example', ours: false, competitor: null },
+            { url: 'https://listings.example/uptown/2', host: 'listings.example', ours: false, competitor: null },
+            { url: 'https://acme.example/river', host: 'acme.example', ours: true, competitor: null },
+            { url: 'https://rival.example/', host: 'rival.example', ours: false, competitor: 'rival.example' },
+          ],
+        })]),
+        // Claude saved no answer, from a server that sends neither list.
         engine('claude', [answer({ resultId: null, mentioned: null, cited: null })]),
       ],
     }],
@@ -55,7 +66,7 @@ function response(overrides: Partial<QueryTrackingResultsResponse> = {}): QueryT
   } as QueryTrackingResultsResponse
 }
 
-function renderAnswers(results: () => Response, answerText = 'Rival A is the best pick in Uptown.') {
+function renderAnswers(results: () => Response, answerText = 'Rival A is the best pick in Uptown.', engines?: readonly string[]) {
   const requests: string[] = []
   const restore = mockFetch(url => {
     const parsed = new URL(url)
@@ -67,7 +78,7 @@ function renderAnswers(results: () => Response, answerText = 'Rival A is the bes
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={queryClient}>
-      <TrackedRowAnswers projectName="demo" selection={{ measurementScope: 'market', measurementScopeKey: 'uptown' }} queryId="q-uptown" runId="run-7" targetLabel={targetLabel} />
+      <TrackedRowAnswers projectName="demo" selection={{ measurementScope: 'market', measurementScopeKey: 'uptown' }} queryId="q-uptown" runId="run-7" targetLabel={targetLabel} engines={engines} />
     </QueryClientProvider>,
   )
   return { requests, restore }
@@ -80,12 +91,13 @@ describe('TrackedRowAnswers', () => {
     const { requests, restore } = renderAnswers(() => jsonResponse(response()))
     await screen.findByRole('table')
     expect(requests).toEqual(['/query-tracking/results?scope=market&scopeKey=uptown&queryId=q-uptown&runId=run-7'])
-    expect(screen.getByRole('heading', { level: 4 }).textContent).toMatch(/^Last sweep /)
-    expect(within(screen.getByRole('table')).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Engine', 'Result', 'Location mentioned', 'Mentioned instead', 'Answer'])
+    expect(screen.getByRole('heading', { level: 4 }).textContent).toBe('Answers')
+    expect(within(screen.getByRole('table')).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Engine', 'Result', 'Location mentioned', 'Named instead', 'Also named', 'Cited', 'Answer'])
+    // A name is "instead" only on an answer that did not mention us; each site once, ours and a competitor's marked.
     expect(lines()).toEqual([
-      ['Gemini', 'MC', 'River Point', 'Rival A', 'Read answer'],
-      ['OpenAI', 'MC', 'None', 'Rival A · Rival B · Rival C +1', 'Read answer'],
-      ['Claude', 'MC', 'None', 'None', 'No answer saved'],
+      ['Gemini', 'MC', 'River Point', '', 'Rival A', 'None', 'Read answer'],
+      ['OpenAI', 'MC', 'None', 'Rival A · Rival B · Rival C +1', '', 'listings.example · acme.example (yours) +1', 'Read answer'],
+      ['Claude', 'MC', 'None', '', '', 'None', 'No answer saved'],
     ])
     // Each line's marks are that answer's own.
     expect(screen.getByLabelText('Gemini: Mentioned, Not cited')).toBeTruthy()
@@ -108,7 +120,15 @@ describe('TrackedRowAnswers', () => {
     const one = response({ rows: [{ ...response().rows[0]!, engines: [engine('gemini', [answer({ targetKeys: ['harbor'], mentionedTargetKeys: ['harbor'], mentioned: true })])] }] })
     const { restore } = renderAnswers(() => jsonResponse(one))
     await screen.findByRole('table')
-    expect(within(screen.getByRole('table')).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Engine', 'Result', 'Mentioned instead', 'Answer'])
+    // Nor is there a name given instead, another name, or a source list to show.
+    expect(within(screen.getByRole('table')).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Engine', 'Result', 'Answer'])
+    restore()
+  })
+
+  test('lists the engines in the page\'s own order, an engine it does not list after them', async () => {
+    const { restore } = renderAnswers(() => jsonResponse(response()), undefined, ['claude', 'openai'])
+    await screen.findByRole('table')
+    expect(lines().map(line => line[0])).toEqual(['Claude', 'OpenAI', 'Gemini'])
     restore()
   })
 

@@ -2371,6 +2371,9 @@ describe('query tracking results: grouped, compared, filtered and sorted', () =>
     const gemini = await results('engine=gemini&result=not-mentioned')
     expect(rowKeys(gemini).sort()).toEqual(['q-market non-brand', 'q-parking branded'])
     expect(gemini.totals?.map(total => [total.queryClass, total.queries])).toEqual([['branded', 1], ['non-brand', 1]])
+    // Without an engine, not mentioned is no engine mentioning it: Claude names Harbor on the market query, so it stays out.
+    expect(rowKeys(await results('result=not-mentioned'))).toEqual(['q-parking branded'])
+    expect(rowKeys(await results('result=mentioned')).sort()).toEqual(['q-harbor branded', 'q-market non-brand', 'q-parking non-brand'])
     // Winning first: every answer mentions, then one in three, then none; ties by query text.
     expect(rowKeys(await results('sort=winning'))).toEqual(['q-harbor branded', 'q-parking non-brand', 'q-market non-brand', 'q-parking branded'])
     expect(rowKeys(await results('sort=losing&signal=cited')).at(-1)).toBe('q-harbor branded')

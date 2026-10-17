@@ -1,22 +1,23 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
-import type { QueryTrackingViews, QueryTrackingWeakMarkets } from '@canonry/canonry-contracts'
+import type { QueryTrackingViews } from '@canonry/canonry-contracts'
 
 import { InfoTooltip } from '../../../shared/InfoTooltip.js'
 import { Button } from '../../../ui/button.js'
 
 /** The views that list places or patterns in place of the queries. Each is a value of the URL's `trackedView`. */
-export const TRACKED_PLACE_VIEWS = ['no-location-queries', 'thin-markets', 'pattern-gaps', 'weak-markets'] as const
+export const TRACKED_PLACE_VIEWS = ['no-location-queries', 'thin-markets', 'pattern-gaps'] as const
 export type TrackedPlaceView = (typeof TRACKED_PLACE_VIEWS)[number]
-/** The two that set a filter of the query list and keep it on screen. */
-export type TrackedFilterView = 'not-asked' | 'hand-picked'
+/** The ones that set a filter of the query list and keep it on screen. */
+export type TrackedFilterView = 'lost' | 'won' | 'not-asked' | 'hand-picked'
 export type TrackedSavedView = TrackedPlaceView | TrackedFilterView
 
 export const TRACKED_VIEW_LABEL: Record<TrackedSavedView, string> = {
+  lost: 'Lost in last sweep',
+  won: 'Won in last sweep',
   'no-location-queries': 'Location gaps',
   'thin-markets': 'Thin markets',
   'pattern-gaps': 'Pattern gaps',
-  'weak-markets': 'Weakest markets',
   'not-asked': 'Not asked',
   'hand-picked': 'Hand-picked',
 }
@@ -34,7 +35,6 @@ export function trackedViewHelp(view: TrackedPlaceView, floor: number): string {
     case 'no-location-queries': return 'Locations with no location query of their own.'
     case 'thin-markets': return `Markets with fewer than ${whole(floor)} market queries.`
     case 'pattern-gaps': return 'Saved patterns missing from some markets.'
-    case 'weak-markets': return 'Markets with no mention on the last sweep. Non-brand market queries only.'
   }
 }
 
@@ -44,15 +44,23 @@ function shortHelp(view: TrackedPlaceView, floor: number): string {
     case 'no-location-queries': return 'no location query.'
     case 'thin-markets': return `under ${whole(floor)} market queries.`
     case 'pattern-gaps': return 'patterns some markets lack.'
-    case 'weak-markets': return 'no non-brand mention, last sweep.'
   }
 }
 
-/** Saved place views and quick filters, disclosed only when choosing one. The caller owns every selection and count. */
-export function TrackedSavedViews({ views, weakMarkets, notAsked, handPicked, active, onSelect }: {
+/**
+ * The computed reports and quick filters, disclosed only when choosing one.
+ * Nothing is saved: each is a list the reads already hold. The caller owns
+ * every selection and count.
+ */
+export function TrackedSavedViews({ views, changes, notAsked, handPicked, active, onSelect }: {
   views: QueryTrackingViews
-  /** The results read's field, `pending` while that read is in flight, or `failed` when it did not load. Left out with no sweep to read, and the view with it. */
-  weakMarkets?: Pick<QueryTrackingWeakMarkets, 'count'> | 'pending' | 'failed'
+  /**
+   * The queries listed that won or lost the switch's signal since the
+   * previous sweep: lengths of lists the comparison returned, or `pending`
+   * while it is read. A list of markets has no queries to count, so it names
+   * none. Left out with no previous sweep, and the two views with it.
+   */
+  changes?: { won: number | undefined; lost: number | undefined } | 'pending'
   /** `summary.notAsked` and `summary.byFocus.custom`. A view whose number did not come shows none. */
   notAsked?: number
   handPicked?: number
@@ -74,15 +82,19 @@ export function TrackedSavedViews({ views, weakMarkets, notAsked, handPicked, ac
   }, [open])
   const { floor } = views.thinMarkets
   const items: { view: TrackedSavedView; count: number | 'pending' | undefined; note?: string }[] = [
+    ...(changes ? [
+      { view: 'lost' as const, count: changes === 'pending' ? changes : changes.lost },
+      { view: 'won' as const, count: changes === 'pending' ? changes : changes.won },
+    ] : []),
     { view: 'no-location-queries', count: views.noPropertyQueries.count },
     { view: 'thin-markets', count: views.thinMarkets.count },
     { view: 'pattern-gaps', count: views.patternGaps.count },
-    ...(weakMarkets ? [{ view: 'weak-markets' as const, count: weakMarkets === 'pending' ? weakMarkets : weakMarkets === 'failed' ? undefined : weakMarkets.count, note: 'non-brand queries' }] : []),
     { view: 'not-asked', count: notAsked },
     { view: 'hand-picked', count: handPicked },
   ]
   const help = [
-    ...TRACKED_PLACE_VIEWS.filter(view => view !== 'weak-markets' || weakMarkets).map(view => `${TRACKED_VIEW_LABEL[view]}: ${shortHelp(view, floor)}`),
+    ...(changes ? ['Lost, Won: queries an engine lost or won since the previous sweep, of the signal shown.'] : []),
+    ...TRACKED_PLACE_VIEWS.map(view => `${TRACKED_VIEW_LABEL[view]}: ${shortHelp(view, floor)}`),
     'Not asked, Hand-picked: filter the list.',
   ].join(' ')
 

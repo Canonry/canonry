@@ -45,17 +45,63 @@ describe('TrackedToolbar', () => {
   test('each filter is a labelled select holding its choices, on its default', () => {
     renderToolbar()
     fireEvent.click(filtersButton())
-    expect(within(screen.getByRole('group', { name: 'Filters' })).getAllByRole('combobox').map(control => control.getAttribute('aria-label'))).toEqual(['Subject', 'Type', 'Status', 'Source', 'Result'])
+    // With one engine or none there is no engine to choose, so On is left out.
+    expect(within(screen.getByRole('group', { name: 'Filters' })).getAllByRole('combobox').map(control => control.getAttribute('aria-label'))).toEqual(['Subject', 'Type', 'Status', 'Source', 'Result', 'Change'])
     expect(choices('Subject')).toEqual(['Any', 'Market', 'Location', 'Company', 'Hand-picked', 'None'])
     expect(choices('Type')).toEqual(['All', 'Non-brand', 'Branded', 'Mixed', 'Not set'])
     expect(choices('Status')).toEqual(['Asked', 'Measured', 'First answers', 'Not asked', 'All'])
     expect(choices('Source')).toEqual(['Any', 'Pattern', 'Manual', 'Research', 'Setup', 'Older list'])
-    expect(choices('Result')).toEqual(['Any', 'Mentioned', 'Partly mentioned', 'Not mentioned', 'Cited', 'Partly cited', 'Not cited', 'Not checked', 'Other location'])
-    expect(['Subject', 'Type', 'Status', 'Source', 'Result'].map(chosen)).toEqual(['Any', 'All', 'Asked', 'Any', 'Any'])
+    // Result offers the switch's own signal: Mentioned by default.
+    expect(choices('Result')).toEqual(['Any', 'Mentioned', 'Partly mentioned', 'Not mentioned', 'Not checked', 'Other location'])
+    expect(choices('Change')).toEqual(['Any', 'Won', 'Lost'])
+    expect(['Subject', 'Type', 'Status', 'Source', 'Result', 'Change'].map(chosen)).toEqual(['Any', 'All', 'Asked', 'Any', 'Any', 'Any'])
+  })
+
+  test('the switch says which signal the lists read, carries a chosen Result over, and Result follows it', () => {
+    const { onFiltersChange, rerender } = renderToolbar({ filters: { ...DEFAULT_TRACKED_FILTERS, result: 'not-mentioned' } })
+    const signal = () => within(screen.getByRole('group', { name: 'Signal' })).getAllByRole('button').map(button => [button.textContent, button.getAttribute('aria-pressed')])
+    expect(signal()).toEqual([['Mentioned', 'true'], ['Cited', 'false']])
+    fireEvent.click(screen.getByRole('button', { name: 'Cited' }))
+    expect(onFiltersChange).toHaveBeenLastCalledWith({ ...DEFAULT_TRACKED_FILTERS, signal: 'cited', result: 'not-cited' })
+    rerender(<TrackedToolbar search="" onSearchChange={() => {}} filters={{ ...DEFAULT_TRACKED_FILTERS, signal: 'cited', result: 'not-cited' }} onFiltersChange={onFiltersChange} engines={['claude', 'gemini']} />)
+    expect(signal()).toEqual([['Mentioned', 'false'], ['Cited', 'true']])
+    fireEvent.click(filtersButton())
+    expect(choices('Result')).toEqual(['Any', 'Cited', 'Partly cited', 'Not cited', 'Not checked'])
+    // With two engines a Result can be read on one of them.
+    expect(choices('On')).toEqual(['Any engine', 'Claude', 'Gemini'])
+    fireEvent.change(select('On'), { target: { value: 'gemini' } })
+    expect(onFiltersChange).toHaveBeenLastCalledWith({ ...DEFAULT_TRACKED_FILTERS, signal: 'cited', result: 'not-cited', engine: 'gemini' })
+  })
+
+  test('Group and Sort offer the caller\'s choices, and a list of markets has no filters to set', () => {
+    const onGroupingChange = vi.fn()
+    const onOrderChange = vi.fn()
+    const groupings = [{ value: 'market', label: 'Market' }, { value: 'none', label: 'None' }] as const
+    const orders = [{ value: 'losing', label: 'Losing first' }, { value: 'name', label: 'Name' }]
+    renderToolbar({ groupings, grouping: 'market', onGroupingChange, orders, order: 'losing', onOrderChange, count: '137 markets', searchLabel: 'Search markets' })
+    expect([choices('Group'), chosen('Group'), choices('Sort'), chosen('Sort')]).toEqual([['Market', 'None'], 'Market', ['Losing first', 'Name'], 'Losing first'])
+    fireEvent.change(select('Group'), { target: { value: 'none' } })
+    fireEvent.change(select('Sort'), { target: { value: 'name' } })
+    expect([onGroupingChange.mock.calls, onOrderChange.mock.calls]).toEqual([[['none']], [['name']]])
+    expect(screen.queryByRole('button', { name: /^Filters/ })).toBeNull()
+    expect(screen.getByRole('status').textContent).toBe('137 markets')
+    expect(screen.getByRole('searchbox', { name: 'Search markets' })).toBeTruthy()
+  })
+
+  test('the count line offers the queries the default Status leaves out, and only then', () => {
+    const onShowNotAsked = vi.fn()
+    const { rerender } = renderToolbar({ shown: 932, total: 970, notAsked: 38, onShowNotAsked })
+    fireEvent.click(screen.getByRole('button', { name: 'Show 38 not asked' }))
+    expect(onShowNotAsked).toHaveBeenCalledTimes(1)
+    // Listed already, or none to show: no offer.
+    rerender(<TrackedToolbar search="" onSearchChange={() => {}} filters={{ ...DEFAULT_TRACKED_FILTERS, status: 'all' }} onFiltersChange={() => {}} shown={970} total={970} notAsked={38} onShowNotAsked={onShowNotAsked} />)
+    expect(screen.queryByRole('button', { name: /not asked$/ })).toBeNull()
+    rerender(<TrackedToolbar search="" onSearchChange={() => {}} filters={DEFAULT_TRACKED_FILTERS} onFiltersChange={() => {}} shown={932} total={932} notAsked={0} onShowNotAsked={onShowNotAsked} />)
+    expect(screen.queryByRole('button', { name: /not asked$/ })).toBeNull()
   })
 
   test('the control reads as its label and its current choice, drawn once and spoken by the select', () => {
-    renderToolbar({ filters: { ...DEFAULT_TRACKED_FILTERS, subject: 'hand-picked', result: 'not-cited' } })
+    renderToolbar({ filters: { ...DEFAULT_TRACKED_FILTERS, subject: 'hand-picked', result: 'not-cited', signal: 'cited' } })
     fireEvent.click(filtersButton())
     const drawn = (name: string) => [...select(name).parentElement!.querySelectorAll('span[aria-hidden="true"]')].map(part => part.textContent)
     expect(drawn('Subject')).toEqual(['Subject', 'Hand-picked'])
@@ -88,7 +134,7 @@ describe('TrackedToolbar', () => {
     const { onFiltersChange } = renderToolbar({ filters: { ...DEFAULT_TRACKED_FILTERS, type: 'branded' } })
     fireEvent.click(filtersButton())
     fireEvent.change(select('Status'), { target: { value: 'not-asked' } })
-    expect(onFiltersChange).toHaveBeenLastCalledWith({ subject: 'any', type: 'branded', status: 'not-asked', source: 'any', result: 'any' })
+    expect(onFiltersChange).toHaveBeenLastCalledWith({ ...DEFAULT_TRACKED_FILTERS, type: 'branded', status: 'not-asked' })
     fireEvent.change(select('Type'), { target: { value: 'all' } })
     expect(onFiltersChange).toHaveBeenLastCalledWith(DEFAULT_TRACKED_FILTERS)
   })
@@ -142,7 +188,7 @@ describe('TrackedToolbar', () => {
 
   test('Clear filters shows only while a filter is set, resets them all in one step and moves focus on', () => {
     function Host() {
-      const [filters, setFilters] = useState<TrackedFilters>({ subject: 'market', type: 'non-brand', status: 'asked', source: 'pattern', result: 'not-mentioned' })
+      const [filters, setFilters] = useState<TrackedFilters>({ ...DEFAULT_TRACKED_FILTERS, subject: 'market', type: 'non-brand', source: 'pattern', result: 'not-cited', signal: 'cited' })
       return <TrackedToolbar search="harbor" onSearchChange={() => {}} filters={filters} onFiltersChange={setFilters} shown={40} total={970} />
     }
     render(<Host />)
@@ -154,6 +200,8 @@ describe('TrackedToolbar', () => {
     clear.focus()
     fireEvent.click(clear)
     expect(['Subject', 'Type', 'Status', 'Source', 'Result'].map(chosen)).toEqual(['Any', 'All', 'Asked', 'Any', 'Any'])
+    // The switch is no filter: clearing leaves it on Cited.
+    expect(screen.getByRole('button', { name: 'Cited' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.queryByRole('button', { name: 'Clear filters' })).toBeNull()
     // The button went with the last filter: focus is on the way back to the filters, not lost. The search is left as it was.
     expect(document.activeElement).toBe(filtersButton())
@@ -193,14 +241,14 @@ describe('TrackedToolbar', () => {
     expect(filtersButton().getAttribute('aria-expanded')).toBe('false')
   })
 
-  test('the filters stay collapsed on every screen size, then all five are available together', async () => {
+  test('the filters stay collapsed on every screen size, then all of them are available together', async () => {
     const { container } = renderToolbar()
     const panel = document.getElementById(filtersButton().getAttribute('aria-controls')!)!
     expect(panel.hidden).toBe(true)
     expect(screen.queryAllByRole('combobox')).toEqual([])
     fireEvent.click(filtersButton())
     expect(panel.hidden).toBe(false)
-    expect(screen.getAllByRole('combobox')).toHaveLength(5)
+    expect(screen.getAllByRole('combobox')).toHaveLength(6)
     const rules = await rulesFor(container)
     const control = select('Status').parentElement!
     const height = (element: Element, context?: string) => cssLengthPx(compiledElementProperty(rules, element, 'height', context)!, rules)

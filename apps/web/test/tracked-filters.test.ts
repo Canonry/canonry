@@ -3,15 +3,22 @@ import type { QueryClass } from '@canonry/canonry-contracts'
 
 import {
   activeFilterCount,
+  clearedTrackedFilters,
   DEFAULT_TRACKED_FILTERS,
   matchesTrackedFilters,
   parseTrackedFilters,
+  resultForSignal,
+  resultOptionsFor,
   trackedFiltersPatch,
   type TrackedResultCell,
 } from '../src/components/project/queries/advanced/tracked-filters.js'
 import type { EngineSignal, TrackedFilters, TrackedRowVm, TrackedSource, TrackedSubject } from '../src/components/project/queries/advanced/tracked-types.js'
 
-const NARROWED: TrackedFilters = { subject: 'hand-picked', type: 'not-set', status: 'first-answers', source: 'older-list', result: 'not-cited' }
+const NARROWED: TrackedFilters = {
+  subject: 'hand-picked', type: 'not-set', status: 'first-answers', source: 'older-list', result: 'not-cited', engine: 'gemini', change: 'lost', signal: 'cited', group: 'none',
+}
+/** The defaults of the keys that are not this test's. */
+const REST = { engine: 'any', change: 'any', signal: 'mentioned', group: 'auto' } as const
 
 function row(id: string, subject: TrackedSubject, type: TrackedRowVm['type'], status: TrackedRowVm['status'], source: TrackedSource['kind']): TrackedRowVm {
   return {
@@ -42,20 +49,24 @@ const listed = (filters: Partial<TrackedFilters>) => ROWS
 
 describe('tracked filters in the URL', () => {
   test('a clean URL reads as the defaults: asked queries of every Subject, Type and Source', () => {
-    expect(parseTrackedFilters({})).toEqual({ subject: 'any', type: 'all', status: 'asked', source: 'any', result: 'any' })
+    expect(parseTrackedFilters({})).toEqual({ subject: 'any', type: 'all', status: 'asked', source: 'any', result: 'any', ...REST })
     expect(parseTrackedFilters({ queryClass: 'branded', trackingQueryId: 'q1' })).toEqual(DEFAULT_TRACKED_FILTERS)
   })
 
   test('every filter round-trips through its own key', () => {
     const patch = trackedFiltersPatch(NARROWED)
-    expect(patch).toEqual({ trackedSubject: 'hand-picked', trackedType: 'not-set', trackedStatus: 'first-answers', trackedSource: 'older-list', trackedResult: 'not-cited' })
+    expect(patch).toEqual({
+      trackedSubject: 'hand-picked', trackedType: 'not-set', trackedStatus: 'first-answers', trackedSource: 'older-list', trackedResult: 'not-cited',
+      trackedEngine: 'gemini', trackedChange: 'lost', trackedSignal: 'cited', trackedGroup: 'none',
+    })
     expect(parseTrackedFilters(patch)).toEqual(NARROWED)
     expect(parseTrackedFilters(trackedFiltersPatch(DEFAULT_TRACKED_FILTERS))).toEqual(DEFAULT_TRACKED_FILTERS)
   })
 
   test('a default clears its key, and a patch touches only the filters it was given', () => {
-    expect(trackedFiltersPatch({ ...NARROWED, status: 'asked', result: 'any' })).toEqual({
+    expect(trackedFiltersPatch({ ...NARROWED, status: 'asked', result: 'any', signal: 'mentioned', group: 'auto' })).toEqual({
       trackedSubject: 'hand-picked', trackedType: 'not-set', trackedStatus: undefined, trackedSource: 'older-list', trackedResult: undefined,
+      trackedEngine: 'gemini', trackedChange: 'lost', trackedSignal: undefined, trackedGroup: undefined,
     })
     expect(trackedFiltersPatch({ status: 'not-asked' })).toEqual({ trackedStatus: 'not-asked' })
     // The key is present and undefined, so spreading the patch over the URL removes a set filter.
@@ -64,7 +75,9 @@ describe('tracked filters in the URL', () => {
 
   test('a value no choice carries falls back to that filter\'s default and leaves the others alone', () => {
     expect(parseTrackedFilters({ trackedSubject: 'property', trackedType: 'unknown', trackedStatus: 'not-asked', trackedSource: 'template', trackedResult: 'not-mentioned' }))
-      .toEqual({ subject: 'any', type: 'all', status: 'not-asked', source: 'any', result: 'not-mentioned' })
+      .toEqual({ subject: 'any', type: 'all', status: 'not-asked', source: 'any', result: 'not-mentioned', ...REST })
+    // An engine is an id, whatever the page lists; anything else is no engine.
+    expect(parseTrackedFilters({ trackedEngine: 'Not An Engine', trackedChange: 'gained', trackedSignal: 'both', trackedGroup: 'metro' })).toEqual(DEFAULT_TRACKED_FILTERS)
     expect(parseTrackedFilters({ trackedSubject: ['market'], trackedType: 7, trackedStatus: null, trackedSource: '', trackedResult: true })).toEqual(DEFAULT_TRACKED_FILTERS)
     // A Subject value is not a Source value: each key takes only its own choices.
     expect(parseTrackedFilters({ trackedSource: 'market', trackedSubject: 'manual' })).toEqual(DEFAULT_TRACKED_FILTERS)
@@ -74,7 +87,26 @@ describe('tracked filters in the URL', () => {
     expect(activeFilterCount(DEFAULT_TRACKED_FILTERS)).toBe(0)
     expect(activeFilterCount({ ...DEFAULT_TRACKED_FILTERS, status: 'all' })).toBe(1)
     expect(activeFilterCount({ ...DEFAULT_TRACKED_FILTERS, subject: 'market', result: 'not-checked' })).toBe(2)
-    expect(activeFilterCount(NARROWED)).toBe(5)
+    expect(activeFilterCount(NARROWED)).toBe(7)
+    // The switch and the grouping narrow nothing, and an engine with no Result or Change to read on it neither.
+    expect(activeFilterCount({ ...DEFAULT_TRACKED_FILTERS, signal: 'cited', group: 'none' })).toBe(0)
+    expect(activeFilterCount({ ...DEFAULT_TRACKED_FILTERS, engine: 'gemini' })).toBe(0)
+    expect(activeFilterCount({ ...DEFAULT_TRACKED_FILTERS, engine: 'gemini', result: 'not-mentioned' })).toBe(2)
+  })
+
+  test('clearing the filters keeps the switch and the grouping, and a patch sets what it names', () => {
+    expect(clearedTrackedFilters(NARROWED)).toEqual({ ...DEFAULT_TRACKED_FILTERS, signal: 'cited', group: 'none' })
+    expect(clearedTrackedFilters(NARROWED, { status: 'not-asked', group: 'auto' })).toEqual({ ...DEFAULT_TRACKED_FILTERS, signal: 'cited', status: 'not-asked' })
+  })
+
+  test('Result offers the switch\'s own results, and a chosen one carries over to the other signal', () => {
+    expect(resultOptionsFor('mentioned').map(option => option.value)).toEqual(['any', 'mentioned', 'partly-mentioned', 'not-mentioned', 'not-checked', 'other-location'])
+    expect(resultOptionsFor('cited').map(option => option.value)).toEqual(['any', 'cited', 'partly-cited', 'not-cited', 'not-checked'])
+    expect(resultForSignal('not-mentioned', 'cited')).toBe('not-cited')
+    expect(resultForSignal('partly-cited', 'mentioned')).toBe('partly-mentioned')
+    expect(resultForSignal('not-checked', 'cited')).toBe('not-checked')
+    // Other location is the mention's alone, so under Cited it is no filter.
+    expect(resultForSignal('other-location', 'cited')).toBe('any')
   })
 })
 
@@ -139,7 +171,7 @@ describe('which rows the filters list', () => {
 describe('Result', () => {
   const measured = ROWS[0]!
   const signal = (mentioned: boolean | null, cited: boolean | null): EngineSignal => ({ mentioned, cited })
-  const cellsOf = (queryClass: QueryClass, signals: readonly (EngineSignal | null | undefined)[]): TrackedResultCell[] => signals.map(value => ({ queryClass, signal: value }))
+  const cellsOf = (queryClass: QueryClass, signals: readonly (EngineSignal | null | undefined)[], providers: readonly string[] = []): TrackedResultCell[] => signals.map((value, index) => ({ queryClass, provider: providers[index] ?? `engine-${index}`, signal: value }))
   const lists = (result: TrackedFilters['result'], signals: readonly (EngineSignal | null | undefined)[]) => matchesTrackedFilters(measured, { ...DEFAULT_TRACKED_FILTERS, result }, cellsOf('non-brand', signals))
   const BOTH = signal(true, true)
 
@@ -176,6 +208,18 @@ describe('Result', () => {
     expect(lists('not-checked', [BOTH, signal(false, false)])).toBe(false)
     // A row with no engine cell is asked on no engine. Not asked is not a sweep gap, so no Result lists it.
     for (const result of ['not-mentioned', 'not-cited', 'not-checked'] as const) expect([result, lists(result, [])]).toEqual([result, false])
+  })
+
+  test('On reads Result on that engine alone, and Change lists a row when one engine won or lost the switch\'s signal', () => {
+    const cells = cellsOf('non-brand', [signal(true, false), { ...signal(false, true), mentionChange: 'lost' }], ['claude', 'gemini'])
+    const on = (filters: Partial<TrackedFilters>) => matchesTrackedFilters(measured, { ...DEFAULT_TRACKED_FILTERS, ...filters }, cells)
+    // Across engines Claude's mention makes it no miss; on Gemini it is one.
+    expect([on({ result: 'not-mentioned' }), on({ result: 'not-mentioned', engine: 'gemini' }), on({ result: 'not-mentioned', engine: 'claude' })]).toEqual([false, true, false])
+    // Gemini lost the mention. The citation did not change, so under Cited nothing was lost.
+    expect([on({ change: 'lost' }), on({ change: 'won' }), on({ change: 'lost', signal: 'cited' })]).toEqual([true, false, false])
+    expect([on({ change: 'lost', engine: 'gemini' }), on({ change: 'lost', engine: 'claude' })]).toEqual([true, false])
+    // Both together hold on the engine named.
+    expect([on({ change: 'lost', result: 'not-mentioned', engine: 'gemini' }), on({ change: 'lost', result: 'mentioned', engine: 'gemini' })]).toEqual([true, false])
   })
 
   test('a cell that is still loading matches no result yet', () => {

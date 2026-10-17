@@ -8,7 +8,7 @@ import { QueriesSection } from '../src/components/project/DiscoverySection.js'
 import { TrackingAddQueriesPage } from '../src/components/project/queries/AddQueriesEntry.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
-import { expectNoSentence, noteButton, renderQuerySection, searchLocationModels } from './support/query-tracking-fixtures.js'
+import { expectNoSentence, LIST_FILTERS, noteButton, renderQuerySection, searchLocationModels } from './support/query-tracking-fixtures.js'
 
 afterEach(() => {
   cleanup()
@@ -138,7 +138,8 @@ type TrackedProps = Partial<React.ComponentProps<typeof QueriesSection>>
 
 /** `show` renders the same section again with other props, as the page does when the Tracked filter changes. */
 function renderTracked(props: TrackedProps = {}, role?: 'viewer') {
-  const { queryClient, router, rerender } = renderQuerySection({ projectName: 'demo', ...props }, role)
+  // The query list: a portfolio opens on its markets otherwise.
+  const { queryClient, router, rerender } = renderQuerySection({ projectName: 'demo', trackedFilters: LIST_FILTERS, onTrackedFiltersChange: () => {}, ...props }, role)
   return { queryClient, router, show: rerender }
 }
 

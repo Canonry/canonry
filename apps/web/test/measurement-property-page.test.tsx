@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { LIST_FILTERS } from './support/query-tracking-fixtures.js'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router'
@@ -2548,7 +2549,7 @@ describe('Location page copy', () => {
       '75.0', '3', '4', '50.0', '2', '4', // Non-brand: Mentioned, Cited
       '50.0', '1', '2', '50.0', '1', '2', // Branded
       '5', '9', '1', '28', // Tracked for: location queries, market queries, markets, answers counted
-      '5', ...sweepDay, // Queries about this location, and the day in its one row's Status
+      '5', // Queries about this location: its one row is measured, which its Status says to a reader and draws nothing for
       '9', ...sweepDay, // From its markets, and its one row's last sweep
       '1', // site page
       '1', // name
@@ -3499,7 +3500,8 @@ describe('Add query about this location', () => {
     const root = createRootRoute({ component: Outlet, validateSearch: (search: Record<string, unknown>) => search })
     const project = createRoute({ getParentRoute: () => root, path: '/projects/$projectName', component: Outlet })
     const location = createRoute({ getParentRoute: () => project, path: '/properties/$targetKey', component: MeasurementPropertyPage })
-    const queries = createRoute({ getParentRoute: () => project, path: '/queries', component: () => <QueriesSection projectName={projectName} /> })
+    // The query list: a portfolio's Queries page opens on its markets otherwise.
+    const queries = createRoute({ getParentRoute: () => project, path: '/queries', component: () => <QueriesSection projectName={projectName} trackedFilters={LIST_FILTERS} onTrackedFiltersChange={() => {}} /> })
     const add = createRoute({ getParentRoute: () => project, path: '/queries/add', component: () => <QueriesSection projectName={projectName} addQueriesPage /> })
     const router = createRouter({ routeTree: root.addChildren([project.addChildren([location, queries, add])]), history: createMemoryHistory({ initialEntries: [`/projects/${encodeURIComponent(projectName)}/properties/${TARGET_KEY}`] }) })
     await router.load()

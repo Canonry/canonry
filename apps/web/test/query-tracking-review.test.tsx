@@ -16,7 +16,7 @@ import { jsonResponse, mockFetch } from './mock-fetch.js'
 import {
   active, advancedResetLine, advancedResetNotice, advancedResetNoticeWords, context, installScrollSpy, installWorkspaceApi, listLocations, noteButton, openRowSheet, preview, previewToken,
   removalDiff, removalWorkload, renderWorkspace, results, reviewNumbers, reviewRemoval, reviewRow, searchLocationModels, sharedSearchLocation, sweepActiveLabel, sweepActiveMessage,
-  trackedAfterRemoval, workspace, workspaceVersion,
+  trackedAfterRemoval, workspace, workspaceVersion, LIST_FILTERS,
 } from './support/query-tracking-fixtures.js'
 
 // The review and publish of an Advanced tracking change, reached through Stop tracking in a row's menu (`reviewRemoval`, or its steps).
@@ -252,7 +252,7 @@ test.each([
   // The app's client adds a fallback toast to any mutation error that is not marked as handled.
   const queryClient = createQueryClient()
   onTestFinished(() => queryClient.clear())
-  render(<QueryClientProvider client={queryClient}><QueriesSection projectName="demo" /></QueryClientProvider>)
+  render(<QueryClientProvider client={queryClient}><QueriesSection projectName="demo" trackedFilters={LIST_FILTERS} onTrackedFiltersChange={() => {}} /></QueryClientProvider>)
   fireEvent.click((await openRowSheet('Acme pricing', 'Stop tracking')).getByRole('button', { name: 'Review' }))
   if (operation === 'commit') fireEvent.click(await screen.findByRole('button', { name: 'Publish 1 change' }))
   await waitFor(() => expect(getToasts().map(toast => [toast.title, toast.detail])).toEqual([[title, detail]]))
@@ -430,7 +430,7 @@ test('refreshes cached measurement and query state for the published project', a
   ]
   const unrelatedKey = getApiV1ProjectsByNameVisibilityReportQueryKey({ client: heyClient, path: { name: 'another-project' } })
   for (const key of [...changedKeys, unrelatedKey]) queryClient.setQueryData(key, { cached: true })
-  render(<QueryClientProvider client={queryClient}><QueriesSection projectName="demo" /></QueryClientProvider>)
+  render(<QueryClientProvider client={queryClient}><QueriesSection projectName="demo" trackedFilters={LIST_FILTERS} onTrackedFiltersChange={() => {}} /></QueryClientProvider>)
   fireEvent.click((await openRowSheet('Acme pricing', 'Stop tracking')).getByRole('button', { name: 'Review' }))
   fireEvent.click(await screen.findByRole('button', { name: 'Publish changes' }))
   await waitFor(() => {
@@ -468,7 +468,7 @@ test.each([
   })
   onTestFinished(restore)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 300_000 } } })
-  render(<QueryClientProvider client={queryClient}><QueriesSection projectName="demo" /></QueryClientProvider>)
+  render(<QueryClientProvider client={queryClient}><QueriesSection projectName="demo" trackedFilters={LIST_FILTERS} onTrackedFiltersChange={() => {}} /></QueryClientProvider>)
   fireEvent.click((await openRowSheet('Acme pricing', 'Stop tracking')).getByRole('button', { name: 'Review' }))
   if (failedOperation === 'commit') fireEvent.click(await screen.findByRole('button', { name: 'Publish changes' }))
   await waitFor(() => expect(refused).toBe(true))

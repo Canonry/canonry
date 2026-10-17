@@ -53,11 +53,15 @@ const queryTrackingResultsRequestShape = {
   group: z.enum(['market', 'group']).optional(),
   /** `previous`: compare with the sweep before the one read, on the same queries; rows gain each engine's change. */
   compare: z.literal('previous').optional(),
-  /** Keep only rows whose `result` (and `change`) hold on this engine; without it, on any engine. */
+  /** The engine `result` and `change` are read on; without it, across the row's engines. */
   engine: nonBlankIdSchema.optional(),
-  /** Keep only rows with this result on `engine`, or on any engine. Not checked is never a no. */
+  /**
+   * Keep only rows with this result: `mentioned` (or `cited`) when an engine
+   * shows it, `not-mentioned` (or `not-cited`) when an engine checked and none
+   * shows it. Not checked is never a no.
+   */
   result: queryTrackingResultFilterSchema.optional(),
-  /** Keep only rows that won or lost the signal since the previous sweep. Needs `compare=previous`. */
+  /** Keep only rows where an engine won or lost the signal since the previous sweep. Needs `compare=previous`. */
   change: queryTrackingChangeSchema.optional(),
 }
 

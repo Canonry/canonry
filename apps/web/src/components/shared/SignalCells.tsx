@@ -19,6 +19,10 @@ export interface EngineSignal {
   uncheckedSourceAnswers?: number
   otherLocationMentionedAnswers?: number
   otherLocationCitedAnswers?: number
+  /** With a comparison: the mention gained or lost since the previous sweep. */
+  mentionChange?: 'won' | 'lost'
+  /** The same for the citation. */
+  citationChange?: 'won' | 'lost'
 }
 
 /** Research checks company names and the project domain, so its first chip is N (Named), not M (Mentioned). */
@@ -178,6 +182,72 @@ const LEGEND_ITEM = 'inline-flex items-start gap-1.5'
 // A company name or a domain can be longer than a phone is wide, so an entry that holds one wraps inside itself.
 const LEGEND_NAMED = `${LEGEND_ITEM} max-w-full wrap-anywhere`
 const LEGEND_WORD = `${LEGEND_ITEM} whitespace-nowrap`
+
+/**
+ * One signal of one engine for one query, as a list that follows the
+ * Mentioned | Cited switch draws it: the M (or C) chip alone, lit, struck
+ * through or dashed as in a pair. Its name says the engine and the state, and
+ * its bubble whose result it is and the server's count for that signal. The
+ * other signal is never read here; the opened row shows both.
+ */
+export function SignalLetter({ signal, which, engineLabel, classLabel, subject, noResult }: {
+  signal: EngineSignal | null | undefined
+  which: 'mentioned' | 'cited'
+  engineLabel: string
+  classLabel?: string
+  subject?: string
+  noResult?: string
+}) {
+  const words = which === 'mentioned' ? FIRST.tracked : CITED
+  if (signal === undefined) return <span aria-hidden="true" className={PAIR}><SignalChip state="loading" letter={words.letter} /></span>
+  return <SignalLetterButton signal={signal} which={which} words={words} engineLabel={engineLabel} classLabel={classLabel} subject={subject} noResult={noResult} />
+}
+
+function SignalLetterButton({ signal, which, words, engineLabel, classLabel, subject, noResult }: {
+  signal: EngineSignal | null
+  which: 'mentioned' | 'cited'
+  words: SignalWords
+  engineLabel: string
+  classLabel: string | undefined
+  subject: string | undefined
+  noResult: string | undefined
+}) {
+  const state = stateOf(signal?.[which] ?? null)
+  const answers = signal?.answers ?? 0
+  const count = which === 'mentioned' ? signal?.mentionedAnswers : signal?.citedAnswers
+  const result = signal === null ? noResult ?? `${NOT_CHECKED}.`
+    : state === 'unchecked' ? (answers === 0 && (signal.expectedAnswers ?? 0) > 0 ? 'No answer saved.' : `${words.unchecked}.`)
+      : count === undefined || answers === 0 ? `${words[state]}.`
+        : `${words.yes} in ${whole(count)} of ${whole(answers)} ${answers === 1 ? 'answer' : 'answers'}.`
+  const detail = [...[classLabel, subject].flatMap(lead => lead ? [lead.endsWith('.') ? lead : `${lead}.`] : []), result].join(' ')
+  const bubble = useTooltipBubble(detail, { placement: 'bottom', hoverDelay: 300 })
+  return <>
+    <button
+      type="button"
+      className={`${PAIR} cursor-help rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 focus-visible:ring-offset-2 focus-visible:ring-offset-bg`}
+      aria-label={`${engineLabel}${classLabel ? `, ${classLabel}` : ''}: ${state === 'unchecked' ? words.unchecked : words[state]}`}
+      aria-description={detail}
+      {...bubble.wrapper}
+      {...bubble.trigger}
+    >
+      <SignalChip state={state} letter={words.letter} />
+    </button>
+    {bubble.bubble}
+  </>
+}
+
+/** The legend of one signal, as a list that follows the switch reads it: one line, letter by letter. */
+export function SignalLetterLegend({ which }: { which: 'mentioned' | 'cited' }) {
+  const words = which === 'mentioned' ? FIRST.tracked : CITED
+  return (
+    <ul aria-label="Legend" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] leading-5 text-secondary">
+      <li className={LEGEND_WORD}><SignalChip state="yes" letter={words.letter} spoken />{' '}{words.yes}</li>
+      <li className={LEGEND_WORD}><SignalChip state="no" letter={words.letter} spoken />{' '}{words.no}</li>
+      <li className={LEGEND_WORD}><SignalChip state="unchecked" letter={words.letter} />{NOT_CHECKED}</li>
+    </ul>
+  )
+}
+
 
 /**
  * What the chips mean, beside the table that shows them: each state drawn as

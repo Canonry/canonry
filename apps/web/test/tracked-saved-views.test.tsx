@@ -54,7 +54,7 @@ const rulesFor = async (container: HTMLElement) => parseCompiledCss(await compil
 describe('TrackedSavedViews', () => {
   function renderViews(props: Partial<Parameters<typeof TrackedSavedViews>[0]> = {}) {
     const onSelect = vi.fn()
-    const view = render(<TrackedSavedViews views={VIEWS} weakMarkets={{ count: 4 }} notAsked={38} handPicked={0} active={[]} onSelect={onSelect} {...props} />)
+    const view = render(<TrackedSavedViews views={VIEWS} changes={{ won: 9, lost: 4 }} notAsked={38} handPicked={0} active={[]} onSelect={onSelect} {...props} />)
     return { ...view, onSelect }
   }
   const toggle = () => screen.getByRole('button', { name: /^Views/ })
@@ -65,8 +65,8 @@ describe('TrackedSavedViews', () => {
     expect(screen.getAllByRole('button')).toEqual([toggle()])
     expect(toggle().getAttribute('aria-expanded')).toBe('false')
     fireEvent.click(toggle())
-    expect(buttons().map(button => button.getAttribute('aria-label'))).toEqual(['Location gaps, 31', 'Thin markets, 12', 'Pattern gaps, 7', 'Weakest markets, non-brand queries, 4', 'Not asked, 38', 'Hand-picked, 0'])
-    expect(buttons().map(button => button.getAttribute('aria-pressed'))).toEqual(Array(6).fill('false'))
+    expect(buttons().map(button => button.getAttribute('aria-label'))).toEqual(['Lost in last sweep, 4', 'Won in last sweep, 9', 'Location gaps, 31', 'Thin markets, 12', 'Pattern gaps, 7', 'Not asked, 38', 'Hand-picked, 0'])
+    expect(buttons().map(button => button.getAttribute('aria-pressed'))).toEqual(Array(7).fill('false'))
   })
 
   test('zero-count choices still work and selection closes the disclosure back to its button', () => {
@@ -100,25 +100,26 @@ describe('TrackedSavedViews', () => {
     expect(onSelect).toHaveBeenCalledWith('not-asked')
   })
 
-  test('Weakest markets requires a sweep and keeps unavailable counts distinct from zero', () => {
-    const { rerender, onSelect } = renderViews({ weakMarkets: undefined })
+  test('Lost and Won need a previous sweep, wait while it is read, and a list of markets names no count for them', () => {
+    const { rerender, onSelect } = renderViews({ changes: undefined })
     fireEvent.click(toggle())
-    expect(screen.queryByRole('button', { name: /^Weakest markets/ })).toBeNull()
-    rerender(<TrackedSavedViews views={VIEWS} weakMarkets="pending" notAsked={38} handPicked={0} active={[]} onSelect={onSelect} />)
-    const waiting = screen.getByRole('button', { name: 'Weakest markets, non-brand queries' })
-    expect(waiting.querySelector('.skeleton-text')).not.toBeNull()
-    rerender(<TrackedSavedViews views={VIEWS} weakMarkets="failed" active={['weak-markets']} onSelect={onSelect} />)
-    const failed = screen.getByRole('button', { name: 'Weakest markets, non-brand queries' })
-    expect(failed.querySelector('.skeleton-text')).toBeNull()
-    expect(failed.getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByRole('button', { name: 'Not asked' }).textContent).toBe('Not asked')
-    expect(screen.getByRole('button', { name: 'Hand-picked' }).textContent).toBe('Hand-picked')
-    expect(screen.getByRole('button', { name: /Thin markets: under 6 market queries/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Lost in last sweep/ })).toBeNull()
+    rerender(<TrackedSavedViews views={VIEWS} changes="pending" notAsked={38} handPicked={0} active={[]} onSelect={onSelect} />)
+    expect(screen.getByRole('button', { name: 'Lost in last sweep' }).querySelector('.skeleton-text')).not.toBeNull()
+    rerender(<TrackedSavedViews views={VIEWS} changes={{ won: undefined, lost: undefined }} notAsked={38} handPicked={0} active={['lost']} onSelect={onSelect} />)
+    const lost = screen.getByRole('button', { name: 'Lost in last sweep' })
+    expect(lost.querySelector('.skeleton-text')).toBeNull()
+    expect(lost.getAttribute('aria-pressed')).toBe('true')
+    // Zero is a count: a sweep that lost nothing says 0.
+    rerender(<TrackedSavedViews views={VIEWS} changes={{ won: 0, lost: 0 }} notAsked={38} handPicked={0} active={[]} onSelect={onSelect} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Won in last sweep, 0' }))
+    expect(onSelect).toHaveBeenCalledWith('won')
   })
 
-  test('only the four views that list places are values of the URL', () => {
-    expect(['no-location-queries', 'thin-markets', 'pattern-gaps', 'weak-markets', 'no-property-queries', 'not-asked', 'hand-picked', 'other', undefined].map(trackedPlaceView))
-      .toEqual(['no-location-queries', 'thin-markets', 'pattern-gaps', 'weak-markets', undefined, undefined, undefined, undefined, undefined])
+  test('only the three views that list places are values of the URL', () => {
+    // Weakest markets is the Markets list now, so an old link to it opens the page as it opens by default.
+    expect(['no-location-queries', 'thin-markets', 'pattern-gaps', 'weak-markets', 'no-property-queries', 'not-asked', 'hand-picked', 'lost', 'other', undefined].map(trackedPlaceView))
+      .toEqual(['no-location-queries', 'thin-markets', 'pattern-gaps', undefined, undefined, undefined, undefined, undefined, undefined, undefined])
   })
 })
 
@@ -373,32 +374,6 @@ describe('TrackedPlaceList', () => {
     expect(screen.queryByText(/^1 to /)).toBeNull()
   })
 
-  test('Weakest markets lists the server\'s rows weakest first, each with its own answers, citations and other-location mentions, and leads to its queries', () => {
-    // The server's order is not the names' and not any one column's, so only keeping it gives this order.
-    const markets = [
-      { marketKey: 'uptown', queries: 4, mentionCheckedAnswers: 12, mentionedAnswers: 0, otherLocationMentionedAnswers: 8, citationCheckedAnswers: 11, citedAnswers: 0 },
-      { marketKey: 'midtown', queries: 9, mentionCheckedAnswers: 9, mentionedAnswers: 0, otherLocationMentionedAnswers: 2, citationCheckedAnswers: 9, citedAnswers: 1 },
-    ]
-    const { onOpen, onAdd } = renderList({ view: 'weak-markets', weakMarkets: { count: 2, marketKeys: ['midtown', 'uptown'], markets } })
-    expect(headers('Weakest markets')).toEqual(['Market', 'Group', 'Locations', 'Answers', 'Cited', 'Other location', 'Actions'])
-    expect(cells('Weakest markets')).toEqual([
-      ['Uptown', 'North, Lakeshore', '2', '12', '0 of 11', '8 of 12', 'View queries'],
-      ['Midtown', 'Lakeshore Metro', '2', '9', '1 of 9', '2 of 9', 'View queries'],
-    ])
-    expect(count()).toBe('2 markets · no non-brand mention')
-    // Each column that counts answers says what of.
-    expect(screen.getByRole('button', { name: 'Of the answers read, those that mention another of your locations instead.' })).toBeTruthy()
-    // A weak market's next step is its queries: every row offers them, and no row adds one here.
-    fireEvent.click(screen.getByRole('button', { name: 'View queries for Uptown' }))
-    expect(onOpen.mock.calls).toEqual([[{ kind: 'market', key: 'uptown', label: 'Uptown' }]])
-    expect(screen.queryByRole('button', { name: /^Add market query/ })).toBeNull()
-    expect(onAdd).not.toHaveBeenCalled()
-    // Any column can still put the list in order; the server's order is the first.
-    sortBy('Weakest markets', 'Other location')
-    expect(firstCells('Weakest markets')).toEqual(['Midtown', 'Uptown'])
-    expectNoSentence(table('Weakest markets'))
-  })
-
   test('a market\'s Group names the group above the market\'s own, which usually only repeats the market\'s name', () => {
     const workspace = { ...WORKSPACE, groups: WORKSPACE.groups.map(group => group.stableKey === 'north' ? { ...group, parentGroupKey: 'metro' } : group) } as typeof WORKSPACE
     renderList({ workspace })
@@ -407,39 +382,13 @@ describe('TrackedPlaceList', () => {
     expect(cells('Thin markets').find(row => row[0] === 'Lakeview')![1]).toBe('Lakeshore Metro')
   })
 
-  test('Weakest markets names the type of the mentions its count is of, waits for the results and says when they did not load', () => {
-    const onRetry = vi.fn()
-    // The results count four weak markets and list one here.
-    const { rerender, onBack, onAdd } = renderList({ view: 'weak-markets', weakMarkets: { count: 4, marketKeys: ['uptown'] } })
-    const list = (props: Partial<Parameters<typeof TrackedPlaceList>[0]>) => <TrackedPlaceList view="weak-markets" workspace={WORKSPACE} views={VIEWS} onBack={onBack} onAdd={onAdd} onRetry={onRetry} {...props} />
-    expect(cells('Weakest markets')).toEqual([['Uptown', 'North, Lakeshore', '2', '5', 'Add market query']])
-    // The type is the mentions': the Market queries column beside it counts queries of every type.
-    expect(count()).toBe('4 markets · no non-brand mention')
-    noteButton('View: Weakest markets', 'Markets with no mention on the last sweep. Non-brand market queries only.')
-
-    // The results are still being read: rows stand in, with no count and nothing to search.
-    rerender(list({ pending: true }))
-    expect(screen.getByRole('status', { name: 'Loading markets' })).toBeTruthy()
-    expect(screen.queryByRole('table')).toBeNull()
-    expect(screen.queryByRole('searchbox')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Back to queries' })).toBeTruthy()
-
-    rerender(list({ failed: true }))
-    const failed = screen.getByRole('alert')
-    expect(failed.textContent).toBe('Could not loadRetry')
-    fireEvent.click(within(failed).getByRole('button', { name: 'Retry results' }))
-    expect(onRetry).toHaveBeenCalledTimes(1)
-    expect(screen.queryByRole('table')).toBeNull()
-  })
-
   test.each([
     ['thin-markets', 'Thin markets', 'No thin markets'],
     ['no-location-queries', 'Location gaps', 'No location gaps'],
     ['pattern-gaps', 'Pattern gaps', 'No pattern gaps'],
-    ['weak-markets', 'Weakest markets', 'No weak markets'],
   ] as const)('with none to list, %s says so under its header and leaves the way back', (view, label, empty) => {
     const none: QueryTrackingViews = { noPropertyQueries: { count: 0, targetKeys: [] }, thinMarkets: { count: 0, floor: 6, marketKeys: [] }, patternGaps: { count: 0, patterns: [] } }
-    const { onBack } = renderList({ view, views: none, weakMarkets: { count: 0, marketKeys: [] } })
+    const { onBack } = renderList({ view, views: none })
     expect(within(table(label)).getByText(empty).closest('td')!.textContent).toBe(empty)
     expect(screen.queryByRole('searchbox')).toBeNull()
     expect(screen.queryByRole('status')).toBeNull()

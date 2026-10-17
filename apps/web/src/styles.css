@@ -3590,6 +3590,11 @@
     @apply whitespace-nowrap tabular-nums text-secondary;
   }
 
+  /* What each engine won or lost since the previous sweep: one mark an engine, wrapping in the cell. */
+  .tracked-cell-change {
+    @apply text-[13px] leading-5;
+  }
+
   /* Status carries the row's date. The widest label, "First answers" and a
      month and day, fills the cell to its right edge. A longer one, a date
      with its year, is cut short there. */

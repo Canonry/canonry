@@ -140,6 +140,8 @@ function sweep(overrides: Record<string, unknown> = {}) {
     engines: ['gemini', 'openai', 'perplexity'],
     rows: RESULT_ROWS,
     pendingRows: 1,
+    // The page compares with the sweep before; this project has none.
+    compareRun: null,
     ...overrides,
   })
 }
@@ -178,13 +180,27 @@ const engineCells = (queryText: string) => [...rowOf(queryText).querySelectorAll
 })
 /** What one pair's bubble says, which is its description. */
 const marks = (queryText: string, pair: string) => within(rowOf(queryText)).getByRole('button', { name: pair }).getAttribute('aria-description')
-const OWN_LOCATIONS = 'M and C are for the locations a query is asked for: one location for a location query, any location in the market for a market query. Another of your locations in the answer does not light them.'
 /** The strip's numbers, label to value as it reads. */
 const strip = () => Object.fromEntries([...region().querySelector('dl')!.querySelectorAll('dt')].map(term => [term.firstChild!.textContent, term.nextElementSibling!.textContent]))
 const count = () => within(region()).getAllByRole('status').find(status => /quer(?:y|ies)$/.test(status.textContent ?? ''))?.textContent
 const select = (queryText: string) => fireEvent.click(screen.getByRole('checkbox', { name: `Select ${queryText}` }))
 const bulkBar = () => screen.queryByRole('region', { name: 'Selected queries' })
-const ALL_STATUS = { ...DEFAULT_TRACKED_FILTERS, status: 'all' as const }
+/** The query list, as the URL holds it: the page opens on its markets otherwise. */
+const LIST = { ...DEFAULT_TRACKED_FILTERS, group: 'none' as const }
+const ALL_STATUS = { ...LIST, status: 'all' as const }
+/**
+ * The page with the query list chosen, its filters held by a host that draws the section again on each
+ * change, as a URL change does. A viewer gets the same.
+ */
+function renderList(props: Partial<Parameters<typeof renderWorkspace>[0]> = {}, role?: 'viewer') {
+  let filters = { ...LIST, ...props.trackedFilters }
+  const draw = role ? renderViewerWorkspace : renderWorkspace
+  const view = draw({ ...props, trackedFilters: filters, onTrackedFiltersChange: patch => {
+    filters = { ...filters, ...patch }
+    view.rerender({ trackedFilters: filters })
+  } })
+  return view
+}
 /** Sixty market rows for one market, so the list runs past one page. */
 const longPortfolio = () => portfolio({ tracked: Array.from({ length: 60 }, (_, index) => tracked(`q-${index}`, `apartments query ${String(index + 1).padStart(2, '0')}`, { kind: 'market', key: 'uptown' }, uptown())) })
 const UPTOWN_PLACE = { measurementScope: 'market' as const, measurementScopeKey: 'uptown', queryClass: 'all' as const }
@@ -216,9 +232,80 @@ function stubClipboard(writeText: (text: string) => Promise<void>) {
   })
 }
 
+const PREVIOUS_RUN = { id: 'run-0', createdAt: '2026-09-23T12:00:00.000Z', completedAt: '2026-09-23T12:10:00.000Z', status: 'completed', revision: 4, matchesCurrentTracking: true }
+const nonBrandType = (mentioned: number, cited: number, answers: number, extra: Record<string, unknown> = {}) => ({
+  queryClass: 'non-brand', queries: 1, answers,
+  mentionCoverage: { numerator: mentioned, denominator: answers, rate: mentioned / answers },
+  citationCoverage: { numerator: cited, denominator: answers, rate: cited / answers },
+  otherLocationMentionedAnswers: 0,
+  engines: [{ provider: 'gemini', answers: answers / 2, mentionedAnswers: 0, citedAnswers: cited }, { provider: 'openai', answers: answers / 2, mentionedAnswers: mentioned, citedAnswers: 0 }],
+  change: { mentionsWon: 0, mentionsLost: 0, citationsWon: 0, citationsLost: 0 },
+  ...extra,
+})
+/** The grouped read: Downtown loses every mention and lost one since the sweep before; Uptown keeps some. The server sent them losing first. */
+const groupedSweep = () => sweep({
+  rows: [],
+  compareRun: PREVIOUS_RUN,
+  totals: [{ queryClass: 'non-brand', queries: 3, answers: 6, mentionCoverage: { numerator: 2, denominator: 6, rate: 0.3333 }, citationCoverage: { numerator: 1, denominator: 6, rate: 0.1667 } }],
+  groups: [
+    {
+      kind: 'market', key: 'downtown', label: 'Downtown', parentKey: null, locations: 1,
+      types: [nonBrandType(0, 1, 2, { otherLocationMentionedAnswers: 1, change: { mentionsWon: 0, mentionsLost: 1, citationsWon: 1, citationsLost: 0 } })],
+      namedInstead: [{ name: 'Rival Lofts', answers: 2 }, { name: 'Brook Commons', answers: 1 }],
+      citedInstead: [{ host: 'listings.example', answers: 1 }],
+      competitors: [{ domain: 'rival.example', mentionedAnswers: 2, citedAnswers: 0 }],
+    },
+    { kind: 'market', key: 'uptown', label: 'Uptown', parentKey: null, locations: 3, types: [nonBrandType(2, 0, 4)], namedInstead: [], citedInstead: [], competitors: [] },
+  ],
+})
+/** Each row of a table as its cells read, the help and the sr-only words included. */
+const tableRows = (name: string) => within(screen.getByRole('table', { name })).getAllByRole('row').slice(1).map(row => [...(row as HTMLTableRowElement).cells].map(cell => cell.textContent))
+
+test('a portfolio opens on its markets, losing first, from one grouped read the strip reads too, and a market opens to its queries and who won', async () => {
+  const requests = installApi({ results: search => jsonResponse(search.get('group') ? groupedSweep() : search.get('scope') === 'market' ? sweep({ scope: { kind: 'market', key: 'downtown' }, rows: [RESULT_ROWS[2]] }) : sweep()) })
+  // A clean URL: the page picks its own grouping.
+  const props = renderWorkspace({ trackedFilters: DEFAULT_TRACKED_FILTERS, onTrackedFiltersChange: () => {} })
+  await screen.findByRole('table', { name: 'Markets' })
+  expect(requests.filter(request => request.includes('/results'))).toEqual(['GET /query-tracking/results?group=market&sort=losing&compare=previous'])
+  // The strip is that read's: the totals and their comparison.
+  expect(within(region()).getByRole('group', { name: 'Non-brand results' }).textContent).toContain('33.3%')
+  expect(within(region()).getAllByRole('status').map(status => status.textContent)).toContain('2 markets')
+  // One line per market in the server's order: the non-brand share, each engine, the change and who won.
+  expect(tableRows('Markets')).toEqual([
+    ['Downtown1 location', '0/2', '0/1', '0/1', '', '−1 mentions lost', 'Lost to Rival Lofts +1', ''],
+    ['Uptown3 locations', '2/4', '2/2', '0/2', '', '', 'None', ''],
+  ])
+  // A list of markets has no rows to filter.
+  expect(screen.queryByRole('button', { name: /^Filters/ })).toBeNull()
+
+  fireEvent.click(screen.getByRole('button', { name: /^Downtown/ }))
+  const opened = await screen.findByRole('table', { name: 'Downtown queries' })
+  expect(requests.filter(request => request.includes('scope=market'))).toEqual(['GET /query-tracking/results?scope=market&scopeKey=downtown&runId=run-1&sort=losing&compare=previous'])
+  expect(within(opened).getAllByRole('row').slice(1).map(row => row.cells[0]!.textContent)).toEqual([DOWNTOWN])
+  const facts = opened.closest('td')!.textContent!
+  for (const fact of ['Other location1 of 2', 'Named insteadRival Lofts 2 · Brook Commons 1', 'Competitorsrival.example 2']) expect(facts).toContain(fact)
+
+  // The arrow lists the market's queries: the Place, on clean filters, with the grouping left to the page.
+  fireEvent.click(screen.getByRole('button', { name: 'Queries of Downtown' }))
+  expect(props.onSelectionChange).toHaveBeenLastCalledWith(expect.objectContaining({ measurementScope: 'market', measurementScopeKey: 'downtown', trackedGroup: undefined, trackedChange: undefined }))
+})
+
+test('Cited reads the citation in every column of the market list, and Group None lists the queries winning first', async () => {
+  const requests = installApi({ results: search => jsonResponse(search.get('group') ? groupedSweep() : sweep()) })
+  renderList({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, signal: 'cited' } })
+  await screen.findByRole('table', { name: 'Markets' })
+  expect(requests.filter(request => request.includes('/results'))).toEqual(['GET /query-tracking/results?group=market&signal=cited&sort=losing&compare=previous'])
+  expect(tableRows('Markets')[0]).toEqual(['Downtown1 location', '1/2', '0/1', '1/1', '', '+1 citations won', 'Cited listings.example', ''])
+  fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value: 'none' } })
+  await screen.findByRole('table', { name: 'Queries' })
+  expect(requests.filter(request => request.includes('/results')).at(-1)).toBe('GET /query-tracking/results?signal=cited&sort=winning&compare=previous')
+  // One letter per engine, the citation's.
+  await waitFor(() => expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Not cited', 'Gemini: Not cited', 'Perplexity: Cited']))
+})
+
 test('draws the Add button beside the tabs, then the number strip, the toolbar and the table, from one workspace read and one results read', async () => {
   const requests = installApi()
-  renderWorkspace({ nextSweepDate: 'Oct 21' })
+  renderList({ nextSweepDate: 'Oct 21' })
   await screen.findByText(UPTOWN_BEST)
   await waitFor(() => expect(chips(UPTOWN_BEST)).toHaveLength(3))
 
@@ -236,21 +323,18 @@ test('draws the Add button beside the tabs, then the number strip, the toolbar a
   // One column per engine, by display name: the project's own, then one only the sweep asked.
   expect(within(table()).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Perplexity', 'Last measured', 'Status', 'Source', 'Actions'])
   fireEvent.click(screen.getByRole('button', { name: /^Filters/ }))
-  expect(within(screen.getByRole('group', { name: 'Filters' })).getAllByRole('combobox').map(filter => filter.getAttribute('aria-label'))).toEqual(['Subject', 'Type', 'Status', 'Source', 'Result'])
-  // The legend of the chips, beside the count: each entry is a chip and its word, and a No names its own signal.
-  expect(within(region()).getAllByRole('listitem').map(entry => entry.textContent)).toEqual(['M Mentioned', 'C Cited', 'M Not mentioned', 'C Not cited', 'MNot checked'])
-  // Before it, whose mention or citation lights a mark: a short label, with the sentence behind it.
-  const note = noteButton("Each query's own locations", OWN_LOCATIONS, region())
-  expect(note.compareDocumentPosition(within(region()).getByRole('list')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  // The clean view lists what is asked, by Subject: markets, then locations, then hand-picked.
-  expect(listed()).toEqual([DOWNTOWN, UPTOWN_BEST, UPTOWN_PETS, HARBOR, PIER_NEW, PICKED])
+  expect(within(screen.getByRole('group', { name: 'Filters' })).getAllByRole('combobox').map(filter => filter.getAttribute('aria-label'))).toEqual(['Subject', 'Type', 'Status', 'Source', 'Result', 'On', 'Change'])
+  // The legend of the chips, beside the count: the switch's one signal, each entry a chip and its word.
+  expect(within(region()).getAllByRole('listitem').map(entry => entry.textContent)).toEqual(['M Mentioned', 'M Not mentioned', 'MNot checked'])
+  // The clean list is what is asked, winning first, in the server's order; a row the sweep did not read follows.
+  expect(listed()).toEqual([UPTOWN_BEST, UPTOWN_PETS, DOWNTOWN, HARBOR, PICKED, PIER_NEW])
   expect(within(rowOf(UPTOWN_BEST)).getByText('Pattern: Best')).toBeTruthy()
   // Status carries the row's own last sweep.
   expect(within(rowOf(UPTOWN_BEST)).getByText(`Measured ${day(MEASURED_AT)}`)).toBeTruthy()
   expect(rowOf(UPTOWN_BEST).textContent).toContain('Market · Uptown (3)')
   expect(rowOf(HARBOR).textContent).toContain('Location · Harbor Point')
 
-  expect(requests.filter(request => request.startsWith('GET /query-tracking'))).toEqual(['GET /query-tracking', 'GET /query-tracking/results'])
+  expect(requests.filter(request => request.startsWith('GET /query-tracking'))).toEqual(['GET /query-tracking', 'GET /query-tracking/results?sort=winning&compare=previous'])
   expect(requests.filter(request => !request.startsWith('GET '))).toEqual([])
   // None of the old page's words.
   expect(document.body.textContent).not.toMatch(/Scope|Class|Whole site|Assigned relationships|Awaiting sweep|Not in current plan|Legacy|Template|Unclassified|propert|question|—/)
@@ -260,7 +344,7 @@ test('draws the Add button beside the tabs, then the number strip, the toolbar a
 test('in the 1152px content column the table keeps Query wide: Status carries the date, and Last measured and Source wait in the row detail', async () => {
   frameWidth(1152)
   installApi()
-  renderWorkspace({ nextSweepDate: 'Oct 21' })
+  renderList({ nextSweepDate: 'Oct 21' })
   await screen.findByText(UPTOWN_BEST)
   await waitFor(() => expect(chips(UPTOWN_BEST)).toHaveLength(3))
   const header = (name: string) => within(table()).getAllByRole('columnheader').find(cell => cell.textContent === name)!
@@ -272,10 +356,11 @@ test('in the 1152px content column the table keeps Query wide: Status carries th
   expect(within(rowOf(PIER_NEW)).getByText('First answers Oct 21')).toBeTruthy()
   // No filter went with the columns.
   fireEvent.click(screen.getByRole('button', { name: /^Filters/ }))
-  expect(within(screen.getByRole('group', { name: 'Filters' })).getAllByRole('combobox').map(filter => filter.getAttribute('aria-label'))).toEqual(['Subject', 'Type', 'Status', 'Source', 'Result'])
+  expect(within(screen.getByRole('group', { name: 'Filters' })).getAllByRole('combobox').map(filter => filter.getAttribute('aria-label'))).toEqual(['Subject', 'Type', 'Status', 'Source', 'Result', 'On', 'Change'])
 
+  // Winning first, in the server's order; a row it did not read follows.
+  expect(listed()).toEqual([UPTOWN_BEST, UPTOWN_PETS, DOWNTOWN, HARBOR, PICKED, PIER_NEW])
   // Status sorts by status: the row that waits for its first answers goes after every measured one.
-  expect(listed()).toEqual([DOWNTOWN, UPTOWN_BEST, UPTOWN_PETS, HARBOR, PIER_NEW, PICKED])
   fireEvent.click(within(table()).getByRole('button', { name: 'Status' }))
   expect([header('Subject'), header('Status')].map(cell => cell.getAttribute('aria-sort'))).toEqual(['none', 'ascending'])
   expect(listed()).toEqual([DOWNTOWN, UPTOWN_BEST, UPTOWN_PETS, HARBOR, PICKED, PIER_NEW])
@@ -288,7 +373,7 @@ test('in the 1152px content column the table keeps Query wide: Status carries th
 
 test('prints the server\'s numbers in the strip, for the project and for a place, never a count of its rows', async () => {
   installApi()
-  const { rerender } = renderWorkspace({ nextSweepDate: 'Oct 21' })
+  const { rerender } = renderList({ nextSweepDate: 'Oct 21' })
   await screen.findByText(UPTOWN_BEST)
   // Eight rows are loaded, six of them asked. Every cell is the server's own field.
   expect(strip()).toEqual({ 'Queries asked': '41', 'Non-brand': '27', Branded: '12' })
@@ -298,10 +383,10 @@ test('prints the server\'s numbers in the strip, for the project and for a place
   const details = screen.getByRole('button', { name: 'Details' }).getAttribute('aria-controls')!
   expect(within(document.getElementById(details)!).getByText('300')).toBeTruthy()
   expect(screen.queryByText('Left under limit')).toBeNull()
-  expect(await within(region()).findByText(`Last sweep ${day(SWEPT_AT)}`)).toBeTruthy()
+  await waitFor(() => expect(region().textContent).toContain(`Last sweep ${day(SWEPT_AT)}`))
   expect(within(region()).getByText('Next Oct 21')).toBeTruthy()
-  // The default header does not repeat a row count; its 41 asked comes from the server, while six rows are loaded.
-  expect(within(region()).queryAllByRole('status')).toEqual([])
+  // The strip's 41 asked comes from the server, while six rows are loaded: the count line says how many are listed.
+  expect(within(region()).getAllByRole('status').map(status => status.textContent)).toEqual(['6 queries'])
   expect(listed()).toHaveLength(6)
 
   rerender({ selection: { measurementScope: 'market', measurementScopeKey: 'uptown', queryClass: 'all' } })
@@ -320,12 +405,12 @@ test('a market Place shows its strip, lists the queries asked for it and reads t
   expect(listed()).toEqual([UPTOWN_BEST, UPTOWN_PETS, HARBOR, PICKED])
   expect(count()).toBe('4 queries')
   expect(addButton().textContent).toBe('Add market query')
-  expect(requests.filter(request => request.includes('/results'))).toEqual(['GET /query-tracking/results?scope=market&scopeKey=uptown'])
+  expect(requests.filter(request => request.includes('/results'))).toEqual(['GET /query-tracking/results?scope=market&scopeKey=uptown&sort=winning&compare=previous'])
 
   rerender({ selection: { measurementScope: 'property', measurementScopeKey: 'pier', queryClass: 'all' } })
   expect(listed()).toEqual([PIER_NEW, PICKED])
   expect(addButton().textContent).toBe('Add location query')
-  await waitFor(() => expect(requests.filter(request => request.includes('/results')).at(-1)).toBe('GET /query-tracking/results?scope=property&scopeKey=pier'))
+  await waitFor(() => expect(requests.filter(request => request.includes('/results')).at(-1)).toBe('GET /query-tracking/results?scope=property&scopeKey=pier&sort=winning&compare=previous'))
 
   // A group is many places, and a market with no location left takes no query: both add as the whole project does.
   rerender({ selection: { measurementScope: 'group', measurementScopeKey: 'north', queryClass: 'all' } })
@@ -338,29 +423,30 @@ test('a market Place shows its strip, lists the queries asked for it and reads t
 test('sends a filter change to the host, lists by the filters the host holds, and keeps the search to itself', async () => {
   installApi()
   const onTrackedFiltersChange = vi.fn()
-  const { rerender, ...props } = renderWorkspace({ trackedFilters: DEFAULT_TRACKED_FILTERS, onTrackedFiltersChange })
+  const { rerender, ...props } = renderWorkspace({ trackedFilters: LIST, onTrackedFiltersChange })
   await screen.findByText(UPTOWN_BEST)
   await waitFor(() => expect(chips(UPTOWN_BEST)).toHaveLength(3))
 
   fireEvent.click(screen.getByRole('button', { name: /^Filters/ }))
   fireEvent.change(screen.getByRole('combobox', { name: 'Subject' }), { target: { value: 'location' } })
-  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...DEFAULT_TRACKED_FILTERS, subject: 'location' })
+  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...LIST, subject: 'location' })
   // The URL owns the filters: nothing changes until the host passes them back.
   expect(listed()).toHaveLength(6)
-  rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, subject: 'location' } })
+  rerender({ trackedFilters: { ...LIST, subject: 'location' } })
   expect(listed()).toEqual([HARBOR, PIER_NEW])
   expect(count()).toBe('2 of 6 queries')
 
   // No engine cites the non-brand type of this query; split outcomes have their own filter.
-  rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, result: 'not-cited' } })
+  rerender({ trackedFilters: { ...LIST, result: 'not-cited' } })
   expect(listed()).toEqual([PICKED])
-  rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, result: 'partly-cited' } })
-  expect(listed()).toEqual([DOWNTOWN, UPTOWN_BEST, PICKED])
-  rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' } })
+  // Winning first: the server's order of the rows it read.
+  rerender({ trackedFilters: { ...LIST, result: 'partly-cited' } })
+  expect(listed()).toEqual([UPTOWN_BEST, DOWNTOWN, PICKED])
+  rerender({ trackedFilters: { ...LIST, status: 'not-asked' } })
   expect(listed()).toEqual([OLD_TOWN, CAMPUS])
 
   // The search reads the query and its place, and is the page's own: no URL key, no word to the host.
-  rerender({ trackedFilters: DEFAULT_TRACKED_FILTERS })
+  rerender({ trackedFilters: LIST })
   onTrackedFiltersChange.mockClear()
   fireEvent.change(screen.getByRole('searchbox', { name: 'Search queries' }), { target: { value: 'harbor' } })
   expect(listed()).toEqual([HARBOR])
@@ -376,13 +462,13 @@ test('sends a filter change to the host, lists by the filters the host holds, an
 test('"7 not asked" lists the queries asked nowhere, whatever was filtered before', async () => {
   installApi()
   const onTrackedFiltersChange = vi.fn()
-  renderWorkspace({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, subject: 'market' }, onTrackedFiltersChange })
+  renderWorkspace({ trackedFilters: { ...LIST, subject: 'market' }, onTrackedFiltersChange })
   await screen.findByText(UPTOWN_BEST)
   fireEvent.change(screen.getByRole('searchbox', { name: 'Search queries' }), { target: { value: 'uptown' } })
   fireEvent.click(screen.getByRole('button', { name: 'Details' }))
   fireEvent.click(screen.getByRole('button', { name: '7 not asked' }))
   // Status alone, on a clean search: a Subject filter would list none of them.
-  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' })
+  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...LIST, status: 'not-asked' })
   expect((screen.getByRole('searchbox', { name: 'Search queries' }) as HTMLInputElement).value).toBe('')
 })
 
@@ -394,12 +480,12 @@ test.each([
   // Harbor Point reviews was moved after the sweep of Oct 7: the results hold no row for it until the next one.
   installApi({ results: () => jsonResponse(sweep({ run: { ...sweep().run!, revision: 3, matchesCurrentTracking: false }, rows: RESULT_ROWS.filter(row => row.queryId !== 'q-harbor'), pendingRows: 2 })) })
   const props = { trackingChangedAt, nextSweepDate: 'Oct 21' }
-  if (viewer) renderViewerWorkspace(props)
-  else renderWorkspace(props)
+  if (viewer) renderList(props, 'viewer')
+  else renderList(props)
   await screen.findByText(HARBOR)
-  await waitFor(() => expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mentioned, Not cited', 'Gemini: Not mentioned, Not cited', 'Perplexity: Mentioned, Cited']))
+  await waitFor(() => expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mentioned', 'Gemini: Not mentioned', 'Perplexity: Mentioned']))
   // It is asked on OpenAI and Gemini. Perplexity is an engine only the old sweep asked, so no pair is drawn for it there.
-  expect(engineCells(HARBOR)).toEqual(['OpenAI: Not checked', 'Gemini: Not checked', 'Not asked'])
+  expect(engineCells(HARBOR)).toEqual(['OpenAI: Mention not checked', 'Gemini: Mention not checked', 'Not asked'])
   // The same words as AI Visibility: a short label, with the sentence behind it.
   noteButton(label, VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(day(SWEPT_AT), 'Oct 21'), region())
   expect(screen.queryByText('Results unavailable')).toBeNull()
@@ -407,18 +493,18 @@ test.each([
 
 test('a location added after the last sweep reads Not checked and First answers, a query asked both ways has a pair per type, and nothing reads as an error', async () => {
   installApi()
-  renderWorkspace({ nextSweepDate: 'Oct 21' })
+  renderList({ nextSweepDate: 'Oct 21' })
   await screen.findByText(PIER_NEW)
   await waitFor(() => expect(chips(UPTOWN_BEST)).toHaveLength(3))
-  expect(engineCells(PIER_NEW)).toEqual(['OpenAI: Not checked', 'Gemini: Not checked', 'Not asked'])
+  expect(engineCells(PIER_NEW)).toEqual(['OpenAI: Mention not checked', 'Gemini: Mention not checked', 'Not asked'])
   // Why it is not checked is in the bubble, after whose result it would be.
-  expect(marks(PIER_NEW, 'OpenAI: Not checked')).toBe('Pier House. Not in the last sweep.')
+  expect(marks(PIER_NEW, 'OpenAI: Mention not checked')).toBe('Pier House. Not in the last sweep.')
   expect(within(rowOf(PIER_NEW)).getByText('First answers Oct 21')).toBeTruthy()
   expect(within(rowOf(PIER_NEW)).getByText('Never')).toBeTruthy()
   // Branded and non-brand results are never combined: each type keeps its own pair, and Cited is never read from Mentioned.
   expect(chips(PICKED)).toEqual([
-    'OpenAI, Branded: Mentioned, Cited', 'OpenAI, Non-brand: Mentioned, Citation not checked',
-    'Gemini, Branded: Mentioned, Not cited', 'Gemini, Non-brand: Not mentioned, Not cited',
+    'OpenAI, Branded: Mentioned', 'OpenAI, Non-brand: Mentioned',
+    'Gemini, Branded: Mentioned', 'Gemini, Non-brand: Not mentioned',
   ])
   // Neither type of it is asked on Perplexity.
   expect(engineCells(PICKED)[2]).toBe('Not asked')
@@ -427,36 +513,32 @@ test('a location added after the last sweep reads Not checked and First answers,
   expect(screen.queryByRole('alert')).toBeNull()
 })
 
-test('says whose mention a mark is, in the note before the legend and in each bubble, and both follow the Place', async () => {
+test('says whose mention a mark is in each bubble, and it follows the Place', async () => {
   // As the server reads a place: under Harbor Point the same market query is checked for that one location, which the answers did not mention.
   const forHarbor = [
     resultRow('q-uptown-best', UPTOWN_BEST, 'non-brand', [{ ...engine('gemini', false, false), expectedAnswers: 1, answers: 1 }, { ...engine('openai', false, false), expectedAnswers: 1, answers: 1 }]),
     resultRow('q-harbor', HARBOR, 'branded', [engine('gemini', true, true), engine('openai', true, true)]),
   ]
   installApi({ results: search => jsonResponse(sweep(search.get('scope') === 'property' ? { scope: { kind: 'property', key: 'harbor' }, rows: forHarbor } : search.get('scope') === 'group' ? { scope: { kind: 'group', key: 'north' } } : {})) })
-  const { rerender } = renderWorkspace({ rootLabel: 'All of Acme Homes', trackedFilters: DEFAULT_TRACKED_FILTERS, onTrackedFiltersChange: () => {} })
+  const { rerender } = renderWorkspace({ rootLabel: 'All of Acme Homes', trackedFilters: LIST, onTrackedFiltersChange: () => {} })
   await screen.findByText(UPTOWN_BEST)
   await waitFor(() => expect(chips(UPTOWN_BEST)).toHaveLength(3))
-  noteButton("Each query's own locations", OWN_LOCATIONS, region())
   // A market query is lit when any location it is asked for is mentioned: the three of Uptown, as the row's own links count them.
-  expect(marks(UPTOWN_BEST, 'OpenAI: Mentioned, Not cited')).toBe('Any of 3 locations in Uptown. Mentioned in 2 of 3 answers. Cited in 0 of 3.')
-  expect(marks(HARBOR, 'OpenAI: Mentioned, Cited')).toBe('Harbor Point. Mentioned in 2 of 3 answers. Cited in 1 of 3.')
+  expect(marks(UPTOWN_BEST, 'OpenAI: Mentioned')).toBe('Any of 3 locations in Uptown. Mentioned in 2 of 3 answers.')
+  expect(marks(HARBOR, 'OpenAI: Mentioned')).toBe('Harbor Point. Mentioned in 2 of 3 answers.')
   // A query asked both ways: each type's pair is for the location asked under that type.
-  expect(marks(PICKED, 'OpenAI, Branded: Mentioned, Cited')).toBe('Branded. Harbor Point. Mentioned in 2 of 3 answers. Cited in 1 of 3.')
-  expect(marks(PICKED, 'Gemini, Non-brand: Not mentioned, Not cited')).toBe('Non-brand. Pier House. Mentioned in 0 of 3 answers. Cited in 0 of 3.')
+  expect(marks(PICKED, 'OpenAI, Branded: Mentioned')).toBe('Branded. Harbor Point. Mentioned in 2 of 3 answers.')
+  expect(marks(PICKED, 'Gemini, Non-brand: Not mentioned')).toBe('Non-brand. Pier House. Mentioned in 0 of 3 answers.')
   // The name of a pair stays the engine and its two states under every Place.
-  expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mentioned, Not cited', 'Gemini: Not mentioned, Not cited', 'Perplexity: Mentioned, Cited'])
+  expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mentioned', 'Gemini: Not mentioned', 'Perplexity: Mentioned'])
 
   // The group holds two of Uptown's three locations: the same row is marked for those two.
   rerender({ selection: { measurementScope: 'group', measurementScopeKey: 'north', queryClass: 'all' } })
-  await waitFor(() => expect(marks(UPTOWN_BEST, 'OpenAI: Mentioned, Not cited')).toBe('Any of 2 locations in Uptown. Mentioned in 2 of 3 answers. Cited in 0 of 3.'))
-  noteButton("Each query's own locations", OWN_LOCATIONS, region())
+  await waitFor(() => expect(marks(UPTOWN_BEST, 'OpenAI: Mentioned')).toBe('Any of 2 locations in Uptown. Mentioned in 2 of 3 answers.'))
 
-  // One location: the note names it, and the market row's marks are that location's alone. The Subject still reads the market.
+  // One location: the market row's marks are that location's alone, and each bubble names it. The Subject still reads the market.
   rerender({ selection: { measurementScope: 'property', measurementScopeKey: 'harbor', queryClass: 'all' } })
-  await waitFor(() => expect(marks(UPTOWN_BEST, 'OpenAI: Not mentioned, Not cited')).toBe('Harbor Point. Mentioned in 0 of 1 answer. Cited in 0 of 1.'))
-  noteButton('Harbor Point only', 'M and C here are for Harbor Point alone. Under All of Acme Homes a market query is lit when any location in its market is mentioned or cited.', region())
-  expect(screen.queryByText("Each query's own locations")).toBeNull()
+  await waitFor(() => expect(marks(UPTOWN_BEST, 'OpenAI: Not mentioned')).toBe('Harbor Point. Mentioned in 0 of 1 answer.'))
   expect(rowOf(UPTOWN_BEST).textContent).toContain('Market · Uptown (3)')
   expectNoSentence(region())
 })
@@ -467,12 +549,13 @@ test('Result Not checked lists the rows with a sweep gap, never a query that is 
   await screen.findByText(PIER_NEW)
   // Pier House reviews waits for its first sweep, and one answer for the hand-picked query had its sources partly saved.
   // Downtown and Harbor Point have their OpenAI and Gemini results and are not asked on Perplexity, which is no gap.
-  await waitFor(() => expect(listed()).toEqual([PIER_NEW, PICKED]))
+  // A row the read has no place for, as one not yet swept, follows the rows it ranked.
+  await waitFor(() => expect(listed()).toEqual([PICKED, PIER_NEW]))
   expect(count()).toBe('2 of 8 queries')
   // The two queries that are asked nowhere are under Status, not under a Result.
-  rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, status: 'not-asked', result: 'not-checked' } })
+  rerender({ trackedFilters: { ...LIST, status: 'not-asked', result: 'not-checked' } })
   expect(listed()).toEqual([])
-  rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' } })
+  rerender({ trackedFilters: { ...LIST, status: 'not-asked' } })
   expect(listed()).toEqual([OLD_TOWN, CAMPUS])
   // Each is drawn with no pair: its Status says why.
   expect(engineCells(OLD_TOWN)).toEqual(['Not asked', 'Not asked', 'Not asked'])
@@ -489,7 +572,7 @@ test('the Add query form opens on the engines the plan is asked with, though the
   }
   const previews: unknown[] = []
   installApi({ workspace: plan, write: (path, body) => { previews.push([path, body]); return jsonResponse(preview({ workspaceVersion: `qtw_${'a'.repeat(64)}` })) } })
-  renderWorkspace()
+  renderList()
   await screen.findByText(UPTOWN_BEST)
   fireEvent.click(addButton())
   fireEvent.click(within(await screen.findByRole('region', { name: 'Add queries' })).getByRole('button', { name: 'More ways to add' }))
@@ -512,14 +595,14 @@ test('the Add query form opens on the engines the plan is asked with, though the
 test('a failed results read keeps the table with Not checked chips, and Retry reads again', async () => {
   let fail = true
   const requests = installApi({ results: () => fail ? jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'unavailable' } }, 500) : jsonResponse(sweep()) })
-  const { queryClient } = renderWorkspace({ nextSweepDate: 'Oct 21' })
+  const { queryClient } = renderList({ nextSweepDate: 'Oct 21' })
   await screen.findByText(UPTOWN_BEST)
   const note = await screen.findByRole('button', { name: "Results unavailable. The last sweep's results did not load, so every chip reads Not checked." })
   expect(note.textContent).toBe('Results unavailable')
   // Said to a screen reader when it appears, as the chips going blank is not.
   expect(note.closest('[role="status"]')!.textContent).toBe('Results unavailableRetry')
   expect(listed()).toHaveLength(6)
-  expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Not checked', 'Gemini: Not checked'])
+  expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mention not checked', 'Gemini: Mention not checked'])
   // The strip keeps its numbers and claims no sweep date it could not read.
   expect(strip()['Queries asked']).toBe('41')
   expect(within(region()).queryByText(/^Last sweep/)).toBeNull()
@@ -528,7 +611,7 @@ test('a failed results read keeps the table with Not checked chips, and Retry re
   const retry = screen.getByRole('button', { name: 'Retry results' })
   expect(retry.textContent).toBe('Retry')
   fireEvent.click(retry)
-  await waitFor(() => expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mentioned, Not cited', 'Gemini: Not mentioned, Not cited', 'Perplexity: Mentioned, Cited']))
+  await waitFor(() => expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mentioned', 'Gemini: Not mentioned', 'Perplexity: Mentioned']))
   expect(screen.queryByText('Results unavailable')).toBeNull()
   expect(requests.filter(request => request.includes('/results'))).toHaveLength(2)
 
@@ -541,16 +624,16 @@ test('a failed results read keeps the table with Not checked chips, and Retry re
   await waitFor(() => expect(read.state.status).toBe('error'))
   expect(read.state.data).toBeDefined()
   await act(() => new Promise<void>(resolve => { setTimeout(resolve, 20) }))
-  expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mentioned, Not cited', 'Gemini: Not mentioned, Not cited', 'Perplexity: Mentioned, Cited'])
+  expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mentioned', 'Gemini: Not mentioned', 'Perplexity: Mentioned'])
   expect(screen.queryByText('Results unavailable')).toBeNull()
 })
 
 test('with no sweep yet the strip says so, every chip reads Not checked and a running sweep takes the next date', async () => {
   installApi({ results: () => jsonResponse(sweep({ run: null, engines: [], rows: [], pendingRows: 6 })) })
-  renderWorkspace({ publishGuard: { sweepActive: true } })
+  renderList({ publishGuard: { sweepActive: true } })
   await screen.findByText(UPTOWN_BEST)
   expect(await within(region()).findByText('Last sweep: none')).toBeTruthy()
-  expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Not checked', 'Gemini: Not checked'])
+  expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mention not checked', 'Gemini: Mention not checked'])
   // A sweep under way names no date: the strip says it is running and a waiting row reads plain First answers.
   noteButton('Sweep running', 'Answers are being collected now. Numbers update when the sweep finishes.', region())
   expect(within(region()).queryByText(/^Next /)).toBeNull()
@@ -561,8 +644,8 @@ test('with no sweep yet the strip says so, every chip reads Not checked and a ru
 test.each([['a viewer', true], ['a writer', false]] as const)('a row link opens the table on that row\'s page, marked and open, with no form or sheet, for %s', async (_who, viewer) => {
   installApi({ workspace: longPortfolio, results: () => jsonResponse(sweep({ rows: [] })) })
   const props = { trackingQueryId: 'q-56', onTrackingQueryIdChange: vi.fn(), onTrackedFiltersChange: vi.fn() }
-  if (viewer) renderViewerWorkspace(props)
-  else renderWorkspace(props)
+  if (viewer) renderList(props, 'viewer')
+  else renderList(props)
   // Fifty rows to a page: the 57th query is on the second.
   const linked = (await screen.findByRole('button', { name: 'Actions for apartments query 57' })).closest('tr')!
   expect(listed()).toHaveLength(10)
@@ -589,7 +672,7 @@ test('a link to a row the place and the filters leave out widens them once, and 
   installApi()
   const onTrackedFiltersChange = vi.fn()
   // The linked query has stopped being asked since the link was copied: it is in no place, under a Status the clean view leaves out.
-  const props = renderWorkspace({ trackingQueryId: 'q-old', selection: UPTOWN_PLACE, trackedFilters: { ...DEFAULT_TRACKED_FILTERS, subject: 'market' }, onTrackedFiltersChange })
+  const props = renderWorkspace({ trackingQueryId: 'q-old', selection: UPTOWN_PLACE, trackedFilters: { ...LIST, subject: 'market' }, onTrackedFiltersChange })
   await screen.findByText(UPTOWN_BEST)
   expect(onTrackedFiltersChange.mock.calls).toEqual([[ALL_STATUS]])
   expect(vi.mocked(props.onSelectionChange).mock.calls).toEqual([[{ measurementScope: 'project', measurementScopeKey: undefined }]])
@@ -603,7 +686,7 @@ test('a link to a row the place and the filters leave out widens them once, and 
   expect(screen.queryByRole('dialog')).toBeNull()
 
   // Once per link: after that the filters are the reader's, and hiding the row again is theirs to do.
-  props.rerender({ selection: PROJECT, trackedFilters: DEFAULT_TRACKED_FILTERS })
+  props.rerender({ selection: PROJECT, trackedFilters: LIST })
   expect(listed()).not.toContain(OLD_TOWN)
   expect(onTrackedFiltersChange).toHaveBeenCalledTimes(1)
   expect(props.onSelectionChange).toHaveBeenCalledTimes(1)
@@ -612,26 +695,26 @@ test('a link to a row the place and the filters leave out widens them once, and 
 test('a link to an asked row a filter hides clears the filters and the search, and keeps the place it is asked in', async () => {
   installApi()
   const onTrackedFiltersChange = vi.fn()
-  const props = renderWorkspace({ selection: UPTOWN_PLACE, trackedFilters: { ...DEFAULT_TRACKED_FILTERS, subject: 'market' }, onTrackedFiltersChange })
+  const props = renderWorkspace({ selection: UPTOWN_PLACE, trackedFilters: { ...LIST, subject: 'market' }, onTrackedFiltersChange })
   await screen.findByText(UPTOWN_BEST)
   fireEvent.change(searchBox(), { target: { value: 'pets' } })
   expect(onTrackedFiltersChange).not.toHaveBeenCalled()
   // The link arrives on the open page, for a location query asked in this market.
   props.rerender({ trackingQueryId: 'q-harbor' })
-  expect(onTrackedFiltersChange.mock.calls).toEqual([[DEFAULT_TRACKED_FILTERS]])
+  expect(onTrackedFiltersChange.mock.calls).toEqual([[LIST]])
   expect(searchBox().value).toBe('')
   expect(props.onSelectionChange).not.toHaveBeenCalled()
-  props.rerender({ trackingQueryId: 'q-harbor', trackedFilters: DEFAULT_TRACKED_FILTERS })
+  props.rerender({ trackingQueryId: 'q-harbor', trackedFilters: LIST })
   expect(rowOf(HARBOR).hasAttribute('data-highlighted')).toBe(true)
   // A link to a query that is gone lists what was listed, and changes nothing.
-  props.rerender({ trackingQueryId: 'q-removed', trackedFilters: { ...DEFAULT_TRACKED_FILTERS, subject: 'market' } })
+  props.rerender({ trackingQueryId: 'q-removed', trackedFilters: { ...LIST, subject: 'market' } })
   expect(listed()).toEqual([UPTOWN_BEST, UPTOWN_PETS])
   expect(onTrackedFiltersChange).toHaveBeenCalledTimes(1)
 })
 
 test('pages fifty rows by default and offers 25, 50 and 100', async () => {
   installApi({ workspace: longPortfolio, results: () => jsonResponse(sweep({ rows: [] })) })
-  renderWorkspace()
+  renderList()
   await screen.findByText('apartments query 01')
   expect(listed()).toHaveLength(50)
   const rows = screen.getByRole('combobox', { name: 'Rows' }) as HTMLSelectElement
@@ -655,7 +738,7 @@ test('pages fifty rows by default and offers 25, 50 and 100', async () => {
 test('each empty state offers an action that changes what is listed, and the focus lands on the search when that action leaves the page', async () => {
   // No query at all: the action adds one. The Add button beside the tabs stays the page's one primary action.
   installApi({ workspace: () => portfolio({ tracked: [], views: VIEWS }) })
-  const first = renderWorkspace()
+  const first = renderList()
   await screen.findByText('No queries yet')
   // Empty tracking still has places to inspect and fill: Views must remain reachable without a search toolbar.
   fireEvent.click(viewButton('Location gaps'))
@@ -680,7 +763,7 @@ test('each empty state offers an action that changes what is listed, and the foc
 
   // A Place with none: the action shows the whole project.
   installApi()
-  const second = renderWorkspace({ selection: { measurementScope: 'market', measurementScopeKey: 'lakeview', queryClass: 'all' }, rootLabel: 'All of Demo' })
+  const second = renderList({ selection: { measurementScope: 'market', measurementScopeKey: 'lakeview', queryClass: 'all' }, rootLabel: 'All of Demo' })
   const here = (await screen.findByText('No queries here')).closest('td')!
   expect(within(here).getAllByRole('button')).toHaveLength(1)
   fireEvent.click(within(here).getByRole('button', { name: 'Show all of Demo' }))
@@ -694,24 +777,24 @@ test('each empty state offers an action that changes what is listed, and the foc
   // A search that lists nothing: one action clears it, and another shows the rows the clean Status leaves out.
   installApi()
   const onTrackedFiltersChange = vi.fn()
-  const third = renderWorkspace({ trackedFilters: DEFAULT_TRACKED_FILTERS, onTrackedFiltersChange })
+  const third = renderWorkspace({ trackedFilters: LIST, onTrackedFiltersChange })
   await screen.findByText(UPTOWN_BEST)
   fireEvent.change(searchBox(), { target: { value: 'old town' } })
   const match = screen.getByText('No queries match').closest('td')!
   expect(count()).toBe('0 of 6 queries')
   expect(screen.queryAllByRole('checkbox')).toEqual([])
   fireEvent.click(within(match).getByRole('button', { name: 'Show not asked' }))
-  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' })
+  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...LIST, status: 'not-asked' })
   expect(document.activeElement).toBe(searchBox())
   // "Clear all" clears the search with the filters, so it is not a second "Clear filters".
-  third.rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, subject: 'location' } })
+  third.rerender({ trackedFilters: { ...LIST, subject: 'location' } })
   expect(within(region()).getAllByRole('button', { name: /^Clear (filters|all)$/ }).map(button => button.textContent)).toEqual(['Clear filters', 'Clear all'])
   searchBox().blur()
   fireEvent.click(within(match).getByRole('button', { name: 'Clear all' }))
   expect(searchBox().value).toBe('')
-  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith(DEFAULT_TRACKED_FILTERS)
+  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith(LIST)
   expect(document.activeElement).toBe(searchBox())
-  third.rerender({ trackedFilters: DEFAULT_TRACKED_FILTERS })
+  third.rerender({ trackedFilters: LIST })
   expect(listed()).toHaveLength(6)
   // With no hidden row to show, only Clear all is offered.
   fireEvent.change(searchBox(), { target: { value: 'no such query' } })
@@ -722,18 +805,18 @@ test('each empty state offers an action that changes what is listed, and the foc
 test('when every query is one the clean view leaves out, the list says none is asked and offers them, with nothing to clear', async () => {
   installApi({ workspace: () => portfolio({ tracked: portfolio().tracked.filter(row => row.assignments.length === 0) }) })
   const onTrackedFiltersChange = vi.fn()
-  renderWorkspace({ trackedFilters: DEFAULT_TRACKED_FILTERS, onTrackedFiltersChange })
+  renderWorkspace({ trackedFilters: LIST, onTrackedFiltersChange })
   const none = (await screen.findByText('None asked')).closest('td')!
   expect(screen.queryByText('No queries match')).toBeNull()
   expect(within(none).getAllByRole('button').map(button => button.textContent)).toEqual(['Show not asked'])
   expect(within(region()).queryByRole('button', { name: /^Clear (filters|all)$/ })).toBeNull()
   fireEvent.click(within(none).getByRole('button', { name: 'Show not asked' }))
-  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' })
+  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...LIST, status: 'not-asked' })
 })
 
 test('a viewer with no queries reads that there are none and is offered nothing', async () => {
   installApi({ workspace: () => portfolio({ tracked: [] }) })
-  renderViewerWorkspace()
+  renderList({}, 'viewer')
   const none = (await screen.findByText('No queries yet')).closest('td')!
   expect(within(none).queryAllByRole('button')).toEqual([])
   expect(screen.queryByRole('button', { name: /^Add / })).toBeNull()
@@ -744,7 +827,7 @@ test('a Result filter waits for the results: skeleton rows and no count, never a
   // Each results read waits here until the test lets it go.
   const waiting: Array<() => void> = []
   installApi({ results: () => new Promise<Response>(resolve => waiting.push(() => resolve(jsonResponse(sweep())))) })
-  const { rerender } = renderWorkspace({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, result: 'partly-mentioned' }, onTrackedFiltersChange: () => {} })
+  const { rerender } = renderWorkspace({ trackedFilters: { ...LIST, result: 'partly-mentioned' }, onTrackedFiltersChange: () => {} })
   const pending = () => {
     expect(screen.getByRole('status', { name: 'Loading queries' })).toBeTruthy()
     expect(screen.queryByRole('table', { name: 'Queries' })).toBeNull()
@@ -757,7 +840,7 @@ test('a Result filter waits for the results: skeleton rows and no count, never a
   await waitFor(() => expect(waiting).toHaveLength(1))
   pending()
   waiting.shift()!()
-  await waitFor(() => expect(listed()).toEqual([DOWNTOWN, UPTOWN_BEST, PICKED]))
+  await waitFor(() => expect(listed()).toEqual([UPTOWN_BEST, DOWNTOWN, PICKED]))
   expect(count()).toBe('3 of 6 queries')
 
   // Another place reads its own results, so the list waits again, and the ticked row is still ticked after it.
@@ -774,18 +857,18 @@ test('inside a place a query asked both ways reads the type it is asked under th
   // As the server folds the results for a place: one row per query and type with a location link inside it.
   const inUptown = RESULT_ROWS.filter(row => !(row.queryId === 'q-picked' && row.queryClass === 'non-brand'))
   installApi({ results: search => jsonResponse(sweep(search.get('scope') === 'market' ? { scope: { kind: 'market', key: 'uptown' }, rows: inUptown } : {})) })
-  const { rerender } = renderWorkspace({ selection: UPTOWN_PLACE, trackedFilters: DEFAULT_TRACKED_FILTERS, onTrackedFiltersChange: () => {} })
+  const { rerender } = renderWorkspace({ selection: UPTOWN_PLACE, trackedFilters: LIST, onTrackedFiltersChange: () => {} })
   await screen.findByText(PICKED)
   const typeOf = (queryText: string) => rowOf(queryText).cells[within(table()).getAllByRole('columnheader').findIndex(header => header.textContent === 'Type')]!.textContent
   // In Uptown the query is asked as Branded only: its Non-brand location is elsewhere.
-  await waitFor(() => expect(engineCells(PICKED)).toEqual(['OpenAI: Mentioned, Cited', 'Gemini: Mentioned, Not cited', 'Not asked']))
+  await waitFor(() => expect(engineCells(PICKED)).toEqual(['OpenAI: Mentioned', 'Gemini: Mentioned', 'Not asked']))
   expect(typeOf(PICKED)).toBe('Branded')
   // The filters read the same types: no Non-brand pair to wait for here, and no Mixed row.
-  rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, type: 'non-brand' } })
+  rerender({ trackedFilters: { ...LIST, type: 'non-brand' } })
   expect(listed()).toEqual([UPTOWN_BEST, UPTOWN_PETS])
-  rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, type: 'mixed' } })
+  rerender({ trackedFilters: { ...LIST, type: 'mixed' } })
   expect(listed()).toEqual([])
-  rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, type: 'branded' } })
+  rerender({ trackedFilters: { ...LIST, type: 'branded' } })
   expect(listed()).toEqual([HARBOR, PICKED])
   // A change is to the whole query, so its sheet still reads every type it is asked under.
   const sheet = await openRowSheet(PICKED, 'Change type')
@@ -794,7 +877,7 @@ test('inside a place a query asked both ways reads the type it is asked under th
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 
   // For the whole project it is asked both ways, a pair per type.
-  rerender({ selection: PROJECT, trackedFilters: DEFAULT_TRACKED_FILTERS })
+  rerender({ selection: PROJECT, trackedFilters: LIST })
   // On each of the two engines it is asked on. Perplexity is the old sweep's alone.
   await waitFor(() => expect(chips(PICKED)).toHaveLength(4))
   expect(typeOf(PICKED)).toBe('MixedBrandedNon-brand')
@@ -814,16 +897,16 @@ test('a place keeps only its own engine assignments even when the query has the 
       rows: [resultRow('q-picked', PICKED, 'non-brand', [engine('openai', true, false)])],
     })),
   })
-  const { rerender } = renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'harbor', queryClass: 'all' }, trackedFilters: DEFAULT_TRACKED_FILTERS, onTrackedFiltersChange: () => {} })
+  const { rerender } = renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'harbor', queryClass: 'all' }, trackedFilters: LIST, onTrackedFiltersChange: () => {} })
   await screen.findByText(PICKED)
-  await waitFor(() => expect(engineCells(PICKED)).toEqual(['OpenAI: Mentioned, Not cited', 'Not asked']))
+  await waitFor(() => expect(engineCells(PICKED)).toEqual(['OpenAI: Mentioned', 'Not asked']))
 
   // Gemini belongs only to Pier House, so Harbor Point has no missing answer to filter for.
-  rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, result: 'not-checked' } })
+  rerender({ trackedFilters: { ...LIST, result: 'not-checked' } })
   expect(listed()).toEqual([])
   // At project scope Gemini really was asked; its absent result is a sweep gap.
-  rerender({ selection: PROJECT, trackedFilters: DEFAULT_TRACKED_FILTERS })
-  await waitFor(() => expect(engineCells(PICKED)).toEqual(['OpenAI: Mentioned, Not cited', 'Gemini: Not checked']))
+  rerender({ selection: PROJECT, trackedFilters: LIST })
+  await waitFor(() => expect(engineCells(PICKED)).toEqual(['OpenAI: Mentioned', 'Gemini: Mention not checked']))
 })
 
 test('a location keeps both query types and only the engine contexts each type uses', async () => {
@@ -837,22 +920,22 @@ test('a location keeps both query types and only the engine contexts each type u
     }], { queryClasses: ['branded', 'non-brand'] })] }),
     results: () => jsonResponse(sweep({ engines: ['openai', 'gemini'], rows: [] })),
   })
-  const { rerender } = renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'harbor', queryClass: 'all' }, trackedFilters: DEFAULT_TRACKED_FILTERS, onTrackedFiltersChange: () => {} })
+  const { rerender } = renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'harbor', queryClass: 'all' }, trackedFilters: LIST, onTrackedFiltersChange: () => {} })
   await screen.findByText(PICKED)
-  await waitFor(() => expect(chips(PICKED)).toEqual(['OpenAI, Branded: Not checked', 'Gemini, Non-brand: Not checked']))
-  expect(within(rowOf(PICKED)).queryByRole('button', { name: 'OpenAI, Non-brand: Not checked' })).toBeNull()
-  expect(within(rowOf(PICKED)).queryByRole('button', { name: 'Gemini, Branded: Not checked' })).toBeNull()
+  await waitFor(() => expect(chips(PICKED)).toEqual(['OpenAI, Branded: Mention not checked', 'Gemini, Non-brand: Mention not checked']))
+  expect(within(rowOf(PICKED)).queryByRole('button', { name: 'OpenAI, Non-brand: Mention not checked' })).toBeNull()
+  expect(within(rowOf(PICKED)).queryByRole('button', { name: 'Gemini, Branded: Mention not checked' })).toBeNull()
 
   // The same location belongs to two markets, each with its own context and type.
   rerender({ selection: UPTOWN_PLACE })
-  await waitFor(() => expect(chips(PICKED)).toEqual(['OpenAI: Not checked']))
-  expect(engineCells(PICKED)).toEqual(['OpenAI: Not checked', 'Not asked'])
+  await waitFor(() => expect(chips(PICKED)).toEqual(['OpenAI: Mention not checked']))
+  expect(engineCells(PICKED)).toEqual(['OpenAI: Mention not checked', 'Not asked'])
 })
 
 test('the bulk bar offers what every selected row can take, and its actions open the sheets with the rows and the Place', async () => {
   const previews: unknown[] = []
   installApi({ write: (path, body) => { previews.push([path, body]); return jsonResponse({ error: { code: 'VALIDATION_ERROR', message: 'not reviewed here' } }, 400) } })
-  renderWorkspace({ selection: { measurementScope: 'market', measurementScopeKey: 'uptown', queryClass: 'all' } })
+  renderList({ selection: { measurementScope: 'market', measurementScopeKey: 'uptown', queryClass: 'all' } })
   await screen.findByText(UPTOWN_BEST)
   expect(bulkBar()).toBeNull()
 
@@ -890,7 +973,7 @@ test('the bulk bar offers what every selected row can take, and its actions open
 
 test('"Selected actions" jumps from the list to the bar, and the focus comes back to the list when the bar goes', async () => {
   installApi()
-  renderWorkspace()
+  renderList()
   await screen.findByText(UPTOWN_BEST)
   expect(screen.queryByRole('link', { name: 'Selected actions' })).toBeNull()
 
@@ -930,7 +1013,7 @@ test('each page of rows takes its own height: one line where its text fits and t
   queryColumn(424)
   const LONG = 'apartments with in unit washer dryer Northbridge Heights, Lakeshore metro'
   installApi({ workspace: () => portfolio({ tracked: [...longPortfolio().tracked, tracked('q-long', LONG, { kind: 'market', key: 'uptown' }, uptown())] }), results: () => jsonResponse(sweep({ rows: [] })) })
-  renderWorkspace()
+  renderList()
   await screen.findByText('apartments query 01')
   const lines = () => table().getAttribute('data-lines')
   expect([listed().length, listed().includes(LONG), lines()]).toEqual([50, false, '1'])
@@ -962,7 +1045,7 @@ test('ticked rows stay ticked from page to page, the whole list is offered only 
     row.queryId, row.queryText, { kind: 'custom' }, [pairing('harbor', ['uptown', 'downtown'], 'branded', ['north']), pairing('pier', [], 'non-brand')],
   )) })
   installApi({ workspace: handPickedPortfolio, results: () => jsonResponse(sweep({ rows: [] })) })
-  renderWorkspace()
+  renderList()
   await screen.findByText('apartments query 01')
   select('apartments query 01')
   fireEvent.click(screen.getByRole('button', { name: /Next/ }))
@@ -998,7 +1081,7 @@ test('a change published from the bar clears the selection, and the list takes t
     if (path === '/query-tracking/preview') return jsonResponse(preview({ tracked: after, diff }))
     return jsonResponse({ committed: true, mode: 'advanced', workspaceVersion: `qtw_${'a'.repeat(64)}`, reviewedAt: '2026-10-10T12:00:00.000Z', active: { revision: 5, compiledChecksum: 'c'.repeat(64) }, diff, workload: preview().workload })
   } })
-  renderWorkspace()
+  renderList()
   await screen.findByText(UPTOWN_BEST)
   select(UPTOWN_BEST)
   select(HARBOR)
@@ -1032,7 +1115,7 @@ test('asked and not asked rows share no bulk action, rows that are not asked can
   expect(within(bulkBar()!).getByText('3 selected')).toBeTruthy()
 
   // Under Not asked the asked row is out of sight, so it is out of the selection: no change reaches a row that is not listed.
-  rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' } })
+  rerender({ trackedFilters: { ...LIST, status: 'not-asked' } })
   bar = within(bulkBar()!)
   expect(bar.getByText('2 selected')).toBeTruthy()
   expect(bar.getAllByRole('button').map(button => button.textContent)).toEqual(['Track', 'Remove query', 'Clear'])
@@ -1084,7 +1167,7 @@ test('a link that cannot be copied says so, and an id the URL would read as a nu
   const writeText = vi.fn().mockRejectedValueOnce(new Error('denied')).mockResolvedValue(undefined)
   stubClipboard(writeText)
   installApi({ workspace: () => portfolio({ tracked: [tracked('123', UPTOWN_BEST, { kind: 'market', key: 'uptown' }, uptown())] }) })
-  renderWorkspace()
+  renderList()
   await chooseRowAction(UPTOWN_BEST, 'Copy link')
   await waitFor(() => expect(getToasts().map(toast => [toast.title, toast.tone])).toEqual([['Could not copy', 'negative']]))
   await chooseRowAction(UPTOWN_BEST, 'Copy link')
@@ -1095,7 +1178,7 @@ test('a link that cannot be copied says so, and an id the URL would read as a nu
 
 test('a viewer reads everything and is offered no change: no Add, no checkboxes, a menu with Copy link, and the row detail', async () => {
   installApi()
-  renderViewerWorkspace({ nextSweepDate: 'Oct 21' })
+  renderList({ nextSweepDate: 'Oct 21' }, 'viewer')
   await screen.findByText(UPTOWN_BEST)
   await waitFor(() => expect(chips(UPTOWN_BEST)).toHaveLength(3))
   expect(strip()['Queries asked']).toBe('41')
@@ -1123,7 +1206,7 @@ test('two search locations that read alike by engine name keep the Add query for
   const on = (model: string) => ({ providers: ['openai'], models: { openai: model }, location: context.location })
   const asked = [{ ...pairing('harbor', ['uptown'], 'non-brand'), contexts: [on('gpt-5')] }, { ...pairing('river', ['uptown'], 'non-brand'), contexts: [on('gpt-5-mini')] }] as Assignment[]
   installApi({ workspace: () => portfolio({ defaultContexts: [on('gpt-5')], tracked: [tracked('q-two-models', UPTOWN_BEST, { kind: 'market', key: 'uptown' }, asked)] }) })
-  renderWorkspace()
+  renderList()
   fireEvent.click(await screen.findByRole('button', { name: UPTOWN_BEST }))
   const links = within(rowOf(UPTOWN_BEST).nextElementSibling as HTMLElement).getByRole('table', { name: 'Counts for' })
   expect(within(links).getAllByRole('row').slice(1).map(row => [row.cells[0]!.textContent, row.cells[4]!.textContent])).toEqual([
@@ -1137,7 +1220,7 @@ test('two search locations that read alike by engine name keep the Add query for
 test('a workspace that came without its numbers says so in the strip, and Retry reads the workspace again', async () => {
   let numbers = false
   const requests = installApi({ workspace: () => portfolio(numbers ? {} : { summary: undefined, limits: undefined }) })
-  renderWorkspace()
+  renderList()
   await screen.findByText(UPTOWN_BEST)
   noteButton('Numbers unavailable', 'These numbers did not load.', region())
   expect(region().querySelector('dl')).toBeNull()
@@ -1173,7 +1256,7 @@ test('a closed row of the table is one line, cut short at its column, and the op
 
 test('/ moves to the search from anywhere but a field, and Escape in the toolbar leaves the selection alone', async () => {
   installApi()
-  renderWorkspace()
+  renderList()
   await screen.findByText(UPTOWN_BEST)
   const search = screen.getByRole('searchbox', { name: 'Search queries' }) as HTMLInputElement
   const slash = (target: Element) => fireEvent.keyDown(target, { key: '/' })
@@ -1227,8 +1310,8 @@ test.each([['a writer', false], ['a viewer', true]] as const)('Export CSV saves 
   configureUiTelemetry({ send: async (event) => { sent.push(event); return { accepted: true } } })
   onTestFinished(() => resetUiTelemetryForTests())
   const files = captureDownloads()
-  if (viewer) renderViewerWorkspace()
-  else renderWorkspace()
+  if (viewer) renderList({}, 'viewer')
+  else renderList()
   await screen.findByText('apartments query 01')
   // The file holds the chips' own states, so it waits for the results.
   await waitFor(() => expect(exportButton().disabled).toBe(false))
@@ -1263,13 +1346,13 @@ test.each([['a writer', false], ['a viewer', true]] as const)('Export CSV saves 
   expect(sent.flatMap(event => event.event === 'ui.action' && event.action === 'export.download' ? [event.format] : [])).toEqual(['csv', 'csv'])
   expect(JSON.stringify(sent)).not.toMatch(/apartments|query 0|Uptown/i)
   // The file is built from what the page has read: nothing was requested for it.
-  expect(requests).toEqual(['GET /query-tracking', 'GET /measurement-query-templates', 'GET /query-tracking/results'])
+  expect(requests).toEqual(['GET /query-tracking', 'GET /measurement-query-templates', 'GET /query-tracking/results?sort=winning&compare=previous'])
 })
 
 test('Export CSV is off while the results are read and after they fail, and is not offered with no query to save', async () => {
   const waiting: Array<(response: Response) => void> = []
   installApi({ results: () => new Promise<Response>(resolve => waiting.push(resolve)) })
-  renderViewerWorkspace()
+  renderList({}, 'viewer')
   await screen.findByText(UPTOWN_BEST)
   await waitFor(() => expect(waiting).toHaveLength(1))
   expect(exportButton().disabled).toBe(true)
@@ -1284,7 +1367,7 @@ test('Export CSV is off while the results are read and after they fail, and is n
   cleanup()
 
   installApi({ workspace: () => portfolio({ tracked: [] }) })
-  renderViewerWorkspace()
+  renderList({}, 'viewer')
   await screen.findByText('No queries yet')
   expect(screen.queryByRole('button', { name: 'Export CSV' })).toBeNull()
   // With nothing in it, the slot beside the tabs holds no room.
@@ -1294,7 +1377,7 @@ test('Export CSV is off while the results are read and after they fail, and is n
 test('a file of one place carries the place\'s key in its name, and an embed is offered no file', async () => {
   installApi({ results: search => jsonResponse(sweep({ scope: { kind: search.get('scope') ?? 'project', key: search.get('scopeKey') } })) })
   const files = captureDownloads()
-  renderViewerWorkspace({ selection: UPTOWN_PLACE })
+  renderList({ selection: UPTOWN_PLACE }, 'viewer')
   await screen.findByText(UPTOWN_BEST)
   await waitFor(() => expect(exportButton().disabled).toBe(false))
   fireEvent.click(exportButton())
@@ -1304,7 +1387,7 @@ test('a file of one place carries the place\'s key in its name, and an embed is 
   cleanup()
 
   window.__CANONRY_CONFIG__ = { embed: { enabled: true } } as typeof window.__CANONRY_CONFIG__
-  renderWorkspace()
+  renderList()
   await screen.findByText(UPTOWN_BEST)
   // The results are read, which is when a file would be offered.
   await screen.findAllByRole('button', { name: /^Perplexity[,:]/ })
@@ -1322,7 +1405,6 @@ const VIEWS = {
   thinMarkets: { count: 9, floor: 4, marketKeys: ['downtown', 'lakeview'] },
   patternGaps: { count: 2, patterns: [{ templateId: 'template-best', name: 'Best', pattern: 'best apartments {market}', usedMarketKeys: ['uptown'], missingMarketKeys: ['downtown'] }] },
 }
-const WEAK = { rule: 'no-mention-latest-sweep', queryClass: 'non-brand', count: 4, marketKeys: ['downtown'] }
 const withViews = () => portfolio({ views: VIEWS })
 /** The same project before its first sweep: no query has a result yet. */
 const neverSwept = () => portfolio({ views: VIEWS, tracked: withViews().tracked.map(row => ({ ...row, state: 'awaiting-sweep', lastMeasuredAt: null })) })
@@ -1332,7 +1414,16 @@ function heldResults() {
   const waiting: Array<(response: Response) => void> = []
   return { waiting, results: () => new Promise<Response>(resolve => waiting.push(resolve)) }
 }
-const weakSweep = () => jsonResponse(sweep({ weakMarkets: WEAK }))
+/**
+ * The last sweep compared with the one before: on Uptown's best query OpenAI lost the mention, and on two
+ * other rows an engine won it. Only the rows' marks say so; nothing is counted from them but list lengths.
+ */
+const comparedSweep = () => sweep({
+  compareRun: { id: 'run-0', createdAt: '2026-09-23T12:00:00.000Z', completedAt: '2026-09-23T12:10:00.000Z', status: 'completed', revision: 4, matchesCurrentTracking: true },
+  rows: RESULT_ROWS.map(row => row.queryId === 'q-uptown-best'
+    ? { ...row, engines: row.engines.map(entry => entry.provider === 'openai' ? { ...entry, mentionChange: 'lost' } : entry) }
+    : row.queryId === 'q-harbor' || row.queryId === 'q-uptown-pets' ? { ...row, engines: row.engines.map((entry, index) => index === 0 ? { ...entry, mentionChange: 'won' } : entry) } : row),
+})
 function openViews() {
   const trigger = screen.getByRole('button', { name: /^Views(?: ·|$)/ })
   if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger)
@@ -1348,12 +1439,12 @@ const placeRows = (name: string) => within(screen.getByRole('table', { name })).
 const lastPatch = (props: { onSelectionChange?: unknown }) => vi.mocked(props.onSelectionChange as (patch: Record<string, unknown>) => void).mock.calls.at(-1)![0]
 
 test('Views opens beside the search and prints each read\'s own count, for the whole project only', async () => {
-  installApi({ workspace: withViews, results: search => search.get('scope') ? jsonResponse(sweep({ scope: { kind: search.get('scope'), key: search.get('scopeKey') } })) : weakSweep() })
-  const { rerender } = renderWorkspace()
+  installApi({ workspace: withViews, results: search => jsonResponse(search.get('scope') ? sweep({ scope: { kind: search.get('scope'), key: search.get('scopeKey') } }) : comparedSweep()) })
+  const { rerender } = renderList()
   await screen.findByText(UPTOWN_BEST)
-  // 5, 9 and 2 are the workspace's counts over lists of 2, 2 and 1; 4 is the results' over a list of 1; 7 and 3 are the summary's.
+  // Lost and Won are the queries listed whose engines lost or won the mention; 5, 9 and 2 are the workspace's counts over lists of 2, 2 and 1; 7 and 3 are the summary's.
   await waitFor(() => expect(viewNames()).toEqual([
-    'Location gaps, 5', 'Thin markets, 9', 'Pattern gaps, 2', 'Weakest markets, non-brand queries, 4', 'Not asked, 7', 'Hand-picked, 3',
+    'Lost in last sweep, 1', 'Won in last sweep, 2', 'Location gaps, 5', 'Thin markets, 9', 'Pattern gaps, 2', 'Not asked, 7', 'Hand-picked, 3',
   ]))
   expect(pressedViews()).toEqual([])
   const order = [region().querySelector('dl')!, searchBox(), screen.getByRole('button', { name: 'Views' }), table()]
@@ -1369,28 +1460,40 @@ test('Views opens beside the search and prints each read\'s own count, for the w
 
 test('a workspace read with no views draws no Views row', async () => {
   installApi()
-  renderWorkspace({ trackedView: 'thin-markets' })
+  renderList({ trackedView: 'thin-markets' })
   await screen.findByText(UPTOWN_BEST)
   expect(screen.queryByRole('group', { name: 'Views' })).toBeNull()
   expect(listed()).toHaveLength(6)
 })
 
-test('before a first sweep there is no Weakest markets view and no room is held for one, and a URL that names it or no view at all lists the queries', async () => {
+test('Lost and Won wait for the comparison where a sweep is known, and are not offered before a first sweep, with no previous one, or after a failed read', async () => {
   const held = heldResults()
-  installApi({ workspace: neverSwept, results: held.results })
-  const { rerender } = renderWorkspace()
+  installApi({ workspace: withViews, results: held.results })
+  renderList()
   await screen.findByText(UPTOWN_BEST)
   await waitFor(() => expect(held.waiting).toHaveLength(1))
-  // No query has a result, so no sweep is expected: the row is drawn as it will stay, with nothing to press that the results would take away.
+  // The workspace's rows have results, so a sweep is known: the two hold their place with no number yet.
+  expect(viewNames()).toEqual(['Lost in last sweep', 'Won in last sweep', 'Location gaps, 5', 'Thin markets, 9', 'Pattern gaps, 2', 'Not asked, 7', 'Hand-picked, 3'])
+  // No sweep before the last: nothing was won or lost, so neither is offered.
+  held.waiting.shift()!(jsonResponse(sweep()))
+  await waitFor(() => expect(viewNames()).toEqual(['Location gaps, 5', 'Thin markets, 9', 'Pattern gaps, 2', 'Not asked, 7', 'Hand-picked, 3']))
+})
+
+test('before a first sweep no comparison is waited for, and a URL that names a view that is gone, or none, lists the queries', async () => {
+  const held = heldResults()
+  installApi({ workspace: neverSwept, results: held.results })
+  const { rerender } = renderList()
+  await screen.findByText(UPTOWN_BEST)
+  await waitFor(() => expect(held.waiting).toHaveLength(1))
   const five = ['Location gaps, 5', 'Thin markets, 9', 'Pattern gaps, 2', 'Not asked, 7', 'Hand-picked, 3']
   expect(viewNames()).toEqual(five)
   held.waiting.shift()!(noSweep())
-  await waitFor(() => expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Not checked', 'Gemini: Not checked']))
+  await waitFor(() => expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mention not checked', 'Gemini: Mention not checked']))
   expect(viewNames()).toEqual(five)
 
+  // Weakest markets is the Markets list now: an old link to it lists what the page lists.
   rerender({ trackedView: 'weak-markets' })
   expect(listed()).toHaveLength(6)
-  expect(viewNames()).toEqual(five)
   expect(pressedViews()).toEqual([])
   expect(screen.queryByRole('button', { name: 'Back to queries' })).toBeNull()
 
@@ -1399,68 +1502,49 @@ test('before a first sweep there is no Weakest markets view and no room is held 
   expect(screen.queryByRole('button', { name: 'Back to queries' })).toBeNull()
 })
 
-test('after a sweep Weakest markets holds its place while the results load and after they fail, so the row does not move', async () => {
-  const held = heldResults()
-  installApi({ workspace: withViews, results: held.results })
-  renderWorkspace()
-  await screen.findByText(UPTOWN_BEST)
-  await waitFor(() => expect(held.waiting).toHaveLength(1))
-  // The workspace's rows have results, so a sweep is known: the button is there with no number yet.
-  const waiting = ['Location gaps, 5', 'Thin markets, 9', 'Pattern gaps, 2', 'Weakest markets, non-brand queries', 'Not asked, 7', 'Hand-picked, 3']
-  expect(viewNames()).toEqual(waiting)
-  held.waiting.shift()!(jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'unavailable' } }, 500))
-  await screen.findByRole('button', { name: 'Retry results' })
-  expect(viewNames()).toEqual(waiting)
-  expect(viewButton('Weakest markets').querySelector('.skeleton-text')).toBeNull()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Retry results' }))
-  await waitFor(() => expect(held.waiting).toHaveLength(1))
-  held.waiting.shift()!(weakSweep())
-  await waitFor(() => expect(viewNames()[3]).toBe('Weakest markets, non-brand queries, 4'))
-})
-
 test('Not asked and Hand-picked set a filter of the query list on a clean search, and a second press takes only that filter off', async () => {
   installApi({ workspace: withViews })
   const onTrackedFiltersChange = vi.fn()
-  const props = renderWorkspace({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, type: 'branded' }, onTrackedFiltersChange })
+  const props = renderWorkspace({ trackedFilters: { ...LIST, type: 'branded' }, onTrackedFiltersChange })
   await screen.findByText(HARBOR)
   fireEvent.change(searchBox(), { target: { value: 'harbor' } })
 
   // The count is of every query that is not asked, so the other filters and the search are cleared for it.
   fireEvent.click(viewButton('Not asked'))
-  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' })
+  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...LIST, status: 'not-asked' })
   expect(searchBox().value).toBe('')
-  props.rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' } })
+  props.rerender({ trackedFilters: { ...LIST, status: 'not-asked' } })
   expect(listed()).toEqual([OLD_TOWN, CAMPUS])
   expect(pressedViews()).toEqual(['Not asked, 7'])
   fireEvent.click(screen.getByRole('button', { name: /^Filters/ }))
   expect((screen.getByRole('combobox', { name: 'Status' }) as HTMLSelectElement).value).toBe('not-asked')
   // A second press puts Status back.
   fireEvent.click(viewButton('Not asked'))
-  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith(DEFAULT_TRACKED_FILTERS)
+  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith(LIST)
 
   fireEvent.click(viewButton('Hand-picked'))
-  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...DEFAULT_TRACKED_FILTERS, subject: 'hand-picked' })
-  props.rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, subject: 'hand-picked' } })
+  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...LIST, subject: 'hand-picked' })
+  props.rerender({ trackedFilters: { ...LIST, subject: 'hand-picked' } })
   expect(listed()).toEqual([PICKED])
   expect(pressedViews()).toEqual(['Hand-picked, 3'])
 
   // What was narrowed after the press is the reader's: the second press takes Subject off and leaves the Type filter and the search.
-  props.rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, subject: 'hand-picked', type: 'mixed' } })
+  props.rerender({ trackedFilters: { ...LIST, subject: 'hand-picked', type: 'mixed' } })
   fireEvent.change(searchBox(), { target: { value: 'pool' } })
   expect(pressedViews()).toEqual(['Hand-picked, 3'])
   fireEvent.click(viewButton('Hand-picked'))
-  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...DEFAULT_TRACKED_FILTERS, type: 'mixed' })
+  expect(onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...LIST, type: 'mixed' })
   expect(searchBox().value).toBe('pool')
   // They are filters of this list: no view is written to the URL.
   expect(props.onSelectionChange).not.toHaveBeenCalled()
 })
 
 test('a view lists its places in place of the queries, with its name and the way back, and Back returns the table and the focus', async () => {
-  installApi({ workspace: withViews, results: weakSweep })
-  const props = renderWorkspace({ trackedFilters: DEFAULT_TRACKED_FILTERS, onTrackedFiltersChange: vi.fn() })
+  installApi({ workspace: withViews, results: () => jsonResponse(sweep()) })
+  const props = renderWorkspace({ trackedFilters: LIST, onTrackedFiltersChange: vi.fn() })
   await screen.findByText(UPTOWN_BEST)
-  await waitFor(() => expect(viewButtons()).toHaveLength(6))
+  // No sweep before the last, so no Lost or Won.
+  await waitFor(() => expect(viewButtons()).toHaveLength(5))
   select(UPTOWN_BEST)
   expect(bulkBar()).not.toBeNull()
 
@@ -1489,11 +1573,11 @@ test('a view lists its places in place of the queries, with its name and the way
   expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: 'Search markets' }))
 
   // Another view replaces this one, and a filter view closes it for the queries it lists.
-  fireEvent.click(viewButton('Weakest markets'))
-  expect(lastPatch(props)).toEqual({ trackedView: 'weak-markets' })
+  fireEvent.click(viewButton('Pattern gaps'))
+  expect(lastPatch(props)).toEqual({ trackedView: 'pattern-gaps' })
   fireEvent.click(viewButton('Not asked'))
   expect(lastPatch(props)).toEqual({ trackedView: undefined })
-  expect(props.onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' })
+  expect(props.onTrackedFiltersChange).toHaveBeenLastCalledWith({ ...LIST, status: 'not-asked' })
   // A second press of the open view closes it too.
   fireEvent.click(viewButton('Thin markets'))
   expect(lastPatch(props)).toEqual({ trackedView: undefined })
@@ -1503,13 +1587,14 @@ test('a view lists its places in place of the queries, with its name and the way
   fireEvent.click(screen.getByRole('button', { name: 'Details' }))
   fireEvent.click(screen.getByRole('button', { name: '7 not asked' }))
   expect(vi.mocked(props.onSelectionChange).mock.calls).toEqual([[{ trackedView: undefined }]])
-  expect(vi.mocked(props.onTrackedFiltersChange!).mock.calls).toEqual([[{ ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' }]])
+  expect(vi.mocked(props.onTrackedFiltersChange!).mock.calls).toEqual([[{ ...LIST, status: 'not-asked' }]])
 
   // Each view starts with a clean search of its own.
   fireEvent.change(screen.getByRole('searchbox', { name: 'Search markets' }), { target: { value: 'lake' } })
-  props.rerender({ trackedView: 'weak-markets' })
-  expect((screen.getByRole('searchbox', { name: 'Search markets' }) as HTMLInputElement).value).toBe('')
+  props.rerender({ trackedView: 'pattern-gaps' })
+  expect((screen.getByRole('searchbox', { name: 'Search patterns' }) as HTMLInputElement).value).toBe('')
   props.rerender({ trackedView: 'thin-markets' })
+  expect((screen.getByRole('searchbox', { name: 'Search markets' }) as HTMLInputElement).value).toBe('')
 
   const calls = vi.mocked(props.onSelectionChange).mock.calls.length
   const back = screen.getByRole('button', { name: 'Back to queries' })
@@ -1529,7 +1614,7 @@ test('a view lists its places in place of the queries, with its name and the way
 test('Add from a view\'s row opens the Add queries page on that market or location, and a market with no location offers none', async () => {
   const previews: unknown[] = []
   installApi({ workspace: withViews, write: (path, body) => { previews.push([path, body]); return jsonResponse({ error: { code: 'VALIDATION_ERROR', message: 'not reviewed here' } }, 400) } })
-  const { rerender } = renderWorkspace({ trackedView: 'thin-markets' })
+  const { rerender } = renderList({ trackedView: 'thin-markets' })
 
   fireEvent.click(await screen.findByRole('button', { name: 'Add market query for Downtown, Lakeshore' }))
   let sheet = within(await screen.findByRole('region', { name: 'Add queries' }))
@@ -1583,7 +1668,11 @@ test('Add from a view\'s row opens the Add queries page on that market or locati
 })
 
 /** The filters as the URL holds them, each under its own key. A key that is cleared is in the patch, with no value. */
-const CLEAN_FILTER_KEYS = { trackedSubject: undefined, trackedType: undefined, trackedStatus: undefined, trackedSource: undefined, trackedResult: undefined }
+// The switch and the grouping stay as they were: the query list, by mention.
+const CLEAN_FILTER_KEYS = {
+  trackedSubject: undefined, trackedType: undefined, trackedStatus: undefined, trackedSource: undefined, trackedResult: undefined,
+  trackedEngine: undefined, trackedChange: undefined, trackedSignal: undefined, trackedGroup: 'none',
+}
 
 test.each((['writer', 'viewer'] as const).flatMap(role => [
   ['a location', role, 'no-location-queries', undefined, 'River Point', { measurementScope: 'property', measurementScopeKey: 'river' }],
@@ -1594,9 +1683,9 @@ test.each((['writer', 'viewer'] as const).flatMap(role => [
   const onSelectionChange = vi.fn()
   const onTrackedFiltersChange = vi.fn()
   // Filters set before the view opened are still in the URL behind it.
-  const props = { trackedView, onSelectionChange, trackedFilters: { ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' as const, subject: 'hand-picked' as const }, onTrackedFiltersChange }
-  if (role === 'viewer') renderViewerWorkspace(props)
-  else renderWorkspace(props)
+  const props = { trackedView, onSelectionChange, trackedFilters: { ...LIST, status: 'not-asked' as const, subject: 'hand-picked' as const }, onTrackedFiltersChange }
+  if (role === 'viewer') renderList(props, 'viewer')
+  else renderList(props)
   if (count) fireEvent.click(await screen.findByRole('button', { name: count }))
   const control = await screen.findByRole('button', { name: `Open ${name}` })
   expect(control.textContent).toBe(name)
@@ -1614,7 +1703,7 @@ test('a place opened from a view lists its queries on a clean search, and the Pl
   const options = portfolio().scopeOptions
   const header = render(<VisibilityScopePicker labelVisibility="sr-only" options={options} selected={options[0]} onSelect={() => {}} />)
   const placeControl = header.container.querySelector('summary')!
-  const props = renderWorkspace({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, type: 'branded' }, onTrackedFiltersChange: vi.fn() })
+  const props = renderWorkspace({ trackedFilters: { ...LIST, type: 'branded' }, onTrackedFiltersChange: vi.fn() })
   await screen.findByText(HARBOR)
   fireEvent.change(searchBox(), { target: { value: 'harbor point' } })
   expect(listed()).toEqual([HARBOR])
@@ -1627,7 +1716,7 @@ test('a place opened from a view lists its queries on a clean search, and the Pl
   expect(screen.getByRole('table', { name: 'Thin markets' })).toBeTruthy()
   expect(document.activeElement).toBe(market)
 
-  props.rerender({ selection: { measurementScope: 'market', measurementScopeKey: 'downtown', queryClass: 'all' }, trackedView: undefined, trackedFilters: DEFAULT_TRACKED_FILTERS })
+  props.rerender({ selection: { measurementScope: 'market', measurementScopeKey: 'downtown', queryClass: 'all' }, trackedView: undefined, trackedFilters: LIST })
   expect(screen.queryByRole('table', { name: 'Thin markets' })).toBeNull()
   // Every query asked in the market, of either type: the search typed before the view opened is gone with the filters.
   expect(searchBox().value).toBe('')
@@ -1638,18 +1727,18 @@ test('a place opened from a view lists its queries on a clean search, and the Pl
 
   // On a page with no Place control, the search of the place's queries takes it.
   header.unmount()
-  props.rerender({ selection: PROJECT, trackedView: 'no-location-queries', trackedFilters: DEFAULT_TRACKED_FILTERS })
+  props.rerender({ selection: PROJECT, trackedView: 'no-location-queries', trackedFilters: LIST })
   const location = screen.getByRole('button', { name: 'Open River Point' })
   location.focus()
   fireEvent.click(location)
-  props.rerender({ selection: { measurementScope: 'property', measurementScopeKey: 'river', queryClass: 'all' }, trackedView: undefined, trackedFilters: DEFAULT_TRACKED_FILTERS })
+  props.rerender({ selection: { measurementScope: 'property', measurementScopeKey: 'river', queryClass: 'all' }, trackedView: undefined, trackedFilters: LIST })
   expect(listed()).toEqual([UPTOWN_BEST, UPTOWN_PETS])
   expect(document.activeElement).toBe(searchBox())
 })
 
 test('a viewer opens a view and reads its list, with no action to take', async () => {
   installApi({ workspace: withViews })
-  renderViewerWorkspace({ trackedView: 'thin-markets' })
+  renderList({ trackedView: 'thin-markets' }, 'viewer')
   expect(await screen.findByRole('table', { name: 'Thin markets' })).toBeTruthy()
   expect(placeRows('Thin markets')).toEqual([['Lakeview', 'None', '0', '0'], ['Downtown, Lakeshore', 'None', '1', '3']])
   expect(screen.queryByRole('button', { name: /^Add / })).toBeNull()
@@ -1657,42 +1746,12 @@ test('a viewer opens a view and reads its list, with no action to take', async (
   expect(screen.getByRole('button', { name: 'Back to queries' })).toBeTruthy()
 })
 
-test('Weakest markets waits for the results, a failed read offers Retry, and the list is the markets the results name', async () => {
-  const held = heldResults()
-  const requests = installApi({ workspace: withViews, results: held.results })
-  renderWorkspace({ trackedView: 'weak-markets' })
-  // The results are still being read: rows stand in for the markets, never "No weak markets", and the view's button is on with no number yet.
-  expect(await screen.findByRole('status', { name: 'Loading markets' })).toBeTruthy()
-  expect(screen.queryByRole('table')).toBeNull()
-  expect(screen.queryByText('No weak markets')).toBeNull()
-  expect(viewNames()).toEqual(['Location gaps, 5', 'Thin markets, 9', 'Pattern gaps, 2', 'Weakest markets, non-brand queries', 'Not asked, 7', 'Hand-picked, 3'])
-  expect(pressedViews()).toEqual(['Weakest markets, non-brand queries'])
-
-  held.waiting.shift()!(jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'unavailable' } }, 500))
-  const failed = await screen.findByRole('alert')
-  expect(failed.textContent).toBe('Could not loadRetry')
-  expect(screen.queryByRole('table')).toBeNull()
-  // The open view keeps its button, pressed, where it was.
-  expect(viewButtons()).toHaveLength(6)
-  expect(pressedViews()).toEqual(['Weakest markets, non-brand queries'])
-
-  fireEvent.click(within(failed).getByRole('button', { name: 'Retry results' }))
-  await waitFor(() => expect(held.waiting).toHaveLength(1))
-  held.waiting.shift()!(weakSweep())
-  expect(await screen.findByRole('table', { name: 'Weakest markets' })).toBeTruthy()
-  expect(requests.filter(request => request.includes('/results'))).toHaveLength(2)
-  // The one market the results name here. The count over it is the results' own, 4, as on the button, with the type of the mentions it counts.
-  expect(placeRows('Weakest markets')).toEqual([['Downtown, Lakeshore', 'None', '1', '3', 'Add market query']])
-  expect(within(region()).getAllByRole('status').map(status => status.textContent)).toContain('4 markets · no non-brand mention')
-  expect(pressedViews()).toEqual(['Weakest markets, non-brand queries, 4'])
-})
-
 test('a view of the workspace lists its places when the results did not load', async () => {
   installApi({ workspace: withViews, results: () => jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'unavailable' } }, 500) })
-  renderWorkspace({ trackedView: 'thin-markets' })
+  renderList({ trackedView: 'thin-markets' })
   expect(await screen.findByRole('table', { name: 'Thin markets' })).toBeTruthy()
-  await waitFor(() => expect(viewNames()[3]).toBe('Weakest markets, non-brand queries'))
-  // Thin markets is the workspace's own: only Weakest markets waits on the results.
+  // Thin markets is the workspace's own. Lost and Won are the comparison's, so a failed read offers neither.
+  await waitFor(() => expect(viewNames()).toEqual(['Location gaps, 5', 'Thin markets, 9', 'Pattern gaps, 2', 'Not asked, 7', 'Hand-picked, 3']))
   expect(placeRows('Thin markets')).toHaveLength(2)
   expect(screen.queryByRole('alert')).toBeNull()
   expect(screen.queryByText('Could not load')).toBeNull()
@@ -1704,7 +1763,7 @@ test('a link to a row wins over a view in the same URL, choosing a view drops th
   installApi({ workspace: withViews })
   window.history.replaceState({}, '', '?trackedView=thin-markets&trackingQueryId=q-uptown-best')
   onTestFinished(() => window.history.replaceState({}, '', window.location.pathname))
-  const props = renderWorkspace({ trackedView: 'thin-markets', trackingQueryId: 'q-uptown-best' })
+  const props = renderList({ trackedView: 'thin-markets', trackingQueryId: 'q-uptown-best' })
   // The table opens on the row, as a link always has: no list of markets is drawn over it.
   const linked = (await screen.findByRole('button', { name: `Actions for ${UPTOWN_BEST}` })).closest('tr')!
   expect(linked.hasAttribute('data-highlighted')).toBe(true)

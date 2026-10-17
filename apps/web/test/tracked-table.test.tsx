@@ -14,6 +14,7 @@ import {
   type TrackedSort,
 } from '../src/components/project/queries/advanced/tracked-view-model.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
+import { visibleText } from './caution-note.js'
 import { compileAppStyles, compiledDeclarations, compiledElementProperty, parseCompiledCss } from './compiled-app-css.js'
 
 beforeEach(() => {
@@ -262,24 +263,41 @@ describe('TrackedTable', () => {
     expect(within(rowOf(MARKET)).queryByText('OpenAI')).toBeNull()
   })
 
-  it('prints a measured row\'s Status as plain text, and keeps the pill for a row waiting on its first answers and one that is not asked', async () => {
+  it('marks only the rows that are not measured: a measured row\'s Status is heard, not drawn, and the pill stays for the others', async () => {
     setup()
     const status = (text: string) => rowOf(text).querySelector('.tracked-cell-status')!.firstElementChild!
     const classes = (text: string) => status(text).className.split(' ')
-    // Nearly every row is measured: a pill on each would mark nothing.
+    // Nearly every row is measured: a mark on each would mark nothing, so a reader hears it and nobody sees it.
     expect(status(MARKET).textContent).toBe('Measured Oct 7')
-    expect(classes(MARKET).filter(name => /^(?:border|bg-|rounded)/.test(name))).toEqual([])
-    expect(classes(MARKET)).toEqual(expect.arrayContaining(['text-secondary', 'truncate']))
-    expect(classes(MARKET)).not.toContain('text-positive')
+    expect(classes(MARKET)).toEqual(['sr-only'])
     expect(classes(WAITING)).toEqual(expect.arrayContaining(['rounded-md', 'border', 'border-info-500/30', 'bg-info-500/10', 'text-info-300']))
     expect(classes(WAITING)).not.toContain('text-neutral')
     expect(classes(NOT_ASKED)).toEqual(expect.arrayContaining(['rounded-md', 'border', 'text-neutral']))
     expect(classes(NOT_ASKED)).not.toContain('text-info-300')
-    // The text is as tall as the pill, so a page that holds both keeps its rows one height: 16px of line and 3px above and below, the pill's padding and border.
-    const rules = parseCompiledCss(await compileAppStyles([...status(MARKET).classList, ...status(WAITING).classList]))
-    const height = (text: string) => ['line-height', 'padding-block', 'border-width'].map(property => compiledElementProperty(rules, status(text), property))
-    expect(height(MARKET)).toEqual(['calc(var(--spacing) * 4)', '3px', undefined])
-    expect(height(WAITING)).toEqual(['calc(var(--spacing) * 4)', 'calc(var(--spacing) * 0.5)', '1px'])
+    // The pill is one line of 16px, so a one-line row is as tall as its text.
+    const rules = parseCompiledCss(await compileAppStyles([...status(WAITING).classList]))
+    expect(['line-height', 'padding-block', 'border-width'].map(property => compiledElementProperty(rules, status(WAITING), property))).toEqual(['calc(var(--spacing) * 4)', 'calc(var(--spacing) * 0.5)', '1px'])
+  })
+
+  it('under the switch each engine cell is one letter, and Change says what each engine won or lost of that signal', () => {
+    // OpenAI lost the mention on the market query and won its citation; nothing else changed.
+    const changed: TrackedResults = { rows: RESULTS.rows.map(row => row.queryId !== 'market' ? row : { ...row, engines: row.engines.map(engine => ({ ...engine, mentionChange: 'lost' as const, citationChange: 'won' as const })) }) }
+    const { rerender } = setup({ signal: 'mentioned', changes: true, coverage: coverageByQuery(changed) })
+    // One letter, the mention's, with its count in its bubble; the citation is the opened row's.
+    expect(engineCellsRead(MARKET)).toEqual(['OpenAI: Mentioned', 'Gemini: Mention not checked'])
+    expect(within(engineCells(MARKET)[0]!).getByRole('button').getAttribute('aria-description')).toBe('Mentioned in 2 of 3 answers.')
+    expect(headerNames()).toContain('Changevs previous sweep')
+    const change = () => rowOf(MARKET).querySelector('.tracked-cell-change')!
+    expect([change().textContent, visibleText(change() as HTMLElement)]).toEqual(['OpenAI lost the mention', 'OpenAI'])
+    expect(rowOf(LOCATION).querySelector('.tracked-cell-change')!.textContent).toBe('')
+    // Under Cited, the letters and the change are the citation's.
+    rerender({ signal: 'cited', changes: true, coverage: coverageByQuery(changed) })
+    expect(engineCellsRead(MARKET)).toEqual(['OpenAI: Not cited', 'Gemini: Citation not checked'])
+    expect(change().textContent).toBe('OpenAI won the citation')
+    // Without a comparison there is no column, and without the switch each cell is the pair.
+    rerender({ coverage: coverageByQuery(changed), signal: undefined, changes: false })
+    expect(headerNames().some(name => name?.startsWith('Change'))).toBe(false)
+    expect(engineCellsRead(MARKET)).toEqual(['OpenAI: Mentioned, Not cited', 'Gemini: Not checked'])
   })
 
   it('keeps a market\'s count after its name in a closed row, and on the last word of the name where the name wraps', () => {
@@ -759,7 +777,7 @@ describe('TrackedTable', () => {
 
     it('marks the sorted header and asks for the next sort on a click', () => {
       const onSortChange = vi.fn()
-      const { rerender } = setup({ sort: DEFAULT_TRACKED_SORT, onSortChange })
+      const { rerender } = setup({ sort: { key: 'subject', direction: 'asc' }, onSortChange })
       expect(['Query', 'Subject', 'OpenAI', 'Gemini', 'Last measured', 'Status'].map(sortOf)).toEqual(['none', 'ascending', 'none', 'none', 'none', 'none'])
       // Type and Source do not sort.
       expect([sortOf('Type'), sortOf('Source')]).toEqual([null, null])
@@ -780,6 +798,9 @@ describe('TrackedTable', () => {
 
       rerender({ sort: { key: 'engine:openai', direction: 'desc' } })
       expect(['Subject', 'OpenAI'].map(sortOf)).toEqual(['none', 'descending'])
+      // The default, winning first, is the server's order of the rows: no header is sorted then.
+      rerender({ sort: DEFAULT_TRACKED_SORT })
+      expect(['Query', 'Subject', 'OpenAI', 'Gemini', 'Last measured', 'Status'].map(sortOf)).toEqual(Array(6).fill('none'))
       // Every header that sorts carries a mark: its direction when sorted, a hint when not.
       expect(headers().filter(header => header.querySelector('button > svg[aria-hidden="true"]') !== null).map(header => header.textContent)).toEqual(['Query', 'Subject', 'OpenAI', 'Gemini', 'Last measured', 'Status'])
     })
@@ -1203,7 +1224,7 @@ describe('TrackedTable', () => {
         frameWidth(358)
         const onSortChange = vi.fn()
         const onSelectedIdsChange = vi.fn()
-        const { rerender } = setup({ sort: DEFAULT_TRACKED_SORT, onSortChange, selectedIds: new Set(['market']), onSelectedIdsChange })
+        const { rerender } = setup({ sort: { key: 'subject', direction: 'asc' }, onSortChange, selectedIds: new Set(['market']), onSelectedIdsChange })
         const page = screen.getByRole('checkbox', { name: 'Select this page' }) as HTMLInputElement
         expect(screen.getByText('Select this page')).toBeTruthy()
         expect([page.checked, page.indeterminate]).toEqual([false, true])
@@ -1220,6 +1241,9 @@ describe('TrackedTable', () => {
         rerender({ sort: { key: 'engine:openai', direction: 'desc' } })
         expect(sort.value).toBe('engine:openai')
         expect(screen.getByRole('button', { name: 'Descending' })).toBeTruthy()
+        // The default, winning first, has no header: the select names it first, as Result.
+        rerender({ sort: DEFAULT_TRACKED_SORT })
+        expect([within(sort).getAllByRole('option')[0]!.textContent, sort.value]).toEqual(['Result', 'result'])
       })
 
       it('draws no line above the rows for a reader who can neither select nor sort', () => {

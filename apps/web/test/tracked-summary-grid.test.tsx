@@ -284,21 +284,19 @@ describe('TrackedSummaryGrid, layout', () => {
     expect(columns(await rulesFor(picked.container), strip(picked.container), ROW)).toBe(ROW_COLUMNS)
   })
 
-  test('the sweep dates wrap as whole dates: a dot shows between two on a line and never at the end of one', async () => {
+  test('the counts and the sweep dates are one line that wraps between whole parts, with a dot between two of them', async () => {
     const { container } = render(<TrackedSummaryGrid summary={SUMMARY} limits={LIMITS} lastSweepAt={LAST_SWEEP} nextSweepDate="Oct 21" />)
     const rules = await rulesFor(container)
     const line = sweepLine()
     const parts = [...line.children]
     expect([compiledElementProperty(rules, line, 'display'), compiledElementProperty(rules, line, 'flex-wrap')]).toEqual(['flex', 'wrap'])
     expect(parts.map(part => compiledElementProperty(rules, part, 'white-space'))).toEqual(['nowrap', 'nowrap'])
-    // Each date carries its dot before it, in a gutter as wide as the line is pulled out to the left, where it is cut off.
-    const gutters = parts.map(part => part.firstElementChild!)
-    expect(gutters.map(gutter => [gutter.getAttribute('aria-hidden'), gutter.textContent])).toEqual([['true', ''], ['true', '·']])
-    expect(gutters.map(gutter => cssLengthPx(compiledElementProperty(rules, gutter, 'width')!, rules))).toEqual([16, 16])
-    expect(cssLengthPx(compiledElementProperty(rules, line, 'margin-left')!, rules)).toBe(-16)
-    expect(compiledElementProperty(rules, line.parentElement!, 'clip-path')).toBe('inset(-0.25rem -0.25rem -0.25rem 0)')
-    // The dates never widen the cell they sit in.
-    expect(compiledElementProperty(rules, line.parentElement!, '--tw-contain-size')).toBe('inline-size')
+    // The second date carries its dot. The dot after the counts sits outside the dates' own line, which starts at its first date.
+    expect(parts.map(part => part.textContent)).toEqual([`Last sweep ${LAST_SWEEP_DAY}`, '·Next Oct 21'])
+    const lead = line.previousElementSibling!
+    expect([lead.getAttribute('aria-hidden'), lead.textContent]).toEqual(['true', '·'])
+    // The counts' labels are set lowercase in the line, by the cell that holds each; the page keeps each label's own word.
+    expect(screen.getByText('Non-brand').closest('div')!.className).toContain('[&>dt]:lowercase')
   })
 
   test('the links and Retry are 44px targets under a finger, and the links show keyboard focus as a ring', async () => {
@@ -345,11 +343,37 @@ describe('TrackedSummaryGrid, results', () => {
     expect(screen.getByRole('button', { name: '541 of 1,644 answers in the last sweep mention a location the query is asked for.' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '192 of 1,643 answers in the last sweep cite a location the query is asked for. 1 of 1644 answers had sources that could not be checked.' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '1,144 of 1,145 answers in the last sweep mention a location the query is asked for. 7 of 1152 answers could not be tied to one location.' })).toBeTruthy()
-    // The counts of queries follow the result, every one in the small type.
+    // The counts of queries follow the result on a line of their own, every one in the small type.
     expect(stat('Queries asked')).toBe('932')
     expect(screen.getByText('Queries asked').closest('div')!.querySelector('dd')!.className).not.toMatch(/font-semibold/)
-    expect(resultsOf('Non-brand').querySelector('dd')!.className).toMatch(/font-semibold/)
-    expect(resultsOf('Branded').querySelector('dd')!.className).not.toMatch(/font-semibold/)
+    // All four rates are one size: no type and no signal leads the others.
+    const figures = groups.flatMap(group => [...group.querySelectorAll('dd > span:first-child')])
+    expect(figures.map(figure => figure.textContent)).toEqual(['40.0%', '11.7%', '99.9%', '92.8%'])
+    expect(new Set(figures.map(figure => figure.className)).size).toBe(1)
+    expect(figures[0]!.className).toMatch(/font-semibold/)
+    // With no comparison there is no change to draw and the counts line names none.
+    expect(groups[0]!.querySelectorAll('dd')[0]!.textContent).toBe('40.0%')
+    expect(screen.queryByText('vs previous sweep')).toBeNull()
+  })
+
+  test('beside each rate, the server\'s change since the previous sweep, in points, named by the sweep and never by a date', () => {
+    const comparison = (mentionDelta: number | null, citationDelta: number | null) => ({
+      queries: 540,
+      mentionCoverage: rate(530, 1620, 0.3272), citationCoverage: rate(190, 1620, 0.1173),
+      previousMentionCoverage: rate(463, 1620, 0.2858), previousCitationCoverage: rate(206, 1620, 0.1272),
+      mentionDelta, citationDelta,
+    })
+    // The deltas are not the rates subtracted, so only printing the server's own field gives these figures.
+    const totals: QueryTrackingResultTotals[] = [{ ...TOTALS[1]!, comparison: comparison(0.041, -0.01) }, { ...TOTALS[0]!, comparison: comparison(0, null) }]
+    render(<TrackedSummaryGrid summary={SUMMARY} results={{ state: 'ready', totals }} lastSweepAt={LAST_SWEEP} compared />)
+    expect(visibleText(resultsOf('Non-brand'))).toBe('Non-brandmentioned40.0%4.1cited11.7%1.0')
+    // A reader hears which way, and against what.
+    expect([...resultsOf('Non-brand').querySelectorAll('dd')].map(figure => figure.textContent)).toEqual(['40.0%4.1 points up vs previous sweep', '11.7%1.0 points down vs previous sweep'])
+    // No change, and a change the server could not give, draw nothing.
+    expect(visibleText(resultsOf('Branded'))).toBe('Brandedmentioned99.9%cited92.8%')
+    // The rate's help says both sweeps over the same queries.
+    expect(screen.getByRole('button', { name: '541 of 1,644 answers in the last sweep mention a location the query is asked for. The same 540 queries in the previous sweep: 28.6%, now 32.7%.' })).toBeTruthy()
+    expect(sweepLine().textContent).toBe(`Last sweep ${LAST_SWEEP_DAY}·vs previous sweep`)
   })
 
   test('says while the results are read, before any sweep, after a failed read, and when no listed query was swept', () => {

@@ -1446,7 +1446,7 @@ test('the Queries route reads the workspace and the results once, lists every ty
   // One workspace read and one results read, for the Place in the URL.
   await waitFor(() => expect(observed.filter(path => path.includes('/query-tracking')).map(path => path.slice(path.indexOf('/query-tracking')))).toEqual([
     '/query-tracking',
-    '/query-tracking/results?scope=group&scopeKey=north',
+    '/query-tracking/results?scope=group&scopeKey=north&sort=winning&compare=previous',
   ]))
   expect(observed.some(path => path.includes('/discover') || path.includes('/research'))).toBe(false)
 
@@ -3812,11 +3812,15 @@ test.each([
 
 test('the Tracked filter keys survive a reload and reach the Queries section, and the Type filter ignores the shared queryClass key', async () => {
   vi.mocked(QueriesSection).mockClear()
-  const opened = { trackedSubject: 'market', trackedType: 'non-brand', trackedStatus: 'not-asked', trackedSource: 'manual', trackedResult: 'not-cited', trackedView: 'thin-markets' }
+  const opened = {
+    trackedSubject: 'market', trackedType: 'non-brand', trackedStatus: 'not-asked', trackedSource: 'manual', trackedResult: 'not-cited',
+    trackedEngine: 'gemini', trackedChange: 'lost', trackedSignal: 'cited', trackedGroup: 'none', trackedView: 'thin-markets',
+  }
+  const READ = { engine: 'gemini', change: 'lost', signal: 'cited', group: 'none' }
   expect(Object.keys(opened)).toEqual([...Object.values(TRACKED_FILTER_KEYS), 'trackedView'])
   const { router } = await renderScopeRoute(`/projects/project_citypoint/queries?${new URLSearchParams({ ...opened, queryClass: 'branded' })}`, trackingRoute())
   expect(router.state.location.search).toMatchObject({ ...opened, queryClass: 'branded' })
-  expect(queriesSectionProps().trackedFilters).toEqual({ subject: 'market', type: 'non-brand', status: 'not-asked', source: 'manual', result: 'not-cited' })
+  expect(queriesSectionProps().trackedFilters).toEqual({ subject: 'market', type: 'non-brand', status: 'not-asked', source: 'manual', result: 'not-cited', ...READ })
   // The saved view reaches the section too, and the section's own URL patch changes it.
   expect(queriesSectionProps().trackedView).toBe('thin-markets')
   act(() => queriesSectionProps().onSelectionChange!({ trackedView: 'pattern-gaps' }))
@@ -3826,10 +3830,11 @@ test('the Tracked filter keys survive a reload and reach the Queries section, an
 
   // A filter back on its default leaves the URL; every other key stays, the shared query type included.
   act(() => queriesSectionProps().onTrackedFiltersChange!({ type: 'mixed', status: 'asked' }))
-  await waitFor(() => expect(queriesSectionProps().trackedFilters).toEqual({ subject: 'market', type: 'mixed', status: 'asked', source: 'manual', result: 'not-cited' }))
+  await waitFor(() => expect(queriesSectionProps().trackedFilters).toEqual({ subject: 'market', type: 'mixed', status: 'asked', source: 'manual', result: 'not-cited', ...READ }))
   const href = router.state.location.href
   expect(Object.fromEntries(new URL(href, window.location.origin).searchParams)).toEqual({
-    trackedSubject: 'market', trackedType: 'mixed', trackedSource: 'manual', trackedResult: 'not-cited', trackedView: 'thin-markets', queryClass: 'branded',
+    trackedSubject: 'market', trackedType: 'mixed', trackedSource: 'manual', trackedResult: 'not-cited',
+    trackedEngine: 'gemini', trackedChange: 'lost', trackedSignal: 'cited', trackedGroup: 'none', trackedView: 'thin-markets', queryClass: 'branded',
   })
 
   const reloaded = createAppRouter(new QueryClient(), { initialEntries: [href] })
@@ -3837,7 +3842,7 @@ test('the Tracked filter keys survive a reload and reach the Queries section, an
   expect(reloaded.state.location.search).toEqual(router.state.location.search)
 
   // The route holds each key as text, like every other Queries key: a number or a flag is dropped.
-  const untyped = createAppRouter(new QueryClient(), { initialEntries: ['/projects/project_citypoint/queries?trackedSubject=7&trackedType=true&trackedStatus=7&trackedSource=false&trackedResult=7&trackedView=7'] })
+  const untyped = createAppRouter(new QueryClient(), { initialEntries: ['/projects/project_citypoint/queries?trackedSubject=7&trackedType=true&trackedStatus=7&trackedSource=false&trackedResult=7&trackedEngine=7&trackedChange=true&trackedSignal=7&trackedGroup=false&trackedView=7'] })
   await untyped.load()
   const held = untyped.state.matches.at(-1)!.search as Record<string, unknown>
   expect(Object.keys(opened).filter(key => held[key] !== undefined)).toEqual([])
@@ -3846,7 +3851,7 @@ test('the Tracked filter keys survive a reload and reach the Queries section, an
   // selection handed beside it still carries the shared key, which the page's older Query type control reads.
   vi.mocked(QueriesSection).mockClear()
   const shared = await renderScopeRoute('/projects/project_citypoint/queries?queryClass=branded', trackingRoute())
-  expect(queriesSectionProps().trackedFilters).toEqual({ subject: 'any', type: 'all', status: 'asked', source: 'any', result: 'any' })
+  expect(queriesSectionProps().trackedFilters).toEqual({ subject: 'any', type: 'all', status: 'asked', source: 'any', result: 'any', engine: 'any', change: 'any', signal: 'mentioned', group: 'auto' })
   expect(shared.router.state.location.search.queryClass).toBe('branded')
 })
 
@@ -3870,6 +3875,11 @@ test('each Tracked URL key reports a filter change by its dimension, never by it
     trackedStatus: [['filter.change', 'other']],
     trackedSource: [['filter.change', 'other']],
     trackedResult: [['filter.change', 'other']],
+    // The engine a Result is read on is a provider filter; the switch and the grouping are other.
+    trackedEngine: [['filter.change', 'provider']],
+    trackedChange: [['filter.change', 'other']],
+    trackedSignal: [['filter.change', 'other']],
+    trackedGroup: [['filter.change', 'other']],
     trackedView: [['filter.change', 'other']],
   })
   expect(JSON.stringify(sent)).not.toContain('value-kept-out')
@@ -3941,7 +3951,8 @@ test('the tracked Queries row picker floats over the table, closes on Escape or 
     markets: [{ stableKey: 'new-york', label: 'New York', groupKey: 'north', usageEdges: [{ executionNodeKey: 'node-citypoint', targetKey: 'citypoint', queryId: 'query-citypoint' }] }],
     scopeOptions: [...base.scopeOptions!.slice(0, 2), { id: 'new-york', label: 'New York', kind: 'market', targetCount: 1, parentGroupIds: ['north'] }, base.scopeOptions![2]!],
   })
-  const { page, router } = await renderScopeRoute('/projects/project_citypoint/queries', trackingRoute(workspace))
+  // The query list: a portfolio with markets opens on them otherwise.
+  const { page, router } = await renderScopeRoute('/projects/project_citypoint/queries?trackedGroup=none', trackingRoute(workspace))
   expect(await page.findByText('Citypoint dentist')).toBeTruthy()
   const trigger = await rowTrigger(page.container)
   const details = trigger.closest('details')!

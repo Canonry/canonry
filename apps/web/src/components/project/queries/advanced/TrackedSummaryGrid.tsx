@@ -1,6 +1,6 @@
 import { forwardRef, useId, useState, type CSSProperties, type ReactNode } from 'react'
-import { AlertTriangle, ChevronRight, Info, Loader, type LucideProps } from 'lucide-react'
-import { formatPercent } from '@canonry/canonry-contracts'
+import { AlertTriangle, ChevronRight, Info, Loader, Triangle, type LucideProps } from 'lucide-react'
+import { formatPercent, formatPointDelta } from '@canonry/canonry-contracts'
 import type { QueryTrackingGroup, QueryTrackingLimits, QueryTrackingMarket, QueryTrackingResultTotals, QueryTrackingSummary, QueryTrackingTarget } from '@canonry/canonry-contracts'
 
 import { excludedAnswersLabel } from '../../../../lib/format-helpers.js'
@@ -112,23 +112,59 @@ const RATE_REASON: Record<string, string> = {
 }
 
 type Rate = QueryTrackingResultTotals['mentionCoverage']
+type Comparison = NonNullable<QueryTrackingResultTotals['comparison']>
 
-/** The rate's own sentence: its two counts, and the answers it left out. The figure itself is the server's rate. */
-function rateDetail(rate: Rate, signal: 'mentioned' | 'cited'): string {
-  if (rate.rate === null || rate.numerator === null || rate.denominator === null) return RATE_REASON[rate.reason ?? ''] ?? 'Not measured in the last sweep.'
-  const verb = signal === 'mentioned' ? 'mention' : 'cite'
-  const counted = `${whole(rate.numerator)} of ${whole(rate.denominator)} answers in the last sweep ${verb} a location the query is asked for.`
-  const left = excludedAnswersLabel(rate, signal)
-  return left ? `${counted} ${left}.` : counted
+/**
+ * The rate's own sentences: its two counts, the answers it left out, and with
+ * a comparison both sweeps' rates over the queries both measured. Every
+ * figure is the server's.
+ */
+function rateDetail(rate: Rate, signal: 'mentioned' | 'cited', comparison: Comparison | undefined): string {
+  const sentences: string[] = []
+  if (rate.rate === null || rate.numerator === null || rate.denominator === null) sentences.push(RATE_REASON[rate.reason ?? ''] ?? 'Not measured in the last sweep.')
+  else {
+    const verb = signal === 'mentioned' ? 'mention' : 'cite'
+    sentences.push(`${whole(rate.numerator)} of ${whole(rate.denominator)} answers in the last sweep ${verb} a location the query is asked for.`)
+    const left = excludedAnswersLabel(rate, signal)
+    if (left) sentences.push(`${left}.`)
+  }
+  if (comparison) {
+    const [now, before] = signal === 'mentioned'
+      ? [comparison.mentionCoverage.rate, comparison.previousMentionCoverage.rate]
+      : [comparison.citationCoverage.rate, comparison.previousCitationCoverage.rate]
+    const queries = `${whole(comparison.queries)} ${comparison.queries === 1 ? 'query' : 'queries'}`
+    if (now !== null && before !== null) sentences.push(`The same ${queries} in the previous sweep: ${formatPercent(before)}, now ${formatPercent(now)}.`)
+  }
+  return sentences.join(' ')
 }
 
-/** The figure reads before its word, as the counts do: the term leads in the markup and follows on screen. */
-function RateFigure({ rate, signal, lead }: { rate: Rate; signal: 'mentioned' | 'cited'; lead: boolean }) {
+const CHANGE_TONE = { up: 'text-positive-400', down: 'text-negative-400', none: 'text-muted' } as const
+
+/** The server's change since the previous sweep, in points: "▲ 4.1". No change and no comparison draw nothing. */
+function PointChange({ delta }: { delta: number | null | undefined }) {
+  if (delta === null || delta === undefined) return null
+  const { direction, magnitude } = formatPointDelta(delta)
+  if (direction === 'none') return null
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-[13px] font-medium leading-5 tabular-nums ${CHANGE_TONE[direction]}`}>
+      <Triangle aria-hidden="true" className={`size-2.5 fill-current ${direction === 'down' ? 'rotate-180' : ''}`} />
+      {magnitude}
+      <span className="sr-only">{` points ${direction} vs previous sweep`}</span>
+    </span>
+  )
+}
+
+/** The figure reads before its word, as the counts do: the term leads in the markup and follows on screen. All four rates are one size. */
+function RateFigure({ rate, signal, comparison }: { rate: Rate; signal: 'mentioned' | 'cited'; comparison: Comparison | undefined }) {
   const measured = rate.rate !== null
+  const delta = comparison === undefined ? undefined : signal === 'mentioned' ? comparison.mentionDelta : comparison.citationDelta
   return (
     <div className="flex min-w-0 flex-row-reverse items-baseline justify-end gap-1.5">
-      <dt className={LABEL}>{signal}<InfoTooltip text={rateDetail(rate, signal)} /></dt>
-      <dd className={lead && measured ? NUMBER : 'text-[15px] font-medium leading-6 tabular-nums text-heading'}>{measured ? formatPercent(rate.rate) : 'Not measured'}</dd>
+      <dt className={LABEL}>{signal}<InfoTooltip text={rateDetail(rate, signal, comparison)} /></dt>
+      <dd className="flex items-baseline gap-1.5">
+        <span className={measured ? NUMBER : 'text-[15px] font-medium leading-6 tabular-nums text-heading'}>{measured ? formatPercent(rate.rate) : 'Not measured'}</span>
+        <PointChange delta={delta} />
+      </dd>
     </div>
   )
 }
@@ -151,11 +187,12 @@ export function TrackedResultFigures({ results }: { results: TrackedResultsState
   return (
     <div className="flex min-w-0 flex-wrap items-baseline gap-x-6 gap-y-1">
       {totals.map((total, index) => (
-        <div key={total.queryClass} role="group" aria-label={`${TYPE_LABEL[total.queryClass]} results`} className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+        // The types are never one number, so a rule parts them.
+        <div key={total.queryClass} role="group" aria-label={`${TYPE_LABEL[total.queryClass]} results`} className={`flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 ${index > 0 ? '@xl:border-l @xl:border-default @xl:pl-6' : ''}`}>
           <span className="text-[13px] font-medium leading-5 text-strong">{TYPE_LABEL[total.queryClass]}</span>
-          <dl className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-            <RateFigure rate={total.mentionCoverage} signal="mentioned" lead={index === 0} />
-            <RateFigure rate={total.citationCoverage} signal="cited" lead={false} />
+          <dl className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1">
+            <RateFigure rate={total.mentionCoverage} signal="mentioned" comparison={total.comparison} />
+            <RateFigure rate={total.citationCoverage} signal="cited" comparison={total.comparison} />
           </dl>
         </div>
       ))}
@@ -257,13 +294,15 @@ function StatCell({ stat, className, numberClassName = NUMBER, onClick }: { stat
  * is not known yet. `nextSweepDate` is the schedule's own date ("Oct 21"); a
  * sweep under way (`sweepActive`) takes its place.
  */
-export function TrackedSummaryGrid({ summary, place, results, lastSweepAt, nextSweepDate, sweepActive = false, onShowNotAsked, onRetry }: {
+export function TrackedSummaryGrid({ summary, place, results, lastSweepAt, compared = false, nextSweepDate, sweepActive = false, onShowNotAsked, onRetry }: {
   summary: QueryTrackingSummary | undefined
   limits?: QueryTrackingLimits
   place?: TrackedSummaryPlace
   /** The last sweep's result for the listed queries. Left out, the strip shows counts only. */
   results?: TrackedResultsState
   lastSweepAt?: string | null
+  /** The figures carry each rate's change since the previous sweep, which the counts line names. */
+  compared?: boolean
   nextSweepDate?: string
   sweepActive?: boolean
   /** Sets Status to Not asked. */
@@ -279,7 +318,9 @@ export function TrackedSummaryGrid({ summary, place, results, lastSweepAt, nextS
   const count = stats?.length ?? 3
   const shape = shapeOf(count, place !== undefined)
   const sweep: ReactNode[] = []
-  if (lastSweepAt !== undefined) sweep.push(<span key="last">{lastSweepAt ? `Last sweep ${sweepDate(lastSweepAt)}` : 'Last sweep: none'}</span>)
+  if (lastSweepAt !== undefined) sweep.push(<span key="last">{lastSweepAt ? <>Last sweep <span className="font-medium text-strong">{sweepDate(lastSweepAt)}</span></> : 'Last sweep: none'}</span>)
+  // The changes beside the rates are against the sweep before, named by its place and not by a date.
+  if (compared && lastSweepAt) sweep.push(<span key="compared">vs previous sweep</span>)
   if (sweepActive) sweep.push(<StatusNote key="next" icon={Turning} label="Sweep running" detail="Answers are being collected now. Numbers update when the sweep finishes." />)
   else if (nextSweepDate) sweep.push(<span key="next">Next {nextSweepDate}</span>)
 
@@ -300,18 +341,26 @@ export function TrackedSummaryGrid({ summary, place, results, lastSweepAt, nextS
   // The result leads the strip; the counts of queries follow it.
   const figures = results && results.state !== 'none' ? <TrackedResultFigures results={results} /> : null
 
+  // The rates lead on a line of their own; the counts and the sweep dates are the line under them, values in front of their labels.
   if (!place) return (
     <div className="@container border-b border-default">
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3">
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-6 gap-y-2">
-          {figures}
-          {stats ? <dl className="flex min-w-0 flex-wrap items-baseline gap-x-5 gap-y-1">
-            {stats.map((stat, index) => <StatCell key={stat.label} stat={stat} className="flex min-w-0 flex-row-reverse items-baseline gap-1.5" numberClassName={index === 0 && !figures ? NUMBER : 'text-[13px] tabular-nums text-secondary'} />)}
-          </dl> : unavailable}
-        </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-x-4 text-[13px] leading-5 text-secondary">
-          {sweepDates}
-          {details ? <button type="button" className={LINK} aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen(value => !value)}>
+      <div className="min-w-0 space-y-1 py-3">
+        {figures}
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-6 gap-y-1">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-y-1 text-[13px] leading-5 text-secondary">
+            {/* One line, "932 queries asked · 548 non-brand · 384 branded · Last sweep Oct 7": each value before its label, a dot between. */}
+            {stats ? <dl className="flex min-w-0 flex-wrap items-baseline gap-x-3">
+              {stats.map((stat, index) => <StatCell key={stat.label} stat={stat} className="flex min-w-0 flex-row-reverse items-baseline gap-1 [&>dt]:lowercase" numberClassName={index === 0 && !figures ? NUMBER : 'text-[13px] font-medium tabular-nums text-strong'} />)}
+            </dl> : unavailable}
+            {sweep.length > 0 ? <>
+              {/* The dot after the counts sits outside the dates' line, which starts at its first date. */}
+              {stats ? <span aria-hidden="true" className="mx-1.5 text-muted">·</span> : null}
+              <p className="flex min-w-0 flex-wrap items-baseline">
+                {sweep.map((part, index) => <span key={index} className="flex items-baseline whitespace-nowrap">{index > 0 ? <span aria-hidden="true" className="mx-1.5 text-muted">·</span> : null}{part}</span>)}
+              </p>
+            </> : null}
+          </div>
+          {details ? <button type="button" className={`${LINK} text-[13px] leading-5`} aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen(value => !value)}>
             Details
             <ChevronRight aria-hidden="true" className={`size-3.5 transition-transform motion-reduce:transition-none ${open ? 'rotate-90' : ''}`} />
           </button> : null}

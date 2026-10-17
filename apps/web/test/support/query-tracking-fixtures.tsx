@@ -6,6 +6,7 @@ import { createMemoryHistory, createRootRoute, createRoute, createRouter, Router
 
 import { QueriesSection } from '../../src/components/project/DiscoverySection.js'
 import { AccountProvider } from '../../src/contexts/account-context.js'
+import { DEFAULT_TRACKED_FILTERS } from '../../src/components/project/queries/advanced/tracked-filters.js'
 import { jsonResponse, mockFetch } from '../mock-fetch.js'
 
 // Fixtures and steps shared by the tracked-queries tests, which are split by entry point: query-tracking-simple, -legacy-form, -review and -advanced-table.
@@ -127,6 +128,24 @@ export function renderQuerySection(props: React.ComponentProps<typeof QueriesSec
   return { queryClient, router, rerender: (next: Partial<React.ComponentProps<typeof QueriesSection>>) => view.rerender(section({ ...props, ...next })) }
 }
 
+/** The query list, as the URL holds it. A portfolio opens on its markets otherwise; a test of those asks for them. */
+export const LIST_FILTERS = { ...DEFAULT_TRACKED_FILTERS, group: 'none' as const }
+
+/**
+ * A test that names no filters gets the query list, held as a host holds the URL: each change draws the
+ * section again with the filters it set.
+ */
+function hostFilters<T extends Partial<React.ComponentProps<typeof QueriesSection>>>(props: T, draw: (props: T) => { rerender: (next: Partial<React.ComponentProps<typeof QueriesSection>>) => void }) {
+  if (props.trackedFilters !== undefined) return draw(props)
+  let filters = { ...LIST_FILTERS }
+  const view = draw({ ...props, trackedFilters: filters, onTrackedFiltersChange: patch => {
+    props.onTrackedFiltersChange?.(patch)
+    filters = { ...filters, ...patch }
+    view.rerender({ trackedFilters: filters })
+  } })
+  return view
+}
+
 export function renderWorkspace(props: Partial<React.ComponentProps<typeof QueriesSection>> = {}) {
   const base = {
     projectName: 'demo',
@@ -140,7 +159,7 @@ export function renderWorkspace(props: Partial<React.ComponentProps<typeof Queri
   }
   const all = { ...base, ...props }
   // `rerender` draws the section again with other props, as the host does when the URL changes.
-  return { ...all, ...renderQuerySection(all) }
+  return { ...all, ...hostFilters(all, next => renderQuerySection(next)) }
 }
 
 export function renderViewerWorkspace(props: Partial<React.ComponentProps<typeof QueriesSection>> = {}) {
@@ -151,8 +170,7 @@ export function renderViewerWorkspace(props: Partial<React.ComponentProps<typeof
     selection: { measurementScope: 'project' as const, queryClass: 'all' as const },
     ...props,
   }
-  renderQuerySection(all, 'viewer')
-  return all
+  return { ...all, ...hostFilters(all, next => renderQuerySection(next, 'viewer')) }
 }
 
 export function installWorkspaceApi(

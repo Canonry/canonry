@@ -3,10 +3,9 @@ import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/re
 
 import { getApiV1ProjectsByNameQueryTrackingQueryKey } from '@canonry/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
-import { DEFAULT_TRACKED_FILTERS } from '../src/components/project/queries/advanced/tracked-filters.js'
 import { jsonResponse } from './mock-fetch.js'
 import {
-  active, addButton, context, expectNoSentence, installWorkspaceApi, noteButton, openRowSheet, preview, previewToken, renderViewerWorkspace, renderWorkspace, workspace, workspaceVersion,
+  active, addButton, context, expectNoSentence, installWorkspaceApi, noteButton, openRowSheet, preview, previewToken, renderViewerWorkspace, renderWorkspace, workspace, workspaceVersion, LIST_FILTERS,
 } from './support/query-tracking-fixtures.js'
 
 // The Tracked page of an Advanced project through the Queries section: what it lists, its search and Type
@@ -59,7 +58,7 @@ test.each([
 ])('lists every type in %s whatever query type AI Visibility is set to, and filters by its own Type', async (_where, place) => {
   installWorkspaceApi()
   // The shared `queryClass` is AI Visibility's. The page has its own Type filter, which the host holds.
-  const { rerender, ...props } = renderWorkspace({ selection: { ...place, queryClass: 'branded' }, trackedFilters: DEFAULT_TRACKED_FILTERS, onTrackedFiltersChange: () => {} })
+  const { rerender, ...props } = renderWorkspace({ selection: { ...place, queryClass: 'branded' }, trackedFilters: LIST_FILTERS, onTrackedFiltersChange: () => {} })
   await screen.findByText('Acme pricing')
   expect(queryRows()).toEqual(['Acme pricing', 'Best AEO platform'])
 
@@ -69,7 +68,7 @@ test.each([
   expect([...type.options].map(option => option.text)).toEqual(['All', 'Non-brand', 'Branded', 'Mixed', 'Not set'])
   expect(props.onSelectionChange).not.toHaveBeenCalled()
 
-  rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, type: 'non-brand' } })
+  rerender({ trackedFilters: { ...LIST_FILTERS, type: 'non-brand' } })
   expect(queryRows()).toEqual(['Best AEO platform'])
   expect(type.value).toBe('non-brand')
   // None of the old page's words for a type, a place or a state.
@@ -207,12 +206,12 @@ test('a query asked nowhere stays reachable under Not asked, and never reads as 
   data.tracked[1]!.assignments = []
   data.summary.notAsked = 1
   installWorkspaceApi(undefined, [], data)
-  const { rerender } = renderWorkspace({ trackedFilters: DEFAULT_TRACKED_FILTERS, onTrackedFiltersChange: () => {} })
+  const { rerender } = renderWorkspace({ trackedFilters: LIST_FILTERS, onTrackedFiltersChange: () => {} })
   await screen.findByText('Acme pricing')
   // The clean view lists what is asked.
   expect(queryRows()).toEqual(['Acme pricing'])
 
-  rerender({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, status: 'not-asked' } })
+  rerender({ trackedFilters: { ...LIST_FILTERS, status: 'not-asked' } })
   expect(queryRows()).toEqual(['Best AEO platform'])
   const row = screen.getByText('Best AEO platform').closest('tr')!
   // Its Status says so for all to see. Its engine cells draw no pair and say the same to a screen reader.
