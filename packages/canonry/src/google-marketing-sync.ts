@@ -1,4 +1,5 @@
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
+import { writeAuditLog } from '@canonry/canonry-api-routes'
 import {
   googleAdsConnections,
   googleAdsRawSnapshots,
@@ -330,16 +331,24 @@ export async function executeGtmMarketingSync(
       throw new Error('Google Marketing runtime returned the wrong GTM snapshot kind.')
     }
     const graph = snapshot.payload.data
+    const workspaceId = snapshot.metadata.workspaceId
+    // A publish deletes the selected workspace and the runtime follows its
+    // replacement (or reads only the live container). Accept that only when the
+    // selected workspace is really gone and the replacement is the sole one left.
+    const workspaceReplaced = connection.selectedWorkspaceId !== null
+      && workspaceId !== connection.selectedWorkspaceId
+      && !graph.workspaces.some(workspace => workspace.id === connection.selectedWorkspaceId)
+      && (workspaceId === null || (graph.workspaces.length === 1 && graph.workspaces[0]!.id === workspaceId))
     if (
       snapshot.metadata.accountId !== connection.selectedAccountId
       || snapshot.metadata.containerId !== connection.selectedContainerId
-      || snapshot.metadata.workspaceId !== connection.selectedWorkspaceId
+      || (workspaceId !== connection.selectedWorkspaceId && !workspaceReplaced)
     ) {
       throw new Error('GTM returned evidence for a different account, container, or workspace.')
     }
 
-    const selectedWorkspace = connection.selectedWorkspaceId
-      ? graph.workspaces.find(workspace => workspace.id === connection.selectedWorkspaceId)
+    const selectedWorkspace = workspaceId
+      ? graph.workspaces.find(workspace => workspace.id === workspaceId)
       : null
     const finishedAt = new Date().toISOString()
     db.transaction((tx) => {
@@ -364,6 +373,12 @@ export async function executeGtmMarketingSync(
         selectedContainerName: graph.container.name,
         selectedContainerPublicId: graph.container.publicId,
         selectedWorkspaceName: selectedWorkspace?.name ?? null,
+        ...(workspaceReplaced
+          ? {
+              selectedWorkspaceId: workspaceId,
+              selectionGeneration: sql`${gtmConnections.selectionGeneration} + 1`,
+            }
+          : {}),
         lastValidatedAt: snapshot.metadata.capturedAt,
         lastSnapshotAt: snapshot.metadata.capturedAt,
         lastSnapshotId: snapshot.metadata.id,
@@ -385,6 +400,13 @@ export async function executeGtmMarketingSync(
         )
       }
       tx.insert(gtmRawSnapshots).values(gtmSnapshotValues(snapshot)).run()
+      if (workspaceReplaced) {
+        writeAuditLog(tx, {
+          projectId, actor: 'system', action: 'gtm.workspace-followed',
+          entityType: 'gtm-connection', entityId: connection.id,
+          diff: { from: connection.selectedWorkspaceId, to: workspaceId },
+        })
+      }
     })
     // Tags in the deployed container, or in the draft when nothing is published yet.
     reportOutcome({ status: OutcomeStatuses.succeeded, counts: { items: (graph.live ?? graph.draft)?.graph.tags.length ?? 0 } })
