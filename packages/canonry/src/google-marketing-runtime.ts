@@ -1076,19 +1076,21 @@ class DefaultGoogleMarketingRuntime implements GoogleMarketingRuntime {
         'INVALID_INPUT',
       )
     }
-    const selectedWorkspace = selectedWorkspaceId
-      ? workspaceDtos.find(candidate => candidate.id === selectedWorkspaceId)
-      : undefined
-    if (selectedWorkspaceId && !selectedWorkspace) {
-      throw new GoogleMarketingRuntimeError('Selected GTM workspace was not found', 'RESOURCE_NOT_FOUND')
-    }
+    // Publishing a GTM workspace deletes it and opens a new Default Workspace, so
+    // a selected workspace ID goes stale on every publish. Follow the replacement
+    // when it is the container's only workspace; otherwise read the live container.
+    const selectedWorkspaceExists = selectedWorkspaceId !== null
+      && workspaceDtos.some(candidate => candidate.id === selectedWorkspaceId)
+    const workspaceId = selectedWorkspaceId === null || selectedWorkspaceExists
+      ? selectedWorkspaceId
+      : workspaceDtos.length === 1 ? workspaceDtos[0]!.id : null
 
     const snapshotReads: Array<Promise<GtmContainerSnapshot>> = [
       client.getLiveSnapshot(selectedContainerPath),
     ]
-    if (selectedWorkspaceId) {
+    if (workspaceId) {
       snapshotReads.push(client.getWorkspaceSnapshot(
-        workspacePath(selectedAccountId, selectedContainerId, selectedWorkspaceId),
+        workspacePath(selectedAccountId, selectedContainerId, workspaceId),
       ))
     }
     const snapshots = await Promise.all(snapshotReads)
@@ -1119,7 +1121,7 @@ class DefaultGoogleMarketingRuntime implements GoogleMarketingRuntime {
       payload,
       selectedAccountId,
       selectedContainerId,
-      selectedWorkspaceId,
+      workspaceId,
       raw,
       capturedAt,
     )
