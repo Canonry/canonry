@@ -728,7 +728,7 @@ export function RootLayout() {
       )}
 
       {/* ── Main area ── */}
-      <div className="main-area">
+      <div className={`main-area ${agentBarVisible && currentProjectName ? 'main-area-agent-bar' : ''}`.trim()}>
         {/* Topbar */}
         <header className="topbar">
           <div className="topbar-left">
@@ -883,7 +883,7 @@ export function RootLayout() {
         {/* Page content */}
         <main
           id="content"
-          className={`page-shell ${agentBarVisible && currentProjectName ? 'pb-20' : ''}`.trim()}
+          className="page-shell"
         >
           {isLoading && !contextDashboard ? (
             <div className="page-skeleton">

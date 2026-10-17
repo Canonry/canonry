@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefCallback } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
-import { isDashboardManagedSweeps } from '../api.js'
+import { isDashboardManagedSweeps, type ApiProject } from '../api.js'
 import { ManagedSweepStatus, MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -20,6 +20,7 @@ import { NextSteps } from '../components/shared/NextSteps.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { ProviderConfigForm } from '../components/settings/ProviderConfigForm.js'
 import { ProjectEngineSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
+import { OpenRouterModelPicker } from '../components/shared/OpenRouterModelPicker.js'
 import { providerDisplayName } from '../lib/visibility-trend-helpers.js'
 import { addToast } from '../lib/toast-store.js'
 import {
@@ -30,6 +31,7 @@ import {
   updateProviderConfig,
   updateProject,
   fetchQueries,
+  fetchSettings,
   heyClient,
   recordOnboardingEvent,
 } from '../api.js'
@@ -493,6 +495,17 @@ function ReadySetupPage({
     })
   const openRouterModelsNeeded = openRouterConnected && projectProviders.length === 0 && providerReadiness === false
   const providerNeedsConnection = providerReadiness === false && !openRouterModelsNeeded
+  // An administrator picks OpenRouter models right in the provider step, so
+  // connecting OpenRouter finishes here as a direct provider does. The catalog
+  // is the administrator settings read the project Answer engines section uses.
+  const inlineModelPicker = isProjectScoped && isAdmin && openRouterModelsNeeded
+  const openRouterSettingsQuery = useQuery({
+    queryKey: ['settings'],
+    queryFn: fetchSettings,
+    staleTime: 60_000,
+    enabled: inlineModelPicker,
+  })
+  const openRouterCatalog = (openRouterSettingsQuery.data?.providerCatalog ?? []).find(provider => provider.name === 'openrouter')
   const runnableProviderCount = runnableApiProviders.length + (cdpConfigured === true ? 1 : 0)
   const [selectedProvider, setSelectedProvider] = useState(runnableApiProviders[0]?.name ?? '')
   const [generateCount, setGenerateCount] = useState(5)
@@ -935,6 +948,16 @@ function ReadySetupPage({
     }
   }
 
+  // The project's engines, saved through the same project update the Answer
+  // engines section uses. The returned project drives provider readiness here.
+  const saveSetupEngines = async (next: Pick<ApiProject, 'providers' | 'providerModels'>) => {
+    const name = setupEngineProject?.name ?? createdProjectName
+    if (!name) throw new Error('Create a project before choosing models.')
+    const project = await updateProject(name, next)
+    setSetupEngineProject(project)
+    await refetch()
+  }
+
   const handleLaunchRun = async () => {
     if (isDashboardManagedSweeps()) return
     if (!createdProjectName || launchBlockedReason) {
@@ -1052,6 +1075,7 @@ function ReadySetupPage({
     <Button type="button" variant="ghost" size="sm" className="min-h-11" onClick={() => {
       void refetch()
       if (selectionCanUseCdp) void cdpStatusQuery.refetch()
+      if (inlineModelPicker) void openRouterSettingsQuery.refetch()
     }}>
       Check again
     </Button>
@@ -1107,6 +1131,25 @@ function ReadySetupPage({
             ? 'An answer engine is required for visibility sweeps. You can save queries now and connect later.'
             : 'Checking available providers. You can choose queries while this finishes.'}
       </p>
+      {inlineModelPicker ? (
+        openRouterCatalog ? (
+          <OpenRouterModelPicker
+            inline
+            catalog={openRouterCatalog}
+            selected={projectProviders}
+            // Explicit engines keep no model override for engines left out, as
+            // Save engines does, and an OpenRouter model takes none of its own.
+            onAdd={routes => saveSetupEngines({ providers: routes, providerModels: {} })}
+          />
+        ) : openRouterSettingsQuery.isPending ? (
+          <p role="status" className="text-sm text-secondary">Loading OpenRouter models…</p>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2">
+            <p role="alert" className="text-sm text-negative">Couldn't load OpenRouter's model list.</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => { void openRouterSettingsQuery.refetch() }}>Retry</Button>
+          </div>
+        )
+      ) : null}
       {providerNeedsConnection || showProviderConfig ? (
         providerToConfigure ? (
           <div>
@@ -1783,7 +1826,7 @@ function ReadySetupPage({
 
       <section className="setup-wizard">
         {providerSetup}
-        {step === 4 && !runTriggered && isAdmin && openRouterConnected && setupEngineProject && <ProjectEngineSettingsSection project={setupEngineProject} onSave={async next => { const project = await updateProject(setupEngineProject.name, next); setSetupEngineProject(project); await refetch() }} />}
+        {step === 4 && !runTriggered && isAdmin && openRouterConnected && setupEngineProject && !inlineModelPicker && <ProjectEngineSettingsSection project={setupEngineProject} onSave={saveSetupEngines} />}
         {stepContent}
       </section>
     </div>

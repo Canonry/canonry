@@ -155,9 +155,14 @@ export const openrouterAdapter: ProviderAdapter = {
     return body.data.flatMap(value => {
       const model = asRecord(value)
       if (typeof model?.id !== 'string' || !openRouterRouteModel(`openrouter:${model.id}`)) return []
+      // A `:batch` variant is OpenRouter's batch routing for a model listed on
+      // its own, not a separate model to answer sweeps.
+      if (model.id.endsWith(':batch')) return []
       const architecture = asRecord(model.architecture)
       const output = architecture?.output_modalities
-      if (Array.isArray(output) && !output.includes('text')) return []
+      // Sweeps need a text answer. A model that can also return images or audio
+      // is an image, music or speech generator, not an answer engine.
+      if (Array.isArray(output) && (!output.includes('text') || output.includes('image') || output.includes('audio'))) return []
       return [{ id: model.id, displayName: typeof model.name === 'string' ? model.name : model.id, tier: 'standard' as const }]
     })
   },

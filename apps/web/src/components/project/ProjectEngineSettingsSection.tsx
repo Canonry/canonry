@@ -11,8 +11,9 @@ import {
   savedPageBudgetLabel,
 } from '../../lib/site-audit-page-budget.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { OpenRouterModelPicker } from '../shared/OpenRouterModelPicker.js'
 import { Button } from '../ui/button.js'
-import { describeError, isOpenRouterRoute, openRouterRouteModel, openRouterRouteName, providerConnectionName, RunKinds, SITE_AUDIT_MAX_PAGE_LIMIT, SITE_AUDIT_ONBOARDING_PAGE_LIMIT, siteAuditPageBudgetSchema } from '@canonry/canonry-contracts'
+import { describeError, isOpenRouterRoute, openRouterRouteModel, providerConnectionName, RunKinds, SITE_AUDIT_MAX_PAGE_LIMIT, SITE_AUDIT_ONBOARDING_PAGE_LIMIT, siteAuditPageBudgetSchema } from '@canonry/canonry-contracts'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 
 type EngineProject = Pick<ApiProject, 'name' | 'providers' | 'providerModels'>
@@ -29,59 +30,6 @@ function sameModels(left: Record<string, string>, right: Record<string, string>)
     const other = rightEntries[index]
     return other?.[0] === provider && other[1] === model
   })
-}
-
-/** Concrete sweep models share the connection, but each remains a separate selection. */
-function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = false }: {
-  catalog: { knownModels: readonly { id: string; displayName: string }[]; modelValidationPattern: { source: string; flags: string }; modelValidationHint: string }
-  selected: readonly string[]
-  onAdd: (providers: string[]) => void
-  disabled?: boolean
-}) {
-  const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState('')
-  const [draft, setDraft] = useState<string[]>([])
-  const [manual, setManual] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const id = useId()
-  const matches = catalog.knownModels.filter(model => `${model.displayName} ${model.id}`.toLowerCase().includes(search.toLowerCase()))
-  const candidates = draft.filter(route => !selected.includes(route))
-  function addManual() {
-    const model = manual.trim()
-    if (!new RegExp(catalog.modelValidationPattern.source, catalog.modelValidationPattern.flags).test(model)) {
-      setError(catalog.modelValidationHint)
-      return
-    }
-    let route: string
-    try {
-      route = openRouterRouteName(model)
-    } catch (cause) {
-      setError(describeError(cause))
-      return
-    }
-    setDraft(current => [...new Set([...current, route])])
-    setManual('')
-    setError(null)
-  }
-  return <div className="space-y-3">
-    <Button type="button" variant="outline" disabled={disabled} aria-expanded={open} aria-controls={id} onClick={() => { setOpen(value => !value); setDraft([]); setError(null) }}>Add models</Button>
-    {open && <div id={id} role="group" aria-label="Add OpenRouter models" className="space-y-3 border-y border-default py-3">
-      <label className="block text-sm text-secondary">Search OpenRouter models<input className="setup-input mt-1 w-full" type="search" value={search} onChange={event => setSearch(event.target.value)} /></label>
-      <fieldset disabled={disabled} className="max-h-64 overflow-y-auto divide-y divide-default">
-        <legend className="sr-only">OpenRouter models</legend>
-        {matches.map(model => {
-          const route = openRouterRouteName(model.id)
-          const added = selected.includes(route)
-          return <label key={model.id} className="flex min-h-11 items-center gap-3 py-2 text-sm text-secondary"><input type="checkbox" aria-label={`${model.displayName} ${model.id}`} checked={added || draft.includes(route)} disabled={added} onChange={event => setDraft(current => event.target.checked ? [...current, route] : current.filter(value => value !== route))} /><span className="min-w-0"><span className="block text-heading">{model.displayName}</span><span className="block break-all text-sm">{model.id}</span></span>{added && <span className="ml-auto">Added</span>}</label>
-        })}
-        {matches.length === 0 && <p className="py-3 text-sm text-secondary">No matching models. Add a model ID below.</p>}
-      </fieldset>
-      <div className="flex flex-wrap items-end gap-2"><label className="min-w-0 flex-1 text-sm text-secondary">Model ID<input className="setup-input mt-1 w-full" value={manual} placeholder="vendor/model" onChange={event => setManual(event.target.value)} /></label><Button type="button" variant="outline" disabled={disabled || !manual.trim()} onClick={addManual}>Include model ID</Button></div>
-      {draft.filter(route => !catalog.knownModels.some(model => openRouterRouteName(model.id) === route)).map(route => <p key={route} className="break-all text-sm text-secondary">{openRouterRouteModel(route)} selected</p>)}
-      {error && <p role="alert" className="text-sm text-negative">{error}</p>}
-      <div className="flex gap-2"><Button type="button" disabled={disabled || candidates.length === 0} onClick={() => { onAdd(candidates); setOpen(false); setDraft([]) }}>Add {candidates.length} {candidates.length === 1 ? 'model' : 'models'}</Button><Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button></div>
-    </div>}
-  </div>
 }
 
 /**
@@ -146,6 +94,13 @@ export function ProjectEngineSettingsSection({
     return [...known.values()].sort((a, b) => a.displayName.localeCompare(b.displayName))
   }, [catalog, models, settings.data?.providers, addedRoutes, selected])
   const hasModelChange = !sameModels(models, saved.providerModels)
+  const draftProviders = automatic ? [] : selected
+  const hasProviderChange = draftProviders.length !== saved.providers.length
+    || draftProviders.some(provider => !saved.providers.includes(provider))
+  const hasUnsavedChanges = hasProviderChange || hasModelChange
+  // Models added through the picker are only staged: they run once Save engines stores them.
+  const unsavedModels = draftProviders.filter(provider => isOpenRouterRoute(provider) && !saved.providers.includes(provider)).length
+  const openRouterAvailable = Boolean(openRouterCatalog) && configured.has('openrouter')
 
   useEffect(() => {
     // Re-sync from the prop only on a genuine project change, and never while the
@@ -260,7 +215,9 @@ export function ProjectEngineSettingsSection({
       <fieldset disabled={saving} className="project-engine-fieldset">
         <legend>Provider mode</legend>
         <label><input type="radio" checked={automatic} onChange={() => { setEditing(true); setAutomatic(true) }} /> All configured engines</label>
-        <p className="project-engine-help">Includes engines configured later in global Settings.</p>
+        <p className="project-engine-help">{openRouterAvailable
+          ? 'Includes direct engines configured later in Settings. OpenRouter models run only when you add them below.'
+          : 'Includes engines configured later in global Settings.'}</p>
         <label><input type="radio" checked={!automatic} onChange={chooseEngines} /> Choose engines</label>
         {!automatic && (
           <div className="project-engine-list">
@@ -291,13 +248,14 @@ export function ProjectEngineSettingsSection({
             })}
           </div>
         )}
-        {openRouterCatalog && configured.has('openrouter') && <div className="border-t border-default pt-3"><h3 className="mb-3 text-sm font-medium text-heading">OpenRouter models</h3><OpenRouterModelPicker catalog={openRouterCatalog} selected={selected} disabled={saving} onAdd={routes => { setEditing(true); setAutomatic(false); setAddedRoutes(current => [...new Set([...current, ...routes])]); setSelected(current => [...new Set([...(automatic ? [...configured].filter(name => name !== 'openrouter') : current), ...routes])]) }} /></div>}
+        {openRouterAvailable && openRouterCatalog && <div className="border-t border-default pt-3"><h3 className="mb-3 text-sm font-medium text-heading">OpenRouter models</h3><OpenRouterModelPicker catalog={openRouterCatalog} selected={selected} disabled={saving} onAdd={routes => { setEditing(true); setNotice(null); setAutomatic(false); setAddedRoutes(current => [...new Set([...current, ...routes])]); setSelected(current => [...new Set([...(automatic ? [...configured].filter(name => name !== 'openrouter') : current), ...routes])]) }} /></div>}
       </fieldset>
       {!automatic && selected.length === 0 && <p role="alert" className="text-sm text-negative-400">Choose at least one configured engine.</p>}
       {error && <p role="alert" className="text-sm text-negative-400">{error}</p>}
       {notice && <p role="status" className="text-sm text-positive-400">{notice}</p>}
+      {unsavedModels > 0 && !saving && <p role="status" className="text-sm text-secondary">{unsavedModels === 1 ? '1 model added. Save engines to start using it.' : `${unsavedModels} models added. Save engines to start using them.`}</p>}
       {hasModelChange && <p className="project-engine-warning">Applies on the next sweep. Existing history remains visible. If the recorded model changes, month-to-month comparison may exclude that engine.</p>}
-      <div className="flex gap-2"><Button type="button" onClick={() => void save()} disabled={saving || (!automatic && selected.length === 0)}>{saving ? 'Saving engines…' : 'Save engines'}</Button><Button type="button" variant="outline" onClick={cancel} disabled={saving}>Cancel</Button></div>
+      <div className="flex gap-2"><Button type="button" variant={hasUnsavedChanges ? 'default' : 'outline'} onClick={() => void save()} disabled={saving || (!automatic && selected.length === 0)}>{saving ? 'Saving engines…' : 'Save engines'}</Button><Button type="button" variant="outline" onClick={cancel} disabled={saving}>Cancel</Button></div>
     </section>
   )
 }

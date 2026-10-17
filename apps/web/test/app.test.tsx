@@ -205,7 +205,8 @@ test('project route renders a concise visibility summary with progressive detail
   expect(html).toMatch(/Citypoint Dental NYC/)
   // The compact Aero bar is fixed to the viewport, so project content reserves
   // a matching bottom lane instead of letting the bar cover the final row.
-  expect(html).toMatch(/<main id="content" class="page-shell pb-20">/)
+  expect(html).toMatch(/<div class="main-area main-area-agent-bar">/)
+  expect(html).toMatch(/<main id="content" class="page-shell">/)
   // The tab is labelled for what it shows. The route id stays `overview` —
   // embed configs pass that id on the wire (CANONRY_EMBED_PROJECT_TABS), so
   // renaming it would break an existing install's allowlist.

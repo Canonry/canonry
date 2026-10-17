@@ -56,22 +56,48 @@ test('legacy chat-completions token fields remain compatible', async () => {
   expect(raw.usage).toEqual({ inputTokens: 17, cachedInputTokens: 3, cacheWriteTokens: 0, outputTokens: 5, searchCount: 1 })
 })
 
+/** One `GET /models` entry in the shape OpenRouter publishes it. */
+function catalogEntry(id: string, name: string, { input = ['text'], output = ['text'], parameters = ['max_tokens', 'temperature', 'tools', 'tool_choice'] }: { input?: string[]; output?: string[]; parameters?: string[] } = {}) {
+  return {
+    id, canonical_slug: id.replace(/:.*$/, ''), name, created: 1758067200, context_length: 1048576,
+    architecture: { modality: `${input.join('+')}->${output.join('+')}`, input_modalities: input, output_modalities: output, tokenizer: 'Other', instruct_type: null },
+    pricing: { prompt: '0.0000001', completion: '0.0000004', request: '0', image: '0' },
+    top_provider: { context_length: 1048576, max_completion_tokens: 65536, is_moderated: false },
+    per_request_limits: null, supported_parameters: parameters,
+  }
+}
+
 test('connection health and catalog use metadata calls and expose usable text models', async () => {
   const transport = vi.fn(async (url: string, init?: RequestInit) => {
     expect(init?.method).toBe('GET')
     return url.endsWith('/auth/key') ? json({ data: { label: 'test' } }) : json({ data: [
-      { id: 'google/gemini-3.1-flash-lite', name: 'Gemini', architecture: { output_modalities: ['text'] }, supported_parameters: ['tools'] },
-      { id: 'typesafe/jev-1.13', architecture: { output_modalities: ['text'] } },
-      { id: 'openrouter/auto', supported_parameters: ['tools'] },
-      { id: 'openrouter/free', supported_parameters: ['tools'] },
-      { id: 'vendor/image', architecture: { output_modalities: ['image'] }, supported_parameters: ['tools'] },
-      { id: 'vendor/no-tools', name: 'Server-search fallback', architecture: { output_modalities: ['text'] }, supported_parameters: [] },
+      catalogEntry('google/gemini-3.1-flash-lite', 'Gemini', { input: ['text', 'image', 'file'] }),
+      catalogEntry('typesafe/jev-1.13', 'Jev'),
+      catalogEntry('openrouter/auto', 'Auto Router'),
+      catalogEntry('openrouter/free', 'Free Models Router'),
+      // Batch routing for a model the catalog already lists on its own.
+      catalogEntry('openai/gpt-5-mini', 'OpenAI: GPT-5 Mini', { input: ['text', 'image', 'file'] }),
+      catalogEntry('openai/gpt-5-mini:batch', 'OpenAI: GPT-5 Mini (batch)', { input: ['text', 'image', 'file'] }),
+      // A free variant answers in text like any other model.
+      catalogEntry('deepseek/deepseek-chat-v3.1:free', 'DeepSeek: DeepSeek V3.1 (free)'),
+      // Image generators, whether or not they also return text.
+      catalogEntry('google/gemini-2.5-flash-image', 'Google: Gemini 2.5 Flash Image', { input: ['image', 'text'], output: ['image', 'text'] }),
+      catalogEntry('vendor/image', 'Image only', { output: ['image'] }),
+      // Music and speech generators also return text alongside audio.
+      catalogEntry('google/lyria-3-pro-preview', 'Google: Lyria 3 Pro Preview', { input: ['text', 'image'], output: ['text', 'audio'] }),
+      catalogEntry('openai/gpt-audio', 'OpenAI: GPT Audio', { input: ['text', 'audio'], output: ['text', 'audio'] }),
+      // Reads images but answers in text.
+      catalogEntry('meta-llama/llama-4-maverick', 'Meta: Llama 4 Maverick', { input: ['text', 'image'] }),
+      catalogEntry('vendor/no-tools', 'Server-search fallback', { parameters: [] }),
     ] })
   })
   vi.stubGlobal('fetch', transport)
   expect((await openrouterAdapter.healthcheck({ ...config, provider: 'openrouter', model: undefined })).ok).toBe(true)
   expect(await openrouterAdapter.listModels!(config, AbortSignal.timeout(3000))).toEqual([
     { id: config.model, displayName: 'Gemini', tier: 'standard' },
+    { id: 'openai/gpt-5-mini', displayName: 'OpenAI: GPT-5 Mini', tier: 'standard' },
+    { id: 'deepseek/deepseek-chat-v3.1:free', displayName: 'DeepSeek: DeepSeek V3.1 (free)', tier: 'standard' },
+    { id: 'meta-llama/llama-4-maverick', displayName: 'Meta: Llama 4 Maverick', tier: 'standard' },
     { id: 'vendor/no-tools', displayName: 'Server-search fallback', tier: 'standard' },
   ])
   expect(transport.mock.calls.map(([url]) => url)).toEqual(['https://openrouter.ai/api/v1/auth/key', 'https://openrouter.ai/api/v1/models'])

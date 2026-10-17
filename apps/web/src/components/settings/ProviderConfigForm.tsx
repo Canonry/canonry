@@ -68,6 +68,9 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
       // A new key, model or endpoint lifts that provider's hold on every
       // project, so their notices and sweep buttons must not wait for staleness.
       void invalidateProjectQueryDomain(queryClient, 'runAdmission')
+      // The model catalog is read with the saved credential, so a corrected key
+      // must reach any open model picker now, not after the settings read goes stale.
+      void queryClient.invalidateQueries({ queryKey: ['settings'] })
       addToast({
         title: 'Provider updated',
         detail: `${providerName} configuration saved.`,

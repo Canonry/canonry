@@ -13,6 +13,9 @@ Direct and routed observations never share snapshot or comparison identity.
   do not become citations. Shared mention extraction remains downstream.
 - Key validation and catalog discovery never generate an answer. All HTTP calls
   use the shared retry wrapper and honor Retry-After.
+- The catalog lists models that answer in text. It leaves out `:batch` variants
+  (batch routing, not a model) and image, music or speech generators (any `image` or `audio` output);
+  `:free` variants stay.
 - Jev and model routers are excluded from sweep choices. Jev uses the dedicated
   decisions API in `integration-typesafe`; Aero/domain classification use pi.
 
