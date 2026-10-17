@@ -74,7 +74,7 @@ export const RESEARCH_COPY = {
   noSearchLocations: 'No search locations',
   noSearchLocationsDetail: 'This project has no search location to repeat across. Add one in Settings.',
   subjectHelp: 'The market or location these results are saved under. It does not change the query text.',
-  subjectUnavailable: 'Subject unavailable',
+  subjectUnavailable: 'Place unavailable',
   selectedHelp: 'A market or location name changes the query text only. The engine searches from the search location set beside it.',
   queriesHelp: 'The engine receives exactly this text. Blank and repeated lines are skipped.',
   usesSearchLocation: 'Uses search location',
@@ -598,7 +598,7 @@ function ResearchBatchComposer(props: ComposerProps) {
   if (contexts.some(context => !context || context.location === undefined)) setupErrors.push(SELECTION_UNAVAILABLE)
   const requiresScope = (mode === 'once' && scopeKey !== 'project') || mode === 'markets' || mode === 'properties'
   if (requiresScope && (props.scopePending || props.scopeError || !planRevision)) setupErrors.push({ label: 'Places not loaded', detail: 'Markets and locations are loading or did not load. Research for one of them has to wait.' })
-  else if (requiresScope && contexts.some(context => !context?.scope)) setupErrors.push(mode === 'once' ? { label: RESEARCH_COPY.subjectUnavailable, detail: 'The Subject is no longer in the published plan. Pick another, or Not set.' } : SELECTION_UNAVAILABLE)
+  else if (requiresScope && contexts.some(context => !context?.scope)) setupErrors.push(mode === 'once' ? { label: RESEARCH_COPY.subjectUnavailable, detail: 'The place these results were to be saved under is no longer in the published plan. Pick another, or Not set.' } : SELECTION_UNAVAILABLE)
   const total = (mode === 'once' ? directQueries.length : sourceLines.length) * contexts.length
   if (contexts.length > MAX_RESEARCH_BATCH_RUNS) setupErrors.push({ label: OVER_RUNS, detail: `${contexts.length} ${placeNoun}s selected. One batch takes at most ${MAX_RESEARCH_BATCH_RUNS} runs.` })
   if (total > MAX_RESEARCH_BATCH_QUERIES) setupErrors.push({ label: `Over ${MAX_RESEARCH_BATCH_QUERIES} queries`, detail: `${total} queries selected. One batch takes at most ${MAX_RESEARCH_BATCH_QUERIES}.` })

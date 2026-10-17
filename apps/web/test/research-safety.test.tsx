@@ -283,15 +283,44 @@ test.each(['revoked', 'history-error'] as const)('a reviewed batch stops when re
   expect((screen.getByRole('textbox', { name: 'Query 1 for Atlanta' }) as HTMLTextAreaElement).value).toBe('Apartments in Atlanta')
 })
 
+test('Save under lists each market and location under the group it sits in at the top, one in no group after them', async () => {
+  setup({
+    planRevision: 7,
+    scopeOptions: [
+      { id: 'metro', label: 'Lakeshore Metro', kind: 'group', targetCount: 3 },
+      // Its own group sits in the metro, so the metro is the one named.
+      { id: 'north', label: 'North side', kind: 'group', targetCount: 2, parentGroupIds: ['metro'] },
+      { id: 'uptown', label: 'Uptown', kind: 'market', targetCount: 2, parentGroupIds: ['north'] },
+      { id: 'harbor', label: 'Harbor Point', kind: 'property', targetCount: 1, parentGroupIds: ['metro'] },
+      { id: 'airport', label: 'Airport District', kind: 'market', targetCount: 1, parentGroupIds: ['coast'] },
+      { id: 'coast', label: 'Coast', kind: 'group', targetCount: 1 },
+      { id: 'solo', label: 'Solo Lofts', kind: 'property', targetCount: 1 },
+    ],
+  })
+  await ready()
+  const saveUnder = screen.getByRole('combobox', { name: 'Save under' }) as HTMLSelectElement
+  // Groups by name, then the place in none.
+  expect([...saveUnder.querySelectorAll('optgroup')].map(group => [group.label, [...group.querySelectorAll('option')].map(option => option.text)])).toEqual([
+    ['Coast', ['Airport District (market)']],
+    ['Lakeshore Metro', ['Uptown (market)', 'Harbor Point (location)']],
+  ])
+  expect([...saveUnder.options].map(option => option.text)).toEqual(['Not set', 'Airport District (market)', 'Uptown (market)', 'Harbor Point (location)', 'Solo Lofts (location)'])
+  // It follows the queries and the engine, beside the search location.
+  const form = screen.getByRole('group', { name: 'Research setup' })
+  const order = [screen.getByRole('textbox', { name: 'Queries' }), screen.getByRole('combobox', { name: 'Search location' }), saveUnder]
+  for (const [index, element] of order.slice(1).entries()) expect(order[index]!.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(form.contains(saveUnder)).toBe(true)
+})
+
 test('a removed selected market cannot silently become whole-site research', async () => {
   const { state } = setup({ ...advanced, selectedScope: { kind: 'market', key: 'retired', label: 'Retired', planRevision: 7, expectedPlanRevision: 7 } })
   await ready()
   fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'My question' } })
-  expect(screen.getByRole('option', { name: 'Subject unavailable' })).toBeTruthy()
-  note('Subject unavailable', /The Subject is no longer in the published plan\./)
+  expect(screen.getByRole('option', { name: 'Place unavailable' })).toBeTruthy()
+  note('Place unavailable', /The place these results were to be saved under is no longer in the published plan\./)
   expect(runButton().disabled).toBe(true)
   expect(state.posts).toHaveLength(0)
-  fireEvent.change(screen.getByRole('combobox', { name: 'Subject' }), { target: { value: 'project' } })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Save under' }), { target: { value: 'project' } })
   expect((screen.getByRole('option', { name: 'Not set' }) as HTMLOptionElement).selected).toBe(true)
   expect(screen.queryByRole('alert')).toBeNull()
   expect(runButton().disabled).toBe(false)
@@ -440,7 +469,7 @@ test.each([null, boston])('freezes a saved pattern location before editing the e
 test('a pattern repeats for each Market, Location or Search location, with no older wording left', async () => {
   const { state } = setup(advanced)
   await ready()
-  const subject = screen.getByRole('combobox', { name: 'Subject' }) as HTMLSelectElement
+  const subject = screen.getByRole('combobox', { name: 'Save under' }) as HTMLSelectElement
   expect([...subject.options].map(option => option.text)).toEqual(['Not set', 'Atlanta (market)', 'Boston (market)', 'Maple House (location)'])
   expect([...(screen.getByRole('combobox', { name: 'Search location' }) as HTMLSelectElement).options].map(option => option.text)).toEqual(['No search location', atlanta.label, boston.label])
   expect(screen.getByRole('button', { name: RESEARCH_COPY.introHelp })).toBeTruthy()
