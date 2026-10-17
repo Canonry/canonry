@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Eye, Gauge, History, Info, Key, MapPinOff, Play, Plus, RefreshCw } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Eye, Gauge, History, Info, Key, MapPinOff, Play, Plus, RefreshCw } from 'lucide-react'
 import {
   MAX_RESEARCH_BATCH_QUERIES,
   MAX_RESEARCH_BATCH_RUNS,
@@ -91,7 +91,9 @@ export const RESEARCH_COPY = {
   notConfirmedDetail: 'Your entries are kept. Run again without changes to avoid duplicate work.',
   loadError: 'Could not load',
   retry: 'Retry',
-  noEngineKey: 'No engine key',
+  noEngineKey: 'No engine connected',
+  connectEngine: 'Connect an engine',
+  saveUnder: 'Save under',
   noEngineKeyDetail: 'No engine has an API key. Add one in Settings to run research. Browser engines cannot run research.',
   noEngineDetail: 'No research engine is available. Ask your Canonry team to set one up.',
   viewOnly: 'View only',
@@ -156,8 +158,11 @@ export function ResearchQueriesSection({
   onStartChange,
   findIdeas = false,
   paused = false,
+  onConnectEngine,
 }: {
   projectName: string
+  /** Opens where an engine is connected, as the project's own Connect an engine does. Left out, no engine offers no way there. */
+  onConnectEngine?: () => void
   /** Write or Pattern, as the caller holds it. Left out, the section keeps it and opens on Write. */
   start?: Exclude<ResearchStart, 'find'>
   /** Told every choice, Find ideas included: that one is the caller's page to show. */
@@ -386,11 +391,19 @@ export function ResearchQueriesSection({
             setSavedRuns(0)
             researchMutation.mutate({ client: heyClient, path: { name: projectName }, body: { ...body, idempotencyKey: retryRequest.current.key } })
           }}
-          runNotes={(dailyRunLimit !== null || setupReadError || noEngine) && <>
+          runNotes={(dailyRunLimit !== null || setupReadError) && <>
             {dailyRunLimit !== null && <StatusNote icon={Gauge} label={`${plural(dailyRunLimit, 'run', 'runs')} per day`} detail={`Up to ${plural(dailyRunLimit, 'research run', 'research runs')} per project per day. Each market, location or search location in a batch is one run.`} />}
             {setupReadError && <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={`The ${setupReads} did not load.`} action={<RetryButton name={setupReads} onClick={() => { if (settingsError) void settingsQuery.refetch(); if (projectQuery.isError) void projectQuery.refetch() }} />} /></span>}
-            {noEngine && <StatusNote icon={Key} tone="caution" label={RESEARCH_COPY.noEngineKey} detail={limitedAccess ? RESEARCH_COPY.noEngineDetail : RESEARCH_COPY.noEngineKeyDetail} />}
           </>}
+          // No engine stops every run, so it leads the form, with the way to fix it where one can.
+          blocker={noEngine ? <div className="flex flex-wrap items-center gap-3 border-b border-default pb-4">
+            <StatusNote icon={Key} tone="caution" label={RESEARCH_COPY.noEngineKey} detail={limitedAccess ? RESEARCH_COPY.noEngineDetail : RESEARCH_COPY.noEngineKeyDetail} />
+            {onConnectEngine && canWrite && !limitedAccess && !isEmbed() ? (
+              <Button type="button" variant="outline" size="sm" className="gap-1.5 pointer-coarse:min-h-11 max-md:min-h-11" onClick={onConnectEngine}>
+                {RESEARCH_COPY.connectEngine}<ArrowRight aria-hidden="true" size={14} />
+              </Button>
+            ) : null}
+          </div> : undefined}
         />
       )}
 
@@ -405,7 +418,7 @@ export function ResearchQueriesSection({
       />}
 
       {/* Closed until asked for: the page is the form and the results of the run in view. A failed, loading or empty history says so on the row itself. */}
-      <Card className="surface-card min-w-0">
+      <div className="min-w-0 border-t border-default pt-4">
         {historyError ? <div role="alert" className="flex flex-wrap items-center gap-x-4 gap-y-2"><h3>{RESEARCH_COPY.historyTitle}</h3><StatusNote icon={AlertTriangle} tone="negative" label={RESEARCH_COPY.loadError} detail={RESEARCH_COPY.historyError} action={<RetryButton name="past research" onClick={() => { void runsQuery.refetch() }} />} /></div>
           : historyPending ? <div className="flex items-center gap-4"><h3>{RESEARCH_COPY.historyTitle}</h3><span role="status" aria-label="Loading past research"><span aria-hidden="true" className="skeleton-text block w-14" /></span></div>
           : runs.length === 0 ? <div className="flex flex-wrap items-center gap-x-4 gap-y-1"><h3>{RESEARCH_COPY.historyTitle}</h3><StatusNote icon={History} label={RESEARCH_COPY.emptyHistory} /></div>
@@ -438,7 +451,7 @@ export function ResearchQueriesSection({
               {runsQuery.hasNextPage && <Button variant="outline" size="sm" className={TOUCH_TARGET} disabled={runsQuery.isFetching} aria-label={runsQuery.isFetchNextPageError && !runsQuery.isFetchingNextPage ? 'Retry older runs' : undefined} onClick={() => { void runsQuery.fetchNextPage() }}>{runsQuery.isFetchingNextPage ? RESEARCH_COPY.historyLoading : runsQuery.isFetchNextPageError ? RESEARCH_COPY.retry : RESEARCH_COPY.historyMore}</Button>}
             </div>}
           </details>}
-      </Card>
+      </div>
     </div>
   )
 }
@@ -462,6 +475,8 @@ type ComposerProps = {
   viewOnly: boolean
   /** Limits and failed reads that hold back a run, shown beside Run. */
   runNotes?: ReactNode
+  /** What stops a run before anything is written: drawn first, above the form. */
+  blocker?: ReactNode
   limitedAccess: boolean
   isEmbed: boolean
   scopeOptions: readonly VisibilityReportScopeOption[]
@@ -538,6 +553,26 @@ function ResearchBatchComposer(props: ComposerProps) {
   const locationFor = (label: string): LocationContext | null | undefined => label === NO_LOCATION ? null : locations.find(location => location.label === label)
   const directLocationLabel = directLocation ?? props.defaultLocation ?? NO_LOCATION
   const directScopeOption = allDestinations.find(option => `${option.kind}:${option.id}` === scopeKey)
+  // Each market and location under the group it sits in at the top; one in no group is listed after the groups.
+  const saveUnderGroups = useMemo(() => {
+    const groups = new Map(props.scopeOptions.filter(option => option.kind === 'group').map(option => [option.id, option]))
+    const topOf = (option: ResearchDestination) => {
+      let id = option.parentGroupIds?.[0]
+      const seen = new Set<string>()
+      while (id !== undefined && !seen.has(id) && groups.get(id)?.parentGroupIds?.[0] !== undefined) {
+        seen.add(id)
+        id = groups.get(id)!.parentGroupIds![0]
+      }
+      return id === undefined ? null : groups.get(id)?.label ?? null
+    }
+    const byGroup = new Map<string | null, ResearchDestination[]>()
+    for (const option of allDestinations) {
+      const label = topOf(option)
+      byGroup.set(label, [...byGroup.get(label) ?? [], option])
+    }
+    return [...byGroup].map(([label, options]) => ({ label, options }))
+      .sort((left, right) => left.label === null ? 1 : right.label === null ? -1 : left.label.localeCompare(right.label, 'en', { sensitivity: 'base', numeric: true }))
+  }, [props.scopeOptions, allDestinations])
   const directScope = directScopeOption ? scopeFor(directScopeOption) : null
   const contexts = mode === 'once'
     ? [{ scope: directScope, location: locationFor(directLocationLabel) }]
@@ -665,9 +700,10 @@ function ResearchBatchComposer(props: ComposerProps) {
   const noSearchLocations = mode === 'locations' && !locations.length && props.projectReady
   const engineLabel = props.providerOptions.find(item => item.name === provider)?.displayName ?? provider
 
-  // Help sits beside a heading or label, never inside it, so its sentence stays out of that name.
-  return <Card className="surface-card min-w-0">
+  // Help sits beside a heading or label, never inside it, so its sentence stays out of that name. The form is the page's own: no card around it.
+  return <div className="min-w-0">
     <fieldset aria-label="Research setup" className="min-w-0 space-y-5" disabled={props.isPending || saveMutation.isPending}>
+      {props.blocker}
       {/* The card has no heading: its first row says what the form starts from and, for a pattern, what it repeats for. */}
       <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
         <ResearchStartControl value={props.start} onChange={props.onStartChange} findIdeas={props.findIdeas} />
@@ -680,17 +716,6 @@ function ResearchBatchComposer(props: ComposerProps) {
         </div>}
       </div>
       {placesLoading && <div role="status" aria-label="Loading places" className="space-y-2">{[0, 1, 2].map(row => <div key={row} aria-hidden="true" className="skeleton h-11 rounded-md" />)}</div>}
-      {mode === 'once' && <div className="grid gap-4 sm:grid-cols-2">
-        {(allDestinations.length > 0 || scopeKey !== 'project') && <div>
-          <div className="flex items-center"><label className="text-sm font-medium text-heading" htmlFor="research-subject">{RESEARCH_COPY.subject}</label><InfoTooltip text={RESEARCH_COPY.subjectHelp} placement="bottom" /></div>
-          <select id="research-subject" className={INPUT_CLASS} value={scopeKey} onChange={event => { setScopeKey(event.target.value); setSelectedTemplate(null) }}>
-            <option value="project">{RESEARCH_COPY.notSet}</option>
-            {scopeKey !== 'project' && !directScopeOption && <option value={scopeKey} disabled>{RESEARCH_COPY.subjectUnavailable}</option>}
-            {allDestinations.map(option => <option key={`${option.kind}:${option.id}`} value={`${option.kind}:${option.id}`}>{option.label} ({option.kind === 'market' ? 'market' : 'location'})</option>)}
-          </select>
-        </div>}
-        <LocationSelect label={RESEARCH_COPY.searchLocation} value={directLocationLabel} locations={locations} onChange={value => { setDirectLocation(value); setSelectedTemplate(null) }} />
-      </div>}
       {patternForm && <fieldset className="space-y-3" aria-labelledby="research-places-label">
         <div className="flex items-center"><span id="research-places-label" className="text-sm font-medium text-heading">{mode === 'markets' ? 'Markets' : mode === 'properties' ? 'Locations' : 'Search locations'}</span><InfoTooltip text={`Select each ${placeNoun} yourself. Each one gets its own saved run.`} placement="bottom" /></div>
         {!noSearchLocations && <input type="search" aria-label="Search" className={INPUT_CLASS} placeholder="Search" value={search} onChange={event => setSearch(event.target.value)} />}
@@ -744,6 +769,22 @@ function ResearchBatchComposer(props: ComposerProps) {
             : <><input aria-label="Model" className={INPUT_CLASS} list="research-known-models" placeholder={resolvedModel ?? 'Choose an engine'} value={props.model} disabled={!provider || !props.configurableModel} onChange={event => props.onModelChange(event.target.value)} /><datalist id="research-known-models">{props.modelOptions.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</datalist></>}
         </label>
       </div>
+      {/* Where the engine searches from, and where the results are saved: after the queries and the engine, as the run reads them. */}
+      {mode === 'once' && <div className="grid gap-4 sm:grid-cols-2">
+        <LocationSelect label={RESEARCH_COPY.searchLocation} value={directLocationLabel} locations={locations} onChange={value => { setDirectLocation(value); setSelectedTemplate(null) }} />
+        {(allDestinations.length > 0 || scopeKey !== 'project') && <div>
+          <div className="flex items-center"><label className="text-sm font-medium text-heading" htmlFor="research-subject">{RESEARCH_COPY.saveUnder}</label><InfoTooltip text={RESEARCH_COPY.subjectHelp} placement="bottom" /></div>
+          <select id="research-subject" className={INPUT_CLASS} value={scopeKey} onChange={event => { setScopeKey(event.target.value); setSelectedTemplate(null) }}>
+            <option value="project">{RESEARCH_COPY.notSet}</option>
+            {scopeKey !== 'project' && !directScopeOption && <option value={scopeKey} disabled>{RESEARCH_COPY.subjectUnavailable}</option>}
+            {/* Grouped by the group each market and location sits in at the top, as the Place picker groups them. */}
+            {saveUnderGroups.map(({ label, options }) => {
+              const items = options.map(option => <option key={`${option.kind}:${option.id}`} value={`${option.kind}:${option.id}`}>{option.label} ({option.kind === 'market' ? 'market' : 'location'})</option>)
+              return label ? <optgroup key={label} label={label}>{items}</optgroup> : items
+            })}
+          </select>
+        </div>}
+      </div>}
       {visibleErrors.length > 0 && <InlineNotes notes={visibleErrors} />}
       {patternForm && <div className="space-y-4 border-t border-default pt-4">
         {/* The button comes first and stays mounted, so regenerating a stale preview keeps focus on it. */}
@@ -769,7 +810,7 @@ function ResearchBatchComposer(props: ComposerProps) {
         {props.runNotes}
       </div>
     </fieldset>
-  </Card>
+  </div>
 }
 
 /** `label` is the select's name. `name` replaces it for assistive tech when the visible label is shorter; `inRow` is for a list row under a column header, which shows the label only below sm, where the select stacks under its row. */

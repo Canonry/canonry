@@ -332,14 +332,17 @@ test('with no engine configured the form renders and Run stays off beside a No e
   render(<QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>)
 
   const note = await screen.findByRole('button', { name: `${RESEARCH_COPY.noEngineKey}. ${RESEARCH_COPY.noEngineKeyDetail}` })
-  expect(note.textContent).toBe('No engine key')
+  expect(note.textContent).toBe('No engine connected')
   fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'Which platform fits?' } })
   const run = screen.getByRole('button', { name: RUN }) as HTMLButtonElement
   expect(run.disabled).toBe(true)
   fireEvent.click(run)
-  // Nothing beside Run names an engine or a model, because none is chosen. The reason Run is off sits in the same footer.
+  // Nothing beside Run names an engine or a model, because none is chosen. The reason Run is off stops every run, so it leads the form.
   expect(run.parentElement!.textContent).toBe('Run 1 query')
-  expect(run.parentElement!.parentElement!.contains(note)).toBe(true)
+  const form = screen.getByRole('group', { name: 'Research setup' })
+  expect(form.firstElementChild!.contains(note)).toBe(true)
+  // Rendered alone, with no way to Settings handed to it, it offers none.
+  expect(screen.queryByRole('button', { name: 'Connect an engine' })).toBeNull()
   // With no run saved there is no Results card: the Past research row says there is none.
   expect(screen.getByText(RESEARCH_COPY.emptyHistory)).toBeTruthy()
   expect(screen.queryByRole('region', { name: RESEARCH_COPY.resultsTitle })).toBeNull()
@@ -488,7 +491,7 @@ test('a limited account with no engine is told to ask its team, and the Model li
 
   // This account cannot open Settings, so the sentence does not send it there.
   const note = await screen.findByRole('button', { name: `${RESEARCH_COPY.noEngineKey}. ${RESEARCH_COPY.noEngineDetail}` })
-  expect(note.textContent).toBe('No engine key')
+  expect(note.textContent).toBe('No engine connected')
   expect([...(screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).options].map(option => option.text)).toEqual(['Choose an engine'])
   expect((screen.getByRole('button', { name: RUN }) as HTMLButtonElement).disabled).toBe(true)
 })

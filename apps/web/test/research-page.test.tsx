@@ -306,7 +306,7 @@ test('a mode change that comes from the host leaves focus where the reader put i
   const view = renderPage({ researchMode: 'write', onResearchModeChange: vi.fn() })
   await ready()
   // The places are in, so Pattern has its form to show.
-  await screen.findByRole('combobox', { name: 'Subject' })
+  await screen.findByRole('combobox', { name: 'Save under' })
   // A press on the choice already checked changes nothing, and arms nothing.
   start('Write')
   const editor = screen.getByRole('textbox', { name: 'Queries' })
@@ -400,7 +400,7 @@ test('a project with no search location says so in Pattern, with nothing to sear
   expect(screen.getByText('For each').parentElement!.textContent).toBe('For eachSearch location')
   expect(screen.queryByRole('searchbox', { name: 'Search' })).toBeNull()
   // No place to tick in the form. The results under it have boxes of their own.
-  expect(within(screen.getByText('For each').closest('.surface-card') as HTMLElement).queryByRole('checkbox')).toBeNull()
+  expect(within(screen.getByRole('group', { name: 'Research setup' })).queryByRole('checkbox')).toBeNull()
   // A pattern can still be written. With no place to repeat for there is nothing to preview or run.
   fireEvent.change(screen.getByRole('textbox', { name: 'Pattern' }), { target: { value: 'best apartments in {location}' } })
   fireEvent.click(screen.getByRole('button', { name: 'Preview queries' }))
@@ -517,7 +517,11 @@ test('with no engine key the page renders, a pattern still previews, and Run sta
   const state = installApi({ engine: false })
   renderPage({ researchMode: 'pattern' })
   const note = await screen.findByRole('button', { name: `${RESEARCH_COPY.noEngineKey}. ${RESEARCH_COPY.noEngineKeyDetail}` })
-  expect(note.textContent).toBe('No engine key')
+  expect(note.textContent).toBe('No engine connected')
+  // It leads the form, with the way to connect one beside it.
+  const form = screen.getByRole('group', { name: 'Research setup' })
+  expect(form.firstElementChild!.contains(note)).toBe(true)
+  expect(within(form.firstElementChild as HTMLElement).getByRole('button', { name: 'Connect an engine' })).toBeTruthy()
   fireEvent.click(await screen.findByRole('checkbox', { name: 'Old Mill' }))
   fireEvent.change(screen.getByRole('textbox', { name: 'Pattern' }), { target: { value: 'best apartments in {market}' } })
   fireEvent.click(screen.getByRole('button', { name: 'Preview queries' }))
@@ -1120,7 +1124,7 @@ test('a sweep in progress reaches the review from both Research tables and holds
 
 test.each([
   // An embed keeps the Research page it had: once the places are in, the tracked queries have been read, and there is still no Tracked column.
-  ['an embed', { embed: { enabled: true } }, ['Query', 'Type', 'Status', 'OpenAI'], () => screen.findByRole('combobox', { name: 'Subject' })],
+  ['an embed', { embed: { enabled: true } }, ['Query', 'Type', 'Status', 'OpenAI'], () => screen.findByRole('combobox', { name: 'Save under' })],
   // The public demo reads which queries are tracked.
   ['the public demo', { demo: { enabled: true, readOnly: true, sampleData: true } }, ['Query', 'Type', 'Status', 'Tracked', 'OpenAI'], () => waitFor(() => expect(trackedColumn()).toEqual([['Older saved query', 'No']]))],
 ])('%s gets no box and no bar on an Advanced project', async (_where, config, headers, trackedRead) => {

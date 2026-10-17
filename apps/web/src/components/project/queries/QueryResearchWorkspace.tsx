@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
 import type { MeasurementQueryTemplate, QueryTrackingMode, QueryTrackingWorkspaceResponse, ResearchRunScope } from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameMeasurementQueryTemplatesOptions,
@@ -67,6 +68,7 @@ export function QueryResearchWorkspace({
   nextSweepDate?: string
 }) {
   const { canWrite } = useAccount()
+  const navigate = useNavigate()
   const start: ResearchWorkspaceMode = mode === 'find' && canWrite ? 'find' : mode === 'pattern' ? 'pattern' : 'write'
   // The form Write and Pattern share, as last chosen. Null until one of them has been shown.
   const [form, setForm] = useState<Exclude<ResearchWorkspaceMode, 'find'> | null>(start === 'find' ? null : start)
@@ -173,6 +175,7 @@ export function QueryResearchWorkspace({
             paused={start === 'find'}
             viewerResearchConfig={viewerResearchConfig}
             onReviewForTracking={canWrite && !advanced ? ({ researchRunQueryId, scope }) => onReviewSavedSource({ source: 'research', researchRunQueryId }, scope ?? null) : undefined}
+            onConnectEngine={() => { void navigate({ to: '/settings' }) }}
           />
         </ResearchTrackingContext.Provider>
         {/* After the page it rides over, so it comes to rest under Past research. */}
