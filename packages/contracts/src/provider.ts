@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { GroundingSource } from './run.js'
+import type { GroundingSource, RetrievedSource } from './run.js'
 import type { ModelDefinition, ProviderModelRegistry } from './models.js'
 import { RetrievalStatuses, type RetrievalContract, type RetrievalStatus } from './retrieval.js'
 import type { ProviderBatchCapability, ProviderBatchConfig, ProviderPricing, ProviderUsage, TrackedQueryRequest } from './provider-batch.js'
@@ -215,6 +215,11 @@ export interface RawQueryResult {
   groundingSources: GroundingSource[]
   searchQueries: string[]
   /**
+   * Pages the provider's searches listed or opened, never counted as cited.
+   * Undefined or null when the provider does not report them.
+   */
+  retrievedSources?: RetrievedSource[] | null
+  /**
    * Whether this provider retrieved for this answer. Required, not optional:
    * a search-policy change must never be able to produce an unmarked snapshot,
    * so every adapter is forced to state a value rather than silently omit one.
@@ -260,6 +265,8 @@ export interface NormalizedQueryResult {
   citedDomains: string[]
   groundingSources: GroundingSource[]
   searchQueries: string[]
+  /** See {@link RawQueryResult.retrievedSources}. */
+  retrievedSources?: RetrievedSource[] | null
   /** See {@link RawQueryResult.retrievalStatus}. */
   retrievalStatus: RetrievalStatus
 }

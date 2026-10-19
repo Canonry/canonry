@@ -4,7 +4,7 @@ import { expandQueryTemplate, queryTrackingTemplateProvenanceSchema } from './qu
 import { queryClassSchema } from './query-class.js'
 import { locationContextSchema, type LocationContext } from './provider.js'
 import { citationStateSchema } from './run.js'
-import { groundingSourceSchema } from './run.js'
+import { groundingSourceSchema, retrievedSourceSchema } from './run.js'
 import { userRoleSchema } from './users.js'
 import { normalizeQueryText } from './query-normalize.js'
 import { validationError } from './errors.js'
@@ -156,6 +156,8 @@ export const researchRunQuerySchema = z.object({
   id: z.string(), position: z.number().int(), query: z.string(), queryClass: queryClassSchema.nullable().optional(), status: researchQueryStatusSchema,
   requestedModel: z.string().nullable(), resolvedModel: z.string(), servedModel: z.string().nullable(),
   answerText: z.string().nullable(), groundingSources: z.array(groundingSourceSchema), citedDomains: z.array(z.string()), searchQueries: z.array(z.string()),
+  /** Pages the engine's searches listed or opened; never cited evidence. Null when the engine does not report them. */
+  retrievedSources: z.array(retrievedSourceSchema).nullable().default(null),
   namedCompetitors: z.array(z.string()).default([]), citedCompetitorDomains: z.array(z.string()).default([]),
   answerMentioned: z.boolean().nullable(), citationState: citationStateSchema.nullable(), error: z.string().nullable(),
   startedAt: z.string().nullable(), finishedAt: z.string().nullable(), createdAt: z.string(),
