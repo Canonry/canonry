@@ -31,6 +31,8 @@ function setup(opts: {
   connectionProvider?: string
   /** The text a failing provider call throws, as adapters word it. */
   failWith?: string
+  /** What the engine reports it retrieved; undefined when it reports nothing. */
+  retrievedSources?: Array<{ uri: string; title: string; kind: 'search-result' | 'page-read'; query: string | null }>
 } = {}) {
   const provider = opts.provider ?? 'test'
   const connectionProvider = opts.connectionProvider ?? provider
@@ -59,6 +61,7 @@ function setup(opts: {
     normalizeResult: () => ({
       provider: 'test', answerText: opts.answer ?? 'Alpha is cited',
       citedDomains: opts.citedDomains ?? ['alpha.com'], groundingSources: [], searchQueries: [],
+      ...(opts.retrievedSources !== undefined ? { retrievedSources: opts.retrievedSources } : {}),
     }),
     healthcheck: async () => ({ ok: true, provider: 'test', message: 'ok' }),
   } as never, {
@@ -100,6 +103,22 @@ describe('executeResearchRun', () => {
     expect(completed.citationState).toBe('cited')
     expect(db.select().from(usageCounters).get()?.count).toBe(2)
   })
+  it('stores the pages an engine retrieved apart from citations, and null when it reports none', async () => {
+    const retrieved = [
+      { uri: 'https://listing.example/best', title: 'Best picks', kind: 'search-result' as const, query: 'best alpha' },
+      { uri: 'https://listing.example/best', title: '', kind: 'page-read' as const, query: null },
+    ]
+    const reported = setup({ retrievedSources: retrieved, failQueries: false })
+    await executeResearchRun(reported.db, reported.registry, 'r', 'p')
+    for (const row of reported.db.select().from(researchRunQueries).all()) {
+      expect(row.retrievedSources).toEqual(retrieved)
+      expect(row.citedDomains).toEqual(['alpha.com'])
+    }
+    const silent = setup({ failQueries: false })
+    await executeResearchRun(silent.db, silent.registry, 'r', 'p')
+    expect(silent.db.select().from(researchRunQueries).all().map(row => row.retrievedSources)).toEqual([null, null])
+  })
+
   it('fails before dispatch when daily quota would be exceeded', async () => {
     const { db, registry } = setup()
     const now = new Date().toISOString()

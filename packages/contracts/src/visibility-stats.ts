@@ -214,6 +214,14 @@ export const visibilityCompareMetricPeriodSchema = z.object({
    * completeness (Advanced), for the pooled cited rate and cited share of voice.
    */
   excludedUnknown: z.number().int().nonnegative().optional(),
+  /**
+   * Cited-rate rows the provider answered with no retrieval step at all
+   * (`retrievalStatus = 'not-used'`). They cite nothing by construction, so
+   * they leave the cited denominator rather than count as a searched miss;
+   * they remain in the mention denominator, since brand recall does not need
+   * search. Only set on frames that record retrieval status.
+   */
+  excludedNoRetrieval: z.number().int().nonnegative().optional(),
 })
 export type VisibilityCompareMetricPeriod = z.infer<typeof visibilityCompareMetricPeriodSchema>
 

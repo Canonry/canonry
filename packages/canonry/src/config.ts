@@ -3,8 +3,8 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
-import { agentAllowViewersSchema, agentModelSchema, agentProviderSchema, classificationConfigSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@canonry/canonry-config'
-import type { SentimentInstallConfigInput } from '@canonry/canonry-config'
+import { AGENT_REASONING_LEVELS, agentAllowViewersSchema, agentModelSchema, agentProviderSchema, agentReasoningSchema, classificationConfigSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@canonry/canonry-config'
+import type { AgentReasoningLevel, SentimentInstallConfigInput } from '@canonry/canonry-config'
 import { AGENT_PROVIDER_IDS, isRetiredAgentProviderId } from '@canonry/canonry-contracts'
 import type { AgentProviderId, EmbedConfigEntry, ProviderBatchConfig, ProviderPricing, ProviderQuotaPolicy, SchedulableRunKind } from '@canonry/canonry-contracts'
 import { isAgentModelAccepted } from './agent/providers.js'
@@ -377,6 +377,15 @@ export interface AgentConfigEntry {
    * overrides it; resolved by `resolveAgentAllowViewers`.
    */
   allowViewers?: boolean | null
+  /**
+   * How hard Aero asks the model to reason on every turn, one of
+   * `AGENT_REASONING_LEVELS`. Absent uses the provider's default
+   * (`PROVIDER_DEFAULT_REASONING`: `low` for OpenAI, `off` elsewhere; an
+   * OpenRouter model takes its direct provider's level). The model
+   * clamps a level it does not support. `CANONRY_AGENT_REASONING` overrides it;
+   * resolved by `resolveAgentReasoning`.
+   */
+  reasoning?: AgentReasoningLevel | null
 }
 
 export interface DashboardConfigEntry {
@@ -664,6 +673,12 @@ export function loadConfig(configPath = getConfigPath()): CanonryConfig {
     throw new CliError({
       code: 'CONFIG_INVALID',
       message: `Invalid config at ${configPath}: agent.allowViewers must be true, false, or left blank.`,
+    })
+  }
+  if (!agentReasoningSchema.safeParse(parsed.agent?.reasoning).success) {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: agent.reasoning must be one of ${AGENT_REASONING_LEVELS.join(', ')}, or left blank.`,
     })
   }
   if (parsed.classification !== undefined) {

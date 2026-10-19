@@ -46,7 +46,7 @@ Report location filters describe the requested measurement scope. They do not pr
 
 Search use is `used` only when a response with a usable answer contains a completed `web_search_call`. It is `not-used` when the response establishes that no search ran. It is `unknown` when the response cannot establish that fact. The retrieval contract is `native-auto-v1`.
 
-Canonry counts only `url_citation` annotations on final `message` → `output_text` blocks as cited sources; `commentary` messages are not part of the answer. Canonry does not request `web_search_call.results`: retrieved pages do not prove that the answer cited them. A search can run without a citation, and an answer can have no search call. The separate mention signal comes from the answer text.
+Canonry counts only `url_citation` annotations on final `message` → `output_text` blocks as cited sources; `commentary` messages are not part of the answer. Canonry requests `web_search_call.results` and stores what Muse could see as `retrievedSources` on each answer (run detail and Research results): every page a search listed (`search-result`, with its search) and every page Muse opened (`page-read`). Retrieved pages never count as cited, because a retrieved page does not prove that the answer used it. Answers stored before this change report `retrievedSources: null`. A search can run without a citation, and an answer can have no search call. The separate mention signal comes from the answer text.
 
 A refused or truncated (`incomplete`) answer is stored as an observation, with the text and citations it carries. A `failed` response fails the query with Meta's error code; rate-limit and server errors are retried first.
 

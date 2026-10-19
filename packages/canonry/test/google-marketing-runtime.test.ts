@@ -1044,6 +1044,72 @@ describe('GTM sync', () => {
     expect(serialized).not.toContain('RAW-SECRET-CUSTOM-HTML')
     expect(serialized).not.toContain('RAW-SECRET-TEMPLATE')
   })
+
+  // Publishing a GTM workspace deletes it and opens a new Default Workspace.
+  it.each([
+    { remaining: ['w2'], workspaceId: 'w2', readsDraft: true },
+    { remaining: ['w2', 'w3'], workspaceId: null, readsDraft: false },
+  ])('reads workspace $workspaceId when a publish replaced the selected one and $remaining remain', async ({
+    remaining, workspaceId, readsDraft,
+  }) => {
+    const requested: string[] = []
+    const fetch: typeof globalThis.fetch = async (input) => {
+      const url = String(input)
+      requested.push(url)
+      if (url.endsWith('/accounts')) {
+        return jsonResponse({ account: [{ accountId: 'a1', path: 'accounts/a1', name: 'Hotel account' }] })
+      }
+      if (url.endsWith('/accounts/a1/containers')) {
+        return jsonResponse({ container: [{
+          accountId: 'a1', containerId: 'c1', path: 'accounts/a1/containers/c1', name: 'Hotel web',
+          publicId: 'GTM-HOTEL', domainName: ['example.com'], usageContext: ['web'],
+        }] })
+      }
+      if (url.endsWith('/accounts/a1/containers/c1/workspaces')) {
+        return jsonResponse({ workspace: remaining.map(id => ({
+          accountId: 'a1', containerId: 'c1', workspaceId: id,
+          path: `accounts/a1/containers/c1/workspaces/${id}`, name: 'Default Workspace',
+        })) })
+      }
+      if (url.endsWith('/accounts/a1/containers/c1/versions:live')) {
+        return jsonResponse({
+          accountId: 'a1', containerId: 'c1', containerVersionId: 'v2',
+          path: 'accounts/a1/containers/c1/versions/v2', name: 'Published', tag: [], trigger: [], variable: [],
+        })
+      }
+      const workspace = /\/workspaces\/(w\d+)(?:\/(status|tags|triggers|variables|folders|built_in_variables))?$/.exec(url)
+      if (workspace) {
+        const [, id, part] = workspace
+        if (part === 'status') return jsonResponse({ mergeConflict: [] })
+        if (part === 'built_in_variables') return jsonResponse({ builtInVariable: [] })
+        if (part) return jsonResponse({ [part.slice(0, -1)]: [] })
+        return jsonResponse({
+          accountId: 'a1', containerId: 'c1', workspaceId: id,
+          path: `accounts/a1/containers/c1/workspaces/${id}`, name: 'Default Workspace',
+        })
+      }
+      throw new Error(`Unexpected GTM URL: ${url}`)
+    }
+    const runtime = createGoogleMarketingRuntime({
+      config: gtmConfig(),
+      saveConfigPatch: async () => undefined,
+      fetch,
+      now: fixedNow,
+      randomUUID: () => 'gtm_snapshot_1',
+    })
+
+    const snapshot = await runtime.syncGtm({
+      project: PROJECT,
+      connectionId: 'gtm_connection_1',
+      runId: 'gtm_run_1',
+      selection: { accountId: 'a1', containerId: 'c1', workspaceId: 'w1' },
+    })
+
+    expect(snapshot.metadata.workspaceId).toBe(workspaceId)
+    if (snapshot.payload.kind !== 'container') throw new Error('Expected container snapshot')
+    expect(snapshot.payload.data.draft !== null).toBe(readsDraft)
+    expect(requested.some(url => url.includes('/workspaces/w1'))).toBe(false)
+  })
 })
 
 describe('Google marketing credential identity', () => {

@@ -1,3 +1,6 @@
+import { AGENT_REASONING_LEVELS, type AgentReasoningLevel } from '@canonry/canonry-config'
+import type { AgentProviderId } from '@canonry/canonry-contracts'
+import { defaultAgentReasoning } from './agent/providers.js'
 import type { CanonryConfig } from './config.js'
 
 /**
@@ -73,4 +76,25 @@ export function resolveAgentAllowViewers(env: NodeJS.ProcessEnv, config: Canonry
   const raw = env.CANONRY_AGENT_ALLOW_VIEWERS?.trim()
   if (raw) return raw === '1' || raw.toLowerCase() === 'true'
   return config.agent?.allowViewers === true
+}
+
+/**
+ * Resolve how hard Aero asks the model to reason, from the environment layered
+ * over `~/.canonry/config.yaml` (env over config, like the resolvers above).
+ *
+ *  - `CANONRY_AGENT_REASONING` wins when it is one of `AGENT_REASONING_LEVELS`
+ *    (case-insensitive). Any other value is ignored, so a typo falls back to
+ *    the config instead of switching reasoning off.
+ *  - otherwise `config.agent?.reasoning`.
+ *  - default: `defaultAgentReasoning` for the model: the provider's
+ *    `PROVIDER_DEFAULT_REASONING` (`low` for OpenAI, `off` elsewhere), and for
+ *    an OpenRouter model, its direct provider's level.
+ *
+ * The model clamps a level it does not support, so `max` on a model whose top
+ * level is `high` asks for `high`.
+ */
+export function resolveAgentReasoning(env: NodeJS.ProcessEnv, config: CanonryConfig, provider: AgentProviderId, modelId: string): AgentReasoningLevel {
+  const raw = env.CANONRY_AGENT_REASONING?.trim().toLowerCase()
+  if (raw && (AGENT_REASONING_LEVELS as readonly string[]).includes(raw)) return raw as AgentReasoningLevel
+  return config.agent?.reasoning ?? defaultAgentReasoning(provider, modelId)
 }

@@ -809,6 +809,12 @@ attribution and no provider calls or sync.
   (`src/agent/mcp-to-agent-tool.ts`) in every scope and profile. Do not use
   this setting for any other authorization. See `docs/deployment.md`.
 
+- `CANONRY_AGENT_REASONING` overrides `agent.reasoning` (Aero's reasoning
+  level). Unset, the model's default comes from `defaultAgentReasoning` in
+  `src/agent/providers.ts` (`PROVIDER_DEFAULT_REASONING`; an OpenRouter model
+  takes its direct provider's level); an unknown env value is ignored. Resolved by
+  `resolveAgentReasoning` in `src/agent-config.ts`.
+
 - `CANONRY_AGENT_ALLOW_VIEWERS` overrides `agent.allowViewers` (default off).
   When on, signed-in viewers use Aero through `ViewerAeroSessions`
   (`src/agent/viewer-sessions.ts`): their own in-memory conversation and a

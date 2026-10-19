@@ -446,6 +446,17 @@ refused before it starts, with an error naming `agent.provider`, and doctor's
 `agent.model`. The dashboard never saves a conversation's stored provider as its
 own choice, because an explicit provider outranks the pin.
 
+`agent.reasoning` sets how hard Aero asks the model to reason on every turn
+(`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`).
+`createAeroSession` passes `resolveAgentReasoning` (`src/agent-config.ts`) to
+pi-agent-core as `thinkingLevel`: `CANONRY_AGENT_REASONING`, then the config,
+then `defaultAgentReasoning` in `providers.ts`: `PROVIDER_DEFAULT_REASONING`
+(`low` for OpenAI, `off` elsewhere), and for an OpenRouter model its direct
+provider's level by vendor prefix (`openai/` runs at `low`). pi-ai clamps a level the model does not support. Change a
+provider's default only after measuring it on the analyst eval: pi-agent-core
+defaults to `off`, and at `off` GPT-6 Luna answered far fewer eval turns
+correctly and used about twice the tool calls.
+
 ## External agents (webhook lifecycle)
 
 `canonry agent attach <project> --url <webhook-url>` registers an agent

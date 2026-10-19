@@ -520,9 +520,9 @@ describe('createAeroSession', () => {
     expect(last.content).toEqual([{ type: 'text', text: 'Hello from Aero.' }])
   })
 
-  it('gets thinkingLevel "off" stamped on every streamed answer, since Canonry never sets reasoning', async () => {
+  it('stamps the requested reasoning level ("off" for Claude) on every streamed answer', async () => {
     // pi-agent-core 1.0 records the requested thinking level on each answer it
-    // streams. The field reaches the transcript, storage and SSE frames, so the
+    // streams. Claude's default is "off" (PROVIDER_DEFAULT_REASONING). The field reaches the transcript, storage and SSE frames, so the
     // viewer redaction in agent-routes.ts has to keep hiding it.
     const check: AgentTool = { name: 'check', label: 'Check', description: 'Test', parameters: Type.Object({}), execute: async () => ({ content: [{ type: 'text', text: 'ran' }], details: {} }) }
     const agent = fauxSession([check])

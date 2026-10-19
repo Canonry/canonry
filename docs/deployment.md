@@ -202,6 +202,24 @@ every tool scope, so a write-scope Aero turn from the API or
 schedules. The operator's own `canonry run` and `canonry schedule` commands are
 unaffected.
 
+### Aero reasoning
+
+Aero asks the model to reason a little before it answers and calls tools.
+OpenAI models default to `low`; Claude, Gemini and Z.ai default to `off`. A model
+used through OpenRouter gets the same default as its own provider, so
+`openai/gpt-6-luna` runs at `low`. To set it for the install:
+
+```yaml
+agent:
+  reasoning: low
+```
+
+Levels are `off`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max`. A model
+that does not support a level uses the nearest one it does.
+`CANONRY_AGENT_REASONING` overrides it for container deployments. Higher levels
+take longer and cost more per answer; on Canonry's analyst eval, GPT-6 Luna at
+`low` was both faster and more accurate than at `off` or `medium`.
+
 ### Viewer Aero
 
 By default only administrators can use Aero. To let signed-in viewer accounts

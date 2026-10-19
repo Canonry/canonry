@@ -4722,6 +4722,15 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE site_liveness_state ADD COLUMN urgent_receipts TEXT`,
     ],
   },
+  {
+    // Pages an engine's searches listed or opened for a Research answer. NULL
+    // on every existing row and for engines that do not report retrievals.
+    version: 184,
+    name: 'research-retrieved-sources',
+    statements: [
+      `ALTER TABLE research_run_queries ADD COLUMN retrieved_sources TEXT`,
+    ],
+  },
 ]
 
 /**
