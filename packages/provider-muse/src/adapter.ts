@@ -60,6 +60,7 @@ export const museAdapter: ProviderAdapter = {
       servedModel: raw.servedModel,
       groundingSources: raw.groundingSources,
       searchQueries: raw.searchQueries,
+      retrievedSources: raw.retrievedSources ?? null,
       retrievalStatus: raw.retrievalStatus,
     })
   },

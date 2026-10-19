@@ -1,0 +1,133 @@
+{
+  "model": "muse-spark-1.3",
+  "id": "resp_6ad6800ae4cf357be1694712",
+  "object": "response",
+  "status": "completed",
+  "usage": {
+    "input_tokens": 12573,
+    "input_tokens_details": {
+      "cached_tokens": 0
+    },
+    "output_tokens": 1556,
+    "output_tokens_details": {
+      "reasoning_tokens": 1216
+    },
+    "total_tokens": 14129
+  },
+  "output": [
+    {
+      "type": "message",
+      "id": "rs_ae5ead0f-8775-47f8-a16e-2d610c534afc",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "I'll pick one clear winner for you \u2014 let me check the latest on top newsletter platforms first.",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "commentary",
+      "status": "completed"
+    },
+    {
+      "type": "web_search_call",
+      "id": "ws_call_c92ba430-50ff-498d-9d1d-161037b123a3",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "best newsletter platform 2026 Beehiiv Substack comparison"
+      },
+      "results": [
+        {
+          "type": "text_result",
+          "title": "beehiiv vs Substack (2026): Fees, Features & Which Wins",
+          "url": "https://www.mailercloud.com/blog/beehiiv-vs-substack",
+          "snippet": ""
+        },
+        {
+          "type": "text_result",
+          "title": "Beehiiv vs Substack: Which Newsletter Platform in 2026?",
+          "url": "https://mailflowauthority.com/email-comparisons/beehiiv-vs-substack",
+          "snippet": ""
+        },
+        {
+          "type": "text_result",
+          "title": "Best Free Blogging Platforms in 2026",
+          "url": "https://htmlpub.com/blog/best-free-blogging-platform-2026",
+          "snippet": ""
+        }
+      ]
+    },
+    {
+      "type": "message",
+      "id": "rs_71bef873-a167-444a-8cb2-70ad944f9ee0",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Early results point to a standout \u2014 I'll pull the details to confirm it.",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "commentary",
+      "status": "completed"
+    },
+    {
+      "type": "web_search_call",
+      "id": "ws_call_83ce5eb6-e6c3-4785-b6c5-91fbadc1055a",
+      "status": "failed",
+      "action": {
+        "type": "open_page"
+      },
+      "results": []
+    },
+    {
+      "type": "web_search_call",
+      "id": "ws_call_c4e8a9ad-7d00-482a-989a-9c6a06d4b58d",
+      "status": "completed",
+      "action": {
+        "type": "open_page",
+        "url": "https://www.mailercloud.com/blog/beehiiv-vs-substack"
+      },
+      "results": []
+    },
+    {
+      "type": "message",
+      "id": "msg_7aaf5455-2e47-4272-9154-35bad1a80a0a",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "My pick for you: **beehiiv**.\n\nIt's free up to 2,500 subscribers, takes 0% of paid subscription revenue vs Substack's 10%, and includes a custom domain and SEO-ready website free, plus automations and an ad network.\n",
+          "annotations": [
+            {
+              "type": "url_citation",
+              "url": "https://www.mailercloud.com/blog/beehiiv-vs-substack",
+              "start_index": 31,
+              "end_index": 64,
+              "title": "beehiiv vs Substack (2026): Fees, Features & Which Wins"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.mailercloud.com/blog/beehiiv-vs-substack",
+              "start_index": 64,
+              "end_index": 121,
+              "title": "beehiiv vs Substack (2026): Fees, Features & Which Wins"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.mailercloud.com/blog/beehiiv-vs-substack",
+              "start_index": 121,
+              "end_index": 214,
+              "title": "beehiiv vs Substack (2026): Fees, Features & Which Wins"
+            }
+          ],
+          "logprobs": []
+        }
+      ],
+      "status": "completed"
+    }
+  ]
+}

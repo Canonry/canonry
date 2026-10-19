@@ -32,7 +32,10 @@ import {
   validationError,
   parseRunError,
   serializeRunError,
+  retrievedSourceSchema,
+  type RetrievedSource,
 } from '@canonry/canonry-contracts'
+import { z } from 'zod'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
 import { assertProjectScope } from './auth.js'
 import { gte } from 'drizzle-orm'
@@ -943,12 +946,16 @@ export function formatRun(row: {
 function parseSnapshotRawResponse(raw: string | null): {
   groundingSources: unknown[]
   searchQueries: string[]
+  retrievedSources: RetrievedSource[] | null
   model: string | null
 } {
   const parsed = parseJsonColumn<Record<string, unknown>>(raw, {})
+  const retrieved = z.array(retrievedSourceSchema).safeParse(parsed.retrievedSources)
   return {
     groundingSources: (parsed.groundingSources as unknown[] | undefined) ?? [],
     searchQueries: (parsed.searchQueries as string[] | undefined) ?? [],
+    // Absent on engines that do not report retrievals and on older rows.
+    retrievedSources: retrieved.success ? retrieved.data : null,
     model: (parsed.model as string | undefined) ?? null,
   }
 }
@@ -1066,6 +1073,7 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       usage: s.usage,
       groundingSources: rawParsed.groundingSources,
       searchQueries: rawParsed.searchQueries,
+      retrievedSources: rawParsed.retrievedSources,
       createdAt: s.createdAt,
     }
   })

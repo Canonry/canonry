@@ -4851,6 +4851,12 @@ export type ResearchBatchDto = {
             }>;
             citedDomains: Array<string>;
             searchQueries: Array<string>;
+            retrievedSources: Array<{
+                uri: string;
+                title: string;
+                kind: 'search-result' | 'page-read';
+                query: string | null;
+            }> | null;
             namedCompetitors: Array<string>;
             citedCompetitorDomains: Array<string>;
             answerMentioned: boolean | null;
@@ -4952,6 +4958,12 @@ export type ResearchRunDetailDto = {
         }>;
         citedDomains: Array<string>;
         searchQueries: Array<string>;
+        retrievedSources: Array<{
+            uri: string;
+            title: string;
+            kind: 'search-result' | 'page-read';
+            query: string | null;
+        }> | null;
         namedCompetitors: Array<string>;
         citedCompetitorDomains: Array<string>;
         answerMentioned: boolean | null;
@@ -7650,6 +7662,12 @@ export type LatestProjectRunDto = {
                 title: string;
             }>;
             searchQueries: Array<string>;
+            retrievedSources: Array<{
+                uri: string;
+                title: string;
+                kind: 'search-result' | 'page-read';
+                query: string | null;
+            }> | null;
             model?: string | null;
             servedModel?: string | null;
             location?: string | null;
@@ -12545,6 +12563,12 @@ export type ProjectOverviewDto = {
                     title: string;
                 }>;
                 searchQueries: Array<string>;
+                retrievedSources: Array<{
+                    uri: string;
+                    title: string;
+                    kind: 'search-result' | 'page-read';
+                    query: string | null;
+                }> | null;
                 model?: string | null;
                 servedModel?: string | null;
                 location?: string | null;
@@ -13350,6 +13374,12 @@ export type RunDetailDto = {
             title: string;
         }>;
         searchQueries: Array<string>;
+        retrievedSources: Array<{
+            uri: string;
+            title: string;
+            kind: 'search-result' | 'page-read';
+            query: string | null;
+        }> | null;
         model?: string | null;
         servedModel?: string | null;
         location?: string | null;
@@ -14823,6 +14853,12 @@ export type SnapshotListResponse = {
             title: string;
         }>;
         searchQueries: Array<string>;
+        retrievedSources: Array<{
+            uri: string;
+            title: string;
+            kind: 'search-result' | 'page-read';
+            query: string | null;
+        }> | null;
         model?: string | null;
         servedModel?: string | null;
         location?: string | null;

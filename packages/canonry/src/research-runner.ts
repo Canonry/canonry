@@ -125,7 +125,7 @@ export async function executeResearchRun(
         const completed = db.update(researchRunQueries).set({
           status: ResearchQueryStatuses.completed, servedModel: raw.servedModel ?? null,
           answerText: normalized.answerText, groundingSources: normalized.groundingSources,
-          citedDomains: normalized.citedDomains, searchQueries: normalized.searchQueries,
+          citedDomains: normalized.citedDomains, searchQueries: normalized.searchQueries, retrievedSources: normalized.retrievedSources ?? null,
           namedCompetitors, citedCompetitorDomains,
           answerMentioned: determineAnswerMentioned(normalized.answerText, brands, domains),
           citationState: determineCitationState(normalized, domains), rawResponse: raw.rawResponse as Record<string, unknown>,

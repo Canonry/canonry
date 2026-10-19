@@ -148,7 +148,7 @@ test.each(['Simple', 'Advanced'] as const)('Muse persists independent mention, c
   expect(requests).toHaveLength(2)
   expect(requests.map(request => request.input).sort()).toEqual(['best widgets', 'widget options'])
   expect(requests.every(request => request.model === 'muse-spark-1.3')).toBe(true)
-  expect(requests.every(request => request.include === undefined)).toBe(true)
+  expect(requests.every(request => JSON.stringify(request.include) === '["web_search_call.results"]')).toBe(true)
   expect(requests.every(request => request.tool_choice === undefined)).toBe(true)
   expect(requests.every(request => request.tools.length === 1)).toBe(true)
   expect(requests.every(request => request.tools[0]?.type === 'web_search')).toBe(true)
@@ -167,6 +167,11 @@ test.each(['Simple', 'Advanced'] as const)('Muse persists independent mention, c
   })
   expect(rows.every(row => row.servedModel === 'muse-spark-1.3')).toBe(true)
   for (const row of rows) {
+    // The owned page a search listed is stored as retrieved, never as cited.
+    const envelope = typeof row.rawResponse === 'string' ? JSON.parse(row.rawResponse) : row.rawResponse
+    expect(envelope.retrievedSources).toEqual([
+      { uri: 'https://example.com/retrieved-only', title: 'Retrieved only', kind: 'search-result', query: null },
+    ])
     expect(row.location).toBe('New York')
     expect(row.requestedContext).toEqual(kind === 'Advanced' ? location : null)
     expect(row.supportedContext).toEqual(kind === 'Advanced' ? { status: 'applied', resolved: location } : null)
