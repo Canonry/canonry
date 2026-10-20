@@ -254,7 +254,7 @@ describe('fetchAiReferrals', () => {
     expect(requestBodies.length).toBe(3)
 
     // Check filter patterns in the first request (sessionSource)
-    const expressions = ((requestBodies[0]?.dimensionFilter as { orGroup?: { expressions?: Array<{ filter: { stringFilter: { value: string } } }> } })
+    const expressions = ((requestBodies[0]!.dimensionFilter as { orGroup?: { expressions?: Array<{ filter: { stringFilter: { value: string } } }> } })
       .orGroup?.expressions ?? [])
       .map((expression) => expression.filter.stringFilter.value)
 

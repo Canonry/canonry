@@ -16,9 +16,9 @@
   },
   "types": "./src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "typecheck": "node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json && node ../../scripts/typecheck.mjs --noEmit -p tsconfig.test.json",
     "test": "vitest run --config ../../vitest.package.config.ts",
-    "lint": "eslint src/ test/ codegen.ts",
+    "lint": "oxlint -c ../../.oxlintrc.json --type-aware src/ test/ codegen.ts",
     "gen": "node --import tsx codegen.ts",
     "gen:check": "node --import tsx codegen.ts --check"
   },

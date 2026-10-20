@@ -1,0 +1,526 @@
+// oxlint configuration — the lint gate for the workspace (`pnpm lint`, `pnpm check`,
+// the pre-commit hook). It mirrors the former eslint.config.js rule for rule.
+//
+// EVERY GUARD HAS ITS OWN RULE ID, and overrides resolve rules by id with
+// LAST-WINS semantics: a later block naming the same tree replaces an earlier
+// block's options for that rule. Never add selector bans as options on the core
+// `no-restricted-syntax` rule — build a rule with createRestrictedSyntaxRule
+// (eslint-rules/restricted-syntax.js) under its own id. An exemption is an
+// "off" override placed directly after the block it exempts from. See
+// docs/GUARDS.md, and add every new guard and exemption to test/lint-guards.test.ts.
+//
+// Type-aware rules run only with `--type-aware` (`pnpm lint`); the fast check
+// (`pnpm check` / pre-commit) runs everything else.
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // Every rule is opted in explicitly below; none come from oxlint's default categories.
+  "categories": { "correctness": "off" },
+  "env": { "builtin": true },
+  "ignorePatterns": ["dist/","node_modules/","apps/**/dist/","packages/**/dist/","packages/api-client-generated/src/generated/**"],
+  "jsPlugins": [
+    { "name": "canonry-guards", "specifier": "./eslint-rules/canonry-guards.js" },
+    { "name": "canonry-vocabulary", "specifier": "./eslint-rules/canonry-vocabulary.js" },
+    { "name": "design-tokens", "specifier": "./eslint-rules/design-tokens.js" },
+    "eslint-plugin-regexp"
+  ],
+  "overrides": [
+    // CLI commands must be fully non-interactive. readline is only allowed in
+    // init.ts as a human convenience — all init values are also passable via flags.
+    {
+      "files": ["packages/canonry/src/commands/**/*.ts","packages/canonry/src/cli-commands/**/*.ts"],
+      "rules": {
+        "no-restricted-imports": ["error",{"paths":[{"name":"node:readline","message":"CLI commands must be non-interactive. Accept values via flags, env vars, or config.yaml."},{"name":"readline","message":"CLI commands must be non-interactive. Accept values via flags, env vars, or config.yaml."}]}]
+      }
+    },
+    {
+      "files": ["packages/canonry/src/commands/init.ts"],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    },
+    // Vocabulary enforcement — see canonry-vocabulary/no-banned-metric-literal in
+    // eslint-rules/canonry-vocabulary.js. Overlaps the AI-hostname guard on all four
+    // trees, the CLI raw-HTTP guard on the two packages/canonry trees, and the web
+    // raw-HTTP guard on apps/web/src. It composes with all three: each has its own rule id.
+    {
+      "files": ["packages/canonry/src/commands/**/*.ts","packages/canonry/src/cli-commands/**/*.ts","packages/api-routes/src/**/*.ts","apps/web/src/**/*.ts","apps/web/src/**/*.tsx","packages/contracts/src/visibility-display.ts"],
+      "rules": {
+        "canonry-vocabulary/no-banned-metric-literal": "error"
+      }
+    },
+    // Percent display guard — see eslint-rules/no-inline-percent.js. Every
+    // percentage a person reads (CLI text, dashboard, server-built copy, Aero tool
+    // text) goes through `formatPercent`, which is the one place that formats a
+    // percent inline and so is exempt.
+    {
+      "files": ["packages/canonry/src/commands/**/*.ts","packages/canonry/src/cli-commands/**/*.ts","packages/canonry/src/agent/**/*.ts","packages/api-routes/src/**/*.ts","packages/intelligence/src/**/*.ts","packages/contracts/src/**/*.ts","apps/web/src/**/*.ts","apps/web/src/**/*.tsx"],
+      "rules": {
+        "canonry-guards/no-inline-percent": "error"
+      }
+    },
+    {
+      "files": ["packages/contracts/src/formatting.ts"],
+      "rules": {
+        "canonry-guards/no-inline-percent": "off"
+      }
+    },
+    // One query classifier: see eslint-rules/no-second-query-classifier.js. A
+    // tracked query is branded or non-brand only through `compileQueryClassifier` or
+    // a class an advanced plan stored. Production code only: test fixtures build
+    // class values by hand on purpose.
+    {
+      "files": ["packages/*/src/**/*.ts","apps/**/src/**/*.ts","apps/**/src/**/*.tsx"],
+      "rules": {
+        "canonry-guards/no-second-query-classifier": "error"
+      }
+    },
+    // The classifier itself (query-class.ts), and Search Console query intent
+    // (query-categorize.ts: brand, lead-gen, industry, other) — its own enum over
+    // search queries, not the class of a tracked query.
+    {
+      "files": ["packages/contracts/src/query-class.ts","packages/intelligence/src/query-categorize.ts"],
+      "rules": {
+        "canonry-guards/no-second-query-classifier": "off"
+      }
+    },
+    // GA4 dimension drift guard — see eslint-rules/canonry-guards.js. This tree is
+    // also matched by the AI-hostname guard's `packages/integration-*` glob.
+    {
+      "files": ["packages/integration-google-analytics/src/**/*.ts"],
+      "rules": {
+        "canonry-guards/no-inline-ga4-dimension": "error"
+      }
+    },
+    {
+      "files": ["packages/integration-google-analytics/src/constants.ts"],
+      "rules": {
+        "canonry-guards/no-inline-ga4-dimension": "off"
+      }
+    },
+    // AI-provider hostname drift guard — see eslint-rules/canonry-guards.js. Tests
+    // are exempt because fixtures are local to their assertions and don't drift
+    // across files.
+    {
+      "files": ["packages/canonry/src/**/*.ts","packages/api-routes/src/**/*.ts","packages/provider-*/src/**/*.ts","packages/integration-*/src/**/*.ts","packages/intelligence/src/**/*.ts","apps/**/src/**/*.ts","apps/**/src/**/*.tsx"],
+      "rules": {
+        "canonry-guards/no-inline-ai-hostname": "error"
+      }
+    },
+    {
+      "files": ["packages/contracts/src/ai-engines.ts"],
+      "rules": {
+        "canonry-guards/no-inline-ai-hostname": "off"
+      }
+    },
+    // eslint-plugin-regexp recommended (run as a JS plugin).
+    {
+      "files": ["**/*.js","**/*.mjs","**/*.cjs","**/*.ts","**/*.tsx"],
+      "rules": {
+        "no-control-regex": "error",
+        "no-misleading-character-class": "error",
+        "no-regex-spaces": "error",
+        "prefer-regex-literals": "error",
+        "no-invalid-regexp": "off",
+        "no-useless-backreference": "off",
+        "no-empty-character-class": "off",
+        "regexp/confusing-quantifier": "warn",
+        "regexp/control-character-escape": "error",
+        "regexp/match-any": "error",
+        "regexp/negation": "error",
+        "regexp/no-contradiction-with-assertion": "error",
+        "regexp/no-dupe-characters-character-class": "error",
+        "regexp/no-dupe-disjunctions": "error",
+        "regexp/no-empty-alternative": "warn",
+        "regexp/no-empty-capturing-group": "error",
+        "regexp/no-empty-character-class": "error",
+        "regexp/no-empty-group": "error",
+        "regexp/no-empty-lookarounds-assertion": "error",
+        "regexp/no-empty-string-literal": "error",
+        "regexp/no-escape-backspace": "error",
+        "regexp/no-extra-lookaround-assertions": "error",
+        "regexp/no-invalid-regexp": "error",
+        "regexp/no-invisible-character": "error",
+        "regexp/no-lazy-ends": "warn",
+        "regexp/no-legacy-features": "error",
+        "regexp/no-misleading-capturing-group": "error",
+        "regexp/no-misleading-unicode-character": "error",
+        "regexp/no-missing-g-flag": "error",
+        "regexp/no-non-standard-flag": "error",
+        "regexp/no-obscure-range": "error",
+        "regexp/no-optional-assertion": "error",
+        "regexp/no-potentially-useless-backreference": "warn",
+        "regexp/no-super-linear-backtracking": "error",
+        "regexp/no-trivially-nested-assertion": "error",
+        "regexp/no-trivially-nested-quantifier": "error",
+        "regexp/no-unused-capturing-group": "error",
+        "regexp/no-useless-assertions": "error",
+        "regexp/no-useless-backreference": "error",
+        "regexp/no-useless-character-class": "error",
+        "regexp/no-useless-dollar-replacements": "error",
+        "regexp/no-useless-escape": "error",
+        "regexp/no-useless-flag": "warn",
+        "regexp/no-useless-lazy": "error",
+        "regexp/no-useless-non-capturing-group": "error",
+        "regexp/no-useless-quantifier": "error",
+        "regexp/no-useless-range": "error",
+        "regexp/no-useless-set-operand": "error",
+        "regexp/no-useless-string-literal": "error",
+        "regexp/no-useless-two-nums-quantifier": "error",
+        "regexp/no-zero-quantifier": "error",
+        "regexp/optimal-lookaround-quantifier": "warn",
+        "regexp/optimal-quantifier-concatenation": "error",
+        "regexp/prefer-character-class": "error",
+        "regexp/prefer-d": "error",
+        "regexp/prefer-plus-quantifier": "error",
+        "regexp/prefer-predefined-assertion": "error",
+        "regexp/prefer-question-quantifier": "error",
+        "regexp/prefer-range": "error",
+        "regexp/prefer-set-operation": "error",
+        "regexp/prefer-star-quantifier": "error",
+        "regexp/prefer-unicode-codepoint-escapes": "error",
+        "regexp/prefer-w": "error",
+        "regexp/simplify-set-operations": "error",
+        "regexp/sort-flags": "error",
+        "regexp/strict": "error",
+        "regexp/use-ignore-case": "error"
+      }
+    },
+    // ESLint recommended rules for JavaScript files.
+    {
+      "files": ["**/*.js","**/*.mjs","**/*.cjs"],
+      "env": {"node":true},
+      "globals": {"AsyncDisposableStack":"readonly","DisposableStack":"readonly","SuppressedError":"readonly"},
+      "rules": {
+        "constructor-super": "error",
+        "for-direction": "error",
+        "getter-return": "error",
+        "no-async-promise-executor": "error",
+        "no-case-declarations": "error",
+        "no-class-assign": "error",
+        "no-compare-neg-zero": "error",
+        "no-cond-assign": "error",
+        "no-const-assign": "error",
+        "no-constant-binary-expression": "error",
+        "no-constant-condition": "error",
+        "no-control-regex": "error",
+        "no-debugger": "error",
+        "no-delete-var": "error",
+        "no-dupe-class-members": "error",
+        "no-dupe-else-if": "error",
+        "no-dupe-keys": "error",
+        "no-duplicate-case": "error",
+        "no-empty": "error",
+        "no-empty-character-class": "error",
+        "no-empty-pattern": "error",
+        "no-empty-static-block": "error",
+        "no-ex-assign": "error",
+        "no-extra-boolean-cast": "error",
+        "no-fallthrough": "error",
+        "no-func-assign": "error",
+        "no-global-assign": "error",
+        "no-import-assign": "error",
+        "no-invalid-regexp": "error",
+        "no-irregular-whitespace": "error",
+        "no-loss-of-precision": "error",
+        "no-misleading-character-class": "error",
+        "no-new-native-nonconstructor": "error",
+        "no-nonoctal-decimal-escape": "error",
+        "no-obj-calls": "error",
+        "no-prototype-builtins": "error",
+        "no-redeclare": "error",
+        "no-regex-spaces": "error",
+        "no-self-assign": "error",
+        "no-setter-return": "error",
+        "no-shadow-restricted-names": "error",
+        "no-sparse-arrays": "error",
+        "no-this-before-super": "error",
+        "no-undef": "error",
+        "no-unexpected-multiline": "error",
+        "no-unreachable": "error",
+        "no-unsafe-finally": "error",
+        "no-unsafe-negation": "error",
+        "no-unsafe-optional-chaining": "error",
+        "no-unused-labels": "error",
+        "no-unused-private-class-members": "error",
+        "no-unused-vars": ["error",{"argsIgnorePattern":"^_","varsIgnorePattern":"^_","caughtErrorsIgnorePattern":"^_"}],
+        "no-useless-backreference": "error",
+        "no-useless-catch": "error",
+        "no-useless-escape": "error",
+        "no-with": "error",
+        "require-yield": "error",
+        "use-isnan": "error",
+        "valid-typeof": "error"
+      }
+    },
+    // ESLint and typescript-eslint recommended rules for TypeScript files.
+    {
+      "files": ["**/*.ts","**/*.tsx"],
+      "plugins": ["typescript"],
+      "env": {"node":true},
+      "globals": {"AsyncDisposableStack":"readonly","DisposableStack":"readonly","SuppressedError":"readonly"},
+      "rules": {
+        "constructor-super": "off",
+        "for-direction": "error",
+        "getter-return": "off",
+        "no-async-promise-executor": "error",
+        "no-case-declarations": "error",
+        "no-class-assign": "off",
+        "no-compare-neg-zero": "error",
+        "no-cond-assign": "error",
+        "no-const-assign": "off",
+        "no-constant-binary-expression": "error",
+        "no-constant-condition": "error",
+        "no-control-regex": "error",
+        "no-debugger": "error",
+        "no-delete-var": "error",
+        "no-dupe-class-members": "off",
+        "no-dupe-else-if": "error",
+        "no-dupe-keys": "off",
+        "no-duplicate-case": "error",
+        "no-empty": "error",
+        "no-empty-character-class": "error",
+        "no-empty-pattern": "error",
+        "no-empty-static-block": "error",
+        "no-ex-assign": "error",
+        "no-extra-boolean-cast": "error",
+        "no-fallthrough": "error",
+        "no-func-assign": "off",
+        "no-global-assign": "error",
+        "no-import-assign": "off",
+        "no-invalid-regexp": "error",
+        "no-irregular-whitespace": "error",
+        "no-loss-of-precision": "error",
+        "no-misleading-character-class": "error",
+        "no-new-native-nonconstructor": "off",
+        "no-nonoctal-decimal-escape": "error",
+        "no-obj-calls": "off",
+        "no-prototype-builtins": "error",
+        "no-redeclare": "off",
+        "no-regex-spaces": "error",
+        "no-self-assign": "error",
+        "no-setter-return": "off",
+        "no-shadow-restricted-names": "error",
+        "no-sparse-arrays": "error",
+        "no-this-before-super": "off",
+        "no-undef": "off",
+        "no-unexpected-multiline": "error",
+        "no-unreachable": "off",
+        "no-unsafe-finally": "error",
+        "no-unsafe-negation": "off",
+        "no-unsafe-optional-chaining": "error",
+        "no-unused-labels": "error",
+        "no-unused-private-class-members": "error",
+        "no-unused-vars": ["error",{"argsIgnorePattern":"^_","varsIgnorePattern":"^_","caughtErrorsIgnorePattern":"^_"}],
+        "no-useless-backreference": "error",
+        "no-useless-catch": "error",
+        "no-useless-escape": "error",
+        "no-with": "off",
+        "require-yield": "error",
+        "use-isnan": "error",
+        "valid-typeof": "error",
+        "no-var": "error",
+        "prefer-const": "error",
+        "prefer-rest-params": "error",
+        "prefer-spread": "error",
+        "no-array-constructor": "error",
+        "no-unused-expressions": "error",
+        "typescript/ban-ts-comment": "error",
+        "typescript/no-duplicate-enum-values": "error",
+        "typescript/no-empty-object-type": "error",
+        "typescript/no-explicit-any": "error",
+        "typescript/no-extra-non-null-assertion": "error",
+        "typescript/no-misused-new": "error",
+        "typescript/no-namespace": "error",
+        "typescript/no-non-null-asserted-optional-chain": "error",
+        "typescript/no-require-imports": "error",
+        "typescript/no-this-alias": "error",
+        "typescript/no-unnecessary-type-constraint": "error",
+        "typescript/no-unsafe-declaration-merging": "error",
+        "typescript/no-unsafe-function-type": "error",
+        "typescript/no-wrapper-object-types": "error",
+        "typescript/prefer-as-const": "error",
+        "typescript/prefer-namespace-keyword": "error",
+        "typescript/triple-slash-reference": "error",
+        "no-warning-comments": ["warn",{"terms":["todo","fixme","hack","xxx"],"location":"start"}]
+      }
+    },
+    // Type-aware rules (run with `--type-aware`) — limited to `src/`, whose files are
+    // in the package tsconfigs. no-unnecessary-condition stays `warn`: pre-existing
+    // findings, mostly defensive `?.`/`??` noise, are drained incrementally. The
+    // soundness rules are errors: forgotten awaits, misused promises, `any` leaking
+    // into typed code, broken string output, unbound methods, awaiting non-thenables.
+    {
+      "files": ["**/src/**/*.ts","**/src/**/*.tsx"],
+      "plugins": ["typescript"],
+      "rules": {
+        "constructor-super": "off",
+        "getter-return": "off",
+        "no-class-assign": "off",
+        "no-const-assign": "off",
+        "no-dupe-class-members": "off",
+        "no-dupe-keys": "off",
+        "no-func-assign": "off",
+        "no-import-assign": "off",
+        "no-new-native-nonconstructor": "off",
+        "no-obj-calls": "off",
+        "no-redeclare": "off",
+        "no-setter-return": "off",
+        "no-this-before-super": "off",
+        "no-undef": "off",
+        "no-unreachable": "off",
+        "no-unsafe-negation": "off",
+        "no-var": "error",
+        "no-with": "off",
+        "prefer-const": "error",
+        "prefer-rest-params": "error",
+        "prefer-spread": "error",
+        "no-array-constructor": "error",
+        "no-implied-eval": "off",
+        "no-unused-expressions": "error",
+        "no-unused-vars": "error",
+        "no-throw-literal": "off",
+        "prefer-promise-reject-errors": "off",
+        "require-await": "off",
+        "typescript/await-thenable": "error",
+        "typescript/ban-ts-comment": "error",
+        "typescript/no-array-delete": "error",
+        "typescript/no-base-to-string": "error",
+        "typescript/no-duplicate-enum-values": "error",
+        "typescript/no-duplicate-type-constituents": "error",
+        "typescript/no-empty-object-type": "error",
+        "typescript/no-explicit-any": "error",
+        "typescript/no-extra-non-null-assertion": "error",
+        "typescript/no-floating-promises": "error",
+        "typescript/no-for-in-array": "error",
+        "typescript/no-implied-eval": "error",
+        "typescript/no-misused-new": "error",
+        "typescript/no-misused-promises": "error",
+        "typescript/no-namespace": "error",
+        "typescript/no-non-null-asserted-optional-chain": "error",
+        "typescript/no-redundant-type-constituents": "off",
+        "typescript/no-require-imports": "error",
+        "typescript/no-this-alias": "error",
+        "typescript/no-unnecessary-type-assertion": "off",
+        "typescript/no-unnecessary-type-constraint": "error",
+        "typescript/no-unsafe-argument": "error",
+        "typescript/no-unsafe-assignment": "error",
+        "typescript/no-unsafe-call": "error",
+        "typescript/no-unsafe-declaration-merging": "error",
+        "typescript/no-unsafe-enum-comparison": "error",
+        "typescript/no-unsafe-function-type": "error",
+        "typescript/no-unsafe-member-access": "error",
+        "typescript/no-unsafe-return": "error",
+        "typescript/no-unsafe-unary-minus": "error",
+        "typescript/no-wrapper-object-types": "error",
+        "typescript/only-throw-error": "off",
+        "typescript/prefer-as-const": "error",
+        "typescript/prefer-namespace-keyword": "error",
+        "typescript/prefer-promise-reject-errors": "error",
+        "typescript/require-await": "off",
+        "typescript/restrict-plus-operands": "error",
+        "typescript/restrict-template-expressions": "off",
+        "typescript/triple-slash-reference": "error",
+        "typescript/unbound-method": "error",
+        "typescript/no-unnecessary-condition": "warn"
+      }
+    },
+    // Rules of Hooks. A hook called after an early return changes the hook count
+    // between renders and throws at runtime; the embed shell hit this on every cold
+    // load because it always renders the loading branch first.
+    {
+      "files": ["apps/web/**/*.ts","apps/web/**/*.tsx"],
+      "plugins": ["react"],
+      "rules": {
+        "react/rules-of-hooks": "error"
+      }
+    },
+    // ChartPrimitives is the only file allowed to import directly from recharts.
+    // All other web files must use ChartPrimitives and may not use alternative chart
+    // libs. The next block replaces these options for ChartPrimitives itself.
+    {
+      "files": ["apps/web/**/*.ts","apps/web/**/*.tsx"],
+      "env": {"browser":true},
+      "rules": {
+        "no-restricted-imports": ["error",{"paths":[{"name":"chart.js","message":"Use Recharts via ChartPrimitives instead."},{"name":"highcharts","message":"Use Recharts via ChartPrimitives instead."},{"name":"d3","message":"Use Recharts via ChartPrimitives instead."},{"name":"victory","message":"Use Recharts via ChartPrimitives instead."},{"name":"@nivo/core","message":"Use Recharts via ChartPrimitives instead."},{"name":"plotly.js","message":"Use Recharts via ChartPrimitives instead."},{"name":"recharts","message":"Import from ChartPrimitives.js instead of recharts directly."}],"patterns":[{"group":["chart.js/*"],"message":"Use Recharts via ChartPrimitives instead."},{"group":["highcharts/*"],"message":"Use Recharts via ChartPrimitives instead."},{"group":["d3-*"],"message":"Use Recharts via ChartPrimitives instead."},{"group":["victory-*"],"message":"Use Recharts via ChartPrimitives instead."},{"group":["@nivo/*"],"message":"Use Recharts via ChartPrimitives instead."},{"group":["plotly.js-*"],"message":"Use Recharts via ChartPrimitives instead."},{"group":["recharts/*"],"message":"Import from ChartPrimitives.js instead of recharts directly."}]}]
+      }
+    },
+    // ChartPrimitives itself can import recharts but not alternative chart libs.
+    {
+      "files": ["apps/web/src/components/shared/ChartPrimitives.tsx"],
+      "rules": {
+        "no-restricted-imports": ["error",{"paths":[{"name":"chart.js","message":"Use Recharts via ChartPrimitives instead."},{"name":"highcharts","message":"Use Recharts via ChartPrimitives instead."},{"name":"d3","message":"Use Recharts via ChartPrimitives instead."},{"name":"victory","message":"Use Recharts via ChartPrimitives instead."},{"name":"@nivo/core","message":"Use Recharts via ChartPrimitives instead."},{"name":"plotly.js","message":"Use Recharts via ChartPrimitives instead."}],"patterns":[{"group":["chart.js/*"],"message":"Use Recharts via ChartPrimitives instead."},{"group":["highcharts/*"],"message":"Use Recharts via ChartPrimitives instead."},{"group":["d3-*"],"message":"Use Recharts via ChartPrimitives instead."},{"group":["victory-*"],"message":"Use Recharts via ChartPrimitives instead."},{"group":["@nivo/*"],"message":"Use Recharts via ChartPrimitives instead."},{"group":["plotly.js-*"],"message":"Use Recharts via ChartPrimitives instead."}]}]
+      }
+    },
+    // Web SDK enforcement — see canonry-guards/no-raw-http-web in eslint-rules/canonry-guards.js.
+    {
+      "files": ["apps/web/src/**/*.ts","apps/web/src/**/*.tsx"],
+      "rules": {
+        "canonry-guards/no-raw-http-web": "error"
+      }
+    },
+    // The two thin shims are the only places raw `fetch()` is legitimate: api.ts
+    // (typed wrappers around SDK calls) and api-aero.ts (the SSE prompt stream and
+    // transcript reads that ride on `EventSource`). Tests are outside this scope
+    // because they stub `globalThis.fetch` via `vi.stubGlobal`.
+    {
+      "files": ["apps/web/src/api.ts","apps/web/src/api-aero.ts"],
+      "rules": {
+        "canonry-guards/no-raw-http-web": "off"
+      }
+    },
+    // CLI SDK enforcement — see canonry-guards/no-raw-http-cli in eslint-rules/canonry-guards.js.
+    {
+      "files": ["packages/canonry/src/**/*.ts"],
+      "rules": {
+        "canonry-guards/no-raw-http-cli": "error"
+      }
+    },
+    // client.ts: `ApiClient`'s `/health` probe and SSE prompt stream. External HTTP,
+    // not the canonry API: daemon.ts probes localhost `/health` for serve-readiness,
+    // telemetry.ts POSTs to the public telemetry collector, update-check.ts polls npm
+    // dist-tags. A URL the operator supplies (a sitemap, a site) is not one of these:
+    // it goes through `createGuardedFetch` from api-routes, never raw fetch.
+    {
+      "files": ["packages/canonry/src/client.ts","packages/canonry/src/commands/daemon.ts","packages/canonry/src/telemetry.ts","packages/canonry/src/update-check.ts"],
+      "rules": {
+        "canonry-guards/no-raw-http-cli": "off"
+      }
+    },
+    // Design-token ratchet (Phase 3 complete): no raw Tailwind palette utilities
+    // anywhere in themeable web code. See eslint-rules/design-tokens.js.
+    {
+      "files": ["apps/web/src/**/*.ts","apps/web/src/**/*.tsx"],
+      "rules": {
+        "design-tokens/no-literal-palette": "error"
+      }
+    },
+    // Permanent exclusions: ProviderBadge encodes engine identity (not tone) and
+    // ChartPrimitives carries the `var(--chart-*, #hex)` fallbacks. Both stay literal.
+    {
+      "files": ["apps/web/src/components/shared/ProviderBadge.tsx","apps/web/src/components/shared/ChartPrimitives.tsx"],
+      "rules": {
+        "design-tokens/no-literal-palette": "off"
+      }
+    },
+    // Vocabulary ratchet: web UI copy says "query", never "question". Scoped to
+    // apps/web/src plus the shared visibility display labels: the frozen route paths
+    // and MCP tool names live in packages/api-routes + packages/canonry, so keeping
+    // the rule off those trees exempts them structurally instead of by regex.
+    {
+      "files": ["apps/web/src/**/*.ts","apps/web/src/**/*.tsx","packages/contracts/src/visibility-display.ts"],
+      "rules": {
+        "canonry-vocabulary/no-question-ui-copy": "error"
+      }
+    },
+    // Permanent exclusions: DiscoverySection is discovery's GENERATIVE framing
+    // ("questions your customers might ask") — a genuinely different noun, and no
+    // regex separates it from query copy, so the boundary is the file. mock-data.ts
+    // is a test fixture with no production consumer.
+    {
+      "files": ["apps/web/src/components/project/DiscoverySection.tsx","apps/web/src/mock-data.ts"],
+      "rules": {
+        "canonry-vocabulary/no-question-ui-copy": "off"
+      }
+    }
+  ]
+}

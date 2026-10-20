@@ -133,7 +133,7 @@ function BackLink({
   const baseClasses = 'inline-flex items-center gap-1'
   if (canGoBack) {
     // TanStack Router's `router.history.back()` is typed `any` by its
-    // generics (trips ESLint's no-unsafe-call). `window.history.back()`
+    // generics (trips the no-unsafe-call lint rule). `window.history.back()`
     // is equivalent — the router's history adapter delegates to the same
     // browser history object — and is fully typed.
     const handleBack = () => {

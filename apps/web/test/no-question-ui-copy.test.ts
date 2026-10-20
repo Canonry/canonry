@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { isQuestionUiCopy } from '../../../eslint.config.js'
+import { isQuestionUiCopy } from '../../../eslint-rules/canonry-vocabulary.js'
 
 /**
  * Locks the classifier behind the `canonry-vocabulary/no-question-ui-copy`
- * ESLint rule (AGENTS.md "Vocabulary (Critical) → Query vs question"). Same
+ * lint rule (AGENTS.md "Vocabulary (Critical) → Query vs question"). Same
  * reasoning as `no-literal-palette.test.ts`: the predicate IS the gate, so if
  * it is wrong the gate is wrong — silently, in whichever direction hurts more.
  *
  * The hard part is not catching "Question type". It is separating UI copy from
  * the FROZEN wire names and the internal tokens that carry the same word, since
- * those cannot be renamed and must never cost a future author an
- * eslint-disable. Both directions are asserted.
+ * those cannot be renamed and must never cost a future author a
+ * disable comment. Both directions are asserted.
  */
 describe('isQuestionUiCopy', () => {
   it('flags UI copy that calls the tracked entity a question', () => {

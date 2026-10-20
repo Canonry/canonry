@@ -273,7 +273,7 @@ setup or refreshing properties. Both resubmit actions wait for a sitemap load.
 
 **Every web call into the canonry API MUST flow through the generated
 `@canonry/canonry-api-client` SDK.** Raw `fetch()` and `XMLHttpRequest` are
-banned in `apps/web/src/` (ESLint-enforced) — the only exceptions are
+banned in `apps/web/src/` (lint-enforced) — the only exceptions are
 `src/api.ts` and `src/api-aero.ts`, which are the SDK wrappers /
 EventSource consumers respectively.
 
@@ -497,7 +497,7 @@ PRs rather than rolling into tooling work.
 ### Charting and graph rendering
 
 **Recharts only, via ChartPrimitives.tsx, for analytic charts.** Never import
-`recharts` directly. ESLint enforces this.
+`recharts` directly. Lint enforces this.
 
 ```typescript
 import { CHART_TOOLTIP_STYLE, CHART_AXIS_TICK, CHART_SERIES_COLORS } from '../shared/ChartPrimitives'
@@ -601,7 +601,7 @@ consistent):
   (e.g. `placeholder-mono-600`), not the `placeholder:text-*` variant form.
 
 **Design-token ratchet (Phase 3, COMPLETE + enforced).** The
-`design-tokens/no-literal-palette` ESLint rule (`eslint.config.js`) errors on any
+`design-tokens/no-literal-palette` lint rule (`.oxlintrc.json`) errors on any
 raw Tailwind palette utility across the whole `apps/web/src` tree; only
 `ProviderBadge` + `ChartPrimitives` are permanently excluded (engine identity /
 chart hex fallbacks). The migration allowlist has been emptied and removed, so any

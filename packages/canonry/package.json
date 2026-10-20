@@ -1,6 +1,6 @@
 {
   "name": "@canonry/canonry",
-  "version": "7.48.0",
+  "version": "7.50.0",
   "type": "module",
   "description": "Self-hosted AI visibility (AEO) platform: track how ChatGPT, Claude, Gemini, and Perplexity cite your domain, join it with Search Console, GA4, server-side traffic, and paid media, and fix what you find through agent tools (CLI, REST, MCP). Local SQLite.",
   "keywords": [
@@ -60,9 +60,9 @@
     "build:cli": "node --import tsx scripts/copy-agent-assets.ts && tsup",
     "build:web": "node --import tsx build-web.ts",
     "prepublishOnly": "cp ../../README.md ./README.md && pnpm run build",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json",
     "test": "vitest run --config ../../vitest.package.config.ts",
-    "lint": "eslint src/ test/"
+    "lint": "oxlint -c ../../.oxlintrc.json --type-aware src/ test/"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",

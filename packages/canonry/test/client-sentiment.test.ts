@@ -80,7 +80,7 @@ describe('sentiment generated SDK client', () => {
       await server.connect(serverTransport)
       await mcp.connect(clientTransport)
       const listed = (await mcp.listTools()).tools.find(entry => entry.name === 'canonry_sentiment_evidence')
-      expect((listed?.inputSchema.properties as Record<string, { items?: { enum?: string[] } }>).outcome?.items?.enum).toEqual([...sentimentOutcomeSchema.options])
+      expect((listed!.inputSchema.properties as Record<string, { items?: { enum?: string[] } }>).outcome?.items?.enum).toEqual([...sentimentOutcomeSchema.options])
       const response = await mcp.callTool({ name: 'canonry_sentiment_evidence', arguments: { project: 'demo', queryClass: 'branded', scope: 'property', scopeKey: 'property-a', outcome: [...outcome] } })
       expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
       expect(response.structuredContent).toEqual(page)

@@ -25,7 +25,7 @@ const SHARED_INCLUDE = ['test/**/*.test.ts', 'test/**/*.test.tsx']
 const SHARED_SETUP = [path.resolve(import.meta.dirname, 'test-setup/vitest-defaults.ts')]
 const WEB_SETUP = [...SHARED_SETUP, path.resolve(import.meta.dirname, 'apps/web/test/testing-library-defaults.ts')]
 // The aggregate run executes every package's suite in one process, so tests
-// that spawn git, ESLint or npm, or seed a database, routinely pass 5s under
+// that spawn git, oxlint or npm, or seed a database, routinely pass 5s under
 // load while finishing in 1-3s on their own. Applies only to this root run;
 // each package's own `pnpm test` keeps Vitest's defaults.
 const AGGREGATE_TIMEOUTS = { testTimeout: 30_000, hookTimeout: 30_000 }

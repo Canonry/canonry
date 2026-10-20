@@ -1,6 +1,6 @@
 // Design-token migration ratchet (engine issue #767, Phase 3): the single source
 // of truth for "what is a raw Tailwind palette utility". Imported by:
-//   - eslint.config.js                      (the enforced gate)
+//   - .oxlintrc.json                        (the enforced gate, via design-tokens.js)
 //   - apps/web/scripts/scan-raw-colors.mjs  (progress report)
 //   - apps/web/test/no-literal-palette.test.ts (behavior lock)
 //
