@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import {
   AI_ENGINE_DOMAINS,
+  GA4_AI_ASSISTANT_CHANNEL_GROUP,
   GA_SEARCH_LANDING_WINDOWS,
   GA_SEARCH_LANDING_WINDOW_DAYS,
   classifyAiReferralTrafficClass,
@@ -50,6 +51,7 @@ import type {
   GA4SearchLandingReport,
   GA4SearchLandingWindowReport,
   GA4SourceDimension,
+  GA4StringFilter,
   GA4TrafficRow,
   GA4AcquisitionReport,
   GA4LeadEventReport,
@@ -571,11 +573,17 @@ export async function fetchLeadEvents(
   return { ...dateRange, attributionScope, rows }
 }
 
-// AI referral source patterns matched against both sessionSource and firstUserSource.
+// AI referral source patterns matched against each attribution pass's source
+// dimension (sessionSource, firstUserSource, sessionManualSource).
 // sessionSource: the referrer/utm_source for the session that triggered the hit.
 // firstUserSource: the referrer/utm_source from the user's very first visit (lifetime).
 // Using both ensures we catch AI traffic whether it arrives via referrer header or
 // utm_source parameter (e.g. ?utm_source=chatgpt.com).
+//
+// They stay alongside GA4's AI Assistant channel (`AI_REFERRAL_PASSES`): the
+// channel only exists from 2026-05-13 and is not retroactive, Google has not
+// published the referrers it recognizes, and it may leave some AI sources in
+// Referral. The patterns cover that history and those sources.
 const AI_REFERRAL_SOURCE_FILTERS: Array<{ matchType: 'CONTAINS' | 'EXACT'; value: string }> = [
   { matchType: 'CONTAINS', value: 'perplexity' },
   { matchType: 'CONTAINS', value: 'gemini' },
@@ -585,9 +593,69 @@ const AI_REFERRAL_SOURCE_FILTERS: Array<{ matchType: 'CONTAINS' | 'EXACT'; value
   { matchType: 'CONTAINS', value: 'anthropic' },
   { matchType: 'CONTAINS', value: 'copilot' },
   { matchType: 'CONTAINS', value: 'phind' },
+  { matchType: 'CONTAINS', value: 'grok' },
+  { matchType: 'CONTAINS', value: 'deepseek' },
   { matchType: 'EXACT', value: AI_ENGINE_DOMAINS.you },
   { matchType: 'CONTAINS', value: AI_ENGINE_DOMAINS.metaAi },
 ]
+
+/** One of the three attribution passes `fetchAiReferrals` runs. */
+interface AiReferralPass {
+  /** Stored as `ga_ai_referrals.source_dimension`. */
+  label: GA4SourceDimension
+  sourceDimension: string
+  mediumDimension: string
+  /**
+   * The channel group GA4 derives from THIS pass's source and medium, ORed into
+   * the source filter as `AI Assistant`; null when GA4 has none.
+   *
+   * It must be the pass's own channel. Rows are deduplicated per (date,
+   * source) across passes, and each pass reports its own source (see
+   * `resolveWinningDimensions` in api-routes). Filtered on another lens's
+   * channel, a pass can return a visit under a different source than that
+   * lens reports, and the visit is then counted once per source. GA4 has no
+   * channel group for the manual UTM fields (getMetadata, captured live), so
+   * that pass matches sources only.
+   */
+  channelDimension: string | null
+}
+
+// Every channel and source dimension here was COMPATIBLE with these dimensions
+// and metrics in checkCompatibility, and the `AI Assistant` filter matched in
+// lower case with `caseSensitive: false` (live, 2026-10-20).
+const AI_REFERRAL_PASSES: readonly AiReferralPass[] = [
+  {
+    label: 'session',
+    sourceDimension: DIM.sessionSource,
+    mediumDimension: DIM.sessionMedium,
+    // Same name as the channel the report requests, so the filter matches the
+    // stored `channelGroup` value exactly.
+    channelDimension: DIM.sessionDefaultChannelGrouping,
+  },
+  {
+    label: 'first_user',
+    sourceDimension: DIM.firstUserSource,
+    mediumDimension: DIM.firstUserMedium,
+    channelDimension: DIM.firstUserDefaultChannelGroup,
+  },
+  {
+    label: 'manual_utm',
+    sourceDimension: DIM.sessionManualSource,
+    mediumDimension: DIM.sessionManualMedium,
+    channelDimension: null,
+  },
+]
+
+/**
+ * True when GA4 refused to run a request as asked (HTTP 400 INVALID_ARGUMENT):
+ * an unknown field ("Field … is not a valid dimension") or fields it cannot
+ * combine ("The request's dimensions & metrics are incompatible"). The second
+ * message names one field to remove, which need not be the field that caused
+ * it (captured live), so the message cannot say whether a filter was the cause.
+ */
+function isInvalidGa4Request(error: unknown): boolean {
+  return error instanceof GA4ApiError && error.status === 400
+}
 
 /**
  * Fetch landing page traffic data for the given number of days.
@@ -1147,6 +1215,7 @@ export async function fetchAiReferrals(
   const endDate = new Date()
   const startDate = new Date()
   startDate.setDate(startDate.getDate() - syncDays)
+  const dateRange = { startDate: formatDate(startDate), endDate: formatDate(endDate) }
 
   ga4Log('info', 'fetch-ai-referrals.start', { propertyId, days: syncDays })
 
@@ -1175,75 +1244,32 @@ export async function fetchAiReferrals(
   //
   // Querying all three ensures comprehensive AI traffic detection regardless of
   // whether it arrives via referrer header or utm_source parameter.
-  const PAGE_SIZE = 1000
+  //
+  // The session and first-user passes also select GA4's own `AI Assistant`
+  // channel, so an AI referral GA4 recognizes under a source no pattern names
+  // is synced too. Its source may map to no engine; it is stored as reported
+  // and still counts as AI traffic. A row matching both the channel and a
+  // pattern is one row of one report, so it is returned once.
   const rows: GA4AiReferralRow[] = []
 
-  // Each entry: [sourceDimension, mediumDimension, label for storage]
-  const dimensionPairs: Array<[string, string, GA4SourceDimension]> = [
-    [DIM.sessionSource, DIM.sessionMedium, 'session'],
-    [DIM.firstUserSource, DIM.firstUserMedium, 'first_user'],
-    [DIM.sessionManualSource, DIM.sessionManualMedium, 'manual_utm'],
-  ]
-
-  for (const [sourceDim, mediumDim, dimLabel] of dimensionPairs) {
-    let offset = 0
-    let aiRefPageCount = 0
-    while (aiRefPageCount < GA4_MAX_PAGES) {
-      aiRefPageCount++
-      const request: GA4RunReportRequest = {
-        dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
-        dimensions: [
-          { name: DIM.date },
-          { name: sourceDim },
-          { name: mediumDim },
-          { name: DIM.sessionDefaultChannelGrouping },
-          { name: DIM.landingPagePlusQueryString },
-        ],
-        metrics: [
-          { name: MET.sessions },
-          { name: MET.totalUsers },
-        ],
-        dimensionFilter: {
-          orGroup: {
-            expressions: AI_REFERRAL_SOURCE_FILTERS.map(({ matchType, value }) => ({
-              filter: {
-                fieldName: sourceDim,
-                stringFilter: { matchType, value },
-              },
-            })),
-          },
-        },
-        limit: PAGE_SIZE,
-        offset,
-      }
-
-      const response = await runReport(accessToken, propertyId, request)
-      if (!response) break
-
-      const pageRows: GA4AiReferralRow[] = (response.rows ?? []).map((row) => {
-        const source = row.dimensionValues[1]!.value
-        const medium = row.dimensionValues[2]!.value
-        const channelGroup = row.dimensionValues[3]?.value ?? '(not set)'
-        const landingPage = row.dimensionValues[4]?.value ?? '(not set)'
-        return {
-          date: row.dimensionValues[0]!.value,
-          source,
-          medium,
-          trafficClass: classifyAiReferralTrafficClass({ source, medium, channelGroup, landingPage }),
-          channelGroup,
-          landingPage,
-          sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
-          users: parseInt(row.metricValues[1]!.value, 10) || 0,
-          sourceDimension: dimLabel,
-        }
+  for (const pass of AI_REFERRAL_PASSES) {
+    let passRows: GA4AiReferralRow[]
+    try {
+      passRows = await fetchAiReferralPass(accessToken, propertyId, dateRange, pass, pass.channelDimension)
+    } catch (error) {
+      if (pass.channelDimension === null || !isInvalidGa4Request(error)) throw error
+      // Retry once without the channel, from the first page so no page mixes
+      // the two filters: a pass the channel broke still gets the source
+      // patterns, and a request invalid for any other reason fails again here.
+      ga4Log('error', 'fetch-ai-referrals.channel-filter-rejected', {
+        propertyId,
+        sourceDimension: pass.label,
+        channelDimension: pass.channelDimension,
+        error: describeError(error),
       })
-
-      rows.push(...pageRows)
-
-      const totalRows = response.rowCount ?? 0
-      offset += pageRows.length
-      if (pageRows.length < PAGE_SIZE || offset >= totalRows) break
+      passRows = await fetchAiReferralPass(accessToken, propertyId, dateRange, pass, null)
     }
+    rows.push(...passRows)
   }
 
   // Deduplicate within each dimension: if the same date+source+medium+channel+page+dimension
@@ -1271,6 +1297,87 @@ export async function fetchAiReferrals(
 
   ga4Log('info', 'fetch-ai-referrals.done', { propertyId, rowCount: dedupedRows.length })
   return dedupedRows
+}
+
+/**
+ * Every row of one attribution pass: the AI source patterns on the pass's
+ * source dimension, ORed with `AI Assistant` on `channelDimension` when given.
+ */
+async function fetchAiReferralPass(
+  accessToken: string,
+  propertyId: string,
+  dateRange: { startDate: string; endDate: string },
+  pass: AiReferralPass,
+  channelDimension: string | null,
+): Promise<GA4AiReferralRow[]> {
+  const PAGE_SIZE = 1000
+  const expressions: Array<{ filter: { fieldName: string; stringFilter: GA4StringFilter } }> =
+    AI_REFERRAL_SOURCE_FILTERS.map(({ matchType, value }) => ({
+      filter: {
+        fieldName: pass.sourceDimension,
+        stringFilter: { matchType, value },
+      },
+    }))
+  if (channelDimension) {
+    expressions.push({
+      filter: {
+        fieldName: channelDimension,
+        stringFilter: { matchType: 'EXACT', value: GA4_AI_ASSISTANT_CHANNEL_GROUP, caseSensitive: false },
+      },
+    })
+  }
+
+  const rows: GA4AiReferralRow[] = []
+  let offset = 0
+  let pageCount = 0
+  while (pageCount < GA4_MAX_PAGES) {
+    pageCount++
+    const request: GA4RunReportRequest = {
+      dateRanges: [dateRange],
+      dimensions: [
+        { name: DIM.date },
+        { name: pass.sourceDimension },
+        { name: pass.mediumDimension },
+        { name: DIM.sessionDefaultChannelGrouping },
+        { name: DIM.landingPagePlusQueryString },
+      ],
+      metrics: [
+        { name: MET.sessions },
+        { name: MET.totalUsers },
+      ],
+      dimensionFilter: { orGroup: { expressions } },
+      limit: PAGE_SIZE,
+      offset,
+    }
+
+    const response = await runReport(accessToken, propertyId, request)
+    if (!response) break
+
+    const pageRows: GA4AiReferralRow[] = (response.rows ?? []).map((row) => {
+      const source = row.dimensionValues[1]!.value
+      const medium = row.dimensionValues[2]!.value
+      const channelGroup = row.dimensionValues[3]?.value ?? '(not set)'
+      const landingPage = row.dimensionValues[4]?.value ?? '(not set)'
+      return {
+        date: row.dimensionValues[0]!.value,
+        source,
+        medium,
+        trafficClass: classifyAiReferralTrafficClass({ source, medium, channelGroup, landingPage }),
+        channelGroup,
+        landingPage,
+        sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
+        users: parseInt(row.metricValues[1]!.value, 10) || 0,
+        sourceDimension: pass.label,
+      }
+    })
+
+    rows.push(...pageRows)
+
+    const totalRows = response.rowCount ?? 0
+    offset += pageRows.length
+    if (pageRows.length < PAGE_SIZE || offset >= totalRows) break
+  }
+  return rows
 }
 
 // Social channel groups from GA4's default channel grouping.

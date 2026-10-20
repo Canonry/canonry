@@ -1,0 +1,977 @@
+{
+  "_note": "Response shape captured from live GA4 Data API runReport calls (v1beta, 2026-10-20), one request per attribution pass, each request exactly as fetchAiReferrals sends it (dateRanges fixed here). Headers echo the requested names, including the deprecated sessionDefaultChannelGrouping; metric values are integer strings; metadata and kind are as returned. Rows, values, rowCount, dates and landing pages are synthetic: no captured property had a grok, deepseek or unrecognized source in the AI Assistant channel. The row shapes follow what was captured: AI Assistant rows carry medium ai-assistant, and the manual UTM lens reports chatgpt.com (whose links carry utm_source=chatgpt.com) with medium (not set) and other AI sources with their session medium. checkCompatibility on the captured properties: every requested dimension and filter dimension (including firstUserDefaultChannelGroup) and both metrics COMPATIBLE for all three passes. EXACT 'AI Assistant' with caseSensitive false matched lower-case 'ai assistant'; with caseSensitive true it did not.",
+  "passes": {
+    "session": {
+      "request": {
+        "dateRanges": [
+          {
+            "startDate": "2026-07-09",
+            "endDate": "2026-10-07"
+          }
+        ],
+        "dimensions": [
+          {
+            "name": "date"
+          },
+          {
+            "name": "sessionSource"
+          },
+          {
+            "name": "sessionMedium"
+          },
+          {
+            "name": "sessionDefaultChannelGrouping"
+          },
+          {
+            "name": "landingPagePlusQueryString"
+          }
+        ],
+        "metrics": [
+          {
+            "name": "sessions"
+          },
+          {
+            "name": "totalUsers"
+          }
+        ],
+        "dimensionFilter": {
+          "orGroup": {
+            "expressions": [
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "perplexity"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "gemini"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "chatgpt"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "openai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "claude"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "anthropic"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "copilot"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "phind"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "grok"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "deepseek"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "you.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "meta.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionDefaultChannelGrouping",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "AI Assistant",
+                    "caseSensitive": false
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "limit": 1000,
+        "offset": 0
+      },
+      "response": {
+        "dimensionHeaders": [
+          {
+            "name": "date"
+          },
+          {
+            "name": "sessionSource"
+          },
+          {
+            "name": "sessionMedium"
+          },
+          {
+            "name": "sessionDefaultChannelGrouping"
+          },
+          {
+            "name": "landingPagePlusQueryString"
+          }
+        ],
+        "metricHeaders": [
+          {
+            "name": "sessions",
+            "type": "TYPE_INTEGER"
+          },
+          {
+            "name": "totalUsers",
+            "type": "TYPE_INTEGER"
+          }
+        ],
+        "rows": [
+          {
+            "dimensionValues": [
+              {
+                "value": "20261005"
+              },
+              {
+                "value": "chatgpt.com"
+              },
+              {
+                "value": "ai-assistant"
+              },
+              {
+                "value": "AI Assistant"
+              },
+              {
+                "value": "/pricing?utm_source=chatgpt.com"
+              }
+            ],
+            "metricValues": [
+              {
+                "value": "3"
+              },
+              {
+                "value": "2"
+              }
+            ]
+          },
+          {
+            "dimensionValues": [
+              {
+                "value": "20261005"
+              },
+              {
+                "value": "grok.com"
+              },
+              {
+                "value": "ai-assistant"
+              },
+              {
+                "value": "AI Assistant"
+              },
+              {
+                "value": "/guides/setup"
+              }
+            ],
+            "metricValues": [
+              {
+                "value": "2"
+              },
+              {
+                "value": "2"
+              }
+            ]
+          },
+          {
+            "dimensionValues": [
+              {
+                "value": "20261006"
+              },
+              {
+                "value": "chat.mistral.ai"
+              },
+              {
+                "value": "ai-assistant"
+              },
+              {
+                "value": "AI Assistant"
+              },
+              {
+                "value": "/blog/ai-visibility"
+              }
+            ],
+            "metricValues": [
+              {
+                "value": "2"
+              },
+              {
+                "value": "1"
+              }
+            ]
+          },
+          {
+            "dimensionValues": [
+              {
+                "value": "20261006"
+              },
+              {
+                "value": "chat.deepseek.com"
+              },
+              {
+                "value": "ai-assistant"
+              },
+              {
+                "value": "AI Assistant"
+              },
+              {
+                "value": "/"
+              }
+            ],
+            "metricValues": [
+              {
+                "value": "1"
+              },
+              {
+                "value": "1"
+              }
+            ]
+          },
+          {
+            "dimensionValues": [
+              {
+                "value": "20261007"
+              },
+              {
+                "value": "perplexity.ai"
+              },
+              {
+                "value": "referral"
+              },
+              {
+                "value": "Referral"
+              },
+              {
+                "value": "/pricing"
+              }
+            ],
+            "metricValues": [
+              {
+                "value": "1"
+              },
+              {
+                "value": "1"
+              }
+            ]
+          }
+        ],
+        "rowCount": 5,
+        "metadata": {
+          "currencyCode": "USD",
+          "timeZone": "America/New_York"
+        },
+        "kind": "analyticsData#runReport"
+      }
+    },
+    "first_user": {
+      "request": {
+        "dateRanges": [
+          {
+            "startDate": "2026-07-09",
+            "endDate": "2026-10-07"
+          }
+        ],
+        "dimensions": [
+          {
+            "name": "date"
+          },
+          {
+            "name": "firstUserSource"
+          },
+          {
+            "name": "firstUserMedium"
+          },
+          {
+            "name": "sessionDefaultChannelGrouping"
+          },
+          {
+            "name": "landingPagePlusQueryString"
+          }
+        ],
+        "metrics": [
+          {
+            "name": "sessions"
+          },
+          {
+            "name": "totalUsers"
+          }
+        ],
+        "dimensionFilter": {
+          "orGroup": {
+            "expressions": [
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "perplexity"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "gemini"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "chatgpt"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "openai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "claude"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "anthropic"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "copilot"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "phind"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "grok"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "deepseek"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "you.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "meta.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserDefaultChannelGroup",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "AI Assistant",
+                    "caseSensitive": false
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "limit": 1000,
+        "offset": 0
+      },
+      "response": {
+        "dimensionHeaders": [
+          {
+            "name": "date"
+          },
+          {
+            "name": "firstUserSource"
+          },
+          {
+            "name": "firstUserMedium"
+          },
+          {
+            "name": "sessionDefaultChannelGrouping"
+          },
+          {
+            "name": "landingPagePlusQueryString"
+          }
+        ],
+        "metricHeaders": [
+          {
+            "name": "sessions",
+            "type": "TYPE_INTEGER"
+          },
+          {
+            "name": "totalUsers",
+            "type": "TYPE_INTEGER"
+          }
+        ],
+        "rows": [
+          {
+            "dimensionValues": [
+              {
+                "value": "20261005"
+              },
+              {
+                "value": "chatgpt.com"
+              },
+              {
+                "value": "ai-assistant"
+              },
+              {
+                "value": "AI Assistant"
+              },
+              {
+                "value": "/pricing?utm_source=chatgpt.com"
+              }
+            ],
+            "metricValues": [
+              {
+                "value": "3"
+              },
+              {
+                "value": "2"
+              }
+            ]
+          },
+          {
+            "dimensionValues": [
+              {
+                "value": "20261005"
+              },
+              {
+                "value": "grok.com"
+              },
+              {
+                "value": "ai-assistant"
+              },
+              {
+                "value": "AI Assistant"
+              },
+              {
+                "value": "/guides/setup"
+              }
+            ],
+            "metricValues": [
+              {
+                "value": "2"
+              },
+              {
+                "value": "2"
+              }
+            ]
+          },
+          {
+            "dimensionValues": [
+              {
+                "value": "20261006"
+              },
+              {
+                "value": "chat.mistral.ai"
+              },
+              {
+                "value": "ai-assistant"
+              },
+              {
+                "value": "AI Assistant"
+              },
+              {
+                "value": "/blog/ai-visibility"
+              }
+            ],
+            "metricValues": [
+              {
+                "value": "2"
+              },
+              {
+                "value": "1"
+              }
+            ]
+          },
+          {
+            "dimensionValues": [
+              {
+                "value": "20261006"
+              },
+              {
+                "value": "chat.deepseek.com"
+              },
+              {
+                "value": "ai-assistant"
+              },
+              {
+                "value": "AI Assistant"
+              },
+              {
+                "value": "/"
+              }
+            ],
+            "metricValues": [
+              {
+                "value": "1"
+              },
+              {
+                "value": "1"
+              }
+            ]
+          },
+          {
+            "dimensionValues": [
+              {
+                "value": "20261007"
+              },
+              {
+                "value": "perplexity.ai"
+              },
+              {
+                "value": "referral"
+              },
+              {
+                "value": "Referral"
+              },
+              {
+                "value": "/pricing"
+              }
+            ],
+            "metricValues": [
+              {
+                "value": "1"
+              },
+              {
+                "value": "1"
+              }
+            ]
+          }
+        ],
+        "rowCount": 5,
+        "metadata": {
+          "currencyCode": "USD",
+          "timeZone": "America/New_York"
+        },
+        "kind": "analyticsData#runReport"
+      }
+    },
+    "manual_utm": {
+      "request": {
+        "dateRanges": [
+          {
+            "startDate": "2026-07-09",
+            "endDate": "2026-10-07"
+          }
+        ],
+        "dimensions": [
+          {
+            "name": "date"
+          },
+          {
+            "name": "sessionManualSource"
+          },
+          {
+            "name": "sessionManualMedium"
+          },
+          {
+            "name": "sessionDefaultChannelGrouping"
+          },
+          {
+            "name": "landingPagePlusQueryString"
+          }
+        ],
+        "metrics": [
+          {
+            "name": "sessions"
+          },
+          {
+            "name": "totalUsers"
+          }
+        ],
+        "dimensionFilter": {
+          "orGroup": {
+            "expressions": [
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "perplexity"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "gemini"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "chatgpt"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "openai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "claude"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "anthropic"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "copilot"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "phind"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "grok"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "deepseek"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "you.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "CONTAINS",
+                    "value": "meta.ai"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "limit": 1000,
+        "offset": 0
+      },
+      "response": {
+        "dimensionHeaders": [
+          {
+            "name": "date"
+          },
+          {
+            "name": "sessionManualSource"
+          },
+          {
+            "name": "sessionManualMedium"
+          },
+          {
+            "name": "sessionDefaultChannelGrouping"
+          },
+          {
+            "name": "landingPagePlusQueryString"
+          }
+        ],
+        "metricHeaders": [
+          {
+            "name": "sessions",
+            "type": "TYPE_INTEGER"
+          },
+          {
+            "name": "totalUsers",
+            "type": "TYPE_INTEGER"
+          }
+        ],
+        "rows": [
+          {
+            "dimensionValues": [
+              {
+                "value": "20261005"
+              },
+              {
+                "value": "chatgpt.com"
+              },
+              {
+                "value": "(not set)"
+              },
+              {
+                "value": "AI Assistant"
+              },
+              {
+                "value": "/pricing?utm_source=chatgpt.com"
+              }
+            ],
+            "metricValues": [
+              {
+                "value": "3"
+              },
+              {
+                "value": "2"
+              }
+            ]
+          },
+          {
+            "dimensionValues": [
+              {
+                "value": "20261005"
+              },
+              {
+                "value": "grok.com"
+              },
+              {
+                "value": "ai-assistant"
+              },
+              {
+                "value": "AI Assistant"
+              },
+              {
+                "value": "/guides/setup"
+              }
+            ],
+            "metricValues": [
+              {
+                "value": "2"
+              },
+              {
+                "value": "2"
+              }
+            ]
+          },
+          {
+            "dimensionValues": [
+              {
+                "value": "20261006"
+              },
+              {
+                "value": "chat.deepseek.com"
+              },
+              {
+                "value": "ai-assistant"
+              },
+              {
+                "value": "AI Assistant"
+              },
+              {
+                "value": "/"
+              }
+            ],
+            "metricValues": [
+              {
+                "value": "1"
+              },
+              {
+                "value": "1"
+              }
+            ]
+          },
+          {
+            "dimensionValues": [
+              {
+                "value": "20261007"
+              },
+              {
+                "value": "perplexity.ai"
+              },
+              {
+                "value": "referral"
+              },
+              {
+                "value": "Referral"
+              },
+              {
+                "value": "/pricing"
+              }
+            ],
+            "metricValues": [
+              {
+                "value": "1"
+              },
+              {
+                "value": "1"
+              }
+            ]
+          }
+        ],
+        "rowCount": 4,
+        "metadata": {
+          "currencyCode": "USD",
+          "timeZone": "America/New_York"
+        },
+        "kind": "analyticsData#runReport"
+      }
+    }
+  },
+  "invalidRequestError": {
+    "_note": "Live 400 body for a request GA4 cannot combine (a Search Console metric with the first-user channel filter). The message names one field to remove, not necessarily the one at fault.",
+    "body": {
+      "error": {
+        "code": 400,
+        "message": "Please remove organicGoogleSearchClicks to make the request compatible for example. The request's dimensions & metrics are incompatible. To learn more, see https://ga-dev-tools.web.app/ga4/dimensions-metrics-explorer/",
+        "status": "INVALID_ARGUMENT"
+      }
+    }
+  }
+}

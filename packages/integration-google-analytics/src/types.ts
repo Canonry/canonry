@@ -5,6 +5,13 @@ export interface GA4ServiceAccountKey {
   type?: string
 }
 
+export interface GA4StringFilter {
+  matchType: string
+  value: string
+  /** GA4 matches case-insensitively unless this is true. */
+  caseSensitive?: boolean
+}
+
 export interface GA4RunReportRequest {
   dateRanges: Array<{ startDate: string; endDate: string }>
   dimensions: Array<{ name: string }>
@@ -12,14 +19,14 @@ export interface GA4RunReportRequest {
   dimensionFilter?: {
     filter: {
       fieldName: string
-      stringFilter?: { matchType: string; value: string }
+      stringFilter?: GA4StringFilter
     }
   } | {
     orGroup: {
       expressions: Array<{
         filter: {
           fieldName: string
-          stringFilter: { matchType: string; value: string }
+          stringFilter: GA4StringFilter
         }
       }>
     }
