@@ -4,7 +4,7 @@ This repo uses per-package `AGENTS.md` files for local context. **These must sta
 
 | When you... | Update... |
 |-------------|-----------|
-| Add a new package under `packages/` or `apps/` | Create `AGENTS.md` in the new package. Do not add a `CLAUDE.md`: Claude Code would read it instead of `AGENTS.md` |
+| Add a new package under `packages/` or `apps/` | Create `AGENTS.md` in the new package. Do not add a `CLAUDE.md`: Claude Code would read it instead of `AGENTS.md`. Its `typecheck` script runs `node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json`, never bare `tsc` (`docs/testing.md` → "Typecheck compilers") |
 | Add a new table or column in `packages/db/src/schema.ts` | Update `docs/data-model.md` (ER diagram + table groups) |
 | Add a new API route file in `packages/api-routes/src/` | Update `packages/api-routes/AGENTS.md` key files table |
 | Add a new CLI command | Update `packages/canonry/AGENTS.md` and `skills/canonry/references/canonry-cli.md`; add the equivalent MCP tool or document the explicit classification exception |

@@ -9,10 +9,11 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "allowSyntheticDefaultImports": true,
-    "esModuleInterop": false,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
+    // TypeScript 6+ (and tsrs) default; set so `CANONRY_TYPECHECKER=tsc` on 5.9 agrees.
+    "noUncheckedSideEffectImports": true,
     "types": ["node"],
     "incremental": true
   }

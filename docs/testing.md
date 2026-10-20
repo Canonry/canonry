@@ -185,11 +185,20 @@ Separate jobs in `ci.yml` cover the checks in `pnpm verify`:
 - `pnpm gen:check`
 - `pnpm plugin:check` (CI also supplies `--base-ref`)
 - `pnpm val:skills:check`
-- `pnpm run typecheck`
+- `pnpm run typecheck` and `pnpm run typecheck:tsc` (the two legs of the `typecheck` matrix job)
 - `pnpm run lint`
 - `pnpm run test`
 
 CI also runs build, Deno, and release guards. `pnpm verify` does not replace those additional checks.
+
+### Typecheck compilers
+
+Every `typecheck` script runs `scripts/typecheck.mjs`, which takes tsc's arguments and picks the compiler:
+
+- By default, tsrs, the Rust port of TypeScript 7. Platforms without a native tsrs binary, such as Intel macOS, run its WebAssembly build, which reports the same diagnostics more slowly.
+- With `CANONRY_TYPECHECKER=tsc` (`pnpm typecheck:tsc` for the whole workspace), the `typescript` package's own `tsc`. That package stays on 5.9 until the TypeScript 7 migration because typescript-eslint, tsup's `.d.ts` build, and the SDK codegen import it.
+
+`pnpm verify` and CI run both, so code stays valid for each. A package's `typecheck` script calls `node ../../scripts/typecheck.mjs`, never bare `tsc`. After switching compilers, the next run rebuilds the incremental state once.
 
 ### CI caches
 

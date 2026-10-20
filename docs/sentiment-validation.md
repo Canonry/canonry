@@ -92,7 +92,7 @@ Focused checks include:
 ```sh
 pnpm exec vitest run sentiment --maxWorkers 2
 pnpm exec vitest run --project integration-typesafe
-pnpm exec tsc --noEmit -p scripts/tsconfig.json
+node scripts/typecheck.mjs --noEmit -p scripts/tsconfig.json
 pnpm check
 pnpm gen:check
 pnpm plugin:check

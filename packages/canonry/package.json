@@ -60,7 +60,7 @@
     "build:cli": "node --import tsx scripts/copy-agent-assets.ts && tsup",
     "build:web": "node --import tsx build-web.ts",
     "prepublishOnly": "cp ../../README.md ./README.md && pnpm run build",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json",
     "test": "vitest run --config ../../vitest.package.config.ts",
     "lint": "eslint src/ test/"
   },

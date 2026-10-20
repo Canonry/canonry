@@ -63,6 +63,7 @@ pnpm build:cli                  # CLI/server bundle only; skips the dashboard
 pnpm build:web                  # build or reuse dashboard output and copy changed assets
 pnpm build                      # complete publishable package
 pnpm run typecheck && pnpm run test && pnpm run lint
+pnpm typecheck:tsc              # typecheck with TypeScript's own tsc instead of tsrs (docs/testing.md)
 pnpm gen                        # regenerate the API client after changing openapi.ts
 pnpm plugin:sync                # refresh plugin skill mirrors + portable/client manifest versions
 pnpm plugin:check               # fail on plugin spec, skill, or version drift (CI gate)
