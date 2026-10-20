@@ -3,7 +3,7 @@ import { RAW_PALETTE_SOURCE } from '../../../eslint-rules/no-literal-palette.js'
 
 /**
  * Locks the design-token ratchet regex (engine issue #767, Phase 3). This is the
- * whole value of the `design-tokens/no-literal-palette` ESLint rule: if the
+ * whole value of the `design-tokens/no-literal-palette` lint rule: if the
  * pattern is wrong, the gate is wrong. Assert it flags every raw-palette form in
  * use and, critically, does NOT flag the token scales / semantic tokens.
  */

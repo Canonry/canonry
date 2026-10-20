@@ -48,22 +48,10 @@ pnpm check
 ```
 
 `pnpm check` and `pnpm lint:changed` lint staged, unstaged, and untracked JS/TS files using their working content.
-They skip deleted files, symlinks, and ESLint-ignored files.
-They run syntax rules and repository guards without loading TypeScript projects. They do not run tests, builds, or code generation.
+They skip deleted files, symlinks, and files `.oxlintrc.json` ignores.
+They run oxlint's syntax rules and repository guards without type information. They do not run tests, builds, or code generation.
 They cover local changes, not every committed change on the branch. Contributor CI checks the full workspace; owner changes require local validation.
-
-### Shared lint cache
-
-Changed-file and staged checks share clean results across this repository's Git worktrees.
-Cache keys include source content, relative file paths, effective ESLint configuration, local rules, the lockfile, and installed tool versions.
-Timestamps and branch names do not affect reuse. Warnings and errors are checked again and remain visible.
-
-Entries live under `${TMPDIR}/canonry-lint-cache-<uid>/`, grouped by the repository's common Git directory.
-Each result has a separate file, written atomically. Concurrent worktrees do not rewrite a shared ESLint cache file.
-Set `CANONRY_LINT_CACHE_DIR` to change the cache root. Cache storage failures do not prevent linting or commits.
-Use `pnpm check --no-cache` or `pnpm lint:staged --no-cache` to bypass the cache.
-
-Full type-aware lint remains uncached: edits to imported types can change diagnostics in an otherwise unchanged file.
+oxlint is fast enough that neither these checks nor the full type-aware `pnpm lint` keep a result cache.
 
 During local iteration, do not run tests, test watchers, or `pnpm verify`.
 Write or update tests with the implementation.
@@ -91,13 +79,14 @@ compiler-only contracts or validate their `expectTypeOf` assertions.
 
 Pre-commit runs `node scripts/lint-changed.mjs --staged` directly, without a pnpm startup or dependency scan.
 `pnpm lint:staged` runs the same check manually. It reads the exact staged blobs, including partially staged files.
+oxlint reads files from disk, so the staged blobs are written to a temporary tree at their repository paths and linted there.
 It never fixes files, stages changes, or stashes work. Errors block the commit. Warnings remain visible.
-Documentation-only commits skip ESLint and do not need installed npm dependencies.
+Documentation-only commits skip the linter and do not need installed npm dependencies.
 
-Changes to `eslint.config.*` or `eslint-rules/` trigger `pnpm run lint` across the repository, with all type-aware rules enabled.
-This fallback does not use the fast cache. It can find new violations in unchanged files.
+Changes to `.oxlintrc.json` or `eslint-rules/` trigger `pnpm run lint` across the repository, with all type-aware rules enabled.
+It can find new violations in unchanged files.
 For staged checks, code and configuration must match the index before the fallback runs.
-The hook refuses partially staged inputs for full typed lint, because TypeScript reads the project from disk.
+The hook refuses partially staged inputs for full typed lint, because type-aware lint reads the project from disk.
 Ordinary code commits retain the fast path. Agents must run affected package typechecks and type-aware lint locally before pushing code.
 
 The commit-message hook checks Conventional Commits.
@@ -196,7 +185,7 @@ CI also runs build, Deno, and release guards. `pnpm verify` does not replace tho
 Every `typecheck` script runs `scripts/typecheck.mjs`, which takes tsc's arguments and picks the compiler:
 
 - By default, tsrs, the Rust port of TypeScript 7. Platforms without a native tsrs binary, such as Intel macOS, run its WebAssembly build, which reports the same diagnostics more slowly.
-- With `CANONRY_TYPECHECKER=tsc` (`pnpm typecheck:tsc` for the whole workspace), the `typescript` package's own `tsc`. That package stays on 5.9 until the TypeScript 7 migration because typescript-eslint, tsup's `.d.ts` build, and the SDK codegen import it.
+- With `CANONRY_TYPECHECKER=tsc` (`pnpm typecheck:tsc` for the whole workspace), the `typescript` package's own `tsc`. That package stays on 5.9 until the TypeScript 7 migration because tsup's `.d.ts` build and the SDK codegen import it.
 
 `pnpm verify` and CI run both, so code stays valid for each. A package's `typecheck` script calls `node ../../scripts/typecheck.mjs`, never bare `tsc`. After switching compilers, the next run rebuilds the incremental state once.
 

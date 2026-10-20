@@ -61,8 +61,8 @@ export const GA4_INITIAL_RETRY_DELAY_MS = 1000
  * that broke CI when source/test diverged) is impossible — every call site
  * and every test imports the same identifier.
  *
- * ESLint blocks raw use of these string values outside this file via
- * `canonry-guards/no-inline-ga4-dimension` in the workspace config.
+ * Lint blocks raw use of these string values outside this file via
+ * `canonry-guards/no-inline-ga4-dimension` in `.oxlintrc.json`.
  */
 export const GA4_DIMENSIONS = {
   date: 'date',

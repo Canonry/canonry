@@ -8,7 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "typecheck": "node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json",
     "test": "vitest run --config ../../vitest.package.config.ts",
-    "lint": "eslint src/ test/"
+    "lint": "oxlint -c ../../.oxlintrc.json --type-aware src/ test/"
   },
   "dependencies": {
     "@canonry/canonry-api-routes": "workspace:*",

@@ -29,8 +29,8 @@ jobs:
       fail-fast: false
       matrix:
         # tsrs is the gate. tsc is the typescript package (5.9 until the TypeScript 7
-        # migration) that typescript-eslint, tsup's .d.ts build and the SDK codegen
-        # import, so the code has to stay valid for it too. See scripts/typecheck.mjs.
+        # migration) that tsup's .d.ts build and the SDK codegen import, so the
+        # code has to stay valid for it too. See scripts/typecheck.mjs.
         typechecker: [tsrs, tsc]
     env:
       CANONRY_TYPECHECKER: ${{ matrix.typechecker }}

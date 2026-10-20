@@ -17,7 +17,6 @@ on:
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - 'tsconfig.base.json'
-      - 'eslint.config.js'
       - 'skills/**'
       - 'plugins/**'
       - '.agents/**'
@@ -113,7 +112,7 @@ jobs:
 
           if git diff --quiet "$BASE_SHA" HEAD -- \
             .dockerignore Dockerfile docker apps/api apps/web apps/worker packages \
-            package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json eslint.config.js; then
+            package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json; then
             echo "docker_changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "docker_changed=true" >> "$GITHUB_OUTPUT"

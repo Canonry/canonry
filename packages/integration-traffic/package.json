@@ -14,7 +14,7 @@
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json && node ../../scripts/typecheck.mjs --noEmit -p tsconfig.scripts.json",
     "test": "vitest run --config ../../vitest.package.config.ts",
-    "lint": "eslint src/ test/ scripts/",
+    "lint": "oxlint -c ../../.oxlintrc.json --type-aware src/ test/ scripts/",
     "refresh-ip-ranges": "tsx scripts/refresh-ip-ranges.ts"
   },
   "dependencies": {
