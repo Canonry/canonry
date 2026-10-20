@@ -133,6 +133,12 @@ const TELEMETRY_ERROR_CODES = new Set([
   'CLI_USAGE_ERROR',
   'CLI_SYSTEM_ERROR',
   'CONNECTION_ERROR',
+  // A doctor run that found failing checks did its job; `start` failures say
+  // why the server did not come up. Both used to arrive as CLI_ERROR.
+  'DOCTOR_CHECKS_FAILED',
+  'DAEMON_ALREADY_RUNNING',
+  'DAEMON_START_FAILED',
+  'DAEMON_START_TIMEOUT',
   'UNEXPECTED_RESPONSE_FORMAT',
   'STORED_ONLY_REFUSED',
 ])
