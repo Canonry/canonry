@@ -60,8 +60,7 @@ async function main() {
           input: specPath,
           output: {
             path: tempOutput,
-            format: 'prettier',
-            lint: false,
+            postProcess: [],
           },
           plugins: [
             {

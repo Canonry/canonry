@@ -18,12 +18,12 @@
   },
   "dependencies": {
     "@canonry/canonry-contracts": "workspace:*",
-    "better-sqlite3": "^12.11.1",
-    "drizzle-orm": "^0.45.2"
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.4"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
-    "drizzle-kit": "^0.31.9",
-    "yaml": "^2.8.2"
+    "@types/better-sqlite3": "^9.6.0",
+    "drizzle-kit": "^0.31.11",
+    "yaml": "^2.9.1"
   }
 }

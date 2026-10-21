@@ -3,10 +3,9 @@ import { isIP } from 'node:net'
 /** A reverse proxy on the same machine as the demo listener. */
 export const DEFAULT_DEMO_TRUSTED_PROXIES: readonly string[] = Object.freeze(['127.0.0.1', '::1'])
 
-// Fastify matches an IPv4 peer against an IPv6 range through the peer's
-// IPv4-mapped form (::ffff:a.b.c.d), and an IPv4 range against a mapped IPv6
-// peer. Measuring every range in one 128-bit space, with IPv4 at ::ffff:0:0/96,
-// judges a range by the peers it trusts rather than by how it is spelled.
+// Measure ranges in one 128-bit space, with IPv4 at ::ffff:0:0/96. Keep the
+// conservative rejection of ranges covering that entire block even though
+// Fastify now excludes IPv4 peers from unqualified IPv6 ranges.
 const IPV4_FIRST = 0xffffn << 32n
 const IPV4_LAST = IPV4_FIRST + (1n << 32n) - 1n
 const LAST_ADDRESS = (1n << 128n) - 1n

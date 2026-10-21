@@ -9,6 +9,11 @@ const script = fileURLToPath(new URL('../scripts/lint-changed.mjs', import.meta.
 const hook = fs.readFileSync(new URL('../.husky/pre-commit', import.meta.url), 'utf8')
 const repoConfig = fileURLToPath(new URL('../.oxlintrc.json', import.meta.url))
 const repoRules = fileURLToPath(new URL('../eslint-rules', import.meta.url))
+// Fixtures borrow this checkout's node_modules, so the full-lint fallback's
+// `pnpm run lint` must run the pnpm the checkout pins. Without the field,
+// corepack runs its own default, which can rewrite the borrowed install's
+// state and leave every later pnpm script in the checkout refusing to run.
+const { packageManager } = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { packageManager?: string }
 const tempDirs: string[] = []
 // The full-lint fallback launches pnpm and a type-aware oxlint run. Allow CPU
 // contention on CI runners without imposing a hook performance assertion.
@@ -47,7 +52,7 @@ function fixture(config = noDebugger('error'), { files = {}, linkRepoRules = fal
   write('deleted.js', 'debugger\n')
   write('README.md', 'fixture\n')
   write('.gitignore', `.tmp/\nhooks/\nscripts/\nnode_modules\n${linkRepoRules ? 'eslint-rules\n' : ''}`)
-  write('package.json', JSON.stringify({ type: 'module', scripts: { lint: 'oxlint --type-aware .' } }))
+  write('package.json', JSON.stringify({ type: 'module', packageManager, scripts: { lint: 'oxlint --type-aware .' } }))
   for (const [file, content] of Object.entries(files)) write(file, content)
   git('add', '.')
   git('commit', '--no-verify', '-m', 'test: fixture')

@@ -12,7 +12,7 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
-    // TypeScript 6+ (and tsrs) default; set so `CANONRY_TYPECHECKER=tsc` on 5.9 agrees.
+    // Keep side-effect import checking explicit across both TypeScript 7 compilers.
     "noUncheckedSideEffectImports": true,
     "types": ["node"],
     "incremental": true
