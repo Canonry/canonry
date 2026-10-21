@@ -584,7 +584,7 @@ export async function fetchLeadEvents(
 // channel only exists from 2026-05-13 and is not retroactive, Google has not
 // published the referrers it recognizes, and it may leave some AI sources in
 // Referral. The patterns cover that history and those sources.
-const AI_REFERRAL_SOURCE_FILTERS: Array<{ matchType: 'CONTAINS' | 'EXACT'; value: string }> = [
+const AI_REFERRAL_SOURCE_FILTERS: Array<{ matchType: 'CONTAINS' | 'EXACT' | 'ENDS_WITH'; value: string }> = [
   { matchType: 'CONTAINS', value: 'perplexity' },
   { matchType: 'CONTAINS', value: 'gemini' },
   { matchType: 'CONTAINS', value: 'chatgpt' },
@@ -593,7 +593,11 @@ const AI_REFERRAL_SOURCE_FILTERS: Array<{ matchType: 'CONTAINS' | 'EXACT'; value
   { matchType: 'CONTAINS', value: 'anthropic' },
   { matchType: 'CONTAINS', value: 'copilot' },
   { matchType: 'CONTAINS', value: 'phind' },
-  { matchType: 'CONTAINS', value: 'grok' },
+  // Grok by host and bare tag only: as a substring it sits inside ordinary
+  // sources such as ngrok tunnels (`demo.ngrok-free.app`).
+  { matchType: 'EXACT', value: AI_ENGINE_DOMAINS.grok },
+  { matchType: 'ENDS_WITH', value: `.${AI_ENGINE_DOMAINS.grok}` },
+  { matchType: 'EXACT', value: 'grok' },
   { matchType: 'CONTAINS', value: 'deepseek' },
   { matchType: 'EXACT', value: AI_ENGINE_DOMAINS.you },
   { matchType: 'CONTAINS', value: AI_ENGINE_DOMAINS.metaAi },

@@ -30,7 +30,25 @@ const PASS_BY_SOURCE_DIMENSION: Record<string, Pass> = {
   [GA4_DIMENSIONS.sessionManualSource]: 'manual_utm',
 }
 
-type Expressions = Array<{ filter: { fieldName: string; stringFilter: { value: string } } }>
+interface StringFilter { matchType: string; value: string; caseSensitive?: boolean }
+type Expressions = Array<{ filter: { fieldName: string; stringFilter: StringFilter } }>
+
+/**
+ * GA4's own string-filter semantics for the match types this client sends:
+ * case-insensitive unless `caseSensitive` is set. GA4 applies the filter, so a
+ * test of which sources a request selects has to apply it the same way.
+ */
+function ga4Selects(filter: StringFilter, source: string): boolean {
+  const value = filter.caseSensitive ? filter.value : filter.value.toLowerCase()
+  const subject = filter.caseSensitive ? source : source.toLowerCase()
+  switch (filter.matchType) {
+    case 'EXACT': return subject === value
+    case 'CONTAINS': return subject.includes(value)
+    case 'BEGINS_WITH': return subject.startsWith(value)
+    case 'ENDS_WITH': return subject.endsWith(value)
+    default: throw new Error(`match type not modelled here: ${filter.matchType}`)
+  }
+}
 
 function expressionsOf(request: GA4RunReportRequest): Expressions {
   const filter = request.dimensionFilter
@@ -97,6 +115,26 @@ describe('fetchAiReferrals with GA4\'s AI Assistant channel', () => {
       GA4_DIMENSIONS.firstUserDefaultChannelGroup,
       null,
     ])
+  })
+
+  it('selects Grok by host and tag only, so an ngrok tunnel is not AI traffic', async () => {
+    // Any request is answered: this reads only which sources each filter selects.
+    serve(() => json({ rowCount: 0 }))
+    await fetchAiReferrals('fake-token', '123456', 90)
+    expect(requests).toHaveLength(3)
+
+    for (const { pass, body } of requests) {
+      const sourceDimension = body.dimensions[1]!.name
+      const sourceFilters = expressionsOf(body).map(e => e.filter).filter(f => f.fieldName === sourceDimension)
+      const selects = (source: string) => sourceFilters.some(f => ga4Selects(f.stringFilter, source))
+      for (const source of ['grok.com', 'GROK.COM', 'www.grok.com', 'Grok']) {
+        expect(selects(source), `${pass}: ${source}`).toBe(true)
+      }
+      // `grok` sits inside these as a substring; none of them is Grok.
+      for (const source of ['demo.ngrok-free.app', 'ngrok.io', 'grokipedia.com', 'notgrok.com']) {
+        expect(selects(source), `${pass}: ${source}`).toBe(false)
+      }
+    }
   })
 
   it('returns each AI Assistant row once, including a source that names no engine', async () => {

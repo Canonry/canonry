@@ -1,5 +1,5 @@
 {
-  "_note": "Response shape captured from live GA4 Data API runReport calls (v1beta, 2026-10-20), one request per attribution pass, each request exactly as fetchAiReferrals sends it (dateRanges fixed here). Headers echo the requested names, including the deprecated sessionDefaultChannelGrouping; metric values are integer strings; metadata and kind are as returned. Rows, values, rowCount, dates and landing pages are synthetic: no captured property had a grok, deepseek or unrecognized source in the AI Assistant channel. The row shapes follow what was captured: AI Assistant rows carry medium ai-assistant, and the manual UTM lens reports chatgpt.com (whose links carry utm_source=chatgpt.com) with medium (not set) and other AI sources with their session medium. checkCompatibility on the captured properties: every requested dimension and filter dimension (including firstUserDefaultChannelGroup) and both metrics COMPATIBLE for all three passes. EXACT 'AI Assistant' with caseSensitive false matched lower-case 'ai assistant'; with caseSensitive true it did not.",
+  "_note": "Response shape captured from live GA4 Data API runReport calls (v1beta, 2026-10-20; re-run 2026-10-21 with the bounded Grok filters EXACT grok.com, ENDS_WITH .grok.com and EXACT grok), one request per attribution pass, each request exactly as fetchAiReferrals sends it (dateRanges fixed here). Headers echo the requested names, including the deprecated sessionDefaultChannelGrouping; metric values are integer strings; metadata and kind are as returned. Rows, values, rowCount, dates and landing pages are synthetic: no captured property had a grok, deepseek or unrecognized source in the AI Assistant channel. The row shapes follow what was captured: AI Assistant rows carry medium ai-assistant, and the manual UTM lens reports chatgpt.com (whose links carry utm_source=chatgpt.com) with medium (not set) and other AI sources with their session medium. checkCompatibility on the captured properties: every requested dimension and filter dimension (including firstUserDefaultChannelGroup) and both metrics COMPATIBLE for all three passes. EXACT 'AI Assistant' with caseSensitive false matched lower-case 'ai assistant'; with caseSensitive true it did not.",
   "passes": {
     "session": {
       "request": {
@@ -113,7 +113,25 @@
                 "filter": {
                   "fieldName": "sessionSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
+                    "value": "grok.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".grok.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
                     "value": "grok"
                   }
                 }
@@ -446,7 +464,25 @@
                 "filter": {
                   "fieldName": "firstUserSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
+                    "value": "grok.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".grok.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
                     "value": "grok"
                   }
                 }
@@ -779,7 +815,25 @@
                 "filter": {
                   "fieldName": "sessionManualSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
+                    "value": "grok.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".grok.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
                     "value": "grok"
                   }
                 }
