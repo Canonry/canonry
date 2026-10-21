@@ -12,9 +12,11 @@ const ecrNode = 'public.ecr.aws/docker/library/node:26.12.1-bookworm-slim@sha256
 const hubNode = 'docker.io/library/node:26.12.1-bookworm-slim@sha256:1e96b01216cab31612cd1f9480e83413472dee8686d423cb4c1ec62bf8a26e9e'
 
 // Records every call and fails `docker pull <ref>` as many times as the state
-// file for <ref> says ("always" never succeeds). `sleep` only records.
+// file for <ref> says ("always" never succeeds). Like Docker, `docker tag`
+// refuses a target that contains a digest. `sleep` only records.
 const fakeDocker = `#!/usr/bin/env bash
 echo "docker $*" >> "$FAKE_LOG"
+if [ "$1" = tag ] && [[ "\${!#}" == *@* ]]; then echo "refusing to create a tag with a digest reference" >&2; exit 1; fi
 if [ "$1" = pull ]; then
   state="$FAKE_STATE/$(printf %s "\${!#}" | tr '/:@' '___')"
   failures=$(cat "$state" 2>/dev/null || echo 0)
@@ -44,13 +46,14 @@ function pull(dockerfile: string, failures: Record<string, number | 'always'> = 
   for (const [ref, count] of Object.entries(failures)) {
     fs.writeFileSync(path.join(state, ref.replace(/[/:@]/g, '_')), String(count))
   }
-  fs.writeFileSync(path.join(dir, 'Dockerfile'), dockerfile)
-  const result = spawnSync('bash', [pullScript, path.join(dir, 'Dockerfile')], {
+  const file = path.join(dir, 'Dockerfile')
+  fs.writeFileSync(file, dockerfile)
+  const result = spawnSync('bash', [pullScript, file], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, FAKE_LOG: log, FAKE_STATE: state, ...env },
   })
   const calls = fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : []
-  return { status: result.status, stdout: result.stdout, calls }
+  return { status: result.status, stdout: result.stdout, calls, dockerfile: fs.readFileSync(file, 'utf8') }
 }
 
 test('every workflow image build pulls its base images first and keeps using the local copies', () => {
@@ -75,10 +78,12 @@ test('every workflow image build pulls its base images first and keeps using the
   expect(builds).toBe(2)
 })
 
-test('the repository Dockerfile pulls its ECR base image once', () => {
-  const result = pull(fs.readFileSync(path.join(repoRoot, 'Dockerfile'), 'utf8'))
+test('the repository Dockerfile pulls its ECR base image once and stays unchanged', () => {
+  const dockerfile = fs.readFileSync(path.join(repoRoot, 'Dockerfile'), 'utf8')
+  const result = pull(dockerfile)
   expect(result.status).toBe(0)
   expect(result.calls).toEqual([`docker pull --quiet ${ecrNode}`])
+  expect(result.dockerfile).toBe(dockerfile)
 })
 
 test('stages, scratch, flags, and repeated images are not pulled', () => {
@@ -94,15 +99,35 @@ test('stages, scratch, flags, and repeated images are not pulled', () => {
   expect(result.calls).toEqual([`docker pull --quiet ${ecrNode}`, 'docker pull --quiet nginx:alpine'])
 })
 
-test('an ECR 429 falls back to the same Docker Official Image on Docker Hub', () => {
-  const result = pull(`FROM ${ecrNode}`, { [ecrNode]: 1 })
-  expect(result.status).toBe(0)
+test('an ECR failure points every FROM of that image at the same Docker Official Image on Docker Hub', () => {
+  const ecrNginx = 'public.ecr.aws/docker/library/nginx:alpine'
+  const hubNginx = 'docker.io/library/nginx:alpine'
+  const result = pull([
+    '# syntax=docker/dockerfile:1',
+    `FROM --platform=$BUILDPLATFORM ${ecrNode} AS build`,
+    `RUN echo ${ecrNode}`,
+    `FROM ${ecrNginx} AS web`,
+    `FROM ${ecrNode}`,
+    'COPY --from=build /app /app',
+    '',
+  ].join('\n'), { [ecrNode]: 1, [ecrNginx]: 1 })
+  expect(result.status, result.stdout).toBe(0)
   expect(result.calls).toEqual([
-    `docker pull --quiet ${ecrNode}`,
-    `docker pull --quiet ${hubNode}`,
-    `docker tag ${hubNode} ${ecrNode}`,
+    `docker pull --quiet ${ecrNode}`, `docker pull --quiet ${hubNode}`,
+    `docker pull --quiet ${ecrNginx}`, `docker pull --quiet ${hubNginx}`,
   ])
-  expect(result.stdout).toContain(`Pulled ${hubNode} and tagged it ${ecrNode}`)
+  // A digest-pinned FROM cannot be retagged, so the build reads the Docker Hub
+  // reference itself, for tagged images too. Lines other than FROM are unchanged.
+  expect(result.dockerfile).toBe([
+    '# syntax=docker/dockerfile:1',
+    `FROM --platform=$BUILDPLATFORM ${hubNode} AS build`,
+    `RUN echo ${ecrNode}`,
+    `FROM ${hubNginx} AS web`,
+    `FROM ${hubNode}`,
+    'COPY --from=build /app /app',
+    '',
+  ].join('\n'))
+  expect(result.stdout).toContain(`Pulled ${hubNode};`)
 })
 
 test('retries with exponential backoff until a pull succeeds', () => {
@@ -113,6 +138,7 @@ test('retries with exponential backoff until a pull succeeds', () => {
     `docker pull --quiet ${ecrNode}`, `docker pull --quiet ${hubNode}`, 'sleep 20',
     `docker pull --quiet ${ecrNode}`,
   ])
+  expect(result.dockerfile).toBe(`FROM ${ecrNode}`)
 })
 
 test('gives up with an error after the attempt limit', () => {

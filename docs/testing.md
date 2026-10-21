@@ -229,6 +229,7 @@ The wait has a 25-minute deadline. After fixing CI, rerun the failed Publish job
 
 Before each image build, CI and Publish run `scripts/pull-docker-base-images.sh Dockerfile`.
 It retries failed pulls with backoff. For ECR Public's Docker Official Images, it also tries the same image on Docker Hub, which has a separate quota.
+When the Docker Hub copy is used, the script points that image's `FROM` lines in the Dockerfile at it, because Docker cannot retag a digest-pinned image. The build must read the same file.
 BuildKit then uses the local copy instead of the registry, so leave `pull` off in `docker/build-push-action`.
 
 The build job includes the root README, packs Canonry once, and uploads the tarball for the install smoke test and npm publication.
