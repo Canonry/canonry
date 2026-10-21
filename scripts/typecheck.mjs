@@ -4,9 +4,8 @@
 // CANONRY_TYPECHECKER picks the compiler, so moving between tsrs and TypeScript's own tsc is one switch:
 //   tsrs (default)  the Rust port of TypeScript 7 (`tsrs`). Where it ships no native binary (Intel
 //                   macOS, native Windows), its WebAssembly build (`@tsrs/wasm`) runs instead.
-//   tsc             the `typescript` devDependency's tsc: 5.9 until the TypeScript 7 migration.
-//                   tsup's .d.ts build and the SDK codegen import that package, so
-//                   `pnpm typecheck:tsc` keeps the code valid for them.
+//   tsc             the `typescript` devDependency's native TypeScript 7 compiler.
+//                   `pnpm typecheck:tsc` checks against the upstream compiler too.
 //
 // Bins are resolved from each package's manifest, never node_modules/.bin, and the compiler's own
 // launcher is imported in-process, so this costs the single Node start a bin shim already does.

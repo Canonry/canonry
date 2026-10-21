@@ -1,160 +1,78 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
 import { test, expect, describe } from 'vitest'
-import { parse as parseYaml } from 'yaml'
-
-/**
- * `scripts/check-node.mjs` blocks an install on a Node major that `better-sqlite3`
- * has no prebuilt binary for, converting a couple hundred lines of node-gyp C++
- * output into one legible line.
- *
- * So the compatible subset is asserted rather than trusted.
- *
- * WHY `engines.node` IS NOT THE SOURCE OF TRUTH
- * This file used to hardcode `< 26` in three places, which made the guard and
- * the test agree with each other while both disagreed with reality. The obvious
- * correction — derive everything from better-sqlite3's `engines.node` — is
- * wrong in the other direction, because that field is a SUPERSET of what
- * actually ships a binary. 12.11.1 declares
- * `20.x || 22.x || 23.x || 24.x || 25.x || 26.x` while shipping prebuilds for
- * ABI 127/137/141/147 only, i.e. Node 22/24/25/26: 12.10.0 added Node 26 and
- * dropped the EOL Node 20 and 23 builds in the same release without touching
- * `engines`. Deriving from it would promise Node 23 an install it cannot
- * deliver.
- *
- * Prebuild coverage therefore lives in `PREBUILT_MAJORS`, keyed by the exact
- * dependency version it was verified against. A bump to an unlisted version
- * fails with an explicit message instead of silently inheriting a stale answer.
- *
- * WIDENING IS NOT ENOUGH ON ITS OWN
- * Claiming a major nothing runs is the same mistake pointed the other way, so
- * the last tests assert the CI matrix actually exercises the highest supported
- * major, and that the job in question really runs the suite.
- */
+import { parse as parseYaml, parseAllDocuments } from 'yaml'
 
 const require = createRequire(import.meta.url)
+const repoRoot = path.resolve(__dirname, '..', '..', '..')
 
-/** Canonry's own floor, independent of what the native dep supports. */
-const CANONRY_MIN_MAJOR = 22
-
-/** The major the Docker images pin. */
-const DEPLOY_MAJOR = 22
-
-/**
- * Node majors each better-sqlite3 release ships a PREBUILT binary for.
- *
- * Verified against the release assets, which are named
- * `better-sqlite3-v<version>-node-v<abi>-<platform>-<arch>.tar.gz`; the ABI
- * maps to a Node major (127→22, 131→23, 137→24, 141→25, 147→26).
- *
- * Do NOT populate this from `engines.node` — see the note above. Re-verify on
- * every better-sqlite3 upgrade; that is exactly what this table is for.
- */
-const PREBUILT_MAJORS: Record<string, number[]> = {
-  // v12.11.1 assets: ABI 127, 137, 141, 147 (no 131 — Node 23 was dropped in 12.10.0).
-  '12.11.1': [22, 24, 25, 26],
-}
-
-function repoRoot(): string {
-  // packages/db/test -> repo root
-  return path.resolve(__dirname, '..', '..', '..')
-}
+// Independent security-release policy: do not derive these minimums from the
+// manifest or guard being checked. Native loading is exercised by the DB suite
+// on each CI release line; the scheduled tarball check owns platform coverage.
+const SUPPORTED_FLOORS = ['22.23.4', '24.22.1', '26.12.1']
+const DEPLOY_VERSION = '26.12.1'
 
 function readRepoFile(...segments: string[]): string {
-  return fs.readFileSync(path.join(repoRoot(), ...segments), 'utf8')
+  return fs.readFileSync(path.join(repoRoot, ...segments), 'utf8')
 }
 
-function guardMajors(): number[] {
-  const source = readRepoFile('scripts', 'check-node.mjs')
-  const match = /const SUPPORTED_MAJORS = \[([^\]]*)\]/.exec(source)
-  if (!match) throw new Error('SUPPORTED_MAJORS not found in scripts/check-node.mjs')
-  return match[1]!
-    .split(',')
-    .map((part) => Number.parseInt(part.trim(), 10))
-    .filter((n) => Number.isFinite(n))
-    .sort((a, b) => a - b)
+function declaredNodeRange(...segments: string[]): string {
+  const pkg = JSON.parse(readRepoFile(...segments)) as { engines?: { node?: string } }
+  if (!pkg.engines?.node) throw new Error(`${segments.join('/')} declares no engines.node`)
+  return pkg.engines.node
 }
 
-function installedBetterSqlite3(): { version: string; enginesMajors: number[] } {
-  const pkgPath = require.resolve('better-sqlite3/package.json')
-  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as {
-    version?: string
-    engines?: { node?: string }
-  }
-  const range = pkg.engines?.node
-  if (!range) throw new Error('better-sqlite3 declares no engines.node')
-  if (!pkg.version) throw new Error('better-sqlite3 declares no version')
-  return {
-    version: pkg.version,
-    // e.g. "20.x || 22.x || 23.x || 24.x || 25.x || 26.x"
-    enginesMajors: range
-      .split('||')
-      .map((part) => Number.parseInt(part.trim(), 10))
-      .filter((n) => Number.isFinite(n))
-      .sort((a, b) => a - b),
+function installedBetterSqlite3(): { version: string; engines: { node: string } } {
+  return JSON.parse(fs.readFileSync(require.resolve('better-sqlite3/package.json'), 'utf8')) as {
+    version: string
+    engines: { node: string }
   }
 }
 
-/** Majors the INSTALLED better-sqlite3 ships a prebuilt binary for. */
-function prebuiltMajors(): number[] {
-  const { version } = installedBetterSqlite3()
-  const majors = PREBUILT_MAJORS[version]
-  if (!majors) {
-    throw new Error(
-      `better-sqlite3 ${version} has no PREBUILT_MAJORS entry. Check that release's ` +
-        'assets for which node-v<abi> builds it ships and add them here. Do not copy ' +
-        'engines.node — it lists majors with no binary.',
-    )
-  }
-  return [...majors].sort((a, b) => a - b)
-}
-
-/**
- * The version `pnpm-lock.yaml` resolves better-sqlite3 to.
- *
- * Everything above reads the INSTALLED copy via `require.resolve`, so a
- * `node_modules` that has drifted from the lockfile makes this whole file
- * self-consistent about the wrong dependency — green, while describing a
- * version the repo does not ship. Observed during review: a tree still on
- * 12.6.2 with the lockfile already at 12.11.1, so `PREBUILT_MAJORS` was never
- * consulted for the version CI actually installs.
- *
- * Parsed, not pattern-matched: the resolved version is a `packages:` KEY, and a
- * loose scan also hits the `@types/better-sqlite3` entries and the peer suffixes
- * on `drizzle-orm@…(better-sqlite3@…)`.
- */
 function lockfileBetterSqlite3Version(): string {
-  const lock = parseYaml(readRepoFile('pnpm-lock.yaml')) as {
-    packages?: Record<string, unknown>
-  }
+  const documents = parseAllDocuments(readRepoFile('pnpm-lock.yaml'))
   const prefix = 'better-sqlite3@'
-  const versions = Object.keys(lock.packages ?? {})
-    .filter((key) => key.startsWith(prefix))
-    .map((key) => key.slice(prefix.length))
+  const versions = [...new Set(documents.flatMap((document) => {
+    if (document.errors.length) throw document.errors[0]!
+    const lock = document.toJSON() as { packages?: Record<string, unknown> } | null
+    return Object.keys(lock?.packages ?? {})
+      .filter((key) => key.startsWith(prefix))
+      .map((key) => key.slice(prefix.length))
+  }))]
   if (versions.length !== 1) {
-    throw new Error(
-      `expected exactly one better-sqlite3 in pnpm-lock.yaml, found ${versions.length}` +
-        (versions.length ? `: ${versions.join(', ')}` : ''),
-    )
+    throw new Error(`expected exactly one better-sqlite3 in pnpm-lock.yaml, found: ${versions.join(', ')}`)
   }
   return versions[0]!
 }
 
-interface CiJob {
-  strategy?: { matrix?: { include?: Array<Record<string, unknown>> } }
-  steps?: Array<{ run?: string }>
+function runNodeGuard(version: string, skip = '') {
+  // Exercise the shipped entry point in a child, without exporting its parser
+  // or adding a fake-version option to production. CI supplies real runtimes.
+  const guardUrl = pathToFileURL(path.join(repoRoot, 'scripts', 'check-node.mjs')).href
+  return spawnSync(process.execPath, ['--input-type=module', '--eval', `
+    Object.defineProperty(process.versions, 'node', { value: ${JSON.stringify(version)} });
+    await import(${JSON.stringify(guardUrl)});
+  `], {
+    encoding: 'utf8',
+    env: { ...process.env, CANONRY_SKIP_NODE_CHECK: skip },
+    timeout: 10_000,
+  })
 }
 
-/**
- * The CI job that installs a Node major and runs the suite on it.
- *
- * Parsed as YAML, not scanned as text: a regex over the raw file cannot tell a
- * live matrix entry from a commented-out one, cannot tell this job's `node:`
- * key from any other job's, and cannot see whether the job runs the tests at
- * all — so it would keep passing in exactly the cases this guard exists to
- * catch.
- */
+interface CiStep {
+  uses?: string
+  with?: Record<string, unknown>
+  run?: string
+}
+
+interface CiJob {
+  strategy?: { matrix?: { include?: Array<Record<string, unknown>> } }
+  steps?: CiStep[]
+}
+
 function testShardsJob(): CiJob {
   const workflow = parseYaml(readRepoFile('.github', 'workflows', 'ci.yml')) as {
     jobs?: Record<string, CiJob>
@@ -164,171 +82,141 @@ function testShardsJob(): CiJob {
   return job
 }
 
-/**
- * Distinct Node majors the CI test matrix actually installs and runs on.
- *
- * The entries are deliberately asymmetric (Node 22 sharded 4x, the highest
- * major 2x) to balance feedback time and runner cost, so this counts DISTINCT
- * majors and says nothing about how each one is split.
- */
-function ciMatrixMajors(): number[] {
-  const include = testShardsJob().strategy?.matrix?.include
-  if (!include?.length) throw new Error('`test_shards` declares no matrix include entries')
-  const majors = include
-    .map((entry) => Number.parseInt(String(entry.node), 10))
-    .filter((n) => Number.isFinite(n))
-  if (majors.length === 0) throw new Error('no `node:` keys in the test_shards matrix')
-  return [...new Set(majors)].sort((a, b) => a - b)
-}
-
-function ciMatrixShards(): Array<{ major: number; index: number; total: number }> {
+function ciMatrixShards(): Array<{ version: string; index: number; total: number }> {
   const include = testShardsJob().strategy?.matrix?.include
   if (!include?.length) throw new Error('`test_shards` declares no matrix include entries')
 
   return include.map((entry) => {
-    const major = Number.parseInt(String(entry.node), 10)
+    const version = String(entry.node)
     const shard = /^(\d+)\/(\d+)$/.exec(String(entry.shard))
-    if (!Number.isFinite(major) || !shard) {
+    if (!/^\d+\.\d+\.\d+$/.test(version) || !shard) {
       throw new Error(`invalid test-shard matrix entry: ${JSON.stringify(entry)}`)
     }
-    const index = Number.parseInt(shard[1]!, 10)
-    const total = Number.parseInt(shard[2]!, 10)
+    const index = Number(shard[1])
+    const total = Number(shard[2])
     if (index < 1 || total < index) {
-      throw new Error(`invalid shard ${String(entry.shard)} for Node ${major}`)
+      throw new Error(`invalid shard ${String(entry.shard)} for Node ${version}`)
     }
-    return { major, index, total }
+    return { version, index, total }
   })
-}
-
-function declaredEnginesCeiling(pkgRelPath: string[]): { declared: string; ceiling: number } {
-  const pkg = JSON.parse(readRepoFile(...pkgRelPath)) as { engines?: { node?: string } }
-  const declared = pkg.engines?.node ?? ''
-  return { declared, ceiling: Number.parseInt(/<\s*(\d+)/.exec(declared)?.[1] ?? '0', 10) }
 }
 
 describe('Node support range', () => {
   test('the installed better-sqlite3 matches the lockfile', () => {
-    // Runs FIRST because every other assertion here is only as true as this
-    // one: they all describe the installed copy.
     const locked = lockfileBetterSqlite3Version()
     const { version } = installedBetterSqlite3()
     expect(
       version,
-      `node_modules has better-sqlite3 ${version} but the lockfile pins ${locked}. ` +
-        'Run `pnpm install` — until then this file is asserting against a ' +
-        'dependency the repo does not ship.',
+      `node_modules has better-sqlite3 ${version} but the lockfile pins ${locked}; run pnpm install`,
     ).toBe(locked)
   })
 
-  test('the install guard matches the prebuilt majors at or above Canonry floor', () => {
-    // Derived from prebuild coverage, not from engines.node. A dependency bump
-    // that adds OR drops a prebuilt major fails here.
-    const expected = prebuiltMajors().filter((major) => major >= CANONRY_MIN_MAJOR)
-    expect(guardMajors()).toEqual(expected)
+  test('workspace and published engines require patched, bounded release lines', () => {
+    const expected = '>=22.23.4 <23 || >=24.22.1 <25 || >=26.12.1 <27'
+    expect(declaredNodeRange('package.json')).toBe(expected)
+    expect(declaredNodeRange('packages', 'canonry', 'package.json')).toBe(expected)
   })
 
-  test('the prebuilt table never claims a major better-sqlite3 does not support', () => {
-    // The table is hand-maintained, so bound it by the dep's own declared
-    // range: engines.node is a superset of the prebuilds, never a subset. A
-    // typo'd or invented major fails here rather than widening the guard.
-    const { enginesMajors } = installedBetterSqlite3()
-    for (const major of prebuiltMajors()) expect(enginesMajors).toContain(major)
+  test.each(SUPPORTED_FLOORS.flatMap((floor) => {
+    const [major, minor, patch] = floor.split('.').map(Number)
+    return [floor, `${major}.${minor}.${patch! + 1}`, `${major}.${minor! + 1}.0`, `${major}.999.999`]
+  }))('the install guard accepts supported Node %s without output', (version) => {
+    const result = runNodeGuard(version)
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe(0)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toBe('')
   })
 
-  test('the guard and declared engine range enforce Node 22+', () => {
-    const majors = guardMajors()
-    expect(majors).toContain(CANONRY_MIN_MAJOR)
-    expect(majors).not.toContain(20)
-
-    // The ceiling is exclusive, so it must sit exactly one past the highest
-    // supported major — never a literal that can rot.
-    const expectedCeiling = Math.max(...majors) + 1
-    const root = declaredEnginesCeiling(['package.json'])
-    const published = declaredEnginesCeiling(['packages', 'canonry', 'package.json'])
-
-    // 22.19 is the floor Aero's agent runtime declares (see the next test).
-    expect(root.declared).toBe(`>=${CANONRY_MIN_MAJOR}.19.0 <${expectedCeiling}`)
-    expect(published.declared).toBe(root.declared)
+  test.each([
+    '20.0.0', '21.0.0', '22.22.99', '22.23.3', '23.0.0',
+    '24.21.99', '24.22.0', '25.0.0', '26.11.99', '26.12.0', '27.0.0', '28.0.0',
+    '26.13.0-nightly.20261022',
+  ])('the install guard rejects unpatched or unsupported Node %s', (version) => {
+    const result = runNodeGuard(version)
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain(`Node ${version} is unsupported`)
+    expect(result.stderr).toContain(declaredNodeRange('package.json'))
+    expect(result.stderr).toContain('nvm use')
   })
 
-  test('the declared floor is at least what the pi agent runtime requires', () => {
-    // @earendil-works/pi-ai and pi-agent-core declare their own Node floor; a
-    // pi upgrade that raises it must raise Canonry's too, or installs between
-    // the two floors run an unsupported runtime.
-    const floor = (range: string): number[] => (/>=\s*(\d+)\.(\d+)\.(\d+)/.exec(range)?.slice(1) ?? []).map(Number)
-    const atLeast = (a: number[], b: number[]): boolean =>
-      a[0] !== b[0] ? a[0]! > b[0]! : a[1] !== b[1] ? a[1]! > b[1]! : a[2]! >= b[2]!
-    const canonry = floor(declaredEnginesCeiling(['packages', 'canonry', 'package.json']).declared)
-    expect(canonry).toHaveLength(3)
-    for (const name of ['pi-ai', 'pi-agent-core']) {
-      const pkg = JSON.parse(readRepoFile('packages', 'canonry', 'node_modules', '@earendil-works', name, 'package.json')) as { engines?: { node?: string } }
-      const pi = floor(pkg.engines?.node ?? '')
-      expect(pi, `${name} engines.node`).toHaveLength(3)
-      expect(atLeast(canonry, pi), `${name} needs node ${pkg.engines?.node}`).toBe(true)
+  test.each([
+    { skip: '1', status: 0, warns: true },
+    { skip: '0', status: 1, warns: false },
+  ])('unsupported runtime override $skip exits $status and reports its policy', ({ skip, status, warns }) => {
+    const result = runNodeGuard('27.0.0', skip)
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe(status)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('Node 27.0.0 is unsupported')
+    expect(result.stderr.includes('Continuing because CANONRY_SKIP_NODE_CHECK=1')).toBe(warns)
+  })
+
+  test('each supported release line meets SQLite and agent runtime engine floors', () => {
+    const dependencies = [
+      { name: 'better-sqlite3', range: installedBetterSqlite3().engines.node },
+      ...['pi-ai', 'pi-agent-core'].map((name) => ({
+        name,
+        range: declaredNodeRange('packages', 'canonry', 'node_modules', '@earendil-works', name, 'package.json'),
+      })),
+    ]
+    for (const { name, range } of dependencies) {
+      // Reject a changed range grammar for review instead of overlooking a
+      // new upper bound or an excluded release line in the dependency.
+      const match = /^>=\s*(\d+)(?:\.(\d+)\.(\d+))?$/.exec(range)
+      expect(match, `${name} engines.node: ${range}`).not.toBeNull()
+      const required = [Number(match![1]), Number(match![2] ?? 0), Number(match![3] ?? 0)]
+      for (const floor of SUPPORTED_FLOORS) {
+        const current = floor.split('.').map(Number)
+        const difference = current[0]! - required[0]! || current[1]! - required[1]! || current[2]! - required[2]!
+        expect(difference, `${name} requires ${range}; Canonry supports ${floor}`).toBeGreaterThanOrEqual(0)
+      }
     }
   })
 
-  test('every Dockerfile uses the Node 22 base', () => {
-    // Deliberately still pinned while the supported range is wider: widening
-    // what a CONTRIBUTOR may use must not quietly move what ships.
+  test('developer, CI default, and Docker runtimes pin the patched deployment version', () => {
+    for (const file of ['.nvmrc', '.node-version']) expect(readRepoFile(file).trim()).toBe(DEPLOY_VERSION)
+    const setup = parseYaml(readRepoFile('.github', 'actions', 'setup', 'action.yml')) as {
+      inputs?: Record<string, { default?: string }>
+    }
+    expect(setup.inputs?.['node-version']?.default).toBe(DEPLOY_VERSION)
     for (const dockerfile of ['Dockerfile', 'Dockerfile.api', 'Dockerfile.worker', 'Dockerfile.web']) {
-      const source = readRepoFile(dockerfile)
-      const majors = [...source.matchAll(/^FROM .*node:(\d+)-bookworm-slim(?:\s|$)/gm)].map(
-        (match) => Number.parseInt(match[1]!, 10),
-      )
-      expect(majors.length).toBeGreaterThan(0)
-      expect(majors.every((major) => major === DEPLOY_MAJOR)).toBe(true)
+      const tags = [...readRepoFile(dockerfile).matchAll(/^FROM (?:\S*\/)?node:(\S+)(?:\s|$)/gm)]
+        .map((match) => match[1])
+      expect(tags.length, `${dockerfile} has no Node base`).toBeGreaterThan(0)
+      for (const tag of tags) {
+        const [version, digest] = tag!.split('@')
+        expect(version, dockerfile).toBe(`${DEPLOY_VERSION}-bookworm-slim`)
+        expect(digest, dockerfile).toMatch(/^sha256:[a-f0-9]{64}$/)
+      }
     }
   })
 
-  test('the declared engines range does not promise more than the guard allows', () => {
-    // An unbounded `>=X` range asserts that every FUTURE major is supported,
-    // which is exactly the claim that misled the install. Require a ceiling.
-    const { declared, ceiling } = declaredEnginesCeiling(['package.json'])
-    expect(declared).toMatch(/<\s*\d+/)
-    expect(ceiling).toBeGreaterThan(Math.max(...guardMajors()))
-  })
-
-  test('CI runs the suite on the deploy major and the highest supported major', () => {
-    // Support has to be earned, not declared. Without this, widening
-    // SUPPORTED_MAJORS silently promises a major nothing ever runs — the same
-    // unevidenced claim as the stale ceiling, just in the opposite direction.
-    const ci = ciMatrixMajors()
-    const highest = Math.max(...guardMajors())
-
-    expect(ci).toContain(DEPLOY_MAJOR)
-    expect(ci).toContain(highest)
-    // And CI must not claim to test a major the guard refuses to install on.
-    for (const major of ci) expect(guardMajors()).toContain(major)
-  })
-
-  test('every CI Node major covers every shard it declares', () => {
-    // A matrix entry for Node 26 is not enough: `1/2` alone would test the
-    // major but silently sample only half its suite. Each major must include
-    // every member of one complete Vitest shard partition.
-    const byMajor = new Map<number, Array<{ index: number; total: number }>>()
-    for (const { major, index, total } of ciMatrixShards()) {
-      const shards = byMajor.get(major) ?? []
+  test('CI runs every shard at the minimum of every supported release line', () => {
+    const byVersion = new Map<string, Array<{ index: number; total: number }>>()
+    for (const { version, index, total } of ciMatrixShards()) {
+      const shards = byVersion.get(version) ?? []
       shards.push({ index, total })
-      byMajor.set(major, shards)
+      byVersion.set(version, shards)
     }
-
-    for (const [major, shards] of byMajor) {
+    expect([...byVersion.keys()].sort()).toEqual([...SUPPORTED_FLOORS].sort())
+    for (const [version, shards] of byVersion) {
       const totals = [...new Set(shards.map((shard) => shard.total))]
-      expect(totals, `Node ${major} has inconsistent shard totals`).toHaveLength(1)
-      const total = totals[0]!
+      expect(totals, `Node ${version} has inconsistent shard totals`).toHaveLength(1)
       expect(
         shards.map((shard) => shard.index).sort((a, b) => a - b),
-        `Node ${major} is missing or duplicating a shard`,
-      ).toEqual(Array.from({ length: total }, (_, index) => index + 1))
+        `Node ${version} is missing or duplicating a shard`,
+      ).toEqual(Array.from({ length: totals[0]! }, (_, index) => index + 1))
     }
   })
 
-  test('the matrix job actually runs the test suite', () => {
-    // A matrix that lists a major but never runs the tests on it is the same
-    // empty claim. Assert the job's steps invoke the suite.
+  test('the CI job installs its matrix runtime and executes its shard of the suite', () => {
     const steps = testShardsJob().steps ?? []
+    const setup = steps.find((step) => step.uses === './.github/actions/setup')
+    expect(setup?.with?.['node-version']).toBe('${{ matrix.node }}')
     const commands = steps.map((step) => step.run ?? '').join('\n')
-    expect(commands).toMatch(/pnpm\s+run\s+test/)
+    expect(commands).toMatch(/pnpm\s+run\s+test\s[^\n]*--shard=\$\{\{\s*matrix\.shard\s*\}\}/)
   })
 })

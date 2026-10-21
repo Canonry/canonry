@@ -54,7 +54,7 @@ export function PageAuditEvidence({
 }: {
   audit: SiteCrawlPageAuditDto | undefined
   isLoading: boolean
-  error: Error | null
+  error: unknown
   onRetry: () => void
 }) {
   return (

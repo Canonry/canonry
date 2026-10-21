@@ -39,6 +39,17 @@ import { test, expect, describe, it, beforeEach, afterEach } from 'vitest'
 
 Tests live in `test/` directories colocated with each package (e.g. `packages/canonry/test/`).
 
+### Migrated test databases
+
+`test-setup/global-setup.ts` migrates one empty database per run. When a test calls `migrate(db)` on an empty database, the shared setup file replays that database's schema and rows (`test-setup/migrated-database.ts`) instead of running every migration again: about 15 ms instead of 200 ms. Each test still gets its own database.
+A custom version list, or a database that already holds a table, runs the real migrations. To exercise the real runner from an empty database with every version, pass a copy of the list: `migrate(db, [...MIGRATION_VERSIONS])`.
+
+### Shared workers
+
+Projects in `SHARED_WORKER_PROJECTS` (`vitest.config.ts`) run their test files in shared workers, so each worker imports the package graph once instead of once per file. Before each file, the shared setup file restores the environment, stubbed globals, the working directory, real timers, and the network guards. Module state persists between files, so a test that changes a module-level cache resets it.
+Vitest keeps module mocks across a shared worker's files, so a file that calls `vi.mock` or `vi.doMock` runs in its own process: `api-routes` runs as `api-routes:shared` and `api-routes:isolated`. Select both with `--project 'api-routes:*'`.
+`canonry` and `web` keep one process per file. Canonry holds process-wide state, such as the provider rate-limit gates, and web tests would share one jsdom document.
+
 ## Fast Local Checks
 
 Run changed-file lint from the repository root:
@@ -185,7 +196,7 @@ CI also runs build, Deno, and release guards. `pnpm verify` does not replace tho
 Every `typecheck` script runs `scripts/typecheck.mjs`, which takes tsc's arguments and picks the compiler:
 
 - By default, tsrs, the Rust port of TypeScript 7. Platforms without a native tsrs binary, such as Intel macOS, run its WebAssembly build, which reports the same diagnostics more slowly.
-- With `CANONRY_TYPECHECKER=tsc` (`pnpm typecheck:tsc` for the whole workspace), the `typescript` package's own `tsc`. That package stays on 5.9 until the TypeScript 7 migration because tsup's `.d.ts` build and the SDK codegen import it.
+- With `CANONRY_TYPECHECKER=tsc` (`pnpm typecheck:tsc` for the whole workspace), the `typescript` package's own `tsc`. This uses the upstream native TypeScript 7 compiler.
 
 `pnpm verify` and CI run both, so code stays valid for each. A package's `typecheck` script calls `node ../../scripts/typecheck.mjs`, never bare `tsc`. After switching compilers, the next run rebuilds the incremental state once.
 
@@ -195,11 +206,11 @@ Lint and typechecks use four concurrent package processes without dependency ord
 They read workspace source directly and produce no artifacts needed by another package's check.
 Builds retain dependency ordering.
 
-Typechecks reuse TypeScript incremental state, including the root `scripts/` and `test/` projects.
+Typechecks reuse TypeScript incremental state, including the root `scripts/`, `test/` and `test-setup/` projects (`test-setup/tsconfig.json` also covers the root Vitest configs).
 CI collects the `.tsbuildinfo` files with shallow shell globs and caches a single archive.
 This avoids scanning `node_modules` during cache uploads. TypeScript still validates the current inputs on every run.
 
-Tests run in six shards on each of Node 22 and Node 26. Both majors run the complete suite.
+Tests run in six shards on each patched Node 22, 24, and 26 release. All supported majors run the complete suite.
 CI persists Vitest's experimental module-transform cache and Node's compile cache.
 These caches reuse compilation work; they never skip test assertions or reuse a passing test result.
 Cache keys separate the OS, architecture, Node major, shard, lockfiles, manifests, and configuration.
@@ -306,3 +317,8 @@ canonry status test                             # view citation results
 - When testing CLI commands, capture stdout/stderr and assert on output rather than only checking side effects.
 - Use temp directories (`os.tmpdir()`) for file-system tests; clean up in `afterEach`.
 - **Test default-value propagation end-to-end.** When a feature stores a default that another feature consumes, write a test that exercises the full path with no explicit override.
+
+The workspace uses TypeScript 7. SDK generation, tsup declaration builds, and
+the web's JSX guard tests still require the JavaScript compiler API, which
+TypeScript 7 removed. Their four owning packages pin TypeScript 6.0.3 as a private development dependency;
+all workspace typechecks continue through the root compiler launcher.

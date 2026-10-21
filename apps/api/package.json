@@ -15,7 +15,7 @@
     "@canonry/canonry-config": "workspace:*",
     "@canonry/canonry-contracts": "workspace:*",
     "@canonry/canonry-db": "workspace:*",
-    "fastify": "^5.8.5",
-    "tsx": "^4.20.5"
+    "fastify": "^5.12.7",
+    "tsx": "^4.23.15"
   }
 }

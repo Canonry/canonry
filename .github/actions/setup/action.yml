@@ -3,19 +3,16 @@ description: Install pnpm, Node, and project dependencies. Assumes the repo is a
 inputs:
   node-version:
     description: >
-      Node major to install. Defaults to 22 — the version Docker images, the
-      published build, and .nvmrc all pin — so every existing caller is
-      unchanged. Pass a higher major only to prove a supported major still
-      works; `packages/db/test/node-support-range.test.ts` asserts the CI
-      matrix covers the highest major in scripts/check-node.mjs.
+      Node version to install. Defaults to the patched version in .nvmrc and
+      Docker. CI also exercises the older supported release lines.
     required: false
-    default: '22'
+    default: '26.12.1'
 runs:
   using: composite
   steps:
     - uses: pnpm/action-setup@v4
       with:
-        version: 10.28.2
+        version: 12.14.0
     - uses: actions/setup-node@v4
       with:
         node-version: ${{ inputs.node-version }}

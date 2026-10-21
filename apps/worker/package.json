@@ -12,6 +12,6 @@
   },
   "dependencies": {
     "@canonry/canonry-config": "workspace:*",
-    "tsx": "^4.20.5"
+    "tsx": "^4.23.15"
   }
 }
