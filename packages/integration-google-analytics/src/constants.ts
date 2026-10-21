@@ -73,6 +73,12 @@ export const GA4_DIMENSIONS = {
   sessionManualMedium: 'sessionManualMedium',
   firstUserSource: 'firstUserSource',
   firstUserMedium: 'firstUserMedium',
+  /**
+   * The channel group of the source and medium that first acquired the user,
+   * the first-user counterpart of `sessionDefaultChannelGroup` (deprecated
+   * name `firstUserDefaultChannelGrouping`, getMetadata, captured live).
+   */
+  firstUserDefaultChannelGroup: 'firstUserDefaultChannelGroup',
   sessionDefaultChannelGrouping: 'sessionDefaultChannelGrouping',
   sessionDefaultChannelGroup: 'sessionDefaultChannelGroup',
   hostName: 'hostName',

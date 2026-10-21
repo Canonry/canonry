@@ -13,7 +13,7 @@ import { createRestrictedSyntaxRule } from './restricted-syntax.js'
 const inlineGa4DimensionRule = createRestrictedSyntaxRule({
   description: 'Disallow inline GA4 dimension/metric name literals outside constants.ts.',
   restrictions: [{
-    selector: "Literal[value=/^(sessionSource|sessionMedium|sessionManualSource|sessionManualMedium|firstUserSource|firstUserMedium|sessionDefaultChannelGroup|sessionDefaultChannelGrouping|landingPagePlusQueryString)$/]",
+    selector: "Literal[value=/^(sessionSource|sessionMedium|sessionManualSource|sessionManualMedium|firstUserSource|firstUserMedium|firstUserDefaultChannelGroup|sessionDefaultChannelGroup|sessionDefaultChannelGrouping|landingPagePlusQueryString)$/]",
     message: 'Use GA4_DIMENSIONS from ./constants.ts — never inline raw dimension names. See packages/integration-google-analytics/src/constants.ts.',
   }],
 })
