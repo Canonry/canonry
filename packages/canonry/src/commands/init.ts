@@ -445,7 +445,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
   }
 
   if (isTelemetryEnabled()) {
-    const postInitSetupState = buildSetupState()
+    const postInitSetupState = await buildSetupState()
     recordInstallRef(opts?.ref)
     trackEvent('cli.init', {
       providerCount: providerNames.length,
