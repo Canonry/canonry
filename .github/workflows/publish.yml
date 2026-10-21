@@ -202,7 +202,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26.12.1
           registry-url: https://registry.npmjs.org
 
       - uses: ./.github/actions/setup
@@ -264,7 +264,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.check-token.outputs.configured == 'true'
         with:
-          node-version: 22
+          node-version: 26.12.1
           registry-url: https://registry.npmjs.org
 
       # npm can accept a scoped publish while its public metadata and tarball
@@ -322,7 +322,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26.12.1
 
       - name: Install ClawHub CLI
         run: npm i -g clawhub

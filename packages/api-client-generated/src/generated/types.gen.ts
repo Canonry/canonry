@@ -1914,7 +1914,7 @@ export type AgentConversation = {
     messages: Array<{
         role: string;
         content?: unknown;
-        [key: string]: unknown | string | undefined;
+        [key: string]: unknown;
     }>;
     isStreaming: boolean;
 };

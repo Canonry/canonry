@@ -11,14 +11,15 @@
         "@google/genai"
       ]
     },
-    "@google/genai@1.46.0": {
-      "integrity": "sha512-ewPMN5JkKfgU5/kdco9ZhXBHDPhVqZpMQqIFQhwsHLf8kyZfx1cNpw1pHo1eV6PGEW7EhIBFi3aYZraFndAXqg==",
+    "@google/genai@2.30.0": {
+      "integrity": "sha512-Gkv1ix8iZey/V3WF4lHaRS8C71P533jenDT/lA+fdPTCfXYfmCVHvo+0H5jTgzonqsmROQG7QpzLJkpoP/x7bg==",
       "dependencies": [
         "google-auth-library",
         "p-retry",
         "protobufjs",
         "ws"
-      ]
+      ],
+      "scripts": true
     },
     "@libsql/client@0.17.2": {
       "integrity": "sha512-0aw0S3iQMHvOxfRt5j1atoCCPMT3gjsB2PS8/uxSM1DcDn39xqz6RlgSMxtP8I3JsxIXAFuw7S41baLEw0Zi+Q==",
@@ -373,7 +374,7 @@
     "links": {
       "npm:@canonry/val-kit@0.2.0": {
         "dependencies": [
-          "npm:@google/genai@1.46.0"
+          "npm:@google/genai@2.30.0"
         ]
       }
     }

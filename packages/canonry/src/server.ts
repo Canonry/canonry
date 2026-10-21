@@ -18,7 +18,6 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 };
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import type { SetHeadersResponse } from "@fastify/static";
 import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, syncRunClaimKey, writeAuditLog, type ApiRoutesOptions } from "@canonry/canonry-api-routes";
 import {
   apiKeys,
@@ -1003,7 +1002,7 @@ export async function createServer(opts: {
   // `request.ip`, and behind an unconfigured proxy that is the PROXY for
   // everybody, collapsing every caller into one shared bucket. Unset means
   // trust nothing, which is right for the default localhost bind; an operator
-  // behind an edge proxy sets CANONRY_TRUST_PROXY to the hop count or the
+  // behind an edge proxy sets CANONRY_TRUST_PROXY to the
   // proxy's address.
   const trustProxy = resolveTrustProxy(process.env.CANONRY_TRUST_PROXY);
   const app = Fastify({
@@ -3891,14 +3890,14 @@ export async function createServer(opts: {
       // Without this, the browser hits the server for every JS chunk on
       // every page load, defeating most of the dashboard's first-paint
       // budget.
-      setHeaders: (res: SetHeadersResponse, path: string) => {
+      setHeaders: (reply: FastifyReply, path: string) => {
         // index.html serving is handled separately below; this static
         // middleware doesn't actually serve it (index:false), but guard
         // anyway in case fastify-static falls back through here.
         if (path.endsWith(".html")) {
-          res.setHeader("Cache-Control", "no-cache, must-revalidate");
+          reply.header("Cache-Control", "no-cache, must-revalidate");
         } else {
-          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+          reply.header("Cache-Control", "public, max-age=31536000, immutable");
         }
       },
     });

@@ -1,11 +1,44 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { renderToString } from 'react-dom/server'
-import { parseColor } from 'sigma/utils'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { parseColor, parseFontString } from 'sigma/utils'
+import type { SigmaOptions } from 'sigma/types'
+import type { SigmaSiteGraph, SigmaSiteGraphNodeAttributes, SigmaSiteGraphEdgeAttributes } from '../src/components/project/site-graph-sigma.js'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+
+let evaluateNodeStyle: typeof import('sigma/types').evaluateNodeStyle
+let evaluateEdgeStyle: typeof import('sigma/types').evaluateEdgeStyle
+
+beforeAll(async () => {
+  // Sigma's public style evaluators share a module with GPU primitives. Only
+  // their import-time constants need a shim; canvas capability remains real
+  // to each test's getContext fixture, and SSR is checked in its own file.
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'WebGL2RenderingContext')
+  Object.defineProperty(globalThis, 'WebGL2RenderingContext', {
+    configurable: true,
+    value: {
+      BOOL: 0x8b56, BYTE: 0x1400, UNSIGNED_BYTE: 0x1401,
+      SHORT: 0x1402, UNSIGNED_SHORT: 0x1403, INT: 0x1404,
+      UNSIGNED_INT: 0x1405, FLOAT: 0x1406, TRIANGLE_STRIP: 0x0005,
+    },
+  })
+  try {
+    const evaluators = await import('sigma/types')
+    evaluateNodeStyle = evaluators.evaluateNodeStyle
+    evaluateEdgeStyle = evaluators.evaluateEdgeStyle
+  } finally {
+    if (previous) Object.defineProperty(globalThis, 'WebGL2RenderingContext', previous)
+    else Reflect.deleteProperty(globalThis, 'WebGL2RenderingContext')
+  }
+})
+
+type RendererOptions = SigmaOptions<SigmaSiteGraphNodeAttributes, SigmaSiteGraphEdgeAttributes>
+interface RendererProps {
+  graph?: SigmaSiteGraph
+  options?: RendererOptions
+}
 
 const sigmaMocks = vi.hoisted(() => ({
   handlers: {} as Record<string, (...args: never[]) => void>,
-  setSetting: vi.fn(),
   refresh: vi.fn(),
   zoomIn: vi.fn(),
   zoomOut: vi.fn(),
@@ -13,27 +46,12 @@ const sigmaMocks = vi.hoisted(() => ({
   gotoNode: vi.fn(),
   shouldThrow: false,
   cameraRatio: 1,
-  graphsSeen: [] as unknown[],
-  containerProps: null as {
-    graph?: {
-      nodes: () => string[]
-      edges: () => string[]
-      getNodeAttribute: (nodeKey: string, attribute: string) => string
-      getNodeAttributes: (nodeKey: string) => Record<string, unknown>
-      getEdgeAttributes: (edgeKey: string) => Record<string, unknown>
-    }
-    settings?: {
-      defaultNodeColor?: string
-      defaultEdgeColor?: string
-      defaultDrawNodeHover?: (...args: never[]) => void
-      labelColor?: { color?: string }
-      labelFont?: string
-    }
-  } | null,
+  graphsSeen: [] as SigmaSiteGraph[],
+  optionsSeen: [] as RendererOptions[],
+  containerProps: null as RendererProps | null,
 }))
 
 const sigmaMockInstance = {
-  setSetting: sigmaMocks.setSetting,
   refresh: sigmaMocks.refresh,
   // The real Sigma reports the graph it renders, and SiteGraphSigma checks it
   // before configuring: applying settings to an instance built for a different
@@ -45,23 +63,13 @@ const sigmaMockInstance = {
 vi.mock('@react-sigma/core', async () => {
   const React = await import('react')
   return {
-    SigmaContainer: ({ children, graph, settings }: {
-      children?: React.ReactNode
-      graph?: { order: number; size: number; nodes: () => string[]; getNodeAttribute: (nodeKey: string, attribute: string) => string }
-      settings?: {
-        defaultNodeColor?: string
-        defaultEdgeColor?: string
-        defaultDrawNodeHover?: (...args: never[]) => void
-        labelColor?: { color?: string }
-        labelFont?: string
-      }
-    }) => {
+    SigmaContainer: ({ children, graph, options }: RendererProps & { children?: React.ReactNode }) => {
       if (sigmaMocks.shouldThrow) throw new Error('WebGL renderer failed')
-      // Each distinct graph object is a real Sigma instance, and a real WebGL
-      // context, in the browser. Browsers cap live contexts, so this is the
-      // number that must not grow when a checkbox is flipped.
+      // React Sigma 6 can recreate its renderer when either the graph or its
+      // options change. Track both so stable graph identity alone cannot pass.
       if (graph && !sigmaMocks.graphsSeen.includes(graph)) sigmaMocks.graphsSeen.push(graph)
-      sigmaMocks.containerProps = { graph, settings }
+      if (options && !sigmaMocks.optionsSeen.includes(options)) sigmaMocks.optionsSeen.push(options)
+      sigmaMocks.containerProps = { graph, options }
       return React.createElement(
         'div',
         {
@@ -129,12 +137,46 @@ function mockWebGl(supported: boolean) {
   }) as typeof HTMLCanvasElement.prototype.getContext)
 }
 
+function graphState(hovered: boolean) {
+  return {
+    isIdle: !hovered, isPanning: false, isZooming: false, isDragging: false,
+    hasHovered: hovered, hasHighlighted: false,
+  }
+}
+
+// Exercise the installed library's display-data contract, keeping raw graph
+// metadata in the third reducer argument as Sigma 4 does at runtime.
+function renderedNode(key: string, hovered = false) {
+  const { graph, options } = sigmaMocks.containerProps!
+  const attributes = graph!.getNodeAttributes(key)
+  const state = {
+    isHovered: hovered, isLabelHovered: false, isHidden: false,
+    isHighlighted: false, isDragged: false,
+  }
+  const stage = graphState(hovered)
+  const display = evaluateNodeStyle(options!.styles?.nodes, attributes, state, stage, graph!)
+  return { ...display, ...options!.nodeReducer?.(key, display, attributes, state, stage, graph!) }
+}
+
+function renderedEdge(key: string) {
+  const { graph, options } = sigmaMocks.containerProps!
+  const attributes = graph!.getEdgeAttributes(key)
+  const state = {
+    isHovered: false, isLabelHovered: false, isHidden: false,
+    isHighlighted: false, parallelIndex: 0, parallelCount: 1,
+  }
+  const stage = graphState(false)
+  const display = evaluateEdgeStyle(options!.styles?.edges, attributes, state, stage, graph!)
+  return { ...display, ...options!.edgeReducer?.(key, display, attributes, state, stage, graph!) }
+}
+
 beforeEach(() => {
   sigmaMocks.handlers = {}
   sigmaMocks.shouldThrow = false
   sigmaMocks.containerProps = null
   sigmaMocks.graphsSeen = []
-  sigmaMocks.setSetting.mockReset()
+  sigmaMocks.optionsSeen = []
+  sigmaMocks.cameraRatio = 1
   sigmaMocks.refresh.mockReset()
   sigmaMocks.zoomIn.mockReset()
   sigmaMocks.zoomOut.mockReset()
@@ -145,6 +187,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('SiteGraphSigma', () => {
@@ -208,7 +251,7 @@ describe('SiteGraphSigma', () => {
     expect(sigmaMocks.gotoNode).toHaveBeenCalled()
   })
 
-  it('only passes Sigma 3 parseable non-black colors to the renderer', async () => {
+  it('passes parseable non-black node, edge, and label colors to Sigma', async () => {
     mockWebGl(true)
     render(
       <SiteGraphSigma
@@ -218,79 +261,47 @@ describe('SiteGraphSigma', () => {
           node('failed', { fetchState: 'fetch-error' }),
           node('unchecked', { fetchState: 'discovered', indexabilityState: 'unknown' }),
         ]}
-        edges={[]}
+        edges={[{ ...edges[0]!, sourceNodeKey: 'eligible', targetNodeKey: 'hidden' }]}
       />,
     )
 
     await waitFor(() => expect(sigmaMocks.containerProps).not.toBeNull())
-    const { graph, settings } = sigmaMocks.containerProps!
-    expect(settings?.labelFont).toBe('Geist Variable, Geist, sans-serif')
+    const graph = sigmaMocks.containerProps!.graph!
+    const renderedNodes = graph.nodes().map((key) => renderedNode(key))
+    expect(parseFontString(renderedNodes[0]!.labelFont)).toEqual({
+      family: 'Geist Variable, Geist, sans-serif', weight: '600', style: 'normal',
+    })
+    expect(renderedNodes[0]!.labelSize).toBe(13)
     const colors = [
-      settings?.defaultNodeColor,
-      settings?.defaultEdgeColor,
-      settings?.labelColor?.color,
-      ...(graph?.nodes().map((nodeKey) => graph.getNodeAttribute(nodeKey, 'color')) ?? []),
+      ...renderedNodes.flatMap((data) => [data.color, data.labelColor]),
+      ...graph.edges().map((key) => renderedEdge(key).color),
     ]
-
     for (const color of colors) {
       expect(color).toBeTruthy()
-      const parsed = parseColor(color!)
+      const parsed = parseColor(color)
       expect([parsed.r, parsed.g, parsed.b], color).not.toEqual([0, 0, 0])
     }
   })
 
-  it('draws hovered labels with the theme contrast pair instead of Sigma white', async () => {
+  it('renders hovered labels with the theme contrast pair and preserves the node color', async () => {
     mockWebGl(true)
     render(<SiteGraphSigma nodes={nodes} edges={edges} />)
-
     await waitFor(() => expect(sigmaMocks.containerProps).not.toBeNull())
-    const drawHover = sigmaMocks.containerProps?.settings?.defaultDrawNodeHover
-    expect(drawHover).toBeTypeOf('function')
+    const normal = renderedNode('pricing')
+    act(() => { sigmaMocks.handlers.enterNode!({ node: 'pricing', event: { x: 40, y: 30 } } as never) })
+    const hovered = renderedNode('pricing', true)
 
-    let currentFillStyle = ''
-    const paintedFillStyles: string[] = []
-    const textFillStyles: string[] = []
-    const strokeStyles: string[] = []
-    const context = {
-      arc: vi.fn(),
-      arcTo: vi.fn(),
-      beginPath: vi.fn(),
-      closePath: vi.fn(),
-      fill: vi.fn(() => paintedFillStyles.push(currentFillStyle)),
-      fillText: vi.fn(() => textFillStyles.push(currentFillStyle)),
-      font: '',
-      lineTo: vi.fn(),
-      lineWidth: 0,
-      measureText: vi.fn(() => ({ width: 120 })),
-      moveTo: vi.fn(),
-      restore: vi.fn(),
-      save: vi.fn(),
-      stroke: vi.fn(),
-    }
-    Object.defineProperty(context, 'fillStyle', {
-      set: (color: string) => {
-        currentFillStyle = color
-      },
+    expect(normal.backdropVisibility).toBe('hidden')
+    expect(hovered).toMatchObject({
+      label: '● /pricing',
+      labelVisibility: 'visible',
+      backdropVisibility: 'visible',
+      backdropColor: '#18181b',
+      backdropBorderColor: '#a1a1aa',
+      labelColor: '#e4e4e7',
+      color: '#56b4e9',
     })
-    Object.defineProperty(context, 'strokeStyle', {
-      set: (color: string) => strokeStyles.push(color),
-    })
-
-    drawHover!(
-      context as never,
-      { x: 40, y: 30, size: 10, label: '/pricing', color: '#56b4e9' } as never,
-      {
-        labelFont: 'Geist Variable, Geist, sans-serif',
-        labelSize: 13,
-        labelWeight: '600',
-      } as never,
-    )
-
-    expect(paintedFillStyles.at(-1)).toBe('#18181b')
-    expect(textFillStyles).toEqual(['#e4e4e7'])
-    expect(paintedFillStyles).not.toContain('#FFF')
-    expect(strokeStyles).toContain('#a1a1aa')
-    expect(context.fillText).toHaveBeenCalledWith('/pricing', expect.any(Number), expect.any(Number))
+    expect(hovered.color).toBe(normal.color)
   })
 
   it('selects a node from Sigma events and reports it to the parent', async () => {
@@ -352,21 +363,12 @@ describe('SiteGraphSigma', () => {
     await waitFor(() => expect(sigmaMocks.handlers.updated).toBeTypeOf('function'))
     await waitFor(() => expect(sigmaMocks.refresh).toHaveBeenCalled())
 
-    const reducerFor = (name: string) => sigmaMocks.setSetting.mock.calls
-      .filter(([setting]) => setting === name).at(-1)![1] as (key: string, attributes: never) => Record<string, unknown>
     const graph = sigmaMocks.containerProps!.graph!
-    const visibleEdges = () => {
-      const edgeReducer = reducerFor('edgeReducer')
-      return graph.edges().filter((edgeKey: string) => (
-        edgeReducer(edgeKey, graph.getEdgeAttributes(edgeKey) as never).hidden !== true
-      ))
-    }
-    const labelled = () => {
-      const nodeReducer = reducerFor('nodeReducer')
-      return graph.nodes().filter((nodeKey: string) => (
-        nodeReducer(nodeKey, graph.getNodeAttributes(nodeKey) as never).label !== ''
-      ))
-    }
+    const visibleEdges = () => graph.edges().filter((key) => renderedEdge(key).visibility !== 'hidden')
+    const labelled = () => graph.nodes().filter((key) => {
+      const data = renderedNode(key)
+      return data.label !== '' && data.labelVisibility !== 'hidden'
+    })
 
     // Fitted: the overview treatment.
     expect(visibleEdges()).toEqual([])
@@ -402,15 +404,22 @@ describe('SiteGraphSigma', () => {
     expect(visibleEdges()).toEqual([])
   })
 
-  it('does not reconfigure a renderer while its container is being destroyed', async () => {
+  it('cancels pending camera work before the renderer is destroyed', async () => {
     mockWebGl(true)
+    const schedule = vi.fn(() => 17)
+    const cancel = vi.fn()
+    vi.stubGlobal('requestAnimationFrame', schedule)
+    vi.stubGlobal('cancelAnimationFrame', cancel)
     const rendered = render(<SiteGraphSigma nodes={nodes} edges={edges} />)
 
-    await waitFor(() => expect(sigmaMocks.setSetting).toHaveBeenCalled())
-    sigmaMocks.setSetting.mockClear()
+    await waitFor(() => expect(sigmaMocks.refresh).toHaveBeenCalled())
+    act(() => { sigmaMocks.handlers.updated!({ ratio: 0.1 } as never) })
+    expect(schedule).toHaveBeenCalledOnce()
+    sigmaMocks.refresh.mockClear()
     rendered.unmount()
 
-    expect(sigmaMocks.setSetting).not.toHaveBeenCalled()
+    expect(cancel).toHaveBeenCalledWith(17)
+    expect(sigmaMocks.refresh).not.toHaveBeenCalled()
   })
 
   it('moves the camera when controlled selection changes outside the graph', async () => {
@@ -445,6 +454,17 @@ describe('SiteGraphSigma', () => {
 
     expect(await screen.findByText('Interactive map unavailable')).toBeTruthy()
     expect(screen.getByText(/page inventory remains available/i)).toBeTruthy()
+  })
+
+  it('shows the unavailable fallback when only WebGL 1 is supported', async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((contextId: string) => (
+      contextId === 'webgl' ? {} : null
+    )) as typeof HTMLCanvasElement.prototype.getContext)
+    render(<SiteGraphSigma nodes={nodes} edges={edges} />)
+
+    expect(await screen.findByText('Interactive map unavailable')).toBeTruthy()
+    expect(screen.queryByTestId('sigma-container')).toBeNull()
+    expect(screen.queryByText('The map could not be drawn')).toBeNull()
   })
 
   it('offers the inventory directly from a WebGL fallback', async () => {
@@ -505,7 +525,7 @@ describe('SiteGraphSigma', () => {
     expect(screen.getByText('The map could not be created for this scan. Run a new scan to try again.')).toBeTruthy()
   })
 
-  it('keeps one renderer alive across repeated nav and footer toggling', async () => {
+  it('keeps graph and renderer options stable across nav toggling and focus changes', async () => {
     // The live bug: ticking "Show nav and footer links" replaced the map with
     // the WebGL fallback. Visibility used to be expressed by handing the
     // renderer a SHORTER edge list, which is a different graph, which made
@@ -520,12 +540,14 @@ describe('SiteGraphSigma', () => {
     expect(sigmaMocks.graphsSeen).toHaveLength(1)
 
     for (let i = 0; i < 12; i++) {
-      rerender(<SiteGraphSigma nodes={nodes} edges={edges} showTemplateLinks={i % 2 === 0} />)
+      rerender(<SiteGraphSigma nodes={nodes} edges={edges} showTemplateLinks={i % 2 === 0} selectedNodeKey={i % 2 === 0 ? 'home' : 'pricing'} />)
     }
 
-    // One graph, therefore one Sigma instance and one WebGL context, however
-    // many times the toggle is flipped.
+    // Neither constructor input changes while focus and edge visibility do.
     expect(sigmaMocks.graphsSeen).toHaveLength(1)
+    expect(sigmaMocks.optionsSeen).toHaveLength(1)
+    expect(renderedNode('pricing').labelVisibility).toBe('visible')
+    expect(renderedNode('pricing').size).toBeCloseTo(sigmaMocks.containerProps!.graph!.getNodeAttribute('pricing', 'size') * 1.35)
     // And the map is still on screen: no fallback of either kind.
     expect(screen.queryByText('The map could not be drawn')).toBeNull()
     expect(screen.queryByText('Interactive map unavailable')).toBeNull()
@@ -540,14 +562,8 @@ describe('SiteGraphSigma', () => {
     )
     await waitFor(() => expect(sigmaMocks.refresh).toHaveBeenCalled())
 
-    const visibleEdges = () => {
-      const edgeReducer = sigmaMocks.setSetting.mock.calls
-        .filter(([setting]) => setting === 'edgeReducer').at(-1)![1] as (key: string, attributes: never) => Record<string, unknown>
-      const graph = sigmaMocks.containerProps!.graph!
-      return graph.edges().filter((edgeKey: string) => (
-        edgeReducer(edgeKey, graph.getEdgeAttributes(edgeKey) as never).hidden !== true
-      ))
-    }
+    const graph = sigmaMocks.containerProps!.graph!
+    const visibleEdges = () => graph.edges().filter((key) => renderedEdge(key).visibility !== 'hidden')
 
     expect(visibleEdges()).toEqual(['home-pricing'])
     rerender(<SiteGraphSigma nodes={nodes} edges={templateEdges} showTemplateLinks />)

@@ -196,7 +196,7 @@ CI also runs build, Deno, and release guards. `pnpm verify` does not replace tho
 Every `typecheck` script runs `scripts/typecheck.mjs`, which takes tsc's arguments and picks the compiler:
 
 - By default, tsrs, the Rust port of TypeScript 7. Platforms without a native tsrs binary, such as Intel macOS, run its WebAssembly build, which reports the same diagnostics more slowly.
-- With `CANONRY_TYPECHECKER=tsc` (`pnpm typecheck:tsc` for the whole workspace), the `typescript` package's own `tsc`. That package stays on 5.9 until the TypeScript 7 migration because tsup's `.d.ts` build and the SDK codegen import it.
+- With `CANONRY_TYPECHECKER=tsc` (`pnpm typecheck:tsc` for the whole workspace), the `typescript` package's own `tsc`. This uses the upstream native TypeScript 7 compiler.
 
 `pnpm verify` and CI run both, so code stays valid for each. A package's `typecheck` script calls `node ../../scripts/typecheck.mjs`, never bare `tsc`. After switching compilers, the next run rebuilds the incremental state once.
 
@@ -210,7 +210,7 @@ Typechecks reuse TypeScript incremental state, including the root `scripts/` and
 CI collects the `.tsbuildinfo` files with shallow shell globs and caches a single archive.
 This avoids scanning `node_modules` during cache uploads. TypeScript still validates the current inputs on every run.
 
-Tests run in six shards on each of Node 22 and Node 26. Both majors run the complete suite.
+Tests run in six shards on each patched Node 22, 24, and 26 release. All supported majors run the complete suite.
 CI persists Vitest's experimental module-transform cache and Node's compile cache.
 These caches reuse compilation work; they never skip test assertions or reuse a passing test result.
 Cache keys separate the OS, architecture, Node major, shard, lockfiles, manifests, and configuration.
@@ -317,3 +317,8 @@ canonry status test                             # view citation results
 - When testing CLI commands, capture stdout/stderr and assert on output rather than only checking side effects.
 - Use temp directories (`os.tmpdir()`) for file-system tests; clean up in `afterEach`.
 - **Test default-value propagation end-to-end.** When a feature stores a default that another feature consumes, write a test that exercises the full path with no explicit override.
+
+The workspace uses TypeScript 7. SDK generation, tsup declaration builds, and
+the web's JSX guard tests still require the JavaScript compiler API, which
+TypeScript 7 removed. Their four owning packages pin TypeScript 6.0.3 as a private development dependency;
+all workspace typechecks continue through the root compiler launcher.

@@ -28,9 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # tsrs is the gate. tsc is the typescript package (5.9 until the TypeScript 7
-        # migration) that tsup's .d.ts build and the SDK codegen import, so the
-        # code has to stay valid for it too. See scripts/typecheck.mjs.
+        # Exercise both the default checker and upstream TypeScript 7.
         typechecker: [tsrs, tsc]
     env:
       CANONRY_TYPECHECKER: ${{ matrix.typechecker }}
@@ -44,9 +42,9 @@ jobs:
           # and has cost over a minute for less than 1 MB of compiler state.
           # One archive per compiler: each discards the other's tsbuildinfo.
           path: .tmp/ci/tsbuildinfo.tar
-          key: tsbuildinfo-v3-${{ matrix.typechecker }}-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.run_id }}
+          key: tsbuildinfo-v3-${{ matrix.typechecker }}-${{ runner.os }}-${{ runner.arch }}-node26-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.run_id }}
           restore-keys: |
-            tsbuildinfo-v3-${{ matrix.typechecker }}-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('pnpm-lock.yaml') }}-
+            tsbuildinfo-v3-${{ matrix.typechecker }}-${{ runner.os }}-${{ runner.arch }}-node26-${{ hashFiles('pnpm-lock.yaml') }}-
       - name: Unpack TypeScript incremental state
         run: |
           if [ -f .tmp/ci/tsbuildinfo.tar ]; then
@@ -70,11 +68,11 @@ jobs:
       contents: read
     strategy:
       fail-fast: false
-      # Both majors run the whole suite across six shards. Four Node 22 shards
+      # All supported majors run the whole suite across six shards. Four Node 22 shards
       # took 239–322 seconds in CI run 35875195112. Replaying its 914 files
       # across six shards reduces the largest measured test workload by 30%.
-      # Node 22 is the deployment major; Node 26 is the highest supported major
-      # in scripts/check-node.mjs. Keep full coverage on both.
+      # Node 22 is the oldest supported major; Node 26 is the deployment major
+      # in package.json. Keep full coverage on every supported major.
       #
       # The pairing is the point: better-sqlite3 is a NATIVE module, so a major
       # is only "supported" if its prebuilt binary resolves and loads.
@@ -83,18 +81,24 @@ jobs:
       # did while the guard sat at 25 for months.
       matrix:
         include:
-          - { node: '22', shard: '1/6' }
-          - { node: '22', shard: '2/6' }
-          - { node: '22', shard: '3/6' }
-          - { node: '22', shard: '4/6' }
-          - { node: '22', shard: '5/6' }
-          - { node: '22', shard: '6/6' }
-          - { node: '26', shard: '1/6' }
-          - { node: '26', shard: '2/6' }
-          - { node: '26', shard: '3/6' }
-          - { node: '26', shard: '4/6' }
-          - { node: '26', shard: '5/6' }
-          - { node: '26', shard: '6/6' }
+          - { node: '22.23.4', shard: '1/6' }
+          - { node: '22.23.4', shard: '2/6' }
+          - { node: '22.23.4', shard: '3/6' }
+          - { node: '22.23.4', shard: '4/6' }
+          - { node: '22.23.4', shard: '5/6' }
+          - { node: '22.23.4', shard: '6/6' }
+          - { node: '24.22.1', shard: '1/6' }
+          - { node: '24.22.1', shard: '2/6' }
+          - { node: '24.22.1', shard: '3/6' }
+          - { node: '24.22.1', shard: '4/6' }
+          - { node: '24.22.1', shard: '5/6' }
+          - { node: '24.22.1', shard: '6/6' }
+          - { node: '26.12.1', shard: '1/6' }
+          - { node: '26.12.1', shard: '2/6' }
+          - { node: '26.12.1', shard: '3/6' }
+          - { node: '26.12.1', shard: '4/6' }
+          - { node: '26.12.1', shard: '5/6' }
+          - { node: '26.12.1', shard: '6/6' }
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup

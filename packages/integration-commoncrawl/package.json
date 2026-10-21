@@ -20,6 +20,6 @@
     "@canonry/canonry-contracts": "workspace:*"
   },
   "devDependencies": {
-    "@duckdb/node-api": "1.4.4-r.3"
+    "@duckdb/node-api": "1.5.6-r.2"
   }
 }
