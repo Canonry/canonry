@@ -22,8 +22,7 @@ import { resolveCliAccess } from './cli-access.js'
 import { OperationAccesses } from '@canonry/canonry-contracts'
 import { checkLatestVersionForCli, formatUpdateNotice, notePrintedUpdateAvailable, readCachedUpdateAvailable } from './update-check.js'
 import { buildSetupNudgeLine } from './setup-nudge.js'
-import { consumePendingServeHandoff } from './commands/init.js'
-import { serveCommand } from './commands/serve.js'
+import { runPendingServeHandoff } from './commands/init.js'
 
 
 
@@ -291,9 +290,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
       // Init's dashboard handoff, honored only after init's own lifecycle
       // event is on the wire so serve's unbounded runtime cannot pollute
       // init's duration bucket.
-      if (consumePendingServeHandoff()) {
-        await serveCommand(format as CliFormat)
-      }
+      await runPendingServeHandoff(format as CliFormat)
       return 0
     }
     throw usageError(`Error: unknown command: ${command}\nRun "cnry --help" for usage.`, {

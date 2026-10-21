@@ -8,6 +8,7 @@ import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { and, eq, isNotNull, isNull, lte, max, ne, or, sql } from "drizzle-orm";
 import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@canonry/canonry-config";
 import { CliError } from "./cli-error.js";
+import { isLoopbackBindHost } from "./serve-endpoint.js";
 import { createTypeSafeClassifier, buildJevSentimentRequest } from "@canonry/canonry-integration-typesafe";
 import { SentimentWorker, createSentimentPoller } from "./sentiment-worker.js";
 import { loadSentimentInstallConfig } from "./sentiment-config.js";
@@ -648,24 +649,6 @@ export function applyLegacyCredentials(
     saveConfigPatch({ ga4: config.ga4 });
     log.info("credentials.migrated", { type: "ga4", count: migratedGa4 });
   }
-}
-
-/**
- * Whether `host` is a loopback bind — only the local machine can reach a
- * server bound here. `undefined` (programmatic/test callers that never bind a
- * socket) is treated as loopback. `0.0.0.0` / `::` (bind-all) and any specific
- * LAN/public address are NOT loopback.
- */
-export function isLoopbackBindHost(host: string | undefined): boolean {
-  if (host == null || host === "") return true;
-  const normalized = host
-    .trim()
-    .toLowerCase()
-    .replace(/^\[|\]$/g, "");
-  if (normalized === "localhost" || normalized === "::1") return true;
-  // IPv4 loopback is the whole 127.0.0.0/8 block.
-  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized)) return true;
-  return false;
 }
 
 /**
