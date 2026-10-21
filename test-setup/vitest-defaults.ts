@@ -9,8 +9,8 @@
  *   1. Disables canonry telemetry. Even packages that don't import the
  *      telemetry module benefit — invokeCli-style tests sometimes pull
  *      in code paths that fire `cli.command` events.
- *   2. Redirects `CANONRY_CONFIG_DIR` at a throwaway directory, so no test can
- *      write to the operator's real `~/.canonry/config.yaml`.
+ *   2. Redirects `CANONRY_CONFIG_DIR` and the home directory at throwaway
+ *      directories, so no test can write to the operator's real `~/.canonry`.
  *   3. Replaces `globalThis.fetch` with a guard that throws on any
  *      non-localhost request, so a test that forgets to mock fetch
  *      can't silently hit the real internet.
@@ -84,6 +84,12 @@ function urlOf(input: string | URL | Request): URL | null {
 if (!process.env.CANONRY_CONFIG_DIR?.trim()) {
   process.env.CANONRY_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-test-config-'))
 }
+
+// Files kept under the home directory (`~/.canonry/machine-id`, plugins,
+// caches) get the same protection: `os.homedir()` reads these variables.
+const testHome = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-test-home-'))
+process.env.HOME = testHome
+process.env.USERPROFILE = testHome
 
 globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
   const url = urlOf(input)

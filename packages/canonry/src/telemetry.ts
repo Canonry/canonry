@@ -1,5 +1,7 @@
 import crypto from 'node:crypto'
+import fs from 'node:fs'
 import os from 'node:os'
+import path from 'node:path'
 import {
   isGhostTelemetryEvent,
   maskTelemetryAnonymousId,
@@ -51,7 +53,7 @@ export interface TelemetryEvent {
   eventId: string
   /** Stable per-install UUID stored in `~/.canonry/config.yaml`. */
   anonymousId: string
-  /** Stable per-machine UUID-shaped hash of hostname + MAC; see `getMachineId`. */
+  /** Per-machine UUID saved in `~/.canonry/machine-id`; absent in containers. See `getMachineId`. */
   machineId?: string
   /** Per-process UUID — groups the events from one CLI invocation or one
    *  server boot together so a single user-session can be reconstructed. */
@@ -356,13 +358,52 @@ let machineId: { value: string | undefined } | undefined
 
 /**
  * Per-machine ID sent beside `anonymousId` on every event, so analysis can
- * group several config dirs (install IDs) on one machine. Same derivation as
- * the anonymousId fallback with a different seed, so the two never match.
- * Computed once per process; undefined when derivation fails.
+ * group several config dirs (install IDs) on one machine. Computed once per
+ * process; undefined when no stable ID exists.
  */
 export function getMachineId(): string | undefined {
-  machineId ??= { value: hostDerivedId('canonry-machine') }
+  machineId ??= {
+    value: resolveMachineId({
+      filePath: path.join(os.homedir(), '.canonry', 'machine-id'),
+      inContainer: telemetryEnvironment().includes('container'),
+      derive: () => hostDerivedId('canonry-machine'),
+    }),
+  }
   return machineId.value
+}
+
+/**
+ * The first ID a machine derives is saved and reused: re-hashing hostname and
+ * MAC on every start gave a Mac a new ID whenever its network changed. A
+ * container gets none, because its hostname and MAC change on every restart.
+ */
+export function resolveMachineId(opts: {
+  filePath: string
+  inContainer: boolean
+  derive: () => string | undefined
+}): string | undefined {
+  if (opts.inContainer) return undefined
+  const saved = readMachineIdFile(opts.filePath)
+  if (saved) return saved
+  const derived = opts.derive()
+  if (!derived) return undefined
+  try {
+    fs.mkdirSync(path.dirname(opts.filePath), { recursive: true })
+    fs.writeFileSync(opts.filePath, `${derived}\n`, { flag: 'wx' })
+    return derived
+  } catch {
+    // Another process saved one first, or home is read-only.
+    return readMachineIdFile(opts.filePath) ?? derived
+  }
+}
+
+function readMachineIdFile(filePath: string): string | undefined {
+  try {
+    const value = fs.readFileSync(filePath, 'utf8').trim().toLowerCase()
+    return ANON_ID_PATTERN.test(value) ? value : undefined
+  } catch {
+    return undefined
+  }
 }
 
 function firstNonInternalMac(): string {
