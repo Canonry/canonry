@@ -9,7 +9,7 @@
     "build": "pnpm --filter @canonry/canonry run build",
     "build:cli": "pnpm --filter @canonry/canonry run build:cli",
     "build:web": "pnpm --filter @canonry/canonry run build:web",
-    "typecheck": "pnpm -r --no-sort --workspace-concurrency=4 --no-bail run typecheck && node scripts/typecheck.mjs --noEmit -p scripts/tsconfig.json && node scripts/typecheck.mjs --noEmit -p test/tsconfig.json",
+    "typecheck": "pnpm -r --no-sort --workspace-concurrency=4 --no-bail run typecheck && node scripts/typecheck.mjs --noEmit -p scripts/tsconfig.json && node scripts/typecheck.mjs --noEmit -p test/tsconfig.json && node scripts/typecheck.mjs --noEmit -p test-setup/tsconfig.json",
     "typecheck:tsc": "CANONRY_TYPECHECKER=tsc pnpm run typecheck",
     "test": "vitest run",
     "check": "node scripts/lint-changed.mjs",
