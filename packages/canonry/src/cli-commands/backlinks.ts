@@ -1,16 +1,3 @@
-import {
-  backlinksCachePrune,
-  backlinksDoctor,
-  backlinksExtract,
-  backlinksInstall,
-  backlinksLatestRelease,
-  backlinksList,
-  backlinksReleases,
-  backlinksSources,
-  backlinksStatus,
-  backlinksSync,
-  parseSourceFlag,
-} from '../commands/backlinks.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getBoolean,
@@ -27,6 +14,7 @@ export const BACKLINKS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry backlinks install [--format json]',
     options: {},
     run: async (input) => {
+      const { backlinksInstall } = await import('../commands/backlinks.js')
       await backlinksInstall({ format: input.format })
     },
   },
@@ -35,6 +23,7 @@ export const BACKLINKS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry backlinks doctor [--format json]',
     options: {},
     run: async (input) => {
+      const { backlinksDoctor } = await import('../commands/backlinks.js')
       await backlinksDoctor({ format: input.format })
     },
   },
@@ -46,6 +35,7 @@ export const BACKLINKS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       wait: { type: 'boolean' },
     },
     run: async (input) => {
+      const { backlinksSync } = await import('../commands/backlinks.js')
       await backlinksSync({
         release: getString(input.values, 'release'),
         wait: getBoolean(input.values, 'wait'),
@@ -58,6 +48,7 @@ export const BACKLINKS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry backlinks status [--format json]',
     options: {},
     run: async (input) => {
+      const { backlinksStatus } = await import('../commands/backlinks.js')
       await backlinksStatus({ format: input.format })
     },
   },
@@ -71,6 +62,7 @@ export const BACKLINKS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'exclude-crawlers': { type: 'boolean' },
     },
     run: async (input) => {
+      const { backlinksList, parseSourceFlag } = await import('../commands/backlinks.js')
       const project = requireProject(input, 'backlinks list',
         'canonry backlinks list <project> [--source commoncrawl|bing-webmaster] [--limit <n>] [--release <id>] [--exclude-crawlers]')
       const limit = parseIntegerOption(input, 'limit', {
@@ -95,6 +87,7 @@ export const BACKLINKS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'exclude-crawlers': { type: 'boolean' },
     },
     run: async (input) => {
+      const { backlinksSources } = await import('../commands/backlinks.js')
       const project = requireProject(input, 'backlinks sources',
         'canonry backlinks sources <project>')
       await backlinksSources({
@@ -109,6 +102,7 @@ export const BACKLINKS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry backlinks releases [--format json]',
     options: {},
     run: async (input) => {
+      const { backlinksReleases } = await import('../commands/backlinks.js')
       await backlinksReleases({ format: input.format })
     },
   },
@@ -117,6 +111,7 @@ export const BACKLINKS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry backlinks releases latest [--format json]',
     options: {},
     run: async (input) => {
+      const { backlinksLatestRelease } = await import('../commands/backlinks.js')
       await backlinksLatestRelease({ format: input.format })
     },
   },
@@ -128,6 +123,7 @@ export const BACKLINKS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       wait: { type: 'boolean' },
     },
     run: async (input) => {
+      const { backlinksExtract } = await import('../commands/backlinks.js')
       const project = requireProject(input, 'backlinks extract',
         'canonry backlinks extract <project> [--release <id>] [--wait]')
       await backlinksExtract({
@@ -145,6 +141,7 @@ export const BACKLINKS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       release: stringOption(),
     },
     run: async (input) => {
+      const { backlinksCachePrune } = await import('../commands/backlinks.js')
       const release = requireStringOption(input, 'release', {
         message: '--release is required',
         usage: 'canonry backlinks cache prune --release <id>',

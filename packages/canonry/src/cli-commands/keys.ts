@@ -1,4 +1,3 @@
-import { createApiKey, listApiKeys, revokeApiKey, showApiKeySelf } from '../commands/keys.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getBoolean,
@@ -16,6 +15,7 @@ export const KEYS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['key', 'list'],
     usage: 'canonry key list [--format json|jsonl]',
     run: async (input) => {
+      const { listApiKeys } = await import('../commands/keys.js')
       await listApiKeys(input.format)
     },
   },
@@ -29,6 +29,7 @@ export const KEYS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       project: stringOption(),
     },
     run: async (input) => {
+      const { createApiKey } = await import('../commands/keys.js')
       const name = requireStringOption(input, 'name', {
         command: 'key.create',
         usage: 'canonry key create --name <name> [--read-only | --scope <s> ...] [--project <name>] [--format json]',
@@ -51,6 +52,7 @@ export const KEYS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['key', 'whoami'],
     usage: 'canonry key whoami [--format json]',
     run: async (input) => {
+      const { showApiKeySelf } = await import('../commands/keys.js')
       await showApiKeySelf(input.format)
     },
   },
@@ -58,6 +60,7 @@ export const KEYS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['key', 'revoke'],
     usage: 'canonry key revoke <id> [--format json]',
     run: async (input) => {
+      const { revokeApiKey } = await import('../commands/keys.js')
       const id = requirePositional(input, 0, {
         command: 'key.revoke',
         usage: 'canonry key revoke <id> [--format json]',

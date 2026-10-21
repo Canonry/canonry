@@ -1,4 +1,3 @@
-import { addNotification, listEvents, listNotifications, removeNotification, testNotification } from '../commands/notify.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, requirePositional, requireProject, requireStringOption, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
@@ -8,6 +7,7 @@ export const NOTIFY_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry notify events [--target local|server] [--format json|jsonl]',
     options: { target: stringOption() },
     run: async (input) => {
+      const { listEvents } = await import('../commands/notify.js')
       await listEvents(input.format, getString(input.values, 'target'))
     },
   },
@@ -19,6 +19,7 @@ export const NOTIFY_CLI_COMMANDS: readonly CliCommandSpec[] = [
       events: stringOption(),
     },
     run: async (input) => {
+      const { addNotification } = await import('../commands/notify.js')
       const project = requireProject(input, 'notify.add', 'canonry notify add <project> --webhook <url> --events <list> [--format json]')
       const webhook = requireStringOption(input, 'webhook', {
         command: 'notify.add',
@@ -41,6 +42,7 @@ export const NOTIFY_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['notify', 'list'],
     usage: 'canonry notify list <project> [--format json]',
     run: async (input) => {
+      const { listNotifications } = await import('../commands/notify.js')
       const project = requireProject(input, 'notify.list', 'canonry notify list <project> [--format json]')
       await listNotifications(project, input.format)
     },
@@ -49,6 +51,7 @@ export const NOTIFY_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['notify', 'remove'],
     usage: 'canonry notify remove <project> <id> [--format json]',
     run: async (input) => {
+      const { removeNotification } = await import('../commands/notify.js')
       const project = requireProject(input, 'notify.remove', 'canonry notify remove <project> <id> [--format json]')
       const id = requirePositional(input, 1, {
         command: 'notify.remove',
@@ -62,6 +65,7 @@ export const NOTIFY_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['notify', 'test'],
     usage: 'canonry notify test <project> <id> [--format json]',
     run: async (input) => {
+      const { testNotification } = await import('../commands/notify.js')
       const project = requireProject(input, 'notify.test', 'canonry notify test <project> <id> [--format json]')
       const id = requirePositional(input, 1, {
         command: 'notify.test',

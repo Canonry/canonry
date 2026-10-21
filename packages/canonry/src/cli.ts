@@ -22,7 +22,7 @@ import { resolveCliAccess } from './cli-access.js'
 import { OperationAccesses } from '@canonry/canonry-contracts'
 import { checkLatestVersionForCli, formatUpdateNotice, notePrintedUpdateAvailable, readCachedUpdateAvailable } from './update-check.js'
 import { buildSetupNudgeLine } from './setup-nudge.js'
-import { runPendingServeHandoff } from './commands/init.js'
+import { runPendingServeHandoff } from './serve-handoff.js'
 
 
 

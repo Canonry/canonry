@@ -1,4 +1,3 @@
-import { addQueries, generateQueries, importQueries, listQueries, removeQueries, replaceQueries } from '../commands/query.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getBoolean,
@@ -10,13 +9,13 @@ import {
   unknownSubcommand,
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
-import { runAdvancedMeasurementOperation } from '../commands/measurement-plan.js'
 
 export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...(['workspace', 'preview', 'commit'] as const).map(action => ({
     path: ['query', action],
     usage: `canonry query ${action} <project>${action === 'workspace' ? '' : ' <json|->'} [--format json]`,
     run: async (input) => {
+      const { runAdvancedMeasurementOperation } = await import('../commands/measurement-plan.js')
       const usage = `canonry query ${action} <project>${action === 'workspace' ? '' : ' <json|->'} [--format json]`
       const project = requireProject(input, `query.${action}`, usage)
       const source = action === 'workspace' ? undefined : requirePositional(input, 1, {
@@ -29,6 +28,7 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['query', 'add'],
     usage: 'canonry query add <project> <query...> [--format json]',
     run: async (input) => {
+      const { addQueries } = await import('../commands/query.js')
       const project = requireProject(input, 'query.add', 'canonry query add <project> <query...> [--format json]')
       const queries = input.positionals.slice(1)
       if (queries.length === 0) {
@@ -48,6 +48,7 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry query replace <project> <query...> [--dry-run] [--format json]',
     supportsDryRun: true,
     run: async (input) => {
+      const { replaceQueries } = await import('../commands/query.js')
       const project = requireProject(input, 'query.replace', 'canonry query replace <project> <query...> [--dry-run] [--format json]')
       const queries = input.positionals.slice(1)
       if (queries.length === 0) {
@@ -66,6 +67,7 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['query', 'remove'],
     usage: 'canonry query remove <project> <query...> [--format json]',
     run: async (input) => {
+      const { removeQueries } = await import('../commands/query.js')
       const project = requireProject(input, 'query.remove', 'canonry query remove <project> <query...> [--format json]')
       const queries = input.positionals.slice(1)
       if (queries.length === 0) {
@@ -84,6 +86,7 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['query', 'delete'],
     usage: 'canonry query delete <project> <query...> [--format json]',
     run: async (input) => {
+      const { removeQueries } = await import('../commands/query.js')
       const project = requireProject(input, 'query.delete', 'canonry query delete <project> <query...> [--format json]')
       const queries = input.positionals.slice(1)
       if (queries.length === 0) {
@@ -102,6 +105,7 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['query', 'list'],
     usage: 'canonry query list <project> [--format json]',
     run: async (input) => {
+      const { listQueries } = await import('../commands/query.js')
       const project = requireProject(input, 'query.list', 'canonry query list <project> [--format json]')
       await listQueries(project, input.format)
     },
@@ -110,6 +114,7 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['query', 'import'],
     usage: 'canonry query import <project> <file> [--format json]',
     run: async (input) => {
+      const { importQueries } = await import('../commands/query.js')
       const project = requireProject(input, 'query.import', 'canonry query import <project> <file> [--format json]')
       const filePath = requirePositional(input, 1, {
         command: 'query.import',
@@ -128,6 +133,7 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
       save: { type: 'boolean', default: false },
     },
     run: async (input) => {
+      const { generateQueries } = await import('../commands/query.js')
       const project = requireProject(
         input,
         'query.generate',

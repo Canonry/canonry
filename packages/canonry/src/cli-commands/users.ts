@@ -1,4 +1,3 @@
-import { createUser, deleteUser, listUsers } from '../commands/users.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getBoolean,
@@ -16,6 +15,7 @@ export const USERS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['user', 'list'],
     usage: 'canonry user list [--format json|jsonl]',
     run: async (input) => {
+      const { listUsers } = await import('../commands/users.js')
       await listUsers(input.format)
     },
   },
@@ -30,6 +30,7 @@ export const USERS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'password-stdin': { type: 'boolean' },
     },
     run: async (input) => {
+      const { createUser } = await import('../commands/users.js')
       const name = requireStringOption(input, 'name', {
         command: 'user.create',
         usage: CREATE_USAGE,
@@ -52,6 +53,7 @@ export const USERS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['user', 'delete'],
     usage: 'canonry user delete <name> [--format json]',
     run: async (input) => {
+      const { deleteUser } = await import('../commands/users.js')
       const name = requirePositional(input, 0, {
         command: 'user.delete',
         usage: 'canonry user delete <name> [--format json]',
