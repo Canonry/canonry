@@ -8,5 +8,6 @@ export default defineConfig({
     root: process.cwd(),
     include: ['test/**/*.test.ts', 'test/**/*.test.tsx'],
     setupFiles: [path.resolve(rootDir, 'test-setup/vitest-defaults.ts')],
+    globalSetup: [path.resolve(rootDir, 'test-setup/global-setup.ts')],
   },
 })

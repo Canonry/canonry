@@ -69,6 +69,9 @@ const NODE_APPS = ['api', 'worker'] as const
 
 export default defineConfig({
   test: {
+    // Migrates one database per run for the tests to replay; see
+    // test-setup/migrated-database.ts.
+    globalSetup: [path.resolve(import.meta.dirname, 'test-setup/global-setup.ts')],
     projects: [
       ...NODE_PACKAGES.map((name) => ({
         test: {

@@ -39,6 +39,11 @@ import { test, expect, describe, it, beforeEach, afterEach } from 'vitest'
 
 Tests live in `test/` directories colocated with each package (e.g. `packages/canonry/test/`).
 
+### Migrated test databases
+
+`test-setup/global-setup.ts` migrates one empty database per run. When a test calls `migrate(db)` on an empty database, the shared setup file replays that database's schema and rows (`test-setup/migrated-database.ts`) instead of running every migration again: about 15 ms instead of 200 ms. Each test still gets its own database.
+A custom version list, or a database that already holds a table, runs the real migrations. To exercise the real runner from an empty database with every version, pass a copy of the list: `migrate(db, [...MIGRATION_VERSIONS])`.
+
 ## Fast Local Checks
 
 Run changed-file lint from the repository root:

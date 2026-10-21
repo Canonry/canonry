@@ -21,6 +21,10 @@
  *      return through its own undici agent, which the fetch guard never
  *      sees. A test that needs a name answered stubs it with
  *      `vi.spyOn(dns, 'resolve4')`; restoring the spy puts this guard back.
+ *   5. Answers `migrate(db)` on an empty database with the run's migrated
+ *      database (`migrated-database.ts`), instead of rerunning every
+ *      migration. Custom version lists and non-empty databases still run
+ *      the real migrations.
  *
  * The fetch guard is compatible with the standard save-and-restore
  * pattern (`const orig = globalThis.fetch; globalThis.fetch = mockFn; ...; globalThis.fetch = orig`)
@@ -32,6 +36,8 @@ import dns from 'node:dns/promises'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { inject, vi } from 'vitest'
+import { replayingMigrate } from './migrated-database.js'
 process.env.CANONRY_TELEMETRY_DISABLED = '1'
 
 const TELEMETRY_HOSTS = new Set([
@@ -122,5 +128,15 @@ for (const query of ['resolve4', 'resolve6'] as const) {
       }
       return await realQuery(hostname, ...options)
     },
+  })
+}
+
+// `vi.doMock`, not the hoisted `vi.mock`, so the mock can depend on the
+// provided script; the test file's imports run after this file.
+const migratedDatabase = inject('canonryMigratedDatabase')
+if (migratedDatabase) {
+  vi.doMock('../packages/db/src/migrate.js', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../packages/db/src/migrate.js')>()
+    return { ...actual, migrate: replayingMigrate(actual, migratedDatabase) }
   })
 }
