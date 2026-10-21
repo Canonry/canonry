@@ -44,6 +44,12 @@ Tests live in `test/` directories colocated with each package (e.g. `packages/ca
 `test-setup/global-setup.ts` migrates one empty database per run. When a test calls `migrate(db)` on an empty database, the shared setup file replays that database's schema and rows (`test-setup/migrated-database.ts`) instead of running every migration again: about 15 ms instead of 200 ms. Each test still gets its own database.
 A custom version list, or a database that already holds a table, runs the real migrations. To exercise the real runner from an empty database with every version, pass a copy of the list: `migrate(db, [...MIGRATION_VERSIONS])`.
 
+### Shared workers
+
+Projects in `SHARED_WORKER_PROJECTS` (`vitest.config.ts`) run their test files in shared workers, so each worker imports the package graph once instead of once per file. Before each file, the shared setup file restores the environment, stubbed globals, the working directory, real timers, and the network guards. Module state persists between files, so a test that changes a module-level cache resets it.
+Vitest keeps module mocks across a shared worker's files, so a file that calls `vi.mock` or `vi.doMock` runs in its own process: `api-routes` runs as `api-routes:shared` and `api-routes:isolated`. Select both with `--project 'api-routes:*'`.
+`canonry` and `web` keep one process per file. Canonry holds process-wide state, such as the provider rate-limit gates, and web tests would share one jsdom document.
+
 ## Fast Local Checks
 
 Run changed-file lint from the repository root:

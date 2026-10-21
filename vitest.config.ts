@@ -1,5 +1,6 @@
+import fs from 'node:fs'
 import path from 'node:path'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 /**
  * Workspace-level vitest config — defines every package + app as a project
@@ -67,30 +68,93 @@ const NODE_PACKAGES = [
 
 const NODE_APPS = ['api', 'worker'] as const
 
+/**
+ * Projects whose test files share a worker, and its module cache, instead of
+ * each file starting in a fresh process: the package graph is imported once
+ * per worker rather than once per file. The shared setup file puts back
+ * process state between files (see test-setup/vitest-defaults.ts).
+ *
+ * Vitest keeps module mocks across the files of a shared worker, so a file
+ * that calls `vi.mock` or `vi.doMock` still gets a fresh process: a project
+ * with such files runs as `<name>:shared` and `<name>:isolated`. Select both
+ * with `--project '<name>:*'`.
+ *
+ * Not listed: `canonry`, which holds process-wide state such as the provider
+ * rate-limit gates; `web`, whose files would share one jsdom document; and
+ * `intelligence` and `integration-commoncrawl`, where one mocking file would
+ * split a small suite for little gain.
+ */
+const SHARED_WORKER_PROJECTS: ReadonlySet<string> = new Set([
+  'api-client-generated',
+  'api-routes',
+  'config',
+  'contracts',
+  'db',
+  'integration-bing',
+  'integration-cloud-run',
+  'integration-cloudflare-queue',
+  'integration-cloudflare-worker',
+  'integration-google',
+  'integration-google-ads',
+  'integration-google-analytics',
+  'integration-google-business-profile',
+  'integration-google-places',
+  'integration-google-tag-manager',
+  'integration-openai-ads',
+  'integration-traffic',
+  'integration-typesafe',
+  'integration-vercel',
+  'integration-wordpress',
+  'integration-wordpress-traffic',
+  'provider-cdp',
+  'provider-claude',
+  'provider-gemini',
+  'provider-local',
+  'provider-muse',
+  'provider-openai',
+  'provider-perplexity',
+  'val-kit',
+  'api',
+  'worker',
+])
+
+const MODULE_MOCK = /\bvi\.(?:mock|doMock)\(/
+const TEST_FILE = /\.test\.tsx?$/
+
+/** Test files under `root` that mock a module, relative to `root`. */
+function moduleMockingTests(root: string): string[] {
+  const testDir = path.resolve(import.meta.dirname, root, 'test')
+  const files: string[] = []
+  for (const file of fs.readdirSync(testDir, { recursive: true, encoding: 'utf8' })) {
+    if (!/\.tsx?$/.test(file) || !MODULE_MOCK.test(fs.readFileSync(path.join(testDir, file), 'utf8'))) continue
+    // A helper that mocks would leak into every shared file that imports it.
+    if (!TEST_FILE.test(file)) {
+      throw new Error(`vitest.config.ts: ${path.join(root, 'test', file)} mocks a module outside a test file.`)
+    }
+    files.push(['test', ...file.split(path.sep)].join('/'))
+  }
+  return files
+}
+
+function nodeProjects(name: string, root: string) {
+  const base = { root, include: SHARED_INCLUDE, setupFiles: SHARED_SETUP, ...AGGREGATE_TIMEOUTS }
+  if (!SHARED_WORKER_PROJECTS.has(name)) return [{ test: { ...base, name } }]
+  const mocking = moduleMockingTests(root)
+  if (mocking.length === 0) return [{ test: { ...base, name, isolate: false } }]
+  return [
+    { test: { ...base, name: `${name}:shared`, isolate: false, exclude: [...configDefaults.exclude, ...mocking] } },
+    { test: { ...base, name: `${name}:isolated`, include: mocking } },
+  ]
+}
+
 export default defineConfig({
   test: {
     // Migrates one database per run for the tests to replay; see
     // test-setup/migrated-database.ts.
     globalSetup: [path.resolve(import.meta.dirname, 'test-setup/global-setup.ts')],
     projects: [
-      ...NODE_PACKAGES.map((name) => ({
-        test: {
-          name,
-          root: `./packages/${name}`,
-          include: SHARED_INCLUDE,
-          setupFiles: SHARED_SETUP,
-          ...AGGREGATE_TIMEOUTS,
-        },
-      })),
-      ...NODE_APPS.map((name) => ({
-        test: {
-          name,
-          root: `./apps/${name}`,
-          include: SHARED_INCLUDE,
-          setupFiles: SHARED_SETUP,
-          ...AGGREGATE_TIMEOUTS,
-        },
-      })),
+      ...NODE_PACKAGES.flatMap((name) => nodeProjects(name, `./packages/${name}`)),
+      ...NODE_APPS.flatMap((name) => nodeProjects(name, `./apps/${name}`)),
       {
         test: {
           name: 'web',

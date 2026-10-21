@@ -1,5 +1,5 @@
 /**
- * Shared vitest setup — runs once per worker before any test imports.
+ * Shared vitest setup — runs before each test file's imports.
  *
  * Wired into the root workspace config and every package's `test` script via
  * `vitest.package.config.ts`. Package-local Vitest configs must include the
@@ -26,6 +26,13 @@
  *      migration. Custom version lists and non-empty databases still run
  *      the real migrations.
  *
+ * Projects with `isolate: false` (vitest.config.ts) run many test files in one
+ * worker, and this file runs again before each of them. It first puts back
+ * process state a previous file may have left: stubbed globals, the
+ * environment and working directory as the worker started, real timers, no
+ * pending exit code. The guards always wrap the real fetch and DNS queries
+ * saved on the worker's first run, never a previous file's mock.
+ *
  * The fetch guard is compatible with the standard save-and-restore
  * pattern (`const orig = globalThis.fetch; globalThis.fetch = mockFn; ...; globalThis.fetch = orig`)
  * — tests capture this guard as `orig`, install their mock, and put
@@ -38,6 +45,36 @@ import os from 'node:os'
 import path from 'node:path'
 import { inject, vi } from 'vitest'
 import { replayingMigrate } from './migrated-database.js'
+
+interface WorkerStart {
+  env: NodeJS.ProcessEnv
+  cwd: string
+  fetch: typeof globalThis.fetch
+  resolve4: typeof dns.resolve4
+  resolve6: typeof dns.resolve6
+}
+
+const workerGlobals = globalThis as typeof globalThis & { __canonryTestWorkerStart?: WorkerStart }
+const workerStart = workerGlobals.__canonryTestWorkerStart ??= {
+  env: { ...process.env },
+  cwd: process.cwd(),
+  fetch: globalThis.fetch,
+  resolve4: dns.resolve4,
+  resolve6: dns.resolve6,
+}
+vi.unstubAllGlobals()
+vi.unstubAllEnvs()
+// Vitest sets VITEST_POOL_ID and VITEST_WORKER_ID for each file itself.
+for (const key of Object.keys(process.env)) {
+  if (!key.startsWith('VITEST') && !(key in workerStart.env)) delete process.env[key]
+}
+for (const [key, value] of Object.entries(workerStart.env)) {
+  if (!key.startsWith('VITEST')) process.env[key] = value
+}
+if (process.cwd() !== workerStart.cwd) process.chdir(workerStart.cwd)
+process.exitCode = undefined
+vi.useRealTimers()
+
 process.env.CANONRY_TELEMETRY_DISABLED = '1'
 
 const TELEMETRY_HOSTS = new Set([
@@ -47,7 +84,7 @@ const TELEMETRY_HOSTS = new Set([
   'www.canonry.ai',
 ])
 
-const realFetch = globalThis.fetch
+const realFetch = workerStart.fetch
 
 function isLocalHost(hostname: string): boolean {
   return (
@@ -117,7 +154,7 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
 }) as typeof globalThis.fetch
 
 for (const query of ['resolve4', 'resolve6'] as const) {
-  const realQuery = dns[query].bind(dns) as (hostname: string, ...options: unknown[]) => Promise<unknown>
+  const realQuery = workerStart[query].bind(dns) as (hostname: string, ...options: unknown[]) => Promise<unknown>
   Object.assign(dns, {
     [query]: async (hostname: string, ...options: unknown[]) => {
       if (!isLocalHost(hostname)) {
