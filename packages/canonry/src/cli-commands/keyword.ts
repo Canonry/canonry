@@ -1,4 +1,3 @@
-import { addKeywords, generateKeywords, importKeywords, listKeywords, removeKeywords, replaceKeywords } from '../commands/keyword.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getBoolean,
@@ -16,6 +15,7 @@ export const KEYWORD_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['keyword', 'add'],
     usage: 'canonry keyword add <project> <kw...> [--format json]',
     run: async (input) => {
+      const { addKeywords } = await import('../commands/keyword.js')
       const project = requireProject(input, 'keyword.add', 'canonry keyword add <project> <kw...> [--format json]')
       const keywords = input.positionals.slice(1)
       if (keywords.length === 0) {
@@ -34,6 +34,7 @@ export const KEYWORD_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['keyword', 'replace'],
     usage: 'canonry keyword replace <project> <kw...> [--format json]',
     run: async (input) => {
+      const { replaceKeywords } = await import('../commands/keyword.js')
       const project = requireProject(input, 'keyword.replace', 'canonry keyword replace <project> <kw...> [--format json]')
       const keywords = input.positionals.slice(1)
       if (keywords.length === 0) {
@@ -52,6 +53,7 @@ export const KEYWORD_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['keyword', 'remove'],
     usage: 'canonry keyword remove <project> <kw...> [--format json]',
     run: async (input) => {
+      const { removeKeywords } = await import('../commands/keyword.js')
       const project = requireProject(input, 'keyword.remove', 'canonry keyword remove <project> <kw...> [--format json]')
       const keywords = input.positionals.slice(1)
       if (keywords.length === 0) {
@@ -70,6 +72,7 @@ export const KEYWORD_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['keyword', 'delete'],
     usage: 'canonry keyword delete <project> <kw...> [--format json]',
     run: async (input) => {
+      const { removeKeywords } = await import('../commands/keyword.js')
       const project = requireProject(input, 'keyword.delete', 'canonry keyword delete <project> <kw...> [--format json]')
       const keywords = input.positionals.slice(1)
       if (keywords.length === 0) {
@@ -88,6 +91,7 @@ export const KEYWORD_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['keyword', 'list'],
     usage: 'canonry keyword list <project> [--format json]',
     run: async (input) => {
+      const { listKeywords } = await import('../commands/keyword.js')
       const project = requireProject(input, 'keyword.list', 'canonry keyword list <project> [--format json]')
       await listKeywords(project, input.format)
     },
@@ -96,6 +100,7 @@ export const KEYWORD_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['keyword', 'import'],
     usage: 'canonry keyword import <project> <file> [--format json]',
     run: async (input) => {
+      const { importKeywords } = await import('../commands/keyword.js')
       const project = requireProject(input, 'keyword.import', 'canonry keyword import <project> <file> [--format json]')
       const filePath = requirePositional(input, 1, {
         command: 'keyword.import',
@@ -114,6 +119,7 @@ export const KEYWORD_CLI_COMMANDS: readonly CliCommandSpec[] = [
       save: { type: 'boolean', default: false },
     },
     run: async (input) => {
+      const { generateKeywords } = await import('../commands/keyword.js')
       const project = requireProject(
         input,
         'keyword.generate',

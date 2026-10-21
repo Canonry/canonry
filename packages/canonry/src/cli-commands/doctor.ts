@@ -1,4 +1,3 @@
-import { doctorCommand } from '../commands/doctor.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, stringOption } from '../cli-command-helpers.js'
 
@@ -16,6 +15,7 @@ export const DOCTOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     allowPositionals: false,
     run: async (input) => {
+      const { doctorCommand } = await import('../commands/doctor.js')
       await doctorCommand({
         project: getString(input.values, 'project'),
         reportMonth: getString(input.values, 'report-month'),

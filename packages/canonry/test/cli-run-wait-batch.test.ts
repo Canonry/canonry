@@ -15,6 +15,9 @@ vi.mock('../src/client.js', async (importOriginal) => ({
 }))
 
 const { invokeCli, parseJsonOutput } = await import('./cli-test-utils.js')
+// The CLI imports `run`'s implementation when the command dispatches. Load it
+// now, so the fake clock these tests advance never races a real module load.
+await import('../src/commands/run.js')
 
 // Past the 10-minute poll bound, so a --wait that kept polling would fail
 // with the timeout (exit 2) instead of returning.

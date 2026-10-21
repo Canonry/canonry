@@ -1,4 +1,3 @@
-import { reloadProviders, setGoogleAuth, setProvider, showSettings } from '../commands/settings.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getString,
@@ -13,7 +12,10 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['settings', 'reload-providers'],
     usage: 'canonry settings reload-providers [--format json]',
-    run: async input => reloadProviders(input.format),
+    run: async input => {
+      const { reloadProviders } = await import('../commands/settings.js')
+      return reloadProviders(input.format)
+    },
   },
   {
     path: ['settings', 'provider'],
@@ -27,6 +29,7 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'max-per-day': stringOption(),
     },
     run: async (input) => {
+      const { setProvider } = await import('../commands/settings.js')
       const name = requirePositional(input, 0, {
         command: 'settings.provider',
         usage: 'canonry settings provider <name> [--api-key <key>] [--base-url <url>] [--model <model>] [--max-concurrent <n>] [--max-per-minute <n>] [--max-per-day <n>] [--format json]',
@@ -106,6 +109,7 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       target: stringOption(),
     },
     run: async (input) => {
+      const { setGoogleAuth } = await import('../commands/settings.js')
       const clientId = getString(input.values, 'client-id')
       const clientSecret = getString(input.values, 'client-secret')
       if (!clientId || !clientSecret) {
@@ -148,6 +152,7 @@ export const SETTINGS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['settings'],
     usage: 'canonry settings [provider|reload-providers|google] [args]',
     run: async (input) => {
+      const { showSettings } = await import('../commands/settings.js')
       const subcommand = input.positionals[0]
       if (!subcommand) {
         await showSettings(input.format)

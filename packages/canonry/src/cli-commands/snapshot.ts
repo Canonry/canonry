@@ -1,4 +1,3 @@
-import { createSnapshotReport } from '../commands/snapshot.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, requirePositional, requireStringOption, stringOption } from '../cli-command-helpers.js'
 import { snapshotProviderModeSchema } from '@canonry/canonry-contracts'
@@ -31,6 +30,7 @@ export const SNAPSHOT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       output: stringOption(),
     },
     run: async (input) => {
+      const { createSnapshotReport } = await import('../commands/snapshot.js')
       const usage = SNAPSHOT_USAGE
       const companyName = requirePositional(input, 0, {
         command: 'snapshot',

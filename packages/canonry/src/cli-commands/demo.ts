@@ -1,6 +1,5 @@
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, getStringArray, multiStringOption, stringOption } from '../cli-command-helpers.js'
-import { demoCommand } from '../commands/demo.js'
 
 export const DEMO_CLI_COMMANDS: readonly CliCommandSpec[] = [{
   path: ['demo'],
@@ -9,6 +8,7 @@ export const DEMO_CLI_COMMANDS: readonly CliCommandSpec[] = [{
   options: { host: stringOption(), port: stringOption(), 'trust-proxy': multiStringOption() },
   allowPositionals: false,
   run: async input => {
+    const { demoCommand } = await import('../commands/demo.js')
     await demoCommand({
       host: getString(input.values, 'host'),
       port: getString(input.values, 'port'),

@@ -1,22 +1,4 @@
 import { WINDOW_SETS } from '@canonry/canonry-contracts'
-import {
-  gaAiReferralDaily,
-  gaAcquisition,
-  gaAiReferralHistory,
-  gaAttribution,
-  gaConnect,
-  gaCoverage,
-  gaDisconnect,
-  gaMeasurementAnalysis,
-  gaSessionHistory,
-  gaSocialReferralHistory,
-  gaSocialReferralSummary,
-  gaProperties,
-  gaSearchLandingPages,
-  gaStatus,
-  gaSync,
-  gaTraffic,
-} from '../commands/ga.js'
 import type { CliCommandSpec, CliValues } from '../cli-dispatch.js'
 import { getString, parseIntegerOption, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
@@ -49,6 +31,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
     help: 'Stored GA4 sessions only, with filtered totals independent of grouping and paging. Never calls Google. Meaningful page query parameters remain distinct.',
     options: { ...RANGE_OPTIONS, channel: stringOption(), source: stringOption(), medium: stringOption(), host: stringOption(), 'landing-page': stringOption(), 'path-prefix': stringOption(), 'group-by': stringOption(), limit: stringOption(), offset: stringOption() },
     run: async input => {
+      const { gaAcquisition } = await import('../commands/ga.js')
       const project = requireProject(input, 'ga.acquisition', 'canonry ga acquisition <project>')
       const aliases: Record<string, string> = { channel: 'channelGroup', host: 'hostName', 'landing-page': 'landingPage' }
       const groupBy = getString(input.values, 'group-by')?.split(',').map(key => aliases[key.trim()] ?? key.trim()).join(',')
@@ -65,6 +48,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'key-json': stringOption(),
     },
     run: async (input) => {
+      const { gaConnect } = await import('../commands/ga.js')
       const project = requireProject(input, 'ga.connect', 'canonry ga connect <project> --property-id <id> [--key-file <path>]')
       const propertyId = getString(input.values, 'property-id')
       if (!propertyId) {
@@ -82,6 +66,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['ga', 'disconnect'],
     usage: 'canonry ga disconnect <project> [--format json]',
     run: async (input) => {
+      const { gaDisconnect } = await import('../commands/ga.js')
       const project = requireProject(input, 'ga.disconnect', 'canonry ga disconnect <project> [--format json]')
       await gaDisconnect(project, input.format)
     },
@@ -90,6 +75,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['ga', 'properties'],
     usage: 'canonry ga properties <project> [--format json]',
     run: async (input) => {
+      const { gaProperties } = await import('../commands/ga.js')
       const project = requireProject(input, 'ga.properties', 'canonry ga properties <project> [--format json]')
       await gaProperties(project, input.format)
     },
@@ -98,6 +84,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['ga', 'status'],
     usage: 'canonry ga status <project> [--format json]',
     run: async (input) => {
+      const { gaStatus } = await import('../commands/ga.js')
       const project = requireProject(input, 'ga.status', 'canonry ga status <project> [--format json]')
       await gaStatus(project, input.format)
     },
@@ -110,6 +97,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
       only: stringOption(),
     },
     run: async (input) => {
+      const { gaSync } = await import('../commands/ga.js')
       const project = requireProject(input, 'ga.sync', 'canonry ga sync <project> [--days 30] [--only traffic|ai|social|search-landing] [--format json]')
       const daysStr = getString(input.values, 'days')
       const days = daysStr ? parseInt(daysStr, 10) : undefined
@@ -132,6 +120,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
       limit: stringOption(),
     },
     run: async (input) => {
+      const { gaMeasurementAnalysis } = await import('../commands/ga.js')
       const project = requireProject(input, 'ga.measurement-analysis', 'canonry ga measurement-analysis <project> [--window 30d|60d|90d] [--format json]')
       const limitValue = getString(input.values, 'limit')
       await gaMeasurementAnalysis(project, {
@@ -153,6 +142,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
       offset: stringOption(),
     },
     run: async (input) => {
+      const { gaSearchLandingPages } = await import('../commands/ga.js')
       const project = requireProject(input, 'ga.search-landing-pages', 'canonry ga search-landing-pages <project> [--window 7d|28d|90d] [--limit 50] [--offset 0] [--format json|jsonl]')
       // Forwarded verbatim: the server is the one place that validates them.
       await gaSearchLandingPages(project, {
@@ -172,6 +162,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
       ...RANGE_OPTIONS,
     },
     run: async (input) => {
+      const { gaTraffic } = await import('../commands/ga.js')
       const project = requireProject(input, 'ga.traffic', `canonry ga traffic <project> [--limit 50] ${RANGE_USAGE} [--format json]`)
       const limitStr = getString(input.values, 'limit')
       const limit = limitStr ? parseInt(limitStr, 10) : undefined
@@ -186,6 +177,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['ga', 'coverage'],
     usage: 'canonry ga coverage <project> [--format json]',
     run: async (input) => {
+      const { gaCoverage } = await import('../commands/ga.js')
       const project = requireProject(input, 'ga.coverage', 'canonry ga coverage <project> [--format json]')
       await gaCoverage(project, input.format)
     },
@@ -196,6 +188,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: `canonry ga ai-referral-history <project> ${RANGE_USAGE} [--format json]`,
     options: { ...RANGE_OPTIONS },
     run: async (input) => {
+      const { gaAiReferralHistory } = await import('../commands/ga.js')
       const project = requireProject(input, 'ga.ai-referral-history', `canonry ga ai-referral-history <project> ${RANGE_USAGE} [--format json]`)
       await gaAiReferralHistory(project, {
         ...rangeValues(input.values),
@@ -209,6 +202,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: `canonry ga ai-referral-daily <project> ${RANGE_USAGE} [--format json]`,
     options: { ...RANGE_OPTIONS },
     run: async (input) => {
+      const { gaAiReferralDaily } = await import('../commands/ga.js')
       const project = requireProject(input, 'ga.ai-referral-daily', `canonry ga ai-referral-daily <project> ${RANGE_USAGE} [--format json]`)
       await gaAiReferralDaily(project, {
         ...rangeValues(input.values),
@@ -222,6 +216,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: `canonry ga social-referral-history <project> ${RANGE_USAGE} [--format json]`,
     options: { ...RANGE_OPTIONS },
     run: async (input) => {
+      const { gaSocialReferralHistory } = await import('../commands/ga.js')
       const project = requireProject(input, 'ga.social-referral-history', `canonry ga social-referral-history <project> ${RANGE_USAGE} [--format json]`)
       await gaSocialReferralHistory(project, {
         ...rangeValues(input.values),
@@ -235,6 +230,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: `canonry ga session-history <project> ${RANGE_USAGE} [--format json]`,
     options: { ...RANGE_OPTIONS },
     run: async (input) => {
+      const { gaSessionHistory } = await import('../commands/ga.js')
       const project = requireProject(input, 'ga.session-history', `canonry ga session-history <project> ${RANGE_USAGE} [--format json]`)
       await gaSessionHistory(project, {
         ...rangeValues(input.values),
@@ -249,6 +245,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
       trend: { type: 'boolean', default: false },
     },
     run: async (input) => {
+      const { gaSocialReferralSummary } = await import('../commands/ga.js')
       const project = requireProject(input, 'ga.social-referral-summary', 'canonry ga social-referral-summary <project> [--trend] [--format json]')
       await gaSocialReferralSummary(project, {
         trend: input.values.trend === true,
@@ -263,6 +260,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
       trend: { type: 'boolean', default: false },
     },
     run: async (input) => {
+      const { gaAttribution } = await import('../commands/ga.js')
       const project = requireProject(input, 'ga.attribution', 'canonry ga attribution <project> [--trend] [--format json]')
       await gaAttribution(project, {
         trend: input.values.trend === true,

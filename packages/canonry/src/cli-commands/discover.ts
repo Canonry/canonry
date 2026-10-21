@@ -1,15 +1,4 @@
 import {
-  discoverHarvest,
-  discoverList,
-  discoverProbe,
-  discoverPromote,
-  discoverPromotePreview,
-  discoverRun,
-  discoverSeed,
-  discoverShow,
-} from '../commands/discover.js'
-import { discoverEval } from '../commands/discover-eval.js'
-import {
   discoveryBucketSchema,
   discoveryCompetitorTypeSchema,
   type DiscoveryBucket,
@@ -134,6 +123,7 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
       wait: { type: 'boolean', default: false },
     },
     run: async (input) => {
+      const { discoverRun } = await import('../commands/discover.js')
       const usage =
         'canonry discover run <project> [--icp "..."] [--buyer "..."] [--seed-provider gemini --seed-provider openai] [--icp-angle "..."] [--locations michigan,florida] [--dedup-threshold 0.95] [--max-probes 100] [--probe-concurrency 3] [--wait] [--format json]'
       const project = requireProject(input, 'discover.run', usage)
@@ -172,6 +162,7 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'probe-concurrency': stringOption(),
     },
     run: async (input) => {
+      const { discoverEval } = await import('../commands/discover-eval.js')
       const usage =
         'canonry discover eval [--baseline <path>] [--update-baseline] [--shape eval-b2b-saas ...] [--seed-provider gemini --seed-provider openai] [--max-probes 2] [--probe-concurrency 2] [--format json]'
       await discoverEval({
@@ -209,6 +200,7 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
       wait: { type: 'boolean', default: false },
     },
     run: async (input) => {
+      const { discoverSeed } = await import('../commands/discover.js')
       const usage =
         'canonry discover seed <project> [--icp "..."] [--buyer "..."] [--seed-provider gemini --seed-provider openai] [--icp-angle "..."] [--locations michigan,florida] [--dedup-threshold 0.95] [--max-probes 100] [--probe-concurrency 3] [--wait] [--format json]'
       const project = requireProject(input, 'discover.seed', usage)
@@ -238,6 +230,7 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['discover', 'probe'],
     usage: 'canonry discover probe <project> <session-id> [--format json]',
     run: async (input) => {
+      const { discoverProbe } = await import('../commands/discover.js')
       const project = requireProject(
         input,
         'discover.probe',
@@ -258,6 +251,7 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
       limit: stringOption(),
     },
     run: async (input) => {
+      const { discoverList } = await import('../commands/discover.js')
       const project = requireProject(
         input,
         'discover.list',
@@ -277,6 +271,7 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['discover', 'show'],
     usage: 'canonry discover show <project> <session-id> [--format json]',
     run: async (input) => {
+      const { discoverShow } = await import('../commands/discover.js')
       const project = requireProject(
         input,
         'discover.show',
@@ -300,6 +295,7 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'no-competitors': { type: 'boolean', default: false },
     },
     run: async (input) => {
+      const { discoverPromote } = await import('../commands/discover.js')
       const usage =
         'canonry discover promote <project> <session-id> [--bucket cited,aspirational,wasted-surface] [--competitor-types direct-competitor,editorial-media] [--no-competitors] [--format json]'
       const project = requireProject(input, 'discover.promote', usage)
@@ -325,6 +321,7 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'no-anchor': { type: 'boolean', default: false },
     },
     run: async (input) => {
+      const { discoverHarvest } = await import('../commands/discover.js')
       const usage =
         'canonry discover harvest <project> <session-id> [--min-probe-hits <n>] [--no-anchor] [--format json|jsonl]'
       const project = requireProject(input, 'discover.harvest', usage)
@@ -348,6 +345,7 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['discover', 'promote', 'preview'],
     usage: 'canonry discover promote preview <project> <session-id> [--format json]',
     run: async (input) => {
+      const { discoverPromotePreview } = await import('../commands/discover.js')
       const project = requireProject(
         input,
         'discover.promote.preview',

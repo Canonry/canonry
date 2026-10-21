@@ -22,7 +22,7 @@ import { resolveCliAccess } from './cli-access.js'
 import { OperationAccesses } from '@canonry/canonry-contracts'
 import { checkLatestVersionForCli, formatUpdateNotice, notePrintedUpdateAvailable, readCachedUpdateAvailable } from './update-check.js'
 import { buildSetupNudgeLine } from './setup-nudge.js'
-import { runPendingServeHandoff } from './commands/init.js'
+import { runPendingServeHandoff } from './serve-handoff.js'
 
 
 
@@ -237,7 +237,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
     // Emit `cli.upgraded` once per version bump, before `cli.command`, so
     // upgrade events are correlated with the first command on the new build.
     detectAndTrackUpgrade()
-    const setupState = buildSetupState()
+    const setupState = await buildSetupState()
     trackEvent('cli.command', {
       command: resolvedCommand,
       ...(setupState ? { setup_state: setupState } : {}),
@@ -271,7 +271,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
           command: resolvedCommand,
           success: true,
           durationMs: Date.now() - commandStartedAt,
-          setupState: buildSetupState(),
+          setupState: await buildSetupState(),
         })
       }
       // The stalled-setup line. Independent of telemetry consent (it is user
@@ -279,7 +279,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
       // commands and non-interactive runs outside the Page Health handoff must
       // not touch config or the database, and the nudge's own gates guarantee that.
       if (!storedOnlyMode) {
-        const nudge = buildSetupNudgeLine({
+        const nudge = await buildSetupNudgeLine({
           command: resolvedCommand,
           format,
           stderrIsTTY: Boolean(process.stderr.isTTY),
@@ -308,7 +308,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
         command: resolvedCommand,
         success: false,
         durationMs: Date.now() - commandStartedAt,
-        setupState: buildSetupState(),
+        setupState: await buildSetupState(),
         errorCode: telemetryErrorCode(err),
       })
     }
