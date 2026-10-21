@@ -299,15 +299,17 @@ export function StackedSeriesChart({ input, baseline, baselineLabel, label, heig
   height?: number
 }) {
   const { rows, series } = useMemo(() => buildStackedChartRows(input, baseline), [input, baseline])
+  // Hidden series by their stable `key`, never by `dataKey`: dataKeys follow
+  // rank (`s0` is the largest), and a new range can reorder the series.
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set())
   const [showBaseline, setShowBaseline] = useState(false)
   if (rows.length === 0) return null
-  const visible = series.filter(entry => !hidden.has(entry.dataKey))
+  const visible = series.filter(entry => !hidden.has(entry.key))
   const labels = new Map(series.map(entry => [entry.dataKey, entry.label]))
-  const toggle = (dataKey: string) => setHidden(current => {
+  const toggle = (key: string) => setHidden(current => {
     const next = new Set(current)
-    if (next.has(dataKey)) next.delete(dataKey)
-    else next.add(dataKey)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
     return next
   })
 
@@ -344,12 +346,12 @@ export function StackedSeriesChart({ input, baseline, baselineLabel, label, heig
       <fieldset className="mt-2 flex flex-wrap gap-x-5 text-[13px] text-secondary">
         <legend className="sr-only">{`${label} series`}</legend>
         {series.map((entry, index) => (
-          <label key={entry.dataKey} className="flex min-h-9 items-center gap-2">
+          <label key={entry.key} className="flex min-h-9 items-center gap-2">
             <input
               type="checkbox"
               className="size-4 accent-mono-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
-              checked={!hidden.has(entry.dataKey)}
-              onChange={() => toggle(entry.dataKey)}
+              checked={!hidden.has(entry.key)}
+              onChange={() => toggle(entry.key)}
             />
             <span aria-hidden="true" className="inline-block size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: seriesColor(entry.key, index) }} />
             {entry.label}

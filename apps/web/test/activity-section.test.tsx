@@ -47,6 +47,7 @@ vi.mock('recharts', () => {
 })
 
 import { ActivitySection, ClickThroughActivity, SEARCH_LANDING_COPY } from '../src/components/project/ActivitySection.js'
+import { StackedSeriesChart } from '../src/components/project/ActivityParts.js'
 import { AiTrafficHistoryPanel } from '../src/components/project/AiTrafficHistoryPanel.js'
 
 function renderActivitySection() {
@@ -802,4 +803,25 @@ test('AI traffic history still reports a genuinely unconnected project', async (
 
   expect(await screen.findByText(/No server-side traffic source connected yet/i)).toBeTruthy()
   expect(screen.getByRole('button', { name: /Connect a traffic source/i })).toBeTruthy()
+})
+
+test('a hidden chart series stays hidden when a new range reorders the series', () => {
+  // The API ranks series by sessions, so the range decides which comes first.
+  const ranked = (first: [string, string], second: [string, string]) => ({
+    series: [{ key: first[0], label: first[1], sessions: 20 }, { key: second[0], label: second[1], sessions: 10 }],
+    days: [{ date: '2026-03-31', sessions: 30, values: { [first[0]]: 20, [second[0]]: 10 } }],
+  })
+  const chatgpt: [string, string] = ['chatgpt', 'ChatGPT']
+  const perplexity: [string, string] = ['perplexity', 'Perplexity']
+  const { rerender } = render(<StackedSeriesChart input={ranked(chatgpt, perplexity)} label="AI sessions by engine" />)
+  const checked = () => Object.fromEntries(
+    within(screen.getByRole('group', { name: 'AI sessions by engine series' })).getAllByRole('checkbox')
+      .map(box => [(box.closest('label') as HTMLElement).textContent, (box as HTMLInputElement).checked]),
+  )
+
+  fireEvent.click(screen.getByRole('checkbox', { name: 'ChatGPT' }))
+  expect(checked()).toEqual({ ChatGPT: false, Perplexity: true })
+
+  rerender(<StackedSeriesChart input={ranked(perplexity, chatgpt)} label="AI sessions by engine" />)
+  expect(checked()).toEqual({ Perplexity: true, ChatGPT: false })
 })
