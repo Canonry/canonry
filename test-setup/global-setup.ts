@@ -14,7 +14,14 @@ export default function setup(project: TestProject): void {
   const migrated = createClient(':memory:')
   const replayed = createClient(':memory:')
   try {
-    migrate(migrated)
+    try {
+      migrate(migrated)
+    } catch (error) {
+      // A broken migration is reported by the tests that run it, not by
+      // stopping every project here: they fall back to the real migrations.
+      console.warn('test-setup/global-setup.ts: migrate() failed, so tests run the real migrations.', error)
+      return
+    }
     const script = buildReplayScript(migrated.$client)
     replayed.$client.exec(script)
     if (snapshotDatabase(replayed.$client) !== snapshotDatabase(migrated.$client)) {
