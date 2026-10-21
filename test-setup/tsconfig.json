@@ -1,0 +1,8 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": false
+  },
+  "include": ["./*.ts", "../vitest.config.ts", "../vitest.package.config.ts"]
+}
