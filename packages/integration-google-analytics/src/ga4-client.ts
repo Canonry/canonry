@@ -574,7 +574,7 @@ export async function fetchLeadEvents(
 }
 
 interface AiReferralSourceFilter {
-  matchType: 'EXACT' | 'BEGINS_WITH' | 'ENDS_WITH' | 'CONTAINS'
+  matchType: 'EXACT' | 'BEGINS_WITH' | 'ENDS_WITH'
   value: string
 }
 
@@ -594,35 +594,34 @@ interface AiReferralSourceFilter {
 // selects every source that merely contains it: `grok` in ngrok tunnels,
 // `anthropic` in `philanthropic.org`, `openai` in `openair` festival sites,
 // `gemini` in the Gemini exchange. They are built from the engine definitions
-// `aiEngineForReferralSource` attributes with, each shape bounded:
+// `aiEngineForReferralSource` attributes with, each anchored at the start or
+// end of the source:
 // - every engine: its hosts (`chatgpt.com`) and their subdomains
-//   (`www.perplexity.ai`), and its bare names (`chatgpt`, `gemini`);
-// - only engines whose `labels` the classifier trusts inside app ids and tags:
-//   campaign tags that start with the name or host (`perplexity_ai`,
-//   `chatgpt.com_ads`), and app ids named after the vendor's domain
-//   (`com.openai.chatgpt`, `android-app://com.anthropic.claude`,
-//   `ai.perplexity.app.android`). No hostname holds an underscore, and a
-//   reversed domain with its trailing dot (`com.openai.`) is not part of an
-//   ordinary hostname.
+//   (`www.perplexity.ai`), its bare names (`chatgpt`, `gemini`), and its
+//   official Android app ids, bare or as `android-app://` (`com.microsoft.copilot`,
+//   `android-app://com.openai.chatgpt/`);
+// - only engines whose `labels` the classifier trusts inside tags: campaign
+//   tags that start with the name or host (`perplexity_ai`, `chatgpt.com_ads`).
+//   No hostname holds an underscore.
 const AI_REFERRAL_SOURCE_FILTERS: readonly AiReferralSourceFilter[] = AI_REFERRAL_ENGINE_DEFINITIONS.flatMap(
-  ({ domains, tokens, labels }): AiReferralSourceFilter[] => {
+  ({ domains, tokens, labels, appIds }): AiReferralSourceFilter[] => {
     const filters: AiReferralSourceFilter[] = [
       ...domains.flatMap((domain): AiReferralSourceFilter[] => [
         { matchType: 'EXACT', value: domain },
         { matchType: 'ENDS_WITH', value: `.${domain}` },
       ]),
       ...tokens.map((token): AiReferralSourceFilter => ({ matchType: 'EXACT', value: token })),
+      ...appIds.flatMap((appId): AiReferralSourceFilter[] => [
+        { matchType: 'EXACT', value: appId },
+        { matchType: 'EXACT', value: `android-app://${appId}` },
+        { matchType: 'BEGINS_WITH', value: `android-app://${appId}/` },
+      ]),
     ]
     if (labels.length === 0) return filters
-    // App ids reverse the vendor's domain (`openai.com` to `com.openai.`), with
-    // or without `android-app://`. `chat.openai.com` is a subdomain of
-    // `openai.com`, whose prefix covers it.
-    const vendorDomains = domains.filter(domain => !domains.some(other => domain.endsWith(`.${other}`)))
     return [
       ...filters,
       ...labels.map((label): AiReferralSourceFilter => ({ matchType: 'BEGINS_WITH', value: `${label}_` })),
       ...domains.map((domain): AiReferralSourceFilter => ({ matchType: 'BEGINS_WITH', value: `${domain}_` })),
-      ...vendorDomains.map((domain): AiReferralSourceFilter => ({ matchType: 'CONTAINS', value: `${domain.split('.').reverse().join('.')}.` })),
     ]
   },
 )
