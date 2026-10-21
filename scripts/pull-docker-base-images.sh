@@ -10,8 +10,12 @@
 #
 # Docker Official Images on ECR Public (public.ecr.aws/docker/library/*) are
 # the images Docker Hub serves as library/*, with the same digests. When an ECR
-# pull fails, the same tag is pulled from Docker Hub, which has a separate
-# quota, and tagged with the ECR name the Dockerfile expects.
+# pull fails, the same reference is pulled from Docker Hub, which has a
+# separate quota, and every FROM naming that image is pointed at the Docker Hub
+# reference. Tagging the copy with the ECR name is not possible for a
+# digest-pinned FROM: Docker refuses to create a tag that contains a digest.
+# The rewrite edits the Dockerfile in place, so run this only in a disposable
+# checkout, before the build that reads the same file.
 set -euo pipefail
 
 dockerfile=${1:?usage: pull-docker-base-images.sh <Dockerfile>}
@@ -48,6 +52,24 @@ for image in "${images[@]}"; do
   fi
 done
 
+# Point every FROM that names an image at a replacement, with the same parse as
+# the list above. Other lines, including mentions of the image outside FROM,
+# keep their bytes.
+use_base_image() {  # <dockerfile> <image> <replacement>
+  local rewritten
+  rewritten=$(mktemp)
+  awk -v image="$2" -v replacement="$3" '
+    toupper($1) == "FROM" {
+      i = 2
+      while ($i ~ /^--/) i++
+      if ($i == image) $i = replacement
+    }
+    { print }
+  ' "$1" > "$rewritten"
+  cat "$rewritten" > "$1"
+  rm -f "$rewritten"
+}
+
 for image in "${images[@]}"; do
   fallback=""
   case $image in
@@ -60,8 +82,8 @@ for image in "${images[@]}"; do
       break
     fi
     if [ -n "$fallback" ] && docker pull --quiet "$fallback"; then
-      docker tag "$fallback" "$image"
-      echo "Pulled $fallback and tagged it $image"
+      use_base_image "$dockerfile" "$image" "$fallback"
+      echo "Pulled $fallback; $dockerfile now builds from it instead of $image"
       break
     fi
     if [ "$attempt" -ge "$attempts" ]; then
