@@ -1,4 +1,5 @@
 import { MultiDirectedGraph } from 'graphology'
+import type { NodeDisplayData, EdgeDisplayData } from 'sigma/types'
 import { deriveSiteHealthState, type SiteHealthState, compareText as lexical } from '@canonry/canonry-contracts'
 
 export type SiteGraphVisualState = SiteHealthState
@@ -107,7 +108,7 @@ export interface SigmaSiteGraphTheme {
 }
 
 /**
- * Sigma 3 only accepts hex and comma-delimited rgb(a) colors. Keep every
+ * Sigma only accepts hex and comma-delimited rgb(a) colors. Keep every
  * renderer-bound color in the existing neutral graph ladder or the dedicated
  * Site Health state palette, never in CSS's space-delimited color syntax.
  */
@@ -129,7 +130,7 @@ export const SITE_GRAPH_SIGMA_COLOR_TOKENS = {
 const SIGMA_HEX_COLOR = /^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i
 const SIGMA_LEGACY_RGB_COLOR = /^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/
 
-/** Reject CSS Color 4 values that Sigma 3 would silently render as black. */
+/** Reject CSS Color 4 values that Sigma would silently render as black. */
 export function isSigmaWebGlColor(color: string): boolean {
   return SIGMA_HEX_COLOR.test(color) || SIGMA_LEGACY_RGB_COLOR.test(color)
 }
@@ -147,7 +148,7 @@ export interface SigmaSiteGraphNodeAttributes extends Record<string, unknown> {
   depth: number | null
   status: SiteGraphVisualState
   glyph: string
-  forceLabel: boolean
+  labelVisibility: 'auto' | 'visible' | 'hidden'
   zIndex: number
   /** True only for the server-identified crawl root. */
   isRoot: boolean
@@ -354,7 +355,7 @@ export function buildSigmaSiteGraph(
       depth: node.depth,
       status,
       glyph,
-      forceLabel: isRoot || node.depth === 0 || node.path.trim() === '/',
+      labelVisibility: isRoot || node.depth === 0 || node.path.trim() === '/' ? 'visible' : 'auto',
       zIndex: isRoot ? 2 : node.depth === 0 ? 1 : 0,
       isRoot,
     })
@@ -410,11 +411,11 @@ export interface SigmaSiteGraphReducers {
   nodeReducer: (
     nodeKey: string,
     attributes: SigmaSiteGraphNodeAttributes,
-  ) => Partial<SigmaSiteGraphNodeAttributes>
+  ) => Partial<NodeDisplayData>
   edgeReducer: (
     edgeKey: string,
     attributes: SigmaSiteGraphEdgeAttributes,
-  ) => Partial<SigmaSiteGraphEdgeAttributes> & { hidden?: boolean }
+  ) => Partial<EdgeDisplayData>
 }
 
 /**
@@ -476,6 +477,11 @@ export function createSigmaSiteGraphReducers(
 
   return {
     nodeReducer: (nodeKey, attributes) => {
+      const visual = {
+        x: attributes.x, y: attributes.y, size: attributes.size,
+        color: attributes.color, label: attributes.label,
+        labelVisibility: attributes.labelVisibility, zIndex: attributes.zIndex,
+      }
       const ratio = readRatio()
       const overview = ratio > SITE_GRAPH_OVERVIEW_CAMERA_RATIO
       // The crawl root anchors the whole map, so it keeps its label and its
@@ -483,29 +489,29 @@ export function createSigmaSiteGraphReducers(
       // focus. Nothing about its internal-link score can hide it.
       if (attributes.isRoot) {
         return nodeKey === focused
-          ? { ...attributes, size: attributes.size * 1.35, forceLabel: true, zIndex: 3 }
-          : { ...attributes, forceLabel: true }
+          ? { ...visual, size: attributes.size * 1.35, labelVisibility: 'visible', zIndex: 3 }
+          : { ...visual, labelVisibility: 'visible' }
       }
       if (focused) {
         // The selected or hovered page is always named, at any zoom.
         if (nodeKey === focused) {
           return {
-            ...attributes,
+            ...visual,
             size: attributes.size * 1.35,
-            forceLabel: true,
+            labelVisibility: 'visible',
             zIndex: 3,
           }
         }
         if (graph.areNeighbors(nodeKey, focused)) {
-          if (!overview) return attributes
+          if (!overview) return visual
           return focusedNeighborLabelCandidates.has(nodeKey)
-            ? { ...attributes, forceLabel: false }
-            : { ...attributes, forceLabel: false, label: '' }
+            ? { ...visual, labelVisibility: 'auto' }
+            : { ...visual, labelVisibility: 'auto', label: '' }
         }
         return {
-          ...attributes,
+          ...visual,
           color: theme.dimmedNode,
-          forceLabel: false,
+          labelVisibility: 'auto',
           label: '',
           zIndex: 0,
         }
@@ -513,13 +519,14 @@ export function createSigmaSiteGraphReducers(
       // Unfocused: spend the zoom-dependent label budget on the best-ranked
       // pages and drop the rest, so labels never pile into unreadable text.
       const budget = siteGraphLabelBudget(ratio)
-      if (budget === Number.POSITIVE_INFINITY) return attributes
+      if (budget === Number.POSITIVE_INFINITY) return visual
       const rank = labelRankByKey.get(nodeKey) ?? Number.MAX_SAFE_INTEGER
-      if (rank < budget) return { ...attributes, forceLabel: true }
-      return { ...attributes, forceLabel: false, label: '' }
+      if (rank < budget) return { ...visual, labelVisibility: 'visible' }
+      return { ...visual, labelVisibility: 'auto', label: '' }
     },
     edgeReducer: (edgeKey, attributes) => {
-      if (attributes.isTemplate && !showTemplateLinks) return { ...attributes, hidden: true }
+      const visual = { size: attributes.size, color: attributes.color, zIndex: attributes.zIndex }
+      if (attributes.isTemplate && !showTemplateLinks) return { ...visual, visibility: 'hidden' }
       const overview = readRatio() > SITE_GRAPH_OVERVIEW_CAMERA_RATIO
       const [sourceNodeKey, targetNodeKey] = graph.extremities(edgeKey)
       const highlighted = Boolean(
@@ -528,22 +535,22 @@ export function createSigmaSiteGraphReducers(
       // A hovered or selected page always shows its own links, even fitted.
       if (highlighted) {
         return {
-          ...attributes,
+          ...visual,
           color: theme.edgeActive,
           size: Math.max(1.4, attributes.size),
           zIndex: 2,
         }
       }
-      if (overview) return { ...attributes, hidden: true }
+      if (overview) return { ...visual, visibility: 'hidden' }
       if (focused) {
         return {
-          ...attributes,
+          ...visual,
           color: theme.edgeDimmed,
           size: Math.min(0.45, attributes.size),
           zIndex: 0,
         }
       }
-      return attributes
+      return visual
     },
   }
 }

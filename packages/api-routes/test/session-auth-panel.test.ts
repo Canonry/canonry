@@ -338,8 +338,10 @@ test('the trust setting reads the way an operator would write it', async () => {
   expect(resolveTrustProxy('')).toBe(false)
   expect(resolveTrustProxy('false')).toBe(false)
   expect(resolveTrustProxy('true')).toBe(true)
-  expect(resolveTrustProxy('1')).toBe(1)
-  expect(resolveTrustProxy('2')).toBe(2)
+  expect(resolveTrustProxy('0')).toBe(false)
+  for (const hops of ['1', '2', ' 3 ']) {
+    expect(() => resolveTrustProxy(hops)).toThrow(/trusted proxy addresses or CIDRs/)
+  }
   expect(resolveTrustProxy('10.0.0.1, 192.168.0.0/16')).toEqual(['10.0.0.1', '192.168.0.0/16'])
 })
 

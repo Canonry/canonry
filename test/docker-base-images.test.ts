@@ -8,8 +8,8 @@ import { parse } from 'yaml'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 const pullScript = path.join(repoRoot, 'scripts/pull-docker-base-images.sh')
-const ecrNode = 'public.ecr.aws/docker/library/node:22-bookworm-slim'
-const hubNode = 'docker.io/library/node:22-bookworm-slim'
+const ecrNode = 'public.ecr.aws/docker/library/node:26.12.1-bookworm-slim@sha256:1e96b01216cab31612cd1f9480e83413472dee8686d423cb4c1ec62bf8a26e9e'
+const hubNode = 'docker.io/library/node:26.12.1-bookworm-slim@sha256:1e96b01216cab31612cd1f9480e83413472dee8686d423cb4c1ec62bf8a26e9e'
 
 // Records every call and fails `docker pull <ref>` as many times as the state
 // file for <ref> says ("always" never succeeds). `sleep` only records.

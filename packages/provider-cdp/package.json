@@ -18,9 +18,9 @@
   },
   "dependencies": {
     "@canonry/canonry-contracts": "workspace:*",
-    "chrome-remote-interface": "^0.33.2"
+    "chrome-remote-interface": "^0.34.0"
   },
   "devDependencies": {
-    "@types/chrome-remote-interface": "^0.31.14"
+    "@types/chrome-remote-interface": "^0.34.0"
   }
 }

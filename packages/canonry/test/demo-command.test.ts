@@ -104,14 +104,18 @@ describe('demo trusted proxies', () => {
     { value: '::/1', scope: 'every IPv4 address' },
     { value: '::/80', scope: 'every IPv4 address' },
     { value: '10.0.0.0/0', scope: 'every IPv4 address' },
-  ])('refuses $value, which would let visitors pick their own address', async ({ value, scope }) => {
+  ])('refuses $value under the conservative catch-all policy', async ({ value, scope }) => {
     expect(() => parseDemoTrustedProxies(['10.0.0.5', value])).toThrow(expect.objectContaining({
       code: 'INVALID_TRUST_PROXY',
       message: expect.stringContaining(`would trust ${scope}`),
     }))
     if (value.endsWith('/0')) return
-    // Fastify matches an IPv4 visitor against an IPv6 range through its mapped form.
-    for (const peer of ['100.64.0.9', '203.0.113.9']) expect(await believedAddress([value], peer), `${value} ${peer}`).toBe(FORWARDED)
+    // Fastify now excludes IPv4 peers from unqualified IPv6 ranges. Canonry
+    // still refuses ranges covering the entire mapped block conservatively.
+    const excludesIPv4 = value === '::/1' || value === '::/80'
+    for (const peer of ['100.64.0.9', '203.0.113.9', '::ffff:203.0.113.9']) {
+      expect(await believedAddress([value], peer), `${value} ${peer}`).toBe(excludesIPv4 ? peer : FORWARDED)
+    }
   })
 
   it.each([

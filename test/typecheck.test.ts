@@ -60,15 +60,15 @@ function typecheck(script: string, args: string[], cwd: string, choice?: string)
 }
 
 test.each([
-  { label: 'unset (tsrs)', choice: undefined, version: `(tsrs ${tsrs.version},` },
-  { label: 'tsc', choice: 'tsc', version: `Version ${typescript.version}` },
-])('CANONRY_TYPECHECKER=$label runs the selected compiler and fails on a type error', ({ choice, version }) => {
+  { label: 'unset (tsrs)', choice: undefined, version: `(tsrs ${tsrs.version},`, exitCode: 2 },
+  { label: 'tsc', choice: 'tsc', version: `Version ${typescript.version}`, exitCode: 1 },
+])('CANONRY_TYPECHECKER=$label runs the selected compiler and fails on a type error', ({ choice, version, exitCode }) => {
   const project = brokenProject()
   expect(typecheck(dispatcher, ['--version'], project, choice).stdout).toContain(version)
 
   const result = typecheck(dispatcher, ['--pretty', 'false', '-p', 'tsconfig.json'], project, choice)
   expect(result.stdout).toContain(TYPE_ERROR)
-  expect(result.status).toBe(2)
+  expect(result.status).toBe(exitCode)
 })
 
 test('tsrs runs its native binary wherever tsrs publishes one for the platform', () => {

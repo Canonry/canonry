@@ -1,23 +1,11 @@
 # Use the public ECR mirror of Docker Official Images to avoid Docker Hub
 # auth/rate-limit failures on GitHub-hosted runners.
-FROM public.ecr.aws/docker/library/node:22-bookworm-slim AS build
+FROM public.ecr.aws/docker/library/node:26.12.1-bookworm-slim@sha256:1e96b01216cab31612cd1f9480e83413472dee8686d423cb4c1ec62bf8a26e9e AS build
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 
-RUN corepack enable
-
-# `better-sqlite3` installs via `prebuild-install || node-gyp rebuild`. The
-# prebuilt download is a single un-retried network fetch, and without a
-# toolchain the `||` fallback CANNOT succeed — so one blip on the prebuild CDN
-# fails the whole image build. Observed: `prebuild-install warn install socket
-# hang up` followed by `gyp ERR! Could not find any Python installation`.
-#
-# This is the BUILD stage only; the runtime stage below copies `/prod/app` and
-# never sees these packages, so the shipped image is unchanged.
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ \
-  && rm -rf /var/lib/apt/lists/*
+RUN npm install --global pnpm@12.14.0
 
 WORKDIR /app
 
@@ -30,7 +18,7 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @canonry/canonry build
 RUN pnpm deploy --legacy --filter @canonry/canonry --prod /prod/app
 
-FROM public.ecr.aws/docker/library/node:22-bookworm-slim
+FROM public.ecr.aws/docker/library/node:26.12.1-bookworm-slim@sha256:1e96b01216cab31612cd1f9480e83413472dee8686d423cb4c1ec62bf8a26e9e
 
 ENV NODE_ENV=production
 ENV CANONRY_CONFIG_DIR=/data/canonry
