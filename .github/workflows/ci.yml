@@ -56,7 +56,7 @@ jobs:
         run: |
           mkdir -p .tmp/ci
           shopt -s nullglob
-          files=(packages/*/*.tsbuildinfo apps/*/*.tsbuildinfo scripts/*.tsbuildinfo test/*.tsbuildinfo)
+          files=(packages/*/*.tsbuildinfo apps/*/*.tsbuildinfo scripts/*.tsbuildinfo test/*.tsbuildinfo test-setup/*.tsbuildinfo)
           tar -cf .tmp/ci/tsbuildinfo.tar --files-from /dev/null "${files[@]}"
 
   test_shards:

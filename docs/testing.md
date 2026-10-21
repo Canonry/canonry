@@ -206,7 +206,7 @@ Lint and typechecks use four concurrent package processes without dependency ord
 They read workspace source directly and produce no artifacts needed by another package's check.
 Builds retain dependency ordering.
 
-Typechecks reuse TypeScript incremental state, including the root `scripts/` and `test/` projects.
+Typechecks reuse TypeScript incremental state, including the root `scripts/`, `test/` and `test-setup/` projects (`test-setup/tsconfig.json` also covers the root Vitest configs).
 CI collects the `.tsbuildinfo` files with shallow shell globs and caches a single archive.
 This avoids scanning `node_modules` during cache uploads. TypeScript still validates the current inputs on every run.
 

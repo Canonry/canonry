@@ -147,11 +147,9 @@ export function snapshotDatabase(sqlite: Sqlite): string {
   return JSON.stringify({ schema, rows, sequences: sequenceRows(sqlite), pragmas }, (_key, value: unknown) => typeof value === 'bigint' ? `${value}n` : value)
 }
 
-interface MigrateModule {
-  MIGRATION_VERSIONS: ReadonlyArray<{ disableForeignKeys?: boolean }>
-  migrate: (db: { $client?: Sqlite }, versions?: ReadonlyArray<unknown>) => void
-}
+type MigrateModule = typeof import('../packages/db/src/migrate.js')
 
+/** Fakes standing in for a client may lack a connection; those migrate for real. */
 function isEmptyDatabase(sqlite: Sqlite | undefined): sqlite is Sqlite {
   return sqlite !== undefined
     && !sqlite.inTransaction
@@ -162,13 +160,13 @@ function isEmptyDatabase(sqlite: Sqlite | undefined): sqlite is Sqlite {
  * `migrate()` that replays `script` into an empty database when given the
  * default version list, and runs the real migrations otherwise.
  */
-export function replayingMigrate<M extends MigrateModule>(actual: M, script: string): M['migrate'] {
+export function replayingMigrate(actual: MigrateModule, script: string): MigrateModule['migrate'] {
   // A full migration ends with foreign keys on: every version that turns them
   // off for a table rebuild turns them back on. The replay leaves them as the
   // connection had them, so it restores that end state explicitly.
   const endsWithForeignKeys = actual.MIGRATION_VERSIONS.some(version => version.disableForeignKeys)
-  return function migrate(db, versions = actual.MIGRATION_VERSIONS) {
-    const sqlite = db.$client
+  return (db, versions = actual.MIGRATION_VERSIONS) => {
+    const sqlite: Sqlite | undefined = db.$client
     if (versions !== actual.MIGRATION_VERSIONS || !isEmptyDatabase(sqlite)) {
       actual.migrate(db, versions)
       return
@@ -180,5 +178,5 @@ export function replayingMigrate<M extends MigrateModule>(actual: M, script: str
       throw error
     }
     if (endsWithForeignKeys) sqlite.pragma('foreign_keys = ON')
-  } as M['migrate']
+  }
 }
