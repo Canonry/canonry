@@ -11,6 +11,7 @@
  *      in code paths that fire `cli.command` events.
  *   2. Redirects `CANONRY_CONFIG_DIR` and the home directory at throwaway
  *      directories, so no test can write to the operator's real `~/.canonry`.
+ *      corepack's download cache keeps its real location.
  *   3. Replaces `globalThis.fetch` with a guard that throws on any
  *      non-localhost request, so a test that forgets to mock fetch
  *      can't silently hit the real internet.
@@ -133,6 +134,20 @@ if (!process.env.CANONRY_CONFIG_DIR?.trim()) {
 const testHome = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-test-home-'))
 process.env.HOME = testHome
 process.env.USERPROFILE = testHome
+
+// corepack's download cache keeps the real home's location. corepack stores
+// the pnpm a `packageManager` field pins under the home directory unless
+// COREPACK_HOME, XDG_CACHE_HOME or LOCALAPPDATA moves it, so under a fresh
+// home every test file that ran pnpm through corepack
+// (test/lint-changed.test.ts) downloaded pnpm again: about 60 MB and 18 s,
+// left behind in the temp directory. The variable is set to the path corepack
+// uses outside tests. A global pnpm that switches to the pinned version needs
+// nothing here: it hands its child processes the switched binary on PATH and
+// `npm_config_manage_package_manager_versions=false`.
+const realHome = workerStart.env.HOME ?? os.userInfo().homedir
+if (!process.env.COREPACK_HOME && !process.env.XDG_CACHE_HOME && !process.env.LOCALAPPDATA) {
+  process.env.COREPACK_HOME = path.join(realHome, process.platform === 'win32' ? 'AppData/Local' : '.cache', 'node', 'corepack')
+}
 
 globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
   const url = urlOf(input)
