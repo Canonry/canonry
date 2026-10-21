@@ -3,7 +3,6 @@ import { bootstrapCommand } from '../commands/bootstrap.js'
 import { supportCommand } from '../commands/support.js'
 import { startDaemon, stopDaemon } from '../commands/daemon.js'
 import { initCommand } from '../commands/init.js'
-import { serveCommand } from '../commands/serve.js'
 import { telemetryCommand } from '../commands/telemetry.js'
 import { FEEDBACK_USAGE, feedbackCommand } from '../commands/feedback.js'
 import { showOperationalLogs } from '../commands/logs.js'
@@ -132,6 +131,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     allowPositionals: false,
     run: async (input) => {
       applyServerEnv(input.values)
+      const { serveCommand } = await import('../commands/serve.js')
       await serveCommand(input.format)
     },
   },

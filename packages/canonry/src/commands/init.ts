@@ -34,10 +34,17 @@ import { installAttribution, recordInstallRef } from '../telemetry-environment.j
  */
 let pendingServeHandoff = false
 
-export function consumePendingServeHandoff(): boolean {
-  const pending = pendingServeHandoff
+/**
+ * Starts the dashboard if init queued the hand-off. Serve is imported here,
+ * on demand, so the CLI's other commands never load the server. The import
+ * cannot sit in cli.ts: tsx fails to lex a dynamic import in a file that
+ * starts with a shebang.
+ */
+export async function runPendingServeHandoff(format: CliFormat): Promise<void> {
+  if (!pendingServeHandoff) return
   pendingServeHandoff = false
-  return pending
+  const { serveCommand } = await import('./serve.js')
+  await serveCommand(format)
 }
 
 /**
