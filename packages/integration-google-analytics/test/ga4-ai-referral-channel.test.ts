@@ -117,23 +117,54 @@ describe('fetchAiReferrals with GA4\'s AI Assistant channel', () => {
     ])
   })
 
-  it('selects Grok by host and tag only, so an ngrok tunnel is not AI traffic', async () => {
+  it('selects each engine by host, name, tag or app id outside the AI Assistant channel, never as a substring', async () => {
     // Any request is answered: this reads only which sources each filter selects.
     serve(() => json({ rowCount: 0 }))
     await fetchAiReferrals('fake-token', '123456', 90)
     expect(requests).toHaveLength(3)
 
+    // The shapes each engine arrives under, as GA4 stores them: hosts and
+    // subdomains in any case, bare utm_source names, campaign tags, and the
+    // official Android app ids of in-app links, bare or as `android-app://`.
+    const aiSources = [
+      'chatgpt.com', 'ChatGPT.com', 'www.chatgpt.com', 'chat.openai.com', 'openai.com', 'chatgpt', 'OpenAI',
+      'chatgpt.com_ads', 'chatgpt_ads', 'com.openai.chatgpt', 'android-app://com.openai.chatgpt/',
+      'perplexity.ai', 'www.perplexity.ai', 'perplexity', 'perplexity_ai', 'ai.perplexity.app.android',
+      'gemini.google.com', 'bard.google.com', 'gemini', 'bard', 'com.google.android.apps.bard',
+      'claude.ai', 'claude', 'anthropic', 'api.anthropic.com', 'claude_ai', 'com.anthropic.claude',
+      'android-app://com.anthropic.claude',
+      'copilot.microsoft.com', 'copilot.com', 'www.copilot.com', 'copilot',
+      'com.microsoft.copilot', 'android-app://com.microsoft.copilot', 'android-app://com.microsoft.copilot/',
+      'grok.com', 'GROK.COM', 'www.grok.com', 'Grok', 'ai.x.grok',
+      'chat.deepseek.com', 'deepseek', 'com.deepseek.chat',
+      'meta.ai', 'www.meta.ai', 'com.facebook.stella',
+      'phind.com', 'phind',
+      'you.com', 'www.you.com',
+    ]
+    // Each holds an engine name as a substring and is not that engine.
+    const lookalikes = [
+      'demo.ngrok-free.app', 'ngrok.io', 'grokipedia.com', 'notgrok.com',
+      'gemini.com', 'exchange.gemini.com', 'geminisolar.com', 'com.example.gemini', 'gemini_exchange',
+      'copilot.money', 'getcopilot.com', 'copilot.github.com', 'com.microsoft.office.outlook',
+      'android-app://com.microsoft.copilotx', 'android-app://com.google.android.gm/',
+      'jean-claude', 'saint-claude.fr', 'claudes-kitchen.com', 'claude.example.com',
+      'philanthropic.org', 'www.misanthropic.net', 'openaircinema.com', 'openair-festival.ch',
+      'notchatgpt.com', 'chatgpt.com.example.com', 'chatgpt-clone.app',
+      'perplexitypuzzles.com', 'deepseekers.org', 'xmeta.ai', 'thankyou.com',
+    ]
+    // The engine breakdown agrees: every AI source maps to an engine, no lookalike does.
+    for (const source of aiSources) expect(aiEngineForReferralSource(source), source).not.toBeNull()
+    for (const source of lookalikes) expect(aiEngineForReferralSource(source), source).toBeNull()
+
     for (const { pass, body } of requests) {
       const sourceDimension = body.dimensions[1]!.name
-      const sourceFilters = expressionsOf(body).map(e => e.filter).filter(f => f.fieldName === sourceDimension)
-      const selects = (source: string) => sourceFilters.some(f => ga4Selects(f.stringFilter, source))
-      for (const source of ['grok.com', 'GROK.COM', 'www.grok.com', 'Grok']) {
-        expect(selects(source), `${pass}: ${source}`).toBe(true)
-      }
-      // `grok` sits inside these as a substring; none of them is Grok.
-      for (const source of ['demo.ngrok-free.app', 'ngrok.io', 'grokipedia.com', 'notgrok.com']) {
-        expect(selects(source), `${pass}: ${source}`).toBe(false)
-      }
+      // GA4 evaluates the pass's whole filter on a row filed under Referral:
+      // the AI Assistant expression fails, so only a source pattern selects it.
+      const selects = (source: string) => expressionsOf(body).some(({ filter }) => (
+        ga4Selects(filter.stringFilter, filter.fieldName === sourceDimension ? source : 'Referral')
+      ))
+      for (const source of aiSources) expect(selects(source), `${pass}: ${source}`).toBe(true)
+      for (const source of lookalikes) expect(selects(source), `${pass}: ${source}`).toBe(false)
     }
   })
 

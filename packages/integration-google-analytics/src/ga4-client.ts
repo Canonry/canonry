@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import {
-  AI_ENGINE_DOMAINS,
+  AI_REFERRAL_ENGINE_DEFINITIONS,
   GA4_AI_ASSISTANT_CHANNEL_GROUP,
   GA_SEARCH_LANDING_WINDOWS,
   GA_SEARCH_LANDING_WINDOW_DAYS,
@@ -573,6 +573,11 @@ export async function fetchLeadEvents(
   return { ...dateRange, attributionScope, rows }
 }
 
+interface AiReferralSourceFilter {
+  matchType: 'EXACT' | 'BEGINS_WITH' | 'ENDS_WITH'
+  value: string
+}
+
 // AI referral source patterns matched against each attribution pass's source
 // dimension (sessionSource, firstUserSource, sessionManualSource).
 // sessionSource: the referrer/utm_source for the session that triggered the hit.
@@ -584,24 +589,42 @@ export async function fetchLeadEvents(
 // channel only exists from 2026-05-13 and is not retroactive, Google has not
 // published the referrers it recognizes, and it may leave some AI sources in
 // Referral. The patterns cover that history and those sources.
-const AI_REFERRAL_SOURCE_FILTERS: Array<{ matchType: 'CONTAINS' | 'EXACT' | 'ENDS_WITH'; value: string }> = [
-  { matchType: 'CONTAINS', value: 'perplexity' },
-  { matchType: 'CONTAINS', value: 'gemini' },
-  { matchType: 'CONTAINS', value: 'chatgpt' },
-  { matchType: 'CONTAINS', value: 'openai' },
-  { matchType: 'CONTAINS', value: 'claude' },
-  { matchType: 'CONTAINS', value: 'anthropic' },
-  { matchType: 'CONTAINS', value: 'copilot' },
-  { matchType: 'CONTAINS', value: 'phind' },
-  // Grok by host and bare tag only: as a substring it sits inside ordinary
-  // sources such as ngrok tunnels (`demo.ngrok-free.app`).
-  { matchType: 'EXACT', value: AI_ENGINE_DOMAINS.grok },
-  { matchType: 'ENDS_WITH', value: `.${AI_ENGINE_DOMAINS.grok}` },
-  { matchType: 'EXACT', value: 'grok' },
-  { matchType: 'CONTAINS', value: 'deepseek' },
-  { matchType: 'EXACT', value: AI_ENGINE_DOMAINS.you },
-  { matchType: 'CONTAINS', value: AI_ENGINE_DOMAINS.metaAi },
-]
+//
+// GA4 applies them server side, so an engine name matched as a substring
+// selects every source that merely contains it: `grok` in ngrok tunnels,
+// `anthropic` in `philanthropic.org`, `openai` in `openair` festival sites,
+// `gemini` in the Gemini exchange. They are built from the engine definitions
+// `aiEngineForReferralSource` attributes with, each anchored at the start or
+// end of the source:
+// - every engine: its hosts (`chatgpt.com`) and their subdomains
+//   (`www.perplexity.ai`), its bare names (`chatgpt`, `gemini`), and its
+//   official Android app ids, bare or as `android-app://` (`com.microsoft.copilot`,
+//   `android-app://com.openai.chatgpt/`);
+// - only engines whose `labels` the classifier trusts inside tags: campaign
+//   tags that start with the name or host (`perplexity_ai`, `chatgpt.com_ads`).
+//   No hostname holds an underscore.
+const AI_REFERRAL_SOURCE_FILTERS: readonly AiReferralSourceFilter[] = AI_REFERRAL_ENGINE_DEFINITIONS.flatMap(
+  ({ domains, tokens, labels, appIds }): AiReferralSourceFilter[] => {
+    const filters: AiReferralSourceFilter[] = [
+      ...domains.flatMap((domain): AiReferralSourceFilter[] => [
+        { matchType: 'EXACT', value: domain },
+        { matchType: 'ENDS_WITH', value: `.${domain}` },
+      ]),
+      ...tokens.map((token): AiReferralSourceFilter => ({ matchType: 'EXACT', value: token })),
+      ...appIds.flatMap((appId): AiReferralSourceFilter[] => [
+        { matchType: 'EXACT', value: appId },
+        { matchType: 'EXACT', value: `android-app://${appId}` },
+        { matchType: 'BEGINS_WITH', value: `android-app://${appId}/` },
+      ]),
+    ]
+    if (labels.length === 0) return filters
+    return [
+      ...filters,
+      ...labels.map((label): AiReferralSourceFilter => ({ matchType: 'BEGINS_WITH', value: `${label}_` })),
+      ...domains.map((domain): AiReferralSourceFilter => ({ matchType: 'BEGINS_WITH', value: `${domain}_` })),
+    ]
+  },
+)
 
 /** One of the three attribution passes `fetchAiReferrals` runs. */
 interface AiReferralPass {

@@ -1,5 +1,5 @@
 {
-  "_note": "Response shape captured from live GA4 Data API runReport calls (v1beta, 2026-10-20; re-run 2026-10-21 with the bounded Grok filters EXACT grok.com, ENDS_WITH .grok.com and EXACT grok), one request per attribution pass, each request exactly as fetchAiReferrals sends it (dateRanges fixed here). Headers echo the requested names, including the deprecated sessionDefaultChannelGrouping; metric values are integer strings; metadata and kind are as returned. Rows, values, rowCount, dates and landing pages are synthetic: no captured property had a grok, deepseek or unrecognized source in the AI Assistant channel. The row shapes follow what was captured: AI Assistant rows carry medium ai-assistant, and the manual UTM lens reports chatgpt.com (whose links carry utm_source=chatgpt.com) with medium (not set) and other AI sources with their session medium. checkCompatibility on the captured properties: every requested dimension and filter dimension (including firstUserDefaultChannelGroup) and both metrics COMPATIBLE for all three passes. EXACT 'AI Assistant' with caseSensitive false matched lower-case 'ai assistant'; with caseSensitive true it did not.",
+  "_note": "Response shape captured from live GA4 Data API runReport calls (v1beta, 2026-10-20; re-run 2026-10-21 with the source filters built from AI_REFERRAL_ENGINE_DEFINITIONS: EXACT host, ENDS_WITH .host and EXACT name for every engine, EXACT app id, EXACT android-app://<app id> and BEGINS_WITH android-app://<app id>/ for each official Android app id, plus BEGINS_WITH name_ and host_ tags for engines with labels, and no substring match; 80 source expressions per pass, every pass 200 on seven properties), one request per attribution pass, each request exactly as fetchAiReferrals sends it (dateRanges fixed here). Headers echo the requested names, including the deprecated sessionDefaultChannelGrouping; metric values are integer strings; metadata and kind are as returned. Rows, values, rowCount, dates and landing pages are synthetic: no captured property had a grok, deepseek or unrecognized source in the AI Assistant channel. The row shapes follow what was captured: AI Assistant rows carry medium ai-assistant, and the manual UTM lens reports chatgpt.com (whose links carry utm_source=chatgpt.com) with medium (not set) and other AI sources with their session medium. checkCompatibility on the captured properties: every requested dimension and filter dimension (including firstUserDefaultChannelGroup) and both metrics COMPATIBLE for all three passes. EXACT 'AI Assistant' with caseSensitive false matched lower-case 'ai assistant'; with caseSensitive true it did not.",
   "passes": {
     "session": {
       "request": {
@@ -41,8 +41,8 @@
                 "filter": {
                   "fieldName": "sessionSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
-                    "value": "perplexity"
+                    "matchType": "EXACT",
+                    "value": "chatgpt.com"
                   }
                 }
               },
@@ -50,8 +50,8 @@
                 "filter": {
                   "fieldName": "sessionSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
-                    "value": "gemini"
+                    "matchType": "ENDS_WITH",
+                    "value": ".chatgpt.com"
                   }
                 }
               },
@@ -59,7 +59,43 @@
                 "filter": {
                   "fieldName": "sessionSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
+                    "value": "chat.openai.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".chat.openai.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "openai.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".openai.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
                     "value": "chatgpt"
                   }
                 }
@@ -68,7 +104,7 @@
                 "filter": {
                   "fieldName": "sessionSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
                     "value": "openai"
                   }
                 }
@@ -77,7 +113,268 @@
                 "filter": {
                   "fieldName": "sessionSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
+                    "value": "com.openai.chatgpt"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.openai.chatgpt"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.openai.chatgpt/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "chatgpt_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "openai_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "chatgpt.com_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "chat.openai.com_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "openai.com_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "perplexity.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".perplexity.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "perplexity"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "ai.perplexity.app.android"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://ai.perplexity.app.android"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://ai.perplexity.app.android/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "perplexity_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "perplexity.ai_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "gemini.google.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".gemini.google.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "bard.google.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".bard.google.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "gemini"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "bard"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "com.google.android.apps.bard"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.google.android.apps.bard"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.google.android.apps.bard/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "claude.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".claude.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "anthropic.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".anthropic.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
                     "value": "claude"
                   }
                 }
@@ -86,7 +383,7 @@
                 "filter": {
                   "fieldName": "sessionSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
                     "value": "anthropic"
                   }
                 }
@@ -95,7 +392,106 @@
                 "filter": {
                   "fieldName": "sessionSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
+                    "value": "com.anthropic.claude"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.anthropic.claude"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.anthropic.claude/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "claude_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "anthropic_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "claude.ai_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "anthropic.com_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "copilot.microsoft.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".copilot.microsoft.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "copilot.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".copilot.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
                     "value": "copilot"
                   }
                 }
@@ -104,8 +500,26 @@
                 "filter": {
                   "fieldName": "sessionSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
-                    "value": "phind"
+                    "matchType": "EXACT",
+                    "value": "com.microsoft.copilot"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.microsoft.copilot"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.microsoft.copilot/"
                   }
                 }
               },
@@ -140,8 +554,188 @@
                 "filter": {
                   "fieldName": "sessionSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
+                    "value": "ai.x.grok"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://ai.x.grok"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://ai.x.grok/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "deepseek.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".deepseek.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
                     "value": "deepseek"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "com.deepseek.chat"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.deepseek.chat"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.deepseek.chat/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "deepseek_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "deepseek.com_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "meta.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".meta.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "com.facebook.stella"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.facebook.stella"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.facebook.stella/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "phind.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".phind.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "phind"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "phind_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "phind.com_"
                   }
                 }
               },
@@ -158,8 +752,8 @@
                 "filter": {
                   "fieldName": "sessionSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
-                    "value": "meta.ai"
+                    "matchType": "ENDS_WITH",
+                    "value": ".you.com"
                   }
                 }
               },
@@ -392,8 +986,8 @@
                 "filter": {
                   "fieldName": "firstUserSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
-                    "value": "perplexity"
+                    "matchType": "EXACT",
+                    "value": "chatgpt.com"
                   }
                 }
               },
@@ -401,8 +995,8 @@
                 "filter": {
                   "fieldName": "firstUserSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
-                    "value": "gemini"
+                    "matchType": "ENDS_WITH",
+                    "value": ".chatgpt.com"
                   }
                 }
               },
@@ -410,7 +1004,43 @@
                 "filter": {
                   "fieldName": "firstUserSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
+                    "value": "chat.openai.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".chat.openai.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "openai.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".openai.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
                     "value": "chatgpt"
                   }
                 }
@@ -419,7 +1049,7 @@
                 "filter": {
                   "fieldName": "firstUserSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
                     "value": "openai"
                   }
                 }
@@ -428,7 +1058,268 @@
                 "filter": {
                   "fieldName": "firstUserSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
+                    "value": "com.openai.chatgpt"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.openai.chatgpt"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.openai.chatgpt/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "chatgpt_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "openai_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "chatgpt.com_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "chat.openai.com_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "openai.com_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "perplexity.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".perplexity.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "perplexity"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "ai.perplexity.app.android"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://ai.perplexity.app.android"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://ai.perplexity.app.android/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "perplexity_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "perplexity.ai_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "gemini.google.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".gemini.google.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "bard.google.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".bard.google.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "gemini"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "bard"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "com.google.android.apps.bard"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.google.android.apps.bard"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.google.android.apps.bard/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "claude.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".claude.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "anthropic.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".anthropic.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
                     "value": "claude"
                   }
                 }
@@ -437,7 +1328,7 @@
                 "filter": {
                   "fieldName": "firstUserSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
                     "value": "anthropic"
                   }
                 }
@@ -446,7 +1337,106 @@
                 "filter": {
                   "fieldName": "firstUserSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
+                    "value": "com.anthropic.claude"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.anthropic.claude"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.anthropic.claude/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "claude_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "anthropic_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "claude.ai_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "anthropic.com_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "copilot.microsoft.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".copilot.microsoft.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "copilot.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".copilot.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
                     "value": "copilot"
                   }
                 }
@@ -455,8 +1445,26 @@
                 "filter": {
                   "fieldName": "firstUserSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
-                    "value": "phind"
+                    "matchType": "EXACT",
+                    "value": "com.microsoft.copilot"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.microsoft.copilot"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.microsoft.copilot/"
                   }
                 }
               },
@@ -491,8 +1499,188 @@
                 "filter": {
                   "fieldName": "firstUserSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
+                    "value": "ai.x.grok"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://ai.x.grok"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://ai.x.grok/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "deepseek.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".deepseek.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
                     "value": "deepseek"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "com.deepseek.chat"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.deepseek.chat"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.deepseek.chat/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "deepseek_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "deepseek.com_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "meta.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".meta.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "com.facebook.stella"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.facebook.stella"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.facebook.stella/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "phind.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".phind.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "phind"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "phind_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "firstUserSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "phind.com_"
                   }
                 }
               },
@@ -509,8 +1697,8 @@
                 "filter": {
                   "fieldName": "firstUserSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
-                    "value": "meta.ai"
+                    "matchType": "ENDS_WITH",
+                    "value": ".you.com"
                   }
                 }
               },
@@ -743,8 +1931,8 @@
                 "filter": {
                   "fieldName": "sessionManualSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
-                    "value": "perplexity"
+                    "matchType": "EXACT",
+                    "value": "chatgpt.com"
                   }
                 }
               },
@@ -752,8 +1940,8 @@
                 "filter": {
                   "fieldName": "sessionManualSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
-                    "value": "gemini"
+                    "matchType": "ENDS_WITH",
+                    "value": ".chatgpt.com"
                   }
                 }
               },
@@ -761,7 +1949,43 @@
                 "filter": {
                   "fieldName": "sessionManualSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
+                    "value": "chat.openai.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".chat.openai.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "openai.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".openai.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
                     "value": "chatgpt"
                   }
                 }
@@ -770,7 +1994,7 @@
                 "filter": {
                   "fieldName": "sessionManualSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
                     "value": "openai"
                   }
                 }
@@ -779,7 +2003,268 @@
                 "filter": {
                   "fieldName": "sessionManualSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
+                    "value": "com.openai.chatgpt"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.openai.chatgpt"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.openai.chatgpt/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "chatgpt_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "openai_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "chatgpt.com_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "chat.openai.com_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "openai.com_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "perplexity.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".perplexity.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "perplexity"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "ai.perplexity.app.android"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://ai.perplexity.app.android"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://ai.perplexity.app.android/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "perplexity_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "perplexity.ai_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "gemini.google.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".gemini.google.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "bard.google.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".bard.google.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "gemini"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "bard"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "com.google.android.apps.bard"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.google.android.apps.bard"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.google.android.apps.bard/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "claude.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".claude.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "anthropic.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".anthropic.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
                     "value": "claude"
                   }
                 }
@@ -788,7 +2273,7 @@
                 "filter": {
                   "fieldName": "sessionManualSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
                     "value": "anthropic"
                   }
                 }
@@ -797,7 +2282,106 @@
                 "filter": {
                   "fieldName": "sessionManualSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
+                    "value": "com.anthropic.claude"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.anthropic.claude"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.anthropic.claude/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "claude_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "anthropic_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "claude.ai_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "anthropic.com_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "copilot.microsoft.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".copilot.microsoft.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "copilot.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".copilot.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
                     "value": "copilot"
                   }
                 }
@@ -806,8 +2390,26 @@
                 "filter": {
                   "fieldName": "sessionManualSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
-                    "value": "phind"
+                    "matchType": "EXACT",
+                    "value": "com.microsoft.copilot"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.microsoft.copilot"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.microsoft.copilot/"
                   }
                 }
               },
@@ -842,8 +2444,188 @@
                 "filter": {
                   "fieldName": "sessionManualSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
+                    "matchType": "EXACT",
+                    "value": "ai.x.grok"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://ai.x.grok"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://ai.x.grok/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "deepseek.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".deepseek.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
                     "value": "deepseek"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "com.deepseek.chat"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.deepseek.chat"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.deepseek.chat/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "deepseek_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "deepseek.com_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "meta.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".meta.ai"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "com.facebook.stella"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "android-app://com.facebook.stella"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "android-app://com.facebook.stella/"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "phind.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "ENDS_WITH",
+                    "value": ".phind.com"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "EXACT",
+                    "value": "phind"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "phind_"
+                  }
+                }
+              },
+              {
+                "filter": {
+                  "fieldName": "sessionManualSource",
+                  "stringFilter": {
+                    "matchType": "BEGINS_WITH",
+                    "value": "phind.com_"
                   }
                 }
               },
@@ -860,8 +2642,8 @@
                 "filter": {
                   "fieldName": "sessionManualSource",
                   "stringFilter": {
-                    "matchType": "CONTAINS",
-                    "value": "meta.ai"
+                    "matchType": "ENDS_WITH",
+                    "value": ".you.com"
                   }
                 }
               }

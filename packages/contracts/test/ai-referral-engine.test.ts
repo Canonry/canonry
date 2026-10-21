@@ -44,6 +44,13 @@ describe('aiEngineForReferralSource', () => {
     ['ai.perplexity.app.android', 'perplexity'],
     ['com.anthropic.claude', 'claude'],
     ['com.deepseek.chat', 'deepseek'],
+    // Official app ids whose names are not labels.
+    ['com.microsoft.copilot', 'copilot'],
+    ['android-app://com.microsoft.copilot', 'copilot'],
+    ['android-app://com.microsoft.copilot/', 'copilot'],
+    ['com.google.android.apps.bard', 'gemini'],
+    ['ai.x.grok', 'grok'],
+    ['com.facebook.stella', 'meta-ai'],
     // Underscore campaign tags.
     ['perplexity_ai', 'perplexity'],
     ['chatgpt.com_ads', 'chatgpt'],
@@ -71,7 +78,8 @@ describe('aiEngineForReferralSource', () => {
     // that also belong to non-AI products, stay out.
     'com.google.android.gm',
     'com.example.gemini',
-    'com.microsoft.copilot',
+    'com.microsoft.office.outlook',
+    'android-app://com.microsoft.copilotx',
     'gemini_exchange',
     'jean-claude',
     // A URL is matched on its host, never on a path segment.

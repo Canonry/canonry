@@ -22,7 +22,8 @@ they serve.
 Not captured: the response for a property with no Search Console link.
 
 `ga4-ai-referrals-ai-assistant-channel.json` keeps the **request bodies and
-response shape of live captures** (2026-10-20): header names as echoed,
+response shape of live captures** (2026-10-20; request bodies re-run
+2026-10-21 with the bounded source filters): header names as echoed,
 metric values as integer strings, `metadata` and `kind`. Its rows and values
 are **synthetic**, because no captured property had a grok, deepseek or
 unrecognized source in the AI Assistant channel; `_note` records the
