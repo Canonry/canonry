@@ -188,8 +188,8 @@ test('changing the sort resets to page 1', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Next' }))
   await waitFor(() => expect(screen.getByText('Page 2 of 3')).toBeTruthy())
 
-  // Re-sorting (click the "Landing Page" header) snaps back to page 1.
-  fireEvent.click(screen.getByRole('button', { name: /Landing Page/ }))
+  // Re-sorting (click the "Landing page" header) snaps back to page 1.
+  fireEvent.click(screen.getByRole('button', { name: 'Landing page' }))
   await waitFor(() => expect(screen.getByText('Page 1 of 3')).toBeTruthy())
   expect(screen.getByText('1 to 25 of 60 rows')).toBeTruthy()
 })

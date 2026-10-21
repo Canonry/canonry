@@ -5169,6 +5169,21 @@ export type Ga4AiReferralDailyDto = {
     totalSessions: number;
     totalPaidSessions: number;
     totalOrganicSessions: number;
+    byEngine: {
+        series: Array<{
+            key: string;
+            label: string;
+            sessions: number;
+        }>;
+        otherCount: number;
+        days: Array<{
+            date: string;
+            sessions: number;
+            values: {
+                [key: string]: number;
+            };
+        }>;
+    };
 };
 
 export type Ga4AiReferralHistoryEntry = {
@@ -5648,6 +5663,23 @@ export type GaTrafficResponse = {
     paidAiUsersBySession?: number;
     organicAiSessionsBySession: number;
     organicAiUsersBySession?: number;
+    aiEngines: Array<{
+        engine: 'chatgpt' | 'perplexity' | 'gemini' | 'claude' | 'copilot' | 'grok' | 'deepseek' | 'meta-ai' | 'phind' | 'you-com' | null;
+        label: string;
+        sessions: number;
+        organicSessions: number;
+        paidSessions: number;
+        share: number;
+        sources: Array<{
+            source: string;
+            medium: string;
+            trafficClass: 'organic' | 'paid';
+            sessions: number;
+            users?: number;
+            sourceDimension: 'session' | 'first_user' | 'manual_utm';
+            share: number;
+        }>;
+    }>;
     socialReferrals: Array<{
         source: string;
         medium: string;
@@ -5656,7 +5688,40 @@ export type GaTrafficResponse = {
         channelGroup: string;
         share: number;
     }>;
+    socialPlatforms: Array<{
+        platform: 'instagram' | 'facebook' | 'pinterest' | 'linkedin' | 'x' | 'youtube' | 'tiktok' | 'reddit' | 'threads' | 'snapchat' | 'nextdoor' | 'quora' | null;
+        label: string;
+        sessions: number;
+        organicSessions: number;
+        paidSessions: number;
+        share: number;
+        sources: Array<{
+            source: string;
+            medium: string;
+            sessions: number;
+            users?: number;
+            channelGroup: string;
+            share: number;
+        }>;
+    }>;
+    socialPlatformDaily: {
+        series: Array<{
+            key: string;
+            label: string;
+            sessions: number;
+        }>;
+        otherCount: number;
+        days: Array<{
+            date: string;
+            sessions: number;
+            values: {
+                [key: string]: number;
+            };
+        }>;
+    };
     socialSessions: number;
+    paidSocialSessions: number;
+    paidSocialShare: number;
     socialUsers?: number;
     channelBreakdown: {
         organic: {

@@ -5,6 +5,9 @@ import { WINDOW_SETS } from './time-window.js'
 import { z } from 'zod'
 import { fraction, percent } from './ratio-unit.js'
 import { aiReferralTrafficClassSchema } from './traffic-class.js'
+import { aiReferralEngineSchema } from './ai-referral-engine.js'
+import { socialPlatformSchema } from './social-platform.js'
+import { stackedDailySeriesSchema } from './stacked-series.js'
 
 export const ga4ConnectionDtoSchema = z.object({
   id: z.string(),
@@ -107,6 +110,48 @@ export const ga4SocialReferralDtoSchema = z.object({
 })
 export type GA4SocialReferralDto = z.infer<typeof ga4SocialReferralDtoSchema>
 
+/**
+ * One social platform's sessions in the window, with the `socialReferrals`
+ * rows it groups. A source no platform matches is its own group, so the
+ * groups partition `socialSessions`.
+ */
+export const ga4SocialPlatformDtoSchema = z.object({
+  /** Platform id from `socialPlatformForReferralSource`; null for a source no platform matches. */
+  platform: socialPlatformSchema.nullable(),
+  /** The platform's name, or the raw source when `platform` is null. */
+  label: z.string(),
+  sessions: z.number(),
+  /** Sessions outside GA4's Paid Social channel group. */
+  organicSessions: z.number(),
+  /** Sessions in GA4's Paid Social channel group. */
+  paidSessions: z.number(),
+  /** 0..1 share of `socialSessions`; the groups' shares add up to 1. */
+  share: fraction(),
+  /** The grouped `socialReferrals` rows, sessions descending. */
+  sources: z.array(ga4SocialReferralDtoSchema),
+})
+export type GA4SocialPlatformDto = z.infer<typeof ga4SocialPlatformDtoSchema>
+
+/**
+ * One AI engine's referral sessions, with the `aiReferrals` rows it groups.
+ * Rows whose source names no engine form one group with `engine: null`: AI
+ * traffic that is counted but never assigned to an engine.
+ */
+export const ga4AiEngineReferralDtoSchema = z.object({
+  /** Engine id from `aiEngineForReferralSource`; null for the unattributed group. */
+  engine: aiReferralEngineSchema.nullable(),
+  /** The engine's name, or `Unattributed AI`. */
+  label: z.string(),
+  sessions: z.number(),
+  organicSessions: z.number(),
+  paidSessions: z.number(),
+  /** 0..1 share of the `aiReferrals` rows' sessions, the same base as each row's `share`. */
+  share: fraction(),
+  /** The grouped `aiReferrals` rows, sessions descending. */
+  sources: z.array(ga4AiReferralDtoSchema),
+})
+export type GA4AiEngineReferralDto = z.infer<typeof ga4AiEngineReferralDtoSchema>
+
 export const ga4ChannelBucketDtoSchema = z.object({
   sessions: z.number(),
   sharePct: percent(),
@@ -177,9 +222,25 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   organicAiSessionsBySession: z.number(),
   /** @deprecated See `GA4AiReferralDto.users`. Never emitted since 4.135.0. */
   organicAiUsersBySession: z.number().optional(),
+  /**
+   * `aiReferrals` grouped by engine, sessions descending, with the unattributed
+   * group last. The groups' sessions add up to the rows' sessions.
+   */
+  aiEngines: z.array(ga4AiEngineReferralDtoSchema),
   socialReferrals: z.array(ga4SocialReferralDtoSchema),
+  /** `socialReferrals` grouped by platform, sessions descending; the groups' sessions add up to `socialSessions`. */
+  socialPlatforms: z.array(ga4SocialPlatformDtoSchema),
+  /**
+   * Daily social sessions by platform over the same window as every other
+   * figure here: the five largest platforms, then the rest as `other`.
+   */
+  socialPlatformDaily: stackedDailySeriesSchema,
   /** Total social sessions (session-scoped, no cross-dimension dedup needed). */
   socialSessions: z.number(),
+  /** Social sessions in GA4's Paid Social channel group. */
+  paidSocialSessions: z.number(),
+  /** `paidSocialSessions` as a 0..1 share of `socialSessions`; 0 with no social sessions. */
+  paidSocialShare: fraction(),
   /** Total social users (session-scoped, no cross-dimension dedup needed). */
   /**
    * @deprecated Never emitted. ga_social_referrals stores users as GA's
@@ -652,6 +713,12 @@ export const ga4AiReferralDailyDtoSchema = z.object({
   totalSessions: z.number(),
   totalPaidSessions: z.number(),
   totalOrganicSessions: z.number(),
+  /**
+   * The same days by AI engine: the five largest engines (the unattributed
+   * group counts as one), then the rest as `other`. Folded from the same
+   * winner set as `days`, so each day's values add up to that day's sessions.
+   */
+  byEngine: stackedDailySeriesSchema,
 })
 export type GA4AiReferralDailyDto = z.infer<typeof ga4AiReferralDailyDtoSchema>
 

@@ -375,6 +375,12 @@ export async function gaTraffic(project: string, opts?: GaRangeOptions & { limit
   }
   console.log()
 
+  // `aiEngines` / `socialPlatforms` are optional here only for a server older
+  // than the grouping; their rows are the same rows the source tables print.
+  if ((result.aiEngines?.length ?? 0) > 0) {
+    printReferralGroups('AI REFERRALS BY ENGINE', 'ENGINE', result.aiEngines)
+  }
+
   if (result.aiReferrals.length > 0) {
     const attrWidth = 12
     const classWidth = 8
@@ -416,6 +422,13 @@ export async function gaTraffic(project: string, opts?: GaRangeOptions & { limit
     const chanWidth = 12
     if (result.socialSessions > 0) {
       console.log(`  Social Sessions:         ${result.socialSessions} (${result.socialSharePctDisplay} of total)`)
+      if ((result.paidSocialSessions ?? 0) > 0) {
+        console.log(`    Paid Social:           ${result.paidSocialSessions} (${formatPercent(result.paidSocialShare)} of social)`)
+      }
+      console.log()
+    }
+    if ((result.socialPlatforms?.length ?? 0) > 0) {
+      printReferralGroups('SOCIAL PLATFORMS', 'PLATFORM', result.socialPlatforms)
     }
     console.log('  SOCIAL REFERRAL SOURCES')
     console.log(`  ${'SOURCE'.padEnd(25)}  ${'MEDIUM'.padEnd(15)}  ${'CHANNEL'.padEnd(chanWidth)}  ${'SESSIONS'.padEnd(10)}  SHARE`)
@@ -597,6 +610,25 @@ export async function gaAiReferralHistory(project: string, opts?: GaRangeOptions
   }
 }
 
+/** One row per engine or platform group, with how many source rows it folds. */
+function printReferralGroups(
+  heading: string,
+  column: string,
+  groups: ReadonlyArray<{ label: string; sessions: number; organicSessions: number; paidSessions: number; share: number; sources: readonly unknown[] }>,
+): void {
+  const labelWidth = Math.min(30, Math.max(column.length, ...groups.map(group => group.label.length)))
+  console.log(`  ${heading}`)
+  console.log(`  ${column.padEnd(labelWidth)}  ${'SESSIONS'.padEnd(10)}${'ORGANIC'.padEnd(9)}${'PAID'.padEnd(8)}${'SHARE'.padEnd(8)}SOURCES`)
+  console.log(`  ${'─'.repeat(labelWidth)}  ${'─'.repeat(10)}${'─'.repeat(9)}${'─'.repeat(8)}${'─'.repeat(8)}${'─'.repeat(7)}`)
+  for (const group of groups) {
+    const label = group.label.length > labelWidth ? group.label.slice(0, labelWidth - 3) + '...' : group.label
+    console.log(
+      `  ${label.padEnd(labelWidth)}  ${String(group.sessions).padEnd(10)}${String(group.organicSessions).padEnd(9)}${String(group.paidSessions).padEnd(8)}${formatPercent(group.share).padEnd(8)}${group.sources.length}`,
+    )
+  }
+  console.log()
+}
+
 export async function gaAiReferralDaily(project: string, opts?: GaRangeOptions): Promise<void> {
   const client = getClient()
   const result: GA4AiReferralDailyDto = await client.gaAiReferralDaily(project, rangeParams(opts))
@@ -632,6 +664,10 @@ export async function gaAiReferralDaily(project: string, opts?: GaRangeOptions):
     }
   }
   console.log(`\n  Total: ${result.totalSessions} sessions (${result.totalPaidSessions} paid, ${result.totalOrganicSessions} organic)`)
+  if (result.byEngine && result.byEngine.series.length > 0) {
+    const folded = result.byEngine.otherCount > 0 ? ` (Other folds ${result.byEngine.otherCount})` : ''
+    console.log(`  By engine${folded}: ${result.byEngine.series.map(series => `${series.label} ${series.sessions}`).join(' · ')}`)
+  }
 }
 
 export async function gaSocialReferralHistory(project: string, opts?: GaRangeOptions): Promise<void> {

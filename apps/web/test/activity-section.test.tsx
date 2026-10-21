@@ -1,7 +1,7 @@
 import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 afterEach(cleanup)
 
@@ -62,161 +62,197 @@ function renderActivitySection() {
 
 import { mockFetch, jsonResponse } from './mock-fetch.js'
 
-test('loads connected GA4 data without changing hook order and keeps it above AI traffic', async () => {
-  const restoreFetch = mockFetch((url) => {
+const GA_STATUS = {
+  connected: true,
+  propertyId: '999888',
+  clientEmail: 'sa@test.iam.gserviceaccount.com',
+  authMethod: 'service-account',
+  lastSyncedAt: '2026-03-31T12:00:00.000Z',
+  createdAt: '2026-03-31T12:00:00.000Z',
+  updatedAt: '2026-03-31T12:00:00.000Z',
+}
+
+const EMPTY_SEARCH_LANDING = {
+  source: 'ga4-search-console-link', status: 'never-synced', error: null, syncedAt: null, attemptedAt: null,
+  window: '28d', windowStart: null, windowEnd: null, windowDays: null, timeZone: null,
+  subjectToThresholding: false, dataLossFromOtherRow: false, total: null, reportRowCount: null, rowsCapped: false,
+  totalRows: 0, limit: 1000, offset: 0, rows: [],
+}
+
+const EMPTY_SERIES = { series: [], otherCount: 0, days: [] }
+
+const EMPTY_AI_DAILY_RESPONSE = { days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0, byEngine: EMPTY_SERIES }
+
+/**
+ * A `/ga/traffic` response as the API sends it, groups and shares included.
+ * The UI renders these values; it never rebuilds them from the rows.
+ */
+function gaTrafficResponse(overrides: Record<string, unknown> = {}) {
+  const bucket = (sessions: number, display: string) => ({ sessions, sharePct: Number.parseFloat(display), sharePctDisplay: display })
+  return {
+    totalSessions: 120,
+    totalOrganicSessions: 70,
+    totalDirectSessions: 30,
+    totalUsers: 95,
+    topPages: [],
+    aiReferrals: [],
+    aiEngines: [],
+    aiReferralLandingPages: [],
+    aiSessionsDeduped: 0,
+    paidAiSessionsDeduped: 0,
+    organicAiSessionsDeduped: 0,
+    aiSessionsBySession: 0,
+    paidAiSessionsBySession: 0,
+    organicAiSessionsBySession: 0,
+    socialReferrals: [],
+    socialPlatforms: [],
+    socialPlatformDaily: EMPTY_SERIES,
+    socialSessions: 0,
+    paidSocialSessions: 0,
+    paidSocialShare: 0,
+    channelBreakdown: {
+      organic: bucket(70, '58%'),
+      social: bucket(0, '0%'),
+      direct: bucket(30, '25%'),
+      ai: bucket(0, '0%'),
+      other: bucket(20, '17%'),
+    },
+    organicSharePct: 58,
+    aiSharePct: 0,
+    aiSharePctBySession: 0,
+    paidAiSharePct: 0,
+    paidAiSharePctBySession: 0,
+    organicAiSharePct: 0,
+    organicAiSharePctBySession: 0,
+    directSharePct: 25,
+    socialSharePct: 0,
+    organicSharePctDisplay: '58%',
+    aiSharePctDisplay: '0%',
+    aiSharePctBySessionDisplay: '0%',
+    paidAiSharePctDisplay: '0%',
+    paidAiSharePctBySessionDisplay: '0%',
+    organicAiSharePctDisplay: '0%',
+    organicAiSharePctBySessionDisplay: '0%',
+    directSharePctDisplay: '25%',
+    socialSharePctDisplay: '0%',
+    otherSessions: 20,
+    otherSharePct: 17,
+    otherSharePctDisplay: '17%',
+    lastSyncedAt: '2026-03-31T12:00:00.000Z',
+    windowStart: '2026-03-02',
+    windowEnd: '2026-03-31',
+    windowDays: 30,
+    periodStart: '2026-03-02',
+    periodEnd: '2026-03-31',
+    ...overrides,
+  }
+}
+
+/** Serve one GA4-connected project; `routes` answers the GA reads a test cares about. */
+function mockConnectedGa(routes: Record<string, () => Response>) {
+  return mockFetch((url) => {
     const urlPath = url.split('?')[0]!
-    if (urlPath.endsWith('/projects/test-project/ga/status')) {
-      return jsonResponse({
-        connected: true,
-        propertyId: '999888',
-        clientEmail: 'sa@test.iam.gserviceaccount.com',
-        authMethod: 'service-account',
-        lastSyncedAt: '2026-03-31T12:00:00.000Z',
-        createdAt: '2026-03-31T12:00:00.000Z',
-        updatedAt: '2026-03-31T12:00:00.000Z',
-      })
+    for (const [suffix, respond] of Object.entries(routes)) {
+      if (urlPath.endsWith(suffix)) return respond()
     }
-    if (urlPath.endsWith('/projects/test-project/ga/traffic')) {
-      return jsonResponse({
-        totalSessions: 120,
-        totalOrganicSessions: 70,
-        totalDirectSessions: 30,
-        totalUsers: 95,
-        topPages: [
-          { landingPage: '/pricing', sessions: 80, organicSessions: 50, directSessions: 20, users: 60 },
-        ],
-        aiReferrals: [
-          { source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', sessions: 12 },
-        ],
-        aiReferralLandingPages: [
-          { source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', landingPage: '/pricing', sessions: 12 },
-        ],
-        aiSessionsDeduped: 12,
-        paidAiSessionsDeduped: 0,
-        organicAiSessionsDeduped: 12,
-        aiSessionsBySession: 12,
-        paidAiSessionsBySession: 0,
-        organicAiSessionsBySession: 12,
-        socialReferrals: [
-          { source: 'facebook.com', medium: 'social', channelGroup: 'Organic Social', sessions: 8, users: 6 },
-        ],
-        socialSessions: 8,
-        socialUsers: 6,
-        organicSharePct: 58,
-        aiSharePct: 10,
-        aiSharePctBySession: 10,
-        paidAiSharePct: 0,
-        paidAiSharePctBySession: 0,
-        organicAiSharePct: 10,
-        organicAiSharePctBySession: 10,
-        directSharePct: 25,
-        socialSharePct: 7,
-        organicSharePctDisplay: '58%',
-        aiSharePctDisplay: '10%',
-        aiSharePctBySessionDisplay: '10%',
-        paidAiSharePctDisplay: '0%',
-        paidAiSharePctBySessionDisplay: '0%',
-        organicAiSharePctDisplay: '10%',
-        organicAiSharePctBySessionDisplay: '10%',
-        directSharePctDisplay: '25%',
-        socialSharePctDisplay: '7%',
-        otherSessions: 10,
-        otherSharePct: 8,
-        otherSharePctDisplay: '8%',
-        lastSyncedAt: '2026-03-31T12:00:00.000Z',
-      })
-    }
-    if (urlPath.endsWith('/projects/test-project/ga/ai-referral-daily')) {
-      return jsonResponse({
-        days: [
-          { date: '2026-03-30', sessions: 5, paidSessions: 0, organicSessions: 5, bySource: [{ source: 'chatgpt.com', sessions: 5, paidSessions: 0, organicSessions: 5 }] },
-          { date: '2026-03-31', sessions: 7, paidSessions: 0, organicSessions: 7, bySource: [{ source: 'chatgpt.com', sessions: 7, paidSessions: 0, organicSessions: 7 }] },
-        ],
-        sources: ['chatgpt.com'],
-        totalSessions: 12,
-        totalPaidSessions: 0,
-        totalOrganicSessions: 12,
-      })
-    }
-    if (urlPath.endsWith('/projects/test-project/ga/session-history')) {
-      return jsonResponse([
-        { date: '2026-03-30', sessions: 50, organicSessions: 30, users: 40 },
-        { date: '2026-03-31', sessions: 70, organicSessions: 40, users: 55 },
-      ])
-    }
-    if (urlPath.endsWith('/projects/test-project/ga/social-referral-history')) {
-      return jsonResponse([])
-    }
-    if (urlPath.endsWith('/projects/test-project/ga/search-landing-pages')) {
-      return jsonResponse({
-        source: 'ga4-search-console-link', status: 'never-synced', error: null, syncedAt: null, attemptedAt: null,
-        window: '28d', windowStart: null, windowEnd: null, windowDays: null, timeZone: null,
-        subjectToThresholding: false, dataLossFromOtherRow: false, total: null, reportRowCount: null, rowsCapped: false,
-        totalRows: 0, limit: 1000, offset: 0, rows: [],
-      })
-    }
-    if (urlPath.endsWith('/projects/test-project/traffic/sources')) {
-      return jsonResponse({ sources: [] })
-    }
+    if (urlPath.endsWith('/projects/test-project/ga/status')) return jsonResponse(GA_STATUS)
+    if (urlPath.endsWith('/projects/test-project/ga/traffic')) return jsonResponse(gaTrafficResponse())
+    if (urlPath.endsWith('/projects/test-project/ga/ai-referral-daily')) return jsonResponse(EMPTY_AI_DAILY_RESPONSE)
+    if (urlPath.endsWith('/projects/test-project/ga/session-history')) return jsonResponse([])
+    if (urlPath.endsWith('/projects/test-project/ga/search-landing-pages')) return jsonResponse(EMPTY_SEARCH_LANDING)
+    if (urlPath.endsWith('/projects/test-project/traffic/sources')) return jsonResponse({ sources: [] })
     if (urlPath.endsWith('/projects/test-project/traffic/events')) {
       return jsonResponse({
         events: [],
         eventRows: { total: 0, returned: 0, truncated: false },
-        totals: {
-          crawlerHits: 1,
-          crawlerContentHits: 1,
-          aiUserFetchHits: 1,
-          aiReferralHits: 1,
-          aiReferralLandedHits: 1,
-        },
+        totals: { crawlerHits: 1, crawlerContentHits: 1, aiUserFetchHits: 1, aiReferralHits: 1, aiReferralLandedHits: 1 },
         series: {
           granularity: 'day',
           coverageStart: '2026-03-31T00:00:00.000Z',
-          trends: {
-            crawlerContentHits: null,
-            aiUserFetchHits: null,
-            aiReferralLandedHits: null,
-          },
-          points: [{
-            bucket: '2026-03-31',
-            measured: true,
-            crawlerHits: 1,
-            crawlerContentHits: 1,
-            aiUserFetchHits: 1,
-            aiReferralHits: 1,
-            aiReferralLandedHits: 1,
-          }],
+          trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+          points: [{ bucket: '2026-03-31', measured: true, crawlerHits: 1, crawlerContentHits: 1, aiUserFetchHits: 1, aiReferralHits: 1, aiReferralLandedHits: 1 }],
         },
       })
     }
     throw new Error(`Unexpected fetch: ${url}`)
   })
-  onTestFinished(restoreFetch)
+}
 
+function sectionByHeading(name: string | RegExp): HTMLElement {
+  return screen.getByRole('heading', { name }).closest('section') as HTMLElement
+}
+
+function shareCell(row: HTMLElement): string {
+  const cells = within(row).getAllByRole('cell')
+  return cells[cells.length - 1]!.textContent ?? ''
+}
+
+const CHATGPT_ROWS = [
+  { source: 'chatgpt.com', medium: 'ai-assistant', trafficClass: 'organic', sourceDimension: 'session', sessions: 12, share: 0.3 },
+  { source: 'chatgpt', medium: 'cpc', trafficClass: 'paid', sourceDimension: 'session', sessions: 4, share: 0.1 },
+]
+const UNATTRIBUTED_ROW = { source: 'assistant.example', medium: 'ai-assistant', trafficClass: 'organic', sourceDimension: 'session', sessions: 24, share: 0.6 }
+
+const AI_TRAFFIC = {
+  aiReferrals: [...CHATGPT_ROWS, UNATTRIBUTED_ROW],
+  aiEngines: [
+    { engine: 'chatgpt', label: 'ChatGPT', sessions: 16, organicSessions: 12, paidSessions: 4, share: 0.4, sources: CHATGPT_ROWS },
+    { engine: null, label: 'Unattributed AI', sessions: 24, organicSessions: 24, paidSessions: 0, share: 0.6, sources: [UNATTRIBUTED_ROW] },
+  ],
+  aiReferralLandingPages: [
+    { source: 'chatgpt.com', medium: 'ai-assistant', trafficClass: 'organic', sourceDimension: 'session', landingPage: '/pricing', sessions: 12 },
+  ],
+  aiSessionsBySession: 40,
+  paidAiSessionsBySession: 4,
+  channelBreakdown: {
+    organic: { sessions: 70, sharePct: 58, sharePctDisplay: '58%' },
+    social: { sessions: 8, sharePct: 7, sharePctDisplay: '7%' },
+    direct: { sessions: 30, sharePct: 25, sharePctDisplay: '25%' },
+    ai: { sessions: 40, sharePct: 10, sharePctDisplay: '10%' },
+    other: { sessions: 0, sharePct: 0, sharePctDisplay: '0%' },
+  },
+  // The cross-cutting share overlaps other channels; the channel row must not show it.
+  aiSharePctDisplay: '35%',
+}
+
+test('keeps AI traffic history above the GA4 panels and loads GA4 without changing hook order', async () => {
+  onTestFinished(mockConnectedGa({
+    '/ga/traffic': () => jsonResponse(gaTrafficResponse({
+      ...AI_TRAFFIC,
+      topPages: [{ landingPage: '/pricing', sessions: 80, organicSessions: 50, directSessions: 20, users: 60, organicShare: 0.625 }],
+    })),
+    '/ga/ai-referral-daily': () => jsonResponse({
+      ...EMPTY_AI_DAILY_RESPONSE,
+      days: [{ date: '2026-03-31', sessions: 16, paidSessions: 4, organicSessions: 12, bySource: [] }],
+      totalSessions: 16,
+      byEngine: {
+        series: [{ key: 'chatgpt', label: 'ChatGPT', sessions: 16 }],
+        otherCount: 0,
+        days: [{ date: '2026-03-31', sessions: 16, values: { chatgpt: 16 } }],
+      },
+    }),
+  }))
   const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
   onTestFinished(() => consoleErrorSpy.mockRestore())
 
   renderActivitySection()
 
-  await waitFor(() => {
-    expect(screen.getByText('AI vs. total sessions')).toBeTruthy()
-  })
-
+  await screen.findByRole('heading', { name: 'AI sessions by engine' })
   const trafficPeriod = screen.getByRole('group', { name: 'Traffic time period' })
   expect(within(trafficPeriod).getByRole('button', { name: '30d' }).getAttribute('aria-pressed')).toBe('true')
 
-  const siteTraffic = screen.getByText('Site Traffic')
-  const machineTraffic = await screen.findByRole('heading', { name: 'Machines reading your site' })
-  const visitorTraffic = screen.getByRole('heading', { name: 'People arriving from AI' })
-  expect(siteTraffic.compareDocumentPosition(machineTraffic) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
-  expect(siteTraffic.compareDocumentPosition(visitorTraffic) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+  // Server data first: the AI history sits right under Server activity, before every GA4 section.
+  const order = ['Server activity', 'AI traffic history', 'Site traffic', 'Traffic by channel', 'Social', 'Top landing pages', SEARCH_LANDING_COPY.heading]
+    .map(name => screen.getByRole('heading', { name, level: 2 }))
+  for (let i = 1; i < order.length; i++) {
+    expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+  }
+  const historySection = sectionByHeading('AI traffic history')
+  expect(await within(historySection).findByRole('heading', { name: 'Machines reading your site' })).toBeTruthy()
 
-  expect(screen.getByText(/Top AI referrer:/)).toBeTruthy()
-
-  // GA4's Search Console landing-page report sits directly after the GA4
-  // Top Landing Pages table, with its own state.
-  const organicSearch = await screen.findByRole('heading', { name: SEARCH_LANDING_COPY.heading })
-  expect(screen.getByText('Top Landing Pages').compareDocumentPosition(organicSearch) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+  // The approved layout drops the sentence callouts; their figures live in the tables.
+  expect(screen.queryByText(/Top AI referrer/)).toBeNull()
+  expect(screen.queryByText(/Top social source/)).toBeNull()
   expect(await screen.findByText(SEARCH_LANDING_COPY.neverSynced)).toBeTruthy()
 
   expect(
@@ -227,512 +263,169 @@ test('loads connected GA4 data without changing hook order and keeps it above AI
   ).toBe(false)
 })
 
-test('renders five-channel breakdown with disjoint Organic, Social, Direct, Known AI, and Other buckets', async () => {
-  const restoreFetch = mockFetch((url) => {
-    const urlPath = url.split('?')[0]!
-    if (urlPath.endsWith('/projects/test-project/ga/status')) {
-      return jsonResponse({
-        connected: true,
-        propertyId: '999888',
-        clientEmail: 'sa@test.iam.gserviceaccount.com',
-        authMethod: 'service-account',
-        lastSyncedAt: '2026-03-31T12:00:00.000Z',
-        createdAt: '2026-03-31T12:00:00.000Z',
-        updatedAt: '2026-03-31T12:00:00.000Z',
-      })
-    }
-    if (urlPath.endsWith('/projects/test-project/ga/traffic')) {
-      return jsonResponse({
-        totalSessions: 120,
-        totalOrganicSessions: 70,
-        totalDirectSessions: 30,
-        totalUsers: 95,
-        topPages: [
-          { landingPage: '/pricing', sessions: 80, organicSessions: 50, directSessions: 20, users: 60 },
-        ],
-        aiReferrals: [
-          { source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', sessions: 12 },
-          { source: 'claude.ai', medium: 'referral', trafficClass: 'organic', sourceDimension: 'first_user', sessions: 30 },
-        ],
-        aiReferralLandingPages: [
-          { source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', landingPage: '/pricing', sessions: 12 },
-          { source: 'claude.ai', medium: 'referral', trafficClass: 'organic', sourceDimension: 'first_user', landingPage: '/guide', sessions: 30 },
-        ],
-        // Cross-cutting dedup includes firstUserSource → 12 + 30 = 42
-        aiSessionsDeduped: 42,
-        paidAiSessionsDeduped: 0,
-        organicAiSessionsDeduped: 42,
-        // Session-source-only count becomes the dedicated Known AI bucket.
-        aiSessionsBySession: 12,
-        paidAiSessionsBySession: 0,
-        organicAiSessionsBySession: 12,
-        socialReferrals: [
-          { source: 'facebook.com', medium: 'social', channelGroup: 'Organic Social', sessions: 8, users: 6 },
-        ],
-        socialSessions: 8,
-        socialUsers: 6,
-        channelBreakdown: {
-          organic: { sessions: 70, sharePct: 58, sharePctDisplay: '58%' },
-          social: { sessions: 8, sharePct: 7, sharePctDisplay: '7%' },
-          direct: { sessions: 30, sharePct: 25, sharePctDisplay: '25%' },
-          ai: { sessions: 12, sharePct: 10, sharePctDisplay: '10%' },
-          other: { sessions: 0, sharePct: 0, sharePctDisplay: '0%' },
-        },
-        organicSharePct: 58,
-        aiSharePct: 35,
-        aiSharePctBySession: 10,
-        paidAiSharePct: 0,
-        paidAiSharePctBySession: 0,
-        organicAiSharePct: 35,
-        organicAiSharePctBySession: 10,
-        directSharePct: 25,
-        socialSharePct: 7,
-        organicSharePctDisplay: '58%',
-        aiSharePctDisplay: '35%',
-        aiSharePctBySessionDisplay: '10%',
-        paidAiSharePctDisplay: '0%',
-        paidAiSharePctBySessionDisplay: '0%',
-        organicAiSharePctDisplay: '35%',
-        organicAiSharePctBySessionDisplay: '10%',
-        directSharePctDisplay: '25%',
-        socialSharePctDisplay: '7%',
-        otherSessions: 0,
-        otherSharePct: 0,
-        otherSharePctDisplay: '0%',
-        lastSyncedAt: '2026-03-31T12:00:00.000Z',
-      })
-    }
-    if (urlPath.endsWith('/projects/test-project/ga/ai-referral-daily')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
-    if (urlPath.endsWith('/projects/test-project/ga/session-history')) return jsonResponse([])
-    if (urlPath.endsWith('/projects/test-project/ga/social-referral-history')) return jsonResponse([])
-    throw new Error(`Unexpected fetch: ${url}`)
-  })
-  onTestFinished(restoreFetch)
+test('renders the five disjoint channel figures the API sent, AI share from the channel breakdown', async () => {
+  onTestFinished(mockConnectedGa({ '/ga/traffic': () => jsonResponse(gaTrafficResponse(AI_TRAFFIC)) }))
 
   renderActivitySection()
 
-  await waitFor(() => {
-    expect(screen.getByText('Sessions by channel')).toBeTruthy()
-  })
-
-  // Scope queries to the breakdown card so column headers in unrelated tables don't collide.
-  const card = screen.getByText('Sessions by channel').closest('div.surface-card') as HTMLElement
-  expect(card).toBeTruthy()
-  const breakdown = within(card)
-
-  // Five labeled channels appear in the breakdown card
-  expect(breakdown.getByText('Organic')).toBeTruthy()
-  expect(breakdown.getByText('Social')).toBeTruthy()
-  expect(breakdown.getByText('Direct')).toBeTruthy()
-  expect(breakdown.getByText(/Visitors from AI/)).toBeTruthy()
-  expect(breakdown.getByText('Other channels')).toBeTruthy()
-  expect(breakdown.getByText(/at least/i)).toBeTruthy()
-
-  // Direct cell shows the share from API (25%)
-  expect(breakdown.getByText('25%')).toBeTruthy()
-
-  // AI cell uses the dedicated channelBreakdown AI share (10%), NOT the
-  // cross-cutting aiSharePct (35%) which would overlap with other channels.
-  expect(breakdown.getByText('10%')).toBeTruthy()
-  expect(breakdown.queryByText('35%')).toBeNull()
-
-  // The misleading old framing is gone: panel title "Attributable AI visits" must not appear
-  expect(screen.queryByText('Attributable AI visits')).toBeNull()
-
-  expect(screen.getByText('Pages AI visitors landed on')).toBeTruthy()
-  const row = screen.getAllByText('/pricing')
-    .map((cell) => cell.closest('tr') as HTMLElement | null)
-    .find((candidate): candidate is HTMLElement => Boolean(candidate && within(candidate).queryByText('chatgpt.com')))
-  expect(row).toBeTruthy()
-  expect(within(row).getByText('chatgpt.com')).toBeTruthy()
-  expect(within(row).getByText('12')).toBeTruthy()
+  const channels = within(await screen.findByLabelText('Sessions by channel'))
+  for (const label of ['Organic search', 'Social', 'Direct', 'AI (at least)', 'Other channels']) {
+    expect(channels.getByText(label)).toBeTruthy()
+  }
+  expect(channels.getByText('25%')).toBeTruthy()
+  expect(channels.getByText('10%')).toBeTruthy()
+  expect(channels.getByText('40 sessions · 4 paid')).toBeTruthy()
+  // The cross-cutting share overlaps Organic, Social and Direct; it never fills the AI figure.
+  expect(channels.queryByText('35%')).toBeNull()
+  // The AI figure's tooltip names GA4's AI Assistant channel as a source of its sessions.
+  expect(channels.getByRole('button', { name: /AI Assistant channel/ })).toBeTruthy()
 })
 
-test('renders each referral and landing-page share the API sent, never one divided from counts', async () => {
-  // Every share disagrees with its counts on purpose. Dividing counts would read
-  // chatgpt.com 12/42 = 28.6%, claude.ai 30/42 = 71.4%, facebook.com 8/8 = 100%
-  // and /pricing 50/80 = 62.5%. The tables must show the API's values instead.
-  const restoreFetch = mockFetch((url) => {
-    const urlPath = url.split('?')[0]!
-    if (urlPath.endsWith('/projects/test-project/ga/status')) {
-      return jsonResponse({
-        connected: true,
-        propertyId: '999888',
-        clientEmail: 'sa@test.iam.gserviceaccount.com',
-        authMethod: 'service-account',
-        lastSyncedAt: '2026-03-31T12:00:00.000Z',
-        createdAt: '2026-03-31T12:00:00.000Z',
-        updatedAt: '2026-03-31T12:00:00.000Z',
-      })
-    }
-    if (urlPath.endsWith('/projects/test-project/ga/traffic')) {
-      return jsonResponse({
-        totalSessions: 120,
-        totalOrganicSessions: 70,
-        totalDirectSessions: 30,
-        totalUsers: 95,
-        topPages: [
-          { landingPage: '/pricing', sessions: 80, organicSessions: 50, directSessions: 20, users: 60, organicShare: 0.25 },
-        ],
-        aiReferrals: [
-          { source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', sessions: 12, share: 0.375 },
-          { source: 'claude.ai', medium: 'referral', trafficClass: 'organic', sourceDimension: 'first_user', sessions: 30, share: 0.625 },
-        ],
-        aiReferralLandingPages: [],
-        aiSessionsDeduped: 42,
-        paidAiSessionsDeduped: 0,
-        organicAiSessionsDeduped: 42,
-        aiSessionsBySession: 12,
-        paidAiSessionsBySession: 0,
-        organicAiSessionsBySession: 12,
-        socialReferrals: [
-          { source: 'facebook.com', medium: 'social', channelGroup: 'Organic Social', sessions: 8, share: 0.0004 },
-        ],
-        socialSessions: 8,
-        channelBreakdown: {
-          organic: { sessions: 70, sharePct: 58, sharePctDisplay: '58.3%' },
-          social: { sessions: 8, sharePct: 7, sharePctDisplay: '6.7%' },
-          direct: { sessions: 30, sharePct: 25, sharePctDisplay: '25.0%' },
-          ai: { sessions: 12, sharePct: 10, sharePctDisplay: '10.0%' },
-          other: { sessions: 0, sharePct: 0, sharePctDisplay: '0%' },
-        },
-        organicSharePct: 58,
-        aiSharePct: 35,
-        aiSharePctBySession: 10,
-        paidAiSharePct: 0,
-        paidAiSharePctBySession: 0,
-        organicAiSharePct: 35,
-        organicAiSharePctBySession: 10,
-        directSharePct: 25,
-        socialSharePct: 7,
-        organicSharePctDisplay: '58.3%',
-        aiSharePctDisplay: '35.0%',
-        aiSharePctBySessionDisplay: '10.0%',
-        paidAiSharePctDisplay: '0%',
-        paidAiSharePctBySessionDisplay: '0%',
-        organicAiSharePctDisplay: '35.0%',
-        organicAiSharePctBySessionDisplay: '10.0%',
-        directSharePctDisplay: '25.0%',
-        socialSharePctDisplay: '6.7%',
-        otherSessions: 0,
-        otherSharePct: 0,
-        otherSharePctDisplay: '0%',
-        lastSyncedAt: '2026-03-31T12:00:00.000Z',
-        windowStart: '2026-03-02',
-        windowEnd: '2026-03-31',
-        windowDays: 30,
-        periodStart: '2026-03-02',
-        periodEnd: '2026-03-31',
-      })
-    }
-    if (urlPath.endsWith('/projects/test-project/ga/ai-referral-daily')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
-    if (urlPath.endsWith('/projects/test-project/ga/session-history')) return jsonResponse([])
-    if (urlPath.endsWith('/projects/test-project/ga/social-referral-history')) return jsonResponse([])
-    throw new Error(`Unexpected fetch: ${url}`)
-  })
-  onTestFinished(restoreFetch)
-
-  renderActivitySection()
-
-  await waitFor(() => {
-    expect(screen.getByText('Where AI visitors came from')).toBeTruthy()
-  })
-
-  const shareCell = (row: HTMLElement) => within(row).getAllByRole('cell').at(-1)?.textContent
-  const rowOf = (scope: HTMLElement, text: string) => within(scope).getByText(text).closest('tr') as HTMLElement
-
-  const aiCard = screen.getByText('Where AI visitors came from').closest('div.surface-card') as HTMLElement
-  expect(shareCell(rowOf(aiCard, 'chatgpt.com'))).toBe('37.5%')
-  expect(shareCell(rowOf(aiCard, 'claude.ai'))).toBe('62.5%')
-
-  const socialCard = screen.getByText('Social sources').closest('div.surface-card') as HTMLElement
-  expect(shareCell(rowOf(socialCard, 'facebook.com'))).toBe('<0.1%')
-
-  const pagesSection = screen.getByRole('heading', { name: /Top Landing Pages/ }).closest('section') as HTMLElement
-  expect(shareCell(rowOf(pagesSection, '/pricing'))).toBe('25.0%')
-})
-
-test('social table collapses to top 25 with show-all toggle and surfaces Other-source rollup', async () => {
-  // 30 sources keeps the table over the 25-row default cap and forces top-N + Other in the chart
-  const longCampaignName = (i: number) =>
-    `HVAC+Facebook+Groups+Q1+2026+|+Closed+|+US+CAN+|+1k+sources+(${i.toString().padStart(2, '0')})`
-  const referrals = Array.from({ length: 30 }, (_, i) => ({
-    source: longCampaignName(i),
-    medium: 'paid_facebook_Mobile_Feed',
-    channelGroup: 'Paid Social' as const,
-    sessions: 100 - i,
-    users: 90 - i,
+test('groups AI sources by engine, keeps unattributed AI last, and shows each share the API sent', async () => {
+  onTestFinished(mockConnectedGa({
+    '/ga/traffic': () => jsonResponse(gaTrafficResponse({
+      ...AI_TRAFFIC,
+      topPages: [{ landingPage: '/pricing', sessions: 80, organicSessions: 20, directSessions: 20, users: 60, organicShare: 0.25 }],
+    })),
   }))
-  const history = referrals.flatMap((r) => [
-    { date: '2026-04-01', source: r.source, medium: r.medium, channelGroup: r.channelGroup, sessions: r.sessions, users: r.users },
-    { date: '2026-04-02', source: r.source, medium: r.medium, channelGroup: r.channelGroup, sessions: Math.max(1, r.sessions - 5), users: Math.max(1, r.users - 5) },
-  ])
-
-  const restoreFetch = mockFetch((url) => {
-    const urlPath = url.split('?')[0]!
-    if (urlPath.endsWith('/projects/test-project/ga/status')) {
-      return jsonResponse({
-        connected: true,
-        propertyId: '999888',
-        clientEmail: 'sa@test.iam.gserviceaccount.com',
-        authMethod: 'service-account',
-        lastSyncedAt: '2026-04-02T12:00:00.000Z',
-        createdAt: '2026-04-02T12:00:00.000Z',
-        updatedAt: '2026-04-02T12:00:00.000Z',
-      })
-    }
-    if (urlPath.endsWith('/projects/test-project/ga/traffic')) {
-      const totalSessions = referrals.reduce((acc, r) => acc + r.sessions, 0)
-      return jsonResponse({
-        totalSessions,
-        totalOrganicSessions: 0,
-        totalDirectSessions: 0,
-        totalUsers: referrals.reduce((acc, r) => acc + r.users, 0),
-        topPages: [],
-        aiReferrals: [],
-        aiReferralLandingPages: [],
-        aiSessionsDeduped: 0,
-        paidAiSessionsDeduped: 0,
-        organicAiSessionsDeduped: 0,
-        aiSessionsBySession: 0,
-        paidAiSessionsBySession: 0,
-        organicAiSessionsBySession: 0,
-        socialReferrals: referrals,
-        socialSessions: totalSessions,
-        socialUsers: referrals.reduce((acc, r) => acc + r.users, 0),
-        organicSharePct: 0,
-        aiSharePct: 0,
-        aiSharePctBySession: 0,
-        paidAiSharePct: 0,
-        paidAiSharePctBySession: 0,
-        organicAiSharePct: 0,
-        organicAiSharePctBySession: 0,
-        directSharePct: 0,
-        socialSharePct: 100,
-        organicSharePctDisplay: '0%',
-        aiSharePctDisplay: '0%',
-        aiSharePctBySessionDisplay: '0%',
-        paidAiSharePctDisplay: '0%',
-        paidAiSharePctBySessionDisplay: '0%',
-        organicAiSharePctDisplay: '0%',
-        organicAiSharePctBySessionDisplay: '0%',
-        directSharePctDisplay: '0%',
-        socialSharePctDisplay: '100%',
-        otherSessions: 0,
-        otherSharePct: 0,
-        otherSharePctDisplay: '0%',
-        lastSyncedAt: '2026-04-02T12:00:00.000Z',
-      })
-    }
-    if (urlPath.endsWith('/projects/test-project/ga/ai-referral-daily')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
-    if (urlPath.endsWith('/projects/test-project/ga/session-history')) return jsonResponse([])
-    if (urlPath.endsWith('/projects/test-project/ga/social-referral-history')) return jsonResponse(history)
-    throw new Error(`Unexpected fetch: ${url}`)
-  })
-  onTestFinished(restoreFetch)
 
   renderActivitySection()
 
-  await waitFor(() => {
-    expect(screen.getByText('Social sources')).toBeTruthy()
-  })
+  const section = (await screen.findByRole('heading', { name: 'Traffic by channel' })).closest('section') as HTMLElement
+  const table = within(section).getByRole('table', { name: 'AI referral sessions by engine' })
+  const groupButtons = await within(table).findAllByRole('button', { expanded: false })
+  expect(groupButtons.map(button => button.textContent)).toEqual(['ChatGPT2 sources', 'Unattributed AI1 source'])
 
-  // Top-N + Other notice: 30 sources, top 6 plotted, 24 collapsed into Other
-  expect(screen.getByText(/Showing top 6 sources · 24 more grouped as Other/)).toBeTruthy()
+  // Unattributed AI has more sessions, yet stays last: it is pinned under every sort.
+  fireEvent.click(within(table).getByRole('button', { name: /Sessions/ }))
+  expect(within(table).getAllByRole('button', { expanded: false }).map(button => button.textContent))
+    .toEqual(['ChatGPT2 sources', 'Unattributed AI1 source'])
 
-  // Social sources table starts collapsed at the default limit of 25
-  const breakdownCard = screen.getByText('Social sources').closest('div.surface-card') as HTMLElement
-  expect(breakdownCard).toBeTruthy()
-  const breakdown = within(breakdownCard)
-  expect(breakdown.getByText('Top 25 of 30')).toBeTruthy()
-  expect(breakdown.queryAllByRole('row').length - 1 /* header */).toBe(25)
+  const chatgpt = within(table).getByRole('button', { name: /ChatGPT/ })
+  expect(shareCell(chatgpt.closest('tr') as HTMLElement)).toBe('40.0%')
+  // Raw source rows stay out of the table until their group is opened.
+  expect(within(table).queryByText('chatgpt.com')).toBeNull()
+  fireEvent.click(chatgpt)
+  expect(chatgpt.getAttribute('aria-expanded')).toBe('true')
+  const sources = within(table).getByRole('table', { name: 'ChatGPT sources' })
+  expect(shareCell(within(sources).getByText('chatgpt.com').closest('tr') as HTMLElement)).toBe('30.0%')
+  expect(shareCell(within(sources).getByText('cpc').closest('tr') as HTMLElement)).toBe('10.0%')
+  expect(within(within(sources).getByText('cpc').closest('tr') as HTMLElement).getByText('Paid')).toBeTruthy()
 
-  // Long source names render decoded — `+` becomes space — but the title attribute keeps the raw value
-  const decodedCell = breakdown.getAllByText(/HVAC Facebook Groups Q1 2026/)[0]!
-  expect(decodedCell).toBeTruthy()
-  expect(decodedCell.getAttribute('title')).toMatch(/HVAC\+Facebook\+Groups\+Q1\+2026/)
-
-  // Toggling the Show-all button expands to all 30 rows; toggling back returns to the cap
-  const showAllButton = breakdown.getByRole('button', { name: /Show all 30 sources/ })
-  act(() => {
-    fireEvent.click(showAllButton)
-  })
-  await waitFor(() => {
-    expect(breakdown.queryAllByRole('row').length - 1).toBe(30)
-  })
-  expect(breakdown.getByText('30 rows')).toBeTruthy()
-
-  const collapseButton = breakdown.getByRole('button', { name: /Show top 25/ })
-  act(() => {
-    fireEvent.click(collapseButton)
-  })
-  await waitFor(() => {
-    expect(breakdown.queryAllByRole('row').length - 1).toBe(25)
-  })
+  const pages = sectionByHeading('Top landing pages')
+  expect(shareCell(within(pages).getByText('/pricing').closest('tr') as HTMLElement)).toBe('25.0%')
 })
 
-test('top time picker reloads every GA surface and replaces all Social data', async () => {
+test('social groups sources by platform from the API and opens the raw rows in place', async () => {
+  const instagramRows = [
+    { source: 'ig', medium: 'social', channelGroup: 'Organic Social', sessions: 47, share: 0.47 },
+    { source: 'Instagram+Story', medium: 'social', channelGroup: 'Organic Social', sessions: 3, share: 0.03 },
+    { source: 'ig', medium: 'paidsocial', channelGroup: 'Paid Social', sessions: 6, share: 0.06 },
+  ]
+  const pinterestRows = [
+    { source: 'Pinterest', medium: 'PaidSocial', channelGroup: 'Paid Social', sessions: 44, share: 0.44 },
+  ]
+  onTestFinished(mockConnectedGa({
+    '/ga/traffic': () => jsonResponse(gaTrafficResponse({
+      socialReferrals: [...instagramRows, ...pinterestRows],
+      socialPlatforms: [
+        { platform: 'instagram', label: 'Instagram', sessions: 56, organicSessions: 50, paidSessions: 6, share: 0.56, sources: instagramRows },
+        { platform: 'pinterest', label: 'Pinterest', sessions: 44, organicSessions: 0, paidSessions: 44, share: 0.44, sources: pinterestRows },
+      ],
+      socialPlatformDaily: {
+        series: [{ key: 'instagram', label: 'Instagram', sessions: 56 }, { key: 'pinterest', label: 'Pinterest', sessions: 44 }],
+        otherCount: 0,
+        days: [
+          { date: '2026-03-30', sessions: 40, values: { instagram: 40, pinterest: 0 } },
+          { date: '2026-03-31', sessions: 60, values: { instagram: 16, pinterest: 44 } },
+        ],
+      },
+      socialSessions: 100,
+      paidSocialSessions: 50,
+      paidSocialShare: 0.5,
+      socialSharePctDisplay: '45.5%',
+    })),
+  }))
+
+  renderActivitySection()
+
+  const section = await waitFor(() => sectionByHeading('Social'))
+  const figures = within(within(section).getByLabelText('Social sessions'))
+  expect(figures.getByText('100')).toBeTruthy()
+  expect(figures.getByText('45.5% of all sessions')).toBeTruthy()
+  // Platforms are the API's groups, not distinct source spellings (there are four here).
+  expect(within(figures.getByText('Platforms').closest('div') as HTMLElement).getByText('2')).toBeTruthy()
+  expect(figures.getByText('50.0% of social')).toBeTruthy()
+  expect(within(figures.getByText('Top platform').closest('div') as HTMLElement).getByText('Instagram')).toBeTruthy()
+
+  // The chart legend toggles each API series; there is no client-side Top-N.
+  const legend = within(within(section).getByRole('group', { name: 'Social sessions by platform series' }))
+  expect(legend.getAllByRole('checkbox').map(box => (box.closest('label') as HTMLElement).textContent)).toEqual(['Instagram', 'Pinterest'])
+
+  const table = within(section).getByRole('table', { name: 'Social sessions by platform' })
+  const instagram = within(table).getByRole('button', { name: /Instagram/ })
+  expect(instagram.textContent).toBe('Instagram3 sources')
+  expect(within(table).queryByText('ig')).toBeNull()
+  fireEvent.click(instagram)
+  const sources = within(table).getByRole('table', { name: 'Instagram sources' })
+  // A UTM-encoded source reads decoded and keeps the raw value in its title.
+  const story = within(sources).getByText('Instagram Story')
+  expect(story.getAttribute('title')).toBe('Instagram+Story')
+  expect(within(sources).getAllByText('ig')).toHaveLength(2)
+  expect(within(sources).getByText('Paid social')).toBeTruthy()
+})
+
+test('top time picker reloads every GA surface, social included, from the same window', async () => {
   const seen = new Set<string>()
-  const requestQueries = new Map<string, URLSearchParams>()
-  const sources = {
-    '7d': { source: 'linkedin.com', sessions: 7, start: '2026-08-11', end: '2026-08-17' },
-    '30d': { source: 'facebook.com', sessions: 30, start: '2026-07-19', end: '2026-08-17' },
-    '90d': { source: 'x.com', sessions: 90, start: '2026-05-20', end: '2026-08-17' },
-    all: { source: 'reddit.com', sessions: 120, start: null, end: null },
+  const platforms = {
+    '7d': { label: 'LinkedIn', platform: 'linkedin', source: 'linkedin.com', sessions: 7 },
+    '30d': { label: 'Facebook', platform: 'facebook', source: 'facebook.com', sessions: 30 },
+    '90d': { label: 'X', platform: 'x', source: 'x.com', sessions: 90 },
   } as const
-  const surfaces = ['traffic', 'ai-referral-daily', 'session-history', 'social-referral-history'] as const
+  const surfaces = ['traffic', 'ai-referral-daily', 'session-history'] as const
 
-  const restoreFetch = mockFetch((url) => {
+  onTestFinished(mockFetch((url) => {
     const parsed = new URL(url, window.location.origin)
-    if (parsed.pathname.endsWith('/projects/test-project/ga/status')) {
-      return jsonResponse({
-        connected: true,
-        propertyId: '999888',
-        clientEmail: 'sa@test.iam.gserviceaccount.com',
-        authMethod: 'service-account',
-        lastSyncedAt: '2026-08-17T12:00:00.000Z',
-        createdAt: '2026-08-17T12:00:00.000Z',
-        updatedAt: '2026-08-17T12:00:00.000Z',
-      })
-    }
-
+    if (parsed.pathname.endsWith('/projects/test-project/ga/status')) return jsonResponse(GA_STATUS)
+    if (parsed.pathname.endsWith('/projects/test-project/ga/search-landing-pages')) return jsonResponse(EMPTY_SEARCH_LANDING)
+    if (parsed.pathname.endsWith('/ga/social-referral-history')) throw new Error('the Social section reads /ga/traffic only')
     const surface = surfaces.find(candidate => parsed.pathname.endsWith(`/ga/${candidate}`))
     if (!surface) throw new Error(`Unexpected fetch: ${url}`)
-    const selectedWindow = surface === 'social-referral-history'
-      ? (Object.keys(sources) as Array<keyof typeof sources>).find((key) => {
-          const source = sources[key]
-          return parsed.searchParams.get('startDate') === source.start
-            && parsed.searchParams.get('endDate') === source.end
-        })
-      : (parsed.searchParams.get('window') ?? 'all') as keyof typeof sources
-    if (!selectedWindow) throw new Error(`Request did not match a picker window: ${url}`)
-    const selected = sources[selectedWindow]
-    seen.add(`${surface}:${selectedWindow}`)
-    requestQueries.set(`${surface}:${selectedWindow}`, parsed.searchParams)
-
-    if (surface === 'traffic') {
-      const emptyBucket = { sessions: 0, sharePct: 0, sharePctDisplay: '0%' }
-      const socialBucket = { sessions: selected.sessions, sharePct: 50, sharePctDisplay: '50%' }
-      return jsonResponse({
-        totalSessions: selected.sessions * 2,
-        totalOrganicSessions: 0,
-        totalDirectSessions: 0,
-        totalUsers: selected.sessions,
-        topPages: [],
-        aiReferrals: [],
-        aiReferralLandingPages: [],
-        aiSessionsDeduped: 0,
-        paidAiSessionsDeduped: 0,
-        organicAiSessionsDeduped: 0,
-        aiSessionsBySession: 0,
-        paidAiSessionsBySession: 0,
-        organicAiSessionsBySession: 0,
-        socialReferrals: [{
-          source: selected.source,
-          medium: 'social',
-          channelGroup: 'Organic Social',
-          sessions: selected.sessions,
-          users: selected.sessions,
-        }],
-        socialSessions: selected.sessions,
-        socialUsers: selected.sessions,
-        channelBreakdown: {
-          organic: emptyBucket,
-          social: socialBucket,
-          direct: emptyBucket,
-          ai: emptyBucket,
-          other: emptyBucket,
-        },
-        organicSharePct: 0,
-        aiSharePct: 0,
-        aiSharePctBySession: 0,
-        paidAiSharePct: 0,
-        paidAiSharePctBySession: 0,
-        organicAiSharePct: 0,
-        organicAiSharePctBySession: 0,
-        directSharePct: 0,
-        socialSharePct: 50,
-        organicSharePctDisplay: '0%',
-        aiSharePctDisplay: '0%',
-        aiSharePctBySessionDisplay: '0%',
-        paidAiSharePctDisplay: '0%',
-        paidAiSharePctBySessionDisplay: '0%',
-        organicAiSharePctDisplay: '0%',
-        organicAiSharePctBySessionDisplay: '0%',
-        directSharePctDisplay: '0%',
-        socialSharePctDisplay: '50%',
-        otherSessions: 0,
-        otherSharePct: 0,
-        otherSharePctDisplay: '0%',
-        lastSyncedAt: '2026-08-17T12:00:00.000Z',
-        windowStart: selected.start,
-        windowEnd: selected.end,
-        windowDays: selected.start ? selected.sessions : null,
-        periodStart: selected.start,
-        periodEnd: selected.end,
-      })
-    }
-    if (surface === 'social-referral-history') {
-      return jsonResponse([{
-        date: selected.end ?? '2026-08-17',
-        source: selected.source,
-        medium: 'social',
-        channelGroup: 'Organic Social',
-        sessions: selected.sessions,
-        users: selected.sessions,
-      }])
-    }
-    if (surface === 'ai-referral-daily') {
-      return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
-    }
-    return jsonResponse([])
-  })
-  onTestFinished(restoreFetch)
+    const windowKey = parsed.searchParams.get('window') as keyof typeof platforms
+    seen.add(`${surface}:${windowKey}`)
+    if (surface === 'ai-referral-daily') return jsonResponse(EMPTY_AI_DAILY_RESPONSE)
+    if (surface === 'session-history') return jsonResponse([])
+    const selected = platforms[windowKey]
+    const row = { source: selected.source, medium: 'social', channelGroup: 'Organic Social', sessions: selected.sessions, share: 1 }
+    return jsonResponse(gaTrafficResponse({
+      socialReferrals: [row],
+      socialPlatforms: [{ platform: selected.platform, label: selected.label, sessions: selected.sessions, organicSessions: selected.sessions, paidSessions: 0, share: 1, sources: [row] }],
+      socialSessions: selected.sessions,
+    }))
+  }))
 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const { rerender } = render(
+  const renderWindow = (windowKey: keyof typeof platforms) => (
     <QueryClientProvider client={queryClient}>
-      <ClickThroughActivity projectName="test-project" window="30d" />
-    </QueryClientProvider>,
+      <ClickThroughActivity projectName="test-project" window={windowKey} />
+    </QueryClientProvider>
   )
-
-  const assertWindow = async (windowKey: keyof typeof sources) => {
-    const selected = sources[windowKey]
+  const assertWindow = async (windowKey: keyof typeof platforms) => {
     await waitFor(() => {
       for (const surface of surfaces) expect(seen.has(`${surface}:${windowKey}`)).toBe(true)
-      expect(screen.getAllByText(selected.source).length).toBeGreaterThan(0)
+      expect(within(sectionByHeading('Social')).getByRole('button', { name: new RegExp(`^${platforms[windowKey].label}\\s?\\d`) })).toBeTruthy()
     })
-    for (const surface of surfaces) {
-      const query = requestQueries.get(`${surface}:${windowKey}`)!
-      if (surface === 'social-referral-history') {
-        expect(query.get('window')).toBeNull()
-        expect(query.get('startDate')).toBe(selected.start)
-        expect(query.get('endDate')).toBe(selected.end)
-      } else {
-        expect(query.get('window')).toBe(windowKey === 'all' ? null : windowKey)
-      }
-    }
-    const socialSection = screen.getByText('Social Media Traffic').closest('section') as HTMLElement
-    for (const [otherWindow, other] of Object.entries(sources)) {
-      if (otherWindow !== windowKey) expect(within(socialSection).queryByText(other.source)).toBeNull()
+    const social = sectionByHeading('Social')
+    for (const [otherWindow, other] of Object.entries(platforms)) {
+      if (otherWindow !== windowKey) expect(within(social).queryByRole('button', { name: new RegExp(`^${other.label}\\s?\\d`) })).toBeNull()
     }
   }
 
+  const { rerender } = render(renderWindow('30d'))
   await assertWindow('30d')
-  // The picker now lives in ActivitySection, which owns the shared range, so
-  // this drives the same reload through the prop ClickThroughActivity receives.
-  // 'All' is gone: it meant unbounded to GA and 90 days to the server lane.
-  rerender(
-    <QueryClientProvider client={queryClient}>
-      <ClickThroughActivity projectName="test-project" window="7d" />
-    </QueryClientProvider>,
-  )
+  rerender(renderWindow('7d'))
   await assertWindow('7d')
-  rerender(
-    <QueryClientProvider client={queryClient}>
-      <ClickThroughActivity projectName="test-project" window="90d" />
-    </QueryClientProvider>,
-  )
+  rerender(renderWindow('90d'))
   await assertWindow('90d')
 })
 
@@ -785,7 +478,7 @@ test('AI traffic history renders server data even when the GA4 overlay fails', a
   // redirect hops. Scoped per tile, because the Last 24h strip repeats these
   // same figures for the newest day and an unscoped query is ambiguous.
   const tileFor = (label: string) =>
-    screen.getByText(label).closest('div.rounded-lg') as HTMLElement
+    screen.getByText(label).closest('div') as HTMLElement
   expect(within(tileFor('AI crawlers')).getByText('12')).toBeTruthy()
   expect(within(tileFor('AI page fetches')).getByText('7')).toBeTruthy()
   expect(within(tileFor('AI visitors')).getByText('4')).toBeTruthy()
@@ -820,7 +513,7 @@ test('AI traffic history separates a failed request from a measured-empty window
 
   // An error must never read as a measured zero.
   expect(await screen.findByText(/Could not load AI traffic history/i)).toBeTruthy()
-  expect(screen.getByText(/not a reading of zero activity/i)).toBeTruthy()
+  expect(screen.getByRole('button', { name: /not a reading of zero activity/i })).toBeTruthy()
   expect(screen.queryByText(/No AI activity recorded/i)).toBeNull()
 })
 
@@ -929,7 +622,7 @@ test('AI traffic history survives an API older than the client', async () => {
   // API cannot answer it; the fields that do exist still read correctly.
   expect(await screen.findByText('Latest day (UTC)')).toBeTruthy()
   const tileFor = (label: string) =>
-    screen.getByText(label).closest('div.rounded-lg') as HTMLElement
+    screen.getByText(label).closest('div') as HTMLElement
   expect(within(tileFor('AI page fetches')).getByText('7')).toBeTruthy()
   expect(within(tileFor('AI visitors')).getByText('4')).toBeTruthy()
 
@@ -938,8 +631,8 @@ test('AI traffic history survives an API older than the client', async () => {
 })
 
 /**
- * Two things the mock specified that shipped late, pinned so they cannot quietly
- * revert: every chart carries a legend, and social reads tiles -> chart -> table.
+ * One thing the mock specified that shipped late, pinned so it cannot quietly
+ * revert: every chart carries a legend.
  * Without a legend the only thing naming a series is the hover tooltip, so a
  * glance cannot tell the lines apart.
  */
@@ -1074,7 +767,7 @@ test('AI traffic history does not tell a connected source to connect a source', 
 
   expect(await screen.findByText(/No AI activity recorded yet/i)).toBeTruthy()
   // The contradiction: a connected source must never be told to connect one.
-  expect(screen.queryByText(/Connect a traffic source/i)).toBeNull()
+  expect(screen.queryByRole('button', { name: /Connect a traffic source/i })).toBeNull()
   expect(screen.queryByText(/No server-side traffic source connected/i)).toBeNull()
 })
 
@@ -1108,5 +801,5 @@ test('AI traffic history still reports a genuinely unconnected project', async (
   )
 
   expect(await screen.findByText(/No server-side traffic source connected yet/i)).toBeTruthy()
-  expect(screen.getByText(/Connect a traffic source/i)).toBeTruthy()
+  expect(screen.getByRole('button', { name: /Connect a traffic source/i })).toBeTruthy()
 })
