@@ -51,12 +51,14 @@ export interface AiReferralEngineDefinition {
  * to an engine goes through `aiEngineForReferralSource`, so two engine
  * breakdowns never bucket the same source differently.
  *
- * It is stricter than the substring filters the GA4 AI referral sync selects
- * rows with (`AI_REFERRAL_SOURCE_FILTERS` in integration-google-analytics):
- * a source that only contains an engine name inside an ordinary hostname,
- * such as `copilot.example.com`, counts as AI traffic there and returns null
- * here. `openai.com` and `anthropic.com` map to ChatGPT and Claude because
- * that sync counts them as AI traffic too.
+ * The GA4 AI referral sync builds the filters it selects rows with from these
+ * definitions (`AI_REFERRAL_SOURCE_FILTERS` in integration-google-analytics):
+ * each host and its subdomains, each bare name, and, for engines with
+ * `labels`, tags that start with the name or host and app ids named after the
+ * vendor's domain. A tag with the name further in (`utm_chatgpt`) or a URL
+ * typed as `utm_source` maps here but is not selected there unless GA4 files
+ * it under its AI Assistant channel. `openai.com` and `anthropic.com` map to
+ * ChatGPT and Claude because that sync counts them as AI traffic too.
  */
 export const AI_REFERRAL_ENGINE_DEFINITIONS: readonly AiReferralEngineDefinition[] = [
   {
