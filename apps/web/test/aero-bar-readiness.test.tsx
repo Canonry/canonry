@@ -323,7 +323,7 @@ test('chooses an Aero OpenRouter model independently and includes it in the copi
   await waitFor(() => expect(writeText).toHaveBeenCalledWith("canonry agent ask citypoint 'Explain my saved results' --provider openrouter --model anthropic/claude-custom --scope read-only"))
 })
 
-test('offers a short model list for a direct provider and sends a model only when it is not the default', async () => {
+test('offers a short model list for a direct provider and sends the picked model, the default included', async () => {
   vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
   const prompt = vi.spyOn(aero, 'promptAero').mockRejectedValue(new Error('Provider temporarily unavailable'))
   await renderWithProviderReadiness({
@@ -336,6 +336,13 @@ test('offers a short model list for a direct provider and sends a model only whe
   fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
   const picker = await screen.findByRole('button', { name: /^Aero model:/ })
   expect(picker.textContent).toContain('OpenAI · GPT Cheap')
+  // With no pick, nothing is sent and the conversation keeps its model.
+  const input = screen.getByPlaceholderText('Ask Aero, or / for commands…')
+  fireEvent.change(input, { target: { value: 'Unpicked question' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(prompt).toHaveBeenCalledTimes(1))
+  expect(prompt.mock.lastCall?.[0]).toMatchObject({ provider: undefined, modelId: undefined })
+
   fireEvent.click(picker)
   const list = screen.getByRole('group', { name: 'Model' })
   expect(within(list).getAllByRole('menuitemradio').map(option => option.textContent)).toEqual(['GPT CheapDefault', 'GPT Strong'])
@@ -343,18 +350,20 @@ test('offers a short model list for a direct provider and sends a model only whe
   fireEvent.click(within(list).getByRole('menuitemradio', { name: /GPT Strong/ }))
   expect(window.localStorage.getItem('canonry:aero:model:citypoint:openai')).toBe('gpt-strong')
   expect(picker.textContent).toContain('OpenAI · GPT Strong')
-  const input = screen.getByPlaceholderText('Ask Aero, or / for commands…')
   fireEvent.change(input, { target: { value: 'First question' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   await waitFor(() => expect(prompt).toHaveBeenLastCalledWith(expect.objectContaining({ provider: 'openai', modelId: 'gpt-strong' })))
 
+  // Picking the default is a pick too: it is sent, so the server moves the
+  // conversation off GPT Strong instead of keeping it while the bar shows Cheap.
   fireEvent.click(picker)
   fireEvent.click(within(screen.getByRole('group', { name: 'Model' })).getByRole('menuitemradio', { name: /GPT Cheap/ }))
-  expect(window.localStorage.getItem('canonry:aero:model:citypoint:openai')).toBeNull()
+  expect(window.localStorage.getItem('canonry:aero:model:citypoint:openai')).toBe('gpt-cheap')
+  expect(picker.textContent).toContain('OpenAI · GPT Cheap')
   fireEvent.change(input, { target: { value: 'Second question' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
-  await waitFor(() => expect(prompt).toHaveBeenCalledTimes(2))
-  expect(prompt.mock.lastCall?.[0]).toMatchObject({ modelId: undefined })
+  await waitFor(() => expect(prompt).toHaveBeenCalledTimes(3))
+  expect(prompt.mock.lastCall?.[0]).toMatchObject({ provider: 'openai', modelId: 'gpt-cheap' })
 })
 
 test('lists only providers with a key, moves by arrow keys, and Escape closes the menu but not Aero', async () => {

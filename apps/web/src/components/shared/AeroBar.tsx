@@ -325,9 +325,11 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
   // answers from its script.
   const ready = viewerMode || preview || activeProvider !== null
   const preferredModel = activeProvider ? modelPreferences[activeProvider.id] ?? '' : ''
-  // A model is sent only when the operator picked one other than the
-  // provider's default, so an unpicked conversation follows the default.
-  const modelOverride = !managedSweeps && !viewerMode && !preview && activeProvider && preferredModel.trim() && preferredModel.trim() !== activeProvider.defaultModel
+  // A picked model is sent, the default included, so the server answers with
+  // the model the bar shows. Picking the default must move a conversation off
+  // another model. With no pick nothing is sent and the conversation keeps
+  // the model it has.
+  const modelOverride = !managedSweeps && !viewerMode && !preview && activeProvider && preferredModel.trim()
     ? preferredModel.trim()
     : undefined
   const turnProvider = (modelOverride ? activeProvider?.id : undefined) ?? providerOverride ?? undefined
@@ -1171,7 +1173,7 @@ function ProviderPicker({
       setOtherError(problem)
       return
     }
-    onModelChange(id === active.defaultModel ? '' : id)
+    onModelChange(id)
     close(true)
   }
 
@@ -1265,7 +1267,7 @@ function ProviderPicker({
                     aria-checked={isSelected}
                     tabIndex={-1}
                     onClick={() => {
-                      onModelChange(isDefault ? '' : model.id)
+                      onModelChange(model.id)
                       close(true)
                     }}
                     className={itemClass}

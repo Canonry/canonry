@@ -187,6 +187,18 @@ describe('SessionRegistry keeps the pin across turns', () => {
     expect((await r.acquireForTurn('demo', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-5.5' })).state.thinkingLevel).toBe('off')
     expect((await r.acquireForTurn('demo', { provider: 'openrouter', modelId: 'openai/gpt-6-luna' })).state.thinkingLevel).toBe('low')
   })
+
+  it('keeps a conversation on its model until a turn names another, the default included', async () => {
+    const r = new SessionRegistry({ db, client: {} as ApiClient, config: cfg(undefined, { openai: { apiKey: 'k' } }), proactive: false })
+    await r.acquireForTurn('demo', { provider: 'openai', modelId: 'gpt-6.1-sol' })
+    expect(row()).toMatchObject({ modelProvider: 'openai', modelId: 'gpt-6.1-sol' })
+    // A turn that names nothing keeps the stored model, so the dashboard must
+    // send the default when the operator picks it.
+    await r.acquireForTurn('demo')
+    expect(row()).toMatchObject({ modelProvider: 'openai', modelId: 'gpt-6.1-sol' })
+    await r.acquireForTurn('demo', { provider: 'openai', modelId: 'gpt-6-luna' })
+    expect(row()).toMatchObject({ modelProvider: 'openai', modelId: 'gpt-6-luna' })
+  })
 })
 
 describe('a pin that cannot run fails early and by name', () => {
