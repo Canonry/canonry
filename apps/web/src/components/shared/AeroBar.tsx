@@ -246,6 +246,9 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
   // the server persists that pin. Keep it stored for operator deployments.
   const providerOverride = managedSweeps || viewerMode || preview ? null : preferredProviderOverride
   const [modelPreferences, setModelPreferences] = useState(() => readModelPreferences(projectName))
+  // The provider and model a turn that names neither runs on (the conversation's
+  // own model, or a pin), from the transcript. Shown when nothing is picked.
+  const [nextTurn, setNextTurn] = useState<{ provider: string; modelId: string } | null>(null)
   // Per-project tool scope. `read-only` (the server default) is the safe
   // choice; `all` lets Aero fire write tools like run_sweep without a
   // confirmation UX. Persist so the user doesn't have to re-opt-in each
@@ -309,22 +312,28 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
     staleTime: 60_000,
   })
 
-  // Active provider = user override if it's still configured, else the
-  // server-detected default. Reset stale overrides when the key goes away.
+  // Active provider = user override if it's still configured, else the one the
+  // next turn runs on (the conversation's, or a pin), else the server-detected
+  // default. Reset stale overrides when the key goes away.
   const activeProvider: AgentProviderOption | null = useMemo(() => {
     const list = providersQuery.data?.providers ?? []
     if (providerOverride) {
       const hit = list.find((p) => p.id === providerOverride && p.configured)
       if (hit) return hit
     }
+    const current = nextTurn ? list.find((p) => p.id === nextTurn.provider && p.configured) : undefined
+    if (current) return current
     const defaultId = providersQuery.data?.defaultProvider
     return defaultId ? (list.find((p) => p.id === defaultId) ?? null) : null
-  }, [providerOverride, providersQuery.data])
+  }, [providerOverride, providersQuery.data, nextTurn])
   // A viewer's bar is ready without a provider check: the server answers with
   // the install's configured model or reports why it cannot. The preview
   // answers from its script.
   const ready = viewerMode || preview || activeProvider !== null
   const preferredModel = activeProvider ? modelPreferences[activeProvider.id] ?? '' : ''
+  // With no provider pick, a turn that names no model keeps the conversation's
+  // model, so that is the model to show until the operator picks one.
+  const conversationModel = !providerOverride && activeProvider && nextTurn?.provider === activeProvider.id ? nextTurn.modelId : undefined
   // A picked model is sent, the default included, so the server answers with
   // the model the bar shows. Picking the default must move a conversation off
   // another model. With no pick nothing is sent and the conversation keeps
@@ -404,6 +413,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
           if (cancelled || conversationOperation.current) return
           setServerBusy(t.isStreaming ?? false)
           setConversationId(t.conversationId ?? null)
+          setNextTurn(t.nextTurn ?? null)
           if (!cancelled && !t.isStreaming && (awaitingPersistence.current === null || (t.updatedAt && t.updatedAt !== awaitingPersistence.current.previous))) {
             setMessages(t.messages)
             lastPersistedAt.current = t.updatedAt
@@ -479,6 +489,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
       const latest = await fetchAeroTranscript(projectName)
       if (mounted.current && !latest.isStreaming) {
         setConversationId(latest.conversationId ?? null)
+        setNextTurn(latest.nextTurn ?? null)
         setMessages(latest.messages)
         lastPersistedAt.current = latest.updatedAt
         awaitingPersistence.current = null
@@ -616,6 +627,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
       awaitingPersistence.current = null
       lastPersistedAt.current = latest.updatedAt
       setConversationId(latest.conversationId ?? null)
+      setNextTurn(latest.nextTurn ?? null)
       setMessages(latest.messages)
       setLiveTrail([])
       setStreamingText('')
@@ -786,6 +798,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
                     override={providerOverride}
                     onPick={pickProvider}
                     modelId={preferredModel}
+                    fallbackModel={conversationModel}
                     onModelChange={value => { if (activeProvider) pickModel(activeProvider.id, value) }}
                     disabled={streaming}
                   />
@@ -1043,6 +1056,7 @@ function ProviderPicker({
   override,
   onPick,
   modelId,
+  fallbackModel,
   onModelChange,
   disabled,
 }: {
@@ -1051,6 +1065,8 @@ function ProviderPicker({
   override: AgentProviderId | null
   onPick: (id: AgentProviderId | null) => void
   modelId: string
+  /** The model shown when none is picked: the conversation's, else the provider default. */
+  fallbackModel?: string
   onModelChange: (modelId: string) => void
   disabled?: boolean
 }) {
@@ -1131,7 +1147,7 @@ function ProviderPicker({
   const configured = providers.filter(provider => provider.configured)
   const canConnectMore = configured.length < providers.length
   const choices = active?.configured ? active.models ?? [] : []
-  const selectedModel = modelId.trim() || active?.defaultModel || ''
+  const selectedModel = modelId.trim() || fallbackModel || active?.defaultModel || ''
   const selectedName = choices.find(model => model.id === selectedModel)?.displayName ?? selectedModel
   const customSelected = Boolean(active?.configured && selectedModel && !choices.some(model => model.id === selectedModel))
   const providerName = active ? active.label.replace(/\s+\(.+\)$/, '') : 'No provider'

@@ -8667,7 +8667,7 @@ export const getApiV1ProjectsByNameAgentTranscriptQueryKey = (options: Options<G
 /**
  * Get the rolling Aero transcript for this project
  *
- * Returns the full message history of the project-scoped Aero session plus the persisted model provider/id and last-updated timestamp. Empty messages array when the project has no session yet. Administrator-only: a signed-in viewer, and any API key narrower than the install (read-only, or scoped to a single project), are refused with 403. There is one Aero session per project, so this is the operator conversation rather than metadata about it.
+ * Returns the full message history of the project-scoped Aero session plus the persisted model provider/id, `nextTurn` (the provider and model a turn that names neither would run on: the conversation's own model unless the `agent.provider` pin overrides it; null when no provider can run) and last-updated timestamp. Empty messages array when the project has no session yet. Administrator-only: a signed-in viewer, and any API key narrower than the install (read-only, or scoped to a single project), are refused with 403. There is one Aero session per project, so this is the operator conversation rather than metadata about it.
  */
 export const getApiV1ProjectsByNameAgentTranscriptOptions = (options: Options<GetApiV1ProjectsByNameAgentTranscriptData>) => queryOptions<GetApiV1ProjectsByNameAgentTranscriptResponse, GetApiV1ProjectsByNameAgentTranscriptError, GetApiV1ProjectsByNameAgentTranscriptResponse, ReturnType<typeof getApiV1ProjectsByNameAgentTranscriptQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

@@ -336,8 +336,13 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
       requireInstanceAdministrator(request)
       const project = resolveProject(opts.db, request.params.name)
       const row = opts.db.select().from(agentSessions).where(eq(agentSessions.projectId, project.id)).get()
+      // What a turn that names no provider or model would run on: the
+      // conversation's own model unless a pin overrides it. The dashboard shows
+      // this when the operator has picked nothing, so it never shows a model
+      // the next turn would not use.
+      const nextTurn = opts.sessionRegistry.nextTurnModel(project.name)
       if (!row) {
-        return { conversationId: null, messages: [] as AgentMessage[], modelProvider: null, modelId: null, updatedAt: null }
+        return { conversationId: null, messages: [] as AgentMessage[], modelProvider: null, modelId: null, nextTurn, updatedAt: null }
       }
       const messages = parseJsonColumn<AgentMessage[]>(row.messages, [])
       return {
@@ -346,6 +351,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
         isStreaming: opts.sessionRegistry.isBusy(project.name),
         modelProvider: row.modelProvider,
         modelId: row.modelId,
+        nextTurn,
         updatedAt: row.updatedAt,
       }
     },

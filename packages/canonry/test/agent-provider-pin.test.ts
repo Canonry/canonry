@@ -199,6 +199,19 @@ describe('SessionRegistry keeps the pin across turns', () => {
     await r.acquireForTurn('demo', { provider: 'openai', modelId: 'gpt-6-luna' })
     expect(row()).toMatchObject({ modelProvider: 'openai', modelId: 'gpt-6-luna' })
   })
+
+  it('reports the model the next unnamed turn runs on: the conversation\'s, unless a pin overrides it', async () => {
+    const providers = { openai: { apiKey: 'k' }, claude: { apiKey: 'k' } }
+    const r = new SessionRegistry({ db, client: {} as ApiClient, config: cfg(undefined, providers), proactive: false })
+    // No conversation yet: the detected provider's default.
+    expect(r.nextTurnModel('demo')).toEqual({ provider: 'claude', modelId: 'claude-haiku-5-5' })
+    await r.acquireForTurn('demo', { provider: 'openai', modelId: 'gpt-6.1-sol' })
+    // A saved Sol conversation keeps Sol when the turn names nothing.
+    expect(r.nextTurnModel('demo')).toEqual({ provider: 'openai', modelId: 'gpt-6.1-sol' })
+    // A pin wins over the stored model, with the pinned provider's model.
+    const pinned = new SessionRegistry({ db, client: {} as ApiClient, config: cfg({ provider: 'claude' }, providers), proactive: false })
+    expect(pinned.nextTurnModel('demo')).toEqual({ provider: 'claude', modelId: 'claude-haiku-5-5' })
+  })
 })
 
 describe('a pin that cannot run fails early and by name', () => {

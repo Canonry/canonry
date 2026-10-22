@@ -642,12 +642,23 @@ export class SessionRegistry {
 
   /** The provider the next turn would run on; undefined when none can (the turn then fails as before). */
   private turnProvider(projectName: string, preferences?: SessionPreferences): SupportedAgentProvider | undefined {
+    return this.nextTurnModel(projectName, preferences)?.provider
+  }
+
+  /**
+   * The provider and model the next turn would run on, resolved exactly as the
+   * turn resolves them: a request's choice, then the `agent.provider` pin, then
+   * the conversation's stored model, then the provider default. With no
+   * preferences this is what the dashboard shows when the operator has picked
+   * nothing. Null when no provider can run.
+   */
+  nextTurnModel(projectName: string, preferences?: SessionPreferences): { provider: SupportedAgentProvider; modelId: string } | null {
     const projectId = this.tryResolveProjectId(projectName)
     const row = projectId ? this.loadRow(projectId) : null
     try {
-      return this.resolveTurnModel(preferences, { provider: row?.modelProvider, modelId: row?.modelId }).provider
+      return this.resolveTurnModel(preferences, { provider: row?.modelProvider, modelId: row?.modelId })
     } catch {
-      return undefined
+      return null
     }
   }
 
