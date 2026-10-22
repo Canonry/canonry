@@ -356,6 +356,7 @@ function buildEvidenceFromTimeline(
             competitorDomains,
             recommendedCompetitors: snap?.recommendedCompetitors ?? [],
             matchedTerms: snap?.matchedTerms ?? [],
+            mentionIdentity: snap?.mentionIdentity ?? null,
             relatedTechnicalSignals: [],
             groundingSources: snap?.groundingSources ?? [],
             searchQueries: snap?.searchQueries ?? [],

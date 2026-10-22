@@ -129,6 +129,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         servedModel: querySnapshots.servedModel,
         citationState: querySnapshots.citationState,
         answerMentioned: querySnapshots.answerMentioned,
+        mentionIdentity: querySnapshots.mentionIdentity,
         answerText: querySnapshots.answerText,
       })
       .from(querySnapshots)
@@ -563,6 +564,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
           runId: querySnapshots.runId,
           citationState: querySnapshots.citationState,
           answerMentioned: querySnapshots.answerMentioned,
+          mentionIdentity: querySnapshots.mentionIdentity,
           answerText: querySnapshots.answerText,
         })
         .from(querySnapshots)
@@ -593,6 +595,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         provider: querySnapshots.provider,
         citationState: querySnapshots.citationState,
         answerMentioned: querySnapshots.answerMentioned,
+        mentionIdentity: querySnapshots.mentionIdentity,
         answerText: querySnapshots.answerText,
         citedDomains: querySnapshots.citedDomains,
       })

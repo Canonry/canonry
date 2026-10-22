@@ -154,6 +154,7 @@ const mockWaitForServerRuntimeStartup = vi.fn()
 const mockCreateServer = vi.fn(async () => ({ listen: mockListen, close: mockClose, server: { closeIdleConnections: mockCloseIdleConnections } }))
 const mockRepairNormalizedPaths = vi.fn()
 const mockRepairAiReferralPaths = vi.fn()
+const mockRepairSentimentMentionIdentity = vi.fn()
 vi.mock('@canonry/canonry-db', () => ({
   createClient: () => ({}),
   migrate: vi.fn(),
@@ -179,6 +180,9 @@ vi.mock('../src/startup-path-repairs.js', () => ({
   repairNormalizedPathsOnStartup: () => mockRepairNormalizedPaths(),
   repairAiReferralPathsOnStartup: () => mockRepairAiReferralPaths(),
 }))
+vi.mock('../src/startup-sentiment-mention-identity.js', () => ({
+  repairSentimentMentionIdentityOnStartup: () => mockRepairSentimentMentionIdentity(),
+}))
 
 describe('serve jsonl degrade', () => {
   beforeEach(() => {
@@ -189,6 +193,7 @@ describe('serve jsonl degrade', () => {
     mockWaitForServerRuntimeStartup.mockResolvedValue(undefined)
     mockRepairNormalizedPaths.mockResolvedValue(null)
     mockRepairAiReferralPaths.mockResolvedValue(null)
+    mockRepairSentimentMentionIdentity.mockReturnValue(null)
   })
 
   it('awaits both versioned path repairs before creating the server', async () => {
@@ -224,6 +229,20 @@ describe('serve jsonl degrade', () => {
       expect(mockCreateServer).toHaveBeenCalledOnce()
       expect(JSON.parse(logs.join(''))).toMatchObject({ started: true })
       expect(stderr).toHaveBeenCalledWith(expect.stringContaining('interrupted path repair'))
+    } finally {
+      stderr.mockRestore()
+    }
+  })
+
+  it('starts the server when the sentiment mention identity repair fails', async () => {
+    mockRepairSentimentMentionIdentity.mockImplementationOnce(() => { throw new Error('interrupted sentiment repair') })
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    try {
+      const { serveCommand } = await import('../src/commands/serve.js')
+      const logs = await withLog(() => serveCommand('json'))
+      expect(mockCreateServer).toHaveBeenCalledOnce()
+      expect(JSON.parse(logs.join(''))).toMatchObject({ started: true })
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('interrupted sentiment repair'))
     } finally {
       stderr.mockRestore()
     }

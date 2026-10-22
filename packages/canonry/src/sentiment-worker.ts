@@ -6,7 +6,7 @@ import {
   OutcomeReasonCodes, OutcomeStatuses, OutcomeSurfaces, OutcomeTriggers, type FeatureCompletedProperties, type OutcomeReasonCode,
 } from '@canonry/canonry-contracts'
 import { SentimentIdempotencyConflict, SentimentRepository, sentimentCompletionReceipts, sentimentSettings, type DatabaseClient, type SentimentDispatchBlock } from '@canonry/canonry-db'
-import { SentimentService, selectSentimentSources, sentimentClassifierInput, sentimentHash } from '@canonry/canonry-api-routes'
+import { SentimentService, refreshSnapshotMentionIdentity, selectSentimentSources, sentimentClassifierInput, sentimentHash } from '@canonry/canonry-api-routes'
 import { sentimentInstallReadiness, type SentimentInstallConfig } from '@canonry/canonry-config'
 import { createOutcomeSampler, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
@@ -58,6 +58,15 @@ function abstentionReason(outcome: SentimentOutcome): OutcomeReasonCode {
 }
 
 type WorkOutcome = Pick<FeatureCompletedProperties, 'status' | 'reasonCode' | 'errorName' | 'counts'>
+
+/**
+ * A stored verdict can settle whether the answer's name match is a mention
+ * (`wrong-subject`), so the snapshot's mention fields are refreshed in the
+ * transaction that stores it.
+ */
+const applyMentionIdentity: Parameters<SentimentRepository['completeWork']>[1] = (tx, work) => {
+  refreshSnapshotMentionIdentity(tx, [work.snapshotId])
+}
 
 /** One-way, so a rotated key lifts an authorization pause without the key being stored. */
 function credentialFingerprint(apiKey: string | undefined): string {
@@ -181,7 +190,7 @@ export class SentimentWorker {
     const prepared = this.options.prepare?.(input)
     if (unavailable || prepared?.ok === false) {
       const result: SentimentClassifierOutput = { kind: 'abstained', outcome: unavailable ?? (prepared!.ok === false ? prepared!.outcome : 'input-too-large'), reason: unavailable ?? (prepared!.ok === false ? prepared!.reason : 'Input unavailable'), returnedModel: null, usage: { kind: 'unknown', inputTokens: null, outputTokens: null } }
-      this.repository.completeWork({ workItemId: work.id, owner, outcome: result.outcome, result, returnedModel: null, now: this.now() })
+      this.repository.completeWork({ workItemId: work.id, owner, outcome: result.outcome, result, returnedModel: null, now: this.now() }, applyMentionIdentity)
       report({ status: OutcomeStatuses.skipped, reasonCode: abstentionReason(result.outcome) })
       return
     }
@@ -259,7 +268,7 @@ export class SentimentWorker {
       this.repository.failWork({ workItemId: work.id, owner, now, errorCode: result.error.code, ...(result.error.retryable && attempt.attemptNumber - work.attemptBudgetStart < latest.maxAttempts ? { retryAt: new Date(Date.parse(now) + retryMs).toISOString() } : {}) })
       reportFailed()
     } else {
-      this.repository.completeWork({ workItemId: work.id, owner, outcome: result.outcome, result, returnedModel: result.returnedModel, now })
+      this.repository.completeWork({ workItemId: work.id, owner, outcome: result.outcome, result, returnedModel: result.returnedModel, now }, applyMentionIdentity)
       this.repository.releaseDispatchPause({ now, dispatchedAt: attempt.dispatchedAt })
       report({ status: OutcomeStatuses.succeeded, counts })
     }

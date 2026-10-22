@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Search, X } from 'lucide-react'
-import { brandKeyFromText, CitationStates, effectiveDomains, normalizeProjectDomain } from '@canonry/canonry-contracts'
+import { brandKeyFromText, CitationStates, effectiveDomains, normalizeProjectDomain, type MentionIdentity } from '@canonry/canonry-contracts'
 
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { DIFFERENT_SUBJECT_COPY } from '../../lib/mention-identity-copy.js'
 import { SourceLink } from '../shared/SourceLink.js'
 import { competitorHighlightTerms, highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
 import { fetchRunDetail, type GroundingSource } from '../../api.js'
@@ -27,12 +28,15 @@ export interface EvidenceDisplayData {
   mentionedCompetitorTerms?: string[]
   recommendedCompetitors: string[]
   matchedTerms: string[]
+  /** `wrong-subject`: the matched name is in the answer, but sentiment found it is about something else. */
+  mentionIdentity?: MentionIdentity | null
   groundingSources: GroundingSource[]
   searchQueries: string[]
   evidenceUrls: string[]
   changeLabel: string
   summary: string
 }
+
 
 interface CompetitorSignalFields {
   citedCompetitorDomains?: readonly string[]
@@ -123,6 +127,7 @@ export function EvidenceDetailModal({
           ...evidenceCompetitorSignals(snap, evidence),
           recommendedCompetitors: snap.recommendedCompetitors ?? evidence.recommendedCompetitors ?? [],
           matchedTerms: snap.matchedTerms ?? evidence.matchedTerms ?? [],
+          mentionIdentity: snap.mentionIdentity ?? null,
           groundingSources: snap.groundingSources ?? evidence.groundingSources,
           searchQueries: snap.searchQueries,
           evidenceUrls: snap.citedUrls ?? [],
@@ -149,6 +154,7 @@ export function EvidenceDetailModal({
       ...evidenceCompetitorSignals(evidence),
       recommendedCompetitors: evidence.recommendedCompetitors ?? [],
       matchedTerms: evidence.matchedTerms ?? [],
+      mentionIdentity: evidence.mentionIdentity ?? null,
       groundingSources: evidence.groundingSources,
       searchQueries: evidence.searchQueries ?? [],
       evidenceUrls: evidence.evidenceUrls,
@@ -251,6 +257,7 @@ export function EvidenceDetailModal({
         ...evidenceCompetitorSignals(snap),
         recommendedCompetitors: snap.recommendedCompetitors ?? [],
         matchedTerms: snap.matchedTerms ?? [],
+        mentionIdentity: snap.mentionIdentity ?? null,
         groundingSources: snap.groundingSources,
         searchQueries: snap.searchQueries,
         evidenceUrls: snap.citedUrls ?? [],
@@ -322,6 +329,13 @@ export function EvidenceDetailModal({
       return {
         label: 'Mentioned in answer',
         title: 'Your brand or domain is mentioned in this answer',
+        meta: providerMeta,
+      }
+    }
+    if (!isPending && display.mentionIdentity === 'wrong-subject') {
+      return {
+        label: DIFFERENT_SUBJECT_COPY.label,
+        title: DIFFERENT_SUBJECT_COPY.project,
         meta: providerMeta,
       }
     }
@@ -623,6 +637,12 @@ export function EvidenceDetailModal({
                             {isPending ? 'Pending' : isVisible ? 'Mentioned' : 'Not mentioned'}
                           </span>
                         </div>
+                        {!isPending && !isVisible && display.mentionIdentity === 'wrong-subject' && (
+                          <div className="mt-1.5 flex items-center gap-1 text-[11px] text-muted">
+                            <span>{DIFFERENT_SUBJECT_COPY.label}</span>
+                            <InfoTooltip text={DIFFERENT_SUBJECT_COPY.project} />
+                          </div>
+                        )}
 
                         {/* Matched terms chips */}
                         {display.matchedTerms.length > 0 && (

@@ -3,6 +3,7 @@ import { and, asc, eq, inArray } from 'drizzle-orm'
 import type { GroundingSource, NormalizedQueryResult } from '@canonry/canonry-contracts'
 import {
   computeCompetitorOverlap,
+  countsAsMention,
   determineAnswerMentioned,
   extractRecommendedCompetitors,
   RunKinds,
@@ -64,7 +65,8 @@ export interface ProjectAnswerMentionsBackfillOptions {
  *
  * A snapshot with no stored answer text keeps its stored `answerMentioned`:
  * there is no evidence to recompute it from, and readers fall back to that
- * stored value.
+ * stored value. A name match whose stored sentiment verdict is `wrong-subject`
+ * (`mentionIdentity`) stays not mentioned (`countsAsMention`).
  *
  * `competitorFieldsOnly` is the pass a competitor names change runs (curated,
  * auto-detected or blocked): it leaves `answerMentioned` alone and skips
@@ -202,6 +204,7 @@ function* projectAnswerMentionsSteps(
           executionId: querySnapshots.measurementExecutionId,
           provider: querySnapshots.provider,
           answerMentioned: querySnapshots.answerMentioned,
+          mentionIdentity: querySnapshots.mentionIdentity,
           answerText: querySnapshots.answerText,
           citedDomains: querySnapshots.citedDomains,
           competitorOverlap: querySnapshots.competitorOverlap,
@@ -218,9 +221,11 @@ function* projectAnswerMentionsSteps(
 
           const answerText = snapshot.answerText ?? ''
           // No stored text, or a competitor-only pass: the stored value stands.
+          // A name match sentiment judged wrong-subject stays unmentioned
+          // (`refreshSnapshotMentionIdentity` keeps that verdict).
           const nextAnswerMentioned = competitorFieldsOnly || snapshot.answerText == null
             ? snapshot.answerMentioned
-            : determineAnswerMentioned(answerText, projectBrandNames, projectDomains)
+            : countsAsMention(determineAnswerMentioned(answerText, projectBrandNames, projectDomains), snapshot.mentionIdentity)
           if (nextAnswerMentioned) mentioned++
 
           const citedDomains = snapshot.citedDomains

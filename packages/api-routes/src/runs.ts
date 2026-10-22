@@ -1005,6 +1005,7 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       servedModel: querySnapshots.servedModel,
       citationState: querySnapshots.citationState,
       answerMentioned: querySnapshots.answerMentioned,
+      mentionIdentity: querySnapshots.mentionIdentity,
       answerText: querySnapshots.answerText,
       citedDomains: querySnapshots.citedDomains,
       citedUrls: querySnapshots.citedUrls,
@@ -1076,6 +1077,7 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       competitorOverlap: s.competitorOverlap,
       recommendedCompetitors: s.recommendedCompetitors,
       matchedTerms: project ? resolveSnapshotMatchedTerms(s, project) : [],
+      mentionIdentity: s.mentionIdentity ?? null,
       model: s.model ?? rawParsed.model,
       // Column only. `model` may fall back to the stored envelope because both
       // record the same requested value; a served id has no such equivalent —

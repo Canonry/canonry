@@ -9,6 +9,11 @@ export { SentimentService } from './sentiment-service.js'
 export type { SentimentServiceOptions, SentimentInstallState } from './sentiment-service.js'
 export { selectSentimentSources } from './sentiment-source.js'
 export { sentimentClassifierInput, sentimentHash } from './sentiment-input.js'
+export {
+  refreshSnapshotMentionIdentity,
+  snapshotsWithSentimentResults,
+  type SnapshotMentionIdentityRefresh,
+} from './sentiment-mention-identity.js'
 import { AppError, runtimeStateMissing, describeError, operationAccess, OperationAccesses, OPERATION_ACCESS_HEADER, STORED_ONLY_HEADER, matchOperationTemplate, storedOnlyRefused } from '@canonry/canonry-contracts'
 import { authPlugin } from './auth.js'
 import { registerRequestContext, type RequestContextOptions } from './request-context.js'

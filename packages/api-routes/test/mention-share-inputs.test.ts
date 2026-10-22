@@ -18,6 +18,19 @@ describe('mention-share input identity', () => {
     expect(inputs.snapshots.map(snapshot => snapshot.projectMentioned)).toEqual([true, false, true])
   })
 
+  it('keeps a name match sentiment judged wrong-subject out of project mentions', () => {
+    const inputs = buildMentionShareInputs({
+      project: { displayName: 'Acme', canonicalDomain: 'acme.com' },
+      competitors: [],
+      snapshots: [
+        { queryText: 'best hardware stores', answerMentioned: false, mentionIdentity: 'wrong-subject', answerText: 'Acme Hardware on Main Street sells lumber.' },
+        { queryText: 'best hardware stores', answerMentioned: true, mentionIdentity: null, answerText: 'Acme is the best option.' },
+      ],
+    })
+
+    expect(inputs.snapshots.map(snapshot => snapshot.projectMentioned)).toEqual([false, true])
+  })
+
   it('accepts request-scoped prose domains without changing project mentions', () => {
     const answerDomainsByText = new Map<string, readonly string[]>()
     const answerText = 'See acme.com/pricing for details.'
