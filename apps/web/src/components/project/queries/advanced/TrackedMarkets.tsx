@@ -182,10 +182,13 @@ export function TrackedMarkets({ projectName, results, grouping, signal, order, 
               <Fragment key={group.key}>
                 <tr data-open={open ? '' : undefined}>
                   <td className={CELL}>
-                    <button type="button" className={`inline-flex min-w-0 flex-wrap items-baseline gap-x-1.5 rounded-sm text-left ${FOCUS}`} aria-expanded={open} aria-controls={open ? detailId : undefined} onClick={() => toggle(group)}>
-                      <ChevronRight aria-hidden="true" className={`size-3.5 shrink-0 self-center text-muted transition-transform motion-reduce:transition-none ${open ? 'rotate-90' : ''}`} />
-                      <span className="font-medium text-strong">{group.label}</span>
-                      <span className="whitespace-nowrap text-secondary">{locationCountLabel(group.locations)}</span>
+                    {/* The mark keeps a column of its own, so a long name wraps beside it and never leaves it alone on a line. */}
+                    <button type="button" className={`grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-1.5 rounded-sm text-left ${FOCUS}`} aria-expanded={open} aria-controls={open ? detailId : undefined} onClick={() => toggle(group)}>
+                      <ChevronRight aria-hidden="true" className={`mt-[3px] size-3.5 shrink-0 text-muted transition-transform motion-reduce:transition-none ${open ? 'rotate-90' : ''}`} />
+                      <span className="min-w-0">
+                        <span className="font-medium text-strong">{group.label}</span>{' '}
+                        <span className="whitespace-nowrap text-secondary">{locationCountLabel(group.locations)}</span>
+                      </span>
                     </button>
                   </td>
                   <td className={`${CELL} ${NUM}`}><RateCounts rate={rateOf(nonBrand, signal)} /></td>

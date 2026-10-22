@@ -273,8 +273,8 @@ test('a portfolio opens on its markets, losing first, from one grouped read the 
   expect(within(region()).getAllByRole('status').map(status => status.textContent)).toContain('2 markets')
   // One line per market in the server's order: the non-brand share, the change and who won. Each engine waits in the opened market.
   expect(tableRows('Markets')).toEqual([
-    ['Downtown1 location', '0/2', '1 mention lost', 'Lost to Rival Lofts +1', ''],
-    ['Uptown3 locations', '2/4', '', 'None', ''],
+    ['Downtown 1 location', '0/2', '1 mention lost', 'Lost to Rival Lofts +1', ''],
+    ['Uptown 3 locations', '2/4', '', 'None', ''],
   ])
   expect(within(screen.getByRole('table', { name: 'Markets' })).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Market', 'Mentionednon-brand', 'Changevs previous sweep', 'Lost to', 'Queries'])
   // A list of markets has no rows to filter.
@@ -298,7 +298,7 @@ test('Cited reads the citation in every column of the market list, and Group Non
   renderList({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, signal: 'cited' } })
   await screen.findByRole('table', { name: 'Markets' })
   expect(requests.filter(request => request.includes('/results'))).toEqual(['GET /query-tracking/results?group=market&signal=cited&sort=losing&compare=previous'])
-  expect(tableRows('Markets')[0]).toEqual(['Downtown1 location', '1/2', '1 citation won', 'Cited listings.example', ''])
+  expect(tableRows('Markets')[0]).toEqual(['Downtown 1 location', '1/2', '1 citation won', 'Cited listings.example', ''])
   fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value: 'none' } })
   await screen.findByRole('table', { name: 'Queries' })
   expect(requests.filter(request => request.includes('/results')).at(-1)).toBe('GET /query-tracking/results?signal=cited&sort=winning&compare=previous')
