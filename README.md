@@ -131,7 +131,14 @@ For an existing project, configure a provider with your own key.
 | Meta (Muse) | [Meta Model API](https://dev.meta.ai/) | `MUSE_API_KEY` |
 | Claude | [Anthropic Console](https://console.anthropic.com/settings/keys) | `ANTHROPIC_API_KEY` |
 | Perplexity | [Perplexity settings](https://www.perplexity.ai/settings/api) | `PERPLEXITY_API_KEY` |
+| [OpenRouter](docs/providers/openrouter.md) | [OpenRouter keys](https://openrouter.ai/keys) | `OPENROUTER_API_KEY` |
+| [Exa](docs/providers/answer-services/exa.md) | [Exa dashboard](https://dashboard.exa.ai/api-keys) | `EXA_API_KEY` |
+| [Parallel](docs/providers/answer-services/parallel.md) | [Parallel platform](https://platform.parallel.ai) | `PARALLEL_API_KEY` |
 | Local model | Any OpenAI-compatible endpoint | `LOCAL_BASE_URL` |
+
+OpenRouter models and Exa or Parallel profiles require explicit selection for
+each project. Connecting their keys does not add them to automatic checks.
+The linked provider guides explain how to select models and profiles.
 
 Add the queries that matter to your project:
 
@@ -146,13 +153,20 @@ cnry visibility-stats my-site --by-provider
 <a id="why-we-use-model-providers-apis-directly-not-a-router"></a>
 
 <details>
-<summary>Why Canonry uses direct provider APIs</summary>
+<summary>Direct APIs, OpenRouter, and search answer services</summary>
 
-Canonry uses direct provider APIs to capture answers, citations, and available
-search details that model routers can omit. This richer data helps us measure
-brand mentions and website citations accurately and explain changes in your
-visibility.
-[Read more about accuracy and why we chose models and direct provider API adapters individually](docs/providers/model-selection.md).
+Canonry supports direct model APIs, OpenRouter, and search answer services such
+as Exa and Parallel. Direct adapters retain the search and grounding details
+each provider exposes. OpenRouter offers multiple models through one key. Exa
+and Parallel search the web and return answers with source evidence.
+
+Each direct engine, OpenRouter model route, and service profile keeps separate
+results and history. The same model through different APIs can return different
+answers and citation evidence. Canonry measures brand mentions separately from
+source citations and keeps missing evidence unknown.
+
+[Provider guides](docs/providers/README.md) describe the evidence and limits of
+each integration.
 
 </details>
 
