@@ -288,8 +288,9 @@ const BODY = 'align-baseline'
 const FIGURE_CELL = `${BODY} whitespace-nowrap ${GAP}`
 const QUERIES = '@max-md:hidden'
 const UNMEASURED = 'text-[13px] font-medium leading-7 text-secondary'
-// The figure opens its own bubble: a dotted underline under a resting pointer, a ring under keyboard focus.
-const FIGURE = 'cursor-help rounded-sm decoration-mono-500 decoration-dotted underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
+// The figure opens its own bubble: a dotted underline under a resting pointer, a ring under keyboard focus, and a
+// 44px target under a finger, as a pair of chips has.
+const FIGURE = 'cursor-help rounded-sm decoration-mono-500 decoration-dotted underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 pointer-coarse:min-h-11 max-md:min-h-11'
 const LINK = 'inline-flex items-center gap-1 rounded-sm font-medium text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 pointer-coarse:min-h-11 max-md:min-h-11'
 
 /** The running sweep's icon turns, so it does not read as stalled. It holds still where motion is reduced. */

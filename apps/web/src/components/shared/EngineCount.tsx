@@ -25,7 +25,8 @@ export function ChangeMark({ change, className = '' }: { change: SignalChange; c
 export function EngineCount({ counts, which }: { counts: QueryTrackingRowEngineCounts | null | undefined; which: 'mentioned' | 'cited' }) {
   if (counts === undefined) return <span aria-hidden="true" className="skeleton-text inline-block w-12 align-middle" />
   const [shown, checked] = which === 'cited' ? [counts?.cited, counts?.citationChecked] : [counts?.mentioned, counts?.mentionChecked]
-  if (!counts || !checked) return <span className="text-muted">Not checked</span>
+  // A state, not metadata: it reads at the contrast of every other cell.
+  if (!counts || !checked) return <span className="text-secondary">Not checked</span>
   const change = counts.change
   const [won, lost] = !change ? [0, 0] : which === 'cited' ? [change.citationsWon, change.citationsLost] : [change.mentionsWon, change.mentionsLost]
   return (

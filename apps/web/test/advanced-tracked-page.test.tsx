@@ -324,8 +324,9 @@ test('draws the Add button beside the tabs, then the number strip, the toolbar a
   expect(region().contains(table())).toBe(true)
 
   // One column for the engines however many there are, the count of the switch's signal. Each engine is the opened row's.
-  expect(within(table()).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['', 'Query', 'Subject', 'Type', 'Mentioned by', 'Last measured', 'Status', 'Source', 'Actions'])
-  expect([engineCount(UPTOWN_PETS), engineCount(DOWNTOWN), engineCount(PIER_NEW)]).toEqual(['3 of 3 engines', '1 of 2 engines', 'Not checked'])
+  // It also says a row's status, so there is no Status column, and no date column: the row detail dates each row.
+  expect(within(table()).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['', 'Query', 'Subject', 'Type', 'Mentioned by', 'Source', 'Actions'])
+  expect([engineCount(UPTOWN_PETS), engineCount(DOWNTOWN), engineCount(PIER_NEW)]).toEqual(['3 of 3 engines', '1 of 2 engines', 'First answers Oct 21'])
   fireEvent.click(screen.getByRole('button', { name: /^Filters/ }))
   expect(within(screen.getByRole('group', { name: 'Filters' })).getAllByRole('combobox').map(filter => filter.getAttribute('aria-label'))).toEqual(['Subject', 'Type', 'Status', 'Source', 'Result', 'On', 'Change'])
   // With no sweep before this one nothing is marked won or lost, so there is no legend to read.
@@ -333,8 +334,8 @@ test('draws the Add button beside the tabs, then the number strip, the toolbar a
   // The clean list is what is asked, winning first, in the server's order; a row the sweep did not read follows.
   expect(listed()).toEqual([UPTOWN_BEST, UPTOWN_PETS, DOWNTOWN, HARBOR, PICKED, PIER_NEW])
   expect(within(rowOf(UPTOWN_BEST)).getByText('Pattern: Best')).toBeTruthy()
-  // Status carries the row's own last sweep.
-  expect(within(rowOf(UPTOWN_BEST)).getByText(`Measured ${day(MEASURED_AT)}`)).toBeTruthy()
+  // A measured row says nothing of its status: its count is the result.
+  expect(rowOf(UPTOWN_BEST).textContent).not.toContain('Measured')
   expect(rowOf(UPTOWN_BEST).textContent).toContain('Market · Uptown (3)')
   expect(rowOf(HARBOR).textContent).toContain('Location · Harbor Point')
 
@@ -345,7 +346,7 @@ test('draws the Add button beside the tabs, then the number strip, the toolbar a
   expectNoSentence(region())
 })
 
-test('in the 1152px content column the table keeps Query wide: Status carries the date, and Last measured and Source wait in the row detail', async () => {
+test('in the 1152px content column the table keeps Query wide beside Source, and the row detail dates each row', async () => {
   frameWidth(1152)
   installApi()
   renderList({ nextSweepDate: 'Oct 21' })
@@ -353,10 +354,9 @@ test('in the 1152px content column the table keeps Query wide: Status carries th
   await waitFor(() => expect(engineCount(UPTOWN_BEST)).toBe('2 of 3 engines'))
   const header = (name: string) => within(table()).getAllByRole('columnheader').find(cell => cell.textContent === name)!
 
-  expect(within(table()).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['', 'Query', 'Subject', 'Type', 'Mentioned by', 'Status', 'Actions'])
-  // The engines are one 136px column however many there are, so Subject keeps its 250 and Query has 474.
-  expect([...table().querySelectorAll('col')].map(column => column.style.width)).toEqual(['32px', '', '250px', '80px', '136px', '148px', '32px'])
-  expect(within(rowOf(UPTOWN_BEST)).getByText(`Measured ${day(MEASURED_AT)}`)).toBeTruthy()
+  expect(within(table()).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['', 'Query', 'Subject', 'Type', 'Mentioned by', 'Source', 'Actions'])
+  // The engines are one 152px column however many there are, and no Status or date column is drawn: Subject keeps its 250, Source fits and Query has 508.
+  expect([...table().querySelectorAll('col')].map(column => column.style.width)).toEqual(['32px', '', '250px', '80px', '152px', '98px', '32px'])
   expect(within(rowOf(PIER_NEW)).getByText('First answers Oct 21')).toBeTruthy()
   // No filter went with the columns.
   fireEvent.click(screen.getByRole('button', { name: /^Filters/ }))
@@ -364,12 +364,9 @@ test('in the 1152px content column the table keeps Query wide: Status carries th
 
   // Winning first, in the server's order; a row it did not read follows.
   expect(listed()).toEqual([UPTOWN_BEST, UPTOWN_PETS, DOWNTOWN, HARBOR, PICKED, PIER_NEW])
-  // Status sorts by status: the row that waits for its first answers goes after every measured one.
-  fireEvent.click(within(table()).getByRole('button', { name: 'Status' }))
-  expect([header('Subject'), header('Status')].map(cell => cell.getAttribute('aria-sort'))).toEqual(['none', 'ascending'])
-  expect(listed()).toEqual([DOWNTOWN, UPTOWN_BEST, UPTOWN_PETS, HARBOR, PICKED, PIER_NEW])
+  expect([header('Subject'), header('Mentioned by')].map(cell => cell.getAttribute('aria-sort'))).toEqual(['none', 'descending'])
 
-  // The row detail holds both columns that are not drawn.
+  // The row detail holds its Source and its date.
   fireEvent.click(within(table()).getByRole('button', { name: UPTOWN_BEST }))
   const facts = [...rowOf(UPTOWN_BEST).nextElementSibling!.querySelectorAll('dl > div')].map(fact => [...fact.children].map(part => part.textContent))
   expect(facts.slice(-2)).toEqual([['Source', 'Pattern: Bestbest apartments {market}'], ['Last measured', day(MEASURED_AT)]])
@@ -495,15 +492,14 @@ test.each([
   expect(screen.queryByText('Results unavailable')).toBeNull()
 })
 
-test('a location added after the last sweep reads Not checked and First answers, a query asked both ways has a count per type, and nothing reads as an error', async () => {
+test('a location added after the last sweep reads First answers where its count would be, a query asked both ways has a count per type, and nothing reads as an error', async () => {
   installApi()
   const { rerender } = renderList({ nextSweepDate: 'Oct 21' })
   await screen.findByText(PIER_NEW)
   await waitFor(() => expect(engineCount(UPTOWN_BEST)).toBe('2 of 3 engines'))
-  expect(engineCount(PIER_NEW)).toBe('Not checked')
-  // Its Status says why: it waits for its first answers.
-  expect(within(rowOf(PIER_NEW)).getByText('First answers Oct 21')).toBeTruthy()
-  expect(within(rowOf(PIER_NEW)).getByText('Never')).toBeTruthy()
+  // Where its count would be, it says why there is none: it waits for its first answers.
+  expect(engineCount(PIER_NEW)).toBe('First answers Oct 21')
+  expect(rowOf(PIER_NEW).textContent).not.toContain('Never')
   // Branded and non-brand results are never combined: each type keeps its own count, and Cited is never read from Mentioned.
   expect(engineCount(PICKED)).toEqual(['Branded: 2 of 2 engines', 'Non-brand: 1 of 2 engines'])
   rerender({ trackedFilters: { ...LIST, signal: 'cited' } })
@@ -1482,7 +1478,8 @@ test('before a first sweep no comparison is waited for, and a URL that names a v
   const five = ['Location gaps, 5', 'Thin markets, 9', 'Pattern gaps, 2', 'Not asked, 7', 'Hand-picked, 3']
   expect(viewNames()).toEqual(five)
   held.waiting.shift()!(noSweep())
-  await waitFor(() => expect(engineCount(UPTOWN_BEST)).toBe('Not checked'))
+  // Never swept, every row waits for its first answers, which the count's cell says.
+  await waitFor(() => expect(engineCount(UPTOWN_BEST)).toBe('First answers'))
   expect(viewNames()).toEqual(five)
 
   // Weakest markets is the Markets list now: an old link to it lists what the page lists.

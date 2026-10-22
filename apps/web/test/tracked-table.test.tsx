@@ -297,8 +297,9 @@ describe('TrackedTable', () => {
       return lines.length > 0 ? lines.map(line => line.textContent) : cell.textContent
     }
     // One column for the engines, named for the signal, and sorted by the server's order, which runs by that count.
-    expect(headerNames()).toEqual(['Query', 'Subject', 'Type', 'Mentioned by', 'Last measured', 'Status', 'Source'])
-    expect(columnWidths()).toContain('136px')
+    // It also says a row's status, so there is no Status column and no date column: the row detail dates each row.
+    expect(headerNames()).toEqual(['Query', 'Subject', 'Type', 'Mentioned by', 'Source'])
+    expect(columnWidths()).toContain('152px')
     expect(rowOf(MARKET).querySelectorAll('td.tracked-cell-engine')).toHaveLength(0)
     // The market query has a result on OpenAI alone: Gemini is on neither side of the count. Its ▲ is OpenAI's mention, won.
     expect(count(MARKET)).toBe('1 of 1 engine, 1 won in last sweep')
@@ -307,7 +308,8 @@ describe('TrackedTable', () => {
     expect(count(LOCATION)).toBe('Not checked')
     // A row asked both ways counts each type apart, never the two together.
     expect(count(MIXED)).toEqual(['Branded: 1 of 2 engines', 'Non-brand: 0 of 1 engine'])
-    // A query that is not asked has nothing to count: blank, and heard as Not asked.
+    // A row with no result says why where its count would be: it waits for its first answers, or is not asked.
+    expect(count(WAITING)).toBe('First answers Oct 21')
     expect(count(NOT_ASKED)).toBe('Not asked')
     fireEvent.click(within(table()).getByRole('button', { name: /^Mentioned by/ }))
     expect(onSortChange).toHaveBeenLastCalledWith({ key: 'result', direction: 'asc' })

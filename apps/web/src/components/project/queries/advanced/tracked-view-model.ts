@@ -408,9 +408,10 @@ export type TrackedColumn = (typeof TRACKED_COLUMNS)[number]
  * column with three engines. Subject's is its widest: it narrows before Query
  * gets short (`trackedLayout`). Status holds its widest label, "First answers"
  * and a month and day. `count` is the one engines column of a list under the
- * switch, however many engines: "12 of 12" and both changes in two figures.
+ * switch, however many engines: "12 of 12" and both changes in two figures,
+ * or a row's status, "First answers" and a month and day.
  */
-export const TRACKED_COLUMN_WIDTH = { select: 32, subject: 250, type: 80, engine: 62, count: 136, lastMeasured: 108, status: 148, source: 98, menu: 32 } as const
+export const TRACKED_COLUMN_WIDTH = { select: 32, subject: 250, type: 80, engine: 62, count: 152, lastMeasured: 108, status: 148, source: 98, menu: 32 } as const
 /**
  * The query is the row's identity. At this width its line holds 60 to 64
  * characters, by their letters, and a page with a longer one gives every row

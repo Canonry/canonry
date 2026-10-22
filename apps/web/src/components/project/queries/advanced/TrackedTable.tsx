@@ -183,8 +183,11 @@ function measuredDay(iso: string): string {
  * Mentioned | Cited switch (`signal`) the engines are one column however many
  * there are: how many engines show that signal, of those that checked it
  * (`EngineCount`, the server's `engineCounts`), and which engines they are is
- * the opened row's. The caller sorts, filters and pages the rows; this draws
- * them in the order given and reports a header click through `onSortChange`.
+ * the opened row's. A row with no result there says why in that cell (First
+ * answers, Not asked), so the list has no Status column and no Last measured;
+ * the row detail dates each row. The caller sorts, filters and pages the
+ * rows; this draws them in the order given and reports a header click through
+ * `onSortChange`.
  *
  * Results join on query and type. A row asked both ways stacks one pair per
  * type in each engine cell, each named with its type, and a result under the
@@ -283,8 +286,8 @@ export function TrackedTable({
   const counted = signal !== undefined
   const countLabel = signal === 'cited' ? 'Cited by' : 'Mentioned by'
   const engineWidths = counted ? [TRACKED_COLUMN_WIDTH.count] : engineColumns.map(engine => engine.width)
-  // Without a menu to draw, its column gives its width back to Query.
-  const wanted = (columns ?? TRACKED_COLUMNS).filter(column => column !== 'menu' || renderRowMenu !== undefined)
+  // Without a menu to draw, its column gives its width back to Query. Under the switch the count's cell says a row's status, and the row detail its date.
+  const wanted = (columns ?? TRACKED_COLUMNS).filter(column => (column !== 'menu' || renderRowMenu !== undefined) && !(counted && (column === 'status' || column === 'lastMeasured')))
   const layout = trackedLayout(frameWidth, engineWidths, { columns: wanted, selectable })
   const shown = new Set(layout.columns)
   const lines = useRowLines(frameRef, rows, JSON.stringify([rows.map(row => row.queryId), engineWidths, wanted, selectable]), frameWidth, measured && !layout.stacked, fontLoads)
@@ -476,7 +479,7 @@ export function TrackedTable({
                   {shown.has('type') ? <td className="tracked-cell-type"><TypeCell type={row.type} classes={row.queryClasses} /></td> : null}
                   {shown.has('engines') && signal ? (
                     <td className="tracked-cell-count">
-                      <CountCell row={row} engines={engineColumns} coverage={coverage} counts={counts} which={signal} label={countLabel} stacked={layout.stacked} />
+                      <CountCell row={row} engines={engineColumns} coverage={coverage} counts={counts} which={signal} label={countLabel} stacked={layout.stacked} status={status} />
                     </td>
                   ) : null}
                   {shown.has('engines') && !signal ? engineColumns.map(engine => {
@@ -548,12 +551,12 @@ export function TrackedTable({
 /**
  * The count of one row under the switch: how many engines show the signal of
  * those that checked it, read from the server (`rowCounts`). A row asked both
- * ways has one count per type, level with its types in the Type cell. A type
- * no engine is asked on (`rowSignal`) has none and reads "Not asked", as a
- * query that is not asked does. Stacked, there is no header, so the cell names
- * what it counts.
+ * ways has one count per type, level with its types in the Type cell. A row
+ * with no result yet says why in its place, as Status did: its first answers'
+ * date, or Not asked. A type no engine is asked on (`rowSignal`) reads Not
+ * asked too. Stacked, there is no header, so the cell names what it counts.
  */
-function CountCell({ row, engines, coverage, counts, which, label, stacked }: {
+function CountCell({ row, engines, coverage, counts, which, label, stacked, status }: {
   row: TrackedRowVm
   engines: readonly Engine[]
   coverage: TrackedCoverage | undefined
@@ -561,13 +564,16 @@ function CountCell({ row, engines, coverage, counts, which, label, stacked }: {
   which: TrackedSignal
   label: string
   stacked: boolean
+  /** The row's status as Status named it ("First answers Oct 21"). */
+  status: string
 }) {
   const asked = (queryClass: string) => engines.some(engine => rowSignal(row, coverage, queryClass, engine.key) !== NOT_ASKED)
   const count = (queryClass: string) => asked(queryClass)
     ? <EngineCount counts={rowCounts(counts, row.queryId, queryClass)} which={which} />
-    : <span className="sr-only">Not asked</span>
+    : <span className="text-secondary">Not asked</span>
   const classes = resultClasses(row)
-  if (row.status === 'not-asked' || !classes.some(asked)) return <span className="sr-only">Not asked</span>
+  if (row.status === 'first-answers') return <span className="tracked-count-status" title={status}>{status}</span>
+  if (row.status === 'not-asked' || !classes.some(asked)) return <span className="tracked-count-status">Not asked</span>
   if (row.type !== 'mixed') return <>{stacked ? <span className="tracked-engine-name" aria-hidden="true">{label}</span> : null}{count(classes[0]!)}</>
   return (
     <span className="tracked-pair-stack">

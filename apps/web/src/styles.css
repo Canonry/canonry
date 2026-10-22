@@ -3600,6 +3600,11 @@
     @apply items-start;
   }
 
+  /* A row with no result yet says so where its count would be: one line, cut short at the column's edge, never wrapped. */
+  .tracked-count-status {
+    @apply block max-w-full truncate text-secondary;
+  }
+
   /* Status carries the row's date. The widest label, "First answers" and a
      month and day, fills the cell to its right edge. A longer one, a date
      with its year, is cut short there. */
