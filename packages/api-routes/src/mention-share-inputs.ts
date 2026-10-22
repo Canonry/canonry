@@ -2,12 +2,14 @@ import {
   answerProseForMentions,
   compileQueryClassifier,
   competitorBrandAliases,
+  countsAsMention,
   determineAnswerMentioned,
   effectiveBrandNames,
   effectiveDomains,
   extractDomainsFromText,
   surfaceClassFromCompetitorType,
   type CompetitorIdentityInput,
+  type MentionIdentity,
   type QueryClass,
   type VisibilityStatsShareOfVoice,
   type CompetitorLandscapeResponse,
@@ -39,6 +41,8 @@ export interface MentionShareSnapshotRow {
   queryText?: string | null
   answerMentioned: boolean | null
   answerText: string | null
+  /** Sentiment's stored identity verdict (`countsAsMention`). */
+  mentionIdentity: MentionIdentity | null
 }
 
 export interface MentionShareInputs {
@@ -158,8 +162,9 @@ export function buildMentionShareInputs(opts: {
         // Mention share is a current-identity metric. Recompute stored answer
         // text after an alias/domain rename; only text-less legacy rows need
         // the persisted run-time boolean as a fallback.
+        // A name match sentiment judged wrong-subject does not count.
         projectMentioned: snap.answerText
-          ? determineAnswerMentioned(snap.answerText, projectBrandNames, projectDomains, cachedAnswerDomains)
+          ? countsAsMention(determineAnswerMentioned(snap.answerText, projectBrandNames, projectDomains, cachedAnswerDomains), snap.mentionIdentity)
           : snap.answerMentioned === true,
         answerText: snap.answerText,
         queryClass: classify ? classify(queryText) : null,

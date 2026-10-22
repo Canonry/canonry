@@ -233,6 +233,7 @@ function answerRow(overrides: {
   provider?: string
   location?: string | null
   historical?: boolean
+  mentionIdentity?: 'wrong-subject' | null
 }) {
   const sources = overrides.sources ?? []
   return {
@@ -246,6 +247,7 @@ function answerRow(overrides: {
     location: overrides.location ?? null,
     queryClass: 'non-brand' as const,
     mentioned: overrides.mentioned === undefined ? false : overrides.mentioned,
+    mentionIdentity: overrides.mentionIdentity ?? null,
     // `??` treated an explicit null as absent and fell through to a computed
     // boolean, so a test could not express "capture was incomplete" at all.
     cited: 'cited' in overrides ? overrides.cited! : sources.some(source => source.classification === 'assigned'),
@@ -979,6 +981,22 @@ describe('Property answer evidence', () => {
     expect(within(row).getByText('Not cited')).toBeTruthy()
     expect(within(row).queryByText('Not mentioned')).toBeNull()
     expect(within(row).queryByText('Cited', { selector: 'div' })).toBeNull()
+  })
+
+  it('renders a name match sentiment judged wrong-subject as not mentioned, with the reason beside it', async () => {
+    const evidence = await renderAnswers([
+      answerRow({ slot: 'a', queryText: 'where to stay by the water', mentioned: false, mentionIdentity: 'wrong-subject' }),
+      answerRow({ slot: 'b', queryText: 'best small hotels in the old port', mentioned: false }),
+    ])
+    const ruledOut = answerFor(evidence, 'where to stay by the water')
+    const missed = answerFor(evidence, 'best small hotels in the old port')
+
+    expect(within(ruledOut).getByText('Not mentioned')).toBeTruthy()
+    expect(within(ruledOut).getByText('Different subject')).toBeTruthy()
+    expect(within(ruledOut).getByRole('button', { name: 'The answer uses this Property\u2019s name, but sentiment found it is about something else, so it does not count as a mention.' })).toBeTruthy()
+    // An ordinary miss carries no verdict and says nothing more.
+    expect(within(missed).getByText('Not mentioned')).toBeTruthy()
+    expect(within(missed).queryByText('Different subject')).toBeNull()
   })
 
   it('renders an unread mention as Not measured with its reason and never as a zero', async () => {

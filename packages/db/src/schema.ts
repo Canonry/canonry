@@ -463,6 +463,15 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   servedModel: text('served_model'),
   citationState: text('citation_state').notNull(),
   answerMentioned: integer('answer_mentioned', { mode: 'boolean' }),
+  // Sentiment's identity verdict on a Simple answer, kept by
+  // `refreshSnapshotMentionIdentity` (api-routes) when a verdict is stored:
+  // `wrong-subject` means the evaluator found the answer is about another
+  // subject, so a name match is not a mention (`countsAsMention`). Null when
+  // no completed verdict says so, which includes every answer never assessed.
+  mentionIdentity: text('mention_identity').$type<import('@canonry/canonry-contracts').MentionIdentity>(),
+  // The Advanced counterpart: stable keys of the Properties whose latest
+  // sentiment verdict on this answer is `wrong-subject`. Null when none.
+  wrongSubjectTargetKeys: text('wrong_subject_target_keys', { mode: 'json' }).$type<string[]>(),
   answerText: text('answer_text'),
   citedDomains: text('cited_domains', { mode: 'json' }).$type<string[]>().notNull().default([]),
   // Flat capture fields are deliberately nullable: historical rows are not

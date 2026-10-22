@@ -1809,6 +1809,14 @@ breakdown keys, most mixed plus unfavorable first). Text output lists them under
 counts; read one with `--scope property --scope-key <key> --outcome mixed,unfavorable`
 (in a market view, pass that market as `--market-key`).
 
+Sentiment also checks mentions. When its latest verdict on an answer is
+`wrong-subject` (the answer uses the name but is about a namesake or a shared word),
+the answer stops counting as mentioned everywhere: run detail and snapshot JSON carry
+`mentionIdentity: "wrong-subject"` with `matchedTerms` still listing the name, and
+`canonry run show` marks the row `different subject`. An Advanced Property's answer
+evidence carries the same field on that Property's row. `ambiguous-subject` never
+changes a mention. Probes are never assessed.
+
 ### Stored traffic samples
 
 ```bash

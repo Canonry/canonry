@@ -1,4 +1,4 @@
-import type { McpHealth, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, ProjectOverviewProviderScoreDto, SuggestedQueriesSummaryDto, SentimentOverview } from '@canonry/canonry-contracts'
+import type { McpHealth, MentionIdentity, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, ProjectOverviewProviderScoreDto, SuggestedQueriesSummaryDto, SentimentOverview } from '@canonry/canonry-contracts'
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 /** `disabled` is a service switched off on purpose, such as the public demo's worker. */
@@ -156,6 +156,8 @@ export interface CitationInsightVm {
   competitorDomains: string[]
   recommendedCompetitors?: string[]
   matchedTerms?: string[]
+  /** `wrong-subject`: the answer uses a matched name, but sentiment found it is about something else. */
+  mentionIdentity?: MentionIdentity | null
   relatedTechnicalSignals: string[]
   groundingSources: GroundingSource[]
   /** Web search queries this AI model issued while researching the prompt (Gemini grounding queries, the CDP-submitted query, etc.). */

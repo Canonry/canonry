@@ -248,6 +248,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
       screenshotPath: 'Debug-only artifact path; not surfaced on the snapshot DTO.',
       rawResponse: 'Raw provider payload; exposed via a separate endpoint, not the snapshot DTO.',
       providerBatchId: 'Links the answer to its provider_batches row; the run detail lists the batches.',
+      wrongSubjectTargetKeys: 'Advanced per-Property sentiment verdicts; read through the measurement report, where each Property\'s answer evidence carries `mentionIdentity`.',
     },
   },
   schedules: {

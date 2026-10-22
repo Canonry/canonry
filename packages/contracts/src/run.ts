@@ -3,6 +3,7 @@ import { locationContextSchema, providerNameSchema } from './provider.js'
 import { citedUrlCaptureStatusSchema } from './cited-urls.js'
 import { measurementExecutionIdentitySchema, measurementRunScopeRequestSchema, measurementRunScopeSchema } from './measurement-plan.js'
 import { retrievalContractSchema, retrievalStatusSchema } from './retrieval.js'
+import { mentionIdentitySchema } from './mention-identity.js'
 import { classifyProviderErrorMessage, providerErrorCodeSchema } from './provider-errors.js'
 import { pricingTierSchema, providerBatchStatusSchema, providerDispatchModeSchema, snapshotUsageSchema } from './provider-batch.js'
 
@@ -532,6 +533,12 @@ export const querySnapshotDtoSchema = z.object({
   mentionedCompetitorTerms: z.array(z.string()).default([]),
   recommendedCompetitors: z.array(z.string()).default([]),
   matchedTerms: z.array(z.string()).default([]),
+  /**
+   * `wrong-subject` when sentiment found this answer is about another subject:
+   * `matchedTerms` still lists the name it wrote, but the answer does not count
+   * as mentioned. Null when no sentiment verdict changes the mention.
+   */
+  mentionIdentity: z.union([mentionIdentitySchema, z.null()]).default(null),
   groundingSources: z.array(groundingSourceSchema).default([]),
   searchQueries: z.array(z.string()).default([]),
   /**
