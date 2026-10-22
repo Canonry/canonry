@@ -58,12 +58,12 @@ function ChangeCounts({ type, signal }: { type: GroupType | undefined; signal: T
   )
 }
 
-/** Who the answers gave instead: the first name (or site) and how many more. Values lead; the label recedes. */
+/** Who the answers gave instead: the first name (or site) and how many more. Values lead; the label recedes. A long name is cut short on its line, whole in its title. */
 function WhoWon({ group, signal }: { group: QueryTrackingResultGroup; signal: TrackedSignal }) {
   const names = signal === 'cited' ? group.citedInstead.map(entry => entry.host) : group.namedInstead.map(entry => entry.name)
   if (names.length === 0) return <span className="text-muted">None</span>
   return (
-    <span className="min-w-0">
+    <span className="block min-w-0 max-w-[18rem] truncate" title={names[0]}>
       <span className="text-secondary">{signal === 'cited' ? 'Cited ' : 'Lost to '}</span>
       <span className="font-medium text-strong">{names[0]}</span>
       {names.length > 1 ? <span className="text-secondary"> +{names.length - 1}</span> : null}
@@ -163,12 +163,12 @@ export function TrackedMarkets({ projectName, results, grouping, signal, order, 
   return (
     <div className="overflow-x-auto">
       {/* On a phone a market is its name, its share and who won: the change waits in the opened market. */}
-      <table id={tableId} aria-label={grouping === 'group' ? 'Groups of markets' : 'Markets'} className="w-full border-separate border-spacing-0 md:min-w-[56rem]">
+      <table id={tableId} aria-label={grouping === 'group' ? 'Groups of markets' : 'Markets'} className="w-full border-separate border-spacing-0">
         <thead>
           <tr>
             <th scope="col" className={HEAD}>{noun}</th>
             <th scope="col" className={`${HEAD} ${NUM}`}>{signalLabel}<span className="block text-[11px] font-normal leading-4 text-muted">non-brand</span></th>
-            <th scope="col" className={`${HEAD} ${NUM} ${PHONE_HIDDEN}`}>Change<span className="block text-[11px] font-normal leading-4 text-muted">vs previous sweep</span></th>
+            <th scope="col" className={`${HEAD} ${NUM} ${PHONE_HIDDEN} whitespace-nowrap`}>Change<span className="block text-[11px] font-normal leading-4 text-muted">vs previous sweep</span></th>
             <th scope="col" className={HEAD}>{signal === 'cited' ? 'Cited instead' : 'Lost to'}</th>
             <th scope="col" className={HEAD}><span className="sr-only">Queries</span></th>
           </tr>

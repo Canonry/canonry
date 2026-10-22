@@ -179,7 +179,8 @@ export function TrackedToolbar({
         <div className="flex min-w-0 grow basis-full flex-wrap items-center gap-2">
           {/* On a phone the switch leads, on a line of its own. */}
           <div className="max-md:order-first max-md:basis-full"><SignalSwitch value={filters.signal} onChange={changeSignal} /></div>
-          <DataTableSearch size="sm" value={search} onChange={onSearchChange} label={searchLabel} placeholder={searchLabel} className="min-w-0 flex-1 basis-40 md:order-first" />
+          {/* Where the row cannot hold the search and every control, the search takes the first line and the controls the next, together. */}
+          <DataTableSearch size="sm" value={search} onChange={onSearchChange} label={searchLabel} placeholder={searchLabel} className="min-w-0 flex-1 basis-40 md:order-first md:@max-[50rem]:basis-full" />
           {groupings && groupings.length > 1 && onGroupingChange ? <LabelledSelect label="Group" value={grouping} options={groupings} active={false} onChange={onGroupingChange} /> : null}
           {orders && order !== undefined && onOrderChange ? <LabelledSelect label="Sort" value={order} options={orders} active={false} onChange={onOrderChange} /> : null}
           {grouped ? null : (
