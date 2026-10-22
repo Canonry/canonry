@@ -8,6 +8,7 @@ import type { VisibilityReportResponse } from '@canonry/canonry-contracts'
 import { parseVisibilitySelection, patchVisibilitySelection } from '../src/lib/measurement-view-url.js'
 import { VISIBILITY_TOOLBAR_COPY, VisibilityOverview, VisibilityResultsToolbar } from '../src/components/project/VisibilityTrendSection.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
+import { expectCautionNote } from './caution-note.js'
 
 afterEach(cleanup)
 
@@ -125,15 +126,18 @@ describe('results toolbar copy', () => {
     expect(VISIBILITY_TOOLBAR_COPY.removeFilter('Engine: gemini')).toBe('Remove filter Engine: gemini')
     expect(VISIBILITY_TOOLBAR_COPY.engine('gemini')).toBe('Engine: gemini')
     expect(VISIBILITY_TOOLBAR_COPY.model('gpt-5')).toBe('Model: gpt-5')
-    expect(VISIBILITY_TOOLBAR_COPY.location('Portland, ME')).toBe('Requested search location: Portland, ME')
-    expect(VISIBILITY_TOOLBAR_COPY.noLocation).toBe('No location requested')
+    expect(VISIBILITY_TOOLBAR_COPY.location('Portland, ME')).toBe('Search location: Portland, ME')
+    expect(VISIBILITY_TOOLBAR_COPY.noLocation).toBe('No search location')
     expect(VISIBILITY_TOOLBAR_COPY.dateRange('Sep 1', 'Sep 8, 2026')).toBe('Sep 1 to Sep 8, 2026 (UTC)')
     expect(VISIBILITY_TOOLBAR_COPY.dateFrom('Sep 1, 2026')).toBe('From Sep 1, 2026 (UTC)')
     expect(VISIBILITY_TOOLBAR_COPY.dateThrough('Sep 8, 2026')).toBe('Through Sep 8, 2026 (UTC)')
     expect(VISIBILITY_TOOLBAR_COPY.resultsFrom('Sep 6, 2026')).toBe('Results from: Sep 6, 2026')
     expect(VISIBILITY_TOOLBAR_COPY.resultsFromSelectedSweep).toBe('Results from: selected sweep')
-    expect(VISIBILITY_TOOLBAR_COPY.trackingChanged('Oct 9', 'Oct 7', 'Oct 21')).toBe('Tracking changed Oct 9. Showing the Oct 7 results, from before the change. New numbers after the Oct 21 sweep.')
-    expect(VISIBILITY_TOOLBAR_COPY.trackingChanged(null, null, null)).toBe('Tracking changed. Showing the last results, from before the change. New numbers after the next sweep.')
+    // One sentence in two parts: the strip's visible label, and the rest behind its caution icon.
+    expect(VISIBILITY_TOOLBAR_COPY.trackingChangedLabel('Oct 9')).toBe('Tracking changed Oct 9')
+    expect(VISIBILITY_TOOLBAR_COPY.trackingChangedLabel(null)).toBe('Tracking changed')
+    expect(VISIBILITY_TOOLBAR_COPY.trackingChangedDetail('Oct 7', 'Oct 21')).toBe('Showing the Oct 7 results, from before the change. New numbers after the Oct 21 sweep.')
+    expect(VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(null, null)).toBe('Showing the last results, from before the change. New numbers after the next sweep.')
   })
 })
 
@@ -142,8 +146,17 @@ describe('tracking-changed strip', () => {
 
   it('tells the default latest view that tracking changed since the displayed sweep, below the results header', () => {
     renderToolbar({ queryClass: 'non-brand' }, toolbarReport({ awaitingSweep: true }), DATES)
+    const detail = 'Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.'
     const strip = screen.getByRole('status')
-    expect(strip.textContent).toBe('Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.')
+    // The strip shows only the short label; the rest sits behind the caution icon beside it.
+    expect(strip.textContent).toBe('Tracking changed Sep 20')
+    expectCautionNote(strip, detail, 'Tracking changed Sep 20')
+    // Assistive tech reads the sentence once: one status holds the label and the icon that names the
+    // rest, and neither half is anywhere else on the page, as text or as another control's name.
+    expect(screen.getAllByRole('status')).toEqual([strip])
+    expect(document.body.textContent!.split('Tracking changed')).toHaveLength(2)
+    expect(document.body.textContent).not.toContain(detail)
+    expect(screen.getAllByLabelText(detail)).toEqual(within(strip).getAllByRole('button'))
     // The header keeps to the displayed run and its date; the strip follows it.
     const toolbar = document.querySelector<HTMLElement>(TOOLBAR)!
     expect(toolbar.contains(strip)).toBe(false)
@@ -166,14 +179,18 @@ describe('tracking-changed strip', () => {
 
   it('names no change date or next sweep when the page passes none, as an embed or managed dashboard does', () => {
     renderToolbar({ queryClass: 'non-brand' }, toolbarReport({ awaitingSweep: true }))
-    expect(screen.getByRole('status').textContent).toBe('Tracking changed. Showing the Sep 13 results, from before the change. New numbers after the next sweep.')
+    const strip = screen.getByRole('status')
+    expect(strip.textContent).toBe('Tracking changed')
+    expect(within(strip).getByRole('button', { name: 'Showing the Sep 13 results, from before the change. New numbers after the next sweep.' })).toBeTruthy()
   })
 
   it('reads "the last results" when the displayed sweep has no completion date', () => {
     const report = toolbarReport({ awaitingSweep: true, measurement: 'partial' })
     report.selection.measurement.completedAt = null
     renderToolbar({ queryClass: 'non-brand' }, report, DATES)
-    expect(screen.getByRole('status').textContent).toBe('Tracking changed Sep 20. Showing the last results, from before the change. New numbers after the Sep 27 sweep.')
+    const strip = screen.getByRole('status')
+    expect(strip.textContent).toBe('Tracking changed Sep 20')
+    expect(within(strip).getByRole('button', { name: 'Showing the last results, from before the change. New numbers after the Sep 27 sweep.' })).toBeTruthy()
   })
 
   it('stays hidden while the latest report loads after the end date is removed', async () => {
@@ -196,15 +213,16 @@ describe('tracking-changed strip', () => {
     expect(screen.queryByText(/^Tracking changed/)).toBeNull()
 
     gate.release()
-    expect(await screen.findByText('Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.')).toBeTruthy()
+    expect(within(await screen.findByText('Tracking changed Sep 20')).getByRole('button', { name: 'Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.' })).toBeTruthy()
   })
 
   it('carries the page dates through the overview, above the results', async () => {
     onTestFinished(mockFetch(() => jsonResponse(toolbarReport({ awaitingSweep: true }))))
     renderOverview({ queryClass: 'non-brand' }, DATES)
     const results = await screen.findByRole('region', { name: 'AI visibility results' })
-    const strip = screen.getByText('Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.')
+    const strip = screen.getByText('Tracking changed Sep 20')
     expect(strip.getAttribute('role')).toBe('status')
+    expect(within(strip).getByRole('button', { name: 'Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.' })).toBeTruthy()
     expect(strip.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })
 })
@@ -299,18 +317,18 @@ describe('URL-bound toolbar controls', () => {
     expect(engine.isConnected).toBe(true)
     expect(engine.value).toBe('gemini')
     expect(document.activeElement).toBe(engine)
-    expect(tokenLabels()).toEqual(['Engine: gemini'])
+    expect(tokenLabels()).toEqual(['Engine: Gemini'])
     expect(filtersButton().textContent).toBe('Filters · 1')
 
     gate.release()
     await screen.findByRole('region', { name: 'AI visibility results' })
     expect(engine.value).toBe('gemini')
-    expect(tokenLabels()).toEqual(['Engine: gemini'])
+    expect(tokenLabels()).toEqual(['Engine: Gemini'])
   })
 
   it('labels one removable token for each non-default URL filter', () => {
     renderToolbar(FILTERED)
-    const labels = ['Engine: gemini', 'Model: gpt-5', 'Requested search location: Portland, ME', 'Sep 1 to Sep 8, 2026 (UTC)', 'Results from: Sep 6, 2026']
+    const labels = ['Engine: Gemini', 'Model: gpt-5', 'Search location: Portland, ME', 'Sep 1 to Sep 8, 2026 (UTC)', 'Results from: Sep 6, 2026']
     expect(tokenLabels()).toEqual(labels)
     expect(filterTokens().map(token => token.getAttribute('aria-label'))).toEqual(labels.map(label => `Remove filter ${label}`))
     for (const token of filterTokens()) expect(token.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
@@ -319,7 +337,7 @@ describe('URL-bound toolbar controls', () => {
 
   it.each([
     { filters: {}, labels: [] },
-    { filters: { measurementLocation: 'none' }, labels: ['No location requested'] },
+    { filters: { measurementLocation: 'none' }, labels: ['No search location'] },
     { filters: { measurementFrom: '2026-09-01T00:00:00.000Z' }, labels: ['From Sep 1, 2026 (UTC)'] },
     { filters: { measurementTo: '2026-09-08T23:59:59.999Z' }, labels: ['Through Sep 8, 2026 (UTC)'] },
     { filters: { measurementFrom: '2025-12-28T00:00:00.000Z', measurementTo: '2026-01-04T23:59:59.999Z' }, labels: ['Dec 28, 2025 to Jan 4, 2026 (UTC)'] },
@@ -339,9 +357,9 @@ describe('URL-bound toolbar controls', () => {
   })
 
   it.each([
-    ['Engine: gemini', { measurementProvider: undefined }],
+    ['Engine: Gemini', { measurementProvider: undefined }],
     ['Model: gpt-5', { measurementModel: undefined }],
-    ['Requested search location: Portland, ME', { measurementLocation: undefined }],
+    ['Search location: Portland, ME', { measurementLocation: undefined }],
     ['Sep 1 to Sep 8, 2026 (UTC)', { measurementFrom: undefined, measurementTo: undefined }],
     ['Results from: Sep 6, 2026', { measurementRunId: undefined }],
   ])('removing %s patches only its own keys and moves focus to Filters', (label, patch) => {
@@ -395,7 +413,7 @@ describe('URL-bound toolbar controls', () => {
     expect([button.getAttribute('aria-expanded'), panel.hidden]).toEqual(['true', false])
     expect(screen.getByRole('group', { name: 'Visibility filters' })).toBe(panel)
     const controls = [...panel.querySelectorAll<HTMLSelectElement | HTMLInputElement>('select, input')]
-    expect(controls.map(control => control.labels?.[0]?.textContent)).toEqual(['Answer engine', 'Requested search location', 'AI model', 'Start date (UTC)', 'End date (UTC)', 'Results from'])
+    expect(controls.map(control => control.labels?.[0]?.textContent)).toEqual(['Answer engine', 'Search location', 'AI model', 'Start date (UTC)', 'End date (UTC)', 'Results from'])
     expect(within(panel).getAllByRole('button').map(control => control.getAttribute('aria-label') ?? control.textContent)).toEqual([
       'Filter by the AI model recorded with each answer. This does not change the model used by future sweeps.',
       'Choose a saved AI sweep to view its results. No new sweep starts.',
@@ -502,14 +520,17 @@ describe('URL-bound toolbar controls', () => {
       const select = screen.getByRole('combobox', { name }) as HTMLSelectElement
       return { value: select.value, options: [...select.options].map(option => [option.value, option.text]) }
     }
-    expect(control('Answer engine')).toEqual({ value: 'claude', options: [['', 'All engines'], ['gemini', 'gemini'], ['openai', 'openai'], ['claude', 'claude']] })
-    expect(control('Requested search location')).toEqual({ value: 'Bangor, ME', options: [['', 'All requested locations'], ['Portland, ME', 'Portland, ME'], ['none', 'No location requested'], ['Bangor, ME', 'Bangor, ME']] })
+    // An engine reads by its display name, never its id. The value sent is still the id.
+    expect(control('Answer engine')).toEqual({ value: 'claude', options: [['', 'All engines'], ['gemini', 'Gemini'], ['openai', 'OpenAI'], ['claude', 'Claude']] })
+    expect(control('Search location')).toEqual({ value: 'Bangor, ME', options: [['', 'All search locations'], ['Portland, ME', 'Portland, ME'], ['none', 'No search location'], ['Bangor, ME', 'Bangor, ME']] })
     // Model choices follow the URL engine, which the report has no models for.
     expect(control('AI model')).toEqual({ value: 'claude-sonnet', options: [['', 'All models'], ['claude-sonnet', 'claude-sonnet']] })
     expect(control('Results from')).toEqual({
       value: 'run-9',
-      options: [['', 'Latest saved sweep'], ...[...TREND_RUNS].reverse().map(point => [point.runId, new Date(point.createdAt).toLocaleString()]), ['run-9', 'Selected sweep']],
+      // A sweep is named by its day as the header writes one, with its time: two sweeps can share a day.
+      options: [['', 'Latest saved sweep'], ...[...TREND_RUNS].reverse().map(point => [point.runId, new Date(point.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })]), ['run-9', 'Selected sweep']],
     })
+    expect(control('Results from').options[1]![1]).toMatch(/^[A-Z][a-z]{2} \d{1,2}, 2026, \d{1,2}:\d{2}/)
   })
 
   it('offers Manage queries and the Property details link only when the page provides them', () => {

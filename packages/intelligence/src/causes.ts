@@ -35,7 +35,7 @@ export function analyzeCause(regression: Regression, currentSnapshots: Snapshot[
     const top = withCited.citedDomains!.slice(0, 3)
     return {
       cause: 'third_party_displacement',
-      details: `${regression.provider} now grounds on ${top.join(', ')} for "${regression.query}" — none are tracked competitors.`,
+      details: `${regression.provider} now cites ${top.join(', ')} for "${regression.query}". None are tracked competitors.`,
     }
   }
 

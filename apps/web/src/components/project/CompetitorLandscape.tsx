@@ -53,15 +53,15 @@ const CLASS_NOTE: Record<QueryClassFilter, string> = {
  */
 const MENTION_SHARE_REASON: Record<NonNullable<ShareOfVoiceContext['reason']>, string> = {
   'select-query-class': 'no query type selected',
-  'answer-selection': 'answers selected by the brands they named',
+  'answer-selection': 'answers selected by the brands they mentioned',
   'no-competitors': 'no competitors configured',
-  'insufficient-observed': 'needs 3 observed competitors, each named in 3 or more answers',
+  'insufficient-observed': 'needs 3 observed competitors, each mentioned in 3 or more answers',
   'no-answers': 'no answer text',
-  'no-mentions': 'no brands named',
+  'no-mentions': 'no brands mentioned',
   unavailable: 'competitor data unavailable',
 }
 
-const LANDSCAPE_DEFINITIONS = 'Mention share: your share of the brand mentions in these answers, each brand counted at most once per answer. Named: answers that name the brand. Cited: answers whose sources link to its site. Company names in answers are observations. Only competitor sites count toward mention share.'
+const LANDSCAPE_DEFINITIONS = 'Mention share: your share of the brand mentions in these answers, each brand counted at most once per answer. Mentioned: answers that mention the brand. Cited: answers whose sources link to its site. Company names in answers are observations. Only competitor sites count toward mention share.'
 
 /** The server's cap on ranked observed and source rows (COMPETITOR_LANDSCAPE_RANKED_ROW_LIMIT); pins are never cut. */
 const RANKED_ROW_LIMIT = 100
@@ -237,8 +237,8 @@ function OtherCompetitors({
         <thead>
           <tr>
             <th scope="col">Competitor</th>
-            <th scope="col">Type</th>
-            <th scope="col">Named</th>
+            <th scope="col">Kind</th>
+            <th scope="col">Mentioned</th>
             <th scope="col">Cited</th>
             <th scope="col"><span className="sr-only">Actions</span></th>
           </tr>
@@ -321,7 +321,7 @@ function ManageCompetitors({ onAddCompetitor }: { onAddCompetitor: CompetitorMut
 
 /**
  * "Competitors over time": you and the competitors behind mention share, with
- * their type, Mention share, Named and Cited over the selected window. Under
+ * their kind, Mention share, Mentioned and Cited over the selected window. Under
  * the grid, lines that qualify the figures: why share is missing, incomplete
  * data, pending competitors and how many others were seen. Everything else (the
  * base, the brand counts, data-quality counts and the longer lists) is in
@@ -387,7 +387,7 @@ export function CompetitorLandscape({
   const pendingDraftCompetitorCount = landscape?.marketState?.draft?.pendingCompetitorDomains.length ?? 0
   const truncated = landscape?.truncated === true
 
-  // Named counts answers with text; Cited also counts answers that kept a
+  // Mentioned counts answers with text; Cited also counts answers that kept a
   // source list without text, the same results the server credits citations on.
   const named = evidence?.answeredResults ?? 0
   const cited = evidence ? evidence.answeredResults + evidence.missingAnswerTextResults : 0
@@ -559,9 +559,9 @@ export function CompetitorLandscape({
             <thead>
               <tr>
                 <th scope="col"><span className="sr-only">Brand</span></th>
-                <th scope="col" className="av-brand-type">Type</th>
+                <th scope="col" className="av-brand-type">Kind</th>
                 <th scope="col">Mention share</th>
-                <th scope="col">Named</th>
+                <th scope="col">Mentioned</th>
                 <th scope="col">Cited</th>
                 {showActions ? <th scope="col" className="av-brand-actions"><span className="sr-only">Actions</span></th> : null}
               </tr>

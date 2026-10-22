@@ -153,12 +153,12 @@ describe('unchecked sources line', () => {
 describe('unattributed answer line', () => {
   it('states the left-out answers out of every answer the rate read', () => {
     expect(unattributedAnswersLabel({ numerator: 1055, denominator: 1140, rate: 1055 / 1140, unattributed: 12 }))
-      .toBe('12 of 1152 answers could not be tied to one property')
+      .toBe('12 of 1152 answers could not be tied to one location')
     // A metric value from the Advanced Measurement reads uses the same line.
     expect(unattributedAnswersLabel({ numerator: 0, denominator: 1, unattributed: 1 }))
-      .toBe('1 of 2 answers could not be tied to one property')
+      .toBe('1 of 2 answers could not be tied to one location')
     expect(unattributedAnswersLabel({ denominator: 0, unattributed: 2 }))
-      .toBe('2 of 2 answers could not be tied to one property')
+      .toBe('2 of 2 answers could not be tied to one location')
   })
 
   it('says nothing when no answer was left out or the rate is unavailable', () => {

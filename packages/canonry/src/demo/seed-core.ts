@@ -174,6 +174,10 @@ function harborDraft(plan: MeasurementPlanV2): MeasurementDraftAuthoring {
 export function seedDemoCore(db: DatabaseClient, context: DemoSeedContext): void {
   const now = context.now.toISOString()
   const simpleQueries = SUMMIT_QUERIES.map((plan, index) => ({ id: `demo-summit-query-${index + 1}`, query: plan.text }))
+  // A sweep freezes the names and sites its project row holds. The sample row
+  // and every sample sweep take this one object, so the stored sweeps read as
+  // measured under current tracking and never as changed since.
+  const simpleIdentity = { displayName: context.simple.displayName, aliases: [] as string[], canonicalDomain: context.simple.domain, ownedDomains: [context.simple.domain] }
   const portfolioPlan = harborPlan(context, now)
   const planVersionId = 'demo-harbor-plan-v2'
   const execution = { providers: PROVIDERS.map(identity => identity.provider), models: Object.fromEntries(PROVIDERS.map(identity => [identity.provider, identity.requestedModel])) }
@@ -191,8 +195,7 @@ export function seedDemoCore(db: DatabaseClient, context: DemoSeedContext): void
   db.transaction(tx => {
     tx.insert(projects).values([
       {
-        id: context.simple.id, name: context.simple.name, displayName: context.simple.displayName,
-        canonicalDomain: context.simple.domain, ownedDomains: [context.simple.domain], country: 'US', language: 'en',
+        id: context.simple.id, name: context.simple.name, ...simpleIdentity, country: 'US', language: 'en',
         providers: PROVIDERS.map(identity => identity.provider), providerModels: Object.fromEntries(PROVIDERS.map(identity => [identity.provider, identity.requestedModel])),
         createdAt: now, updatedAt: now,
       },
@@ -236,7 +239,7 @@ export function seedDemoCore(db: DatabaseClient, context: DemoSeedContext): void
       const simpleRunId = `demo-summit-week-${sweep + 1}`
       const simpleDefinition = buildSimpleMeasurementDefinition({
         capturedAt: createdAt,
-        identity: { displayName: context.simple.displayName, aliases: ['Summit', 'Summit Roofing'], canonicalDomain: context.simple.domain, ownedDomains: [context.simple.domain] },
+        identity: simpleIdentity,
         country: 'US', language: 'en', location: null,
         engines: PROVIDERS.map(identity => ({ provider: identity.provider, requestedModel: identity.requestedModel })),
         competitors: [

@@ -49,6 +49,8 @@ import { resolveProject } from './helpers.js'
 import {
   activeMeasurementPlan,
   displayedState,
+  lastSweepFields,
+  measurementReading,
   runRevisionMismatch,
   type ActiveMeasurementPlan,
 } from './measurement-overview.js'
@@ -86,6 +88,8 @@ function filterFingerprint(query: MeasurementPropertyEvidenceQuery): string {
     queryClass: query.queryClass ?? 'all',
     provider: query.provider === undefined ? null : normalizedText(query.provider),
     location: query.location === undefined ? null : normalizedText(query.location),
+    // Added only when set, so a cursor issued before the param existed still matches.
+    ...(query.fallback === undefined ? {} : { fallback: query.fallback }),
   }
   return createHash('sha256').update(JSON.stringify(filters)).digest('base64url')
 }
@@ -206,7 +210,7 @@ function selectDisplayedRun(
 function propertyEvidenceRows(
   db: DatabaseClient,
   plan: MeasurementPlanV2,
-  active: ActiveMeasurementPlan,
+  revision: number,
   run: typeof runs.$inferSelect,
   query: MeasurementPropertyEvidenceQuery,
   queryClass: MeasurementQueryClassFilter,
@@ -218,7 +222,7 @@ function propertyEvidenceRows(
 } {
   const snapshots = db.select().from(querySnapshots).where(eq(querySnapshots.runId, run.id)).all()
   const manifest = measurementRunExpectedSlots(run, plan)
-  const { input, edgeQueryClass } = buildMeasurementPlanV2ReportInput(active.version.revision, plan, manifest, snapshots)
+  const { input, edgeQueryClass } = buildMeasurementPlanV2ReportInput(revision, plan, manifest, snapshots)
 
   // Every usage edge this Property owns, narrowed to the requested class first:
   // the class is a property of the Target-owned assignment, so it selects edges
@@ -408,13 +412,21 @@ export async function measurementPropertyEvidenceRoutes(app: FastifyInstance) {
 
       const queryClass = query.queryClass ?? 'all'
       const shape = query.shape ?? MEASUREMENT_EVIDENCE_DEFAULT_SHAPE
-      const property = { targetKey: target.stableKey, label: target.label }
       // A cursor pins the run it was issued against. Re-selecting the latest run
       // here meant a sweep completing between two pages moved the result set and
       // the caller's own cursor was then rejected as not belonging to it.
       const pinnedRunId = query.runId ?? (query.cursor === undefined ? undefined : parseCursor(query.cursor)?.displayedRunId)
-      const displayed = selectDisplayedRun(app.db, project.id, active, pinnedRunId)
-      if (!displayed) {
+      const reading = measurementReading(app.db, project.id, active, { fallback: query.fallback, runId: pinnedRunId })
+      const displayed = reading.lastSweepRun ?? selectDisplayedRun(app.db, project.id, active, pinnedRunId)
+      // The last sweep is read under the plan it ran with, which may not hold
+      // a location added since.
+      const sweepPlan = reading.lastSweepRun ? reading.plan : plan
+      const sweepTarget = reading.lastSweepRun
+        ? sweepPlan.targets.find(candidate => candidate.stableKey === query.targetKey)
+        : target
+      const property = { targetKey: target.stableKey, label: (sweepTarget ?? target).label }
+      const sweepFields = lastSweepFields(reading, query.fallback, displayed)
+      if (!displayed || !sweepTarget) {
         // Not measured is not "no evidence". The state says which one this is,
         // and the empty page below must never be read as a measured zero.
         if (query.cursor !== undefined) {
@@ -424,7 +436,12 @@ export async function measurementPropertyEvidenceRoutes(app: FastifyInstance) {
         return measurementPropertyEvidenceResponseSchema.parse({
           property,
           queryClass,
-          measurement: { state: 'not_measured' },
+          measurement: {
+            state: displayed ? displayedState(displayed.status) : 'not_measured',
+            ...(displayed ? { displayedRunId: displayed.id } : {}),
+            ...(displayed?.finishedAt ? { completedAt: displayed.finishedAt } : {}),
+            ...sweepFields,
+          },
           // The page still arrives under the key the caller's shape names. An
           // unmeasured Property has no rows in EITHER reading, and swapping the
           // key here would read as "that shape is unavailable" instead.
@@ -435,8 +452,8 @@ export async function measurementPropertyEvidenceRoutes(app: FastifyInstance) {
       }
 
       const { sources, answers, otherQueries, evidenceFingerprint } =
-        propertyEvidenceRows(app.db, plan, active, displayed, query, queryClass)
-      const pageArgs = [shape, query, displayed.id, active.version.id, evidenceFingerprint] as const
+        propertyEvidenceRows(app.db, sweepPlan, reading.version.revision, displayed, query, queryClass)
+      const pageArgs = [shape, query, displayed.id, reading.version.id, evidenceFingerprint] as const
       return measurementPropertyEvidenceResponseSchema.parse({
         property,
         queryClass,
@@ -444,6 +461,7 @@ export async function measurementPropertyEvidenceRoutes(app: FastifyInstance) {
           state: displayedState(displayed.status),
           displayedRunId: displayed.id,
           ...(displayed.finishedAt ? { completedAt: displayed.finishedAt } : {}),
+          ...sweepFields,
         },
         ...(shape === MeasurementEvidenceShapes.answers
           ? { answers: pageOf(answers.map(capSources), answerRowKey, ...pageArgs) }

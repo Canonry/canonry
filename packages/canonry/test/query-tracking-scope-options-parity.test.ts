@@ -37,6 +37,25 @@ const workspace = queryTrackingWorkspaceResponseSchema.parse({
   savedSources: { research: [], discovery: [] },
 })
 
+const context = { providers: ['openai'], models: {}, location: null }
+const trackedRow = (queryId: string, targetKeys: readonly string[], marketKeys: readonly string[], queryClass = 'non-brand') => ({
+  queryId, queryText: queryId, normalizedText: queryId, provenance: null, state: 'awaiting-sweep', lastMeasuredAt: null,
+  assignments: targetKeys.map(targetKey => ({
+    targetKey, groupKeys: ['metro'], marketKeys, queryClass, classificationSource: 'server', contexts: [context],
+  })),
+})
+
+/** The same workspace with the Subject each row's pairings derive to (Harbor market has one location, so Type breaks the tie). */
+const subjectWorkspace = queryTrackingWorkspaceResponseSchema.parse({
+  ...workspace,
+  tracked: [
+    { ...trackedRow('q-brand', ['harbor'], ['harbor-market'], 'branded'), focus: { kind: 'property', key: 'harbor' } },
+    { ...trackedRow('q-nearby', ['harbor'], ['harbor-market']), focus: { kind: 'market', key: 'harbor-market' } },
+    { ...trackedRow('q-both', ['bayside', 'harbor'], []), focus: { kind: 'custom' } },
+    { ...trackedRow('q-idle', [], []), focus: { kind: 'not-asked' } },
+  ],
+})
+
 function command(specs: readonly CliCommandSpec[], path: readonly string[]): CliCommandSpec {
   const spec = specs.find(candidate => candidate.path.join(' ') === path.join(' '))
   expect(spec, path.join(' ')).toBeDefined()
@@ -102,5 +121,37 @@ describe('query tracking scope options MCP parity', () => {
 
   it('tells agents the workspace read returns scopeOptions', () => {
     expect(workspaceTool().description).toContain('scopeOptions')
+  })
+})
+
+describe('query tracking subject CLI and MCP parity', () => {
+  const focuses = subjectWorkspace.tracked.map(row => [row.queryId, row.focus])
+
+  it.each([
+    { name: 'canonry query workspace', specs: QUERY_CLI_COMMANDS, path: ['query', 'workspace'], positionals: ['demo'] },
+    {
+      name: 'canonry measurement-plan advanced query-workspace',
+      specs: MEASUREMENT_PLAN_CLI_COMMANDS,
+      path: ['measurement-plan', 'advanced'],
+      positionals: ['demo', 'query-workspace'],
+    },
+  ])('$name --format json prints each row\'s focus unchanged', async ({ specs, path, positionals }) => {
+    client.getQueryTrackingWorkspace.mockResolvedValue(subjectWorkspace)
+    const lines = await captureConsole(async () => {
+      await command(specs, path).run({ positionals, values: {}, format: 'json', dryRun: false })
+    })
+    const printed = JSON.parse(lines[0]!) as typeof subjectWorkspace
+    expect(printed).toStrictEqual(subjectWorkspace)
+    expect(printed.tracked.map(row => [row.queryId, row.focus])).toStrictEqual(focuses)
+  })
+
+  it('returns the same focus through the MCP workspace tool and names it in the description', async () => {
+    const tool = workspaceTool()
+    client.getQueryTrackingWorkspace.mockResolvedValue(subjectWorkspace)
+    const result = await tool.handler(client as unknown as ApiClient, tool.inputSchema.parse({ project: 'demo' }))
+    const [content] = jsonToolResult(result).content
+    const returned = JSON.parse((content as { text: string }).text) as typeof subjectWorkspace
+    expect(returned.tracked.map(row => [row.queryId, row.focus])).toStrictEqual(focuses)
+    expect(tool.description).toContain('focus')
   })
 })

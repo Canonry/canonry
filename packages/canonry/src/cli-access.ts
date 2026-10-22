@@ -39,6 +39,7 @@ const CLI_ACCESS_BY_ID: Readonly<Record<string, OperationAccess>> = Object.freez
   'agent.conversations.resume': 'write',
   'agent.conversations.delete': 'write',
   'query.workspace': 'stored',
+  'query.results': 'stored',
   'query.preview': 'stored',
   'query.commit': 'write',
   'agent.attach': 'write',

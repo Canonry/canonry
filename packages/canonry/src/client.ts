@@ -42,10 +42,12 @@ import type {
   VisibilityReportRequest, VisibilityReportResponse,
   QueryTrackingWorkspaceResponse, QueryTrackingPreviewRequest, QueryTrackingPreviewResponse,
   QueryTrackingCommitRequest, QueryTrackingCommitResponse,
+  QueryTrackingResultsRequest, QueryTrackingResultsResponse,
 } from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameVisibilityReport, getApiV1ProjectsByNameQueryTracking,
   postApiV1ProjectsByNameQueryTrackingPreview, postApiV1ProjectsByNameQueryTrackingCommit,
+  getApiV1ProjectsByNameQueryTrackingResults,
 } from '@canonry/canonry-api-client'
 import type {
   ProjectDto,
@@ -4187,6 +4189,13 @@ export class ApiClient {
   async commitQueryTracking(project: string, request: QueryTrackingCommitRequest): Promise<QueryTrackingCommitResponse> {
     return this.invoke<QueryTrackingCommitResponse>(() => postApiV1ProjectsByNameQueryTrackingCommit({
       client: this.heyClient, path: { name: project }, body: request,
+    }))
+  }
+
+  /** Mentioned and Cited per tracked query and engine, from one stored sweep. */
+  async getQueryTrackingResults(project: string, request: QueryTrackingResultsRequest = {}): Promise<QueryTrackingResultsResponse> {
+    return this.invoke<QueryTrackingResultsResponse>(() => getApiV1ProjectsByNameQueryTrackingResults({
+      client: this.heyClient, path: { name: project }, query: request,
     }))
   }
 

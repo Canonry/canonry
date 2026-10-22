@@ -225,10 +225,10 @@ export function CitationVisibilitySection({
   const details: React.ReactNode[] = []
   if (active && data?.status === 'ready') {
     const queries = plural(active.queries, 'query', 'queries')
-    details.push(<>Cited and named: <strong>{active.citedAndNamed} of {active.queries}</strong> {queries}</>)
-    details.push(<>Cited but not named: <strong>{active.citedNotNamed} of {active.queries}</strong> {queries}</>)
-    details.push(<>Named but not cited: <strong>{active.namedNotCited} of {active.queries}</strong> {queries}</>)
-    details.push(<>Not cited or named: <strong>{active.neither} of {active.queries}</strong> {queries}</>)
+    details.push(<>Cited and mentioned: <strong>{active.citedAndNamed} of {active.queries}</strong> {queries}</>)
+    details.push(<>Cited but not mentioned: <strong>{active.citedNotNamed} of {active.queries}</strong> {queries}</>)
+    details.push(<>Mentioned but not cited: <strong>{active.namedNotCited} of {active.queries}</strong> {queries}</>)
+    details.push(<>Not cited or mentioned: <strong>{active.neither} of {active.queries}</strong> {queries}</>)
     for (const engine of active.engines) {
       if (engine.answered < active.queries) {
         details.push(<>{providerDisplayName(engine.provider)}: answered <strong>{engine.answered} of {active.queries}</strong> {queries}</>)
@@ -237,7 +237,7 @@ export function CitationVisibilitySection({
     if (active.unanswered > 0) details.push(<>No answers yet: <strong>{active.unanswered}</strong> {plural(active.unanswered, 'query', 'queries')}</>)
     // The server's engine counts span every query, so they say so.
     const { providersCiting, providersMentioning, providersConfigured } = data.summary
-    details.push(<>All queries: cited by <strong>{providersCiting} of {providersConfigured}</strong> {plural(providersConfigured, 'engine', 'engines')}, named by <strong>{providersMentioning} of {providersConfigured}</strong></>)
+    details.push(<>All queries: cited by <strong>{providersCiting} of {providersConfigured}</strong> {plural(providersConfigured, 'engine', 'engines')}, mentioned by <strong>{providersMentioning} of {providersConfigured}</strong></>)
     for (const score of providerScores) {
       details.push(
         <>

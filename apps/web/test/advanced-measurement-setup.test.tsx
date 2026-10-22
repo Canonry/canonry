@@ -63,7 +63,7 @@ const review = {
 describe('advanced measurement setup composition', () => {
   it.each([
     ['import', 'Sitemap URL'],
-    ['properties', 'Properties'],
+    ['properties', 'Locations'],
     ['queries', 'Queries'],
     ['groups', 'Group name'],
     ['review', 'Flagged exceptions'],
@@ -85,7 +85,7 @@ describe('advanced measurement setup composition', () => {
       />,
     )
 
-    expect(screen.getByText('Unpublished changes')).toBeTruthy()
+    expect(screen.getByText('Draft')).toBeTruthy()
     expect(screen.getAllByText(expectedText).length).toBeGreaterThan(0)
   })
 

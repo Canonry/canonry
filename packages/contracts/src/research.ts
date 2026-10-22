@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { measurementV2StableKeySchema } from './measurement-plan-v2.js'
-import { expandQueryTemplate, queryTrackingTemplateProvenanceSchema } from './query-tracking.js'
+import { expandQueryTemplate, queryTemplateBindings, queryTrackingTemplateProvenanceSchema } from './query-tracking.js'
 import { queryClassSchema } from './query-class.js'
 import { locationContextSchema, type LocationContext } from './provider.js'
 import { citationStateSchema } from './run.js'
@@ -54,16 +54,15 @@ export function deduplicateResearchQueries(queries: readonly string[]): string[]
   })
 }
 
+/** Every name of the kinds the scope and the search location provide (`QUERY_TEMPLATE_VARIABLE_NAMES`). */
 export function researchTemplateBindings(
   scope: Pick<ResearchRunScope, 'kind' | 'label'> | null | undefined,
   location?: Pick<LocationContext, 'label'> | null,
 ): Record<string, string> {
   const scopeBindings: Record<string, string> = !scope
     ? {}
-    : scope.kind === 'market'
-      ? { market: scope.label, submarket: scope.label }
-      : { property: scope.label, propertyBrand: scope.label }
-  return location ? { ...scopeBindings, location: location.label } : scopeBindings
+    : queryTemplateBindings(scope.kind === 'market' ? 'market' : 'locationName', scope.label)
+  return location ? { ...scopeBindings, ...queryTemplateBindings('searchLocation', location.label) } : scopeBindings
 }
 
 /** Editor previews and saved provenance use the same declared variables in the same order. */

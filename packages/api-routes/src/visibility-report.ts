@@ -89,7 +89,7 @@ function modelFingerprint(run: typeof runs.$inferSelect): string | null {
 }
 
 /** Trend detail is bounded; query and answer collections carry their own cursors. */
-const VISIBILITY_REPORT_MAX_RUNS = 100
+export const VISIBILITY_REPORT_MAX_RUNS = 100
 
 /** The report deliberately never reads raw provider payloads. */
 type VisibilitySnapshot = Pick<typeof querySnapshots.$inferSelect,
@@ -115,9 +115,23 @@ type VisibilitySnapshot = Pick<typeof querySnapshots.$inferSelect,
   | 'createdAt'
 >
 
-function loadVisibilitySnapshots(db: DatabaseClient, runIds: readonly string[]): Map<string, VisibilitySnapshot[]> {
+/**
+ * Narrows a sweep's snapshot read to one query's answers: an advanced plan by
+ * its execution ids, a simple basket by the query id. Omitted, every snapshot
+ * of the run is read.
+ */
+export type VisibilitySnapshotFilter = { executionIds: readonly string[] } | { queryId: string }
+
+function loadVisibilitySnapshots(
+  db: DatabaseClient,
+  runIds: readonly string[],
+  only?: VisibilitySnapshotFilter,
+): Map<string, VisibilitySnapshot[]> {
   const byRun = new Map<string, VisibilitySnapshot[]>()
   if (runIds.length === 0) return byRun
+  // No execution asks the query in this sweep, so there is no answer to read.
+  if (only !== undefined && 'executionIds' in only && only.executionIds.length === 0) return byRun
+  const inRuns = inArray(querySnapshots.runId, [...runIds])
   const rows = db.select({
     id: querySnapshots.id,
     runId: querySnapshots.runId,
@@ -139,7 +153,12 @@ function loadVisibilitySnapshots(db: DatabaseClient, runIds: readonly string[]):
     requestedContext: querySnapshots.requestedContext,
     supportedContext: querySnapshots.supportedContext,
     createdAt: querySnapshots.createdAt,
-  }).from(querySnapshots).where(inArray(querySnapshots.runId, [...runIds])).all()
+  }).from(querySnapshots).where(only === undefined ? inRuns : and(
+    inRuns,
+    'executionIds' in only
+      ? inArray(querySnapshots.measurementExecutionId, [...only.executionIds])
+      : eq(querySnapshots.queryId, only.queryId),
+  )).all()
   for (const row of rows) {
     const snapshots = byRun.get(row.runId) ?? []
     snapshots.push(row)
@@ -327,7 +346,7 @@ function v2Observations(
 
 function advancedRun(
   run: typeof runs.$inferSelect,
-  version: typeof measurementPlanVersions.$inferSelect,
+  version: SweepVersion,
   plan: MeasurementPlanV2,
   snapshots: readonly VisibilitySnapshot[],
   comparableDefinitionIds: readonly string[],
@@ -635,6 +654,21 @@ function unsupportedAdvancedResponse(query: VisibilityReportQuery, active: NonNu
   })
 }
 
+/**
+ * A stored sweep a report may read: completed or partial, never a probe, on
+ * the plan lane asked for. Whether a scoped spot check qualifies is the
+ * caller's to add.
+ */
+export function storedSweepFilter(projectId: string, planless: boolean) {
+  return and(
+    eq(runs.projectId, projectId),
+    eq(runs.kind, RunKinds['answer-visibility']),
+    inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+    notProbeRun(),
+    planless ? isNull(runs.measurementPlanVersionId) : isNotNull(runs.measurementPlanVersionId),
+  )
+}
+
 function completedVisibilityRuns(
   db: DatabaseClient,
   projectId: string,
@@ -642,11 +676,7 @@ function completedVisibilityRuns(
   query: Pick<VisibilityReportQuery, 'from' | 'to' | 'runId'>,
 ) {
   return db.select().from(runs).where(and(
-    eq(runs.projectId, projectId),
-    eq(runs.kind, RunKinds['answer-visibility']),
-    inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
-    notProbeRun(),
-    planless ? isNull(runs.measurementPlanVersionId) : isNotNull(runs.measurementPlanVersionId),
+    storedSweepFilter(projectId, planless),
     // A scoped spot check is never a whole-project sweep. It can be inspected
     // by its exact id, but must not win the default latest-result selection.
     query.runId === undefined ? isNull(runs.measurementScope) : undefined,
@@ -669,11 +699,7 @@ function previousEligibleVisibilityRun(
   selected: Pick<typeof runs.$inferSelect, 'id' | 'createdAt'>,
 ) {
   return db.select().from(runs).where(and(
-    eq(runs.projectId, projectId),
-    eq(runs.kind, RunKinds['answer-visibility']),
-    inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
-    notProbeRun(),
-    planless ? isNull(runs.measurementPlanVersionId) : isNotNull(runs.measurementPlanVersionId),
+    storedSweepFilter(projectId, planless),
     isNull(runs.measurementScope),
     or(
       lt(runs.createdAt, selected.createdAt),
@@ -699,6 +725,24 @@ function readPreviousSweep(read: () => VisibilityReportPreviousRunInput | null):
 
 type ParsedV2Version = { row: typeof measurementPlanVersions.$inferSelect; plan: MeasurementPlanV2 }
 
+/** What rebuilding a sweep reads of a revision: its id and number, never its document. */
+export type SweepVersion = Pick<typeof measurementPlanVersions.$inferSelect, 'id' | 'revision'>
+
+/** One sweep with the revision it ran with and that revision's plan. */
+export interface AdvancedSweepSource {
+  run: typeof runs.$inferSelect
+  source: { row: SweepVersion; plan: MeasurementPlanV2 }
+}
+
+/** The revision a read presents sweeps under, with its comparable chain. */
+export interface AdvancedSweepPresentation {
+  version: SweepVersion
+  plan: MeasurementPlanV2
+  comparableIds: ReadonlySet<string>
+}
+
+type ComparableLinks = ReadonlyMap<string, Pick<typeof measurementPlanVersions.$inferSelect, 'comparableToVersionId'>>
+
 function parseV2Versions(rows: readonly (typeof measurementPlanVersions.$inferSelect)[]): Map<string, ParsedV2Version> {
   const versions = new Map<string, ParsedV2Version>()
   for (const row of rows) {
@@ -708,10 +752,7 @@ function parseV2Versions(rows: readonly (typeof measurementPlanVersions.$inferSe
   return versions
 }
 
-function comparableVersionIds(
-  rows: ReadonlyMap<string, typeof measurementPlanVersions.$inferSelect>,
-  versionId: string,
-): string[] {
+export function comparableVersionIds(rows: ComparableLinks, versionId: string): string[] {
   const ids = [versionId]
   const seen = new Set(ids)
   let cursor = versionId
@@ -742,18 +783,27 @@ function comparableChainHeads(
   return heads
 }
 
-function assignmentSignature(plan: MeasurementPlanV2, assignment: MeasurementPlanV2['assignments'][number]): string {
-  const node = plan.executionNodes.find(candidate => candidate.stableKey === assignment.executionNodeKey)
-  if (!node) throw new Error(`Frozen assignment references missing execution node ${assignment.executionNodeKey}`)
-  return JSON.stringify({
-    targetKey: assignment.targetKey,
-    queryId: assignment.queryId,
-    queryClass: assignment.queryClass,
-    queryText: node.queryText,
-    providers: [...node.context.providers].sort(),
-    models: Object.fromEntries(Object.entries(node.context.models).sort(([left], [right]) => left.localeCompare(right, 'en'))),
-    location: node.context.location,
-  })
+/**
+ * Signs one plan's assignments. Two revisions sign an assignment alike only
+ * when a sweep of one measured exactly what the other asks: same location,
+ * query, class, text, engines, models and search location. The node map is
+ * built once per plan.
+ */
+export function assignmentSigner(plan: MeasurementPlanV2): (assignment: MeasurementPlanV2['assignments'][number]) => string {
+  const nodes = new Map(plan.executionNodes.map(node => [node.stableKey, node]))
+  return assignment => {
+    const node = nodes.get(assignment.executionNodeKey)
+    if (!node) throw new Error(`Frozen assignment references missing execution node ${assignment.executionNodeKey}`)
+    return JSON.stringify({
+      targetKey: assignment.targetKey,
+      queryId: assignment.queryId,
+      queryClass: assignment.queryClass,
+      queryText: node.queryText,
+      providers: [...node.context.providers].sort(),
+      models: Object.fromEntries(Object.entries(node.context.models).sort(([left], [right]) => left.localeCompare(right, 'en'))),
+      location: node.context.location,
+    })
+  }
 }
 
 function pendingAssignments(
@@ -765,8 +815,56 @@ function pendingAssignments(
   const measuredEdges = new Set(measuredDefinition.edges.map(edge => [edge.executionId, edge.targetKey, edge.queryId].join('\u0000')))
   const measuredSignatures = new Set(measuredPlan.assignments
     .filter(assignment => measuredEdges.has([assignment.executionNodeKey, assignment.targetKey, assignment.queryId].join('\u0000')))
-    .map(assignment => assignmentSignature(measuredPlan, assignment)))
-  return activePlan.assignments.filter(assignment => !measuredSignatures.has(assignmentSignature(activePlan, assignment))).length
+    .map(assignmentSigner(measuredPlan)))
+  const signActive = assignmentSigner(activePlan)
+  return activePlan.assignments.filter(assignment => !measuredSignatures.has(signActive(assignment))).length
+}
+
+/**
+ * The sweep a read shows when none is named: the newest one the active plan's
+ * comparable chain measured, else the newest of any plan. `candidates` are
+ * eligible sweeps, newest first.
+ */
+export function defaultSweep<Candidate>(
+  candidates: readonly Candidate[],
+  versionIdOf: (candidate: Candidate) => string,
+  activeComparableIds: ReadonlySet<string>,
+): Candidate | undefined {
+  return candidates.find(candidate => activeComparableIds.has(versionIdOf(candidate))) ?? candidates.at(0)
+}
+
+/**
+ * Rebuilds one stored sweep under the definition that reads it, from that
+ * sweep's snapshots alone. A display-only revision uses the same exact frozen
+ * execution, so a sweep of the presentation chain resolves the presentation
+ * definition once instead of materializing the old and rebased evidence
+ * separately. Material predecessors keep their own plan. `executionIds`, when
+ * passed, reads only those executions' answers; every other slot of the
+ * definition then has no observation.
+ */
+export function materializeAdvancedSweep(
+  db: DatabaseClient,
+  candidate: AdvancedSweepSource,
+  presentation: AdvancedSweepPresentation,
+  comparableLinks: ComparableLinks,
+  includeEvidence: boolean,
+  executionIds?: readonly string[],
+): VisibilityReportRunInput {
+  const usePresentation = presentation.comparableIds.has(candidate.source.row.id)
+  const version = usePresentation ? presentation.version : candidate.source.row
+  const plan = usePresentation ? presentation.plan : candidate.source.plan
+  // Read one run at a time so cold history does not retain all source answer
+  // bodies alongside the compact trend observations.
+  const snapshots = loadVisibilitySnapshots(db, [candidate.run.id], executionIds === undefined ? undefined : { executionIds })
+    .get(candidate.run.id) ?? []
+  return advancedRun(
+    candidate.run,
+    version,
+    plan,
+    snapshots,
+    usePresentation ? [...presentation.comparableIds] : comparableVersionIds(comparableLinks, candidate.source.row.id),
+    includeEvidence,
+  )
 }
 
 function advancedReaderInput(
@@ -805,32 +903,16 @@ function advancedReaderInput(
   if (query.runId !== undefined && !sourceCandidates.some(candidate => candidate.run.id === query.runId)) {
     throw validationError(`Measurement run "${query.runId}" is not an eligible advanced result.`)
   }
-  const compatibleSourceCandidates = sourceCandidates.filter(candidate => activeComparableIds.has(candidate.source.row.id))
   const preferredSource = query.runId === undefined
-    ? (compatibleSourceCandidates.at(0) ?? sourceCandidates.at(0))
+    ? defaultSweep(sourceCandidates, candidate => candidate.source.row.id, activeComparableIds)
     : undefined
   const selectedSource = query.runId === undefined
     ? preferredSource
     : sourceCandidates.find(candidate => candidate.run.id === query.runId)
-  const materialize = (candidate: { run: typeof runs.$inferSelect; source: ParsedV2Version }, includeEvidence: boolean) => {
-    // A display-only revision uses the same exact frozen execution. Resolve
-    // its presentation definition once instead of materializing the old and
-    // rebased evidence separately. Material predecessors keep their own plan.
-    const usePresentation = presentationComparableIds.has(candidate.source.row.id)
-    const version = usePresentation ? presentationVersion : candidate.source.row
-    const plan = usePresentation ? presentationPlan : candidate.source.plan
-    // Read one run at a time so cold history does not retain all source answer
-    // bodies alongside the compact trend observations.
-    const snapshots = loadVisibilitySnapshots(db, [candidate.run.id]).get(candidate.run.id) ?? []
-    return advancedRun(
-      candidate.run,
-      version,
-      plan,
-      snapshots,
-      usePresentation ? [...presentationComparableIds] : comparableVersionIds(allVersionRowsById, candidate.source.row.id),
-      includeEvidence,
-    )
-  }
+  const presentation: AdvancedSweepPresentation = { version: presentationVersion, plan: presentationPlan, comparableIds: presentationComparableIds }
+  const materialize = (candidate: AdvancedSweepSource, includeEvidence: boolean) => (
+    materializeAdvancedSweep(db, candidate, presentation, allVersionRowsById, includeEvidence)
+  )
   const candidates = sourceCandidates.map(candidate => materialize(candidate, candidate.run.id === selectedSource?.run.id))
   const selectedDefinition = candidates.find(candidate => candidate.id === selectedSource?.run.id)?.definition
   const previousInput = (): VisibilityReportPreviousRunInput | null => {
@@ -865,7 +947,7 @@ function advancedReaderInput(
 }
 
 /** Frozen sidecars for exactly these runs; a run without one is legacy history. */
-function frozenSimpleDefinitions(
+export function frozenSimpleDefinitions(
   db: DatabaseClient,
   projectId: string,
   runIds: readonly string[],
@@ -879,14 +961,22 @@ function frozenSimpleDefinitions(
     .map(row => [row.runId, row.definition] as const))
 }
 
-function simpleRunInput(
+/**
+ * Rebuilds one planless sweep from its frozen sidecar, or as legacy history
+ * without one. `queryId`, when passed, reads only that query's answers of a
+ * frozen sweep. Legacy history is always read whole: its snapshots are its
+ * only record of what it asked.
+ */
+export function simpleRunInput(
   db: DatabaseClient,
   project: { displayName: string; canonicalDomain: string },
   run: typeof runs.$inferSelect,
   definition: SimpleMeasurementDefinition | undefined,
   includeEvidence: boolean,
+  queryId?: string,
 ): VisibilityReportRunInput {
-  const snapshots = loadVisibilitySnapshots(db, [run.id]).get(run.id) ?? []
+  const only = queryId === undefined || definition === undefined ? undefined : { queryId }
+  const snapshots = loadVisibilitySnapshots(db, [run.id], only).get(run.id) ?? []
   return definition
     ? frozenSimpleRun(run, definition, snapshots, includeEvidence)
     : legacySimpleRun(project, run, snapshots, includeEvidence)

@@ -3,7 +3,10 @@ import fs from 'node:fs'
 import { parse } from 'yaml'
 import {
   MeasurementEvidenceShapes,
+  compareText,
+  formatIsoDate,
   formatPercent,
+  formatSignedPointDelta,
   measurementChangesQuerySchema,
   measurementDataQualityQuerySchema,
   measurementDraftCollectionQuerySchema,
@@ -14,6 +17,7 @@ import {
   measurementPlanInputSchema,
   measurementPortfolioSummaryQuerySchema,
   measurementPropertyCompetitorsQuerySchema,
+  normalizeIdentityText,
   unattributedAnswersLabel,
   uncheckedSourcesLabel,
   UNATTRIBUTED_MENTION_REASON,
@@ -27,7 +31,14 @@ import {
   type MeasurementPlanInput,
   type MeasurementPropertyEvidenceResponse,
   type MeasurementQueryClassFilter,
+  type MeasurementReadFallback,
   type MetricValue,
+  type QueryTrackingResultGroup,
+  type QueryTrackingResultTotals,
+  type QueryTrackingResultsRequest,
+  type QueryTrackingResultsResponse,
+  type QueryTrackingSignal,
+  type VisibilityReportRate,
   measurementPropertyQuestionsQuerySchema,
   measurementQuestionResultQuerySchema,
   measurementQuerySetUpsertRequestSchema,
@@ -467,16 +478,33 @@ function uncheckedText(metric: MetricValue): string | null {
 }
 
 /** A rate followed by the note naming the answers it left out, when there is one. */
-function metricWithNote(metric: MetricValue, note: string | null): string {
-  return `${metricText(metric)}${note ? ` · ${note}` : ''}`
+function metricWithNote(metric: MetricValue, note: string | null, lastSweep = false): string {
+  return `${metricText(metric, lastSweep)}${note ? ` · ${note}` : ''}`
 }
 
-function metricText(metric: MetricValue): string {
+/**
+ * `lastSweep` is true when the numbers are an older sweep's. Then an empty
+ * population means that sweep asked this location nothing of the type, and the
+ * plan in effect now may well ask it something.
+ */
+function metricText(metric: MetricValue, lastSweep = false): string {
+  if (lastSweep && metric.state === 'unavailable' && metric.reason === 'no_population') return 'not measured (not in last sweep)'
   if (metric.state === 'unavailable') return METRIC_REASONS[metric.reason] ?? `not measured (${metric.reason})`
   const percent = formatPercent(metric.value)
   return metric.numerator === undefined || metric.denominator === undefined
     ? percent
     : `${metric.numerator} of ${metric.denominator} (${percent})`
+}
+
+/**
+ * One line when the numbers shown are from before the last tracking change.
+ * Printed only for a read that asked for the fallback and got an older sweep.
+ */
+function lastSweepLine(measurement: MeasurementOverviewResponse['measurement'] | MeasurementPropertyEvidenceResponse['measurement']): string | null {
+  if (measurement.awaitingSweep !== true || measurement.measuredRevision == null) return null
+  const changed = measurement.trackingChangedAt ? ` ${formatIsoDate(measurement.trackingChangedAt)}` : ''
+  const sweep = measurement.completedAt ? `${formatIsoDate(measurement.completedAt)} sweep` : 'last sweep'
+  return `Tracking changed${changed}. Showing the ${sweep}. New numbers after the next sweep.`
 }
 
 export interface MeasurementPropertyOptions {
@@ -485,6 +513,7 @@ export interface MeasurementPropertyOptions {
   provider?: string
   location?: string
   runId?: string
+  fallback?: MeasurementReadFallback
   format?: string
 }
 
@@ -501,6 +530,7 @@ export async function showMeasurementProperty(project: string, opts: Measurement
     ...(opts.provider === undefined ? {} : { provider: opts.provider }),
     ...(opts.location === undefined ? {} : { location: opts.location }),
     ...(opts.runId === undefined ? {} : { runId: opts.runId }),
+    ...(opts.fallback === undefined ? {} : { fallback: opts.fallback }),
   })
 
   if (isMachineFormat(opts.format)) {
@@ -515,11 +545,14 @@ function printMeasurementProperty(response: MeasurementOverviewResponse): void {
   const lines: string[] = []
   lines.push(`${response.scope.label} · ${queryClassText(response.queryClass)}`)
   lines.push(`Measurement: ${response.measurement.state}${response.measurement.displayedRunId ? ` · run ${response.measurement.displayedRunId}` : ''}`)
+  const lastSweep = lastSweepLine(response.measurement)
+  if (lastSweep) lines.push(lastSweep)
+  const fromLastSweep = lastSweep !== null
   lines.push('')
   const mention = row ? row.mentionCoverage : response.metrics.mentionCoverage
   const citation = row ? row.citationCoverage : response.metrics.citationCoverage
-  lines.push(`Mentioned  ${metricWithNote(mention, unattributedText(mention))}`)
-  lines.push(`Cited      ${metricWithNote(citation, uncheckedText(citation))}`)
+  lines.push(`Mentioned  ${metricWithNote(mention, unattributedText(mention), fromLastSweep)}`)
+  lines.push(`Cited      ${metricWithNote(citation, uncheckedText(citation), fromLastSweep)}`)
   if (row && row.flags > 0) lines.push(`Flagged    ${row.flags} ${row.flags === 1 ? 'result needs' : 'results need'} review`)
 
   if (row && row.providers.length > 0) {
@@ -528,7 +561,7 @@ function printMeasurementProperty(response: MeasurementOverviewResponse): void {
     lines.push('')
     lines.push(`${'Engine'.padEnd(engineWidth)}${'Mentioned'.padEnd(mentionWidth)}Cited`)
     for (const provider of row.providers) {
-      lines.push(`${provider.provider.padEnd(engineWidth)}${metricText(provider.mentionCoverage).padEnd(mentionWidth)}${metricText(provider.citationCoverage)}`)
+      lines.push(`${provider.provider.padEnd(engineWidth)}${metricText(provider.mentionCoverage, fromLastSweep).padEnd(mentionWidth)}${metricText(provider.citationCoverage, fromLastSweep)}`)
       // Each note continues on its own line under its own column (mention
       // under Mentioned, citation under Cited) so the columns stay aligned.
       const providerUnattributed = unattributedText(provider.mentionCoverage)
@@ -540,12 +573,232 @@ function printMeasurementProperty(response: MeasurementOverviewResponse): void {
   console.log(lines.join('\n'))
 }
 
+export interface QueryTrackingResultsOptions extends QueryTrackingResultsRequest {
+  format?: string
+}
+
+/** One glyph per signal, so a cell never reads one signal from the other. */
+const QUERY_RESULTS_LEGEND = 'M mentioned · m not mentioned · C cited · c not cited · - not checked'
+const QUERY_RESULT_TYPES: Record<QueryTrackingResultsResponse['rows'][number]['queryClass'], string> = {
+  branded: 'Branded',
+  'non-brand': 'Non-brand',
+  unknown: 'Not set',
+}
+
+/** The line order of the totals: the category first, then the brand's own queries. */
+const QUERY_RESULT_TOTALS_ORDER: ReadonlyArray<QueryTrackingResultsResponse['rows'][number]['queryClass']> = ['non-brand', 'branded', 'unknown']
+
+/** One total's rate: both of its numbers, then the answers it left out, or why there is none. */
+function queryResultRateText(rate: VisibilityReportRate, leftOut: string | null): string {
+  if (rate.numerator === null || rate.denominator === null) {
+    return METRIC_REASONS[(rate.reason ?? '').replaceAll('-', '_')] ?? 'not measured'
+  }
+  return `${rate.numerator.toLocaleString('en-US')} of ${rate.denominator.toLocaleString('en-US')}${leftOut ? ` (${leftOut})` : ''}`
+}
+
+/**
+ * `canonry query results <project>`: Mentioned and Cited per tracked query and
+ * engine, from one stored sweep. `--query <id>` reads one query and lists its
+ * answers. `--format json` is the endpoint's response unchanged. Never starts
+ * a sweep.
+ */
+export async function showQueryTrackingResults(project: string, opts: QueryTrackingResultsOptions): Promise<void> {
+  const { format, ...request } = opts
+  const response = await createApiClient().getQueryTrackingResults(project, request)
+  if (isMachineFormat(format)) {
+    console.log(JSON.stringify(response, null, 2))
+    return
+  }
+  printQueryTrackingResults(response, request)
+}
+
+function signalGlyph(value: boolean | null, yes: string, no: string): string {
+  return value === null ? '-' : value ? yes : no
+}
+
+/** A table's lines, each column padded to its widest cell. */
+function alignedLines(table: ReadonlyArray<readonly string[]>): string[] {
+  const widths = table[0]!.map((_, column) => Math.max(...table.map(cells => cells[column]!.length)))
+  return table.map(cells => cells.map((cell, column) => cell.padEnd(widths[column]!)).join('  ').trimEnd())
+}
+
+/** Both sweeps' rates over the same queries, then the server's change in points. */
+function queryResultComparisonText(comparison: NonNullable<QueryTrackingResultTotals['comparison']>): string {
+  const side = (now: VisibilityReportRate, before: VisibilityReportRate, delta: number | null) =>
+    `${queryResultRateText(before, null)} → ${queryResultRateText(now, null)}${delta === null ? '' : ` (${formatSignedPointDelta(delta)})`}`
+  const queries = `${comparison.queries} ${comparison.queries === 1 ? 'query' : 'queries'}`
+  return `Same ${queries} vs previous sweep: mentioned ${side(comparison.mentionCoverage, comparison.previousMentionCoverage, comparison.mentionDelta)}`
+    + ` · cited ${side(comparison.citationCoverage, comparison.previousCitationCoverage, comparison.citationDelta)}`
+}
+
+/**
+ * A grouped read (`--group`): one line per market or group and Type, in the
+ * server's order. The signal decides the rate, the per-engine counts and the
+ * "who won" columns, which read the non-brand answers and so sit on that line.
+ */
+function queryResultGroupLines(groups: readonly QueryTrackingResultGroup[], engines: readonly string[], signal: QueryTrackingSignal, compared: boolean): string[] {
+  if (groups.length === 0) return ['No markets']
+  const mentioned = signal === 'mentioned'
+  const winners = (group: QueryTrackingResultGroup) => (mentioned
+    ? group.namedInstead.map(entry => `${entry.name} (${entry.answers})`)
+    : group.citedInstead.map(entry => `${entry.host} (${entry.answers})`)).join(', ')
+  const competitors = (group: QueryTrackingResultGroup) => group.competitors
+    .map(entry => ({ domain: entry.domain, answers: mentioned ? entry.mentionedAnswers : entry.citedAnswers }))
+    .filter(entry => entry.answers > 0)
+    .map(entry => `${entry.domain} (${entry.answers})`)
+    .join(', ')
+  // A column is printed only when a line has something to put in it.
+  const showWinners = groups.some(group => winners(group) !== '')
+  const showCompetitors = groups.some(group => competitors(group) !== '')
+  const table = [[
+    groups[0]!.kind === 'market' ? 'Market' : 'Group', 'Locations', 'Type', mentioned ? 'Mentioned' : 'Cited', ...engines,
+    ...(mentioned ? ['Another location'] : []), ...(compared ? ['Change'] : []),
+    ...(showWinners ? [mentioned ? 'Named instead' : 'Cited instead'] : []), ...(showCompetitors ? ['Competitors'] : []),
+  ]]
+  for (const group of groups) {
+    for (const type of group.types) {
+      const nonBrand = type.queryClass === 'non-brand'
+      const change = type.change === undefined ? '' : mentioned
+        ? `won ${type.change.mentionsWon} · lost ${type.change.mentionsLost}`
+        : `won ${type.change.citationsWon} · lost ${type.change.citationsLost}`
+      table.push([
+        group.label, String(group.locations), QUERY_RESULT_TYPES[type.queryClass],
+        mentioned
+          ? queryResultRateText(type.mentionCoverage, unattributedAnswersLabel(type.mentionCoverage))
+          : queryResultRateText(type.citationCoverage, uncheckedSourcesLabel(type.citationCoverage)),
+        ...engines.map(engine => {
+          const entry = type.engines.find(candidate => candidate.provider === engine)
+          return entry === undefined ? '' : `${mentioned ? entry.mentionedAnswers : entry.citedAnswers} of ${entry.answers}`
+        }),
+        ...(mentioned ? [String(type.otherLocationMentionedAnswers)] : []), ...(compared ? [change] : []),
+        ...(showWinners ? [nonBrand ? winners(group) : ''] : []), ...(showCompetitors ? [nonBrand ? competitors(group) : ''] : []),
+      ])
+    }
+  }
+  return alignedLines(table)
+}
+
+function printQueryTrackingResults(response: QueryTrackingResultsResponse, request: QueryTrackingResultsRequest): void {
+  if (response.run === null) {
+    console.log('No sweep yet')
+    return
+  }
+  const lines = [`Sweep ${formatIsoDate(response.run.completedAt ?? response.run.createdAt)} · run ${response.run.id}`]
+  // A change is read against the sweep before this one, named by its run.
+  if (response.compareRun !== undefined) {
+    lines.push(response.compareRun === null ? 'No previous sweep to compare' : `Compared with the previous sweep · run ${response.compareRun.id}`)
+  }
+  // One line per Type, never one for both: the API's totals, printed as sent.
+  for (const queryClass of QUERY_RESULT_TOTALS_ORDER) {
+    const total = response.totals?.find(entry => entry.queryClass === queryClass)
+    if (!total) continue
+    const mentioned = queryResultRateText(total.mentionCoverage, unattributedAnswersLabel(total.mentionCoverage))
+    const cited = queryResultRateText(total.citationCoverage, uncheckedSourcesLabel(total.citationCoverage))
+    lines.push(`${QUERY_RESULT_TYPES[queryClass]}: mentioned ${mentioned} · cited ${cited}`)
+    if (total.comparison) lines.push(`  ${queryResultComparisonText(total.comparison)}`)
+  }
+  if (response.pendingRows > 0) lines.push(`Not in this sweep: ${response.pendingRows}`)
+  // A grouped read prints its markets; their queries are a read of one market.
+  if (response.groups !== undefined) {
+    lines.push(...queryResultGroupLines(response.groups, response.engines, request.signal ?? 'mentioned', response.compareRun != null))
+    console.log(lines.join('\n'))
+    return
+  }
+  if (response.rows.length === 0) {
+    lines.push('No results')
+    console.log(lines.join('\n'))
+    return
+  }
+  lines.push(QUERY_RESULTS_LEGEND)
+  // The API orders rows by query id unless the read sorts them. A person scans
+  // an unsorted read by text, as the workspace lists them, so only that table
+  // is re-ordered; the JSON stays as returned.
+  const rows = response.rows
+    .map(row => ({ ...row, sortText: normalizeIdentityText(row.queryText), type: QUERY_RESULT_TYPES[row.queryClass] }))
+  if (request.sort === undefined) rows.sort((left, right) => compareText(left.sortText, right.sortText) || compareText(left.type, right.type))
+  const queryWidth = Math.max('Query'.length, ...rows.map(row => row.queryText.length))
+  const typeWidth = Math.max(...Object.values(QUERY_RESULT_TYPES).map(label => label.length))
+  // Each cell is the mention glyph then the citation glyph, as the dashboard's two chips.
+  const cellWidth = (engine: string) => Math.max(2, engine.length)
+  // The engines whose answers miss the row and mention another of the project's locations.
+  const otherLocation = (row: typeof rows[number]) => row.engines
+    .filter(entry => entry.otherLocationMentionedAnswers !== undefined)
+    .map(entry => entry.provider)
+    .join(', ')
+  // What each engine won or lost since the previous sweep, in words.
+  const change = (row: typeof rows[number]) => row.engines.flatMap(entry => [
+    ...(entry.mentionChange ? [`${entry.provider} ${entry.mentionChange} mention`] : []),
+    ...(entry.citationChange ? [`${entry.provider} ${entry.citationChange} citation`] : []),
+  ]).join(', ')
+  // A column is printed only when a row has something to put in it.
+  const showOtherLocation = rows.some(row => otherLocation(row) !== '')
+  const showChange = rows.some(row => change(row) !== '')
+  const otherWidth = Math.max('Another location'.length, ...rows.map(row => otherLocation(row).length))
+  lines.push([
+    'Query'.padEnd(queryWidth), 'Type'.padEnd(typeWidth), ...response.engines.map(engine => engine.padEnd(cellWidth(engine))),
+    ...(showOtherLocation ? ['Another location'.padEnd(otherWidth)] : []), ...(showChange ? ['Change'] : []),
+  ].join('  ').trimEnd())
+  for (const row of rows) {
+    const cells = response.engines.map(engine => {
+      const result = row.engines.find(entry => entry.provider === engine)
+      // An engine this row was not asked on is blank: nothing was expected, so nothing is "not checked".
+      const cell = result ? `${signalGlyph(result.mentioned, 'M', 'm')}${signalGlyph(result.cited, 'C', 'c')}` : ''
+      return cell.padEnd(cellWidth(engine))
+    })
+    lines.push([
+      row.queryText.padEnd(queryWidth), row.type.padEnd(typeWidth), ...cells,
+      ...(showOtherLocation ? [otherLocation(row).padEnd(otherWidth)] : []), ...(showChange ? [change(row)] : []),
+    ].join('  ').trimEnd())
+  }
+  lines.push(...queryAnswerLines(rows))
+  console.log(lines.join('\n'))
+}
+
+/**
+ * The answers of a read of one query (`--query`), one line per engine answer
+ * under its Type. Empty for any other read, which carries no answer rows.
+ */
+function queryAnswerLines(rows: ReadonlyArray<QueryTrackingResultsResponse['rows'][number] & { type: string }>): string[] {
+  const answers = rows.flatMap(row => row.engines.flatMap(engine => (engine.answerRows ?? []).map(answer => ({
+    type: row.type,
+    engine: engine.provider,
+    result: `${signalGlyph(answer.mentioned, 'M', 'm')}${signalGlyph(answer.cited, 'C', 'c')}`,
+    searchLocation: answer.searchLocation ?? '',
+    covers: answer.targetKeys.length,
+    mentioned: answer.mentionedTargetKeys.join(', ') || 'None',
+    namedInstead: answer.namedInstead.join(', ') || 'None',
+    alsoNamed: (answer.alsoNamed ?? []).join(', '),
+    // Each cited site once, in stored order, with whose site it is.
+    sources: [...new Set((answer.citedSources ?? []).map(source => source.ours
+      ? `${source.host} (ours)`
+      : source.competitor === null ? source.host : `${source.host} (competitor)`))].join(', '),
+    answer: answer.resultId ?? 'No answer saved',
+  }))))
+  if (answers.length === 0) return []
+  // Which location was mentioned is a question only where an answer covers more than one.
+  const showMentioned = answers.some(answer => answer.covers > 1)
+  // A column is printed only when an answer has something to put in it.
+  const showAlsoNamed = answers.some(answer => answer.alsoNamed !== '')
+  const showSources = answers.some(answer => answer.sources !== '')
+  return ['', 'Answers', ...alignedLines([
+    [
+      'Type', 'Engine', 'Result', 'Search location', ...(showMentioned ? ['Location mentioned'] : []), 'Named instead',
+      ...(showAlsoNamed ? ['Also named'] : []), ...(showSources ? ['Cited sources'] : []), 'Answer',
+    ],
+    ...answers.map(answer => [
+      answer.type, answer.engine, answer.result, answer.searchLocation, ...(showMentioned ? [answer.mentioned] : []), answer.namedInstead,
+      ...(showAlsoNamed ? [answer.alsoNamed] : []), ...(showSources ? [answer.sources] : []), answer.answer,
+    ]),
+  ])]
+}
+
 export interface MeasurementPropertyEvidenceOptions {
   targetKey: string
   queryClass?: MeasurementQueryClassFilter
   provider?: string
   location?: string
   runId?: string
+  fallback?: MeasurementReadFallback
   shape?: MeasurementEvidenceShape
   cursor?: string
   limit?: number
@@ -590,6 +843,7 @@ export async function showMeasurementPropertyEvidence(
     ...(opts.provider === undefined ? {} : { provider: opts.provider }),
     ...(opts.location === undefined ? {} : { location: opts.location }),
     ...(opts.runId === undefined ? {} : { runId: opts.runId }),
+    ...(opts.fallback === undefined ? {} : { fallback: opts.fallback }),
     ...(opts.shape === undefined ? {} : { shape: opts.shape }),
     ...(opts.cursor === undefined ? {} : { cursor: opts.cursor }),
     ...(opts.limit === undefined ? {} : { limit: opts.limit }),
@@ -643,6 +897,8 @@ function printMeasurementPropertyEvidence(response: MeasurementPropertyEvidenceR
   const answerShape = page.shape === MeasurementEvidenceShapes.answers
   const otherQueriesShape = page.shape === MeasurementEvidenceShapes['other-queries']
   lines.push(`Measurement: ${response.measurement.state}${response.measurement.displayedRunId ? ` · run ${response.measurement.displayedRunId}` : ''}`)
+  const lastSweep = lastSweepLine(response.measurement)
+  if (lastSweep) lines.push(lastSweep)
   if (page.items.length === 0) {
     // Named for what was looked for. "No source evidence" under the answer
     // shape would report a Property whose answers cited nothing as a Property

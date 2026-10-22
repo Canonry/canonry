@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { extractErrorMessage } from '../../../lib/extract-error-message.js'
 import type {
   MeasurementDraftAuthoring,
@@ -11,6 +12,7 @@ import type {
 import type { QueryDto } from '@canonry/canonry-api-client'
 import type { MeasurementPlanResponse } from '@canonry/canonry-api-client'
 
+import { StatusNote } from '../../shared/StatusNote.js'
 import { Button } from '../../ui/button.js'
 import { AdvancedMeasurementSetup } from './AdvancedMeasurementSetup.js'
 import type {
@@ -31,6 +33,7 @@ import {
   advancedMeasurementService,
   assignmentPreviewErrorMessage,
   isDraftConflict,
+  isRunInProgress,
   setupErrorMessage,
   type AdvancedMeasurementService,
   type GroupMembershipPreview,
@@ -58,9 +61,14 @@ export interface AdvancedMeasurementSectionProps {
   isQueryError: boolean
   onRetryQueries?: () => void
   publishedPlan?: MeasurementPlanResponse['active']
+  /** The published setup's read failed, so `publishedPlan` will not arrive without a retry. */
+  isPublishedPlanError?: boolean
+  onRetryPublishedPlan?: () => void
   canEdit?: boolean
   /** A queued or running sweep is pinned to the current plan, so Publish waits for it. */
   sweepActive?: boolean
+  /** The step a link asks setup to open on. A draft that is not ready for it opens on the step it needs. */
+  openStep?: SetupStep
   /** Adds tracked queries to the project from inside setup. */
   /** Returns the project's queries AFTER the write, so a pairing can resolve text -> id. */
   onCreateQueries?: (texts: readonly string[]) => Promise<readonly { id: string; query: string }[]>
@@ -115,20 +123,20 @@ function pathTemplateFor(draft: AdvancedMeasurementImportDraft): string {
     const segments = value.split('/').slice(1)
     const placeholders = segments.filter(segment => segment === '*' || segment === '{slug}')
     if (placeholders.length !== 1 || segments.some(segment => segment.includes('*') && segment !== '*')) {
-      throw new Error('Property URL pattern must contain exactly one * or {slug} segment.')
+      throw new Error('Location URL pattern must contain exactly one * or {slug} segment.')
     }
     return `/${segments.map(segment => segment === '*' ? '{slug}' : segment).join('/')}`
   }
 
   const example = draft.examplePropertyUrl.trim()
-  if (!example) throw new Error('Add one example Property page so Canonry can identify the matching URLs.')
+  if (!example) throw new Error('Add one example location page so Canonry can identify the matching URLs.')
   try {
     const segments = new URL(example).pathname.split('/').filter(Boolean)
     if (segments.length === 0) throw new Error()
     segments[segments.length - 1] = '{slug}'
     return `/${segments.join('/')}`
   } catch {
-    throw new Error('Example Property page must be a valid web address.')
+    throw new Error('Example location page must be a valid web address.')
   }
 }
 
@@ -163,13 +171,13 @@ export function sitemapImportInput(draft: AdvancedMeasurementImportDraft): Sitem
   const sitemapUrl = normalizedSitemapUrl(draft.sitemapUrl)
   const exampleHost = draft.examplePropertyUrl.trim() ? normalizedHost(draft.examplePropertyUrl) : null
   const host = normalizedHost(draft.preferredHost) ?? exampleHost ?? normalizedHost(sitemapUrl)
-  if (!host) throw new Error('Add a valid sitemap or Property page URL.')
+  if (!host) throw new Error('Add a valid sitemap or location page URL.')
 
   const additionalHost = normalizedHost(draft.additionalHost)
   const hasAdditionalHost = draft.additionalHost.trim().length > 0
   const hasAdditionalPath = draft.additionalPathPattern.trim().length > 0
   if (hasAdditionalHost !== hasAdditionalPath || (hasAdditionalHost && !additionalHost)) {
-    throw new Error('Add both an additional domain and its Property URL pattern.')
+    throw new Error('Add both an additional domain and its URL pattern.')
   }
 
   const excluded = excludedSlugPatterns(draft.excludedPaths)
@@ -268,7 +276,7 @@ function assignmentAtPath(authoring: MeasurementDraftAuthoring | null | undefine
 }
 
 function propertyLabel(authoring: MeasurementDraftAuthoring | null | undefined, propertyId: string | undefined): string {
-  return authoring?.targets.find(property => property.stableKey === propertyId)?.label ?? 'a Property'
+  return authoring?.targets.find(property => property.stableKey === propertyId)?.label ?? 'a location'
 }
 
 function targetLocation(context: ReviewCheckContext, check: MeasurementDraftCompileCheck): string | undefined {
@@ -278,11 +286,11 @@ function targetLocation(context: ReviewCheckContext, check: MeasurementDraftComp
   const index = check.path[3]
   if (field === 'urlMatchers' && typeof index === 'number') {
     const url = property.urlMatchers[index]
-    return url ? `${property.label} — ${url}` : property.label
+    return url ? `${property.label} · ${url}` : property.label
   }
   if (field === 'aliases' && typeof index === 'number') {
     const alias = property.aliases[index]
-    return alias ? `${property.label} — ${alias}` : property.label
+    return alias ? `${property.label} · ${alias}` : property.label
   }
   return property.label
 }
@@ -294,11 +302,11 @@ function groupLocation(context: ReviewCheckContext, check: MeasurementDraftCompi
   const index = check.path[3]
   if (field === 'competitors' && typeof index === 'number') {
     const domain = group.competitors.at(index)?.domain
-    return domain ? `${group.label} — ${domain}` : group.label
+    return domain ? `${group.label} · ${domain}` : group.label
   }
   if (field === 'targetKeys' && typeof index === 'number') {
     const property = propertyLabel(context.authoring, group.targetKeys[index])
-    return `${group.label} — ${property}`
+    return `${group.label} · ${property}`
   }
   return group.label
 }
@@ -307,7 +315,7 @@ function assignmentLocation(context: ReviewCheckContext, check: MeasurementDraft
   const assignment = assignmentAtPath(context.authoring, check.path)
   if (!assignment) return undefined
   const question = context.queries.find(candidate => candidate.id === assignment.queryId)?.query ?? 'an unavailable query'
-  return `${propertyLabel(context.authoring, assignment.targetKey)} — ${question}`
+  return `${propertyLabel(context.authoring, assignment.targetKey)} · ${question}`
 }
 
 function locationFromPath(context: ReviewCheckContext, check: MeasurementDraftCompileCheck): string | undefined {
@@ -340,48 +348,48 @@ function reviewCheckMeaning(check: MeasurementDraftCompileCheck, context: Review
       }
     case 'target-limit-exceeded':
       return {
-        title: 'Reduce Properties',
-        detail: 'This setup exceeds the Properties publishing limit. Remove some Properties, then review again.',
+        title: 'Reduce locations',
+        detail: 'This setup exceeds the location publishing limit. Remove some locations, then review again.',
         tone: 'negative',
       }
     case 'duplicate-target-key':
       return {
-        title: 'Resolve duplicate Properties',
-        detail: 'Two Properties use the same setup identifier. Rename or recreate one, then review again.',
+        title: 'Resolve duplicate locations',
+        detail: 'Two locations use the same setup identifier. Rename or recreate one, then review again.',
         tone: 'negative',
         affected,
       }
     case 'no-included-targets':
       return {
-        title: 'Include a Property',
-        detail: 'Include at least one Property before publishing.',
+        title: 'Include a location',
+        detail: 'Include at least one location before publishing.',
         tone: 'negative',
       }
     case 'target-url-matcher-invalid':
       return {
-        title: 'Fix a Property URL',
-        detail: 'Use a valid web address, site-wide address, or URL pattern for this Property.',
+        title: 'Fix a location URL',
+        detail: 'Use a valid web address, site-wide address, or URL pattern for this location.',
         tone: 'negative',
         affected,
       }
     case 'target-url-matcher-unowned':
       return {
         title: 'Use a project domain',
-        detail: 'This Property URL must use the project domain or one of its subdomains.',
+        detail: 'This location URL must use the project domain or one of its subdomains.',
         tone: 'negative',
         affected,
       }
     case 'target-url-matcher-ambiguous':
       return {
-        title: 'Separate Property URL coverage',
-        detail: 'This URL is assigned to more than one Property at the same specificity. Update one of the URLs.',
+        title: 'Separate location URLs',
+        detail: 'This URL belongs to more than one location at the same specificity. Update one of the URLs.',
         tone: 'negative',
         affected,
       }
     case 'target-alias-ambiguous':
       return {
-        title: 'Use distinct Property names',
-        detail: 'This name or alias matches another Property. Make each Property name and alias distinct.',
+        title: 'Use distinct location names',
+        detail: 'This name or alias matches another location. Make each location name and alias distinct.',
         tone: 'negative',
         affected,
       }
@@ -397,18 +405,18 @@ function reviewCheckMeaning(check: MeasurementDraftCompileCheck, context: Review
         title: 'Fix provider settings',
         detail: 'Choose the provider that runs this model, or remove the model setting.',
         tone: 'negative',
-        affected: [affected, contextValue(context, check, 'models')].filter(Boolean).join(' — ') || undefined,
+        affected: [affected, contextValue(context, check, 'models')].filter(Boolean).join(' · ') || undefined,
       }
     case 'invalid-location':
       return {
-        title: 'Fix a location',
-        detail: 'Choose a location configured for this project, or remove it from the query.',
+        title: 'Fix a search location',
+        detail: 'Choose a search location configured for this project, or remove it from the query.',
         tone: 'negative',
-        affected: [affected, contextValue(context, check, 'locations')].filter(Boolean).join(' — ') || undefined,
+        affected: [affected, contextValue(context, check, 'locations')].filter(Boolean).join(' · ') || undefined,
       }
     case 'target-without-aliases':
       return {
-        title: 'Add Property aliases',
+        title: 'Add location aliases',
         detail: 'Add a name or alias to measure mentions.',
         tone: 'caution',
         affected,
@@ -422,15 +430,15 @@ function reviewCheckMeaning(check: MeasurementDraftCompileCheck, context: Review
       }
     case 'group-unknown-target':
       return {
-        title: 'Fix group Properties',
-        detail: 'This group contains a Property that is no longer in setup. Remove it or add the Property back.',
+        title: 'Fix group locations',
+        detail: 'This group contains a location that is no longer in setup. Remove it or add the location back.',
         tone: 'negative',
         affected,
       }
     case 'group-excluded-target':
       return {
-        title: 'Include or remove a grouped Property',
-        detail: 'This group contains an excluded Property. Include it or remove it from the group.',
+        title: 'Include or remove a grouped location',
+        detail: 'This group contains an excluded location. Include it or remove it from the group.',
         tone: 'negative',
         affected,
       }
@@ -458,34 +466,34 @@ function reviewCheckMeaning(check: MeasurementDraftCompileCheck, context: Review
     case 'duplicate-assignment':
       return {
         title: 'Remove a duplicate query',
-        detail: 'Assign each query to a Property only once.',
+        detail: 'Apply each query to a location only once.',
         tone: 'negative',
         affected,
       }
     case 'assignment-unknown-target':
       return {
-        title: 'Fix a query assignment',
-        detail: 'This query is assigned to a Property that is no longer in setup. Remove the assignment or add the Property back.',
+        title: 'Fix a pair',
+        detail: 'This query is paired with a location that is no longer in setup. Remove the pair or add the location back.',
         tone: 'negative',
         affected,
       }
     case 'assignment-excluded-target':
       return {
-        title: 'Include or unassign a Property',
-        detail: 'This query is assigned to an excluded Property. Include it or remove the assignment.',
+        title: 'Include or unpair a location',
+        detail: 'This query is paired with an excluded location. Include it or remove the pair.',
         tone: 'negative',
         affected,
       }
     case 'assignment-unknown-query':
       return {
         title: 'Remove an unavailable query',
-        detail: 'This assignment refers to a tracked query that is no longer available. Remove it or add the query back to the project.',
+        detail: 'This pair refers to a tracked query that is no longer available. Remove it or add the query back to the project.',
         tone: 'negative',
         affected,
       }
     case 'assignment-unclassified':
       return {
-        title: 'Classify a query',
+        title: 'Set a query type',
         detail: 'Choose Branded or Non-brand for this query before publishing.',
         tone: 'negative',
         affected,
@@ -493,13 +501,13 @@ function reviewCheckMeaning(check: MeasurementDraftCompileCheck, context: Review
     case 'query-limit-exceeded':
       return {
         title: 'Reduce queries',
-        detail: 'This setup exceeds the distinct-query publishing limit. Remove some query assignments, then review again.',
+        detail: 'This setup exceeds the distinct-query publishing limit. Remove some queries, then review again.',
         tone: 'negative',
       }
     case 'target-without-assignments':
       return {
-        title: 'Assign queries',
-        detail: 'Assign at least one query to measure a Property.',
+        title: 'Apply queries',
+        detail: 'Apply at least one query to measure a location.',
         tone: 'caution',
         affected,
       }
@@ -513,7 +521,7 @@ function reviewCheckMeaning(check: MeasurementDraftCompileCheck, context: Review
     case 'compiled-plan-too-large':
       return {
         title: 'Reduce setup size',
-        detail: 'This setup is too large to publish. Remove Properties, queries, or groups, then review again.',
+        detail: 'This setup is too large to publish. Remove locations, queries, or groups, then review again.',
         tone: 'negative',
       }
     case 'active-revision-schema-v1':
@@ -549,11 +557,11 @@ function reviewCheckDetail(ruleId: string, detail: string, count: number, affect
   const detailWithCount = (() => {
   switch (ruleId) {
     case 'execution-context-no-provider':
-      return `${detail} ${pluralized(count, 'query assignment')} need${count === 1 ? 's' : ''} a provider.`
+      return `${detail} ${pluralized(count, 'pair')} need${count === 1 ? 's' : ''} a provider.`
     case 'target-without-aliases':
-      return `${detail} ${pluralized(count, 'Property', 'Properties')} need${count === 1 ? 's' : ''} aliases.`
+      return `${detail} ${pluralized(count, 'location')} need${count === 1 ? 's' : ''} aliases.`
     case 'target-without-assignments':
-      return `${detail} ${pluralized(count, 'Property', 'Properties')} need${count === 1 ? 's' : ''} queries.`
+      return `${detail} ${pluralized(count, 'location')} need${count === 1 ? 's' : ''} queries.`
     default:
       return count > 1 ? `${detail} ${pluralized(count, 'item')} need review.` : detail
   }
@@ -596,7 +604,7 @@ function reviewCheckFlags(checks: readonly MeasurementDraftCompileCheck[], conte
 function propertySummary(target: DraftTarget | undefined): string | undefined {
   if (!target) return undefined
   const url = target.discoveredUrl ?? target.urlMatchers[0]
-  return url ? `${target.label} — ${url}` : target.label
+  return url ? `${target.label} · ${url}` : target.label
 }
 
 function warningFlag(
@@ -618,45 +626,45 @@ function warningFlag(
     case 'merge-targets-noop':
       return {
         ...base,
-        title: 'Choose another Property to merge',
-        detail: `Select at least one other Property before merging.${suffix}`,
+        title: 'Choose another location to merge',
+        detail: `Select at least one other location before merging.${suffix}`,
       }
     case 'excluded-target-has-assignments':
       return {
         ...base,
-        title: 'Review excluded Property queries',
-        detail: `An excluded Property still has assigned queries. Include it or remove those queries before publishing.${suffix}`,
+        title: 'Review excluded location queries',
+        detail: `An excluded location still has queries. Include it or remove those queries before publishing.${suffix}`,
       }
     case 'group-unknown-target':
       return {
         ...base,
-        title: 'Fix group Properties',
-        detail: `This group includes a Property that is not in setup. Remove it or add the Property first.${suffix}`,
+        title: 'Fix group locations',
+        detail: `This group includes a location that is not in setup. Remove it or add the location first.${suffix}`,
       }
     case 'measurement.discovery.proposed_new_target': {
-      const subject = propertySummary(target) ?? 'the proposed Property'
+      const subject = propertySummary(target) ?? 'the proposed location'
       return {
         ...base,
-        title: 'Review a new Property',
-        detail: `Review ${subject}. It did not match an existing Property.`,
+        title: 'Review a new location',
+        detail: `Review ${subject}. It did not match an existing location.`,
       }
     }
     case 'measurement.discovery.proposed_rebind': {
-      const subject = propertySummary(target) ?? 'the proposed Property'
-      const existing = linkedTarget?.label ?? 'an existing Property'
+      const subject = propertySummary(target) ?? 'the proposed location'
+      const existing = linkedTarget?.label ?? 'an existing location'
       return {
         ...base,
-        title: 'Review a moved Property',
-        detail: `Review ${subject}. It may be the same Property as ${existing}.`,
+        title: 'Review a moved location',
+        detail: `Review ${subject}. It may be the same location as ${existing}.`,
       }
     }
     case 'measurement.discovery.rebind_ambiguous': {
-      const subject = propertySummary(target) ?? 'the proposed Property'
-      const existing = linkedTarget?.label ?? 'an existing Property'
+      const subject = propertySummary(target) ?? 'the proposed location'
+      const existing = linkedTarget?.label ?? 'an existing location'
       return {
         ...base,
-        title: 'Choose an existing Property',
-        detail: `Review ${subject}. It may match ${existing}; choose the correct Property.`,
+        title: 'Choose an existing location',
+        detail: `Review ${subject}. It may match ${existing}; choose the correct location.`,
       }
     }
     default:
@@ -673,8 +681,8 @@ function reviewedChanges(diff: MeasurementDraftDiff, preservesHistoricalResults 
   const targetChanges = diff.targets.added.length + diff.targets.removed.length + diff.targets.changed.length
   const groupChanges = diff.groups.added.length + diff.groups.removed.length + diff.groups.changed.length
   const assignmentChanges = diff.assignments.added + diff.assignments.removed + diff.assignments.reclassified
-  if (targetChanges > 0) items.push(`${targetChanges} Property ${targetChanges === 1 ? 'change' : 'changes'}`)
-  if (assignmentChanges > 0) items.push(`${assignmentChanges} query assignment ${assignmentChanges === 1 ? 'change' : 'changes'}`)
+  if (targetChanges > 0) items.push(`${targetChanges} location ${targetChanges === 1 ? 'change' : 'changes'}`)
+  if (assignmentChanges > 0) items.push(`${assignmentChanges} pair ${assignmentChanges === 1 ? 'change' : 'changes'}`)
   if (groupChanges > 0) items.push(`${groupChanges} group ${groupChanges === 1 ? 'change' : 'changes'}`)
   if (preservesHistoricalResults) items.unshift('Existing results remain visible after you publish this setup.')
   return {
@@ -797,8 +805,11 @@ export function AdvancedMeasurementSection({
   isQueryError,
   onRetryQueries,
   publishedPlan,
+  isPublishedPlanError = false,
+  onRetryPublishedPlan,
   canEdit = true,
   sweepActive = false,
+  openStep,
   onCreateQueries,
   onManageProjectQueries,
   onPublished,
@@ -840,11 +851,14 @@ export function AdvancedMeasurementSection({
 
   const draft = draftResponse?.draft ?? null
   const etag = draftResponse?.etag ?? null
+  // The page reads first. With no draft open, the published setup is shown as it is, to an editor as to a
+  // viewer: a draft is opened by Edit setup, or on arrival when nothing is published yet.
+  const editing = canEdit && draft !== null
   const publishedDraftView = useMemo(() => (
-    !canEdit && publishedPlan
+    !draft && publishedPlan
       ? { baseActiveRevision: publishedPlan.revision, authoring: publishedAuthoring(publishedPlan) }
       : null
-  ), [canEdit, publishedPlan])
+  ), [draft, publishedPlan])
   const viewDraft = draft ?? publishedDraftView
 
   async function loadCurrent(createIfMissing: boolean): Promise<void> {
@@ -856,7 +870,7 @@ export function AdvancedMeasurementSection({
         service.loadSetup(projectName),
         service.loadDraft(projectName),
       ])
-      if (!nextDraft.draft && createIfMissing && canEdit) {
+      if (!nextDraft.draft && createIfMissing && canEdit && nextSetup.activeRevision === null) {
         await service.createDraft(projectName, nextSetup.activeRevision)
         ;[nextSetup, nextDraft] = await Promise.all([
           service.loadSetup(projectName),
@@ -866,12 +880,12 @@ export function AdvancedMeasurementSection({
       if (requestVersion !== requestVersionRef.current) return
       setSetup(nextSetup)
       setDraftResponse(nextDraft)
-      setStep(initialStepFor(nextDraft.draft))
+      setStep(openStep ? recoveredStepFor(nextDraft.draft, openStep) : initialStepFor(nextDraft.draft))
       const included = includedPropertyIdsFor(nextDraft.draft)
       setIncludedPropertyIds(included)
     } catch (error) {
       if (requestVersion !== requestVersionRef.current) return
-      setLoadError(setupErrorMessage(error, 'Could not load advanced measurement setup.'))
+      setLoadError(setupErrorMessage(error, 'Could not load setup.'))
     } finally {
       if (requestVersion === requestVersionRef.current) setIsLoading(false)
     }
@@ -1023,7 +1037,7 @@ export function AdvancedMeasurementSection({
           if (preview.draftEtag !== etag) {
             setAssignmentPreview(null)
             setAssignmentPreviewSelectionKey(null)
-            setAssignmentPreviewError('The setup changed while calculating assignment impact. Refresh the draft and try again.')
+            setAssignmentPreviewError('The setup changed while calculating impact. Refresh the draft and try again.')
             return
           }
           setAssignmentPreview(preview)
@@ -1048,15 +1062,15 @@ export function AdvancedMeasurementSection({
   const reviewFlags = useMemo<AdvancedMeasurementFlaggedException[]>(() => [
     ...(assignmentCount === 0 ? [{
       id: 'no-query-assignments',
-      title: 'Assign at least one query',
-      detail: 'Apply a tracked query to at least one Property before publishing.',
+      title: 'Apply at least one query',
+      detail: 'Apply a tracked query to at least one location before publishing.',
       tone: 'negative' as const,
     }] : []),
     ...((viewDraft?.authoring.assignments.some(assignment => assignment.queryClass === 'unclassified')
       && !(publishedDraftView && publishedPlan?.plan.schemaVersion === 1)) ? [{
       id: 'unclassified-query-assignments',
       title: 'Remove an unavailable query',
-      detail: 'One or more saved assignments no longer have a tracked query. Clear them before publishing.',
+      detail: 'One or more saved pairs no longer have a tracked query. Clear them before publishing.',
       tone: 'negative' as const,
     }] : []),
     ...serverFlags,
@@ -1065,7 +1079,7 @@ export function AdvancedMeasurementSection({
   const queryAvailability = isQueryLoading
     ? { status: 'unavailable' as const, message: 'Tracked queries are loading.' }
     : isQueryError
-      ? { status: 'unavailable' as const, message: 'Tracked queries could not be loaded. Retry before assigning Properties.' }
+      ? { status: 'unavailable' as const, message: 'Tracked queries could not be loaded. Retry before applying queries.' }
       : { status: 'available' as const }
 
   async function reviewSitemap(nextImportDraft: AdvancedMeasurementImportDraft): Promise<void> {
@@ -1139,8 +1153,8 @@ export function AdvancedMeasurementSection({
       setAudience({ kind: 'none' })
       setStep('groups')
     } catch (error) {
-      if (isDraftConflict(error)) await recoverConflict('This setup changed in another session. The latest Properties are loaded.')
-      else setActionError(setupErrorMessage(error, 'Could not save the selected Properties.'))
+      if (isDraftConflict(error)) await recoverConflict('This setup changed in another session. The latest locations are loaded.')
+      else setActionError(setupErrorMessage(error, 'Could not save the selected locations.'))
     } finally {
       setBusyAction(null)
     }
@@ -1152,7 +1166,7 @@ export function AdvancedMeasurementSection({
       : { targetKeys: uniqueSorted(selection.propertyIds), queryIds: uniqueSorted(selection.queryIds) }
     if (!assignmentPreview || assignmentPreviewSelectionKey !== JSON.stringify(input)
       || !etag || assignmentPreview.draftEtag !== etag) {
-      setActionError('Review the latest assignment impact before assigning queries.')
+      setActionError('Review the latest impact before applying queries.')
       return
     }
     const next = await mutate(
@@ -1162,7 +1176,7 @@ export function AdvancedMeasurementSection({
     )
     if (next) {
       setSelectedQueryIds([])
-      setAssignmentNotice(`${assignmentPreview.assignments.added} new assignment${assignmentPreview.assignments.added === 1 ? '' : 's'} added. Existing assignments were kept.`)
+      setAssignmentNotice(`${assignmentPreview.assignments.added} pair${assignmentPreview.assignments.added === 1 ? '' : 's'} added`)
     }
   }
 
@@ -1174,11 +1188,11 @@ export function AdvancedMeasurementSection({
         targetKeys: unique(selection.propertyIds),
         queryIds: [selection.queryId],
       }),
-      'Could not replace this query assignment.',
+      'Could not replace these locations.',
     )
     if (next) {
       setSelectedQueryIds(current => current.filter(queryId => queryId !== selection.queryId))
-      setAssignmentNotice('Query assignments replaced.')
+      setAssignmentNotice('Locations replaced.')
     }
   }
 
@@ -1199,13 +1213,13 @@ export function AdvancedMeasurementSection({
     const next = await mutate(
       'paired-assignments',
       currentEtag => service.applyPairedAssignments(projectName, currentEtag, [...pairs]),
-      'Could not assign these queries.',
+      'Could not apply these queries.',
       { preserveBusyAction },
     )
     // mutate reports failure by returning null, not by throwing. Swallowing that
     // let a failed assignment read as success: the questions were created, none
     // were assigned, and the authored pattern was cleared as if it had worked.
-    if (!next) throw new Error('Could not assign these queries.')
+    if (!next) throw new Error('Could not apply these queries.')
   }
 
   /**
@@ -1236,14 +1250,14 @@ export function AdvancedMeasurementSection({
         .map(pair => ({ targetKey: pair.propertyId, queryId: idByText.get(pair.text) }))
         .filter((pair): pair is { targetKey: string; queryId: string } => pair.queryId !== undefined)
       if (assignmentPairs.length !== pairs.length) {
-        const error = new Error('The created queries could not be matched to their Properties.')
-        setCreateQueriesError('The queries were added, but could not be paired with every Property. Try again to pair them.')
+        const error = new Error('The created queries could not be matched to their locations.')
+        setCreateQueriesError('The queries were added, but could not be paired with every location. Try again to pair them.')
         throw error
       }
       try {
         await applyPairedQuestions(assignmentPairs, true)
       } catch (error) {
-        setCreateQueriesError('The queries were added, but could not be assigned to their Properties. Try again to pair them.')
+        setCreateQueriesError('The queries were added, but could not be paired with their locations. Try again to pair them.')
         throw error
       }
     } finally {
@@ -1260,7 +1274,7 @@ export function AdvancedMeasurementSection({
     const next = await mutate(
       `remove-${queryId}`,
       currentEtag => service.removeAssignment(projectName, currentEtag, targetKeys, queryId),
-      'Could not clear this query assignment.',
+      'Could not clear these locations.',
     )
     if (next) setSelectedQueryIds(current => current.filter(id => id !== queryId))
   }
@@ -1449,8 +1463,34 @@ export function AdvancedMeasurementSection({
       setReviewed(null)
       onPublished?.()
     } catch (error) {
-      if (isDraftConflict(error)) await recoverConflict('The setup changed before it could be published. Review the latest draft and publish again.')
+      // Checked first: a sweep refusal keeps the review, so Publish works again once the run ends.
+      if (isRunInProgress(error)) setActionError(error.message)
+      else if (isDraftConflict(error)) await recoverConflict('The setup changed before it could be published. Review the latest draft and publish again.')
       else setActionError(setupErrorMessage(error, 'Could not publish this setup.'))
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  /** Edit setup: opens a draft of the published setup and stays on the step being read. */
+  async function startEditing(): Promise<void> {
+    if (!canEdit || draft || !setup || busyAction) return
+    setBusyAction('start-editing')
+    setActionError(null)
+    try {
+      await service.createDraft(projectName, setup.activeRevision)
+      const [nextSetup, nextDraft] = await Promise.all([
+        service.loadSetup(projectName),
+        service.loadDraft(projectName),
+      ])
+      setSetup(nextSetup)
+      setDraftResponse(nextDraft)
+      setIncludedPropertyIds(includedPropertyIdsFor(nextDraft.draft))
+      setStep(current => recoveredStepFor(nextDraft.draft, current))
+    } catch (error) {
+      // Another session opened a draft first: that draft is the one to edit.
+      if (isDraftConflict(error)) await recoverConflict('This setup changed in another session. The latest draft is loaded.')
+      else setActionError('Could not start editing.')
     } finally {
       setBusyAction(null)
     }
@@ -1504,31 +1544,34 @@ export function AdvancedMeasurementSection({
     }
   }
 
-  if (isLoading) {
+  // A setup is published and its plan has not reached the page: it is still being read, or its read failed.
+  const awaitingPublished = !loadError && !viewDraft && setup !== null && setup.activeRevision !== null
+
+  if (isLoading || (awaitingPublished && !isPublishedPlanError)) {
     return (
       <section aria-labelledby="advanced-measurement-loading-title" className="space-y-4">
-        <div className="section-head"><h2 id="advanced-measurement-loading-title">Advanced measurement setup</h2></div>
-        <div className="h-28 animate-pulse rounded-md bg-surface-subtle" aria-label="Loading advanced measurement setup" />
+        <div className="section-head"><h2 id="advanced-measurement-loading-title">Bulk setup</h2></div>
+        <div className="h-28 animate-pulse rounded-md bg-surface-subtle" aria-label="Loading bulk setup" />
       </section>
     )
   }
 
-  if (loadError) {
+  if (loadError || awaitingPublished) {
     return (
       <section aria-labelledby="advanced-measurement-error-title" className="space-y-4">
-        <div className="section-head"><h2 id="advanced-measurement-error-title">Advanced measurement setup</h2></div>
+        <div className="section-head"><h2 id="advanced-measurement-error-title">Bulk setup</h2></div>
         <div role="alert" className="border-y border-negative-800/40 bg-negative-950/20 py-4 text-sm text-negative">
-          <p>{loadError}</p>
-          <Button className="mt-3 min-h-11" type="button" size="sm" variant="outline" onClick={() => { void loadCurrent(true) }}>Try again</Button>
+          <p>{loadError ?? 'Could not load setup.'}</p>
+          <Button className="mt-3 min-h-11" type="button" size="sm" variant="outline" onClick={() => { if (loadError) void loadCurrent(true); else onRetryPublishedPlan?.() }}>Retry</Button>
         </div>
       </section>
     )
   }
 
-  if (!viewDraft || (canEdit && !etag)) {
+  if (!viewDraft || (editing && !etag)) {
     return (
       <section aria-labelledby="advanced-measurement-empty-title" className="space-y-4">
-        <div className="section-head"><h2 id="advanced-measurement-empty-title">Advanced measurement setup</h2></div>
+        <div className="section-head"><h2 id="advanced-measurement-empty-title">Bulk setup</h2></div>
         <p className="text-sm text-secondary">{canEdit ? 'Start setup from the project Overview.' : 'No advanced setup is available to review.'}</p>
       </section>
     )
@@ -1537,7 +1580,7 @@ export function AdvancedMeasurementSection({
   if (canEdit && draft && setup && draft.baseActiveRevision !== setup.activeRevision) {
     return (
       <section aria-labelledby="advanced-measurement-stale-draft-title" className="space-y-4">
-        <div className="section-head"><h2 id="advanced-measurement-stale-draft-title">Advanced measurement setup</h2></div>
+        <div className="section-head"><h2 id="advanced-measurement-stale-draft-title">Bulk setup</h2></div>
         <div role="alert" className="border-y border-caution-800/40 bg-caution-950/20 py-4">
           <p className="text-sm font-medium text-heading">This draft is based on an older published setup.</p>
           <p className="mt-1 text-sm text-secondary">Restart from the latest setup before making more changes.</p>
@@ -1561,22 +1604,29 @@ export function AdvancedMeasurementSection({
     <div className="flex justify-end"><Button type="button" size="sm" variant="outline" className="min-h-11" onClick={onRetryQueries}>Retry queries</Button></div>
   ) : null
 
+  // What every step's frame is handed. An editor with no draft open reads, as a viewer does, with Edit setup in the header.
+  const frame = {
+    hasDraft: draft !== null,
+    canEdit: editing,
+    onStepChange: !editing ? setStep : undefined,
+    onDiscard: () => { void discardDraft() },
+    onEdit: canEdit && !draft ? () => { void startEditing() } : undefined,
+    isStartingEdit: busyAction === 'start-editing',
+  }
+
   return (
     <div className="space-y-4">
       {setup?.mode === 'active-v1' ? (
-        <p role="status" className="border-y border-caution-800/40 bg-caution-950/20 py-3 text-sm text-secondary">
-          Review and publish this setup to enable class-filtered reporting.
-        </p>
+        <div role="status" className="border-y border-caution-800/40 bg-caution-950/20 py-3">
+          <StatusNote icon={AlertTriangle} tone="caution" label="Republish needed" detail="Review and publish this setup to report Branded and Non-brand queries separately." />
+        </div>
       ) : null}
       {actionError ? <p role="alert" className="border-y border-negative-800/40 bg-negative-950/20 py-3 text-sm text-negative">{actionError}</p> : null}
       {retryQueries}
       {step === 'import' || step === 'properties' ? (
         <AdvancedMeasurementSetup
           currentStep={step}
-          hasDraft={draft !== null}
-          canEdit={canEdit}
-          onStepChange={!canEdit ? setStep : undefined}
-          onDiscard={() => { void discardDraft() }}
+          {...frame}
           importProperties={{
             importDraft,
             onImportDraftChange: next => {
@@ -1592,7 +1642,8 @@ export function AdvancedMeasurementSection({
             onPropertiesSearchChange: setPropertiesSearch,
             maxVisibleProperties,
             onShowAllProperties: () => setMaxVisibleProperties(importProperties.length),
-            selectedPropertyIds: includedPropertyIds,
+            // With no draft open there is no selection to hold: every location of the published setup is in it.
+            selectedPropertyIds: draft ? includedPropertyIds : includedTargets.map(target => target.stableKey),
             onSelectedPropertyIdsChange: ids => setIncludedPropertyIds([...ids]),
             onContinue: ids => { void continueProperties(ids) },
             isContinuing: busyAction === 'properties',
@@ -1603,10 +1654,7 @@ export function AdvancedMeasurementSection({
       ) : step === 'queries' ? (
         <AdvancedMeasurementSetup
           currentStep="queries"
-          hasDraft={draft !== null}
-          canEdit={canEdit}
-          onStepChange={!canEdit ? setStep : undefined}
-          onDiscard={() => { void discardDraft() }}
+          {...frame}
           onManageProjectQueries={onManageProjectQueries}
           queries={{
             onCreateQueries: onCreateQueries
@@ -1637,7 +1685,7 @@ export function AdvancedMeasurementSection({
             assignmentNotice,
             onReplaceAssignments: replaceQueryAssignments,
             isReplacingAssignments: busyAction === 'replace-assignments',
-            onCreateAndPairQuestions: canEdit && onCreateQueries ? createAndPairQuestions : undefined,
+            onCreateAndPairQuestions: editing && onCreateQueries ? createAndPairQuestions : undefined,
             onClearQueryAssignments: clearQueryAssignments,
             onRemoveQuery: clearQueryAssignments,
             canContinue: assignmentCount > 0,
@@ -1648,10 +1696,7 @@ export function AdvancedMeasurementSection({
       ) : step === 'groups' ? (
         <AdvancedMeasurementSetup
           currentStep="groups"
-          hasDraft={draft !== null}
-          canEdit={canEdit}
-          onStepChange={!canEdit ? setStep : undefined}
-          onDiscard={() => { void discardDraft() }}
+          {...frame}
           groups={{
             properties: confirmedProperties,
             groups: setupGroups,
@@ -1685,10 +1730,7 @@ export function AdvancedMeasurementSection({
       ) : (
         <AdvancedMeasurementSetup
           currentStep="review"
-          hasDraft={draft !== null}
-          canEdit={canEdit}
-          onStepChange={!canEdit ? setStep : undefined}
-          onDiscard={() => { void discardDraft() }}
+          {...frame}
           review={{
             counts: {
               properties: includedTargets.length,

@@ -159,15 +159,24 @@ export function isDraftConflict(error: unknown): boolean {
   return error instanceof ApiError && (error.statusCode === 404 || error.statusCode === 409 || error.statusCode === 412)
 }
 
+/**
+ * A queued or running sweep refused the publish. This 409 is not a draft
+ * conflict: the reviewed draft is still current, and the message names the run.
+ */
+export function isRunInProgress(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.code === 'RUN_IN_PROGRESS'
+}
+
 export function setupErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof ApiError) return fallback
+  // A request that never reached the server throws the browser's own TypeError ("Failed to fetch"), not words for a person.
+  if (error instanceof ApiError || error instanceof TypeError) return fallback
   const message = error instanceof Error ? error.message.trim() : ''
   return message || fallback
 }
 
 /** Exposes only validation messages the API explicitly marks as operator-safe. */
 export function assignmentPreviewErrorMessage(error: unknown): string {
-  const fallback = 'Could not calculate assignment impact.'
+  const fallback = 'Could not calculate impact.'
   if (!(error instanceof ApiError) || error.code !== 'VALIDATION_ERROR') return fallback
   const message = error.message.trim()
   return error.details?.displayToOperator === true && message ? message : fallback

@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
+import { AlertTriangle, Eye, Info } from 'lucide-react'
 
+import { InfoTooltip } from '../../shared/InfoTooltip.js'
+import { StatusNote } from '../../shared/StatusNote.js'
 import { ToneBadge } from '../../shared/ToneBadge.js'
 import { Button } from '../../ui/button.js'
 
-export type AdvancedMeasurementAccess = 'editor' | 'viewer'
+/** `reader` is an account that can edit, reading with no draft open: read-only as `viewer` is, and not told View only. */
+export type AdvancedMeasurementAccess = 'editor' | 'viewer' | 'reader'
 
 export type AdvancedMeasurementAvailability =
   | { status: 'available' }
@@ -257,7 +261,7 @@ const PROPERTY_CHECKLIST_PAGE_SIZE = 50
 const QUERY_LIST_PAGE_SIZE = 50
 
 function isViewer(access: AdvancedMeasurementAccess | undefined): boolean {
-  return access === 'viewer'
+  return access === 'viewer' || access === 'reader'
 }
 
 function isUnavailable(availability: AdvancedMeasurementAvailability | undefined): availability is Extract<AdvancedMeasurementAvailability, { status: 'unavailable' }> {
@@ -273,7 +277,7 @@ function propertyNames(ids: readonly string[], properties: readonly AdvancedMeas
   const labels = new Map(properties.map(property => [property.id, property.label]))
   const names = ids.map(id => labels.get(id)).filter((name): name is string => Boolean(name))
   if (names.length === 0) return 'Not applied'
-  return names.length > 3 ? `${names.length} Properties` : names.join(', ')
+  return names.length > 3 ? `${names.length} locations` : names.join(', ')
 }
 
 function selectedAudiencePropertyIds(
@@ -310,7 +314,7 @@ function audienceLabel(
 function audienceOptionLabel(group: AdvancedMeasurementGroup, properties: readonly AdvancedMeasurementProperty[]): string {
   const known = new Set(properties.map(property => property.id))
   const count = group.propertyIds.filter(id => known.has(id)).length
-  return `${group.name} · ${count === 1 ? '1 Property' : `${count} Properties`}`
+  return `${group.name} · ${count === 1 ? '1 location' : `${count} locations`}`
 }
 
 function membershipTone(status: AdvancedMeasurementGroupMembershipStatus): 'positive' | 'caution' | 'negative' | 'neutral' {
@@ -324,8 +328,8 @@ function membershipLabel(status: AdvancedMeasurementGroupMembershipStatus): stri
   if (status === 'matched') return 'Matched'
   if (status === 'duplicate') return 'Duplicate'
   if (status === 'ambiguous') return 'Ambiguous'
-  if (status === 'proposed') return 'Property needs review'
-  if (status === 'excluded') return 'Property excluded'
+  if (status === 'proposed') return 'Location needs review'
+  if (status === 'excluded') return 'Location excluded'
   if (status === 'invalid') return 'Invalid row'
   return 'Not matched'
 }
@@ -334,12 +338,12 @@ function membershipMessage(row: AdvancedMeasurementGroupMembershipRow): string |
   if (row.status === 'duplicate' && row.duplicateOfRow) return `Duplicates row ${row.duplicateOfRow}.`
   if (row.status === 'matched') return null
   if (row.reason === 'group-label-ambiguous') return `More than one group matches “${row.group}”. Rename duplicate groups, then preview again.`
-  if (row.status === 'ambiguous') return 'More than one Property matches this row. Add an exact URL to choose one.'
-  if (row.status === 'unmatched') return 'No included Property matches this row.'
+  if (row.status === 'ambiguous') return 'More than one location matches this row. Add an exact URL to choose one.'
+  if (row.status === 'unmatched') return 'No included location matches this row.'
   if (row.reason === 'group-key-conflict') return `The group name “${row.group}” conflicts with an existing setup identity. Rename the group, then preview again.`
-  if (row.status === 'invalid') return 'Check the Property, group, and optional URL fields.'
-  if (row.status === 'proposed') return 'Review this proposed Property before importing it.'
-  if (row.status === 'excluded') return 'Include this Property before importing it.'
+  if (row.status === 'invalid') return 'Check the location, group, and optional URL fields.'
+  if (row.status === 'proposed') return 'Review this proposed location before importing it.'
+  if (row.status === 'excluded') return 'Include this location before importing it.'
   return row.reason ?? null
 }
 
@@ -383,7 +387,7 @@ function PropertyChecklist({
       <legend className="text-sm font-medium text-heading">{legend}</legend>
       <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
         <label className="block min-w-48 flex-1">
-          <span className="text-sm font-medium text-heading">Search Properties</span>
+          <span className="text-sm font-medium text-heading">Search</span>
           <input
             type="search"
             value={search}
@@ -397,9 +401,9 @@ function PropertyChecklist({
         </div> : null}
       </div>
 
-      {filteredProperties.length === 0 ? <p className="mt-3 text-sm text-secondary">No Properties match this search.</p> : (
+      {filteredProperties.length === 0 ? <p className="mt-3 text-sm text-secondary">No locations match this search.</p> : (
         <>
-          <p className="mt-3 text-sm text-secondary">Showing {visibleProperties.length} of {filteredProperties.length} Properties</p>
+          <p className="mt-3 text-sm text-secondary">Showing {visibleProperties.length} of {filteredProperties.length} locations</p>
           <div className="mt-2 max-h-96 divide-y divide-default overflow-y-auto border-y border-default">
             {visibleProperties.map(property => {
               const selected = selectedPropertyIds.includes(property.id)
@@ -419,7 +423,7 @@ function PropertyChecklist({
               )
             })}
           </div>
-          {hasHiddenProperties ? <Button type="button" size="sm" variant="outline" className="mt-3 min-h-11" onClick={() => setShowAll(true)}>Show all Properties</Button> : null}
+          {hasHiddenProperties ? <Button type="button" size="sm" variant="outline" className="mt-3 min-h-11" onClick={() => setShowAll(true)}>Show all locations</Button> : null}
         </>
       )}
     </fieldset>
@@ -427,7 +431,7 @@ function PropertyChecklist({
 }
 
 function ViewerNotice() {
-  return <div className="flex items-center gap-2 text-sm text-secondary"><ToneBadge tone="neutral">Viewer access</ToneBadge><span>You can inspect this setup.</span></div>
+  return <div><StatusNote icon={Eye} label="View only" detail="Your account cannot change this setup." /></div>
 }
 
 function UnavailableState({ message }: { message: string }) {
@@ -477,9 +481,9 @@ function GroupMembershipImportPanel({ value }: { value: AdvancedMeasurementGroup
 
   return (
     <section aria-labelledby="advanced-measurement-group-import-title" className="border-y border-default py-4">
-      <div className="max-w-2xl">
+      <div className="flex max-w-2xl items-center gap-1">
         <h4 id="advanced-measurement-group-import-title" className="text-sm font-medium text-heading">Import groups from CSV</h4>
-        <p className="mt-1 text-sm text-secondary">Import market membership once instead of selecting the same Properties for every group.</p>
+        <InfoTooltip placement="bottom" text="Import group membership once instead of selecting the same locations for every group." />
       </div>
       <div className="mt-3 space-y-3">
         <label className="block max-w-xl">
@@ -526,7 +530,7 @@ function GroupMembershipImportPanel({ value }: { value: AdvancedMeasurementGroup
             <div className="mt-3 overflow-x-auto border-y border-default">
               <table className="evidence-table min-w-[620px]">
                 <caption className="sr-only">Groups and memberships ready to apply</caption>
-                <thead><tr><th>Group</th><th>Change</th><th>Properties</th><th>New memberships</th></tr></thead>
+                <thead><tr><th>Group</th><th>Change</th><th>Locations</th><th>New memberships</th></tr></thead>
                 <tbody>
                   {preview.groupChanges.map(change => (
                     <tr key={change.groupKey}>
@@ -546,7 +550,7 @@ function GroupMembershipImportPanel({ value }: { value: AdvancedMeasurementGroup
               <div className="mt-3 overflow-x-auto border-y border-default">
                 <table className="evidence-table min-w-[620px]">
                   <caption className="sr-only">CSV group membership review</caption>
-                  <thead><tr><th>Row</th><th>Property</th><th>Group</th><th>Status</th></tr></thead>
+                  <thead><tr><th>Row</th><th>Location</th><th>Group</th><th>Status</th></tr></thead>
                   <tbody>
                     {shownRows.map(row => (
                       <tr key={row.dataRow}>
@@ -576,7 +580,7 @@ function GroupMembershipImportPanel({ value }: { value: AdvancedMeasurementGroup
               <div className="mt-3 overflow-x-auto border-y border-default">
                 <table className="evidence-table min-w-[620px]">
                   <caption className="sr-only">CSV rows that need attention</caption>
-                  <thead><tr><th>Row</th><th>Property</th><th>Group</th><th>Issue</th></tr></thead>
+                  <thead><tr><th>Row</th><th>Location</th><th>Group</th><th>Issue</th></tr></thead>
                   <tbody>
                     {shownAttentionRows.map(row => (
                       <tr key={row.dataRow}>
@@ -715,13 +719,13 @@ export function AdvancedMeasurementQueriesStep({
   return (
     <section aria-labelledby="advanced-measurement-queries-title" className="space-y-5">
       <div className="section-head">
-        <div>
+        <div className="flex items-center gap-1">
           <h3 id="advanced-measurement-queries-title">Queries</h3>
-          <p className="mt-1 max-w-2xl text-sm text-secondary">Choose queries, then apply them to locations.</p>
+          <InfoTooltip placement="bottom" text="Choose queries, then apply them to locations." />
         </div>
       </div>
 
-      {viewer ? <ViewerNotice /> : null}
+      {access === 'viewer' ? <ViewerNotice /> : null}
 
       {viewer ? null : (
         <fieldset className="border-y border-default py-4">
@@ -807,7 +811,11 @@ export function AdvancedMeasurementQueriesStep({
                   </select>
                 </label>
               ) : null}
-              {selectedPropertyCount === 0 ? <p role="alert" className="text-sm text-caution">This group has no included Properties. Add Properties to the group, then try again.</p> : null}
+              {selectedPropertyCount === 0 ? (
+                <div role="alert">
+                  <StatusNote icon={AlertTriangle} tone="caution" label="No locations in group" detail="This group has no included locations. Add locations to the group, then try again." />
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -824,7 +832,9 @@ export function AdvancedMeasurementQueriesStep({
               />
             </div>
           ) : null}
-          <p className="mt-3 max-w-2xl text-sm text-secondary">Groups are shortcuts resolved when you assign. Changing membership later does not rewrite existing assignments, and a Property added later does not receive earlier group queries.</p>
+          <div className="mt-3">
+            <StatusNote icon={Info} label="Groups are shortcuts" detail="A group is resolved when you apply queries. Changing its members later does not rewrite existing pairs, and a location added later does not receive earlier group queries." />
+          </div>
         </fieldset>
       )}
 
@@ -835,7 +845,9 @@ export function AdvancedMeasurementQueriesStep({
             <h4 className="m-0 text-sm font-medium text-heading">
               {queries.length === 0 ? 'Add the queries you want to track' : 'Add more queries'}
             </h4>
-            <p className="mt-1 mb-2 text-sm text-secondary">One per line. Add them to the project, then apply them to Properties.</p>
+            <div className="mt-1 mb-2">
+              <StatusNote icon={Info} label="One per line" detail="Queries are added to the project, then you apply them to locations." />
+            </div>
             <textarea
               aria-label="New queries, one per line"
               className="w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
@@ -871,11 +883,10 @@ export function AdvancedMeasurementQueriesStep({
             </div>
 
             <div className="mt-4 border-t border-default pt-4">
-              <h4 className="m-0 text-sm font-medium text-heading">Write one query for every Property</h4>
-              <p className="mt-1 mb-2 text-sm text-secondary">
-                Put <code className="rounded bg-bg-elevated px-1">{'{property}'}</code> where the
-                Property name belongs. You get one query per selected Property.
-              </p>
+              <h4 className="m-0 text-sm font-medium text-heading">One query per location</h4>
+              <div className="mt-1 mb-2">
+                <StatusNote icon={Info} label="Use {property}" detail="Put {property} where the location name belongs. You get one query per selected location." />
+              </div>
               <input
                 aria-label="Query pattern"
                 className="min-h-11 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
@@ -888,11 +899,13 @@ export function AdvancedMeasurementQueriesStep({
                   Add {'{property}'} to the pattern, or use the box above for a single query.
                 </p>
               ) : patternTargets.length === 0 ? (
-                <p className="mt-2 text-sm text-caution">Select at least one Property to write queries for.</p>
+                <div className="mt-2">
+                  <StatusNote icon={AlertTriangle} tone="caution" label="No location selected" detail="Select at least one location to write queries for." />
+                </div>
               ) : (
                 <div className="mt-2 rounded-md border border-base bg-bg-elevated p-3">
                   <p className="m-0 text-sm text-secondary">
-                    {patternExpansions.length} {patternExpansions.length === 1 ? 'query' : 'queries'}, one per selected Property:
+                    {patternExpansions.length} {patternExpansions.length === 1 ? 'query' : 'queries'}, one per selected location:
                   </p>
                   <ul className="mt-1 mb-0 list-none space-y-0.5 p-0">
                     {patternExpansions.slice(0, 3).map(text => (
@@ -923,10 +936,13 @@ export function AdvancedMeasurementQueriesStep({
                   : `Add ${patternPairs.length || ''} ${patternPairs.length === 1 ? 'query' : 'queries'}`.replace('  ', ' ')}
               </Button>
               {patternPairs.length > 0 ? (
-                <p className="mt-2 mb-0 text-sm text-secondary">
-                  Each query is measured on the one Property it names, so this adds{' '}
-                  {patternPairs.length} assignment{patternPairs.length === 1 ? '' : 's'}.
-                </p>
+                <div className="mt-2">
+                  <StatusNote
+                    icon={Info}
+                    label={`Adds ${patternPairs.length} ${patternPairs.length === 1 ? 'pair' : 'pairs'}`}
+                    detail="Each query is measured on the one location it names."
+                  />
+                </div>
               ) : null}
             </div>
           </div>
@@ -972,8 +988,8 @@ export function AdvancedMeasurementQueriesStep({
               }}
             >
               {isApplying
-                ? 'Assigning queries…'
-                : `Assign ${selectedQueryIds.length || ''} ${selectedQueryIds.length === 1 ? 'query' : 'queries'}${activeAudience.kind === 'none' ? '' : ` to ${audienceLabel(activeAudience, groups, selectedPropertyCount)}`}`.replace('  ', ' ')}
+                ? 'Applying queries…'
+                : `Apply ${selectedQueryIds.length || ''} ${selectedQueryIds.length === 1 ? 'query' : 'queries'}${activeAudience.kind === 'none' ? '' : ` to ${audienceLabel(activeAudience, groups, selectedPropertyCount)}`}`.replace('  ', ' ')}
             </Button>
             {/*
               Five states share this slot and each is a different height, and the
@@ -982,15 +998,15 @@ export function AdvancedMeasurementQueriesStep({
               the cursor.
             */}
             <div className="min-h-[2.75rem]">
-            {isPreviewingAssignmentImpact ? <p role="status" className="text-sm text-secondary">Calculating assignment impact…</p> : null}
+            {isPreviewingAssignmentImpact ? <p role="status" className="text-sm text-secondary">Calculating impact…</p> : null}
             {assignmentImpact ? (
               <p className="text-sm text-secondary">
-                {selectedQueryIds.length} {selectedQueryIds.length === 1 ? 'query' : 'queries'} → {assignmentImpact.assignmentCount} Property assignment{assignmentImpact.assignmentCount === 1 ? '' : 's'}
-                {' · '}{assignmentImpact.addedAssignments} new, {assignmentImpact.alreadyPresentAssignments} already assigned
+                {selectedQueryIds.length} {selectedQueryIds.length === 1 ? 'query' : 'queries'} → {assignmentImpact.assignmentCount} pair{assignmentImpact.assignmentCount === 1 ? '' : 's'}
+                {' · '}{assignmentImpact.addedAssignments} new, {assignmentImpact.alreadyPresentAssignments} already paired
                 {' · '}{assignmentImpact.fullRunProviderCalls} provider request{assignmentImpact.fullRunProviderCalls === 1 ? '' : 's'} per full run
                 {' · '}{assignmentImpact.addedProviderCalls} new
-                {activeAudience.kind === 'groups' ? ` · ${assignmentImpact.resolvedPropertyCount} unique ${assignmentImpact.resolvedPropertyCount === 1 ? 'Property' : 'Properties'}${assignmentImpact.overlapCount > 0 ? `, ${assignmentImpact.overlapCount} in overlapping groups` : ''}` : ''}
-                . Existing assignments stay in place.
+                {activeAudience.kind === 'groups' ? ` · ${assignmentImpact.resolvedPropertyCount} unique ${assignmentImpact.resolvedPropertyCount === 1 ? 'location' : 'locations'}${assignmentImpact.overlapCount > 0 ? `, ${assignmentImpact.overlapCount} in overlapping groups` : ''}` : ''}
+                <InfoTooltip placement="bottom" text="Existing pairs stay in place." />
               </p>
             ) : assignmentImpactError ? (
               <div className="flex flex-wrap items-center gap-3">
@@ -1001,7 +1017,7 @@ export function AdvancedMeasurementQueriesStep({
             ) : activeAudience.kind === 'none' ? (
               <p className="text-sm text-secondary">Choose where to apply first.</p>
             ) : (
-              <p className="text-sm text-secondary">{selectedQueryIds.length} {selectedQueryIds.length === 1 ? 'query' : 'queries'} × {selectedPropertyCount} Properties = {selectedQueryIds.length * selectedPropertyCount} assignments</p>
+              <p className="text-sm text-secondary">{selectedQueryIds.length} {selectedQueryIds.length === 1 ? 'query' : 'queries'} × {selectedPropertyCount} {selectedPropertyCount === 1 ? 'location' : 'locations'} = {selectedQueryIds.length * selectedPropertyCount} pair{selectedQueryIds.length * selectedPropertyCount === 1 ? '' : 's'}</p>
             )}
             </div>
             {assignmentNotice ? <p role="status" className="text-sm text-secondary">{assignmentNotice}</p> : null}
@@ -1052,8 +1068,8 @@ export function AdvancedMeasurementQueriesStep({
             <tr>
               {viewer ? null : <th><span className="sr-only">Select query</span></th>}
               <th>Query</th>
-              <th>Properties</th>
-              {viewer ? null : <th><span className="sr-only">Clear query assignments</span></th>}
+              <th>Locations</th>
+              {viewer ? null : <th><span className="sr-only">Clear locations</span></th>}
             </tr>
           </thead>
           <tbody>
@@ -1093,12 +1109,12 @@ export function AdvancedMeasurementQueriesStep({
                               className="min-h-11"
                               disabled={isBusy || isReplacingAssignments}
                               onClick={() => setReplacement({ queryId: query.id, propertyIds: [...(query.propertyIds ?? [])] })}
-                              aria-label={`Replace query assignments for ${label}`}
+                              aria-label={`Replace locations for ${label}`}
                             >
-                              Replace assignments
+                              Replace locations
                             </Button>
                           ) : null}
-                          <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={isBusy} onClick={() => { void clearAssignments(query.id) }} aria-label={`Clear query assignments for ${label}`}>Clear assignments</Button>
+                          <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={isBusy} onClick={() => { void clearAssignments(query.id) }} aria-label={`Clear locations for ${label}`}>Clear locations</Button>
                         </div>
                       ) : null}
                     </td>
@@ -1117,18 +1133,20 @@ export function AdvancedMeasurementQueriesStep({
         const selected = replacement.propertyIds.filter(propertyId => properties.some(property => property.id === propertyId))
         return (
           <section aria-labelledby="advanced-measurement-replace-assignments-title" className="border-y border-default py-4">
-            <h4 id="advanced-measurement-replace-assignments-title" className="text-sm font-medium text-heading">Replace assigned Properties</h4>
-            <p className="mt-1 max-w-2xl text-sm text-secondary">This replaces every Property assigned to “{label}”.</p>
+            <div className="flex items-center gap-1">
+              <h4 id="advanced-measurement-replace-assignments-title" className="text-sm font-medium text-heading">Replace locations</h4>
+              <InfoTooltip placement="bottom" text={`This replaces every location paired with “${label}”.`} />
+            </div>
             <div className="mt-3">
               <PropertyChecklist
-                legend="Properties for this query"
+                legend="Locations for this query"
                 properties={properties}
                 selectedPropertyIds={selected}
                 onSelectedPropertyIdsChange={propertyIds => setReplacement(current => current ? { ...current, propertyIds: [...propertyIds] } : current)}
               />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-3">
-              <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={isReplacingAssignments || isBusy} onClick={() => setReplacement(null)}>Keep current assignments</Button>
+              <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={isReplacingAssignments || isBusy} onClick={() => setReplacement(null)}>Keep current locations</Button>
               <Button
                 type="button"
                 size="sm"
@@ -1140,7 +1158,7 @@ export function AdvancedMeasurementQueriesStep({
                   void Promise.resolve(onReplaceAssignments({ queryId: replacement.queryId, propertyIds: selected }))
                 }}
               >
-                {isReplacingAssignments ? 'Replacing assignments…' : `Replace with ${selected.length} ${selected.length === 1 ? 'Property' : 'Properties'}`}
+                {isReplacingAssignments ? 'Replacing locations…' : `Replace with ${selected.length} ${selected.length === 1 ? 'location' : 'locations'}`}
               </Button>
             </div>
           </section>
@@ -1153,7 +1171,11 @@ export function AdvancedMeasurementQueriesStep({
 
       {viewer ? null : (
         <>
-          {canContinue ? null : <p role="status" className="text-sm text-caution">Apply at least one query to a Property before continuing.</p>}
+          {canContinue ? null : (
+            <div role="status">
+              <StatusNote icon={AlertTriangle} tone="caution" label="No query applied" detail="Apply at least one query to a location before continuing." />
+            </div>
+          )}
           <div className={`flex flex-wrap items-center gap-3 ${onBack ? 'justify-between' : 'justify-end'}`}>
             {onBack ? <Button type="button" variant="outline" className="min-h-11" disabled={isBusy} onClick={onBack}>Back</Button> : null}
             <Button type="button" variant={canApply ? 'outline' : 'default'} className="min-h-11" disabled={!canContinue || isBusy} onClick={onContinue}>Continue</Button>
@@ -1201,13 +1223,13 @@ export function AdvancedMeasurementGroupsStep({
   return (
     <section aria-labelledby="advanced-measurement-groups-title" className="space-y-5">
       <div className="section-head">
-        <div>
+        <div className="flex items-center gap-1">
           <h3 id="advanced-measurement-groups-title">Groups</h3>
-          <p className="mt-1 max-w-2xl text-sm text-secondary">Use groups to assign queries by market and compare competitors.</p>
+          <InfoTooltip placement="bottom" text="Use groups to apply queries by market and compare competitors." />
         </div>
       </div>
 
-      {viewer ? <ViewerNotice /> : null}
+      {access === 'viewer' ? <ViewerNotice /> : null}
 
       {viewer || !membershipImport ? null : <GroupMembershipImportPanel value={membershipImport} />}
 
@@ -1224,10 +1246,10 @@ export function AdvancedMeasurementGroupsStep({
             />
           </label>
           <details>
-            <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium text-heading">{selectedPropertyCount} of {properties.length} Properties selected</summary>
+            <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium text-heading">{selectedPropertyCount} of {properties.length} locations selected</summary>
             <div className="pt-3">
               <PropertyChecklist
-                legend="Properties in this group"
+                legend="Locations in this group"
                 properties={properties}
                 selectedPropertyIds={groupDraft.propertyIds}
                 onSelectedPropertyIdsChange={propertyIds => onGroupDraftChange({ ...groupDraft, propertyIds })}
@@ -1249,7 +1271,7 @@ export function AdvancedMeasurementGroupsStep({
               {isSaving ? 'Saving group…' : 'Save group'}
             </Button>
             <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={!hasUnsavedGroupDraft} onClick={clearGroupForm}>Clear form</Button>
-            <p className="text-sm text-secondary">Competitor domains are used only in this group&apos;s competitor report. Membership changes affect future assignments only.</p>
+            <StatusNote icon={Info} label="How groups apply" detail="Competitor domains are used only in this group's competitor report. Membership changes affect future pairs only." />
           </div>
           {hasUnsavedGroupDraft ? <p role="status" className="text-sm text-caution">Save this group or clear the form before continuing.</p> : null}
         </div>
@@ -1257,7 +1279,7 @@ export function AdvancedMeasurementGroupsStep({
 
       <div className="overflow-x-auto border-y border-default">
         <table className="evidence-table min-w-[620px]">
-          <thead><tr><th>Group</th><th>Properties</th><th>Competitors</th>{showSavedGroupActions ? <th>Actions</th> : null}</tr></thead>
+          <thead><tr><th>Group</th><th>Locations</th><th>Competitors</th>{showSavedGroupActions ? <th>Actions</th> : null}</tr></thead>
           <tbody>
             {groups.map(group => (
               <tr key={group.id}>
@@ -1326,25 +1348,25 @@ export function AdvancedMeasurementReviewStep({
   return (
     <section aria-labelledby="advanced-measurement-review-title" className="space-y-5">
       <div className="section-head">
-        <div>
+        <div className="flex items-center gap-1">
           <h3 id="advanced-measurement-review-title">Review &amp; publish</h3>
-          <p className="mt-1 max-w-2xl text-sm text-secondary">Confirm the setup details before publishing.</p>
+          <InfoTooltip placement="bottom" text="Confirm the setup details before publishing." />
         </div>
       </div>
 
-      {viewer ? <ViewerNotice /> : null}
+      {access === 'viewer' ? <ViewerNotice /> : null}
 
       {sitemapReview ? (
         <section aria-labelledby="advanced-measurement-sitemap-review-title" className="border-y border-caution-800/40 bg-caution-950/20 py-4">
           <div className="max-w-2xl space-y-3">
             <div>
               <h4 id="advanced-measurement-sitemap-review-title" className="text-sm font-medium text-heading">Sitemap changes need review</h4>
-              {sitemapReview.exceptionCount > 0 ? <p className="mt-1 text-sm text-secondary">{sitemapReview.exceptionCount} sitemap {sitemapReview.exceptionCount === 1 ? 'entry needs' : 'entries need'} review.</p> : null}
-              {sitemapReview.coverageReviewCount > 0 ? <p className="mt-1 text-sm text-secondary">{sitemapReview.coverageReviewCount} {sitemapReview.coverageReviewCount === 1 ? 'Property has' : 'Properties have'} URL coverage changes.</p> : null}
+              {sitemapReview.exceptionCount > 0 ? <p className="mt-1 text-sm text-secondary">{sitemapReview.exceptionCount} sitemap {sitemapReview.exceptionCount === 1 ? 'entry' : 'entries'} to review</p> : null}
+              {sitemapReview.coverageReviewCount > 0 ? <p className="mt-1 text-sm text-secondary">{sitemapReview.coverageReviewCount} {sitemapReview.coverageReviewCount === 1 ? 'location' : 'locations'} with URL changes</p> : null}
             </div>
             {sitemapReview.exceptionCount > 0 ? (
               <details className="border-y border-caution-800/30 py-3">
-                <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium text-heading">URLs not added to Properties ({sitemapReview.exceptionCount})</summary>
+                <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium text-heading">URLs not added to locations ({sitemapReview.exceptionCount})</summary>
                 {sitemapItems.length > 0 ? (
                   <ul className="mt-3 space-y-3 text-sm">
                     {shownSitemapItems.map(item => (
@@ -1354,7 +1376,7 @@ export function AdvancedMeasurementReviewStep({
                       </li>
                     ))}
                   </ul>
-                ) : <p className="mt-2 text-sm text-secondary">Review the affected sitemap URLs before confirming.</p>}
+                ) : <div className="mt-2"><StatusNote icon={Info} label="Review before confirming" detail="Review the affected sitemap URLs before confirming." /></div>}
                 <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-secondary">
                   <span>Showing {shownSitemapItems.length} of {sitemapItems.length}</span>
                   {shownSitemapItems.length < sitemapItems.length ? (
@@ -1367,10 +1389,12 @@ export function AdvancedMeasurementReviewStep({
               <>
                 {sitemapReview.coverageReviewCount > 0 ? (
                   <fieldset className="space-y-3">
-                    <legend className="text-sm font-medium text-heading">For changed Property URLs</legend>
-                    <p className="text-sm text-secondary">This choice applies to all {sitemapReview.coverageReviewCount} changed {sitemapReview.coverageReviewCount === 1 ? 'Property' : 'Properties'}.</p>
+                    <legend className="text-sm font-medium text-heading">
+                      For changed location URLs
+                      <InfoTooltip placement="bottom" text={`This choice applies to ${sitemapReview.coverageReviewCount === 1 ? 'the 1 changed location' : `all ${sitemapReview.coverageReviewCount} changed locations`}.`} />
+                    </legend>
                     <details className="border-y border-caution-800/30 py-3">
-                      <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium text-heading">Review Property URL changes ({sitemapReview.coverageReviewCount})</summary>
+                      <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium text-heading">Review location URL changes ({sitemapReview.coverageReviewCount})</summary>
                       {shownCoverageItems.length > 0 ? (
                         <div className="mt-3 space-y-4">
                           {shownCoverageItems.map(item => (
@@ -1389,7 +1413,7 @@ export function AdvancedMeasurementReviewStep({
                             ) : null}
                           </div>
                         </div>
-                      ) : <p className="mt-2 text-sm text-secondary">Review the affected Properties before confirming.</p>}
+                      ) : <div className="mt-2"><StatusNote icon={Info} label="Review before confirming" detail="Review the affected locations before confirming." /></div>}
                     </details>
                     <label className="flex min-h-11 items-center gap-2 text-sm text-primary">
                       <input
@@ -1398,7 +1422,7 @@ export function AdvancedMeasurementReviewStep({
                         checked={sitemapReview.coverageResolution === 'keep-existing'}
                         onChange={() => sitemapReview.onCoverageResolutionChange('keep-existing')}
                       />
-                      Keep existing Property URLs
+                      Keep existing location URLs
                     </label>
                     <label className="flex min-h-11 items-center gap-2 text-sm text-primary">
                       <input
@@ -1420,7 +1444,7 @@ export function AdvancedMeasurementReviewStep({
 
       <div className="overflow-x-auto border-y border-default">
         <table className="evidence-table min-w-[720px]">
-          <thead><tr><th>Properties</th><th>Queries</th><th>Groups</th><th>Assignments</th><th>Provider requests / run</th></tr></thead>
+          <thead><tr><th>Locations</th><th>Queries</th><th>Groups</th><th>Pairs</th><th>Provider requests / run</th></tr></thead>
           <tbody><tr>
             <td className="tabular-nums text-heading">{counts.properties}</td>
             <td className="tabular-nums text-heading">{counts.queries}</td>
@@ -1436,14 +1460,16 @@ export function AdvancedMeasurementReviewStep({
         </p>
       ) : null}
       {counts.assignments !== undefined && counts.assignments > counts.queries ? (
-        // Aiming one query at a market writes one assignment per Property in
+        // Applying one query to a group writes one assignment per Property in
         // it, so this number outruns the query count and looks wrong without
         // the reason beside it.
-        <p className="supporting-copy">
-          {counts.queries} {counts.queries === 1 ? 'query' : 'queries'} aimed at markets and Properties
-          {' '}produce {counts.assignments} assignment{counts.assignments === 1 ? '' : 's'}:
-          {' '}a query aimed at a market is measured on every Property in it.
-        </p>
+        <div>
+          <StatusNote
+            icon={Info}
+            label="More pairs than queries"
+            detail={`${counts.queries} ${counts.queries === 1 ? 'query' : 'queries'} applied to groups and locations ${counts.queries === 1 ? 'makes' : 'make'} ${counts.assignments} ${counts.assignments === 1 ? 'pair' : 'pairs'}: a query applied to a group is measured on every location in it.`}
+          />
+        </div>
       ) : null}
 
       {reviewedChanges ? (

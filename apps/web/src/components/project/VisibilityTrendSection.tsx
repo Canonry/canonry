@@ -12,7 +12,7 @@ import type { VisibilityAnswerSelection, VisibilitySelectionState } from '../../
 import { visibilityReportFirstPageQuery } from '../../lib/measurement-view-url.js'
 import { selectedScopeOption } from '../../lib/project-scope.js'
 import { Button } from '../ui/button.js'
-import { Check, ChevronRight, Minus, X } from 'lucide-react'
+import { AlertTriangle, Check, ChevronRight, Minus, X } from 'lucide-react'
 import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../shared/AnswerMarkdown.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { SourceLink } from '../shared/SourceLink.js'
@@ -47,6 +47,7 @@ import { SegmentedRadioGroup } from '../shared/SegmentedRadioGroup.js'
 import { excludedAnswersLabel, formatSweepInstant, type CoverageSignal } from '../../lib/format-helpers.js'
 import { fetchAnalyticsMetrics, isDashboardManagedSweeps } from '../../api.js'
 import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
+import { MARKET_SCOPE_COPY, placeLabel } from './VisibilityScopePicker.js'
 import { DataTablePagination, useClientTable } from '../shared/DataTableControls.js'
 import { DEFAULT_QUERY_STALE_MS, STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
 import {
@@ -138,9 +139,9 @@ export const REPORT_CHANGE_COPY = {
 export const REPORT_HEADLINE_HELP = {
   simpleMention: 'Mentioned counts answers naming your brand in the answer text, not in the source links.',
   simpleCitation: 'Cited counts answers linking to your site in the sources behind the answer, not in the answer text.',
-  advancedMention: 'An answer counts when it mentions any assigned property. This does not mean every property was mentioned. An answer that could not be tied to one property is left out of the rate, never counted as not mentioned.',
-  advancedCitation: 'An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted on its own line.',
-  propertyReach: 'Selected properties named in at least one measured answer, out of the selected properties that have a name to match on. It counts properties, not answers, and shows no rate while any of those properties is unmeasured.',
+  advancedMention: "An answer counts when it mentions any of the query's locations. This does not mean every location was mentioned. An answer that could not be tied to one location is left out of the rate, never counted as not mentioned.",
+  advancedCitation: "An answer counts when it cites a matching URL for any of the query's locations. This does not mean every location was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted behind the caution icon.",
+  propertyReach: 'Selected locations mentioned in at least one measured answer, out of the selected locations that have a name to match on. It counts locations, not answers, and shows no rate while any of those locations is unmeasured.',
 } as const
 /**
  * What the outcome buckets partition, and the two distinctions a reader cannot
@@ -153,27 +154,35 @@ export const REPORT_HEADLINE_HELP = {
  * this property's own two signals, never a competitor's, so the copy cannot say
  * a rival was recommended instead without asserting a finding nothing measured.
  */
-const REPORT_OUTCOMES_HELP = "Counts properties, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the property's page as a source without naming it in the answer. Not measured covers a property with no eligible completed measurement, and one where only one of the two signals was measured: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
+const REPORT_OUTCOMES_HELP = "Counts locations, not answers. Each location is counted once. Cited only: its page was a source and its name was not in the answer. Not measured: mentioned or cited could not be checked."
+/** On a phone a table of rates fits its frame: tighter cells and header letters, so Cited stays on screen. */
+const PHONE_TABLE = 'max-md:[&_td]:px-2 max-md:[&_th]:px-2 max-md:[&_th]:tracking-[0.06em]'
 const REPORT_CONTROL = 'min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
 
-function reportScopeLabel(scope: VisibilityReportResponse['selection']['scope']): string {
-  if (scope.kind === 'project') return 'Whole site'
-  return scope.kind === 'group' ? `${scope.label} · Group` : scope.kind === 'market' ? `${scope.label} · Market` : scope.label
+/** The selected place, named as the place picker names it. */
+function reportScopeLabel(scope: VisibilityReportResponse['selection']['scope'], rootLabel: string, scopeOptions: VisibilityReportResponse['scopeOptions']): string {
+  if (scope.kind === 'project') return rootLabel
+  return scope.kind === 'group' ? `${placeLabel(scope, scopeOptions)} · Group` : scope.kind === 'market' ? `${scope.label} · Market` : scope.label
 }
+
+/** A count as the Queries tab prints one: "1,644". The number is the server's; only its digits are grouped. */
+const whole = (value: number | null) => value === null ? '' : value.toLocaleString('en-US')
 
 function reportRateReason(value: VisibilityReportRate): string {
   return value.reason === 'identity-ambiguous' ? VISIBILITY_DISPLAY_COPY.ambiguous : value.reason === 'not-applicable' ? 'Not applicable' : 'Not measured'
 }
 
 /**
- * A rate, its count and, when the server left answers out of both sides, the
- * line naming them for this rate's own signal: answers not tied to one property
- * under Mentioned, answers whose sources could not be checked under Cited.
+ * A rate, its count and, when the server left answers out of both sides, a
+ * caution icon beside the count naming them for this rate's own signal: answers
+ * not tied to one property under Mentioned, answers whose sources could not be
+ * checked under Cited. `noteAsText` keeps the note a plain line instead, for a
+ * table no one sees, where the icon would be a tab stop with nothing to show.
  */
-function ReportRate({ value, signal }: { value: VisibilityReportRate; signal: CoverageSignal }) {
+function ReportRate({ value, signal, noteAsText = false }: { value: VisibilityReportRate; signal: CoverageSignal; noteAsText?: boolean }) {
   if (value.rate === null) return <span className="text-sm text-secondary">{reportRateReason(value)}</span>
   const excluded = excludedAnswersLabel(value, signal)
-  return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{formatPercent(value.rate)}</strong><span className="text-sm tabular-nums text-secondary">{value.numerator} of {value.denominator}</span>{excluded ? <span className="text-sm tabular-nums text-secondary">{excluded}</span> : null}</span>
+  return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{formatPercent(value.rate)}</strong><span className="whitespace-nowrap text-sm tabular-nums text-secondary">{whole(value.numerator)} of {whole(value.denominator)}{excluded && !noteAsText ? <InfoTooltip variant="caution" text={excluded} /> : null}</span>{excluded && noteAsText ? <span className="text-sm tabular-nums text-secondary">{excluded}</span> : null}</span>
 }
 
 /** A bounded bar at the server rate. The rate text beside it carries the value for assistive tech. */
@@ -250,22 +259,22 @@ function reportComparisonCaption(comparison: VisibilityReportComparison | undefi
 
 /** Population size, then the compared sweep. The class itself is named by the section heading. */
 function reportHeadlineCaption(summary: VisibilityReportSummary, comparison: string | null): string {
-  const counts = `${summary.queryCount} ${summary.queryCount === 1 ? 'query' : 'queries'} · ${summary.answerCount} ${summary.answerCount === 1 ? 'answer' : 'answers'}`
+  const counts = `${whole(summary.queryCount)} ${summary.queryCount === 1 ? 'query' : 'queries'} · ${whole(summary.answerCount)} ${summary.answerCount === 1 ? 'answer' : 'answers'}`
   return comparison === null ? counts : `${counts} · ${comparison}`
 }
 
 /**
  * One headline tile: its own quiet surface, a labelled rate with the change
- * beside it, and one supporting line, or two when the server left answers out of
- * the rate. The class is visible in the section heading, so each figure repeats
- * it for assistive tech only.
+ * beside it, and one supporting line, with a caution icon beside it when the
+ * server left answers out of the rate. The class is visible in the section
+ * heading, so each figure repeats it for assistive tech only.
  */
 function ReportHeadlineCell({ label, help, value, signal, unit, classNoun, change }: {
   label: string
   help: string
   value: VisibilityReportRate
   signal: CoverageSignal
-  unit: 'answers' | 'properties'
+  unit: 'answers' | 'locations'
   classNoun: string
   change: ReportChangeLine | null
 }) {
@@ -273,7 +282,8 @@ function ReportHeadlineCell({ label, help, value, signal, unit, classNoun, chang
   // Answers the server left out of both sides of this rate: for a mention rate,
   // answers it could not tie to one property; for a citation rate, answers whose
   // sources could not be checked. The rate's own count already excludes them;
-  // this line keeps them visible. Stated by the server, never derived here.
+  // the caution icon beside it keeps them a hover, focus or tap away. Stated by
+  // the server, never derived here.
   const excluded = excludedAnswersLabel(value, signal)
   return <div className="report-headline-tile">
     <dt className="flex items-center gap-1 text-sm text-secondary"><span>{label}</span><InfoTooltip text={help} /></dt>
@@ -283,19 +293,29 @@ function ReportHeadlineCell({ label, help, value, signal, unit, classNoun, chang
         {queryClassSuffix}
         {change ? <span className={`text-sm ${change.tone}`}>{change.text}</span> : null}
       </dd>
-      <dd className="text-sm tabular-nums text-secondary">{`${value.numerator} of ${value.denominator} ${unit}`}</dd>
-      {excluded ? <dd className="text-sm tabular-nums text-secondary">{excluded}</dd> : null}
+      <dd className="text-sm tabular-nums text-secondary">{`${whole(value.numerator)} of ${whole(value.denominator)} ${unit}`}{excluded ? <InfoTooltip variant="caution" text={excluded} /> : null}</dd>
     </>}
   </div>
 }
 
 export const REPORT_MARKET_COPY = { otherQueries: 'Other queries' }
 
-/** Recovery for a saved scope or market that the displayed measurement no longer has. */
+/** A root label such as "All of Acme", as it reads inside a sentence. */
+const midSentence = (label: string) => `${label.charAt(0).toLocaleLowerCase()}${label.slice(1)}`
+
+/**
+ * Recovery for a saved place or market that the displayed measurement no longer
+ * has: a short label, with the sentence behind the icon beside it. `root` is
+ * what the place picker calls the whole project.
+ */
 export const VISIBILITY_SCOPE_RECOVERY_COPY = {
-  retiredScope: 'This saved scope is unavailable for this measurement. Show the whole site to choose another.',
-  retiredMarket: 'This saved market is unavailable for this measurement. Show all markets to choose another.',
-  showWholeSite: 'Show whole site',
+  retiredScope: 'Place unavailable',
+  retiredScopeHelp: (root: string) => `This saved place is not in this measurement. Show ${midSentence(root)} to pick another.`,
+  retiredMarket: 'Market unavailable',
+  retiredMarketHelp: 'This saved market is not in this measurement. Show all markets to pick another.',
+  showWholeSite: 'Show all',
+  /** The button's accessible name, which says all of what. */
+  showRoot: (root: string) => `Show ${midSentence(root)}`,
   showAllMarkets: 'Show all markets',
 } as const
 
@@ -334,19 +354,19 @@ export function groupVisibilityQueryRows(rows: readonly VisibilityReportQueryRow
  * the cited Properties are the server's `uncheckedSources`; nothing is derived.
  */
 export const UNCHECKED_SOURCES_COPY = {
-  help: 'Only part of the source list for this answer was saved, so its sources could not all be checked. It is left out of Cited, counted neither as cited nor as not cited. The links that were saved still show what it cited. A property that no fully checked answer cites shows as Not measured.',
+  help: 'Only part of the source list for this answer was saved, so its sources could not all be checked. It is left out of Cited, counted neither as cited nor as not cited. The links that were saved still show what it cited. A location that no fully checked answer cites shows as Not measured.',
   partlySaved: (answers: number) => answers === 1 ? 'Sources partly saved' : `${answers} answers with sources partly saved`,
   savedCite: (citedAnswers: number, answers: number, names: string) => answers === 1
     ? `Saved links cite ${names}`
     : `Saved links in ${citedAnswers} of ${answers} answers cite ${names}`,
-  savedCiteNone: (name: string | null) => name === null ? 'No saved link cites an assigned property' : `No saved link cites ${name}`,
+  savedCiteNone: (name: string | null) => name === null ? 'Saved links cite none' : `No saved link cites ${name}`,
   outcomes: (count: number) => `${count} not measured only because an answer's sources were partly saved. Query results shows which answer.`,
 } as const
 
 function UncheckedSourcesLines({ row, targetLabels, showCount }: {
   row: VisibilityReportQueryRow
   targetLabels: Map<string, string>
-  /** False when the rate's own left-out line already counts these answers. */
+  /** False when the rate's own caution note already counts these answers. */
   showCount: boolean
 }) {
   const unchecked = row.uncheckedSources
@@ -361,6 +381,12 @@ function UncheckedSourcesLines({ row, targetLabels, showCount }: {
   </>
 }
 
+/** One answer's result, in the word its column is headed by. */
+const SINGLE_ANSWER_RESULT: Record<CoverageSignal, { yes: string; no: string }> = {
+  mentioned: { yes: 'Mentioned', no: 'Not mentioned' },
+  cited: { yes: 'Cited', no: 'Not cited' },
+}
+
 function QueryResultRate({ value, signal, singleAnswer, row, targetLabels }: {
   value: VisibilityReportRate
   signal: CoverageSignal
@@ -369,12 +395,12 @@ function QueryResultRate({ value, signal, singleAnswer, row, targetLabels }: {
   row?: VisibilityReportQueryRow
   targetLabels?: Map<string, string>
 }) {
-  // A Yes/No reading only when the one answer is the whole population; a rate
-  // that left an answer out keeps its count and its left-out line.
+  // The result in a word only when the one answer is the whole population; a
+  // rate that left an answer out keeps its count and its caution note.
   if (singleAnswer && value.denominator === 1 && value.unattributed === undefined && value.unchecked === undefined && (value.rate === 0 || value.rate === 1)) {
     const found = value.rate === 1
     return <span className={`inline-flex items-center gap-2 text-sm ${found ? 'text-positive' : 'text-secondary'}`}>
-      {found ? <Check size={16} aria-hidden="true" /> : <Minus size={16} aria-hidden="true" />}{found ? 'Yes' : 'No'}
+      {found ? <Check size={16} aria-hidden="true" /> : <Minus size={16} aria-hidden="true" />}{SINGLE_ANSWER_RESULT[signal][found ? 'yes' : 'no']}
     </span>
   }
   const unchecked = signal === 'cited' && row?.uncheckedSources ? row : undefined
@@ -390,10 +416,10 @@ function QueryResultRate({ value, signal, singleAnswer, row, targetLabels }: {
 }
 
 function QueryProperties({ targetKeys, labels }: { targetKeys: string[]; labels: Map<string, string> }) {
-  if (targetKeys.length === 0) return <span>No assigned properties</span>
+  if (targetKeys.length === 0) return <span>No locations</span>
   if (targetKeys.length === 1) return <span>{labels.get(targetKeys[0]!) ?? targetKeys[0]}</span>
   return <details>
-    <summary className="min-h-11 cursor-pointer py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">{targetKeys.length} properties</summary>
+    <summary className="min-h-11 cursor-pointer py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">{targetKeys.length} locations</summary>
     <ul className="max-h-48 space-y-2 overflow-y-auto pb-3">{targetKeys.map(key => <li key={key}>{labels.get(key) ?? key}</li>)}</ul>
   </details>
 }
@@ -410,7 +436,7 @@ function QueryResultGroup({ group, queryClass, advanced, targetLabels, marketHea
   const targetIdentity = (row: VisibilityReportQueryRow) => JSON.stringify([...row.targetKeys].sort())
   const sharedTargets = group.rows.every(row => targetIdentity(row) === targetIdentity(first))
   const sharedLocation = group.rows.every(row => row.location === first.location)
-  const locationLabel = (location: string | null) => location === null ? 'No location requested' : `Requested search location: ${location}`
+  const locationLabel = (location: string | null) => location === null ? VISIBILITY_TOOLBAR_COPY.noLocation : VISIBILITY_TOOLBAR_COPY.location(location)
   return <tbody data-query-key={group.queryKey}>
     {marketHeading ? <tr><th colSpan={4} className="border-t border-default py-4 text-left"><h3 className="text-base font-semibold text-heading">{marketHeading}</h3></th></tr> : null}
     <tr className="measurement-result-heading"><th scope="rowgroup" colSpan={4}>
@@ -436,7 +462,15 @@ function QueryResultGroup({ group, queryClass, advanced, targetLabels, marketHea
 }
 
 type ReportTrendSeries = 'mentioned' | 'cited'
-/** Under the trend chart when a plotted Cited point left out answers whose sources could not be checked. */
+/** How a trend point stands to the point before it, in the headline's words for a comparison. */
+const REPORT_CONTINUITY_LABEL: Record<VisibilityReportPopulation['trend'][number]['continuity']['state'], string> = {
+  first: 'No earlier sweep',
+  comparable: 'Compared',
+  'definition-changed': REPORT_CHANGE_COPY.definitionChanged(null),
+  'model-changed': REPORT_CHANGE_COPY.modelChanged(null),
+  'legacy-unknown': 'Not compared: older sweep',
+}
+/** Behind a caution icon in the trend legend when a plotted Cited point left out answers whose sources could not be checked. */
 export const REPORT_TREND_UNCHECKED_NOTE = 'Cited counts only answers whose sources could be checked.'
 const REPORT_TREND_SERIES: ReadonlyArray<{ key: ReportTrendSeries; label: string; color: string; dashed: boolean }> = [
   { key: 'mentioned', label: 'Mentioned', color: CHART_SERIES_COLORS[1]!, dashed: false },
@@ -447,6 +481,7 @@ const REPORT_TREND_HOLLOW_DOT = 'var(--chart-tooltip-bg)'
 
 function ReportTrend({ population }: { population: VisibilityReportPopulation }) {
   const descriptionId = useId()
+  const uncheckedNoteId = useId()
   const [visibleSeries, setVisibleSeries] = useState<Record<ReportTrendSeries, boolean>>({ mentioned: true, cited: true })
   const visibleKeys = REPORT_TREND_SERIES.filter(series => visibleSeries[series.key]).map(series => series.key)
   // The last visible series stays on, so the chart never empties.
@@ -471,9 +506,10 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
     ...(boundaries.has('model-changed') ? ['Gaps mark changes to answer engines or models.'] : []),
     ...(boundaries.has('legacy-unknown') ? ['Older runs lack the details needed for comparison.'] : []),
     ...(population.trend.some(point => point.citationCoverage.reason === 'evidence-incomplete') ? ['Missing citation results mean the saved evidence is incomplete.'] : []),
-    // A plotted Cited point may leave out answers whose sources could not be checked; the chart says so, the table counts them.
-    ...(population.trend.some(point => point.citationCoverage.unchecked !== undefined) ? [REPORT_TREND_UNCHECKED_NOTE] : []),
   ]
+  // A plotted Cited point may leave out answers whose sources could not be checked; the legend says so behind a caution icon, the table counts them.
+  const uncheckedNote = population.trend.some(point => point.citationCoverage.unchecked !== undefined)
+  const describedBy = [...(notes.length > 0 ? [descriptionId] : []), ...(uncheckedNote ? [uncheckedNoteId] : [])].join(' ')
   if (points.length === 0) return <p className="py-6 text-sm text-secondary">No measured trend for this selection.</p>
   const hasRates = population.trend.some(point => point.mentionCoverage.rate !== null || point.citationCoverage.rate !== null)
   return <>
@@ -485,15 +521,17 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
           <svg aria-hidden="true" className="shrink-0" width="24" height="10" viewBox="0 0 24 10"><line x1="0" y1="5" x2="24" y2="5" stroke={series.color} strokeWidth="2" strokeDasharray={series.dashed ? '6 4' : undefined} /><circle cx="12" cy="5" r="3" fill={series.dashed ? REPORT_TREND_HOLLOW_DOT : series.color} stroke={series.color} strokeWidth="2" /></svg>
           {series.label}
         </label>)}
+        {/* Beside Cited, the series it qualifies. The chart reads it as part of its description. */}
+        {uncheckedNote ? <span id={uncheckedNoteId} className="-ml-4 flex items-center"><InfoTooltip variant="caution" text={REPORT_TREND_UNCHECKED_NOTE} /></span> : null}
       </fieldset>
       {notes.length > 0 && <p id={descriptionId} className="pb-3 text-sm text-secondary">{notes.join(' ')}</p>}
-      <div className="visibility-trend-chart" role="img" data-visible-series={visibleKeys.join(' ')} aria-describedby={notes.length > 0 ? descriptionId : undefined} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} mention and citation trend`}>
+      <div className="visibility-trend-chart" role="img" data-visible-series={visibleKeys.join(' ')} aria-describedby={describedBy || undefined} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} mention and citation trend`}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
             <XAxis dataKey="createdAt" type="number" scale="time" domain={['dataMin', 'dataMax']} tick={CHART_AXIS_TICK} tickLine={false} axisLine={{ stroke: CHART_AXIS_STROKE }} tickFormatter={value => new Date(Number(value)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} minTickGap={24} />
             <YAxis domain={[0, 1]} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} width={48} tickFormatter={value => formatPercent(Number(value))} />
-            <RechartsTooltip {...CHART_TOOLTIP_STYLE} formatter={value => typeof value === 'number' ? formatPercent(value) : 'Not measured'} labelFormatter={value => new Date(Number(value)).toLocaleDateString()} />
+            <RechartsTooltip {...CHART_TOOLTIP_STYLE} formatter={value => typeof value === 'number' ? formatPercent(value) : 'Not measured'} labelFormatter={value => Number.isFinite(Number(value)) ? formatObservedInstantLabel(observedInstant(new Date(Number(value)).toISOString())) : ''} />
             {segments.map(index => <Fragment key={index}>
               {visibleSeries.mentioned ? <Line type="linear" dataKey={`mentioned-${index}`} name="Mentioned" stroke={CHART_SERIES_COLORS[1]} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={{ r: 3, fill: CHART_SERIES_COLORS[1] }} /> : null}
               {/* A dot inherits the line's dash pattern unless it resets it. */}
@@ -505,7 +543,7 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
     </> : <p className="py-6 text-sm text-secondary">No measured trend for this selection.</p>}
     <div className={hasRates ? 'sr-only' : 'overflow-x-auto'}>
       <table className="evidence-table" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} trend data`}><thead><tr><th>Date</th><th>Mentioned</th><th>Cited</th><th>Comparison</th></tr></thead><tbody>
-        {population.trend.map(point => <tr key={point.runId}><td>{new Date(point.createdAt).toLocaleDateString()}</td><td><ReportRate value={point.mentionCoverage} signal="mentioned" /></td><td><ReportRate value={point.citationCoverage} signal="cited" /></td><td>{point.continuity.state.replaceAll('-', ' ')}</td></tr>)}
+        {population.trend.map(point => <tr key={point.runId}><td>{formatObservedInstantLabel(observedInstant(point.createdAt))}</td><td><ReportRate value={point.mentionCoverage} signal="mentioned" noteAsText /></td><td><ReportRate value={point.citationCoverage} signal="cited" noteAsText /></td><td>{REPORT_CONTINUITY_LABEL[point.continuity.state]}</td></tr>)}
       </tbody></table>
     </div>
   </>
@@ -525,6 +563,8 @@ export interface VisibilityReportViewProps {
   evidenceError?: string
   onRetryEvidence?: () => void
   onEvidencePage?: (cursor: string) => void
+  /** What the whole project is called, as the place picker names it. */
+  rootLabel?: string
 }
 
 function matchingReportPopulation(report: VisibilityReportResponse | undefined, queryKey?: string) {
@@ -556,19 +596,19 @@ export const VISIBILITY_TOOLBAR_COPY = {
   removeFilter: (label: string) => `Remove filter ${label}`,
   engine: (provider: string) => `Engine: ${provider}`,
   model: (model: string) => `Model: ${model}`,
-  location: (location: string) => `Requested search location: ${location}`,
-  noLocation: 'No location requested',
+  searchLocation: 'Search location',
+  location: (location: string) => `Search location: ${location}`,
+  noLocation: 'No search location',
+  allLocations: 'All search locations',
   dateRange: (from: string, to: string) => `${from} to ${to} (UTC)`,
   dateFrom: (from: string) => `From ${from} (UTC)`,
   dateThrough: (to: string) => `Through ${to} (UTC)`,
   resultsFrom: (date: string) => `Results from: ${date}`,
   resultsFromSelectedSweep: 'Results from: selected sweep',
-  /** A missing date reads generically, so the strip never invents one. */
-  trackingChanged: (changedOn: string | null, resultsOn: string | null, nextSweepOn: string | null) => [
-    changedOn ? `Tracking changed ${changedOn}.` : 'Tracking changed.',
-    `Showing the ${resultsOn ?? 'last'} results, from before the change.`,
-    `New numbers after the ${nextSweepOn ?? 'next'} sweep.`,
-  ].join(' '),
+  /** The strip's visible label. A missing date reads generically, so the strip never invents one. */
+  trackingChangedLabel: (changedOn: string | null) => changedOn ? `Tracking changed ${changedOn}` : 'Tracking changed',
+  /** The rest of the sentence, behind the strip's caution icon. */
+  trackingChangedDetail: (resultsOn: string | null, nextSweepOn: string | null) => `Showing the ${resultsOn ?? 'last'} results, from before the change. New numbers after the ${nextSweepOn ?? 'next'} sweep.`,
 } as const
 
 /** Clear filters empties exactly the panel's filters. Scope, market, class and every other param stay. */
@@ -601,7 +641,7 @@ function dateFilterLabel(from: string | undefined, to: string | undefined): stri
 /** One token per non-default URL filter. Labels read the URL, never the server echo. */
 function visibilityFilterTokens(selection: VisibilitySelectionState, report: VisibilityReportResponse): VisibilityFilterToken[] {
   const tokens: VisibilityFilterToken[] = []
-  if (selection.provider) tokens.push({ key: 'engine', label: VISIBILITY_TOOLBAR_COPY.engine(selection.provider), patch: { measurementProvider: undefined } })
+  if (selection.provider) tokens.push({ key: 'engine', label: VISIBILITY_TOOLBAR_COPY.engine(providerDisplayName(selection.provider)), patch: { measurementProvider: undefined } })
   if (selection.model) tokens.push({ key: 'model', label: VISIBILITY_TOOLBAR_COPY.model(selection.model), patch: { measurementModel: undefined } })
   if (selection.location) tokens.push({ key: 'location', label: selection.location === 'none' ? VISIBILITY_TOOLBAR_COPY.noLocation : VISIBILITY_TOOLBAR_COPY.location(selection.location), patch: { measurementLocation: undefined } })
   const dates = dateFilterLabel(selection.from, selection.to)
@@ -617,6 +657,9 @@ function visibilityFilterTokens(selection: VisibilitySelectionState, report: Vis
   }
   return tokens
 }
+
+/** A sweep in the Results from list. The time stays, since two sweeps can share a day. */
+const RESULTS_FROM_FORMAT = { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' } as const
 
 /** Keep the URL value selectable, so a select never shows a value it cannot hold. */
 function withSelectedChoice(choices: VisibilityFilterChoice[], value: string, label: string): VisibilityFilterChoice[] {
@@ -713,28 +756,32 @@ export function VisibilityResultsToolbar({ report, selection, onSelectionChange,
       focusFilters()
     }}>
       <div className="visibility-report-filters">
-        {filterSelect('Answer engine', 'measurementProvider', provider, withSelectedChoice([{ value: '', label: 'All engines' }, ...filterOptions.providers.map(value => ({ value, label: value }))], provider, provider))}
-        {filterSelect('Requested search location', 'measurementLocation', location, withSelectedChoice([{ value: '', label: 'All requested locations' }, ...filterOptions.locations.flatMap(option => option.kind === 'exact' ? [{ value: option.value, label: option.value }] : option.kind === 'none' ? [{ value: 'none', label: VISIBILITY_TOOLBAR_COPY.noLocation }] : [])], location, location === 'none' ? VISIBILITY_TOOLBAR_COPY.noLocation : location))}
+        {filterSelect('Answer engine', 'measurementProvider', provider, withSelectedChoice([{ value: '', label: 'All engines' }, ...filterOptions.providers.map(value => ({ value, label: providerDisplayName(value) }))], provider, providerDisplayName(provider)))}
+        {filterSelect(VISIBILITY_TOOLBAR_COPY.searchLocation, 'measurementLocation', location, withSelectedChoice([{ value: '', label: VISIBILITY_TOOLBAR_COPY.allLocations }, ...filterOptions.locations.flatMap(option => option.kind === 'exact' ? [{ value: option.value, label: option.value }] : option.kind === 'none' ? [{ value: 'none', label: VISIBILITY_TOOLBAR_COPY.noLocation }] : [])], location, location === 'none' ? VISIBILITY_TOOLBAR_COPY.noLocation : location))}
         {filterSelect('AI model', 'measurementModel', model, withSelectedChoice([{ value: '', label: 'All models' }, ...Array.from(new Set(filterOptions.models.filter(option => !selection.provider || option.provider === selection.provider).map(option => option.model))).map(value => ({ value, label: value }))], model, model), 'Filter by the AI model recorded with each answer. This does not change the model used by future sweeps.')}
         {dateInput('Start date (UTC)', 'measurementFrom', selection.from, 'T00:00:00.000Z')}
         {dateInput('End date (UTC)', 'measurementTo', selection.to, 'T23:59:59.999Z')}
-        {filterSelect('Results from', 'measurementRunId', runId, withSelectedChoice([{ value: '', label: 'Latest saved sweep' }, ...[...population.trend].reverse().map(point => ({ value: point.runId, label: new Date(point.createdAt).toLocaleString() }))], runId, 'Selected sweep'), 'Choose a saved AI sweep to view its results. No new sweep starts.')}
+        {filterSelect('Results from', 'measurementRunId', runId, withSelectedChoice([{ value: '', label: 'Latest saved sweep' }, ...[...population.trend].reverse().map(point => ({ value: point.runId, label: new Date(point.createdAt).toLocaleString(undefined, RESULTS_FROM_FORMAT) }))], runId, 'Selected sweep'), 'Choose a saved AI sweep to view its results. No new sweep starts.')}
       </div>
       <div className="flex justify-end pb-3">
         <Button type="button" variant="ghost" className="min-h-11" disabled={tokens.length === 0} onClick={() => { onSelectionChange({ ...CLEARED_VISIBILITY_FILTERS }); focusFilters() }}>{VISIBILITY_TOOLBAR_COPY.clearFilters}</Button>
       </div>
     </div>
-    {/* Below the results header, which keeps to the displayed run and its date (DESIGN.md). */}
-    {trackingChanged ? <p role="status" className="border-b border-default py-3 text-sm text-secondary">{VISIBILITY_TOOLBAR_COPY.trackingChanged(
-      trackingChangedAt ? formatObservedInstantMonthDay(observedInstant(trackingChangedAt)) : null,
-      measurement.completedAt ? formatObservedInstantMonthDay(observedInstant(measurement.completedAt)) : null,
-      nextSweepDate ?? null,
-    )}</p> : null}
+    {/* Below the results header, which keeps to the displayed run and its date (DESIGN.md). The
+        status shows the short label and holds the caution icon, whose name is the rest of the
+        sentence, so assistive tech reads the whole sentence once. */}
+    {trackingChanged ? <p role="status" className="border-b border-default py-3 text-sm text-secondary">
+      {VISIBILITY_TOOLBAR_COPY.trackingChangedLabel(trackingChangedAt ? formatObservedInstantMonthDay(observedInstant(trackingChangedAt)) : null)}
+      <InfoTooltip variant="caution" text={VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(
+        measurement.completedAt ? formatObservedInstantMonthDay(observedInstant(measurement.completedAt)) : null,
+        nextSweepDate ?? null,
+      )} />
+    </p> : null}
   </div>
 }
 
 /** Presentation only: every displayed count, rate and population comes from the report. */
-export function VisibilityReportView({ report, isRefreshing = false, onSelectionChange, onPage, onSearch, search = '', queryKey, answerSelection, evidenceReport, isEvidenceLoading = false, evidenceError, onRetryEvidence, onEvidencePage }: VisibilityReportViewProps) {
+export function VisibilityReportView({ report, isRefreshing = false, onSelectionChange, onPage, onSearch, search = '', queryKey, answerSelection, evidenceReport, isEvidenceLoading = false, evidenceError, onRetryEvidence, onEvidencePage, rootLabel = MARKET_SCOPE_COPY.allLocations }: VisibilityReportViewProps) {
   const reportElement = useRef<HTMLElement>(null)
   const focusedQueryKey = useRef<string | undefined>(undefined)
   const answerTrigger = useRef<{ row: VisibilityReportQueryRow; element: HTMLButtonElement } | null>(null)
@@ -760,7 +807,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
     focusedQueryKey.current = answerFocusKey
   }, [answerFocusKey, isRefreshing])
   const { selection } = report
-  const scopeLabel = reportScopeLabel(selection.scope)
+  const scopeLabel = reportScopeLabel(selection.scope, rootLabel, report.scopeOptions)
   const targetLabels = new Map(report.scopeOptions.filter(scope => scope.kind === 'property').map(scope => [scope.id, scope.label]))
   const answerPage = (population: VisibilityReportPopulation) => {
     const evidence = answerReport.populations.find(value => value.queryClass === population.queryClass)?.evidence
@@ -798,41 +845,41 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
         <div className="report-headline-caption"><span className="tabular-nums">{reportHeadlineCaption(population.summary, comparisonCaption)}</span><InfoTooltip text={REPORT_CHANGE_COPY.explanation} /></div>
       </div>
       <dl className="report-headline mt-3" data-columns={aggregateScope ? 3 : 2} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} headline results`}>
-        <ReportHeadlineCell label={aggregateScope ? 'Answers mentioning a property' : 'Mentioned answers'} help={selection.mode === 'advanced' ? REPORT_HEADLINE_HELP.advancedMention : REPORT_HEADLINE_HELP.simpleMention} value={population.summary.mentionCoverage} signal="mentioned" unit="answers" classNoun={classNoun} change={reportChangeLine(population.comparison, 'mentionCoverage')} />
-        <ReportHeadlineCell label={aggregateScope ? 'Answers citing a property' : 'Cited answers'} help={selection.mode === 'advanced' ? REPORT_HEADLINE_HELP.advancedCitation : REPORT_HEADLINE_HELP.simpleCitation} value={population.summary.citationCoverage} signal="cited" unit="answers" classNoun={classNoun} change={reportChangeLine(population.comparison, 'citationCoverage')} />
-        {aggregateScope ? <ReportHeadlineCell label="Properties mentioned" help={REPORT_HEADLINE_HELP.propertyReach} value={population.summary.propertyReach} signal="mentioned" unit="properties" classNoun={classNoun} change={reportChangeLine(population.comparison, 'propertyReach')} /> : null}
+        <ReportHeadlineCell label={aggregateScope ? 'Answers mentioning a location' : 'Mentioned answers'} help={selection.mode === 'advanced' ? REPORT_HEADLINE_HELP.advancedMention : REPORT_HEADLINE_HELP.simpleMention} value={population.summary.mentionCoverage} signal="mentioned" unit="answers" classNoun={classNoun} change={reportChangeLine(population.comparison, 'mentionCoverage')} />
+        <ReportHeadlineCell label={aggregateScope ? 'Answers citing a location' : 'Cited answers'} help={selection.mode === 'advanced' ? REPORT_HEADLINE_HELP.advancedCitation : REPORT_HEADLINE_HELP.simpleCitation} value={population.summary.citationCoverage} signal="cited" unit="answers" classNoun={classNoun} change={reportChangeLine(population.comparison, 'citationCoverage')} />
+        {aggregateScope ? <ReportHeadlineCell label="Locations mentioned" help={REPORT_HEADLINE_HELP.propertyReach} value={population.summary.propertyReach} signal="mentioned" unit="locations" classNoun={classNoun} change={reportChangeLine(population.comparison, 'propertyReach')} /> : null}
       </dl>
       <SentimentHeadlines queryClass={selection.queryClass} manage />
       <ReportTrend population={population} />
       {aggregateScope && (population.breakdown.groups.length > 0 || population.breakdown.properties.length > 0) ? <ReportScopeBreakdown key={`${selection.scope.kind}:${selection.scope.id}`} population={population} scope={selection.scope} scopeOptions={report.scopeOptions} marketKey={selection.market?.id} onSelectionChange={onSelectionChange} /> : null}
-      {selection.mode === 'advanced' ? <details className="visibility-disclosure" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} property outcomes`}><summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Property outcomes</span><span className="visibility-disclosure-meta">{population.summary.outcomes.total} {population.summary.outcomes.total === 1 ? 'property' : 'properties'}</span></summary><div className="visibility-disclosure-panel flex flex-wrap items-start justify-between gap-3">
+      {selection.mode === 'advanced' ? <details className="visibility-disclosure" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} location outcomes`}><summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Location outcomes</span><span className="visibility-disclosure-meta">{whole(population.summary.outcomes.total)} {population.summary.outcomes.total === 1 ? 'location' : 'locations'}</span></summary><div className="visibility-disclosure-panel flex flex-wrap items-start justify-between gap-3">
         {/* The explanation sits here, not in the summary: a button inside a summary toggles the disclosure and joins its accessible name. */}
         <div className="space-y-3">
-          <div className="flex flex-wrap gap-x-8 gap-y-3">{([['bothSignals', 'mentioned and cited'], ['mentionedOnly', 'mentioned only'], ['citedOnly', 'cited only'], ['neither', 'neither signal'], ['notMeasured', 'not measured']] as const).map(([key, label]) => <div key={key}><strong className="block tabular-nums text-heading">{population.summary.outcomes[key]}</strong><span className="text-sm text-secondary">{label}</span></div>)}</div>
+          <div className="flex flex-wrap gap-x-8 gap-y-3">{([['bothSignals', 'mentioned and cited'], ['mentionedOnly', 'mentioned only'], ['citedOnly', 'cited only'], ['neither', 'not mentioned or cited'], ['notMeasured', 'not measured']] as const).map(([key, label]) => <div key={key}><strong className="block tabular-nums text-heading">{whole(population.summary.outcomes[key])}</strong><span className="text-sm text-secondary">{label}</span></div>)}</div>
           {population.summary.notMeasuredUnchecked ? <p className="text-sm text-secondary">{UNCHECKED_SOURCES_COPY.outcomes(population.summary.notMeasuredUnchecked)}</p> : null}
         </div>
         <InfoTooltip text={REPORT_OUTCOMES_HELP} />
       </div></details> : null}
       <details className="visibility-disclosure" data-query-results={population.queryClass} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} query results`}>
-        <summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Query results</span><span className="visibility-disclosure-meta">{population.queries.total} {population.queries.total === 1 ? 'result' : 'results'} · {scopeLabel}</span></summary>
+        <summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Query results</span><span className="visibility-disclosure-meta">{whole(population.queries.total)} {population.queries.total === 1 ? 'result' : 'results'} · {scopeLabel}</span></summary>
         <div className="visibility-disclosure-panel">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">{onSearch ? <input type="search" aria-label={`Search ${REPORT_CLASS_LABEL[population.queryClass]}`} placeholder="Search queries" className={`${REPORT_CONTROL} max-w-sm`} value={search} onChange={event => onSearch(event.target.value)} /> : null}<InfoTooltip text={selection.mode === 'advanced' ? 'Each tracked query is grouped once on this page. Its engine rows retain the recorded model, location, property scope, and answer counts. Mentioned and Cited count answers matching any assigned property, not the percentage of properties found.' : 'Each tracked query is grouped once on this page. Its engine rows retain the recorded model, location, and answer counts. Mentioned counts answers naming your brand. Cited counts answers linking to your site.'} /></div>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">{onSearch ? <input type="search" aria-label={`Search ${REPORT_CLASS_LABEL[population.queryClass]}`} placeholder="Search queries" className={`${REPORT_CONTROL} max-w-sm`} value={search} onChange={event => onSearch(event.target.value)} /> : null}<InfoTooltip text={selection.mode === 'advanced' ? "Each tracked query is grouped once on this page. Its engine rows retain the recorded model, search location, the query's locations, and answer counts. Mentioned and Cited count answers matching any of those locations, not the percentage of locations found." : 'Each tracked query is grouped once on this page. Its engine rows retain the recorded model, location, and answer counts. Mentioned counts answers naming your brand. Cited counts answers linking to your site.'} /></div>
         <div className="overflow-x-auto">
           <table className="evidence-table measurement-responsive-table measurement-results-table" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} engine results`}>
             <thead><tr><th scope="col">Answer engine</th><th scope="col">Mentioned</th><th scope="col">Cited</th><th scope="col"><span className="sr-only">Evidence</span></th></tr></thead>
             {queryGroups.map((group, index) => <QueryResultGroup key={group.queryKey} group={group} queryClass={population.queryClass} marketHeading={group.marketLabel !== queryGroups[index - 1]?.marketLabel ? group.marketLabel : undefined} advanced={selection.mode === 'advanced'} targetLabels={targetLabels} onViewAnswers={(row, trigger) => { answerTrigger.current = { row, element: trigger }; onSelectionChange({ measurementQueryKey: row.queryKey, measurementAnswer: JSON.stringify({ queryKey: row.queryKey, queryClass: population.queryClass, provider: row.provider, model: row.model, location: row.location, runId: selection.run.id, revision: selection.revision } satisfies VisibilityAnswerSelection) }) }} />)}
           </table>
         </div>
-        {population.queries.items.length === 0 ? <p className="py-4 text-sm text-secondary">No measured queries match this selection.</p> : <p className="mt-3 text-sm text-secondary">{queryGroups.length} {queryGroups.length === 1 ? 'query' : 'queries'} · {population.queries.items.length} {population.queries.items.length === 1 ? 'engine result' : 'engine results'} shown of {population.queries.total} results</p>}
+        {population.queries.items.length === 0 ? <p className="py-4 text-sm text-secondary">No measured queries match this selection.</p> : <p className="mt-3 text-sm text-secondary">{queryGroups.length} {queryGroups.length === 1 ? 'query' : 'queries'} · {population.queries.items.length} {population.queries.items.length === 1 ? 'engine result' : 'engine results'} shown of {whole(population.queries.total)} results</p>}
         {population.queries.nextCursor && onPage ? <Button variant="outline" onClick={() => onPage(population.queries.nextCursor!)}>Next queries</Button> : null}
       {queryKey && answerClasses.includes(population.queryClass) ? <section tabIndex={-1} className="scroll-mt-6 border-t border-default py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" aria-label={VISIBILITY_ANSWERS_LABEL} aria-busy={isEvidenceLoading}><div className="flex flex-wrap items-start justify-between gap-3"><h3 className="min-w-0 flex-1 text-base font-semibold text-heading [overflow-wrap:anywhere]">{answerQuestion ?? 'Answers'}</h3><Button variant="ghost" className="min-h-11" onClick={closeAnswers}>{VISIBILITY_CLOSE_ANSWERS_LABEL}</Button></div>
         {isEvidenceLoading ? <p role="status" className="py-4 text-sm text-secondary">Loading saved answers…</p> : evidenceError ? <div role="alert" className="py-4 text-sm text-secondary"><p>Saved answers unavailable: {evidenceError}</p>{onRetryEvidence ? <Button variant="outline" onClick={onRetryEvidence}>Retry answers</Button> : null}</div> : <>
         {answers.items.map(answer => <article key={answer.answerId} className="border-b border-default py-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <strong className="text-sm text-heading">{answer.provider}</strong>
+            <strong className="text-sm text-heading">{providerDisplayName(answer.provider)}</strong>
             {answer.model ? <span className="text-[13px] text-secondary">{answer.model}</span> : null}
             <span className="text-[13px] text-secondary">{answer.location === null ? VISIBILITY_TOOLBAR_COPY.noLocation : VISIBILITY_TOOLBAR_COPY.location(answer.location)}</span>
-            <span className="text-[13px] text-secondary">{new Date(answer.createdAt).toLocaleDateString()}</span>
+            <span className="text-[13px] text-secondary">{formatObservedInstantLabel(observedInstant(answer.createdAt))}</span>
             <ToneBadge tone="neutral">{answer.mentioned === null ? answer.mentionUnavailableReason === 'identity-ambiguous' ? VISIBILITY_DISPLAY_COPY.ambiguous : 'Mention not checked' : answer.mentioned ? 'Mentioned' : 'Not mentioned'}</ToneBadge>
             <ToneBadge tone="neutral">{answer.cited === null ? 'Citation not checked' : answer.cited ? 'Cited' : 'Not cited'}</ToneBadge>
           </div>
@@ -849,7 +896,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
         </div>
       </details>
       <details className="visibility-disclosure" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} competitors`}><summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Competitors</span><span className="visibility-disclosure-meta">{population.competitorAvailability.state === 'unavailable' ? 'Not available' : `${population.competitors.length} measured`}</span></summary><div className="visibility-disclosure-panel">
-        {population.competitorAvailability.state === 'unavailable' ? <p className="text-sm text-secondary">Competitor rates unavailable for this historical definition.</p> : population.competitors.length === 0 ? <p className="text-sm text-secondary">No measured competitors in this selection.</p> : <div className="overflow-x-auto"><table className="evidence-table"><thead><tr><th>Competitor</th><th>Mentioned</th><th>Cited</th></tr></thead><tbody>{population.competitors.map(row => <tr key={row.domain}><td>{row.domain}</td><td><ReportRate value={row.mentionCoverage} signal="mentioned" /></td><td><ReportRate value={row.citationCoverage} signal="cited" /></td></tr>)}</tbody></table></div>}
+        {population.competitorAvailability.state === 'unavailable' ? <p className="text-sm text-secondary">Competitor rates unavailable for this historical definition.</p> : population.competitors.length === 0 ? <p className="text-sm text-secondary">No measured competitors in this selection.</p> : <div className="overflow-x-auto"><table className={`evidence-table ${PHONE_TABLE}`}><thead><tr><th>Competitor</th><th>Mentioned</th><th>Cited</th></tr></thead><tbody>{population.competitors.map(row => <tr key={row.domain}><td className="[overflow-wrap:anywhere]">{row.domain}</td><td><ReportRate value={row.mentionCoverage} signal="mentioned" /></td><td><ReportRate value={row.citationCoverage} signal="cited" /></td></tr>)}</tbody></table></div>}
         {population.observedCompetitors.length > 0 ? <details className="mt-4 text-sm"><summary className="min-h-11 cursor-pointer py-3 text-heading">Other names in answers</summary><ul className="divide-y divide-default">{population.observedCompetitors.map(row => <li key={row.name} className="flex items-center justify-between gap-4 py-3"><span>{row.name}</span><span className="tabular-nums text-secondary">{row.answerCount} {row.answerCount === 1 ? 'answer' : 'answers'}</span></li>)}</ul><p className="py-2 text-secondary">Observed names, not additions to your tracked competitors.</p></details> : null}
       </div></details>
     </section>})}
@@ -871,15 +918,19 @@ function ReportScopeBreakdown({ population, scope, scopeOptions, marketKey, onSe
     if (scope.kind === 'group' && hasHierarchy) return parents.includes(scope.id)
     return true
   })
-  const [kind, setKind] = useState<'groups' | 'properties'>(() => scope.kind === 'project' && groups.length > 0 ? 'groups' : 'properties')
+  const [kind, setKind] = useState<'groups' | 'locations'>(() => scope.kind === 'project' && groups.length > 0 ? 'groups' : 'locations')
   const table = useClientTable({ rows: kind === 'groups' ? groups : population.breakdown.properties, getSearchText: row => row.label })
-  return <section className="border-t border-default py-5" aria-label="Scope breakdown">
+  const headingId = useId()
+  return <section className="border-t border-default py-5" aria-labelledby={headingId}>
     <div className="flex flex-wrap items-end justify-between gap-3">
-      <div className="flex gap-2">{(['groups', 'properties'] as const).map(value => <Button key={value} variant={kind === value ? 'secondary' : 'ghost'} onClick={() => { setKind(value); table.setPage(1) }}>{value === 'groups' ? 'Groups' : 'Properties'}</Button>)}</div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <h3 id={headingId} className="font-semibold text-heading">By place</h3>
+        <div className="flex gap-2">{(['groups', 'locations'] as const).map(value => <Button key={value} variant={kind === value ? 'secondary' : 'ghost'} aria-pressed={kind === value} onClick={() => { setKind(value); table.setPage(1) }}>{value === 'groups' ? 'Groups' : 'Locations'}</Button>)}</div>
+      </div>
       <input type="search" aria-label="Search breakdown" placeholder="Search" value={table.query} onChange={event => table.setQuery(event.target.value)} className={`${REPORT_CONTROL} max-w-sm`} />
     </div>
-    <div className="mt-3 overflow-x-auto"><table className="evidence-table"><thead><tr><th>{kind === 'groups' ? 'Group' : 'Property'}</th><th>Queries</th><th>Mentioned</th><th>Cited</th></tr></thead><tbody>{table.rows.map(row => <tr key={row.id}><td><button className="min-h-11 text-left text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={() => onSelectionChange({ measurementScope: kind === 'groups' ? 'group' : 'property', measurementScopeKey: row.id, measurementMarketKey: marketKey })}>{row.label}</button></td><td>{row.queryCount}</td><td><ReportRate value={row.mentionCoverage} signal="mentioned" /><ReportRateBar value={row.mentionCoverage} /></td><td><ReportRate value={row.citationCoverage} signal="cited" /><ReportRateBar value={row.citationCoverage} /></td></tr>)}</tbody></table></div>
-    {table.rows.length === 0 ? <p className="py-3 text-sm text-secondary">No {kind} match this search.</p> : null}
+    <div className="mt-3 overflow-x-auto"><table className={`evidence-table ${PHONE_TABLE}`}><thead><tr><th>{kind === 'groups' ? 'Group' : 'Location'}</th><th>Queries</th><th>Mentioned</th><th>Cited</th></tr></thead><tbody>{table.rows.map(row => <tr key={row.id}><td><button className="min-h-11 text-left text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={() => onSelectionChange({ measurementScope: kind === 'groups' ? 'group' : 'property', measurementScopeKey: row.id, measurementMarketKey: marketKey })}>{kind === 'groups' ? placeLabel({ id: row.id, kind: 'group', label: row.label }, scopeOptions) : row.label}</button></td><td>{whole(row.queryCount)}</td><td><ReportRate value={row.mentionCoverage} signal="mentioned" /><ReportRateBar value={row.mentionCoverage} /></td><td><ReportRate value={row.citationCoverage} signal="cited" /><ReportRateBar value={row.citationCoverage} /></td></tr>)}</tbody></table></div>
+    {table.rows.length === 0 ? <p className="py-3 text-sm text-secondary">No matches</p> : null}
     <DataTablePagination page={table.page} pageSize={table.pageSize} visibleRows={table.rows.length} totalRows={table.totalRows} itemLabel={kind} onPageChange={table.setPage} />
   </section>
 }
@@ -906,6 +957,8 @@ interface VisibilityWorkspaceProps {
   onSelectionChange: (patch: Record<string, unknown>, options?: { replace?: boolean }) => void
   fallback?: ReactNode
   showUnmeasuredFallback?: boolean
+  /** See `VisibilityReportViewProps.rootLabel`. */
+  rootLabel?: string
 }
 
 /** An unmeasured Simple project shows the page's existing overview when the page asks for it. */
@@ -913,7 +966,7 @@ function usesUnmeasuredFallback(report: VisibilityReportResponse, showUnmeasured
   return showUnmeasuredFallback && report.selection.mode === 'simple' && report.selection.measurement.state === 'not-measured'
 }
 
-export function VisibilityWorkspace({ projectName, selection, onSelectionChange, fallback, showUnmeasuredFallback = false }: VisibilityWorkspaceProps) {
+export function VisibilityWorkspace({ projectName, selection, onSelectionChange, fallback, showUnmeasuredFallback = false, rootLabel = MARKET_SCOPE_COPY.allLocations }: VisibilityWorkspaceProps) {
   const [cursor, setCursor] = useState<string | undefined>()
   const [search, setSearch] = useState('')
   const [answerCursor, setAnswerCursor] = useState<{ selection: string; cursor: string }>()
@@ -984,9 +1037,11 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
     const retired = parseVisibilityReportScopeErrorDetails(apiErrorDetails(reportQuery.error))
     const retiredMarket = retired?.reason === VisibilityReportScopeErrorReasons['retired-market']
     return <section className="page-section-divider" role="alert"><h2>AI visibility unavailable</h2>
-      <p className="my-3 text-sm text-secondary">{retiredMarket ? VISIBILITY_SCOPE_RECOVERY_COPY.retiredMarket : retired ? VISIBILITY_SCOPE_RECOVERY_COPY.retiredScope : describeError(reportQuery.error)}</p>
+      {retired
+        ? <p className="my-3 flex items-center gap-1.5 text-sm text-secondary"><AlertTriangle size={16} className="shrink-0 text-caution" aria-hidden="true" />{retiredMarket ? VISIBILITY_SCOPE_RECOVERY_COPY.retiredMarket : VISIBILITY_SCOPE_RECOVERY_COPY.retiredScope}<InfoTooltip text={retiredMarket ? VISIBILITY_SCOPE_RECOVERY_COPY.retiredMarketHelp : VISIBILITY_SCOPE_RECOVERY_COPY.retiredScopeHelp(rootLabel)} /></p>
+        : <p className="my-3 text-sm text-secondary">{describeError(reportQuery.error)}</p>}
       {retiredMarket ? <Button variant="outline" onClick={() => { setCursor(undefined); onSelectionChange({ measurementMarketKey: undefined }) }}>{VISIBILITY_SCOPE_RECOVERY_COPY.showAllMarkets}</Button>
-        : retired ? <Button variant="outline" onClick={() => { setCursor(undefined); onSelectionChange({ measurementScope: 'project', measurementScopeKey: undefined }) }}>{VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite}</Button>
+        : retired ? <Button variant="outline" aria-label={VISIBILITY_SCOPE_RECOVERY_COPY.showRoot(rootLabel)} onClick={() => { setCursor(undefined); onSelectionChange({ measurementScope: 'project', measurementScopeKey: undefined }) }}>{VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite}</Button>
           : <Button variant="outline" onClick={() => { setCursor(undefined); void reportQuery.refetch() }}>Retry</Button>}
     </section>
   }
@@ -1002,6 +1057,7 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
     onRetryEvidence={() => { void evidenceQuery.refetch() }}
     onEvidencePage={evidenceQuery.isFetching ? undefined : value => setAnswerCursor({ selection: evidenceIdentity, cursor: value })}
     search={search}
+    rootLabel={rootLabel}
     onSearch={value => { setSearch(value); setCursor(undefined) }}
     onPage={reportQuery.isFetching ? undefined : setCursor}
     onSelectionChange={patch => {
@@ -1019,7 +1075,7 @@ export function VisibilityWorkspace({ projectName, selection, onSelectionChange,
  * through an unkeyed observer that keeps the previous report while the next one
  * loads, so it stays mounted, with its focus and open panel, across the reload.
  */
-export function VisibilityOverview({ projectName, selection, onSelectionChange, onManageQueries, renderPropertyLink, trackingChangedAt, nextSweepDate, fallback, showUnmeasuredFallback = false }: VisibilityWorkspaceProps & Pick<VisibilityResultsToolbarProps, 'onManageQueries' | 'renderPropertyLink' | 'trackingChangedAt' | 'nextSweepDate'>) {
+export function VisibilityOverview({ projectName, selection, onSelectionChange, onManageQueries, renderPropertyLink, trackingChangedAt, nextSweepDate, fallback, showUnmeasuredFallback = false, rootLabel }: VisibilityWorkspaceProps & Pick<VisibilityResultsToolbarProps, 'onManageQueries' | 'renderPropertyLink' | 'trackingChangedAt' | 'nextSweepDate'>) {
   const firstPage = useVisibilityReportFirstPage(projectName, selection, { enabled: true })
   // Absent before the first report, on error (the workspace alert owns
   // recovery), and wherever the page's fallback replaces the report.
@@ -1042,6 +1098,7 @@ export function VisibilityOverview({ projectName, selection, onSelectionChange, 
       onSelectionChange={onSelectionChange}
       fallback={fallback}
       showUnmeasuredFallback={showUnmeasuredFallback}
+      rootLabel={rootLabel}
     />
   </>
 }

@@ -74,9 +74,11 @@ describe('project settings tab', () => {
   test('public demo shows stored settings without any control that would change them', async () => {
     window.__CANONRY_CONFIG__ = { demo: DEMO }
     const methods = renderSettingsTab()
-    await waitFor(() => expect(screen.getByText(/No schedule configured/)).toBeTruthy())
-    await waitFor(() => expect(screen.getByText(/No webhooks configured/)).toBeTruthy())
-    expect(screen.getByText('Search Locations')).toBeTruthy()
+    await waitFor(() => expect(screen.getByText('No schedule')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('No webhooks')).toBeTruthy())
+    // The demo's own notice says it is read-only. "View only" is for an account that cannot write.
+    expect(screen.queryByText('View only')).toBeNull()
+    expect(screen.getByText('Search locations')).toBeTruthy()
     expect(screen.getByText('San Francisco')).toBeTruthy()
     for (const name of changeControls) expect(screen.queryByRole('button', { name }), String(name)).toBeNull()
     expect(methods.every((method) => method === 'GET')).toBe(true)

@@ -51,13 +51,14 @@ interface AdvancedProjectTagPlan {
 
 /**
  * The public demo's header tag count line for a published advanced setup: every Property,
- * plus the top-level markets when the setup has any. Child groups are
- * navigation under a market, not markets of their own.
+ * plus the top-level groups when the setup has any. Child groups are
+ * navigation under a group and are not counted. A group is not a market: the
+ * plan lists its markets on their own, so this line never calls a group one.
  */
 export function advancedProjectTagDetail(plan: AdvancedProjectTagPlan): string {
   const properties = plan.targets.length
-  const markets = plan.groups.filter(group => group.parentGroupKey === undefined).length
-  const parts = [`${properties} ${properties === 1 ? 'property' : 'properties'}`]
-  if (markets > 0) parts.push(`${markets} ${markets === 1 ? 'market' : 'markets'}`)
+  const groups = plan.groups.filter(group => group.parentGroupKey === undefined).length
+  const parts = [`${properties} ${properties === 1 ? 'location' : 'locations'}`]
+  if (groups > 0) parts.push(`${groups} ${groups === 1 ? 'group' : 'groups'}`)
   return parts.join(' · ')
 }

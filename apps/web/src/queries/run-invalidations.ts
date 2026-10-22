@@ -7,7 +7,7 @@ import {
 } from '@canonry/canonry-api-client/react-query'
 
 import { heyClient } from '../api.js'
-import { invalidateProjectQueryDomain } from './query-invalidation.js'
+import { invalidateMeasurementReadsAfterSweep, invalidateProjectQueryDomain } from './query-invalidation.js'
 import { invalidateCompetitorLandscapes } from './competitor-landscape-refresh.js'
 
 /**
@@ -46,7 +46,14 @@ export function invalidateQueriesForRunKind(
       // that same revision path without requiring a notification observer.
       void invalidateCompetitorLandscapes(queryClient, projectName, 'none')
       void invalidateProjectQueryDomain(queryClient, 'visibilityReport')
+      // The prefix also matches the results read (`queryTrackingResults`). A
+      // second call for it would cancel that refetch and start it again.
       void invalidateProjectQueryDomain(queryClient, 'queryTracking')
+      // A location page left open shows the sweep before this one, marked
+      // "Tracking changed" when the setup has changed since. Its reads follow
+      // the new sweep, so the numbers move and the note clears with no reload.
+      // The reads keyed by the old sweep's run are not asked for again.
+      void invalidateMeasurementReadsAfterSweep(queryClient)
       // No explicit `['analytics-metrics', project]` invalidation here. That
       // key's last segment is `analyticsRevision` (`VisibilityTrendSection`,
       // fed by `latestVisibilityRevision` in `use-project-dashboard.ts`).

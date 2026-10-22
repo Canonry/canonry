@@ -31,6 +31,49 @@ export async function compileAppStyles(candidates: string[]) {
   return compiler.build(candidates)
 }
 
+/**
+ * What one state-variant class (`hover:underline`, `focus-visible:ring-2`,
+ * `has-[:focus-visible]:border-mono-500`) sets in that state, read from the
+ * compiled text in either form Tailwind writes it: nested under the class
+ * (`.c { &:hover { … } }`, up to 4.2) or flat (`.c:hover { … }`, from 4.3).
+ * `state` is the pseudo-class the rule must name, such as `:hover`. Null when
+ * the class sets nothing in that state.
+ */
+export function compiledStateDeclarations(css: string, candidate: string, state: string): Record<string, string> | null {
+  const selector = `.${candidate.replace(/([^\w-])/g, '\\$1')}`
+  for (let at = css.indexOf(selector); at >= 0; at = css.indexOf(selector, at + 1)) {
+    const open = css.indexOf('{', at)
+    const head = css.slice(at + selector.length, open)
+    let body: string | undefined
+    if (head.startsWith(':') && head.includes(state)) body = css.slice(open + 1, css.indexOf('}', open))
+    else if (head.trim() === '') {
+      const rule = css.slice(open, css.indexOf('}', open))
+      if (rule.includes('&:') && rule.includes(state)) body = rule.slice(rule.lastIndexOf('{') + 1)
+    }
+    if (body !== undefined) return Object.fromEntries([...body.matchAll(/([\w-]+):([^;]+);/g)].map(([, property, value]) => [property!, value!.trim()]))
+  }
+  return null
+}
+
+/**
+ * What an element's classes of one variant (`hover`, `focus-visible`,
+ * `has-[:focus-visible]`) set in that state, merged in class order, and the
+ * classes the compiled CSS gave no rule for in it.
+ */
+export async function compiledStateStyle(element: Element, variant: string): Promise<{ style: Record<string, string>; missing: string[] }> {
+  const classes = [...element.classList].filter(candidate => candidate.startsWith(`${variant}:`))
+  const css = await compileAppStyles(classes)
+  const state = variant.startsWith('has-[') ? variant.slice('has-['.length, -1) : `:${variant}`
+  const style: Record<string, string> = {}
+  const missing: string[] = []
+  for (const candidate of classes) {
+    const declarations = compiledStateDeclarations(css, candidate, state)
+    if (declarations) Object.assign(style, declarations)
+    else missing.push(candidate)
+  }
+  return { style, missing }
+}
+
 /** Bounded parser for compiled component rules, including selector lists and at-rule context. */
 export type CompiledRule = { selector: string; context: string[]; layerOrder: number; declarations: [string, string][] }
 export function parseCompiledCss(input: string): CompiledRule[] {

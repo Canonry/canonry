@@ -43,18 +43,19 @@ describe('advanced measurement mode', () => {
 })
 
 describe('advanced project tag', () => {
-  it('counts every property and only top-level markets', () => {
+  // A top-level group is a group. The plan's markets are a separate list, so the line never says "market".
+  it('counts every location and only top-level groups', () => {
     expect(advancedProjectTagDetail({
       targets: [{}, {}, {}, {}],
       groups: [{}, {}, { parentGroupKey: 'east' }],
-    })).toBe('4 properties · 2 markets')
+    })).toBe('4 locations · 2 groups')
   })
 
-  it('uses singular nouns for one property and one market', () => {
-    expect(advancedProjectTagDetail({ targets: [{}], groups: [{}] })).toBe('1 property · 1 market')
+  it('uses singular nouns for one location and one group', () => {
+    expect(advancedProjectTagDetail({ targets: [{}], groups: [{}] })).toBe('1 location · 1 group')
   })
 
-  it('omits markets when the setup has none', () => {
-    expect(advancedProjectTagDetail({ targets: [{}, {}], groups: [] })).toBe('2 properties')
+  it('omits groups when the setup has none', () => {
+    expect(advancedProjectTagDetail({ targets: [{}, {}], groups: [] })).toBe('2 locations')
   })
 })

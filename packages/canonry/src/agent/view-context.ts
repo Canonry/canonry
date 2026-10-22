@@ -1,6 +1,6 @@
 import { Type } from '@earendil-works/pi-ai'
 import type { AgentTool } from '@earendil-works/pi-agent-core'
-import { agentVisibilityEvidence, validationError, visibilityReportRequestSchema, type AgentViewContext } from '@canonry/canonry-contracts'
+import { agentVisibilityEvidence, validationError, visibilityReportRequestSchema, type AgentViewContext, type QueryTrackingResultsRequest } from '@canonry/canonry-contracts'
 import type { ApiClient } from '../client.js'
 import { truncateToolResult } from './mcp-to-agent-tool.js'
 
@@ -26,10 +26,40 @@ export async function readAeroViewEvidence(options: AeroViewOptions): Promise<un
     const search = new URLSearchParams({ nodeKey: context.page.nodeKey, ...(audit.runId || context.page.runId ? { runId: audit.runId ?? context.page.runId! } : {}) })
     return { context, retrievedAt: new Date().toISOString(), source: { label: 'Open stored page audit', href: `${base}/api/v1/projects/${encodeURIComponent(projectName)}/technical-aeo/crawl/pages/audit?${search}` }, audit, interpretation: 'A stored technical audit is not proof of a cause for mention or citation changes.' }
   }
+  if (context?.view === 'queries' && context.results) return queryResultsEvidence(options, context, base)
   const request = visibilityReportRequestSchema.parse(context?.selection ?? { queryClass: 'all', limit: 10 })
   const report = await client.getVisibilityReport(projectName, request)
   const evidence = agentVisibilityEvidence(report, projectName, new Date().toISOString())
   return { ...evidence, source: { ...evidence.source, href: `${base}/${evidence.source.path}` } }
+}
+
+/**
+ * The Queries page's own results read, through the public endpoint. An opened
+ * query reads its answers; an opened market or group reads its queries or its
+ * markets with the screen's signal, sort and comparison.
+ */
+async function queryResultsEvidence(options: AeroViewOptions, context: AgentViewContext, base: string): Promise<unknown> {
+  const screen = context.results!
+  const { signal, sort, compare } = screen
+  const shared = { ...(signal ? { signal } : {}), ...(sort ? { sort } : {}), ...(compare ? { compare } : {}) }
+  const opened = context.opened
+  const read: QueryTrackingResultsRequest = opened === undefined
+    ? screen
+    : opened.kind === 'query'
+      ? { queryId: opened.key, ...(screen.runId ? { runId: screen.runId } : {}) }
+      : opened.kind === 'market'
+        ? { scope: 'market', scopeKey: opened.key, ...(screen.runId ? { runId: screen.runId } : {}), ...shared }
+        : { scope: 'group', scopeKey: opened.key, group: 'market', ...(screen.runId ? { runId: screen.runId } : {}), ...shared }
+  const results = await options.client.getQueryTrackingResults(options.projectName, read)
+  const search = new URLSearchParams(Object.entries(read).flatMap(([key, value]) => value === undefined ? [] : [[key, String(value)]]))
+  return {
+    context,
+    retrievedAt: new Date().toISOString(),
+    source: { label: 'Open stored results', href: `${base}/api/v1/projects/${encodeURIComponent(options.projectName)}/query-tracking/results?${search}` },
+    read,
+    results,
+    interpretation: 'Mentioned and cited are separate signals: the list shows one (read.signal, default mentioned) and every row keeps both. Quote each class\'s numerator and denominator, never pooled. A grouped read has no rows. A row\'s engineCounts is the list\'s figure for it: engines that show the signal of those that checked it. Changes and deltas are the server\'s, against compareRun; retrieval time is not the sweep date.',
+  }
 }
 
 export function buildAeroViewTool(options: AeroViewOptions, validatedEvidence?: unknown): AgentTool {
