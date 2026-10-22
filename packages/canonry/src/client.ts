@@ -953,8 +953,8 @@ export function createApiClient(opts: ApiClientOptions = {}): ApiClient {
 type SdkResult = {
   data?: unknown
   error?: unknown
-  request: Request
-  response: Response
+  request?: Request
+  response?: Response
 }
 
 type MeasurementPlanDraftCreateRequest = Parameters<typeof postApiV1ProjectsByNameMeasurementPlanDraftActionsCreate>[0]['body']
@@ -1119,9 +1119,13 @@ export class ApiClient {
     const traceEnabled = process.env.CANONRY_TRACE === '1'
     const traceStart = traceEnabled ? Date.now() : 0
 
-    let result: SdkResult
+    let result: SdkResult & { request: Request; response: Response }
     try {
-      result = await call()
+      const received = await call()
+      if (!received.request || !received.response || received.error instanceof Error) {
+        throw received.error ?? new Error('API request failed before receiving a response')
+      }
+      result = { ...received, request: received.request, response: received.response }
     } catch (err) {
       if (err instanceof CliError) throw err
       const msg = describeError(err)

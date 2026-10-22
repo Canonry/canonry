@@ -407,7 +407,7 @@ function QueryResultRate({ value, signal, singleAnswer, row, targetLabels }: {
   return <span className="inline-flex items-start gap-1">
     <span className="inline-flex flex-col gap-1">
       <ReportRate value={value} signal={signal} />
-      {unchecked ? <UncheckedSourcesLines row={unchecked} targetLabels={targetLabels ?? new Map()} showCount={value.rate === null} /> : null}
+      {unchecked ? <UncheckedSourcesLines row={unchecked} targetLabels={targetLabels ?? new Map<string, string>()} showCount={value.rate === null} /> : null}
     </span>
     {unchecked
       ? <InfoTooltip text={UNCHECKED_SOURCES_COPY.help} />

@@ -394,7 +394,10 @@ export function MultiAxisTrendChart({
         })}
         <RechartsTooltip
           {...CHART_TOOLTIP_STYLE}
-          labelFormatter={(label) => (labelFormatter ? labelFormatter(String(label)) : String(label))}
+          labelFormatter={(label) => {
+            const text = typeof label === 'string' || typeof label === 'number' ? String(label) : ''
+            return labelFormatter ? labelFormatter(text) : text
+          }}
           formatter={(value, name) => {
             const key = String(name ?? '')
             if (typeof value !== 'number') return [String(value ?? ''), key]

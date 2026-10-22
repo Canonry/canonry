@@ -1,4 +1,3 @@
-import { cdpConnect, cdpScreenshot, cdpStatus, cdpTargets } from '../commands/cdp.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, requirePositional, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
@@ -12,6 +11,7 @@ export const CDP_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     allowPositionals: false,
     run: async (input) => {
+      const { cdpConnect } = await import('../commands/cdp.js')
       await cdpConnect({
         host: getString(input.values, 'host'),
         port: getString(input.values, 'port'),
@@ -24,6 +24,7 @@ export const CDP_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry cdp status [--format json]',
     allowPositionals: false,
     run: async (input) => {
+      const { cdpStatus } = await import('../commands/cdp.js')
       await cdpStatus(input.format)
     },
   },
@@ -32,6 +33,7 @@ export const CDP_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry cdp targets [--format json]',
     allowPositionals: false,
     run: async (input) => {
+      const { cdpTargets } = await import('../commands/cdp.js')
       await cdpTargets(input.format)
     },
   },
@@ -42,6 +44,7 @@ export const CDP_CLI_COMMANDS: readonly CliCommandSpec[] = [
       targets: stringOption(),
     },
     run: async (input) => {
+      const { cdpScreenshot } = await import('../commands/cdp.js')
       const query = requirePositional(input, 0, {
         command: 'cdp.screenshot',
         usage: 'canonry cdp screenshot <query> [--targets <list>] [--format json]',

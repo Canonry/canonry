@@ -1,5 +1,4 @@
 import { visibilityCompareSelectionSchema, type VisibilityCompareSelection } from '@canonry/canonry-contracts'
-import { showVisibilityStats, showVisibilityCompare } from '../commands/visibility-stats.js'
 import type { CliCommandSpec, CliValues } from '../cli-dispatch.js'
 import {
   getBoolean,
@@ -65,6 +64,7 @@ export const VISIBILITY_STATS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'query-class': stringOption(),
     },
     run: async (input) => {
+      const { showVisibilityStats } = await import('../commands/visibility-stats.js')
       const project = requireProject(input, 'visibility-stats', USAGE)
       await showVisibilityStats(project, {
         since: getString(input.values, 'since'),
@@ -95,6 +95,7 @@ export const VISIBILITY_STATS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       location: stringOption(),
     },
     run: async (input) => {
+      const { showVisibilityCompare } = await import('../commands/visibility-stats.js')
       const project = requireProject(input, 'visibility-compare', COMPARE_USAGE)
       await showVisibilityCompare(project, {
         from: getString(input.values, 'from'),

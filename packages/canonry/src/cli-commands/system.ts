@@ -1,12 +1,6 @@
 import { usageError } from '../cli-error.js'
-import { bootstrapCommand } from '../commands/bootstrap.js'
-import { supportCommand } from '../commands/support.js'
 import { startDaemon, stopDaemon } from '../commands/daemon.js'
-import { initCommand } from '../commands/init.js'
-import { serveCommand } from '../commands/serve.js'
-import { telemetryCommand } from '../commands/telemetry.js'
 import { FEEDBACK_USAGE, feedbackCommand } from '../commands/feedback.js'
-import { showOperationalLogs } from '../commands/logs.js'
 import type { CliCommandSpec, CliValues } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
@@ -48,13 +42,16 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     help: 'Read bounded, redacted runtime logs. Inspect retention and captureErrors for coverage. Requires an instance-wide logs.read grant; project filters do not grant access. Use history for audit events.',
     options: { level: stringOption(), module: stringOption(), 'run-id': stringOption(), 'project-id': stringOption(), actor: stringOption(), 'request-id': stringOption(), since: stringOption(), until: stringOption(), limit: stringOption(), cursor: stringOption() },
     allowPositionals: false,
-    run: async input => showOperationalLogs({
-      level: getString(input.values, 'level'), module: getString(input.values, 'module'),
-      runId: getString(input.values, 'run-id'), projectId: getString(input.values, 'project-id'),
-      actor: getString(input.values, 'actor'), requestId: getString(input.values, 'request-id'),
-      since: getString(input.values, 'since'), until: getString(input.values, 'until'),
-      limit: getString(input.values, 'limit'), cursor: getString(input.values, 'cursor'),
-    }, input.format),
+    run: async input => {
+      const { showOperationalLogs } = await import('../commands/logs.js')
+      return showOperationalLogs({
+        level: getString(input.values, 'level'), module: getString(input.values, 'module'),
+        runId: getString(input.values, 'run-id'), projectId: getString(input.values, 'project-id'),
+        actor: getString(input.values, 'actor'), requestId: getString(input.values, 'request-id'),
+        since: getString(input.values, 'since'), until: getString(input.values, 'until'),
+        limit: getString(input.values, 'limit'), cursor: getString(input.values, 'cursor'),
+      }, input.format)
+    },
   },
   {
     path: ['init'],
@@ -79,6 +76,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     allowPositionals: false,
     run: async (input) => {
+      const { initCommand } = await import('../commands/init.js')
       await initCommand({
         force: getBoolean(input.values, 'force'),
         ref: getString(input.values, 'ref'),
@@ -111,6 +109,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     allowPositionals: false,
     run: async (input) => {
+      const { bootstrapCommand } = await import('../commands/bootstrap.js')
       await bootstrapCommand({
         format: input.format,
         ref: getString(input.values, 'ref'),
@@ -132,6 +131,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     allowPositionals: false,
     run: async (input) => {
       applyServerEnv(input.values)
+      const { serveCommand } = await import('../commands/serve.js')
       await serveCommand(input.format)
     },
   },
@@ -175,6 +175,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     help: 'Where to get help: the Canonry Discord, the issue tracker, and canonry feedback.',
     allowPositionals: false,
     run: async (input) => {
+      const { supportCommand } = await import('../commands/support.js')
       supportCommand(input.format)
     },
   },
@@ -200,6 +201,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     options: { target: stringOption() },
     allowPositionals: false,
     run: async (input) => {
+      const { telemetryCommand } = await import('../commands/telemetry.js')
       await telemetryCommand('status', input.format, getString(input.values, 'target'))
     },
   },
@@ -209,6 +211,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     options: { target: stringOption() },
     allowPositionals: false,
     run: async (input) => {
+      const { telemetryCommand } = await import('../commands/telemetry.js')
       await telemetryCommand('enable', input.format, getString(input.values, 'target'))
     },
   },
@@ -218,6 +221,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     options: { target: stringOption() },
     allowPositionals: false,
     run: async (input) => {
+      const { telemetryCommand } = await import('../commands/telemetry.js')
       await telemetryCommand('disable', input.format, getString(input.values, 'target'))
     },
   },

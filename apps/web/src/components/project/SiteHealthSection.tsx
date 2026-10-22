@@ -756,14 +756,14 @@ function PageInspector({
 }: {
   page: InspectableCrawlPage | null
   isLoading: boolean
-  error: Error | null
+  error: unknown
   inbound: SiteCrawlEdgeDto[]
   outbound: SiteCrawlEdgeDto[]
   inboundTruncated: boolean
   outboundTruncated: boolean
   audit: SiteCrawlPageAuditDto | undefined
   auditLoading: boolean
-  auditError: Error | null
+  auditError: unknown
   onRetryAudit: () => void
   rootHost: string | null
   /** The same page from the inventory read, which carries the crawler reasons. */

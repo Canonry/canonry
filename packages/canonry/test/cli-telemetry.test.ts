@@ -137,6 +137,17 @@ describe('CLI command lifecycle telemetry', () => {
     expect(consoleError).toHaveBeenCalled()
   })
 
+  it('names doctor findings and start failures instead of filing them as CLI_ERROR', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    for (const [command, code] of [['doctor', 'DOCTOR_CHECKS_FAILED'], ['start', 'DAEMON_START_TIMEOUT'], ['start', 'DAEMON_START_FAILED'], ['start', 'DAEMON_ALREADY_RUNNING']] as const) {
+      mocks.trackFinished.mockReset()
+      mocks.dispatch.mockRejectedValueOnce(new CliError({ code, message: 'x', exitCode: 1 }))
+      mocks.buildSetupState.mockReturnValue(beforeState)
+      await runCli([command])
+      expect(mocks.trackFinished).toHaveBeenCalledWith(expect.objectContaining({ command, success: false, errorCode: code }))
+    }
+  })
+
   it('collapses untrusted API error codes before telemetry', async () => {
     const error = new CliError({
       code: 'customer-supplied-response-code',

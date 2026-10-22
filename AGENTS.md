@@ -63,6 +63,7 @@ pnpm build:cli                  # CLI/server bundle only; skips the dashboard
 pnpm build:web                  # build or reuse dashboard output and copy changed assets
 pnpm build                      # complete publishable package
 pnpm run typecheck && pnpm run test && pnpm run lint
+pnpm typecheck:tsc              # typecheck with TypeScript's own tsc instead of tsrs (docs/testing.md)
 pnpm gen                        # regenerate the API client after changing openapi.ts
 pnpm plugin:sync                # refresh plugin skill mirrors + portable/client manifest versions
 pnpm plugin:check               # fail on plugin spec, skill, or version drift (CI gate)
@@ -120,7 +121,7 @@ Every (query × provider) snapshot carries two independent signals — a model c
 4. When you mean both, say "citation + mention coverage" or "visibility (cited or mentioned)" and disambiguate immediately.
 5. Public API field names use this vocabulary from the start; a rename needs a version bump.
 6. Render both signals in CLI/UI snapshot output: a two-glyph cell (`C/c` cited or not, `M/m` mentioned or not, `–` missing) with the legend above the table, as `canonry citations` and `canonry run` do. A dashboard list may show one signal at a time behind a Mentioned | Cited switch that names the signal shown (default Mentioned), while the summary above it and each opened row keep both; CLI tables keep both glyphs.
-7. `canonry-vocabulary/no-banned-metric-literal` bans conflating literals (`'answerRate'`, `'visibility run'`, `'paid mentions'`, …) in the CLI, api-routes, and web trees; the list is in `eslint.config.js`. Bare `'visible'` stays legal (DOM, legacy enum) — review owns it.
+7. `canonry-vocabulary/no-banned-metric-literal` bans conflating literals (`'answerRate'`, `'visibility run'`, `'paid mentions'`, …) in the CLI, api-routes, and web trees; the list is in `eslint-rules/canonry-vocabulary.js`. Bare `'visible'` stays legal (DOM, legacy enum) — review owns it.
 
 ### Branded vs non-brand (Critical)
 
@@ -179,7 +180,7 @@ Every derived number — percentage, trend, score, rank, bucket, residual, roll-
 
 The CLI and API **are** the agent interface. If an agent can't do something with `canonry <command> --format json` or an HTTP call, it's a bug.
 
-1. **No interactive prompts.** Everything works through flags, env vars, or `config.yaml`; `node:readline` is ESLint-banned in command files. Only `canonry init` may prompt, and all its values are also flags.
+1. **No interactive prompts.** Everything works through flags, env vars, or `config.yaml`; `node:readline` is lint-banned in command files. Only `canonry init` may prompt, and all its values are also flags.
 2. **JSON everywhere.** `--format json` goes to stdout; errors go to stderr as `{ "error": { "code": "...", "message": "..." } }` with a code from `CliError`.
 3. **Idempotent writes**, with `canonry apply` as the model. Creating POSTs (runs) return a stable identifier and handle conflicts (e.g. `runInProgress` with the existing run id).
 4. **Single-call reads.** If a common question needs two calls, add a composite endpoint (`/projects/:name/runs/latest`, `/projects/:name/search?q=`).
@@ -277,12 +278,12 @@ Canonry can run behind a reverse proxy sub-path (e.g. `/canonry/`); code that ig
 
 ## Code Comments
 
-- **Never use comments as a substitute for code.** `// else use project default` is a wish, not an implementation: a branch a comment describes must exist. ESLint's `no-warning-comments` flags `TODO` / `FIXME` / `HACK` so deferred work doesn't rot.
+- **Never use comments as a substitute for code.** `// else use project default` is a wish, not an implementation: a branch a comment describes must exist. The `no-warning-comments` lint rule flags `TODO` / `FIXME` / `HACK` so deferred work doesn't rot.
 - **No placeholder branches.** Write the code for a case that should do something; an intentional no-op gets an explicit empty block with a comment saying why (`// allLocations handled in the block below`).
 
 ## Lint Guards (Critical)
 
-Several rules in this file are true only because a lint guard enforces them — see `docs/GUARDS.md` for the full guard table and `Adding a guard` procedure. Every guard has its own rule id in `eslint.config.js`; **never add options to core `no-restricted-syntax`** (flat config last-wins override clobbers prior guards with no diagnostic — 4 dead guards found 2026-08-05). Key guards: `canonry-guards/no-raw-http-web` (apps/web → SDK), `canonry-guards/no-raw-http-cli` (canonry → ApiClient), `canonry-vocabulary/no-banned-metric-literal`, `design-tokens/no-literal-palette` — full list in `docs/GUARDS.md`.
+Several rules in this file are true only because a lint guard enforces them — see `docs/GUARDS.md` for the full guard table and `Adding a guard` procedure. Lint runs on oxlint: `.oxlintrc.json`, with the custom rules as JS plugins in `eslint-rules/`. Every guard has its own rule id; **never add options to core `no-restricted-syntax`** (overrides resolve rules last-wins, so a later block clobbers prior guards with no diagnostic — 4 dead guards found 2026-08-05). Key guards: `canonry-guards/no-raw-http-web` (apps/web → SDK), `canonry-guards/no-raw-http-cli` (canonry → ApiClient), `canonry-vocabulary/no-banned-metric-literal`, `design-tokens/no-literal-palette` — full list in `docs/GUARDS.md`.
 
 ## Keeping Documentation Current
 

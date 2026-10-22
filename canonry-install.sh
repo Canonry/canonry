@@ -1,29 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Preflight: Node must satisfy package.json "engines" before we spend minutes
-# building. The range is read from package.json so this never drifts from it.
-node -e '
-const range = require("./package.json").engines?.node ?? ""
-const v = process.versions.node.split(".").map(Number)
-const parse = (s) => { const p = s.split(".").map(Number); while (p.length < 3) p.push(0); return p }
-const cmp = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
-let ok = true
-for (const tok of range.split(/\s+/).filter(Boolean)) {
-  const m = tok.match(/^(>=|<=|>|<|=)?(\d+(?:\.\d+){0,2})$/)
-  if (!m) continue
-  const op = m[1] ?? "="
-  const c = cmp(v, parse(m[2]))
-  ok &&= op === ">=" ? c >= 0 : op === "<=" ? c <= 0 : op === ">" ? c > 0 : op === "<" ? c < 0 : c === 0
-}
-if (!ok) {
-  console.error(`error: Node ${process.versions.node} is outside the supported range "${range}" (package.json engines).`)
-  process.exit(1)
-}
-'
+node scripts/check-node.mjs
 
 if ! command -v pnpm >/dev/null 2>&1; then
-  echo "error: pnpm not found. Enable it with: corepack enable" >&2
+  echo "error: pnpm not found. Install it with: npm install -g pnpm@12.14.0" >&2
   exit 1
 fi
 

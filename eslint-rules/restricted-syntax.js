@@ -1,12 +1,13 @@
 // Selector bans that COMPOSE instead of clobbering each other.
 //
 // The core `no-restricted-syntax` rule cannot be used more than once over the
-// same file: ESLint flat config resolves rules by ID with LAST-WINS OVERRIDE
-// across overlapping config objects, so a second block naming the same tree
-// REPLACES the first block's options wholesale. The earlier guard then reports
+// same file: the linter resolves rules by ID with LAST-WINS OVERRIDE across
+// overlapping config blocks (ESLint flat config did, and `.oxlintrc.json`
+// overrides do), so a second block naming the same tree REPLACES the first
+// block's options wholesale. The earlier guard then reports
 // nothing, at any verbosity, with no warning, no duplicate-rule diagnostic, and
 // a fully green `pnpm lint`. Four of the five `no-restricted-syntax` blocks in
-// `eslint.config.js` were dead this way (verified 2026-08-05 by probe file), and
+// the former `eslint.config.js` were dead this way (verified 2026-08-05 by probe file), and
 // the AGENTS.md rules they were supposed to back had been false for as long.
 //
 // A guard with its OWN rule id is immune: two different ids are two different
@@ -15,8 +16,15 @@
 // hand-written visitor per guard. Behavior matches `no-restricted-syntax`: each
 // restriction is an esquery selector plus the message to report on a match.
 //
-// The selectors and messages stay in `eslint.config.js` next to the `files:`
-// globs they apply to — a guard is only readable together with its scope.
+// Each guard's selectors and messages live in its plugin module
+// (`canonry-guards.js`, `canonry-vocabulary.js`); its `files` scope and
+// exemptions live in `.oxlintrc.json`.
+
+/**
+ * An ESLint-format rule module, as oxlint's JS plugins run it. oxlint exposes
+ * the type only as `RuleTester.run`'s rule parameter.
+ * @typedef {Parameters<import('oxlint/plugins-dev').RuleTester['run']>[1]} OxlintRule
+ */
 
 const messageIdAt = (index) => `restricted${index}`
 
@@ -26,7 +34,7 @@ const messageIdAt = (index) => `restricted${index}`
  * @param {Array<{ selector: string, message: string }>} options.restrictions
  *   esquery selectors and the message reported on a match — same shape as a
  *   `no-restricted-syntax` option object.
- * @returns {import('eslint').Rule.RuleModule}
+ * @returns {OxlintRule}
  */
 export function createRestrictedSyntaxRule({ description, restrictions }) {
   if (!Array.isArray(restrictions) || restrictions.length === 0) {

@@ -12,14 +12,14 @@
   },
   "types": "./src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json",
     "test": "vitest run --config ../../vitest.package.config.ts",
-    "lint": "eslint src/ test/"
+    "lint": "oxlint -c ../../.oxlintrc.json --type-aware src/ test/"
   },
   "dependencies": {
     "linkify-it": "^6.1.0",
     "tlds": "^1.261.0",
-    "tldts": "^7.4.9",
-    "zod": "^4.1.12"
+    "tldts": "^7.4.19",
+    "zod": "^4.6.7"
   }
 }

@@ -4,7 +4,7 @@ This repo uses per-package `AGENTS.md` files for local context. **These must sta
 
 | When you... | Update... |
 |-------------|-----------|
-| Add a new package under `packages/` or `apps/` | Create `AGENTS.md` in the new package. Do not add a `CLAUDE.md`: Claude Code would read it instead of `AGENTS.md` |
+| Add a new package under `packages/` or `apps/` | Create `AGENTS.md` in the new package. Do not add a `CLAUDE.md`: Claude Code would read it instead of `AGENTS.md`. Its `typecheck` script runs `node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json`, never bare `tsc` (`docs/testing.md` → "Typecheck compilers") |
 | Add a new table or column in `packages/db/src/schema.ts` | Update `docs/data-model.md` (ER diagram + table groups) |
 | Add a new API route file in `packages/api-routes/src/` | Update `packages/api-routes/AGENTS.md` key files table |
 | Add a new CLI command | Update `packages/canonry/AGENTS.md` and `skills/canonry/references/canonry-cli.md`; add the equivalent MCP tool or document the explicit classification exception |
@@ -20,7 +20,7 @@ This repo uses per-package `AGENTS.md` files for local context. **These must sta
 | Change a critical pattern (error handling, DB access, auth) | Update the relevant package's AGENTS.md patterns section |
 | Add a new dependency between packages | Update `docs/architecture.md` module dependency graph |
 | Add a generic utility (formatter, parser, normalizer) | Add it to `packages/contracts/src/<topic>.ts`, re-export from `index.ts`, add tests in `packages/contracts/test/<topic>.test.ts`. Update the "Where utilities live" table in `packages/contracts/AGENTS.md` if introducing a new category. |
-| Add a lint guard (selector ban, custom rule) | Give it a UNIQUE rule id via `createRestrictedSyntaxRule` — never `no-restricted-syntax` options — add it to the coverage matrix in `test/eslint-guards.test.ts` and the guard table in `docs/GUARDS.md` |
+| Add a lint guard (selector ban, custom rule) | Give it a UNIQUE rule id via `createRestrictedSyntaxRule` — never `no-restricted-syntax` options — scope it (and any exemption, as an `"off"` override right after it) in `.oxlintrc.json`, add it to the coverage matrix in `test/lint-guards.test.ts`, and add it to the guard table in `docs/GUARDS.md` |
 | Change `@canonry/val-kit`'s public API | Bump `packages/val-kit/package.json`, update the inline `npm:@canonry/val-kit@<version>` pin in EVERY Val that imports it (Val Town applies no import map, so the version is repeated at each import site), then publish manually with `pnpm --filter @canonry/val-kit publish`. Vals have no CI/CD, so nothing stops a deploy against an unpublished pin: run the Val's `deno task check:prod` first. |
 | Add a Val under `apps/vals/` | Give it its own `deno.json` / `deno.dev.json` tasks and its own Val Town target, and add the Val to `docs/CODEMAP.md` + `docs/README.md`. Vals have no CI/CD job or deploy workflow; document its manual verification and release order in its `AGENTS.md`. |
 

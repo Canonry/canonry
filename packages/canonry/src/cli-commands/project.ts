@@ -1,14 +1,3 @@
-import {
-  addLocation,
-  createProject,
-  deleteProject,
-  listLocations,
-  listProjects,
-  removeLocation,
-  setDefaultLocation,
-  showProject,
-  updateProjectSettings,
-} from '../commands/project.js'
 import type { CliCommandSpec, CliValues } from '../cli-dispatch.js'
 import {
   getBoolean,
@@ -52,6 +41,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'site-audit-max-pages': stringOption(),
     },
     run: async (input) => {
+      const { createProject } = await import('../commands/project.js')
       const name = requireProject(
         input,
         'project.create',
@@ -112,6 +102,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'remove-marketing-host': multiStringOption(),
     },
     run: async (input) => {
+      const { updateProjectSettings } = await import('../commands/project.js')
       const name = requireProject(
         input,
         'project.update',
@@ -168,6 +159,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry project list [--format json]',
     allowPositionals: false,
     run: async (input) => {
+      const { listProjects } = await import('../commands/project.js')
       await listProjects(input.format)
     },
   },
@@ -175,6 +167,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['project', 'show'],
     usage: 'canonry project show <name> [--format json]',
     run: async (input) => {
+      const { showProject } = await import('../commands/project.js')
       const name = requireProject(input, 'project.show', 'canonry project show <name>')
       await showProject(name, input.format)
     },
@@ -184,6 +177,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry project delete <name> [--dry-run] [--format json]',
     supportsDryRun: true,
     run: async (input) => {
+      const { deleteProject } = await import('../commands/project.js')
       const name = requireProject(input, 'project.delete', 'canonry project delete <name> [--dry-run] [--format json]')
       await deleteProject(name, { dryRun: input.dryRun, format: input.format })
     },
@@ -199,6 +193,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       timezone: stringOption(),
     },
     run: async (input) => {
+      const { addLocation } = await import('../commands/project.js')
       const name = requireProject(
         input,
         'project.add-location',
@@ -232,6 +227,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['project', 'locations'],
     usage: 'canonry project locations <name> [--format json]',
     run: async (input) => {
+      const { listLocations } = await import('../commands/project.js')
       const name = requireProject(input, 'project.locations', 'canonry project locations <name> [--format json]')
       await listLocations(name, input.format)
     },
@@ -240,6 +236,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['project', 'remove-location'],
     usage: 'canonry project remove-location <name> <label> [--format json]',
     run: async (input) => {
+      const { removeLocation } = await import('../commands/project.js')
       const name = requireProject(input, 'project.remove-location', 'canonry project remove-location <name> <label> [--format json]')
       const label = requirePositional(input, 1, {
         command: 'project.remove-location',
@@ -253,6 +250,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['project', 'set-default-location'],
     usage: 'canonry project set-default-location <name> <label> [--format json]',
     run: async (input) => {
+      const { setDefaultLocation } = await import('../commands/project.js')
       const name = requireProject(input, 'project.set-default-location', 'canonry project set-default-location <name> <label> [--format json]')
       const label = requirePositional(input, 1, {
         command: 'project.set-default-location',

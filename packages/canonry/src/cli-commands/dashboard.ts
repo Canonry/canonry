@@ -1,4 +1,3 @@
-import { resetDashboardPassword } from '../commands/dashboard.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { unknownSubcommand } from '../cli-command-helpers.js'
 
@@ -9,6 +8,7 @@ export const DASHBOARD_CLI_COMMANDS: readonly CliCommandSpec[] = [
     help: 'Clears the dashboard password from config.yaml, so the dashboard asks for a new one after a restart.\n'
       + 'Local only: it edits the config file under CANONRY_CONFIG_DIR and does not call the server.',
     run: async (input) => {
+      const { resetDashboardPassword } = await import('../commands/dashboard.js')
       await resetDashboardPassword({ format: input.format })
     },
   },

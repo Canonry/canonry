@@ -43,6 +43,13 @@ export interface AiReferralEngineDefinition {
    * stay out.
    */
   labels: readonly string[]
+  /**
+   * The engine's official Android app ids (Google Play package names), matched
+   * exactly. GA4 stores an in-app link's source as the bare id or as
+   * `android-app://<id>`, and both resolve, so the Copilot and Gemini apps map
+   * although their names are not `labels`.
+   */
+  appIds: readonly string[]
 }
 
 /**
@@ -51,12 +58,15 @@ export interface AiReferralEngineDefinition {
  * to an engine goes through `aiEngineForReferralSource`, so two engine
  * breakdowns never bucket the same source differently.
  *
- * It is stricter than the substring filters the GA4 AI referral sync selects
- * rows with (`AI_REFERRAL_SOURCE_FILTERS` in integration-google-analytics):
- * a source that only contains an engine name inside an ordinary hostname,
- * such as `copilot.example.com`, counts as AI traffic there and returns null
- * here. `openai.com` and `anthropic.com` map to ChatGPT and Claude because
- * that sync counts them as AI traffic too.
+ * The GA4 AI referral sync builds the filters it selects rows with from these
+ * definitions (`AI_REFERRAL_SOURCE_FILTERS` in integration-google-analytics):
+ * each host and its subdomains, each bare name, each app id (bare or as
+ * `android-app://`), and, for engines with `labels`, tags that start with the
+ * name or host. A tag with the name further in (`utm_chatgpt`), an app id
+ * matched only by a label (`com.openai.example`) or a URL typed as
+ * `utm_source` maps here but is not selected there unless GA4 files it under
+ * its AI Assistant channel. `openai.com` and `anthropic.com` map to
+ * ChatGPT and Claude because that sync counts them as AI traffic too.
  */
 export const AI_REFERRAL_ENGINE_DEFINITIONS: readonly AiReferralEngineDefinition[] = [
   {
@@ -65,6 +75,7 @@ export const AI_REFERRAL_ENGINE_DEFINITIONS: readonly AiReferralEngineDefinition
     domains: [AI_ENGINE_DOMAINS.chatgpt, AI_ENGINE_DOMAINS.chatgptLegacy, AI_ENGINE_DOMAINS.openai],
     tokens: ['chatgpt', 'openai'],
     labels: ['chatgpt', 'openai'],
+    appIds: ['com.openai.chatgpt'],
   },
   {
     engine: AiReferralEngines.perplexity,
@@ -72,6 +83,7 @@ export const AI_REFERRAL_ENGINE_DEFINITIONS: readonly AiReferralEngineDefinition
     domains: [AI_ENGINE_DOMAINS.perplexity],
     tokens: ['perplexity'],
     labels: ['perplexity'],
+    appIds: ['ai.perplexity.app.android'],
   },
   {
     engine: AiReferralEngines.gemini,
@@ -79,6 +91,7 @@ export const AI_REFERRAL_ENGINE_DEFINITIONS: readonly AiReferralEngineDefinition
     domains: [AI_ENGINE_DOMAINS.gemini, AI_ENGINE_DOMAINS.bard],
     tokens: ['gemini', 'bard'],
     labels: [],
+    appIds: ['com.google.android.apps.bard'],
   },
   {
     engine: AiReferralEngines.claude,
@@ -86,6 +99,7 @@ export const AI_REFERRAL_ENGINE_DEFINITIONS: readonly AiReferralEngineDefinition
     domains: [AI_ENGINE_DOMAINS.claude, ANTHROPIC_API_DOMAIN],
     tokens: ['claude', 'anthropic'],
     labels: ['claude', 'anthropic'],
+    appIds: ['com.anthropic.claude'],
   },
   {
     engine: AiReferralEngines.copilot,
@@ -93,6 +107,10 @@ export const AI_REFERRAL_ENGINE_DEFINITIONS: readonly AiReferralEngineDefinition
     domains: [AI_ENGINE_DOMAINS.copilotMicrosoft, AI_ENGINE_DOMAINS.copilot],
     tokens: ['copilot'],
     labels: [],
+    // Off Google Play since 2026, but installed apps still send it. copilot.com
+    // now links the Microsoft 365 app (`com.microsoft.office.officehubrow`),
+    // which also opens Office documents, so its links are not all AI traffic.
+    appIds: ['com.microsoft.copilot'],
   },
   {
     engine: AiReferralEngines.grok,
@@ -100,6 +118,7 @@ export const AI_REFERRAL_ENGINE_DEFINITIONS: readonly AiReferralEngineDefinition
     domains: [AI_ENGINE_DOMAINS.grok],
     tokens: ['grok'],
     labels: [],
+    appIds: ['ai.x.grok'],
   },
   {
     engine: AiReferralEngines.deepseek,
@@ -107,6 +126,7 @@ export const AI_REFERRAL_ENGINE_DEFINITIONS: readonly AiReferralEngineDefinition
     domains: [AI_ENGINE_DOMAINS.deepseek],
     tokens: ['deepseek'],
     labels: ['deepseek'],
+    appIds: ['com.deepseek.chat'],
   },
   {
     engine: AiReferralEngines['meta-ai'],
@@ -114,6 +134,7 @@ export const AI_REFERRAL_ENGINE_DEFINITIONS: readonly AiReferralEngineDefinition
     domains: [AI_ENGINE_DOMAINS.metaAi],
     tokens: [],
     labels: [],
+    appIds: ['com.facebook.stella'],
   },
   {
     engine: AiReferralEngines.phind,
@@ -121,6 +142,7 @@ export const AI_REFERRAL_ENGINE_DEFINITIONS: readonly AiReferralEngineDefinition
     domains: [AI_ENGINE_DOMAINS.phind],
     tokens: ['phind'],
     labels: ['phind'],
+    appIds: [],
   },
   {
     engine: AiReferralEngines['you-com'],
@@ -128,12 +150,19 @@ export const AI_REFERRAL_ENGINE_DEFINITIONS: readonly AiReferralEngineDefinition
     domains: [AI_ENGINE_DOMAINS.you],
     tokens: [],
     labels: [],
+    appIds: [],
   },
 ]
 
 const ENGINE_BY_TOKEN = new Map<string, AiReferralEngine>(
   AI_REFERRAL_ENGINE_DEFINITIONS.flatMap(definition => (
     definition.tokens.map(token => [token, definition.engine] as const)
+  )),
+)
+
+const ENGINE_BY_APP_ID = new Map<string, AiReferralEngine>(
+  AI_REFERRAL_ENGINE_DEFINITIONS.flatMap(definition => (
+    definition.appIds.map(appId => [appId, definition.engine] as const)
   )),
 )
 
@@ -187,6 +216,9 @@ export function aiEngineForReferralSource(source: string | null | undefined): Ai
   const byToken = ENGINE_BY_TOKEN.get(value)
   if (byToken) return byToken
   const host = value.includes('.') ? hostOf(value) : null
+  // `android-app://com.microsoft.copilot` parses to the bare id as its host.
+  const byAppId = host ? ENGINE_BY_APP_ID.get(host) : undefined
+  if (byAppId) return byAppId
   const byDomain = host
     ? AI_REFERRAL_ENGINE_DEFINITIONS.find(definition => (
         hostMatchesAnyDomain(host, definition.domains)

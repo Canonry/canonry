@@ -9,10 +9,11 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "allowSyntheticDefaultImports": true,
-    "esModuleInterop": false,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
+    // Keep side-effect import checking explicit across both TypeScript 7 compilers.
+    "noUncheckedSideEffectImports": true,
     "types": ["node"],
     "incremental": true
   }

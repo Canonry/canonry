@@ -23,7 +23,7 @@ export default defineConfig({
     // tsup's DTS step invokes tsc internally; `incremental` inherited from
     // tsconfig.base.json triggers TS5074 here because there's no emit target
     // and no tsBuildInfoFile in this path. Force it off — typecheck still
-    // benefits from incremental via the standalone `tsc --noEmit` script.
+    // benefits from incremental via the standalone `typecheck` script.
     compilerOptions: {
       incremental: false,
       // Resolve private workspace types as source so declarations are bundled,

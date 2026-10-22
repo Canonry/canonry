@@ -1,13 +1,3 @@
-import {
-  listContentTargets,
-  listContentSources,
-  listContentGaps,
-  generateContentBrief,
-  contentMap,
-  listContentDismissals,
-  dismissContentTarget,
-  restoreContentTarget,
-} from '../commands/content.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { requireProject, requirePositional, parseIntegerOption, getString } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
@@ -20,6 +10,7 @@ export const CONTENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     help: 'List persisted addressed content targets, including those hidden from content targets.',
     options: {},
     run: async input => {
+      const { listContentDismissals } = await import('../commands/content.js')
       const project = requireProject(input, 'content dismissals', 'canonry content dismissals <project> [--format json|jsonl]')
       await listContentDismissals(project, { format: input.format })
     },
@@ -30,6 +21,7 @@ export const CONTENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     help: 'Mark a content target addressed. Restore it with content restore.',
     options: { 'addressed-url': { type: 'string' }, note: { type: 'string' } },
     run: async input => {
+      const { dismissContentTarget } = await import('../commands/content.js')
       const usage = 'canonry content dismiss <project> <targetRef> [--addressed-url <url>] [--note <text>] [--format json]'
       const project = requireProject(input, 'content dismiss', usage)
       const targetRef = requirePositional(input, 1, { command: 'content dismiss', usage, message: 'targetRef is required (from content targets)' })
@@ -42,6 +34,7 @@ export const CONTENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     help: 'Remove a persisted dismissal so an eligible target can appear again.',
     options: {},
     run: async input => {
+      const { restoreContentTarget } = await import('../commands/content.js')
       const usage = 'canonry content restore <project> <targetRef> [--format json]'
       const project = requireProject(input, 'content restore', usage)
       const targetRef = requirePositional(input, 1, { command: 'content restore', usage, message: 'targetRef is required (from content dismissals)' })
@@ -59,6 +52,7 @@ export const CONTENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'winnability-class': { type: 'string' },
     },
     run: async (input) => {
+      const { listContentTargets } = await import('../commands/content.js')
       const usage =
         'canonry content targets <project> [--limit <n>] [--include-in-progress] [--ownable] [--winnability-class <ownable|ceded>] [--format json]'
       const project = requireProject(input, 'content targets', usage)
@@ -90,6 +84,7 @@ export const CONTENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry content sources <project> [--format json]',
     options: {},
     run: async (input) => {
+      const { listContentSources } = await import('../commands/content.js')
       const usage = 'canonry content sources <project> [--format json]'
       const project = requireProject(input, 'content sources', usage)
       await listContentSources(project, { format: input.format })
@@ -100,6 +95,7 @@ export const CONTENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry content gaps <project> [--format json]',
     options: {},
     run: async (input) => {
+      const { listContentGaps } = await import('../commands/content.js')
       const usage = 'canonry content gaps <project> [--format json]'
       const project = requireProject(input, 'content gaps', usage)
       await listContentGaps(project, { format: input.format })
@@ -115,6 +111,7 @@ export const CONTENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       force: { type: 'boolean' },
     },
     run: async (input) => {
+      const { generateContentBrief } = await import('../commands/content.js')
       const usage =
         'canonry content brief <project> <targetRef> [--provider <p>] [--model <m>] [--force] [--format json]'
       const project = requireProject(input, 'content brief', usage)
@@ -136,6 +133,7 @@ export const CONTENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry content map <project> [--format json]',
     options: {},
     run: async (input) => {
+      const { contentMap } = await import('../commands/content.js')
       const usage = 'canonry content map <project> [--format json]'
       const project = requireProject(input, 'content map', usage)
       await contentMap(project, { format: input.format })

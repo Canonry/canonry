@@ -319,7 +319,7 @@ describe('googleRoutes: GET /projects/:name/google/gsc/query-totals', () => {
 
     function seedEveryDay() {
       seedPropertyDaily(LAST_DAY)
-      for (let d = new Date(`${FIRST_DAY}T00:00:00Z`); d.toISOString().slice(0, 10) <= LAST_DAY; d.setUTCDate(d.getUTCDate() + 1)) {
+      for (const d = new Date(`${FIRST_DAY}T00:00:00Z`); d.toISOString().slice(0, 10) <= LAST_DAY; d.setUTCDate(d.getUTCDate() + 1)) {
         seedAccurate(d.toISOString().slice(0, 10), 'blue widget', 1, 10, '2')
       }
     }

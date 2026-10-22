@@ -1,16 +1,6 @@
-import { agentConversations, type ConversationAction } from '../commands/agent-conversations.js'
-import { agentConversationListQuerySchema, agentViewContextSchema, agentTurnLimitsSchema, describeError, isRetiredAgentProviderId, type AgentViewContext } from '@canonry/canonry-contracts'
-import { agentAttach, agentDetach } from '../commands/agent.js'
-import { agentAsk, type AgentAskProfile, type AgentAskScope } from '../commands/agent-ask.js'
-import { agentProviders } from '../commands/agent-providers.js'
-import { agentTranscript, agentTranscriptReset } from '../commands/agent-transcript.js'
-import {
-  agentMemoryForget,
-  agentMemoryList,
-  agentMemorySet,
-} from '../commands/agent-memory.js'
-import { coerceAgentProvider, listAgentProviders } from '../agent/session.js'
-import { AERO_TOOL_PROFILES, isAeroToolProfile } from '../agent/tools.js'
+import type { ConversationAction } from '../commands/agent-conversations.js'
+import { AGENT_PROVIDER_IDS, agentConversationListQuerySchema, agentViewContextSchema, agentTurnLimitsSchema, describeError, isRetiredAgentProviderId, type AgentViewContext } from '@canonry/canonry-contracts'
+import type { AgentAskProfile, AgentAskScope } from '../commands/agent-ask.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, requireProject, requireStringOption, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
@@ -23,6 +13,7 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: `canonry agent conversations ${action} <project> [--id <conversation-id>] [--offset <n>] [--limit <n>] [--format json]`,
     options: { id: stringOption(), offset: stringOption(), limit: stringOption() },
     run: async input => {
+      const { agentConversations } = await import('../commands/agent-conversations.js')
       const usage = `canonry agent conversations ${action} <project>`
       const project = requireProject(input, `agent.conversations.${action}`, usage)
       const id = action === 'new' || action === 'list' ? getString(input.values, 'id')
@@ -34,7 +25,7 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   })),
   {
     path: ['agent', 'ask'],
-    usage: `canonry agent ask <project> "<prompt>" [--provider ${listAgentProviders().join('|')}] [--model <id>] [--scope all|read-only] [--profile default|ads-operator] [--context <json>] [--conversation <id>] [--max-tool-calls <n>] [--timeout-ms <ms>] [--format json]`,
+    usage: `canonry agent ask <project> "<prompt>" [--provider ${AGENT_PROVIDER_IDS.join('|')}] [--model <id>] [--scope all|read-only] [--profile default|ads-operator] [--context <json>] [--conversation <id>] [--max-tool-calls <n>] [--timeout-ms <ms>] [--format json]`,
     options: {
       provider: stringOption(),
       model: stringOption(),
@@ -46,7 +37,10 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'timeout-ms': stringOption(),
     },
     run: async (input) => {
-      const usage = `canonry agent ask <project> "<prompt>" [--provider ${listAgentProviders().join('|')}] [--model <id>] [--scope all|read-only] [--profile default|ads-operator] [--context <json>] [--conversation <id>] [--max-tool-calls <n>] [--timeout-ms <ms>] [--format json]`
+      const { coerceAgentProvider } = await import('../agent/session.js')
+      const { AERO_TOOL_PROFILES, isAeroToolProfile } = await import('../agent/tools.js')
+      const { agentAsk } = await import('../commands/agent-ask.js')
+      const usage = `canonry agent ask <project> "<prompt>" [--provider ${AGENT_PROVIDER_IDS.join('|')}] [--model <id>] [--scope all|read-only] [--profile default|ads-operator] [--context <json>] [--conversation <id>] [--max-tool-calls <n>] [--timeout-ms <ms>] [--format json]`
       const project = requireProject(input, 'agent.ask', usage)
       const prompt = input.positionals.slice(1).join(' ').trim()
       if (!prompt) {
@@ -61,15 +55,15 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const providerInput = getString(input.values, 'provider')
       if (providerInput && !coerceAgentProvider(providerInput)) {
         const message = isRetiredAgentProviderId(providerInput)
-          ? `--provider ${providerInput} was removed; use one of: ${listAgentProviders().join(', ')}`
-          : `--provider must be one of: ${listAgentProviders().join(', ')}`
+          ? `--provider ${providerInput} was removed; use one of: ${AGENT_PROVIDER_IDS.join(', ')}`
+          : `--provider must be one of: ${AGENT_PROVIDER_IDS.join(', ')}`
         throw usageError(`Error: ${message}\nUsage: ${usage}`, {
           message,
           details: {
             command: 'agent.ask',
             usage,
             provider: providerInput,
-            validProviders: listAgentProviders(),
+            validProviders: AGENT_PROVIDER_IDS,
           },
         })
       }
@@ -128,6 +122,7 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry agent providers <project> [--format json]',
     options: {},
     run: async (input) => {
+      const { agentProviders } = await import('../commands/agent-providers.js')
       const project = requireProject(input, 'agent.providers', 'canonry agent providers <project> [--format json]')
       await agentProviders({ project, format: input.format })
     },
@@ -139,6 +134,7 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       url: stringOption(),
     },
     run: async (input) => {
+      const { agentAttach } = await import('../commands/agent.js')
       const usage = 'canonry agent attach <project> --url <webhook-url> [--format json]'
       const project = requireProject(input, 'agent.attach', usage)
       const url = requireStringOption(input, 'url', {
@@ -157,6 +153,7 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry agent detach <project> [--format json]',
     options: {},
     run: async (input) => {
+      const { agentDetach } = await import('../commands/agent.js')
       const project = requireProject(input, 'agent.detach', 'canonry agent detach <project> [--format json]')
       await agentDetach({ project, format: input.format })
     },
@@ -166,6 +163,7 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry agent transcript <project> [--format json]',
     options: {},
     run: async (input) => {
+      const { agentTranscript } = await import('../commands/agent-transcript.js')
       const project = requireProject(input, 'agent.transcript', 'canonry agent transcript <project> [--format json]')
       await agentTranscript({ project, format: input.format })
     },
@@ -175,6 +173,7 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry agent reset <project> [--format json]',
     options: {},
     run: async (input) => {
+      const { agentTranscriptReset } = await import('../commands/agent-transcript.js')
       const project = requireProject(input, 'agent.reset', 'canonry agent reset <project> [--format json]')
       await agentTranscriptReset({ project, format: input.format })
     },
@@ -184,6 +183,7 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry agent clear <project> [--format json]',
     options: {},
     run: async (input) => {
+      const { agentTranscriptReset } = await import('../commands/agent-transcript.js')
       const project = requireProject(input, 'agent.clear', 'canonry agent clear <project> [--format json]')
       await agentTranscriptReset({ project, format: input.format })
     },
@@ -193,6 +193,7 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry agent memory list <project> [--format json]',
     options: {},
     run: async (input) => {
+      const { agentMemoryList } = await import('../commands/agent-memory.js')
       const usage = 'canonry agent memory list <project> [--format json]'
       const project = requireProject(input, 'agent.memory.list', usage)
       await agentMemoryList({ project, format: input.format })
@@ -206,6 +207,7 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       value: stringOption(),
     },
     run: async (input) => {
+      const { agentMemorySet } = await import('../commands/agent-memory.js')
       const usage = 'canonry agent memory set <project> --key <k> --value <v> [--format json]'
       const project = requireProject(input, 'agent.memory.set', usage)
       const key = requireStringOption(input, 'key', {
@@ -234,6 +236,7 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       key: stringOption(),
     },
     run: async (input) => {
+      const { agentMemoryForget } = await import('../commands/agent-memory.js')
       const usage = 'canonry agent memory forget <project> --key <k> [--format json]'
       const project = requireProject(input, 'agent.memory.forget', usage)
       const key = requireStringOption(input, 'key', {

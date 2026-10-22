@@ -17,7 +17,8 @@ import {
 import { bootstrapCommand } from '../src/commands/bootstrap.js'
 import { initCommand } from '../src/commands/init.js'
 import { getConfigDir, loadConfig, type CanonryConfig } from '../src/config.js'
-import { createServer, isLoopbackBindHost } from '../src/server.js'
+import { createServer } from '../src/server.js'
+import { isLoopbackBindHost } from '../src/serve-endpoint.js'
 import { ApiClient } from '../src/client.js'
 
 const _require = createRequire(import.meta.url)

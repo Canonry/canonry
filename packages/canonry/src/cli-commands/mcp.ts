@@ -1,4 +1,3 @@
-import { installMcp, printMcpConfig } from '../commands/mcp.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, requireStringOption, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 import { listMcpClientIds } from '../mcp-clients.js'
@@ -18,6 +17,7 @@ export const MCP_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'config-path': stringOption(),
     },
     run: async (input) => {
+      const { installMcp } = await import('../commands/mcp.js')
       const usage = `canonry mcp install --client ${CLIENT_LIST} [--name <server>] [--read-only] [--dry-run] [--config-path <path>] [--format json]`
       const client = requireStringOption(input, 'client', {
         command: 'mcp.install',
@@ -44,6 +44,7 @@ export const MCP_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'read-only': { type: 'boolean' },
     },
     run: async (input) => {
+      const { printMcpConfig } = await import('../commands/mcp.js')
       const usage = `canonry mcp config --client ${CLIENT_LIST} [--name <server>] [--read-only] [--format json]`
       const client = requireStringOption(input, 'client', {
         command: 'mcp.config',

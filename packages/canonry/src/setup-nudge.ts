@@ -54,7 +54,7 @@ const GEMINI_KEY_URL = 'https://aistudio.google.com/apikey'
  * compact `{"notice":{...}}` line for `--format json|jsonl`. stdout is never
  * touched, so a JSON document on stdout stays exactly that.
  */
-export function buildSetupNudgeLine(input: {
+export async function buildSetupNudgeLine(input: {
   /** Resolved registry path, e.g. `status` or `settings.provider`. */
   command: string
   format: CliFormat
@@ -66,8 +66,8 @@ export function buildSetupNudgeLine(input: {
    * above the read make sure it only ever happens for a command that could
    * actually show the line.
    */
-  getSetupState: () => SetupState | undefined
-}): string | null {
+  getSetupState: () => Promise<SetupState | undefined> | SetupState | undefined
+}): Promise<string | null> {
   const machineFormat = isMachineFormat(input.format)
   const handoff = PAGE_HEALTH_HANDOFF_COMMANDS.has(input.command)
   if (!handoff) {
@@ -77,7 +77,7 @@ export function buildSetupNudgeLine(input: {
   }
   // No setup state means no config at all: pre-init, where `init` itself is
   // the guidance and this line would be premature.
-  const setupState = input.getSetupState()
+  const setupState = await input.getSetupState()
   if (!setupState) return null
   if (setupState.provider_count > 0) return null
   // A CLI pointed at a remote server reads an empty local config and

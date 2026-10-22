@@ -189,7 +189,7 @@ describe('openapi contract', () => {
       .toBe('#/components/schemas/ProjectConfigExport')
 
     type ObjectSchema = { required?: string[]; properties: Record<string, ObjectSchema> }
-    const exported = (doc.components?.schemas as Record<string, ObjectSchema>).ProjectConfigExport!
+    const exported = (doc.components!.schemas as Record<string, ObjectSchema>).ProjectConfigExport!
     const spec = exported.properties.spec!
     expect(exported.required).toEqual(['apiVersion', 'kind', 'metadata', 'spec'])
     expect(exported.properties.metadata!.required).toEqual(['name', 'labels'])
@@ -251,7 +251,7 @@ describe('openapi contract', () => {
     expect(offenders).toEqual([])
 
     // GA status answers `authMethod: null` while the project is disconnected.
-    const gaStatus = (doc.components?.schemas as Record<string, { properties: Record<string, unknown> }>).GA4StatusDto
+    const gaStatus = (doc.components!.schemas as Record<string, { properties: Record<string, unknown> }>).GA4StatusDto
     expect(gaStatus?.properties.authMethod).toMatchObject({ enum: ['service-account', 'oauth', null], nullable: true })
   })
 

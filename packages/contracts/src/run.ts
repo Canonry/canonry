@@ -457,6 +457,23 @@ export const groundingSourceSchema = z.object({
 export type GroundingSource = z.infer<typeof groundingSourceSchema>
 
 /**
+ * A page an engine's search listed or opened while answering. Retrieval is
+ * not citation: a retrieved page shows what the engine could see, never that
+ * the answer relied on it. Citation readers use `groundingSources` and
+ * `citedDomains`; nothing derives either from this list.
+ */
+export const retrievedSourceSchema = z.object({
+  uri: z.string(),
+  title: z.string(),
+  /** `search-result`: listed by one of the engine's searches. `page-read`: opened by the engine. */
+  kind: z.enum(['search-result', 'page-read']),
+  /** The search that listed it; null for a page read. */
+  query: z.string().nullable(),
+})
+
+export type RetrievedSource = z.infer<typeof retrievedSourceSchema>
+
+/**
  * Whether a provider actually honoured the `LocationContext` a plan-aware run
  * requested, per the `query_snapshots.supported_context` column. Null on the
  * snapshot means the run asked for no location, or the provider does not
@@ -517,6 +534,12 @@ export const querySnapshotDtoSchema = z.object({
   matchedTerms: z.array(z.string()).default([]),
   groundingSources: z.array(groundingSourceSchema).default([]),
   searchQueries: z.array(z.string()).default([]),
+  /**
+   * Pages the engine's searches listed or opened for this answer, separate
+   * from cited sources. Null when the engine does not report them (or the
+   * answer predates capture); an empty list means it reported none.
+   */
+  retrievedSources: z.array(retrievedSourceSchema).nullable().default(null),
   /** The model we REQUESTED for this snapshot. Configuration, not attribution. */
   model: z.string().nullable().optional(),
   /**

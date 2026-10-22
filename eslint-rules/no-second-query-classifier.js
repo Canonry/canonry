@@ -118,7 +118,7 @@ function subjectName(node) {
   return null
 }
 
-/** @type {import('eslint').Rule.RuleModule} */
+/** @type {import('./restricted-syntax.js').OxlintRule} */
 export const noSecondQueryClassifierRule = {
   meta: {
     type: 'problem',

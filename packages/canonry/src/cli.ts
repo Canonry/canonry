@@ -22,8 +22,7 @@ import { resolveCliAccess } from './cli-access.js'
 import { OperationAccesses } from '@canonry/canonry-contracts'
 import { checkLatestVersionForCli, formatUpdateNotice, notePrintedUpdateAvailable, readCachedUpdateAvailable } from './update-check.js'
 import { buildSetupNudgeLine } from './setup-nudge.js'
-import { consumePendingServeHandoff } from './commands/init.js'
-import { serveCommand } from './commands/serve.js'
+import { runPendingServeHandoff } from './serve-handoff.js'
 
 
 
@@ -133,6 +132,12 @@ const TELEMETRY_ERROR_CODES = new Set([
   'CLI_USAGE_ERROR',
   'CLI_SYSTEM_ERROR',
   'CONNECTION_ERROR',
+  // A doctor run that found failing checks did its job; `start` failures say
+  // why the server did not come up. Both used to arrive as CLI_ERROR.
+  'DOCTOR_CHECKS_FAILED',
+  'DAEMON_ALREADY_RUNNING',
+  'DAEMON_START_FAILED',
+  'DAEMON_START_TIMEOUT',
   'UNEXPECTED_RESPONSE_FORMAT',
   'STORED_ONLY_REFUSED',
 ])
@@ -232,7 +237,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
     // Emit `cli.upgraded` once per version bump, before `cli.command`, so
     // upgrade events are correlated with the first command on the new build.
     detectAndTrackUpgrade()
-    const setupState = buildSetupState()
+    const setupState = await buildSetupState()
     trackEvent('cli.command', {
       command: resolvedCommand,
       ...(setupState ? { setup_state: setupState } : {}),
@@ -266,7 +271,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
           command: resolvedCommand,
           success: true,
           durationMs: Date.now() - commandStartedAt,
-          setupState: buildSetupState(),
+          setupState: await buildSetupState(),
         })
       }
       // The stalled-setup line. Independent of telemetry consent (it is user
@@ -274,7 +279,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
       // commands and non-interactive runs outside the Page Health handoff must
       // not touch config or the database, and the nudge's own gates guarantee that.
       if (!storedOnlyMode) {
-        const nudge = buildSetupNudgeLine({
+        const nudge = await buildSetupNudgeLine({
           command: resolvedCommand,
           format,
           stderrIsTTY: Boolean(process.stderr.isTTY),
@@ -285,9 +290,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
       // Init's dashboard handoff, honored only after init's own lifecycle
       // event is on the wire so serve's unbounded runtime cannot pollute
       // init's duration bucket.
-      if (consumePendingServeHandoff()) {
-        await serveCommand(format as CliFormat)
-      }
+      await runPendingServeHandoff(format as CliFormat)
       return 0
     }
     throw usageError(`Error: unknown command: ${command}\nRun "cnry --help" for usage.`, {
@@ -305,7 +308,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
         command: resolvedCommand,
         success: false,
         durationMs: Date.now() - commandStartedAt,
-        setupState: buildSetupState(),
+        setupState: await buildSetupState(),
         errorCode: telemetryErrorCode(err),
       })
     }

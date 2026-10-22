@@ -197,6 +197,30 @@ describe('executeReleaseSync', () => {
     expect(row?.error).toMatch(/boom/)
   })
 
+  it('fails before downloading when the DuckDB plugin cannot load, and reports the plugin as missing', async () => {
+    insertProject('p1', 'roots', 'roots.io')
+    const syncId = crypto.randomUUID()
+    const release = 'cc-main-2026-jan-feb-mar'
+    insertSyncRow(syncId, release)
+    const downloadFile = vi.fn()
+
+    await expect(
+      executeReleaseSync(db, syncId, {
+        release,
+        deps: makeDeps({
+          downloadFile,
+          loadDuckdb: () => { throw Object.assign(new Error('@duckdb/node-api is installed but failed to load (x).'), { code: 'MISSING_DEPENDENCY' }) },
+        }),
+      }),
+    ).rejects.toThrow(/failed to load/)
+
+    expect(downloadFile).not.toHaveBeenCalled()
+    const row = db.select().from(ccReleaseSyncs).where(eq(ccReleaseSyncs.id, syncId)).get()
+    expect(row?.status).toBe('failed')
+    expect(row?.downloadStartedAt).toBeNull()
+    expect(trackEvent.mock.calls[0]?.[1]).toMatchObject({ feature: 'backlinks', operation: 'sync', status: 'failed', reasonCode: 'NOT_CONNECTED' })
+  })
+
   it('keeps the completion stamp and the stored rows when a completed release is synced again and fails', async () => {
     // The sources route and the `backlinks.source.connected` doctor check read
     // `queryFinishedAt` to keep projects connected through a re-sync, because

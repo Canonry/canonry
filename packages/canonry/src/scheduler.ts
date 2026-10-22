@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import cron from 'node-cron'
+import cron, { type ScheduledTask } from 'node-cron'
 import { and, eq, inArray, notExists, sql } from 'drizzle-orm'
 import { queueRunIfProjectIdle, nextRunFromCron, nextRunFromSchedule, ensureCurrentQueryBasketRevision, hasOutstandingProviderBatch, latestQueryBasketRevision } from '@canonry/canonry-api-routes'
 import type { DatabaseClient } from '@canonry/canonry-db'
@@ -156,7 +156,7 @@ function taskKey(projectId: string, kind: SchedulableRunKind): string {
   return `${projectId}::${kind}`
 }
 
-type SchedulerTask = Pick<cron.ScheduledTask, 'stop' | 'destroy'>
+type SchedulerTask = Pick<ScheduledTask, 'stop' | 'destroy'>
 
 function scheduleRecurrence(schedule: typeof schedules.$inferSelect): CalendarRecurrence | null {
   if (!schedule.recurrence) return null

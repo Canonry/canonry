@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { missingDependency } from '@canonry/canonry-contracts'
 import { DUCKDB_SPEC, PLUGIN_DIR } from './constants.js'
-import { isDuckdbInstalled, readInstalledVersion } from './plugin-resolver.js'
+import { isDuckdbInstalled, loadDuckdb, readInstalledVersion } from './plugin-resolver.js'
 
 export interface InstallDuckdbOptions {
   pluginDir?: string
@@ -26,8 +27,13 @@ export async function installDuckdb(opts: InstallDuckdbOptions = {}): Promise<In
   await ensurePluginDir(pluginDir, pluginPkgJson)
 
   if (isDuckdbInstalled({ pluginPkgJson })) {
-    const version = readInstalledVersion({ pluginPkgJson }) ?? 'unknown'
-    return { alreadyPresent: true, version, path: pluginDir }
+    if (loads(pluginPkgJson)) {
+      const version = readInstalledVersion({ pluginPkgJson }) ?? 'unknown'
+      return { alreadyPresent: true, version, path: pluginDir }
+    }
+    // A copy that cannot load is what the load error tells the user to
+    // re-install, so replace it instead of reporting it as already present.
+    await fs.rm(path.join(pluginDir, 'node_modules', '@duckdb'), { recursive: true, force: true })
   }
 
   await runInstall(pkgManager, spec, pluginDir, opts.onLog)
@@ -35,8 +41,20 @@ export async function installDuckdb(opts: InstallDuckdbOptions = {}): Promise<In
   if (!isDuckdbInstalled({ pluginPkgJson })) {
     throw new Error(`${pkgManager} install completed but @duckdb/node-api still cannot be resolved from ${pluginDir}`)
   }
+  // Files on disk are not a working plugin: load it so a broken native
+  // binding fails here, with its cause, instead of after a sync's download.
+  loadDuckdb({ pluginPkgJson })
   const version = readInstalledVersion({ pluginPkgJson }) ?? 'unknown'
   return { alreadyPresent: false, version, path: pluginDir }
+}
+
+function loads(pluginPkgJson: string): boolean {
+  try {
+    loadDuckdb({ pluginPkgJson })
+    return true
+  } catch {
+    return false
+  }
 }
 
 async function ensurePluginDir(pluginDir: string, pluginPkgJson: string): Promise<void> {
@@ -77,7 +95,16 @@ async function runInstall(
         }
       })
     }
-    child.on('error', reject)
+    child.on('error', (err: NodeJS.ErrnoException) => {
+      // On Windows the package manager is a .cmd shim, so ENOENT there does
+      // not mean it is missing.
+      reject(err.code === 'ENOENT' && process.platform !== 'win32'
+        ? missingDependency(
+          `${pkgManager} was not found, so @duckdb/node-api cannot be installed here. The canonry Docker image ships without ${pkgManager}.`,
+          { pluginDir },
+        )
+        : err)
+    })
     child.on('exit', (code) => {
       if (code === 0) resolve()
       else reject(new Error(`${pkgManager} install exited with code ${code}`))

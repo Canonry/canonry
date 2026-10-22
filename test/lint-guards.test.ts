@@ -1,16 +1,19 @@
-import { existsSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { ESLint, RuleTester } from 'eslint'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { RuleTester } from 'oxlint/plugins-dev'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createRestrictedSyntaxRule } from '../eslint-rules/restricted-syntax.js'
 
 /**
  * The workspace lint config's guards must actually RUN in every tree they name.
  *
  * This is not a hypothetical. Every guard used to be options on the core
- * `no-restricted-syntax` rule, and ESLint flat config resolves rules by id with
- * LAST-WINS OVERRIDE across overlapping config objects — so a second block
+ * `no-restricted-syntax` rule, and the linter resolves rules by id with
+ * LAST-WINS OVERRIDE across overlapping config blocks — so a second block
  * naming the same tree replaced the first block's options and the first guard
  * silently stopped reporting. Four of five blocks were dead that way: the
  * vocabulary literal ban fired in NONE of the four trees it named, the GA4
@@ -19,11 +22,13 @@ import { createRestrictedSyntaxRule } from '../eslint-rules/restricted-syntax.js
  * the AGENTS.md rules citing those guards had been false for as long.
  *
  * A dead guard is invisible from the outside: it looks exactly like a clean
- * tree. The only way to see it is to ask what is enabled for a given file, so
- * that is what this asserts — per tree, per guard, at error severity.
+ * tree. So this lints a probe that breaks every guard at once, placed at a
+ * representative path in each guarded tree (inside a temporary copy, never the
+ * checkout), and asserts which guards report — per tree, per guard, at error
+ * severity. That also proves the oxlint JS plugins load and run the rules.
  */
 
-/** Rule ids expected at `error` severity for a representative file in each guarded tree. */
+/** Rule ids that must report at `error` severity for a representative file in each guarded tree. */
 const GUARD_COVERAGE: Array<{ file: string, rules: string[] }> = [
   {
     // Aero's tool text and the server-side insight copy show percentages too.
@@ -135,7 +140,12 @@ const GUARD_EXEMPTIONS: Array<{ file: string, rule: string }> = [
   { file: 'apps/web/src/mock-data.ts', rule: 'canonry-vocabulary/no-question-ui-copy' },
   { file: 'apps/web/src/components/project/queries/FindQueriesSection.tsx', rule: 'canonry-vocabulary/no-question-ui-copy' },
   { file: 'apps/web/src/components/shared/ProviderBadge.tsx', rule: 'design-tokens/no-literal-palette' },
+  { file: 'apps/web/src/components/shared/ChartPrimitives.tsx', rule: 'design-tokens/no-literal-palette' },
   { file: 'packages/canonry/src/client.ts', rule: 'canonry-guards/no-raw-http-cli' },
+  { file: 'packages/canonry/src/commands/daemon.ts', rule: 'canonry-guards/no-raw-http-cli' },
+  { file: 'packages/canonry/src/telemetry.ts', rule: 'canonry-guards/no-raw-http-cli' },
+  { file: 'packages/canonry/src/update-check.ts', rule: 'canonry-guards/no-raw-http-cli' },
+  { file: 'packages/canonry/src/commands/init.ts', rule: 'no-restricted-imports' },
   { file: 'packages/integration-google-analytics/src/constants.ts', rule: 'canonry-guards/no-inline-ga4-dimension' },
   { file: 'packages/contracts/src/ai-engines.ts', rule: 'canonry-guards/no-inline-ai-hostname' },
   { file: 'packages/contracts/src/formatting.ts', rule: 'canonry-guards/no-inline-percent' },
@@ -143,94 +153,143 @@ const GUARD_EXEMPTIONS: Array<{ file: string, rule: string }> = [
   { file: 'packages/intelligence/src/query-categorize.ts', rule: 'canonry-guards/no-second-query-classifier' },
 ]
 
-const severityOf = (entry: unknown): number | undefined => {
-  const value = Array.isArray(entry) ? entry[0] : entry
-  if (typeof value === 'number') return value
-  if (value === 'error') return 2
-  if (value === 'warn') return 1
-  if (value === 'off') return 0
-  return undefined
+const IMPORT_BAN_FILES = ['apps/web/src/components/shared/ChartPrimitives.tsx']
+
+/** Breaks every guard and both import bans at once. */
+const PROBE = `import readline from 'node:readline'
+import { LineChart } from 'recharts'
+import Highcharts from 'highcharts'
+
+declare const share: number
+declare const text: string
+export const probes = [
+  readline, LineChart, Highcharts,
+  'answerRate',
+  'Assign each question to a Property',
+  'openai.com',
+  'sessionSource',
+  'flex bg-zinc-900 text-zinc-50',
+  \`\${(share * 100).toFixed(1)}%\`,
+  fetch('https://example.com'),
+]
+export const queryClass = /example/i.test(text) ? 'branded' : 'non-brand'
+`
+
+const workspaceRoot = path.resolve(fileURLToPath(import.meta.url), '../..')
+const CONFIG = '.oxlintrc.json'
+
+interface Finding { rule: string, severity: string, message: string }
+
+/** `canonry-guards(no-raw-http-web)` → `canonry-guards/no-raw-http-web`; `eslint(x)` → `x`. */
+function ruleId(code: string): string {
+  const match = /^([^(]+)\((.+)\)$/.exec(code)
+  if (!match) return code
+  return match[1] === 'eslint' ? match[2]! : `${match[1]}/${match[2]}`
+}
+
+/** Strips `//` and block comments outside strings, so the JSONC config parses as JSON. */
+function parseJsonc(text: string): unknown {
+  let out = ''
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]!
+    if (char === '"') {
+      const start = i
+      for (i++; i < text.length && text[i] !== '"'; i++) if (text[i] === '\\') i++
+      out += text.slice(start, i + 1)
+    } else if (char === '/' && text[i + 1] === '/') {
+      while (i < text.length && text[i] !== '\n') i++
+      out += '\n'
+    } else if (char === '/' && text[i + 1] === '*') {
+      i = text.indexOf('*/', i + 2) + 1
+    } else {
+      out += char
+    }
+  }
+  return JSON.parse(out)
 }
 
 describe('workspace lint guards', () => {
-  const workspaceRoot = path.resolve(fileURLToPath(import.meta.url), '../..')
-  const eslint = new ESLint({ cwd: workspaceRoot })
-  const resolveConfig = async (file: string) =>
-    await eslint.calculateConfigForFile(file) as { rules?: Record<string, unknown> }
+  const files = [...new Set([...GUARD_COVERAGE.map(entry => entry.file), ...GUARD_EXEMPTIONS.map(entry => entry.file), ...IMPORT_BAN_FILES])]
+  const findings = new Map<string, Finding[]>()
+  let root = ''
 
-  // Warm the config resolver once, as SETUP rather than inside a test.
-  //
-  // The first `calculateConfigForFile` loads `eslint.config.js` and every
-  // plugin it imports (typescript-eslint, the local rule files, the whole
-  // flat-config graph). Measured: that first call is ~675ms and every later
-  // one is 0-8ms, because the result is cached. Without this hook that cost
-  // lands on whichever test runs first, under the 5s default timeout.
-  //
-  // This was observed three times as `enables every guard that names
-  // apps/web/src/pages/ProjectPage.tsx` timing out at 5s while a full
-  // `pnpm verify` ran concurrently — always that test, never the four
-  // identically-shaped ones after it, which is the signature of shared setup
-  // rather than of anything about that file (`calculateConfigForFile` never
-  // opens it, so its size is irrelevant). It does NOT reproduce on an idle
-  // machine or under pure CPU saturation, so the exact contention is not
-  // pinned down; what is certain is that a multi-second one-time cost had no
-  // business inside a 5s per-test budget.
-  //
-  // Paying it here leaves each assertion below measuring only its own
-  // marginal work, so the tight default timeout still catches a real
-  // regression in config resolution.
-  beforeAll(async () => {
-    await resolveConfig(GUARD_COVERAGE[0]!.file)
+  // One oxlint run over every probe (it loads the JS plugins once), as setup.
+  beforeAll(() => {
+    // Real path, and the config passed relative to it: oxlint 1.89 silently skips
+    // JS plugin rules when `-c` is an absolute path through a symlink (macOS's
+    // temp directory is one), which would make every guard look dead here.
+    root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'canonry-lint-guards-')))
+    copyFileSync(path.join(workspaceRoot, CONFIG), path.join(root, CONFIG))
+    for (const link of ['node_modules', 'eslint-rules']) symlinkSync(path.join(workspaceRoot, link), path.join(root, link))
+    for (const file of files) {
+      mkdirSync(path.dirname(path.join(root, file)), { recursive: true })
+      writeFileSync(path.join(root, file), PROBE)
+    }
+    const manifest = createRequire(import.meta.url).resolve('oxlint/package.json')
+    const bin = path.join(path.dirname(manifest), (JSON.parse(readFileSync(manifest, 'utf8')) as { bin: { oxlint: string } }).bin.oxlint)
+    const result = spawnSync(process.execPath, [bin, '-c', CONFIG, '--format', 'json', ...files], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    const report = JSON.parse(result.stdout) as { diagnostics: Array<{ code: string, severity: string, message: string, help?: string, filename: string }> }
+    for (const diagnostic of report.diagnostics) {
+      const list = findings.get(diagnostic.filename) ?? []
+      // oxlint reports a rule's configured message (an import ban's, say) as `help`.
+      list.push({ rule: ruleId(diagnostic.code), severity: diagnostic.severity, message: [diagnostic.message, diagnostic.help].filter(Boolean).join(' ') })
+      findings.set(diagnostic.filename, list)
+    }
   }, 120_000)
 
-  // `calculateConfigForFile` answers for any path, real or not, so a renamed
-  // file would leave the matrix asserting about nothing. Fail on that instead.
+  afterAll(() => {
+    if (root) rmSync(root, { recursive: true, force: true })
+  })
+
+  const errorsAt = (file: string) => (findings.get(file) ?? []).filter(finding => finding.severity === 'error')
+
+  // A probe at a path that no longer exists would assert about nothing. Fail on that instead.
   it('names real files', () => {
-    for (const { file } of [...GUARD_COVERAGE, ...GUARD_EXEMPTIONS]) {
+    for (const file of files) {
       expect(existsSync(path.join(workspaceRoot, file)), `${file} no longer exists — update this test`).toBe(true)
     }
   })
 
   for (const { file, rules } of GUARD_COVERAGE) {
-    it(`enables every guard that names ${file}`, async () => {
-      const config = await resolveConfig(file)
-      for (const rule of rules) {
-        expect(severityOf(config.rules?.[rule]), `${rule} must be an error for ${file}`).toBe(2)
-      }
+    it(`runs every guard that names ${file}`, () => {
+      const reported = new Set(errorsAt(file).map(finding => finding.rule))
+      for (const rule of rules) expect(reported.has(rule), `${rule} must report an error in ${file}`).toBe(true)
     })
   }
 
-  it('keeps each guard OFF for the files it deliberately exempts', async () => {
+  it('keeps each guard OFF for the files it deliberately exempts', () => {
     for (const { file, rule } of GUARD_EXEMPTIONS) {
-      const config = await resolveConfig(file)
-      const severity = severityOf(config.rules?.[rule])
-      expect(severity === undefined || severity === 0, `${rule} must not apply to ${file}`).toBe(true)
+      expect((findings.get(file) ?? []).some(finding => finding.rule === rule), `${rule} must not apply to ${file}`).toBe(false)
     }
   })
 
-  it('has no `no-restricted-syntax` options left to clobber each other', async () => {
-    for (const { file } of GUARD_COVERAGE) {
-      const config = await resolveConfig(file)
-      expect(severityOf(config.rules?.['no-restricted-syntax']) ?? 0, file).toBe(0)
+  it('has no `no-restricted-syntax` options left to clobber each other', () => {
+    const config = parseJsonc(readFileSync(path.join(workspaceRoot, CONFIG), 'utf8')) as {
+      rules?: Record<string, unknown>
+      overrides?: Array<{ rules?: Record<string, unknown> }>
+    }
+    for (const rules of [config.rules ?? {}, ...(config.overrides ?? []).map(override => override.rules ?? {})]) {
+      const entry = rules['no-restricted-syntax']
+      expect(entry === undefined || entry === 'off' || (Array.isArray(entry) && entry[0] === 'off')).toBe(true)
     }
   })
 
-  // `no-restricted-imports` is the other core rule this config configures from
-  // more than one block (CLI readline ban, web chart-library ban, ChartPrimitives
+  // `no-restricted-imports` is the other core rule this config sets from more
+  // than one block (CLI readline ban, web chart-library ban, ChartPrimitives
   // carve-out). Those blocks target disjoint trees today, so nothing is
   // clobbered — this asserts a future block doesn't quietly take one away.
-  it('keeps every `no-restricted-imports` ban reachable', async () => {
-    const cli = await resolveConfig('packages/canonry/src/commands/run.ts')
-    expect(JSON.stringify(cli.rules?.['no-restricted-imports'])).toContain('node:readline')
-
-    const web = await resolveConfig('apps/web/src/pages/ProjectPage.tsx')
-    expect(JSON.stringify(web.rules?.['no-restricted-imports'])).toContain('recharts')
-
-    const chartPrimitives = await resolveConfig('apps/web/src/components/shared/ChartPrimitives.tsx')
-    const chartBans = JSON.stringify(chartPrimitives.rules?.['no-restricted-imports'])
-    expect(chartBans).toContain('highcharts')
+  it('keeps every `no-restricted-imports` ban reachable', () => {
+    // Matched on the ban messages this config defines, so a format change in
+    // oxlint's own wording cannot make an assertion pass vacuously.
+    const importBans = (file: string) => errorsAt(file).filter(finding => finding.rule === 'no-restricted-imports').map(finding => finding.message).join('\n')
+    expect(importBans('packages/canonry/src/commands/run.ts')).toContain('CLI commands must be non-interactive')
+    const web = importBans('apps/web/src/pages/ProjectPage.tsx')
+    expect(web).toContain('instead of recharts directly')
+    expect(web).toContain('Use Recharts via ChartPrimitives instead.')
+    const chartPrimitives = importBans('apps/web/src/components/shared/ChartPrimitives.tsx')
+    expect(chartPrimitives).toContain('Use Recharts via ChartPrimitives instead.')
     // The one file allowed to import recharts directly.
-    expect(chartBans).not.toContain('"recharts"')
+    expect(chartPrimitives).not.toContain('instead of recharts directly')
   })
 })
 
@@ -263,8 +322,8 @@ describe('createRestrictedSyntaxRule', () => {
   it('refuses a malformed restriction instead of silently enforcing nothing', () => {
     expect(() => createRestrictedSyntaxRule({ description: 'd', restrictions: [] }))
       .toThrow(/non-empty array/)
-    // The JSDoc types reject a message-less restriction statically, but
-    // eslint.config.js is plain JS and never typechecked — the runtime throw is
+    // The JSDoc types reject a message-less restriction statically, but the
+    // plugin modules are plain JS and never typechecked — the runtime throw is
     // what actually stops a guard from being registered with nothing to say.
     const missingMessage = { selector: 'Literal' } as { selector: string, message: string }
     expect(() => createRestrictedSyntaxRule({ description: 'd', restrictions: [missingMessage] }))
