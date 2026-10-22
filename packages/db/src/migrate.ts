@@ -4731,6 +4731,18 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE research_run_queries ADD COLUMN retrieved_sources TEXT`,
     ],
   },
+  {
+    // Sentiment's identity verdicts as they bear on mentions: a Simple answer's
+    // `wrong-subject` verdict, and the Advanced Properties judged wrong-subject.
+    // NULL on every existing row; the local server fills them from stored
+    // sentiment results once on startup (`sentiment-mention-identity`).
+    version: 185,
+    name: 'snapshot-sentiment-mention-identity',
+    statements: [
+      `ALTER TABLE query_snapshots ADD COLUMN mention_identity TEXT`,
+      `ALTER TABLE query_snapshots ADD COLUMN wrong_subject_target_keys TEXT`,
+    ],
+  },
 ]
 
 /**

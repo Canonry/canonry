@@ -509,6 +509,18 @@ describe('visibility report route', () => {
     expect(challenger.citationCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1 })
   })
 
+  it('does not count a frozen Simple name match that sentiment judged wrong-subject', async () => {
+    // As the sentiment completion stores it: the name still matches the text.
+    seedSimpleRun('simple-namesake', SECOND, true)
+    db.update(querySnapshots).set({ answerMentioned: false, mentionIdentity: 'wrong-subject' })
+      .where(eq(querySnapshots.runId, 'simple-namesake')).run()
+
+    const result = await report('mode=simple&runId=simple-namesake&queryClass=non-brand')
+    expect(result.status).toBe(200)
+    expect((result.body as VisibilityReportResponse).populations[0]!.summary.mentionCoverage)
+      .toEqual({ numerator: 0, denominator: 1, rate: 0 })
+  })
+
   it('compares semantically identical frozen simple captures and breaks only at a requested-model change', async () => {
     seedSimpleRun('simple-first', FIRST, true)
     seedSimpleRun('simple-second', SECOND, true)

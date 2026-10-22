@@ -489,6 +489,7 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
               model: querySnapshots.model,
               citationState: querySnapshots.citationState,
               answerMentioned: querySnapshots.answerMentioned,
+              mentionIdentity: querySnapshots.mentionIdentity,
               answerText: querySnapshots.answerText,
               citedDomains: querySnapshots.citedDomains,
               location: querySnapshots.location,
@@ -616,6 +617,9 @@ function loadAdvancedCompareMonth(db: DatabaseClient, projectId: string, bounds:
       citationState: snapshot.citation === true ? CitationStates.cited : CitationStates['not-cited'],
       citationChecked: snapshot.citation !== null,
       citedDomains: [],
+      // The frozen reader already applied each answer's sentiment verdicts to
+      // its stored mention; this frame never re-matches answer text.
+      mentionIdentity: null,
     })
     snapshots.push(...population.snapshots.map(adapt))
     classSnapshots.push(...population.classSnapshots.map(adapt))
@@ -649,6 +653,7 @@ export function readVisibilityContinuity(db: DatabaseClient, projectName: string
     ...(snapshot.cohortKey === undefined ? {} : { cohortKey: snapshot.cohortKey }),
     citationState: CitationStates['not-cited'],
     answerMentioned: null,
+    mentionIdentity: null,
     answerText: null,
     citedDomains: [],
   })

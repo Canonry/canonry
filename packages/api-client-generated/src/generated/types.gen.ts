@@ -7722,6 +7722,7 @@ export type LatestProjectRunDto = {
             mentionedCompetitorTerms: Array<string>;
             recommendedCompetitors: Array<string>;
             matchedTerms: Array<string>;
+            mentionIdentity: 'wrong-subject' | null;
             groundingSources: Array<{
                 uri: string;
                 title: string;
@@ -11035,6 +11036,7 @@ export type MeasurementPropertyEvidenceResponse = {
             location: string | null;
             queryClass: 'branded' | 'non-brand' | null;
             mentioned: boolean | null;
+            mentionIdentity: 'wrong-subject' | null;
             cited: boolean | null;
             sources: Array<{
                 sourceUrl: string;
@@ -12623,6 +12625,7 @@ export type ProjectOverviewDto = {
                 mentionedCompetitorTerms: Array<string>;
                 recommendedCompetitors: Array<string>;
                 matchedTerms: Array<string>;
+                mentionIdentity: 'wrong-subject' | null;
                 groundingSources: Array<{
                     uri: string;
                     title: string;
@@ -13434,6 +13437,7 @@ export type RunDetailDto = {
         mentionedCompetitorTerms: Array<string>;
         recommendedCompetitors: Array<string>;
         matchedTerms: Array<string>;
+        mentionIdentity: 'wrong-subject' | null;
         groundingSources: Array<{
             uri: string;
             title: string;
@@ -14913,6 +14917,7 @@ export type SnapshotListResponse = {
         mentionedCompetitorTerms: Array<string>;
         recommendedCompetitors: Array<string>;
         matchedTerms: Array<string>;
+        mentionIdentity: 'wrong-subject' | null;
         groundingSources: Array<{
             uri: string;
             title: string;

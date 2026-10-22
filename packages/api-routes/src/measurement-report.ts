@@ -7,7 +7,7 @@
  * prevents a read from mutating or re-fetching evidence.
  */
 
-import { answerProseForMentions, escapeRegExp, measurementNameKey, measurementNameWords, normalizeIdentityText, normalizeMeasurementHost, rateOverChecked, compareText, sortedUnique } from '@canonry/canonry-contracts'
+import { answerProseForMentions, escapeRegExp, measurementNameKey, measurementNameWords, MentionIdentities, normalizeIdentityText, normalizeMeasurementHost, rateOverChecked, compareText, sortedUnique, type MentionIdentity } from '@canonry/canonry-contracts'
 
 export type MeasurementAttributionClass =
   | 'assigned'
@@ -100,6 +100,12 @@ export interface MeasurementObservationInput {
   /** Offline-only recovery supplied by the caller from stored raw evidence. */
   historicalCitedUrls?: readonly string[]
   historicalCitedUrlsComplete?: boolean
+  /**
+   * Properties whose stored sentiment verdict on this answer is
+   * `wrong-subject` (the snapshot's `wrong_subject_target_keys`): a name match
+   * for one of them is not a mention of it.
+   */
+  wrongSubjectTargetIds?: readonly string[]
 }
 
 export interface MeasurementReportInput {
@@ -165,6 +171,7 @@ export interface MeasurementAnswerEvidence {
   location: string | null
   queryClass: MeasurementQueryClass | null
   mentioned: boolean | null
+  mentionIdentity: MentionIdentity | null
   cited: boolean | null
   sources: MeasurementAnswerSource[]
   /** The FULL count. A reader may cap `sources`; this never shrinks with it. */
@@ -385,6 +392,8 @@ interface PreparedObservation {
   sourceUrls: string[]
   mentionedTargetIds: ReadonlySet<string>
   unknownMentionTargetIds: ReadonlySet<string>
+  /** Named by the answer, but sentiment found the answer is about another subject. */
+  wrongSubjectTargetIds: ReadonlySet<string>
   citedTargetIds: ReadonlySet<string>
 }
 
@@ -689,7 +698,12 @@ function queryNamedTargetIds(
   return named.length === 0 ? NO_TARGETS : new Set(named)
 }
 
-/** `text` is the answer's prose (`answerProseForMentions`), never the raw answer. */
+/**
+ * `text` is the answer's prose (`answerProseForMentions`), never the raw answer.
+ * A Property in `wrongSubjectTargetIds` (sentiment found the answer is about
+ * another subject) is neither mentioned nor unknown, however its name matched:
+ * it moves to `wrongSubject`, so a reader can say why the name did not count.
+ */
 function resolveMentionIdentity(
   text: string | null,
   targets: readonly MeasurementTargetInput[],
@@ -697,10 +711,15 @@ function resolveMentionIdentity(
   citedTargetIds: ReadonlySet<string>,
   ambiguityPatterns = new Map(targets.map(target => [target.id, identityAmbiguityPatterns(target.aliases)])),
   queryNamed: ReadonlySet<string> = NO_TARGETS,
-) {
+  wrongSubjectTargetIds: ReadonlySet<string> = NO_TARGETS,
+): { mentioned: Set<string>; unknown: Set<string>; wrongSubject: Set<string> } {
   const textWords = text === null ? [] : words(text)
-  const state = mentionedTargetsForAliases(text, aliases, textWords)
+  const state = { ...mentionedTargetsForAliases(text, aliases, textWords), wrongSubject: new Set<string>() }
   if (text === null) return state
+  for (const targetId of wrongSubjectTargetIds) {
+    if (!state.mentioned.delete(targetId) && !state.unknown.delete(targetId)) continue
+    state.wrongSubject.add(targetId)
+  }
   const normalized = textWords.join(' ')
   for (const target of targets) {
     if (!state.mentioned.has(target.id)) continue
@@ -756,14 +775,14 @@ export interface MentionReaderQuery {
 }
 
 /** Prepared frozen identities for repeated answer reads, preserving ambiguous matches. */
-export function createTargetMentionReader(targets: readonly MeasurementTargetInput[], ownedHosts: readonly string[] = []): (answerText: string | null, targetIds: readonly string[], citedUrls?: readonly string[], query?: MentionReaderQuery | null) => boolean | null {
+export function createTargetMentionReader(targets: readonly MeasurementTargetInput[], ownedHosts: readonly string[] = []): (answerText: string | null, targetIds: readonly string[], citedUrls?: readonly string[], query?: MentionReaderQuery | null, wrongSubjectTargetIds?: readonly string[] | null) => boolean | null {
   const compiledAliases = compiledMentionAliases(targets)
   const mentionableIds = new Set(compiledAliases.map(alias => alias.targetId))
   const aliases = indexMentionAliases(compiledAliases)
   const ambiguityPatterns = new Map(targets.map(target => [target.id, identityAmbiguityPatterns(target.aliases)]))
   const routes = compiledTargetRoutes(targets)
   const normalizedOwnedHosts = ownedHosts.map(normalizedHost)
-  return (answerText, targetIds, citedUrls = [], query = null) => {
+  return (answerText, targetIds, citedUrls = [], query = null, wrongSubjectTargetIds = null) => {
     if (answerText === null || targetIds.length === 0) return null
     const citedTargetIds = new Set(citedUrls.flatMap(url => {
       const source = classifySourceAttribution(url, routes, normalizedOwnedHosts)
@@ -774,7 +793,8 @@ export function createTargetMentionReader(targets: readonly MeasurementTargetInp
     const queryNamed = query === null
       ? NO_TARGETS
       : queryNamedTargetIds(query.text, query.brandedTargetIds.filter(id => targetIds.includes(id)), aliases)
-    const state = resolveMentionIdentity(answerProseForMentions(answerText), targets, aliases, citedTargetIds, ambiguityPatterns, queryNamed)
+    const wrongSubject = wrongSubjectTargetIds && wrongSubjectTargetIds.length > 0 ? new Set(wrongSubjectTargetIds) : NO_TARGETS
+    const state = resolveMentionIdentity(answerProseForMentions(answerText), targets, aliases, citedTargetIds, ambiguityPatterns, queryNamed, wrongSubject)
     if (targetIds.some(id => state.mentioned.has(id))) return true
     return targetIds.some(id => !mentionableIds.has(id) || state.unknown.has(id)) ? null : false
   }
@@ -870,6 +890,7 @@ function prepareReport(
       sourceUrls: source.urls,
       mentionedTargetIds: new Set(),
       unknownMentionTargetIds: new Set(),
+      wrongSubjectTargetIds: new Set(),
       citedTargetIds: new Set(),
     })
   }
@@ -930,9 +951,11 @@ function prepareReport(
       citedTargetIds,
       ambiguityPatterns,
       queryNamedFor(observation.slot),
+      new Set(observation.input.wrongSubjectTargetIds ?? []),
     )
     observation.mentionedTargetIds = mentions.mentioned
     observation.unknownMentionTargetIds = mentions.unknown
+    observation.wrongSubjectTargetIds = mentions.wrongSubject
     observation.citedTargetIds = citedTargetIds
     if (!detailedEvidence) continue
     const edges = [...(edgesByExecution.get(observation.slot.executionId) ?? [])]
@@ -958,6 +981,9 @@ function prepareReport(
         // edge names no Property, and an observation without answer text was
         // never searched — neither is "not mentioned".
         mentioned: mentionedForEdge(observation, edge, mentionableIds),
+        mentionIdentity: edge.type === 'target' && observation.wrongSubjectTargetIds.has(edge.targetId)
+          ? MentionIdentities['wrong-subject']
+          : null,
         // A positive survives incomplete capture: a source we DID see and
         // matched is still a citation. A negative does not — with capture
         // incomplete we cannot tell "not cited" from "we never saw the

@@ -24,6 +24,7 @@ const ANSWER_EVIDENCE = {
   location: 'Northbridge',
   queryClass: 'non-brand',
   mentioned: true,
+  mentionIdentity: null,
   cited: true,
   sources: [{
     sourceUrl: 'https://northstar.example/locations/harbor',

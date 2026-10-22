@@ -8,6 +8,7 @@ import { trackEvent, setTelemetrySource } from '../telemetry.js'
 import { cliRuntimeContext } from '../runtime-context.js'
 import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
 import { repairAiReferralPathsOnStartup, repairNormalizedPathsOnStartup } from '../startup-path-repairs.js'
+import { repairSentimentMentionIdentityOnStartup } from '../startup-sentiment-mention-identity.js'
 import { getMissingUserSkillsNudge, shouldPrintServeSkillsNudge } from './skills.js'
 import { getPrintedUpdateAvailable } from '../update-check.js'
 import { detectCanonryAgentPlugin } from '../agent-plugin.js'
@@ -128,6 +129,21 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
   } catch (err) {
     const msg = describeError(err)
     process.stderr.write(`warning: ai-referral-paths backfill skipped: ${msg}\n`)
+  }
+
+  // Sentiment verdicts stored before answers recorded their mention identity.
+  // A failure keeps the pass pending for the next startup; new verdicts still
+  // apply as they are stored.
+  try {
+    const result = repairSentimentMentionIdentityOnStartup(db)
+    if (result && result.updated > 0 && format === 'text') {
+      console.log(
+        `Applied sentiment identity verdicts to ${result.updated} answer${result.updated === 1 ? '' : 's'}.`,
+      )
+    }
+  } catch (err) {
+    const msg = describeError(err)
+    process.stderr.write(`warning: sentiment mention identity repair skipped: ${msg}\n`)
   }
 
   // Create and start server. Pass the bind host so the server can require the

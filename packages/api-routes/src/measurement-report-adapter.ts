@@ -312,6 +312,7 @@ function observationInputs(
       citedUrls: sources.historical ? null : sources.urls,
       citedUrlsComplete: !sources.historical && sources.complete,
       ...(sources.historical ? { historicalCitedUrls: sources.urls, historicalCitedUrlsComplete: sources.complete } : {}),
+      ...(snapshot.wrongSubjectTargetKeys?.length ? { wrongSubjectTargetIds: snapshot.wrongSubjectTargetKeys } : {}),
     }]
   })
 }

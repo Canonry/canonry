@@ -32,6 +32,7 @@ import {
   RunTriggers,
   type AttentionItemDto,
   type CitationState,
+  type MentionIdentity,
   type RunKind,
   type HealthSnapshotDto,
   type InsightDto,
@@ -532,6 +533,8 @@ interface OverviewSnapshot {
   model: string | null
   citationState: CitationState
   answerMentioned: boolean | null
+  /** Sentiment's stored identity verdict; `wrong-subject` keeps a name match from counting. */
+  mentionIdentity: MentionIdentity | null
   /** Raw LLM answer text — needed by Mention Share to scan for competitor
    *  brand mentions. Variable size; ~3-5KB per snapshot for an 80-snapshot
    *  run is ~400KB total — manageable to include in the overview payload. */
@@ -558,6 +561,7 @@ function loadSnapshotsByRunIds(
       model: querySnapshots.model,
       citationState: querySnapshots.citationState,
       answerMentioned: querySnapshots.answerMentioned,
+      mentionIdentity: querySnapshots.mentionIdentity,
       answerText: querySnapshots.answerText,
       rawResponse: querySnapshots.rawResponse,
       competitorOverlap: querySnapshots.competitorOverlap,
@@ -600,6 +604,7 @@ function loadSnapshotsByRunIds(
       model: row.model,
       citationState: row.citationState as CitationState,
       answerMentioned: row.answerMentioned,
+      mentionIdentity: row.mentionIdentity,
       answerText: row.answerText,
       groundingSources: parseOverviewGroundingSources(row.rawResponse),
       competitorOverlap: row.competitorOverlap,

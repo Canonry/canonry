@@ -217,6 +217,9 @@ function expectedPlanRow(runId: string, provider: string, model: string, queryNu
     servedModel: `${model}-2026-07-01`,
     citationState: 'cited',
     answerMentioned: true,
+    // Sentiment's identity verdicts arrive after the sweep, never with it.
+    mentionIdentity: null,
+    wrongSubjectTargetKeys: null,
     answerText: ANSWER,
     citedDomains: ['example.com', 'rivalrywidgets.com'],
     citedUrls: provider === 'openai' || provider === 'gemini' ? SOURCES.map(source => source.uri) : null,

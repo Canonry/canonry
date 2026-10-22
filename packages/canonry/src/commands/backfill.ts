@@ -3,7 +3,7 @@ import { backfillProjectAnswerMentions, competitorIdentityColumns, createRunComp
 import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
 import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest, RetrievalContract, RetrievalStatus } from '@canonry/canonry-contracts'
 import { aiUserFetchEventsHourly, auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, rawEventSamples, runs } from '@canonry/canonry-db'
-import { computeCompetitorOverlap, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, extractRecommendedCompetitors, normalizeUrlPath, ProviderNames, RetrievalContracts, RunKinds, TrafficEventConfidences, TrafficEventKinds, TrafficEvidenceKinds, TrafficSourceTypes } from '@canonry/canonry-contracts'
+import { computeCompetitorOverlap, countsAsMention, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, extractRecommendedCompetitors, normalizeUrlPath, ProviderNames, RetrievalContracts, RunKinds, TrafficEventConfidences, TrafficEventKinds, TrafficEvidenceKinds, TrafficSourceTypes } from '@canonry/canonry-contracts'
 import { classifyAiUserFetch, classifyCrawler } from '@canonry/canonry-integration-traffic'
 import { OPENAI_RETRIEVAL_CONTRACT, reparseStoredResult as reparseOpenAIStoredResult } from '@canonry/canonry-provider-openai'
 import { reparseStoredResult as reparseClaudeStoredResult } from '@canonry/canonry-provider-claude'
@@ -105,6 +105,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
           provider: querySnapshots.provider,
           citationState: querySnapshots.citationState,
           answerMentioned: querySnapshots.answerMentioned,
+          mentionIdentity: querySnapshots.mentionIdentity,
           answerText: querySnapshots.answerText,
           citedDomains: querySnapshots.citedDomains,
           competitorOverlap: querySnapshots.competitorOverlap,
@@ -124,7 +125,8 @@ export async function backfillAnswerVisibilityCommand(opts?: {
           if (reparsedResult?.providerError) providerErrors++
 
           const answerText = reparsedResult?.answerText ?? snapshot.answerText ?? ''
-          const nextValue = determineAnswerMentioned(answerText, projectBrandNames, projectDomains)
+          // A name match sentiment judged wrong-subject stays not mentioned.
+          const nextValue = countsAsMention(determineAnswerMentioned(answerText, projectBrandNames, projectDomains), snapshot.mentionIdentity)
 
           if (nextValue) mentioned++
 
