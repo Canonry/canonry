@@ -155,6 +155,39 @@ describe('ga human output — percentages', () => {
     expect(body.topPages.map((page) => page.organicShare)).toEqual([0.25, null])
   })
 
+  it('ga traffic prints the engine and platform groups the server sent, with paid social', async () => {
+    const chatgpt = { source: 'chatgpt.com', medium: 'ai-assistant', trafficClass: 'organic' as const, sourceDimension: 'session' as const, sessions: 12, share: 0.3 }
+    const unknown = { source: 'assistant.example', medium: 'ai-assistant', trafficClass: 'organic' as const, sourceDimension: 'session' as const, sessions: 2, share: 0.05 }
+    const ig = { source: 'ig', medium: 'social', channelGroup: 'Organic Social', sessions: 47, share: 0.5 }
+    const igPaid = { source: 'ig', medium: 'paidsocial', channelGroup: 'Paid Social', sessions: 6, share: 0.06 }
+    // Each group share disagrees with its counts on purpose: the CLI prints the server's.
+    gaTraffic.mockResolvedValue(traffic({
+      aiReferrals: [chatgpt, unknown],
+      aiEngines: [
+        { engine: 'chatgpt', label: 'ChatGPT', sessions: 12, organicSessions: 12, paidSessions: 0, share: 0.7, sources: [chatgpt] },
+        { engine: null, label: 'Unattributed AI', sessions: 2, organicSessions: 2, paidSessions: 0, share: 0.0004, sources: [unknown] },
+      ],
+      socialReferrals: [ig, igPaid],
+      socialPlatforms: [
+        { platform: 'instagram', label: 'Instagram', sessions: 53, organicSessions: 47, paidSessions: 6, share: 0.9, sources: [ig, igPaid] },
+      ],
+      socialSessions: 53,
+      paidSocialSessions: 6,
+      paidSocialShare: 0.25,
+    }))
+    const out = await lines(() => showGaTraffic('p', {}))
+    expect(out).toContain('  AI REFERRALS BY ENGINE')
+    expect(out).toContain('  ENGINE           SESSIONS  ORGANIC  PAID    SHARE   SOURCES')
+    expect(out).toContain('  ChatGPT          12        12       0       70.0%   1')
+    expect(out).toContain('  Unattributed AI  2         2        0       <0.1%   1')
+    expect(out).toContain('    Paid Social:           6 (25.0% of social)')
+    expect(out).toContain('  SOCIAL PLATFORMS')
+    expect(out).toContain('  Instagram  53        47       6       90.0%   2')
+    // The raw source tables still follow, row for row.
+    expect(out).toContain('  AI REFERRAL SOURCES')
+    expect(out).toContain('  SOCIAL REFERRAL SOURCES')
+  })
+
   it('ga traffic keeps an undefined share visibly absent during a partial sync', async () => {
     // Referral rows are synced but the totals that drive the denominator are
     // not: the share is undefined, which the server says with a dash.

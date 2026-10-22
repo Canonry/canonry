@@ -1,4 +1,3 @@
-import { backfillAiReferralPathsCommand, backfillAnswerMentionsCommand, backfillAnswerVisibilityCommand, backfillInsightsCommand, backfillNormalizedPathsCommand, backfillSnapshotAttributionCommand, backfillTrafficClassificationCommand } from '../commands/backfill.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { requireProject, getString, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
@@ -12,6 +11,7 @@ export const BACKFILL_CLI_COMMANDS: readonly CliCommandSpec[] = [
     allowPositionals: false,
     supportsDryRun: true,
     run: async (input) => {
+      const { backfillAnswerVisibilityCommand } = await import('../commands/backfill.js')
       await backfillAnswerVisibilityCommand({
         project: getString(input.values, 'project'),
         dryRun: input.dryRun,
@@ -28,6 +28,7 @@ export const BACKFILL_CLI_COMMANDS: readonly CliCommandSpec[] = [
     allowPositionals: false,
     supportsDryRun: true,
     run: async (input) => {
+      const { backfillAnswerMentionsCommand } = await import('../commands/backfill.js')
       await backfillAnswerMentionsCommand({
         project: getString(input.values, 'project'),
         dryRun: input.dryRun,
@@ -45,6 +46,7 @@ export const BACKFILL_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     supportsDryRun: true,
     run: async (input) => {
+      const { backfillInsightsCommand } = await import('../commands/backfill.js')
       const usage = 'canonry backfill insights <project> [--from-run <id>] [--to-run <id>] [--since <date>] [--dry-run] [--format json]'
       const project = requireProject(input, 'backfill insights', usage)
       await backfillInsightsCommand(project, {
@@ -64,6 +66,7 @@ export const BACKFILL_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     allowPositionals: false,
     run: async (input) => {
+      const { backfillNormalizedPathsCommand } = await import('../commands/backfill.js')
       await backfillNormalizedPathsCommand({
         project: getString(input.values, 'project'),
         format: input.format,
@@ -78,6 +81,7 @@ export const BACKFILL_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     allowPositionals: false,
     run: async (input) => {
+      const { backfillAiReferralPathsCommand } = await import('../commands/backfill.js')
       await backfillAiReferralPathsCommand({
         project: getString(input.values, 'project'),
         format: input.format,
@@ -89,6 +93,7 @@ export const BACKFILL_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry backfill snapshot-attribution <project> [--dry-run] [--format json]',
     supportsDryRun: true,
     run: async (input) => {
+      const { backfillSnapshotAttributionCommand } = await import('../commands/backfill.js')
       const usage = 'canonry backfill snapshot-attribution <project> [--dry-run] [--format json]'
       const project = requireProject(input, 'backfill snapshot-attribution', usage)
       await backfillSnapshotAttributionCommand({
@@ -107,6 +112,7 @@ export const BACKFILL_CLI_COMMANDS: readonly CliCommandSpec[] = [
     allowPositionals: false,
     supportsDryRun: true,
     run: async (input) => {
+      const { backfillTrafficClassificationCommand } = await import('../commands/backfill.js')
       await backfillTrafficClassificationCommand({
         project: getString(input.values, 'project'),
         dryRun: input.dryRun,

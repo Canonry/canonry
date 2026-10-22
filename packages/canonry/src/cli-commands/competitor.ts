@@ -1,5 +1,4 @@
 import { OperationAccesses, WINDOW_SETS, competitorLandscapeQuerySchema, competitorSuggestionsQuerySchema } from '@canonry/canonry-contracts'
-import { addCompetitors, competitorAliases, detectCompetitorAutoAliases, importCompetitors, listCompetitors, removeCompetitors, showCompetitorLandscape, suggestCompetitors } from '../commands/competitor.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, parseIntegerOption, requirePositional, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
@@ -39,6 +38,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
     supportsDryRun: true,
     accessFor: ({ dryRun }) => dryRun ? OperationAccesses.stored : OperationAccesses.write,
     run: async (input) => {
+      const { addCompetitors } = await import('../commands/competitor.js')
       const project = requireProject(input, 'competitor.add', ADD_USAGE)
       const domains = input.positionals.slice(1)
       if (domains.length === 0) {
@@ -65,6 +65,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: IMPORT_USAGE,
     options: { 'acknowledge-bulk-add': { type: 'boolean' }, ...WAIT_OPTIONS },
     run: async input => {
+      const { importCompetitors } = await import('../commands/competitor.js')
       const project = requireProject(input, 'competitor.import', IMPORT_USAGE)
       const file = requirePositional(input, 1, { command: 'competitor.import', usage: IMPORT_USAGE, message: 'input file is required' })
       await importCompetitors(project, file, input.format, { acknowledgeBulkAdd: getBoolean(input.values, 'acknowledge-bulk-add'), wait: getBoolean(input.values, 'wait'), waitTimeout: getString(input.values, 'wait-timeout') })
@@ -82,6 +83,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
     supportsDryRun: true,
     accessFor: ({ values }) => getBoolean(values, 'apply') ? OperationAccesses.write : OperationAccesses.stored,
     run: async (input) => {
+      const { detectCompetitorAutoAliases } = await import('../commands/competitor.js')
       const project = requireProject(input, 'competitor.aliases.detect', DETECT_USAGE)
       await detectCompetitorAutoAliases(project, { apply: getBoolean(input.values, 'apply'), ...(input.dryRun ? { dryRun: true } : {}), format: input.format })
     },
@@ -104,6 +106,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
       return mutating && !dryRun ? OperationAccesses.write : OperationAccesses.stored
     },
     run: async (input) => {
+      const { competitorAliases } = await import('../commands/competitor.js')
       const project = requireProject(input, 'competitor.aliases', ALIASES_USAGE)
       const domain = requirePositional(input, 1, {
         command: 'competitor.aliases',
@@ -139,6 +142,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry competitor remove <project> <domain...> [--dry-run] [--format json]',
     accessFor: ({ dryRun }) => dryRun ? OperationAccesses.stored : OperationAccesses.write,
     run: async (input) => {
+      const { removeCompetitors } = await import('../commands/competitor.js')
       const project = requireProject(input, 'competitor.remove', 'canonry competitor remove <project> <domain...> [--dry-run] [--format json]')
       const domains = input.positionals.slice(1)
       if (domains.length === 0) {
@@ -159,6 +163,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry competitor delete <project> <domain...> [--dry-run] [--format json]',
     accessFor: ({ dryRun }) => dryRun ? OperationAccesses.stored : OperationAccesses.write,
     run: async (input) => {
+      const { removeCompetitors } = await import('../commands/competitor.js')
       const project = requireProject(input, 'competitor.delete', 'canonry competitor delete <project> <domain...> [--dry-run] [--format json]')
       const domains = input.positionals.slice(1)
       if (domains.length === 0) {
@@ -177,6 +182,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['competitor', 'list'],
     usage: 'canonry competitor list <project> [--format json]',
     run: async (input) => {
+      const { listCompetitors } = await import('../commands/competitor.js')
       const project = requireProject(input, 'competitor.list', 'canonry competitor list <project>')
       await listCompetitors(project, input.format)
     },
@@ -198,6 +204,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
       answers: stringOption(),
     },
     run: async (input) => {
+      const { showCompetitorLandscape } = await import('../commands/competitor.js')
       const project = requireProject(input, 'competitor.landscape', LANDSCAPE_USAGE)
       const scope = parseLandscapeScope(getString(input.values, 'scope'))
       const groupKey = getString(input.values, 'group-key')
@@ -244,6 +251,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
       limit: stringOption(),
     },
     run: async (input) => {
+      const { suggestCompetitors } = await import('../commands/competitor.js')
       const project = requireProject(input, 'competitor.suggest', SUGGEST_USAGE)
       const minAnswers = parseIntegerOption(input, 'min-answers', {
         command: 'competitor.suggest', usage: SUGGEST_USAGE, message: '--min-answers must be an integer',

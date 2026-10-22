@@ -560,8 +560,8 @@ heyClient.interceptors.request.use((req) => {
 type SdkResult = {
   data?: unknown
   error?: unknown
-  request: Request
-  response: Response
+  request?: Request
+  response?: Response
 }
 
 /**
@@ -575,6 +575,10 @@ type SdkResult = {
  */
 export async function invokeWeb<T>(call: () => Promise<SdkResult>): Promise<T> {
   const result = await call()
+  // The SDK returns transport and parsing failures in its result envelope.
+  if (!result.response || result.error instanceof Error) {
+    throw result.error ?? new Error('API request failed before receiving a response')
+  }
   if (result.error !== undefined && result.error !== null) {
     const status = result.response.status
     let message = `API ${status}: ${result.response.statusText}`

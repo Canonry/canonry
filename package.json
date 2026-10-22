@@ -1,15 +1,16 @@
 {
   "name": "canonry",
   "private": true,
-  "version": "7.49.0",
+  "version": "7.52.0",
   "type": "module",
-  "packageManager": "pnpm@10.28.2",
+  "packageManager": "pnpm@12.14.0",
   "scripts": {
     "preinstall": "test ! -f scripts/check-node.mjs || node scripts/check-node.mjs",
     "build": "pnpm --filter @canonry/canonry run build",
     "build:cli": "pnpm --filter @canonry/canonry run build:cli",
     "build:web": "pnpm --filter @canonry/canonry run build:web",
-    "typecheck": "pnpm -r --no-sort --workspace-concurrency=4 --no-bail run typecheck && tsc --noEmit -p scripts/tsconfig.json && tsc --noEmit -p test/tsconfig.json",
+    "typecheck": "pnpm -r --no-sort --workspace-concurrency=4 --no-bail run typecheck && node scripts/typecheck.mjs --noEmit -p scripts/tsconfig.json && node scripts/typecheck.mjs --noEmit -p test/tsconfig.json && node scripts/typecheck.mjs --noEmit -p test-setup/tsconfig.json",
+    "typecheck:tsc": "CANONRY_TYPECHECKER=tsc pnpm run typecheck",
     "test": "vitest run",
     "check": "node scripts/lint-changed.mjs",
     "lint:changed": "node scripts/lint-changed.mjs",
@@ -17,7 +18,7 @@
     "lint": "pnpm -r --no-sort --workspace-concurrency=4 run lint",
     "gen": "pnpm --filter @canonry/canonry-api-client gen",
     "gen:check": "pnpm --filter @canonry/canonry-api-client gen:check",
-    "verify": "pnpm gen:check && pnpm plugin:check && pnpm val:skills:check && pnpm run typecheck && pnpm run lint && pnpm run test",
+    "verify": "pnpm gen:check && pnpm plugin:check && pnpm val:skills:check && pnpm run typecheck && pnpm run typecheck:tsc && pnpm run lint && pnpm run test",
     "plugin:sync": "node scripts/sync-canonry-plugin.mjs",
     "guide:sync": "node scripts/sync-agent-operations.mjs && pnpm plugin:sync && pnpm val:skills",
     "guide:check": "node scripts/sync-agent-operations.mjs --check",
@@ -30,51 +31,24 @@
     "prepare": "husky || true"
   },
   "devDependencies": {
-    "@eslint/js": "^9.0.0",
-    "@types/better-sqlite3": "^7.6.13",
+    "@tsrs/wasm": "0.18.0-ts7.1.0-dev.20260929",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/jsdom": "^30.0.0",
-    "@types/node": "^24.5.1",
-    "better-sqlite3": "^12.11.1",
-    "eslint": "^9.0.0",
-    "eslint-plugin-react-hooks": "^7.1.1",
-    "eslint-plugin-regexp": "^3.1.0",
-    "globals": "^17.4.0",
+    "@types/node": "^26.6.5",
+    "better-sqlite3": "^13.0.3",
+    "eslint-plugin-regexp": "^3.3.1",
     "husky": "^9.1.7",
-    "jsdom": "^29.0.0",
-    "tsx": "^4.20.5",
-    "typescript": "^5.9.2",
-    "typescript-eslint": "^8.43.0",
-    "vitest": "^4.1.0",
-    "yaml": "^2.8.2"
-  },
-  "pnpm": {
-    "overrides": {
-      "@esbuild-kit/core-utils>esbuild": "^0.28.1",
-      "cheerio>undici": "^7.24.2",
-      "protobufjs": "^7.5.6",
-      "handlebars": "^4.7.9",
-      "esbuild": "^0.28.1",
-      "fast-uri": "^3.1.2",
-      "fast-xml-builder": "^1.1.7",
-      "fast-xml-parser": "^5.7.0",
-      "basic-ftp": "^5.3.1",
-      "flatted": "^3.4.2",
-      "hono": "^4.12.21",
-      "ws": "^8.20.1",
-      "qs": "^6.15.2",
-      "postcss": "^8.5.10",
-      "picomatch": "^4.0.4",
-      "ip-address": "^10.1.1",
-      "vite": "^7.3.2",
-      "@anthropic-ai/sdk": "^0.91.1"
-    },
-    "onlyBuiltDependencies": [
-      "better-sqlite3",
-      "esbuild"
-    ]
+    "jsdom": "^30.1.3",
+    "oxlint": "1.89.0",
+    "oxlint-tsgolint": "7.0.2004",
+    "tsrs": "0.18.0-ts7.1.0-dev.20260929",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5",
+    "yaml": "^2.9.1"
   },
   "engines": {
-    "node": ">=22.19.0 <27"
+    "node": ">=22.23.4 <23 || >=24.22.1 <25 || >=26.12.1 <27"
   },
   "license": "MIT"
 }

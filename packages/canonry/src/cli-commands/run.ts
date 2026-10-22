@@ -1,4 +1,3 @@
-import { cancelRun, fillRun, listRuns, showRun, showRunCompleteness, triggerRun, triggerRunAll } from '../commands/run.js'
 import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, parseIntegerOption, requirePositional, requireProject, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
@@ -20,6 +19,7 @@ const RUN_LIST_OPTIONS = {
 }
 
 async function listRunsCommand(input: CliCommandInput): Promise<void> {
+  const { listRuns } = await import('../commands/run.js')
   const project = requireProject(input, 'runs', RUNS_USAGE)
   await listRuns(project, {
     format: input.format,
@@ -68,6 +68,7 @@ function parseDispatchMode(value: string | undefined, command: string, usage: st
 }
 
 async function triggerRunCommand(input: CliCommandInput, command: string): Promise<void> {
+  const { triggerRun, triggerRunAll } = await import('../commands/run.js')
   const groups = getStringArray(input.values, 'group') ?? []
   const targets = getStringArray(input.values, 'target') ?? []
   const queries = getStringArray(input.values, 'query') ?? []
@@ -149,6 +150,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['run', 'show'],
     usage: 'canonry run show <id> [--format json]',
     run: async (input) => {
+      const { showRun } = await import('../commands/run.js')
       const id = requirePositional(input, 0, {
         command: 'run.show',
         usage: 'canonry run show <id> [--format json]',
@@ -166,6 +168,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     supportsDryRun: true,
     run: async (input) => {
+      const { fillRun } = await import('../commands/run.js')
       // Same rule as `run trigger`: a project named after a keyword must stay
       // runnable, so `canonry run fill` with nothing after it sweeps "fill".
       // Never with --dry-run: a preview must not fall through to a real sweep.
@@ -188,6 +191,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['run', 'completeness'],
     usage: 'canonry run completeness <run-id> [--format json]',
     run: async (input) => {
+      const { showRunCompleteness } = await import('../commands/run.js')
       if (input.positionals.length === 0) return triggerRunCommand({ ...input, positionals: ['completeness'] }, 'run')
       const runId = requirePositional(input, 0, {
         command: 'run.completeness',
@@ -201,6 +205,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['run', 'cancel'],
     usage: 'canonry run cancel <project> [run-id] [--format json]',
     run: async (input) => {
+      const { cancelRun } = await import('../commands/run.js')
       const project = requireProject(input, 'run.cancel', 'canonry run cancel <project> [run-id] [--format json]')
       await cancelRun(project, input.positionals[1], input.format)
     },

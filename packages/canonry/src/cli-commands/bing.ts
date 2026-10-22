@@ -1,18 +1,3 @@
-import {
-  bingConnect,
-  bingCoverage,
-  bingCoverageHistory,
-  bingDisconnect,
-  bingInspect,
-  bingInspectSitemap,
-  bingInspections,
-  bingPerformance,
-  bingRefresh,
-  bingRequestIndexing,
-  bingSetSite,
-  bingSites,
-  bingStatus,
-} from '../commands/bing.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, parseIntegerOption, requirePositional, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
@@ -25,6 +10,7 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'api-key': stringOption(),
     },
     run: async (input) => {
+      const { bingConnect } = await import('../commands/bing.js')
       const project = requireProject(input, 'bing.connect', 'canonry bing connect <project> [--api-key <key>] [--format json]')
       await bingConnect(project, {
         apiKey: getString(input.values, 'api-key'),
@@ -36,6 +22,7 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['bing', 'disconnect'],
     usage: 'canonry bing disconnect <project> [--format json]',
     run: async (input) => {
+      const { bingDisconnect } = await import('../commands/bing.js')
       const project = requireProject(input, 'bing.disconnect', 'canonry bing disconnect <project> [--format json]')
       await bingDisconnect(project, input.format)
     },
@@ -44,6 +31,7 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['bing', 'status'],
     usage: 'canonry bing status <project> [--format json]',
     run: async (input) => {
+      const { bingStatus } = await import('../commands/bing.js')
       const project = requireProject(input, 'bing.status', 'canonry bing status <project> [--format json]')
       await bingStatus(project, input.format)
     },
@@ -52,6 +40,7 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['bing', 'sites'],
     usage: 'canonry bing sites <project> [--format json]',
     run: async (input) => {
+      const { bingSites } = await import('../commands/bing.js')
       const project = requireProject(input, 'bing.sites', 'canonry bing sites <project> [--format json]')
       await bingSites(project, input.format)
     },
@@ -60,6 +49,7 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['bing', 'set-site'],
     usage: 'canonry bing set-site <project> <url> [--format json]',
     run: async (input) => {
+      const { bingSetSite } = await import('../commands/bing.js')
       const project = requireProject(input, 'bing.set-site', 'canonry bing set-site <project> <url> [--format json]')
       const siteUrl = requirePositional(input, 1, {
         command: 'bing.set-site',
@@ -74,6 +64,7 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry bing coverage-history <project> [--limit <n>] [--format json]',
     options: { limit: stringOption() },
     run: async (input) => {
+      const { bingCoverageHistory } = await import('../commands/bing.js')
       const project = requireProject(input, 'bing.coverage-history', 'canonry bing coverage-history <project> [--limit <n>] [--format json]')
       await bingCoverageHistory(project, {
         limit: parseIntegerOption(input, 'limit', {
@@ -89,6 +80,7 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['bing', 'coverage'],
     usage: 'canonry bing coverage <project> [--format json]',
     run: async (input) => {
+      const { bingCoverage } = await import('../commands/bing.js')
       const project = requireProject(input, 'bing.coverage', 'canonry bing coverage <project> [--format json]')
       await bingCoverage(project, input.format)
     },
@@ -97,6 +89,7 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['bing', 'inspect'],
     usage: 'canonry bing inspect <project> <url> [--format json]',
     run: async (input) => {
+      const { bingInspect } = await import('../commands/bing.js')
       const project = requireProject(input, 'bing.inspect', 'canonry bing inspect <project> <url> [--format json]')
       const url = requirePositional(input, 1, {
         command: 'bing.inspect',
@@ -113,6 +106,7 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
       url: stringOption(),
     },
     run: async (input) => {
+      const { bingInspections } = await import('../commands/bing.js')
       const project = requireProject(input, 'bing.inspections', 'canonry bing inspections <project> [--url <url>] [--format json]')
       await bingInspections(project, {
         url: getString(input.values, 'url'),
@@ -128,6 +122,7 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
       wait: { type: 'boolean', default: false },
     },
     run: async (input) => {
+      const { bingInspectSitemap } = await import('../commands/bing.js')
       const project = requireProject(input, 'bing.inspect-sitemap', 'canonry bing inspect-sitemap <project> [--sitemap-url <url>] [--wait] [--format json]')
       await bingInspectSitemap(project, {
         sitemapUrl: getString(input.values, 'sitemap-url'),
@@ -143,6 +138,7 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'all-unindexed': { type: 'boolean', default: false },
     },
     run: async (input) => {
+      const { bingRequestIndexing } = await import('../commands/bing.js')
       const project = requireProject(input, 'bing.request-indexing', 'canonry bing request-indexing <project> [url] [--all-unindexed] [--format json]')
       const url = input.positionals[1]
       const allUnindexed = getBoolean(input.values, 'all-unindexed')
@@ -166,6 +162,7 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['bing', 'performance'],
     usage: 'canonry bing performance <project> [--format json]',
     run: async (input) => {
+      const { bingPerformance } = await import('../commands/bing.js')
       const project = requireProject(input, 'bing.performance', 'canonry bing performance <project> [--format json]')
       await bingPerformance(project, input.format)
     },
@@ -174,6 +171,7 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['bing', 'refresh'],
     usage: 'canonry bing refresh <project> [--format json]',
     run: async (input) => {
+      const { bingRefresh } = await import('../commands/bing.js')
       const project = requireProject(input, 'bing.refresh', 'canonry bing refresh <project> [--format json]')
       await bingRefresh(project, input.format)
     },

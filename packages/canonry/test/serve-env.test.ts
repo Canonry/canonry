@@ -122,7 +122,7 @@ const WARNS = [
 const CONFIGURED_WARNS: Array<{ id: string; args?: string[]; env?: Record<string, string>; config?: Partial<CanonryConfig>; notice?: string }> = [
   { id: 'external-public-url', config: { publicUrl: 'https://canonry.example.com' }, notice: CONFIG_WARN },
   { id: 'external-api-url', config: { apiUrl: 'https://canonry.example.com' }, notice: CONFIG_WARN },
-  { id: 'trusted-proxy', env: { CANONRY_TRUST_PROXY: '1' }, notice: CONFIG_WARN },
+  { id: 'trusted-proxy', env: { CANONRY_TRUST_PROXY: 'loopback' }, notice: CONFIG_WARN },
   { id: 'loopback-public-url', config: { publicUrl: 'http://localhost:4100' } },
   // The bind is the first reason, and the only one printed.
   { id: 'wildcard-bind-external-public-url', args: ['--host', '0.0.0.0'], config: { publicUrl: 'https://canonry.example.com' }, notice: WARN },

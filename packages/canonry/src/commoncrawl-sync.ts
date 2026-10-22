@@ -85,6 +85,10 @@ export async function executeReleaseSync(
       throw new Error(`Invalid release id: ${release}`)
     }
 
+    // Load DuckDB before the multi-GB download: a plugin that cannot load
+    // used to fail only after it, and again instantly on every retry.
+    if (db.select({ id: projects.id }).from(projects).limit(1).get()) deps.loadDuckdb()
+
     const downloadStartedAt = deps.now().toISOString()
     db.update(ccReleaseSyncs).set({
       status: CcReleaseSyncStatuses.downloading,
@@ -256,10 +260,17 @@ export async function executeReleaseSync(
       ...outcome,
       status: OutcomeStatuses.failed,
       durationBucket: elapsed(),
-      ...outcomeFailure(err, invalidRelease ? OutcomeReasonCodes.VALIDATION : undefined),
+      ...outcomeFailure(err, invalidRelease
+        ? OutcomeReasonCodes.VALIDATION
+        : isMissingDependency(err) ? OutcomeReasonCodes.NOT_CONNECTED : undefined),
     })
     throw err
   }
+}
+
+/** The backlinks DuckDB plugin is absent or cannot load. */
+function isMissingDependency(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && 'code' in err && err.code === 'MISSING_DEPENDENCY'
 }
 
 export interface ScheduledReleaseSyncDeps {
@@ -323,9 +334,7 @@ export async function syncLatestReleaseOnSchedule(projectName: string, deps: Sch
     await deps.requestSync(probed.release)
   } catch (err: unknown) {
     deps.log.error({ projectName, release: probed.release, err: describeError(err) }, 'Scheduled backlinks sync failed')
-    // MISSING_DEPENDENCY: the backlinks DuckDB plugin is not installed.
-    const missingPlugin = typeof err === 'object' && err !== null && 'code' in err && err.code === 'MISSING_DEPENDENCY'
-    report({ status: OutcomeStatuses.failed, ...outcomeFailure(err, missingPlugin ? OutcomeReasonCodes.NOT_CONNECTED : undefined) })
+    report({ status: OutcomeStatuses.failed, ...outcomeFailure(err, isMissingDependency(err) ? OutcomeReasonCodes.NOT_CONNECTED : undefined) })
   } finally {
     deps.scheduledReleases.delete(probed.release)
   }

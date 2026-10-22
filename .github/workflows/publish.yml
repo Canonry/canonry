@@ -17,7 +17,6 @@ on:
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - 'tsconfig.base.json'
-      - 'eslint.config.js'
       - 'skills/**'
       - 'plugins/**'
       - '.agents/**'
@@ -113,7 +112,7 @@ jobs:
 
           if git diff --quiet "$BASE_SHA" HEAD -- \
             .dockerignore Dockerfile docker apps/api apps/web apps/worker packages \
-            package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json eslint.config.js; then
+            package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json; then
             echo "docker_changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "docker_changed=true" >> "$GITHUB_OUTPUT"
@@ -203,7 +202,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26.12.1
           registry-url: https://registry.npmjs.org
 
       - uses: ./.github/actions/setup
@@ -265,7 +264,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.check-token.outputs.configured == 'true'
         with:
-          node-version: 22
+          node-version: 26.12.1
           registry-url: https://registry.npmjs.org
 
       # npm can accept a scoped publish while its public metadata and tarball
@@ -323,7 +322,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26.12.1
 
       - name: Install ClawHub CLI
         run: npm i -g clawhub

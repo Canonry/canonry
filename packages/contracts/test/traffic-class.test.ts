@@ -22,6 +22,15 @@ describe('classifyAiReferralTrafficClass', () => {
     })).toBe('organic')
   })
 
+  it('reads GA4 AI Assistant rows by their paid evidence, not their medium or channel', () => {
+    // GA4 sets medium `ai-assistant` on the AI referrals it recognizes; neither
+    // that medium nor the channel is paid evidence.
+    const aiAssistant = { source: 'chat.mistral.ai', medium: 'ai-assistant', channelGroup: 'AI Assistant', landingPage: '/x' }
+    expect(classifyAiReferralTrafficClass(aiAssistant)).toBe('organic')
+    expect(classifyAiReferralTrafficClass({ ...aiAssistant, medium: 'cpc' })).toBe('paid')
+    expect(classifyAiReferralTrafficClass({ ...aiAssistant, landingPage: '/x?utm_medium=cpc' })).toBe('paid')
+  })
+
   it('finds paid intent in each evidence field independently', () => {
     const organic = { source: 'chatgpt', medium: 'referral', channelGroup: 'Referral', landingPage: '/x' }
     expect(classifyAiReferralTrafficClass(organic)).toBe('organic')

@@ -8,6 +8,7 @@ import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { and, eq, isNotNull, isNull, lte, max, ne, or, sql } from "drizzle-orm";
 import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@canonry/canonry-config";
 import { CliError } from "./cli-error.js";
+import { isLoopbackBindHost } from "./serve-endpoint.js";
 import { buildJevSentimentRequest } from "@canonry/canonry-integration-typesafe";
 import { createConfiguredSentimentClassifier } from "./sentiment-openrouter.js";
 import { SentimentWorker, createSentimentPoller } from "./sentiment-worker.js";
@@ -19,7 +20,6 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 };
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import type { SetHeadersResponse } from "@fastify/static";
 import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, syncRunClaimKey, writeAuditLog, type ApiRoutesOptions } from "@canonry/canonry-api-routes";
 import {
   apiKeys,
@@ -656,24 +656,6 @@ export function applyLegacyCredentials(
 }
 
 /**
- * Whether `host` is a loopback bind — only the local machine can reach a
- * server bound here. `undefined` (programmatic/test callers that never bind a
- * socket) is treated as loopback. `0.0.0.0` / `::` (bind-all) and any specific
- * LAN/public address are NOT loopback.
- */
-export function isLoopbackBindHost(host: string | undefined): boolean {
-  if (host == null || host === "") return true;
-  const normalized = host
-    .trim()
-    .toLowerCase()
-    .replace(/^\[|\]$/g, "");
-  if (normalized === "localhost" || normalized === "::1") return true;
-  // IPv4 loopback is the whole 127.0.0.0/8 block.
-  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized)) return true;
-  return false;
-}
-
-/**
  * Whether a connection's peer address is loopback. Unlike a bind host, a
  * missing address or a name is never loopback here: this reads what the
  * kernel reported for an accepted socket.
@@ -1007,7 +989,7 @@ export async function createServer(opts: {
   // `request.ip`, and behind an unconfigured proxy that is the PROXY for
   // everybody, collapsing every caller into one shared bucket. Unset means
   // trust nothing, which is right for the default localhost bind; an operator
-  // behind an edge proxy sets CANONRY_TRUST_PROXY to the hop count or the
+  // behind an edge proxy sets CANONRY_TRUST_PROXY to the
   // proxy's address.
   const trustProxy = resolveTrustProxy(process.env.CANONRY_TRUST_PROXY);
   const app = Fastify({
@@ -3911,14 +3893,14 @@ export async function createServer(opts: {
       // Without this, the browser hits the server for every JS chunk on
       // every page load, defeating most of the dashboard's first-paint
       // budget.
-      setHeaders: (res: SetHeadersResponse, path: string) => {
+      setHeaders: (reply: FastifyReply, path: string) => {
         // index.html serving is handled separately below; this static
         // middleware doesn't actually serve it (index:false), but guard
         // anyway in case fastify-static falls back through here.
         if (path.endsWith(".html")) {
-          res.setHeader("Cache-Control", "no-cache, must-revalidate");
+          reply.header("Cache-Control", "no-cache, must-revalidate");
         } else {
-          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+          reply.header("Cache-Control", "public, max-age=31536000, immutable");
         }
       },
     });

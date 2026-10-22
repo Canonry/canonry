@@ -1,5 +1,4 @@
 import { WINDOW_SETS } from '@canonry/canonry-contracts'
-import { showOrganicEvidence } from '../commands/organic-evidence.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, requireProject, stringOption } from '../cli-command-helpers.js'
 import { parseOrganicEvidencePeriod } from '@canonry/canonry-contracts'
@@ -19,6 +18,7 @@ export const ORGANIC_EVIDENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: USAGE,
     options: { period: stringOption() },
     run: async (input) => {
+      const { showOrganicEvidence } = await import('../commands/organic-evidence.js')
       const project = requireProject(input, 'organic-evidence', USAGE)
       await showOrganicEvidence(project, {
         period: parsePeriod(getString(input.values, 'window') ?? getString(input.values, 'period')),

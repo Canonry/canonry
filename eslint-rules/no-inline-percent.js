@@ -73,7 +73,7 @@ function startsWithPercent(node) {
   return false
 }
 
-/** @type {import('eslint').Rule.RuleModule} */
+/** @type {import('./restricted-syntax.js').OxlintRule} */
 export const noInlinePercentRule = {
   meta: {
     type: 'problem',

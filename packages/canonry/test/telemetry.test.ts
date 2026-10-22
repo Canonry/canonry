@@ -366,8 +366,19 @@ describe('telemetry', () => {
       return import('../src/telemetry.js')
     }
 
+    let home: string
+    let savedInstallMethod: string | undefined
+
+    beforeEach(() => {
+      home = path.join(tmpDir, crypto.randomUUID())
+      vi.spyOn(os, 'homedir').mockReturnValue(home)
+      savedInstallMethod = process.env.CANONRY_INSTALL_METHOD
+      process.env.CANONRY_INSTALL_METHOD = 'npm'
+    })
+
     afterEach(() => {
       vi.resetModules()
+      restoreEnvVar('CANONRY_INSTALL_METHOD', savedInstallMethod)
     })
 
     async function captureEnvelope(trackEvent: (event: string) => void): Promise<Record<string, unknown>> {
@@ -391,13 +402,33 @@ describe('telemetry', () => {
       expect(getMachineId()).toBe(id)
     })
 
-    it('derives the same ID in every process on one machine and a different one elsewhere', async () => {
+    it('saves the first ID and keeps it in later processes after the hostname or network changes', async () => {
+      const hostname = vi.spyOn(os, 'hostname').mockReturnValue('host-a')
+      const interfaces = vi.spyOn(os, 'networkInterfaces').mockReturnValue({ eth0: [external] })
+      const first = (await freshTelemetry()).getMachineId()
+      expect(fs.readFileSync(path.join(home, '.canonry', 'machine-id'), 'utf8')).toBe(`${first}\n`)
+      hostname.mockReturnValue('host-b')
+      interfaces.mockReturnValue({ en0: [{ ...external, mac: '02:00:00:00:00:02' }] })
+      expect((await freshTelemetry()).getMachineId()).toBe(first)
+    })
+
+    it('gives another machine its own ID', async () => {
       const hostname = vi.spyOn(os, 'hostname').mockReturnValue('host-a')
       vi.spyOn(os, 'networkInterfaces').mockReturnValue({ eth0: [external] })
       const first = (await freshTelemetry()).getMachineId()
-      expect((await freshTelemetry()).getMachineId()).toBe(first)
+      vi.mocked(os.homedir).mockReturnValue(path.join(tmpDir, crypto.randomUUID()))
       hostname.mockReturnValue('host-b')
       expect((await freshTelemetry()).getMachineId()).not.toBe(first)
+    })
+
+    it('sends none from a container, whose hostname and MAC change on every restart', async () => {
+      process.env.CANONRY_ANONYMOUS_ID = crypto.randomUUID()
+      process.env.CANONRY_INSTALL_METHOD = 'docker'
+      const { getMachineId, trackEvent } = await freshTelemetry()
+      expect(getMachineId()).toBeUndefined()
+      expect(fs.existsSync(path.join(home, '.canonry', 'machine-id'))).toBe(false)
+      const payload = await captureEnvelope(trackEvent)
+      expect(payload).not.toHaveProperty('machineId')
     })
 
     it('rides on every event, including when CANONRY_ANONYMOUS_ID pins the install', async () => {
@@ -420,6 +451,33 @@ describe('telemetry', () => {
       const payload = await captureEnvelope(trackEvent)
       expect(payload.anonymousId).toBe(process.env.CANONRY_ANONYMOUS_ID)
       expect(payload).not.toHaveProperty('machineId')
+    })
+
+    describe('resolveMachineId', () => {
+      const filePath = () => path.join(home, '.canonry', 'machine-id')
+      const derivedId = '0a1b2c3d-0000-5000-8000-000000000001'
+
+      it('keeps an ID another process saved first', async () => {
+        const { resolveMachineId } = await freshTelemetry()
+        const saved = crypto.randomUUID()
+        fs.mkdirSync(path.dirname(filePath()), { recursive: true })
+        fs.writeFileSync(filePath(), `${saved.toUpperCase()}\n`)
+        expect(resolveMachineId({ filePath: filePath(), inContainer: false, derive: () => derivedId })).toBe(saved)
+      })
+
+      it('ignores a file that does not hold a UUID', async () => {
+        const { resolveMachineId } = await freshTelemetry()
+        fs.mkdirSync(path.dirname(filePath()), { recursive: true })
+        fs.writeFileSync(filePath(), 'not-an-id\n')
+        expect(resolveMachineId({ filePath: filePath(), inContainer: false, derive: () => derivedId })).toBe(derivedId)
+      })
+
+      it('still answers when the ID cannot be saved', async () => {
+        const { resolveMachineId } = await freshTelemetry()
+        fs.writeFileSync(path.join(tmpDir, 'blocker'), '')
+        const unwritable = path.join(tmpDir, 'blocker', 'machine-id')
+        expect(resolveMachineId({ filePath: unwritable, inContainer: false, derive: () => derivedId })).toBe(derivedId)
+      })
     })
   })
 

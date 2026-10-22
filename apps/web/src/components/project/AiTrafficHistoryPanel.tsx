@@ -31,7 +31,7 @@ import {
 } from '../shared/ChartPrimitives.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
-import { Card } from '../ui/card.js'
+import { KpiRow } from './ActivityParts.js'
 import { useServerTrafficEvents, useServerTrafficSources } from '../../queries/server-traffic.js'
 import { TRAFFIC_STALE_MS } from '../../queries/query-client.js'
 // The canonical compact formatter, from contracts. A local copy with a different
@@ -70,10 +70,7 @@ interface Point {
   aiReferralLandedHits?: number
 }
 
-const LEGEND_STYLE = { fontSize: 11, paddingTop: 6 } as const
-/** Trend lines are the same colour as their series; naming them again in the
- *  legend doubles its length and says nothing new. */
-const HIDDEN_FROM_LEGEND = new Set(['Pages crawled trend', 'Page fetches trend', 'Visits trend'])
+const LEGEND_STYLE = { fontSize: 12, paddingTop: 6 } as const
 
 /** Trend series carry tooltipType="none": a fitted line's per-point value is
  *  an interpolation ("46.928533333333334"), not a reading, so it has no place
@@ -101,24 +98,6 @@ function trendSeries(trend: Trend | null | undefined, length: number): (number |
     i < trend.startIndex || i > trend.endIndex
       ? null
       : trend.start + (i - trend.startIndex) * perStep)
-}
-
-function Tile({ label, value, caption, tooltip }: {
-  label: string
-  value: string
-  caption: string
-  tooltip: string
-}) {
-  return (
-    <div className="rounded-lg border border-default bg-bg/40 px-4 py-3 flex flex-col">
-      <div className="flex items-center gap-1 mb-1">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">{label}</p>
-        <InfoTooltip text={tooltip} />
-      </div>
-      <p className="text-xl font-semibold text-primary tabular-nums">{value}</p>
-      <p className="text-xs text-muted mt-0.5">{caption}</p>
-    </div>
-  )
 }
 
 /**
@@ -254,16 +233,14 @@ export function AiTrafficHistoryPanel({
   const measuredAnything = totals.crawlers > 0 || totals.fetches > 0 || totals.visits > 0
 
   if (events.isLoading) {
-    return <Card className="surface-card p-5"><div className="text-sm text-muted">Loading AI traffic history…</div></Card>
+    return <p className="text-sm text-secondary">Loading AI traffic history…</p>
   }
   if (events.isError) {
     return (
-      <Card className="surface-card p-5">
-        <p className="text-sm text-secondary">Could not load AI traffic history.</p>
-        <p className="text-xs text-muted mt-1">
-          The request failed, so this is not a reading of zero activity. Retry, or check the traffic source.
-        </p>
-      </Card>
+      <div className="flex items-center gap-1.5">
+        <p role="alert" className="text-sm text-negative">Could not load AI traffic history.</p>
+        <InfoTooltip text="The request failed, so this is not a reading of zero activity. Retry, or check the traffic source." />
+      </div>
     )
   }
   if (!measuredAnything) {
@@ -278,7 +255,7 @@ export function AiTrafficHistoryPanel({
     const noSourceConnected = sourceList !== undefined && sourceList.length === 0
     const connectedButSilent = !noSourceConnected && coverageStart === null
     return (
-      <Card className="surface-card p-5">
+      <div className="flex items-center gap-1.5">
         <p className="text-sm text-secondary">
           {noSourceConnected
             ? 'No server-side traffic source connected yet.'
@@ -286,37 +263,42 @@ export function AiTrafficHistoryPanel({
               ? 'No AI activity recorded yet.'
               : 'No AI activity recorded in this period.'}
         </p>
-        <p className="text-xs text-muted mt-1">
-          {noSourceConnected
+        <InfoTooltip
+          text={noSourceConnected
             ? 'Connect a traffic source to see how AI engines read this site over time.'
             : connectedButSilent
               ? 'The source is connected but has not reported anything yet. A new source can take a few hours to appear.'
               : 'The window was measured and nothing was recorded. Try a longer range.'}
-        </p>
-      </Card>
+        />
+      </div>
     )
   }
 
   return (
-    <Card className="surface-card p-5">
-      <div className="grid gap-3 sm:grid-cols-3 mb-5">
-        <Tile
-          label="AI crawlers"
-          value={formatNumber(totals.crawlers)}
-          caption="pages crawled"
-          tooltip="Requests from AI crawlers for a real content page. Robots.txt and sitemap re-fetches are excluded, because they are not a page an engine read."
-        />
-        <Tile
-          label="AI page fetches"
-          value={formatNumber(totals.fetches)}
-          caption="reading a page to answer"
-          tooltip="An AI engine fetching a page live while answering someone, rather than crawling it for an index."
-        />
-        <Tile
-          label="AI visitors"
-          value={formatNumber(totals.visits)}
-          caption="arrived from an AI answer"
-          tooltip="Visits your server answered that came from an AI engine. Requests answered with a redirect are excluded: a redirect is a hop, not an arrival."
+    <div>
+      <div className="mb-5">
+        <KpiRow
+          label="AI traffic totals"
+          items={[
+            {
+              label: 'AI crawlers',
+              value: formatNumber(totals.crawlers),
+              detail: 'pages crawled',
+              tooltip: 'Requests from AI crawlers for a real content page. Robots.txt and sitemap re-fetches are excluded, because they are not a page an engine read.',
+            },
+            {
+              label: 'AI page fetches',
+              value: formatNumber(totals.fetches),
+              detail: 'reading a page to answer',
+              tooltip: 'An AI engine fetching a page live while answering someone, rather than crawling it for an index.',
+            },
+            {
+              label: 'AI visitors',
+              value: formatNumber(totals.visits),
+              detail: 'arrived from an AI answer',
+              tooltip: 'Visits your server answered that came from an AI engine. Requests answered with a redirect are excluded: a redirect is a hop, not an arrival.',
+            },
+          ]}
         />
       </div>
 
@@ -383,8 +365,7 @@ export function AiTrafficHistoryPanel({
                            fillOpacity={0.5} stroke="none"
                            label={{ value: 'not measured', position: 'insideTop', fontSize: 10, fill: 'var(--chart-neutral-text-dim, #71717a)' }} />
           )}
-          <Legend wrapperStyle={LEGEND_STYLE} iconType="plainline" iconSize={14}
-                  formatter={(value: string) => (HIDDEN_FROM_LEGEND.has(value) ? '' : value)} />
+          <Legend wrapperStyle={LEGEND_STYLE} iconType="plainline" iconSize={14} />
           <Area type="monotone" dataKey="crawlerContentHits" name="Pages crawled"
                 stroke={CRAWLER_COLOR} fill={CRAWLER_COLOR} fillOpacity={0.22} strokeWidth={1.8} />
           {showFetches && (
@@ -392,11 +373,11 @@ export function AiTrafficHistoryPanel({
                   stroke={FETCH_COLOR} fill={FETCH_COLOR} fillOpacity={0.18} strokeWidth={1.6} />
           )}
           {showTrend && (
-            <Line type="linear" dataKey="crawlTrend" name="Pages crawled trend" dot={false} tooltipType="none"
+            <Line type="linear" dataKey="crawlTrend" legendType="none" name="Pages crawled trend" dot={false} tooltipType="none"
                   stroke={CRAWLER_COLOR} strokeWidth={1.4} strokeDasharray="5 4" connectNulls />
           )}
           {showTrend && showFetches && (
-            <Line type="linear" dataKey="fetchTrend" name="Page fetches trend" dot={false} tooltipType="none"
+            <Line type="linear" dataKey="fetchTrend" legendType="none" name="Page fetches trend" dot={false} tooltipType="none"
                   stroke={FETCH_COLOR} strokeWidth={1.3} strokeDasharray="5 4" connectNulls />
           )}
         </ComposedChart>
@@ -431,8 +412,7 @@ export function AiTrafficHistoryPanel({
                            fillOpacity={0.5} stroke="none"
                            label={{ value: 'not measured', position: 'insideTop', fontSize: 10, fill: 'var(--chart-neutral-text-dim, #71717a)' }} />
           )}
-          <Legend wrapperStyle={LEGEND_STYLE} iconType="plainline" iconSize={14}
-                  formatter={(value: string) => (HIDDEN_FROM_LEGEND.has(value) ? '' : value)} />
+          <Legend wrapperStyle={LEGEND_STYLE} iconType="plainline" iconSize={14} />
           {visitSource !== 'ga4' && (
             <Line type="monotone" dataKey="aiReferralLandedHits" name="Visits, server"
                   stroke={VISIT_COLOR} strokeWidth={2} dot={false} />
@@ -443,11 +423,11 @@ export function AiTrafficHistoryPanel({
                   dot={isolatedPointDot(chartRows.map((r) => r.ga4Visits), GA4_COLOR)} />
           )}
           {showTrend && visitSource !== 'ga4' && (
-            <Line type="linear" dataKey="visitTrend" name="Visits trend" dot={false} tooltipType="none"
+            <Line type="linear" dataKey="visitTrend" legendType="none" name="Visits trend" dot={false} tooltipType="none"
                   stroke={VISIT_COLOR} strokeWidth={1.3} strokeDasharray="5 4" connectNulls />
           )}
         </ComposedChart>
       </ResponsiveContainer>
-    </Card>
+    </div>
   )
 }

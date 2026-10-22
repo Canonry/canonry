@@ -376,7 +376,7 @@ describe('first-run POST /session/setup authority', () => {
       { name: 'publicUrl names a LAN address', configPatch: { publicUrl: 'http://192.168.1.10:4100' } },
       { name: 'publicUrl cannot be parsed', configPatch: { publicUrl: 'canonry example' } },
       { name: 'CANONRY_TRUST_PROXY trusts every hop', trustProxy: 'true' },
-      { name: 'CANONRY_TRUST_PROXY trusts one hop', trustProxy: '1' },
+      { name: 'CANONRY_TRUST_PROXY trusts a CIDR', trustProxy: '127.0.0.0/8' },
       { name: 'CANONRY_TRUST_PROXY trusts an address', trustProxy: '127.0.0.1' },
     ])('requires the root key for a local-looking request when $name', async ({ configPatch, trustProxy }) => {
       if (trustProxy) vi.stubEnv('CANONRY_TRUST_PROXY', trustProxy)

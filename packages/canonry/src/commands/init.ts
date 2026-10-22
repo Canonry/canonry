@@ -18,27 +18,11 @@ import { trackCliConnection } from '../cli-connection-telemetry.js'
 import { createClient, migrate } from '@canonry/canonry-db'
 import { apiKeys } from '@canonry/canonry-db'
 import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
+import { queueServeHandoff } from '../serve-handoff.js'
 import { installSkills, type SkillsInstallSummary } from './skills.js'
 import { installMcp, type McpInstallResult } from './mcp.js'
 import { describeError } from '@canonry/canonry-contracts'
 import { installAttribution, recordInstallRef } from '../telemetry-environment.js'
-
-/**
- * Hand control to `canonry serve` after init finishes.
- *
- * A flag rather than a direct call, because init's own lifecycle telemetry is
- * emitted by the dispatcher when the command RETURNS. Serve never returns, so
- * launching it from inside init would record every init that chose the
- * dashboard as a half-hour command. The dispatcher consumes this after the
- * init event is on the wire.
- */
-let pendingServeHandoff = false
-
-export function consumePendingServeHandoff(): boolean {
-  const pending = pendingServeHandoff
-  pendingServeHandoff = false
-  return pending
-}
 
 /**
  * Ask for a provider key, offering one the machine ALREADY HAS first.
@@ -461,7 +445,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
   }
 
   if (isTelemetryEnabled()) {
-    const postInitSetupState = buildSetupState()
+    const postInitSetupState = await buildSetupState()
     recordInstallRef(opts?.ref)
     trackEvent('cli.init', {
       providerCount: providerNames.length,
@@ -505,7 +489,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
   if (!isMachineFormat(format) && process.stdin.isTTY && process.stdout.isTTY) {
     const answer = await prompt('\nStart the dashboard now? [Y/n]: ')
     if (!/^n/i.test(answer.trim())) {
-      pendingServeHandoff = true
+      queueServeHandoff()
       console.log('Handing off to the dashboard. Map your site at /setup once it is up.')
     }
   }

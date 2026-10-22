@@ -1,22 +1,3 @@
-import {
-  technicalAeoCrawl,
-  technicalAeoCrawlPages,
-  technicalAeoChanges,
-  technicalAeoDeadLinks,
-  technicalAeoInternalLinks,
-  technicalAeoIssues,
-  technicalAeoIssuePages,
-  technicalAeoLinkNeighbors,
-  technicalAeoPageAudit,
-  technicalAeoPath,
-  technicalAeoPages,
-  technicalAeoProgress,
-  technicalAeoRun,
-  technicalAeoScore,
-  technicalAeoStructure,
-  technicalAeoSubgraph,
-  technicalAeoTrend,
-} from '../commands/technical-aeo.js'
 import { siteAuditIssueListQuerySchema } from '@canonry/canonry-contracts'
 import { CliError, usageError } from '../cli-error.js'
 import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
@@ -75,6 +56,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
     access: 'stored',
     options: { 'run-id': stringOption(), cursor: stringOption(), limit: stringOption() },
     run: async (input) => {
+      const { technicalAeoIssues } = await import('../commands/technical-aeo.js')
       const usage = 'canonry technical-aeo issues <project> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
       const project = requireProject(input, 'technical-aeo.issues', usage)
       await technicalAeoIssues(project, {
@@ -89,6 +71,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
     access: 'stored',
     options: { 'issue-id': stringOption(), 'run-id': stringOption(), cursor: stringOption(), limit: stringOption() },
     run: async (input) => {
+      const { technicalAeoIssuePages } = await import('../commands/technical-aeo.js')
       const usage = 'canonry technical-aeo issue-pages <project> --issue-id <id> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
       const project = requireProject(input, 'technical-aeo.issue-pages', usage)
       const issueId = requireStringOption(input, 'issue-id', { command: 'technical-aeo.issue-pages', usage, message: '--issue-id is required' })
@@ -106,6 +89,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
       'run-id': stringOption(),
     },
     run: async (input) => {
+      const { technicalAeoScore } = await import('../commands/technical-aeo.js')
       const project = requireProject(
         input,
         'technical-aeo.score',
@@ -124,6 +108,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
       limit: stringOption(),
     },
     run: async (input) => {
+      const { technicalAeoPages } = await import('../commands/technical-aeo.js')
       const usage = 'canonry technical-aeo pages <project> [--run-id <id>] [--status success|error] [--sort score-asc|score-desc|url] [--limit <n>] [--format json|jsonl]'
       const project = requireProject(input, 'technical-aeo.pages', usage)
       await technicalAeoPages(project, {
@@ -146,6 +131,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
       limit: stringOption(),
     },
     run: async (input) => {
+      const { technicalAeoTrend } = await import('../commands/technical-aeo.js')
       const usage = 'canonry technical-aeo trend <project> [--limit <n>] [--format json|jsonl]'
       const project = requireProject(input, 'technical-aeo.trend', usage)
       await technicalAeoTrend(project, {
@@ -175,6 +161,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
       wait: { type: 'boolean', default: false },
     },
     run: async (input) => {
+      const { technicalAeoRun } = await import('../commands/technical-aeo.js')
       const usage = 'canonry technical-aeo run <project> [--sitemap-url <url>] [--max-pages <n>] [--max-edges <n>] [--max-depth <n>] [--check-dead-links] [--include-geo] [--no-agent-skills] [--wait] [--format json]'
       const project = requireProject(input, 'technical-aeo.run', usage)
       await technicalAeoRun(project, {
@@ -206,6 +193,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
     usage: 'canonry technical-aeo crawl <project> [--run-id <id> | --date YYYY-MM-DD] [--format json]',
     options: { 'run-id': stringOption(), date: stringOption() },
     run: async (input) => {
+      const { technicalAeoCrawl } = await import('../commands/technical-aeo.js')
       const usage = 'canonry technical-aeo crawl <project> [--run-id <id> | --date YYYY-MM-DD] [--format json]'
       const project = requireProject(input, 'technical-aeo.crawl', usage)
       await technicalAeoCrawl(project, { runId: getString(input.values, 'run-id'), date: getString(input.values, 'date'), format: input.format })
@@ -216,6 +204,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
     usage: 'canonry technical-aeo progress <project> --run-id <id> [--format json]',
     options: { 'run-id': stringOption() },
     run: async (input) => {
+      const { technicalAeoProgress } = await import('../commands/technical-aeo.js')
       const usage = 'canonry technical-aeo progress <project> --run-id <id> [--format json]'
       const project = requireProject(input, 'technical-aeo.progress', usage)
       const runId = requireStringOption(input, 'run-id', {
@@ -234,6 +223,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
       'max-nodes': stringOption(), 'max-edges': stringOption(),
     },
     run: async (input) => {
+      const { technicalAeoSubgraph } = await import('../commands/technical-aeo.js')
       const usage = 'canonry technical-aeo subgraph <project> [--run-id <id>] [--node-key <key>|--url <url>] [--hops <n>] [--max-nodes <n>] [--max-edges <n>] [--format json]'
       const project = requireProject(input, 'technical-aeo.subgraph', usage)
       const nodeKey = getString(input.values, 'node-key')
@@ -260,6 +250,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
       'to-node-key': stringOption(), 'to-url': stringOption(), 'max-depth': stringOption(),
     },
     run: async (input) => {
+      const { technicalAeoPath } = await import('../commands/technical-aeo.js')
       const usage = 'canonry technical-aeo path <project> (--to-node-key <key>|--to-url <url>) [--run-id <id>] [--from-node-key <key>|--from-url <url>] [--max-depth <n>] [--format json]'
       const project = requireProject(input, 'technical-aeo.path', usage)
       const fromNodeKey = getString(input.values, 'from-node-key')
@@ -291,6 +282,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
       cursor: stringOption(), limit: stringOption(),
     },
     run: async (input) => {
+      const { technicalAeoChanges } = await import('../commands/technical-aeo.js')
       const usage = 'canonry technical-aeo changes <project> [--from-run-id <id>] [--to-run-id <id>] [--scope all|pages|links] [--change all|added|removed|changed] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
       const project = requireProject(input, 'technical-aeo.changes', usage)
       const fromRunId = getString(input.values, 'from-run-id')
@@ -330,6 +322,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
       limit: stringOption(),
     },
     run: async (input) => {
+      const { technicalAeoCrawlPages } = await import('../commands/technical-aeo.js')
       const usage = 'canonry technical-aeo crawl-pages <project> [--run-id <id> | --date YYYY-MM-DD] [--inventory-eligible true|false] [--fetch-state <state>] [--indexability-state <state>] [--audit-state <state>] [--sort url|path|score-asc|score-desc] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
       const project = requireProject(input, 'technical-aeo.crawl-pages', usage)
       const sort = getString(input.values, 'sort')
@@ -357,6 +350,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
     usage: 'canonry technical-aeo page-audit <project> (--node-key <key>|--url <url>) [--run-id <id>] [--format json]',
     options: { 'run-id': stringOption(), 'node-key': stringOption(), url: stringOption() },
     run: async (input) => {
+      const { technicalAeoPageAudit } = await import('../commands/technical-aeo.js')
       const usage = 'canonry technical-aeo page-audit <project> (--node-key <key>|--url <url>) [--run-id <id>] [--format json]'
       const project = requireProject(input, 'technical-aeo.page-audit', usage)
       const nodeKey = getString(input.values, 'node-key')
@@ -384,6 +378,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
     usage: 'canonry technical-aeo structure <project> [--run-id <id>] [--parent-path <path>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
     options: { 'run-id': stringOption(), 'parent-path': stringOption(), cursor: stringOption(), limit: stringOption() },
     run: async (input) => {
+      const { technicalAeoStructure } = await import('../commands/technical-aeo.js')
       const usage = 'canonry technical-aeo structure <project> [--run-id <id>] [--parent-path <path>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
       const project = requireProject(input, 'technical-aeo.structure', usage)
       await technicalAeoStructure(project, {
@@ -408,6 +403,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
       limit: stringOption(),
     },
     run: async (input) => {
+      const { technicalAeoInternalLinks } = await import('../commands/technical-aeo.js')
       const usage = 'canonry technical-aeo links <project> [--run-id <id>] [--source-url <url>] [--target-url <url>] [--followable|--nofollow] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
       const project = requireProject(input, 'technical-aeo.links', usage)
       const followable = getBoolean(input.values, 'followable')
@@ -434,6 +430,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
     usage: 'canonry technical-aeo links neighbors <project> (--node-key <key>|--url <url>) [--run-id <id>] [--limit <n>] [--format json]',
     options: { 'run-id': stringOption(), 'node-key': stringOption(), url: stringOption(), limit: stringOption() },
     run: async (input) => {
+      const { technicalAeoLinkNeighbors } = await import('../commands/technical-aeo.js')
       const usage = 'canonry technical-aeo links neighbors <project> (--node-key <key>|--url <url>) [--run-id <id>] [--limit <n>] [--format json]'
       const project = requireProject(input, 'technical-aeo.links.neighbors', usage)
       const nodeKey = getString(input.values, 'node-key')
@@ -457,6 +454,7 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
     usage: 'canonry technical-aeo dead-links <project> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
     options: { 'run-id': stringOption(), cursor: stringOption(), limit: stringOption() },
     run: async (input) => {
+      const { technicalAeoDeadLinks } = await import('../commands/technical-aeo.js')
       const usage = 'canonry technical-aeo dead-links <project> [--run-id <id>] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
       const project = requireProject(input, 'technical-aeo.dead-links', usage)
       await technicalAeoDeadLinks(project, {

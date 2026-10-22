@@ -5,7 +5,7 @@ import {
   BookOpen,
   ChevronRight,
   FileText,
-  Github,
+  CodeXml,
   Globe,
   History as HistoryIcon,
   LayoutDashboard,
@@ -85,7 +85,7 @@ import type {
 import { Outlet, Link, useLocation } from '@tanstack/react-router'
 
 const resources: { label: string; href: string; Icon: LucideIcon }[] = [
-  { label: 'GitHub', href: 'https://github.com/Canonry/canonry', Icon: Github },
+  { label: 'GitHub', href: 'https://github.com/Canonry/canonry', Icon: CodeXml },
   { label: 'Docs', href: 'https://github.com/Canonry/canonry/tree/main/docs', Icon: BookOpen },
   { label: 'Changelog', href: 'https://github.com/Canonry/canonry/releases', Icon: FileText },
 ]

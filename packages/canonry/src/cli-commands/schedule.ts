@@ -1,4 +1,3 @@
-import { disableSchedule, enableSchedule, listSchedules, removeSchedule, setSchedule, showSchedule } from '../commands/schedule.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, getStringArray, multiStringOption, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
@@ -8,6 +7,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['schedule', 'list'],
     usage: 'canonry schedule list <project> [--format json|jsonl]',
     run: async input => {
+      const { listSchedules } = await import('../commands/schedule.js')
       await listSchedules(requireProject(input, 'schedule.list', 'canonry schedule list <project>'), input.format)
     },
   },
@@ -26,6 +26,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       provider: multiStringOption(),
     },
     run: async (input) => {
+      const { setSchedule } = await import('../commands/schedule.js')
       const usage = 'canonry schedule set <project> (--preset <preset> | --cron <expr> | --every-days <n> --start-date <YYYY-MM-DD> --at <HH:mm>) [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync] [--source <id>] [--timezone <tz>] [--provider <name>...] [--format json]'
       const project = requireProject(input, 'schedule.set', usage)
       const preset = getString(input.values, 'preset')
@@ -66,6 +67,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry schedule show <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync] [--format json]',
     options: { kind: stringOption() },
     run: async (input) => {
+      const { showSchedule } = await import('../commands/schedule.js')
       const project = requireProject(input, 'schedule.show', 'canonry schedule show <project> [--kind ...]')
       await showSchedule(project, input.format, getString(input.values, 'kind'))
     },
@@ -75,6 +77,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry schedule enable <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync] [--format json]',
     options: { kind: stringOption() },
     run: async (input) => {
+      const { enableSchedule } = await import('../commands/schedule.js')
       const project = requireProject(input, 'schedule.enable', 'canonry schedule enable <project> [--kind ...]')
       await enableSchedule(project, input.format, getString(input.values, 'kind'))
     },
@@ -84,6 +87,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry schedule disable <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync] [--format json]',
     options: { kind: stringOption() },
     run: async (input) => {
+      const { disableSchedule } = await import('../commands/schedule.js')
       const project = requireProject(input, 'schedule.disable', 'canonry schedule disable <project> [--kind ...]')
       await disableSchedule(project, input.format, getString(input.values, 'kind'))
     },
@@ -93,6 +97,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry schedule remove <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync] [--format json]',
     options: { kind: stringOption() },
     run: async (input) => {
+      const { removeSchedule } = await import('../commands/schedule.js')
       const project = requireProject(input, 'schedule.remove', 'canonry schedule remove <project> [--kind ...]')
       await removeSchedule(project, input.format, getString(input.values, 'kind'))
     },

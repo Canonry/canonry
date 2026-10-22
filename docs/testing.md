@@ -39,6 +39,17 @@ import { test, expect, describe, it, beforeEach, afterEach } from 'vitest'
 
 Tests live in `test/` directories colocated with each package (e.g. `packages/canonry/test/`).
 
+### Migrated test databases
+
+`test-setup/global-setup.ts` migrates one empty database per run. When a test calls `migrate(db)` on an empty database, the shared setup file replays that database's schema and rows (`test-setup/migrated-database.ts`) instead of running every migration again: about 15 ms instead of 200 ms. Each test still gets its own database.
+A custom version list, or a database that already holds a table, runs the real migrations. To exercise the real runner from an empty database with every version, pass a copy of the list: `migrate(db, [...MIGRATION_VERSIONS])`.
+
+### Shared workers
+
+Projects in `SHARED_WORKER_PROJECTS` (`vitest.config.ts`) run their test files in shared workers, so each worker imports the package graph once instead of once per file. Before each file, the shared setup file restores the environment, stubbed globals, the working directory, real timers, and the network guards. Module state persists between files, so a test that changes a module-level cache resets it.
+Vitest keeps module mocks across a shared worker's files, so a file that calls `vi.mock` or `vi.doMock` runs in its own process: `api-routes` runs as `api-routes:shared` and `api-routes:isolated`. Select both with `--project 'api-routes:*'`.
+`canonry` and `web` keep one process per file. Canonry holds process-wide state, such as the provider rate-limit gates, and web tests would share one jsdom document.
+
 ## Fast Local Checks
 
 Run changed-file lint from the repository root:
@@ -48,22 +59,10 @@ pnpm check
 ```
 
 `pnpm check` and `pnpm lint:changed` lint staged, unstaged, and untracked JS/TS files using their working content.
-They skip deleted files, symlinks, and ESLint-ignored files.
-They run syntax rules and repository guards without loading TypeScript projects. They do not run tests, builds, or code generation.
+They skip deleted files, symlinks, and files `.oxlintrc.json` ignores.
+They run oxlint's syntax rules and repository guards without type information. They do not run tests, builds, or code generation.
 They cover local changes, not every committed change on the branch. Contributor CI checks the full workspace; owner changes require local validation.
-
-### Shared lint cache
-
-Changed-file and staged checks share clean results across this repository's Git worktrees.
-Cache keys include source content, relative file paths, effective ESLint configuration, local rules, the lockfile, and installed tool versions.
-Timestamps and branch names do not affect reuse. Warnings and errors are checked again and remain visible.
-
-Entries live under `${TMPDIR}/canonry-lint-cache-<uid>/`, grouped by the repository's common Git directory.
-Each result has a separate file, written atomically. Concurrent worktrees do not rewrite a shared ESLint cache file.
-Set `CANONRY_LINT_CACHE_DIR` to change the cache root. Cache storage failures do not prevent linting or commits.
-Use `pnpm check --no-cache` or `pnpm lint:staged --no-cache` to bypass the cache.
-
-Full type-aware lint remains uncached: edits to imported types can change diagnostics in an otherwise unchanged file.
+oxlint is fast enough that neither these checks nor the full type-aware `pnpm lint` keep a result cache.
 
 During local iteration, do not run tests, test watchers, or `pnpm verify`.
 Write or update tests with the implementation.
@@ -91,13 +90,14 @@ compiler-only contracts or validate their `expectTypeOf` assertions.
 
 Pre-commit runs `node scripts/lint-changed.mjs --staged` directly, without a pnpm startup or dependency scan.
 `pnpm lint:staged` runs the same check manually. It reads the exact staged blobs, including partially staged files.
+oxlint reads files from disk, so the staged blobs are written to a temporary tree at their repository paths and linted there.
 It never fixes files, stages changes, or stashes work. Errors block the commit. Warnings remain visible.
-Documentation-only commits skip ESLint and do not need installed npm dependencies.
+Documentation-only commits skip the linter and do not need installed npm dependencies.
 
-Changes to `eslint.config.*` or `eslint-rules/` trigger `pnpm run lint` across the repository, with all type-aware rules enabled.
-This fallback does not use the fast cache. It can find new violations in unchanged files.
+Changes to `.oxlintrc.json` or `eslint-rules/` trigger `pnpm run lint` across the repository, with all type-aware rules enabled.
+It can find new violations in unchanged files.
 For staged checks, code and configuration must match the index before the fallback runs.
-The hook refuses partially staged inputs for full typed lint, because TypeScript reads the project from disk.
+The hook refuses partially staged inputs for full typed lint, because type-aware lint reads the project from disk.
 Ordinary code commits retain the fast path. Agents must run affected package typechecks and type-aware lint locally before pushing code.
 
 The commit-message hook checks Conventional Commits.
@@ -185,11 +185,20 @@ Separate jobs in `ci.yml` cover the checks in `pnpm verify`:
 - `pnpm gen:check`
 - `pnpm plugin:check` (CI also supplies `--base-ref`)
 - `pnpm val:skills:check`
-- `pnpm run typecheck`
+- `pnpm run typecheck` and `pnpm run typecheck:tsc` (the two legs of the `typecheck` matrix job)
 - `pnpm run lint`
 - `pnpm run test`
 
 CI also runs build, Deno, and release guards. `pnpm verify` does not replace those additional checks.
+
+### Typecheck compilers
+
+Every `typecheck` script runs `scripts/typecheck.mjs`, which takes tsc's arguments and picks the compiler:
+
+- By default, tsrs, the Rust port of TypeScript 7. Platforms without a native tsrs binary, such as Intel macOS, run its WebAssembly build, which reports the same diagnostics more slowly.
+- With `CANONRY_TYPECHECKER=tsc` (`pnpm typecheck:tsc` for the whole workspace), the `typescript` package's own `tsc`. This uses the upstream native TypeScript 7 compiler.
+
+`pnpm verify` and CI run both, so code stays valid for each. A package's `typecheck` script calls `node ../../scripts/typecheck.mjs`, never bare `tsc`. After switching compilers, the next run rebuilds the incremental state once.
 
 ### CI caches
 
@@ -197,11 +206,11 @@ Lint and typechecks use four concurrent package processes without dependency ord
 They read workspace source directly and produce no artifacts needed by another package's check.
 Builds retain dependency ordering.
 
-Typechecks reuse TypeScript incremental state, including the root `scripts/` and `test/` projects.
+Typechecks reuse TypeScript incremental state, including the root `scripts/`, `test/` and `test-setup/` projects (`test-setup/tsconfig.json` also covers the root Vitest configs).
 CI collects the `.tsbuildinfo` files with shallow shell globs and caches a single archive.
 This avoids scanning `node_modules` during cache uploads. TypeScript still validates the current inputs on every run.
 
-Tests run in six shards on each of Node 22 and Node 26. Both majors run the complete suite.
+Tests run in six shards on each patched Node 22, 24, and 26 release. All supported majors run the complete suite.
 CI persists Vitest's experimental module-transform cache and Node's compile cache.
 These caches reuse compilation work; they never skip test assertions or reuse a passing test result.
 Cache keys separate the OS, architecture, Node major, shard, lockfiles, manifests, and configuration.
@@ -220,6 +229,7 @@ The wait has a 25-minute deadline. After fixing CI, rerun the failed Publish job
 
 Before each image build, CI and Publish run `scripts/pull-docker-base-images.sh Dockerfile`.
 It retries failed pulls with backoff. For ECR Public's Docker Official Images, it also tries the same image on Docker Hub, which has a separate quota.
+When the Docker Hub copy is used, the script points that image's `FROM` lines in the Dockerfile at it, because Docker cannot retag a digest-pinned image. The build must read the same file.
 BuildKit then uses the local copy instead of the registry, so leave `pull` off in `docker/build-push-action`.
 
 The build job includes the root README, packs Canonry once, and uploads the tarball for the install smoke test and npm publication.
@@ -308,3 +318,8 @@ canonry status test                             # view citation results
 - When testing CLI commands, capture stdout/stderr and assert on output rather than only checking side effects.
 - Use temp directories (`os.tmpdir()`) for file-system tests; clean up in `afterEach`.
 - **Test default-value propagation end-to-end.** When a feature stores a default that another feature consumes, write a test that exercises the full path with no explicit override.
+
+The workspace uses TypeScript 7. SDK generation, tsup declaration builds, and
+the web's JSX guard tests still require the JavaScript compiler API, which
+TypeScript 7 removed. Their four owning packages pin TypeScript 6.0.3 as a private development dependency;
+all workspace typechecks continue through the root compiler launcher.

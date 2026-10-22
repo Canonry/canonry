@@ -1,24 +1,7 @@
 name: Check better-sqlite3 prebuilds
 
-# Watches the one fact about Node support that no test in this repo can see.
-#
-# `packages/db/test/node-support-range.test.ts` proves three links of the chain:
-# the install guard agrees with the INSTALLED better-sqlite3, the installed copy
-# matches the lockfile, and CI runs the highest major the guard claims. It cannot
-# prove the lockfile matches the real world, because a unit test must not depend
-# on the network — so the repo can sit at a stale pin with the guard, the test and
-# the lockfile all agreeing with each other. That is not hypothetical: it is
-# exactly how 12.6.2 survived for months after 12.10.0 shipped the Node 26
-# prebuild, which is what PR #1038 had to go back and fix.
-#
-# WHY THIS FAILS INSTEAD OF OPENING A PR
-# `bump-aeo-audit.yml` is the house pattern for a scheduled dependency check, and
-# its own header records how it broke: the create-PR step needs a PAT the org does
-# not grant, so every gate ran green, the final step died, and the pin silently
-# froze from 2026-06-22 until someone bumped it by hand. A failing run needs no
-# token and cannot half-succeed. Read the job output; it names the file to edit.
-#
-# Run on demand from the Actions tab via "Run workflow".
+# Check the published npm tarball for SQLite 13's ABI-stable platform binaries.
+# A missing platform fails visibly without requiring permission to open a PR.
 
 on:
   schedule:
@@ -41,13 +24,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26.12.1
 
-      # No install step: the script reads pnpm-lock.yaml and check-node.mjs as
-      # text and calls two public APIs. Nothing here needs node_modules, which
-      # also keeps it working when the lockfile is the thing that is wrong.
-      - name: Compare SUPPORTED_MAJORS against published prebuilds
-        env:
-          # Lifts the unauthenticated GitHub API limit; read-only.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Inspect the published tarball without installing or executing it.
+      - name: Check published Node-API binaries
         run: node scripts/check-better-sqlite3-prebuilds.mjs

@@ -1,4 +1,4 @@
-import { RuleTester } from 'eslint'
+import { RuleTester } from 'oxlint/plugins-dev'
 import { describe, it } from 'vitest'
 import { noInlinePercentRule } from '../eslint-rules/no-inline-percent.js'
 

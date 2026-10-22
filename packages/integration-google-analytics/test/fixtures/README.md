@@ -3,6 +3,7 @@
 | File | Case |
 |------|------|
 | `ga4-search-console-landing-pages.json` | `runReport` for GA4's "Google organic search traffic: Landing page + query string" report (Search Console collection), last 28 days, on a property linked to Search Console. |
+| `ga4-ai-referrals-ai-assistant-channel.json` | The three `runReport` passes of `fetchAiReferrals` (session, first user, manual UTM), each request as sent, with GA4's `AI Assistant` channel in the session and first-user filters; plus a live 400 body for a request GA4 cannot combine. |
 
 `ga4-search-console-landing-pages.json` keeps the **response shape of a live
 capture** (GA4 Data API v1beta, 2026-10-08). Every metric value, the `totals`
@@ -19,4 +20,13 @@ up to the Total. Tests that need a complete page set `rowCount` to the rows
 they serve.
 
 Not captured: the response for a property with no Search Console link.
+
+`ga4-ai-referrals-ai-assistant-channel.json` keeps the **request bodies and
+response shape of live captures** (2026-10-20; request bodies re-run
+2026-10-21 with the bounded source filters): header names as echoed,
+metric values as integer strings, `metadata` and `kind`. Its rows and values
+are **synthetic**, because no captured property had a grok, deepseek or
+unrecognized source in the AI Assistant channel; `_note` records the
+`checkCompatibility` result and the case-insensitive match.
+
 Keep client and company data out of every file here.

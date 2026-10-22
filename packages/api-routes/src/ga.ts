@@ -12,6 +12,7 @@ import { credentialFailure, startRouteOutcome } from './feature-outcome.js'
 import { buildSessionHistory } from './ga-session-history.js'
 import { findBiggestMover } from './ga-source-mover.js'
 import { buildAiReferralDailySeries, normalizeAiTrafficClass, pickWinningAttributionDimension, summarizeAiReferralCounts } from './ga-ai-referral-aggregation.js'
+import { groupAiEngines, groupSocialPlatforms, paidSocialSummary, socialPlatformDailySeries } from './ga-referral-groups.js'
 import { clearSearchLandingSnapshot, clearSearchLandingSnapshotOnPropertyChange, persistSearchLandingFailure, persistSearchLandingSnapshot, resolveCurrentGa4PropertyId } from './ga-search-landing-pages.js'
 import {
   getAccessToken,
@@ -1571,6 +1572,19 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .orderBy(sql`SUM(${gaSocialReferrals.sessions}) DESC`)
       .all()
 
+    // Daily social sessions per source for the platform chart, from the same
+    // window as the rows above, so the chart cannot drift from the table.
+    const socialDailyRows = app.db
+      .select({
+        date: gaSocialReferrals.date,
+        source: gaSocialReferrals.source,
+        sessions: sql<number>`SUM(${gaSocialReferrals.sessions})`,
+      })
+      .from(gaSocialReferrals)
+      .where(and(...socialConditions))
+      .groupBy(gaSocialReferrals.date, gaSocialReferrals.source)
+      .all()
+
     // Session-scoped totals — no cross-dimension dedup needed since we only
     // query sessionDefaultChannelGroup (single attribution lens).
     const socialTotals = app.db
@@ -1609,6 +1623,20 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       aiSessionsByChannelGroup: aiSummary.bySessionChannelGroup,
     })
 
+    const aiReferralDtos = withSessionShares(aiReferrals.map((r) => ({
+      source: r.source,
+      medium: r.medium,
+      trafficClass: normalizeAiTrafficClass(r.trafficClass),
+      sourceDimension: r.sourceDimension,
+      sessions: r.sessions ?? 0,
+    })))
+    const socialReferralDtos = withSessionShares(socialReferrals.map((r) => ({
+      source: r.source,
+      medium: r.medium,
+      channelGroup: r.channelGroup,
+      sessions: r.sessions ?? 0,
+    })))
+
     return {
       totalSessions: total,
       totalOrganicSessions,
@@ -1635,13 +1663,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       // Shares of the rows' own sum, not of `aiSessionsDeduped`: that total
       // keeps the winning lens per day, these rows one lens per source over the
       // window, so it can exceed what the rows add up to.
-      aiReferrals: withSessionShares(aiReferrals.map((r) => ({
-        source: r.source,
-        medium: r.medium,
-        trafficClass: normalizeAiTrafficClass(r.trafficClass),
-        sourceDimension: r.sourceDimension,
-        sessions: r.sessions ?? 0,
-      }))),
+      aiReferrals: aiReferralDtos,
+      aiEngines: groupAiEngines(aiReferralDtos),
       aiReferralLandingPages: aiReferralLandingPages.map((r) => ({
         source: r.source,
         medium: r.medium,
@@ -1658,13 +1681,15 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       organicAiSessionsBySession: aiSummary.organicBySession.sessions,
       // These rows partition `socialSessions` (same window, one lens), so each
       // share is also the row's share of that total.
-      socialReferrals: withSessionShares(socialReferrals.map((r) => ({
+      socialReferrals: socialReferralDtos,
+      socialPlatforms: groupSocialPlatforms(socialReferralDtos),
+      socialPlatformDaily: socialPlatformDailySeries(socialDailyRows.map((r) => ({
+        date: r.date,
         source: r.source,
-        medium: r.medium,
-        channelGroup: r.channelGroup,
         sessions: r.sessions ?? 0,
       }))),
       socialSessions,
+      ...paidSocialSummary(socialReferralDtos),
       channelBreakdown,
       organicSharePct: percentOf(totalOrganicSessions, total) ?? 0,
       aiSharePct: percentOf(aiSummary.deduped.sessions, total) ?? 0,

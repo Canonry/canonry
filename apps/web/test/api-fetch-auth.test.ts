@@ -25,6 +25,19 @@ describe('apiFetch auth expiry', () => {
     setOnAuthExpired(null)
   })
 
+  test.each([new TypeError('Failed to fetch'), new DOMException('Canceled', 'AbortError')])(
+    'preserves transport failures without expiring the session: %s', async (failure) => {
+      const realFetch = globalThis.fetch
+      globalThis.fetch = vi.fn().mockRejectedValue(failure)
+      onTestFinished(() => { globalThis.fetch = realFetch })
+      const handler = vi.fn()
+      setOnAuthExpired(handler)
+
+      await expect(fetchProjects()).rejects.toBe(failure)
+      expect(handler).not.toHaveBeenCalled()
+    },
+  )
+
   test('calls auth expired handler on 401', async () => {
     mockFetch(401, { error: 'Unauthorized' })
     const handler = vi.fn()
@@ -32,6 +45,19 @@ describe('apiFetch auth expiry', () => {
 
     await expect(fetchProjects()).rejects.toThrow()
     expect(handler).toHaveBeenCalledOnce()
+  })
+
+  test('preserves malformed JSON as a parsing failure without expiring the session', async () => {
+    const realFetch = globalThis.fetch
+    globalThis.fetch = vi.fn(async () => new Response('not valid JSON', {
+      status: 200, headers: { 'content-type': 'application/json' },
+    }))
+    onTestFinished(() => { globalThis.fetch = realFetch })
+    const handler = vi.fn()
+    setOnAuthExpired(handler)
+
+    await expect(fetchProjects()).rejects.toBeInstanceOf(SyntaxError)
+    expect(handler).not.toHaveBeenCalled()
   })
 
   test('does NOT call auth expired handler on 403 (forbidden ≠ session expiry)', async () => {

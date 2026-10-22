@@ -1,8 +1,3 @@
-import { listInsights, dismissInsight } from '../commands/insights.js'
-import { showHealth } from '../commands/health-cmd.js'
-import { showAllOverviews, showOverview } from '../commands/overview.js'
-import { searchProject } from '../commands/search.js'
-import { showCitationVisibility } from '../commands/citations.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, requireProject, requirePositional, getString, parseIntegerOption } from '../cli-command-helpers.js'
 
@@ -18,6 +13,7 @@ export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       limit: { type: 'string' },
     },
     run: async (input) => {
+      const { listInsights } = await import('../commands/insights.js')
       const usage = 'canonry insights <project> [--type <type|prefix*>] [--severity <low|medium|high|critical>] [--limit <n>] [--dismissed] [--run-id <id>] [--format json]'
       const project = requireProject(input, 'insights', usage)
       const dismissed = input.values.dismissed === true
@@ -33,6 +29,7 @@ export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry insights dismiss <project> <id> [--format json]',
     options: {},
     run: async (input) => {
+      const { dismissInsight } = await import('../commands/insights.js')
       const usage = 'canonry insights dismiss <project> <id> [--format json]'
       const project = requireProject(input, 'insights dismiss', usage)
       const id = requirePositional(input, 1, { command: 'insights dismiss', usage, message: 'insight ID is required' })
@@ -47,6 +44,7 @@ export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       limit: { type: 'string' },
     },
     run: async (input) => {
+      const { showHealth } = await import('../commands/health-cmd.js')
       const usage = 'canonry health <project> [--history] [--limit <n>] [--format json]'
       const project = requireProject(input, 'health', usage)
       const history = input.values.history === true
@@ -68,6 +66,7 @@ export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     allowPositionals: true,
     run: async (input) => {
+      const { showAllOverviews, showOverview } = await import('../commands/overview.js')
       const usage = 'canonry overview <project>|--all [--location <label>] [--since <iso>] [--format json]'
       const all = getBoolean(input.values, 'all')
       const location = getString(input.values, 'location')
@@ -87,6 +86,7 @@ export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       limit: { type: 'string' },
     },
     run: async (input) => {
+      const { searchProject } = await import('../commands/search.js')
       const usage = 'canonry search <project> <query> [--limit <n>] [--format json]'
       const project = requireProject(input, 'search', usage)
       const query = requirePositional(input, 1, { command: 'search', usage, message: 'query is required' })
@@ -103,6 +103,7 @@ export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry citations visibility <project> [--format json]',
     options: {},
     run: async (input) => {
+      const { showCitationVisibility } = await import('../commands/citations.js')
       const usage = 'canonry citations visibility <project> [--format json]'
       const project = requireProject(input, 'citations visibility', usage)
       await showCitationVisibility(project, { format: input.format })

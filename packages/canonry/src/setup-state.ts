@@ -1,5 +1,4 @@
 import fs from 'node:fs'
-import { createClient, projects, queries as queriesTable } from '@canonry/canonry-db'
 import { loadConfigRaw, configExists } from './config.js'
 import { registeredProviderNames } from './provider-registration.js'
 
@@ -30,8 +29,11 @@ export interface SetupState {
  * Returns `undefined` only when there is no config at all (pre-init), so
  * callers can omit the `setup_state` field rather than emit zeros that
  * misrepresent a brand-new install.
+ *
+ * The database package loads only when there is a database file to read, so
+ * a CLI run without one never imports it.
  */
-export function buildSetupState(): SetupState | undefined {
+export async function buildSetupState(): Promise<SetupState | undefined> {
   if (!configExists()) return undefined
 
   let provider_count = 0
@@ -57,6 +59,7 @@ export function buildSetupState(): SetupState | undefined {
 
   if (dbPath && fs.existsSync(dbPath)) {
     try {
+      const { createClient, projects, queries: queriesTable } = await import('@canonry/canonry-db')
       const db = createClient(dbPath)
       project_count = db.select({ id: projects.id }).from(projects).all().length
       const firstQuery = db

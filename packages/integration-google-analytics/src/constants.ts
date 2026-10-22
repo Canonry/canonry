@@ -61,8 +61,8 @@ export const GA4_INITIAL_RETRY_DELAY_MS = 1000
  * that broke CI when source/test diverged) is impossible — every call site
  * and every test imports the same identifier.
  *
- * ESLint blocks raw use of these string values outside this file via
- * `canonry-guards/no-inline-ga4-dimension` in the workspace config.
+ * Lint blocks raw use of these string values outside this file via
+ * `canonry-guards/no-inline-ga4-dimension` in `.oxlintrc.json`.
  */
 export const GA4_DIMENSIONS = {
   date: 'date',
@@ -73,6 +73,12 @@ export const GA4_DIMENSIONS = {
   sessionManualMedium: 'sessionManualMedium',
   firstUserSource: 'firstUserSource',
   firstUserMedium: 'firstUserMedium',
+  /**
+   * The channel group of the source and medium that first acquired the user,
+   * the first-user counterpart of `sessionDefaultChannelGroup` (deprecated
+   * name `firstUserDefaultChannelGrouping`, getMetadata, captured live).
+   */
+  firstUserDefaultChannelGroup: 'firstUserDefaultChannelGroup',
   sessionDefaultChannelGrouping: 'sessionDefaultChannelGrouping',
   sessionDefaultChannelGroup: 'sessionDefaultChannelGroup',
   hostName: 'hostName',

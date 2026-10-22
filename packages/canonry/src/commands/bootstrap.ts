@@ -10,7 +10,7 @@ import { createClient, migrate, apiKeys, dashboardSessions } from '@canonry/cano
 import { configExists, getConfigDir, getConfigPath, loadConfig, loadConfigRaw, saveConfig, type ProviderConfigEntry } from '../config.js'
 import { CliError, isEndpointMissing, isMachineFormat, systemError, type CliFormat } from '../cli-error.js'
 import { createApiClient } from '../client.js'
-import { isLoopbackBindHost } from '../server.js'
+import { isLoopbackBindHost } from '../serve-endpoint.js'
 import { registeredProviderNames } from '../provider-registration.js'
 import { recordInstallRef } from '../telemetry-environment.js'
 import { isTelemetryEnabled } from '../telemetry.js'

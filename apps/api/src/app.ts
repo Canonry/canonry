@@ -31,7 +31,7 @@ export function buildApp(env: PlatformEnv) {
       'CANONRY_TRUST_PROXY is not set. This deployment always sits behind a load balancer, so '
       + 'leaving it unset makes every caller resolve to the load balancer\'s own address and '
       + 'collapses every per-caller rate limit / login budget into one shared bucket. Set it to the '
-      + 'trusted hop count (e.g. "1") or a comma-separated proxy CIDR list, or explicitly to "false" '
+      + 'comma-separated list of trusted proxy addresses or CIDRs, or explicitly to "false" '
       + 'only if this deployment is truly reachable directly with nothing in front of it.',
     )
   }

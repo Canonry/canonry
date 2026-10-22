@@ -1,8 +1,8 @@
 # Lint Guards — Detailed Reference
 
-Source of truth for `AGENTS.md` “Lint Guards (Critical)” summary. All guards live in `eslint.config.js`; **every one has its own rule id** — never add options to core `no-restricted-syntax` (flat config last-wins override clobbers prior guards with no diagnostic).
+Source of truth for `AGENTS.md` “Lint Guards (Critical)” summary. Lint runs on oxlint. Each guard's code lives in its plugin module (`eslint-rules/canonry-guards.js`, `canonry-vocabulary.js`, `design-tokens.js`), which oxlint loads as a JS plugin; its scope and exemptions live in `.oxlintrc.json`. **Every guard has its own rule id** — never add options to core `no-restricted-syntax` (overrides resolve rules last-wins, so a later block clobbers prior guards with no diagnostic).
 
-**Never add options to the core `no-restricted-syntax` rule.** ESLint flat config resolves rules by id with LAST-WINS OVERRIDE across overlapping config objects, so a second block that names an already-guarded tree does not add to the first — it REPLACES the first block's options, and the first guard stops reporting. There is no warning, no duplicate-rule diagnostic, and `pnpm lint` stays green. On 2026-08-05 four of the five `no-restricted-syntax` blocks were found dead this way: the vocabulary literal ban fired in none of the four trees it named, the GA4 dimension drift guard fired nowhere, and the AI-hostname ban was clobbered in `apps/web/src` and `packages/canonry/src` by the two raw-`fetch()` guards. Three AGENTS.md rules had been false for as long, and a dead guard is invisible from the outside — it reads exactly like a clean tree.
+**Never add options to the core `no-restricted-syntax` rule.** The linter resolves rules by id with LAST-WINS OVERRIDE across overlapping config blocks (ESLint flat config did, and `.oxlintrc.json` overrides do), so a second block that names an already-guarded tree does not add to the first — it REPLACES the first block's options, and the first guard stops reporting. There is no warning, no duplicate-rule diagnostic, and `pnpm lint` stays green. On 2026-08-05 four of the five `no-restricted-syntax` blocks were found dead this way: the vocabulary literal ban fired in none of the four trees it named, the GA4 dimension drift guard fired nowhere, and the AI-hostname ban was clobbered in `apps/web/src` and `packages/canonry/src` by the two raw-`fetch()` guards. Three AGENTS.md rules had been false for as long, and a dead guard is invisible from the outside — it reads exactly like a clean tree.
 
 | Guard | Scope | Bans |
 |---|---|---|
@@ -36,11 +36,11 @@ The guards that catch real defects here are the ones that compare two sources
 that must agree, and they have caught changes to AGENTS.md more than once:
 `db-dto-coverage` (a new table with no classification), `dashboard-class-baseline`
 (a className with no stylesheet selector), `codegen-drift` (a route whose SDK was
-not regenerated), `no-new-loose-routes`, `eslint-guards`. When a change
+not regenerated), `no-new-loose-routes`, `lint-guards`. When a change
 introduces a new pair that must stay in step, prefer a guard over a convention —
 see the "Lint Guards (Critical)" section of the root `AGENTS.md`.
 
 1. Build it with `createRestrictedSyntaxRule` from `eslint-rules/restricted-syntax.js` (same behavior as `no-restricted-syntax`, under an id you choose), or write a custom rule module in `eslint-rules/` when the check needs more than a selector.
-2. Register it in the shared `canonryGuardsPlugin` / `canonryVocabularyPlugin` object — one object per namespace, reused by reference. Flat config throws `Cannot redefine plugin` if a namespace gets two different objects.
-3. Add the rule id to the coverage matrix in `test/eslint-guards.test.ts`, plus any file it deliberately exempts. That test resolves the real config per tree and asserts each guard is enabled at error severity; it is what catches a clobbered or misscoped guard, since lint output cannot.
+2. Register it in its namespace's plugin module (`eslint-rules/canonry-guards.js` or `eslint-rules/canonry-vocabulary.js`), then enable it in `.oxlintrc.json` with its `files` scope. Put any exemption in an `"off"` override directly after that block.
+3. Add the rule id to the coverage matrix in `test/lint-guards.test.ts`, plus any file it deliberately exempts, and add a violation of it to that test's `PROBE`. The test lints the probe at a representative path in each guarded tree and asserts each guard reports at error severity, and stays silent where exempt; it is what catches a clobbered or misscoped guard, since lint output cannot.
 4. If an AGENTS.md rule cites the guard, name the rule id there so the claim is checkable.

@@ -22,6 +22,15 @@ per team, with separate databases and OAuth clients. Multi-tenancy as a
 schema feature is **not** on the current roadmap — see root `AGENTS.md`
 → "Deployment Posture" for what it would take to build it.
 
+### Trusted reverse proxies
+
+Set `CANONRY_TRUST_PROXY` to a comma-separated list of trusted proxy addresses
+or CIDRs (for example, `127.0.0.1,::1` for a local reverse proxy). Numeric hop
+counts are rejected because they cannot authenticate the immediate proxy peer.
+Use `true` only when network access guarantees that every connection comes
+through a trusted proxy. The standalone server defaults to `false`; Cloud Run
+requires an explicit setting.
+
 ## Local (default)
 
 ```bash
@@ -527,7 +536,7 @@ sudo systemctl enable --now canonry
 ## Docker
 
 ```dockerfile
-FROM node:22-alpine
+FROM node:26.12.1-bookworm-slim@sha256:1e96b01216cab31612cd1f9480e83413472dee8686d423cb4c1ec62bf8a26e9e
 RUN npm install -g @canonry/canonry
 # Tells update notices to upgrade by rebuilding this image.
 ENV CANONRY_INSTALL_METHOD=docker

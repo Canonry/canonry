@@ -1,5 +1,4 @@
-import { RuleTester } from 'eslint'
-import tseslint from 'typescript-eslint'
+import { RuleTester } from 'oxlint/plugins-dev'
 import { describe, it } from 'vitest'
 import { noSecondQueryClassifierRule } from '../eslint-rules/no-second-query-classifier.js'
 
@@ -14,7 +13,7 @@ describe('canonry-guards/no-second-query-classifier', () => {
   RuleTester.it = it
   // `RuleTester.run` declares its own suite, so it is called at describe time.
   new RuleTester({
-    languageOptions: { parser: tseslint.parser },
+    languageOptions: { parserOptions: { lang: 'ts' } },
   }).run('no-second-query-classifier', noSecondQueryClassifierRule, {
     valid: [
       // The one classifier, and a class read back from the server.

@@ -22,14 +22,16 @@ afterEach(async () => {
   await fs.rm(pluginDir, { recursive: true, force: true })
 })
 
-async function writeInstalledModule(directory: string): Promise<void> {
+async function writeInstalledModule(directory: string, body = 'module.exports = {}'): Promise<void> {
   const duckdbDir = path.join(directory, 'node_modules', '@duckdb', 'node-api')
   await fs.mkdir(duckdbDir, { recursive: true })
   await fs.writeFile(path.join(duckdbDir, 'package.json'), JSON.stringify({
     name: '@duckdb/node-api', version: '1.4.4-r.3', main: 'index.js',
   }))
-  await fs.writeFile(path.join(duckdbDir, 'index.js'), 'module.exports = {}')
+  await fs.writeFile(path.join(duckdbDir, 'index.js'), body)
 }
+
+const BROKEN = "throw new Error('Cannot find module @duckdb/node-bindings-linux-x64')"
 
 function mockExit(code: number, installation?: () => Promise<void>): void {
   spawnMock.mockImplementation(() => {
@@ -88,6 +90,41 @@ describe('installDuckdb', () => {
     await expect(installDuckdb({ pluginDir })).rejects.toThrow(
       `npm install completed but @duckdb/node-api still cannot be resolved from ${pluginDir}`,
     )
+  })
+
+  test('replaces a copy that is present but cannot load', async () => {
+    await writeInstalledModule(pluginDir, BROKEN)
+    mockExit(0, async () => {
+      // The broken copy is gone before the package manager runs.
+      await expect(fs.access(path.join(pluginDir, 'node_modules', '@duckdb'))).rejects.toThrow()
+      await writeInstalledModule(pluginDir)
+    })
+    const result = await installDuckdb({ pluginDir })
+    expect(spawnMock).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ alreadyPresent: false, version: '1.4.4-r.3', path: pluginDir })
+  })
+
+  test('fails with the load error when the installed module cannot load', async () => {
+    mockExit(0, () => writeInstalledModule(pluginDir, BROKEN))
+    await expect(installDuckdb({ pluginDir })).rejects.toMatchObject({
+      code: 'MISSING_DEPENDENCY',
+      details: { pluginDir, cause: 'Cannot find module @duckdb/node-bindings-linux-x64' },
+    })
+  })
+
+  test.skipIf(process.platform === 'win32')('explains a missing package manager instead of a bare spawn error', async () => {
+    spawnMock.mockImplementation(() => ({
+      on(event: string, callback: (err: NodeJS.ErrnoException) => void) {
+        if (event === 'error') queueMicrotask(() => callback(Object.assign(new Error('spawn npm ENOENT'), { code: 'ENOENT' })))
+        return this
+      },
+      stdout: null,
+      stderr: null,
+    }) as unknown as ReturnType<typeof import('node:child_process').spawn>)
+    await expect(installDuckdb({ pluginDir })).rejects.toMatchObject({
+      code: 'MISSING_DEPENDENCY',
+      message: 'npm was not found, so @duckdb/node-api cannot be installed here. The canonry Docker image ships without npm.',
+    })
   })
 
   test('throws when npm exits non-zero', async () => {

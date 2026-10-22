@@ -18,7 +18,6 @@ import {
   bingUrlInspections,
   conversionTrackingContracts,
   gaAcquisitionDaily,
-  gaAiReferrals,
   gaDailyTotals,
   gaLeadEventsDaily,
   gaMeasurementSyncStates,
@@ -46,6 +45,7 @@ import {
 } from '@canonry/canonry-db'
 import { DEMO_GA4_PROPERTY_ID, type DemoSeedContext, type DemoSeedProject } from './types.js'
 import { seedSiteCrawl } from './seed-site-crawl.js'
+import { seedGaReferrals } from './seed-ga-referrals.js'
 import { harborResortsInventory } from './site-inventories/harbor-resorts.js'
 import { summitRoofingInventory } from './site-inventories/summit-roofing.js'
 
@@ -162,9 +162,9 @@ async function seedProjectSignals(db: DatabaseClient, project: DemoSeedProject, 
     db.insert(gaTrafficSnapshots).values({ id: `${prefix}-ga-page-${date}`, projectId: project.id, date, landingPage: '/', landingPageNormalized: '/', sessions: 62 + i * 3, organicSessions: 39 + i * 2, directSessions: 14 + i, users: 48 + i * 2, syncedAt: nowIso, syncRunId }).run()
     db.insert(gaAcquisitionDaily).values({ id: `${prefix}-ga-acquisition-${date}`, projectId: project.id, date, channelGroup: 'Organic Search', source: 'google', medium: 'organic', hostName: project.domain, landingPage: '/', landingPageNormalized: '/', sessions: 39 + i * 2, syncedAt: nowIso, syncRunId, createdAt: at(date) }).run()
     db.insert(gaLeadEventsDaily).values({ id: `${prefix}-ga-lead-${date}`, projectId: project.id, date, eventName: 'generate_lead', channelGroup: 'Organic Search', source: 'google', medium: 'organic', hostName: project.domain, landingPage: '/', landingPageNormalized: '/', attributionScope: 'landing-page', eventCount: 3 + (i % 4), syncedAt: nowIso, syncRunId, createdAt: at(date) }).run()
-    db.insert(gaAiReferrals).values({ id: `${prefix}-ga-ai-${date}`, projectId: project.id, date, source: i % 2 ? 'demo-answer-engine.example' : 'demo-ai-referral.example', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', channelGroup: 'Referral', landingPage: '/', landingPageNormalized: '/', sessions: 4 + (i % 3), users: 3 + (i % 2), syncedAt: nowIso, syncRunId }).run()
     db.insert(bingCoverageSnapshots).values({ id: `${prefix}-bing-coverage-${date}`, projectId: project.id, syncRunId, date, indexed: 48 + i, notIndexed: 3, unknown: 2, createdAt: at(date) }).run()
   }
+  seedGaReferrals(db, { projectId: project.id, prefix, syncRunId, nowIso, dates })
   db.insert(gscDataWatermarks).values({ projectId: project.id, dataThroughDate: dates.at(-1)!, syncedThroughDate: dates.at(-1)!, updatedAt: nowIso }).run()
   db.insert(gscCoverageSnapshots).values({ id: `${prefix}-gsc-coverage`, projectId: project.id, syncRunId, date: dates.at(-1)!, indexed: 1, notIndexed: 0, unknownPages: 0, verifiedByInspection: 1, derivedFromImpressions: 0, reasonBreakdown: {}, createdAt: nowIso }).run()
   db.insert(gscUrlInspections).values({ id: `${prefix}-gsc-inspection`, projectId: project.id, syncRunId, url: `${root}services/`, indexingState: 'INDEXING_ALLOWED', verdict: 'PASS', coverageState: 'Submitted and indexed', pageFetchState: 'SUCCESSFUL', robotsTxtState: 'ALLOWED', crawlTime: nowIso, lastCrawlResult: 'SUCCESSFUL', isMobileFriendly: true, richResults: ['Sample FAQ'], referringUrls: [root], inspectedAt: nowIso, createdAt: nowIso }).run()

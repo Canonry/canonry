@@ -32,8 +32,13 @@ describe('GA contracts', () => {
       aiSessionsBySession: 12,
       paidAiSessionsBySession: 0,
       organicAiSessionsBySession: 12,
+      aiEngines: [],
       socialReferrals: [],
+      socialPlatforms: [],
+      socialPlatformDaily: { series: [], otherCount: 0, days: [] },
       socialSessions: 0,
+      paidSocialSessions: 0,
+      paidSocialShare: 0,
       socialUsers: 0,
       channelBreakdown: {
         organic: { sessions: 30, sharePct: 30, sharePctDisplay: '30%' },

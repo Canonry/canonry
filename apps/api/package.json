@@ -6,16 +6,16 @@
   "license": "MIT",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json",
     "test": "vitest run --config ../../vitest.package.config.ts",
-    "lint": "eslint src/ test/"
+    "lint": "oxlint -c ../../.oxlintrc.json --type-aware src/ test/"
   },
   "dependencies": {
     "@canonry/canonry-api-routes": "workspace:*",
     "@canonry/canonry-config": "workspace:*",
     "@canonry/canonry-contracts": "workspace:*",
     "@canonry/canonry-db": "workspace:*",
-    "fastify": "^5.8.5",
-    "tsx": "^4.20.5"
+    "fastify": "^5.12.7",
+    "tsx": "^4.23.15"
   }
 }
