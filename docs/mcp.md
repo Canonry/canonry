@@ -230,6 +230,42 @@ args = []
 
 ## Hosted connections
 
+### Connect from ChatGPT or Claude Desktop
+
+Open **Agent setup** in your hosted Canonry dashboard and copy the MCP URL.
+Add it as a remote connector in your client's settings, choose OAuth, and
+complete Canonry's sign-in and permission approval. Use your named Canonry
+account; a dashboard password or API key is not an account login. Your client
+handles registration and tokens. You do not need a local Canonry installation,
+plugin, Node.js, or an API key pasted into chat.
+
+After connecting, use the page's verification prompt to list accessible
+projects through stored reads. An empty list can still verify the connection.
+The server's readiness label confirms configuration prerequisites, not that
+the client has authorized or can reach the service.
+
+For the host operator:
+
+- Hosted tenants run `canonry serve` with a reachable HTTPS `publicUrl` and at
+  least one named account. Keep each customer's instance isolated.
+- The public URL, reverse proxy and configured base path must agree. For a
+  `/canonry/` mount, MCP is at `/canonry/api/v1/mcp` and browser sign-in and
+  consent are at `/canonry/oauth/authorize`. Cookies stay scoped to `/canonry/`.
+  Cached `/oauth/authorize` URLs redirect to that canonical path.
+  Set `publicUrl` to include `/canonry/`, set `basePath` to `/canonry/`, and
+  preserve that prefix when forwarding. A mismatched public path makes hosted
+  setup unavailable.
+- Forward the root `/.well-known/*` discovery paths and `/oauth/*` token,
+  registration and revocation paths as well as the instance's base path.
+- `/health` and `/api/v1/status` expose the same `mcp.hosted` readiness and
+  canonical URL. `canonry status --all --format json` and `canonry_status`
+  expose it too. Missing public URL, HTTPS, accounts or OAuth routes produces
+  an unavailable reason. Health never starts an MCP session or calls a provider.
+- OAuth sessions and MCP connections belong to this running instance. A
+  server restart requires the client to reconnect; this is not an autoscaling,
+  shared-session deployment. The separate `apps/api` REST service does not
+  serve remote MCP.
+
 Connect to `/api/v1/mcp` on the instance for the entire API tool catalog, available immediately: core, monitoring, setup, GSC, Bing, GA, GBP, OpenAI ads, Google Ads, GTM, conversion tracking, traffic, agent, and discovery. Use `/api/v1/mcp/readonly` to force read-only tools even with a write-capable credential. A read-only credential also stays read-only on the default endpoint.
 
 The default connection includes visibility reports, Property rankings, stored question results and competitors, changes, data quality, and all integration and setup tools. Listing tools does not execute them or grant new permissions; each call still uses the caller’s existing authority. The full catalog includes provider-spending and write operations, subject to the approval and access rules below.

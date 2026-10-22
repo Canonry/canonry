@@ -1245,14 +1245,17 @@ function PlatformSetupPageBody({
 
       <section className="mt-8 border-t border-default pt-6" aria-labelledby="agent-setup-title">
         <p id="agent-setup-title" className="text-sm font-medium text-heading">Use your agent instead</p>
-        <p className="mt-1 text-sm leading-5 text-secondary">Copy a complete CLI setup request into any agent.</p>
+        <p className="mt-1 text-sm leading-5 text-secondary">Connect your agent to this instance, or copy a request for a new local installation.</p>
         <div className="mt-3 flex flex-wrap items-center gap-1">
-          <Button type="button" variant="ghost" size="sm" className="-ml-3" onClick={asyncHandler(copyAgentSetupRequest)}>
+          <Button asChild variant="secondary" size="sm">
+            <Link to="/agent-setup">Agent setup</Link>
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={asyncHandler(copyAgentSetupRequest)}>
             {agentRequestCopied
               ? <Check className="size-3.5" aria-hidden="true" />
               : <Copy className="size-3.5" aria-hidden="true" />}
             <span aria-live="polite">
-              {agentRequestCopied ? 'Copied setup request' : 'Copy setup request'}
+              {agentRequestCopied ? 'Copied new-install request' : 'Copy new-install request'}
             </span>
           </Button>
           <Button asChild variant="ghost" size="sm">

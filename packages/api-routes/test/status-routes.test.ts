@@ -6,14 +6,14 @@ import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createClient, doctorHealthState, gbpLocations, gscDataWatermarks, measurementPlanVersions, measurementPlans, migrate, projects, runs } from '@canonry/canonry-db'
 import { GBP_NO_SELECTED_LOCATIONS_ERROR, canonicalMeasurementPlanV2Json, instanceStatusDtoSchema, serializeRunError } from '@canonry/canonry-contracts'
-import { apiRoutes } from '../src/index.js'
+import { apiRoutes, type ApiRoutesOptions } from '../src/index.js'
 import type { GoogleConnectionStore } from '../src/google.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
 const cleanups: Array<() => void> = []
 afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup() })
 
-function appForStatus() {
+function appForStatus(options: Pick<ApiRoutesOptions, 'getMcpHealth'> = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-status-'))
   const db = createClient(path.join(dir, 'status.db'))
   migrate(db)
@@ -23,7 +23,7 @@ function appForStatus() {
   }).run()
   cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }))
   const app = Fastify()
-  app.register(apiRoutes, { db, skipAuth: true })
+  app.register(apiRoutes, { db, skipAuth: true, ...options })
   return app
 }
 
@@ -126,13 +126,16 @@ describe('GET /api/v1/status', () => {
     }
   })
 
-  it('returns a contract-valid stored-only payload without provider probes', async () => {
+  it.each(['', '?project=demo&problems=true'])('returns host MCP readiness in stored status without provider probes (%s)', async query => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('provider call'))
-    const app = appForStatus()
+    const app = appForStatus({
+      getMcpHealth: () => ({ status: 'available', hosted: { status: 'ready', url: 'https://canonry.example/team/api/v1/mcp' } }),
+    })
     await app.ready()
-    const response = await app.inject({ method: 'GET', url: '/api/v1/status' })
+    const response = await app.inject({ method: 'GET', url: `/api/v1/status${query}` })
     expect(response.statusCode).toBe(200)
-    expect(instanceStatusDtoSchema.safeParse(JSON.parse(response.payload)).success).toBe(true)
+    const body = instanceStatusDtoSchema.parse(response.json())
+    expect(body.mcp).toEqual({ status: 'available', hosted: { status: 'ready', url: 'https://canonry.example/team/api/v1/mcp' } })
     expect(fetchSpy).not.toHaveBeenCalled()
     await app.close()
     fetchSpy.mockRestore()
@@ -145,6 +148,7 @@ describe('GET /api/v1/status', () => {
     expect(response.statusCode).toBe(200)
     const body = JSON.parse(response.payload)
     expect(body.projects).toMatchObject([{ project: 'demo', health: null, integrations: [] }])
+    expect(body).not.toHaveProperty('mcp')
     await app.close()
   })
 })

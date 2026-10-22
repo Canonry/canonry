@@ -29,6 +29,7 @@ const LazyProjectPage = lazyRouteComponent(() => import('../pages/ProjectPage.js
 const LazyRunsPage = lazyRouteComponent(() => import('../pages/RunsPage.js'), 'RunsPage')
 const LazyHistoryPage = lazyRouteComponent(() => import('../pages/HistoryPage.js'), 'HistoryPage')
 const LazySettingsPage = lazyRouteComponent(() => import('../pages/SettingsPage.js'), 'SettingsPage')
+const LazyAgentSetupPage = lazyRouteComponent(() => import('../pages/AgentSetupPage.js'), 'AgentSetupPage')
 const LazyBacklinksPage = lazyRouteComponent(() => import('../pages/BacklinksPage.js'), 'BacklinksPage')
 const LazyTrafficPage = lazyRouteComponent(() => import('../pages/TrafficPage.js'), 'TrafficPage')
 const LazyTrafficSourceDetailPage = lazyRouteComponent(() => import('../pages/TrafficSourceDetailPage.js'), 'TrafficSourceDetailPage')
@@ -55,6 +56,7 @@ export async function preloadAllLazyRoutes(): Promise<void> {
     LazyRunsPage.preload?.(),
     LazyHistoryPage.preload?.(),
     LazySettingsPage.preload?.(),
+    LazyAgentSetupPage.preload?.(),
     LazyBacklinksPage.preload?.(),
     LazyTrafficPage.preload?.(),
     LazyTrafficSourceDetailPage.preload?.(),
@@ -351,6 +353,12 @@ export const setupRoute = createRoute({
   component: OnboardingSetupPage,
 })
 
+export const agentSetupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/agent-setup',
+  component: LazyAgentSetupPage,
+})
+
 export const backlinksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/backlinks',
@@ -398,6 +406,7 @@ export const routeTree = rootRoute.addChildren([
   historyRoute,
   settingsRoute,
   setupRoute,
+  agentSetupRoute,
   backlinksRoute,
   trafficRoute,
   trafficSourceDetailRoute,

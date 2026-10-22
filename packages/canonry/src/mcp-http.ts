@@ -1,8 +1,9 @@
 import crypto from 'node:crypto'
+import { isIP } from 'node:net'
 
-import { isReadOnlyKey, type McpHealth } from '@canonry/canonry-contracts'
+import { isReadOnlyKey, McpTransportStatuses, HostedMcpStatuses, HostedMcpUnavailableReasons, type McpHealth, type HostedMcpHealth } from '@canonry/canonry-contracts'
 import { apiKeys, dashboardSessions, type DatabaseClient } from '@canonry/canonry-db'
-import { hashApiKey } from '@canonry/canonry-api-routes'
+import { hashApiKey, blockedAddressReason, stripIpv6Brackets } from '@canonry/canonry-api-routes'
 import { eq } from 'drizzle-orm'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
@@ -125,11 +126,56 @@ export function mcpTransportPaths(): string[] {
 }
 
 /** Read registered routes only: health polling must not open MCP sessions or run tools. */
-export function mcpHttpHealth(app: FastifyInstance, apiPrefix: string): McpHealth {
+export function mcpHttpHealth(app: FastifyInstance, apiPrefix: string, hosted?: {
+  publicUrl?: string
+  hasAccounts: boolean
+  authorizationPath: string
+}): McpHealth {
   const available = mcpTransportPaths().every(path =>
     (['POST', 'GET', 'DELETE'] as const).every(method => app.hasRoute({ method, url: `${apiPrefix}${path}` })),
   )
-  return { status: available ? 'available' : 'unavailable' }
+  const status = available ? McpTransportStatuses.available : McpTransportStatuses.unavailable
+  if (!hosted) return { status }
+
+  const unavailable = (reason: Extract<HostedMcpHealth, { status: typeof HostedMcpStatuses.unavailable }>['reason']): McpHealth => ({
+    status, hosted: { status: HostedMcpStatuses.unavailable, reason },
+  })
+  if (!available) return unavailable(HostedMcpUnavailableReasons['transport-unavailable'])
+  if (!hosted.publicUrl) return unavailable(HostedMcpUnavailableReasons['public-url-required'])
+  let publicUrl: URL
+  try {
+    publicUrl = new URL(hosted.publicUrl)
+  } catch {
+    return unavailable(HostedMcpUnavailableReasons['public-url-required'])
+  }
+  if (publicUrl.username || publicUrl.password || publicUrl.search || publicUrl.hash) {
+    return unavailable(HostedMcpUnavailableReasons['public-url-required'])
+  }
+  if (publicUrl.protocol !== 'https:') return unavailable(HostedMcpUnavailableReasons['https-required'])
+  const hostname = stripIpv6Brackets(publicUrl.hostname).toLowerCase().replace(/\.$/, '')
+  if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local')
+    || (isIP(hostname) !== 0 ? blockedAddressReason(hostname) !== null : !hostname.includes('.'))) {
+    return unavailable(HostedMcpUnavailableReasons['public-host-required'])
+  }
+  const publicBasePath = publicUrl.pathname.replace(/\/$/, '')
+  const mountedBasePath = apiPrefix.slice(0, -'/api/v1'.length)
+  if (publicBasePath !== mountedBasePath) return unavailable(HostedMcpUnavailableReasons['public-path-mismatch'])
+  const oauthRoutes = [
+    ['GET', hosted.authorizationPath],
+    ['POST', hosted.authorizationPath],
+    ['POST', `${hosted.authorizationPath}/consent`],
+    ['POST', '/oauth/token'],
+    ['POST', '/oauth/register'],
+    ['GET', '/.well-known/oauth-authorization-server'],
+    ['GET', `/.well-known/oauth-protected-resource${apiPrefix}/mcp`],
+  ] as const
+  if (!oauthRoutes.every(([method, url]) => app.hasRoute({ method, url }))) {
+    return unavailable(HostedMcpUnavailableReasons['oauth-unavailable'])
+  }
+  if (!hosted.hasAccounts) return unavailable(HostedMcpUnavailableReasons['account-required'])
+  // Configuration readiness only. DNS, TLS, proxy reachability and the client's
+  // authorization are verified by the client making a successful stored read.
+  return { status, hosted: { status: HostedMcpStatuses.ready, url: `${publicUrl.origin}${apiPrefix}/mcp` } }
 }
 
 export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptions): void {

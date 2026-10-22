@@ -520,6 +520,8 @@ The snapshot rescore behind `canonry backfill answer-mentions`, the alias hooks 
 
 ### Health endpoint
 
+`mcp.status` reports transport registration. Optional `mcp.hosted` reports the configured HTTPS connector URL only when the public URL, OAuth routes and named accounts are ready; it never claims client authorization or external reachability. The same host callback supplies `/status` for CLI/MCP parity. Keep health free of DNS/provider probes or MCP session creation. Browser OAuth authorization follows the instance base path so named-account cookies retain their tenant scope; legacy root authorization URLs redirect with method/query preserved.
+
 `GET /health` (also served at `<basePath>health`) exposes `basePath` for auto-discovery and identifies the build and the deployment it is running as:
 ```json
 {

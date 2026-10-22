@@ -44,6 +44,8 @@ export interface OAuthRoutesOptions {
    * fetches it must not get a 404.
    */
   resourcePaths: readonly string[]
+  /** Browser authorization route within the instance's session-cookie path. */
+  authorizationPath?: string
   /**
    * Resolve the signed-in person from the request, or null. The authorize
    * endpoint reuses the product's existing sign-in rather than introducing a
@@ -299,6 +301,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
   )
 
   const { db, issuer } = opts
+  const authorizationPath = opts.authorizationPath ?? '/oauth/authorize'
   const resourcePaths = opts.resourcePaths
   // The canonical resource for audience binding. Segments are the same resource
   // reached through narrower doors, so a token is bound to one audience rather
@@ -321,7 +324,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
   function authorizationServerMetadata() {
     return {
     issuer,
-    authorization_endpoint: `${issuer}/oauth/authorize`,
+    authorization_endpoint: `${issuer}${authorizationPath}`,
     token_endpoint: `${issuer}/oauth/token`,
     revocation_endpoint: `${issuer}/oauth/revoke`,
     // RFC 7591. The current MCP revision calls DCR deprecated and prefers
@@ -370,7 +373,22 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
   /** RFC 8414. */
   app.get('/.well-known/oauth-authorization-server', async () => authorizationServerMetadata())
 
-  app.get('/oauth/authorize', async (request: FastifyRequest, reply: FastifyReply) => {
+  // Keep cached connector URLs working while the browser flow stays inside
+  // the tenant's cookie path. A 307 also preserves a submitted login/consent.
+  if (authorizationPath !== '/oauth/authorize') {
+    for (const suffix of ['', '/consent']) {
+      app.route({
+        method: suffix ? ['POST'] : ['GET', 'POST'],
+        url: `/oauth/authorize${suffix}`,
+        handler: async (request, reply) => {
+          const query = request.url.includes('?') ? request.url.slice(request.url.indexOf('?')) : ''
+          return reply.redirect(`${authorizationPath}${suffix}${query}`, 307)
+        },
+      })
+    }
+  }
+
+  app.get(authorizationPath, async (request: FastifyRequest, reply: FastifyReply) => {
     const q = request.query as Record<string, string | undefined>
     const clientId = q.client_id
     const redirectUri = q.redirect_uri
@@ -432,7 +450,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
     }))
   })
 
-  app.post('/oauth/authorize/consent', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post(`${authorizationPath}/consent`, async (request: FastifyRequest, reply: FastifyReply) => {
     // Belt and braces beside the consent token: this is the grant itself.
     assertCookieWriteOrigin(request)
     const q = request.query as Record<string, string | undefined>
@@ -589,7 +607,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
     })
   })
 
-  app.post('/oauth/authorize', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post(authorizationPath, async (request: FastifyRequest, reply: FastifyReply) => {
     // This route writes the real dashboard session cookie, and the urlencoded
     // parser below makes it a CORS-simple post — no preflight, unlike the
     // JSON-only /auth/login. Without this check a cross-site form could force a

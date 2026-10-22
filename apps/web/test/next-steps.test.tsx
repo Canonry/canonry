@@ -29,6 +29,7 @@ async function renderNextSteps(projectName = 'citypoint') {
       createRoute({ getParentRoute: () => rootRoute, path: 'projects/$projectName/activity', component: () => null }),
       createRoute({ getParentRoute: () => rootRoute, path: 'projects/$projectName/settings', component: () => null }),
       createRoute({ getParentRoute: () => rootRoute, path: 'projects/$projectName/local', component: () => null }),
+      createRoute({ getParentRoute: () => rootRoute, path: 'agent-setup', component: () => null }),
     ]),
     history: createMemoryHistory({ initialEntries: ['/'] }),
   })
@@ -58,7 +59,7 @@ test('every next step points somewhere that exists', () => {
     '/projects/$projectName/settings',
     '/projects/$projectName/settings',
     '/projects/$projectName/local',
-    'https://github.com/Canonry/canonry/blob/main/docs/mcp.md',
+    '/agent-setup',
   ])
 })
 
@@ -86,7 +87,7 @@ test('each row reads as label, value, action', async () => {
     'Set up Scheduled sweeps',
     'Set up Notifications',
     'Open Local presence',
-    'Docs Your agent',
+    'Set up Your agent',
   ])
 })
 
@@ -98,10 +99,9 @@ test('one heading, so it cannot outrank the result it sits under', async () => {
   expect(headings[0]?.textContent).toBe('What else this project can do')
 })
 
-test('the agent link leaves the dashboard safely', async () => {
+test('the agent link opens the shared setup page in the dashboard', async () => {
   const container = await renderNextSteps()
   const docs = [...container.querySelectorAll('a')].at(-1)!
-  expect(docs.getAttribute('href')).toBe('https://github.com/Canonry/canonry/blob/main/docs/mcp.md')
-  expect(docs.getAttribute('target')).toBe('_blank')
-  expect(docs.getAttribute('rel')).toBe('noreferrer')
+  expect(docs.getAttribute('href')).toBe('/agent-setup')
+  expect(docs.getAttribute('target')).toBeNull()
 })

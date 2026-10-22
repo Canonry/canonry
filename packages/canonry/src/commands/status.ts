@@ -1,4 +1,4 @@
-import type { InstanceStatusDto, LatestProjectRunDto, ProjectDto, RunDto } from '@canonry/canonry-contracts'
+import { HostedMcpStatuses, HostedMcpUnavailableReasons, type InstanceStatusDto, type LatestProjectRunDto, type McpHealth, type ProjectDto, type RunDto } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isEndpointMissing, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -6,6 +6,25 @@ import { runAdmissionLines } from './run.js'
 
 function getClient() {
   return createApiClient()
+}
+
+function printHostedMcpStatus(mcp: McpHealth | undefined): void {
+  const hosted = mcp?.hosted
+  if (!hosted) return
+  if (hosted.status === HostedMcpStatuses.ready) {
+    console.log(`Hosted MCP: ready\n  URL: ${hosted.url}\n`)
+    return
+  }
+  const reasons = {
+    [HostedMcpUnavailableReasons['public-url-required']]: 'Set a public URL for this instance.',
+    [HostedMcpUnavailableReasons['https-required']]: 'The public URL must use HTTPS.',
+    [HostedMcpUnavailableReasons['public-host-required']]: 'The public URL must use a public host.',
+    [HostedMcpUnavailableReasons['public-path-mismatch']]: 'The public URL path must match this instance\'s base path.',
+    [HostedMcpUnavailableReasons['oauth-unavailable']]: 'OAuth authorization is unavailable.',
+    [HostedMcpUnavailableReasons['account-required']]: 'Create a Canonry account to authorize your agent.',
+    [HostedMcpUnavailableReasons['transport-unavailable']]: 'The HTTP MCP transport is unavailable.',
+  }
+  console.log(`Hosted MCP: unavailable\n  ${reasons[hosted.reason]}\n`)
 }
 
 export async function showStatus(project: string | undefined, format?: string, options: { all?: boolean; problems?: boolean } = {}): Promise<void> {
@@ -22,6 +41,7 @@ export async function showStatus(project: string | undefined, format?: string, o
       console.log(JSON.stringify(status, null, 2))
       return
     }
+    printHostedMcpStatus(status.mcp)
     for (const item of status.projects) {
       console.log(`Status: ${item.displayName} (${item.project})`)
       console.log(`  State: ${item.state}`)
@@ -59,6 +79,7 @@ export async function showStatus(project: string | undefined, format?: string, o
       ...(latest.admission ? { admission: latest.admission } : {}),
       ...(latest.manualAdmission ? { manualAdmission: latest.manualAdmission } : {}),
       ...(storedStatus?.projects[0] ? { integrations: storedStatus.projects[0].integrations, health: storedStatus.projects[0].health } : {}),
+      ...(storedStatus?.mcp ? { mcp: storedStatus.mcp } : {}),
     }
     if (format === 'jsonl') emitJsonl([result])
     else console.log(JSON.stringify(result, null, 2))
@@ -66,6 +87,7 @@ export async function showStatus(project: string | undefined, format?: string, o
   }
 
   console.log(`Status: ${projectData.displayName ?? projectData.name} (${projectData.name})\n`)
+  printHostedMcpStatus(storedStatus?.mcp)
   console.log(`  Domain:   ${projectData.canonicalDomain}`)
   console.log(`  Country:  ${projectData.country}`)
   console.log(`  Language: ${projectData.language}`)
