@@ -58,12 +58,12 @@ function ChangeCounts({ type, signal }: { type: GroupType | undefined; signal: T
   )
 }
 
-/** Who the answers gave instead: the first name (or site) and how many more. Values lead; the label recedes. A long name is cut short on its line, whole in its title. */
+/** Who the answers gave instead: the first name (or site) and how many more. Values lead; the label recedes. In the table a long name is cut short on its line, whole in its title; on a phone it wraps. */
 function WhoWon({ group, signal }: { group: QueryTrackingResultGroup; signal: TrackedSignal }) {
   const names = signal === 'cited' ? group.citedInstead.map(entry => entry.host) : group.namedInstead.map(entry => entry.name)
   if (names.length === 0) return <span className="text-muted">None</span>
   return (
-    <span className="block min-w-0 max-w-[18rem] truncate" title={names[0]}>
+    <span className="min-w-0 md:block md:max-w-[18rem] md:truncate" title={names[0]}>
       <span className="text-secondary">{signal === 'cited' ? 'Cited ' : 'Lost to '}</span>
       <span className="font-medium text-strong">{names[0]}</span>
       {names.length > 1 ? <span className="text-secondary"> +{names.length - 1}</span> : null}
