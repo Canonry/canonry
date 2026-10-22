@@ -44,12 +44,15 @@ function modelCount(count: number): string {
  * promise the picker stays busy until it settles and shows a rejection as an
  * error, keeping the choices so the operator can retry.
  */
-export function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = false, inline = false }: {
+export function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = false, inline = false, trigger = 'button', triggerLabel = 'Add models' }: {
   catalog: OpenRouterPickerCatalog
   selected: readonly string[]
   onAdd: (routes: string[]) => void | Promise<void>
   disabled?: boolean
   inline?: boolean
+  /** How the staged picker's opener looks: a button, or a quieter text link. */
+  trigger?: 'button' | 'link'
+  triggerLabel?: string
 }) {
   const names = new Map(catalog.knownModels.map(model => [model.id, model.displayName]))
   const recommended = OPENROUTER_RECOMMENDED_SWEEP_MODELS.filter(model => names.has(model.id))
@@ -217,7 +220,9 @@ export function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = fal
 
   if (inline) return panel
   return <div className="space-y-3">
-    <Button type="button" variant="outline" disabled={disabled} aria-expanded={open} aria-controls={id} onClick={() => { setOpen(value => !value); setDraft([]); setError(null) }}>Add models</Button>
+    {trigger === 'link'
+      ? <button type="button" className="block w-fit text-sm text-secondary underline decoration-border-strong underline-offset-4 hover:text-heading disabled:opacity-50" disabled={disabled} aria-expanded={open} aria-controls={id} onClick={() => { setOpen(value => !value); setDraft([]); setError(null) }}>{triggerLabel}</button>
+      : <Button type="button" variant="outline" disabled={disabled} aria-expanded={open} aria-controls={id} onClick={() => { setOpen(value => !value); setDraft([]); setError(null) }}>{triggerLabel}</Button>}
     {open && panel}
   </div>
 }

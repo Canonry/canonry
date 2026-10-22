@@ -50,23 +50,50 @@ const openRouterSettings = {
 }
 
 test.each([
-  { label: 'keeps its text without OpenRouter', catalogue: settings, hint: 'Includes engines configured later in global Settings.' },
-  { label: 'says OpenRouter models run only once added', catalogue: openRouterSettings, hint: 'Includes direct engines configured later in Settings. OpenRouter models run only when you add them below.' },
-])('the All configured engines hint $label', async ({ catalogue, hint }) => {
+  { label: 'without OpenRouter', catalogue: settings, hint: 'All configured engines includes engines connected later in Settings.' },
+  { label: 'with OpenRouter beside a direct engine', catalogue: openRouterSettings, hint: 'All configured engines includes direct engines connected later in Settings. OpenRouter models run only when you add them.' },
+])('explains future connections in a tooltip beside the heading, $label', async ({ catalogue, hint }) => {
   renderSection(undefined, undefined, catalogue)
   await screen.findByText('All configured engines')
-  expect(screen.getByText(hint)).toBeTruthy()
+  // The help is the tooltip's name, not body copy, and stays out of the heading's name.
+  expect(screen.queryByText(hint)).toBeNull()
+  expect(screen.getByRole('button', { name: hint })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Answer engines' })).toBeTruthy()
+  expect(screen.queryByText('Execution')).toBeNull()
+  expect(screen.queryByText('Provider mode')).toBeNull()
+  expect(screen.getByRole('group', { name: 'Engines to run' })).toBeTruthy()
+  expect(screen.getByText('Applies on the next sweep')).toBeTruthy()
 })
 
-test('warns that All configured engines runs nothing when OpenRouter is the only connection', async () => {
+test('leads with choosing models when OpenRouter is the only connection', async () => {
   const openRouterOnly = { ...openRouterSettings, providers: [{ name: 'openrouter', displayName: 'OpenRouter', configured: true }] }
-  const warning = 'Only OpenRouter is connected, so this runs no engine. Add OpenRouter models below.'
-  renderSection(undefined, undefined, openRouterOnly)
-  expect((await screen.findByRole('alert')).textContent).toBe(warning)
-  cleanup()
-  renderSection(undefined, undefined, openRouterSettings)
-  await screen.findByText('All configured engines')
-  expect(screen.queryByText(warning)).toBeNull()
+  const onSave = renderSection(undefined, undefined, openRouterOnly)
+  expect(await screen.findByText('OpenRouter connected')).toBeTruthy()
+  expect(screen.getByText('No models selected.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'OpenRouter runs only the models you choose here. A direct engine connected later in Settings can run too.' })).toBeTruthy()
+  // No mode that would run nothing, and nothing to save until a model is chosen.
+  expect(screen.queryByText('All configured engines')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Save engines' })).toBeNull()
+  expect(screen.queryByText('Applies on the next sweep')).toBeNull()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Choose models' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Claude via OpenRouter' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add 1 model' }))
+  expect(screen.queryByText('No models selected.')).toBeNull()
+  expect(screen.getByRole('checkbox', { name: 'anthropic/claude-model via OpenRouter' })).toHaveProperty('checked', true)
+  expect(screen.getByRole('button', { name: 'Add models' })).toBeTruthy()
+  expect(screen.getByText('Applies on the next sweep')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Save engines' }))
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith({ providers: ['openrouter:anthropic/claude-model'], providerModels: {} }))
+})
+
+test('shows only the saved OpenRouter models, with Save engines, once some are chosen', async () => {
+  const openRouterOnly = { ...openRouterSettings, providers: [{ name: 'openrouter', displayName: 'OpenRouter', configured: true }] }
+  renderSection(undefined, { name: 'demo', providers: ['openrouter:google/gemini-model'], providerModels: {} }, openRouterOnly)
+  expect(await screen.findByRole('checkbox', { name: 'google/gemini-model via OpenRouter' })).toHaveProperty('checked', true)
+  expect(screen.queryByText('No models selected.')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Save engines' })).toBeTruthy()
+  expect(screen.getByText('Applies on the next sweep')).toBeTruthy()
 })
 
 test('adds several concrete OpenRouter models beside direct Gemini, without selecting the connection', async () => {
@@ -87,7 +114,7 @@ test('adds several concrete OpenRouter models beside direct Gemini, without sele
   expect(saveEngines.className).toContain('bg-accent')
   fireEvent.click(saveEngines)
   await waitFor(() => expect(onSave).toHaveBeenCalledWith({ providers: ['gemini', 'openrouter:google/gemini-model', 'openrouter:anthropic/claude-model'], providerModels: {} }))
-  expect(await screen.findByText('Engine settings saved. They apply on the next sweep.')).toBeTruthy()
+  expect(await screen.findByText('Engine settings saved.')).toBeTruthy()
   expect(screen.queryByText(/Save engines to start using/)).toBeNull()
   expect(saveEngines.className).not.toContain('bg-accent')
 })
