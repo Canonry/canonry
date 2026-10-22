@@ -17,6 +17,7 @@ import {
   sentimentWorkItems,
   type DatabaseClient,
 } from '@canonry/canonry-db'
+import { sentimentHash } from './sentiment-input.js'
 
 /**
  * SENTIMENT'S IDENTITY VERDICTS, AS THEY BEAR ON MENTIONS.
@@ -39,8 +40,12 @@ import {
  *   no Advanced verdict judges the brand itself.
  *
  * The latest completed result that judged identity decides
- * (`mentionIdentityFromSentiment`). Runs when a result is stored (inside the
- * same transaction) and once over stored history on startup.
+ * (`mentionIdentityFromSentiment`), counting only results that judged the
+ * answer's CURRENT text: a verdict is keyed to the text it read
+ * (`source_text_hash`), so once a backfill rewrites the answer an older
+ * verdict no longer applies. Runs when a result is stored (inside the same
+ * transaction), when a backfill rewrites answer text, and once over stored
+ * history on startup.
  */
 
 type Db = Pick<DatabaseClient, 'select' | 'update'>
@@ -115,6 +120,7 @@ export function refreshSnapshotMentionIdentity(db: Db, snapshotIds: readonly str
     const results = db.select({
       snapshotId: sentimentWorkItems.snapshotId,
       workItemId: sentimentWorkItems.id,
+      sourceTextHash: sentimentWorkItems.sourceTextHash,
       edges: sentimentWorkItems.edges,
       outcome: sentimentResults.outcome,
       completedAt: sentimentResults.completedAt,
@@ -127,8 +133,11 @@ export function refreshSnapshotMentionIdentity(db: Db, snapshotIds: readonly str
       ))
       .all()
 
+    // The hash sentiment keys its work to (`sentimentSourceHashes`): the stored answer text.
+    const currentTextHash = new Map(snapshots.map(snapshot => [snapshot.id, sentimentHash(snapshot.answerText ?? '')]))
     const resultsBySubject = new Map<string, Map<string, SentimentIdentityResult[]>>()
     for (const row of results) {
+      if (row.sourceTextHash !== currentTextHash.get(row.snapshotId)) continue
       const subjectKey = judgedSubjectKey(row.edges)
       const outcome = sentimentOutcomeSchema.safeParse(row.outcome)
       if (subjectKey === null || !outcome.success) continue

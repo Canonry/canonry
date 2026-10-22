@@ -208,6 +208,7 @@ export async function historyRoutes(app: FastifyInstance) {
           answerMentioned: resolveSnapshotAnswerMentioned(s, project),
           visibilityState: resolveSnapshotVisibilityState(s, project),
           mentionState: resolveSnapshotMentionState(s, project),
+          mentionIdentity: s.mentionIdentity ?? null,
           answerText: s.answerText,
           citedDomains: s.citedDomains,
           citedUrls: s.citedUrls,

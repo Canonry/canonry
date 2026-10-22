@@ -5,6 +5,7 @@ import { Search, X } from 'lucide-react'
 import { brandKeyFromText, CitationStates, effectiveDomains, normalizeProjectDomain, type MentionIdentity } from '@canonry/canonry-contracts'
 
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { DIFFERENT_SUBJECT_COPY } from '../../lib/mention-identity-copy.js'
 import { SourceLink } from '../shared/SourceLink.js'
 import { competitorHighlightTerms, highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
 import { fetchRunDetail, type GroundingSource } from '../../api.js'
@@ -35,11 +36,6 @@ export interface EvidenceDisplayData {
   summary: string
 }
 
-/** A name match sentiment ruled out: short label, the reason in its tooltip. */
-const DIFFERENT_SUBJECT_COPY = {
-  label: 'Different subject',
-  detail: 'The answer uses your name, but sentiment found it is about something else, so it does not count as a mention.',
-} as const
 
 interface CompetitorSignalFields {
   citedCompetitorDomains?: readonly string[]
@@ -338,7 +334,7 @@ export function EvidenceDetailModal({
     if (!isPending && display.mentionIdentity === 'wrong-subject') {
       return {
         label: DIFFERENT_SUBJECT_COPY.label,
-        title: DIFFERENT_SUBJECT_COPY.detail,
+        title: DIFFERENT_SUBJECT_COPY.project,
         meta: providerMeta,
       }
     }
@@ -643,7 +639,7 @@ export function EvidenceDetailModal({
                         {!isPending && !isVisible && display.mentionIdentity === 'wrong-subject' && (
                           <div className="mt-1.5 flex items-center gap-1 text-[11px] text-muted">
                             <span>{DIFFERENT_SUBJECT_COPY.label}</span>
-                            <InfoTooltip text={DIFFERENT_SUBJECT_COPY.detail} />
+                            <InfoTooltip text={DIFFERENT_SUBJECT_COPY.project} />
                           </div>
                         )}
 

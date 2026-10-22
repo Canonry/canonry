@@ -24,6 +24,7 @@ import { effectiveEmbedProjectTabs, isEmbedProjectTabAllowed } from '../embed.js
 import { Button } from '../components/ui/button.js'
 import { formatObservedInstantLabel, observedInstant } from '../components/shared/ChartPrimitives.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
+import { DIFFERENT_SUBJECT_COPY } from '../lib/mention-identity-copy.js'
 import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../components/shared/AnswerMarkdown.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { excludedAnswersLabel, splitPercentSign, type CoverageSignal } from '../lib/format-helpers.js'
@@ -119,7 +120,8 @@ function answerKey(row: AnswerRow): string {
 /**
  * The mention signal as three states, never two. A null reads "Not measured"
  * with the reason beside it — reporting it as "not mentioned" would invent a
- * measured miss out of a missing measurement.
+ * measured miss out of a missing measurement. A name match sentiment judged to
+ * be about another subject reads "Not mentioned" with why beside it.
  */
 function MentionSignal({ row }: { row: AnswerRow }) {
   if (row.mentioned === null) {
@@ -127,6 +129,17 @@ function MentionSignal({ row }: { row: AnswerRow }) {
       <span className="inline-flex flex-col items-start gap-0.5">
         <ToneBadge tone="neutral">Not measured</ToneBadge>
         <span className="text-xs text-muted">No mention signal for this Property</span>
+      </span>
+    )
+  }
+  if (!row.mentioned && row.mentionIdentity === 'wrong-subject') {
+    return (
+      <span className="inline-flex flex-col items-start gap-0.5">
+        <ToneBadge tone="neutral">Not mentioned</ToneBadge>
+        <span className="inline-flex items-center gap-1 text-xs text-muted">
+          {DIFFERENT_SUBJECT_COPY.label}
+          <InfoTooltip text={DIFFERENT_SUBJECT_COPY.property} />
+        </span>
       </span>
     )
   }

@@ -44,6 +44,12 @@ describe('sentiment identity verdicts on mentions', () => {
       const byId = new Map((response.json() as RunDetailDto).snapshots!.map(snapshot => [snapshot.id, snapshot]))
       expect(byId.get('s-namesake')).toMatchObject({ answerMentioned: false, mentionState: 'not-mentioned', matchedTerms: ['Acme'], mentionIdentity: 'wrong-subject' })
       expect(byId.get('s-brand')).toMatchObject({ answerMentioned: true, mentionState: 'mentioned', matchedTerms: ['Acme'], mentionIdentity: null })
+      // The project snapshot list serializes the same reason.
+      const list = await app.inject({ method: 'GET', url: '/api/v1/projects/p/snapshots' })
+      expect(list.statusCode, list.body).toBe(200)
+      const listed = new Map((list.json() as { snapshots: RunDetailDto['snapshots'] }).snapshots!.map(snapshot => [snapshot.id, snapshot]))
+      expect(listed.get('s-namesake')).toMatchObject({ answerMentioned: false, mentionState: 'not-mentioned', mentionIdentity: 'wrong-subject' })
+      expect(listed.get('s-brand')).toMatchObject({ answerMentioned: true, mentionState: 'mentioned', mentionIdentity: null })
     } finally {
       await app.close()
     }

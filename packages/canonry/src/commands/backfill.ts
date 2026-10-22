@@ -1,5 +1,5 @@
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
-import { backfillProjectAnswerMentions, competitorIdentityColumns, createRunCompetitorResolver, readMarketCompetitorNames } from '@canonry/canonry-api-routes'
+import { backfillProjectAnswerMentions, competitorIdentityColumns, createRunCompetitorResolver, readMarketCompetitorNames, refreshSnapshotMentionIdentity } from '@canonry/canonry-api-routes'
 import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
 import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest, RetrievalContract, RetrievalStatus } from '@canonry/canonry-contracts'
 import { aiUserFetchEventsHourly, auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, rawEventSamples, runs } from '@canonry/canonry-db'
@@ -117,6 +117,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
           .where(inArray(querySnapshots.runId, batchRunIds))
           .all()
         const pendingUpdates: Array<{ id: string; patch: Record<string, unknown> }> = []
+        const rewrittenIds: string[] = []
 
         for (const snapshot of snapshotRows) {
           examined++
@@ -125,8 +126,14 @@ export async function backfillAnswerVisibilityCommand(opts?: {
           if (reparsedResult?.providerError) providerErrors++
 
           const answerText = reparsedResult?.answerText ?? snapshot.answerText ?? ''
-          // A name match sentiment judged wrong-subject stays not mentioned.
-          const nextValue = countsAsMention(determineAnswerMentioned(answerText, projectBrandNames, projectDomains), snapshot.mentionIdentity)
+          // A name match sentiment judged wrong-subject stays not mentioned,
+          // but only while the text it judged stands: a rewritten answer's
+          // verdict is re-read from the results for its new text below.
+          const textChanged = (snapshot.answerText ?? '') !== answerText
+          const nextValue = countsAsMention(
+            determineAnswerMentioned(answerText, projectBrandNames, projectDomains),
+            textChanged ? null : snapshot.mentionIdentity,
+          )
 
           if (nextValue) mentioned++
 
@@ -136,8 +143,9 @@ export async function backfillAnswerVisibilityCommand(opts?: {
             nextPatch.answerMentioned = nextValue
           }
 
-          if ((snapshot.answerText ?? '') !== answerText) {
+          if (textChanged) {
             nextPatch.answerText = answerText
+            rewrittenIds.push(snapshot.id)
           }
 
           if (reparsedResult) {
@@ -209,6 +217,8 @@ export async function backfillAnswerVisibilityCommand(opts?: {
                   .where(eq(querySnapshots.id, update.id))
                   .run()
               }
+              // A verdict judged the old text; re-read the rewritten answers'.
+              if (rewrittenIds.length > 0) refreshSnapshotMentionIdentity(tx, rewrittenIds)
             })
             updated += pendingUpdates.length
           }
