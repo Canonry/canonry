@@ -9,6 +9,7 @@ import { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
 import { CanonryMcpToolNames, canonryMcpTools, type CanonryMcpToolName } from '../mcp/tool-registry.js'
 import { configureAeroRuntime, setAeroSystemPrompt } from './runtime.js'
+import { refreshAgentModels } from './providers.js'
 import { createAeroSession, loadAeroSystemPrompt, resolveSessionProviderAndModel } from './session.js'
 import { withoutPersistedToolDetails } from './session-registry.js'
 import { buildSkillDocTools } from './skill-tools.js'
@@ -227,7 +228,7 @@ export class ViewerAeroSessions {
     let handedOff = false
     try {
       const client = new ApiClient(this.opts.selfApiUrl, minted.raw, { skipProbe: true, surface: 'aero' })
-      const agent = this.sessions.get(key)?.agent ?? this.createAgent(project, client)
+      const agent = this.sessions.get(key)?.agent ?? await this.createAgent(project, client, preferences.signal)
       // Count and trim conversation turns only; the leading system message is
       // rebuilt below.
       agent.state.messages = trimViewerTranscript(agent.state.messages.filter(message => message.role !== 'system'))
@@ -273,8 +274,10 @@ export class ViewerAeroSessions {
     }
   }
 
-  private createAgent(project: { id: string; name: string }, client: ApiClient): Agent {
+  private async createAgent(project: { id: string; name: string }, client: ApiClient, signal?: AbortSignal): Promise<Agent> {
     const { provider, modelId } = resolveSessionProviderAndModel(this.opts.config)
+    // On OpenRouter, load the live list before the model is resolved.
+    await refreshAgentModels(provider, signal)
     return createAeroSession({
       projectName: project.name,
       client,

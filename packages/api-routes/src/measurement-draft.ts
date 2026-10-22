@@ -24,6 +24,7 @@ import {
   measurementDraftEtagStale,
   measurementDraftPublishRequestSchema,
   measurementDraftPreviewAssignmentsRequestSchema,
+  measurementDraftRouteMarketsRequestSchema,
   measurementDraftPreviewGroupMembershipRequestSchema,
   measurementPlanDeactivateRequestSchema,
   measurementPlanRevisionConflict,
@@ -77,6 +78,7 @@ import {
   applyAssignmentsToAuthoring,
   assertMeasurementDraftAuthoringLimits,
   MEASUREMENT_DRAFT_ACTIONS,
+  routeMarketsInAuthoring,
   type DraftActionContext,
 } from './measurement-draft-actions.js'
 import {
@@ -93,6 +95,7 @@ import {
   previewGroupMembershipCsv,
 } from './measurement-group-import.js'
 import { resolveRunnableProviderSelection, resolveRunProviderSelection } from './run-queue.js'
+import { assertOpenRouterRouteScope } from './provider-models.js'
 import {
   actorFromRequest,
   activePlanVersionRow,
@@ -131,6 +134,22 @@ function authoringIdentity(authoring: MeasurementDraftAuthoring): string {
   return canonicalJson(authoring)
 }
 
+function draftExecutionProviders(authoring: MeasurementDraftAuthoring): string[] {
+  return [
+    ...authoring.defaultContext.providers,
+    ...authoring.assignments.flatMap(assignment => [
+      ...(assignment.contextOverride?.providers ?? []),
+      ...(assignment.executionContexts?.flatMap(context => context.providers) ?? []),
+    ]),
+  ]
+}
+
+function storedPlanExecutionProviders(plan: StoredMeasurementPlan): string[] {
+  return plan.schemaVersion === 2
+    ? plan.executionNodes.flatMap(node => node.context.providers)
+    : []
+}
+
 function trackedQueriesFor(db: DatabaseClient, projectId: string): Array<{ id: string; query: string }> {
   return db.select({ id: queries.id, query: queries.query })
     .from(queries).where(eq(queries.projectId, projectId)).all()
@@ -150,6 +169,7 @@ function actionContextFor(db: DatabaseClient, project: ProjectRow): DraftActionC
   return {
     brandNames: effectiveBrandNames(project),
     queriesById: new Map(trackedQueriesFor(db, project.id).map(query => [query.id, query.query])),
+    locationsByLabel: new Map(project.locations.map(location => [location.label, location])),
   }
 }
 
@@ -869,6 +889,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
 
       const before = parseStoredAuthoring(row.authoringJson)
       const result = applyDraftAction(action, before, request.body, actionContextFor(app.db, gate.project))
+      assertOpenRouterRouteScope(request, draftExecutionProviders(result.authoring), [...gate.project.providers, ...draftExecutionProviders(before)])
       // A no-op leaves the counter alone: the ETag must change after every
       // successful MUTATION, and nothing was mutated.
       const changed = authoringIdentity(result.authoring) !== authoringIdentity(before)
@@ -958,6 +979,43 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       resolvedTargetKeys: result.audience.targetKeys,
       overlapCount: result.audience.overlapCount,
       assignments: result.assignments,
+      execution: assignmentExecutionImpact(current.plan, candidate.plan),
+    }
+  })
+
+  app.post<{ Params: { name: string } }>('/projects/:name/measurement-plan/draft/actions/preview-route-markets', {
+    config: {
+      readSemantic: true,
+      rateLimit: { max: 30, timeWindow: '1 minute' },
+    },
+  }, async (request, reply) => {
+    requireScope(request, MEASUREMENT_PLAN_WRITE_SCOPE)
+    const project = resolveProject(app.db, request.params.name)
+    const parsed = measurementDraftRouteMarketsRequestSchema.safeParse(request.body)
+    if (!parsed.success) throw validationError('Invalid "preview-route-markets" payload', { issues: parsed.error.issues })
+    const row = requireDraft(project)
+    const before = parseStoredAuthoring(row.authoringJson)
+    const result = routeMarketsInAuthoring(before, parsed.data, actionContextFor(app.db, project))
+    assertMeasurementDraftAuthoringLimits(before, result.authoring)
+
+    const context = compileContextFor(app.db, project)
+    const current = compileMeasurementDraftAssignmentExecution(authoringForCompile(before, project, opts), context)
+    const candidate = compileMeasurementDraftAssignmentExecution(authoringForCompile(result.authoring, project, opts), context)
+    if (!current.ok || !candidate.ok) {
+      throw validationError('The selected market routing has invalid question or provider settings. Review it and try again.', {
+        displayToOperator: true,
+        currentChecks: current.checks,
+        candidateChecks: candidate.checks,
+      })
+    }
+
+    const draftEtag = measurementDraftEtag(row.etagVersion)
+    reply.header('etag', draftEtag)
+    return {
+      draftEtag,
+      markets: result.markets,
+      matchedEdges: result.matchedEdges,
+      changedEdges: result.changedEdges,
       execution: assignmentExecutionImpact(current.plan, candidate.plan),
     }
   })
@@ -1167,6 +1225,14 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       if (!compiled.ok) {
         throw validationError('The measurement draft does not compile.', { checks: compiled.checks })
       }
+      const activeProviders = active
+        ? storedPlanExecutionProviders(parseStoredMeasurementPlanAnyVersion(active.canonicalJson))
+        : []
+      assertOpenRouterRouteScope(
+        request,
+        compiled.plan.executionNodes.flatMap(node => node.context.providers),
+        [...gate.project.providers, ...activeProviders],
+      )
       if (compiled.plan.compiledChecksum !== parsed.data.expectedCompiledChecksum) {
         throw measurementCompiledChecksumConflict(parsed.data.expectedCompiledChecksum, compiled.plan.compiledChecksum)
       }

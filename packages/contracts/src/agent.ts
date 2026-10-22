@@ -80,7 +80,7 @@ export type { AgentProviderId } from './providers.js'
  * in the OpenAPI components — the SDK needs that to emit a string-union
  * type instead of a bare `string`.
  */
-export const agentProviderIdSchema = z.enum(['claude', 'openai', 'gemini', 'zai'])
+export const agentProviderIdSchema = z.enum(['claude', 'openai', 'gemini', 'zai', 'openrouter'])
 
 export const agentProviderOptionDtoSchema = z.object({
   /** Stable identifier — what clients pass back as `provider` on the prompt endpoint. */
@@ -96,6 +96,12 @@ export const agentProviderOptionDtoSchema = z.object({
    * Surfaced so the UI can nudge users toward their preferred source of truth.
    */
   keySource: z.enum(['config', 'env']).nullable(),
+  /**
+   * A short list of models to offer for this provider: the default first,
+   * then a few stronger current models. A pinned model outside the list is
+   * listed first. Any other model ID can still be requested.
+   */
+  models: z.array(z.object({ id: z.string(), displayName: z.string() })).optional(),
 })
 export type AgentProviderOption = z.infer<typeof agentProviderOptionDtoSchema>
 

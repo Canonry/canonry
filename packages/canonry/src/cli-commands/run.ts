@@ -213,6 +213,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['run', 'trigger'],
     usage: RUN_TRIGGER_USAGE,
+    help: 'Select direct providers by name. OpenRouter models use openrouter:vendor/model; comma-separated routes can run together. Configure the shared OpenRouter key in settings first. The OpenRouter connection alone does not select a sweep model.',
     options: RUN_TRIGGER_OPTIONS,
     run: (input) => triggerRunCommand(
       // `canonry run trigger` with nothing after it is ambiguous: the
@@ -229,6 +230,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['run'],
     usage: RUN_USAGE,
+    help: 'Select direct providers by name. OpenRouter models use openrouter:vendor/model; comma-separated routes can run together. Configure the shared OpenRouter key in settings first. The OpenRouter connection alone does not select a sweep model.',
     options: RUN_TRIGGER_OPTIONS,
     run: (input) => triggerRunCommand(input, 'run'),
   },

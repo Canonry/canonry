@@ -15,6 +15,7 @@ import {
   OutcomeSurfaces,
   OutcomeTriggers,
   PROVIDER_NAMES,
+  providerConnectionName,
   ResearchQueryStatuses,
   ResearchRunStatuses,
   describeError,
@@ -73,7 +74,7 @@ export async function executeResearchRun(
       throw new Error('Configured API provider is unavailable.')
     }
     const period = getCurrentUsageDay()
-    const scope = `${projectId}:${run.provider}`
+    const scope = `${projectId}:${providerConnectionName(run.provider)}`
     const quota = reserveDailyQueryQuota(db, {
       scope, period, count: run.totalQueries, limit: provider.config.quotaPolicy.maxRequestsPerDay,
     })
@@ -159,6 +160,7 @@ export async function executeResearchRun(
     if (reservation && reserved > dispatched) {
       releaseDailyQueryQuota(db, { ...reservation, count: reserved - dispatched })
     }
+    const telemetryProvider = providerConnectionName(run.provider)
     trackFeatureCompleted({
       feature: 'research',
       operation: 'run',
@@ -167,7 +169,7 @@ export async function executeResearchRun(
       ...(options.trigger
         ? { trigger: options.trigger, ...(options.trigger === OutcomeTriggers.startup ? { surface: OutcomeSurfaces.system } : {}) }
         : requested ?? { trigger: OutcomeTriggers.manual }),
-      ...((PROVIDER_NAMES as readonly string[]).includes(run.provider) ? { provider: run.provider as FeatureCompletedProperties['provider'] } : {}),
+      ...((PROVIDER_NAMES as readonly string[]).includes(telemetryProvider) ? { provider: telemetryProvider as FeatureCompletedProperties['provider'] } : {}),
       ...(final.status === ResearchRunStatuses.completed ? {} : fatalReason ?? classifyProviderOutcomeError(queryFailure)),
       durationBucket: elapsed(),
       counts: { queries: final.total, snapshots: final.completed, failures: final.failed },

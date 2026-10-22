@@ -290,11 +290,15 @@ describe('Aero model identity is administrator-only', () => {
       const body = (await get(`/projects/${PROJECT}/agent/transcript`)).json() as {
         modelProvider: string
         modelId: string
+        nextTurn: { provider: string; modelId: string } | null
         messages: Record<string, unknown>[]
       }
 
       expect(body.modelProvider).toBe(SESSION_PROVIDER)
       expect(body.modelId).toBe(SESSION_MODEL)
+      // The model an unnamed turn would run on: the conversation's own, since
+      // nothing pins another.
+      expect(body.nextTurn).toEqual({ provider: SESSION_PROVIDER, modelId: SESSION_MODEL })
       const assistant = body.messages.find(message => message.role === 'assistant')!
       expect(assistant.model).toBe(SESSION_MODEL)
       expect(assistant.provider).toBe(SESSION_PROVIDER)

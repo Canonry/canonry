@@ -52,6 +52,28 @@ function secondProject() {
 function worker(classify = vi.fn(async (input: SentimentClassifierInput) => classified(input))) { return { classify, runtime: new SentimentWorker(db, { configuration, classifier: () => ({ classify }), now }) } }
 
 describe('durable sentiment worker', () => {
+  it('holds frozen TypeSafe work after a route change and requires a new evaluator epoch before OpenRouter dispatch', async () => {
+    service.configure('p', { enabled: true }); source('r')
+    let active = configuration()
+    const classify = vi.fn(async (input: SentimentClassifierInput) => ({ ...classified(input), returnedModel: 'typesafe/jev-1.13-20260917' }))
+    const runtime = new SentimentWorker(db, { configuration: () => active, classifier: () => ({ classify }), now })
+    runtime.reconcile()
+    const directDefinitionId = service.settings('p').evaluationDefinitionId
+    active = resolveSentimentInstallConfig({}, { enabled: true, provider: 'openrouter' }, { openrouter: 'shared-router-key' })
+    await runtime.tick()
+    expect(classify).not.toHaveBeenCalled()
+    expect(db.select().from(sentimentAttempts).all()).toHaveLength(0)
+    const routed = new SentimentService(db, { install: () => ({ enabled: true, ready: true, reason: null, provider: active.provider, model: active.model }), now, previewSecret: 'secret' })
+    expect(routed.settings('p')).toMatchObject({ ready: false })
+    const changed = routed.configure('p', { enabled: true })
+    expect(changed.evaluationDefinitionId).not.toBe(directDefinitionId)
+    expect(changed.enablementEpoch).toBe(2)
+    source('next'); await runtime.tick()
+    expect(classify).toHaveBeenCalledTimes(1)
+    expect(classify.mock.calls[0]![0].definition).toMatchObject({ provider: 'openrouter', requestedModel: 'typesafe/jev-1.13', expectedReturnedModel: 'typesafe/jev-1.13-20260917' })
+    expect(db.select().from(llmUsageEvents).all()).toMatchObject([{ provider: 'openrouter', model: 'typesafe/jev-1.13-20260917', costMillicents: 0, metadata: { costStatus: 'unknown' } }])
+    expect(db.select().from(sentimentAttempts).get()?.usage).toEqual({ inputTokens: 1000, outputTokens: 10 })
+  })
 
   it('claims only what the minute\'s request budget allows, leaving the rest queued instead of deferred', async () => {
     service.configure('p', { enabled: true }); for (const id of ['r1', 'r2', 'r3', 'r4', 'r5']) source(id)

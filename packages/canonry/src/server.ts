@@ -9,7 +9,8 @@ import { and, eq, isNotNull, isNull, lte, max, ne, or, sql } from "drizzle-orm";
 import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@canonry/canonry-config";
 import { CliError } from "./cli-error.js";
 import { isLoopbackBindHost } from "./serve-endpoint.js";
-import { createTypeSafeClassifier, buildJevSentimentRequest } from "@canonry/canonry-integration-typesafe";
+import { buildJevSentimentRequest } from "@canonry/canonry-integration-typesafe";
+import { createConfiguredSentimentClassifier } from "./sentiment-openrouter.js";
 import { SentimentWorker, createSentimentPoller } from "./sentiment-worker.js";
 import { loadSentimentInstallConfig } from "./sentiment-config.js";
 
@@ -42,6 +43,7 @@ import {
   geminiAdapter,
 } from "@canonry/canonry-provider-gemini";
 import { openaiAdapter } from "@canonry/canonry-provider-openai";
+import { openrouterAdapter } from "@canonry/canonry-provider-openrouter";
 import { claudeAdapter } from "@canonry/canonry-provider-claude";
 import { localAdapter } from "@canonry/canonry-provider-local";
 import { cdpChatgptAdapter } from "@canonry/canonry-provider-cdp";
@@ -263,6 +265,7 @@ import { registeredProviderNames } from "./provider-registration.js";
 import { configuredProviderEntries, DEFAULT_CDP_QUOTA, DEFAULT_PROVIDER_QUOTA, resolveProviderQuotaPolicy } from "./provider-runtime-config.js";
 import { assertProviderReloadKeepsPendingBatches } from "./provider-reload-batch-guard.js";
 import { createProviderModelCatalog } from "./provider-model-catalog.js";
+import { openRouterModels } from "./agent/pi-models.js";
 import { Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
 import { startSiteLivenessLoop } from "./site-liveness-loop.js";
 import { startProviderBatchPoller } from "./provider-batch-poller.js";
@@ -272,7 +275,7 @@ import { IntelligenceService } from "./intelligence-service.js";
 import { RunCoordinator } from "./run-coordinator.js";
 import { SessionRegistry } from "./agent/session-registry.js";
 import { ViewerAeroSessions } from "./agent/viewer-sessions.js";
-import { buildAgentProvidersResponse } from "./agent/providers.js";
+import { buildAgentProvidersResponse, resolveApiKeyFor } from "./agent/providers.js";
 import { describeAgentPin } from "./agent/session.js";
 import { registerMcpHttpRoutes, mcpTransportPaths, mcpHttpHealth } from "./mcp-http.js";
 import { registerOAuthRoutes, registerOAuthAdminRoutes, cookieIsSecure, createCredentialChecker, hashSessionToken, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@canonry/canonry-api-routes";
@@ -430,6 +433,7 @@ const API_ADAPTERS: ProviderAdapter[] = [
   localAdapter,
   perplexityAdapter,
   museAdapter,
+  openrouterAdapter,
 ];
 
 /** All known browser (CDP) adapters */
@@ -2790,7 +2794,7 @@ export async function createServer(opts: {
 
   const sentimentWorker = new SentimentWorker(opts.db, {
     configuration: loadSentimentInstallConfig,
-    classifier: configuration => createTypeSafeClassifier({ apiKey: configuration.apiKey! }),
+    classifier: configuration => createConfiguredSentimentClassifier(configuration, registry, loadSentimentInstallConfig),
     prepare: input => {
       const built = buildJevSentimentRequest(input);
       return built.ok ? { ok: true, estimatedInputTokens: built.estimate.inputTokens } : built;
@@ -2953,6 +2957,21 @@ export async function createServer(opts: {
   app.addHook("onClose", async () => { clearInterval(sentimentTimer); sentimentPoller.stop(); await sentimentPoller.settled(); });
 
   const providerModelCatalog = createProviderModelCatalog(registry);
+  // Aero, analysis and classification on OpenRouter take their models from
+  // this same catalog (one fetch, one cache lifetime) instead of pi-ai's fixed list.
+  // Their key may come from OPENROUTER_API_KEY alone, which registers no sweep
+  // provider; the catalog is then read with that key, in the same cache entry.
+  const aeroOpenRouterCatalog = providerModelCatalog.orUnregistered(() => {
+    const apiKey = resolveApiKeyFor(ProviderNames.openrouter, opts.config);
+    return apiKey
+      ? { adapter: openrouterAdapter, config: { provider: ProviderNames.openrouter, apiKey, quotaPolicy: DEFAULT_PROVIDER_QUOTA } }
+      : undefined;
+  });
+  const disconnectOpenRouterModels = openRouterModels.connect({
+    read: () => aeroOpenRouterCatalog.read(ProviderNames.openrouter),
+    cached: () => aeroOpenRouterCatalog.cached(ProviderNames.openrouter),
+  });
+  app.addHook("onClose", async () => { disconnectOpenRouterModels(); });
   const recordProviderChange = (
     name: string,
     before: RegisteredProvider | undefined,
@@ -2994,7 +3013,7 @@ export async function createServer(opts: {
     db: opts.db,
     claimScheduledSync,
     sentiment: {
-      install: () => { const configuration = loadSentimentInstallConfig(); return { ...sentimentInstallReadiness(configuration), model: configuration.model }; },
+      install: () => { const configuration = loadSentimentInstallConfig(); return { ...sentimentInstallReadiness(configuration), model: configuration.model, provider: configuration.provider }; },
       previewSecret: opts.config.apiKey,
       estimate: input => { const built = buildJevSentimentRequest(input); return built.estimate?.inputTokens ?? 0; },
     },
@@ -3307,6 +3326,7 @@ export async function createServer(opts: {
       executeDiscoveryRun({
         db: opts.db,
         registry,
+        getClassifierConfig: () => loadConfig(runtimeConfigPath),
         runId: input.runId,
         sessionId: input.sessionId,
         projectId: input.projectId,

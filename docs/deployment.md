@@ -214,8 +214,9 @@ unaffected.
 ### Aero reasoning
 
 Aero asks the model to reason a little before it answers and calls tools.
-OpenAI models default to `low`; Claude, Gemini and Z.ai default to `off`. To set
-it for the install:
+OpenAI models default to `low`; Claude, Gemini and Z.ai default to `off`. A model
+used through OpenRouter gets the same default as its own provider, so
+`openai/gpt-6-luna` runs at `low`. To set it for the install:
 
 ```yaml
 agent:

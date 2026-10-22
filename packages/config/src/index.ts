@@ -55,6 +55,11 @@ const envSchema = z.object({
   OPENAI_MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
   OPENAI_MAX_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(10),
   OPENAI_MAX_REQUESTS_PER_DAY: z.coerce.number().int().positive().default(1000),
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL: z.string().optional(),
+  OPENROUTER_MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
+  OPENROUTER_MAX_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(10),
+  OPENROUTER_MAX_REQUESTS_PER_DAY: z.coerce.number().int().positive().default(1000),
   // Anthropic / Claude
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().optional(),
@@ -133,6 +138,7 @@ export interface BootstrapEnv {
     perplexity?: BootstrapProviderEnvConfig
     muse?: BootstrapProviderEnvConfig
     local?: LocalBootstrapProviderConfig
+    openrouter?: BootstrapProviderEnvConfig
   }
 }
 
@@ -146,6 +152,7 @@ export const BOOTSTRAP_PROVIDER_DEFAULT_MODELS: Readonly<Record<BootstrapProvide
   perplexity: resolveProviderModel('perplexity', 'fast'),
   muse: 'muse-spark-1.3',
   local: 'llama3',
+  openrouter: 'google/gemini-3.8-flash',
 }
 
 /** The quota a provider entry starts with when setup creates it. Bootstrap reads no quota env vars. */
@@ -195,6 +202,7 @@ export interface PlatformEnv {
     claude?: ProviderEnvConfig
     perplexity?: ProviderEnvConfig
     muse?: ProviderEnvConfig
+    openrouter?: ProviderEnvConfig
   }
 }
 
@@ -211,6 +219,8 @@ const bootstrapEnvSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().optional(),
   OPENAI_BASE_URL: z.string().optional(),
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().optional(),
   PERPLEXITY_API_KEY: z.string().optional(),
@@ -229,6 +239,12 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
   const parsed = envSchema.parse(source)
 
   const providers: PlatformEnv['providers'] = {}
+  if (parsed.OPENROUTER_API_KEY?.trim()) {
+    providers.openrouter = {
+      apiKey: parsed.OPENROUTER_API_KEY.trim(), model: parsed.OPENROUTER_MODEL?.trim() || undefined,
+      quota: providerQuotaPolicySchema.parse({ maxConcurrency: parsed.OPENROUTER_MAX_CONCURRENCY, maxRequestsPerMinute: parsed.OPENROUTER_MAX_REQUESTS_PER_MINUTE, maxRequestsPerDay: parsed.OPENROUTER_MAX_REQUESTS_PER_DAY }),
+    }
+  }
 
   if (parsed.GEMINI_API_KEY || parsed.GEMINI_VERTEX_PROJECT) {
     providers.gemini = {
@@ -331,6 +347,9 @@ export function getBootstrapEnv(
     : {}
   const parsed = bootstrapEnvSchema.parse({ ...source, ...filtered })
   const providers: BootstrapEnv['providers'] = {}
+  if (parsed.OPENROUTER_API_KEY?.trim()) {
+    providers.openrouter = { apiKey: parsed.OPENROUTER_API_KEY.trim(), model: parsed.OPENROUTER_MODEL?.trim() || undefined, quota: undefined }
+  }
 
   // `model` comes only from its env var and `quota` from none: both stay
   // undefined here (in the key positions a written entry keeps) so a rerun
@@ -403,4 +422,6 @@ export function getBootstrapEnv(
 }
 
 export { sentimentInstallConfigSchema, resolveSentimentInstallConfig, sentimentInstallReadiness } from './sentiment.js'
+export { classificationConfigSchema } from './classification.js'
+export type { ClassificationConfig } from './classification.js'
 export type { SentimentInstallConfig, SentimentInstallConfigInput } from './sentiment.js'

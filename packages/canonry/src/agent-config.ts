@@ -1,6 +1,6 @@
 import { AGENT_REASONING_LEVELS, type AgentReasoningLevel } from '@canonry/canonry-config'
 import type { AgentProviderId } from '@canonry/canonry-contracts'
-import { PROVIDER_DEFAULT_REASONING } from './agent/providers.js'
+import { defaultAgentReasoning } from './agent/providers.js'
 import type { CanonryConfig } from './config.js'
 
 /**
@@ -86,14 +86,15 @@ export function resolveAgentAllowViewers(env: NodeJS.ProcessEnv, config: Canonry
  *    (case-insensitive). Any other value is ignored, so a typo falls back to
  *    the config instead of switching reasoning off.
  *  - otherwise `config.agent?.reasoning`.
- *  - default: the provider's `PROVIDER_DEFAULT_REASONING` (`low` for OpenAI,
- *    `off` elsewhere).
+ *  - default: `defaultAgentReasoning` for the model: the provider's
+ *    `PROVIDER_DEFAULT_REASONING` (`low` for OpenAI, `off` elsewhere), and for
+ *    an OpenRouter model, its direct provider's level.
  *
  * The model clamps a level it does not support, so `max` on a model whose top
  * level is `high` asks for `high`.
  */
-export function resolveAgentReasoning(env: NodeJS.ProcessEnv, config: CanonryConfig, provider: AgentProviderId): AgentReasoningLevel {
+export function resolveAgentReasoning(env: NodeJS.ProcessEnv, config: CanonryConfig, provider: AgentProviderId, modelId: string): AgentReasoningLevel {
   const raw = env.CANONRY_AGENT_REASONING?.trim().toLowerCase()
   if (raw && (AGENT_REASONING_LEVELS as readonly string[]).includes(raw)) return raw as AgentReasoningLevel
-  return config.agent?.reasoning ?? PROVIDER_DEFAULT_REASONING[provider]
+  return config.agent?.reasoning ?? defaultAgentReasoning(provider, modelId)
 }

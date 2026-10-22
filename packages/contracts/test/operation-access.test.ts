@@ -12,6 +12,7 @@ describe('operation access classification', () => {
     expect(operationAccess('get', '/api/v1/projects/{name}/google/properties')).toBe('live')
     expect(operationAccess('get', '/api/v1/projects/{name}/competitors')).toBe('stored')
     expect(operationAccess('post', '/api/v1/projects/{name}/measurement-plan/compile-preview')).toBe('stored')
+    expect(operationAccess('post', '/api/v1/projects/{name}/measurement-plan/draft/actions/preview-route-markets')).toBe('stored')
     expect(operationAccess('post', '/api/v1/projects/{name}/measurement-discovery')).toBe('live')
     expect(operationAccess('post', '/api/v1/projects/{name}/competitor-changes/preview')).toBe('stored')
     expect(operationAccess('post', '/api/v1/projects/{name}/queries/replace-preview')).toBe('stored')

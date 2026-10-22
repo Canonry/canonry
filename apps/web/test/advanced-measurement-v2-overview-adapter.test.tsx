@@ -411,9 +411,9 @@ describe('property row detail', () => {
     expect(mention!.textContent).toBe('1 of 1 (100%)9 of 10 answers could not be tied to one property')
     expect(citation!.textContent).toBe('0 of 10 (0%)')
     fireEvent.click(row)
-    const openai = screen.getByText('openai').closest('tr')!
+    const openai = screen.getByText('OpenAI').closest('tr')!
     expect(openai.querySelectorAll('td')[1]!.textContent).toBe('1 of 1 (100%)4 of 5 answers could not be tied to one property')
-    const gemini = screen.getByText('gemini').closest('tr')!
+    const gemini = screen.getByText('Gemini').closest('tr')!
     expect(gemini.querySelectorAll('td')[1]!.querySelector('[title]')!.getAttribute('title')).toBe('No answer could be tied to one property.')
     const ambiguousRow = screen.getByRole('button', { name: 'Show details for Property 2' }).closest('tr')!
     expect(within(ambiguousRow).getByText('Property identity unverified')).toBeTruthy()
@@ -450,9 +450,9 @@ describe('property row detail', () => {
     expect(mention!.textContent).toBe('1 of 2 (50.0%)')
     expect(citation!.textContent).toBe('1 of 1 (100%)1 of 2 answers had sources that could not be checked')
     fireEvent.click(row)
-    const openai = screen.getByText('openai').closest('tr')!
+    const openai = screen.getByText('OpenAI').closest('tr')!
     expect(openai.querySelectorAll('td')[2]!.textContent).toBe('1 of 1 (100%)')
-    const gemini = screen.getByText('gemini').closest('tr')!
+    const gemini = screen.getByText('Gemini').closest('tr')!
     expect(gemini.querySelectorAll('td')[2]!.querySelector('[title]')!.getAttribute('title')).toBe('Evidence incomplete.')
     const crossed = screen.getByRole('button', { name: 'Show details for Property 2' }).closest('tr')!
     const [, crossedMention, crossedCitation] = [...crossed.querySelectorAll('td')]

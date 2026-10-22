@@ -14,6 +14,11 @@ const adapters = [
     modelValidationPattern: /./, modelValidationHint: 'a preset or provider/model slug',
   },
   {
+    name: 'openrouter', displayName: 'OpenRouter', mode: 'api' as const,
+    modelConfigurable: true, defaultModel: 'google/gemini-2.5-flash', knownModels: [],
+    modelValidationPattern: /^[a-z0-9._-]+\/[a-z0-9._:-]+$/, modelValidationHint: 'vendor/model slug',
+  },
+  {
     name: 'cdp:chatgpt', displayName: 'ChatGPT (Browser)', mode: 'browser' as const,
     modelConfigurable: false, defaultModel: 'chatgpt-web', knownModels: [],
     modelValidationPattern: /./, modelValidationHint: 'detected from the browser',
@@ -47,6 +52,13 @@ describe('validateProviderModels', () => {
   it('fails closed when host metadata is unavailable', () => {
     expect(validationMessage(() => validateProviderModels({ gemini: 'gemini-2.5-pro' }, undefined)))
       .toContain('provider metadata')
+  })
+
+  it('accepts an exact pinned route model and refuses a conflicting override', () => {
+    const route = 'openrouter:google/gemini-2.5-flash'
+    expect(validateProviderModels({ [route]: 'google/gemini-2.5-flash' }, adapters)).toEqual({ [route]: 'google/gemini-2.5-flash' })
+    expect(validationMessage(() => validateProviderModels({ [route]: 'openai/gpt-5' }, adapters))).toContain('pins model')
+    expect(validationMessage(() => validateProviderModels({ 'openrouter:openrouter/auto': 'openrouter/auto' }, adapters))).toContain('unknown provider')
   })
 
   it('rejects unknown, browser, and syntactically invalid provider overrides with the owning hint', () => {

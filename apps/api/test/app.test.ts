@@ -6,7 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { getPlatformEnv } from '@canonry/canonry-config'
-import { PROVIDER_NAMES } from '@canonry/canonry-contracts'
+import { isSweepProvider, PROVIDER_NAMES } from '@canonry/canonry-contracts'
 import { createClient, migrate, MIGRATION_VERSIONS, apiKeys, queries, runs } from '@canonry/canonry-db'
 
 import { buildApp } from '../src/app.js'
@@ -268,6 +268,7 @@ test('cloud accepts every registered provider name', async () => {
   }))
 
   // The allowlist is what actually 400s a write, so exercise it end to end.
+  const sweepProviders = [...PROVIDER_NAMES.filter(isSweepProvider), 'openrouter:google/gemini-3.1-flash-lite', 'openrouter:anthropic/claude-sonnet-4.6']
   const upsert = await app.inject({
     method: 'PUT',
     url: '/api/v1/projects/acme',
@@ -277,11 +278,11 @@ test('cloud accepts every registered provider name', async () => {
       canonicalDomain: 'acme.example',
       country: 'US',
       language: 'en',
-      providers: [...PROVIDER_NAMES],
+      providers: sweepProviders,
     },
   })
   expect(upsert.statusCode).toBe(201)
-  expect(upsert.json().providers).toEqual([...PROVIDER_NAMES])
+  expect(upsert.json().providers).toEqual(sweepProviders)
 
   // The mirrored Perplexity pattern still accepts a retired Sonar id, and the
   // override is stored as the Agent API preset that answers for it.
@@ -290,7 +291,7 @@ test('cloud accepts every registered provider name', async () => {
     canonicalDomain: 'acme.example',
     country: 'US',
     language: 'en',
-    providers: [...PROVIDER_NAMES],
+    providers: sweepProviders,
   }
   const legacy = await app.inject({
     method: 'PUT',
@@ -323,6 +324,8 @@ test('loadApiEnv delegates to shared platform config', () => {
     GEMINI_MAX_REQUESTS_PER_DAY: '500',
     MUSE_API_KEY: 'muse-key',
     MUSE_MAX_REQUESTS_PER_DAY: '250',
+    OPENROUTER_API_KEY: 'router-key',
+    OPENROUTER_MAX_REQUESTS_PER_DAY: '300',
   })
 
   expect(env.apiPort).toBe(4100)
@@ -338,6 +341,7 @@ test('loadApiEnv delegates to shared platform config', () => {
   expect(env.providers.muse).toMatchObject({
     apiKey: 'muse-key', quota: { maxRequestsPerDay: 250 },
   })
+  expect(env.providers.openrouter).toMatchObject({ apiKey: 'router-key', quota: { maxRequestsPerDay: 300 } })
 })
 
 test('a plan-pinned run queued on Cloud freezes the inherited provider model into its execution identity', async () => {

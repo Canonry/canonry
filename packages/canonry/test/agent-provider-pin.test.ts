@@ -55,7 +55,7 @@ describe('resolveSessionProviderAndModel', () => {
   it('a pin beats auto-detection even though claude sorts first and has a key', () => {
     const { provider, modelId } = resolveSessionProviderAndModel(cfg({ provider: 'zai' }))
     expect(provider).toBe('zai')
-    expect(modelId).toBe('glm-5.2')
+    expect(modelId).toBe('glm-5.3-flash')
   })
 
   it('agent.model pins the model id alongside the provider', () => {
@@ -180,6 +180,38 @@ describe('SessionRegistry keeps the pin across turns', () => {
     expect((await r.acquireForTurn('demo', { provider: 'openai' })).state.thinkingLevel).toBe('low')
     expect((await r.acquireForTurn('demo', { provider: 'claude' })).state.thinkingLevel).toBe('off')
   })
+
+  it('switches the reasoning level with the OpenRouter model: low on GPT-6 Luna, off on Claude', async () => {
+    const r = new SessionRegistry({ db, client: {} as ApiClient, config: cfg(undefined, { openrouter: { apiKey: 'k' } }), proactive: false })
+    expect((await r.acquireForTurn('demo', { provider: 'openrouter' })).state.thinkingLevel).toBe('low')
+    expect((await r.acquireForTurn('demo', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-5.5' })).state.thinkingLevel).toBe('off')
+    expect((await r.acquireForTurn('demo', { provider: 'openrouter', modelId: 'openai/gpt-6-luna' })).state.thinkingLevel).toBe('low')
+  })
+
+  it('keeps a conversation on its model until a turn names another, the default included', async () => {
+    const r = new SessionRegistry({ db, client: {} as ApiClient, config: cfg(undefined, { openai: { apiKey: 'k' } }), proactive: false })
+    await r.acquireForTurn('demo', { provider: 'openai', modelId: 'gpt-6.1-sol' })
+    expect(row()).toMatchObject({ modelProvider: 'openai', modelId: 'gpt-6.1-sol' })
+    // A turn that names nothing keeps the stored model, so the dashboard must
+    // send the default when the operator picks it.
+    await r.acquireForTurn('demo')
+    expect(row()).toMatchObject({ modelProvider: 'openai', modelId: 'gpt-6.1-sol' })
+    await r.acquireForTurn('demo', { provider: 'openai', modelId: 'gpt-6-luna' })
+    expect(row()).toMatchObject({ modelProvider: 'openai', modelId: 'gpt-6-luna' })
+  })
+
+  it('reports the model the next unnamed turn runs on: the conversation\'s, unless a pin overrides it', async () => {
+    const providers = { openai: { apiKey: 'k' }, claude: { apiKey: 'k' } }
+    const r = new SessionRegistry({ db, client: {} as ApiClient, config: cfg(undefined, providers), proactive: false })
+    // No conversation yet: the detected provider's default.
+    expect(r.nextTurnModel('demo')).toEqual({ provider: 'claude', modelId: 'claude-haiku-5-5' })
+    await r.acquireForTurn('demo', { provider: 'openai', modelId: 'gpt-6.1-sol' })
+    // A saved Sol conversation keeps Sol when the turn names nothing.
+    expect(r.nextTurnModel('demo')).toEqual({ provider: 'openai', modelId: 'gpt-6.1-sol' })
+    // A pin wins over the stored model, with the pinned provider's model.
+    const pinned = new SessionRegistry({ db, client: {} as ApiClient, config: cfg({ provider: 'claude' }, providers), proactive: false })
+    expect(pinned.nextTurnModel('demo')).toEqual({ provider: 'claude', modelId: 'claude-haiku-5-5' })
+  })
 })
 
 describe('a pin that cannot run fails early and by name', () => {
@@ -210,23 +242,23 @@ describe('a pin that cannot run fails early and by name', () => {
     const r = registry({ provider: 'claude', model: 'not-a-claude-model' })
     const agent = await r.acquireForTurn('demo', { provider: 'zai' })
     expect(row()?.modelProvider).toBe('zai')
-    expect(agent.state.model.id).toBe('glm-5.2')
+    expect(agent.state.model.id).toBe('glm-5.3-flash')
   })
 })
 
 describe('describeAgentPin', () => {
-  it('is null without a pin', () => {
-    expect(describeAgentPin(cfg())).toBeNull()
+  it('is null without a pin', async () => {
+    expect(await describeAgentPin(cfg())).toBeNull()
   })
 
-  it('reports a keyed, resolvable pin as healthy', () => {
-    expect(describeAgentPin(cfg({ provider: 'zai', model: 'glm-5-turbo' }))).toMatchObject({
+  it('reports a keyed, resolvable pin as healthy', async () => {
+    expect(await describeAgentPin(cfg({ provider: 'zai', model: 'glm-5-turbo' }))).toMatchObject({
       provider: 'zai', model: 'glm-5-turbo', configured: true, envVar: 'ZAI_API_KEY', modelError: null,
     })
   })
 
-  it('reports an unkeyed pin and an unresolvable catalog model', () => {
-    expect(describeAgentPin(cfg({ provider: 'zai' }, { claude: { apiKey: 'k' } }))?.configured).toBe(false)
-    expect(describeAgentPin(cfg({ provider: 'claude', model: 'not-a-claude-model' }))?.modelError).toBeTruthy()
+  it('reports an unkeyed pin and an unresolvable catalog model', async () => {
+    expect((await describeAgentPin(cfg({ provider: 'zai' }, { claude: { apiKey: 'k' } })))?.configured).toBe(false)
+    expect((await describeAgentPin(cfg({ provider: 'claude', model: 'not-a-claude-model' })))?.modelError).toBeTruthy()
   })
 })

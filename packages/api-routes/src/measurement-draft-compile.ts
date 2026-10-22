@@ -24,6 +24,8 @@ import {
   type MeasurementV2UsageEdge,
   compareText,
   sortedUnique as canonicalStrings,
+  isSweepProvider,
+  openRouterRouteModel,
 } from '@canonry/canonry-contracts'
 import { canonicalJson, canonicalJsonValue, sha256Hex } from './measurement-draft-repo.js'
 import { measurementMentionAliasKey } from './measurement-report.js'
@@ -256,6 +258,24 @@ function normalizeProviders(values: readonly string[]): string[] {
   return canonicalStrings(values.map(value => value.trim().toLowerCase()).filter(Boolean))
 }
 
+/** Reuse frozen identities across Properties when compiling or rerouting an assignment. */
+export function frozenMeasurementDraftExecutionKeys(authoring: MeasurementDraftAuthoring): Map<string, string> {
+  const keys = new Map<string, string>()
+  for (const assignment of authoring.assignments) {
+    for (const exact of assignment.executionContexts ?? []) {
+      if (exact.executionNodeKey === undefined) continue
+      const signature = canonicalJson({
+        queryId: assignment.queryId,
+        location: exact.location,
+        providers: normalizeProviders(exact.providers),
+        models: Object.fromEntries(Object.entries(exact.models).map(([provider, model]) => [provider.trim().toLowerCase(), model])),
+      })
+      keys.set(signature, exact.executionNodeKey)
+    }
+  }
+  return keys
+}
+
 /**
  * Compile the authoring intent into the immutable v2 document.
  *
@@ -436,6 +456,13 @@ export function compileMeasurementDraft(
       }
       models[normalized] = model
     }
+    for (const provider of providers) {
+      if (!isSweepProvider(provider)) sink.fail('invalid-provider-model', 'OpenRouter measurement requires a fixed model route.', [...path, 'providers'])
+      const pinned = openRouterRouteModel(provider)
+      if (!pinned) continue
+      if (models[provider] && models[provider] !== pinned) sink.fail('invalid-provider-model', `OpenRouter route "${provider}" pins model "${pinned}".`, [...path, 'models', provider])
+      models[provider] = pinned
+    }
     const labels = canonicalStrings(override?.locations ?? authoring.defaultContext.locations)
     const locations: Array<LocationContext | null> = []
     labels.forEach((label, labelIndex) => {
@@ -477,6 +504,13 @@ export function compileMeasurementDraft(
       // model. An empty map is a frozen request for the provider default.
       models[normalized] = model
     }
+    for (const provider of providers) {
+      if (!isSweepProvider(provider)) sink.fail('invalid-provider-model', 'OpenRouter measurement requires a fixed model route.', [...path, 'providers'])
+      const pinned = openRouterRouteModel(provider)
+      if (!pinned) continue
+      if (models[provider] && models[provider] !== pinned) sink.fail('invalid-provider-model', `OpenRouter route "${provider}" pins model "${pinned}".`, [...path, 'models', provider])
+      models[provider] = pinned
+    }
     const identity = exact.executionNodeKey === undefined ? {} : { executionNodeKey: exact.executionNodeKey }
     if (exact.location === null) return { ...identity, providers, models, location: null }
     const configured = locationsByLabel.get(exact.location.label)
@@ -502,19 +536,7 @@ export function compileMeasurementDraft(
   const frozenProvenanceByQuery = new Map<string, MeasurementV2QuerySnapshot['provenance']>()
   // An added Target can reuse an imported execution. Resolve these identities
   // before walking assignments so reuse does not depend on Target ordering.
-  const frozenKeysBySignature = new Map<string, string>()
-  for (const assignment of authoring.assignments) {
-    for (const exact of assignment.executionContexts ?? []) {
-      if (exact.executionNodeKey === undefined) continue
-      const signature = canonicalJson({
-        queryId: assignment.queryId,
-        location: exact.location,
-        providers: normalizeProviders(exact.providers),
-        models: Object.fromEntries(Object.entries(exact.models).map(([provider, model]) => [provider.trim().toLowerCase(), model])),
-      })
-      frozenKeysBySignature.set(signature, exact.executionNodeKey)
-    }
-  }
+  const frozenKeysBySignature = frozenMeasurementDraftExecutionKeys(authoring)
 
   authoring.assignments.forEach((assignment, index) => {
     const path: (string | number)[] = ['assignments', index]

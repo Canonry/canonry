@@ -11,6 +11,7 @@ import { WriteButton } from '../shared/AccessControls.js'
 import { formatTimestamp } from '../../lib/format-helpers.js'
 import { fetchSentimentEvidence, fetchSentimentJob, fetchSentimentSettings, isEmbed, previewSentimentBackfill, submitSentimentBackfill, updateSentimentSettings } from '../../api.js'
 import { sentimentQueryKey, useSentiment } from '../../queries/sentiment.js'
+import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 
 type QueryClass = 'branded' | 'non-brand'
 type QueryClassView = QueryClass | 'all' | 'unclassified' | 'unknown'
@@ -570,7 +571,7 @@ export function SentimentAnswerOutcome({ queryId, sourceSnapshotIds, queryClass,
 
 function SentimentEvidenceContent({ item }: { item: SentimentEvidenceItem }) {
   return <article className="space-y-4 border-b border-default py-5 text-sm text-secondary">
-    <div className="flex flex-wrap items-center gap-2"><strong className="text-primary">{item.subject.displayName}</strong><ToneBadge tone={outcomeTone(item.outcome)}>{outcomeLabel(item.outcome)}</ToneBadge><span>{CLASS_LABEL[item.context.queryClass]}</span><span>{item.context.provider}</span><span>{item.context.servedModel ?? 'Source model unavailable'}</span><span>{item.context.location ?? 'No location'}</span></div>
+    <div className="flex flex-wrap items-center gap-2"><strong className="text-primary">{item.subject.displayName}</strong><ToneBadge tone={outcomeTone(item.outcome)}>{outcomeLabel(item.outcome)}</ToneBadge><span>{CLASS_LABEL[item.context.queryClass]}</span><span>{providerDisplayName(item.context.provider)}</span><span>{item.context.servedModel ?? 'Source model unavailable'}</span><span>{item.context.location ?? 'No location'}</span></div>
     {item.reason && <p>{item.reason}</p>}
     <section><h3 className="mb-2 text-heading">Conclusion evidence</h3>{item.conclusion.length ? item.conclusion.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No valid conclusion evidence is available.</p>}</section>
     <section><h3 className="mb-2 text-heading">Complaint evidence</h3>{item.complaint?.length ? item.complaint.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No complaint was identified.</p>}</section>
@@ -668,6 +669,7 @@ function SentimentSettingsEditor({ projectName, settings, selection, runOptions 
   }, onSuccess: async () => { reset(); await refresh() }, onError: refresh })
   const pending = save.isPending || inspect.isPending || submit.isPending
   return <div className="mt-5 space-y-5 text-sm text-secondary">
+    <dl className="definition-list"><div><dt>Evaluator</dt><dd>{settings.model} · {settings.provider === 'openrouter' ? 'OpenRouter' : 'TypeSafe'}</dd></div></dl>
     <p>{settings.disclosure}</p>{!settings.ready && <p>{settings.readinessReasons.join('; ') || 'An operator must configure sentiment on this installation.'}</p>}
     <form className="space-y-3" onSubmit={event => { event.preventDefault(); save.mutate() }}><label className="flex items-center gap-2"><input type="checkbox" checked={enabled} disabled={pending} onChange={event => { setEnabled(event.target.checked); reset() }} />Enable project sentiment</label><p>Enabling applies to future completed sweeps. Past sweeps require an explicit backfill.</p><WriteButton type="submit" disabled={pending}>{save.isPending ? 'Saving…' : 'Save sentiment settings'}</WriteButton>{save.isError && <p role="alert">{describeError(save.error)}</p>}{save.isSuccess && <p role="status">Sentiment settings saved.</p>}</form>
     {settings.actions.backfill && <section className="space-y-3"><h3>Backfill a saved sweep</h3><label className="block">Saved sweep<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={runId} disabled={pending} onChange={event => { setRunId(event.target.value); reset() }}><option value="">Select a saved sweep</option>{runOptions.map(run => <option key={run.id} value={run.id}>{run.label}</option>)}</select></label><label className="block">Query class<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={queryClass} disabled={pending} onChange={event => { setQueryClass(event.target.value as QueryClass); reset() }}><option value="non-brand">Non-brand</option><option value="branded">Branded</option></select></label>

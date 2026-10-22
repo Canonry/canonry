@@ -6,13 +6,16 @@ import { updateProviderConfig } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
+import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 
-export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = false, leadingField, secondaryActions, onSaved }: {
+export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = false, offerFreeTier = true, leadingField, secondaryActions, onSaved }: {
   providerName: string
   keyUrl?: string
   modelHint?: string
   /** Keep optional tuning out of the first-run provider connection path. */
   compact?: boolean
+  /** Lead the compact Gemini form with its free tier. Off once another provider is connected. */
+  offerFreeTier?: boolean
   /** An adjacent provider selector for the compact connection form. */
   leadingField?: ReactNode
   /** Keep connection actions together in the compact form footer. */
@@ -21,7 +24,8 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
 }) {
   const queryClient = useQueryClient()
   const isLocal = providerName.toLowerCase() === 'local'
-  const showGeminiFreeTier = compact && providerName.toLowerCase() === 'gemini' && !!keyUrl
+  const isOpenRouter = providerName.toLowerCase() === 'openrouter'
+  const showGeminiFreeTier = compact && offerFreeTier && providerName.toLowerCase() === 'gemini' && !!keyUrl
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [model, setModel] = useState('')
@@ -67,6 +71,9 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
       // A new key, model or endpoint lifts that provider's hold on every
       // project, so their notices and sweep buttons must not wait for staleness.
       void invalidateProjectQueryDomain(queryClient, 'runAdmission')
+      // The model catalog is read with the saved credential, so a corrected key
+      // must reach any open model picker now, not after the settings read goes stale.
+      void queryClient.invalidateQueries({ queryKey: ['settings'] })
       addToast({
         title: 'Provider updated',
         detail: `${providerName} configuration saved.`,
@@ -90,7 +97,7 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
 
   const optionalFields = (
     <>
-      <div className={compact ? 'space-y-1.5' : undefined}>
+      {!isOpenRouter && <div className={compact ? 'space-y-1.5' : undefined}>
         <label className={labelClassName} htmlFor={`model-${providerName}`}>Model (optional)</label>
         <input
           id={`model-${providerName}`}
@@ -100,7 +107,7 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
           value={model}
           onChange={(e) => setModel(e.target.value)}
         />
-      </div>
+      </div>}
       <div>
         <label className={labelClassName}>Quota (optional)</label>
         <div className="mt-0.5 grid grid-cols-3 gap-1.5">
@@ -180,10 +187,11 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
         autoCapitalize="none"
         spellCheck={false}
         className={inputClassName}
-        placeholder={isLocal ? 'Optional. Most local servers do not need one.' : `Enter ${providerName} API key`}
+        placeholder={isLocal ? 'Optional. Most local servers do not need one.' : `Enter ${providerDisplayName(providerName)} API key`}
         value={apiKey}
         onChange={(e) => setApiKey(e.target.value)}
       />
+      {isOpenRouter && <p className="text-sm text-secondary">OpenRouter bills your account for each answer, including its web search. A sweep asks every query once per model.</p>}
     </div>
   )
   const saveButton = (

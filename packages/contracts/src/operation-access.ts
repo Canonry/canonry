@@ -49,6 +49,7 @@ export const READ_SEMANTIC_OPERATIONS: ReadonlySet<string> = new Set([
   'POST /api/v1/projects/{name}/measurement-plan/diff-preview',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-assignments',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-group-membership',
+  'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-route-markets',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/compile-preview',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/diff-preview',
 ])

@@ -103,6 +103,22 @@ function renderToolbar(search: Record<string, unknown>, report = toolbarReport()
   return { ...view, onSelectionChange }
 }
 
+it.each(['simple', 'advanced'] as const)('preserves concrete OpenRouter model identity in %s report filters', mode => {
+  const report = toolbarReport({ mode })
+  const route = 'openrouter:google/gemini-model'
+  report.filterOptions.providers.push(route)
+  report.filterOptions.models.push({ provider: route, model: 'google/gemini-model' })
+  const { onSelectionChange, rerender } = renderToolbar({}, report)
+  fireEvent.click(filtersButton())
+  expect(screen.getByRole('option', { name: 'google/gemini-model via OpenRouter' })).toHaveProperty('value', route)
+  fireEvent.change(screen.getByRole('combobox', { name: 'Answer engine' }), { target: { value: route } })
+  expect(onSelectionChange).toHaveBeenCalledWith({ measurementProvider: route })
+  rerender(<VisibilityResultsToolbar report={report} selection={parseVisibilitySelection({ measurementProvider: route })} onSelectionChange={onSelectionChange} />)
+  expect(tokenLabels()).toEqual(['Engine: google/gemini-model via OpenRouter'])
+  fireEvent.click(screen.getByRole('button', { name: 'Remove filter Engine: google/gemini-model via OpenRouter' }))
+  expect(onSelectionChange).toHaveBeenLastCalledWith({ measurementProvider: undefined })
+})
+
 /** The page's composition with a URL held in state, exactly as ProjectPage patches it. */
 function renderOverview(initialSearch: Record<string, unknown>, extra: { fallback?: ReactNode; showUnmeasuredFallback?: boolean; trackingChangedAt?: string; nextSweepDate?: string } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -122,8 +138,8 @@ describe('results toolbar copy', () => {
     expect(VISIBILITY_TOOLBAR_COPY.panel).toBe('Visibility filters')
     expect(VISIBILITY_TOOLBAR_COPY.clearFilters).toBe('Clear filters')
     expect(VISIBILITY_TOOLBAR_COPY.manageQueries).toBe('Manage queries')
-    expect(VISIBILITY_TOOLBAR_COPY.removeFilter('Engine: gemini')).toBe('Remove filter Engine: gemini')
-    expect(VISIBILITY_TOOLBAR_COPY.engine('gemini')).toBe('Engine: gemini')
+    expect(VISIBILITY_TOOLBAR_COPY.removeFilter('Engine: Gemini')).toBe('Remove filter Engine: Gemini')
+    expect(VISIBILITY_TOOLBAR_COPY.engine('gemini')).toBe('Engine: Gemini')
     expect(VISIBILITY_TOOLBAR_COPY.model('gpt-5')).toBe('Model: gpt-5')
     expect(VISIBILITY_TOOLBAR_COPY.location('Portland, ME')).toBe('Requested search location: Portland, ME')
     expect(VISIBILITY_TOOLBAR_COPY.noLocation).toBe('No location requested')
@@ -299,18 +315,18 @@ describe('URL-bound toolbar controls', () => {
     expect(engine.isConnected).toBe(true)
     expect(engine.value).toBe('gemini')
     expect(document.activeElement).toBe(engine)
-    expect(tokenLabels()).toEqual(['Engine: gemini'])
+    expect(tokenLabels()).toEqual(['Engine: Gemini'])
     expect(filtersButton().textContent).toBe('Filters · 1')
 
     gate.release()
     await screen.findByRole('region', { name: 'AI visibility results' })
     expect(engine.value).toBe('gemini')
-    expect(tokenLabels()).toEqual(['Engine: gemini'])
+    expect(tokenLabels()).toEqual(['Engine: Gemini'])
   })
 
   it('labels one removable token for each non-default URL filter', () => {
     renderToolbar(FILTERED)
-    const labels = ['Engine: gemini', 'Model: gpt-5', 'Requested search location: Portland, ME', 'Sep 1 to Sep 8, 2026 (UTC)', 'Results from: Sep 6, 2026']
+    const labels = ['Engine: Gemini', 'Model: gpt-5', 'Requested search location: Portland, ME', 'Sep 1 to Sep 8, 2026 (UTC)', 'Results from: Sep 6, 2026']
     expect(tokenLabels()).toEqual(labels)
     expect(filterTokens().map(token => token.getAttribute('aria-label'))).toEqual(labels.map(label => `Remove filter ${label}`))
     for (const token of filterTokens()) expect(token.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
@@ -339,7 +355,7 @@ describe('URL-bound toolbar controls', () => {
   })
 
   it.each([
-    ['Engine: gemini', { measurementProvider: undefined }],
+    ['Engine: Gemini', { measurementProvider: undefined }],
     ['Model: gpt-5', { measurementModel: undefined }],
     ['Requested search location: Portland, ME', { measurementLocation: undefined }],
     ['Sep 1 to Sep 8, 2026 (UTC)', { measurementFrom: undefined, measurementTo: undefined }],
@@ -502,7 +518,7 @@ describe('URL-bound toolbar controls', () => {
       const select = screen.getByRole('combobox', { name }) as HTMLSelectElement
       return { value: select.value, options: [...select.options].map(option => [option.value, option.text]) }
     }
-    expect(control('Answer engine')).toEqual({ value: 'claude', options: [['', 'All engines'], ['gemini', 'gemini'], ['openai', 'openai'], ['claude', 'claude']] })
+    expect(control('Answer engine')).toEqual({ value: 'claude', options: [['', 'All engines'], ['gemini', 'Gemini'], ['openai', 'OpenAI'], ['claude', 'Claude']] })
     expect(control('Requested search location')).toEqual({ value: 'Bangor, ME', options: [['', 'All requested locations'], ['Portland, ME', 'Portland, ME'], ['none', 'No location requested'], ['Bangor, ME', 'Bangor, ME']] })
     // Model choices follow the URL engine, which the report has no models for.
     expect(control('AI model')).toEqual({ value: 'claude-sonnet', options: [['', 'All models'], ['claude-sonnet', 'claude-sonnet']] })

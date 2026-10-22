@@ -1,10 +1,44 @@
 import {
   resolveProviderModel,
+  openRouterRouteModel,
+  ProviderNames,
   validationError,
   type ProviderDispatchModesMap,
   type ProviderModels,
 } from '@canonry/canonry-contracts'
 import type { ProviderAdapterInfo } from './settings.js'
+import { SETTINGS_WRITE_SCOPE } from './settings.js'
+import type { FastifyRequest } from 'fastify'
+import { requireScope } from './auth.js'
+
+/** A new routed provider also selects a model and needs model-choice authority. */
+export function assertOpenRouterRouteScope(request: FastifyRequest, selected: readonly string[], authorized: readonly string[]): void {
+  const saved = new Set(authorized.map(name => name.trim().toLowerCase()))
+  if (selected.some(name => openRouterRouteModel(name.trim().toLowerCase()) && !saved.has(name.trim().toLowerCase()))) {
+    requireScope(request, SETTINGS_WRITE_SCOPE)
+  }
+}
+
+/** Resolve a pinned model route using the shared connection's adapter metadata. */
+export function providerAdapterForName(name: string, adapters: readonly ProviderAdapterInfo[]): ProviderAdapterInfo | undefined {
+  const direct = adapters.find(adapter => adapter.name === name)
+  if (direct) return direct
+  const model = openRouterRouteModel(name)
+  const connection = model && adapters.find(adapter => adapter.name === ProviderNames.openrouter)
+  if (!connection || !model) return undefined
+  connection.modelValidationPattern.lastIndex = 0
+  if (!connection.modelValidationPattern.test(model)) return undefined
+  const known = connection.knownModels.find(entry => entry.id === model)
+  return {
+    ...connection,
+    name,
+    displayName: `${known?.displayName ?? model} via OpenRouter`,
+    modelConfigurable: false,
+    defaultModel: model,
+    knownModels: known ? [known] : [],
+    modelValidationHint: 'The OpenRouter route pins its model; select another route to change it.',
+  }
+}
 
 /**
  * Validate project model overrides against the descriptors supplied by the
@@ -22,17 +56,20 @@ export function validateProviderModels(
     throw validationError('Project model overrides are unavailable because provider metadata is not configured.')
   }
 
-  const byName = new Map(adapters.map(adapter => [adapter.name, adapter]))
   const normalized: ProviderModels = {}
   for (const [provider, rawModel] of entries) {
-    const adapter = byName.get(provider)
+    const adapter = providerAdapterForName(provider, adapters)
     if (!adapter) {
       throw validationError(`Invalid provider model override: unknown provider "${provider}".`, {
         provider,
         validProviders: adapters.map(item => item.name),
       })
     }
-    if (!adapter.modelConfigurable) {
+    const pinned = openRouterRouteModel(provider)
+    if (pinned && rawModel.trim() !== pinned) {
+      throw validationError(`OpenRouter route "${provider}" pins model "${pinned}". Select another route to change it.`, { provider, model: rawModel, pinnedModel: pinned })
+    }
+    if (!adapter.modelConfigurable && !pinned) {
       throw validationError(`Provider "${provider}" does not support project model overrides.`, {
         provider,
         modelConfigurable: false,
@@ -74,10 +111,9 @@ export function validateProviderDispatchModes(
   if (!adapters || adapters.length === 0) {
     throw validationError('Project dispatch modes are unavailable because provider metadata is not configured.')
   }
-  const names = new Set(adapters.map(adapter => adapter.name))
   const normalized: ProviderDispatchModesMap = {}
   for (const [provider, mode] of entries) {
-    if (!names.has(provider)) {
+    if (!providerAdapterForName(provider, adapters)) {
       throw validationError(`Invalid provider dispatch mode: unknown provider "${provider}".`, {
         provider,
         validProviders: adapters.map(item => item.name),

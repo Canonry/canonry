@@ -32,6 +32,13 @@ afterEach(() => {
   clearOnboardingRunLaunched()
 })
 
+// The administrator settings read the OpenRouter picker uses, with the given catalog.
+function openRouterSettings(models: Array<{ id: string; displayName: string }>) {
+  const body = { providers: [{ name: 'openrouter', configured: true }], providerCatalog: [{ name: 'openrouter', displayName: 'OpenRouter', mode: 'api', modelConfigurable: true, defaultModel: '', knownModels: [{ id: 'vendor/model-a', displayName: 'Model A', tier: 'standard' }, { id: 'vendor/model-b', displayName: 'Model B', tier: 'standard' }], modelValidationPattern: { source: '^[a-z0-9._-]+/[a-z0-9._:-]+$', flags: '' }, modelValidationHint: 'Use a vendor/model ID.' }], google: { configured: false }, bing: { configured: false } }
+  body.providerCatalog[0]!.knownModels = models.map(model => ({ ...model, tier: 'standard' }))
+  return body
+}
+
 function renderProjectSetup(options: {
   onboarding: boolean
   onboardingFinish?: boolean
@@ -45,6 +52,9 @@ function renderProjectSetup(options: {
   queryResponse?: () => Response | Promise<Response>
   providerResponse?: () => Response | Promise<Response>
   includeLocalProvider?: boolean
+  openRouter?: boolean
+  /** Replaces the administrator settings read (the OpenRouter catalog source). */
+  settingsResponse?: () => Response | Promise<Response>
 }) {
   const fixture = createDashboardFixture()
   // Match the key destinations published by the provider adapter catalog.
@@ -79,12 +89,24 @@ function renderProjectSetup(options: {
   if (options.includeLocalProvider) {
     fixture.dashboard.settings.providerStatuses.push({ name: 'local', state: 'needs-config', detail: 'Base URL is missing.' })
   }
+  if (options.openRouter) fixture.dashboard.settings.providerStatuses.push({ name: 'openrouter', displayName: 'OpenRouter', state: 'ready', detail: 'Connected.' })
 
   const requests: Array<{ path: string; method?: string; body?: RequestInit['body'] }> = []
   const restore = mockFetch((url, init) => {
     requests.push({ path: pathOf(url), method: init?.method, body: init?.body })
+    if (options.openRouter && pathOf(url) === `/api/v1/projects/${encodeURIComponent(project.project.name)}`) {
+      if (init?.method === 'PUT') Object.assign(project.project, JSON.parse(String(init.body)))
+      return jsonResponse(project.project)
+    }
     if (pathOf(url) === '/api/v1/projects' || pathOf(url).split('?')[0] === '/api/v1/runs') return jsonResponse([])
-    if (pathOf(url) === '/api/v1/settings') return jsonResponse({ providers: [] })
+    if (pathOf(url) === '/api/v1/settings') {
+      if (options.settingsResponse) return options.settingsResponse()
+      if (pathOf(url) === '/api/v1/settings') return jsonResponse(options.openRouter ? {
+        providers: [{ name: 'openrouter', configured: true }],
+        providerCatalog: [{ name: 'openrouter', displayName: 'OpenRouter', mode: 'api', modelConfigurable: true, defaultModel: '', knownModels: [{ id: 'vendor/model-a', displayName: 'Model A', tier: 'standard' }, { id: 'vendor/model-b', displayName: 'Model B', tier: 'standard' }], modelValidationPattern: { source: '^[a-z0-9._-]+/[a-z0-9._:-]+$', flags: '' }, modelValidationHint: 'Use a vendor/model ID.' }],
+        google: { configured: false }, bing: { configured: false },
+      } : { providers: [] })
+    }
     if (pathOf(url).endsWith('/measurement-setup')) return jsonResponse({ answerVisibilityProviderReady: options.providerReady !== false })
     if (pathOf(url) === '/api/v1/cdp/status') return options.cdpResponse?.() ?? jsonResponse(options.cdpStatus ?? {})
     if (pathOf(url).startsWith('/api/v1/settings/providers/')) return options.providerResponse?.() ?? jsonResponse({ name: 'gemini', configured: true })
@@ -126,6 +148,90 @@ function renderProjectSetup(options: {
     },
   }
 }
+
+test('picks and saves several OpenRouter models in the provider step before allowing the first sweep', async () => {
+  const { requests, projectName } = renderProjectSetup({ onboarding: true, openRouter: true, projectProviders: [], readyProviderNames: [], queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]) })
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  const launch = screen.getByRole('button', { name: 'Launch visibility sweep' }) as HTMLButtonElement
+  await waitFor(() => expect(launch.disabled).toBe(true))
+  expect(await screen.findByText('Models needed')).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Choose sweep models' })).toBeTruthy()
+  expect(screen.queryByLabelText('Provider to connect')).toBeNull()
+  expect(screen.queryByLabelText('API key')).toBeNull()
+  // The models are picked right here: one picker with no Add models step, and
+  // changing the key stays a secondary action.
+  const picker = await screen.findByRole('group', { name: 'Choose OpenRouter models' })
+  expect(screen.queryByRole('button', { name: 'Add models', exact: true })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Save engines' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Use a different provider' })).toBeTruthy()
+  fireEvent.click(within(picker).getByRole('checkbox', { name: 'Model A' }))
+  fireEvent.click(within(picker).getByRole('checkbox', { name: 'Model B' }))
+  fireEvent.click(within(picker).getByRole('button', { name: 'Save 2 models' }))
+  await waitFor(() => expect(launch.disabled).toBe(false))
+  const projectPath = `/api/v1/projects/${encodeURIComponent(projectName)}`
+  const saveIndex = requests.findIndex(request => request.path === projectPath && request.method === 'PUT')
+  expect(JSON.parse(String(requests[saveIndex]?.body))).toMatchObject({ providers: ['openrouter:vendor/model-a', 'openrouter:vendor/model-b'], providerModels: {} })
+  // Readiness is read again after the save, and the step now reads as configured.
+  expect(requests.slice(saveIndex + 1).some(request => request.path === '/api/v1/projects' && request.method === 'GET')).toBe(true)
+  expect(screen.getByRole('heading', { name: 'Answer engine provider' })).toBeTruthy()
+  expect(screen.getByText('Ready')).toBeTruthy()
+  // The saved models are named from OpenRouter's catalog, not by raw ID.
+  expect(await screen.findByText(/^Model A via OpenRouter, Model B via OpenRouter available for this project\./)).toBeTruthy()
+  expect(screen.queryByText('Models needed')).toBeNull()
+  expect(screen.queryByRole('group', { name: 'Choose OpenRouter models' })).toBeNull()
+  expect(requests.some(request => request.path.endsWith('/runs') && request.method === 'POST')).toBe(false)
+})
+
+test('a corrected OpenRouter key refreshes the model list without leaving the step', async () => {
+  // A wrong key leaves the catalog empty. Fixing it in place must bring the
+  // models in right away, not after the settings read goes stale.
+  let models: Array<{ id: string; displayName: string }> = []
+  renderProjectSetup({
+    onboarding: true, openRouter: true, projectProviders: [], readyProviderNames: [], queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]),
+    settingsResponse: () => jsonResponse(openRouterSettings(models)),
+    providerResponse: () => jsonResponse({ name: 'openrouter', configured: true }),
+  })
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  expect(await screen.findByText(/Couldn't load OpenRouter's model list/)).toBeTruthy()
+  const settingsLink = screen.getByRole('link', { name: 'Settings' })
+  expect(settingsLink.getAttribute('target')).toBe('_blank')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Use a different provider' }))
+  // OpenRouter is already connected: no free-tier pitch, and the OpenRouter
+  // form says how it bills.
+  expect(screen.queryByRole('heading', { name: 'Start with Gemini’s free tier' })).toBeNull()
+  fireEvent.change(screen.getByLabelText('Provider to connect'), { target: { value: 'openrouter' } })
+  expect(screen.getByText('OpenRouter bills your account for each answer, including its web search. A sweep asks every query once per model.')).toBeTruthy()
+  expect(screen.getByPlaceholderText('Enter OpenRouter API key')).toBeTruthy()
+  fireEvent.change(await screen.findByLabelText('API key'), { target: { value: 'sk-or-v1-corrected' } })
+  models = [{ id: 'vendor/model-a', displayName: 'Model A' }]
+  fireEvent.click(screen.getByRole('button', { name: 'Save connection' }))
+  const picker = await screen.findByRole('group', { name: 'Choose OpenRouter models' })
+  expect(await within(picker).findByRole('checkbox', { name: 'Model A' })).toBeTruthy()
+})
+
+test('shows the model list loading, and a failed read offers Retry', async () => {
+  let respond: () => Response | Promise<Response> = () => new Promise<Response>(() => {})
+  renderProjectSetup({
+    onboarding: true, openRouter: true, projectProviders: [], readyProviderNames: [], queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]),
+    settingsResponse: () => respond(),
+  })
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  expect(await screen.findByText('Loading OpenRouter models…')).toBeTruthy()
+  cleanup()
+
+  respond = () => jsonResponse({ error: { code: 'INTERNAL', message: 'boom' } }, 500)
+  renderProjectSetup({
+    onboarding: true, openRouter: true, projectProviders: [], readyProviderNames: [], queryResponse: () => jsonResponse([{ id: 'query-1', query: 'best local dentist' }]),
+    settingsResponse: () => respond(),
+  })
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  expect(await screen.findByText("Couldn't load OpenRouter's model list.")).toBeTruthy()
+  respond = () => jsonResponse(openRouterSettings([{ id: 'vendor/model-a', displayName: 'Model A' }]))
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  const picker = await screen.findByRole('group', { name: 'Choose OpenRouter models' })
+  expect(await within(picker).findByRole('checkbox', { name: 'Model A' })).toBeTruthy()
+})
 
 test('marks AI Visibility as the optional final onboarding stage and can skip to the finish step', async () => {
   const { projectName } = renderProjectSetup({ onboarding: true })
@@ -488,7 +594,7 @@ test('offers provider setup before queries and keeps the draft after saving and 
 
   // Readiness comes from refreshed settings, not an optimistic key-save result.
   markProviderReady('gemini')
-  expect(await screen.findByText('Configured')).toBeTruthy()
+  expect(await screen.findByText('Ready')).toBeTruthy()
   expect(screen.queryByLabelText('API key')).toBeNull()
   expect((screen.getByLabelText('Queries (one per line)') as HTMLTextAreaElement).value).toBe('unsubmitted customer question')
   expect(navigate).not.toHaveBeenCalled()
@@ -620,7 +726,7 @@ test('treats a registered project-selected CDP provider as runnable', async () =
   expect(await screen.findByText('Step 2 of 2')).toBeTruthy()
   const launch = screen.getByRole('button', { name: 'Launch visibility sweep' }) as HTMLButtonElement
   expect(launch.disabled).toBe(false)
-  expect(screen.queryByRole('link', { name: 'Configure a provider' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Use a different provider' })).toBeNull()
 })
 
 test('invalidates project query and dashboard caches after project-scoped query setup', async () => {

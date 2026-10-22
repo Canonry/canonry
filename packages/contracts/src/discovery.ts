@@ -79,6 +79,11 @@ export const discoveryCompetitorMapEntrySchema = z.object({
    * still parse — those entries are excluded from the default promote filter.
    */
   competitorType: discoveryCompetitorTypeSchema.default('unknown'),
+  /** Frozen classifier identity; absent for older sessions and failed classifications. */
+  evaluator: z.object({
+    provider: z.string().min(1), requestedModel: z.string().min(1),
+    servedModel: z.string().nullable(), promptVersion: z.string().min(1),
+  }).strict().optional(),
 })
 export type DiscoveryCompetitorMapEntry = z.infer<typeof discoveryCompetitorMapEntrySchema>
 

@@ -62,6 +62,7 @@ const NODE_PACKAGES = [
   'provider-local',
   'provider-muse',
   'provider-openai',
+  'provider-openrouter',
   'provider-perplexity',
   'val-kit',
 ] as const

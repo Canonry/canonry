@@ -1,4 +1,5 @@
 import {
+  AGENT_PROVIDER_IDS,
   CheckCategories,
   CheckScopes,
   CheckStatuses,
@@ -49,7 +50,7 @@ const agentProvidersConfiguredCheck: CheckDefinition = {
   category: CheckCategories.providers,
   scope: CheckScopes.global,
   title: 'Agent provider keys',
-  run: (ctx) => {
+  run: async (ctx) => {
     // Which provider drives the agent, and that a key is configured for it, is
     // administrator knowledge: `GET /agent/providers` refuses a non-administrator
     // outright rather than serving a trimmed catalog, on the grounds that naming
@@ -86,7 +87,7 @@ const agentProvidersConfiguredCheck: CheckDefinition = {
     }
     // A pin overrides detection, so its health is Aero's health, whatever the
     // other providers look like.
-    const pin = ctx.getAgentPin?.() ?? null
+    const pin = (await ctx.getAgentPin?.()) ?? null
     if (pin && !pin.configured) {
       return {
         status: CheckStatuses.warn,
@@ -111,9 +112,9 @@ const agentProvidersConfiguredCheck: CheckDefinition = {
         code: 'agent-providers.none-configured',
         summary: 'No agent LLM provider has credentials configured — the built-in Aero agent cannot run.',
         remediation:
-          'Add a key for one of the agent providers (claude, openai, gemini, zai) under ' +
+          `Add a key for one of the agent providers (${AGENT_PROVIDER_IDS.join(', ')}) under ` +
           '`providers.<name>.apiKey` in ~/.canonry/config.yaml, or export its env var ' +
-          '(e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY).',
+          '(e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY).',
         details,
       }
     }

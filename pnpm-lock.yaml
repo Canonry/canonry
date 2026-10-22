@@ -589,6 +589,9 @@ importers:
       '@canonry/canonry-provider-openai':
         specifier: workspace:*
         version: link:../provider-openai
+      '@canonry/canonry-provider-openrouter':
+        specifier: workspace:*
+        version: link:../provider-openrouter
       '@canonry/canonry-provider-perplexity':
         specifier: workspace:*
         version: link:../provider-perplexity
@@ -819,6 +822,12 @@ importers:
       openai:
         specifier: ^7.40.0
         version: 7.40.0(@aws-sdk/credential-provider-node@3.972.87)(@smithy/signature-v4@5.7.4)(undici@8.12.3)(ws@8.22.0)(zod@4.6.7)
+
+  packages/provider-openrouter:
+    dependencies:
+      '@canonry/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/provider-perplexity:
     dependencies:

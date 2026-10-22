@@ -554,7 +554,7 @@ export const VISIBILITY_TOOLBAR_COPY = {
   clearFilters: 'Clear filters',
   manageQueries: 'Manage queries',
   removeFilter: (label: string) => `Remove filter ${label}`,
-  engine: (provider: string) => `Engine: ${provider}`,
+  engine: (provider: string) => `Engine: ${providerDisplayName(provider)}`,
   model: (model: string) => `Model: ${model}`,
   location: (location: string) => `Requested search location: ${location}`,
   noLocation: 'No location requested',
@@ -713,7 +713,7 @@ export function VisibilityResultsToolbar({ report, selection, onSelectionChange,
       focusFilters()
     }}>
       <div className="visibility-report-filters">
-        {filterSelect('Answer engine', 'measurementProvider', provider, withSelectedChoice([{ value: '', label: 'All engines' }, ...filterOptions.providers.map(value => ({ value, label: value }))], provider, provider))}
+        {filterSelect('Answer engine', 'measurementProvider', provider, withSelectedChoice([{ value: '', label: 'All engines' }, ...filterOptions.providers.map(value => ({ value, label: providerDisplayName(value) }))], provider, providerDisplayName(provider)))}
         {filterSelect('Requested search location', 'measurementLocation', location, withSelectedChoice([{ value: '', label: 'All requested locations' }, ...filterOptions.locations.flatMap(option => option.kind === 'exact' ? [{ value: option.value, label: option.value }] : option.kind === 'none' ? [{ value: 'none', label: VISIBILITY_TOOLBAR_COPY.noLocation }] : [])], location, location === 'none' ? VISIBILITY_TOOLBAR_COPY.noLocation : location))}
         {filterSelect('AI model', 'measurementModel', model, withSelectedChoice([{ value: '', label: 'All models' }, ...Array.from(new Set(filterOptions.models.filter(option => !selection.provider || option.provider === selection.provider).map(option => option.model))).map(value => ({ value, label: value }))], model, model), 'Filter by the AI model recorded with each answer. This does not change the model used by future sweeps.')}
         {dateInput('Start date (UTC)', 'measurementFrom', selection.from, 'T00:00:00.000Z')}
@@ -829,7 +829,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
         {isEvidenceLoading ? <p role="status" className="py-4 text-sm text-secondary">Loading saved answers…</p> : evidenceError ? <div role="alert" className="py-4 text-sm text-secondary"><p>Saved answers unavailable: {evidenceError}</p>{onRetryEvidence ? <Button variant="outline" onClick={onRetryEvidence}>Retry answers</Button> : null}</div> : <>
         {answers.items.map(answer => <article key={answer.answerId} className="border-b border-default py-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <strong className="text-sm text-heading">{answer.provider}</strong>
+            <strong className="text-sm text-heading">{providerDisplayName(answer.provider)}</strong>
             {answer.model ? <span className="text-[13px] text-secondary">{answer.model}</span> : null}
             <span className="text-[13px] text-secondary">{answer.location === null ? VISIBILITY_TOOLBAR_COPY.noLocation : VISIBILITY_TOOLBAR_COPY.location(answer.location)}</span>
             <span className="text-[13px] text-secondary">{new Date(answer.createdAt).toLocaleDateString()}</span>

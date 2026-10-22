@@ -39,6 +39,22 @@ subtle borders, no visual noise.
 
 ## Patterns
 
+### OpenRouter sweep models
+
+Global Settings stores one OpenRouter key and quota. Project Answer engines and
+the first-sweep setup select concrete models through the same picker
+(`components/shared/OpenRouterModelPicker.tsx`). Answer engines stages added
+models, with a note and a primary Save engines until they are saved. The AI
+Visibility setup step shows an administrator the picker inline, and Save models
+stores the routes through the same project update. Vendor filters appear only
+for vendors in the catalog; an empty catalog says the list could not load, never
+that a search matched nothing. The bare
+`openrouter` connection never counts as an automatically selected sweep engine.
+Each `openrouter:<vendor/model>` selection keeps its own checkbox, result row,
+filter value and comparison history; use `providerDisplayName` to identify the
+model via OpenRouter alongside direct providers. Search behavior is automatic,
+with no search-backend controls. Aero and classifiers choose their own models.
+
 ### Build workflow
 
 `pnpm --filter @canonry/canonry-web build` builds into a temporary directory before updating `dist/`.
@@ -630,6 +646,7 @@ Token migration guardrails:
 - **Sidebar navigation** (persistent left, `w-56`, hidden on mobile with full-screen overlay fallback).
 - **Compact topbar** with breadcrumb, health pills, and primary action button.
 - **Page container** (`max-w-6xl`, centered) for all page content.
+- **Aero bar lane.** While the floating Aero bar shows, `RootLayout` adds `main-area-agent-bar` to `.main-area` (the wrapper holding the page and the footer): bottom padding plus a matching root `scroll-padding-bottom`, so the bar never covers a control or the footer's links. Pages never pad for the bar themselves.
 - Pages use a `page-header` (title + subtitle + optional actions) followed by sections separated by `page-section-divider`. Project pages instead use the project context row: identity lives in the topbar breadcrumb (plus one visually hidden `h1`, visible below md), and the sweep action lives in the row's `[data-project-actions]`. Embeds keep `page-header`.
 - Sidebar main nav items use Lucide icons (`LayoutDashboard`, `Globe`, `Play`, `Settings`).
 - The sidebar Projects section shows each project with a colored dot indicating visibility health tone.

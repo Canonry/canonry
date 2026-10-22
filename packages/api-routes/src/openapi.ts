@@ -267,8 +267,14 @@ const providerNameParameter: OpenApiParameter = {
   name: 'name',
   in: 'path',
   required: true,
-  description: 'Provider name.',
-  schema: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'] },
+  description: 'Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.',
+  schema: { type: 'string', minLength: 1 },
+}
+
+const queryGenerationProviderSchema = {
+  type: 'string',
+  minLength: 1,
+  description: 'Configured sweep provider. OpenRouter models use `openrouter:publisher/model`; the bare `openrouter` connection is not executable.',
 }
 
 const locationLabelParameter: OpenApiParameter = {
@@ -1212,6 +1218,22 @@ const routeCatalog: OpenApiOperation[] = [
     request: 'MeasurementDraftApplyPairedAssignmentsRequest',
   }),
   measurementDraftAction({
+    action: 'preview-route-markets',
+    summary: 'Preview exact market engine routing',
+    description: 'Previews provider and model changes for exact edges in the selected markets. Frozen locations and unrelated or shared market edges are preserved.',
+    request: 'MeasurementDraftRouteMarketsRequest',
+    response: 'MeasurementDraftPreviewMarketRoutingResponse',
+    responseDescription: 'Matched market edges and execution impact returned.',
+    readOnly: true,
+    rateLimited: true,
+  }),
+  measurementDraftAction({
+    action: 'route-markets',
+    summary: 'Route selected market edges through an engine',
+    description: 'Changes provider and model identity only for exact edges in the selected markets. It preserves every frozen location and clones contexts shared with an unselected market.',
+    request: 'MeasurementDraftRouteMarketsRequest',
+  }),
+  measurementDraftAction({
     action: 'remove-assignment',
     summary: 'Remove one query assignment from draft Targets',
     description: 'Accepts the compatible singular `targetKey` or a bulk `targetKeys` selection. It removes assignments only; the project query behind them is never deleted.',
@@ -2095,7 +2117,7 @@ const routeCatalog: OpenApiOperation[] = [
             type: 'object',
             required: ['provider'],
             properties: {
-              provider: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'] },
+              provider: queryGenerationProviderSchema,
               count: integerSchema,
             },
           },
@@ -2204,7 +2226,7 @@ const routeCatalog: OpenApiOperation[] = [
             type: 'object',
             required: ['provider'],
             properties: {
-              provider: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'] },
+              provider: queryGenerationProviderSchema,
               count: integerSchema,
             },
           },
@@ -7930,7 +7952,7 @@ export const canonryLocalRouteCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/agent/transcript',
     summary: 'Get the rolling Aero transcript for this project',
     description:
-      'Returns the full message history of the project-scoped Aero session plus the persisted model provider/id and last-updated timestamp. Empty messages array when the project has no session yet. Administrator-only: a signed-in viewer, and any API key narrower than the install (read-only, or scoped to a single project), are refused with 403. There is one Aero session per project, so this is the operator conversation rather than metadata about it.',
+      'Returns the full message history of the project-scoped Aero session plus the persisted model provider/id, `nextTurn` (the provider and model a turn that names neither would run on: the conversation\'s own model unless the `agent.provider` pin overrides it; null when no provider can run) and last-updated timestamp. Empty messages array when the project has no session yet. Administrator-only: a signed-in viewer, and any API key narrower than the install (read-only, or scoped to a single project), are refused with 403. There is one Aero session per project, so this is the operator conversation rather than metadata about it.',
     tags: ['agent'],
     parameters: [nameParameter],
     responses: {

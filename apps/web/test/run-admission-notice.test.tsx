@@ -47,6 +47,11 @@ async function renderInApp(node: () => React.ReactNode, client = new QueryClient
 
 const notice = (name: string) => screen.getByRole('region', { name })
 
+test('a rejected OpenRouter model key points to the shared connection settings', async () => {
+  await renderInApp(() => <RunAdmissionNoticeView admission={{ refused: true, retryAfter: RETRY, providers: { 'openrouter:vendor/model': AUTH } }} canFix />)
+  expect(screen.getByRole('link', { name: 'Update OpenRouter key' }).getAttribute('href')).toBe('/settings#provider-openrouter')
+})
+
 test('the project page reads the run admission of its own project', async () => {
   const request = vi.fn(async () => new Response(JSON.stringify({ refused: false, retryAfter: null, providers: {} }), { status: 200, headers: { 'content-type': 'application/json' } }))
   vi.stubGlobal('fetch', request)

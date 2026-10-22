@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
@@ -6,6 +6,14 @@ import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { ProjectEngineSettingsSection } from '../src/components/project/ProjectEngineSettingsSection.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
+
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>()
+  return {
+    ...actual,
+    Link: ({ children, to, className }: { children: ReactNode; to: string; className?: string }) => <a href={to} className={className}>{children}</a>,
+  }
+})
 
 afterEach(cleanup)
 
@@ -18,9 +26,9 @@ const settings = {
   google: { configured: false }, bing: { configured: false },
 }
 
-function renderSection(onSave = vi.fn().mockResolvedValue(undefined), project = { name: 'demo', providers: [] as string[], providerModels: {} as Record<string, string> }) {
+function renderSection(onSave = vi.fn().mockResolvedValue(undefined), project = { name: 'demo', providers: [] as string[], providerModels: {} as Record<string, string> }, catalogue = settings) {
   const restore = mockFetch(url => {
-    if (url.split('?')[0]!.endsWith('/settings')) return jsonResponse(settings)
+    if (url.split('?')[0]!.endsWith('/settings')) return jsonResponse(catalogue)
     throw new Error(`Unexpected fetch: ${url}`)
   })
   onTestFinished(restore)
@@ -28,6 +36,110 @@ function renderSection(onSave = vi.fn().mockResolvedValue(undefined), project = 
   render(<QueryClientProvider client={client}><ProjectEngineSettingsSection project={project} onSave={onSave} /></QueryClientProvider>)
   return onSave
 }
+
+const openRouterSettings = {
+  ...settings,
+  providers: [...settings.providers, { name: 'openrouter', displayName: 'OpenRouter', configured: true }],
+  providerCatalog: [...settings.providerCatalog, {
+    name: 'openrouter', displayName: 'OpenRouter', mode: 'api', modelConfigurable: true,
+    defaultModel: '', knownModels: [
+      { id: 'google/gemini-model', displayName: 'Gemini via OpenRouter', tier: 'standard' },
+      { id: 'anthropic/claude-model', displayName: 'Claude via OpenRouter', tier: 'flagship' },
+    ], modelValidationPattern: { source: '^[a-z0-9._-]+/[a-z0-9._:-]+$', flags: '' }, modelValidationHint: 'Use a vendor/model ID.',
+  }],
+}
+
+test.each([
+  { label: 'without OpenRouter', catalogue: settings, hint: 'All configured engines includes engines connected later in Settings.' },
+  { label: 'with OpenRouter beside a direct engine', catalogue: openRouterSettings, hint: 'All configured engines includes direct engines connected later in Settings. OpenRouter models run only when you add them.' },
+])('explains future connections in a tooltip beside the heading, $label', async ({ catalogue, hint }) => {
+  renderSection(undefined, undefined, catalogue)
+  await screen.findByText('All configured engines')
+  // The help is the tooltip's name, not body copy, and stays out of the heading's name.
+  expect(screen.queryByText(hint)).toBeNull()
+  expect(screen.getByRole('button', { name: hint })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Answer engines' })).toBeTruthy()
+  expect(screen.queryByText('Execution')).toBeNull()
+  expect(screen.queryByText('Provider mode')).toBeNull()
+  expect(screen.getByRole('group', { name: 'Engines to run' })).toBeTruthy()
+  expect(screen.getByText('Applies on the next sweep')).toBeTruthy()
+})
+
+test('leads with choosing models when OpenRouter is the only connection', async () => {
+  const openRouterOnly = { ...openRouterSettings, providers: [{ name: 'openrouter', displayName: 'OpenRouter', configured: true }] }
+  const onSave = renderSection(undefined, undefined, openRouterOnly)
+  expect(await screen.findByText('OpenRouter connected')).toBeTruthy()
+  expect(screen.getByText('No models selected.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'OpenRouter runs only the models you choose here. A direct engine connected later in Settings can run too.' })).toBeTruthy()
+  // No mode that would run nothing, and nothing to save until a model is chosen.
+  expect(screen.queryByText('All configured engines')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Save engines' })).toBeNull()
+  expect(screen.queryByText('Applies on the next sweep')).toBeNull()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Choose models' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Claude via OpenRouter' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add 1 model' }))
+  expect(screen.queryByText('No models selected.')).toBeNull()
+  expect(screen.getByRole('checkbox', { name: 'anthropic/claude-model via OpenRouter' })).toHaveProperty('checked', true)
+  expect(screen.getByRole('button', { name: 'Add models' })).toBeTruthy()
+  expect(screen.getByText('Applies on the next sweep')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Save engines' }))
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith({ providers: ['openrouter:anthropic/claude-model'], providerModels: {} }))
+})
+
+test('shows only the saved OpenRouter models, with Save engines, once some are chosen', async () => {
+  const openRouterOnly = { ...openRouterSettings, providers: [{ name: 'openrouter', displayName: 'OpenRouter', configured: true }] }
+  renderSection(undefined, { name: 'demo', providers: ['openrouter:google/gemini-model'], providerModels: {} }, openRouterOnly)
+  expect(await screen.findByRole('checkbox', { name: 'google/gemini-model via OpenRouter' })).toHaveProperty('checked', true)
+  expect(screen.queryByText('No models selected.')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Save engines' })).toBeTruthy()
+  expect(screen.getByText('Applies on the next sweep')).toBeTruthy()
+})
+
+test('adds several concrete OpenRouter models beside direct Gemini, without selecting the connection', async () => {
+  const onSave = renderSection(undefined, { name: 'demo', providers: [], providerModels: {} }, openRouterSettings)
+  fireEvent.click(await screen.findByRole('button', { name: 'Add models', exact: true }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Gemini via OpenRouter' }))
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search OpenRouter models' }), { target: { value: 'claude' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Claude via OpenRouter' }))
+  const saveEngines = screen.getByRole('button', { name: 'Save engines' })
+  // Nothing to save yet, so Save engines is not the primary action.
+  expect(saveEngines.className).not.toContain('bg-accent')
+  fireEvent.click(screen.getByRole('button', { name: 'Add 2 models' }))
+  expect(screen.getByRole('checkbox', { name: 'Gemini' })).toHaveProperty('checked', true)
+  expect(screen.getByRole('checkbox', { name: 'google/gemini-model via OpenRouter' })).toHaveProperty('checked', true)
+  expect(screen.getByRole('checkbox', { name: 'anthropic/claude-model via OpenRouter' })).toHaveProperty('checked', true)
+  // Adding only stages the models: the note and the primary Save engines say what is left.
+  expect(screen.getByRole('status').textContent).toBe('2 models added. Save engines to start using them.')
+  expect(saveEngines.className).toContain('bg-accent')
+  fireEvent.click(saveEngines)
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith({ providers: ['gemini', 'openrouter:google/gemini-model', 'openrouter:anthropic/claude-model'], providerModels: {} }))
+  expect(await screen.findByText('Engine settings saved.')).toBeTruthy()
+  expect(screen.queryByText(/Save engines to start using/)).toBeNull()
+  expect(saveEngines.className).not.toContain('bg-accent')
+})
+
+test('manual OpenRouter models remain selectable after saving and classifier-only routes are refused', async () => {
+  const onSave = renderSection(undefined, { name: 'demo', providers: ['openrouter:vendor/saved-model'], providerModels: {} }, {
+    ...settings, providers: [...settings.providers, { name: 'openrouter', displayName: 'OpenRouter', configured: true }],
+    providerCatalog: [...settings.providerCatalog, { name: 'openrouter', displayName: 'OpenRouter', mode: 'api', modelConfigurable: true, defaultModel: '', knownModels: [], modelValidationPattern: { source: '^[a-z0-9._-]+/[a-z0-9._:-]+$', flags: '' }, modelValidationHint: 'Use a vendor/model ID.' }],
+  })
+  expect(await screen.findByRole('checkbox', { name: 'vendor/saved-model via OpenRouter' })).toHaveProperty('checked', true)
+  fireEvent.click(screen.getByRole('button', { name: 'Add models', exact: true }))
+  // Discovery returned nothing, which is a failed load, not an empty search.
+  expect(screen.getByText(/^Couldn't load OpenRouter's model list\./).textContent).toBe("Couldn't load OpenRouter's model list. Check the OpenRouter key in Settings, or enter a model ID below.")
+  expect(screen.queryByText(/No models match/)).toBeNull()
+  fireEvent.change(screen.getByRole('textbox', { name: 'Model ID' }), { target: { value: 'typesafe/jev-1.13' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add ID' }))
+  expect(screen.getByRole('alert').textContent).toContain('fixed vendor/model slug')
+  fireEvent.change(screen.getByRole('textbox', { name: 'Model ID' }), { target: { value: 'vendor/new-model' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add ID' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add 1 model' }))
+  // The saved model is already in use; only the new one waits for Save engines.
+  expect(screen.getByRole('status').textContent).toBe('1 model added. Save engines to start using it.')
+  fireEvent.click(screen.getByRole('button', { name: 'Save engines' }))
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith({ providers: ['openrouter:vendor/saved-model', 'openrouter:vendor/new-model'], providerModels: {} }))
+})
 
 test('automatic providers serialize as an empty list and choose mode materializes configured engines', async () => {
   const onSave = renderSection()

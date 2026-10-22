@@ -9,6 +9,7 @@ import {
   textContainsDomain,
   describeError,
   SnapshotProviderModes,
+  isSweepProvider,
   validationError,
 } from '@canonry/canonry-contracts'
 import type {
@@ -67,10 +68,11 @@ export class SnapshotService {
     const requestedNames = input.providers === undefined ? undefined : [...new Set(input.providers)]
     const mode = input.providerMode ?? SnapshotProviderModes.all
     const providers = requestedNames === undefined
-      ? this.registry.getAll().filter(provider => mode === SnapshotProviderModes.all || provider.adapter.mode === mode)
+      ? this.registry.getAll().filter(provider => isSweepProvider(provider.adapter.name) && (mode === SnapshotProviderModes.all || provider.adapter.mode === mode))
       : requestedNames.map(name => {
         const provider = this.registry.get(name)
         if (!provider) throw validationError(`Snapshot provider "${name}" is not configured`)
+        if (!isSweepProvider(name)) throw validationError('Select a concrete OpenRouter model for the snapshot')
         if (mode !== SnapshotProviderModes.all && provider.adapter.mode !== mode) {
           throw validationError(`Snapshot provider "${name}" does not match providerMode "${mode}"`)
         }

@@ -2,7 +2,7 @@ import { useId, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { getApiV1ProjectsByNameRunAdmissionOptions } from '@canonry/canonry-api-client/react-query'
-import { ProviderErrorCodes, type ProviderAccountStreak, type ProviderErrorCode, type RunAdmissionDto } from '@canonry/canonry-contracts'
+import { providerConnectionName, ProviderErrorCodes, type ProviderAccountStreak, type ProviderErrorCode, type RunAdmissionDto } from '@canonry/canonry-contracts'
 import { heyClient } from '../../api.js'
 import { formatSweepInstant } from '../../lib/format-helpers.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
@@ -129,8 +129,8 @@ export function RunAdmissionNoticeView({ admission, canFix, selection }: { admis
       </div>
       {canFix && keyFixable ? (
         <Button asChild variant="outline" size="sm" className="h-11 md:h-8">
-          <Link to="/settings" hash={`provider-${keyFixable[0]}`}>
-            {single ? `Update ${firstName} key` : 'Open provider settings'}
+          <Link to="/settings" hash={`provider-${providerConnectionName(keyFixable[0])}`}>
+            {single ? `Update ${providerDisplayName(providerConnectionName(firstProvider))} key` : 'Open provider settings'}
           </Link>
         </Button>
       ) : null}

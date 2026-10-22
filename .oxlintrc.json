@@ -478,10 +478,12 @@
     // client.ts: `ApiClient`'s `/health` probe and SSE prompt stream. External HTTP,
     // not the canonry API: daemon.ts probes localhost `/health` for serve-readiness,
     // telemetry.ts POSTs to the public telemetry collector, update-check.ts polls npm
-    // dist-tags. A URL the operator supplies (a sitemap, a site) is not one of these:
+    // dist-tags, and sentiment-openrouter.ts keeps pi's fixed OpenRouter classifier
+    // transport, which retains response provenance. A URL the operator supplies (a
+    // sitemap, a site) is not one of these:
     // it goes through `createGuardedFetch` from api-routes, never raw fetch.
     {
-      "files": ["packages/canonry/src/client.ts","packages/canonry/src/commands/daemon.ts","packages/canonry/src/telemetry.ts","packages/canonry/src/update-check.ts"],
+      "files": ["packages/canonry/src/client.ts","packages/canonry/src/commands/daemon.ts","packages/canonry/src/telemetry.ts","packages/canonry/src/update-check.ts","packages/canonry/src/sentiment-openrouter.ts"],
       "rules": {
         "canonry-guards/no-raw-http-cli": "off"
       }

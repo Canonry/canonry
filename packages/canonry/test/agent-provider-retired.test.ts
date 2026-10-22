@@ -45,7 +45,7 @@ vi.mock('../src/agent/session.js', async () => {
 const { AGENT_CLI_COMMANDS } = await import('../src/cli-commands/agent.js')
 const { agentAsk } = await import('../src/commands/agent-ask.js')
 
-const SUPPORTED_LIST = 'claude, openai, gemini, zai'
+const SUPPORTED_LIST = 'claude, openai, gemini, zai, openrouter'
 
 async function invokeAgentCli(args: string[]): Promise<{ stdout: string; stderr: string; exitCode?: number }> {
   const format: CliFormat = args.includes('--format') && args[args.indexOf('--format') + 1] === 'json' ? 'json' : 'text'
@@ -95,7 +95,7 @@ type JsonUsageError = {
 
 describe('retired agent provider ids in contracts', () => {
   it('drops deepinfra from the agent provider list and schema', () => {
-    expect(AGENT_PROVIDER_IDS).toEqual(['claude', 'openai', 'gemini', 'zai'])
+    expect(AGENT_PROVIDER_IDS).toEqual(['claude', 'openai', 'gemini', 'zai', 'openrouter'])
     expect(AGENT_PROVIDER_IDS as readonly string[]).not.toContain('deepinfra')
     expect(agentProviderIdSchema.safeParse('deepinfra').success).toBe(false)
     expect(agentProviderIdSchema.safeParse('zai').success).toBe(true)
@@ -199,7 +199,7 @@ describe('agent ask --provider with a retired id', () => {
     expect(parsed.error.message).toBe(`--provider deepinfra was removed; use one of: ${SUPPORTED_LIST}`)
     expect(parsed.error.details.command).toBe('agent.ask')
     expect(parsed.error.details.provider).toBe('deepinfra')
-    expect(parsed.error.details.validProviders).toEqual(['claude', 'openai', 'gemini', 'zai'])
+    expect(parsed.error.details.validProviders).toEqual(['claude', 'openai', 'gemini', 'zai', 'openrouter'])
     expect(agentAsk).not.toHaveBeenCalled()
   })
 

@@ -16,6 +16,7 @@ import { buildProviderOutcomeProps, buildRunCompletedProps, buildSiteAuditComple
 import { createLogger } from './logger.js'
 import { ProviderExecutionGate, getSharedProviderExecutionGate } from './provider-execution-gate.js'
 import { getCurrentUsageDay, releaseDailyQueryQuota, reserveDailyQueryQuota } from './usage-quota.js'
+import { isOpenRouterRoute, providerConnectionName } from '@canonry/canonry-contracts'
 import { adapterSupportsBatch } from './provider-batch-config.js'
 import { determineCitationState } from './citation-utils.js'
 import { captureCitedUrls, type CitedUrlCapture } from './cited-url-capture.js'
@@ -373,9 +374,8 @@ interface PlanExecution {
   manifest: MeasurementRunManifestV1
   /** Slots grouped by the provider the manifest expects to answer them. */
   unitsByProvider: Map<string, PlanExecutionUnit[]>
-  /** Distinct execution nodes, for telemetry and quota. */
+  /** Distinct execution nodes, for telemetry. */
   nodeCount: number
-  maxUnitsPerProvider: number
 }
 
 interface RunState {
@@ -430,7 +430,6 @@ function resolvePlanExecution(
     manifest,
     unitsByProvider,
     nodeCount: nodes.size,
-    maxUnitsPerProvider: Math.max(0, ...[...unitsByProvider.values()].map(units => units.length)),
   }
 }
 
@@ -947,14 +946,15 @@ export class JobRunner {
         ...(canonicalDomain ? { canonicalDomain } : {}),
       }
 
-      // Enforce daily quota per provider — each provider receives one request per query.
-      // Track and check usage per (projectId, providerName) so that a provider that has
-      // never been used isn't blocked by another provider's past usage.
-      const queriesPerProvider = planExecution?.maxUnitsPerProvider ?? projectQueries.length
+      // Reserve each provider's actual manifest slots, or the planless basket.
+      // Model routes keep separate reservations against their shared connection budget.
       const todayPeriod = getCurrentUsageDay()
 
       for (const p of calledProviders) {
-        const providerScope = `${projectId}:${p.adapter.name}`
+        const queriesPerProvider = planExecution
+          ? planExecution.unitsByProvider.get(p.adapter.name)?.length ?? 0
+          : projectQueries.length
+        const providerScope = `${projectId}:${providerConnectionName(p.adapter.name)}`
         const limit = p.config.quotaPolicy.maxRequestsPerDay
         const quota = reserveDailyQueryQuota(this.db, { scope: providerScope, period: todayPeriod, count: queriesPerProvider, limit })
         if (!quota.reserved) {
@@ -1083,7 +1083,7 @@ export class JobRunner {
               competitorAliases,
             )
 
-            const answerLocation = runLocation && isSearchLocationIgnored(providerName, normalized.retrievalStatus)
+            const answerLocation = runLocation && (isOpenRouterRoute(providerName) || isSearchLocationIgnored(providerName, normalized.retrievalStatus))
               ? { location: null, requestedContext: runLocation, supportedContext: { status: 'ignored' as const } }
               : { location: runLocation?.label ?? null }
 
@@ -1428,7 +1428,7 @@ export class JobRunner {
         trackEvent('run.aborted', {
           reason: abortReason,
           providerCount: executionContext.providerCount,
-          providers: executionContext.providers,
+          providers: [...new Set(executionContext.providers.map(providerConnectionName))],
           queryCount: executionContext.queryCount,
           durationMs: Date.now() - startTime,
           ...(executionContext.trigger ? { trigger: executionContext.trigger } : {}),
@@ -2484,7 +2484,7 @@ export class JobRunner {
       for (const registered of activeProviders) {
         const name = registered.adapter.name
         const count = unitsByProvider.get(name)?.length ?? 0
-        const scope = `${projectId}:${name}`
+        const scope = `${projectId}:${providerConnectionName(name)}`
         const limit = registered.config.quotaPolicy.maxRequestsPerDay
         const quota = reserveDailyQueryQuota(this.db, { scope, period: todayPeriod, count, limit })
         if (!quota.reserved) {
@@ -2781,7 +2781,7 @@ export class JobRunner {
     // reads as "no claim" rather than as the place we asked for.
     const supportedContext = requestedContext && providerSupportsLocationContext(adapter)
       ? { status: 'applied' as const, resolved: requestedContext }
-      : null
+      : requestedContext && isOpenRouterRoute(providerName) ? { status: 'ignored' as const } : null
 
     this.throwIfRunCancelled(ctx.runId)
 

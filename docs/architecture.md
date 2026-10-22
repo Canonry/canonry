@@ -23,6 +23,7 @@ flowchart LR
     JobRunner --> Registry["Provider<br/>Registry"]
     Registry --> Gemini["provider-gemini"]
     Registry --> OpenAI["provider-openai"]
+    Registry --> OpenRouter["provider-openrouter (model routes)"]
     Registry --> Muse["provider-muse"]
     Registry --> Claude["provider-claude"]
     Registry --> Perplexity["provider-perplexity"]
@@ -78,6 +79,7 @@ flowchart TD
   subgraph Providers
     gemini["provider-gemini"]
     openai["provider-openai"]
+    openrouter["provider-openrouter"]
     muse["provider-muse"]
     claude["provider-claude"]
     local["provider-local"]
@@ -99,13 +101,13 @@ flowchart TD
   canonry --> config
   canonry --> contracts
   canonry --> intelligence
-  canonry --> gemini & openai & muse & claude & local & perplexity & cdp
+  canonry --> gemini & openai & openrouter & muse & claude & local & perplexity & cdp
 
   routes --> db
   routes --> contracts
   routes --> gsc & ga4 & bing & wp
 
-  gemini & openai & muse & claude & local & perplexity & cdp --> contracts
+  gemini & openai & openrouter & muse & claude & local & perplexity & cdp --> contracts
   gsc & ga4 & bing & wp --> contracts
   db --> contracts
 ```

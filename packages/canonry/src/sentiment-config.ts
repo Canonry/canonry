@@ -18,7 +18,9 @@ export function loadSentimentInstallConfig(): SentimentInstallConfig {
     const document: unknown = parse(fs.readFileSync(getConfigPath(), 'utf8'))
     const sentiment: unknown = isRecord(document) ? document.sentiment : undefined
     if (!isRecord(document) || (sentiment != null && !isRecord(sentiment))) return invalidSentimentInstallConfig()
-    return resolveSentimentInstallConfig(process.env, (sentiment ?? undefined) as SentimentInstallConfigInput | undefined)
+    const providers = isRecord(document.providers) ? document.providers : undefined
+    const openrouter = providers && isRecord(providers.openrouter) ? providers.openrouter.apiKey : undefined
+    return resolveSentimentInstallConfig(process.env, (sentiment ?? undefined) as SentimentInstallConfigInput | undefined, { openrouter: typeof openrouter === 'string' ? openrouter : undefined })
   } catch {
     return invalidSentimentInstallConfig()
   }

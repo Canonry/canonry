@@ -24,6 +24,7 @@ import {
   agentProviderApiKeyEnvVar,
   agentProvidersByPriority,
   coerceAgentProvider,
+  refreshAgentModels,
   resolveApiKeyFor,
   resolveModelForCapability,
   type SupportedAgentProvider,
@@ -180,6 +181,7 @@ export function createRecommendationExplainer(
 ): ExplainContentRecommendationFn {
   return async (input: ExplainContentRecommendationInput): Promise<ExplainContentRecommendationResult> => {
     const provider = pickExplainProvider(opts.config, input.providerOverride)
+    await refreshAgentModels(provider)
     const model = resolveModelForCapability(provider, 'analyze', input.modelOverride)
 
     const prompt = buildRecommendationPrompt({
@@ -303,6 +305,7 @@ export function createRecommendationBriefSynthesizer(
 ): SynthesizeContentBriefFn {
   return async (input: SynthesizeContentBriefInput): Promise<SynthesizeContentBriefResult> => {
     const provider = pickExplainProvider(opts.config, input.providerOverride)
+    await refreshAgentModels(provider)
     const model = resolveModelForCapability(provider, 'analyze', input.modelOverride)
     const apiKey = resolveApiKeyFor(provider, opts.config)
     const prompt = buildBriefPrompt({

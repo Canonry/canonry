@@ -4,6 +4,7 @@ import {
   deriveCitedUrlCandidates,
   filterCapturedCitedUrls,
   isVertexGroundingRedirect,
+  isOpenRouterRoute,
   mapWithConcurrency,
   type CitedUrlCaptureStatus,
   type GroundingSource,
@@ -30,7 +31,7 @@ export interface CitedUrlCaptureOptions {
 }
 
 function isRouteCapableProvider(provider: string): boolean {
-  return (ROUTE_CAPABLE_CITED_URL_PROVIDERS as readonly string[]).includes(provider)
+  return isOpenRouterRoute(provider) || (ROUTE_CAPABLE_CITED_URL_PROVIDERS as readonly string[]).includes(provider)
 }
 
 function parseHttpUrl(value: string, base?: string): URL | undefined {

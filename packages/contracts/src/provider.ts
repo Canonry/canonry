@@ -17,7 +17,7 @@ export type ProviderQuotaPolicy = z.infer<typeof providerQuotaPolicySchema>
  * registered adapters. These constants are kept for backward compatibility
  * but are NOT the source of truth — each adapter self-declares its name.
  */
-export const PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local', 'cdp:chatgpt'] as const
+export const PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local', 'openrouter', 'cdp:chatgpt'] as const
 export const ProviderNames = {
   gemini: 'gemini',
   openai: 'openai',
@@ -25,6 +25,7 @@ export const ProviderNames = {
   perplexity: 'perplexity',
   muse: 'muse',
   local: 'local',
+  openrouter: 'openrouter',
   cdpChatgpt: 'cdp:chatgpt',
 } as const
 export const providerNameSchema = z.string().min(1)
@@ -38,9 +39,54 @@ export type ProviderName = string
 export const providerModelsSchema = z.record(z.string(), z.string().trim().min(1))
 export type ProviderModels = z.infer<typeof providerModelsSchema>
 
-export const API_PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'] as const
+export const API_PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local', 'openrouter'] as const
 export const apiProviderNameSchema = z.string().min(1)
 export type ApiProviderName = string
+
+/** Canonical OpenRouter model slugs. Routing aliases are not fixed sweep models. */
+export const OPENROUTER_MODEL_PATTERN = /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*$/
+
+/**
+ * OpenRouter sweep models offered first, one from the maker of each major
+ * consumer answer engine. Pickers show only the ones OpenRouter's live
+ * catalog still lists; every other model stays one search away.
+ */
+export const OPENROUTER_RECOMMENDED_SWEEP_MODELS = [
+  { id: 'openai/gpt-6-luna', engine: 'ChatGPT' },
+  { id: 'google/gemini-3.8-flash', engine: 'Gemini' },
+  { id: 'anthropic/claude-sonnet-5.5', engine: 'Claude' },
+] as const
+
+export function openRouterRouteModel(name: string): string | undefined {
+  if (!name.startsWith('openrouter:')) return undefined
+  const model = name.slice('openrouter:'.length)
+  return OPENROUTER_MODEL_PATTERN.test(model) && !model.startsWith('openrouter/') && !model.startsWith('typesafe/') ? model : undefined
+}
+
+export function isOpenRouterRoute(name: string): boolean {
+  return openRouterRouteModel(name) !== undefined
+}
+
+export function openRouterRouteName(model: string): string {
+  const route = `openrouter:${model.trim()}`
+  if (!isOpenRouterRoute(route)) throw new Error('OpenRouter requires a fixed vendor/model slug.')
+  return route
+}
+
+/** Connection credentials, quotas and account holds are shared by its model routes. */
+export function providerConnectionName(name: string): string {
+  return isOpenRouterRoute(name) ? ProviderNames.openrouter : name
+}
+
+/** A model route is available when its shared connection is available. */
+export function isProviderAvailable(name: string, available: readonly string[]): boolean {
+  return available.includes(name) || (isOpenRouterRoute(name) && available.includes(ProviderNames.openrouter))
+}
+
+/** The OpenRouter connection alone does not select a model for measurement. */
+export function isSweepProvider(name: string): boolean {
+  return name !== ProviderNames.openrouter && (!name.startsWith('openrouter:') || isOpenRouterRoute(name))
+}
 
 export type ProviderMode = 'api' | 'browser'
 

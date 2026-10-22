@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { sentimentFixtureSummary, sentimentCompleteFixtureSummary } from './fixtures/sentiment.js'
-import { sentimentCoverageSchema, sentimentSummarySchema, sentimentOverviewSchema, sentimentOverallHeadlineSchema, sentimentEvidencePageSchema, sentimentOutcomeSchema } from '../src/sentiment.js'
+import { sentimentCoverageSchema, sentimentSummarySchema, sentimentOverviewSchema, sentimentOverallHeadlineSchema, sentimentEvidencePageSchema, sentimentOutcomeSchema, sentimentEvaluationDefinitionSchema } from '../src/sentiment.js'
 import { RatioUnits, ratioUnitOf } from '../src/ratio-unit.js'
 import { aggregateSentiment, canonicalSentimentDefinitionJson, createSentimentEvaluationDefinition, hasCurrentSentimentTemplate, sentimentJobRequestSchema, sentimentJobsSchema, sentimentSummaryRequestSchema, sentimentClassifierOutputSchema, sentimentRateDisplay, sentimentSettingsUpdateSchema, sentimentSelectionSchema, sentimentCompareRequestSchema, sentimentAssessmentSummarySchema, sentimentEvidenceRequestSchema, storedSentimentEvaluationDefinitionSchema, storedSentimentClassifierOutputSchema, type SentimentAggregateItem, type SentimentOutcome } from '../src/sentiment.js'
 
@@ -158,6 +158,18 @@ describe('sentiment measurement invariants', () => {
     }
     expect(hasCurrentSentimentTemplate({ ...current, identityVersion: 'qualified-subject-v2', segmentationVersion: 'sentence-spans-v1' })).toBe(false)
     expect(hasCurrentSentimentTemplate({ ...current, schemaVersion: 1 })).toBe(false)
+  })
+  it('freezes Jev route identity separately and rejects incompatible requested or served models', () => {
+    const direct = createSentimentEvaluationDefinition()
+    expect(direct.requestedModel).toBe('jev-1.13.0')
+    expect(direct).not.toHaveProperty('provider')
+    expect(direct).not.toHaveProperty('expectedReturnedModel')
+    const routed = createSentimentEvaluationDefinition('openrouter')
+    expect(routed).toMatchObject({ provider: 'openrouter', requestedModel: 'typesafe/jev-1.13', expectedReturnedModel: 'typesafe/jev-1.13-20260917' })
+    expect(canonicalSentimentDefinitionJson(routed)).not.toBe(canonicalSentimentDefinitionJson(direct))
+    for (const invalid of [{ ...direct, requestedModel: 'typesafe/jev-1.13' }, { ...routed, provider: 'typesafe' }, { ...routed, expectedReturnedModel: undefined }, { ...direct, expectedReturnedModel: 'typesafe/jev-1.13-20260917' }]) {
+      expect(sentimentEvaluationDefinitionSchema.safeParse(invalid).success).toBe(false)
+    }
   })
   it('parses summary paging and job attempt paging as tuning beside the identity selection', () => {
     expect(sentimentSummaryRequestSchema.parse({ runId: 'r' })).toMatchObject({ runId: 'r', queryLimit: 25, queryClass: 'branded' })

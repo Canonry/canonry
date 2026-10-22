@@ -1,4 +1,4 @@
-import { SENTIMENT_MODEL, isRetryableHttpError, retryAfterDelayMs, withRetry } from '@canonry/canonry-contracts'
+import { SENTIMENT_MODEL, asRecord, isRetryableHttpError, retryAfterDelayMs, withRetry } from '@canonry/canonry-contracts'
 import type { SentimentUsage } from '@canonry/canonry-contracts'
 
 export const TYPESAFE_URL = 'https://api.typesafe.ai/v1/systemone'
@@ -39,12 +39,8 @@ export interface JevClientOptions {
   signal?: AbortSignal
 }
 
-export function record(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
-}
-
 function usageFrom(value: unknown): SentimentUsage {
-  const usage = record(record(value)?.usage)
+  const usage = asRecord(asRecord(value)?.usage)
   const input = usage?.input_tokens
   const output = usage?.output_tokens
   if (typeof input === 'number' && Number.isSafeInteger(input) && input >= 0 &&
@@ -60,6 +56,7 @@ function failure(code: string, message: string, retryable = false, retryAfterMs:
 
 async function fetchOnce(request: JevRequest, options: JevClientOptions): Promise<JevResult> {
   if (options.signal?.aborted) return failure('canceled', 'Classification was canceled before dispatch.')
+  if (request.model !== JEV_MODEL) return failure('model-mismatch', 'The direct TypeSafe evaluator requires its pinned model.')
   if (!options.apiKey.trim()) return failure('credential-missing', 'TypeSafe credentials are unavailable.')
   const timeoutMs = options.timeoutMs ?? 30_000
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 120_000) {
@@ -91,12 +88,12 @@ async function fetchOnce(request: JevRequest, options: JevClientOptions): Promis
             : retryable ? 'provider-unavailable' : 'provider-rejected'
       return failure(code, `TypeSafe returned HTTP ${response.status}.`, retryable, retryAfterDelayMs(statusError), usage)
     }
-    const parsed = record(body)
+    const parsed = asRecord(body)
     const model = typeof parsed?.model === 'string' ? parsed.model : null
     if (model !== null && model !== request.model) {
       return failure('model-mismatch', 'TypeSafe returned a different evaluator model.', false, null, usage, model)
     }
-    const answers = record(parsed?.answers)
+    const answers = asRecord(parsed?.answers)
     if (!model || !answers || usage.kind !== 'reported') {
       return failure('response-contract', 'TypeSafe returned an incomplete evaluation response.', false, null, usage, model)
     }

@@ -702,6 +702,7 @@ cnry settings provider gemini --api-key <KEY> --model gemini-flash-latest
 cnry settings provider openai --max-per-day 1000 --max-per-minute 20
 cnry settings provider perplexity --api-key <KEY> --model fast
 cnry settings provider muse --api-key <KEY> --model muse-spark-1.3
+cnry settings provider openrouter --api-key <KEY>
 ```
 
 Perplexity runs on its Agent API. `--model` takes a preset (`fast` default, `low`, `medium`, `high`, `xhigh`) or a `vendor/model` slug such as `perplexity/sonar`. Retired Sonar names still work and run as their replacement (`sonar` → `fast`, `sonar-pro` → `low`).
@@ -719,7 +720,16 @@ database paths, authentication, and other server settings still need a restart.
 Changing or removing a provider with an outstanding batch is refused until the
 batch settles; quota-only updates remain available.
 
-Available providers: `gemini`, `openai`, `claude`, `perplexity`, `muse`, `local`, `cdp`
+Available connections: `gemini`, `openai`, `claude`, `perplexity`, `muse`, `local`, `openrouter`, `cdp`.
+
+OpenRouter uses one connection key and several selected models. Add each model
+to the project with repeatable `--provider openrouter:publisher/model` flags;
+include direct providers you want to retain because the flag replaces the list.
+The bare `openrouter` connection is not a sweep engine. Direct and routed models
+have separate results, including Simple and Advanced Measurement. Routed models
+share their connection limits; adding a new model requires `settings.write`.
+Aero can use `--provider openrouter --model publisher/model` independently of
+the project's sweep models. Classifications identify their own evaluator route.
 
 Set `MUSE_API_KEY` before `cnry bootstrap` or `cnry init` to store the key. Setup also accepts `MUSE_MODEL` and `MUSE_BASE_URL`. `cnry init --muse-key <KEY>` stores a key directly. Muse uses Meta's Standard `muse-spark-1.3` by default. Contributor model IDs require an explicit model override; Meta permits training on their prompts and completions. See [the Muse provider guide](https://github.com/Canonry/canonry/blob/main/docs/providers/muse.md).
 

@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { LLM_CAPABILITIES, LlmCapabilities, RETIRED_AGENT_PROVIDER_IDS } from '@canonry/canonry-contracts'
+import { LLM_CAPABILITIES, LlmCapabilities, RETIRED_AGENT_PROVIDER_IDS, type AgentProviderId } from '@canonry/canonry-contracts'
+import { builtinModels } from '@earendil-works/pi-ai/providers/all'
 import {
+  AGENT_MODEL_CHOICES,
   AGENT_PROVIDERS,
   AgentProviders,
   PROVIDER_MODELS,
@@ -21,13 +23,13 @@ import {
 import { aeroModels } from '../src/agent/pi-models.js'
 
 describe('agent provider registry', () => {
-  it('registers exactly claude, openai, gemini and zai', () => {
-    expect([...listAgentProviders()].sort()).toEqual(['claude', 'gemini', 'openai', 'zai'])
-    expect(Object.keys(AGENT_PROVIDERS).sort()).toEqual(['claude', 'gemini', 'openai', 'zai'])
+  it('registers direct providers and OpenRouter', () => {
+    expect([...listAgentProviders()].sort()).toEqual(['claude', 'gemini', 'openai', 'openrouter', 'zai'])
+    expect(Object.keys(AGENT_PROVIDERS).sort()).toEqual(['claude', 'gemini', 'openai', 'openrouter', 'zai'])
   })
 
-  it('auto-detects in the order claude, openai, gemini, zai', () => {
-    expect(agentProvidersByPriority()).toEqual(['claude', 'openai', 'gemini', 'zai'])
+  it('auto-detects in the order claude, openai, gemini, zai, openrouter', () => {
+    expect(agentProvidersByPriority()).toEqual(['claude', 'openai', 'gemini', 'zai', 'openrouter'])
   })
 
   it('every provider resolves from the pi-ai catalog under its own vendor id', () => {
@@ -72,8 +74,25 @@ describe('agent provider registry', () => {
   })
 
 
-  it('uses a Gemini default model that does not require separate thinking-mode config', () => {
-    expect(getAgentProvider('gemini').defaultModel).toBe('gemini-3.8-flash')
+  it('uses each provider\'s newest low-cost model for every tier', () => {
+    expect(PROVIDER_MODELS).toEqual({
+      claude: { agent: 'claude-haiku-5-5', analyze: 'claude-haiku-5-5', classify: 'claude-haiku-5-5' },
+      openai: { agent: 'gpt-6-luna', analyze: 'gpt-6-luna', classify: 'gpt-6-luna' },
+      gemini: { agent: 'gemini-3.5-flash-lite', analyze: 'gemini-3.5-flash-lite', classify: 'gemini-3.5-flash-lite' },
+      zai: { agent: 'glm-5.3-flash', analyze: 'glm-5.3-flash', classify: 'glm-5.3-flash' },
+      openrouter: { agent: 'openai/gpt-6-luna', analyze: 'openai/gpt-6-luna', classify: 'openai/gpt-6-luna' },
+    })
+  })
+
+  it('offers a short model list per provider: the default first, every entry in pi-ai\'s bundled catalog', () => {
+    for (const [provider, choices] of Object.entries(AGENT_MODEL_CHOICES) as Array<[AgentProviderId, readonly string[]]>) {
+      expect(choices[0], provider).toBe(getAgentProvider(provider).defaultModel)
+      expect(choices.length, provider).toBeLessThanOrEqual(4)
+      expect(new Set(choices).size, provider).toBe(choices.length)
+      for (const id of choices) {
+        expect(builtinModels().getModel(AGENT_PROVIDERS[provider].piAiProvider, id), `${provider} ${id}`).toBeDefined()
+      }
+    }
   })
 
   it('pins every agent tier to an exact model ID, never a moving -latest alias', () => {
@@ -193,6 +212,7 @@ describe('resolveApiKeySource', () => {
       openai: 'OPENAI_API_KEY',
       gemini: 'GEMINI_API_KEY',
       zai: 'ZAI_API_KEY',
+      openrouter: 'OPENROUTER_API_KEY',
     })
   })
 

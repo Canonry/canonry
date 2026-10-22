@@ -3,6 +3,8 @@ import { and, asc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { schedules, trafficSources } from '@canonry/canonry-db'
 import {
+  isProviderAvailable,
+  isSweepProvider,
   type ScheduleDto,
   type CalendarRecurrence,
   type ProviderName,
@@ -18,6 +20,7 @@ import {
   describeError,
 } from '@canonry/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { assertOpenRouterRouteScope } from './provider-models.js'
 import { resolvePreset, validateCron, isValidTimezone, nextRunFromSchedule } from './schedule-utils.js'
 
 /**
@@ -108,7 +111,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
     // Validate provider names against registered adapters
     const validNames = opts.validProviderNames ?? []
     if (validNames.length && providers?.length) {
-      const invalid = providers.filter(p => !validNames.includes(p))
+      const invalid = providers.filter(p => (!isSweepProvider(p) || !isProviderAvailable(p, validNames)))
       if (invalid.length) {
         throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
           invalidProviders: invalid,
@@ -117,6 +120,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
       }
     }
 
+    assertOpenRouterRouteScope(request, providers ?? [], project.providers)
     if (!isValidTimezone(timezone)) {
       throw validationError(`Invalid timezone: ${timezone}`)
     }

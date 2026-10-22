@@ -5,6 +5,8 @@ import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn }
 import { compileCompetitiveSignalResolver } from '@canonry/canonry-intelligence'
 import type { CitationState, LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderAccountStreak, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery } from '@canonry/canonry-contracts'
 import {
+  isProviderAvailable,
+  isSweepProvider,
   AppError as AppErrorClass,
   type AppError,
   batchDispatchRefusalMessage,
@@ -39,10 +41,11 @@ import { z } from 'zod'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
 import { assertProjectScope } from './auth.js'
 import { gte } from 'drizzle-orm'
-import { assertMeasurementRunStampable, hasActiveMeasurementPlan, providerAccountAdmission, providersARunWouldCall, providersFailingError, queueRunIfProjectIdle, resolveRunnableProviderSelection, runAdmissionState } from './run-queue.js'
+import { activeRevisionProviders, assertMeasurementRunStampable, hasActiveMeasurementPlan, providerAccountAdmission, providersARunWouldCall, providersFailingError, queueRunIfProjectIdle, resolveRunnableProviderSelection, runAdmissionState } from './run-queue.js'
 import { queueRunFill, readRunCompleteness } from './run-fill.js'
 import { readRunProviderBatches } from './provider-batches.js'
 import { competitorIdentityColumns } from './competitor-writes.js'
+import { assertOpenRouterRouteScope } from './provider-models.js'
 
 export interface RunRoutesOptions {
   onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: LocationContext | null) => void
@@ -86,7 +89,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       const normalized = rawProviders.map(p => p.trim().toLowerCase()).filter(Boolean)
       const validNames = opts.validProviderNames ?? []
       if (validNames.length) {
-        const invalid = normalized.filter(p => !validNames.includes(p))
+        const invalid = normalized.filter(p => (!isSweepProvider(p) || !isProviderAvailable(p, validNames)))
         if (invalid.length) {
           throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
             invalidProviders: invalid,
@@ -97,6 +100,8 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       rawProviders.splice(0, rawProviders.length, ...normalized)
     }
     const providers = rawProviders?.length ? rawProviders : undefined
+    const revisionProviders = activeRevisionProviders(app.db, project.id)
+    assertOpenRouterRouteScope(request, providers ?? [], [...project.providers, ...revisionProviders])
 
     // Validate activation state before queuing a normal sweep. Probe runs keep
     // their existing operator-test semantics and are validated by the worker.
@@ -109,22 +114,6 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           .where(eq(queries.projectId, project.id))
           .all()
       : []
-    if (shouldPreflight) {
-      // A published plan froze its own questions. Deleting a query from the
-      // live library must not retroactively make a published revision
-      // unrunnable — and the scheduler never consulted the live library, so
-      // without this the two paths disagreed about the same project.
-      const measuresAPlan = hasActiveMeasurementPlan(app.db, project.id)
-      const preflightError = answerVisibilityPreflightError({
-        projectName: project.name,
-        projectProviders: project.providers,
-        requestedProviders: providers,
-        runnableProviderNames: opts.getRunnableProviderNames!(),
-        trackedQueryCount: measuresAPlan ? 1 : trackedRows.length,
-      })
-      if (preflightError) throw preflightError
-    }
-
     // A scope that names nothing is not a request for everything. An agent
     // whose filter came back empty would otherwise buy a full sweep by
     // accident; omitting the field entirely is how you ask for one.
@@ -172,6 +161,27 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       scopedQueries = body.queries
     }
     const queriesColumn = scopedQueries ?? null
+
+    if (shouldPreflight) {
+      // A published plan froze its own questions. Deleting a query from the
+      // live library must not retroactively make a published revision
+      // unrunnable — and the scheduler never consulted the live library, so
+      // without this the two paths disagreed about the same project. A scoped
+      // run checks only the execution nodes it will actually dispatch.
+      const measuresAPlan = hasActiveMeasurementPlan(app.db, project.id)
+      const scopedRevisionProviders = activeRevisionProviders(app.db, project.id, {
+        measurementScope: body.measurementScope ?? null,
+        queries: scopedQueries,
+      })
+      const preflightError = answerVisibilityPreflightError({
+        projectName: project.name,
+        projectProviders: scopedRevisionProviders.length > 0 ? scopedRevisionProviders : project.providers,
+        requestedProviders: providers,
+        runnableProviderNames: opts.getRunnableProviderNames!(),
+        trackedQueryCount: measuresAPlan ? 1 : trackedRows.length,
+      })
+      if (preflightError) throw preflightError
+    }
 
     // Resolve location for this run
     let resolvedLocation: LocationContext | null | undefined
@@ -542,7 +552,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       const normalized = rawProviders.map(p => p.trim().toLowerCase()).filter(Boolean)
       const validNames = opts.validProviderNames ?? []
       if (validNames.length) {
-        const invalid = normalized.filter(p => !validNames.includes(p))
+        const invalid = normalized.filter(p => (!isSweepProvider(p) || !isProviderAvailable(p, validNames)))
         if (invalid.length) {
           throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
             invalidProviders: invalid,
@@ -563,9 +573,14 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     // was already dispatched: every project is checked first, then the ones
     // that can run are queued, and each project gets its own row in the
     // response — queued with its run id, or refused with the reason.
-    const eligible: Array<{ project: typeof allProjects[number]; resolvedLocation: LocationContext | undefined }> = []
+    const eligible: Array<{
+      project: typeof allProjects[number]
+      revisionProviders: string[]
+      resolvedLocation: LocationContext | undefined
+    }> = []
 
     for (const project of allProjects) {
+      const revisionProviders = activeRevisionProviders(app.db, project.id)
       if (runnableProviderNames) {
         const trackedQuery = app.db
           .select({ id: queries.id })
@@ -575,7 +590,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           .get()
         const preflightError = answerVisibilityPreflightError({
           projectName: project.name,
-          projectProviders: project.providers,
+          projectProviders: revisionProviders.length > 0 ? revisionProviders : project.providers,
           requestedProviders: providers,
           runnableProviderNames,
           // A project measuring a published plan runs the plan's frozen
@@ -607,12 +622,13 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         resolvedLocation = loc
       }
 
-      eligible.push({ project, resolvedLocation })
+      eligible.push({ project, revisionProviders, resolvedLocation })
     }
 
     const dispatchable: typeof eligible = []
     for (const entry of eligible) {
       try {
+        assertOpenRouterRouteScope(request, providers ?? [], [...entry.project.providers, ...entry.revisionProviders])
         assertMeasurementRunStampable(app.db, {
           createdAt: now,
           projectId: entry.project.id,
