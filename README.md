@@ -136,9 +136,11 @@ For an existing project, configure a provider with your own key.
 | [Parallel](docs/providers/answer-services/parallel.md) | [Parallel platform](https://platform.parallel.ai) | `PARALLEL_API_KEY` |
 | Local model | Any OpenAI-compatible endpoint | `LOCAL_BASE_URL` |
 
-OpenRouter models and Exa or Parallel profiles require explicit selection for
-each project. Connecting their keys does not add them to automatic checks.
-The linked provider guides explain how to select models and profiles.
+An API key connects the service. In each project's **Answer engines** settings,
+choose OpenRouter models, Exa profiles, or Parallel profiles. Save your choices
+to use them in both manual and scheduled checks. Connecting a key alone does
+not change which engines a project runs. The linked provider guides show the
+equivalent CLI commands.
 
 Add the queries that matter to your project:
 
