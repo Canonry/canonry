@@ -10,8 +10,9 @@
  *      telemetry module benefit — invokeCli-style tests sometimes pull
  *      in code paths that fire `cli.command` events.
  *   2. Redirects `CANONRY_CONFIG_DIR` and the home directory at throwaway
- *      directories, so no test can write to the operator's real `~/.canonry`.
- *      corepack's download cache keeps its real location.
+ *      directories, so no test can write to the operator's real `~/.canonry`,
+ *      and removes them when the test file finishes. corepack's download
+ *      cache keeps its real location.
  *   3. Replaces `globalThis.fetch` with a guard that throws on any
  *      non-localhost request, so a test that forgets to mock fetch
  *      can't silently hit the real internet.
@@ -44,7 +45,7 @@ import dns from 'node:dns/promises'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { inject, vi } from 'vitest'
+import { afterAll, inject, vi } from 'vitest'
 import { replayingMigrate } from './migrated-database.js'
 
 interface WorkerStart {
@@ -125,15 +126,34 @@ function urlOf(input: string | URL | Request): URL | null {
  * An explicitly-set `CANONRY_CONFIG_DIR` is respected — a test that wants a
  * specific directory has already opted in.
  */
+const throwawayDirs: string[] = []
 if (!process.env.CANONRY_CONFIG_DIR?.trim()) {
   process.env.CANONRY_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-test-config-'))
+  throwawayDirs.push(process.env.CANONRY_CONFIG_DIR)
 }
 
 // Files kept under the home directory (`~/.canonry/machine-id`, plugins,
 // caches) get the same protection: `os.homedir()` reads these variables.
 const testHome = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-test-home-'))
+throwawayDirs.push(testHome)
 process.env.HOME = testHome
 process.env.USERPROFILE = testHome
+
+// Remove the throwaway directories when the test file finishes. Left in place,
+// they piled up in the temp directory: 577,000 of them, 3.2 GB, on one
+// machine. After hooks run in reverse order, so the test file's own afterAll
+// hooks, which close its servers and databases, have run by then. A
+// CANONRY_CONFIG_DIR set before this file ran is never in the list.
+afterAll(() => {
+  for (const dir of throwawayDirs) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 })
+    } catch {
+      // Best effort: a child process may still be writing there, or Windows
+      // may hold a file open. Leaving the directory is better than failing.
+    }
+  }
+})
 
 // corepack's download cache keeps the real home's location. corepack stores
 // the pnpm a `packageManager` field pins under the home directory unless
