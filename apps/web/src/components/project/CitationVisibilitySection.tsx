@@ -215,7 +215,7 @@ export function CitationVisibilitySection({
       <p className="text-sm text-secondary">
         {data.reason === 'no-queries'
           ? 'Add queries to start tracking AI citations.'
-          : isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Engine results appear after the first AI Visibility sweep.'}
+          : isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Engine results appear after the first AI Visibility check.'}
       </p>
     )
   } else if (!active) {

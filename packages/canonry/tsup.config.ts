@@ -77,6 +77,7 @@ export default defineConfig({
     '@canonry/canonry-provider-gemini',
     '@canonry/canonry-provider-openai',
     '@canonry/canonry-provider-openrouter',
+    '@canonry/canonry-provider-answer-services',
     '@canonry/canonry-provider-claude',
     '@canonry/canonry-provider-local',
     '@canonry/canonry-provider-cdp',

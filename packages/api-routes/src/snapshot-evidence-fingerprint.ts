@@ -12,6 +12,9 @@ type SnapshotRow = typeof querySnapshots.$inferSelect
  * The dispatch provenance columns (`dispatchMode`, `providerBatchId`,
  * `stopReason`, `usage`) are left out, so the upgrade that added them, and any
  * later repricing, never invalidates a cursor an agent is mid-way through.
+ * `answerEvidence` is left out for the same reason: the migration that added
+ * it must not invalidate cursors, and the evidence restates the answer and
+ * sources the other columns already pin.
  * Sentiment's identity verdicts (`mentionIdentity`, `wrongSubjectTargetKeys`)
  * count only once set: a verdict changes which mentions the answer counts, so
  * it moves the fingerprint, while its absence (every answer stored before
@@ -20,7 +23,7 @@ type SnapshotRow = typeof querySnapshots.$inferSelect
 export function snapshotEvidenceFingerprint(snapshots: readonly SnapshotRow[]): string {
   const canonical = [...snapshots]
     .sort((left, right) => left.id.localeCompare(right.id))
-    .map(({ dispatchMode: _dispatchMode, providerBatchId: _providerBatchId, stopReason: _stopReason, usage: _usage, mentionIdentity, wrongSubjectTargetKeys, ...evidence }) => JSON.stringify({
+    .map(({ dispatchMode: _dispatchMode, providerBatchId: _providerBatchId, stopReason: _stopReason, usage: _usage, answerEvidence: _answerEvidence, mentionIdentity, wrongSubjectTargetKeys, ...evidence }) => JSON.stringify({
       ...evidence,
       ...(mentionIdentity === null ? {} : { mentionIdentity }),
       ...(wrongSubjectTargetKeys === null ? {} : { wrongSubjectTargetKeys }),

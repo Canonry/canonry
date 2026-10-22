@@ -315,7 +315,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
 
       {!scheduleLoading && !loadFailed && !editing && schedule === null && (
         <Card className="surface-card compact-card">
-          <p className="supporting-copy">{managedSweeps ? MANAGED_SWEEPS_COPY : 'No schedule configured. Set one to automatically trigger visibility sweeps.'}</p>
+          <p className="supporting-copy">{managedSweeps ? MANAGED_SWEEPS_COPY : 'No schedule configured. Set one to automatically trigger AI Visibility checks.'}</p>
         </Card>
       )}
 

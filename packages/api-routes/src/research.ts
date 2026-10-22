@@ -9,8 +9,8 @@ import { RESEARCH_RUN_SCOPE, WILDCARD_SCOPE, resolveProviderModel } from '@canon
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { activeMeasurementPlan, type ActiveMeasurementPlan } from './measurement-overview.js'
 import type { ProviderAdapterInfo } from './settings.js'
-import { assertOpenRouterRouteScope, providerAdapterForName } from './provider-models.js'
-import { isProviderAvailable, isSweepProvider, openRouterRouteModel, providerConnectionName } from '@canonry/canonry-contracts'
+import { assertProviderRouteScope, pinnedRouteSelection, providerAdapterForName, providerEligibleFor, providerRouteFamilies } from './provider-models.js'
+import { isProviderAvailable, isSweepProvider, providerConnectionName, ProviderWorkflows, resolveProviderRoute } from '@canonry/canonry-contracts'
 import { activeRevisionProviders } from './run-queue.js'
 
 export interface ResearchRoutesOptions {
@@ -33,6 +33,7 @@ const sameLocation = (a: LocationContext, b: LocationContext) =>
 const BATCH_RECEIPT_PREFIX = '__canonry_research_batch__:'
 
 export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesOptions) {
+  const routeFamilies = providerRouteFamilies(opts.providerAdapters)
   const viewerDailyRunLimit = opts.viewerDailyRunLimit ?? DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT
   if (!Number.isInteger(viewerDailyRunLimit) || viewerDailyRunLimit <= 0) {
     throw new Error('viewerDailyRunLimit must be a positive integer')
@@ -61,10 +62,16 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     const adapters = opts.providerAdapters ?? []
     const configured = new Set(opts.getConfiguredProviderNames?.() ?? opts.configuredProviderNames ?? [])
     const authorizedProviders = researchProjectProviders(app, project.id, project.providers)
-    const providerName = input.provider ?? authorizedProviders.find(name => isSweepProvider(name) && isProviderAvailable(name, [...configured]) && providerAdapterForName(name, adapters)?.mode === 'api') ?? adapters.find(adapter => adapter.mode === 'api' && isSweepProvider(adapter.name) && configured.has(adapter.name))?.name
+    // Without an explicit provider, research defaults to an engine the project
+    // measures, else any configured one. An answer service is only ever used
+    // when the request names one of its profiles.
+    const implicitlyEligible = (name: string) => providerEligibleFor(name, adapters, ProviderWorkflows.research, 'implicit')
+    const providerName = input.provider
+      ?? authorizedProviders.find(name => implicitlyEligible(name) && isProviderAvailable(name, [...configured], routeFamilies) && providerAdapterForName(name, adapters)?.mode === 'api')
+      ?? adapters.find(adapter => adapter.mode === 'api' && implicitlyEligible(adapter.name) && configured.has(adapter.name))?.name
     const adapter = providerName ? providerAdapterForName(providerName, adapters) : undefined
-    if (!providerName || !adapter || adapter.mode !== 'api' || !isSweepProvider(providerName) || isBrowserProvider(providerName) || !isProviderAvailable(providerName, [...configured])) throw validationError('Research requires a configured API provider.', { provider: input.provider, validProviders: authorizedProviders.filter(name => isProviderAvailable(name, [...configured]) && providerAdapterForName(name, adapters)?.mode === 'api') })
-    assertOpenRouterRouteScope(request, [providerName], authorizedProviders)
+    if (!providerName || !adapter || adapter.mode !== 'api' || !isSweepProvider(providerName, routeFamilies) || isBrowserProvider(providerName) || !isProviderAvailable(providerName, [...configured], routeFamilies) || !providerEligibleFor(providerName, adapters, ProviderWorkflows.research, 'explicit')) throw validationError('Research requires a configured API provider.', { provider: input.provider, validProviders: authorizedProviders.filter(name => isProviderAvailable(name, [...configured], routeFamilies) && providerAdapterForName(name, adapters)?.mode === 'api') })
+    assertProviderRouteScope(request, [providerName], authorizedProviders, routeFamilies)
     if (input.model) { adapter.modelValidationPattern.lastIndex = 0; if ((!adapter.modelConfigurable && input.model !== adapter.defaultModel) || !adapter.modelValidationPattern.test(input.model)) throw validationError(`Invalid model "${input.model}" for provider "${providerName}".`, { provider: providerName, model: input.model, hint: adapter.modelValidationHint }) }
     const active = activeMeasurementPlan(app.db, project.id)
     const scope = input.scope
@@ -79,7 +86,7 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
       : null
     const requestedModel = input.model ?? null
     // A retired id (Perplexity's `sonar`) records the id that actually answers.
-    const resolvedModel = resolveProviderModel(providerName, openRouterRouteModel(providerName) ?? requestedModel ?? (project.providerModels[providerName] || opts.getEffectiveProviderModels?.()[providerName] || adapter.defaultModel))
+    const resolvedModel = resolveProviderModel(providerName, pinnedRouteSelection(providerName, routeFamilies) ?? requestedModel ?? (project.providerModels[providerName] || opts.getEffectiveProviderModels?.()[providerName] || adapter.defaultModel))
     adapter.modelValidationPattern.lastIndex = 0
     if (!adapter.modelValidationPattern.test(resolvedModel)) throw validationError('Invalid resolved model "' + resolvedModel + '" for provider "' + providerName + '".', { provider: providerName, model: resolvedModel, hint: adapter.modelValidationHint })
     if (deduplicateResearchQueries(input.queries).length !== input.queries.length) throw validationError('Research queries must be unique within a batch.')
@@ -149,7 +156,7 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     if (!opts.onResearchRunRequested) throw missingDependency('Research execution is not available on this deployment.', { reason: 'no-research-handler' })
     const active = activeMeasurementPlan(app.db, project.id)
     const prepared = input.runs.map(run => prepareBatchRun(app, opts, project, active, run))
-    assertOpenRouterRouteScope(request, prepared.map(run => run.providerName), researchProjectProviders(app, project.id, project.providers))
+    assertProviderRouteScope(request, prepared.map(run => run.providerName), researchProjectProviders(app, project.id, project.providers), routeFamilies)
     const now = new Date().toISOString()
     const initiatedBy = researchPrincipal(request)
     const decision = app.db.transaction((tx) => {
@@ -206,26 +213,40 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     const effectiveModels = opts.getEffectiveProviderModels?.() ?? {}
     const adapters = opts.providerAdapters ?? []
     const savedProviders = researchProjectProviders(app, project.id, project.providers)
+    // Options: every concrete engine, the routes this project saved, and each
+    // research profile of a configured answer service. Listing a route is not
+    // selecting it; a new route still needs settings authority to run.
+    const profileRoutes = adapters.flatMap(adapter => (adapter.profiles ?? [])
+      .filter(profile => profile.workflows.includes(ProviderWorkflows.research))
+      .map(profile => profile.route))
     const catalog = [...new Map([
-      ...adapters.filter(adapter => isSweepProvider(adapter.name)),
-      ...savedProviders.filter(name => openRouterRouteModel(name)).flatMap(name => {
+      ...adapters.filter(adapter => isSweepProvider(adapter.name, routeFamilies)),
+      ...[...savedProviders, ...profileRoutes].filter(name => resolveProviderRoute(name, routeFamilies)).flatMap(name => {
         const adapter = providerAdapterForName(name, adapters)
-        return adapter ? [adapter] : []
+        return adapter && providerEligibleFor(name, adapters, ProviderWorkflows.research, 'explicit') ? [adapter] : []
       }),
     ].map(adapter => [adapter.name, adapter])).values()]
     const providers = catalog
-      .filter(adapter => adapter.mode === 'api' && !isBrowserProvider(adapter.name) && isProviderAvailable(adapter.name, [...configured]))
+      .filter(adapter => adapter.mode === 'api' && !isBrowserProvider(adapter.name) && isProviderAvailable(adapter.name, [...configured], routeFamilies))
       .map(adapter => {
+        const pinned = pinnedRouteSelection(adapter.name, routeFamilies)
         const defaultModel = resolveProviderModel(adapter.name, project.providerModels[adapter.name] || effectiveModels[adapter.name] || adapter.defaultModel)
-        const cached = opts.getCachedProviderModels?.(providerConnectionName(adapter.name)) ?? []
+        const cached = opts.getCachedProviderModels?.(providerConnectionName(adapter.name, routeFamilies)) ?? []
         const candidates = cached.length ? cached : adapter.knownModels
-        const models = openRouterRouteModel(adapter.name) ? candidates.filter(model => model.id === defaultModel) : candidates
+        const models = pinned ? candidates.filter(model => model.id === defaultModel) : candidates
         return {
           name: adapter.name,
           displayName: adapter.displayName,
           modelConfigurable: adapter.modelConfigurable,
           defaultModel,
           knownModels: [...new Map([{ id: defaultModel, displayName: defaultModel }, ...models].map(model => [model.id, { id: model.id, displayName: model.displayName }])).values()],
+          // Only routed options carry identity fields; engine options keep their shape.
+          ...(adapter.kind ? {
+            kind: adapter.kind,
+            connection: providerConnectionName(adapter.name, routeFamilies),
+            selectionKind: resolveProviderRoute(adapter.name, routeFamilies)?.family.selectionKind ?? null,
+            ...(adapter.profiles ? { profiles: adapter.profiles } : {}),
+          } : {}),
         }
       })
     const canRun = canRunResearch(request, opts.allowViewers ?? false)
@@ -331,7 +352,8 @@ function prepareBatchRun(
   const configured = new Set(opts.getConfiguredProviderNames?.() ?? opts.configuredProviderNames ?? [])
   const providerName = input.provider
   const adapter = providerName ? providerAdapterForName(providerName, adapters) : undefined
-  if (!adapter || adapter.mode !== 'api' || !isSweepProvider(providerName) || isBrowserProvider(providerName) || !isProviderAvailable(providerName, [...configured])) {
+  const routeFamilies = providerRouteFamilies(adapters)
+  if (!adapter || adapter.mode !== 'api' || !isSweepProvider(providerName, routeFamilies) || isBrowserProvider(providerName) || !isProviderAvailable(providerName, [...configured], routeFamilies) || !providerEligibleFor(providerName, adapters, ProviderWorkflows.research, 'explicit')) {
     throw validationError('Research requires a configured API provider.', { provider: providerName, validProviders: adapters.filter(a => a.mode === 'api' && configured.has(a.name)).map(a => a.name) })
   }
   adapter.modelValidationPattern.lastIndex = 0
@@ -426,7 +448,10 @@ function serializeRun(row: typeof researchRuns.$inferSelect): ResearchRunSummary
   return { id: row.id, projectId: row.projectId, status: row.status as ResearchRunSummaryDto['status'], provider: row.provider, requestedModel: row.requestedModel, resolvedModel: row.resolvedModel, location: row.location ?? null, scope: row.scope ?? null, template: row.template ?? null, totalQueries: row.totalQueries, completedQueries: row.completedQueries, failedQueries: row.failedQueries, error: row.error, initiatedBy: row.initiatedBy ?? null, startedAt: row.startedAt, finishedAt: row.finishedAt, createdAt: row.createdAt }
 }
 function serializeQuery(row: typeof researchRunQueries.$inferSelect): ResearchRunQueryDto {
-  return { id: row.id, position: row.position, query: row.queryText, queryClass: row.queryClass ?? null, status: row.status as ResearchRunQueryDto['status'], requestedModel: row.requestedModel, resolvedModel: row.resolvedModel, servedModel: row.servedModel, answerText: row.answerText, groundingSources: row.groundingSources, citedDomains: row.citedDomains, searchQueries: row.searchQueries, retrievedSources: row.retrievedSources ?? null, namedCompetitors: row.namedCompetitors, citedCompetitorDomains: row.citedCompetitorDomains, answerMentioned: row.answerMentioned, citationState: row.citationState as ResearchRunQueryDto['citationState'], error: row.error, startedAt: row.startedAt, finishedAt: row.finishedAt, createdAt: row.createdAt }
+  return { id: row.id, position: row.position, query: row.queryText, queryClass: row.queryClass ?? null, status: row.status as ResearchRunQueryDto['status'], requestedModel: row.requestedModel, resolvedModel: row.resolvedModel, servedModel: row.servedModel, answerText: row.answerText, groundingSources: row.groundingSources, citedDomains: row.citedDomains, searchQueries: row.searchQueries, retrievedSources: row.retrievedSources ?? null, namedCompetitors: row.namedCompetitors, citedCompetitorDomains: row.citedCompetitorDomains, answerMentioned: row.answerMentioned, citationState: row.citationState as ResearchRunQueryDto['citationState'], error: row.error, startedAt: row.startedAt, finishedAt: row.finishedAt, createdAt: row.createdAt,
+    // Only answer services record evidence; every other row keeps its exact shape.
+    ...(row.answerEvidence ? { evidence: row.answerEvidence, citationMeasured: row.status === ResearchQueryStatuses.completed && row.answerEvidence.citationMeasurable } : {}),
+    ...(row.upstreamJobId ? { upstreamJobId: row.upstreamJobId } : {}) }
 }
 
 function researchPrincipal(request: FastifyRequest): ResearchRunPrincipal | null {

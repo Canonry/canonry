@@ -15,7 +15,12 @@ import {
   OutcomeSurfaces,
   OutcomeTriggers,
   PROVIDER_NAMES,
+  adapterConnectionName,
+  IncompleteAnswerError,
+  isCitationMeasurable,
+  isEligibleFor,
   providerConnectionName,
+  ProviderWorkflows,
   ResearchQueryStatuses,
   ResearchRunStatuses,
   describeError,
@@ -31,7 +36,13 @@ import { currentOutcomeOrigin, outcomeFailure, startOutcomeTimer, trackFeatureCo
 
 const unfinishedResearchQueryStatuses = [ResearchQueryStatuses.queued, ResearchQueryStatuses.running] as const
 
-function finalResearchRunStatus(completed: number, failed: number) {
+/**
+ * A run with any query waiting on an upstream job is not finished; otherwise
+ * it is completed, partial or failed by its counts. A waiting query counts as
+ * neither completed nor failed.
+ */
+function finalResearchRunStatus(completed: number, failed: number, waiting: number) {
+  if (waiting > 0) return ResearchRunStatuses['waiting-upstream']
   if (failed === 0) return ResearchRunStatuses.completed
   return completed > 0 ? ResearchRunStatuses.partial : ResearchRunStatuses.failed
 }
@@ -73,8 +84,12 @@ export async function executeResearchRun(
       fatalReason = { reasonCode: OutcomeReasonCodes.NOT_CONNECTED }
       throw new Error('Configured API provider is unavailable.')
     }
+    if (!isEligibleFor(provider.adapter, ProviderWorkflows.research, 'explicit')) {
+      fatalReason = { reasonCode: OutcomeReasonCodes.NOT_CONNECTED }
+      throw new Error(`${provider.adapter.displayName} does not run research queries.`)
+    }
     const period = getCurrentUsageDay()
-    const scope = `${projectId}:${providerConnectionName(run.provider)}`
+    const scope = `${projectId}:${adapterConnectionName(provider.adapter)}`
     const quota = reserveDailyQueryQuota(db, {
       scope, period, count: run.totalQueries, limit: provider.config.quotaPolicy.maxRequestsPerDay,
     })
@@ -100,7 +115,7 @@ export async function executeResearchRun(
     // with an answer-visibility sweep or another research batch against the
     // same provider; a gate built fresh here would give this batch its own
     // independent budget against the same upstream key.
-    const gate = getSharedProviderExecutionGate(run.provider, provider.config.quotaPolicy.maxConcurrency, provider.config.quotaPolicy.maxRequestsPerMinute)
+    const gate = getSharedProviderExecutionGate(adapterConnectionName(provider.adapter), provider.config.quotaPolicy.maxConcurrency, provider.config.quotaPolicy.maxRequestsPerMinute)
 
     // The worker absorbs every per-query error. That prevents mapWithConcurrency
     // from fail-fast escaping before the parent can be finalized.
@@ -129,12 +144,16 @@ export async function executeResearchRun(
           citedDomains: normalized.citedDomains, searchQueries: normalized.searchQueries, retrievedSources: normalized.retrievedSources ?? null,
           namedCompetitors, citedCompetitorDomains,
           answerMentioned: determineAnswerMentioned(normalized.answerText, brands, domains),
-          citationState: determineCitationState(normalized, domains), rawResponse: raw.rawResponse as Record<string, unknown>,
+          // Sources the answer is not tied to cannot say whether a domain was cited.
+          citationState: isCitationMeasurable(normalized) ? determineCitationState(normalized, domains) : null,
+          rawResponse: raw.rawResponse as Record<string, unknown>,
+          answerEvidence: raw.evidence ?? null,
           finishedAt: new Date().toISOString(),
         }).where(and(eq(researchRunQueries.id, row.id), eq(researchRunQueries.status, ResearchQueryStatuses.running))).run()
         if (completed.changes === 1) incrementResearchProgress(db, runId, 'completedQueries')
       } catch (error) {
-        queryFailure ??= error
+        // A query waiting on an upstream job has not failed.
+        if (!(error instanceof IncompleteAnswerError && error.resumable)) queryFailure ??= error
         // A DB write can fail independently of the provider call. Never let
         // that make mapWithConcurrency fail-fast; after every worker settles,
         // the finally block terminalizes anything left unfinished.
@@ -178,8 +197,16 @@ export async function executeResearchRun(
 }
 
 function researchOutcomeStatus(status: ReturnType<typeof finalResearchRunStatus>): FeatureCompletedProperties['status'] {
-  if (status === ResearchRunStatuses.completed) return OutcomeStatuses.succeeded
-  return status === ResearchRunStatuses.partial ? OutcomeStatuses.partial : OutcomeStatuses.failed
+  switch (status) {
+    case ResearchRunStatuses.completed:
+      return OutcomeStatuses.succeeded
+    // Everything this dispatch could finish is in; the rest waits on upstream jobs.
+    case ResearchRunStatuses.partial:
+    case ResearchRunStatuses['waiting-upstream']:
+      return OutcomeStatuses.partial
+    case ResearchRunStatuses.failed:
+      return OutcomeStatuses.failed
+  }
 }
 
 function incrementResearchProgress(db: DatabaseClient, runId: string, column: 'completedQueries' | 'failedQueries'): void {
@@ -187,10 +214,36 @@ function incrementResearchProgress(db: DatabaseClient, runId: string, column: 'c
     .where(eq(researchRuns.id, runId)).run()
 }
 
+/**
+ * A query that did not return a complete answer. An incomplete upstream
+ * answer (partial, failed, pending) keeps its evidence and any partial text
+ * for inspection; its metrics stay null, so it never counts as a measured
+ * answer.
+ *
+ * A pending job the adapter can follow later (`resumable`) waits upstream: the
+ * query is `waiting-upstream` with its job id, counts as neither completed nor
+ * failed, has no finish time, and a job executor resumes it from that id
+ * without submitting it again. Any other pending handle cannot be followed,
+ * so the query fails and the id stays in its evidence.
+ */
 function markResearchQueryFailed(db: DatabaseClient, runId: string, queryId: string, error: unknown): void {
   const message = describeError(error)
-  const failed = db.update(researchRunQueries).set({ status: ResearchQueryStatuses.failed, error: message, finishedAt: new Date().toISOString() })
-    .where(and(eq(researchRunQueries.id, queryId), inArray(researchRunQueries.status, unfinishedResearchQueryStatuses))).run()
+  const unfinished = and(eq(researchRunQueries.id, queryId), inArray(researchRunQueries.status, unfinishedResearchQueryStatuses))
+  if (error instanceof IncompleteAnswerError && error.resumable) {
+    db.update(researchRunQueries).set({
+      status: ResearchQueryStatuses['waiting-upstream'],
+      upstreamJobId: error.evidence.completion.upstreamJobId,
+      answerEvidence: error.evidence,
+      searchQueries: error.evidence.searchQueries,
+      error: null,
+    }).where(unfinished).run()
+    return
+  }
+  const incomplete = error instanceof IncompleteAnswerError
+    ? { answerEvidence: error.evidence, answerText: error.answerText, rawResponse: error.rawResponse, searchQueries: error.evidence.searchQueries }
+    : {}
+  const failed = db.update(researchRunQueries).set({ status: ResearchQueryStatuses.failed, error: message, ...incomplete, finishedAt: new Date().toISOString() })
+    .where(unfinished).run()
   if (failed.changes === 1) incrementResearchProgress(db, runId, 'failedQueries')
 }
 
@@ -204,11 +257,13 @@ function finalizeResearchRun(db: DatabaseClient, runId: string, fatalError?: str
     .where(eq(researchRunQueries.researchRunId, runId)).all()
   const completed = rows.filter(row => row.status === ResearchQueryStatuses.completed).length
   const failed = rows.filter(row => row.status === ResearchQueryStatuses.failed).length
-  const status = finalResearchRunStatus(completed, failed)
+  const waiting = rows.filter(row => row.status === ResearchQueryStatuses['waiting-upstream']).length
+  const status = finalResearchRunStatus(completed, failed, waiting)
   db.update(researchRuns).set({
     status, completedQueries: completed, failedQueries: failed,
     error: fatalError ?? (failed === rows.length ? 'Every research query failed.' : null),
-    finishedAt: new Date().toISOString(),
+    // A run waiting on upstream jobs has not finished.
+    finishedAt: waiting > 0 ? null : new Date().toISOString(),
   }).where(eq(researchRuns.id, runId)).run()
   return { status, total: rows.length, completed, failed }
 }

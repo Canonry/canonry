@@ -288,7 +288,7 @@ test('embed hides the project sweep action that leaks on every tab', async () =>
   // to it.)
   const operatorDoc = new DOMParser().parseFromString(operator, 'text/html')
   const embedDoc = new DOMParser().parseFromString(embed, 'text/html')
-  const isSweepAction = (button: Element) => /^(?:Run AI sweep|AI sweep running…|Starting…)$/.test(button.textContent ?? '')
+  const isSweepAction = (button: Element) => /^(?:Run AI Visibility check|AI Visibility check running…|Starting…)$/.test(button.textContent ?? '')
   expect([...operatorDoc.querySelectorAll('[data-project-actions] button')].some(isSweepAction)).toBe(true)
   // …the embed render has no project actions at all, and its page header
   // carries no button (this renders OUTSIDE the tab switch, so it would
@@ -339,11 +339,11 @@ test('embed shows the query evidence and By engine cards and omits past sweeps',
 
   expect(detailsForTitle(operatorDoc, 'Query evidence')?.hasAttribute('open')).toBe(true)
   expect(cardForTitle(operatorDoc, 'By engine')).not.toBeNull()
-  expect(cardForTitle(operatorDoc, 'Past sweeps')).not.toBeNull()
+  expect(cardForTitle(operatorDoc, 'Past checks')).not.toBeNull()
 
   expect(detailsForTitle(embedDoc, 'Query evidence')?.hasAttribute('open')).toBe(true)
   expect(cardForTitle(embedDoc, 'By engine')).not.toBeNull()
-  expect(cardForTitle(embedDoc, 'Past sweeps')).toBeNull()
+  expect(cardForTitle(embedDoc, 'Past checks')).toBeNull()
 })
 
 // A default embed config (enabled, no `views` allowlist) makes every top-level

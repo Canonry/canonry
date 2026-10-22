@@ -731,6 +731,19 @@ share their connection limits; adding a new model requires `settings.write`.
 Aero can use `--provider openrouter --model publisher/model` independently of
 the project's sweep models. Classifications identify their own evaluator route.
 
+Search answer services (hosted services that search the web and answer) take
+only an API key: `cnry settings provider <service> --api-key <KEY>`, or the
+environment variable each service names at bootstrap. `cnry settings` lists
+every registered service with its key variable, its profiles and the workflows
+each profile allows. Name a profile route `<service>:<profile>` in `--provider`;
+the bare connection is not an engine, and an empty provider list, schedules,
+discovery and Aero never pick a service up. Only complete answers are
+measured, and each answer stores its evidence (source relationships,
+completion, frozen profile settings, cost basis), so read what a service
+discloses from that evidence rather than assuming it. See
+[search answer services](https://github.com/Canonry/canonry/blob/main/docs/providers/answer-services.md)
+and the service's own page under `docs/providers/answer-services/`.
+
 Set `MUSE_API_KEY` before `cnry bootstrap` or `cnry init` to store the key. Setup also accepts `MUSE_MODEL` and `MUSE_BASE_URL`. `cnry init --muse-key <KEY>` stores a key directly. Muse uses Meta's Standard `muse-spark-1.3` by default. Contributor model IDs require an explicit model override; Meta permits training on their prompts and completions. See [the Muse provider guide](https://github.com/Canonry/canonry/blob/main/docs/providers/muse.md).
 
 If a provider hits rate limits (429 errors), the run completes as `partial`. Reduce concurrency or increase time between sweeps.

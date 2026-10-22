@@ -354,7 +354,7 @@ function SentimentScope({ projectName, selection, runOptions, waitForResolvedRun
   const selected = selection.queryClass === 'non-brand' ? nonBrand.data : branded.data
   const effective = selected?.selection
   const resolved: SentimentSelection = { ...activeSelection, ...(effective ? { ...effective, runId: effective.runId ?? undefined, runIds: effective.runId ? undefined : effective.runIds, revision: effective.revision ?? undefined, evaluationDefinitionId: effective.evaluationDefinitionId ?? undefined } : {}) }
-  const options = resolved.runId && !runOptions.some(run => run.id === resolved.runId) ? [{ id: resolved.runId, label: 'Displayed sweep' }, ...runOptions] : runOptions
+  const options = resolved.runId && !runOptions.some(run => run.id === resolved.runId) ? [{ id: resolved.runId, label: 'Displayed check' }, ...runOptions] : runOptions
   const restoreFocus = (event: Event) => { event.preventDefault(); opener.current?.focus() }
   return <SentimentContext.Provider value={{ projectName, selection: activeSelection, resolveSource, settings, summaries: { branded, 'non-brand': nonBrand }, configured, hasSourceEvidence,
     openManage: element => { opener.current = element; setManageOpen(true) },
@@ -607,10 +607,10 @@ export function SentimentJobs({ projectName, jobs }: { projectName: string; jobs
 }
 /** Plain labels for the server's backfill skip reasons; a reason this build does not know still reads through. */
 const SENTIMENT_SKIP_REASON_LABELS: Readonly<Record<string, string>> = {
-  probe: 'Probe sweeps',
-  'unsupported-run-kind': 'Not an answer sweep',
-  'failed-run': 'Failed sweep',
-  'incomplete-run': 'Incomplete sweep',
+  probe: 'Probe checks',
+  'unsupported-run-kind': 'Not an AI Visibility check',
+  'failed-run': 'Failed check',
+  'incomplete-run': 'Incomplete check',
   'legacy-missing-provenance': 'Saved without its frozen query and subject record',
   'legacy-missing-language': 'Saved before the answer language was recorded',
   'excluded-branded': 'Branded answers (backfill that class separately)',
@@ -632,7 +632,7 @@ function viewBackfillFilters(selection: SentimentBackfillSelection): string[] {
 /** The selection a preview actually covered, as the server echoed it. */
 function describeSentimentBackfillSelection(selection: SentimentBackfillSelection): string {
   const filters = viewBackfillFilters(selection)
-  return [`${CLASS_LABEL[selection.queryClass]} queries`, ...(filters.length ? filters : ['whole sweep'])].join(' · ')
+  return [`${CLASS_LABEL[selection.queryClass]} queries`, ...(filters.length ? filters : ['whole check'])].join(' · ')
 }
 /**
  * A dashboard backfill covers the whole chosen sweep for one query class: every
@@ -671,9 +671,9 @@ function SentimentSettingsEditor({ projectName, settings, selection, runOptions 
   return <div className="mt-5 space-y-5 text-sm text-secondary">
     <dl className="definition-list"><div><dt>Evaluator</dt><dd>{settings.model} · {settings.provider === 'openrouter' ? 'OpenRouter' : 'TypeSafe'}</dd></div></dl>
     <p>{settings.disclosure}</p>{!settings.ready && <p>{settings.readinessReasons.join('; ') || 'An operator must configure sentiment on this installation.'}</p>}
-    <form className="space-y-3" onSubmit={event => { event.preventDefault(); save.mutate() }}><label className="flex items-center gap-2"><input type="checkbox" checked={enabled} disabled={pending} onChange={event => { setEnabled(event.target.checked); reset() }} />Enable project sentiment</label><p>Enabling applies to future completed sweeps. Past sweeps require an explicit backfill.</p><WriteButton type="submit" disabled={pending}>{save.isPending ? 'Saving…' : 'Save sentiment settings'}</WriteButton>{save.isError && <p role="alert">{describeError(save.error)}</p>}{save.isSuccess && <p role="status">Sentiment settings saved.</p>}</form>
-    {settings.actions.backfill && <section className="space-y-3"><h3>Backfill a saved sweep</h3><label className="block">Saved sweep<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={runId} disabled={pending} onChange={event => { setRunId(event.target.value); reset() }}><option value="">Select a saved sweep</option>{runOptions.map(run => <option key={run.id} value={run.id}>{run.label}</option>)}</select></label><label className="block">Query class<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={queryClass} disabled={pending} onChange={event => { setQueryClass(event.target.value as QueryClass); reset() }}><option value="non-brand">Non-brand</option><option value="branded">Branded</option></select></label>
-      <p>The backfill covers every engine, location and query of the chosen sweep for this query class.</p>
+    <form className="space-y-3" onSubmit={event => { event.preventDefault(); save.mutate() }}><label className="flex items-center gap-2"><input type="checkbox" checked={enabled} disabled={pending} onChange={event => { setEnabled(event.target.checked); reset() }} />Enable project sentiment</label><p>Enabling applies to future completed checks. Past checks require an explicit backfill.</p><WriteButton type="submit" disabled={pending}>{save.isPending ? 'Saving…' : 'Save sentiment settings'}</WriteButton>{save.isError && <p role="alert">{describeError(save.error)}</p>}{save.isSuccess && <p role="status">Sentiment settings saved.</p>}</form>
+    {settings.actions.backfill && <section className="space-y-3"><h3>Backfill a saved check</h3><label className="block">Saved check<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={runId} disabled={pending} onChange={event => { setRunId(event.target.value); reset() }}><option value="">Select a saved check</option>{runOptions.map(run => <option key={run.id} value={run.id}>{run.label}</option>)}</select></label><label className="block">Query class<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={queryClass} disabled={pending} onChange={event => { setQueryClass(event.target.value as QueryClass); reset() }}><option value="non-brand">Non-brand</option><option value="branded">Branded</option></select></label>
+      <p>The backfill covers every engine, location and query of the chosen check for this query class.</p>
       {viewFilters.length > 0 && <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" checked={limitToView} disabled={pending} onChange={event => { setLimitToView(event.target.checked); reset() }} /><span>Limit to the current view<span className="block">{viewFilters.join(' · ')}</span></span></label>}
       <Button variant="outline" disabled={pending || !runId || !settings.enabled || !settings.ready} onClick={() => { reset(); inspect.mutate() }}>{inspect.isPending ? 'Preparing preview…' : 'Preview sentiment backfill'}</Button>{inspect.isError && <p role="alert">{describeError(inspect.error)}</p>}
       {preview && <div className="space-y-3"><dl className="grid grid-cols-[1fr_auto] gap-2"><dt>Selection</dt><dd className="text-right">{describeSentimentBackfillSelection(preview.selection)}</dd><dt>Eligible assessments</dt><dd>{preview.eligibleAssessments}</dd><dt>Already classified</dt><dd>{preview.alreadyClassified}</dd><dt>Estimated input tokens</dt><dd>{preview.estimatedInputTokens}</dd><dt>Estimated cost (USD)</dt><dd>{preview.estimatedCostUsd ?? 'Unavailable'}</dd></dl><InfoTooltip text={preview.estimateMethod} />

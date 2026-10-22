@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ResearchRunDetailDto } from '@canonry/canonry-contracts'
+import type { AnswerEvidence, ResearchRunDetailDto } from '@canonry/canonry-contracts'
 
 const startResearchRun = vi.fn()
 const listResearchRuns = vi.fn()
@@ -179,4 +179,40 @@ it('forwards history cursors and preserves access, providers and pagination in J
   const output = await captureLog(() => dispatchRegisteredCommand(['research', 'list', 'demo', '--cursor', 'previous-page-token', '--limit', '10', '--format', 'json'], 'text', RESEARCH_CLI_COMMANDS).then(() => undefined))
   expect(listResearchRuns).toHaveBeenCalledWith('demo', { limit: 10, cursor: 'previous-page-token' })
   expect(JSON.parse(output)).toEqual(response)
+})
+
+describe('answer-service evidence in research detail', () => {
+  const evidence: AnswerEvidence = {
+    version: 1,
+    identity: { connection: 'svc', route: 'svc:basic', service: 'svc', product: 'answer', profile: 'basic', settings: {}, requestedServiceModel: null, disclosedModel: null, disclosedModelKind: null, requestPolicy: 'v1', parserVersion: 'p1' },
+    completion: { status: 'complete', finishReason: null, upstreamStatus: null, upstreamRequestId: null, upstreamJobId: null, error: null },
+    usage: {
+      tokens: { input: null, output: null, reasoning: null, basis: 'unknown' },
+      searches: { count: null, basis: 'unknown' },
+      pageReads: { count: null, basis: 'unknown' },
+      billedUnits: [],
+      cost: { micros: 4000, currency: 'USD', basis: 'estimated', estimatedBy: 'canonry' },
+    },
+    sources: [], searchQueries: [], retrievalStatus: 'unknown', citationBasis: 'answer-support', citationMeasurable: true, directSourceUrls: true,
+    location: { requested: null, sent: null, strength: null, serviceDefault: null, status: 'not-requested' }, rawTruncated: false,
+  }
+
+  it('names who estimated a cost: Canonry when Canonry did, the service when it did', async () => {
+    const query = detail.queries[0]!
+    getResearchRun.mockResolvedValue({ ...detail, provider: 'svc:basic', queries: [{ ...query, evidence }] })
+    expect(await captureLog(() => researchShow('demo', 'research-1', {}))).toContain('Evidence: complete · profile svc:basic · model not disclosed · cost estimated by Canonry')
+    getResearchRun.mockResolvedValue({ ...detail, provider: 'svc:basic', queries: [{ ...query, evidence: { ...evidence, usage: { ...evidence.usage, cost: { ...evidence.usage.cost, estimatedBy: 'provider' } } } }] })
+    expect(await captureLog(() => researchShow('demo', 'research-1', {}))).toContain('cost estimated by the service')
+  })
+
+  it('shows a run waiting on an upstream job and the job each waiting query follows', async () => {
+    const query = detail.queries[0]!
+    getResearchRun.mockResolvedValue({
+      ...detail, status: 'waiting-upstream', completedQueries: 0, finishedAt: null,
+      queries: [{ ...query, status: 'waiting-upstream', answerText: null, answerMentioned: null, citationState: null, upstreamJobId: 'job-42' }],
+    })
+    const output = await captureLog(() => researchShow('demo', 'research-1', {}))
+    expect(output).toContain('Waiting:  some queries wait on upstream jobs')
+    expect(output).toContain('Upstream job: job-42')
+  })
 })

@@ -327,7 +327,7 @@ function PropertyProvenance({
   const when = measuredAt === undefined
     ? null
     : measuredAt === null
-      ? 'No completed sweep yet'
+      ? 'No completed check yet'
       : `Measured ${formatObservedInstantLabel(observedInstant(measuredAt))}`
   if (when === null && unmeasuredReason === undefined) return null
   return (
@@ -983,7 +983,7 @@ function carriedFilterHelp(selection: VisibilitySelectionState, marketLabel: str
     selection.model ? `the ${selection.model} model` : null,
     selection.location ? `location ${selection.location}` : null,
     selection.from || selection.to ? 'a date range' : null,
-    selection.measurementRunId ? 'a saved sweep' : null,
+    selection.measurementRunId ? 'a saved check' : null,
   ].filter((filter): filter is string => filter !== null)
   if (filters.length === 0) return null
   return `AI Visibility is filtered to ${filters.join(', ')}. This page shows the latest measurement for ${MARKET_SCOPE_COPY.allMarkets.toLocaleLowerCase()} and answer engines.`

@@ -127,11 +127,8 @@ export function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = fal
     return (
       <label key={modelId} data-model-id={modelId} className="flex min-h-11 items-center gap-3 py-2 text-sm text-secondary">
         <input type="checkbox" aria-label={title} aria-describedby={detailId} checked={added || draft.includes(route)} disabled={added} onChange={event => toggle(route, event.target.checked)} />
-        <span className="min-w-0">
-          <span className="block text-heading">{title}</span>
-          <span id={detailId} className="block break-all text-sm">{detail}</span>
-        </span>
-        {added && <span className="ml-auto">Added</span>}
+        <span className="min-w-0 flex-1 truncate text-heading">{title}</span>
+        <span id={detailId} className="shrink-0 truncate text-sm">{added ? 'Added' : detail}</span>
       </label>
     )
   }
@@ -165,13 +162,13 @@ export function OpenRouterModelPicker({ catalog, selected, onAdd, disabled = fal
           {recommended.length > 0 && (
             <fieldset disabled={busy} className="divide-y divide-default">
               <legend className="mb-1 text-sm font-medium text-heading">Recommended</legend>
-              {recommended.map(model => modelRow(model.id, names.get(model.id) ?? model.id, `From the maker of ${model.engine}`))}
+              {recommended.map(model => modelRow(model.id, names.get(model.id) ?? model.id, `Maker of ${model.engine}`))}
             </fieldset>
           )}
           {recommended.length > 0 && (
-            <Button type="button" variant="ghost" size="sm" className="-ml-3 text-sm" aria-expanded={browsing} aria-controls={`${id}-browse`} onClick={() => setBrowsing(value => !value)}>
-              {browsing ? 'Hide the full list' : `Browse all OpenRouter models (${catalog.knownModels.length})`}
-            </Button>
+            <button type="button" className="text-sm text-secondary underline decoration-border-strong underline-offset-4 hover:text-heading" aria-expanded={browsing} aria-controls={`${id}-browse`} onClick={() => setBrowsing(value => !value)}>
+              {browsing ? 'Hide the full list' : `Browse all ${catalog.knownModels.length} models`}
+            </button>
           )}
           {browsing && (
             <div id={`${id}-browse`} className="space-y-3">

@@ -159,17 +159,17 @@ export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onC
   return <Sheet open={open} onOpenChange={onOpenChange}>
     <SheetContent onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}>
       <SheetHeader>
-        <SheetTitle>Run AI sweep for the whole project?</SheetTitle>
+        <SheetTitle>Run AI Visibility check for the whole project?</SheetTitle>
         <SheetDescription>
-          Runs all tracked queries for {projectLabel}. View filters do not limit the sweep. Provider charges apply.
+          Runs all tracked queries for {projectLabel}. View filters do not limit the check. Provider charges apply.
           {leftOut.length > 0
-            ? ` ${leftOut.map(providerDisplayName).join(' and ')} ${leftOut.length === 1 ? 'is' : 'are'} left out: ${leftOut.length === 1 ? 'it keeps failing on its account' : 'they keep failing on their accounts'}.`
+            ? ` ${leftOut.map(name => providerDisplayName(name)).join(' and ')} ${leftOut.length === 1 ? 'is' : 'are'} left out: ${leftOut.length === 1 ? 'it keeps failing on its account' : 'they keep failing on their accounts'}.`
             : null}
         </SheetDescription>
       </SheetHeader>
       <div className="mt-6 flex flex-wrap gap-3">
         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-        <WriteButton disabled={disabled} onClick={onConfirm}>Run project-wide sweep</WriteButton>
+        <WriteButton disabled={disabled} onClick={onConfirm}>Run project-wide check</WriteButton>
       </div>
     </SheetContent>
   </Sheet>
@@ -954,7 +954,7 @@ function SearchConsoleSection({
         if (!bingConnection?.connected) return
         const run = await inspectBingSitemap(projectName).catch(() => null)
         if (!run?.id) {
-          failures.push('Bing sweep could not be started')
+          failures.push('Bing check could not be started')
           return
         }
 
@@ -967,15 +967,15 @@ function SearchConsoleSection({
           const detail = await fetchRunDetail(run.id).catch(() => null)
           if (!detail) break
           if (['completed', 'failed', 'cancelled', 'partial'].includes(detail.status)) {
-            if (detail.status === 'failed') failures.push('Bing sweep failed')
-            else if (detail.status === 'partial') notices.push('Bing sweep finished with some pages unverified')
+            if (detail.status === 'failed') failures.push('Bing check failed')
+            else if (detail.status === 'partial') notices.push('Bing check finished with some pages unverified')
             return
           }
         }
 
         // Still running at the deadline. The run continues in the engine — say
         // so rather than reporting a failure the user cannot act on.
-        notices.push('Bing sweep is still running — coverage will update shortly')
+        notices.push('Bing check is still running. Coverage will update shortly.')
       }
 
       const results = await Promise.allSettled([syncGoogle(), syncBing()])
@@ -2294,7 +2294,7 @@ function ProjectPageContent({
   const nextSweepDate = sweepSchedule?.enabled && sweepSchedule.nextRunAt
     ? managedSweepDate(sweepSchedule.nextRunAt, sweepSchedule.timezone)
     : null
-  const nextSweepLabel = nextSweepDate ? `Next AI sweep ${nextSweepDate}` : null
+  const nextSweepLabel = nextSweepDate ? `Next AI Visibility check ${nextSweepDate}` : null
   const distinctLocationsForCompare = useMemo(() => {
     // "Compare" needs ≥2 locations with selectable data. Prefer evidence-backed
     // locations, but fall back to configured locations so a fresh project that
@@ -2844,7 +2844,7 @@ function ProjectPageContent({
                   {triggerRunMutation.isPending
                     ? 'Starting…'
                     : hasActiveVisibilitySweep
-                      ? 'AI sweep running…'
+                      ? 'AI Visibility check running…'
                       : sweepReadinessPending
                         ? 'Checking AI readiness…'
                         : providerReadinessFailed
@@ -2852,8 +2852,8 @@ function ProjectPageContent({
                         : sweepSetupRequired
                           ? 'Set up AI Visibility'
                           : sweepsOnHold
-                            ? 'AI sweeps on hold'
-                            : 'Run AI sweep'}
+                            ? 'AI Visibility checks on hold'
+                            : 'Run AI Visibility check'}
                 </WriteButton>
               </>
             )}
@@ -2971,7 +2971,7 @@ function ProjectPageContent({
           <section className="page-section-divider">
             <div className="av-card-head">
               <h2 className="av-card-title">Where competitors are winning</h2>
-              {hasVisibilityBaseline ? <p className="av-card-meta">Latest sweep</p> : null}
+              {hasVisibilityBaseline ? <p className="av-card-meta">Latest check</p> : null}
             </div>
 
             {hasVisibilityBaseline ? (
@@ -3003,7 +3003,7 @@ function ProjectPageContent({
               </div>
             ) : (
               <p className="text-sm text-secondary">
-                Competitive mention and citation gaps appear after the first AI Visibility sweep.
+                Competitive mention and citation gaps appear after the first AI Visibility check.
               </p>
             )}
 
@@ -3189,7 +3189,7 @@ function ProjectPageContent({
           <NotificationsSection projectName={model.project.name} />
           {/* Deleting the project lives here, at the far end of Settings, rather
               than as an icon in the page header where it sat one misclick from
-              "Run AI sweep". It destroys every query, run and snapshot, and a
+              "Run AI Visibility check". It destroys every query, run and snapshot, and a
               confirm dialog was the only thing standing between the two. */}
           {canWrite && !isEmbed() ? (
             <section className="page-section-divider">

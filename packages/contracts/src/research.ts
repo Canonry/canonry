@@ -1,4 +1,8 @@
 import { z } from 'zod'
+import { answerEvidenceSchema } from './answer-evidence.js'
+import { answerServiceProfileSummarySchema } from './answer-service.js'
+import { providerKindSchema } from './provider-eligibility.js'
+import { providerSelectionKindSchema } from './provider-routes.js'
 import { measurementV2StableKeySchema } from './measurement-plan-v2.js'
 import { expandQueryTemplate, queryTrackingTemplateProvenanceSchema } from './query-tracking.js'
 import { queryClassSchema } from './query-class.js'
@@ -9,11 +13,24 @@ import { userRoleSchema } from './users.js'
 import { normalizeQueryText } from './query-normalize.js'
 import { validationError } from './errors.js'
 
-export const researchRunStatusSchema = z.enum(['queued', 'running', 'completed', 'partial', 'failed'])
+/**
+ * `waiting-upstream` is not terminal: every query that could finish here has
+ * finished, and at least one waits on an upstream job (see the query status).
+ */
+export const researchRunStatusSchema = z.enum(['queued', 'running', 'waiting-upstream', 'completed', 'partial', 'failed'])
 export type ResearchRunStatus = z.infer<typeof researchRunStatusSchema>
 export const ResearchRunStatuses = researchRunStatusSchema.enum
 
-export const researchQueryStatusSchema = z.enum(['queued', 'running', 'completed', 'failed'])
+/** The run statuses after which nothing about the run changes again. */
+export const TERMINAL_RESEARCH_RUN_STATUSES = [ResearchRunStatuses.completed, ResearchRunStatuses.partial, ResearchRunStatuses.failed] as const satisfies readonly ResearchRunStatus[]
+
+/**
+ * `waiting-upstream` is not terminal: the service accepted the query as an
+ * upstream job that the adapter can follow (its id is `upstreamJobId`). It
+ * counts as neither completed nor failed; a job executor resumes it from that
+ * id and never submits it again.
+ */
+export const researchQueryStatusSchema = z.enum(['queued', 'running', 'waiting-upstream', 'completed', 'failed'])
 export type ResearchQueryStatus = z.infer<typeof researchQueryStatusSchema>
 export const ResearchQueryStatuses = researchQueryStatusSchema.enum
 
@@ -161,6 +178,15 @@ export const researchRunQuerySchema = z.object({
   namedCompetitors: z.array(z.string()).default([]), citedCompetitorDomains: z.array(z.string()).default([]),
   answerMentioned: z.boolean().nullable(), citationState: citationStateSchema.nullable(), error: z.string().nullable(),
   startedAt: z.string().nullable(), finishedAt: z.string().nullable(), createdAt: z.string(),
+  /** Source relationships, completion, identity and usage basis. Null for engines that record none. */
+  evidence: answerEvidenceSchema.nullable().optional(),
+  /**
+   * Whether `citationState` was measured. False when the answer's sources are
+   * not tied to the answer (search results only), so citationState stays null.
+   */
+  citationMeasured: z.boolean().optional(),
+  /** The upstream job a `waiting-upstream` query waits on. Absent or null otherwise. */
+  upstreamJobId: z.string().nullable().optional(),
 })
 export type ResearchRunQueryDto = z.infer<typeof researchRunQuerySchema>
 
@@ -175,6 +201,14 @@ export const researchProviderOptionSchema = z.object({
   modelConfigurable: z.boolean(),
   defaultModel: z.string(),
   knownModels: z.array(z.object({ id: z.string(), displayName: z.string() })),
+  /** Absent means an answer engine. */
+  kind: providerKindSchema.optional(),
+  /** The connection whose key and quota this option uses. */
+  connection: z.string().optional(),
+  /** `profile` for an answer-service route, `model` for an OpenRouter route. */
+  selectionKind: providerSelectionKindSchema.nullable().optional(),
+  /** The pinned answer-service profile behind this option. */
+  profiles: z.array(answerServiceProfileSummarySchema).optional(),
 })
 export type ResearchProviderOption = z.infer<typeof researchProviderOptionSchema>
 

@@ -36,7 +36,7 @@ export function PastSweeps({ runs, collapsed = false }: { runs: readonly RunList
     <section className="overview-brief" aria-labelledby={titleId}>
       <details className="av-history" open={!collapsed || undefined}>
         <summary className="av-card-head">
-          <h2 id={titleId} className="av-card-title">Past sweeps</h2>
+          <h2 id={titleId} className="av-card-title">Past checks</h2>
           <span className="inline-flex items-center gap-2">
             {runs.length > 0 ? <span className="av-card-meta">{runs.length} recent</span> : null}
             <ChevronDown className="overview-disclosure-icon" size={16} aria-hidden="true" />
@@ -44,7 +44,7 @@ export function PastSweeps({ runs, collapsed = false }: { runs: readonly RunList
         </summary>
         <div className="av-card-body">
           {runs.length === 0 ? (
-            <p className="text-sm text-secondary">No sweeps yet.</p>
+            <p className="text-sm text-secondary">No checks yet.</p>
           ) : (
             <table className="av-grid av-grid-dense av-grid-sweeps" aria-labelledby={titleId}>
               <thead className="sr-only">
@@ -64,7 +64,7 @@ export function PastSweeps({ runs, collapsed = false }: { runs: readonly RunList
                   return (
                     <tr key={run.id}>
                       <th scope="row" className="av-row-label tabular-nums">
-                        <button type="button" className="av-link" onClick={() => openRun(run.id)} aria-label={`View the ${run.startedAt} sweep`}>
+                        <button type="button" className="av-link" onClick={() => openRun(run.id)} aria-label={`View the ${run.startedAt} check`}>
                           {run.startedAt}
                         </button>
                       </th>

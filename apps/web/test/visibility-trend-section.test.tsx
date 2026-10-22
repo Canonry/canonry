@@ -198,7 +198,7 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
   // query set held still, so its change reads as none.
   expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('no change')
   expect(document.querySelector('.visibility-trend-current-detail')?.textContent).toBe('· 2 of 4 answers')
-  expect(screen.getByText('Mentioned rate across 2 sweeps. Latest 50.0%, no change over the period.')).toBeTruthy()
+  expect(screen.getByText('Mentioned rate across 2 checks. Latest 50.0%, no change over the period.')).toBeTruthy()
   expect(detailsText(document.querySelector('.visibility-trend')!)).toEqual([
     expect.stringMatching(/^Base: Apr 3(, 2026)? point$/),
     '50.0% pools all answers; not an average of engines',
@@ -292,7 +292,7 @@ test('shows an empty state when there are no buckets yet', async () => {
   renderSection()
 
   await waitFor(() => {
-    expect(screen.getByText(/Run a sweep to start tracking/)).toBeTruthy()
+    expect(screen.getByText(/Run a check to start tracking/)).toBeTruthy()
   })
 })
 
@@ -307,7 +307,7 @@ test('carries pooled classification-unavailable scope through an empty response'
   onTestFinished(restore)
 
   renderSection(['competitor.com'])
-  await screen.findByText('Run a sweep to start tracking citations and mentions over time.')
+  await screen.findByText('Run a check to start tracking citations and mentions over time.')
   act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
 
   expect(screen.getByText(/No answer-text brand mentions for you or tracked competitors in all answers/)).toBeTruthy()
@@ -368,7 +368,7 @@ test('reads the head and legend from the API rates, so a rate near either end ne
   // Head: the blended mentioned rate, 0.9996 then 0.0004.
   expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('<0.1%')
   expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('down 99.9 points')
-  expect(screen.getByText('Mentioned rate across 2 sweeps. Latest <0.1%, down 99.9 points over the period.')).toBeTruthy()
+  expect(screen.getByText('Mentioned rate across 2 checks. Latest <0.1%, down 99.9 points over the period.')).toBeTruthy()
   // Legend: gemini's latest mentioned rate.
   expect(within(legend).getByText('>99.9%')).toBeTruthy()
   expect(screen.queryByText('0%')).toBeNull()
@@ -397,7 +397,7 @@ test('prints the server change across the window, never a subtraction of the plo
 
   expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('up 12.3 points')
   expect(screen.queryByText('up 50.0 points')).toBeNull()
-  expect(screen.getByText('Cited rate across 2 sweeps. Latest 75.0%, up 12.3 points over the period.')).toBeTruthy()
+  expect(screen.getByText('Cited rate across 2 checks. Latest 75.0%, up 12.3 points over the period.')).toBeTruthy()
 })
 
 test('shows the latest rate with no change when the server has none to report', async () => {
@@ -417,7 +417,7 @@ test('shows the latest rate with no change when the server has none to report', 
   // rate and no delta, rather than deriving one.
   expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('50.0%')
   expect(document.querySelector('.visibility-trend-current-delta')).toBeNull()
-  expect(screen.getByText('Mentioned rate across 2 sweeps. Latest 50.0%.')).toBeTruthy()
+  expect(screen.getByText('Mentioned rate across 2 checks. Latest 50.0%.')).toBeTruthy()
 })
 
 test('labels a pooled mention-share trend as classification unavailable', async () => {
@@ -520,7 +520,7 @@ test.each(MODEL_EVENT_TIMEZONES)('files a change inherited from before the windo
   // Dated "on or before", so nothing places it on a date inside the chart...
   expect(await screen.findByText(`on or before ${changeDay}`)).toBeTruthy()
   // ...and the lower bound is surfaced, so the operator gets a closed range.
-  expect(detailsText(whatChanged())).toContain(`Changed before this date range, after the ${anchorDay} sweep: Gemini`)
+  expect(detailsText(whatChanged())).toContain(`Changed before this date range, after the ${anchorDay} check: Gemini`)
 })
 
 test('flags a real substitution as its own amber row', async () => {
@@ -653,7 +653,7 @@ test('hides model details and sweep commentary when there are no model changes',
   expect(screen.queryByText('What changed')).toBeNull()
   expect(screen.queryByText('Setup changed')).toBeNull()
   expect(screen.queryByRole('list', { name: 'Model substitutions' })).toBeNull()
-  expect(screen.queryByText('Only one sweep so far. The trend line fills in after the next run.')).toBeNull()
+  expect(screen.queryByText('Only one check so far. The trend line fills in after the next run.')).toBeNull()
 
   act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
   expect(screen.queryByText(/Only one .* mention-share point so far/)).toBeNull()
@@ -858,7 +858,7 @@ test('says the points answered different numbers of queries when no recorded cha
   expect(delta.className).toContain('text-muted')
   expect(delta.className).not.toContain('text-positive-400')
   expect(trendDetails()[0]).toBe('Not the same queries: first and latest points have answers for 3 and 2 queries')
-  expect(screen.getByText('Mentioned rate across 2 sweeps. Latest 100%, up 50.0 points over the period, not the same queries.')).toBeTruthy()
+  expect(screen.getByText('Mentioned rate across 2 checks. Latest 100%, up 50.0 points over the period, not the same queries.')).toBeTruthy()
 })
 
 test('prints the change when a query was removed and added back before the latest point', async () => {
@@ -877,7 +877,7 @@ test('says what a pooled point\'s two sweeps differ by, not every query a change
   renderMetrics(cancelledSweepBetweenMetrics())
   await waitFor(() => expect(document.querySelector('.visibility-trend-current-value')).not.toBeNull())
 
-  expect(trendDetails().map(detail => detail.replace(/\u202f/g, ' '))).toContainEqual(expect.stringMatching(/^Jul 5(, 2026)? point mixes the 8:00 AM sweep and the 10:00 AM sweep, with 1 query added between them$/))
+  expect(trendDetails().map(detail => detail.replace(/\u202f/g, ' '))).toContainEqual(expect.stringMatching(/^Jul 5(, 2026)? point mixes the 8:00 AM check and the 10:00 AM check, with 1 query added between them$/))
   expect(trendDetails().join('\n')).not.toMatch(/2 queries/)
 })
 
@@ -892,5 +892,5 @@ test('names a query removed and added back inside a point of more than two sweep
   renderMetrics(roundTripInsidePointMetrics({ sweepCount: 3 }))
   await waitFor(() => expect(document.querySelector('.visibility-trend-current-value')).not.toBeNull())
 
-  expect(trendDetails()).toContainEqual(expect.stringMatching(/^Jul 1(, 2026)? point pools 3 sweeps, with 1 query removed and added back between the first and last$/))
+  expect(trendDetails()).toContainEqual(expect.stringMatching(/^Jul 1(, 2026)? point pools 3 checks, with 1 query removed and added back between the first and last$/))
 })

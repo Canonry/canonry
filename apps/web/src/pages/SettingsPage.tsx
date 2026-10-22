@@ -16,7 +16,7 @@ import { addToast } from '../lib/toast-store.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
-import type { HealthSnapshot } from '../view-models.js'
+import type { HealthSnapshot, ProviderStatusVm } from '../view-models.js'
 
 const defaultHealthSnapshot: HealthSnapshot = {
   apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' },
@@ -28,6 +28,18 @@ const defaultHealthSnapshot: HealthSnapshot = {
  * keys. The server refuses this whole surface to a view-only account; the
  * wrapper below is so a viewer gets an explanation rather than an empty page.
  */
+/** A connection whose projects pick routes (OpenRouter models, answer-service profiles). */
+function isRoutedProvider(provider: ProviderStatusVm): boolean {
+  return provider.name === 'openrouter' || provider.kind === 'model-gateway' || provider.kind === 'answer-service'
+}
+
+function routedConnectionCopy(provider: ProviderStatusVm): { connected: string; choose: string } {
+  const name = provider.displayName ?? provider.name
+  return provider.kind === 'answer-service'
+    ? { connected: `${name} connected. Projects use it only where you choose its profiles.`, choose: 'Choose project profiles' }
+    : { connected: `${name} connected. Choose the models for each project.`, choose: 'Choose project models' }
+}
+
 export function SettingsPage() {
   return (
     <AdminOnly title="Settings">
@@ -45,7 +57,7 @@ function SettingsPageBody() {
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? defaultHealthSnapshot
 
   const [configuringProvider, setConfiguringProvider] = useState<string | null>(null)
-  const [openRouterSaved, setOpenRouterSaved] = useState(false)
+  const [savedRoutedConnections, setSavedRoutedConnections] = useState<ReadonlySet<string>>(new Set())
   const [modelProject, setModelProject] = useState('')
   const [configuringGoogle, setConfiguringGoogle] = useState(false)
   const [configuringBing, setConfiguringBing] = useState(false)
@@ -105,7 +117,7 @@ function SettingsPageBody() {
                 <details className="mt-3">
                   <summary className="cursor-pointer text-sm text-secondary hover:text-strong">Advanced</summary>
                   <dl className="definition-list mt-2">
-                    {provider.name !== 'openrouter' && <div>
+                    {!isRoutedProvider(provider) && <div>
                       <dt>Model</dt>
                       <dd className="font-mono text-xs">
                         {provider.model ?? provider.defaultModel ?? 'unknown'}
@@ -133,16 +145,17 @@ function SettingsPageBody() {
                     providerName={provider.name}
                     keyUrl={provider.keyUrl}
                     modelHint={provider.modelHint}
+                    {...(provider.kind ? { kind: provider.kind } : {})}
                     onSaved={() => {
                       setConfiguringProvider(null)
-                      if (provider.name === 'openrouter') setOpenRouterSaved(true)
+                      if (isRoutedProvider(provider)) setSavedRoutedConnections(current => new Set([...current, provider.name]))
                     }}
                   />
                 )}
-                {provider.name === 'openrouter' && (provider.state === 'ready' || openRouterSaved) && <div className="mt-3 flex flex-wrap items-end gap-3">
-                  <p role={openRouterSaved ? 'status' : undefined} className="w-full text-sm text-secondary">OpenRouter connected. Choose the models for each project.</p>
+                {isRoutedProvider(provider) && (provider.state === 'ready' || savedRoutedConnections.has(provider.name)) && <div className="mt-3 flex flex-wrap items-end gap-3">
+                  <p role={savedRoutedConnections.has(provider.name) ? 'status' : undefined} className="w-full text-sm text-secondary">{routedConnectionCopy(provider).connected}</p>
                   {projects.length > 1 && <label className="text-sm text-secondary">Project<select className="setup-input ml-2" value={selectedModelProject} onChange={event => setModelProject(event.target.value)}>{projects.map(project => <option key={project.project.name} value={project.project.name}>{project.project.displayName ?? project.project.name}</option>)}</select></label>}
-                  <Button type="button" variant="outline" asChild>{selectedModelProject ? <Link to="/projects/$projectName/settings" params={{ projectName: selectedModelProject }} hash="answer-engines">Choose project models</Link> : <Link to="/setup">Create a project</Link>}</Button>
+                  <Button type="button" variant="outline" asChild>{selectedModelProject ? <Link to="/projects/$projectName/settings" params={{ projectName: selectedModelProject }} hash="answer-engines">{routedConnectionCopy(provider).choose}</Link> : <Link to="/setup">Create a project</Link>}</Button>
                 </div>}
               </div>
             ))}

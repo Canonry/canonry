@@ -316,6 +316,37 @@ describe('config.providers', () => {
     const result = providersCheck.run({ db: {} as DoctorContext['db'], project: null })
     expect(result.status).toBe('skipped')
   })
+
+  it('never counts a search answer service toward AI Visibility, and names it separately', () => {
+    // An answer service runs only where a project picks one of its profiles,
+    // so a key for one alone leaves "all configured engines" with nothing to run.
+    const onlyService = providersCheck.run({
+      db: {} as DoctorContext['db'],
+      project: null,
+      providerSummary: [
+        { name: 'gemini', configured: false },
+        { name: 'exa', configured: true, kind: 'answer-service' },
+      ],
+    })
+    expect(onlyService.status).toBe('warn')
+    expect(onlyService.code).toBe('providers.none-configured')
+    expect(onlyService.summary).toBe('No answer-engine provider is configured. Page Health remains available; AI Visibility is disabled. Search answer services configured (used only where a project picks one of their profiles): exa.')
+    expect(onlyService.details).toEqual({ available: ['gemini'], answerServices: ['exa'] })
+
+    const withEngine = providersCheck.run({
+      db: {} as DoctorContext['db'],
+      project: null,
+      providerSummary: [
+        { name: 'gemini', configured: true },
+        { name: 'openai', configured: false },
+        { name: 'exa', configured: true, kind: 'answer-service' },
+        { name: 'parallel', configured: false, kind: 'answer-service' },
+      ],
+    })
+    expect(withEngine.status).toBe('ok')
+    expect(withEngine.summary).toBe('1 of 2 providers configured: gemini. Search answer services configured (used only where a project picks one of their profiles): exa.')
+    expect(withEngine.details).toEqual({ configured: ['gemini'], total: 2, answerServices: ['exa'] })
+  })
 })
 
 const agentProvidersCheck = PROVIDERS_CHECKS.find((c) => c.id === 'config.agent-providers')!

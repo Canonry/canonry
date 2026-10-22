@@ -832,7 +832,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const latestOutsideWindow = latestRuns?.find(run => cutoff && run.createdAt < cutoff)
     if (latestOutsideWindow) {
       throw validationError(
-        `The latest sweep (run "${latestOutsideWindow.id}") is older than the ${window} window. Omit window, or widen it, to read it.`,
+        `The latest AI Visibility check (run "${latestOutsideWindow.id}") is older than the ${window} window. Omit window, or widen it, to read it.`,
       )
     }
 

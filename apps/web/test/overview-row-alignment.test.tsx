@@ -110,7 +110,7 @@ test('a partial sweep keeps its data-validity caveat in the caution tone rather 
   const partialCaption = partialMention!.querySelector('.metric-inline-caption')!
   // Caution tone is the whole point: it is why the score above reads amber.
   expect(partialCaption.getAttribute('class')).toContain('text-caution')
-  expect(partialCaption.textContent).toBe('Partial sweep: 2 of 4 engines')
+  expect(partialCaption.textContent).toBe('Partial check: 2 of 4 engines')
   // Truncation is expected in a 9rem column, so the full text must survive on
   // the title attribute where a hover can still reach it.
   expect(partialCaption.getAttribute('title')).toBe('2 of 4 engines')

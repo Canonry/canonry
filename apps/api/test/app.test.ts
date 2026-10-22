@@ -62,7 +62,10 @@ function registeredAdapterNames(): string[] {
       `${arrayName} was not found in packages/canonry/src/server.ts — the adapter registry moved, update this pin`,
     ).not.toBeNull()
     identifiers.push(
-      ...declaration![1]!.split(',').map(entry => entry.trim()).filter(Boolean),
+      ...declaration![1]!.split(',').map(entry => entry.trim()).filter(Boolean)
+        // Search answer services register as a spread from their own package.
+        // They run on local serve only; the cloud catalog does not offer them yet.
+        .filter(entry => entry !== '...answerServiceAdapters'),
     )
   }
   expect(identifiers.length).toBeGreaterThan(0)
@@ -268,7 +271,7 @@ test('cloud accepts every registered provider name', async () => {
   }))
 
   // The allowlist is what actually 400s a write, so exercise it end to end.
-  const sweepProviders = [...PROVIDER_NAMES.filter(isSweepProvider), 'openrouter:google/gemini-3.1-flash-lite', 'openrouter:anthropic/claude-sonnet-4.6']
+  const sweepProviders = [...PROVIDER_NAMES.filter(name => isSweepProvider(name)), 'openrouter:google/gemini-3.1-flash-lite', 'openrouter:anthropic/claude-sonnet-4.6']
   const upsert = await app.inject({
     method: 'PUT',
     url: '/api/v1/projects/acme',

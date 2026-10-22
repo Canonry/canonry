@@ -60,6 +60,7 @@ import {
   normalizeQueryText,
   summarizeObservedQueryCounts,
   validationError,
+  type ProviderRouteFamily,
 } from '@canonry/canonry-contracts'
 import {
   buildCompetitorPressureScore,
@@ -116,6 +117,8 @@ export async function compositeRoutes(app: FastifyInstance, options: {
   sentiment?: SentimentServiceOptions
   /** Current provider registry membership, for which providers the next sweep would call. */
   getRunnableProviderNames?: () => readonly string[]
+  /** Route families of the host's adapters; routed connections never join "all configured". */
+  providerRouteFamilies?: readonly ProviderRouteFamily[]
 }) {
   const sentiment = options.sentiment ? new SentimentService(app.db, options.sentiment) : null
   // GET /projects/:name/overview — composite read for "how is project X doing?".
@@ -171,6 +174,7 @@ export async function compositeRoutes(app: FastifyInstance, options: {
       projectId: project.id,
       now: new Date().toISOString(),
       runnableProviders: options.getRunnableProviderNames?.(),
+      routeFamilies: options.providerRouteFamilies,
     }
     const admission = runAdmissionState(app.db, admissionParams)
     const manualAdmission = runAdmissionState(app.db, { ...admissionParams, selection: RunTriggers.manual })
@@ -908,7 +912,7 @@ function buildRunStatusScore(allRuns: readonly (typeof runs.$inferSelect)[]): Sc
       value: 'None',
       delta: 'No runs yet',
       tone: 'neutral',
-      description: 'Trigger a visibility sweep to start tracking.',
+      description: 'Run an AI Visibility check to start tracking.',
       tooltip,
       trend: [],
     }
@@ -986,7 +990,7 @@ function buildAttentionItems(
         id: 'stale_visibility',
         tone: 'caution',
         title: 'Stale visibility data',
-        detail: `Last visibility sweep was ${latestVisRun.createdAt}; integration syncs have run since.`,
+        detail: `Last AI Visibility check was ${latestVisRun.createdAt}; integration syncs have run since.`,
         actionLabel: 'Stale',
         href: '#runs',
       })

@@ -1,5 +1,15 @@
+import { makesInstallMeasurable } from '@canonry/canonry-contracts'
 import type { HealthSnapshot, MetricTone, ServiceStatus, SettingsVm, SetupWizardVm, SystemHealthCardVm } from '../view-models.js'
 import { toneFromService } from './tone-helpers.js'
+
+/**
+ * Whether a configured provider makes sweeps possible on its own. A hosted
+ * answer service only runs where a project picks one of its profiles, so it
+ * never makes an install sweep-ready by itself.
+ */
+function isSweepReadyProvider(provider: SettingsVm['providerStatuses'][number]): boolean {
+  return provider.state === 'ready' && makesInstallMeasurable(provider)
+}
 
 /** Display name comes from the API (adapter.displayName). Capitalize as fallback. */
 function providerDisplayName(p: { name: string; displayName?: string }): string {
@@ -37,7 +47,7 @@ export function buildSystemHealthCards(
 
     const configuredCount = settings.providerStatuses.filter(p => p.state === 'ready').length
     const totalCount = settings.providerStatuses.length
-    const allReady = configuredCount > 0
+    const allReady = settings.providerStatuses.some(isSweepReadyProvider)
     const configuredNames = settings.providerStatuses.filter(p => p.state === 'ready').map(p => providerDisplayName(p)).join(' · ')
     return {
       ...card,
@@ -83,7 +93,7 @@ export function getLaunchBlockedReason(healthSnapshot: HealthSnapshot, settings:
     return 'Launch is blocked until the worker is healthy and heartbeats are current.'
   }
 
-  if (!settings.providerStatuses.some(p => p.state === 'ready')) {
+  if (!settings.providerStatuses.some(isSweepReadyProvider)) {
     return 'Launch is blocked until at least one provider is configured.'
   }
 
@@ -111,7 +121,7 @@ export function buildSetupModel(base: SetupWizardVm, healthSnapshot: HealthSnaps
       }
     }
 
-    const anyReady = settings.providerStatuses.some(p => p.state === 'ready')
+    const anyReady = settings.providerStatuses.some(isSweepReadyProvider)
     return {
       ...check,
       detail: anyReady ? 'At least one provider configured.' : 'No providers configured.',
@@ -122,7 +132,7 @@ export function buildSetupModel(base: SetupWizardVm, healthSnapshot: HealthSnaps
   model.launchState.enabled = blockedReason === undefined
   model.launchState.blockedReason = blockedReason
   model.launchState.summary =
-    blockedReason ?? 'Queue a visibility sweep first, then follow with a site audit to explain movement.'
+    blockedReason ?? 'Queue an AI Visibility check first, then follow with a Technical AEO audit to explain movement.'
 
   return model
 }

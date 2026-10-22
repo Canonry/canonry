@@ -44,6 +44,7 @@ import {
 } from "@canonry/canonry-provider-gemini";
 import { openaiAdapter } from "@canonry/canonry-provider-openai";
 import { openrouterAdapter } from "@canonry/canonry-provider-openrouter";
+import { answerServiceAdapters, answerServiceDescriptors } from "@canonry/canonry-provider-answer-services";
 import { claudeAdapter } from "@canonry/canonry-provider-claude";
 import { localAdapter } from "@canonry/canonry-provider-local";
 import { cdpChatgptAdapter } from "@canonry/canonry-provider-cdp";
@@ -90,6 +91,9 @@ import {
   storedOnlyRefused,
   type OutcomeTrigger,
   type RunKind,
+  canGenerateText,
+  answerServiceCatalogFields,
+  routeFamiliesOf,
 } from "@canonry/canonry-contracts";
 import type {
   CanonryConfig,
@@ -431,7 +435,11 @@ function resolveDashboardOnboardingMode(
     ?? config.dashboard?.onboardingMode;
 }
 
-/** All known API adapters — add new providers here */
+/**
+ * All known API adapters. Add new answer engines here. Hosted web-search
+ * answer services register once, in
+ * packages/provider-answer-services/src/services/index.ts.
+ */
 const API_ADAPTERS: ProviderAdapter[] = [
   geminiAdapter,
   openaiAdapter,
@@ -440,7 +448,33 @@ const API_ADAPTERS: ProviderAdapter[] = [
   perplexityAdapter,
   museAdapter,
   openrouterAdapter,
+  ...answerServiceAdapters,
 ];
+
+/** Route families of every known adapter (OpenRouter models, answer-service profiles). */
+const PROVIDER_ROUTE_FAMILIES = routeFamiliesOf(API_ADAPTERS);
+
+/** Settings fields, profiles and key-check behaviour, read from each answer service's descriptor. */
+const ANSWER_SERVICE_CATALOG = new Map(answerServiceDescriptors.map((descriptor) => [descriptor.id, answerServiceCatalogFields(descriptor)]));
+
+/** The adapter description api-routes validates against: model registry plus kind, routes and descriptor fields. */
+function providerAdapterInfo(adapter: ProviderAdapter) {
+  return {
+    name: adapter.name,
+    displayName: adapter.displayName,
+    mode: adapter.mode,
+    // An answer service takes a key only; its routes pin their profiles.
+    modelConfigurable: adapter.mode === "api" && adapter.kind !== "answer-service",
+    defaultModel: adapter.modelRegistry.defaultModel,
+    knownModels: adapter.modelRegistry.knownModels,
+    modelValidationPattern: adapter.modelRegistry.validationPattern,
+    modelValidationHint: adapter.modelRegistry.validationHint,
+    ...(adapter.kind ? { kind: adapter.kind } : {}),
+    ...(adapter.capabilities ? { capabilities: adapter.capabilities } : {}),
+    ...(adapter.routes ? { routes: adapter.routes } : {}),
+    ...ANSWER_SERVICE_CATALOG.get(adapter.name),
+  };
+}
 
 /** All known browser (CDP) adapters */
 const BROWSER_ADAPTERS: ProviderAdapter[] = [cdpChatgptAdapter];
@@ -479,6 +513,7 @@ function providerSummaries(registry: ProviderRegistry, config: CanonryConfig, in
     configured: Boolean(registry.get(adapter.name)),
     quota: registry.get(adapter.name)?.config.quotaPolicy,
     vertexConfigured: adapter.name === ProviderNames.gemini ? Boolean(config.providers?.gemini?.vertexProject) : undefined,
+    ...(adapter.kind ? { kind: adapter.kind } : {}),
   }));
 }
 
@@ -1885,6 +1920,7 @@ export async function createServer(opts: {
     // "all configured providers" exactly as a hand-triggered one does.
     getRunnableProviderNames: () =>
       registry.getAll().map((provider) => provider.adapter.name),
+    getProviderRouteFamilies: () => PROVIDER_ROUTE_FAMILIES,
     getEffectiveProviderModels: () => effectiveProviderModels(registry),
     getBatchEligibleProviderNames: () => batchEligibleProviderNames(registry),
     onTrafficSyncRequested: (projectName, sourceId) => {
@@ -3428,16 +3464,7 @@ export async function createServer(opts: {
     providerSummary,
     getProviderModels: providerModelCatalog,
     getCachedProviderModels: providerModelCatalog.cached,
-    providerAdapters: [...API_ADAPTERS, ...BROWSER_ADAPTERS].map((a) => ({
-      name: a.name,
-      displayName: a.displayName,
-      mode: a.mode,
-      modelConfigurable: a.mode === "api",
-      defaultModel: a.modelRegistry.defaultModel,
-      knownModels: a.modelRegistry.knownModels,
-      modelValidationPattern: a.modelRegistry.validationPattern,
-      modelValidationHint: a.modelRegistry.validationHint,
-    })),
+    providerAdapters: [...API_ADAPTERS, ...BROWSER_ADAPTERS].map(providerAdapterInfo),
     googleSettingsSummary,
     bingSettingsSummary,
     bingConnectionStore,
@@ -3573,21 +3600,24 @@ export async function createServer(opts: {
     ) => {
       const name = providerName;
       if (!adapterMap[name]) return null;
+      const adapterDefaultQuota = adapterMap[name]!.defaultQuota ?? DEFAULT_QUOTA;
+      const answerService = adapterMap[name]!.kind === "answer-service";
 
       // Update config and persist
       if (!opts.config.providers) opts.config.providers = {};
       const existing = opts.config.providers[name];
       const previousProvider = registry.get(name) ?? (existing ? {
         adapter: adapterMap[name]!,
-        config: providerConfigFromEntry(name, existing, resolveProviderQuotaPolicy(existing.quota, DEFAULT_QUOTA)),
+        config: providerConfigFromEntry(name, existing, resolveProviderQuotaPolicy(existing.quota, adapterDefaultQuota)),
       } : undefined);
       const mergedQuota = incomingQuota
-        ? { ...(existing?.quota ?? DEFAULT_QUOTA), ...incomingQuota }
+        ? { ...(existing?.quota ?? adapterDefaultQuota), ...incomingQuota }
         : existing?.quota;
       opts.config.providers[name] = {
         apiKey: apiKey || existing?.apiKey,
-        baseUrl: baseUrl || existing?.baseUrl,
-        model: model || existing?.model,
+        // An answer service's endpoint is fixed and its routes pin profiles.
+        baseUrl: answerService ? undefined : baseUrl || existing?.baseUrl,
+        model: answerService ? undefined : model || existing?.model,
         quota: mergedQuota,
         // Preserve Vertex AI config (Gemini provider) — these are set via
         // config file or env vars, not through the dashboard update payload
@@ -3610,7 +3640,7 @@ export async function createServer(opts: {
       }
 
       // Re-register in the live registry (use preserved model if none was passed)
-      const quota = resolveProviderQuotaPolicy(opts.config.providers[name]!.quota, DEFAULT_QUOTA);
+      const quota = resolveProviderQuotaPolicy(opts.config.providers[name]!.quota, adapterDefaultQuota);
       registry.register(adapterMap[name]!, providerConfigFromEntry(name, opts.config.providers[name]!, quota));
 
       providerSummary.splice(0, providerSummary.length, ...providerSummaries(registry, opts.config));
@@ -3766,6 +3796,9 @@ export async function createServer(opts: {
       const provider = registry.get(providerName);
       if (!provider)
         throw new Error(`Provider "${providerName}" is not configured`);
+      // Query generation is plain text generation, which answer services do not offer.
+      if (!canGenerateText(provider.adapter))
+        throw validationError(`${provider.adapter.displayName} cannot generate queries. Choose a provider that generates text.`);
 
       const siteText = await fetchSiteText(project.domain);
 

@@ -63,7 +63,7 @@ test('an empty competitors step offers a primary way forward instead of a disabl
   expect(screen.queryByRole('button', { name: /^Save 0 competitors/ })).toBeNull()
 
   fireEvent.click(screen.getByRole('button', { name: 'Continue without competitors' }))
-  expect(await screen.findByText(/Step 5 of 5/)).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Run your first AI Visibility check' })).toBeTruthy()
 })
 
 test('once a competitor is entered, saving and skipping are both offered', async () => {

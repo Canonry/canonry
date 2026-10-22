@@ -55,6 +55,10 @@ filter value and comparison history; use `providerDisplayName` to identify the
 model via OpenRouter alongside direct providers. Search behavior is automatic,
 with no search-backend controls. Aero and classifiers choose their own models.
 
+### Search answer services
+
+Render answer services from `/settings` data (`kind`, `connection`, `selectionKind`, `profiles`, `workflows`), never from a vendor name. `lib/provider-routes.ts` rebuilds route families from the catalog. A routed connection (OpenRouter, an answer service) is never an engine checkbox or a preselected engine; answer-service profiles are opt-in rows, never part of "All configured engines", never the research default, and never count toward setup readiness. Research results show the server's `evidence` and `citationMeasured` as returned, without deriving counts.
+
 ### Build workflow
 
 `pnpm --filter @canonry/canonry-web build` builds into a temporary directory before updating `dist/`.

@@ -83,8 +83,8 @@ interface AeroBarProps {
 }
 
 const STARTER_PROMPTS: Array<{ id: AeroPreviewStarterId; label: string; prompt: string }> = [
-  { id: 'status', label: 'Status', prompt: 'Give me a quick status: the latest sweep, which engines answered, and anything that needs attention.' },
-  { id: 'changes', label: 'What changed', prompt: 'Compare the latest complete sweep with the one before it. Lead with mentions, then citations. Keep branded and non-brand queries separate if the project splits them, and say which changes are bigger than normal run-to-run noise.' },
+  { id: 'status', label: 'Status', prompt: 'Give me a quick status: the latest check, which engines answered, and anything that needs attention.' },
+  { id: 'changes', label: 'What changed', prompt: 'Compare the latest complete check with the one before it. Lead with mentions, then citations. Keep branded and non-brand queries separate if the project splits them, and say which changes are bigger than normal run-to-run noise.' },
   { id: 'gaps', label: 'Biggest gaps', prompt: 'Which tracked queries does no engine mention us on, and who gets named instead? Group them by topic or market.' },
   { id: 'insights', label: 'Top insights', prompt: 'Walk me through the 3 most severe active insights and what to do about each.' },
 ]
@@ -118,12 +118,12 @@ const SLASH_COMMANDS: Array<SlashCommand> = [
   {
     command: '/status',
     label: 'Status',
-    prompt: 'Give me a quick status: the latest sweep, which engines answered, and anything that needs attention.',
+    prompt: 'Give me a quick status: the latest check, which engines answered, and anything that needs attention.',
   },
   {
     command: '/changes',
     label: 'What changed',
-    prompt: 'Compare the latest complete sweep with the one before it. Lead with mentions, then citations. Keep branded and non-brand queries separate if the project splits them, and say which changes are bigger than normal run-to-run noise.',
+    prompt: 'Compare the latest complete check with the one before it. Lead with mentions, then citations. Keep branded and non-brand queries separate if the project splits them, and say which changes are bigger than normal run-to-run noise.',
   },
   {
     command: '/gaps',
@@ -142,8 +142,8 @@ const SLASH_COMMANDS: Array<SlashCommand> = [
   },
   {
     command: '/run-sweep',
-    label: 'Run sweep now',
-    prompt: 'Run a new answer-visibility sweep for this project now and tell me when it lands.',
+    label: 'Run check now',
+    prompt: 'Run a new AI Visibility check for this project now and tell me when it lands.',
   },
   {
     command: '/queries',
@@ -1346,7 +1346,7 @@ function ProviderPicker({
                   {otherError && <p id={`${menuId}-other-error`} role="alert" className="mt-1.5 text-sm text-negative-400">{otherError}</p>}
                 </form>
               )}
-              <p className="px-3 pb-2 pt-1 text-sm text-secondary">Applies to Aero. Sweep models stay separate.</p>
+              <p className="px-3 pb-2 pt-1 text-sm text-secondary">Applies to Aero only.</p>
             </div>
           )}
         </div>,

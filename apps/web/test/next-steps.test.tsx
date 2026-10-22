@@ -84,7 +84,7 @@ test('each row reads as label, value, action', async () => {
   expect(linkNames(container)).toEqual([
     'Connect Search Console',
     'Connect Google Analytics',
-    'Set up Scheduled sweeps',
+    'Set up Scheduled checks',
     'Set up Notifications',
     'Open Local presence',
     'Set up Your agent',

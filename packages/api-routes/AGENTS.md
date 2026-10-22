@@ -55,6 +55,10 @@ Every API operation carries `x-canonry-access` metadata and responses expose the
 
 ## Patterns
 
+### Routed providers and answer services
+
+Route families come from the host's adapter descriptions (`ProviderAdapterInfo.routes`, `profiles`, `kind`); `index.ts` derives them once (`routeFamiliesOf`) and passes them to every plugin that resolves provider names. Validate explicit selections with `invalidProviderSelections(names, available, adapters, workflow)` and check route authority with `assertProviderRouteScope(..., families)`; every "all configured" expansion and every `runnableProviders` call takes `routeFamilies`, so a routed connection never joins an implicit roster. An answer service accepts only a key on `PUT /settings/providers/:name` (no base URL, no model). `/settings` lists each answer-service connection and one entry per profile from its descriptor; engine entries keep their exact shape. Research defaults never pick an answer service, and research and run snapshot DTOs carry `evidence` only when it was recorded.
+
 ### OpenRouter measurement routes
 
 OpenRouter credentials belong to the `openrouter` connection. Sweeps select fixed `openrouter:vendor/model` routes; the connection alone is excluded from automatic sweeps. `provider-models.ts` resolves route descriptors from the connection metadata, and `/settings` exposes both the connection and selectable model routes through the existing catalog. Model routes keep independent snapshot/manifest identities while account admission and fill quotas share `providerConnectionName` from contracts. `run-queue.ts` and the draft compiler freeze each route's model and reject conflicting overrides.

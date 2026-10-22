@@ -4743,6 +4743,28 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE query_snapshots ADD COLUMN wrong_subject_target_keys TEXT`,
     ],
   },
+  {
+    // Vendor-neutral answer evidence from hosted web-search answer services.
+    // NULL on every existing row and for every other engine: no evidence was
+    // recorded, which never reads as "no sources".
+    version: 186,
+    name: 'answer-service-evidence',
+    statements: [
+      `ALTER TABLE query_snapshots ADD COLUMN answer_evidence TEXT`,
+      `ALTER TABLE research_run_queries ADD COLUMN answer_evidence TEXT`,
+    ],
+  },
+  {
+    // The upstream job a `waiting-upstream` research query waits on, so a job
+    // executor can find and resume it by id instead of submitting it again.
+    // NULL on every existing row and for every query not waiting on a job.
+    version: 187,
+    name: 'research-upstream-job-id',
+    statements: [
+      `ALTER TABLE research_run_queries ADD COLUMN upstream_job_id TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_research_run_queries_upstream_job ON research_run_queries(upstream_job_id) WHERE upstream_job_id IS NOT NULL`,
+    ],
+  },
 ]
 
 /**

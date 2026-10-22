@@ -31,7 +31,7 @@ afterEach(cleanup)
 // A midday-UTC sweep reads as the same calendar date in every zone from UTC-11 to UTC+11.
 const DISPLAYED_RUN_AT = '2026-09-13T12:00:00.000Z'
 const PREVIOUS_RUN = { id: 'run-1', createdAt: '2026-09-06T12:00:00.000Z', completedAt: '2026-09-06T12:30:00.000Z' }
-/** Same year as the displayed sweep, so the caption drops the year. */
+/** Same year as the displayed check, so the caption drops the year. */
 const PREVIOUS_DATE = 'Sep 6'
 const EARLIER_YEAR_RUN = { id: 'run-0', createdAt: '2025-12-28T12:00:00.000Z', completedAt: '2025-12-28T12:30:00.000Z' }
 const EARLIER_YEAR_DATE = 'Dec 28, 2025'
@@ -172,16 +172,16 @@ describe('headline strip', () => {
     expect(REPORT_CHANGE_COPY.down('8.3')).toBe('Down 8.3 pts')
     expect(REPORT_CHANGE_COPY.none).toBe('No change')
     expect(REPORT_CHANGE_COPY.previousUnavailable).toBe('No earlier value')
-    expect(REPORT_CHANGE_COPY.comparedWith(PREVIOUS_DATE)).toBe('vs Sep 6 sweep')
-    expect(REPORT_CHANGE_COPY.noPreviousRun).toBe('No earlier sweep to compare')
+    expect(REPORT_CHANGE_COPY.comparedWith(PREVIOUS_DATE)).toBe('vs Sep 6 check')
+    expect(REPORT_CHANGE_COPY.noPreviousRun).toBe('No earlier check to compare')
     expect(REPORT_CHANGE_COPY.definitionChanged(PREVIOUS_DATE)).toBe('Not compared: setup changed since Sep 6')
     expect(REPORT_CHANGE_COPY.definitionChanged(null)).toBe('Not compared: setup changed')
     expect(REPORT_CHANGE_COPY.modelChanged(PREVIOUS_DATE)).toBe('Not compared: engines or models changed since Sep 6')
     expect(REPORT_CHANGE_COPY.modelChanged(null)).toBe('Not compared: engines or models changed')
-    expect(REPORT_CHANGE_COPY.legacyUnknown).toBe('Not compared: older sweep lacks comparison details')
-    expect(REPORT_CHANGE_COPY.partialRun).toBe('Not compared: a sweep was incomplete')
-    expect(REPORT_CHANGE_COPY.scopedRun).toBe('Not compared: this sweep covered part of the project')
-    expect(REPORT_CHANGE_COPY.explanation).toBe('Change compares this sweep with the sweep before it when both completed and used the same setup, engines and models.')
+    expect(REPORT_CHANGE_COPY.legacyUnknown).toBe('Not compared: older check lacks comparison details')
+    expect(REPORT_CHANGE_COPY.partialRun).toBe('Not compared: a check was incomplete')
+    expect(REPORT_CHANGE_COPY.scopedRun).toBe('Not compared: this check covered part of the project')
+    expect(REPORT_CHANGE_COPY.explanation).toBe('Change compares this check with the check before it when both completed and used the same setup, engines and models.')
     // Mention reads the answer text and Cited reads the source links, in both modes.
     expect(REPORT_HEADLINE_HELP.simpleMention).toBe('Mentioned counts answers naming your brand in the answer text, not in the source links.')
     expect(REPORT_HEADLINE_HELP.simpleCitation).toBe('Cited counts answers linking to your site in the sources behind the answer, not in the answer text.')
@@ -239,7 +239,7 @@ describe('headline strip', () => {
 
   it('names the comparison once in the caption and never in a tile', () => {
     render(<VisibilityReportView report={headlineReport({ comparison: MOVED })} onSelectionChange={() => {}} />)
-    expect(caption()).toBe(`12 queries · 36 answers · vs ${PREVIOUS_DATE} sweep`)
+    expect(caption()).toBe(`12 queries · 36 answers · vs ${PREVIOUS_DATE} check`)
     expect(within(section()).getByRole('button', { name: REPORT_CHANGE_COPY.explanation })).toBeTruthy()
     for (const label of [MENTION_LABEL, CITATION_LABEL, REACH_LABEL] as const) {
       expect(visibleText(tile(label))).not.toContain('vs ')
@@ -249,7 +249,7 @@ describe('headline strip', () => {
   it('keeps the year on a previous sweep from another year', () => {
     const comparison: VisibilityReportComparison = { ...MOVED, previousRun: EARLIER_YEAR_RUN }
     render(<VisibilityReportView report={headlineReport({ comparison })} onSelectionChange={() => {}} />)
-    expect(caption()).toBe(`12 queries · 36 answers · vs ${EARLIER_YEAR_DATE} sweep`)
+    expect(caption()).toBe(`12 queries · 36 answers · vs ${EARLIER_YEAR_DATE} check`)
   })
 
   it.each([
@@ -261,7 +261,7 @@ describe('headline strip', () => {
     ['legacy-unknown', PREVIOUS_RUN, REPORT_CHANGE_COPY.legacyUnknown],
     ['partial-run', PREVIOUS_RUN, REPORT_CHANGE_COPY.partialRun],
     ['scoped-run', null, REPORT_CHANGE_COPY.scopedRun],
-  ] as const)('captions an unavailable %s comparison (previous run %o) in place of the sweep date', (reason, previousRun, expected) => {
+  ] as const)('captions an unavailable %s comparison (previous run %o) in place of the check date', (reason, previousRun, expected) => {
     render(<VisibilityReportView report={headlineReport({ comparison: { state: 'unavailable', reason, previousRun } })} onSelectionChange={() => {}} />)
     expect(caption()).toBe(`12 queries · 36 answers · ${expected}`)
     for (const label of [MENTION_LABEL, CITATION_LABEL, REACH_LABEL] as const) expect(cell(label)).toEqual(figure(label))
@@ -476,9 +476,9 @@ describe('headline strip', () => {
   })
 
   it.each([
-    ['one earlier sweep is still unavailable', { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' } as VisibilityReportRate, null, true],
-    ['every sweep left some answers unchecked', { numerator: 9, denominator: 18, rate: 0.5, unchecked: 1 } as VisibilityReportRate, 0.5, false],
-  ])('plots a sweep whose citation rate left unchecked answers out when %s', (_name, earlier, earlierPlotted, notesMissing) => {
+    ['one earlier check is still unavailable', { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' } as VisibilityReportRate, null, true],
+    ['every check left some answers unchecked', { numerator: 9, denominator: 18, rate: 0.5, unchecked: 1 } as VisibilityReportRate, 0.5, false],
+  ])('plots a check whose citation rate left unchecked answers out when %s', (_name, earlier, earlierPlotted, notesMissing) => {
     const report = headlineReport({ answerCount: 2796, summary: { mentionCoverage: rate(1398, 2796), citationCoverage: { numerator: 1397, denominator: 2794, rate: 0.5, unchecked: 2 } } })
     report.populations[0]!.trend[0]!.citationCoverage = earlier
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)

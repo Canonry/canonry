@@ -257,7 +257,7 @@ const AGENT_SESSIONS: readonly AgentSession[] = [
     label: 'Automate',
     prompt: 'Re-check everything every Monday and tell me in Slack.',
     calls: ['canonry_schedule_set', 'canonry_agent_webhook_attach'],
-    reply: 'Done. A sweep runs every Monday, and I’ll post what changed to Slack.',
+    reply: 'Done. A check runs every Monday, and I’ll post what changed to Slack.',
   },
 ]
 
@@ -286,9 +286,9 @@ function AgentTile({ projectName }: { projectName: string }) {
   return (
     <>
       <TileHeading id="onb-agent-heading" eyebrow="Your agent" title="Let your agent run it.">
-        Your agent can do everything in Canonry: diagnose a drop, fix pages, run sweeps and scans, and
+        Your agent can do everything in Canonry: diagnose a drop, fix pages, run checks and scans, and
         write the client report. Use Claude Code, Codex, Cursor, or Aero, the analyst built into{' '}
-        <span className="text-heading">{projectName}</span> that reviews every sweep on its own.
+        <span className="text-heading">{projectName}</span> that reviews every check on its own.
       </TileHeading>
 
       <div
@@ -439,7 +439,7 @@ const WEEK = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 function ScheduleTile({ projectName }: { projectName: string }) {
   return (
     <>
-      <TileHeading id="onb-schedule-heading" eyebrow="Scheduled sweeps" title="Runs on its own.">
+      <TileHeading id="onb-schedule-heading" eyebrow="Scheduled checks" title="Runs on its own.">
         Re-measure every week without lifting a finger, so a drop shows up before a customer notices.
       </TileHeading>
       <ol className="mt-6 grid grid-cols-7 gap-2" aria-hidden="true">
@@ -459,7 +459,7 @@ function AlertsTile({ projectName, score }: { projectName: string; score: number
   return (
     <>
       <TileHeading id="onb-alerts-heading" eyebrow="Notifications" title="Hear about changes.">
-        Get a webhook in Slack or anywhere else when a sweep finishes or a score moves.
+        Get a webhook in Slack or anywhere else when a check finishes or a score moves.
       </TileHeading>
       <div className="relative mt-6 flex h-14 items-center" aria-hidden="true">
         <span className="onb-bell flex size-10 items-center justify-center rounded-full border border-default bg-bg-elevated">
@@ -468,7 +468,7 @@ function AlertsTile({ projectName, score }: { projectName: string; score: number
         <span className="onb-toast ml-3 flex items-center gap-2 rounded-xl border border-default bg-bg-elevated px-3 py-2 text-sm shadow-[0_8px_24px_var(--color-shadow-panel)]">
           <span className="size-2 rounded-full bg-positive-400" />
           <span className="text-heading">{projectName}</span>
-          <span className="text-secondary">{score === null ? 'sweep finished' : `page health ${score}`}</span>
+          <span className="text-secondary">{score === null ? 'check finished' : `page health ${score}`}</span>
         </span>
       </div>
       <TileLink projectName={projectName} to="/projects/$projectName/settings" icon={Bell} label="Add a notification" action="add_notification" />

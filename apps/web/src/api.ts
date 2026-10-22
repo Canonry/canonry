@@ -1,4 +1,4 @@
-import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@canonry/canonry-contracts'
+import type { AgentConversation, AgentConversationList, AgentConversationDelete, ProviderCatalogEntryDto } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@canonry/canonry-api-client'
 import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@canonry/canonry-contracts'
 import { recordUiApiResult, trackUiAction } from './lib/ui-telemetry.js'
@@ -1009,20 +1009,14 @@ export interface ApiProviderSummary {
     maxRequestsPerMinute: number
     maxRequestsPerDay: number
   }
+  /** Absent means an answer engine. */
+  kind?: ProviderCatalogEntryDto['kind']
 }
 
 export interface ApiSettings {
   providers: ApiProviderSummary[]
-  providerCatalog: Array<{
-    name: string
-    displayName: string
-    mode: 'api' | 'browser'
-    modelConfigurable: boolean
-    defaultModel: string
-    knownModels: Array<{ id: string; displayName: string; tier: 'flagship' | 'standard' | 'fast' | 'economy' }>
-    modelValidationPattern: { source: string; flags: string }
-    modelValidationHint: string
-  }>
+  /** Credential-free adapter metadata, including routed connections and answer-service profiles. */
+  providerCatalog: ProviderCatalogEntryDto[]
   google: {
     configured: boolean
   }

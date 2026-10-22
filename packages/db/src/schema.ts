@@ -524,6 +524,10 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   stopReason: text('stop_reason'),
   // Billable usage and the price estimated when the answer was recorded.
   usage: text('usage', { mode: 'json' }).$type<SnapshotUsage>(),
+  // Vendor-neutral answer evidence (source relationships, completion,
+  // identity, usage and cost basis). Written by hosted answer services only;
+  // null for every other engine and every row before migration 186.
+  answerEvidence: text('answer_evidence', { mode: 'json' }).$type<import('@canonry/canonry-contracts').AnswerEvidence | null>(),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_snapshots_run').on(table.runId),
@@ -2782,8 +2786,16 @@ export const researchRunQueries = sqliteTable('research_run_queries', {
   retrievedSources: text('retrieved_sources', { mode: 'json' }).$type<import('@canonry/canonry-contracts').RetrievedSource[]>(),
   namedCompetitors: text('named_competitors', { mode: 'json' }).$type<string[]>().notNull().default([]), citedCompetitorDomains: text('cited_competitor_domains', { mode: 'json' }).$type<string[]>().notNull().default([]),
   answerMentioned: integer('answer_mentioned', { mode: 'boolean' }), citationState: text('citation_state'), rawResponse: text('raw_response', { mode: 'json' }).$type<Record<string, unknown> | null>(), error: text('error'),
+  // See query_snapshots.answer_evidence (migration 186).
+  answerEvidence: text('answer_evidence', { mode: 'json' }).$type<import('@canonry/canonry-contracts').AnswerEvidence | null>(),
+  // The upstream job a `waiting-upstream` query waits on (migration 187); null otherwise.
+  upstreamJobId: text('upstream_job_id'),
   startedAt: text('started_at'), finishedAt: text('finished_at'), createdAt: text('created_at').notNull(),
-}, (table) => [index('idx_research_run_queries_run').on(table.researchRunId), uniqueIndex('idx_research_run_queries_run_position').on(table.researchRunId, table.position)])
+}, (table) => [
+  index('idx_research_run_queries_run').on(table.researchRunId),
+  uniqueIndex('idx_research_run_queries_run_position').on(table.researchRunId, table.position),
+  index('idx_research_run_queries_upstream_job').on(table.upstreamJobId).where(sql`upstream_job_id IS NOT NULL`),
+])
 
 export const discoveryProbes = sqliteTable('discovery_probes', {
   id: text('id').primaryKey(),

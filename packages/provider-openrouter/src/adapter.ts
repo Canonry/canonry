@@ -1,6 +1,6 @@
 import {
   asRecord, describeError, hostOf, isRetryableHttpError, normalizeServedModel,
-  openRouterRouteModel, openRouterRouteName, OPENROUTER_MODEL_PATTERN, registrableDomain, RetrievalContracts,
+  openRouterRouteModel, openRouterRouteName, OPENROUTER_MODEL_PATTERN, OPENROUTER_ROUTE_FAMILY, ProviderKinds, registrableDomain, RetrievalContracts,
   RetrievalStatuses, retryAfterDelayMs, usageCount, withRetry,
   type GroundingSource, type ModelDefinition, type NormalizedQueryResult,
   type ProviderAdapter, type ProviderConfig, type RawQueryResult, type TrackedQueryInput,
@@ -176,6 +176,8 @@ function normalize(raw: RawQueryResult): NormalizedQueryResult {
 export const openrouterAdapter: ProviderAdapter = {
   name: 'openrouter',
   displayName: 'OpenRouter', mode: 'api', supportsLocationContext: false,
+  // One connection, many pinned model routes; the bare connection is never a sweep target.
+  kind: ProviderKinds['model-gateway'], routes: OPENROUTER_ROUTE_FAMILY,
   keyUrl: 'https://openrouter.ai/keys',
   modelRegistry: { defaultModel: '', validationPattern: OPENROUTER_MODEL_PATTERN, validationHint: 'a concrete text model ID, publisher/model', knownModels: [] },
   validateConfig(config) {

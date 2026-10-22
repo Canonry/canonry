@@ -79,14 +79,14 @@ export function formatDuration(startedAt: string | null, finishedAt: string | nu
 
 function kindLabel(kind: RunKind): string {
   switch (kind) {
-    case RunKinds['answer-visibility']: return 'Answer visibility sweep'
+    case RunKinds['answer-visibility']: return 'AI Visibility check'
     case RunKinds['gsc-sync']: return 'GSC sync'
     case RunKinds['inspect-sitemap']: return 'Sitemap inspection'
     case RunKinds['ga-sync']: return 'GA sync'
     case RunKinds['traffic-sync']: return 'Traffic sync'
     case RunKinds['bing-inspect']: return 'Bing URL inspection'
     case RunKinds['bing-inspect-sitemap']: return 'Bing sitemap inspection'
-    case RunKinds['site-audit']: return 'Site audit'
+    case RunKinds['site-audit']: return 'Technical AEO audit'
     case RunKinds['backlink-extract']: return 'Backlink extract'
     case RunKinds['aeo-discover-seed']: return 'Discovery (seed phase)'
     case RunKinds['aeo-discover-probe']: return 'Discovery (probe phase)'
@@ -856,7 +856,7 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
     setup: {
       healthChecks: [
         { id: 'api', label: 'API reachable', detail: 'API is responding.', state: 'ready', guidance: 'Required for project creation and run history.' },
-        { id: 'provider', label: 'Provider configured', detail: 'Gemini key is configured.', state: 'ready', guidance: 'Required for answer-visibility sweeps.' },
+        { id: 'provider', label: 'Provider configured', detail: 'Gemini key is configured.', state: 'ready', guidance: 'Required for AI Visibility checks.' },
       ],
       projectDraft: { name: '', canonicalDomain: '', country: 'US', language: 'en' },
       queryImportState: { mode: 'paste', queryCount: 0, preview: [] },
@@ -871,6 +871,7 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
       providerStatuses: (apiSettings?.providers ?? []).map(p => ({
         name: p.name,
         displayName: p.displayName,
+        ...(p.kind ? { kind: p.kind } : {}),
         keyUrl: p.keyUrl,
         modelHint: p.modelHint,
         model: p.model,

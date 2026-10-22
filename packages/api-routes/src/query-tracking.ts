@@ -14,6 +14,7 @@ import {
   compileQueryClassifier,
   effectiveBrandNames,
   expandQueryTemplate,
+  isProviderAvailable,
   measurementPlanV2ChecksumJson,
   measurementPlanV2Schema,
   measurementV2UsageEdgeKey,
@@ -26,6 +27,7 @@ import {
   queryTrackingProvenanceSchema,
   queryTrackingWorkspaceResponseSchema,
   resolveProviderModel,
+  resolveProviderRoute,
   RunKinds,
   RunStatuses,
   RunTriggers,
@@ -51,6 +53,7 @@ import {
   type SimpleMeasurementDefinition,
   compareText,
   normalizeIdentityText as normalizeText,
+  type ProviderRouteFamily,
 } from '@canonry/canonry-contracts'
 import {
   discoveryProbes,
@@ -121,6 +124,8 @@ type ReadinessSnapshot = Pick<typeof querySnapshots.$inferSelect,
 
 export interface QueryTrackingRoutesOptions {
   getRunnableProviderNames?: () => readonly string[]
+  /** Route families of the host's adapters; routed connections never join "all configured". */
+  providerRouteFamilies?: readonly ProviderRouteFamily[]
   /** Raw registered model configuration, matching planless JobRunner dispatch. */
   providerSummary?: readonly ProviderSummaryEntry[]
 }
@@ -171,6 +176,7 @@ function providerNames(project: ProjectRow, opts: QueryTrackingRoutesOptions): s
   return resolveRunProviderSelection({
     projectProviders: project.providers,
     runnableProviders: opts.getRunnableProviderNames?.(),
+    routeFamilies: opts.providerRouteFamilies,
   })
 }
 
@@ -185,7 +191,8 @@ function modelMap(project: ProjectRow, providers: readonly string[]): Record<str
 
 /**
  * Planless dispatch uses the registered provider configuration directly: a
- * project override wins, while an unset registration remains null rather than
+ * project override wins, then a route's pinned selection. An unset registration
+ * remains null rather than
  * borrowing an adapter's effective/default model. Keep this separate from the
  * plan queue's effective-model identity.
  */
@@ -197,23 +204,25 @@ function simpleDispatchEngines(
   const selected = resolveRunProviderSelection({
     projectProviders: project.providers,
     runnableProviders: runnable,
+    routeFamilies: opts.providerRouteFamilies,
   })
   const available = runnable === undefined
     ? null
-    : new Set(runnable.map(provider => provider.trim().toLocaleLowerCase('en')).filter(Boolean))
+    : runnable.map(provider => provider.trim().toLocaleLowerCase('en')).filter(Boolean)
   const summaries = new Map((opts.providerSummary ?? []).map(summary => [
     summary.name.trim().toLocaleLowerCase('en'),
     summary,
   ]))
   const overrides: Partial<Record<string, string>> = project.providerModels
   return selected
-    .filter(provider => available === null || available.has(provider))
+    .filter(provider => available === null || isProviderAvailable(provider, available, opts.providerRouteFamilies))
     .map(provider => ({
       provider,
       // `undefined` is materially different from an intentionally blank model
       // override/configuration, just as it is in JobRunner, which also resolves
       // a retired override to the id that answers now.
-      requestedModel: resolvedOverride(provider, overrides[provider]) ?? summaries.get(provider)?.model ?? null,
+      requestedModel: resolvedOverride(provider, overrides[provider])
+        ?? resolveProviderRoute(provider, opts.providerRouteFamilies)?.selection ?? summaries.get(provider)?.model ?? null,
     }))
     .sort((left, right) => compareText(left.provider, right.provider))
 }

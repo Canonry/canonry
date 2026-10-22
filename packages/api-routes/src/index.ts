@@ -15,7 +15,7 @@ export {
   snapshotsWithSentimentResults,
   type SnapshotMentionIdentityRefresh,
 } from './sentiment-mention-identity.js'
-import { AppError, runtimeStateMissing, describeError, operationAccess, OperationAccesses, OPERATION_ACCESS_HEADER, STORED_ONLY_HEADER, matchOperationTemplate, storedOnlyRefused } from '@canonry/canonry-contracts'
+import { AppError, routeFamiliesOf, runtimeStateMissing, describeError, operationAccess, OperationAccesses, OPERATION_ACCESS_HEADER, STORED_ONLY_HEADER, matchOperationTemplate, storedOnlyRefused } from '@canonry/canonry-contracts'
 import { authPlugin } from './auth.js'
 import { registerRequestContext, type RequestContextOptions } from './request-context.js'
 import { createOutcomeEmitter, type OutcomeTelemetryEvent, type OutcomeTelemetryInput } from './outcome-telemetry.js'
@@ -660,6 +660,10 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(userRoutes)
 
     await api.register(openApiRoutes, { ...opts.openApiInfo, routePrefix: opts.routePrefix })
+    // Route families of every adapter this host knows (OpenRouter models,
+    // answer-service profiles). Their bare connections never join "all
+    // configured", so connecting one never widens an existing project.
+    const providerRouteFamilies = routeFamiliesOf(opts.providerAdapters)
     await api.register(projectRoutes, {
       onProjectDeleting: opts.onProjectDeleting,
       onProjectDeleted: opts.onProjectDeleted,
@@ -692,9 +696,11 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getRunnableProviderNames: opts.getRunnableProviderNames,
       getEffectiveProviderModels: opts.getEffectiveProviderModels,
       getBatchEligibleProviderNames: opts.getBatchEligibleProviderNames,
+      providerAdapters: opts.providerAdapters,
     } satisfies RunRoutesOptions)
     await api.register(measurementPlanRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
+      providerRouteFamilies,
       onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
       onCompetitorAutoAliasRescan: opts.onCompetitorAutoAliasRescan,
     } satisfies MeasurementPlanRoutesOptions)
@@ -705,6 +711,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     // handlers never have to touch this file or `openapi.ts`.
     await api.register(measurementDraftRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
+      providerRouteFamilies,
+      providerAdapters: opts.providerAdapters,
       onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
       onCompetitorAutoAliasRescan: opts.onCompetitorAutoAliasRescan,
     } satisfies MeasurementDraftRoutesOptions)
@@ -716,6 +724,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(visibilityReportRoutes)
     await api.register(queryTrackingRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
+      providerRouteFamilies,
       providerSummary: opts.providerSummary,
     })
     await api.register(applyRoutes, {
@@ -744,7 +753,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(citationRoutes)
     await api.register(visibilityStatsRoutes)
     await api.register(resultsExportRoutes)
-    await api.register(compositeRoutes, { sentiment: opts.sentiment, getRunnableProviderNames: opts.getRunnableProviderNames })
+    await api.register(compositeRoutes, { sentiment: opts.sentiment, getRunnableProviderNames: opts.getRunnableProviderNames, providerRouteFamilies })
     await api.register(contentRoutes, {
       explainContentRecommendation: opts.explainContentRecommendation,
       briefContentRecommendation: opts.briefContentRecommendation,
@@ -764,10 +773,12 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(keysRoutes)
     await api.register(snapshotRoutes, {
       onSnapshotRequested: opts.onSnapshotRequested,
+      providerAdapters: opts.providerAdapters,
     } satisfies SnapshotRoutesOptions)
     await api.register(scheduleRoutes, {
       onScheduleUpdated: opts.onScheduleUpdated,
       validProviderNames: opts.providerAdapters?.map(a => a.name),
+      providerAdapters: opts.providerAdapters,
     } satisfies ScheduleRoutesOptions)
     await api.register(notificationRoutes, {
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,

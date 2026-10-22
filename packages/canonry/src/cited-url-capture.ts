@@ -28,6 +28,12 @@ export interface CitedUrlCapture {
 export interface CitedUrlCaptureOptions {
   fetchImpl?: FetchImpl
   timeoutMs?: number
+  /**
+   * The answer's sources are its cited page URLs (an answer service whose
+   * citations are measurable and whose source URLs are the pages themselves,
+   * see `hasDirectCitedUrls`). Absent: decided by provider name.
+   */
+  directCitedSources?: boolean
 }
 
 function isRouteCapableProvider(provider: string): boolean {
@@ -91,7 +97,7 @@ export async function captureCitedUrls(
   opts: CitedUrlCaptureOptions = {},
 ): Promise<CitedUrlCapture> {
   const sourceCount = sources.length
-  if (!isRouteCapableProvider(provider)) {
+  if (!(opts.directCitedSources ?? isRouteCapableProvider(provider))) {
     return {
       citedUrls: null,
       captureStatus: 'unsupported',

@@ -25,6 +25,7 @@ import {
   type DiscoveryCompetitorType,
   type LocationContext,
   describeError,
+  canGenerateText,
 } from '@canonry/canonry-contracts'
 import { embedQueries } from '@canonry/canonry-provider-gemini'
 import {
@@ -401,6 +402,7 @@ function buildDefaultDeps(registry: ProviderRegistry, classifierConfig?: Pick<Ca
       // throw here and degrades every domain to `unknown`.
       const prompt = buildClassificationPrompt(input)
       if (!classifierModel) {
+        if (!canGenerateText(adapter)) throw new Error(`${adapter.displayName} cannot generate text for domain classification.`)
         const text = await adapter.generateText(prompt, cfg)
         return { classifications: parseClassificationResponse(text, input.domains), evaluator: { provider: 'gemini', requestedModel: cfg.model ?? adapter.modelRegistry.defaultModel, servedModel: null, promptVersion: 'domain-category-v1' } }
       }

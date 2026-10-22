@@ -1,10 +1,11 @@
 import { useId, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { getApiV1ProjectsByNameRunAdmissionOptions } from '@canonry/canonry-api-client/react-query'
+import { getApiV1ProjectsByNameRunAdmissionOptions, getApiV1SettingsOptions } from '@canonry/canonry-api-client/react-query'
 import { providerConnectionName, ProviderErrorCodes, type ProviderAccountStreak, type ProviderErrorCode, type RunAdmissionDto } from '@canonry/canonry-contracts'
 import { heyClient } from '../../api.js'
 import { formatSweepInstant } from '../../lib/format-helpers.js'
+import { catalogRouteFamilies } from '../../lib/provider-routes.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 import { RUNS_STALE_MS } from '../../queries/query-client.js'
 import { Button } from '../ui/button.js'
@@ -71,19 +72,31 @@ function When({ iso }: { iso: string }) {
 export function RunAdmissionNoticeView({ admission, canFix, selection }: { admission: RunAdmissionDto; canFix: boolean; selection?: 'manual' | 'scheduled' }) {
   const headingId = useId()
   const held = Object.entries(admission.providers)
+  // Holds are keyed by the route a sweep calls. The server's catalog names
+  // every route family and display name (answer services included), so the
+  // settings action reaches the connection that owns the key. Instance
+  // settings are an administrator read, needed only for that action.
+  const settings = useQuery({
+    ...getApiV1SettingsOptions({ client: heyClient }),
+    enabled: canFix && held.length > 0,
+    retry: false,
+  })
+  const catalog = settings.data?.providerCatalog ?? []
+  const families = catalogRouteFamilies(catalog)
+  const displayName = (provider: string) => providerDisplayName(provider, catalog)
   if (held.length === 0) return null
   const [firstProvider, first] = held[0]!
-  const firstName = providerDisplayName(firstProvider)
+  const firstName = displayName(firstProvider)
   const single = held.length === 1
   const runs = first.consecutiveRuns
   const keyFixable = held.find(([, streak]) => streak.code === ProviderErrorCodes.PROVIDER_AUTH)
 
-  const sweeps = selection ? `${selection} sweeps` : 'sweeps'
+  const checks = selection ? `${selection} checks` : 'checks'
   const title = admission.refused
-    ? `${selection ? selection === 'manual' ? 'Manual sweeps' : 'Scheduled sweeps' : 'Sweeps'} are on hold`
+    ? `${selection ? selection === 'manual' ? 'Manual checks' : 'Scheduled checks' : 'Checks'} are on hold`
     : single
-      ? `${firstName} is left out of ${sweeps}`
-      : `${held.length} providers are left out of ${sweeps}`
+      ? `${firstName} is left out of ${checks}`
+      : `${held.length} providers are left out of ${checks}`
 
   let summary: ReactNode
   if (single) {
@@ -96,13 +109,13 @@ export function RunAdmissionNoticeView({ admission, canFix, selection }: { admis
       ? <>; add credit in {firstName}&apos;s console before then.</>
       : <>, or as soon as its key, model or endpoint is saved.</>
     summary = admission.refused
-      ? <>{failure} in each of its last {runs} runs, so a sweep would fail the same way. The hold lifts <When iso={until} />{recovery}</>
-      : <>{failure} in each of its last {runs} runs. Sweeps run without it until <When iso={until} />{recovery}</>
+      ? <>{failure} in each of its last {runs} runs, so a check would fail the same way. The hold lifts <When iso={until} />{recovery}</>
+      : <>{failure} in each of its last {runs} runs. Checks run without it until <When iso={until} />{recovery}</>
   } else {
     summary = admission.refused
-      ? <>Every provider failed on its account in each of its last {runs} runs, so a sweep would fail the same way. The hold lifts{' '}
+      ? <>Every provider failed on its account in each of its last {runs} runs, so a check would fail the same way. The hold lifts{' '}
         {admission.retryAfter ? <When iso={admission.retryAfter} /> : 'at the first time below'}, or as soon as a provider&apos;s key, model or endpoint is saved.</>
-      : <>Each failed on its account in each of its last {runs} runs. Sweeps run without them until the times below, or until a key, model or endpoint is saved.</>
+      : <>Each failed on its account in each of its last {runs} runs. Checks run without them until the times below, or until a key, model or endpoint is saved.</>
   }
 
   return (
@@ -120,7 +133,7 @@ export function RunAdmissionNoticeView({ admission, canFix, selection }: { admis
           <ul className="text-secondary">
             {held.map(([provider, streak]: [string, ProviderAccountStreak]) => (
               <li key={provider}>
-                {providerDisplayName(provider)}: {accountFailure(streak.code).label}, until <When iso={streak.retryAfter} />
+                {displayName(provider)}: {accountFailure(streak.code).label}, until <When iso={streak.retryAfter} />
               </li>
             ))}
           </ul>
@@ -129,8 +142,8 @@ export function RunAdmissionNoticeView({ admission, canFix, selection }: { admis
       </div>
       {canFix && keyFixable ? (
         <Button asChild variant="outline" size="sm" className="h-11 md:h-8">
-          <Link to="/settings" hash={`provider-${providerConnectionName(keyFixable[0])}`}>
-            {single ? `Update ${providerDisplayName(providerConnectionName(firstProvider))} key` : 'Open provider settings'}
+          <Link to="/settings" hash={`provider-${providerConnectionName(keyFixable[0], families)}`}>
+            {single ? `Update ${displayName(providerConnectionName(firstProvider, families))} key` : 'Open provider settings'}
           </Link>
         </Button>
       ) : null}

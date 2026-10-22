@@ -435,6 +435,10 @@ importers:
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+    devDependencies:
+      '@canonry/canonry-provider-answer-services':
+        specifier: workspace:*
+        version: link:../provider-answer-services
 
   packages/canonry:
     dependencies:
@@ -571,6 +575,9 @@ importers:
       '@canonry/canonry-intelligence':
         specifier: workspace:*
         version: link:../intelligence
+      '@canonry/canonry-provider-answer-services':
+        specifier: workspace:*
+        version: link:../provider-answer-services
       '@canonry/canonry-provider-cdp':
         specifier: workspace:*
         version: link:../provider-cdp
@@ -760,6 +767,12 @@ importers:
         version: link:../contracts
 
   packages/intelligence:
+    dependencies:
+      '@canonry/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/provider-answer-services:
     dependencies:
       '@canonry/canonry-contracts':
         specifier: workspace:*
