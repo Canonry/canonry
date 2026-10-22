@@ -383,8 +383,7 @@ export function sortTrackedRows(rows: readonly TrackedRowVm[], sort: TrackedSort
 
 /** The table's columns, in order. The checkbox column is not one: it shows when the caller takes a selection. */
 export const TRACKED_COLUMNS = ['query', 'subject', 'type', 'engines', 'lastMeasured', 'status', 'source', 'menu'] as const
-/** Change follows the engines, on a read that compares with the sweep before (`TrackedTable`'s `changes`). */
-export type TrackedColumn = (typeof TRACKED_COLUMNS)[number] | 'change'
+export type TrackedColumn = (typeof TRACKED_COLUMNS)[number]
 
 /**
  * Column widths in px. Query takes what is left: 424px in the 1152px content
@@ -392,7 +391,7 @@ export type TrackedColumn = (typeof TRACKED_COLUMNS)[number] | 'change'
  * gets short (`trackedLayout`). Status holds its widest label, "First answers"
  * and a month and day.
  */
-export const TRACKED_COLUMN_WIDTH = { select: 32, subject: 250, type: 80, engine: 62, change: 120, lastMeasured: 108, status: 148, source: 98, menu: 32 } as const
+export const TRACKED_COLUMN_WIDTH = { select: 32, subject: 250, type: 80, engine: 62, lastMeasured: 108, status: 148, source: 98, menu: 32 } as const
 /**
  * The query is the row's identity. At this width its line holds 60 to 64
  * characters, by their letters, and a page with a longer one gives every row

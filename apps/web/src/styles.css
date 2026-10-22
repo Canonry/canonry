@@ -3590,9 +3590,21 @@
     @apply whitespace-nowrap tabular-nums text-secondary;
   }
 
-  /* What each engine won or lost since the previous sweep: one mark an engine, wrapping in the cell. */
-  .tracked-cell-change {
-    @apply text-[13px] leading-5;
+  /* The ▲ or ▼ of a letter whose engine won or lost the signal since the
+     previous sweep, off the chip's right edge: the chips of a column stay
+     level whether or not one is marked, and more engines widen no row. */
+  .signal-change {
+    position: absolute;
+    left: 100%;
+    top: 50%;
+    margin-left: 3px;
+    translate: 0 -50%;
+  }
+
+  /* A stacked row sets its engines side by side, so the mark takes room of its own before the next engine's name. */
+  .tracked-table[data-layout='stacked'] .signal-change {
+    position: static;
+    translate: none;
   }
 
   /* Status carries the row's date. The widest label, "First answers" and a

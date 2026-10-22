@@ -14,7 +14,6 @@ import {
   type TrackedSort,
 } from '../src/components/project/queries/advanced/tracked-view-model.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
-import { visibleText } from './caution-note.js'
 import { compileAppStyles, compiledDeclarations, compiledDeclarationValues, compiledElementProperty, parseCompiledCss } from './compiled-app-css.js'
 
 beforeEach(() => {
@@ -279,25 +278,44 @@ describe('TrackedTable', () => {
     expect(['line-height', 'padding-block', 'border-width'].map(property => compiledElementProperty(rules, status(WAITING), property))).toEqual(['calc(var(--spacing) * 4)', 'calc(var(--spacing) * 0.5)', '1px'])
   })
 
-  it('under the switch each engine cell is one letter, and Change says what each engine won or lost of that signal', () => {
-    // OpenAI lost the mention on the market query and won its citation; nothing else changed.
-    const changed: TrackedResults = { rows: RESULTS.rows.map(row => row.queryId !== 'market' ? row : { ...row, engines: row.engines.map(engine => ({ ...engine, mentionChange: 'lost' as const, citationChange: 'won' as const })) }) }
+  it('under the switch each engine cell is one letter, marked ▲ or ▼ in that cell where its engine won or lost the signal', async () => {
+    // On the market query OpenAI won the mention it has now and lost the citation it has not; nothing else changed.
+    const changed: TrackedResults = { rows: RESULTS.rows.map(row => row.queryId !== 'market' ? row : { ...row, engines: row.engines.map(engine => ({ ...engine, mentionChange: 'won' as const, citationChange: 'lost' as const })) }) }
     const { rerender } = setup({ signal: 'mentioned', changes: true, coverage: coverageByQuery(changed) })
+    /** Each engine cell's mark as drawn: a green ▲, a red ▼ (the same triangle turned over), or none. */
+    const marks = (text: string) => engineCells(text).map(cell => {
+      const mark = cell.querySelector('.signal-change')
+      if (!mark) return null
+      const classes = mark.getAttribute('class')!.split(' ')
+      return classes.includes('text-positive-400') && !classes.includes('rotate-180') ? 'won'
+        : classes.includes('text-negative-400') && classes.includes('rotate-180') ? 'lost' : classes.join(' ')
+    })
+    const openai = () => within(engineCells(MARKET)[0]!).getByRole('button')
     // One letter, the mention's, with its count in its bubble; the citation is the opened row's.
     expect(engineCellsRead(MARKET)).toEqual(['OpenAI: Mentioned', 'Gemini: Mention not checked'])
-    expect(within(engineCells(MARKET)[0]!).getByRole('button').getAttribute('aria-description')).toBe('Mentioned in 2 of 3 answers.')
-    expect(headerNames()).toContain('Changevs previous sweep')
-    const change = () => rowOf(MARKET).querySelector('.tracked-cell-change')!
-    expect([change().textContent, visibleText(change() as HTMLElement)]).toEqual(['OpenAI lost the mention', 'OpenAI'])
-    expect(rowOf(LOCATION).querySelector('.tracked-cell-change')!.textContent).toBe('')
-    // Under Cited, the letters and the change are the citation's.
+    // The change is the engine's own cell's: a ▲ by its letter and a sentence in its bubble. No column names the engines a second time.
+    expect(marks(MARKET)).toEqual(['won', null])
+    expect(openai().getAttribute('aria-description')).toBe('Mentioned in 2 of 3 answers. Won in last sweep.')
+    expect(marks(LOCATION)).toEqual([null, null])
+    expect(headerNames()).toEqual(['Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Last measured', 'Status', 'Source'])
+    // Under Cited, the letters and the marks are the citation's.
     rerender({ signal: 'cited', changes: true, coverage: coverageByQuery(changed) })
     expect(engineCellsRead(MARKET)).toEqual(['OpenAI: Not cited', 'Gemini: Citation not checked'])
-    expect(change().textContent).toBe('OpenAI won the citation')
-    // Without a comparison there is no column, and without the switch each cell is the pair.
+    expect(marks(MARKET)).toEqual(['lost', null])
+    expect(openai().getAttribute('aria-description')).toBe('Cited in 0 of 3 answers. Lost in last sweep.')
+    // Without a comparison nothing is marked, and without the switch each cell is the pair.
+    rerender({ signal: 'cited', changes: false, coverage: coverageByQuery(changed) })
+    expect(marks(MARKET)).toEqual([null, null])
+    expect(openai().getAttribute('aria-description')).toBe('Cited in 0 of 3 answers.')
     rerender({ coverage: coverageByQuery(changed), signal: undefined, changes: false })
-    expect(headerNames().some(name => name?.startsWith('Change'))).toBe(false)
     expect(engineCellsRead(MARKET)).toEqual(['OpenAI: Mentioned, Not cited', 'Gemini: Not checked'])
+
+    // Under a header the mark is off the chip's right edge, out of the flow, so a column's chips stay level marked or not.
+    // A stacked row sets its engines side by side, so there the mark takes its own room before the next engine's name.
+    const rules = parseCompiledCss(await compileAppStyles(['tracked-table']))
+    const inTable = compiledDeclarations(rules, '.signal-change')
+    expect([inTable.position, inTable.left, inTable.top, inTable['margin-left'], inTable.translate]).toEqual(['absolute', '100%', '50%', '3px', '0 -50%'])
+    expect(compiledDeclarations(rules, ".tracked-table[data-layout='stacked'] .signal-change")).toEqual({ position: 'static', translate: 'none' })
   })
 
   it('keeps a market\'s count after its name in a closed row, and on the last word of the name where the name wraps', () => {

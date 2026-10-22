@@ -578,7 +578,7 @@ function TrackedPage({
           detail={VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(formatObservedInstantMonthDay(observedInstant(run.completedAt ?? run.createdAt)), nextSweepDate ?? null)}
         />
       ) : null}
-      {listing ? <SignalLetterLegend which={signal} /> : null}
+      {listing ? <SignalLetterLegend which={signal} changes={compareRun !== undefined && compareRun !== null} /> : null}
     </div>
   )
 

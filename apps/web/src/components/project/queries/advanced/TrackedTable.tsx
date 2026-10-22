@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, ChevronsUpDown, Triangle } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, ChevronsUpDown } from 'lucide-react'
 import type { QueryClass, QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import { formatMonthDay, formatSweepDay } from '../../../../lib/format-helpers.js'
@@ -10,7 +10,6 @@ import { Button } from '../../../ui/button.js'
 import { TrackedRowDetail, type TrackedContextLabels } from './TrackedRowDetail.js'
 import type { TrackedRowVm, TrackedSignal, TrackedSubject, TrackedType } from './tracked-types.js'
 import {
-  engineSignal,
   engineSortKey,
   locationCountLabel,
   nextTrackedSort,
@@ -258,7 +257,7 @@ export function TrackedTable({
   currentTargetKey?: string
   /** The switch's signal: each engine cell is that one letter. Left out, each is the pair of both. */
   signal?: TrackedSignal
-  /** The read compares with the sweep before, so a Change column says what each engine won or lost of `signal`. */
+  /** The read compares with the sweep before, so each engine's letter is marked ▲ or ▼ where it won or lost `signal`. */
   changes?: boolean
 }) {
   const tableId = useId()
@@ -272,9 +271,7 @@ export function TrackedTable({
     return { key, label: name, width: trackedEngineColumnWidth(name) }
   })
   // Without a menu to draw, its column gives its width back to Query.
-  const wanted = (columns ?? TRACKED_COLUMNS)
-    .flatMap((column): TrackedColumn[] => column === 'engines' && changes ? [column, 'change'] : column === 'change' ? [] : [column])
-    .filter(column => column !== 'menu' || renderRowMenu !== undefined)
+  const wanted = (columns ?? TRACKED_COLUMNS).filter(column => column !== 'menu' || renderRowMenu !== undefined)
   const layout = trackedLayout(frameWidth, engineColumns.map(engine => engine.width), { columns: wanted, selectable })
   const shown = new Set(layout.columns)
   const lines = useRowLines(frameRef, rows, JSON.stringify([rows.map(row => row.queryId), engineColumns.map(engine => engine.width), wanted, selectable]), frameWidth, measured && !layout.stacked, fontLoads)
@@ -290,7 +287,6 @@ export function TrackedTable({
       case 'lastMeasured': return [['lastMeasured', 'Last measured']]
       case 'status': return [['status', 'Status']]
       case 'type':
-      case 'change':
       case 'source':
       case 'menu': return []
     }
@@ -404,7 +400,6 @@ export function TrackedTable({
             {shown.has('subject') ? <col style={{ width: layout.subjectWidth }} /> : null}
             {shown.has('type') ? <col style={{ width: TRACKED_COLUMN_WIDTH.type }} /> : null}
             {shown.has('engines') ? engineColumns.map(engine => <col key={engine.key} style={{ width: engine.width }} />) : null}
-            {shown.has('change') ? <col style={{ width: TRACKED_COLUMN_WIDTH.change }} /> : null}
             {shown.has('lastMeasured') ? <col style={{ width: TRACKED_COLUMN_WIDTH.lastMeasured }} /> : null}
             {shown.has('status') ? <col style={{ width: TRACKED_COLUMN_WIDTH.status }} /> : null}
             {shown.has('source') ? <col style={{ width: TRACKED_COLUMN_WIDTH.source }} /> : null}
@@ -419,7 +414,6 @@ export function TrackedTable({
               {shown.has('subject') ? header('subject', 'Subject') : null}
               {shown.has('type') ? <th scope="col">Type</th> : null}
               {shown.has('engines') ? engineColumns.map(engine => <Fragment key={engine.key}>{header(engineSortKey(engine.key), engine.label, 'tracked-cell-engine')}</Fragment>) : null}
-              {shown.has('change') ? <th scope="col" className="tracked-cell-change">Change<span className="block text-[11px] font-normal leading-4 text-muted">vs previous sweep</span></th> : null}
               {shown.has('lastMeasured') ? header('lastMeasured', 'Last measured') : null}
               {shown.has('status') ? header('status', 'Status') : null}
               {shown.has('source') ? <th scope="col">Source</th> : null}
@@ -484,6 +478,7 @@ export function TrackedTable({
                               key={queryClass}
                               signal={result}
                               which={signal}
+                              change={changes && result ? result[signal === 'cited' ? 'citationChange' : 'mentionChange'] : undefined}
                               engineLabel={engine.label}
                               classLabel={mixed ? typeLabel(queryClass as QueryClass) : undefined}
                               subject={marksFor?.(row, queryClass)}
@@ -503,7 +498,6 @@ export function TrackedTable({
                       </td>
                     )
                   }) : null}
-                  {shown.has('change') ? <td className="tracked-cell-change"><ChangeCell row={row} engines={engineColumns} coverage={coverage} signal={signal ?? 'mentioned'} /></td> : null}
                   {shown.has('lastMeasured') ? (
                     <td className="tracked-cell-date">
                       {row.lastMeasuredAt ? <time dateTime={row.lastMeasuredAt}>{formatSweepDay(row.lastMeasuredAt)}</time> : 'Never'}
@@ -539,33 +533,6 @@ export function TrackedTable({
         </tbody>
       </table>
     </div>
-  )
-}
-
-/**
- * What each engine won or lost of the signal since the previous sweep, as the
- * read marks it: "▲ Claude ▼ Gemini". Blank when nothing changed, or when the
- * row is new or not measured both times. Each type of a row asked both ways
- * is read, and an engine is named once per change.
- */
-function ChangeCell({ row, engines, coverage, signal }: { row: TrackedRowVm; engines: readonly Engine[]; coverage: TrackedCoverage | undefined; signal: TrackedSignal }) {
-  const field = signal === 'cited' ? 'citationChange' : 'mentionChange'
-  const marks = engines.flatMap(engine => {
-    const changes = new Set(resultClasses(row).map(queryClass => engineSignal(coverage, row.queryId, queryClass, engine.key)?.[field]).filter(change => change !== undefined))
-    return [...changes].map(change => ({ engine: engine.label, change: change! }))
-  })
-  if (marks.length === 0) return null
-  const verb = signal === 'cited' ? 'citation' : 'mention'
-  return (
-    <span className="flex flex-wrap gap-x-2 text-[13px] leading-5">
-      {marks.map(({ engine, change }) => (
-        <span key={`${engine}:${change}`} className={`inline-flex items-center gap-1 whitespace-nowrap font-medium ${change === 'won' ? 'text-positive-400' : 'text-negative-400'}`}>
-          <Triangle aria-hidden="true" className={`size-2.5 fill-current ${change === 'lost' ? 'rotate-180' : ''}`} />
-          {engine}
-          <span className="sr-only">{` ${change} the ${verb}`}</span>
-        </span>
-      ))}
-    </span>
   )
 }
 

@@ -1416,13 +1416,13 @@ function heldResults() {
   return { waiting, results: () => new Promise<Response>(resolve => waiting.push(resolve)) }
 }
 /**
- * The last sweep compared with the one before: on Uptown's best query OpenAI lost the mention, and on two
+ * The last sweep compared with the one before: on Uptown's best query Gemini lost the mention, and on two
  * other rows an engine won it. Only the rows' marks say so; nothing is counted from them but list lengths.
  */
 const comparedSweep = () => sweep({
   compareRun: { id: 'run-0', createdAt: '2026-09-23T12:00:00.000Z', completedAt: '2026-09-23T12:10:00.000Z', status: 'completed', revision: 4, matchesCurrentTracking: true },
   rows: RESULT_ROWS.map(row => row.queryId === 'q-uptown-best'
-    ? { ...row, engines: row.engines.map(entry => entry.provider === 'openai' ? { ...entry, mentionChange: 'lost' } : entry) }
+    ? { ...row, engines: row.engines.map(entry => entry.provider === 'gemini' ? { ...entry, mentionChange: 'lost' } : entry) }
     : row.queryId === 'q-harbor' || row.queryId === 'q-uptown-pets' ? { ...row, engines: row.engines.map((entry, index) => index === 0 ? { ...entry, mentionChange: 'won' } : entry) } : row),
 })
 function openViews() {
@@ -1448,6 +1448,12 @@ test('Views opens beside the search and prints each read\'s own count, for the w
     'Lost in last sweep, 1', 'Won in last sweep, 2', 'Location gaps, 5', 'Thin markets, 9', 'Pattern gaps, 2', 'Not asked, 7', 'Hand-picked, 3',
   ]))
   expect(pressedViews()).toEqual([])
+  // Each change is marked in its engine's own cell, so the legend says what a ▲ and a ▼ beside a letter are.
+  expect(within(screen.getByRole('list', { name: 'Legend' })).getAllByRole('listitem').map(entry => entry.textContent)).toEqual(['M Mentioned', 'M Not mentioned', 'MNot checked', 'Won in last sweep', 'Lost in last sweep'])
+  expect(within(table()).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Perplexity', 'Last measured', 'Status', 'Source', 'Actions'])
+  const gemini = within(rowOf(UPTOWN_BEST)).getByRole('button', { name: 'Gemini: Not mentioned' })
+  expect(gemini.getAttribute('aria-description')).toBe('Any of 3 locations in Uptown. Mentioned in 0 of 3 answers. Lost in last sweep.')
+  expect(gemini.querySelector('.signal-change')).not.toBeNull()
   const order = [region().querySelector('dl')!, searchBox(), screen.getByRole('button', { name: 'Views' }), table()]
   for (const [index, element] of order.slice(1).entries()) expect(order[index]!.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expectNoSentence(region())
