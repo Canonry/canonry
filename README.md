@@ -110,6 +110,8 @@ Your agent and dashboard use the same project API. The dashboard makes trends, e
 
 Track brand mentions and citations over time, by query and answer engine. Find answers that cite competitors but omit your site.
 
+Compare direct AI engines, OpenRouter models, and search answers from Exa and Parallel.
+
 ![Canonry AI Visibility mention share trend across answer engines](https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/ai-visibility-trend.png)
 
 *Track your share of answer-engine brand mentions over time.*
@@ -135,12 +137,6 @@ For an existing project, configure a provider with your own key.
 | [Exa](docs/providers/answer-services/exa.md) | [Exa dashboard](https://dashboard.exa.ai/api-keys) | `EXA_API_KEY` |
 | [Parallel](docs/providers/answer-services/parallel.md) | [Parallel platform](https://platform.parallel.ai) | `PARALLEL_API_KEY` |
 | Local model | Any OpenAI-compatible endpoint | `LOCAL_BASE_URL` |
-
-An API key connects the service. In each project's **Answer engines** settings,
-choose OpenRouter models, Exa profiles, or Parallel profiles. Save your choices
-to use them in both manual and scheduled checks. Connecting a key alone does
-not change which engines a project runs. The linked provider guides show the
-equivalent CLI commands.
 
 Add the queries that matter to your project:
 
