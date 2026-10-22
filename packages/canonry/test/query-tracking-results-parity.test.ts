@@ -291,6 +291,8 @@ describe('query tracking results CLI/REST/MCP parity', () => {
           { provider: 'gemini', expectedAnswers: 1, answers: 1, mentionedAnswers: 1, citedAnswers: 0, uncheckedSourceAnswers: 0, mentioned: true, cited: false },
           { provider: 'openai', expectedAnswers: 1, answers: 0, mentionedAnswers: 0, citedAnswers: 0, uncheckedSourceAnswers: 0, mentioned: null, cited: null },
         ],
+        // OpenAI saved no answer, so it is on neither side of either count.
+        engineCounts: { mentioned: 1, mentionChecked: 1, cited: 0, citationChecked: 1 },
       }],
       pendingRows: 0,
       // One answer of the two expected was saved, so neither rate is a number.
@@ -337,12 +339,14 @@ describe('query tracking results CLI/REST/MCP parity', () => {
               citedTargetKeys: ['gadgets'],
             },
           ],
+          engineCounts: { mentioned: 0, mentionChecked: 2, cited: 1, citationChecked: 2 },
         },
         {
           queryId: 'q-tools', queryText: 'northwind tools pricing', queryClass: 'branded',
           engines: ['gemini', 'openai'].map(provider => (
             { provider, expectedAnswers: 1, answers: 1, mentionedAnswers: 1, citedAnswers: 0, uncheckedSourceAnswers: 0, mentioned: true, cited: false }
           )),
+          engineCounts: { mentioned: 2, mentionChecked: 2, cited: 0, citationChecked: 2 },
         },
       ],
       pendingRows: 0,
@@ -408,6 +412,7 @@ describe('query tracking results CLI/REST/MCP parity', () => {
             })],
           },
         ],
+        engineCounts: { mentioned: 0, mentionChecked: 2, cited: 1, citationChecked: 2 },
       }],
       pendingRows: 0,
     })

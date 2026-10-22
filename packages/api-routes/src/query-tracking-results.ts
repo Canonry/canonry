@@ -24,6 +24,7 @@ import {
   normalizeIdentityText,
   measurementV2UsageEdgeKey,
   parseStoredMeasurementPlanAnyVersion,
+  queryTrackingRowEngineCounts,
   queryTrackingResultsRequestSchema,
   queryTrackingResultsResponseSchema,
   registrableDomain,
@@ -374,7 +375,8 @@ export function foldQueryTrackingResults(
           )),
         } : {}),
       }))
-    const row = { queryId: pair.queryId, queryText: pair.queryText, queryClass: pair.queryClass, engines }
+    // Counted again with each engine's change when the read compares (`markChanges`).
+    const row: QueryTrackingResultRow = { queryId: pair.queryId, queryText: pair.queryText, queryClass: pair.queryClass, engines, engineCounts: queryTrackingRowEngineCounts(engines, false) }
     rows.push(row)
     detail?.checked.set(row, checked)
     detail?.candidates?.set(row, rowCandidates)
@@ -701,15 +703,25 @@ function rowShare(row: QueryTrackingResultRow, signal: ResultSignal): number | n
   return checked > 0 ? shown / checked : null
 }
 
+/** A row's share of the engines that checked the signal and show it, the figure the query list shows; null when none checked it. */
+function engineShare(row: QueryTrackingResultRow, signal: ResultSignal): number | null {
+  // Every row this read folds is counted; the type allows a row from an older server.
+  const { mentioned, mentionChecked, cited, citationChecked } = row.engineCounts ?? queryTrackingRowEngineCounts(row.engines, false)
+  const [shown, checked] = signal === 'mentioned' ? [mentioned, mentionChecked] : [cited, citationChecked]
+  return checked > 0 ? shown / checked : null
+}
+
 /** Losing first is the lowest share first, winning first the highest. A share that could not be read goes last either way. */
 function compareShares(left: number | null, right: number | null, sort: 'losing' | 'winning'): number {
   if (left === null || right === null) return left === right ? 0 : left === null ? 1 : -1
   return sort === 'losing' ? left - right : right - left
 }
 
+/** By the share of engines first, so the list runs in the order of the count it shows, then by the share of answers among rows with the same. */
 function sortRows(rows: readonly QueryTrackingResultRow[], signal: ResultSignal, sort: 'losing' | 'winning'): QueryTrackingResultRow[] {
   return [...rows].sort((left, right) => (
-    compareShares(rowShare(left, signal), rowShare(right, signal), sort)
+    compareShares(engineShare(left, signal), engineShare(right, signal), sort)
+    || compareShares(rowShare(left, signal), rowShare(right, signal), sort)
     || compareText(normalizeIdentityText(left.queryText), normalizeIdentityText(right.queryText))
     || compareText(left.queryClass, right.queryClass)
   ))
@@ -717,8 +729,9 @@ function sortRows(rows: readonly QueryTrackingResultRow[], signal: ResultSignal,
 
 /**
  * Marks each engine's signal gained or lost since the previous sweep's row of
- * the same query and class. Only two checked results compare: a not-checked
- * answer on either side is no change.
+ * the same query and class, and counts them on the row. Only two checked
+ * results compare: a not-checked answer on either side is no change. A row
+ * the previous sweep did not measure is not compared.
  */
 function markChanges(rows: readonly QueryTrackingResultRow[], previous: readonly QueryTrackingResultRow[]): void {
   const before = new Map(previous.map(row => [rowKey(row), row]))
@@ -731,6 +744,7 @@ function markChanges(rows: readonly QueryTrackingResultRow[], previous: readonly
       if (engine.mentioned !== null && old.mentioned !== null && engine.mentioned !== old.mentioned) engine.mentionChange = engine.mentioned ? 'won' : 'lost'
       if (engine.cited !== null && old.cited !== null && engine.cited !== old.cited) engine.citationChange = engine.cited ? 'won' : 'lost'
     }
+    row.engineCounts = queryTrackingRowEngineCounts(row.engines, true)
   }
 }
 

@@ -43,7 +43,11 @@ const queryTrackingResultsRequestShape = {
   queryId: nonBlankIdSchema.optional(),
   /** The signal `sort`, `groups` and the "who won" lists read. Default `mentioned`. */
   signal: queryTrackingSignalSchema.optional(),
-  /** Orders `rows` (and `groups`) by the signal's share of answers: lowest first, or highest first. Omit for query-id order. */
+  /**
+   * Orders `rows` by the share of engines that show the signal (`engineCounts`),
+   * then by its share of answers, and `groups` by its share of answers: lowest
+   * first, or highest first. Omit for query-id order.
+   */
   sort: z.enum(['losing', 'winning']).optional(),
   /**
    * An advanced portfolio's roll-ups in `groups`: one per market, or one per
@@ -207,6 +211,64 @@ export const queryTrackingEngineResultSchema = z.object({
 })
 export type QueryTrackingEngineResult = z.output<typeof queryTrackingEngineResultSchema>
 
+/** Signals won and lost since the previous sweep, each signal counted on its own. */
+const queryTrackingChangeCountsSchema = z.object({
+  mentionsWon: countSchema,
+  mentionsLost: countSchema,
+  citationsWon: countSchema,
+  citationsLost: countSchema,
+}).strict()
+
+/**
+ * A row's engines counted, the one figure the dashboard's query list shows for
+ * it: how many engines show each signal, of the engines that checked it. An
+ * engine whose signal is null (not checked) is on neither side of that
+ * signal's count, so it is never a no.
+ */
+export const queryTrackingRowEngineCountsSchema = z.object({
+  /** Engines whose answer text mentions the row. */
+  mentioned: countSchema,
+  /** Engines whose mention was checked: the base of `mentioned`. */
+  mentionChecked: countSchema,
+  /** Engines whose answers' sources cite the row. */
+  cited: countSchema,
+  /** Engines whose citation was checked: the base of `cited`. */
+  citationChecked: countSchema,
+  /**
+   * With `compare=previous`, on a row the previous sweep also measured: the
+   * engines that won or lost each signal since then, as their entries'
+   * `mentionChange` and `citationChange` say. Absent when the row is not compared.
+   */
+  change: queryTrackingChangeCountsSchema.optional(),
+}).strict()
+export type QueryTrackingRowEngineCounts = z.output<typeof queryTrackingRowEngineCountsSchema>
+
+/**
+ * Counts a row's engines as its `engineCounts` reports them: for each signal
+ * the engines that show it and the engines that checked it, and with
+ * `compared` the engines whose entry is marked won or lost.
+ */
+export function queryTrackingRowEngineCounts(
+  engines: readonly Pick<QueryTrackingEngineResult, 'mentioned' | 'cited' | 'mentionChange' | 'citationChange'>[],
+  compared: boolean,
+): QueryTrackingRowEngineCounts {
+  const count = (holds: (engine: (typeof engines)[number]) => boolean) => engines.filter(holds).length
+  return {
+    mentioned: count(engine => engine.mentioned === true),
+    mentionChecked: count(engine => engine.mentioned !== null),
+    cited: count(engine => engine.cited === true),
+    citationChecked: count(engine => engine.cited !== null),
+    ...(compared ? {
+      change: {
+        mentionsWon: count(engine => engine.mentionChange === 'won'),
+        mentionsLost: count(engine => engine.mentionChange === 'lost'),
+        citationsWon: count(engine => engine.citationChange === 'won'),
+        citationsLost: count(engine => engine.citationChange === 'lost'),
+      },
+    } : {}),
+  }
+}
+
 export const queryTrackingResultRowSchema = z.object({
   queryId: nonBlankIdSchema,
   /** The text the sweep asked, which is the text tracked now. */
@@ -215,7 +277,24 @@ export const queryTrackingResultRowSchema = z.object({
   queryClass: visibilityReportPopulationClassSchema,
   /** One entry per engine the sweep asked for this row, sorted by provider. */
   engines: z.array(queryTrackingEngineResultSchema),
-}).strict()
+  /** The engines counted (`queryTrackingRowEngineCounts`): what the query list shows for the row. Absent from a server that predates it. */
+  engineCounts: queryTrackingRowEngineCountsSchema.optional(),
+}).strict().superRefine((value, ctx) => {
+  const counts = value.engineCounts
+  if (counts === undefined) return
+  // The counts are the engines', and an engine is marked won or lost only on a compared row.
+  const { change } = counts
+  const compared = change !== undefined
+  const expected = queryTrackingRowEngineCounts(value.engines, compared)
+  const same = (['mentioned', 'mentionChecked', 'cited', 'citationChecked'] as const).every(field => counts[field] === expected[field])
+    && (change === undefined || (['mentionsWon', 'mentionsLost', 'citationsWon', 'citationsLost'] as const).every(field => change[field] === expected.change![field]))
+  if (!same) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['engineCounts'], message: 'engineCounts counts the row\'s engines' })
+  }
+  if (!compared && value.engines.some(engine => engine.mentionChange !== undefined || engine.citationChange !== undefined)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['engineCounts', 'change'], message: 'a row whose engines are marked won or lost counts them in engineCounts.change' })
+  }
+})
 export type QueryTrackingResultRow = z.output<typeof queryTrackingResultRowSchema>
 
 export const queryTrackingResultsRunSchema = z.object({
@@ -335,12 +414,7 @@ export const queryTrackingGroupTypeSchema = z.object({
     citedAnswers: countSchema,
   }).strict()),
   /** With `compare=previous`: query and engine pairs that gained or lost each signal since that sweep. */
-  change: z.object({
-    mentionsWon: countSchema,
-    mentionsLost: countSchema,
-    citationsWon: countSchema,
-    citationsLost: countSchema,
-  }).strict().optional(),
+  change: queryTrackingChangeCountsSchema.optional(),
 }).strict()
 
 /**

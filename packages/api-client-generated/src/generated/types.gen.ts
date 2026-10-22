@@ -2156,6 +2156,18 @@ export type QueryTrackingResultsResponse = {
             mentionChange?: 'won' | 'lost';
             citationChange?: 'won' | 'lost';
         }>;
+        engineCounts?: {
+            mentioned: number;
+            mentionChecked: number;
+            cited: number;
+            citationChecked: number;
+            change?: {
+                mentionsWon: number;
+                mentionsLost: number;
+                citationsWon: number;
+                citationsLost: number;
+            };
+        };
     }>;
     pendingRows: number;
     totals?: Array<{
@@ -20836,7 +20848,7 @@ export type GetApiV1ProjectsByNameQueryTrackingResultsData = {
          */
         signal?: 'mentioned' | 'cited';
         /**
-         * Orders `rows` and `groups` by the signal's share of checked answers: `losing` lowest first, `winning` highest first. Omit for query-id order. Read-selection identity.
+         * Orders `rows` by the share of engines that checked the signal and show it (`engineCounts`), then by its share of checked answers, and `groups` by the signal's share of checked answers: `losing` lowest first, `winning` highest first. Omit for query-id order. Read-selection identity.
          */
         sort?: 'losing' | 'winning';
         /**

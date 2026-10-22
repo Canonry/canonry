@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   queryTrackingEngineResultSchema,
+  queryTrackingResultRowSchema,
   queryTrackingResultsRequestSchema,
   queryTrackingResultsResponseSchema,
+  queryTrackingRowEngineCounts,
 } from '../src/query-tracking-results.js'
 
 /** One engine entry as a server sent it before any optional field existed: three answers, one mentioned, one cited. */
@@ -101,5 +103,43 @@ describe('query tracking results contract', () => {
     // A total is the report's own rate: a number without its denominator is refused.
     const broken = { ...current, totals: [{ ...current.totals[0]!, mentionCoverage: { numerator: 1, denominator: null, rate: null } }] }
     expect(queryTrackingResultsResponseSchema.safeParse(broken).success).toBe(false)
+  })
+
+  describe('engineCounts', () => {
+    // Four engines: two mention the row, one does not and one could not be checked; one cites it, two checked sources and do not, one could not.
+    const engines = [
+      { ...ENTRY, provider: 'claude', citedAnswers: 0, mentioned: true, cited: false, mentionChange: 'won' as const },
+      { ...ENTRY, provider: 'gemini', mentioned: true, cited: true, citationChange: 'won' as const },
+      { ...ENTRY, provider: 'openai', mentionedAnswers: 0, citedAnswers: 0, mentioned: false, cited: false, mentionChange: 'lost' as const, citationChange: 'lost' as const },
+      { ...ENTRY, provider: 'perplexity', mentionedAnswers: 0, citedAnswers: 0, mentioned: null, cited: null },
+    ]
+    const row = (engineCounts?: unknown) => ({ queryId: 'q-1', queryText: 'best homes in lakeshore metro', queryClass: 'non-brand', engines, ...(engineCounts === undefined ? {} : { engineCounts }) })
+
+    it('counts each signal over the engines that checked it, a not-checked engine on neither side', () => {
+      expect(queryTrackingRowEngineCounts(engines, false)).toStrictEqual({ mentioned: 2, mentionChecked: 3, cited: 1, citationChecked: 3 })
+      // Compared, the engines marked won and lost, each signal on its own.
+      expect(queryTrackingRowEngineCounts(engines, true)).toStrictEqual({
+        mentioned: 2, mentionChecked: 3, cited: 1, citationChecked: 3,
+        change: { mentionsWon: 1, mentionsLost: 1, citationsWon: 1, citationsLost: 1 },
+      })
+      // A compared row where nothing moved counts zeros, which no change at all does not.
+      expect(queryTrackingRowEngineCounts([{ mentioned: true, cited: null }], true)).toStrictEqual({ mentioned: 1, mentionChecked: 1, cited: 0, citationChecked: 0, change: { mentionsWon: 0, mentionsLost: 0, citationsWon: 0, citationsLost: 0 } })
+      expect(queryTrackingRowEngineCounts([], false)).toStrictEqual({ mentioned: 0, mentionChecked: 0, cited: 0, citationChecked: 0 })
+    })
+
+    it('takes counts that are the row\'s engines, and refuses any other', () => {
+      const counts = queryTrackingRowEngineCounts(engines, true)
+      expect(queryTrackingResultRowSchema.parse(row(counts))).toStrictEqual(row(counts))
+      // A server that predates the counts sends none.
+      expect(queryTrackingResultRowSchema.safeParse(row()).success).toBe(true)
+      const refused = (engineCounts: unknown) => {
+        const parsed = queryTrackingResultRowSchema.safeParse(row(engineCounts))
+        return parsed.success ? [] : parsed.error.issues.map(issue => issue.path.join('.'))
+      }
+      // Counting the not-checked engine as a no, a wrong change, and marks with no change counted are each refused.
+      expect(refused({ ...counts, mentionChecked: 4 })).toEqual(['engineCounts'])
+      expect(refused({ ...counts, change: { ...counts.change!, mentionsLost: 0 } })).toEqual(['engineCounts'])
+      expect(refused(queryTrackingRowEngineCounts(engines, false))).toEqual(['engineCounts.change'])
+    })
   })
 })

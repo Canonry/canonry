@@ -348,6 +348,7 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
     expect(unclassified.rows).toEqual([{
       queryId: ctx.queryId, queryText: 'best AEO platform', queryClass: 'unknown',
       engines: [{ provider: 'openai', expectedAnswers: 1, answers: 1, mentionedAnswers: 1, citedAnswers: 1, uncheckedSourceAnswers: 0, mentioned: true, cited: true }],
+      engineCounts: { mentioned: 1, mentionChecked: 1, cited: 1, citationChecked: 1 },
     }])
 
     const pinned = await get<{ error: { message: string } }>(`/api/v1/projects/probe-excl/query-tracking/results?runId=${ctx.probeRunId}`)

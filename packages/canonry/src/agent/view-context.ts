@@ -58,7 +58,7 @@ async function queryResultsEvidence(options: AeroViewOptions, context: AgentView
     source: { label: 'Open stored results', href: `${base}/api/v1/projects/${encodeURIComponent(options.projectName)}/query-tracking/results?${search}` },
     read,
     results,
-    interpretation: 'Mentioned and cited are separate signals: the list shows one (read.signal, default mentioned) and every row keeps both. Quote each class\'s numerator and denominator, never pooled. A grouped read has no rows. Changes and deltas are the server\'s, against compareRun; retrieval time is not the sweep date.',
+    interpretation: 'Mentioned and cited are separate signals: the list shows one (read.signal, default mentioned) and every row keeps both. Quote each class\'s numerator and denominator, never pooled. A grouped read has no rows. A row\'s engineCounts is the list\'s figure for it: engines that show the signal of those that checked it. Changes and deltas are the server\'s, against compareRun; retrieval time is not the sweep date.',
   }
 }
 

@@ -390,6 +390,8 @@ describe('query tracking results: one sweep, every tracked query', () => {
         // No answer was saved, so neither signal was checked. Null is not a no.
         { provider: 'openai', expectedAnswers: 1, answers: 0, mentionedAnswers: 0, citedAnswers: 0, uncheckedSourceAnswers: 0, mentioned: null, cited: null },
       ],
+      // The list's figure: one of the two engines that checked each signal. OpenAI checked neither, so it is on neither side.
+      engineCounts: { mentioned: 1, mentionChecked: 2, cited: 1, citationChecked: 2 },
     })
     for (const provider of ENGINES) {
       expect(engine(body, 'q-harbor', 'branded', provider)).toStrictEqual({
@@ -1063,6 +1065,7 @@ describe('query tracking results: a simple project', () => {
           { provider: 'gemini', expectedAnswers: 1, answers: 1, mentionedAnswers: 0, citedAnswers: 0, uncheckedSourceAnswers: 0, mentioned: false, cited: false },
           { provider: 'openai', expectedAnswers: 1, answers: 0, mentionedAnswers: 0, citedAnswers: 0, uncheckedSourceAnswers: 0, mentioned: null, cited: null },
         ],
+        engineCounts: { mentioned: 1, mentionChecked: 2, cited: 1, citationChecked: 2 },
       },
       {
         queryId: 'q-category', queryText: CATEGORY_QUERY[1], queryClass: 'non-brand',
@@ -1072,6 +1075,7 @@ describe('query tracking results: a simple project', () => {
           { provider: 'gemini', expectedAnswers: 1, answers: 1, mentionedAnswers: 1, citedAnswers: 0, uncheckedSourceAnswers: 0, mentioned: true, cited: false },
           { provider: 'openai', expectedAnswers: 1, answers: 1, mentionedAnswers: 0, citedAnswers: 0, uncheckedSourceAnswers: 0, mentioned: false, cited: false },
         ],
+        engineCounts: { mentioned: 1, mentionChecked: 3, cited: 1, citationChecked: 3 },
       },
     ])
     const classes = new Map((await workspace()).tracked.map(row => [row.queryId, row.queryClasses ?? []]))
@@ -1135,6 +1139,7 @@ describe('query tracking results: a simple project', () => {
           answerRows: [answerRow(null, null, null)],
         },
       ],
+      engineCounts: { mentioned: 1, mentionChecked: 2, cited: 1, citationChecked: 2 },
     }])
     expect(await results('queryId=no-such-query')).toMatchObject({ rows: [], pendingRows: 0, run: whole.run })
   })
@@ -1163,6 +1168,7 @@ describe('query tracking results: a simple project', () => {
           mentioned: true, cited: true, mentionedTargetKeys: ['project'], citedTargetKeys: ['project'], namedInstead: [], alsoNamed: [], citedSources: [],
         }],
       }],
+      engineCounts: { mentioned: 1, mentionChecked: 1, cited: 1, citationChecked: 1 },
     }])
   })
 
@@ -1382,6 +1388,7 @@ describe('query tracking results: a simple project', () => {
     expect(body.rows).toStrictEqual([{
       queryId: 'q-brand', queryText: BRAND_QUERY[1], queryClass: 'unknown',
       engines: [{ provider: 'claude', expectedAnswers: 1, answers: 1, mentionedAnswers: 1, citedAnswers: 1, uncheckedSourceAnswers: 0, mentioned: true, cited: true }],
+      engineCounts: { mentioned: 1, mentionChecked: 1, cited: 1, citationChecked: 1 },
     }])
     expect(body.pendingRows).toBe(0)
     // It recorded no engines, models or search location to compare, so it never claims a match.
@@ -1646,8 +1653,9 @@ describe('query tracking results: which location an answer names or cites', () =
     const entry = (provider: Engine, answers: number, mentionedAnswers: number, citedAnswers: number, mentioned: boolean | null, cited: boolean | null) => (
       { provider, expectedAnswers: 1, answers, mentionedAnswers, citedAnswers, uncheckedSourceAnswers: 0, mentioned, cited }
     )
-    // The whole body as it was returned before the optional fields existed.
-    expect({ ...rest, rows: rows.map(row => ({ ...row, engines: row.engines.map(always) })), weakMarkets: { ...weakMarkets, markets: undefined } }).toEqual({
+    // The whole body as it was returned before the optional fields existed. Each row's engineCounts is one of the new ones.
+    expect(rows.every(row => row.engineCounts !== undefined)).toBe(true)
+    expect({ ...rest, rows: rows.map(({ engineCounts: _engineCounts, ...row }) => ({ ...row, engines: row.engines.map(always) })), weakMarkets: { ...weakMarkets, markets: undefined } }).toEqual({
       mode: 'advanced',
       scope: { kind: 'project', key: null },
       run: { id: runId, createdAt: LAST_SWEEP, completedAt: LAST_SWEEP, status: 'completed', revision: 1, matchesCurrentTracking: true },
@@ -1810,6 +1818,7 @@ describe('query tracking results: one query and its answers', () => {
           }],
         },
       ],
+      engineCounts: { mentioned: 1, mentionChecked: 2, cited: 1, citationChecked: 2 },
     }])
     // Apart from its answers, each entry is the one the read of every query returns, which lists no answers.
     expect(body.rows[0]!.engines.map(({ answerRows: _answerRows, ...entry }) => entry)).toStrictEqual(rowOf(whole, 'q-market', 'non-brand')!.engines)
@@ -2344,6 +2353,14 @@ describe('query tracking results: grouped, compared, filtered and sorted', () =>
     expect(extras(engine(body, 'q-market', 'non-brand', 'claude'))).toMatchObject({ mentionChange: 'won' })
     expect(extras(engine(body, 'q-market', 'non-brand', 'gemini'))).toMatchObject({ citationChange: 'lost' })
     expect(extras(engine(body, 'q-market', 'non-brand', 'openai'))).toEqual({})
+    // The row counts them: Claude won the mention and Gemini lost the citation, one engine each, of the three that checked.
+    expect(rowOf(body, 'q-market', 'non-brand')!.engineCounts).toStrictEqual({
+      mentioned: 1, mentionChecked: 3, cited: 0, citationChecked: 3,
+      change: { mentionsWon: 1, mentionsLost: 0, citationsWon: 0, citationsLost: 1 },
+    })
+    // A compared row where nothing moved counts zeros; a read with no comparison counts no change at all.
+    expect(rowOf(body, 'q-harbor', 'branded')!.engineCounts?.change).toStrictEqual({ mentionsWon: 0, mentionsLost: 0, citationsWon: 0, citationsLost: 0 })
+    expect(rowOf(await results(''), 'q-market', 'non-brand')!.engineCounts).toStrictEqual({ mentioned: 1, mentionChecked: 3, cited: 0, citationChecked: 3 })
     // Non-brand rows both sweeps measured: the market query and the hand-picked query's Maple row.
     const nonBrand = body.totals!.find(total => total.queryClass === 'non-brand')!
     expect(nonBrand.comparison).toMatchObject({ queries: 2 })
@@ -2377,6 +2394,31 @@ describe('query tracking results: grouped, compared, filtered and sorted', () =>
     // Winning first: every answer mentions, then one in three, then none; ties by query text.
     expect(rowKeys(await results('sort=winning'))).toEqual(['q-harbor branded', 'q-parking non-brand', 'q-market non-brand', 'q-parking branded'])
     expect(rowKeys(await results('sort=losing&signal=cited')).at(-1)).toBe('q-harbor branded')
+  })
+
+  it('sorts by the share of engines that show the signal, as the list counts them, and by the share of answers only among equals', async () => {
+    // Two queries asked at two search locations, so each engine gives two answers.
+    const pairings: Pairing[] = [RIVERSIDE, LAKESIDE].flatMap(at => [
+      { queryId: 'q-harbor', targetKey: 'harbor', queryClass: 'branded', at },
+      { queryId: 'q-parking', targetKey: 'harbor', queryClass: 'branded', at },
+    ])
+    const { versionId, plan } = seedPortfolio(planOf({ texts: { 'q-harbor': HARBOR_TEXT, 'q-parking': PARKING_TEXT }, pairings }))
+    seedSweep({
+      versionId, plan, createdAt: LAST_SWEEP,
+      answers: ({ queryId, provider, at }) => {
+        // Every engine names Harbor in one of its two answers: 3 of 3 engines, 3 of 6 answers.
+        if (queryId === 'q-harbor') return at === 'riverside' ? says('Harbor Point gets good reviews.') : nobody
+        // Two engines name it in both answers and one in neither: 2 of 3 engines, 4 of 6 answers.
+        return provider === 'openai' ? nobody : says('Harbor Point has covered parking.')
+      },
+    })
+    const winning = await results('sort=winning')
+    expect(rowKeys(winning)).toEqual(['q-harbor branded', 'q-parking branded'])
+    expect(rowOf(winning, 'q-harbor', 'branded')!.engineCounts).toStrictEqual({ mentioned: 3, mentionChecked: 3, cited: 0, citationChecked: 3 })
+    expect(rowOf(winning, 'q-parking', 'branded')!.engineCounts).toStrictEqual({ mentioned: 2, mentionChecked: 3, cited: 0, citationChecked: 3 })
+    // By answers alone Parking would lead, 4 of 6 to 3 of 6. Losing first is the same order turned over.
+    expect([engine(winning, 'q-harbor', 'branded', 'claude').mentionedAnswers, engine(winning, 'q-parking', 'branded', 'claude').mentionedAnswers]).toEqual([1, 2])
+    expect(rowKeys(await results('sort=losing'))).toEqual(['q-parking branded', 'q-harbor branded'])
   })
 
   it('refuses a grouped read of one place or one query, a change without a comparison, and grouping a simple project', async () => {
