@@ -51,7 +51,7 @@ export function configuredProviderEntries(
     if (!entry) continue
     if (isApiProviderRegistrable(adapter.name, entry)) {
       registered.push(resolveRegistration(adapter, providerConfigFromEntry(
-        adapter.name, entry, resolveProviderQuotaPolicy(entry.quota, DEFAULT_PROVIDER_QUOTA),
+        adapter.name, entry, resolveProviderQuotaPolicy(entry.quota, adapter.defaultQuota ?? DEFAULT_PROVIDER_QUOTA),
       )))
     }
   }

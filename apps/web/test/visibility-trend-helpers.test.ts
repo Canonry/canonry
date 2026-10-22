@@ -3,6 +3,7 @@ import { compileQueryClassifier } from '@canonry/canonry-contracts'
 import type { BrandMetricsDto, ModelAttribution, ModelEvidenceState, ModelPointerChangeDisclosure } from '@canonry/canonry-contracts'
 import {
   buildMentionShareTrendRows,
+  providerDisplayName,
   buildSelectedTrendRows,
   buildTrendRows,
   partitionModelAttributionEvents,
@@ -900,5 +901,16 @@ describe('querySetMovePhrase', () => {
     expect(querySetMovePhrase({ ...NO_MOVES, added: ['a'], removed: ['b', 'c'] })).toBe('1 query added and 2 removed')
     expect(querySetMovePhrase({ ...NO_MOVES, added: ['a'], addedAndRemovedAgain: ['b'] })).toBe('1 query added and 1 query added and removed again')
     expect(querySetMovePhrase(NO_MOVES)).toBe('')
+  })
+})
+
+describe('providerDisplayName with the server catalog', () => {
+  it('uses the catalog display name for any routed key and keeps the built-in names without one', () => {
+    const catalog = [{ name: 'svc:deep', displayName: 'Deep · Search Service' }, { name: 'svc', displayName: 'Search Service' }]
+    expect(providerDisplayName('svc:deep', catalog)).toBe('Deep · Search Service')
+    expect(providerDisplayName('svc', catalog)).toBe('Search Service')
+    expect(providerDisplayName('openai', catalog)).toBe('OpenAI')
+    expect(providerDisplayName('openrouter:vendor/model', catalog)).toBe('vendor/model via OpenRouter')
+    expect(providerDisplayName('svc:deep')).toBe('Svc:deep')
   })
 })

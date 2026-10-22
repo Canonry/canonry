@@ -1076,7 +1076,7 @@ function PlatformSetupPageBody({
         <p className="mt-2 max-w-lg text-sm leading-6 text-secondary">
           {skipSiteScan
             ? 'Add a public domain, then choose the queries you want to track. No site scan will run.'
-            : 'Enter your public website to see its pages, structure, internal links, and technical SEO scores.'}
+            : 'Enter your public website to see its pages, structure, internal links, and Technical AEO scores.'}
         </p>
       </header>
 

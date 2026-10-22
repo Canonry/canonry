@@ -298,6 +298,8 @@ export interface SetupWizardVm {
 export interface ProviderStatusVm {
   name: string
   displayName?: string
+  /** Absent means an answer engine. An answer service never counts toward sweep readiness. */
+  kind?: 'answer-engine' | 'model-gateway' | 'answer-service'
   keyUrl?: string
   modelHint?: string
   model?: string

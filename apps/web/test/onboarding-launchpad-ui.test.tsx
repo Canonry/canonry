@@ -138,7 +138,7 @@ test('the legacy rescue query wins over an enabled platform flag', async () => {
   window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
   await renderSetup('/setup?experience=legacy')
 
-  expect(await screen.findByText('Step 2 of 5')).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Create project' })).toBeTruthy()
 })
 
 test('auto resumes Site Health for an existing project instead of the provider-gated wizard', async () => {
@@ -224,7 +224,7 @@ test('auto resume leaves a scanned install on the wizard instead of reopening fi
 
   const { router } = await renderSetup('/setup')
 
-  expect(await screen.findByText(/Step \d of 5/)).toBeTruthy()
+  expect(await screen.findByRole('listitem', { current: 'step' })).toBeTruthy()
   expect(router.state.location.search).not.toMatchObject({ onboarding: 'site-health' })
   expect(screen.queryByRole('region', { name: 'Explicit Site Health' })).toBeNull()
 })
@@ -247,7 +247,7 @@ test('auto resume reads the whole scan history, not the runs endpoint\'s 30-day 
 
   await renderSetup('/setup')
 
-  expect(await screen.findByText(/Step \d of 5/)).toBeTruthy()
+  expect(await screen.findByRole('listitem', { current: 'step' })).toBeTruthy()
   expect(runListUrls.length).toBeGreaterThan(0)
   for (const url of runListUrls) {
     const query = new URLSearchParams(url.slice(url.indexOf('?') + 1))
@@ -271,7 +271,7 @@ test('auto resume decides once, so a refetch mid-wizard does not redirect out of
   }))
 
   const { router, queryClient } = await renderSetup('/setup')
-  expect(await screen.findByText(/Step \d of 5/)).toBeTruthy()
+  expect(await screen.findByRole('listitem', { current: 'step' })).toBeTruthy()
 
   // The wizard creates a project (never scanned), which refreshes both lists.
   projects.push({ ...AUTO_RESUME_PROJECT, id: 'project-new', name: 'new-com', createdAt: '2026-03-01T00:00:00.000Z' })
@@ -280,7 +280,7 @@ test('auto resume decides once, so a refetch mid-wizard does not redirect out of
     expect(queryClient.isFetching()).toBe(0)
   })
 
-  expect(screen.getByText(/Step \d of 5/)).toBeTruthy()
+  expect(screen.getByRole('listitem', { current: 'step' })).toBeTruthy()
   expect(router.state.location.search).not.toMatchObject({ onboarding: 'site-health' })
 })
 
@@ -331,7 +331,7 @@ test('the finish step never invents a score for an unscanned project', async () 
 
   await renderSetup('/setup?onboarding=complete&setupProject=example-com')
 
-  expect(await screen.findByText('sweep finished')).toBeTruthy()
+  expect(await screen.findByText('check finished')).toBeTruthy()
   expect(screen.queryByText('page health 0')).toBeNull()
 })
 
@@ -676,7 +676,7 @@ test('continues a mapped project into focused AI Visibility setup', async () => 
   const heading = await screen.findByRole('heading', { name: 'Set up AI Visibility' })
   expect(heading).toBeTruthy()
   expect(document.activeElement).toBe(heading)
-  expect(screen.getByText('Step 1 of 2')).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Add queries' })).toBeTruthy()
   expect(screen.getByRole('heading', { name: 'Add queries' })).toBeTruthy()
   expect(screen.queryByRole('list', { name: 'Setup progress' })).toBeNull()
   expect(screen.queryByText('System check')).toBeNull()
@@ -709,7 +709,7 @@ test('does not resume another project when the Site Health handoff is stale', as
   const resolvedHeading = await screen.findByRole('heading', { name: 'Set up AI Visibility' })
   expect(resolvedHeading).not.toBe(heading)
   expect(document.activeElement).toBe(resolvedHeading)
-  expect(screen.getByText('Step 1 of 2')).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Add queries' })).toBeTruthy()
 })
 
 test('keeps the fresh-install launchpad focused until a project exists', async () => {
@@ -769,7 +769,7 @@ test('creates without a crawl and enters provider-free query setup for the exact
 
   expect(await screen.findByRole('heading', { name: 'Set up AI Visibility' })).toBeTruthy()
   expect(await screen.findByRole('heading', { name: 'Add queries' })).toBeTruthy()
-  expect(screen.getByText('Step 1 of 2')).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Add queries' })).toBeTruthy()
   expect(screen.queryByRole('heading', { name: 'System check' })).toBeNull()
   expect(router.state.location.search).toMatchObject({
     experience: 'legacy',
@@ -810,7 +810,7 @@ test('auto waits for a successful authoritative empty project list before showin
   await renderSetup()
 
   expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
-  expect(screen.getByText('Enter your public website to see its pages, structure, internal links, and technical SEO scores.')).toBeTruthy()
+  expect(screen.getByText('Enter your public website to see its pages, structure, internal links, and Technical AEO scores.')).toBeTruthy()
   const setupForm = screen.getByRole('form', { name: 'Scan your site' })
   const agentOption = screen.getByRole('region', { name: 'Use your agent instead' })
   expect(Boolean(setupForm.compareDocumentPosition(agentOption) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)

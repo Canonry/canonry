@@ -4842,7 +4842,7 @@ export type ResearchBatchDto = {
     runs: Array<{
         id: string;
         projectId: string;
-        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed';
+        status: 'queued' | 'running' | 'waiting-upstream' | 'completed' | 'partial' | 'failed';
         provider: string;
         requestedModel: string | null;
         resolvedModel: string;
@@ -4887,7 +4887,7 @@ export type ResearchBatchDto = {
             position: number;
             query: string;
             queryClass?: 'branded' | 'non-brand' | null;
-            status: 'queued' | 'running' | 'completed' | 'failed';
+            status: 'queued' | 'running' | 'waiting-upstream' | 'completed' | 'failed';
             requestedModel: string | null;
             resolvedModel: string;
             servedModel: string | null;
@@ -4912,6 +4912,104 @@ export type ResearchBatchDto = {
             startedAt: string | null;
             finishedAt: string | null;
             createdAt: string;
+            evidence?: {
+                version: 1;
+                identity: {
+                    connection: string;
+                    route: string;
+                    service: string;
+                    product: string;
+                    profile: string;
+                    settings: {
+                        [key: string]: string | number | boolean;
+                    };
+                    requestedServiceModel: string | null;
+                    disclosedModel: string | null;
+                    disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown' | null;
+                    requestPolicy: string;
+                    parserVersion: string;
+                };
+                completion: {
+                    status: 'complete' | 'partial' | 'failed' | 'pending';
+                    finishReason: string | null;
+                    upstreamStatus: string | null;
+                    upstreamRequestId: string | null;
+                    upstreamJobId: string | null;
+                    error: string | null;
+                };
+                usage: {
+                    tokens: {
+                        input: number | null;
+                        output: number | null;
+                        reasoning: number | null;
+                        basis: 'reported' | 'approximate' | 'unknown';
+                    };
+                    searches: {
+                        count: number | null;
+                        basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                    };
+                    pageReads: {
+                        count: number | null;
+                        basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                    };
+                    billedUnits: Array<{
+                        unit: 'request' | 'credit' | 'search' | 'token';
+                        quantity: number;
+                        basis: 'reported';
+                    }>;
+                    cost: {
+                        micros: number | null;
+                        currency: 'USD';
+                        basis: 'reported' | 'estimated' | 'unknown';
+                        estimatedBy: 'provider' | 'canonry' | null;
+                    };
+                };
+                sources: Array<{
+                    url: string;
+                    title: string | null;
+                    relationship: 'search-result' | 'page-read' | 'answer-support' | 'explicit-citation';
+                    rank: number | null;
+                    citationNumbers?: Array<number>;
+                    spans?: Array<{
+                        start: number;
+                        end: number;
+                        basis: 'upstream';
+                    }>;
+                    excerpts?: Array<string>;
+                    excerptsTruncated?: boolean;
+                    publishedAt: string | null;
+                    upstreamId: string | null;
+                    status?: string | null;
+                }>;
+                searchQueries: Array<string>;
+                retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable';
+                citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+                citationMeasurable: boolean;
+                directSourceUrls: boolean;
+                location: {
+                    requested: {
+                        label: string;
+                        city: string;
+                        region: string;
+                        country: string;
+                        timezone?: string;
+                    } | null;
+                    sent: {
+                        country?: string;
+                        region?: string;
+                        city?: string;
+                        timezone?: string;
+                    } | null;
+                    strength: 'filter' | 'hint' | null;
+                    serviceDefault: {
+                        country?: string;
+                    } | null;
+                    status: 'applied' | 'partial' | 'ignored' | 'not-requested';
+                };
+                rawTruncated: boolean;
+            } | null;
+            citationMeasured?: boolean;
+            upstreamJobId?: string | null;
         }>;
     }>;
 };
@@ -4949,7 +5047,7 @@ export type ResearchRunCreate = {
 export type ResearchRunDetailDto = {
     id: string;
     projectId: string;
-    status: 'queued' | 'running' | 'completed' | 'partial' | 'failed';
+    status: 'queued' | 'running' | 'waiting-upstream' | 'completed' | 'partial' | 'failed';
     provider: string;
     requestedModel: string | null;
     resolvedModel: string;
@@ -4994,7 +5092,7 @@ export type ResearchRunDetailDto = {
         position: number;
         query: string;
         queryClass?: 'branded' | 'non-brand' | null;
-        status: 'queued' | 'running' | 'completed' | 'failed';
+        status: 'queued' | 'running' | 'waiting-upstream' | 'completed' | 'failed';
         requestedModel: string | null;
         resolvedModel: string;
         servedModel: string | null;
@@ -5019,6 +5117,104 @@ export type ResearchRunDetailDto = {
         startedAt: string | null;
         finishedAt: string | null;
         createdAt: string;
+        evidence?: {
+            version: 1;
+            identity: {
+                connection: string;
+                route: string;
+                service: string;
+                product: string;
+                profile: string;
+                settings: {
+                    [key: string]: string | number | boolean;
+                };
+                requestedServiceModel: string | null;
+                disclosedModel: string | null;
+                disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown' | null;
+                requestPolicy: string;
+                parserVersion: string;
+            };
+            completion: {
+                status: 'complete' | 'partial' | 'failed' | 'pending';
+                finishReason: string | null;
+                upstreamStatus: string | null;
+                upstreamRequestId: string | null;
+                upstreamJobId: string | null;
+                error: string | null;
+            };
+            usage: {
+                tokens: {
+                    input: number | null;
+                    output: number | null;
+                    reasoning: number | null;
+                    basis: 'reported' | 'approximate' | 'unknown';
+                };
+                searches: {
+                    count: number | null;
+                    basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                };
+                pageReads: {
+                    count: number | null;
+                    basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                };
+                billedUnits: Array<{
+                    unit: 'request' | 'credit' | 'search' | 'token';
+                    quantity: number;
+                    basis: 'reported';
+                }>;
+                cost: {
+                    micros: number | null;
+                    currency: 'USD';
+                    basis: 'reported' | 'estimated' | 'unknown';
+                    estimatedBy: 'provider' | 'canonry' | null;
+                };
+            };
+            sources: Array<{
+                url: string;
+                title: string | null;
+                relationship: 'search-result' | 'page-read' | 'answer-support' | 'explicit-citation';
+                rank: number | null;
+                citationNumbers?: Array<number>;
+                spans?: Array<{
+                    start: number;
+                    end: number;
+                    basis: 'upstream';
+                }>;
+                excerpts?: Array<string>;
+                excerptsTruncated?: boolean;
+                publishedAt: string | null;
+                upstreamId: string | null;
+                status?: string | null;
+            }>;
+            searchQueries: Array<string>;
+            retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable';
+            citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+            citationMeasurable: boolean;
+            directSourceUrls: boolean;
+            location: {
+                requested: {
+                    label: string;
+                    city: string;
+                    region: string;
+                    country: string;
+                    timezone?: string;
+                } | null;
+                sent: {
+                    country?: string;
+                    region?: string;
+                    city?: string;
+                    timezone?: string;
+                } | null;
+                strength: 'filter' | 'hint' | null;
+                serviceDefault: {
+                    country?: string;
+                } | null;
+                status: 'applied' | 'partial' | 'ignored' | 'not-requested';
+            };
+            rawTruncated: boolean;
+        } | null;
+        citationMeasured?: boolean;
+        upstreamJobId?: string | null;
     }>;
 };
 
@@ -5026,7 +5222,7 @@ export type ResearchRunListDto = {
     runs: Array<{
         id: string;
         projectId: string;
-        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed';
+        status: 'queued' | 'running' | 'waiting-upstream' | 'completed' | 'partial' | 'failed';
         provider: string;
         requestedModel: string | null;
         resolvedModel: string;
@@ -5076,6 +5272,29 @@ export type ResearchRunListDto = {
         knownModels: Array<{
             id: string;
             displayName: string;
+        }>;
+        kind?: 'answer-engine' | 'model-gateway' | 'answer-service';
+        connection?: string;
+        selectionKind?: 'model' | 'profile' | null;
+        profiles?: Array<{
+            id: string;
+            route: string;
+            displayName: string;
+            description: string;
+            product: string;
+            execution: 'sync' | 'job';
+            workflows: Array<'visibility-sweep' | 'research' | 'snapshot' | 'discovery-seed'>;
+            evidence: {
+                relationships: Array<'search-result' | 'page-read' | 'answer-support' | 'explicit-citation'>;
+                citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+                citationMeasurable: boolean;
+                spans: boolean;
+                retrievalObservability: 'events' | 'sources' | 'none';
+            };
+            costBasis: 'reported' | 'estimated' | 'unknown';
+            locationGranularity: 'none' | 'country' | 'full';
+            disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown';
+            maxQueryChars: number | null;
         }>;
     }>;
     access?: {
@@ -7762,7 +7981,7 @@ export type LatestProjectRunDto = {
             resolvedCount: number | null;
             captureVersion: number | null;
             retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable' | null;
-            retrievalContract: 'native-auto-v1' | 'search-required-v1' | null;
+            retrievalContract: 'native-auto-v1' | 'search-required-v1' | 'service-native-v1' | null;
             competitorOverlap: Array<string>;
             citedCompetitorDomains: Array<string>;
             mentionedCompetitorDomains: Array<string>;
@@ -7812,6 +8031,102 @@ export type LatestProjectRunDto = {
                 pricingTier: 'standard' | 'batch';
                 estimatedCostMicros: number | null;
                 priceSource: 'default' | 'override' | null;
+            } | null;
+            evidence?: {
+                version: 1;
+                identity: {
+                    connection: string;
+                    route: string;
+                    service: string;
+                    product: string;
+                    profile: string;
+                    settings: {
+                        [key: string]: string | number | boolean;
+                    };
+                    requestedServiceModel: string | null;
+                    disclosedModel: string | null;
+                    disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown' | null;
+                    requestPolicy: string;
+                    parserVersion: string;
+                };
+                completion: {
+                    status: 'complete' | 'partial' | 'failed' | 'pending';
+                    finishReason: string | null;
+                    upstreamStatus: string | null;
+                    upstreamRequestId: string | null;
+                    upstreamJobId: string | null;
+                    error: string | null;
+                };
+                usage: {
+                    tokens: {
+                        input: number | null;
+                        output: number | null;
+                        reasoning: number | null;
+                        basis: 'reported' | 'approximate' | 'unknown';
+                    };
+                    searches: {
+                        count: number | null;
+                        basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                    };
+                    pageReads: {
+                        count: number | null;
+                        basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                    };
+                    billedUnits: Array<{
+                        unit: 'request' | 'credit' | 'search' | 'token';
+                        quantity: number;
+                        basis: 'reported';
+                    }>;
+                    cost: {
+                        micros: number | null;
+                        currency: 'USD';
+                        basis: 'reported' | 'estimated' | 'unknown';
+                        estimatedBy: 'provider' | 'canonry' | null;
+                    };
+                };
+                sources: Array<{
+                    url: string;
+                    title: string | null;
+                    relationship: 'search-result' | 'page-read' | 'answer-support' | 'explicit-citation';
+                    rank: number | null;
+                    citationNumbers?: Array<number>;
+                    spans?: Array<{
+                        start: number;
+                        end: number;
+                        basis: 'upstream';
+                    }>;
+                    excerpts?: Array<string>;
+                    excerptsTruncated?: boolean;
+                    publishedAt: string | null;
+                    upstreamId: string | null;
+                    status?: string | null;
+                }>;
+                searchQueries: Array<string>;
+                retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable';
+                citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+                citationMeasurable: boolean;
+                directSourceUrls: boolean;
+                location: {
+                    requested: {
+                        label: string;
+                        city: string;
+                        region: string;
+                        country: string;
+                        timezone?: string;
+                    } | null;
+                    sent: {
+                        country?: string;
+                        region?: string;
+                        city?: string;
+                        timezone?: string;
+                    } | null;
+                    strength: 'filter' | 'hint' | null;
+                    serviceDefault: {
+                        country?: string;
+                    } | null;
+                    status: 'applied' | 'partial' | 'ignored' | 'not-requested';
+                };
+                rawTruncated: boolean;
             } | null;
             createdAt: string;
         }>;
@@ -11236,7 +11551,7 @@ export type MeasurementQuestionResultResponse = {
     }>;
     captureStatus: 'complete' | 'partial' | 'failed' | 'unsupported' | null;
     retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable' | null;
-    retrievalContract: 'native-auto-v1' | 'search-required-v1' | null;
+    retrievalContract: 'native-auto-v1' | 'search-required-v1' | 'service-native-v1' | null;
 };
 
 export type MeasurementQuerySetDetail = {
@@ -12695,7 +13010,7 @@ export type ProjectOverviewDto = {
                 resolvedCount: number | null;
                 captureVersion: number | null;
                 retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable' | null;
-                retrievalContract: 'native-auto-v1' | 'search-required-v1' | null;
+                retrievalContract: 'native-auto-v1' | 'search-required-v1' | 'service-native-v1' | null;
                 competitorOverlap: Array<string>;
                 citedCompetitorDomains: Array<string>;
                 mentionedCompetitorDomains: Array<string>;
@@ -12745,6 +13060,102 @@ export type ProjectOverviewDto = {
                     pricingTier: 'standard' | 'batch';
                     estimatedCostMicros: number | null;
                     priceSource: 'default' | 'override' | null;
+                } | null;
+                evidence?: {
+                    version: 1;
+                    identity: {
+                        connection: string;
+                        route: string;
+                        service: string;
+                        product: string;
+                        profile: string;
+                        settings: {
+                            [key: string]: string | number | boolean;
+                        };
+                        requestedServiceModel: string | null;
+                        disclosedModel: string | null;
+                        disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown' | null;
+                        requestPolicy: string;
+                        parserVersion: string;
+                    };
+                    completion: {
+                        status: 'complete' | 'partial' | 'failed' | 'pending';
+                        finishReason: string | null;
+                        upstreamStatus: string | null;
+                        upstreamRequestId: string | null;
+                        upstreamJobId: string | null;
+                        error: string | null;
+                    };
+                    usage: {
+                        tokens: {
+                            input: number | null;
+                            output: number | null;
+                            reasoning: number | null;
+                            basis: 'reported' | 'approximate' | 'unknown';
+                        };
+                        searches: {
+                            count: number | null;
+                            basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                        };
+                        pageReads: {
+                            count: number | null;
+                            basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                        };
+                        billedUnits: Array<{
+                            unit: 'request' | 'credit' | 'search' | 'token';
+                            quantity: number;
+                            basis: 'reported';
+                        }>;
+                        cost: {
+                            micros: number | null;
+                            currency: 'USD';
+                            basis: 'reported' | 'estimated' | 'unknown';
+                            estimatedBy: 'provider' | 'canonry' | null;
+                        };
+                    };
+                    sources: Array<{
+                        url: string;
+                        title: string | null;
+                        relationship: 'search-result' | 'page-read' | 'answer-support' | 'explicit-citation';
+                        rank: number | null;
+                        citationNumbers?: Array<number>;
+                        spans?: Array<{
+                            start: number;
+                            end: number;
+                            basis: 'upstream';
+                        }>;
+                        excerpts?: Array<string>;
+                        excerptsTruncated?: boolean;
+                        publishedAt: string | null;
+                        upstreamId: string | null;
+                        status?: string | null;
+                    }>;
+                    searchQueries: Array<string>;
+                    retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable';
+                    citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+                    citationMeasurable: boolean;
+                    directSourceUrls: boolean;
+                    location: {
+                        requested: {
+                            label: string;
+                            city: string;
+                            region: string;
+                            country: string;
+                            timezone?: string;
+                        } | null;
+                        sent: {
+                            country?: string;
+                            region?: string;
+                            city?: string;
+                            timezone?: string;
+                        } | null;
+                        strength: 'filter' | 'hint' | null;
+                        serviceDefault: {
+                            country?: string;
+                        } | null;
+                        status: 'applied' | 'partial' | 'ignored' | 'not-requested';
+                    };
+                    rawTruncated: boolean;
                 } | null;
                 createdAt: string;
             }>;
@@ -13228,6 +13639,7 @@ export type ProviderReloadResponseDto = {
             maxRequestsPerDay: number;
         };
         vertexConfigured?: boolean;
+        kind?: 'answer-engine' | 'model-gateway' | 'answer-service';
     }>;
 };
 
@@ -13245,6 +13657,7 @@ export type ProviderSummaryEntryDto = {
         maxRequestsPerDay: number;
     };
     vertexConfigured?: boolean;
+    kind?: 'answer-engine' | 'model-gateway' | 'answer-service';
 };
 
 export type QueryDto = {
@@ -13399,6 +13812,102 @@ export type ResultsExportDto = {
             title: string;
         }>;
         searchQueries: Array<string>;
+        answerEvidence?: {
+            version: 1;
+            identity: {
+                connection: string;
+                route: string;
+                service: string;
+                product: string;
+                profile: string;
+                settings: {
+                    [key: string]: string | number | boolean;
+                };
+                requestedServiceModel: string | null;
+                disclosedModel: string | null;
+                disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown' | null;
+                requestPolicy: string;
+                parserVersion: string;
+            };
+            completion: {
+                status: 'complete' | 'partial' | 'failed' | 'pending';
+                finishReason: string | null;
+                upstreamStatus: string | null;
+                upstreamRequestId: string | null;
+                upstreamJobId: string | null;
+                error: string | null;
+            };
+            usage: {
+                tokens: {
+                    input: number | null;
+                    output: number | null;
+                    reasoning: number | null;
+                    basis: 'reported' | 'approximate' | 'unknown';
+                };
+                searches: {
+                    count: number | null;
+                    basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                };
+                pageReads: {
+                    count: number | null;
+                    basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                };
+                billedUnits: Array<{
+                    unit: 'request' | 'credit' | 'search' | 'token';
+                    quantity: number;
+                    basis: 'reported';
+                }>;
+                cost: {
+                    micros: number | null;
+                    currency: 'USD';
+                    basis: 'reported' | 'estimated' | 'unknown';
+                    estimatedBy: 'provider' | 'canonry' | null;
+                };
+            };
+            sources: Array<{
+                url: string;
+                title: string | null;
+                relationship: 'search-result' | 'page-read' | 'answer-support' | 'explicit-citation';
+                rank: number | null;
+                citationNumbers?: Array<number>;
+                spans?: Array<{
+                    start: number;
+                    end: number;
+                    basis: 'upstream';
+                }>;
+                excerpts?: Array<string>;
+                excerptsTruncated?: boolean;
+                publishedAt: string | null;
+                upstreamId: string | null;
+                status?: string | null;
+            }>;
+            searchQueries: Array<string>;
+            retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable';
+            citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+            citationMeasurable: boolean;
+            directSourceUrls: boolean;
+            location: {
+                requested: {
+                    label: string;
+                    city: string;
+                    region: string;
+                    country: string;
+                    timezone?: string;
+                } | null;
+                sent: {
+                    country?: string;
+                    region?: string;
+                    city?: string;
+                    timezone?: string;
+                } | null;
+                strength: 'filter' | 'hint' | null;
+                serviceDefault: {
+                    country?: string;
+                } | null;
+                status: 'applied' | 'partial' | 'ignored' | 'not-requested';
+            };
+            rawTruncated: boolean;
+        } | null;
     }>;
 };
 
@@ -13507,7 +14016,7 @@ export type RunDetailDto = {
         resolvedCount: number | null;
         captureVersion: number | null;
         retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable' | null;
-        retrievalContract: 'native-auto-v1' | 'search-required-v1' | null;
+        retrievalContract: 'native-auto-v1' | 'search-required-v1' | 'service-native-v1' | null;
         competitorOverlap: Array<string>;
         citedCompetitorDomains: Array<string>;
         mentionedCompetitorDomains: Array<string>;
@@ -13557,6 +14066,102 @@ export type RunDetailDto = {
             pricingTier: 'standard' | 'batch';
             estimatedCostMicros: number | null;
             priceSource: 'default' | 'override' | null;
+        } | null;
+        evidence?: {
+            version: 1;
+            identity: {
+                connection: string;
+                route: string;
+                service: string;
+                product: string;
+                profile: string;
+                settings: {
+                    [key: string]: string | number | boolean;
+                };
+                requestedServiceModel: string | null;
+                disclosedModel: string | null;
+                disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown' | null;
+                requestPolicy: string;
+                parserVersion: string;
+            };
+            completion: {
+                status: 'complete' | 'partial' | 'failed' | 'pending';
+                finishReason: string | null;
+                upstreamStatus: string | null;
+                upstreamRequestId: string | null;
+                upstreamJobId: string | null;
+                error: string | null;
+            };
+            usage: {
+                tokens: {
+                    input: number | null;
+                    output: number | null;
+                    reasoning: number | null;
+                    basis: 'reported' | 'approximate' | 'unknown';
+                };
+                searches: {
+                    count: number | null;
+                    basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                };
+                pageReads: {
+                    count: number | null;
+                    basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                };
+                billedUnits: Array<{
+                    unit: 'request' | 'credit' | 'search' | 'token';
+                    quantity: number;
+                    basis: 'reported';
+                }>;
+                cost: {
+                    micros: number | null;
+                    currency: 'USD';
+                    basis: 'reported' | 'estimated' | 'unknown';
+                    estimatedBy: 'provider' | 'canonry' | null;
+                };
+            };
+            sources: Array<{
+                url: string;
+                title: string | null;
+                relationship: 'search-result' | 'page-read' | 'answer-support' | 'explicit-citation';
+                rank: number | null;
+                citationNumbers?: Array<number>;
+                spans?: Array<{
+                    start: number;
+                    end: number;
+                    basis: 'upstream';
+                }>;
+                excerpts?: Array<string>;
+                excerptsTruncated?: boolean;
+                publishedAt: string | null;
+                upstreamId: string | null;
+                status?: string | null;
+            }>;
+            searchQueries: Array<string>;
+            retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable';
+            citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+            citationMeasurable: boolean;
+            directSourceUrls: boolean;
+            location: {
+                requested: {
+                    label: string;
+                    city: string;
+                    region: string;
+                    country: string;
+                    timezone?: string;
+                } | null;
+                sent: {
+                    country?: string;
+                    region?: string;
+                    city?: string;
+                    timezone?: string;
+                } | null;
+                strength: 'filter' | 'hint' | null;
+                serviceDefault: {
+                    country?: string;
+                } | null;
+                status: 'applied' | 'partial' | 'ignored' | 'not-requested';
+            };
+            rawTruncated: boolean;
         } | null;
         createdAt: string;
     }>;
@@ -13740,6 +14345,7 @@ export type SettingsDto = {
             maxRequestsPerDay: number;
         };
         vertexConfigured?: boolean;
+        kind?: 'answer-engine' | 'model-gateway' | 'answer-service';
     }>;
     providerCatalog: Array<{
         name: string;
@@ -13757,6 +14363,41 @@ export type SettingsDto = {
             flags: string;
         };
         modelValidationHint: string;
+        kind?: 'answer-engine' | 'model-gateway' | 'answer-service';
+        connection?: string;
+        selectionKind?: 'model' | 'profile' | null;
+        profiles?: Array<{
+            id: string;
+            route: string;
+            displayName: string;
+            description: string;
+            product: string;
+            execution: 'sync' | 'job';
+            workflows: Array<'visibility-sweep' | 'research' | 'snapshot' | 'discovery-seed'>;
+            evidence: {
+                relationships: Array<'search-result' | 'page-read' | 'answer-support' | 'explicit-citation'>;
+                citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+                citationMeasurable: boolean;
+                spans: boolean;
+                retrievalObservability: 'events' | 'sources' | 'none';
+            };
+            costBasis: 'reported' | 'estimated' | 'unknown';
+            locationGranularity: 'none' | 'country' | 'full';
+            disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown';
+            maxQueryChars: number | null;
+        }>;
+        workflows?: Array<'visibility-sweep' | 'research' | 'snapshot' | 'discovery-seed'>;
+        textGeneration?: boolean;
+        settingsFields?: Array<{
+            key: 'apiKey';
+            kind: 'secret';
+            required: boolean;
+            env: string | null;
+            label: string;
+        }>;
+        keyCheck?: 'verified-without-spending' | 'saved-not-verified';
+        keyUrl?: string;
+        vendorDocsUrl?: string;
     }>;
     google: {
         configured: boolean;
@@ -14987,7 +15628,7 @@ export type SnapshotListResponse = {
         resolvedCount: number | null;
         captureVersion: number | null;
         retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable' | null;
-        retrievalContract: 'native-auto-v1' | 'search-required-v1' | null;
+        retrievalContract: 'native-auto-v1' | 'search-required-v1' | 'service-native-v1' | null;
         competitorOverlap: Array<string>;
         citedCompetitorDomains: Array<string>;
         mentionedCompetitorDomains: Array<string>;
@@ -15037,6 +15678,102 @@ export type SnapshotListResponse = {
             pricingTier: 'standard' | 'batch';
             estimatedCostMicros: number | null;
             priceSource: 'default' | 'override' | null;
+        } | null;
+        evidence?: {
+            version: 1;
+            identity: {
+                connection: string;
+                route: string;
+                service: string;
+                product: string;
+                profile: string;
+                settings: {
+                    [key: string]: string | number | boolean;
+                };
+                requestedServiceModel: string | null;
+                disclosedModel: string | null;
+                disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown' | null;
+                requestPolicy: string;
+                parserVersion: string;
+            };
+            completion: {
+                status: 'complete' | 'partial' | 'failed' | 'pending';
+                finishReason: string | null;
+                upstreamStatus: string | null;
+                upstreamRequestId: string | null;
+                upstreamJobId: string | null;
+                error: string | null;
+            };
+            usage: {
+                tokens: {
+                    input: number | null;
+                    output: number | null;
+                    reasoning: number | null;
+                    basis: 'reported' | 'approximate' | 'unknown';
+                };
+                searches: {
+                    count: number | null;
+                    basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                };
+                pageReads: {
+                    count: number | null;
+                    basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                };
+                billedUnits: Array<{
+                    unit: 'request' | 'credit' | 'search' | 'token';
+                    quantity: number;
+                    basis: 'reported';
+                }>;
+                cost: {
+                    micros: number | null;
+                    currency: 'USD';
+                    basis: 'reported' | 'estimated' | 'unknown';
+                    estimatedBy: 'provider' | 'canonry' | null;
+                };
+            };
+            sources: Array<{
+                url: string;
+                title: string | null;
+                relationship: 'search-result' | 'page-read' | 'answer-support' | 'explicit-citation';
+                rank: number | null;
+                citationNumbers?: Array<number>;
+                spans?: Array<{
+                    start: number;
+                    end: number;
+                    basis: 'upstream';
+                }>;
+                excerpts?: Array<string>;
+                excerptsTruncated?: boolean;
+                publishedAt: string | null;
+                upstreamId: string | null;
+                status?: string | null;
+            }>;
+            searchQueries: Array<string>;
+            retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable';
+            citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+            citationMeasurable: boolean;
+            directSourceUrls: boolean;
+            location: {
+                requested: {
+                    label: string;
+                    city: string;
+                    region: string;
+                    country: string;
+                    timezone?: string;
+                } | null;
+                sent: {
+                    country?: string;
+                    region?: string;
+                    city?: string;
+                    timezone?: string;
+                } | null;
+                strength: 'filter' | 'hint' | null;
+                serviceDefault: {
+                    country?: string;
+                } | null;
+                status: 'applied' | 'partial' | 'ignored' | 'not-requested';
+            };
+            rawTruncated: boolean;
         } | null;
         createdAt: string;
     }>;
@@ -15094,6 +15831,103 @@ export type SnapshotReportDto = {
             searchQueries: Array<string>;
             answerText: string;
             error?: string | null;
+            evidence?: {
+                version: 1;
+                identity: {
+                    connection: string;
+                    route: string;
+                    service: string;
+                    product: string;
+                    profile: string;
+                    settings: {
+                        [key: string]: string | number | boolean;
+                    };
+                    requestedServiceModel: string | null;
+                    disclosedModel: string | null;
+                    disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown' | null;
+                    requestPolicy: string;
+                    parserVersion: string;
+                };
+                completion: {
+                    status: 'complete' | 'partial' | 'failed' | 'pending';
+                    finishReason: string | null;
+                    upstreamStatus: string | null;
+                    upstreamRequestId: string | null;
+                    upstreamJobId: string | null;
+                    error: string | null;
+                };
+                usage: {
+                    tokens: {
+                        input: number | null;
+                        output: number | null;
+                        reasoning: number | null;
+                        basis: 'reported' | 'approximate' | 'unknown';
+                    };
+                    searches: {
+                        count: number | null;
+                        basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                    };
+                    pageReads: {
+                        count: number | null;
+                        basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                    };
+                    billedUnits: Array<{
+                        unit: 'request' | 'credit' | 'search' | 'token';
+                        quantity: number;
+                        basis: 'reported';
+                    }>;
+                    cost: {
+                        micros: number | null;
+                        currency: 'USD';
+                        basis: 'reported' | 'estimated' | 'unknown';
+                        estimatedBy: 'provider' | 'canonry' | null;
+                    };
+                };
+                sources: Array<{
+                    url: string;
+                    title: string | null;
+                    relationship: 'search-result' | 'page-read' | 'answer-support' | 'explicit-citation';
+                    rank: number | null;
+                    citationNumbers?: Array<number>;
+                    spans?: Array<{
+                        start: number;
+                        end: number;
+                        basis: 'upstream';
+                    }>;
+                    excerpts?: Array<string>;
+                    excerptsTruncated?: boolean;
+                    publishedAt: string | null;
+                    upstreamId: string | null;
+                    status?: string | null;
+                }>;
+                searchQueries: Array<string>;
+                retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable';
+                citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+                citationMeasurable: boolean;
+                directSourceUrls: boolean;
+                location: {
+                    requested: {
+                        label: string;
+                        city: string;
+                        region: string;
+                        country: string;
+                        timezone?: string;
+                    } | null;
+                    sent: {
+                        country?: string;
+                        region?: string;
+                        city?: string;
+                        timezone?: string;
+                    } | null;
+                    strength: 'filter' | 'hint' | null;
+                    serviceDefault: {
+                        country?: string;
+                    } | null;
+                    status: 'applied' | 'partial' | 'ignored' | 'not-requested';
+                };
+                rawTruncated: boolean;
+            } | null;
+            citationMeasured?: boolean;
         }>;
     }>;
     summary: {
@@ -15102,6 +15936,7 @@ export type SnapshotReportDto = {
         totalComparisons: number;
         mentionCount: number;
         citationCount: number;
+        citationComparisons?: number;
         topCompetitors: Array<{
             name: string;
             count: number;

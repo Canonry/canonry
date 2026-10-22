@@ -19,6 +19,7 @@ model-selection criteria and the answer and citation evidence that each adapter 
 | Perplexity | `provider-perplexity` | API | Perplexity Agent API (`/v1/agent`, `fast` preset) with forced `web_search` |
 | Local | `provider-local` | API | Any OpenAI-compatible endpoint (Ollama, LM Studio, vLLM) |
 | CDP | `provider-cdp` | Browser | Chrome DevTools Protocol (e.g., ChatGPT UI automation) |
+| Search answer services | `provider-answer-services` | API | Hosted services that search and answer; one shared layer, one thin adapter per vendor ([Search answer services](./answer-services.md); `cnry settings` lists the registered ones) |
 
 ## ProviderAdapter Interface
 
@@ -38,9 +39,16 @@ interface ProviderAdapter {
   healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult>
   executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult>
   normalizeResult(raw: RawQueryResult): NormalizedQueryResult
-  generateText(prompt: string, config: ProviderConfig): Promise<string>
+  generateText?(prompt: string, config: ProviderConfig): Promise<string>  // absent for answer services; check canGenerateText
+  kind?: 'answer-engine' | 'model-gateway' | 'answer-service'           // absent means answer-engine
+  capabilities?: ProviderCapabilities                                    // workflows an explicit selection may run
+  routes?: ProviderRouteFamily                                           // routed connection: the bare name is never a target
 }
 ```
+
+A hosted search answer service does not implement this interface by hand: it
+supplies a descriptor, request builder and parser to
+`packages/provider-answer-services` (see [Search answer services](./answer-services.md)).
 
 ## How to Add a New Provider
 
@@ -59,6 +67,7 @@ interface ProviderAdapter {
 - [Gemini](./gemini.md) — googleSearch grounding, support-based citation selection, base64 proxy URLs
 - [OpenAI](./openai.md) — web_search tool, URL annotation extraction, web_search_call query parsing
 - [OpenRouter](./openrouter.md) — multi-model setup, separate sweep identities, Aero and evaluator roles
+- [Search answer services](./answer-services.md): profiles, never-implicit selection, source relationships, completion and usage basis, adding a vendor
 - [Muse](./muse.md) — native web search, observed retrieval status, final-answer URL citations
 - [Claude](./claude.md) — web_search_20250305 tool, final-text citation extraction, tool error handling
 - [Perplexity](./perplexity.md) — Agent API presets, `search_results` output item, retired Sonar ids, stored Sonar history

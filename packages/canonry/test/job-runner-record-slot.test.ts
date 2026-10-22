@@ -247,6 +247,8 @@ function expectedPlanRow(runId: string, provider: string, model: string, queryNu
       estimatedCostMicros: provider === 'openai' ? OPENAI_STANDARD_COST : null,
       priceSource: provider === 'openai' ? 'override' : null,
     },
+    // Only hosted answer services record vendor-neutral evidence.
+    answerEvidence: null,
     rawResponse: JSON.stringify({
       model,
       servedModel: `${model}-2026-07-01`,

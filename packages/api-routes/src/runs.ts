@@ -5,8 +5,8 @@ import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn }
 import { compileCompetitiveSignalResolver } from '@canonry/canonry-intelligence'
 import type { CitationState, LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderAccountStreak, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery } from '@canonry/canonry-contracts'
 import {
-  isProviderAvailable,
-  isSweepProvider,
+  ProviderWorkflows,
+  type ProviderRouteFamily,
   AppError as AppErrorClass,
   type AppError,
   batchDispatchRefusalMessage,
@@ -45,7 +45,8 @@ import { activeRevisionProviders, assertMeasurementRunStampable, hasActiveMeasur
 import { queueRunFill, readRunCompleteness } from './run-fill.js'
 import { readRunProviderBatches } from './provider-batches.js'
 import { competitorIdentityColumns } from './competitor-writes.js'
-import { assertOpenRouterRouteScope } from './provider-models.js'
+import { assertProviderRouteScope, invalidProviderSelections, providerRouteFamilies } from './provider-models.js'
+import type { ProviderAdapterInfo } from './settings.js'
 
 export interface RunRoutesOptions {
   onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: LocationContext | null) => void
@@ -56,6 +57,8 @@ export interface RunRoutesOptions {
   onRunCancelled?: (runId: string, projectId: string) => void
   /** Valid provider names from registered adapters — used to reject unknown providers */
   validProviderNames?: string[]
+  /** Adapter descriptions: route families and which workflows each route may run. */
+  providerAdapters?: ProviderAdapterInfo[]
   /** Current provider registry membership. When omitted, activation preflight is disabled. */
   getRunnableProviderNames?: () => readonly string[]
   /** Provider → the model this instance has it pointed at, for freezing model identity. */
@@ -73,6 +76,7 @@ export interface RunRoutesOptions {
 }
 
 export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
+  const routeFamilies = providerRouteFamilies(opts.providerAdapters)
   // POST /projects/:name/runs — trigger a run
   app.post<{
     Params: { name: string }
@@ -89,7 +93,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       const normalized = rawProviders.map(p => p.trim().toLowerCase()).filter(Boolean)
       const validNames = opts.validProviderNames ?? []
       if (validNames.length) {
-        const invalid = normalized.filter(p => (!isSweepProvider(p) || !isProviderAvailable(p, validNames)))
+        const invalid = invalidProviderSelections(normalized, validNames, opts.providerAdapters, ProviderWorkflows['visibility-sweep'])
         if (invalid.length) {
           throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
             invalidProviders: invalid,
@@ -101,7 +105,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     }
     const providers = rawProviders?.length ? rawProviders : undefined
     const revisionProviders = activeRevisionProviders(app.db, project.id)
-    assertOpenRouterRouteScope(request, providers ?? [], [...project.providers, ...revisionProviders])
+    assertProviderRouteScope(request, providers ?? [], [...project.providers, ...revisionProviders], routeFamilies)
 
     // Validate activation state before queuing a normal sweep. Probe runs keep
     // their existing operator-test semantics and are validated by the worker.
@@ -120,7 +124,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     if (body.measurementScope !== undefined && measurementRunScopeIsEmpty(body.measurementScope)) {
       throw validationError(
         'The measurement scope names nothing to measure. Name at least one group or target, '
-        + 'or leave the scope out entirely to run a full sweep.',
+        + 'or leave the scope out entirely to run a full AI Visibility check.',
       )
     }
 
@@ -178,6 +182,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         projectProviders: scopedRevisionProviders.length > 0 ? scopedRevisionProviders : project.providers,
         requestedProviders: providers,
         runnableProviderNames: opts.getRunnableProviderNames!(),
+        routeFamilies,
         trackedQueryCount: measuresAPlan ? 1 : trackedRows.length,
       })
       if (preflightError) throw preflightError
@@ -229,6 +234,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
             requestedProviders: providers,
             projectProviders: project.providers,
             runnableProviders: opts.getRunnableProviderNames?.(),
+            routeFamilies,
           }).selectedProviders,
           expectedSlots: null,
           scoped: queriesColumn !== null,
@@ -263,8 +269,9 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
               requestedProviders: providers,
               projectProviders: project.providers,
               runnableProviders: runnable,
+              routeFamilies,
             }).selectedProviders
-            return providersARunWouldCall(roster, runnable)
+            return providersARunWouldCall(roster, runnable, routeFamilies)
           },
         })
         if (admission.refused) return { conflict: false as const, refused: admission.refused }
@@ -329,6 +336,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       queries: queriesColumn,
       providers,
       runnableProviders: opts.getRunnableProviderNames?.(),
+      routeFamilies,
       providerModels: opts.getEffectiveProviderModels?.(),
       measurementScope: body.measurementScope ?? null,
       dispatchMode: body.dispatchMode ?? null,
@@ -431,6 +439,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       projectId: project.id,
       now: new Date().toISOString(),
       runnableProviders: opts.getRunnableProviderNames?.(),
+      routeFamilies,
     }
     const admission = runAdmissionState(app.db, admissionParams)
     const manualAdmission = runAdmissionState(app.db, { ...admissionParams, selection: RunTriggers.manual })
@@ -460,6 +469,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       projectId: project.id,
       now: new Date().toISOString(),
       runnableProviders: opts.getRunnableProviderNames?.(),
+      routeFamilies,
       selection,
     }))
   })
@@ -552,7 +562,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       const normalized = rawProviders.map(p => p.trim().toLowerCase()).filter(Boolean)
       const validNames = opts.validProviderNames ?? []
       if (validNames.length) {
-        const invalid = normalized.filter(p => (!isSweepProvider(p) || !isProviderAvailable(p, validNames)))
+        const invalid = invalidProviderSelections(normalized, validNames, opts.providerAdapters, ProviderWorkflows['visibility-sweep'])
         if (invalid.length) {
           throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
             invalidProviders: invalid,
@@ -628,7 +638,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const dispatchable: typeof eligible = []
     for (const entry of eligible) {
       try {
-        assertOpenRouterRouteScope(request, providers ?? [], [...entry.project.providers, ...entry.revisionProviders])
+        assertProviderRouteScope(request, providers ?? [], [...entry.project.providers, ...entry.revisionProviders], routeFamilies)
         assertMeasurementRunStampable(app.db, {
           createdAt: now,
           projectId: entry.project.id,
@@ -637,6 +647,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           location: entry.resolvedLocation?.label ?? null,
           providers,
           runnableProviders: runnableProviderNames,
+          routeFamilies,
           providerModels: opts.getEffectiveProviderModels?.(),
           dispatchMode,
           batchEligibleProviders,
@@ -666,6 +677,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         // against is what it was actually asked to do.
         providers,
         runnableProviders: runnableProviderNames,
+        routeFamilies,
         providerModels: opts.getEffectiveProviderModels?.(),
         dispatchMode,
         batchEligibleProviders,
@@ -753,6 +765,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const input = {
       providers: parsed.data.providers,
       runnableProviders: opts.getRunnableProviderNames?.() ?? null,
+      routeFamilies,
       dailyLimits: opts.getProviderDailyLimits?.() ?? null,
     }
 
@@ -786,6 +799,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     assertProjectScope(request, run.projectId)
     return reply.send(readRunCompleteness(app.db, run, {
       runnableProviders: opts.getRunnableProviderNames?.() ?? null,
+      routeFamilies,
       dailyLimits: opts.getProviderDailyLimits?.() ?? null,
     }))
   })
@@ -804,6 +818,7 @@ export function answerVisibilityPreflightError(input: {
   projectProviders: readonly string[]
   requestedProviders?: readonly string[]
   runnableProviderNames: readonly string[]
+  routeFamilies?: readonly ProviderRouteFamily[]
   trackedQueryCount: number
 }): AppError | null {
   if (input.trackedQueryCount === 0) {
@@ -814,6 +829,7 @@ export function answerVisibilityPreflightError(input: {
     requestedProviders: input.requestedProviders,
     projectProviders: input.projectProviders,
     runnableProviders: input.runnableProviderNames,
+    routeFamilies: input.routeFamilies,
   })
 
   if (selection.runnableProviders.length > 0) return null
@@ -1025,6 +1041,7 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       dispatchMode: querySnapshots.dispatchMode,
       stopReason: querySnapshots.stopReason,
       usage: querySnapshots.usage,
+      answerEvidence: querySnapshots.answerEvidence,
       rawResponse: querySnapshots.rawResponse,
       createdAt: querySnapshots.createdAt,
     })
@@ -1092,6 +1109,8 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       groundingSources: rawParsed.groundingSources,
       searchQueries: rawParsed.searchQueries,
       retrievedSources: rawParsed.retrievedSources,
+      // Only answer services record evidence; other rows keep their exact shape.
+      ...(s.answerEvidence ? { evidence: s.answerEvidence } : {}),
       createdAt: s.createdAt,
     }
   })

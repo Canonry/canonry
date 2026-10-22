@@ -52,6 +52,7 @@ import {
   hostOf,
   normalizeCompetitorAliases,
   compareText,
+  type ProviderRouteFamily,
 } from '@canonry/canonry-contracts'
 import {
   measurementPlanDrafts,
@@ -95,7 +96,8 @@ import {
   previewGroupMembershipCsv,
 } from './measurement-group-import.js'
 import { resolveRunnableProviderSelection, resolveRunProviderSelection } from './run-queue.js'
-import { assertOpenRouterRouteScope } from './provider-models.js'
+import { assertProviderRouteScope } from './provider-models.js'
+import type { ProviderAdapterInfo } from './settings.js'
 import {
   actorFromRequest,
   activePlanVersionRow,
@@ -127,6 +129,10 @@ const MEASUREMENT_GROUP_MEMBERSHIP_BODY_LIMIT = MEASUREMENT_GROUP_MEMBERSHIP_CSV
 export interface MeasurementDraftRoutesOptions extends MarketPinWriteHooks {
   /** Current provider registry membership, used when a project means "all configured". */
   getRunnableProviderNames?: () => readonly string[]
+  /** Route families of the host's adapters; routed connections never join "all configured". */
+  providerRouteFamilies?: readonly ProviderRouteFamily[]
+  /** The host's adapter descriptions, so the compiler applies the same workflow eligibility as a project selection. */
+  providerAdapters?: readonly ProviderAdapterInfo[]
 }
 
 /** Key-order-independent identity, so "did this action change anything" never turns on serialization order. */
@@ -155,13 +161,15 @@ function trackedQueriesFor(db: DatabaseClient, projectId: string): Array<{ id: s
     .from(queries).where(eq(queries.projectId, projectId)).all()
 }
 
-function compileContextFor(db: DatabaseClient, project: ProjectRow): MeasurementDraftCompileContext {
+function compileContextFor(db: DatabaseClient, project: ProjectRow, opts: Pick<MeasurementDraftRoutesOptions, 'providerRouteFamilies' | 'providerAdapters'>): MeasurementDraftCompileContext {
   return {
     canonicalDomain: project.canonicalDomain,
     ownedDomains: project.ownedDomains,
     brandNames: effectiveBrandNames(project),
     locations: project.locations,
     trackedQueries: trackedQueriesFor(db, project.id),
+    ...(opts.providerRouteFamilies ? { routeFamilies: opts.providerRouteFamilies } : {}),
+    ...(opts.providerAdapters ? { providerAdapters: opts.providerAdapters } : {}),
   }
 }
 
@@ -211,6 +219,7 @@ function draftProviderNames(project: ProjectRow, opts: MeasurementDraftRoutesOpt
   return resolveRunProviderSelection({
     projectProviders: project.providers,
     runnableProviders: opts.getRunnableProviderNames?.(),
+    routeFamilies: opts.providerRouteFamilies,
   })
 }
 
@@ -662,6 +671,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       answerVisibilityProviderReady: resolveRunnableProviderSelection({
         projectProviders: project.providers,
         runnableProviders: opts.getRunnableProviderNames?.(),
+        routeFamilies: opts.providerRouteFamilies,
       }).runnableProviders.length > 0,
       activeRevision: active?.revision ?? null,
       activeSchemaVersion,
@@ -889,7 +899,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
 
       const before = parseStoredAuthoring(row.authoringJson)
       const result = applyDraftAction(action, before, request.body, actionContextFor(app.db, gate.project))
-      assertOpenRouterRouteScope(request, draftExecutionProviders(result.authoring), [...gate.project.providers, ...draftExecutionProviders(before)])
+      assertProviderRouteScope(request, draftExecutionProviders(result.authoring), [...gate.project.providers, ...draftExecutionProviders(before)], opts.providerRouteFamilies)
       // A no-op leaves the counter alone: the ETag must change after every
       // successful MUTATION, and nothing was mutated.
       const changed = authoringIdentity(result.authoring) !== authoringIdentity(before)
@@ -960,7 +970,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     const result = applyAssignmentsToAuthoring(before, parsed.data, actionContextFor(app.db, project))
     assertMeasurementDraftAuthoringLimits(before, result.authoring)
 
-    const context = compileContextFor(app.db, project)
+    const context = compileContextFor(app.db, project, opts)
     const current = compileMeasurementDraftAssignmentExecution(authoringForCompile(before, project, opts), context)
     const candidate = compileMeasurementDraftAssignmentExecution(authoringForCompile(result.authoring, project, opts), context)
     if (!current.ok || !candidate.ok) {
@@ -998,7 +1008,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     const result = routeMarketsInAuthoring(before, parsed.data, actionContextFor(app.db, project))
     assertMeasurementDraftAuthoringLimits(before, result.authoring)
 
-    const context = compileContextFor(app.db, project)
+    const context = compileContextFor(app.db, project, opts)
     const current = compileMeasurementDraftAssignmentExecution(authoringForCompile(before, project, opts), context)
     const candidate = compileMeasurementDraftAssignmentExecution(authoringForCompile(result.authoring, project, opts), context)
     if (!current.ok || !candidate.ok) {
@@ -1131,7 +1141,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     requireScope(request, MEASUREMENT_PLAN_WRITE_SCOPE)
     const project = resolveProject(app.db, request.params.name)
     const authoring = authoringForCompile(parseStoredAuthoring(requireDraft(project).authoringJson), project, opts)
-    const compiled = compileMeasurementDraft(authoring, compileContextFor(app.db, project))
+    const compiled = compileMeasurementDraft(authoring, compileContextFor(app.db, project, opts))
     if (!compiled.ok) return { ok: false, compiledChecksum: null, checks: compiled.checks }
     return {
       ok: true,
@@ -1148,7 +1158,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     requireScope(request, MEASUREMENT_PLAN_WRITE_SCOPE)
     const project = resolveProject(app.db, request.params.name)
     const authoring = authoringForCompile(parseStoredAuthoring(requireDraft(project).authoringJson), project, opts)
-    const compiled = compileMeasurementDraft(authoring, compileContextFor(app.db, project))
+    const compiled = compileMeasurementDraft(authoring, compileContextFor(app.db, project, opts))
     if (!compiled.ok) return { ok: false, compiledChecksum: null, checks: compiled.checks, diff: null }
     const active = activePlanVersionRow(app.db, project.id)
     // A v1 revision has no assignment model, so a diff against it would be
@@ -1183,7 +1193,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     const parsed = measurementDraftPublishRequestSchema.safeParse(request.body)
     if (!parsed.success) throw validationError('Invalid "publish" payload', { issues: parsed.error.issues })
     const ifMatch = requireIfMatch(request)
-    const context = compileContextFor(app.db, gate.project)
+    const context = compileContextFor(app.db, gate.project, opts)
     const now = new Date()
 
     // One transaction for the whole publish, receipt included. Every guard
@@ -1228,10 +1238,11 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       const activeProviders = active
         ? storedPlanExecutionProviders(parseStoredMeasurementPlanAnyVersion(active.canonicalJson))
         : []
-      assertOpenRouterRouteScope(
+      assertProviderRouteScope(
         request,
         compiled.plan.executionNodes.flatMap(node => node.context.providers),
         [...gate.project.providers, ...activeProviders],
+        opts.providerRouteFamilies,
       )
       if (compiled.plan.compiledChecksum !== parsed.data.expectedCompiledChecksum) {
         throw measurementCompiledChecksumConflict(parsed.data.expectedCompiledChecksum, compiled.plan.compiledChecksum)

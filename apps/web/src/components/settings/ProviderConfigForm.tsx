@@ -7,11 +7,14 @@ import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
+import { InfoTooltip } from '../shared/InfoTooltip.js'
 
-export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = false, offerFreeTier = true, leadingField, secondaryActions, onSaved }: {
+export function ProviderConfigForm({ providerName, keyUrl, modelHint, kind, compact = false, offerFreeTier = true, leadingField, secondaryActions, onSaved }: {
   providerName: string
   keyUrl?: string
   modelHint?: string
+  /** A routed connection (gateway or answer service) takes no connection model; projects pick routes. */
+  kind?: 'answer-engine' | 'model-gateway' | 'answer-service'
   /** Keep optional tuning out of the first-run provider connection path. */
   compact?: boolean
   /** Lead the compact Gemini form with its free tier. Off once another provider is connected. */
@@ -25,6 +28,7 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
   const queryClient = useQueryClient()
   const isLocal = providerName.toLowerCase() === 'local'
   const isOpenRouter = providerName.toLowerCase() === 'openrouter'
+  const routedConnection = isOpenRouter || kind === 'model-gateway' || kind === 'answer-service'
   const showGeminiFreeTier = compact && offerFreeTier && providerName.toLowerCase() === 'gemini' && !!keyUrl
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
@@ -97,7 +101,7 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
 
   const optionalFields = (
     <>
-      {!isOpenRouter && <div className={compact ? 'space-y-1.5' : undefined}>
+      {!routedConnection && <div className={compact ? 'space-y-1.5' : undefined}>
         <label className={labelClassName} htmlFor={`model-${providerName}`}>Model (optional)</label>
         <input
           id={`model-${providerName}`}
@@ -166,9 +170,12 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
   const apiKeyField = (
     <div className={compact ? 'min-w-0 space-y-1.5' : undefined}>
       <div className={compact ? 'flex items-center justify-between gap-3' : 'flex items-center justify-between'}>
-        <label className={labelClassName} htmlFor={`api-key-${providerName}`}>
-          API key{isLocal ? ' (optional)' : ''}
-        </label>
+        <span className="flex items-center gap-2">
+          <label className={labelClassName} htmlFor={`api-key-${providerName}`}>
+            API key{isLocal ? ' (optional)' : ''}
+          </label>
+          {isOpenRouter && <InfoTooltip text="OpenRouter bills your account for each answer, including its web search. An AI Visibility check asks every query once per model." />}
+        </span>
         {keyUrl && !showGeminiFreeTier && (
           <a
             href={keyUrl}
@@ -191,7 +198,6 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
         value={apiKey}
         onChange={(e) => setApiKey(e.target.value)}
       />
-      {isOpenRouter && <p className="text-sm text-secondary">OpenRouter bills your account for each answer, including its web search. A sweep asks every query once per model.</p>}
     </div>
   )
   const saveButton = (

@@ -57,7 +57,7 @@ function OverviewProjectCard({
             title={project.providerCoverage}
           >
             {project.providerCoverage
-              ? <><span className="sr-only">Partial sweep: </span>{project.providerCoverage}</>
+              ? <><span className="sr-only">Partial check: </span>{project.providerCoverage}</>
               : project.mentionDelta}
           </p>
         </div>
@@ -154,7 +154,7 @@ export function OverviewPage() {
   const awaitingBaseline = model.projects.length > 0 && model.projects.every(project => project.hasMeasurement === false)
   const sentimentColumn = model.projects.some(project => showsSentimentOverview(project.sentiment))
   const attentionItems = model.attentionItems.map(item => awaitingBaseline && item.id === 'attention_stable'
-    ? { ...item, tone: 'neutral' as const, title: 'Awaiting first measurement', detail: 'Visibility results will appear after the first sweep.' }
+    ? { ...item, tone: 'neutral' as const, title: 'Awaiting first measurement', detail: 'Visibility results will appear after the first check.' }
     : item)
 
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? { apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' }, workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' } }

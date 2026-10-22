@@ -2,9 +2,13 @@ import { readFileSync } from 'node:fs'
 import { createApiClient } from '../client.js'
 import type { ApiClient } from '../client.js'
 import {
+  answerCompletionLabel,
+  answerCostBasisLabel,
   CitationStates,
   ResearchRunStatuses,
+  TERMINAL_RESEARCH_RUN_STATUSES,
   researchBatchCreateSchema,
+  type AnswerEvidence,
   type LocationContext,
   type ResearchRunCreate,
   type ResearchRunDetailDto,
@@ -14,10 +18,14 @@ import {
 import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
-const TERMINAL_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
-  ResearchRunStatuses.completed,
-  ResearchRunStatuses.partial,
-  ResearchRunStatuses.failed,
+/**
+ * Statuses after which nothing more runs locally, so `--wait` returns: the
+ * terminal ones, and `waiting-upstream`, whose remaining queries are upstream
+ * jobs Canonry follows by id rather than work this process is doing.
+ */
+const SETTLED_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
+  ...TERMINAL_RESEARCH_RUN_STATUSES,
+  ResearchRunStatuses['waiting-upstream'],
 ])
 const POLL_INTERVAL_MS = 2000
 const POLL_TIMEOUT_MS = 15 * 60 * 1000
@@ -91,7 +99,7 @@ export async function researchBatch(project: string, source: string, opts: { wai
   const client = getClient()
   const started = await client.startResearchBatch(project, parsed.data)
   const runs = opts.wait
-    ? await Promise.all(started.runs.map(run => TERMINAL_RESEARCH_STATUSES.has(run.status)
+    ? await Promise.all(started.runs.map(run => SETTLED_RESEARCH_STATUSES.has(run.status)
       ? Promise.resolve(run)
       : pollResearchRun(client, project, run.id, true)))
     : started.runs
@@ -152,7 +160,7 @@ async function pollResearchRun(client: ApiClient, project: string, runId: string
     }
     const detail = await client.getResearchRun(project, runId)
     if (!quiet) process.stderr.write('.')
-    if (TERMINAL_RESEARCH_STATUSES.has(detail.status)) {
+    if (SETTLED_RESEARCH_STATUSES.has(detail.status)) {
       if (!quiet) process.stderr.write('\n')
       return detail
     }
@@ -186,14 +194,17 @@ function printDetail(project: string, detail: ResearchRunDetailDto, format?: str
   if (detail.location) console.log(`  Location: ${detail.location.label}`)
   console.log(`  Results:  ${detail.completedQueries} completed, ${detail.failedQueries} failed, ${detail.totalQueries} total`)
   if (detail.error) console.log(`  Error:    ${detail.error}`)
+  if (detail.status === ResearchRunStatuses['waiting-upstream']) console.log('  Waiting:  some queries wait on upstream jobs; each is followed by its job id and never submitted again.')
   console.log('  Nothing was added to tracked queries.')
   if (detail.queries.length === 0) return
   console.log('\n  QUERY                                                       STATUS      CITED  MENTIONED')
   for (const query of detail.queries) {
-    const cited = query.citationState === CitationStates.cited ? 'yes' : query.citationState ? 'no' : '–'
+    // `n/m`: the answer service does not tie its sources to the answer, so citation was not measured.
+    const cited = query.citationMeasured === false ? 'n/m' : query.citationState === CitationStates.cited ? 'yes' : query.citationState ? 'no' : '–'
     const mentioned = query.answerMentioned === null ? '–' : query.answerMentioned ? 'yes' : 'no'
     console.log(`  ${query.query.slice(0, 58).padEnd(58)}  ${query.status.padEnd(10)}  ${cited.padEnd(5)}  ${mentioned}`)
     if (query.error) console.log(`    Error: ${query.error}`)
+    if (query.upstreamJobId) console.log(`    Upstream job: ${query.upstreamJobId}`)
     if (query.answerText) console.log(`    Answer: ${query.answerText}`)
     if (query.namedCompetitors.length > 0) {
       console.log(`    Named competitors: ${query.namedCompetitors.join(', ')}`)
@@ -207,7 +218,24 @@ function printDetail(project: string, detail: ResearchRunDetailDto, format?: str
         console.log(`      - ${source.title ? `${source.title}: ` : ''}${source.uri}`)
       }
     }
+    if (query.evidence) printEvidence(query.evidence)
   }
+}
+
+/** The shared label, lowercased to sit mid-sentence ("cost estimated by Canonry"). */
+function midSentence(label: string): string {
+  return label.charAt(0).toLowerCase() + label.slice(1)
+}
+const RELATIONSHIP_LABELS = { 'explicit-citation': 'cited', 'answer-support': 'used for the answer', 'search-result': 'search result', 'page-read': 'page read' } as const
+
+/** The answer-service evidence the API returned, one line per fact, the same facts the dashboard shows. */
+function printEvidence(evidence: AnswerEvidence): void {
+  const model = evidence.identity.disclosedModel
+    ? `${evidence.identity.disclosedModel}${evidence.identity.disclosedModelKind === 'service-tier' ? ' (service tier)' : ''}`
+    : 'not disclosed'
+  console.log(`    Evidence: ${midSentence(answerCompletionLabel(evidence.completion.status))} · profile ${evidence.identity.route} · model ${model} · cost ${midSentence(answerCostBasisLabel(evidence.usage.cost))}`)
+  const other = evidence.sources.filter(source => source.relationship === 'search-result' || source.relationship === 'page-read')
+  for (const source of other) console.log(`      - (${RELATIONSHIP_LABELS[source.relationship]}) ${source.title ? `${source.title}: ` : ''}${source.url}`)
 }
 
 function formatScope(scope: ResearchRunSummaryDto['scope']): string {

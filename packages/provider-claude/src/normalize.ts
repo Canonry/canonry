@@ -68,7 +68,7 @@ const VALIDATION_PATTERN = /^claude-/;
  * https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview
  * https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool
  */
-export const CLAUDE_RETRIEVAL_CONTRACT: RetrievalContract =
+export const CLAUDE_RETRIEVAL_CONTRACT: ClaudeRetrievalContract =
   RetrievalContracts["search-required-v1"];
 
 /**
@@ -115,18 +115,20 @@ export function claudeModelRejectsForcedToolChoice(model: string): boolean {
  */
 export function claudeRetrievalContractForModel(
   model: string,
-): RetrievalContract {
+): ClaudeRetrievalContract {
   return claudeModelRejectsForcedToolChoice(model)
     ? RetrievalContracts["native-auto-v1"]
     : CLAUDE_RETRIEVAL_CONTRACT;
 }
 
 /**
- * The `tool_choice` each retrieval contract sends. Keyed on every contract, so
- * adding a contract to `@canonry/canonry-contracts` fails typecheck here until
- * its request shape is decided.
+ * The `tool_choice` each retrieval contract sends. Keyed on every model
+ * contract, so adding one to `@canonry/canonry-contracts` fails typecheck here
+ * until its request shape is decided. `service-native-v1` belongs to hosted
+ * answer services, which choose their own search policy, so Claude never runs it.
  */
-const CLAUDE_TOOL_CHOICE_BY_CONTRACT: Record<RetrievalContract, ToolChoice> = {
+type ClaudeRetrievalContract = Exclude<RetrievalContract, typeof RetrievalContracts['service-native-v1']>
+const CLAUDE_TOOL_CHOICE_BY_CONTRACT: Record<ClaudeRetrievalContract, ToolChoice> = {
   [RetrievalContracts["search-required-v1"]]: {
     type: "tool",
     name: "web_search",

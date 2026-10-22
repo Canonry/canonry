@@ -1600,7 +1600,7 @@ export function AdvancedMeasurementReviewStep({
       {viewer ? null : (
         <>
           {requiresChangeReview && reviewChangesError ? <p role="alert" className="text-sm text-negative">{reviewChangesError}</p> : null}
-          {sweepActive ? <p role="status" className="text-sm text-caution">A sweep is queued or running. Publish after it finishes.</p> : null}
+          {sweepActive ? <p role="status" className="text-sm text-caution">A check is queued or running. Publish after it finishes.</p> : null}
           <div className={`flex flex-wrap items-center gap-3 ${onBack ? 'justify-between' : 'justify-end'}`}>
             {onBack ? <Button type="button" variant="outline" className="min-h-11" onClick={onBack}>Back</Button> : null}
             {onReviewChanges !== undefined && !hasReviewedChanges ? (

@@ -18,6 +18,7 @@ import { AdminOnly } from '../components/shared/AccessControls.js'
 import { OnboardingProgress } from '../components/shared/OnboardingProgress.js'
 import { NextSteps } from '../components/shared/NextSteps.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
+import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { ProviderConfigForm } from '../components/settings/ProviderConfigForm.js'
 import { ProjectEngineSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
 import { OpenRouterModelPicker } from '../components/shared/OpenRouterModelPicker.js'
@@ -72,12 +73,12 @@ const SETUP_STEPS = [
   { label: 'Create project', description: 'Name, domain, and locale' },
   { label: 'Queries', description: 'Add queries to track' },
   { label: 'Competitors', description: 'Add competitor domains' },
-  { label: 'Launch', description: 'Start your first visibility sweep' },
+  { label: 'Launch', description: 'Start your first AI Visibility check' },
 ] as const
 
 const PROJECT_VISIBILITY_STEPS = [
   { label: 'Queries' },
-  { label: 'First sweep' },
+  { label: 'First check' },
 ] as const
 
 type SetupStep = 0 | 1 | 2 | 3 | 4
@@ -253,7 +254,7 @@ function SetupPageBody({ visibilityProjectName, siteHealthOnboarding, onboarding
         <div className="page-header">
           <div className="page-header-left">
             <h1 ref={visibilityHeadingRef} tabIndex={-1} className="page-title outline-none">Set up AI Visibility</h1>
-            <p className="page-subtitle">Choose what to track, then run your first visibility sweep.</p>
+            <p className="page-subtitle">Choose what to track, then run your first AI Visibility check.</p>
           </div>
           {siteHealthOnboarding ? (
             <div className="page-header-right">
@@ -455,7 +456,8 @@ function ReadySetupPage({
     return model && openRouterModelNames.has(model) ? `${openRouterModelNames.get(model)} via OpenRouter` : providerDisplayName(route)
   }
   const readyProviders = [
-    ...settings.providerStatuses.filter(provider => provider.state === 'ready' && provider.name !== 'openrouter'),
+    // A search answer service runs only where a project picks its profiles, so it never makes setup ready.
+    ...settings.providerStatuses.filter(provider => provider.state === 'ready' && provider.name !== 'openrouter' && provider.kind !== 'answer-service'),
     ...(openRouterConnected ? projectProviders.filter(isOpenRouterRoute).map(name => ({ name, displayName: openRouterRouteLabel(name), model: openRouterRouteModel(name), state: 'ready' as const, detail: 'OpenRouter model configured.' })) : []),
   ]
   const runnableApiProviders = readyProviders.filter(provider => (
@@ -539,6 +541,7 @@ function ReadySetupPage({
   const [researchCopyError, setResearchCopyError] = useState(false)
   const configurableProviders = settings.providerStatuses.filter(provider => (
     normalizeProviderName(provider.name) !== CDP_PROVIDER_NAME
+    && provider.kind !== 'answer-service'
     && (projectProviders.length === 0 || projectProviders.includes(normalizeProviderName(provider.name)) || (provider.name === 'openrouter' && projectProviders.some(isOpenRouterRoute)))
   ))
   const providerToConfigure = configurableProviders.find(provider => provider.name === configuringProvider)
@@ -547,7 +550,7 @@ function ReadySetupPage({
   const researchPrompt = `Help me choose AI Visibility queries for Canonry project ${JSON.stringify(createdProjectName ?? projectName)} (${domain}).
 1. Read the project, its existing tracked queries, and Site Health findings. Ask about my customers, services, and locations if needed, then propose relevant customer queries.
 2. Check the configured connection's capabilities, then use Canonry's Research flow to test a small approved batch. Retrieve saved answers and any available sources. Compare brand mentions separately from site citations; unavailable citation evidence is not a "not cited" result. Text-only routes can inform query research but cannot establish an AI Visibility baseline. Research does not add queries to tracking. If more candidates are needed, propose ICP Discovery separately.
-3. Recommend a short list with reasons. Ask before provider usage. Once I approve, preserve existing queries and return the combined list, one query per line, for me to paste into setup. Do not change tracked queries or launch a visibility sweep.`
+3. Recommend a short list with reasons. Ask before provider usage. Once I approve, preserve existing queries and return the combined list, one query per line, for me to paste into setup. Do not change tracked queries or launch an AI Visibility check.`
   const copyResearchPrompt = async () => {
     setResearchCopyError(false)
     try {
@@ -642,9 +645,9 @@ function ReadySetupPage({
         : undefined
   const launchBlockedReason = readinessBlockedReason
     ?? (!createdProjectName
-      ? 'Create a project before launching the first sweep.'
+      ? 'Create a project before launching the first check.'
       : effectiveQueryCount === 0
-        ? 'Add at least one query before launching the first sweep.'
+        ? 'Add at least one query before launching the first check.'
         : undefined)
 
   useEffect(() => {
@@ -975,7 +978,7 @@ function ReadySetupPage({
   const handleLaunchRun = async () => {
     if (isDashboardManagedSweeps()) return
     if (!createdProjectName || launchBlockedReason) {
-      setRunError(launchBlockedReason ?? 'Complete setup before launching the first sweep.')
+      setRunError(launchBlockedReason ?? 'Complete setup before launching the first check.')
       const reasonCode = systemBlockReason
         ?? (!createdProjectName ? 'unknown' : effectiveQueryCount === 0 ? 'no_queries' : 'run_rejected')
       // Project-readable readiness is a boolean, not an inventory we can count.
@@ -1018,7 +1021,7 @@ function ReadySetupPage({
       }
       await refetch()
     } catch (err) {
-      setRunError(err instanceof Error ? err.message : 'Failed to queue the visibility sweep. Retry when the instance is ready.')
+      setRunError(err instanceof Error ? err.message : 'Failed to queue the AI Visibility check. Retry when the instance is ready.')
       if (!usesProjectProviderReadiness) {
         emitOnboardingEvent({
           flowVersion: ONBOARDING_FLOW_VERSION,
@@ -1098,21 +1101,24 @@ function ReadySetupPage({
   const providerSetup = isProjectScoped && (step === 2 || step === 4) ? (
     !isAdmin ? (
       <section aria-labelledby="setup-provider-heading" className="space-y-2 border-b border-default pb-6 mb-6">
-        <h2 id="setup-provider-heading" className="text-lg font-semibold text-heading">Answer engine provider</h2>
-        <p className="max-w-prose text-sm text-secondary">
-          Provider settings are managed by an administrator.
-        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 id="setup-provider-heading" className="text-lg font-semibold text-heading">AI engines</h2>
+          {providerReadinessFailed ? null : (
+            <span role="status" className="flex items-center gap-2">
+              <ToneBadge tone={providerReadiness === true ? 'positive' : 'neutral'}>
+                {providerReadiness === true ? 'Ready' : providerReadiness === false ? 'Not connected' : 'Checking'}
+              </ToneBadge>
+              <InfoTooltip text={providerReadiness === true
+                ? 'An AI engine is available for this project. An administrator manages provider settings.'
+                : providerReadiness === false
+                  ? 'Ask an administrator to connect an AI engine for this project. You can save queries now.'
+                  : 'Checking for a connected AI engine. An administrator manages provider settings. You can save queries now.'} />
+            </span>
+          )}
+        </div>
         {providerReadinessFailed ? (
           <p role="alert" className="text-sm text-negative">Provider readiness could not be checked. Try again.</p>
-        ) : (
-          <p className="max-w-prose text-sm text-secondary" role="status">
-            {providerReadiness === true
-              ? 'An answer engine is available for this project.'
-              : providerReadiness === false
-                ? 'Ask an administrator to connect an answer engine for this project. You can save queries now.'
-                : 'Checking provider readiness. You can save queries now.'}
-          </p>
-        )}
+        ) : null}
         <Button
           type="button"
           variant="ghost"
@@ -1127,24 +1133,35 @@ function ReadySetupPage({
     ) : (
     <section aria-labelledby="setup-provider-heading" className="space-y-3 border-b border-default pb-6 mb-6">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 id="setup-provider-heading" className="text-lg font-semibold text-heading">
-          {openRouterModelsNeeded ? 'Choose sweep models' : providerNeedsConnection ? 'Connect a provider' : 'Answer engine provider'}
-        </h2>
-        <ToneBadge tone={providerReadiness === true ? 'positive' : 'neutral'}>
-          {providerReadiness === true ? 'Ready' : openRouterModelsNeeded ? 'Models needed' : providerNeedsConnection ? 'Not connected' : 'Checking'}
+        <h2 id="setup-provider-heading" className="text-lg font-semibold text-heading">AI engines</h2>
+        <ToneBadge tone={providerReadiness === true ? 'positive' : openRouterModelsNeeded ? 'caution' : 'neutral'}>
+          {providerReadiness === true ? 'Ready' : openRouterModelsNeeded ? 'Choose models' : providerNeedsConnection ? 'Not connected' : 'Checking'}
         </ToneBadge>
-      </div>
-      <p className="max-w-prose text-sm text-secondary">
-        {providerReadiness === true
+        <InfoTooltip text={providerReadiness === true
           ? runnableApiProviders.length > 0
-            ? `${runnableApiProviders.map(provider => provider.displayName ?? provider.name).join(', ')} available for this project. Research and sweeps use your provider account.`
-            : 'ChatGPT in Chrome is configured for sweeps. Query Research needs an API provider.'
+            ? 'AI Visibility checks and Research use your provider account.'
+            : 'ChatGPT in Chrome runs AI Visibility checks. Query Research needs an API provider.'
           : openRouterModelsNeeded
-            ? 'OpenRouter is connected. Choose models before your first sweep. You can save queries now.'
+            ? 'OpenRouter is connected. Choose the models your AI Visibility checks ask. You can save queries now.'
           : providerNeedsConnection
-            ? 'An answer engine is required for visibility sweeps. You can save queries now and connect later.'
-            : 'Checking available providers. You can choose queries while this finishes.'}
-      </p>
+            ? 'AI Visibility checks need an AI engine. You can save queries now and connect one later.'
+            : 'Checking connected AI engines. You can choose queries meanwhile.'} />
+      </div>
+      {providerReadiness === true && (runnableApiProviders.length > 0 || cdpConfigured === true) ? (
+        <ul aria-label="Connected AI engines" className="divide-y divide-default rounded-lg border border-default">
+          {runnableApiProviders.map(provider => {
+            const routed = isOpenRouterRoute(provider.name)
+            const label = provider.displayName ?? provider.name
+            return (
+              <li key={provider.name} className="flex min-h-11 items-center justify-between gap-3 px-3.5 py-2 text-sm" title={routed ? openRouterRouteModel(provider.name) : undefined}>
+                <span className="min-w-0 truncate text-heading">{routed ? label.replace(/ via OpenRouter$/, '') : label}</span>
+                <span className="shrink-0 text-secondary">{routed ? 'OpenRouter' : provider.model ?? ''}</span>
+              </li>
+            )
+          })}
+          {runnableApiProviders.length === 0 ? <li className="flex min-h-11 items-center px-3.5 py-2 text-sm text-heading">ChatGPT in Chrome</li> : null}
+        </ul>
+      ) : null}
       {inlineModelPicker ? (
         openRouterCatalog ? (
           <OpenRouterModelPicker
@@ -1233,7 +1250,6 @@ function ReadySetupPage({
           <Card className="surface-card step-card">
             <div className="section-head">
               <div>
-                <p className="eyebrow eyebrow-soft">Step 1 of 5</p>
                 <h2>System check</h2>
               </div>
             </div>
@@ -1243,7 +1259,7 @@ function ReadySetupPage({
                 <div key={check.id} className="health-check-row">
                   <div>
                     <p className="run-row-title">{check.label}</p>
-                    <p className="supporting-copy">{check.id === 'provider' && openRouterConnected ? 'OpenRouter connected. Choose models before your first sweep.' : check.detail}</p>
+                    <p className="supporting-copy">{check.id === 'provider' && openRouterConnected ? 'OpenRouter connected. Choose models before your first check.' : check.detail}</p>
                     {check.id === 'provider' && check.state !== 'ready' && (
                       <div className="mt-3 rounded-md border border-default bg-bg-elevated/40 p-3 space-y-2">
                         <p className="text-xs text-secondary">
@@ -1340,7 +1356,6 @@ function ReadySetupPage({
           <Card className="surface-card step-card">
             <div className="section-head">
               <div>
-                <p className="eyebrow eyebrow-soft">Step 2 of 5</p>
                 <h2>Create project</h2>
               </div>
               {createdProjectName ? <ToneBadge tone="positive">Created</ToneBadge> : null}
@@ -1412,8 +1427,7 @@ function ReadySetupPage({
           <StepSurface className={isProjectScoped ? 'visibility-setup-section step-card' : 'surface-card step-card'} aria-labelledby="setup-queries-heading">
             <div className="section-head">
               <div>
-                <p className="eyebrow eyebrow-soft">{isProjectScoped ? 'Step 1 of 2' : 'Step 3 of 5'}</p>
-                <h2 id="setup-queries-heading">Add queries</h2>
+                <div className="flex items-center gap-2"><h2 id="setup-queries-heading">Add queries</h2><InfoTooltip text="Queries your customers ask AI assistants, one per line. You can refine the list later." /></div>
               </div>
               {queriesHydrating ? (
                 <ToneBadge tone="neutral">Loading</ToneBadge>
@@ -1425,16 +1439,10 @@ function ReadySetupPage({
                 <ToneBadge tone="neutral">{parsedQueries.length} quer{parsedQueries.length !== 1 ? 'ies' : 'y'}</ToneBadge>
               )}
             </div>
-            <p className="supporting-copy">
-              Add the queries your customers use, one per line. You can refine your list later.
-            </p>
             <div className="space-y-2 border-b border-default pb-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 space-y-1">
-                  <h3 className="text-sm font-semibold text-heading">Research queries with your agent</h3>
-                  <p className="max-w-prose text-sm text-secondary">
-                    Ask your agent to compare answers and available sources with Canonry Research, then recommend queries. Research does not change your tracked queries.
-                  </p>
+                  <div className="flex items-center gap-2"><h3 className="text-sm font-semibold text-heading">Research queries with your agent</h3><InfoTooltip text="Ask your agent to compare answers and available sources with Canonry Research, then recommend queries. Research does not change your tracked queries." /></div>
                 </div>
                 <Button type="button" variant="outline" size="sm" className="min-h-11 shrink-0 self-start" onClick={asyncHandler(copyResearchPrompt)}>
                   {researchPromptCopied ? 'Research prompt copied' : 'Copy research prompt'}
@@ -1557,7 +1565,6 @@ function ReadySetupPage({
           <Card className="surface-card step-card">
             <div className="section-head">
               <div>
-                <p className="eyebrow eyebrow-soft">Step 4 of 5</p>
                 <h2>Add competitors</h2>
               </div>
               {competitorsSaved ? <ToneBadge tone="positive">Saved</ToneBadge> : null}
@@ -1630,11 +1637,11 @@ function ReadySetupPage({
           ?? (run?.error
             ? summarizeRunError(run.error)
             : runStatus === 'cancelled'
-              ? 'The sweep was cancelled before it produced a baseline.'
+              ? 'The check was cancelled before it produced a baseline.'
               : (runStatus === 'completed' || runStatus === 'partial') && snapshots.length === 0
-                ? 'The sweep finished without producing any snapshots.'
+                ? 'The check finished without producing any snapshots.'
                 : latestPersistedRun?.statusDetail
-                  || 'The sweep did not produce a baseline.')
+                  || 'The check did not produce a baseline.')
 
         let stepBadge: ReactNode = null
         if (persistedSetupComplete || successfulRun) {
@@ -1651,8 +1658,7 @@ function ReadySetupPage({
           <Card className="surface-card step-card">
             <div className="section-head">
               <div>
-                <p className="eyebrow eyebrow-soft">{isProjectScoped ? 'Step 2 of 2' : 'Step 5 of 5'}</p>
-                <h2>{isDashboardManagedSweeps() ? 'AI Visibility' : 'Launch first run'}</h2>
+                <div className="flex items-center gap-2"><h2>{isDashboardManagedSweeps() ? 'AI Visibility' : 'Run your first AI Visibility check'}</h2>{isDashboardManagedSweeps() ? null : <InfoTooltip text={`Asks each AI engine your queries and records whether ${createdProjectName ?? 'your site'} is mentioned and cited. It uses your provider account. You can also finish now and run it later from the project.`} />}</div>
               </div>
               {stepBadge}
             </div>
@@ -1679,16 +1685,13 @@ function ReadySetupPage({
               </div>
             ) : !runTriggered ? (
               <div className="compact-stack">
-                <p className="supporting-copy">
-                  Your queries are saved. Run a first sweep to get a baseline for{' '}
-                  <span className="text-heading font-medium">{createdProjectName}</span>, or
-                  finish and run it later from the project. A sweep calls the answer
-                  engines, so it costs provider usage.
+                <p className="text-sm text-secondary">
+                  <span className="font-mono tabular-nums text-heading">{parsedQueries.length}</span> {parsedQueries.length === 1 ? 'query' : 'queries'}
+                  {runnableProviderCount > 0 ? <> · <span className="font-mono tabular-nums text-heading">{runnableProviderCount}</span> {runnableProviderCount === 1 ? 'engine' : 'engines'}</> : null}
                 </p>
                 {(launchBlockedReason || runError) && (
                   <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-sm text-negative">
                     <p>{runError ?? launchBlockedReason}</p>
-                    <p className="mt-1 text-xs text-secondary">Resolve the blocker above, then retry the sweep here.</p>
                   </div>
                 )}
                 <div className="setup-nav">
@@ -1711,7 +1714,7 @@ function ReadySetupPage({
                       title={launchBlockedReason}
                       onClick={asyncHandler(handleLaunchRun)}
                     >
-                      {runSaving ? 'Launching...' : runError ? 'Retry visibility sweep' : 'Launch visibility sweep'}
+                      {runSaving ? 'Starting…' : runError ? 'Retry check' : 'Run check'}
                     </Button>
                   )}
                 </div>
@@ -1719,14 +1722,14 @@ function ReadySetupPage({
             ) : !terminal ? (
               <div className="compact-stack">
                 <p className="text-neutral">
-                  Sweep running. This usually takes 30 to 60 seconds.
+                  Check running. This usually takes 30 to 60 seconds.
                 </p>
                 <div className="rounded-md border border-default bg-surface p-3 text-xs text-muted">
                   <p>Status: <span className="text-neutral">{runStatus ?? 'queued'}</span></p>
                 </div>
                 {launchedRun.isError && (
                   <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-sm text-negative">
-                    <p>{launchedRun.error instanceof Error ? launchedRun.error.message : 'Could not refresh the sweep status.'}</p>
+                    <p>{launchedRun.error instanceof Error ? launchedRun.error.message : 'Could not refresh the check status.'}</p>
                     <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => { void launchedRun.refetch() }}>
                       Retry status check
                     </Button>
@@ -1758,14 +1761,14 @@ function ReadySetupPage({
                   {isDashboardManagedSweeps() || !isAdmin ? (
                     <Button type="button" onClick={openProjectDashboard}>Open project dashboard →</Button>
                   ) : <Button type="button" disabled={runSaving || !!launchBlockedReason} onClick={asyncHandler(handleLaunchRun)}>
-                    {runSaving ? 'Retrying...' : 'Retry visibility sweep'}
+                    {runSaving ? 'Retrying…' : 'Retry check'}
                   </Button>}
                 </div>
               </div>
             ) : (
               <div className="compact-stack">
                 <p className="text-neutral">
-                  Sweep complete. Your first answer-visibility snapshot for{' '}
+                  Check complete. Your first AI Visibility snapshot for{' '}
                   <span className="text-heading font-medium">{createdProjectName}</span>:
                 </p>
                 <div className="grid grid-cols-3 gap-2 mt-1">
@@ -1815,13 +1818,13 @@ function ReadySetupPage({
           <h1
             ref={visibilityProjectName ? visibilityHeadingRef : undefined}
             tabIndex={visibilityProjectName ? -1 : undefined}
-            className="page-title"
+            className="page-title outline-none"
           >
             {visibilityProjectName ? 'Set up AI Visibility' : 'Setup'}
           </h1>
           <p className="page-subtitle">
             {visibilityProjectName
-              ? 'Connect an answer engine, then choose queries for your first sweep.'
+              ? 'Connect an AI engine, then choose queries for your first check.'
               : 'Create a project and run its first visibility check.'}
           </p>
         </div>

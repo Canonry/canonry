@@ -64,6 +64,20 @@ export async function showSettings(format?: string): Promise<void> {
     }
   }
 
+  // Search answer services: a key alone runs nothing; projects pick profiles.
+  const services = settings.providerCatalog.filter(entry => entry.kind === 'answer-service' && entry.connection === entry.name)
+  if (services.length > 0) {
+    console.log('\nSearch answer services (run only where a project or request names a profile):\n')
+    for (const service of services) {
+      const configured = settings.providers.some(provider => provider.name === service.name && provider.configured)
+      const keyEnv = (service.settingsFields ?? []).map(field => field.env).filter((env): env is string => Boolean(env))
+      console.log(`  ${service.displayName} (${service.name}): ${configured ? 'configured' : 'not configured'}${service.keyCheck === 'saved-not-verified' ? ', key not verified until first use' : ''}${keyEnv.length > 0 ? `, key from ${keyEnv.join(' or ')} at bootstrap` : ''}`)
+      for (const profile of service.profiles ?? []) {
+        console.log(`    ${profile.route.padEnd(28)} ${profile.workflows.join(', ')}  ${profile.description}`)
+      }
+    }
+  }
+
   console.log('\nGoogle OAuth:\n')
   console.log(`  ${settings.google.configured ? 'configured' : 'not configured'}`)
 }

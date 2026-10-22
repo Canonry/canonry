@@ -219,7 +219,7 @@ test('project route renders a concise visibility summary with progressive detail
   const doc = new DOMParser().parseFromString(html, 'text/html')
   expect(doc.getElementById('overview-brief-title')).toBeNull()
   expect([...doc.querySelectorAll('.av-card-title')].map(title => title.textContent)).toEqual([
-    'AI answers over time', 'Where competitors are winning', 'By engine', 'Past sweeps', 'Competitors over time',
+    'AI answers over time', 'Where competitors are winning', 'By engine', 'Past checks', 'Competitors over time',
   ])
   // The competitive card keeps its own section head, after the trend and before the query table.
   const trend = html.indexOf('class="av-card-title">AI answers over time<')
@@ -246,8 +246,8 @@ test('project route renders a concise visibility summary with progressive detail
   expect(html).toMatch(/Query evidence/)
   expect(html).toMatch(/class="av-card-title">By engine<\/h2>/)
   // Past sweeps: one line per sweep, its time opening the run.
-  expect(html).toMatch(/class="av-card-title">Past sweeps<\/h2>/)
-  expect(html).toContain('aria-label="View the Mar 8, 12:15 PM sweep"')
+  expect(html).toMatch(/class="av-card-title">Past checks<\/h2>/)
+  expect(html).toContain('aria-label="View the Mar 8, 12:15 PM check"')
   expect(html).toContain('6 minutes 12 seconds')
   expect(html).not.toMatch(/Citation and engine diagnostics|Recent execution history/)
 })
@@ -295,7 +295,7 @@ test('setup route skips completed health checks and starts at project creation',
 
   expect(html).toMatch(/Setup/)
   expect(html).toMatch(/Create project/)
-  expect(html).toMatch(/Step 2 of 5/)
+  expect(html).toMatch(/<h2>Create project<\/h2>/)
 })
 
 test('setup resumes at queries when a durable project has no query basket', async () => {
@@ -306,7 +306,7 @@ test('setup resumes at queries when a durable project has no query basket', asyn
     fixture.dashboard.runs = []
   })
 
-  expect(html).toMatch(/Step 3 of 5/)
+  expect(html).toMatch(/setup-queries-heading">Add queries</)
   expect(html).toMatch(/Add queries/)
 })
 
@@ -337,7 +337,7 @@ test('setup treats a cancelled first run as retryable, not complete', async () =
   })
 
   expect(html).toMatch(/Cancelled/)
-  expect(html).toMatch(/Retry visibility sweep/)
+  expect(html).toMatch(/Retry check/)
   expect(html).not.toMatch(/Setup is complete/)
 })
 
@@ -348,7 +348,7 @@ test('setup recognizes an older baseline outside the global run window', async (
   })
 
   expect(html).toMatch(/Setup is complete/)
-  expect(html).not.toMatch(/Launch visibility sweep/)
+  expect(html).not.toMatch(/Launch AI Visibility check/)
 })
 
 test('overview route renders first-run onboarding guidance when there are no projects', async () => {
@@ -380,7 +380,7 @@ test('setup route renders step indicator with all step labels', async () => {
 test('runs route renders partial runs clearly', async () => {
   const html = await renderApp('/runs', { runScenario: 'partial' })
 
-  expect(html).toMatch(/Partial visibility sweep after quota cap/)
+  expect(html).toMatch(/Partial AI Visibility check after quota cap/)
   expect(html).toMatch(/Quota window closed mid-run/)
 })
 
@@ -397,7 +397,7 @@ test('project route keeps server insights out of the Simple overview', async () 
       id: 'stale_visibility',
       tone: 'caution',
       title: 'Visibility data needs refresh',
-      detail: 'A newer integration sync landed after the latest visibility sweep.',
+      detail: 'A newer integration sync landed after the latest AI Visibility check.',
       actionLabel: 'Stale',
       actionGroup: 'investigate',
       affectedPhrases: [],
@@ -407,7 +407,7 @@ test('project route keeps server insights out of the Simple overview', async () 
   expect(html).not.toMatch(/Latest signals/)
   expect(html).not.toMatch(/Sharp citation drop detected/)
   expect(html).not.toMatch(/Visibility data needs refresh/)
-  expect(html).not.toMatch(/A newer integration sync landed after the latest visibility sweep/)
+  expect(html).not.toMatch(/A newer integration sync landed after the latest AI Visibility check/)
   expect(html).not.toMatch(/Action queue/)
   expect(html).not.toMatch(/What needs your attention/)
 })

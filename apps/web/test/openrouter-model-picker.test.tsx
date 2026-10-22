@@ -77,11 +77,11 @@ test('recommended models come first and the full catalog waits behind Browse all
   const recommended = screen.getByRole('group', { name: 'Recommended' })
   // Claude Sonnet 5.5 is not in this catalog, so it is not offered.
   expect([...recommended.querySelectorAll<HTMLElement>('label[data-model-id]')].map(row => row.textContent)).toEqual([
-    'OpenAI: GPT-6 LunaFrom the maker of ChatGPT',
-    'Google: Gemini 3.8 FlashFrom the maker of GeminiAdded',
+    'OpenAI: GPT-6 LunaMaker of ChatGPT',
+    'Google: Gemini 3.8 FlashAdded',
   ])
   expect(screen.queryByRole('searchbox', { name: 'Search OpenRouter models' })).toBeNull()
-  const browse = screen.getByRole('button', { name: 'Browse all OpenRouter models (8)' })
+  const browse = screen.getByRole('button', { name: 'Browse all 8 models' })
   expect(browse.getAttribute('aria-expanded')).toBe('false')
 
   fireEvent.click(within(recommended).getByRole('checkbox', { name: 'OpenAI: GPT-6 Luna' }))

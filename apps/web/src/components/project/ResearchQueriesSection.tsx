@@ -3,6 +3,8 @@ import { AnswerMarkdown } from '../shared/AnswerMarkdown.js'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Play, RefreshCw } from 'lucide-react'
 import {
+  answerCompletionLabel,
+  answerCostBasisLabel,
   MAX_RESEARCH_BATCH_QUERIES,
   MAX_RESEARCH_BATCH_RUNS,
   ResearchQueryStatuses,
@@ -14,6 +16,8 @@ import {
   researchTemplateBindings,
   type LocationContext,
   type ResearchRunQueryDto,
+  type AnswerEvidence as AnswerEvidenceDto,
+  type AnswerSource as AnswerSourceDto,
   type ResearchRunDetailDto,
   type ResearchRunStatus,
   type ResearchRunScope,
@@ -24,6 +28,7 @@ import {
 } from '@canonry/canonry-contracts'
 
 import { heyClient, isEmbed, isPublicDemo, type ViewerResearchConfig } from '../../api.js'
+import { catalogRouteFamilies, isAnswerServiceRouteFor, isRoutedConnection, RESEARCH_WORKFLOW } from '../../lib/provider-routes.js'
 import {
   getApiV1ProjectsByNameOptions,
   getApiV1ProjectsByNameResearchRunsByRunIdOptions,
@@ -162,19 +167,25 @@ export function ResearchQueriesSection({
         .filter(item => item.name !== 'openrouter')
         .map(item => ({ ...item, catalog: item }))
     }
-    const catalog = new Map((settingsQuery.data?.providerCatalog ?? []).map(item => [item.name, item]))
+    const catalogEntries = settingsQuery.data?.providerCatalog ?? []
+    const catalog = new Map(catalogEntries.map(item => [item.name, item]))
+    const routeFamilies = catalogRouteFamilies(catalogEntries)
     const configured = new Map((settingsQuery.data?.providers ?? [])
       .filter(item => item.configured)
       .map(item => [item.name, item]))
     const direct = [...configured.values()]
-      .filter(item => item.name !== 'openrouter' && !isOpenRouterRoute(item.name) && catalog.get(item.name)?.mode === 'api')
+      .filter(item => !isRoutedConnection(item.name, routeFamilies) && !isOpenRouterRoute(item.name) && catalog.get(item.name)?.mode === 'api')
       .map(item => ({ ...item, catalog: { ...catalog.get(item.name)!, defaultModel: item.model || catalog.get(item.name)!.defaultModel } }))
+    // Each research profile of a connected answer service, offered for explicit choice only.
+    const profiles = catalogEntries
+      .filter(entry => isAnswerServiceRouteFor(entry, RESEARCH_WORKFLOW) && configured.has(entry.connection ?? entry.name))
+      .map(entry => ({ name: entry.name, displayName: entry.displayName, configured: true, defaultModel: entry.defaultModel, kind: entry.kind, catalog: entry }))
 
     const openRouterCatalog = catalog.get('openrouter')
     const serverRoutes = new Map((historyPolicy?.providers ?? [])
       .filter(item => isOpenRouterRoute(item.name))
       .map(item => [item.name, item]))
-    if (!configured.has('openrouter') && serverRoutes.size === 0) return direct
+    if (!configured.has('openrouter') && serverRoutes.size === 0) return [...direct, ...profiles]
     const routes = [...new Set([
       ...(projectQuery.data?.providers ?? []),
       ...serverRoutes.keys(),
@@ -201,15 +212,17 @@ export function ResearchQueriesSection({
           catalog: routeCatalog,
         }] : []
       })
-    return [...direct, ...routes]
+    return [...direct, ...routes, ...profiles]
   }, [historyPolicy?.providers, limitedAccess, projectQuery.data?.providers, settingsQuery.data])
   const noConfiguredApiProviders = !(limitedAccess ? runsQuery.isPending : settingsQuery.isPending) && providerOptions.length === 0
   const selectedProvider = providerOptions.find(item => item.name === provider) ?? null
 
   useEffect(() => {
     if (!provider && projectQuery.data && !projectQuery.isError && !settingsQuery.isError) {
-      const preferred = projectQuery.data.providers.find(name => providerOptions.some(item => item.name === name))
-      setProvider(preferred ?? providerOptions[0]?.name ?? '')
+      // The default never lands on an answer service; choosing one is always explicit.
+      const defaults = providerOptions.filter(item => !('kind' in item) || item.kind !== 'answer-service')
+      const preferred = projectQuery.data.providers.find(name => defaults.some(item => item.name === name))
+      setProvider(preferred ?? defaults[0]?.name ?? '')
     }
   }, [provider, providerOptions, projectQuery.data, projectQuery.isError, settingsQuery.isError])
 
@@ -693,7 +706,9 @@ function ResearchRunDetail({
                     <td><ToneBadge tone={item.queryClass === 'branded' ? 'positive' : item.queryClass === 'non-brand' ? 'neutral' : 'caution'}>{item.queryClass === 'branded' ? RESEARCH_COPY.brandedQuery : item.queryClass === 'non-brand' ? RESEARCH_COPY.discoveryQuery : RESEARCH_COPY.unclassifiedQuery}</ToneBadge></td>
                     <td><ToneBadge tone={toneForResearchQuery(item.status)}>{item.status}</ToneBadge></td>
                     <td><ToneBadge tone={item.answerMentioned === true ? 'positive' : item.answerMentioned === false ? 'neutral' : item.status === ResearchQueryStatuses.failed ? 'negative' : 'caution'}>{item.answerMentioned === null ? item.status === ResearchQueryStatuses.failed ? 'Unavailable' : 'Pending' : item.answerMentioned ? 'Matched' : 'No match'}</ToneBadge></td>
-                    <td><ToneBadge tone={item.citationState === 'cited' ? 'positive' : item.citationState === 'not-cited' ? 'neutral' : item.status === ResearchQueryStatuses.failed ? 'negative' : 'caution'}>{item.citationState === null ? item.status === ResearchQueryStatuses.failed ? 'Unavailable' : 'Pending' : item.citationState === 'cited' ? 'Cited' : 'Not cited'}</ToneBadge></td>
+                    <td>{item.citationMeasured === false && item.status === ResearchQueryStatuses.completed
+                      ? <ToneBadge tone="neutral">Not measured</ToneBadge>
+                      : <ToneBadge tone={item.citationState === 'cited' ? 'positive' : item.citationState === 'not-cited' ? 'neutral' : item.status === ResearchQueryStatuses.failed ? 'negative' : 'caution'}>{item.citationState === null ? item.status === ResearchQueryStatuses.failed ? 'Unavailable' : 'Pending' : item.citationState === 'cited' ? 'Cited' : 'Not cited'}</ToneBadge>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -731,15 +746,25 @@ function ResearchAnswer({
           <p className="mt-2 text-xs leading-5 text-muted">Only this saved query text enters tracking review. Its answer remains research evidence.</p>
         </div>
       )}
-      {query.error ? (
+      {query.error && (
         <div className="rounded-md border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-sm text-negative">{query.error}</div>
-      ) : query.answerText ? (
+      )}
+      {query.error && query.evidence && query.answerText ? (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted">Partial answer, not measured</p>
+          <div className="mt-1"><AnswerMarkdown headingLevel={4} copyable>{query.answerText}</AnswerMarkdown></div>
+        </div>
+      ) : query.error ? null : query.answerText ? (
         <div>
           <p className="text-[10px] uppercase tracking-wide text-muted">Answer</p>
           <div className="mt-1"><AnswerMarkdown headingLevel={4} copyable>{query.answerText}</AnswerMarkdown></div>
         </div>
       ) : (
-        <p className="text-sm text-muted">{query.status === ResearchQueryStatuses.failed ? 'This query did not return an answer.' : 'The answer will appear here when this query finishes.'}</p>
+        <p className="text-sm text-muted">{query.status === ResearchQueryStatuses.failed
+          ? 'This query did not return an answer.'
+          : query.status === ResearchQueryStatuses['waiting-upstream']
+            ? `The service is still working on this query as an upstream job${query.upstreamJobId ? ` (${query.upstreamJobId})` : ''}. It is followed by that job and never sent again.`
+            : 'The answer will appear here when this query finishes.'}</p>
       )}
       {query.namedCompetitors.length > 0 && (
         <div>
@@ -770,6 +795,41 @@ function ResearchAnswer({
           </ul>
         </div>
       )}
+      {query.evidence && <AnswerServiceEvidence evidence={query.evidence} />}
+    </div>
+  )
+}
+
+const SOURCE_RELATIONSHIP_LABELS: Record<AnswerSourceDto['relationship'], string> = {
+  'explicit-citation': 'Cited in the answer',
+  'answer-support': 'Used for the answer',
+  'search-result': 'Search result',
+  'page-read': 'Page read',
+}
+
+/** What a search answer service returned beyond the answer: status, identity and every source with its relationship. */
+function AnswerServiceEvidence({ evidence }: { evidence: AnswerEvidenceDto }) {
+  const otherSources = evidence.sources.filter(source => source.relationship === 'search-result' || source.relationship === 'page-read')
+  return (
+    <div className="space-y-3">
+      <p className="text-[10px] uppercase tracking-wide text-muted">Answer service evidence</p>
+      <dl className="definition-list">
+        <div><dt>Status</dt><dd>{answerCompletionLabel(evidence.completion.status)}</dd></div>
+        <div><dt>Profile</dt><dd className="font-mono text-xs">{evidence.identity.route}</dd></div>
+        <div><dt>Model</dt><dd>{evidence.identity.disclosedModel ? `${evidence.identity.disclosedModel}${evidence.identity.disclosedModelKind === 'service-tier' ? ' (service tier)' : ''}` : 'Not disclosed'}</dd></div>
+        <div><dt>Cost</dt><dd>{answerCostBasisLabel(evidence.usage.cost)}</dd></div>
+        {!evidence.citationMeasurable && <div><dt>Citations</dt><dd>Not measured: this service does not tie its sources to the answer.</dd></div>}
+      </dl>
+      {otherSources.length > 0 && (
+        <ul className="space-y-3">
+          {otherSources.map((source, index) => (
+            <li key={`${source.url}-${index}`} className="min-w-0">
+              <p className="text-xs text-muted">{SOURCE_RELATIONSHIP_LABELS[source.relationship]}</p>
+              <SourceLink url={source.url} title={source.title ?? source.url} />
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -786,7 +846,7 @@ function shortId(id: string): string {
 
 function toneForResearchRun(status: ResearchRunStatus) {
   if (status === ResearchRunStatuses.completed) return 'positive'
-  if (status === ResearchRunStatuses.partial) return 'caution'
+  if (status === ResearchRunStatuses.partial || status === ResearchRunStatuses['waiting-upstream']) return 'caution'
   if (status === ResearchRunStatuses.failed) return 'negative'
   return 'neutral'
 }
@@ -794,6 +854,7 @@ function toneForResearchRun(status: ResearchRunStatus) {
 function toneForResearchQuery(status: ResearchRunQueryDto['status']) {
   if (status === ResearchQueryStatuses.completed) return 'positive'
   if (status === ResearchQueryStatuses.failed) return 'negative'
+  if (status === ResearchQueryStatuses['waiting-upstream']) return 'caution'
   return 'neutral'
 }
 

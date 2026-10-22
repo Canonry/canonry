@@ -109,22 +109,22 @@ test('a bucket is dated from the sweep that produced it, not from its boundary',
   // The bug in one assertion: the boundary says July 10, the sweep really ran
   // on July 20 at 01:52Z — which is the evening of July 19 for a New York
   // viewer, and that is the honest local answer to "when did this happen".
-  expect(formatBucketDateLabel(SINGLE_SWEEP_BUCKET, NOW)).toBe('Jul 19 · 1 sweep')
+  expect(formatBucketDateLabel(SINGLE_SWEEP_BUCKET, NOW)).toBe('Jul 19 · 1 check')
   expect(formatBucketDateLabel(SINGLE_SWEEP_BUCKET, NOW)).not.toMatch(/Jul 9/)
   expect(formatBucketDateTick(SINGLE_SWEEP_BUCKET)).toBe('Jul 19')
 })
 
 test('a bucket that pools several sweeps says so, with the real range', () => {
-  expect(formatBucketDateLabel(POOLED_BUCKET, NOW)).toBe('Jul 14 to Jul 19 · 2 sweeps')
+  expect(formatBucketDateLabel(POOLED_BUCKET, NOW)).toBe('Jul 14 to Jul 19 · 2 checks')
   // Two sweeps on one day are still two readings.
   const sameDay = bucket({ dataStartDate: '2026-09-29T09:41:26.139Z', dataEndDate: '2026-09-29T09:59:38.415Z', sweepCount: 2 })
-  expect(formatBucketDateLabel(sameDay, NOW)).toBe('Sep 29 · 2 sweeps')
+  expect(formatBucketDateLabel(sameDay, NOW)).toBe('Sep 29 · 2 checks')
 })
 
 test('a date prints its year only outside the current one', () => {
   const acrossYears = bucket({ dataStartDate: '2025-12-30T15:00:00.000Z', dataEndDate: '2026-01-03T15:00:00.000Z', sweepCount: 3 })
-  expect(formatBucketDateLabel(acrossYears, NOW)).toBe('Dec 30, 2025 to Jan 3 · 3 sweeps')
-  expect(formatBucketDateLabel(POOLED_BUCKET, new Date('2027-02-01T12:00:00.000Z'))).toBe('Jul 14, 2026 to Jul 19, 2026 · 2 sweeps')
+  expect(formatBucketDateLabel(acrossYears, NOW)).toBe('Dec 30, 2025 to Jan 3 · 3 checks')
+  expect(formatBucketDateLabel(POOLED_BUCKET, new Date('2027-02-01T12:00:00.000Z'))).toBe('Jul 14, 2026 to Jul 19, 2026 · 2 checks')
 })
 
 test('a bucket from an older API is reported as unavailable, never dated from the boundary', () => {
@@ -135,7 +135,7 @@ test('a bucket from an older API is reported as unavailable, never dated from th
   const legacyBucket = legacy as unknown as Parameters<typeof formatBucketDateLabel>[0]
 
   expect(readBucketObservedRange(legacyBucket)).toBeNull()
-  expect(formatBucketDateLabel(legacyBucket)).toBe('Sweep date unavailable')
+  expect(formatBucketDateLabel(legacyBucket)).toBe('Check date unavailable')
   // Blank rather than a boundary printed as a date.
   expect(formatBucketDateTick(legacyBucket)).toBe('')
 })
@@ -185,8 +185,8 @@ test('the rendered trend never shows a bucket boundary as a date', async () => {
   )
 
   // The accessible data table names every point; the card's head repeats the latest.
-  expect((await screen.findAllByText('Jul 14 to Jul 19 · 2 sweeps')).length).toBeGreaterThan(0)
-  expect(screen.getByText('May 15 · 1 sweep')).toBeTruthy()
+  expect((await screen.findAllByText('Jul 14 to Jul 19 · 2 checks')).length).toBeGreaterThan(0)
+  expect(screen.getByText('May 15 · 1 check')).toBeTruthy()
 
   // Neither the boundary's own day nor the day it shifts to in this timezone.
   expect(screen.queryByText(/Jul 10, 2026/)).toBeNull()

@@ -152,4 +152,28 @@ describe('--format json output', () => {
     expect(parsed.providers).toBeDefined()
     expect(parsed.providers).toBeInstanceOf(Array)
   })
+
+  it('showSettings names each search answer service with the key variable its descriptor declares', async () => {
+    const { showSettings } = await import('../src/commands/settings.js')
+    const settings = await client.getSettings()
+    const services = settings.providerCatalog.filter(entry => entry.kind === 'answer-service' && entry.connection === entry.name)
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await showSettings()
+    } finally {
+      console.log = origLog
+    }
+    const output = logs.join('\n')
+    // The real server registers every vendor; the assertions read each one's catalog entry, never a vendor name.
+    expect(services.length).toBeGreaterThan(0)
+    for (const service of services) {
+      const env = service.settingsFields?.find(field => field.key === 'apiKey')?.env ?? ''
+      expect(env).not.toBe('')
+      expect(output).toContain(`${service.displayName} (${service.name}): not configured`)
+      expect(output).toMatch(new RegExp(`\\(${service.name}\\): .*key from ${env} at bootstrap`))
+      for (const profile of service.profiles ?? []) expect(output).toContain(profile.route)
+    }
+  })
 })

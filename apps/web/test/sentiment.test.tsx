@@ -2026,7 +2026,7 @@ describe('sentiment generated SDK and administrator flow', () => {
     })
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     try {
-      render(<QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={{ mode: 'simple', scope: 'project', queryClass: 'branded', runIds: ['east-run', 'west-run'] }} runOptions={[{ id: 'east-run', label: 'East sweep' }]}><SentimentControls /><SentimentQueryScore queryId="q" queryClass="branded" /></SentimentScopeProvider></QueryClientProvider>)
+      render(<QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={{ mode: 'simple', scope: 'project', queryClass: 'branded', runIds: ['east-run', 'west-run'] }} runOptions={[{ id: 'east-run', label: 'East check' }]}><SentimentControls /><SentimentQueryScore queryId="q" queryClass="branded" /></SentimentScopeProvider></QueryClientProvider>)
       fireEvent.click(await screen.findByRole('button', { name: 'View Branded sentiment evidence for Is North Hall good?' }))
       await screen.findByText('No stored sentiment evidence for this query and scope.')
       const evidence = requests.find(url => url.pathname.endsWith('/evidence'))!
@@ -2035,7 +2035,7 @@ describe('sentiment generated SDK and administrator flow', () => {
       fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
       fireEvent.click(screen.getByRole('button', { name: 'Manage sentiment' }))
-      fireEvent.change(screen.getByRole('combobox', { name: 'Saved sweep' }), { target: { value: 'east-run' } })
+      fireEvent.change(screen.getByRole('combobox', { name: 'Saved check' }), { target: { value: 'east-run' } })
       fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
       await screen.findByText('Eligible assessments')
       const preview = requests.find(url => url.pathname.endsWith('/backfill-preview'))!
@@ -2066,10 +2066,10 @@ describe('sentiment generated SDK and administrator flow', () => {
       expect(limit.checked).toBe(false)
       expect(limit.closest('label')!.textContent).toContain('engine openai · model source-model · location Chicago · property north · market chicago · revision 3')
       fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
-      await screen.findByText('Branded queries · whole sweep')
+      await screen.findByText('Branded queries · whole check')
       expect(Object.fromEntries(previews[0]!.searchParams)).toEqual({ mode: 'auto', scope: 'project', queryClass: 'branded', runId: 'run' })
       const skipped = screen.getByRole('list', { name: 'Skipped assessments' })
-      expect([...skipped.querySelectorAll('li')].map(item => item.textContent)).toEqual(['Incomplete sweep: 1', 'Non-brand answers (backfill that class separately): 4', 'A newer reason: 2'])
+      expect([...skipped.querySelectorAll('li')].map(item => item.textContent)).toEqual(['Incomplete check: 1', 'Non-brand answers (backfill that class separately): 4', 'A newer reason: 2'])
       expect((screen.getByRole('button', { name: 'Confirm sentiment backfill' }) as HTMLButtonElement).disabled).toBe(false)
 
       fireEvent.click(limit)

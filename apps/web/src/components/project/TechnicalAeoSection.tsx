@@ -357,7 +357,7 @@ export function TechnicalAeoSection({
     return (
       <Card className="surface-card mt-6 p-8 text-center">
         <ScanSearch className="mx-auto mb-3 h-8 w-8 text-muted" aria-hidden="true" />
-        <h2 className="text-base font-semibold text-heading">No technical audit yet</h2>
+        <h2 className="text-base font-semibold text-heading">No Technical AEO audit yet</h2>
         <p className="supporting-copy mx-auto mt-2 max-w-md">
           A technical AEO audit crawls your sitemap and scores every page for structured data, AI-readable content,
           crawler access, freshness, and more, then rolls it up into one site score.
@@ -500,7 +500,7 @@ export function TechnicalAeoSection({
               onChange={(event) => setSelectedRunId(event.target.value || null)}
               className="min-h-11 rounded-md border border-base bg-bg px-3 text-sm text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
             >
-              <option value="">Latest audit</option>
+              <option value="">Latest Technical AEO audit</option>
               {[...trendPoints].reverse().slice(1).map((point) => (
                 <option key={point.runId} value={point.runId}>
                   {new Date(point.auditedAt).toLocaleDateString()} · {point.aggregateScore}/100

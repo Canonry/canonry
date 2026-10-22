@@ -191,6 +191,12 @@ describe('buildRunCompletedProps', () => {
     expect(JSON.stringify(props)).not.toMatch(/google\/|anthropic\//)
   })
 
+  it('reports an answer-service profile as its connection, never the profile', () => {
+    const props = buildRunCompletedProps({ ...baseInput, providerCount: 3, providers: ['gemini', 'acme-answers:deep', 'acme-answers:fast', 'cdp:chatgpt'] })
+    expect(props.providers).toEqual(['gemini', 'acme-answers', 'cdp:chatgpt'])
+    expect(JSON.stringify(props)).not.toMatch(/:deep|:fast/)
+  })
+
   it('stays within the collector limits with every property present', () => {
     const providers = ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local', 'cdp:chatgpt']
     const props = {

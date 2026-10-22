@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createClient, migrate, projects, queries, querySnapshots, runs, type DatabaseClient } from '@canonry/canonry-db'
 import { apiRoutes, type OutcomeTelemetryEvent } from '../src/index.js'
 import { featureOutcomes } from './feature-outcome-capture.js'
+import { resultsExportDtoSchema, type AnswerEvidence } from '@canonry/canonry-contracts'
 
 interface ResultExportResponse {
   schemaVersion: string
@@ -32,6 +33,7 @@ interface ResultExportResponse {
     answerText: string | null
     groundingSources: Array<{ uri: string; title: string }>
     searchQueries: string[]
+    answerEvidence?: AnswerEvidence | null
   }>
 }
 
@@ -324,6 +326,48 @@ describe('GET /api/v1/projects/:name/results/export', () => {
       groundingSources: [],
       searchQueries: [],
     })
+  })
+
+  it('carries answer-service evidence in JSON and CSV, and null for engines that record none', async () => {
+    // A search answer service whose sources are documented as used for the answer, not explicit citations.
+    const evidence: AnswerEvidence = {
+      version: 1,
+      identity: { connection: 'svc', route: 'svc:standard', service: 'svc', product: 'answer', profile: 'standard', settings: { depth: 'standard' }, requestedServiceModel: 'svc-tier', disclosedModel: null, disclosedModelKind: null, requestPolicy: 'svc-answer-v1', parserVersion: 'svc-parser-1' },
+      completion: { status: 'complete', finishReason: null, upstreamStatus: null, upstreamRequestId: 'req-1', upstreamJobId: null, error: null },
+      usage: {
+        tokens: { input: null, output: null, reasoning: null, basis: 'unknown' }, searches: { count: null, basis: 'unknown' }, pageReads: { count: null, basis: 'unknown' },
+        billedUnits: [], cost: { micros: 5000, currency: 'USD', basis: 'estimated', estimatedBy: 'provider' },
+      },
+      sources: [
+        { url: 'https://acme.example/guide', title: 'Acme guide', relationship: 'answer-support', rank: null, publishedAt: null, upstreamId: null },
+        { url: 'https://other.example/list', title: 'A list', relationship: 'search-result', rank: 1, publishedAt: null, upstreamId: null },
+      ],
+      searchQueries: [], retrievalStatus: 'used', citationBasis: 'answer-support', citationMeasurable: true, directSourceUrls: true,
+      location: { requested: null, sent: null, strength: null, serviceDefault: null, status: 'not-requested' }, rawTruncated: false,
+    }
+    const serviceRun = insertRun(ctx.db, ctx.projectId, { createdAt: '2026-07-06T12:00:00.000Z' })
+    ctx.db.insert(querySnapshots).values({
+      id: crypto.randomUUID(), runId: serviceRun, queryId: null, queryText: 'service evidence query', provider: 'svc:standard', model: 'standard',
+      citationState: 'cited', answerMentioned: true, answerText: 'Acme is a good choice.', citedDomains: ['acme.example'],
+      competitorOverlap: [], recommendedCompetitors: [], location: null, rawResponse: null, answerEvidence: evidence,
+      createdAt: '2026-07-06T12:01:00.000Z',
+    }).run()
+
+    const json = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/acme/results/export' })
+    const body = resultsExportDtoSchema.parse(json.json())
+    const service = body.records.find(record => record.query === 'service evidence query')!
+    // What `cited` was measured from, the search result it was not, the frozen identity and the cost basis all survive.
+    expect(service.answerEvidence).toEqual(evidence)
+    expect(body.records.filter(record => record.query !== 'service evidence query').every(record => record.answerEvidence === null)).toBe(true)
+
+    const csv = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/acme/results/export?format=csv' })
+    const [header, ...lines] = csv.body.trimEnd().split('\r\n')
+    expect(header!.split(',').at(-1)).toBe('answer_evidence_json')
+    const serviceLine = lines.find(line => line.includes('service evidence query'))!
+    expect(serviceLine).toContain('""citationBasis"":""answer-support""')
+    expect(serviceLine).toContain('""relationship"":""search-result""')
+    // Engine rows leave the column empty.
+    expect(lines.find(line => line.includes('Acme, Inc. is a cited answer.'))!.endsWith(',')).toBe(true)
   })
 
   it('rejects invalid export filters', async () => {

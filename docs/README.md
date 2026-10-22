@@ -40,6 +40,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`providers/model-selection.md`](providers/model-selection.md) | current | operators, engineers | Direct-model selection, answer and citation evidence, and model router trade-offs |
 | [`providers/gemini.md`](providers/gemini.md) | current | engineers | Gemini provider behavior and constraints |
 | [`providers/openrouter.md`](providers/openrouter.md) | current | engineers | Multi-model setup, sweep identity and independent evaluator roles |
+| [`providers/answer-services.md`](providers/answer-services.md) | current | engineers | Shared layer for hosted search answer services: profiles, evidence, eligibility, adding a vendor |
 | [`providers/openai.md`](providers/openai.md) | current | engineers | OpenAI provider behavior and constraints |
 | [`providers/muse.md`](providers/muse.md) | current | operators, engineers | Muse setup, search evidence, and model tier choice |
 | [`providers/claude.md`](providers/claude.md) | current | engineers | Claude provider behavior and constraints |

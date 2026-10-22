@@ -47,5 +47,8 @@
     "fastify": "^5.12.7",
     "undici": "^8.12.3",
     "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@canonry/canonry-provider-answer-services": "workspace:*"
   }
 }

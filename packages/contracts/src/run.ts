@@ -3,6 +3,7 @@ import { locationContextSchema, providerNameSchema } from './provider.js'
 import { citedUrlCaptureStatusSchema } from './cited-urls.js'
 import { measurementExecutionIdentitySchema, measurementRunScopeRequestSchema, measurementRunScopeSchema } from './measurement-plan.js'
 import { retrievalContractSchema, retrievalStatusSchema } from './retrieval.js'
+import { answerEvidenceSchema } from './answer-evidence.js'
 import { mentionIdentitySchema } from './mention-identity.js'
 import { classifyProviderErrorMessage, providerErrorCodeSchema } from './provider-errors.js'
 import { pricingTierSchema, providerBatchStatusSchema, providerDispatchModeSchema, snapshotUsageSchema } from './provider-batch.js'
@@ -573,6 +574,8 @@ export const querySnapshotDtoSchema = z.object({
   stopReason: z.string().nullable().optional(),
   /** Billable usage and the price estimated when the answer was recorded. */
   usage: snapshotUsageSchema.nullable().optional(),
+  /** Vendor-neutral answer evidence. Null for engines that record none and for older rows. */
+  evidence: answerEvidenceSchema.nullable().optional(),
   createdAt: z.string(),
 })
 

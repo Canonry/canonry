@@ -51,7 +51,7 @@ export function mentionClassFigures(
     return { headline: 'No data', numeric: false, detail: 'could not load, refresh to retry', showRows: false }
   }
   if (opts.noRun) {
-    return { headline: 'No data', numeric: false, detail: 'no sweep has run yet', showRows: false }
+    return { headline: 'No data', numeric: false, detail: 'no check has run yet', showRows: false }
   }
   if (breakdown.snapshotsTotal === 0) {
     // "none tracked" is only true when NOTHING is tracked. A basket that is

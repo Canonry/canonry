@@ -1489,7 +1489,7 @@ describe('AdvancedMeasurementSection server draft controller', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
     const publish = await screen.findByRole('button', { name: 'Publish setup' }) as HTMLButtonElement
     expect(publish.disabled).toBe(sweepActive)
-    const message = screen.queryByText('A sweep is queued or running. Publish after it finishes.')
+    const message = screen.queryByText('A check is queued or running. Publish after it finishes.')
     expect(message?.getAttribute('role') ?? null).toBe(sweepActive ? 'status' : null)
     fireEvent.click(publish)
     if (sweepActive) expect(fake.service.publish).not.toHaveBeenCalled()

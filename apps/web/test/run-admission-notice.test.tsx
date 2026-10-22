@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
-import { getApiV1RunsByIdOptions } from '@canonry/canonry-api-client/react-query'
+import { getApiV1RunsByIdOptions, getApiV1SettingsOptions } from '@canonry/canonry-api-client/react-query'
 import {
   createMemoryHistory,
   createRootRoute,
@@ -52,6 +52,28 @@ test('a rejected OpenRouter model key points to the shared connection settings',
   expect(screen.getByRole('link', { name: 'Update OpenRouter key' }).getAttribute('href')).toBe('/settings#provider-openrouter')
 })
 
+test('a rejected search answer service key points to the connection that owns it, named as the catalog names it', async () => {
+  // The catalog the server publishes from the service descriptor: one connection and its profile routes.
+  const catalogEntry = (name: string, displayName: string, connection: string, extra: Record<string, unknown> = {}) => ({
+    name, displayName, mode: 'api', modelConfigurable: false, defaultModel: '', knownModels: [],
+    modelValidationPattern: { source: '.', flags: '' }, modelValidationHint: '', kind: 'answer-service', connection, ...extra,
+  })
+  const settings = {
+    providers: [{ name: 'svc', displayName: 'Search Service', configured: true, kind: 'answer-service' }],
+    providerCatalog: [
+      catalogEntry('svc', 'Search Service', 'svc', { selectionKind: 'profile', profiles: [{ id: 'standard' }, { id: 'deep' }] }),
+      catalogEntry('svc:standard', 'Standard · Search Service', 'svc', { selectionKind: null }),
+    ],
+    google: { configured: false }, bing: { configured: false },
+  }
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } } })
+  client.setQueryData(getApiV1SettingsOptions({ client: heyClient }).queryKey, settings as never)
+  await renderInApp(() => <RunAdmissionNoticeView admission={{ refused: true, retryAfter: RETRY, providers: { 'svc:standard': AUTH } }} canFix />, client)
+  const link = screen.getByRole('link', { name: 'Update Search Service key' })
+  expect(link.getAttribute('href')).toBe('/settings#provider-svc')
+  expect(notice('Checks are on hold').textContent).toContain('Standard · Search Service')
+})
+
 test('the project page reads the run admission of its own project', async () => {
   const request = vi.fn(async () => new Response(JSON.stringify({ refused: false, retryAfter: null, providers: {} }), { status: 200, headers: { 'content-type': 'application/json' } }))
   vi.stubGlobal('fetch', request)
@@ -89,7 +111,7 @@ test('a hold refreshes at its provider retry deadline without rereading complete
     </>
   }
   const client = await renderInApp(() => <Probe />)
-  await screen.findByRole('region', { name: 'Sweeps are on hold' })
+  await screen.findByRole('region', { name: 'Checks are on hold' })
   await screen.findByText('historic')
   await waitFor(() => expect(client.isFetching()).toBe(0))
   expect(reads.filter(url => url.pathname.endsWith('/run-admission'))).toHaveLength(1)
@@ -108,9 +130,9 @@ test('a hold refreshes at its provider retry deadline without rereading complete
 
 test('a refused sweep says when the hold lifts and links an administrator to the rejected key', async () => {
   await renderInApp(() => <RunAdmissionNoticeView admission={{ refused: true, retryAfter: RETRY, providers: { openai: AUTH } }} canFix />)
-  const region = notice('Sweeps are on hold')
+  const region = notice('Checks are on hold')
   expect(region.querySelector('p')?.textContent).toBe(
-    `OpenAI's key was rejected or access was denied in each of its last 10 runs, so a sweep would fail the same way. `
+    `OpenAI's key was rejected or access was denied in each of its last 10 runs, so a check would fail the same way. `
     + `The hold lifts ${formatSweepInstant(RETRY)}, or as soon as its key, model or endpoint is saved.`,
   )
   expect(region.querySelector('time')?.dateTime).toBe(RETRY)
@@ -119,7 +141,7 @@ test('a refused sweep says when the hold lifts and links an administrator to the
 
 test('several providers left out are listed with their own reasons and times, and a viewer is told who can fix them', async () => {
   await renderInApp(() => <RunAdmissionNoticeView admission={{ refused: false, retryAfter: null, providers: { claude: BILLING, openai: AUTH } }} canFix={false} />)
-  const region = notice('2 providers are left out of sweeps')
+  const region = notice('2 providers are left out of checks')
   expect([...region.querySelectorAll('li')].map(item => item.textContent)).toEqual([
     `Claude: out of credit, until ${formatSweepInstant(LATER)}`,
     `OpenAI: key rejected or access denied, until ${formatSweepInstant(RETRY)}`,
@@ -130,9 +152,9 @@ test('several providers left out are listed with their own reasons and times, an
 
 test('a provider out of credit is fixed in its own console, so there is no settings action', async () => {
   await renderInApp(() => <RunAdmissionNoticeView admission={{ refused: false, retryAfter: null, providers: { claude: BILLING } }} canFix />)
-  const region = notice('Claude is left out of sweeps')
+  const region = notice('Claude is left out of checks')
   expect(region.querySelector('p')?.textContent).toBe(
-    `It ran out of credit in each of its last 10 runs. Sweeps run without it until ${formatSweepInstant(LATER)}; add credit in Claude's console before then.`,
+    `It ran out of credit in each of its last 10 runs. Checks run without it until ${formatSweepInstant(LATER)}; add credit in Claude's console before then.`,
   )
   expect(screen.queryByRole('link')).toBeNull()
 })

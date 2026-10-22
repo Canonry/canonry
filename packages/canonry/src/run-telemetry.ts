@@ -7,6 +7,7 @@ import {
   extractProviderHttpStatus,
   median,
   mostActionableProviderErrorCode,
+  isBrowserProvider,
   providerConnectionName,
   summarizeRunUsage,
   type ProviderDispatchMode,
@@ -26,6 +27,19 @@ import {
  * customers configure a registrable domain rather than `*.myshopify.com`
  * style subdomains.
  */
+
+/**
+ * The connection telemetry reports for a provider key: OpenRouter routes and
+ * any other `<connection>:<selection>` route collapse to their connection, so
+ * no model or profile id leaves the machine. Browser targets keep their name.
+ */
+export function telemetryConnectionName(name: string): string {
+  const connection = providerConnectionName(name)
+  if (connection !== name || isBrowserProvider(name)) return connection
+  const separator = name.indexOf(':')
+  return separator > 0 ? name.slice(0, separator) : name
+}
+
 export function extractRegistrableHost(input: string | null | undefined): string | null {
   if (!input) return null
   const trimmed = input.trim()
@@ -143,7 +157,7 @@ export function buildRunCompletedProps(input: {
   const props: RunTelemetryProps = {
     status: input.status,
     providerCount: input.providerCount,
-    providers: [...new Set(input.providers.map(providerConnectionName))],
+    providers: [...new Set(input.providers.map(telemetryConnectionName))],
     queryCount: input.queryCount,
     durationMs: totalMs,
   }
@@ -157,7 +171,7 @@ export function buildRunCompletedProps(input: {
 }
 
 function runUsageProps(answers: readonly RunAnswerUsage[]): Pick<RunTelemetryProps, 'providerCalls' | 'usage'> {
-  const counted = answers.map(answer => ({ ...answer, provider: providerConnectionName(answer.provider) }))
+  const counted = answers.map(answer => ({ ...answer, provider: telemetryConnectionName(answer.provider) }))
     .filter(answer => KNOWN_PROVIDERS.has(answer.provider))
   if (counted.length === 0) return {}
   const providerCalls: Record<string, number> = {}
@@ -181,7 +195,7 @@ function runUsageProps(answers: readonly RunAnswerUsage[]): Pick<RunTelemetryPro
 function providerLatencyProps(latencies: ReadonlyMap<string, readonly number[]> | undefined): Pick<RunTelemetryProps, 'providerLatencyMs'> {
   const byConnection = new Map<string, number[]>()
   for (const [provider, values] of latencies ?? []) {
-    const connection = providerConnectionName(provider)
+    const connection = telemetryConnectionName(provider)
     if (!KNOWN_PROVIDERS.has(connection)) continue
     const samples = byConnection.get(connection) ?? []
     samples.push(...values)
@@ -298,7 +312,7 @@ export function buildProviderOutcomeProps(
   const skipped = new Set(skippedProviders)
   const grouped = new Map<string, string[]>()
   for (const provider of new Set([...providers, ...providerErrors.keys(), ...skipped])) {
-    const name = providerConnectionName(provider)
+    const name = telemetryConnectionName(provider)
     grouped.set(name, [...(grouped.get(name) ?? []), provider])
   }
   const providerOutcomes: Record<string, ProviderOutcome> = {}
@@ -351,7 +365,7 @@ export function buildRunRefusedProps(input: {
 }): RunRefusedProps {
   const outcomes = new Map<string, ProviderErrorCode>()
   for (const [provider, code] of Object.entries(input.providers)) {
-    const name = providerConnectionName(provider)
+    const name = telemetryConnectionName(provider)
     const previous = outcomes.get(name)
     outcomes.set(name, previous === undefined ? code : mostActionableProviderErrorCode([previous, code]))
   }

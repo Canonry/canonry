@@ -118,14 +118,14 @@ export const REPORT_CHANGE_COPY = {
   down: (magnitude: string) => `Down ${magnitude} pts`,
   none: 'No change',
   previousUnavailable: 'No earlier value',
-  comparedWith: (date: string) => `vs ${date} sweep`,
-  noPreviousRun: 'No earlier sweep to compare',
+  comparedWith: (date: string) => `vs ${date} check`,
+  noPreviousRun: 'No earlier check to compare',
   definitionChanged: (date: string | null) => date === null ? 'Not compared: setup changed' : `Not compared: setup changed since ${date}`,
   modelChanged: (date: string | null) => date === null ? 'Not compared: engines or models changed' : `Not compared: engines or models changed since ${date}`,
-  legacyUnknown: 'Not compared: older sweep lacks comparison details',
-  partialRun: 'Not compared: a sweep was incomplete',
-  scopedRun: 'Not compared: this sweep covered part of the project',
-  explanation: 'Change compares this sweep with the sweep before it when both completed and used the same setup, engines and models.',
+  legacyUnknown: 'Not compared: older check lacks comparison details',
+  partialRun: 'Not compared: a check was incomplete',
+  scopedRun: 'Not compared: this check covered part of the project',
+  explanation: 'Change compares this check with the check before it when both completed and used the same setup, engines and models.',
 } as const
 
 /**
@@ -562,12 +562,12 @@ export const VISIBILITY_TOOLBAR_COPY = {
   dateFrom: (from: string) => `From ${from} (UTC)`,
   dateThrough: (to: string) => `Through ${to} (UTC)`,
   resultsFrom: (date: string) => `Results from: ${date}`,
-  resultsFromSelectedSweep: 'Results from: selected sweep',
+  resultsFromSelectedSweep: 'Results from: selected check',
   /** A missing date reads generically, so the strip never invents one. */
   trackingChanged: (changedOn: string | null, resultsOn: string | null, nextSweepOn: string | null) => [
     changedOn ? `Tracking changed ${changedOn}.` : 'Tracking changed.',
     `Showing the ${resultsOn ?? 'last'} results, from before the change.`,
-    `New numbers after the ${nextSweepOn ?? 'next'} sweep.`,
+    `New numbers after the ${nextSweepOn ?? 'next'} check.`,
   ].join(' '),
 } as const
 
@@ -715,10 +715,10 @@ export function VisibilityResultsToolbar({ report, selection, onSelectionChange,
       <div className="visibility-report-filters">
         {filterSelect('Answer engine', 'measurementProvider', provider, withSelectedChoice([{ value: '', label: 'All engines' }, ...filterOptions.providers.map(value => ({ value, label: providerDisplayName(value) }))], provider, providerDisplayName(provider)))}
         {filterSelect('Requested search location', 'measurementLocation', location, withSelectedChoice([{ value: '', label: 'All requested locations' }, ...filterOptions.locations.flatMap(option => option.kind === 'exact' ? [{ value: option.value, label: option.value }] : option.kind === 'none' ? [{ value: 'none', label: VISIBILITY_TOOLBAR_COPY.noLocation }] : [])], location, location === 'none' ? VISIBILITY_TOOLBAR_COPY.noLocation : location))}
-        {filterSelect('AI model', 'measurementModel', model, withSelectedChoice([{ value: '', label: 'All models' }, ...Array.from(new Set(filterOptions.models.filter(option => !selection.provider || option.provider === selection.provider).map(option => option.model))).map(value => ({ value, label: value }))], model, model), 'Filter by the AI model recorded with each answer. This does not change the model used by future sweeps.')}
+        {filterSelect('AI model', 'measurementModel', model, withSelectedChoice([{ value: '', label: 'All models' }, ...Array.from(new Set(filterOptions.models.filter(option => !selection.provider || option.provider === selection.provider).map(option => option.model))).map(value => ({ value, label: value }))], model, model), 'Filter by the AI model recorded with each answer. This does not change the model used by future checks.')}
         {dateInput('Start date (UTC)', 'measurementFrom', selection.from, 'T00:00:00.000Z')}
         {dateInput('End date (UTC)', 'measurementTo', selection.to, 'T23:59:59.999Z')}
-        {filterSelect('Results from', 'measurementRunId', runId, withSelectedChoice([{ value: '', label: 'Latest saved sweep' }, ...[...population.trend].reverse().map(point => ({ value: point.runId, label: new Date(point.createdAt).toLocaleString() }))], runId, 'Selected sweep'), 'Choose a saved AI sweep to view its results. No new sweep starts.')}
+        {filterSelect('Results from', 'measurementRunId', runId, withSelectedChoice([{ value: '', label: 'Latest saved check' }, ...[...population.trend].reverse().map(point => ({ value: point.runId, label: new Date(point.createdAt).toLocaleString() }))], runId, 'Selected check'), 'Choose a saved AI Visibility check to view its results. No new check starts.')}
       </div>
       <div className="flex justify-end pb-3">
         <Button type="button" variant="ghost" className="min-h-11" disabled={tokens.length === 0} onClick={() => { onSelectionChange({ ...CLEARED_VISIBILITY_FILTERS }); focusFilters() }}>{VISIBILITY_TOOLBAR_COPY.clearFilters}</Button>
@@ -1232,13 +1232,13 @@ function pointMixPhrase(point: MetricsBucket, changes: readonly BasketChangeEven
   const sameDay = sameViewerDay(range.start, range.end)
   const time = (at: string) => formatSweepInstant(at, sameDay ? range.start : null)
   if (range.sweepCount === 2) {
-    return <><strong>{days}</strong> point mixes the <strong>{time(range.start)}</strong> sweep and the <strong>{time(range.end)}</strong> sweep, with {moved} between them</>
+    return <><strong>{days}</strong> point mixes the <strong>{time(range.start)}</strong> check and the <strong>{time(range.end)}</strong> check, with {moved} between them</>
   }
   // Only a query that differs between the first and last sweep proves a mix;
   // one that came back may only have been missed by a sweep between them.
   return shift.moves.added.length + shift.moves.removed.length > 0
-    ? <><strong>{days}</strong> point mixes sweeps with {moved} between them</>
-    : <><strong>{days}</strong> point pools <strong>{range.sweepCount}</strong> sweeps, with {moved} between the first and last</>
+    ? <><strong>{days}</strong> point mixes checks with {moved} between them</>
+    : <><strong>{days}</strong> point pools <strong>{range.sweepCount}</strong> checks, with {moved} between the first and last</>
 }
 
 /**
@@ -1399,7 +1399,7 @@ function WhatChanged({
   }
   for (const [bound, engines] of inherited) {
     details.push(bound
-      ? <>Changed before this date range, after the <strong>{bound}</strong> sweep: {joinWithAnd(engines)}</>
+      ? <>Changed before this date range, after the <strong>{bound}</strong> check: {joinWithAnd(engines)}</>
       : `Changed before this date range: ${joinWithAnd(engines)}`)
   }
   for (const entry of truncated) details.push(`${providerDisplayName(entry.provider)}: most recent ${entry.shown} of ${entry.total} changes`)
@@ -1425,17 +1425,17 @@ function WhatChanged({
   // The Date column's ⓘ: what a date means, which sweep(s) the newest date
   // is, and the sweep before them, since the change happened in between.
   const instants = groups.flatMap(group => group.rows.map(row => row.at))
-  let dateHelp = 'First sweep on the new model or query set.'
+  let dateHelp = 'First check on the new model or query set.'
   if (instants.length > 0) {
     const newestDay = day(instants.reduce((a, b) => (Date.parse(b) > Date.parse(a) ? b : a)))
     const onNewestDay = [...new Set(instants.filter(at => day(at) === newestDay))].sort()
     const times = onNewestDay.map(at => formatSweepInstant(at, at))
-    dateHelp += ` ${newestDay} = the ${joinWithAnd(times)} ${times.length === 1 ? 'sweep' : 'sweeps'}.`
+    dateHelp += ` ${newestDay} = the ${joinWithAnd(times)} ${times.length === 1 ? 'check' : 'checks'}.`
     // The last sweep before the window, adjacent to its first sweep.
     const anchors = modelRows.flatMap(row => (row.anchorAt ? [row.anchorAt] : []))
     const windowAnchor = anchors.length > 0 ? anchors.reduce((a, b) => (Date.parse(b) > Date.parse(a) ? b : a)) : null
     const before = sweepBefore(onNewestDay[0]!, sweepTimes, buckets, windowAnchor)
-    if (before) dateHelp += ` Sweep before: ${day(before)}.`
+    if (before) dateHelp += ` Check before: ${day(before)}.`
   }
 
   const summary = whatChangedSummary({ latest, queryChanges, modelRows }) ?? 'No changes in this date range'
@@ -1874,7 +1874,7 @@ export function VisibilityTrendSection({
         <p className="text-sm text-secondary">
           {metric === 'mentionShare'
             ? `No answer-text brand mentions for you or tracked competitors in ${mentionShareScopeLabel(mentionShareScope)} in this window yet.`
-            : isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Run a sweep to start tracking citations and mentions over time.'}
+            : isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Run a check to start tracking citations and mentions over time.'}
         </p>
       )
     } else if (byProviderMode && series.length === 0) {
@@ -1884,7 +1884,7 @@ export function VisibilityTrendSection({
         </p>
       )
     } else {
-      const srSummary = `${spokenLabel} rate across ${rows.length} ${rows.length === 1 ? 'sweep' : 'sweeps'}. Latest ${formatPercent(latestRate)}${
+      const srSummary = `${spokenLabel} rate across ${rows.length} ${rows.length === 1 ? 'check' : 'checks'}. Latest ${formatPercent(latestRate)}${
         pointChange !== null ? `, ${spokenPointChange(pointChange)}${changeQualified ? ', not the same queries' : ''}` : ''
       }.`
       body = (

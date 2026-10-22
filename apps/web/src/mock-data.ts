@@ -138,7 +138,7 @@ const runCitypointVisibility = createRun({
   projectId: 'project_citypoint',
   projectName: 'Citypoint Dental NYC',
   kind: 'answer-visibility',
-  kindLabel: 'Answer visibility sweep',
+  kindLabel: 'AI Visibility check',
   status: 'completed',
   createdAt: '2026-03-08T12:15:00.000Z',
   startedAt: 'Mar 8, 12:15 PM',
@@ -153,7 +153,7 @@ const runCitypointQueued = createRun({
   projectId: 'project_citypoint',
   projectName: 'Citypoint Dental NYC',
   kind: 'answer-visibility',
-  kindLabel: 'Answer visibility sweep',
+  kindLabel: 'AI Visibility check',
   status: 'queued',
   createdAt: '2026-03-09T08:05:00.000Z',
   startedAt: 'Mar 9, 8:05 AM',
@@ -168,7 +168,7 @@ const runHarborVisibility = createRun({
   projectId: 'project_harbor',
   projectName: 'Harbor Legal Group',
   kind: 'answer-visibility',
-  kindLabel: 'Answer visibility sweep',
+  kindLabel: 'AI Visibility check',
   status: 'completed',
   createdAt: '2026-03-08T11:05:00.000Z',
   startedAt: 'Mar 8, 11:05 AM',
@@ -183,7 +183,7 @@ const runNorthstarVisibility = createRun({
   projectId: 'project_northstar',
   projectName: 'Northstar Orthopedics',
   kind: 'answer-visibility',
-  kindLabel: 'Answer visibility sweep',
+  kindLabel: 'AI Visibility check',
   status: 'running',
   createdAt: '2026-03-08T13:40:00.000Z',
   startedAt: 'Mar 8, 1:40 PM',
@@ -512,7 +512,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       value: 'Partial',
       delta: '1 queued follow-up',
       tone: 'caution',
-      description: 'Latest visibility sweep completed; next sweep is queued.',
+      description: 'Latest AI Visibility check completed; next check is queued.',
       trend: [76, 74, 72, 68, 67],
     },
     insights: [
@@ -905,7 +905,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       value: 'Running',
       delta: '9 prompts remaining',
       tone: 'neutral',
-      description: 'Current answer-visibility sweep is still collecting provider responses.',
+      description: 'Current AI Visibility check is still collecting provider responses.',
       trend: [63, 64, 65, 67, 68],
     },
     insights: [
@@ -1015,7 +1015,7 @@ const baseDashboard: DashboardVm = {
         id: 'attention_worker',
         tone: 'neutral',
         title: 'One follow-up run is queued',
-        detail: 'Citypoint has a queued visibility sweep waiting on provider quota.',
+        detail: 'Citypoint has a queued AI Visibility check waiting on provider quota.',
         actionLabel: 'Open runs',
         href: '/runs',
       },
@@ -1023,7 +1023,7 @@ const baseDashboard: DashboardVm = {
         id: 'attention_northstar',
         tone: 'caution',
         title: 'Northstar run still in progress',
-        detail: 'Nine prompts remain before the current treatment-location sweep finishes.',
+        detail: 'Nine prompts remain before the current treatment-location check finishes.',
         actionLabel: 'View timeline',
         href: '/runs',
       },
@@ -1076,7 +1076,7 @@ const baseDashboard: DashboardVm = {
         label: 'Provider configured',
         detail: 'Gemini key and quota defaults are present.',
         state: 'ready',
-        guidance: 'Required for answer-visibility sweeps.',
+        guidance: 'Required for AI Visibility checks.',
       },
     ],
     projectDraft: {
@@ -1101,7 +1101,7 @@ const baseDashboard: DashboardVm = {
     launchState: {
       enabled: true,
       ctaLabel: 'Launch first run',
-      summary: 'Queue a visibility sweep first, then follow with a site audit to explain movement.',
+      summary: 'Queue an AI Visibility check first, then follow with a Technical AEO audit to explain movement.',
     },
   },
   settings: {
@@ -1193,7 +1193,7 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
     dashboard.runs[0].status = 'partial'
     dashboard.runs[0].duration = '7m 24s'
     dashboard.runs[0].statusDetail = 'Quota window closed mid-run; 14 of 18 prompts completed before the worker paused.'
-    dashboard.runs[0].summary = 'Partial visibility sweep after quota cap'
+    dashboard.runs[0].summary = 'Partial AI Visibility check after quota cap'
     dashboard.portfolioOverview.recentRuns[0] = dashboard.runs[0]
   }
 
@@ -1228,7 +1228,7 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
     dashboard.settings.providerStatuses = dashboard.settings.providerStatuses.map(p => ({
       ...p,
       state: 'needs-config' as const,
-      detail: 'API key is missing, so answer-visibility sweeps are blocked.',
+      detail: 'API key is missing, so AI Visibility checks are blocked.',
     }))
   }
 

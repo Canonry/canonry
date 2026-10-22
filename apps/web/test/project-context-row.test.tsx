@@ -161,7 +161,7 @@ function contextRowParts(doc: Document): Array<string | null> | null {
 function nextSweepLabels(doc: Document): string[] {
   return [...doc.querySelectorAll('p')]
     .map(paragraph => paragraph.textContent ?? '')
-    .filter(text => text.startsWith('Next AI sweep'))
+    .filter(text => text.startsWith('Next AI Visibility check'))
 }
 
 function settingsRow(doc: Document, label: string): HTMLTableRowElement | null {
@@ -328,8 +328,8 @@ test('the next-sweep label is the calendar date in the schedule timezone, with n
   // 02:30 UTC on Sep 23 is still the evening of Sep 22 in New York.
   const { doc } = await renderAt('/projects/project_citypoint', { schedule: visibilitySchedule() })
 
-  expect(nextSweepLabels(doc)).toEqual(['Next AI sweep Sep 22'])
-  expect([...doc.querySelectorAll('[data-project-actions] p')].map(label => label.textContent)).toEqual(['Next AI sweep Sep 22'])
+  expect(nextSweepLabels(doc)).toEqual(['Next AI Visibility check Sep 22'])
+  expect([...doc.querySelectorAll('[data-project-actions] p')].map(label => label.textContent)).toEqual(['Next AI Visibility check Sep 22'])
 })
 
 test('an invalid schedule timezone renders no next-sweep label instead of "null" or a clock time', async () => {

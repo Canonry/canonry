@@ -4,8 +4,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { projects, queries, competitors, schedules, notifications, runs, querySnapshots, insights, auditLog, readAllNegativeReviewMaxStars, readNegativeReviewMaxStars, writeNegativeReviewMaxStars, type DatabaseClient } from '@canonry/canonry-db'
 import type { InferSelectModel } from 'drizzle-orm'
 import {
-  isProviderAvailable,
-  isSweepProvider,
+  ProviderWorkflows,
   alreadyExists,
   describeError,
   competitorAliasProjectIdentity,
@@ -39,7 +38,7 @@ import { readMarketCompetitorPins } from './plan-competitors.js'
 import { marketNameChanges, readMarketCompetitorNames, type MarketNameChange } from './market-competitor-names.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import type { ProviderAdapterInfo } from './settings.js'
-import { assertOpenRouterRouteScope, pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
+import { assertProviderRouteScope, invalidProviderSelections, providerRouteFamilies, pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
 import { activeRevisionProviders } from './run-queue.js'
 import { readProjectRunsWithOutstandingProviderBatch } from './provider-batches.js'
 import { redactNotificationUrl } from './notification-redaction.js'
@@ -83,6 +82,7 @@ export interface ProjectRoutesOptions {
 }
 
 export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOptions) {
+  const routeFamilies = providerRouteFamilies(opts.providerAdapters)
   const notifyProjectCreated = (projectId: string, projectName: string): void => {
     try {
       opts.onProjectCreated?.(projectId, projectName)
@@ -122,7 +122,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     // Validate provider names against registered adapters.
     const validNames = opts.providerAdapters?.map(adapter => adapter.name) ?? []
     if (validNames.length && body.providers?.length) {
-      const invalid = body.providers.filter(p => (!isSweepProvider(p) || !isProviderAvailable(p, validNames)))
+      const invalid = invalidProviderSelections(body.providers, validNames, opts.providerAdapters, ProviderWorkflows['visibility-sweep'])
       if (invalid.length) {
         throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
           invalidProviders: invalid,
@@ -131,7 +131,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       }
     }
     const nextProviders = body.providers ?? []
-    assertOpenRouterRouteScope(request, nextProviders, [])
+    assertProviderRouteScope(request, nextProviders, [], routeFamilies)
     const providerModels = pruneProviderModelsForProviders(
       validateProviderModels(body.providerModels ?? {}, opts.providerAdapters),
       nextProviders,
@@ -244,7 +244,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
   ): PreparedProjectUpdate => {
     const validNames = opts.providerAdapters?.map(adapter => adapter.name) ?? []
     if (validNames.length && body.providers?.length) {
-      const invalid = body.providers.filter(p => !isSweepProvider(p) || !isProviderAvailable(p, validNames))
+      const invalid = invalidProviderSelections(body.providers, validNames, opts.providerAdapters, ProviderWorkflows['visibility-sweep'])
       if (invalid.length) {
         throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
           invalidProviders: invalid,
@@ -253,7 +253,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       }
     }
     const nextProviders = body.providers ?? []
-    assertOpenRouterRouteScope(request, nextProviders, existing?.providers ?? [])
+    assertProviderRouteScope(request, nextProviders, existing?.providers ?? [], routeFamilies)
     const providerModels = pruneProviderModelsForProviders(
       validateProviderModels(body.providerModels ?? {}, opts.providerAdapters),
       nextProviders,

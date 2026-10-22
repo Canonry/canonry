@@ -425,3 +425,30 @@ export { sentimentInstallConfigSchema, resolveSentimentInstallConfig, sentimentI
 export { classificationConfigSchema } from './classification.js'
 export type { ClassificationConfig } from './classification.js'
 export type { SentimentInstallConfig, SentimentInstallConfigInput } from './sentiment.js'
+
+/** The part of an answer-service descriptor bootstrap reads: its id and credential env variables. */
+export interface AnswerServiceEnvDescriptor {
+  id: string
+  settings: { fields: ReadonlyArray<{ key: 'apiKey'; env: string | null }> }
+}
+
+/**
+ * Credentials for hosted answer services, read generically from each
+ * descriptor's declared env variables, so a new service needs no edit here.
+ * Only a non-blank key creates an entry; a service whose variable is unset is
+ * left out entirely (never an empty or default entry).
+ */
+export function getAnswerServiceEnv(
+  source: NodeJS.ProcessEnv,
+  services: readonly AnswerServiceEnvDescriptor[],
+): Record<string, { apiKey: string }> {
+  const providers: Record<string, { apiKey: string }> = {}
+  for (const service of services) {
+    for (const field of service.settings.fields) {
+      if (field.key !== 'apiKey' || !field.env) continue
+      const value = source[field.env]?.trim()
+      if (value) providers[service.id] = { apiKey: value }
+    }
+  }
+  return providers
+}

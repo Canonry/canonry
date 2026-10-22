@@ -11,6 +11,7 @@ import {
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import {
   AlertTriangle,
+  Check,
   ChevronDown,
   ChevronRight,
   ExternalLink,
@@ -1229,6 +1230,60 @@ function scanPhaseCopy(phase: SiteAuditProgressSnapshot['phase'] | 'running' | '
   return 'Preparing scan'
 }
 
+const SCAN_STEP_COUNT = 3
+
+/** Which of the three scan steps a phase is in: find pages, check pages, build the result. */
+function scanStepIndex(phase: SiteAuditProgressSnapshot['phase'] | 'running' | 'queued' | null | undefined): number {
+  if (phase === 'checking') return 1
+  if (phase === 'arranging-map') return 2
+  return 0
+}
+
+/**
+ * The scan as three steps. Finished steps are full; the current step fills
+ * from real counts only (pages checked against the scan's page limit, when
+ * the limit is known) and otherwise pulses, so the bar never shows a guessed
+ * percentage.
+ */
+function ScanPhaseBar({ phase, pagesChecked, pageLimit, finalStep }: {
+  phase: SiteAuditProgressSnapshot['phase'] | 'running' | 'queued' | null | undefined
+  pagesChecked: number | null
+  pageLimit: number | null
+  finalStep: string
+}) {
+  const current = scanStepIndex(phase)
+  const checkedShare = current === 1 && pagesChecked !== null && pageLimit ? Math.min(1, pagesChecked / pageLimit) : null
+  const labels = [
+    'Find pages',
+    current === 1 && pagesChecked !== null
+      ? `Check pages · ${metricValue(pagesChecked)}${pageLimit ? ` of up to ${metricValue(pageLimit)}` : ''}`
+      : 'Check pages',
+    finalStep,
+  ]
+  return (
+    <div className="mt-4" role="progressbar" aria-label="Scan progress" aria-valuemin={0} aria-valuemax={SCAN_STEP_COUNT} aria-valuenow={current + (checkedShare ?? 0)} aria-valuetext={labels[current]}>
+      <div className="grid grid-cols-[1fr_2fr_1fr] gap-1.5" aria-hidden="true">
+        {labels.map((label, index) => (
+          <div key={label} className="h-2 overflow-hidden rounded-full bg-surface-inset">
+            {index < current ? <div className="h-full w-full rounded-full bg-positive-400" />
+              : index === current && checkedShare !== null ? <div className="h-full rounded-full bg-positive-400 transition-[width] duration-500" style={{ width: `${Math.max(4, checkedShare * 100)}%` }} />
+                : index === current ? <div className="h-full w-full rounded-full bg-positive-400/40 motion-safe:animate-pulse" />
+                  : null}
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 grid grid-cols-[1fr_2fr_1fr] gap-1.5 text-sm" aria-hidden="true">
+        {labels.map((label, index) => (
+          <span key={label} className={`flex min-w-0 items-center gap-1 truncate ${index === current ? 'font-medium text-heading' : index < current ? 'text-secondary' : 'text-muted'}`}>
+            {index < current ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : null}
+            <span className="truncate">{label}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function shouldPollSiteAuditProgress(phase: SiteAuditProgressSnapshot['phase'] | undefined): boolean {
   return phase !== 'completed'
     && phase !== 'partial'
@@ -1386,12 +1441,22 @@ function ActiveScanState({
   return (
     <section
       aria-label="Current scan progress"
-      className="rounded-lg border border-caution bg-caution-soft px-5 py-6"
+      className="rounded-lg border border-default bg-surface-subtle px-5 py-6"
     >
-      <h2 className="min-h-6 text-base font-semibold text-heading">
-        {arrangingMap && pageHealthDestination ? 'Preparing page health' : arrangingMap ? 'Preparing site map' : 'Scanning site'}
-      </h2>
-      <p aria-atomic="true" aria-label="Current scan progress" aria-live="polite" role="status" className="mt-1 min-h-[4.5rem] text-sm text-secondary sm:min-h-10">
+      <div className="flex min-h-6 items-center gap-2">
+        <h2 className="text-base font-semibold text-heading">
+          {arrangingMap && pageHealthDestination ? 'Preparing page health' : arrangingMap ? 'Preparing site map' : firstLook ? 'Checking your site' : 'Scanning site'}
+        </h2>
+        {firstLook ? (
+          // Said to someone who may not know what Canonry is yet: name what the
+          // scan is FOR. The tooltip names the time limit too, since a first
+          // scan on a real site usually stops there before the page budget.
+          <InfoTooltip text={boundedPageLimit
+            ? `A quick scan to find your first fixes. Reads up to ${boundedPageLimit} pages, or stops sooner at the time limit, so results come back fast. You can run a larger scan from Site Health later.`
+            : 'A quick scan to find your first fixes. Stops at its page budget or the time limit, so results come back fast. You can run a larger scan from Site Health later.'} />
+        ) : null}
+      </div>
+      <p aria-atomic="true" aria-label="Current scan progress" aria-live="polite" role="status" className="sr-only">
         {pageHealthDestination
           ? arrangingMap
             ? 'Finalizing page health. The scan is complete and its findings are being published.'
@@ -1400,19 +1465,7 @@ function ActiveScanState({
             ? 'Arranging map. The scan is complete and its map is being published.'
             : `${scanPhaseCopy(phase)}. The map appears after the scan finishes.`}
       </p>
-      {firstLook ? (
-        // Said to someone who may not know what Canonry is yet: name what the
-        // scan is FOR, not what it is not. Neutral, because the panel around
-        // it is already the caution tone and this is not a warning. The
-        // tooltip names the time limit too, since a first scan on a real site
-        // usually stops there before the page budget.
-        <p className="mt-3 flex items-center gap-1.5 rounded-lg border border-default bg-bg px-4 py-2 text-sm text-primary">
-          A quick scan to find your first fixes.
-          <InfoTooltip text={boundedPageLimit
-            ? `Reads up to ${boundedPageLimit} pages, or stops sooner at the time limit, so results come back fast. You can run a larger scan from Site Health later.`
-            : 'Stops at its page budget or the time limit, so results come back fast. You can run a larger scan from Site Health later.'} />
-        </p>
-      ) : null}
+      <ScanPhaseBar phase={phase} pagesChecked={attempt?.pagesFetched ?? null} pageLimit={boundedPageLimit ?? null} finalStep={pageHealthDestination ? 'Build report' : 'Build map'} />
       <dl aria-label="Live scan counters" className="mt-5 grid grid-cols-2 divide-x divide-y divide-default rounded-lg border border-default bg-surface-subtle sm:grid-cols-4 sm:divide-y-0">
           <div className="px-4 py-3">
             <dt className="text-sm text-secondary">Pages found</dt>

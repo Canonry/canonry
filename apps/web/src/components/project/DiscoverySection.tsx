@@ -822,7 +822,7 @@ function MeasurementStateBadge({ row, outsidePlan = false }: { row: QueryTrackin
   if (outsidePlan) return <ToneBadge tone="neutral">Not in current plan</ToneBadge>
   return row.state === 'tracked'
     ? <ToneBadge tone="positive">Measured</ToneBadge>
-    : <ToneBadge tone="caution">Awaiting sweep</ToneBadge>
+    : <ToneBadge tone="caution">Awaiting check</ToneBadge>
 }
 
 function TrackingComposer({
@@ -1258,7 +1258,7 @@ function ComposerActions({
         {isPreviewing ? 'Reviewing…' : 'Review changes'}
       </WriteButton>
       <Button type="button" variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
-      <p className="text-sm leading-5 text-secondary">Publishing does not run a sweep.</p>
+      <p className="text-sm leading-5 text-secondary">Publishing does not run a check.</p>
     </div>
   )
 }
@@ -1289,8 +1289,8 @@ function TrackingPreview({
   const subcopy = !hasChanges
     ? 'This request leaves tracking unchanged.'
     : preview.mode === 'advanced'
-      ? 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept.'
-      : 'Changes apply to future sweeps. Earlier results stay unchanged.'
+      ? 'After you publish, AI Visibility keeps showing the last check until the next check. Location pages and competitor results show no numbers until then. Past answers are kept.'
+      : 'Changes apply to future checks. Earlier results stay unchanged.'
   const changed = [
     { label: 'Added', rows: preview.diff.added },
     { label: 'Removed', rows: preview.diff.removed },
@@ -1317,7 +1317,7 @@ function TrackingPreview({
         <WriteButton type="button" size="sm" disabled={!hasChanges || isCommitting || sweepActive} onClick={onConfirm}>
           {isCommitting ? 'Confirming…' : 'Confirm changes'}
         </WriteButton>
-        {hasChanges && sweepActive ? <p role="status" className="text-sm leading-5 text-caution">A sweep is queued or running. Publish after it finishes.</p> : null}
+        {hasChanges && sweepActive ? <p role="status" className="text-sm leading-5 text-caution">A check is queued or running. Publish after it finishes.</p> : null}
       </div>
     </Card>
   )
@@ -1335,8 +1335,8 @@ function previewWorkloadLine(preview: QueryTrackingPreviewResponse): string {
   return [
     added.length > 0 ? `+${count(added.length)} ${added.length === 1 ? 'query' : 'queries'}` : null,
     removed.length > 0 ? `−${count(removed.length)} ${removed.length === 1 ? 'query' : 'queries'}` : null,
-    `+${count(addedProviderCalls)} / −${count(removedProviderCalls)} answers per sweep`,
-    `next sweep asks ${count(nextSweepProviderCalls)}`,
+    `+${count(addedProviderCalls)} / −${count(removedProviderCalls)} answers per check`,
+    `next check asks ${count(nextSweepProviderCalls)}`,
   ].filter((part): part is string => part !== null).join(' · ')
 }
 
@@ -1446,7 +1446,7 @@ function TrackedQueriesSection({
       await invalidateQueryTrackingPublication(queryClient, projectName)
       addToast({
         title: result.committed ? 'Tracked queries updated' : 'No tracked-query change',
-        detail: result.committed && result.mode === 'advanced' ? 'New numbers after the next sweep.' : undefined,
+        detail: result.committed && result.mode === 'advanced' ? 'New numbers after the next check.' : undefined,
         tone: result.committed ? 'positive' : 'neutral',
         dedupeKey: `query-tracking:commit:${projectName}`,
         dedupeMode: 'replace',
@@ -1820,11 +1820,11 @@ function FindQueriesSection({
                   <p className="eyebrow eyebrow-soft">Step 2</p>
                   <h3>Review a discovery question for tracking</h3>
                   <p className="mt-1 max-w-3xl text-sm leading-6 text-secondary">
-                    Choose a Cited query or Worth tracking result below. Tracking opens with the saved discovery source, where you choose its scope and review the exact next-sweep change.
+                    Choose a Cited query or Worth tracking result below. Tracking opens with the saved discovery source, where you choose its scope and review the exact next-check change.
                   </p>
                 </div>
               </div>
-              <p className="mt-3 text-xs leading-5 text-muted">Discovery remains research. This review does not add competitors or start a sweep.</p>
+              <p className="mt-3 text-xs leading-5 text-muted">Discovery remains research. This review does not add competitors or start a check.</p>
             </Card>
           )}
 

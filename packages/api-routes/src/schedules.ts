@@ -3,8 +3,7 @@ import { and, asc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { schedules, trafficSources } from '@canonry/canonry-db'
 import {
-  isProviderAvailable,
-  isSweepProvider,
+  ProviderWorkflows,
   type ScheduleDto,
   type CalendarRecurrence,
   type ProviderName,
@@ -20,7 +19,8 @@ import {
   describeError,
 } from '@canonry/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
-import { assertOpenRouterRouteScope } from './provider-models.js'
+import { assertProviderRouteScope, invalidProviderSelections, providerRouteFamilies } from './provider-models.js'
+import type { ProviderAdapterInfo } from './settings.js'
 import { resolvePreset, validateCron, isValidTimezone, nextRunFromSchedule } from './schedule-utils.js'
 
 /**
@@ -54,9 +54,12 @@ export interface ScheduleRoutesOptions {
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: SchedulableRunKind) => void
   /** Valid provider names from registered adapters — used to reject unknown providers */
   validProviderNames?: string[]
+  /** Adapter descriptions: route families and which workflows each route may run. */
+  providerAdapters?: ProviderAdapterInfo[]
 }
 
 export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesOptions) {
+  const routeFamilies = providerRouteFamilies(opts.providerAdapters)
   // PUT /projects/:name/schedule — create or update schedule.
   // Optional `kind` body field (or `?kind=` query) selects which run kind
   // this schedule dispatches. Defaults to 'answer-visibility' for backward
@@ -111,7 +114,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
     // Validate provider names against registered adapters
     const validNames = opts.validProviderNames ?? []
     if (validNames.length && providers?.length) {
-      const invalid = providers.filter(p => (!isSweepProvider(p) || !isProviderAvailable(p, validNames)))
+      const invalid = invalidProviderSelections(providers, validNames, opts.providerAdapters, ProviderWorkflows['visibility-sweep'])
       if (invalid.length) {
         throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
           invalidProviders: invalid,
@@ -120,7 +123,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
       }
     }
 
-    assertOpenRouterRouteScope(request, providers ?? [], project.providers)
+    assertProviderRouteScope(request, providers ?? [], project.providers, routeFamilies)
     if (!isValidTimezone(timezone)) {
       throw validationError(`Invalid timezone: ${timezone}`)
     }

@@ -161,7 +161,7 @@ export function describeBatchIneligibility(provider: string, reason: ProviderBat
     case ProviderBatchIneligibilityReasons.not_plan_run:
       return 'the project has no published measurement plan; batch dispatch needs a plan run, whose missing answers can be filled.'
     case ProviderBatchIneligibilityReasons.scoped_run:
-      return 'the run measures a slice (a measurement scope or a query list); only a full sweep can batch.'
+      return 'the run measures a slice (a measurement scope or a query list); only a full AI Visibility check can batch.'
     case ProviderBatchIneligibilityReasons.probe_run:
       return 'probe runs always run sync.'
     case ProviderBatchIneligibilityReasons.batch_unavailable:

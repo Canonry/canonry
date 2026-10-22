@@ -233,7 +233,7 @@ test('resets the selected query when switching research history batches', async 
   expect(await screen.findByText('Second run first query answer')).toBeTruthy()
 })
 
-function renderSavedResearch(answerText: string, groundingSources: Array<{ uri: string; title?: string }> = []) {
+function renderSavedResearch(answerText: string, groundingSources: Array<{ uri: string; title?: string }> = [], queryExtras: Record<string, unknown> = {}) {
   const run = {
     id: 'saved-run', projectId: 'project_demo', status: 'completed', provider: 'openai',
     requestedModel: 'saved-model', resolvedModel: 'saved-model',
@@ -251,6 +251,7 @@ function renderSavedResearch(answerText: string, groundingSources: Array<{ uri: 
       groundingSources, citedDomains: [], searchQueries: [], namedCompetitors: [], citedCompetitorDomains: [],
       answerMentioned: true, citationState: 'not-cited', error: null,
       startedAt: run.startedAt, finishedAt: run.finishedAt, createdAt: run.createdAt,
+      ...queryExtras,
     }] })
     if (path === '/api/v1/projects/demo') return jsonResponse({
       id: 'project_demo', name: 'demo', canonicalDomain: 'demo.example', ownedDomains: ['demo.example'], aliases: [],
@@ -269,6 +270,27 @@ function renderSavedResearch(answerText: string, groundingSources: Array<{ uri: 
   onTestFinished(() => queryClient.clear())
   render(<QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>)
 }
+
+test('saved answer-service evidence names who estimated a cost', async () => {
+  const evidence = {
+    version: 1,
+    identity: { connection: 'svc', route: 'svc:basic', service: 'svc', product: 'answer', profile: 'basic', settings: {}, requestedServiceModel: null, disclosedModel: null, disclosedModelKind: null, requestPolicy: 'v1', parserVersion: 'p1' },
+    completion: { status: 'complete', finishReason: null, upstreamStatus: null, upstreamRequestId: null, upstreamJobId: null, error: null },
+    usage: {
+      tokens: { input: null, output: null, reasoning: null, basis: 'unknown' }, searches: { count: null, basis: 'unknown' }, pageReads: { count: null, basis: 'unknown' },
+      billedUnits: [], cost: { micros: 4000, currency: 'USD', basis: 'estimated', estimatedBy: 'canonry' },
+    },
+    sources: [], searchQueries: [], retrievalStatus: 'unknown', citationBasis: 'answer-support', citationMeasurable: true, directSourceUrls: true,
+    location: { requested: null, sent: null, strength: null, serviceDefault: null, status: 'not-requested' }, rawTruncated: false,
+  }
+  renderSavedResearch('Answer from a search answer service.', [], { evidence, citationMeasured: true })
+  await screen.findByText('Answer from a search answer service.')
+  const results = within(screen.getByRole('region', { name: 'Research results' }))
+  // The estimate is Canonry's, so it must not read as a figure the service provided.
+  expect(results.getByText('Estimated by Canonry')).toBeTruthy()
+  expect(results.queryByText('Estimated by the service')).toBeNull()
+  expect(results.getByText('Complete')).toBeTruthy()
+})
 
 test('saved results retain their saved scope independently from the current form', async () => {
   renderSavedResearch('Demo is also the name of a fishing line company.')

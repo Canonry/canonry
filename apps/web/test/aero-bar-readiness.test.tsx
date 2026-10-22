@@ -148,7 +148,7 @@ test('managed sweeps hides the Aero sweep shortcut while retaining read shortcut
   fireEvent.change(screen.getByPlaceholderText('Ask Aero, or / for commands…'), { target: { value: '/' } })
   expect(screen.getByText('/status')).toBeTruthy()
   expect(screen.queryByText('/run-sweep')).toBeNull()
-  expect(screen.queryByText('Run sweep now')).toBeNull()
+  expect(screen.queryByText('Run check now')).toBeNull()
 })
 
 test('offers analysis starters, not failed-run or schedule shortcuts', async () => {
@@ -188,7 +188,7 @@ async function openAeroWithSavedWriteScope(managedSweeps: boolean) {
 test.each([
   ['enter', '/run-sweep'], ['submit', '/run-sweep'],
   ['enter', '  /RUN-SWEEP now'], ['submit', '/run-sweep '],
-] as const)('managed Aero blocks the typed sweep command through %s (%s)', async (method, draft) => {
+] as const)('managed Aero blocks the typed check command through %s (%s)', async (method, draft) => {
   const { prompt, input } = await openAeroWithSavedWriteScope(true)
   fireEvent.change(input, { target: { value: draft } })
   if (method === 'enter') fireEvent.keyDown(input, { key: 'Enter' })
@@ -212,7 +212,7 @@ test.each([false, true])('managed=%s uses the effective Aero scope even with a s
   } else {
     expect(picker).toBeTruthy()
   }
-  fireEvent.change(input, { target: { value: 'Show the latest sweep results' } })
+  fireEvent.change(input, { target: { value: 'Show the latest check results' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ scope: managed ? 'read-only' : 'all' })))
 })
@@ -273,7 +273,7 @@ async function openAeroWithSavedProvider(managedSweeps: boolean) {
 test.each([false, true])('managed=%s honors a saved provider override only when the picker is visible', async managed => {
   const { prompt, input } = await openAeroWithSavedProvider(managed)
   expect(screen.queryByRole('button', { name: /^Aero model:/ }) === null).toBe(managed)
-  fireEvent.change(input, { target: { value: 'Show the latest sweep results' } })
+  fireEvent.change(input, { target: { value: 'Show the latest check results' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
     provider: managed ? undefined : 'openai',
@@ -285,7 +285,7 @@ test('operator mode retains the exact Aero sweep shortcut and saved write scope'
   fireEvent.change(input, { target: { value: '/run-sweep' } })
   fireEvent.keyDown(input, { key: 'Enter' })
   await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
-    prompt: 'Run a new answer-visibility sweep for this project now and tell me when it lands.', scope: 'all',
+    prompt: 'Run a new AI Visibility check for this project now and tell me when it lands.', scope: 'all',
   })))
 })
 
@@ -1104,7 +1104,7 @@ test('fits the slash palette to the room above the composer so no command is cut
 
 const DEMO_KEY: ApiKeyAccess = { id: 'public-demo-viewer', scopes: ['read'], projectId: null, readOnly: false }
 const PREVIEW_URL = `/api/v1/projects/${PROJECT_NAME}/agent/preview`
-const STATUS_PROMPT = 'Give me a quick status: the latest sweep, which engines answered, and anything that needs attention.'
+const STATUS_PROMPT = 'Give me a quick status: the latest check, which engines answered, and anything that needs attention.'
 const PREVIEW: AeroPreviewResponse = {
   project: PROJECT_NAME,
   seededAt: '2026-09-23T12:00:00.000Z',
@@ -1112,7 +1112,7 @@ const PREVIEW: AeroPreviewResponse = {
     {
       id: 'status',
       steps: [{
-        text: 'Checking the latest sweep.',
+        text: 'Checking the latest check.',
         tool: {
           name: 'canonry_project_overview',
           label: 'Get project overview (composite)',
@@ -1121,7 +1121,7 @@ const PREVIEW: AeroPreviewResponse = {
           durationMs: 640,
         },
       }],
-      answer: 'The latest sweep completed on all three engines.',
+      answer: 'The latest check completed on all three engines.',
     },
     { id: 'changes', steps: [], answer: 'Nothing moved beyond normal run-to-run noise.' },
     { id: 'gaps', steps: [], answer: 'Two tracked queries have no mention from any engine.' },
@@ -1182,9 +1182,9 @@ test('a demo starter plays its scripted answer, shows the tool once and complete
   fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
   fireEvent.click(await screen.findByRole('button', { name: 'Status' }))
 
-  await screen.findByText('The latest sweep completed on all three engines.')
+  await screen.findByText('The latest check completed on all three engines.')
   expect(screen.getByText(STATUS_PROMPT)).toBeTruthy()
-  expect(screen.getByText('Checking the latest sweep.')).toBeTruthy()
+  expect(screen.getByText('Checking the latest check.')).toBeTruthy()
   const header = screen.getByRole('button', { name: /^1 step/ })
   expect(header.textContent).toBe('1 step640ms')
   expect(screen.queryByText('interrupted')).toBeNull()
@@ -1244,10 +1244,10 @@ test('New conversation in the demo clears the page only', async () => {
   const { expectNoLiveCalls } = await renderPreview()
   fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
   fireEvent.click(await screen.findByRole('button', { name: 'Status' }))
-  await screen.findByText('The latest sweep completed on all three engines.')
+  await screen.findByText('The latest check completed on all three engines.')
 
   fireEvent.click(screen.getByRole('button', { name: /New conversation/i }))
-  expect(screen.queryByText('The latest sweep completed on all three engines.')).toBeNull()
+  expect(screen.queryByText('The latest check completed on all three engines.')).toBeNull()
   expect(screen.getByText(/See how Aero answers about/)).toBeTruthy()
   expectNoLiveCalls()
 })
@@ -1257,16 +1257,16 @@ test('Stop in the demo keeps the partial answer and says nothing was left runnin
   fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
   fireEvent.click(await screen.findByRole('button', { name: 'Status' }))
 
-  await screen.findByText('Checking the latest sweep.')
+  await screen.findByText('Checking the latest check.')
   expect(screen.getByText('Getting project overview (composite)…')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Stop Aero' }))
 
   expect(await screen.findByText('Stopped. The sample answer so far is kept.')).toBeTruthy()
   expect(screen.queryByText(/dispatched/)).toBeNull()
-  expect(screen.getByText('Checking the latest sweep.')).toBeTruthy()
+  expect(screen.getByText('Checking the latest check.')).toBeTruthy()
   // The pill stays on the collapsed header.
   expect(screen.getByRole('button', { name: /^1 step/ }).textContent).toBe('1 stepinterrupted')
-  expect(screen.queryByText('The latest sweep completed on all three engines.')).toBeNull()
+  expect(screen.queryByText('The latest check completed on all three engines.')).toBeNull()
   expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
   expectNoLiveCalls()
 })
@@ -1278,7 +1278,7 @@ test('with motion the demo shows the tool running, then types the answer to comp
 
   expect(await screen.findByText('Getting project overview (composite)…')).toBeTruthy()
   expect(screen.getByText('step 1')).toBeTruthy()
-  await screen.findByText('The latest sweep completed on all three engines.', {}, { timeout: 4000 })
+  await screen.findByText('The latest check completed on all three engines.', {}, { timeout: 4000 })
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop Aero' })).toBeNull())
   const header = screen.getByRole('button', { name: /^1 step/ })
   expect(header.textContent).toBe('1 step640ms')
@@ -1292,7 +1292,7 @@ test('unmounting the demo bar stops playback', async () => {
   const abort = vi.spyOn(AbortController.prototype, 'abort')
   fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
   fireEvent.click(await screen.findByRole('button', { name: 'Status' }))
-  await screen.findByText('Checking the latest sweep.')
+  await screen.findByText('Checking the latest check.')
   unmount()
   expect(abort).toHaveBeenCalled()
 })

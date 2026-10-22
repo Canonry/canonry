@@ -214,11 +214,11 @@ describe('MentionShare class control', () => {
     renderShare({ ...empty, unavailable: true })
     expect(block().querySelector('.mention-share-value-text')?.textContent).toBe('No data')
     expect(block().textContent).toContain('could not load, refresh to retry')
-    expect(block().textContent).not.toContain('no sweep has run yet')
+    expect(block().textContent).not.toContain('no check has run yet')
 
     cleanup()
     renderShare(empty)
-    expect(block().textContent).toContain('no sweep has run yet')
+    expect(block().textContent).toContain('no check has run yet')
     expect(block().textContent).not.toContain('could not load')
   })
 
@@ -261,7 +261,7 @@ describe('MentionShare empty-class copy', () => {
 
   it('still says "none tracked" when the project really tracks nothing', () => {
     renderShare({ breakdown: breakdown({ snapshotsTotal: 0 }), branded: breakdown({ snapshotsTotal: 0 }) })
-    expect(block().textContent).toContain('no sweep has run yet')
+    expect(block().textContent).toContain('no check has run yet')
 
     cleanup()
     // A run happened for branded, none for non-brand, and no branded queries

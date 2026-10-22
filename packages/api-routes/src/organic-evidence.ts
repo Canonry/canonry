@@ -602,7 +602,7 @@ export function buildOrganicEvidence(
   if (visibility && visibility.ageDays > 30) {
     limitations.push({
       code: 'stale-visibility-sweep',
-      detail: `The latest answer-visibility sweep is ${Math.floor(visibility.ageDays)} days old and may not represent current model behavior.`,
+      detail: `The latest AI Visibility check is ${Math.floor(visibility.ageDays)} days old and may not represent current model behavior.`,
     })
   }
 

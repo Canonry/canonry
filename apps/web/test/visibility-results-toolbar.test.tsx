@@ -28,7 +28,7 @@ interface ToolbarReportOptions {
   availability?: 'available' | 'unsupported'
   scope?: 'project' | 'property'
   trendRuns?: readonly string[]
-  /** Tracking changed after the displayed sweep: the active revision is newer than the measured one. */
+  /** Tracking changed after the displayed check: the active revision is newer than the measured one. */
   awaitingSweep?: boolean
   explicitRun?: boolean
 }
@@ -147,9 +147,9 @@ describe('results toolbar copy', () => {
     expect(VISIBILITY_TOOLBAR_COPY.dateFrom('Sep 1, 2026')).toBe('From Sep 1, 2026 (UTC)')
     expect(VISIBILITY_TOOLBAR_COPY.dateThrough('Sep 8, 2026')).toBe('Through Sep 8, 2026 (UTC)')
     expect(VISIBILITY_TOOLBAR_COPY.resultsFrom('Sep 6, 2026')).toBe('Results from: Sep 6, 2026')
-    expect(VISIBILITY_TOOLBAR_COPY.resultsFromSelectedSweep).toBe('Results from: selected sweep')
-    expect(VISIBILITY_TOOLBAR_COPY.trackingChanged('Oct 9', 'Oct 7', 'Oct 21')).toBe('Tracking changed Oct 9. Showing the Oct 7 results, from before the change. New numbers after the Oct 21 sweep.')
-    expect(VISIBILITY_TOOLBAR_COPY.trackingChanged(null, null, null)).toBe('Tracking changed. Showing the last results, from before the change. New numbers after the next sweep.')
+    expect(VISIBILITY_TOOLBAR_COPY.resultsFromSelectedSweep).toBe('Results from: selected check')
+    expect(VISIBILITY_TOOLBAR_COPY.trackingChanged('Oct 9', 'Oct 7', 'Oct 21')).toBe('Tracking changed Oct 9. Showing the Oct 7 results, from before the change. New numbers after the Oct 21 check.')
+    expect(VISIBILITY_TOOLBAR_COPY.trackingChanged(null, null, null)).toBe('Tracking changed. Showing the last results, from before the change. New numbers after the next check.')
   })
 })
 
@@ -159,7 +159,7 @@ describe('tracking-changed strip', () => {
   it('tells the default latest view that tracking changed since the displayed sweep, below the results header', () => {
     renderToolbar({ queryClass: 'non-brand' }, toolbarReport({ awaitingSweep: true }), DATES)
     const strip = screen.getByRole('status')
-    expect(strip.textContent).toBe('Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.')
+    expect(strip.textContent).toBe('Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 check.')
     // The header keeps to the displayed run and its date; the strip follows it.
     const toolbar = document.querySelector<HTMLElement>(TOOLBAR)!
     expect(toolbar.contains(strip)).toBe(false)
@@ -168,10 +168,10 @@ describe('tracking-changed strip', () => {
 
   it.each([
     { label: 'tracking has not changed', search: {}, options: {} },
-    { label: 'no sweep was measured before the change', search: {}, options: { awaitingSweep: true, measurement: 'not-measured' } },
+    { label: 'no check was measured before the change', search: {}, options: { awaitingSweep: true, measurement: 'not-measured' } },
     { label: 'the displayed report is an explicit run', search: {}, options: { awaitingSweep: true, explicitRun: true } },
     // The toolbar keeps the previous latest report while the chosen sweep loads.
-    { label: 'the URL picks a sweep before its report arrives', search: { measurementRunId: 'run-1' }, options: { awaitingSweep: true } },
+    { label: 'the URL picks a check before its report arrives', search: { measurementRunId: 'run-1' }, options: { awaitingSweep: true } },
     { label: 'the URL names a revision', search: { measurementRevision: '2' }, options: { awaitingSweep: true } },
     { label: 'the URL sets an end date', search: { measurementTo: '2026-09-14T23:59:59.999Z' }, options: { awaitingSweep: true } },
   ] as const)('is hidden when $label', ({ search, options }) => {
@@ -182,14 +182,14 @@ describe('tracking-changed strip', () => {
 
   it('names no change date or next sweep when the page passes none, as an embed or managed dashboard does', () => {
     renderToolbar({ queryClass: 'non-brand' }, toolbarReport({ awaitingSweep: true }))
-    expect(screen.getByRole('status').textContent).toBe('Tracking changed. Showing the Sep 13 results, from before the change. New numbers after the next sweep.')
+    expect(screen.getByRole('status').textContent).toBe('Tracking changed. Showing the Sep 13 results, from before the change. New numbers after the next check.')
   })
 
   it('reads "the last results" when the displayed sweep has no completion date', () => {
     const report = toolbarReport({ awaitingSweep: true, measurement: 'partial' })
     report.selection.measurement.completedAt = null
     renderToolbar({ queryClass: 'non-brand' }, report, DATES)
-    expect(screen.getByRole('status').textContent).toBe('Tracking changed Sep 20. Showing the last results, from before the change. New numbers after the Sep 27 sweep.')
+    expect(screen.getByRole('status').textContent).toBe('Tracking changed Sep 20. Showing the last results, from before the change. New numbers after the Sep 27 check.')
   })
 
   it('stays hidden while the latest report loads after the end date is removed', async () => {
@@ -212,14 +212,14 @@ describe('tracking-changed strip', () => {
     expect(screen.queryByText(/^Tracking changed/)).toBeNull()
 
     gate.release()
-    expect(await screen.findByText('Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.')).toBeTruthy()
+    expect(await screen.findByText('Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 check.')).toBeTruthy()
   })
 
   it('carries the page dates through the overview, above the results', async () => {
     onTestFinished(mockFetch(() => jsonResponse(toolbarReport({ awaitingSweep: true }))))
     renderOverview({ queryClass: 'non-brand' }, DATES)
     const results = await screen.findByRole('region', { name: 'AI visibility results' })
-    const strip = screen.getByText('Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 sweep.')
+    const strip = screen.getByText('Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 check.')
     expect(strip.getAttribute('role')).toBe('status')
     expect(strip.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })
@@ -339,7 +339,7 @@ describe('URL-bound toolbar controls', () => {
     { filters: { measurementFrom: '2026-09-01T00:00:00.000Z' }, labels: ['From Sep 1, 2026 (UTC)'] },
     { filters: { measurementTo: '2026-09-08T23:59:59.999Z' }, labels: ['Through Sep 8, 2026 (UTC)'] },
     { filters: { measurementFrom: '2025-12-28T00:00:00.000Z', measurementTo: '2026-01-04T23:59:59.999Z' }, labels: ['Dec 28, 2025 to Jan 4, 2026 (UTC)'] },
-    { filters: { measurementRunId: 'run-9' }, labels: ['Results from: selected sweep'] },
+    { filters: { measurementRunId: 'run-9' }, labels: ['Results from: selected check'] },
   ])('labels $filters as $labels', ({ filters, labels }) => {
     renderToolbar({ queryClass: 'non-brand', ...filters })
     expect(tokenLabels()).toEqual(labels)
@@ -349,7 +349,7 @@ describe('URL-bound toolbar controls', () => {
   it('names a pinned sweep by its trend date once the displayed report includes it', () => {
     const selection = parseVisibilitySelection({ queryClass: 'non-brand', measurementRunId: 'run-1' })
     const { rerender } = render(<VisibilityResultsToolbar report={toolbarReport({ trendRuns: ['run-2'] })} selection={selection} onSelectionChange={() => {}} />)
-    expect(tokenLabels()).toEqual(['Results from: selected sweep'])
+    expect(tokenLabels()).toEqual(['Results from: selected check'])
     rerender(<VisibilityResultsToolbar report={toolbarReport({ trendRuns: ['run-1'] })} selection={selection} onSelectionChange={() => {}} />)
     expect(tokenLabels()).toEqual(['Results from: Sep 6, 2026'])
   })
@@ -413,8 +413,8 @@ describe('URL-bound toolbar controls', () => {
     const controls = [...panel.querySelectorAll<HTMLSelectElement | HTMLInputElement>('select, input')]
     expect(controls.map(control => control.labels?.[0]?.textContent)).toEqual(['Answer engine', 'Requested search location', 'AI model', 'Start date (UTC)', 'End date (UTC)', 'Results from'])
     expect(within(panel).getAllByRole('button').map(control => control.getAttribute('aria-label') ?? control.textContent)).toEqual([
-      'Filter by the AI model recorded with each answer. This does not change the model used by future sweeps.',
-      'Choose a saved AI sweep to view its results. No new sweep starts.',
+      'Filter by the AI model recorded with each answer. This does not change the model used by future checks.',
+      'Choose a saved AI Visibility check to view its results. No new check starts.',
       'Clear filters',
     ])
 
@@ -433,7 +433,7 @@ describe('URL-bound toolbar controls', () => {
     expect(document.activeElement).toBe(filtersButton())
 
     fireEvent.click(filtersButton())
-    const help = within(panel).getByRole('button', { name: 'Choose a saved AI sweep to view its results. No new sweep starts.' })
+    const help = within(panel).getByRole('button', { name: 'Choose a saved AI Visibility check to view its results. No new check starts.' })
     act(() => help.focus())
     expect(help.getAttribute('aria-expanded')).toBe('true')
     fireEvent.keyDown(help, { key: 'Escape' })
@@ -524,7 +524,7 @@ describe('URL-bound toolbar controls', () => {
     expect(control('AI model')).toEqual({ value: 'claude-sonnet', options: [['', 'All models'], ['claude-sonnet', 'claude-sonnet']] })
     expect(control('Results from')).toEqual({
       value: 'run-9',
-      options: [['', 'Latest saved sweep'], ...[...TREND_RUNS].reverse().map(point => [point.runId, new Date(point.createdAt).toLocaleString()]), ['run-9', 'Selected sweep']],
+      options: [['', 'Latest saved check'], ...[...TREND_RUNS].reverse().map(point => [point.runId, new Date(point.createdAt).toLocaleString()]), ['run-9', 'Selected check']],
     })
   })
 

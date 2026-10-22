@@ -12,11 +12,11 @@ import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatus
 import { answerIdentityChanged, answerIdentityFrom, backfillProjectAnswerMentions, captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, readAnswerIdentity, readMarketCompetitorNames, type AnswerIdentityFingerprint, type RunCompetitors } from '@canonry/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
-import { buildProviderOutcomeProps, buildRunCompletedProps, buildSiteAuditCompletedProps, describeRunFailure, failureStreakSampling, hashDomain, runFailureSite, type RunAnswerUsage, type RunPhaseTimings } from './run-telemetry.js'
+import { buildProviderOutcomeProps, buildRunCompletedProps, buildSiteAuditCompletedProps, describeRunFailure, failureStreakSampling, hashDomain, runFailureSite, telemetryConnectionName, type RunAnswerUsage, type RunPhaseTimings } from './run-telemetry.js'
 import { createLogger } from './logger.js'
 import { ProviderExecutionGate, getSharedProviderExecutionGate } from './provider-execution-gate.js'
 import { getCurrentUsageDay, releaseDailyQueryQuota, reserveDailyQueryQuota } from './usage-quota.js'
-import { isOpenRouterRoute, providerConnectionName } from '@canonry/canonry-contracts'
+import { adapterConnectionName, hasDirectCitedUrls, isEligibleFor, isOpenRouterRoute, LocationTreatmentStatuses, ProviderWorkflows, type RetrievalStatus } from '@canonry/canonry-contracts'
 import { adapterSupportsBatch } from './provider-batch-config.js'
 import { determineCitationState } from './citation-utils.js'
 import { captureCitedUrls, type CitedUrlCapture } from './cited-url-capture.js'
@@ -166,6 +166,16 @@ function planlessDispatchColumns(registeredProvider: RegisteredProvider, raw: Ra
       overrides: registeredProvider.config.pricing,
     }),
   }
+}
+
+/**
+ * Whether a requested location did not reach the answer. An answer service
+ * records what it sent; anything short of every field is not applied. Other
+ * routes keep their existing rules.
+ */
+function isRequestedLocationUnapplied(providerName: string, raw: RawQueryResult, retrievalStatus: RetrievalStatus): boolean {
+  if (raw.evidence) return raw.evidence.location.status !== LocationTreatmentStatuses.applied
+  return isOpenRouterRoute(providerName) || isSearchLocationIgnored(providerName, retrievalStatus)
 }
 
 const HOUR_MS = 60 * 60 * 1000
@@ -769,6 +779,8 @@ export class JobRunner {
     let activeProviders: RegisteredProvider[] = []
     let projectQueries: typeof queries.$inferSelect[] = []
     let planExecution: PlanExecution | null = null
+    // Manifest providers registered here that cannot run visibility sweeps.
+    const planIneligibleProviders = new Set<ProviderName>()
     let runTrigger: string | undefined
     let canonicalDomain: string | undefined
     // Set once the sweep has read the identity it scores answers with.
@@ -878,9 +890,15 @@ export class JobRunner {
       if (planExecution) {
         const plan = planExecution
         const manifestProviders = [...plan.unitsByProvider.keys()] as ProviderName[]
-        activeProviders = manifestProviders
+        const registered = manifestProviders
           .map(name => this.registry.get(name))
           .filter((entry): entry is RegisteredProvider => entry !== undefined)
+        activeProviders = registered.filter(entry => isEligibleFor(entry.adapter, ProviderWorkflows['visibility-sweep'], 'explicit'))
+        // A frozen slot the provider cannot sweep (a profile without the
+        // visibility-sweep workflow) is reported as such, never as a missing provider.
+        for (const entry of registered) {
+          if (!activeProviders.includes(entry)) planIneligibleProviders.add(entry.adapter.name as ProviderName)
+        }
       } else {
         const projectProviders = providerOverride ?? (project.providers as ProviderName[])
         activeProviders = this.registry.getForProject(projectProviders).map((entry) => {
@@ -954,7 +972,7 @@ export class JobRunner {
         const queriesPerProvider = planExecution
           ? planExecution.unitsByProvider.get(p.adapter.name)?.length ?? 0
           : projectQueries.length
-        const providerScope = `${projectId}:${providerConnectionName(p.adapter.name)}`
+        const providerScope = `${projectId}:${adapterConnectionName(p.adapter)}`
         const limit = p.config.quotaPolicy.maxRequestsPerDay
         const quota = reserveDailyQueryQuota(this.db, { scope: providerScope, period: todayPeriod, count: queriesPerProvider, limit })
         if (!quota.reserved) {
@@ -978,7 +996,7 @@ export class JobRunner {
         executionGates.set(
           provider.adapter.name,
           getSharedProviderExecutionGate(
-            provider.adapter.name,
+            adapterConnectionName(provider.adapter),
             provider.config.quotaPolicy.maxConcurrency,
             provider.config.quotaPolicy.maxRequestsPerMinute,
           ),
@@ -1048,7 +1066,7 @@ export class JobRunner {
             }
             let citedUrlCapture: CitedUrlCapture
             try {
-              citedUrlCapture = await captureCitedUrls(providerName, rawGroundingSources)
+              citedUrlCapture = await captureCitedUrls(providerName, rawGroundingSources, raw.evidence ? { directCitedSources: hasDirectCitedUrls(raw.evidence) } : {})
             } catch (err: unknown) {
               citedUrlCapture = {
                 citedUrls: [],
@@ -1083,7 +1101,7 @@ export class JobRunner {
               competitorAliases,
             )
 
-            const answerLocation = runLocation && (isOpenRouterRoute(providerName) || isSearchLocationIgnored(providerName, normalized.retrievalStatus))
+            const answerLocation = runLocation && isRequestedLocationUnapplied(providerName, raw, normalized.retrievalStatus)
               ? { location: null, requestedContext: runLocation, supportedContext: { status: 'ignored' as const } }
               : { location: runLocation?.label ?? null }
 
@@ -1132,6 +1150,7 @@ export class JobRunner {
                   apiResponse: raw.rawResponse,
                 }),
                 ...planlessDispatchColumns(registeredProvider, raw),
+                answerEvidence: raw.evidence ?? null,
                 createdAt: new Date().toISOString(),
               }).run()
             } else {
@@ -1169,6 +1188,7 @@ export class JobRunner {
                   apiResponse: raw.rawResponse,
                 }),
                 ...planlessDispatchColumns(registeredProvider, raw),
+                answerEvidence: raw.evidence ?? null,
                 createdAt: new Date().toISOString(),
               }).run()
             }
@@ -1333,7 +1353,9 @@ export class JobRunner {
           if (dispatched >= units.length || providerErrors.has(providerName) || providerName in skipped) continue
           providerErrors.set(
             providerName,
-            `No ${provider} provider was available to this worker, so ${units.length - dispatched} expected measurement(s) did not run.`,
+            planIneligibleProviders.has(providerName)
+              ? `${provider} does not run visibility sweeps, so ${units.length - dispatched} expected measurement(s) did not run.`
+              : `No ${provider} provider was available to this worker, so ${units.length - dispatched} expected measurement(s) did not run.`,
           )
         }
       }
@@ -1428,7 +1450,7 @@ export class JobRunner {
         trackEvent('run.aborted', {
           reason: abortReason,
           providerCount: executionContext.providerCount,
-          providers: [...new Set(executionContext.providers.map(providerConnectionName))],
+          providers: [...new Set(executionContext.providers.map(telemetryConnectionName))],
           queryCount: executionContext.queryCount,
           durationMs: Date.now() - startTime,
           ...(executionContext.trigger ? { trigger: executionContext.trigger } : {}),
@@ -2474,8 +2496,9 @@ export class JobRunner {
       const activeProviders: RegisteredProvider[] = []
       for (const provider of unitsByProvider.keys()) {
         const registered = this.registry.get(provider)
-        if (registered) activeProviders.push(registered)
-        else providerErrors.set(provider, `No ${provider} provider is configured on this instance, so its missing answers did not run.`)
+        if (!registered) providerErrors.set(provider, `No ${provider} provider is configured on this instance, so its missing answers did not run.`)
+        else if (!isEligibleFor(registered.adapter, ProviderWorkflows['visibility-sweep'], 'explicit')) providerErrors.set(provider, `${provider} does not run visibility sweeps, so its missing answers did not run.`)
+        else activeProviders.push(registered)
       }
 
       // Reserve what this fill will dispatch, never the run's whole manifest.
@@ -2484,7 +2507,7 @@ export class JobRunner {
       for (const registered of activeProviders) {
         const name = registered.adapter.name
         const count = unitsByProvider.get(name)?.length ?? 0
-        const scope = `${projectId}:${providerConnectionName(name)}`
+        const scope = `${projectId}:${adapterConnectionName(registered.adapter)}`
         const limit = registered.config.quotaPolicy.maxRequestsPerDay
         const quota = reserveDailyQueryQuota(this.db, { scope, period: todayPeriod, count, limit })
         if (!quota.reserved) {
@@ -2500,7 +2523,7 @@ export class JobRunner {
         executionGates.set(
           registered.adapter.name,
           getSharedProviderExecutionGate(
-            registered.adapter.name,
+            adapterConnectionName(registered.adapter),
             registered.config.quotaPolicy.maxConcurrency,
             registered.config.quotaPolicy.maxRequestsPerMinute,
           ),
@@ -2779,9 +2802,13 @@ export class JobRunner {
     // Only a provider that actually forwards the location may say the
     // answer was measured from there. Everything else stores null, which
     // reads as "no claim" rather than as the place we asked for.
-    const supportedContext = requestedContext && providerSupportsLocationContext(adapter)
-      ? { status: 'applied' as const, resolved: requestedContext }
-      : requestedContext && isOpenRouterRoute(providerName) ? { status: 'ignored' as const } : null
+    const supportedContext = requestedContext && raw.evidence
+      ? (raw.evidence.location.status === LocationTreatmentStatuses.applied
+        ? { status: 'applied' as const, resolved: requestedContext }
+        : { status: 'ignored' as const })
+      : requestedContext && providerSupportsLocationContext(adapter)
+        ? { status: 'applied' as const, resolved: requestedContext }
+        : requestedContext && isOpenRouterRoute(providerName) ? { status: 'ignored' as const } : null
 
     this.throwIfRunCancelled(ctx.runId)
 
@@ -2793,7 +2820,7 @@ export class JobRunner {
     }
     let citedUrlCapture: CitedUrlCapture
     try {
-      citedUrlCapture = await captureCitedUrls(providerName, rawGroundingSources)
+      citedUrlCapture = await captureCitedUrls(providerName, rawGroundingSources, raw.evidence ? { directCitedSources: hasDirectCitedUrls(raw.evidence) } : {})
     } catch (err: unknown) {
       citedUrlCapture = {
         citedUrls: [],
@@ -2893,6 +2920,7 @@ export class JobRunner {
         tier: dispatch.pricingTier,
         overrides: registeredProvider.config.pricing,
       }),
+      answerEvidence: raw.evidence ?? null,
       createdAt: new Date().toISOString(),
     }
     return {

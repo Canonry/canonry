@@ -1232,13 +1232,13 @@ test('uses the exact active run for a first scan instead of showing stale-map co
   renderSection(queryClient, { showOnboardingActions: true })
 
   const scanProgress = screen.getByRole('region', { name: 'Current scan progress' })
-  expect(scanProgress.textContent).toContain('Scanning site')
+  expect(scanProgress.textContent).toContain('Checking your site')
   expect(scanProgress.textContent).toContain('Page health appears after the scan finishes')
   expect(scanProgress.textContent).not.toContain('map appears')
   expect(screen.getByRole('list', { name: 'Onboarding progress' }).querySelector('[aria-current="step"]')?.textContent).toContain('Scan site')
   expect(screen.queryByRole('tablist', { name: 'Site Health views' })).toBeNull()
   expect(screen.queryByRole('tabpanel')).toBeNull()
-  expect(scanProgress.textContent).toContain('Scanning site')
+  expect(scanProgress.textContent).toContain('Checking your site')
   expect(screen.queryByText(/latest completed results remain/i)).toBeNull()
   expect(screen.queryByText('Full-site map not available')).toBeNull()
   expect(queryClient.getQueryState(getApiV1ProjectsByNameTechnicalAeoCrawlQueryKey({
@@ -1268,7 +1268,7 @@ test('states the bounded first-run budget during onboarding and not on a regular
 
     const scanProgress = screen.getByRole('region', { name: 'Current scan progress' })
     if (surface === 'onboarding') {
-      expect(scanProgress.textContent).toContain('A quick scan to find your first fixes.')
+      expect(within(scanProgress).getByRole('button', { name: /^A quick scan to find your first fixes\./ })).toBeTruthy()
       // A pinned run may have come from the CLI with any budget, so the
       // banner must not claim this section's 100-page first look.
       expect(scanProgress.innerHTML).not.toContain('reads up to 100 pages')
@@ -1782,8 +1782,9 @@ test('reserves live counters and Page Health finding space before the scan attem
   expect(within(findings).getAllByTestId('live-page-health-slot')).toHaveLength(3)
   expect(phase.getAttribute('aria-live')).toBe('polite')
   expect(phase.getAttribute('aria-atomic')).toBe('true')
-  const phaseCss = await renderedCss(phase)
-  expect(cssLengthPx(compiledElementProperty(phaseCss, phase, 'min-height') ?? '', phaseCss)).toBe(72)
+  // The phase is announced, not shown: the visible progress is the fixed-height step bar.
+  expect(phase.className).toContain('sr-only')
+  expect(within(progress).getByRole('progressbar', { name: 'Scan progress' }).getAttribute('aria-valuetext')).toBe('Find pages')
   expect(progress.hasAttribute('aria-live')).toBe(false)
   expect(counters.querySelector('[aria-live], [role="status"], [role="alert"]')).toBeNull()
   expect(findings.querySelector('[aria-live], [role="status"], [role="alert"]')).toBeNull()

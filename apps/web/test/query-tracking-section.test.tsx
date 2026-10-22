@@ -450,8 +450,8 @@ test('shows only in-group properties and relationships for a shared query', asyn
   expect(within(row).queryByText(/Downtown/)).toBeNull()
 })
 
-const advancedResetNotice = 'After you publish, AI Visibility keeps showing the last sweep until the next sweep. Location pages and competitor results show no numbers until then. Past answers are kept.'
-const sweepActiveMessage = 'A sweep is queued or running. Publish after it finishes.'
+const advancedResetNotice = 'After you publish, AI Visibility keeps showing the last check until the next check. Location pages and competitor results show no numbers until then. Past answers are kept.'
+const sweepActiveMessage = 'A check is queued or running. Publish after it finishes.'
 const removalDiff = { added: [], removed: [{ queryId: 'query-acme', queryText: 'Acme pricing', assignmentCount: 1 }], reused: [], unchanged: [], noOp: false }
 const removalWorkload = { existingNodes: 2, existingProviderCalls: 2, nextSweepNodes: 1, nextSweepProviderCalls: 1, addedNodes: 0, addedProviderCalls: 0, removedNodes: 1, removedProviderCalls: 1 }
 // The preview's `tracked` is the post-change state, so a whole-query removal drops the row.
@@ -475,7 +475,7 @@ test('focuses the preview outcome and shows the sweep workload under the heading
   await waitFor(() => expect(document.activeElement).toBe(heading))
   expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
   // Visible under the heading, not folded into a disclosure.
-  expect(screen.getByText('−1 query · +0 / −1 answers per sweep · next sweep asks 1').closest('details')).toBeNull()
+  expect(screen.getByText('−1 query · +0 / −1 answers per check · next check asks 1').closest('details')).toBeNull()
   expect(screen.getByText(advancedResetNotice)).toBeTruthy()
 })
 
@@ -494,7 +494,7 @@ test('keeps added and removed queries and answers separate in the workload line'
   })
   renderWorkspace()
   await reviewRemoval()
-  expect(screen.getByText('+2 queries · −1 query · +12 / −4 answers per sweep · next sweep asks 1,236')).toBeTruthy()
+  expect(screen.getByText('+2 queries · −1 query · +12 / −4 answers per check · next check asks 1,236')).toBeTruthy()
 })
 
 test('counts a location-scoped removal as answers, not as a query leaving tracking', async () => {
@@ -510,12 +510,12 @@ test('counts a location-scoped removal as answers, not as a query leaving tracki
   renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'acme', queryClass: 'all' } })
   await reviewRemoval()
   expect(previewBody).toEqual({ expectedWorkspaceVersion: workspaceVersion, additions: [], removals: [{ queryId: 'query-acme', audience: { targetKeys: ['acme'] } }] })
-  expect(screen.getByText('+0 / −1 answers per sweep · next sweep asks 1')).toBeTruthy()
+  expect(screen.getByText('+0 / −1 answers per check · next check asks 1')).toBeTruthy()
   expect(screen.queryByText(/−1 query/)).toBeNull()
 })
 
 test.each([
-  { name: 'a simple preview', mode: 'simple', noOp: false, subcopy: 'Changes apply to future sweeps. Earlier results stay unchanged.' },
+  { name: 'a simple preview', mode: 'simple', noOp: false, subcopy: 'Changes apply to future checks. Earlier results stay unchanged.' },
   { name: 'an advanced no-op preview', mode: 'advanced', noOp: true, subcopy: 'This request leaves tracking unchanged.' },
 ])('shows no reset notice for $name', async ({ mode, noOp, subcopy }) => {
   installWorkspaceApi(path => {
@@ -529,7 +529,7 @@ test.each([
 })
 
 test.each([
-  { name: 'an advanced commit', mode: 'advanced', committed: true, title: 'Tracked queries updated', detail: 'New numbers after the next sweep.' },
+  { name: 'an advanced commit', mode: 'advanced', committed: true, title: 'Tracked queries updated', detail: 'New numbers after the next check.' },
   { name: 'a simple commit', mode: 'simple', committed: true, title: 'Tracked queries updated', detail: undefined },
   { name: 'a no-op commit', mode: 'advanced', committed: false, title: 'No tracked-query change', detail: undefined },
 ])('names when new numbers arrive only after $name', async ({ mode, committed, title, detail }) => {
@@ -675,7 +675,7 @@ test('lets measurement and action columns size to their contents inside the scro
     expect(actionCell.classList.contains('measurement-table-actions')).toBe(true)
     expect(measurementCell.classList.contains('whitespace-nowrap')).toBe(true)
     expect(edit.parentElement?.classList.contains('min-w-max')).toBe(true)
-    expect(measurementCell.textContent).toBe(row.state === 'tracked' ? 'Measured' : 'Awaiting sweep')
+    expect(measurementCell.textContent).toBe(row.state === 'tracked' ? 'Measured' : 'Awaiting check')
   }
 })
 
@@ -1183,7 +1183,7 @@ test.each(['research', 'discovery'] as const)('tracks a selected saved %s result
     body: { ...(writes[0]!.body as Record<string, unknown>), previewToken, reviewedAt: reviewed.reviewedAt },
   })
   const trackedRow = await screen.findByText(queryText, { selector: 'td' })
-  expect(trackedRow.closest('tr')?.textContent).toContain('Awaiting sweep')
+  expect(trackedRow.closest('tr')?.textContent).toContain('Awaiting check')
 }, 15_000)
 
 test.each([false, true])('keeps reused-query classifications collapsed until requested (no-op: %s)', async noOp => {
@@ -1482,6 +1482,6 @@ test('unassigned legacy records remain accessible without promising a future por
   renderWorkspace({ selection: { measurementScope: 'project', queryClass: 'unknown' } })
   const row = (await screen.findByText('Acme pricing')).closest('tr')!
   expect(within(row).getByText('Not in current plan')).toBeTruthy()
-  expect(within(row).queryByText('Awaiting sweep')).toBeNull()
+  expect(within(row).queryByText('Awaiting check')).toBeNull()
   expect(screen.queryByText('Best AEO platform')).toBeNull()
 })
