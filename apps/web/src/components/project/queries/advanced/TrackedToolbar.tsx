@@ -122,7 +122,7 @@ export function TrackedToolbar({
    * queries only and is not narrowed, so it prints `shown` alone.
    */
   total?: number
-  /** What the chips mean, such as `SignalLetterLegend`, and any note that belongs beside it. */
+  /** What the marks mean, such as `ChangeLegend`, and any note that belongs beside it. */
   legend?: ReactNode
   /** The computed reports, beside the filter disclosure. */
   views?: ReactNode

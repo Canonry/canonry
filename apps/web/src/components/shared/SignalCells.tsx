@@ -1,5 +1,3 @@
-import { Triangle } from 'lucide-react'
-
 import { useTooltipBubble } from './InfoTooltip.js'
 
 /**
@@ -26,10 +24,6 @@ export interface EngineSignal {
   /** The same for the citation. */
   citationChange?: 'won' | 'lost'
 }
-
-/** What an engine won or lost of a signal since the previous sweep. */
-export type SignalChange = 'won' | 'lost'
-const CHANGE_WORDS: Record<SignalChange, string> = { won: 'Won in last sweep', lost: 'Lost in last sweep' }
 
 /** Research checks company names and the project domain, so its first chip is N (Named), not M (Mentioned). */
 export type SignalVariant = 'tracked' | 'research'
@@ -188,94 +182,6 @@ const LEGEND_ITEM = 'inline-flex items-start gap-1.5'
 // A company name or a domain can be longer than a phone is wide, so an entry that holds one wraps inside itself.
 const LEGEND_NAMED = `${LEGEND_ITEM} max-w-full wrap-anywhere`
 const LEGEND_WORD = `${LEGEND_ITEM} whitespace-nowrap`
-
-/** ▲ for a signal won since the previous sweep, ▼ for one lost: a shape as well as a color. Its words are its caller's. */
-function ChangeMark({ change, className = '' }: { change: SignalChange; className?: string }) {
-  return <Triangle aria-hidden="true" className={`size-2.5 shrink-0 fill-current ${change === 'won' ? 'text-positive-400' : 'rotate-180 text-negative-400'} ${className}`} />
-}
-
-/**
- * One signal of one engine for one query, as a list that follows the
- * Mentioned | Cited switch draws it: the M (or C) chip alone, lit, struck
- * through or dashed as in a pair. Its name says the engine and the state, and
- * its bubble whose result it is and the server's count for that signal. The
- * other signal is never read here; the opened row shows both. With `change`,
- * a ▲ or ▼ beside the chip says the engine won or lost the signal since the
- * previous sweep, and the bubble says it in words. The mark is drawn off the
- * chip's right edge (`.signal-change`), so the chips of a column stay level
- * whether or not one is marked.
- */
-export function SignalLetter({ signal, which, engineLabel, classLabel, subject, noResult, change }: {
-  signal: EngineSignal | null | undefined
-  which: 'mentioned' | 'cited'
-  engineLabel: string
-  classLabel?: string
-  subject?: string
-  noResult?: string
-  change?: SignalChange
-}) {
-  const words = which === 'mentioned' ? FIRST.tracked : CITED
-  if (signal === undefined) return <span aria-hidden="true" className={PAIR}><SignalChip state="loading" letter={words.letter} /></span>
-  return <SignalLetterButton signal={signal} which={which} words={words} engineLabel={engineLabel} classLabel={classLabel} subject={subject} noResult={noResult} change={change} />
-}
-
-function SignalLetterButton({ signal, which, words, engineLabel, classLabel, subject, noResult, change }: {
-  signal: EngineSignal | null
-  which: 'mentioned' | 'cited'
-  words: SignalWords
-  engineLabel: string
-  classLabel: string | undefined
-  subject: string | undefined
-  noResult: string | undefined
-  change: SignalChange | undefined
-}) {
-  const state = stateOf(signal?.[which] ?? null)
-  const answers = signal?.answers ?? 0
-  const count = which === 'mentioned' ? signal?.mentionedAnswers : signal?.citedAnswers
-  const result = signal === null ? noResult ?? `${NOT_CHECKED}.`
-    : state === 'unchecked' ? (answers === 0 && (signal.expectedAnswers ?? 0) > 0 ? 'No answer saved.' : `${words.unchecked}.`)
-      : count === undefined || answers === 0 ? `${words[state]}.`
-        : `${words.yes} in ${whole(count)} of ${whole(answers)} ${answers === 1 ? 'answer' : 'answers'}.`
-  const detail = [...[classLabel, subject].flatMap(lead => lead ? [lead.endsWith('.') ? lead : `${lead}.`] : []), result, ...(change ? [`${CHANGE_WORDS[change]}.`] : [])].join(' ')
-  const bubble = useTooltipBubble(detail, { placement: 'bottom', hoverDelay: 300 })
-  return <>
-    <button
-      type="button"
-      className={`${PAIR} cursor-help rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 focus-visible:ring-offset-2 focus-visible:ring-offset-bg`}
-      aria-label={`${engineLabel}${classLabel ? `, ${classLabel}` : ''}: ${state === 'unchecked' ? words.unchecked : words[state]}`}
-      aria-description={detail}
-      {...bubble.wrapper}
-      {...bubble.trigger}
-    >
-      {change ? (
-        <span className="relative flex items-center">
-          <SignalChip state={state} letter={words.letter} />
-          <ChangeMark change={change} className="signal-change" />
-        </span>
-      ) : <SignalChip state={state} letter={words.letter} />}
-    </button>
-    {bubble.bubble}
-  </>
-}
-
-/**
- * The legend of one signal, as a list that follows the switch reads it: one
- * line, letter by letter. With `changes`, the ▲ and ▼ of a comparison follow.
- */
-export function SignalLetterLegend({ which, changes = false }: { which: 'mentioned' | 'cited'; changes?: boolean }) {
-  const words = which === 'mentioned' ? FIRST.tracked : CITED
-  return (
-    <ul aria-label="Legend" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] leading-5 text-secondary">
-      <li className={LEGEND_WORD}><SignalChip state="yes" letter={words.letter} spoken />{' '}{words.yes}</li>
-      <li className={LEGEND_WORD}><SignalChip state="no" letter={words.letter} spoken />{' '}{words.no}</li>
-      <li className={LEGEND_WORD}><SignalChip state="unchecked" letter={words.letter} />{NOT_CHECKED}</li>
-      {changes ? (['won', 'lost'] as const).map(change => (
-        <li key={change} className={LEGEND_WORD}><ChangeMark change={change} className="self-center" />{CHANGE_WORDS[change]}</li>
-      )) : null}
-    </ul>
-  )
-}
-
 
 /**
  * What the chips mean, beside the table that shows them: each state drawn as

@@ -5,7 +5,7 @@ import type { QueryTrackingGroup, QueryTrackingLimits, QueryTrackingMarket, Quer
 
 import { excludedAnswersLabel } from '../../../../lib/format-helpers.js'
 import { formatObservedInstantLabel, formatObservedInstantMonthDay, observedInstant, observedInstantYear } from '../../../shared/ChartPrimitives.js'
-import { InfoTooltip } from '../../../shared/InfoTooltip.js'
+import { InfoTooltip, useTooltipBubble } from '../../../shared/InfoTooltip.js'
 import { StatusNote } from '../../../shared/StatusNote.js'
 import { Button } from '../../../ui/button.js'
 
@@ -31,21 +31,17 @@ const HELP = {
 /** A list the server returned gives its length; one it left out gives no cell. Nothing is counted in its place. */
 const listed = (label: string, list: readonly unknown[] | undefined): Stat | false => list !== undefined && { label, value: list.length }
 
-function projectStats(summary: QueryTrackingSummary): Stat[] {
-  return [
-    { label: 'Queries asked', value: summary.asked },
-    { label: 'Non-brand', value: summary.byClass.nonBrand },
-    { label: 'Branded', value: summary.byClass.branded },
-  ]
-}
-
 /**
- * Subject and type first, then the links. Company, Mixed type and Not set are rare, so each shows only above
- * zero. A Subject's count is named as queries, as a place's strip names it, so it never reads as a count of
- * markets or locations.
+ * Every count of the project's queries, for Details: what is asked and of
+ * which type, then by Subject, then the links. Company, Mixed type and Not set
+ * are rare, so each shows only above zero. A count is named as queries, as a
+ * place's strip names it, so it never reads as a count of markets or locations.
  */
 function detailStats(summary: QueryTrackingSummary): Stat[] {
   return cells([
+    { label: 'Queries asked', value: summary.asked },
+    { label: 'Non-brand queries', value: summary.byClass.nonBrand },
+    { label: 'Branded queries', value: summary.byClass.branded },
     { label: 'Answers per sweep', value: summary.answersPerSweep, help: HELP.answers },
     { label: 'Market queries', value: summary.byFocus.market },
     { label: 'Location queries', value: summary.byFocus.property },
@@ -154,49 +150,73 @@ function PointChange({ delta }: { delta: number | null | undefined }) {
   )
 }
 
-/** The figure reads before its word, as the counts do: the term leads in the markup and follows on screen. All four rates are one size. */
-function RateFigure({ rate, signal, comparison }: { rate: Rate; signal: 'mentioned' | 'cited'; comparison: Comparison | undefined }) {
+/**
+ * One rate of the grid: the server's share, and beside it the server's change
+ * since the previous sweep. The figure is the trigger of its own bubble, which
+ * holds its counts, the answers it left out and both sweeps' rates over the
+ * same queries, so the grid draws no help icon. Its name says the type, the
+ * signal and the figure, so it is never heard as a bare number.
+ */
+function RateCell({ rate, signal, type, comparison }: { rate: Rate; signal: 'mentioned' | 'cited'; type: string; comparison: Comparison | undefined }) {
   const measured = rate.rate !== null
+  const figure = measured ? formatPercent(rate.rate) : 'Not measured'
   const delta = comparison === undefined ? undefined : signal === 'mentioned' ? comparison.mentionDelta : comparison.citationDelta
+  const detail = rateDetail(rate, signal, comparison)
+  // Four figures share a row, so a pointer on its way across opens nothing until it rests on one.
+  const bubble = useTooltipBubble(detail, { placement: 'bottom', align: 'start', hoverDelay: 300 })
   return (
-    <div className="flex min-w-0 flex-row-reverse items-baseline justify-end gap-1.5">
-      <dt className={LABEL}>{signal}<InfoTooltip text={rateDetail(rate, signal, comparison)} /></dt>
-      <dd className="flex items-baseline gap-1.5">
-        <span className={measured ? NUMBER : 'text-[15px] font-medium leading-6 tabular-nums text-heading'}>{measured ? formatPercent(rate.rate) : 'Not measured'}</span>
+    <td className={FIGURE_CELL}>
+      <span className="inline-flex items-baseline gap-2">
+        <button type="button" className={`${measured ? NUMBER : UNMEASURED} ${FIGURE}`} aria-label={`${type} ${signal}: ${figure}`} aria-description={detail} {...bubble.wrapper} {...bubble.trigger}>
+          {figure}
+        </button>
+        {bubble.bubble}
         <PointChange delta={delta} />
-      </dd>
-    </div>
+      </span>
+    </td>
   )
 }
 
 /**
- * The last sweep's result for the listed queries: per type, the share of answers that mention and that cite
- * a location the query is asked for. Every figure is a field of the results read.
+ * The last sweep's result for the listed queries as one small grid, a row per
+ * type (Non-brand first) and a column per signal: how many queries of the
+ * type were measured, and the share of their answers that mention and that
+ * cite a location the query is asked for. Each label is said once, and the
+ * two types are never one number. Every figure is a field of the results read.
  */
 export function TrackedResultFigures({ results }: { results: TrackedResultsState }) {
   if (results.state === 'none') return null
   if (results.state === 'loading') return (
-    <div role="status" aria-label="Loading results" className="flex min-w-0 flex-wrap items-baseline gap-x-6 gap-y-1">
-      <div aria-hidden="true" className="flex items-center gap-3"><div className="skeleton-text w-16" /><div className="skeleton-text h-6 w-20" /><div className="skeleton-text w-16" /></div>
-      <div aria-hidden="true" className="flex items-center gap-3"><div className="skeleton-text w-14" /><div className="skeleton-text w-16" /><div className="skeleton-text w-14" /></div>
+    <div role="status" aria-label="Loading results" className="grid w-fit grid-cols-[auto_auto_auto_auto] items-center gap-x-8 gap-y-2">
+      {[0, 1, 2].map(row => <div key={row} aria-hidden="true" className="contents">
+        <div className="skeleton-text w-16" /><div className="skeleton-text w-8" /><div className={`skeleton-text w-20 ${row > 0 ? 'h-5' : ''}`} /><div className={`skeleton-text w-20 ${row > 0 ? 'h-5' : ''}`} />
+      </div>)}
     </div>
   )
   if (results.state === 'error') return <StatusNote icon={AlertTriangle} tone="caution" label="Results unavailable" detail="The last sweep's results did not load." />
   const totals = TYPE_ORDER.flatMap(type => results.totals?.filter(total => total.queryClass === type) ?? [])
   if (totals.length === 0) return <StatusNote icon={Info} label="Not measured" detail="No query listed here was in the last sweep." />
   return (
-    <div className="flex min-w-0 flex-wrap items-baseline gap-x-6 gap-y-1">
-      {totals.map((total, index) => (
-        // The types are never one number, so a rule parts them.
-        <div key={total.queryClass} role="group" aria-label={`${TYPE_LABEL[total.queryClass]} results`} className={`flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 ${index > 0 ? '@xl:border-l @xl:border-default @xl:pl-6' : ''}`}>
-          <span className="text-[13px] font-medium leading-5 text-strong">{TYPE_LABEL[total.queryClass]}</span>
-          <dl className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1">
-            <RateFigure rate={total.mentionCoverage} signal="mentioned" comparison={total.comparison} />
-            <RateFigure rate={total.citationCoverage} signal="cited" comparison={total.comparison} />
-          </dl>
-        </div>
-      ))}
-    </div>
+    <table aria-label="Last sweep results" className="w-fit border-separate border-spacing-0 text-[13px] leading-5">
+      <thead>
+        <tr>
+          <th scope="col" className={HEAD}><span className="sr-only">Type</span></th>
+          <th scope="col" className={`${HEAD} ${QUERIES} text-right`}>Queries</th>
+          <th scope="col" className={HEAD}>Mentioned</th>
+          <th scope="col" className={HEAD}>Cited</th>
+        </tr>
+      </thead>
+      <tbody>
+        {totals.map(total => (
+          <tr key={total.queryClass}>
+            <th scope="row" className={`${BODY} ${GAP} whitespace-nowrap text-left font-medium text-strong`}>{TYPE_LABEL[total.queryClass]}</th>
+            <td className={`${BODY} ${GAP} ${QUERIES} text-right tabular-nums text-secondary`}>{whole(total.queries)}</td>
+            <RateCell rate={total.mentionCoverage} signal="mentioned" type={TYPE_LABEL[total.queryClass]} comparison={total.comparison} />
+            <RateCell rate={total.citationCoverage} signal="cited" type={TYPE_LABEL[total.queryClass]} comparison={total.comparison} />
+          </tr>
+        ))}
+      </tbody>
+    </table>
   )
 }
 
@@ -260,6 +280,16 @@ function lastCellClass(count: number, shape: Shape): string {
 
 const LABEL = 'flex items-center text-[13px] leading-5 text-secondary'
 const NUMBER = 'text-[19px] font-semibold leading-7 tabular-nums text-heading'
+// The result grid: headers in the label's voice, a row's cells level on the figures' baseline. A narrow strip
+// closes the columns up and leaves out Queries, whose counts Details holds, so the grid never runs off a phone.
+const GAP = 'pr-4 @md:pr-8 last:pr-0'
+const HEAD = `pb-0.5 text-left font-normal text-secondary ${GAP}`
+const BODY = 'align-baseline'
+const FIGURE_CELL = `${BODY} whitespace-nowrap ${GAP}`
+const QUERIES = '@max-md:hidden'
+const UNMEASURED = 'text-[13px] font-medium leading-7 text-secondary'
+// The figure opens its own bubble: a dotted underline under a resting pointer, a ring under keyboard focus.
+const FIGURE = 'cursor-help rounded-sm decoration-mono-500 decoration-dotted underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
 const LINK = 'inline-flex items-center gap-1 rounded-sm font-medium text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 pointer-coarse:min-h-11 max-md:min-h-11'
 
 /** The running sweep's icon turns, so it does not read as stalled. It holds still where motion is reduced. */
@@ -285,11 +315,13 @@ function StatCell({ stat, className, numberClassName = NUMBER, onClick }: { stat
 }
 
 /**
- * The number strip above the Tracked table: the project's totals, or one
- * place's. Every number is a field of the workspace read, or the length of a
- * list it returned; nothing is recounted here, so the strip cannot disagree
- * with the server. Branded and non-brand stay separate cells. The project
- * strip keeps its rarer numbers behind Details, closed by default.
+ * The number strip above the Tracked table. The project's is the last sweep's
+ * result grid (`TrackedResultFigures`) and one line of sweep dates, with every
+ * count of its queries behind Details, closed by default. A place's is that
+ * grid over the place's own counts. Every number is a field of the results or
+ * the workspace read, or the length of a list it returned; nothing is
+ * recounted here, so the strip cannot disagree with the server. Branded and
+ * non-brand stay separate rows and cells.
  * `lastSweepAt` is `null` when no sweep has finished and left out while that
  * is not known yet. `nextSweepDate` is the schedule's own date ("Oct 21"); a
  * sweep under way (`sweepActive`) takes its place.
@@ -312,7 +344,7 @@ export function TrackedSummaryGrid({ summary, place, results, lastSweepAt, compa
 }) {
   const [open, setOpen] = useState(false)
   const detailsId = useId()
-  const stats = place ? placeStats(place) : summary ? projectStats(summary) : null
+  const stats = place ? placeStats(place) : null
   const details = !place && summary ? detailStats(summary) : null
   // Without its numbers the strip is one note over the full row of three.
   const count = stats?.length ?? 3
@@ -338,29 +370,22 @@ export function TrackedSummaryGrid({ summary, place, results, lastSweepAt, compa
     detail="These numbers did not load."
     action={onRetry ? <Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11 max-md:min-h-11" onClick={onRetry}>Retry</Button> : undefined}
   />
-  // The result leads the strip; the counts of queries follow it.
+  // The result leads the strip.
   const figures = results && results.state !== 'none' ? <TrackedResultFigures results={results} /> : null
 
-  // The rates lead on a line of their own; the counts and the sweep dates are the line under them, values in front of their labels.
+  // The project's strip is the result grid, then one line: the sweep dates, and Details, which holds every count of queries.
   if (!place) return (
     <div className="@container border-b border-default">
-      <div className="min-w-0 space-y-1 py-3">
+      <div className="min-w-0 space-y-2 py-3">
         {figures}
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-6 gap-y-1">
-          <div className="flex min-w-0 flex-wrap items-baseline gap-y-1 text-[13px] leading-5 text-secondary">
-            {/* One line, "932 queries asked · 548 non-brand · 384 branded · Last sweep Oct 7": each value before its label, a dot between. */}
-            {stats ? <dl className="flex min-w-0 flex-wrap items-baseline gap-x-3">
-              {stats.map((stat, index) => <StatCell key={stat.label} stat={stat} className="flex min-w-0 flex-row-reverse items-baseline gap-1 [&>dt]:lowercase" numberClassName={index === 0 && !figures ? NUMBER : 'text-[13px] font-medium tabular-nums text-strong'} />)}
-            </dl> : unavailable}
-            {sweep.length > 0 ? <>
-              {/* The dot after the counts sits outside the dates' line, which starts at its first date. */}
-              {stats ? <span aria-hidden="true" className="mx-1.5 text-muted">·</span> : null}
-              <p className="flex min-w-0 flex-wrap items-baseline">
-                {sweep.map((part, index) => <span key={index} className="flex items-baseline whitespace-nowrap">{index > 0 ? <span aria-hidden="true" className="mx-1.5 text-muted">·</span> : null}{part}</span>)}
-              </p>
-            </> : null}
-          </div>
-          {details ? <button type="button" className={`${LINK} text-[13px] leading-5`} aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen(value => !value)}>
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-6 gap-y-1 text-[13px] leading-5 text-secondary">
+          {summary ? null : unavailable}
+          {sweep.length > 0 ? (
+            <p className="flex min-w-0 flex-wrap items-baseline">
+              {sweep.map((part, index) => <span key={index} className="flex items-baseline whitespace-nowrap">{index > 0 ? <span aria-hidden="true" className="mx-1.5 text-muted">·</span> : null}{part}</span>)}
+            </p>
+          ) : null}
+          {details ? <button type="button" className={`${LINK} ml-auto text-[13px] leading-5`} aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen(value => !value)}>
             Details
             <ChevronRight aria-hidden="true" className={`size-3.5 transition-transform motion-reduce:transition-none ${open ? 'rotate-90' : ''}`} />
           </button> : null}
@@ -390,11 +415,14 @@ export function TrackedSummaryGrid({ summary, place, results, lastSweepAt, compa
 /** Loading space for the compact project summary (the default) or a place’s number strip. */
 export function TrackedSummaryGridSkeleton({ cells = 5 }: { cells?: number }) {
   const shape = shapeOf(cells, true)
+  // The project's: the result grid's three lines, then the sweep dates and Details.
   if (cells === 5) return (
     <div className="@container border-b border-default" aria-hidden="true">
-      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3">
-        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3"><div className="skeleton-text w-32" /><div className="skeleton-text w-24" /><div className="skeleton-text w-20" /></div>
-        <div className="flex h-8 items-center pointer-coarse:h-11 max-md:h-11"><div className="skeleton-text w-40" /></div>
+      <div className="space-y-2 py-3">
+        <div className="grid w-fit grid-cols-[auto_auto_auto_auto] items-center gap-x-8 gap-y-2">
+          {[0, 1, 2].map(row => <div key={row} className="contents"><div className="skeleton-text w-16" /><div className="skeleton-text w-8" /><div className={`skeleton-text w-20 ${row > 0 ? 'h-5' : ''}`} /><div className={`skeleton-text w-20 ${row > 0 ? 'h-5' : ''}`} /></div>)}
+        </div>
+        <div className="flex items-center justify-between pointer-coarse:min-h-11 max-md:min-h-11"><div className="skeleton-text w-40" /><div className="skeleton-text w-14" /></div>
       </div>
     </div>
   )

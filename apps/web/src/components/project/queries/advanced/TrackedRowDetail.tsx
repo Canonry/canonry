@@ -6,6 +6,7 @@ import type { QueryTrackingTrackedRow, QueryTrackingWorkspaceResponse } from '@c
 import { formatSweepDay } from '../../../../lib/format-helpers.js'
 import { carryVisibilitySearch, patchVisibilitySelection } from '../../../../lib/measurement-view-url.js'
 import { DataTablePagination, useClientTable } from '../../../shared/DataTableControls.js'
+import { CHANGE_WORDS, ChangeMark, type SignalChange } from '../../../shared/EngineCount.js'
 import { SearchLocationText } from '../../TrackingReview.js'
 import { assignmentTypeContexts } from '../tracking-contexts.js'
 import type { TrackedRowVm } from './tracked-types.js'
@@ -17,6 +18,9 @@ type Assignment = QueryTrackingTrackedRow['assignments'][number]
  * A value with more behind it, such as model ids, gives both: the short `label` shown and the `detail` it opens.
  */
 export type TrackedContextLabels = (contexts: Assignment['contexts']) => (string | { label: string; detail: string })[]
+
+/** One engine that won or lost one signal of the row since the previous sweep; `type` names it on a row asked both ways. */
+export interface TrackedRowChange { engine: string; signal: 'mention' | 'citation'; change: SignalChange; type?: string }
 
 const LINKS_PAGE_SIZE = 25
 const LINK = 'rounded-sm underline-offset-[3px] hover:underline focus-visible:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
@@ -35,7 +39,9 @@ const nameOf = (items: readonly { stableKey: string; label: string }[]) => {
 }
 
 /**
- * What a tracked row holds beyond its cells, for every role: each location the
+ * What a tracked row holds beyond its cells, for every role: the engines that
+ * won or lost a signal since the previous sweep (`changes`, by name, which the
+ * list's count leaves out), what each engine answered, each location the
  * query is asked for, with that location's groups, markets and type (25 to a
  * page), then where the query came from and when. It also holds the two
  * columns a narrow table folds away, Source and Last measured. The search
@@ -43,10 +49,12 @@ const nameOf = (items: readonly { stableKey: string; label: string }[]) => {
  * column only when they differ. A row that is not asked has no locations, so
  * it shows the facts alone.
  */
-export function TrackedRowDetail({ row, workspace, contextLabels, answers, actions, projectName, currentTargetKey }: {
+export function TrackedRowDetail({ row, workspace, contextLabels, changes, answers, actions, projectName, currentTargetKey }: {
   row: TrackedRowVm
   workspace: Pick<QueryTrackingWorkspaceResponse, 'targets' | 'groups' | 'markets'>
   contextLabels: TrackedContextLabels
+  /** On a compared read: each engine that won or lost a signal. Empty when nothing changed. */
+  changes?: readonly TrackedRowChange[]
   /** What each engine answered, first in the row. */
   answers?: ReactNode
   /** What to do next with the query, under its answers. */
@@ -105,6 +113,20 @@ export function TrackedRowDetail({ row, workspace, contextLabels, answers, actio
 
   return (
     <div>
+      {changes && changes.length > 0 ? (
+        <dl className="flex flex-wrap gap-x-6 gap-y-1 pb-3 text-[13px] leading-5">
+          {(['won', 'lost'] as const).map(direction => {
+            const named = changes.filter(item => item.change === direction)
+            if (named.length === 0) return null
+            return (
+              <div key={direction} className="flex min-w-0 flex-wrap items-center gap-x-2">
+                <dt className="inline-flex shrink-0 items-center gap-1.5 text-secondary"><ChangeMark change={direction} />{CHANGE_WORDS[direction]}</dt>
+                <dd className="min-w-0 text-strong">{named.map(item => `${item.engine} ${item.signal}${item.type ? ` (${item.type})` : ''}`).join(' · ')}</dd>
+              </div>
+            )
+          })}
+        </dl>
+      ) : null}
       {answers}
       {actions ? <div className="flex flex-wrap items-center gap-2 pb-3">{actions}</div> : null}
       {/* The locations the query counts for are one press away, closed by default: the answers lead the row. */}

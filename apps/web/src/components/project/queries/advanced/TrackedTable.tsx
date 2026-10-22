@@ -4,17 +4,20 @@ import type { QueryClass, QueryTrackingWorkspaceResponse } from '@canonry/canonr
 
 import { formatMonthDay, formatSweepDay } from '../../../../lib/format-helpers.js'
 import { providerDisplayName } from '../../../../lib/visibility-trend-helpers.js'
-import { SignalLetter, SignalPair } from '../../../shared/SignalCells.js'
+import { EngineCount } from '../../../shared/EngineCount.js'
+import { SignalPair } from '../../../shared/SignalCells.js'
 import { ToneBadge } from '../../../shared/ToneBadge.js'
 import { Button } from '../../../ui/button.js'
-import { TrackedRowDetail, type TrackedContextLabels } from './TrackedRowDetail.js'
+import { TrackedRowDetail, type TrackedContextLabels, type TrackedRowChange } from './TrackedRowDetail.js'
 import type { TrackedRowVm, TrackedSignal, TrackedSubject, TrackedType } from './tracked-types.js'
 import {
+  engineSignal,
   engineSortKey,
   locationCountLabel,
   nextTrackedSort,
   NOT_ASKED,
   resultClasses,
+  rowCounts,
   rowSignal,
   sourceLabel,
   statusLabel,
@@ -26,6 +29,7 @@ import {
   trackedLayout,
   typeLabel,
   type TrackedColumn,
+  type TrackedCounts,
   type TrackedCoverage,
   type TrackedSort,
   type TrackedSortKey,
@@ -175,9 +179,12 @@ function measuredDay(iso: string): string {
 
 /**
  * The Tracked queries table: one row per query with its Subject, Type, one
- * `SignalPair` per engine and a Status that carries the row's date. The caller
- * sorts, filters and pages the rows; this draws them in the order given and
- * reports a header click through `onSortChange`.
+ * `SignalPair` per engine and a Status that carries the row's date. Under the
+ * Mentioned | Cited switch (`signal`) the engines are one column however many
+ * there are: how many engines show that signal, of those that checked it
+ * (`EngineCount`, the server's `engineCounts`), and which engines they are is
+ * the opened row's. The caller sorts, filters and pages the rows; this draws
+ * them in the order given and reports a header click through `onSortChange`.
  *
  * Results join on query and type. A row asked both ways stacks one pair per
  * type in each engine cell, each named with its type, and a result under the
@@ -211,7 +218,7 @@ function measuredDay(iso: string): string {
  * and a query cut short carries its whole text as its `title`.
  */
 export function TrackedTable({
-  rows, engines, coverage, sort, onSortChange, selectedIds, onSelectedIdsChange, highlightedId, renderRowMenu, nextSweepDate, workspace, contextLabels,
+  rows, engines, coverage, counts, sort, onSortChange, selectedIds, onSelectedIdsChange, highlightedId, renderRowMenu, nextSweepDate, workspace, contextLabels,
   columns, label = 'Tracked queries', emptyState, marksFor, renderRowAnswers, renderRowActions, projectName, currentTargetKey, signal, changes = false,
 }: {
   rows: readonly TrackedRowVm[]
@@ -223,6 +230,8 @@ export function TrackedTable({
    * so every chip reads Not checked, and say so beside the table.
    */
   coverage: TrackedCoverage | undefined
+  /** With `signal`: each row's engines counted by the server (`countsByQuery`), undefined while they load. */
+  counts?: TrackedCounts
   sort?: TrackedSort
   /** Headers sort only when given. */
   onSortChange?: (sort: TrackedSort) => void
@@ -255,9 +264,9 @@ export function TrackedTable({
   projectName?: string
   /** The location whose page the table is on: its own name is not a link. */
   currentTargetKey?: string
-  /** The switch's signal: each engine cell is that one letter. Left out, each is the pair of both. */
+  /** The switch's signal: the engines are one column, the count of `signal`. Left out, each engine is a column of the pair of both. */
   signal?: TrackedSignal
-  /** The read compares with the sweep before, so each engine's letter is marked ▲ or ▼ where it won or lost `signal`. */
+  /** The read compares with the sweep before: an opened row names each engine that won or lost a signal since. */
   changes?: boolean
 }) {
   const tableId = useId()
@@ -270,20 +279,25 @@ export function TrackedTable({
     const name = providerDisplayName(key)
     return { key, label: name, width: trackedEngineColumnWidth(name) }
   })
+  // Under the switch the engines are one column of counts, as wide with one engine as with ten.
+  const counted = signal !== undefined
+  const countLabel = signal === 'cited' ? 'Cited by' : 'Mentioned by'
+  const engineWidths = counted ? [TRACKED_COLUMN_WIDTH.count] : engineColumns.map(engine => engine.width)
   // Without a menu to draw, its column gives its width back to Query.
   const wanted = (columns ?? TRACKED_COLUMNS).filter(column => column !== 'menu' || renderRowMenu !== undefined)
-  const layout = trackedLayout(frameWidth, engineColumns.map(engine => engine.width), { columns: wanted, selectable })
+  const layout = trackedLayout(frameWidth, engineWidths, { columns: wanted, selectable })
   const shown = new Set(layout.columns)
-  const lines = useRowLines(frameRef, rows, JSON.stringify([rows.map(row => row.queryId), engineColumns.map(engine => engine.width), wanted, selectable]), frameWidth, measured && !layout.stacked, fontLoads)
-  const columnCount = (selectable ? 1 : 0) + [...shown].reduce((count, column) => count + (column === 'engines' ? engineColumns.length : 1), 0)
+  const lines = useRowLines(frameRef, rows, JSON.stringify([rows.map(row => row.queryId), engineWidths, wanted, selectable]), frameWidth, measured && !layout.stacked, fontLoads)
+  const columnCount = (selectable ? 1 : 0) + [...shown].reduce((count, column) => count + (column === 'engines' ? engineWidths.length : 1), 0)
   // With a result read, a pair that has none was left out of that sweep. With none read, nothing says why.
   const noResult = coverage && coverage.size > 0 ? 'Not in the last sweep.' : undefined
   // What a header sorts by, in header order. Stacked rows have no header, so their Sort select lists the same.
-  const sortChoices = [...(sort?.key === 'result' ? [['result', 'Result'] as [TrackedSortKey, string]] : []), ...wanted.flatMap((column): [TrackedSortKey, string][] => {
+  // Under the switch the count's column sorts by the server's order, which runs by that count.
+  const sortChoices = [...(sort?.key === 'result' && !counted ? [['result', 'Result'] as [TrackedSortKey, string]] : []), ...wanted.flatMap((column): [TrackedSortKey, string][] => {
     switch (column) {
       case 'query': return [['query', 'Query']]
       case 'subject': return [['subject', 'Subject']]
-      case 'engines': return engineColumns.map(engine => [engineSortKey(engine.key), engine.label])
+      case 'engines': return counted ? [['result', countLabel]] : engineColumns.map(engine => [engineSortKey(engine.key), engine.label])
       case 'lastMeasured': return [['lastMeasured', 'Last measured']]
       case 'status': return [['status', 'Status']]
       case 'type':
@@ -399,7 +413,7 @@ export function TrackedTable({
             <col />
             {shown.has('subject') ? <col style={{ width: layout.subjectWidth }} /> : null}
             {shown.has('type') ? <col style={{ width: TRACKED_COLUMN_WIDTH.type }} /> : null}
-            {shown.has('engines') ? engineColumns.map(engine => <col key={engine.key} style={{ width: engine.width }} />) : null}
+            {shown.has('engines') ? engineWidths.map((width, index) => <col key={index} style={{ width }} />) : null}
             {shown.has('lastMeasured') ? <col style={{ width: TRACKED_COLUMN_WIDTH.lastMeasured }} /> : null}
             {shown.has('status') ? <col style={{ width: TRACKED_COLUMN_WIDTH.status }} /> : null}
             {shown.has('source') ? <col style={{ width: TRACKED_COLUMN_WIDTH.source }} /> : null}
@@ -413,7 +427,8 @@ export function TrackedTable({
               {header('query', 'Query', 'tracked-cell-query')}
               {shown.has('subject') ? header('subject', 'Subject') : null}
               {shown.has('type') ? <th scope="col">Type</th> : null}
-              {shown.has('engines') ? engineColumns.map(engine => <Fragment key={engine.key}>{header(engineSortKey(engine.key), engine.label, 'tracked-cell-engine')}</Fragment>) : null}
+              {shown.has('engines') && counted ? header('result', countLabel, 'tracked-cell-count') : null}
+              {shown.has('engines') && !counted ? engineColumns.map(engine => <Fragment key={engine.key}>{header(engineSortKey(engine.key), engine.label, 'tracked-cell-engine')}</Fragment>) : null}
               {shown.has('lastMeasured') ? header('lastMeasured', 'Last measured') : null}
               {shown.has('status') ? header('status', 'Status') : null}
               {shown.has('source') ? <th scope="col">Source</th> : null}
@@ -459,7 +474,12 @@ export function TrackedTable({
                   {layout.stacked ? menuCell : null}
                   {shown.has('subject') ? <td className="tracked-cell-subject"><SubjectCell subject={row.subject} discloses={discloses} fit={layout.stacked || open ? 'whole' : lines === 2 ? 'lines' : 'line'} room={`${layout.subjectWidth}:${fontLoads}`} /></td> : null}
                   {shown.has('type') ? <td className="tracked-cell-type"><TypeCell type={row.type} classes={row.queryClasses} /></td> : null}
-                  {shown.has('engines') ? engineColumns.map(engine => {
+                  {shown.has('engines') && signal ? (
+                    <td className="tracked-cell-count">
+                      <CountCell row={row} engines={engineColumns} coverage={coverage} counts={counts} which={signal} label={countLabel} stacked={layout.stacked} />
+                    </td>
+                  ) : null}
+                  {shown.has('engines') && !signal ? engineColumns.map(engine => {
                     const pairs = resultClasses(row).map(queryClass => ({ queryClass, signal: rowSignal(row, coverage, queryClass, engine.key) }))
                     // No pair to draw. Under a header the cell is blank. Stacked, its engine's name goes with the chips, so the cell is only read.
                     if (pairs.every(pair => pair.signal === NOT_ASKED)) {
@@ -473,17 +493,6 @@ export function TrackedTable({
                           {pairs.map(({ queryClass, signal: result }) => result === NOT_ASKED ? (
                             // One type of a row asked both ways has a result here from before its engines changed: the other keeps its line.
                             <span key={queryClass} className="tracked-pair-label"><span className="sr-only">{typeLabel(queryClass as QueryClass)}: Not asked</span></span>
-                          ) : signal ? (
-                            <SignalLetter
-                              key={queryClass}
-                              signal={result}
-                              which={signal}
-                              change={changes && result ? result[signal === 'cited' ? 'citationChange' : 'mentionChange'] : undefined}
-                              engineLabel={engine.label}
-                              classLabel={mixed ? typeLabel(queryClass as QueryClass) : undefined}
-                              subject={marksFor?.(row, queryClass)}
-                              noResult={noResult}
-                            />
                           ) : (
                             <SignalPair
                               key={queryClass}
@@ -524,7 +533,7 @@ export function TrackedTable({
                 </tr>
                 {open ? (
                   <tr id={detailId} className="tracked-detail-row" data-highlighted={row.queryId === highlightedId ? '' : undefined}>
-                    <td colSpan={columnCount}><TrackedRowDetail row={row} workspace={workspace} contextLabels={contextLabels} answers={renderRowAnswers?.(row)} actions={renderRowActions?.(row)} projectName={projectName} currentTargetKey={currentTargetKey} /></td>
+                    <td colSpan={columnCount}><TrackedRowDetail row={row} workspace={workspace} contextLabels={contextLabels} changes={changes ? rowChanges(row, engineColumns, coverage) : undefined} answers={renderRowAnswers?.(row)} actions={renderRowActions?.(row)} projectName={projectName} currentTargetKey={currentTargetKey} /></td>
                   </tr>
                 ) : null}
               </Fragment>
@@ -534,6 +543,51 @@ export function TrackedTable({
       </table>
     </div>
   )
+}
+
+/**
+ * The count of one row under the switch: how many engines show the signal of
+ * those that checked it, read from the server (`rowCounts`). A row asked both
+ * ways has one count per type, level with its types in the Type cell. A type
+ * no engine is asked on (`rowSignal`) has none and reads "Not asked", as a
+ * query that is not asked does. Stacked, there is no header, so the cell names
+ * what it counts.
+ */
+function CountCell({ row, engines, coverage, counts, which, label, stacked }: {
+  row: TrackedRowVm
+  engines: readonly Engine[]
+  coverage: TrackedCoverage | undefined
+  counts: TrackedCounts | undefined
+  which: TrackedSignal
+  label: string
+  stacked: boolean
+}) {
+  const asked = (queryClass: string) => engines.some(engine => rowSignal(row, coverage, queryClass, engine.key) !== NOT_ASKED)
+  const count = (queryClass: string) => asked(queryClass)
+    ? <EngineCount counts={rowCounts(counts, row.queryId, queryClass)} which={which} />
+    : <span className="sr-only">Not asked</span>
+  const classes = resultClasses(row)
+  if (row.status === 'not-asked' || !classes.some(asked)) return <span className="sr-only">Not asked</span>
+  if (row.type !== 'mixed') return <>{stacked ? <span className="tracked-engine-name" aria-hidden="true">{label}</span> : null}{count(classes[0]!)}</>
+  return (
+    <span className="tracked-pair-stack">
+      <span className="tracked-pair-lead" aria-hidden="true">{stacked ? label : null}</span>
+      {classes.map(queryClass => <span key={queryClass} className="tracked-pair-label"><span className="sr-only">{typeLabel(queryClass as QueryClass)}: </span>{count(queryClass)}</span>)}
+    </span>
+  )
+}
+
+/** Each engine that won or lost a signal since the previous sweep, as the read marks it, in the page's engine order and by type. */
+function rowChanges(row: TrackedRowVm, engines: readonly Engine[], coverage: TrackedCoverage | undefined): TrackedRowChange[] {
+  const classes = resultClasses(row)
+  return classes.flatMap(queryClass => engines.flatMap(engine => {
+    const result = engineSignal(coverage, row.queryId, queryClass, engine.key)
+    const type = classes.length > 1 ? typeLabel(queryClass as QueryClass) : undefined
+    return [
+      ...(result?.mentionChange ? [{ engine: engine.label, signal: 'mention' as const, change: result.mentionChange, type }] : []),
+      ...(result?.citationChange ? [{ engine: engine.label, signal: 'citation' as const, change: result.citationChange, type }] : []),
+    ]
+  }))
 }
 
 type Discloses = { 'aria-expanded': boolean; 'aria-controls': string | undefined; onClick: () => void }

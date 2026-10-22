@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, onTestFinished, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { queryTrackingResultsResponseSchema, queryTrackingWorkspaceResponseSchema } from '@canonry/canonry-contracts'
+import { queryTrackingResultsResponseSchema, queryTrackingRowEngineCounts, queryTrackingWorkspaceResponseSchema } from '@canonry/canonry-contracts'
 import type { QueryClass, QueryTrackingTrackedRow, UiTelemetryEvent } from '@canonry/canonry-contracts'
 
 import { DEFAULT_TRACKED_FILTERS } from '../src/components/project/queries/advanced/tracked-filters.js'
@@ -133,7 +133,7 @@ const CHANGED_AT = '2026-10-09T12:00:00.000Z'
 const day = (instant: string) => formatObservedInstantMonthDay(observedInstant(instant))
 /** The sweep of Oct 7 asked a third engine the project no longer lists. It measured every row but the one added since. */
 function sweep(overrides: Record<string, unknown> = {}) {
-  return queryTrackingResultsResponseSchema.parse({
+  const body = {
     mode: 'advanced',
     scope: { kind: 'project', key: null },
     run: { id: 'run-1', createdAt: '2026-10-07T12:00:00.000Z', completedAt: SWEPT_AT, status: 'completed', revision: 4, matchesCurrentTracking: true },
@@ -143,7 +143,11 @@ function sweep(overrides: Record<string, unknown> = {}) {
     // The page compares with the sweep before; this project has none.
     compareRun: null,
     ...overrides,
-  })
+  }
+  // Each row carries the server's count of its engines, with what they won and lost on a compared read.
+  const compared = body.compareRun !== null && body.compareRun !== undefined
+  const rows = (body.rows as Array<{ engines: Parameters<typeof queryTrackingRowEngineCounts>[0] }>).map(row => ({ ...row, engineCounts: queryTrackingRowEngineCounts(row.engines, compared) }))
+  return queryTrackingResultsResponseSchema.parse({ ...body, rows })
 }
 
 /** Serves the page's reads and records every request as "METHOD /path?search" under the project. */
@@ -171,15 +175,12 @@ const pageBox = () => screen.getByRole('checkbox', { name: 'Select this page' })
 /** The queries the table lists, in order. */
 const listed = () => screen.queryAllByRole('button', { name: /^Actions for / }).map(button => button.getAttribute('aria-label')!.slice('Actions for '.length))
 const rowOf = (queryText: string) => screen.getByRole('button', { name: `Actions for ${queryText}` }).closest('tr')!
-/** One row's chips, as each engine's pair names them. */
-const chips = (queryText: string) => within(rowOf(queryText)).getAllByRole('button', { name: /^(OpenAI|Gemini|Perplexity)[,:]/ }).map(pair => pair.getAttribute('aria-label'))
-/** What each engine cell of a row says to a screen reader, in column order: its pairs by name, or the words of a cell that draws none. */
-const engineCells = (queryText: string) => [...rowOf(queryText).querySelectorAll<HTMLElement>(':scope > td.tracked-cell-engine')].map(cell => {
-  const pairs = within(cell).queryAllByRole('button').map(pair => pair.getAttribute('aria-label'))
-  return pairs.length > 0 ? pairs.join(' | ') : cell.textContent
-})
-/** What one pair's bubble says, which is its description. */
-const marks = (queryText: string, pair: string) => within(rowOf(queryText)).getByRole('button', { name: pair }).getAttribute('aria-description')
+/** A row's engine count as a screen reader hears it, one entry per type on a row asked both ways. */
+const engineCount = (queryText: string) => {
+  const cell = rowOf(queryText).querySelector<HTMLElement>(':scope > td.tracked-cell-count')!
+  const lines = [...cell.querySelectorAll('.tracked-pair-label')]
+  return lines.length > 0 ? lines.map(line => line.textContent) : cell.textContent
+}
 /** The strip's numbers, label to value as it reads. */
 const strip = () => Object.fromEntries([...region().querySelector('dl')!.querySelectorAll('dt')].map(term => [term.firstChild!.textContent, term.nextElementSibling!.textContent]))
 const count = () => within(region()).getAllByRole('status').find(status => /quer(?:y|ies)$/.test(status.textContent ?? ''))?.textContent
@@ -268,22 +269,24 @@ test('a portfolio opens on its markets, losing first, from one grouped read the 
   await screen.findByRole('table', { name: 'Markets' })
   expect(requests.filter(request => request.includes('/results'))).toEqual(['GET /query-tracking/results?group=market&sort=losing&compare=previous'])
   // The strip is that read's: the totals and their comparison.
-  expect(within(region()).getByRole('group', { name: 'Non-brand results' }).textContent).toContain('33.3%')
+  expect(within(region()).getByRole('table', { name: 'Last sweep results' }).textContent).toContain('33.3%')
   expect(within(region()).getAllByRole('status').map(status => status.textContent)).toContain('2 markets')
-  // One line per market in the server's order: the non-brand share, each engine, the change and who won.
+  // One line per market in the server's order: the non-brand share, the change and who won. Each engine waits in the opened market.
   expect(tableRows('Markets')).toEqual([
-    ['Downtown1 location', '0/2', '0/1', '0/1', '', '−1 mentions lost', 'Lost to Rival Lofts +1', ''],
-    ['Uptown3 locations', '2/4', '2/2', '0/2', '', '', 'None', ''],
+    ['Downtown1 location', '0/2', '1 mention lost', 'Lost to Rival Lofts +1', ''],
+    ['Uptown3 locations', '2/4', '', 'None', ''],
   ])
+  expect(within(screen.getByRole('table', { name: 'Markets' })).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Market', 'Mentionednon-brand', 'Changevs previous sweep', 'Lost to', 'Queries'])
   // A list of markets has no rows to filter.
   expect(screen.queryByRole('button', { name: /^Filters/ })).toBeNull()
 
   fireEvent.click(screen.getByRole('button', { name: /^Downtown/ }))
   const opened = await screen.findByRole('table', { name: 'Downtown queries' })
   expect(requests.filter(request => request.includes('scope=market'))).toEqual(['GET /query-tracking/results?scope=market&scopeKey=downtown&runId=run-1&sort=losing&compare=previous'])
-  expect(within(opened).getAllByRole('row').slice(1).map(row => row.cells[0]!.textContent)).toEqual([DOWNTOWN])
+  // Each of its queries with how many engines mention it; which engines, and each engine's counts, are the opened market's own lines.
+  expect(within(opened).getAllByRole('row').slice(1).map(row => [...row.cells].map(cell => cell.textContent))).toEqual([[DOWNTOWN, '1 of 2 engines']])
   const facts = opened.closest('td')!.textContent!
-  for (const fact of ['Other location1 of 2', 'Named insteadRival Lofts 2 · Brook Commons 1', 'Competitorsrival.example 2']) expect(facts).toContain(fact)
+  for (const fact of ['Other location1 of 2', 'By engineOpenAI 0 mentioned · 0 cited of 1Gemini 0 mentioned · 1 cited of 1', 'Named insteadRival Lofts 2 · Brook Commons 1', 'Competitorsrival.example 2']) expect(facts).toContain(fact)
 
   // The arrow lists the market's queries: the Place, on clean filters, with the grouping left to the page.
   fireEvent.click(screen.getByRole('button', { name: 'Queries of Downtown' }))
@@ -295,19 +298,19 @@ test('Cited reads the citation in every column of the market list, and Group Non
   renderList({ trackedFilters: { ...DEFAULT_TRACKED_FILTERS, signal: 'cited' } })
   await screen.findByRole('table', { name: 'Markets' })
   expect(requests.filter(request => request.includes('/results'))).toEqual(['GET /query-tracking/results?group=market&signal=cited&sort=losing&compare=previous'])
-  expect(tableRows('Markets')[0]).toEqual(['Downtown1 location', '1/2', '0/1', '1/1', '', '+1 citations won', 'Cited listings.example', ''])
+  expect(tableRows('Markets')[0]).toEqual(['Downtown1 location', '1/2', '1 citation won', 'Cited listings.example', ''])
   fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value: 'none' } })
   await screen.findByRole('table', { name: 'Queries' })
   expect(requests.filter(request => request.includes('/results')).at(-1)).toBe('GET /query-tracking/results?signal=cited&sort=winning&compare=previous')
-  // One letter per engine, the citation's.
-  await waitFor(() => expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Not cited', 'Gemini: Not cited', 'Perplexity: Cited']))
+  // One count for the engines, the citation's: Perplexity cites it, of the three.
+  await waitFor(() => expect(engineCount(UPTOWN_BEST)).toBe('1 of 3 engines'))
 })
 
 test('draws the Add button beside the tabs, then the number strip, the toolbar and the table, from one workspace read and one results read', async () => {
   const requests = installApi()
   renderList({ nextSweepDate: 'Oct 21' })
   await screen.findByText(UPTOWN_BEST)
-  await waitFor(() => expect(chips(UPTOWN_BEST)).toHaveLength(3))
+  await waitFor(() => expect(engineCount(UPTOWN_BEST)).toBe('2 of 3 engines'))
 
   // In reading order: the tabs, the page's action in their row, then the strip, the search and the table.
   const tabs = screen.getByRole('tablist', { name: 'Query workspace' })
@@ -320,12 +323,13 @@ test('draws the Add button beside the tabs, then the number strip, the toolbar a
   // The region and the table inside it are told apart by name.
   expect(region().contains(table())).toBe(true)
 
-  // One column per engine, by display name: the project's own, then one only the sweep asked.
-  expect(within(table()).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Perplexity', 'Last measured', 'Status', 'Source', 'Actions'])
+  // One column for the engines however many there are, the count of the switch's signal. Each engine is the opened row's.
+  expect(within(table()).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['', 'Query', 'Subject', 'Type', 'Mentioned by', 'Last measured', 'Status', 'Source', 'Actions'])
+  expect([engineCount(UPTOWN_PETS), engineCount(DOWNTOWN), engineCount(PIER_NEW)]).toEqual(['3 of 3 engines', '1 of 2 engines', 'Not checked'])
   fireEvent.click(screen.getByRole('button', { name: /^Filters/ }))
   expect(within(screen.getByRole('group', { name: 'Filters' })).getAllByRole('combobox').map(filter => filter.getAttribute('aria-label'))).toEqual(['Subject', 'Type', 'Status', 'Source', 'Result', 'On', 'Change'])
-  // The legend of the chips, beside the count: the switch's one signal, each entry a chip and its word.
-  expect(within(region()).getAllByRole('listitem').map(entry => entry.textContent)).toEqual(['M Mentioned', 'M Not mentioned', 'MNot checked'])
+  // With no sweep before this one nothing is marked won or lost, so there is no legend to read.
+  expect(within(region()).queryByRole('list', { name: 'Legend' })).toBeNull()
   // The clean list is what is asked, winning first, in the server's order; a row the sweep did not read follows.
   expect(listed()).toEqual([UPTOWN_BEST, UPTOWN_PETS, DOWNTOWN, HARBOR, PICKED, PIER_NEW])
   expect(within(rowOf(UPTOWN_BEST)).getByText('Pattern: Best')).toBeTruthy()
@@ -346,12 +350,12 @@ test('in the 1152px content column the table keeps Query wide: Status carries th
   installApi()
   renderList({ nextSweepDate: 'Oct 21' })
   await screen.findByText(UPTOWN_BEST)
-  await waitFor(() => expect(chips(UPTOWN_BEST)).toHaveLength(3))
+  await waitFor(() => expect(engineCount(UPTOWN_BEST)).toBe('2 of 3 engines'))
   const header = (name: string) => within(table()).getAllByRole('columnheader').find(cell => cell.textContent === name)!
 
-  expect(within(table()).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Perplexity', 'Status', 'Actions'])
-  // Perplexity's header needs 88px, so Subject gives Query 22 of its 250 and Query keeps 420.
-  expect([...table().querySelectorAll('col')].map(column => column.style.width)).toEqual(['32px', '', '228px', '80px', '62px', '62px', '88px', '148px', '32px'])
+  expect(within(table()).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['', 'Query', 'Subject', 'Type', 'Mentioned by', 'Status', 'Actions'])
+  // The engines are one 136px column however many there are, so Subject keeps its 250 and Query has 474.
+  expect([...table().querySelectorAll('col')].map(column => column.style.width)).toEqual(['32px', '', '250px', '80px', '136px', '148px', '32px'])
   expect(within(rowOf(UPTOWN_BEST)).getByText(`Measured ${day(MEASURED_AT)}`)).toBeTruthy()
   expect(within(rowOf(PIER_NEW)).getByText('First answers Oct 21')).toBeTruthy()
   // No filter went with the columns.
@@ -375,10 +379,10 @@ test('prints the server\'s numbers in the strip, for the project and for a place
   installApi()
   const { rerender } = renderList({ nextSweepDate: 'Oct 21' })
   await screen.findByText(UPTOWN_BEST)
-  // Eight rows are loaded, six of them asked. Every cell is the server's own field.
-  expect(strip()).toEqual({ 'Queries asked': '41', 'Non-brand': '27', Branded: '12' })
+  // Eight rows are loaded, six of them asked. Every count is the server's own field, behind Details.
   expect(screen.queryByRole('button', { name: '7 not asked' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Details' }))
+  expect(strip()).toMatchObject({ 'Queries asked': '41', 'Non-brand queries': '27', 'Branded queries': '12' })
   expect(within(region()).getByRole('button', { name: '7 not asked' })).toBeTruthy()
   const details = screen.getByRole('button', { name: 'Details' }).getAttribute('aria-controls')!
   expect(within(document.getElementById(details)!).getByText('300')).toBeTruthy()
@@ -425,7 +429,7 @@ test('sends a filter change to the host, lists by the filters the host holds, an
   const onTrackedFiltersChange = vi.fn()
   const { rerender, ...props } = renderWorkspace({ trackedFilters: LIST, onTrackedFiltersChange })
   await screen.findByText(UPTOWN_BEST)
-  await waitFor(() => expect(chips(UPTOWN_BEST)).toHaveLength(3))
+  await waitFor(() => expect(engineCount(UPTOWN_BEST)).toBe('2 of 3 engines'))
 
   fireEvent.click(screen.getByRole('button', { name: /^Filters/ }))
   fireEvent.change(screen.getByRole('combobox', { name: 'Subject' }), { target: { value: 'location' } })
@@ -476,69 +480,56 @@ test.each([
   // The day is the viewer's own, so the label is built as the page builds it: the test holds in every timezone.
   ['a writer whose host has the date', false, CHANGED_AT, `Tracking changed ${day(CHANGED_AT)}`],
   ['a viewer, whose host has none', true, undefined, 'Tracking changed'],
-] as const)('after a move published with no new sweep, the moved row reads Not checked and the rest keep their chips, for %s', async (_who, viewer, trackingChangedAt, label) => {
+] as const)('after a move published with no new sweep, the moved row reads Not checked and the rest keep their counts, for %s', async (_who, viewer, trackingChangedAt, label) => {
   // Harbor Point reviews was moved after the sweep of Oct 7: the results hold no row for it until the next one.
   installApi({ results: () => jsonResponse(sweep({ run: { ...sweep().run!, revision: 3, matchesCurrentTracking: false }, rows: RESULT_ROWS.filter(row => row.queryId !== 'q-harbor'), pendingRows: 2 })) })
   const props = { trackingChangedAt, nextSweepDate: 'Oct 21' }
   if (viewer) renderList(props, 'viewer')
   else renderList(props)
   await screen.findByText(HARBOR)
-  await waitFor(() => expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mentioned', 'Gemini: Not mentioned', 'Perplexity: Mentioned']))
-  // It is asked on OpenAI and Gemini. Perplexity is an engine only the old sweep asked, so no pair is drawn for it there.
-  expect(engineCells(HARBOR)).toEqual(['OpenAI: Mention not checked', 'Gemini: Mention not checked', 'Not asked'])
+  await waitFor(() => expect(engineCount(UPTOWN_BEST)).toBe('2 of 3 engines'))
+  // The results hold no row for it, so no engine checked it: never a zero.
+  expect(engineCount(HARBOR)).toBe('Not checked')
   // The same words as AI Visibility: a short label, with the sentence behind it.
   noteButton(label, VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(day(SWEPT_AT), 'Oct 21'), region())
   expect(screen.queryByText('Results unavailable')).toBeNull()
 })
 
-test('a location added after the last sweep reads Not checked and First answers, a query asked both ways has a pair per type, and nothing reads as an error', async () => {
+test('a location added after the last sweep reads Not checked and First answers, a query asked both ways has a count per type, and nothing reads as an error', async () => {
   installApi()
-  renderList({ nextSweepDate: 'Oct 21' })
+  const { rerender } = renderList({ nextSweepDate: 'Oct 21' })
   await screen.findByText(PIER_NEW)
-  await waitFor(() => expect(chips(UPTOWN_BEST)).toHaveLength(3))
-  expect(engineCells(PIER_NEW)).toEqual(['OpenAI: Mention not checked', 'Gemini: Mention not checked', 'Not asked'])
-  // Why it is not checked is in the bubble, after whose result it would be.
-  expect(marks(PIER_NEW, 'OpenAI: Mention not checked')).toBe('Pier House. Not in the last sweep.')
+  await waitFor(() => expect(engineCount(UPTOWN_BEST)).toBe('2 of 3 engines'))
+  expect(engineCount(PIER_NEW)).toBe('Not checked')
+  // Its Status says why: it waits for its first answers.
   expect(within(rowOf(PIER_NEW)).getByText('First answers Oct 21')).toBeTruthy()
   expect(within(rowOf(PIER_NEW)).getByText('Never')).toBeTruthy()
-  // Branded and non-brand results are never combined: each type keeps its own pair, and Cited is never read from Mentioned.
-  expect(chips(PICKED)).toEqual([
-    'OpenAI, Branded: Mentioned', 'OpenAI, Non-brand: Mentioned',
-    'Gemini, Branded: Mentioned', 'Gemini, Non-brand: Not mentioned',
-  ])
-  // Neither type of it is asked on Perplexity.
-  expect(engineCells(PICKED)[2]).toBe('Not asked')
+  // Branded and non-brand results are never combined: each type keeps its own count, and Cited is never read from Mentioned.
+  expect(engineCount(PICKED)).toEqual(['Branded: 2 of 2 engines', 'Non-brand: 1 of 2 engines'])
+  rerender({ trackedFilters: { ...LIST, signal: 'cited' } })
+  // OpenAI's non-brand sources were not checked, so of the two engines one checked them, and it does not cite.
+  await waitFor(() => expect(engineCount(PICKED)).toEqual(['Branded: 1 of 2 engines', 'Non-brand: 0 of 1 engine']))
   expect(screen.queryByText('Results unavailable')).toBeNull()
   expect(screen.queryByText(/^Tracking changed/)).toBeNull()
   expect(screen.queryByRole('alert')).toBeNull()
 })
 
-test('says whose mention a mark is in each bubble, and it follows the Place', async () => {
+test('the count follows the Place: the engines that show the signal there, for the locations asked there', async () => {
   // As the server reads a place: under Harbor Point the same market query is checked for that one location, which the answers did not mention.
   const forHarbor = [
     resultRow('q-uptown-best', UPTOWN_BEST, 'non-brand', [{ ...engine('gemini', false, false), expectedAnswers: 1, answers: 1 }, { ...engine('openai', false, false), expectedAnswers: 1, answers: 1 }]),
     resultRow('q-harbor', HARBOR, 'branded', [engine('gemini', true, true), engine('openai', true, true)]),
   ]
-  installApi({ results: search => jsonResponse(sweep(search.get('scope') === 'property' ? { scope: { kind: 'property', key: 'harbor' }, rows: forHarbor } : search.get('scope') === 'group' ? { scope: { kind: 'group', key: 'north' } } : {})) })
+  installApi({ results: search => jsonResponse(sweep(search.get('scope') === 'property' ? { scope: { kind: 'property', key: 'harbor' }, rows: forHarbor } : {})) })
   const { rerender } = renderWorkspace({ rootLabel: 'All of Acme Homes', trackedFilters: LIST, onTrackedFiltersChange: () => {} })
   await screen.findByText(UPTOWN_BEST)
-  await waitFor(() => expect(chips(UPTOWN_BEST)).toHaveLength(3))
-  // A market query is lit when any location it is asked for is mentioned: the three of Uptown, as the row's own links count them.
-  expect(marks(UPTOWN_BEST, 'OpenAI: Mentioned')).toBe('Any of 3 locations in Uptown. Mentioned in 2 of 3 answers.')
-  expect(marks(HARBOR, 'OpenAI: Mentioned')).toBe('Harbor Point. Mentioned in 2 of 3 answers.')
-  // A query asked both ways: each type's pair is for the location asked under that type.
-  expect(marks(PICKED, 'OpenAI, Branded: Mentioned')).toBe('Branded. Harbor Point. Mentioned in 2 of 3 answers.')
-  expect(marks(PICKED, 'Gemini, Non-brand: Not mentioned')).toBe('Non-brand. Pier House. Mentioned in 0 of 3 answers.')
-  // The name of a pair stays the engine and its two states under every Place.
-  expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mentioned', 'Gemini: Not mentioned', 'Perplexity: Mentioned'])
+  // A market query is mentioned by an engine when any location it is asked for is: two of the three engines, for the whole project.
+  await waitFor(() => expect(engineCount(UPTOWN_BEST)).toBe('2 of 3 engines'))
 
-  // The group holds two of Uptown's three locations: the same row is marked for those two.
-  rerender({ selection: { measurementScope: 'group', measurementScopeKey: 'north', queryClass: 'all' } })
-  await waitFor(() => expect(marks(UPTOWN_BEST, 'OpenAI: Mentioned')).toBe('Any of 2 locations in Uptown. Mentioned in 2 of 3 answers.'))
-
-  // One location: the market row's marks are that location's alone, and each bubble names it. The Subject still reads the market.
+  // One location: the market row's count is that location's alone. The Subject still reads the market.
   rerender({ selection: { measurementScope: 'property', measurementScopeKey: 'harbor', queryClass: 'all' } })
-  await waitFor(() => expect(marks(UPTOWN_BEST, 'OpenAI: Not mentioned')).toBe('Harbor Point. Mentioned in 0 of 1 answer.'))
+  await waitFor(() => expect(engineCount(UPTOWN_BEST)).toBe('0 of 2 engines'))
+  expect(engineCount(HARBOR)).toBe('2 of 2 engines')
   expect(rowOf(UPTOWN_BEST).textContent).toContain('Market · Uptown (3)')
   expectNoSentence(region())
 })
@@ -557,9 +548,9 @@ test('Result Not checked lists the rows with a sweep gap, never a query that is 
   expect(listed()).toEqual([])
   rerender({ trackedFilters: { ...LIST, status: 'not-asked' } })
   expect(listed()).toEqual([OLD_TOWN, CAMPUS])
-  // Each is drawn with no pair: its Status says why.
-  expect(engineCells(OLD_TOWN)).toEqual(['Not asked', 'Not asked', 'Not asked'])
-  expect(within(rowOf(OLD_TOWN)).queryByRole('button', { name: /^(OpenAI|Gemini|Perplexity)[,:]/ })).toBeNull()
+  // Each has nothing to count, heard as Not asked: its Status says why.
+  expect(engineCount(OLD_TOWN)).toBe('Not asked')
+  expect(within(rowOf(OLD_TOWN)).queryByText(/ of /)).toBeNull()
 })
 
 test('the Add query form opens on the engines the plan is asked with, though the project now lists fewer, and sends them', async () => {
@@ -592,17 +583,17 @@ test('the Add query form opens on the engines the plan is asked with, though the
   }])
 })
 
-test('a failed results read keeps the table with Not checked chips, and Retry reads again', async () => {
+test('a failed results read keeps the table with Not checked counts, and Retry reads again', async () => {
   let fail = true
   const requests = installApi({ results: () => fail ? jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'unavailable' } }, 500) : jsonResponse(sweep()) })
   const { queryClient } = renderList({ nextSweepDate: 'Oct 21' })
   await screen.findByText(UPTOWN_BEST)
-  const note = await screen.findByRole('button', { name: "Results unavailable. The last sweep's results did not load, so every chip reads Not checked." })
+  const note = await screen.findByRole('button', { name: "Results unavailable. The last sweep's results did not load, so every count reads Not checked." })
   expect(note.textContent).toBe('Results unavailable')
-  // Said to a screen reader when it appears, as the chips going blank is not.
+  // Said to a screen reader when it appears, as the counts going blank is not.
   expect(note.closest('[role="status"]')!.textContent).toBe('Results unavailableRetry')
   expect(listed()).toHaveLength(6)
-  expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mention not checked', 'Gemini: Mention not checked'])
+  expect(engineCount(UPTOWN_BEST)).toBe('Not checked')
   // The strip keeps its numbers and claims no sweep date it could not read.
   expect(strip()['Queries asked']).toBe('41')
   expect(within(region()).queryByText(/^Last sweep/)).toBeNull()
@@ -611,11 +602,11 @@ test('a failed results read keeps the table with Not checked chips, and Retry re
   const retry = screen.getByRole('button', { name: 'Retry results' })
   expect(retry.textContent).toBe('Retry')
   fireEvent.click(retry)
-  await waitFor(() => expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mentioned', 'Gemini: Not mentioned', 'Perplexity: Mentioned']))
+  await waitFor(() => expect(engineCount(UPTOWN_BEST)).toBe('2 of 3 engines'))
   expect(screen.queryByText('Results unavailable')).toBeNull()
   expect(requests.filter(request => request.includes('/results'))).toHaveLength(2)
 
-  // A later refresh that fails keeps the chips the page has already read.
+  // A later refresh that fails keeps the counts the page has already read.
   fail = true
   await act(() => queryClient.invalidateQueries())
   expect(requests.filter(request => request.includes('/results'))).toHaveLength(3)
@@ -624,16 +615,16 @@ test('a failed results read keeps the table with Not checked chips, and Retry re
   await waitFor(() => expect(read.state.status).toBe('error'))
   expect(read.state.data).toBeDefined()
   await act(() => new Promise<void>(resolve => { setTimeout(resolve, 20) }))
-  expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mentioned', 'Gemini: Not mentioned', 'Perplexity: Mentioned'])
+  expect(engineCount(UPTOWN_BEST)).toBe('2 of 3 engines')
   expect(screen.queryByText('Results unavailable')).toBeNull()
 })
 
-test('with no sweep yet the strip says so, every chip reads Not checked and a running sweep takes the next date', async () => {
+test('with no sweep yet the strip says so, every count reads Not checked and a running sweep takes the next date', async () => {
   installApi({ results: () => jsonResponse(sweep({ run: null, engines: [], rows: [], pendingRows: 6 })) })
   renderList({ publishGuard: { sweepActive: true } })
   await screen.findByText(UPTOWN_BEST)
   expect(await within(region()).findByText('Last sweep: none')).toBeTruthy()
-  expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mention not checked', 'Gemini: Mention not checked'])
+  expect(engineCount(UPTOWN_BEST)).toBe('Not checked')
   // A sweep under way names no date: the strip says it is running and a waiting row reads plain First answers.
   noteButton('Sweep running', 'Answers are being collected now. Numbers update when the sweep finishes.', region())
   expect(within(region()).queryByText(/^Next /)).toBeNull()
@@ -853,7 +844,7 @@ test('a Result filter waits for the results: skeleton rows and no count, never a
   expect(within(bulkBar()!).getByText('1 selected')).toBeTruthy()
 })
 
-test('inside a place a query asked both ways reads the type it is asked under there, with one pair of chips per engine', async () => {
+test('inside a place a query asked both ways reads the type it is asked under there, with one count', async () => {
   // As the server folds the results for a place: one row per query and type with a location link inside it.
   const inUptown = RESULT_ROWS.filter(row => !(row.queryId === 'q-picked' && row.queryClass === 'non-brand'))
   installApi({ results: search => jsonResponse(sweep(search.get('scope') === 'market' ? { scope: { kind: 'market', key: 'uptown' }, rows: inUptown } : {})) })
@@ -861,7 +852,7 @@ test('inside a place a query asked both ways reads the type it is asked under th
   await screen.findByText(PICKED)
   const typeOf = (queryText: string) => rowOf(queryText).cells[within(table()).getAllByRole('columnheader').findIndex(header => header.textContent === 'Type')]!.textContent
   // In Uptown the query is asked as Branded only: its Non-brand location is elsewhere.
-  await waitFor(() => expect(engineCells(PICKED)).toEqual(['OpenAI: Mentioned', 'Gemini: Mentioned', 'Not asked']))
+  await waitFor(() => expect(engineCount(PICKED)).toBe('2 of 2 engines'))
   expect(typeOf(PICKED)).toBe('Branded')
   // The filters read the same types: no Non-brand pair to wait for here, and no Mixed row.
   rerender({ trackedFilters: { ...LIST, type: 'non-brand' } })
@@ -876,10 +867,9 @@ test('inside a place a query asked both ways reads the type it is asked under th
   fireEvent.click(sheet.getByRole('button', { name: 'Cancel' }))
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 
-  // For the whole project it is asked both ways, a pair per type.
+  // For the whole project it is asked both ways, a count per type.
   rerender({ selection: PROJECT, trackedFilters: LIST })
-  // On each of the two engines it is asked on. Perplexity is the old sweep's alone.
-  await waitFor(() => expect(chips(PICKED)).toHaveLength(4))
+  await waitFor(() => expect(engineCount(PICKED)).toEqual(['Branded: 2 of 2 engines', 'Non-brand: 1 of 2 engines']))
   expect(typeOf(PICKED)).toBe('MixedBrandedNon-brand')
 })
 
@@ -899,14 +889,16 @@ test('a place keeps only its own engine assignments even when the query has the 
   })
   const { rerender } = renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'harbor', queryClass: 'all' }, trackedFilters: LIST, onTrackedFiltersChange: () => {} })
   await screen.findByText(PICKED)
-  await waitFor(() => expect(engineCells(PICKED)).toEqual(['OpenAI: Mentioned', 'Not asked']))
+  // The count is the server's: of the engines that checked it, which is OpenAI's one answer.
+  await waitFor(() => expect(engineCount(PICKED)).toBe('1 of 1 engine'))
 
   // Gemini belongs only to Pier House, so Harbor Point has no missing answer to filter for.
   rerender({ trackedFilters: { ...LIST, result: 'not-checked' } })
   expect(listed()).toEqual([])
-  // At project scope Gemini really was asked; its absent result is a sweep gap.
-  rerender({ selection: PROJECT, trackedFilters: LIST })
-  await waitFor(() => expect(engineCells(PICKED)).toEqual(['OpenAI: Mentioned', 'Gemini: Mention not checked']))
+  // At project scope Gemini really was asked; its absent result is a sweep gap, which that filter lists.
+  rerender({ selection: PROJECT, trackedFilters: { ...LIST, result: 'not-checked' } })
+  await waitFor(() => expect(listed()).toEqual([PICKED]))
+  expect(engineCount(PICKED)).toBe('1 of 1 engine')
 })
 
 test('a location keeps both query types and only the engine contexts each type uses', async () => {
@@ -922,14 +914,12 @@ test('a location keeps both query types and only the engine contexts each type u
   })
   const { rerender } = renderWorkspace({ selection: { measurementScope: 'property', measurementScopeKey: 'harbor', queryClass: 'all' }, trackedFilters: LIST, onTrackedFiltersChange: () => {} })
   await screen.findByText(PICKED)
-  await waitFor(() => expect(chips(PICKED)).toEqual(['OpenAI, Branded: Mention not checked', 'Gemini, Non-brand: Mention not checked']))
-  expect(within(rowOf(PICKED)).queryByRole('button', { name: 'OpenAI, Non-brand: Mention not checked' })).toBeNull()
-  expect(within(rowOf(PICKED)).queryByRole('button', { name: 'Gemini, Branded: Mention not checked' })).toBeNull()
+  // Each type is asked on an engine of its own and the sweep holds neither: a count per type, both not checked.
+  await waitFor(() => expect(engineCount(PICKED)).toEqual(['Branded: Not checked', 'Non-brand: Not checked']))
 
-  // The same location belongs to two markets, each with its own context and type.
+  // The same location belongs to two markets, each with its own context and type: in Uptown it is Branded alone.
   rerender({ selection: UPTOWN_PLACE })
-  await waitFor(() => expect(chips(PICKED)).toEqual(['OpenAI: Mention not checked']))
-  expect(engineCells(PICKED)).toEqual(['OpenAI: Mention not checked', 'Not asked'])
+  await waitFor(() => expect(engineCount(PICKED)).toBe('Not checked'))
 })
 
 test('the bulk bar offers what every selected row can take, and its actions open the sheets with the rows and the Place', async () => {
@@ -1180,7 +1170,7 @@ test('a viewer reads everything and is offered no change: no Add, no checkboxes,
   installApi()
   renderList({ nextSweepDate: 'Oct 21' }, 'viewer')
   await screen.findByText(UPTOWN_BEST)
-  await waitFor(() => expect(chips(UPTOWN_BEST)).toHaveLength(3))
+  await waitFor(() => expect(engineCount(UPTOWN_BEST)).toBe('2 of 3 engines'))
   expect(strip()['Queries asked']).toBe('41')
   expect(screen.queryByRole('button', { name: /^Add / })).toBeNull()
   expect(screen.queryAllByRole('checkbox')).toEqual([])
@@ -1390,8 +1380,8 @@ test('a file of one place carries the place\'s key in its name, and an embed is 
   window.__CANONRY_CONFIG__ = { embed: { enabled: true } } as typeof window.__CANONRY_CONFIG__
   renderList()
   await screen.findByText(UPTOWN_BEST)
-  // The results are read, which is when a file would be offered.
-  await screen.findAllByRole('button', { name: /^Perplexity[,:]/ })
+  // The results are read, which is when a file would be offered. An embed draws no row menu, so the table's text says so.
+  await waitFor(() => expect(table().textContent).toContain('2 of 3 engines'))
   expect(screen.queryByRole('button', { name: 'Export CSV' })).toBeNull()
 })
 
@@ -1448,12 +1438,9 @@ test('Views opens beside the search and prints each read\'s own count, for the w
     'Lost in last sweep, 1', 'Won in last sweep, 2', 'Location gaps, 5', 'Thin markets, 9', 'Pattern gaps, 2', 'Not asked, 7', 'Hand-picked, 3',
   ]))
   expect(pressedViews()).toEqual([])
-  // Each change is marked in its engine's own cell, so the legend says what a ▲ and a ▼ beside a letter are.
-  expect(within(screen.getByRole('list', { name: 'Legend' })).getAllByRole('listitem').map(entry => entry.textContent)).toEqual(['M Mentioned', 'M Not mentioned', 'MNot checked', 'Won in last sweep', 'Lost in last sweep'])
-  expect(within(table()).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['', 'Query', 'Subject', 'Type', 'OpenAI', 'Gemini', 'Perplexity', 'Last measured', 'Status', 'Source', 'Actions'])
-  const gemini = within(rowOf(UPTOWN_BEST)).getByRole('button', { name: 'Gemini: Not mentioned' })
-  expect(gemini.getAttribute('aria-description')).toBe('Any of 3 locations in Uptown. Mentioned in 0 of 3 answers. Lost in last sweep.')
-  expect(gemini.querySelector('.signal-change')).not.toBeNull()
+  // Compared, each count says how many engines won or lost the signal, and the legend says what a ▲ and a ▼ are.
+  expect(within(screen.getByRole('list', { name: 'Legend' })).getAllByRole('listitem').map(entry => entry.textContent)).toEqual(['Won in last sweep', 'Lost in last sweep'])
+  expect([engineCount(UPTOWN_BEST), engineCount(HARBOR), engineCount(DOWNTOWN)]).toEqual(['2 of 3 engines, 1 lost in last sweep', '2 of 2 engines, 1 won in last sweep', '1 of 2 engines'])
   const order = [region().querySelector('dl')!, searchBox(), screen.getByRole('button', { name: 'Views' }), table()]
   for (const [index, element] of order.slice(1).entries()) expect(order[index]!.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expectNoSentence(region())
@@ -1495,7 +1482,7 @@ test('before a first sweep no comparison is waited for, and a URL that names a v
   const five = ['Location gaps, 5', 'Thin markets, 9', 'Pattern gaps, 2', 'Not asked, 7', 'Hand-picked, 3']
   expect(viewNames()).toEqual(five)
   held.waiting.shift()!(noSweep())
-  await waitFor(() => expect(chips(UPTOWN_BEST)).toEqual(['OpenAI: Mention not checked', 'Gemini: Mention not checked']))
+  await waitFor(() => expect(engineCount(UPTOWN_BEST)).toBe('Not checked'))
   expect(viewNames()).toEqual(five)
 
   // Weakest markets is the Markets list now: an old link to it lists what the page lists.

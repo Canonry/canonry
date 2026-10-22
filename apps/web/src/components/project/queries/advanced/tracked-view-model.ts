@@ -1,6 +1,7 @@
 import type {
   MeasurementQueryTemplate,
   QueryClass,
+  QueryTrackingRowEngineCounts,
   QueryTrackingTrackedRow,
   QueryTrackingWorkspaceResponse,
 } from '@canonry/canonry-contracts'
@@ -171,6 +172,8 @@ export interface TrackedResults {
     /** Branded, non-brand, or `unknown` for a query asked with no type set. */
     queryClass: string
     engines: readonly ({ provider: string } & EngineSignal)[]
+    /** The server's count of the row's engines (`engineCounts`), the one figure the query list shows. */
+    engineCounts?: QueryTrackingRowEngineCounts
   }[]
 }
 
@@ -194,6 +197,21 @@ export function coverageByQuery(results: TrackedResults | null | undefined): Tra
     coverage.set(coverageKey(row.queryId, row.queryClass), engines)
   }
   return coverage
+}
+
+/** Each row's engines as the server counts them (`engineCounts`), by query and type. */
+export type TrackedCounts = ReadonlyMap<string, QueryTrackingRowEngineCounts>
+
+/** Undefined while the results load, so each count draws its skeleton. */
+export function countsByQuery(results: TrackedResults | null | undefined): TrackedCounts | undefined {
+  if (!results) return undefined
+  return new Map(results.rows.flatMap(row => row.engineCounts ? [[coverageKey(row.queryId, row.queryClass), row.engineCounts] as const] : []))
+}
+
+/** One row's count for one type: undefined while results load, null when the sweep holds no result for it. */
+export function rowCounts(counts: TrackedCounts | undefined, queryId: string, queryClass: string): QueryTrackingRowEngineCounts | null | undefined {
+  if (!counts) return undefined
+  return counts.get(coverageKey(queryId, queryClass)) ?? null
 }
 
 /** The server's order of a sorted read, by query and type: 0 first. */
@@ -389,9 +407,10 @@ export type TrackedColumn = (typeof TRACKED_COLUMNS)[number]
  * Column widths in px. Query takes what is left: 424px in the 1152px content
  * column with three engines. Subject's is its widest: it narrows before Query
  * gets short (`trackedLayout`). Status holds its widest label, "First answers"
- * and a month and day.
+ * and a month and day. `count` is the one engines column of a list under the
+ * switch, however many engines: "12 of 12" and both changes in two figures.
  */
-export const TRACKED_COLUMN_WIDTH = { select: 32, subject: 250, type: 80, engine: 62, lastMeasured: 108, status: 148, source: 98, menu: 32 } as const
+export const TRACKED_COLUMN_WIDTH = { select: 32, subject: 250, type: 80, engine: 62, count: 136, lastMeasured: 108, status: 148, source: 98, menu: 32 } as const
 /**
  * The query is the row's identity. At this width its line holds 60 to 64
  * characters, by their letters, and a page with a longer one gives every row

@@ -14,7 +14,7 @@ import { WriteButton } from '../../../shared/AccessControls.js'
 import { aeroAllowedFor } from '../../../shared/AeroBar.js'
 import { formatObservedInstantMonthDay, observedInstant } from '../../../shared/ChartPrimitives.js'
 import { DataTablePagination } from '../../../shared/DataTableControls.js'
-import { SignalLetterLegend } from '../../../shared/SignalCells.js'
+import { ChangeLegend } from '../../../shared/EngineCount.js'
 import { StatusNote } from '../../../shared/StatusNote.js'
 import { Button } from '../../../ui/button.js'
 import { Card } from '../../../ui/card.js'
@@ -52,7 +52,7 @@ const PAGE_SIZES = [25, 50, 100] as const
 const DEFAULT_PAGE_SIZE = TRACKED_BULK_MAX
 const TOUCH = 'pointer-coarse:min-h-11 max-md:min-h-11'
 const COPY = {
-  resultsUnavailable: "The last sweep's results did not load, so every chip reads Not checked.",
+  resultsUnavailable: "The last sweep's results did not load, so every count reads Not checked.",
   mixedSelection: 'Queries that are asked and queries that are not take different actions. Select one kind.',
 }
 
@@ -569,7 +569,7 @@ function TrackedPage({
           />
         </div>
       ) : null}
-      {/* The chips are the last sweep's: a query changed since has none until the next one. */}
+      {/* The results are the last sweep's: a query changed since has none until the next one. */}
       {run && !run.matchesCurrentTracking ? (
         <StatusNote
           icon={Clock}
@@ -578,7 +578,7 @@ function TrackedPage({
           detail={VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(formatObservedInstantMonthDay(observedInstant(run.completedAt ?? run.createdAt)), nextSweepDate ?? null)}
         />
       ) : null}
-      {listing ? <SignalLetterLegend which={signal} changes={compareRun !== undefined && compareRun !== null} /> : null}
+      {compareRun !== undefined && compareRun !== null ? <ChangeLegend /> : null}
     </div>
   )
 
@@ -598,7 +598,7 @@ function TrackedPage({
       {/* Every role reads the list, so every role can take it away as a file. A view-only account is offered no way to add. With neither, the slot stays empty and closes up. */}
       {actionsSlot && !embedded ? createPortal(
         <>
-          {/* The file holds queries, so it is offered while they are what is listed. Its chips are the results', so it waits for them, and with none read there is no file: the legend says why and offers Retry. */}
+          {/* The file holds queries, so it is offered while they are what is listed. Its cells are the results', so it waits for them, and with none read there is no file: the legend says why and offers Retry. */}
           {workspace.tracked.length > 0 && !view ? (
             <Button type="button" variant="outline" size="sm" className={TOUCH} disabled={listing ? results.coverage === undefined || results.isError : grouped.data?.groups === undefined} onClick={exportCsv}>
               <Download aria-hidden="true" size={14} />
@@ -694,6 +694,7 @@ function TrackedPage({
               rows={pageRows}
               engines={engines}
               coverage={results.coverage}
+              counts={results.counts}
               sort={sort}
               onSortChange={setSort}
               // With no row to tick there is no box to draw.

@@ -3590,21 +3590,14 @@
     @apply whitespace-nowrap tabular-nums text-secondary;
   }
 
-  /* The ▲ or ▼ of a letter whose engine won or lost the signal since the
-     previous sweep, off the chip's right edge: the chips of a column stay
-     level whether or not one is marked, and more engines widen no row. */
-  .signal-change {
-    position: absolute;
-    left: 100%;
-    top: 50%;
-    margin-left: 3px;
-    translate: 0 -50%;
+  /* The engines' count under the switch: one column however many engines, set at the size of the query. */
+  .tracked-table .tracked-cell-count {
+    @apply whitespace-nowrap text-[13px];
   }
 
-  /* A stacked row sets its engines side by side, so the mark takes room of its own before the next engine's name. */
-  .tracked-table[data-layout='stacked'] .signal-change {
-    position: static;
-    translate: none;
+  /* A row asked both ways: its counts line up at the start of the column, as its types do. */
+  .tracked-cell-count .tracked-pair-stack {
+    @apply items-start;
   }
 
   /* Status carries the row's date. The widest label, "First answers" and a
@@ -3801,7 +3794,8 @@
       border-bottom-color: transparent;
     }
 
-    & .tracked-row > .tracked-cell-engine {
+    & .tracked-row > .tracked-cell-engine,
+    & .tracked-row > .tracked-cell-count {
       display: inline-flex;
       align-items: center;
       gap: 0.375rem;
@@ -3836,7 +3830,8 @@
         flex-basis: 100%;
       }
 
-      & .tracked-row > .tracked-cell-engine {
+      & .tracked-row > .tracked-cell-engine,
+      & .tracked-row > .tracked-cell-count {
         order: 6;
       }
 

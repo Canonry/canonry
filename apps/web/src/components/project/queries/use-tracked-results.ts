@@ -4,11 +4,12 @@ import { getApiV1ProjectsByNameQueryTrackingResultsOptions } from '@canonry/cano
 
 import { heyClient } from '../../../api.js'
 import type { QueriesSectionProps } from '../DiscoverySection.js'
-import { coverageByQuery, rankByQuery } from './advanced/tracked-view-model.js'
+import { countsByQuery, coverageByQuery, rankByQuery } from './advanced/tracked-view-model.js'
 
 const NO_ENGINES: readonly string[] = []
 /** A read that failed holds no result, so every chip reads Not checked, never No. */
 const NO_RESULTS = coverageByQuery({ rows: [] })
+const NO_COUNTS = countsByQuery({ rows: [] })
 
 /** What the read is asked beyond the place: the switch, the server's order, and the sweep before to compare with. */
 export interface TrackedResultsReadOptions {
@@ -26,7 +27,8 @@ export interface TrackedResultsReadOptions {
  * read is in flight, so the chips draw their skeleton; after a failed read it
  * holds no result and `isError` says so. `run` is null when no sweep has
  * finished, and undefined while that is not known. With `sort`, `rank` is the
- * server's order of the rows, by the signal's share of answers.
+ * server's order of the rows: by the share of engines that show the signal,
+ * which `counts` holds for each row, then by its share of answers.
  */
 export function useTrackedResults(
   projectName: string,
@@ -48,9 +50,11 @@ export function useTrackedResults(
   const { data } = query
   const failed = query.isError && data === undefined
   const coverage = useMemo(() => failed ? NO_RESULTS : coverageByQuery(data), [data, failed])
+  const counts = useMemo(() => failed ? NO_COUNTS : countsByQuery(data), [data, failed])
   const rank = useMemo(() => sort && data ? rankByQuery(data) : undefined, [data, sort])
   return {
     coverage,
+    counts,
     rank,
     engines: data?.engines ?? NO_ENGINES,
     run: data?.run,

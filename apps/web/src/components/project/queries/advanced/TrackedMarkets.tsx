@@ -6,7 +6,7 @@ import { getApiV1ProjectsByNameQueryTrackingResultsOptions } from '@canonry/cano
 
 import { heyClient } from '../../../../api.js'
 import { providerDisplayName } from '../../../../lib/visibility-trend-helpers.js'
-import { SignalLetter } from '../../../shared/SignalCells.js'
+import { ChangeMark, EngineCount } from '../../../shared/EngineCount.js'
 import { StatusNote } from '../../../shared/StatusNote.js'
 import { Button } from '../../../ui/button.js'
 import type { TrackedSignal } from './tracked-types.js'
@@ -43,17 +43,17 @@ function RateCounts({ rate }: { rate: Rate | undefined }) {
   )
 }
 
-/** Won and lost on the same queries since the previous sweep, for the switch's signal: "+2 −1", blank when nothing moved. */
+/** Won and lost on the same queries since the previous sweep, for the switch's signal: "▲2 ▼1", blank when nothing moved. */
 function ChangeCounts({ type, signal }: { type: GroupType | undefined; signal: TrackedSignal }) {
   const change = type?.change
   if (!change) return null
   const [won, lost] = signal === 'cited' ? [change.citationsWon, change.citationsLost] : [change.mentionsWon, change.mentionsLost]
   if (won === 0 && lost === 0) return null
-  const noun = signal === 'cited' ? 'citations' : 'mentions'
+  const noun = (count: number) => signal === 'cited' ? (count === 1 ? 'citation' : 'citations') : (count === 1 ? 'mention' : 'mentions')
   return (
-    <span className="inline-flex gap-2 font-medium tabular-nums">
-      {won > 0 ? <span className="text-positive-400">+{whole(won)}<span className="sr-only"> {noun} won</span></span> : null}
-      {lost > 0 ? <span className="text-negative-400">−{whole(lost)}<span className="sr-only"> {noun} lost</span></span> : null}
+    <span className="inline-flex items-center gap-2.5 font-medium tabular-nums">
+      {won > 0 ? <span className="inline-flex items-center gap-1 text-positive-400"><ChangeMark change="won" />{whole(won)}<span className="sr-only"> {noun(won)} won</span></span> : null}
+      {lost > 0 ? <span className="inline-flex items-center gap-1 text-negative-400"><ChangeMark change="lost" />{whole(lost)}<span className="sr-only"> {noun(lost)} lost</span></span> : null}
     </span>
   )
 }
@@ -97,15 +97,16 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /**
- * Markets as rows and engines as columns, losing first: one line per market
- * (or group of markets) with its non-brand share of answers for the switch's
- * signal, each engine's count, what changed since the previous sweep, and who
- * the answers named (or cited) instead. Every number is a field of the
- * grouped results read. Opening a market lists its own queries with their
- * letters, and the facts its line leaves out: answers that named another of
- * the project's locations, every name and site given instead, the tracked
- * competitors, and its location queries' Branded result. The arrow opens the
- * market's queries.
+ * Markets as rows, losing first: one line per market (or group of markets)
+ * with its non-brand share of answers for the switch's signal, what changed
+ * since the previous sweep, and who the answers named (or cited) instead. The
+ * line is as wide with one engine as with ten: each engine's counts are the
+ * opened market's. Every number is a field of the grouped results read.
+ * Opening a market lists the facts its line leaves out: answers that named
+ * another of the project's locations, each engine's counts, its own queries
+ * with how many engines show the signal on each, every name and site given
+ * instead, the tracked competitors, and its location queries' Branded result.
+ * The arrow opens the market's queries.
  */
 export function TrackedMarkets({ projectName, results, grouping, signal, order, search, engines, onOpenQueries, onOpenedChange }: {
   projectName: string
@@ -157,17 +158,16 @@ export function TrackedMarkets({ projectName, results, grouping, signal, order, 
   )
   const noun = grouping === 'group' ? 'Group' : 'Market'
   const signalLabel = signal === 'cited' ? 'Cited' : 'Mentioned'
-  const columns = 5 + engines.length
+  const columns = 5
 
   return (
     <div className="overflow-x-auto">
-      {/* On a phone a market is its name, its share and who won: each engine's count and the change wait in the opened market. */}
+      {/* On a phone a market is its name, its share and who won: the change waits in the opened market. */}
       <table id={tableId} aria-label={grouping === 'group' ? 'Groups of markets' : 'Markets'} className="w-full border-separate border-spacing-0 md:min-w-[56rem]">
         <thead>
           <tr>
             <th scope="col" className={HEAD}>{noun}</th>
             <th scope="col" className={`${HEAD} ${NUM}`}>{signalLabel}<span className="block text-[11px] font-normal leading-4 text-muted">non-brand</span></th>
-            {engines.map(engine => <th key={engine} scope="col" className={`${HEAD} ${NUM} ${PHONE_HIDDEN}`}>{providerDisplayName(engine)}</th>)}
             <th scope="col" className={`${HEAD} ${NUM} ${PHONE_HIDDEN}`}>Change<span className="block text-[11px] font-normal leading-4 text-muted">vs previous sweep</span></th>
             <th scope="col" className={HEAD}>{signal === 'cited' ? 'Cited instead' : 'Lost to'}</th>
             <th scope="col" className={HEAD}><span className="sr-only">Queries</span></th>
@@ -189,10 +189,6 @@ export function TrackedMarkets({ projectName, results, grouping, signal, order, 
                     </button>
                   </td>
                   <td className={`${CELL} ${NUM}`}><RateCounts rate={rateOf(nonBrand, signal)} /></td>
-                  {engines.map(engine => {
-                    const entry = nonBrand?.engines.find(candidate => candidate.provider === engine)
-                    return <td key={engine} className={`${CELL} ${NUM} ${PHONE_HIDDEN} text-neutral`}>{entry ? `${whole(signal === 'cited' ? entry.citedAnswers : entry.mentionedAnswers)}/${whole(entry.answers)}` : ''}</td>
-                  })}
                   <td className={`${CELL} ${NUM} ${PHONE_HIDDEN}`}><ChangeCounts type={nonBrand} signal={signal} /></td>
                   <td className={CELL}><WhoWon group={group} signal={signal} /></td>
                   <td className={`${CELL} w-10 text-right`}>
@@ -220,10 +216,10 @@ export function TrackedMarkets({ projectName, results, grouping, signal, order, 
 /**
  * What an opened market holds: answers that named another of the project's
  * locations, each engine's counts of both signals, every name and site given
- * instead, the tracked competitors, and its queries with their letters. A
- * group of markets lists its markets in their place. Counts are the grouped
- * read's; the queries are a read of the market narrowed to it, of the same
- * sweep.
+ * instead, the tracked competitors, and its queries, each with how many
+ * engines show the signal (`EngineCount`). A group of markets lists its
+ * markets in their place. Counts are the grouped read's; the queries are a
+ * read of the market narrowed to it, of the same sweep.
  */
 function OpenedMarket({ projectName, group, signal, engines, runId, onOpenQueries }: {
   projectName: string
@@ -277,19 +273,14 @@ function OpenedMarket({ projectName, group, signal, engines, runId, onOpenQuerie
                 <thead>
                   <tr>
                     <th scope="col" className={HEAD}>Market query</th>
-                    {engines.map(engine => <th key={engine} scope="col" className={`${HEAD} text-center`}>{providerDisplayName(engine)}</th>)}
-                    <th scope="col" className={HEAD}>Change</th>
+                    <th scope="col" className={`${HEAD} w-36`}>{signal === 'cited' ? 'Cited by' : 'Mentioned by'}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {marketRows.map(row => (
                     <tr key={`${row.queryId}:${row.queryClass}`}>
                       <td className={`${CELL} font-medium text-strong`}>{row.queryText}</td>
-                      {engines.map(engine => {
-                        const entry = row.engines.find(candidate => candidate.provider === engine)
-                        return <td key={engine} className={`${CELL} text-center`}>{entry ? <SignalLetter signal={entry} which={signal} engineLabel={providerDisplayName(engine)} /> : <span className="sr-only">Not asked</span>}</td>
-                      })}
-                      <td className={CELL}><RowChange row={row} signal={signal} /></td>
+                      <td className={CELL}><EngineCount counts={row.engineCounts ?? null} which={signal} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -326,14 +317,3 @@ function BrandedRate({ rate, signal }: { rate: Rate | undefined; signal: Tracked
   return <span><span className="font-medium tabular-nums text-strong">{whole(rate.numerator)} of {whole(rate.denominator)}</span><span className="text-secondary"> {signal}</span></span>
 }
 
-/** What each engine won or lost of the signal on one query since the previous sweep. */
-function RowChange({ row, signal }: { row: QueryTrackingResultRow; signal: TrackedSignal }) {
-  const field = signal === 'cited' ? 'citationChange' : 'mentionChange'
-  const marks = row.engines.flatMap(entry => entry[field] ? [{ engine: providerDisplayName(entry.provider), change: entry[field] }] : [])
-  if (marks.length === 0) return null
-  return (
-    <span className="flex flex-wrap gap-x-2">
-      {marks.map(mark => <span key={mark.engine} className={`whitespace-nowrap font-medium ${mark.change === 'won' ? 'text-positive-400' : 'text-negative-400'}`}>{mark.change === 'won' ? '▲' : '▼'} {mark.engine}<span className="sr-only"> {mark.change}</span></span>)}
-    </span>
-  )
-}
