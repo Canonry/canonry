@@ -193,6 +193,7 @@ declare global {
       /** Present only when dashboard chrome differs from its defaults. */
       dashboard?: {
         showResourceLinks?: boolean
+        showLocalAgentSetup?: boolean
         showUpdateNotification?: boolean
         managedSweeps?: boolean
         managedRunKinds?: SchedulableRunKind[]
@@ -315,6 +316,12 @@ export function getEmbedConfig(): EmbedClientConfig | null {
 export function shouldShowDashboardResourceLinks(): boolean {
   if (typeof window === 'undefined') return true
   return window.__CANONRY_CONFIG__?.dashboard?.showResourceLinks !== false
+}
+
+/** Whether local plugin, CLI, and stdio MCP onboarding instructions render. */
+export function shouldShowDashboardLocalAgentSetup(): boolean {
+  if (typeof window === 'undefined') return true
+  return window.__CANONRY_CONFIG__?.dashboard?.showLocalAgentSetup !== false
 }
 
 /**

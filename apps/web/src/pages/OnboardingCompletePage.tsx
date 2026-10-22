@@ -3,17 +3,13 @@ import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { getApiV1ProjectsByNameRunsOptions, getApiV1ProjectsByNameTechnicalAeoOptions } from '@canonry/canonry-api-client/react-query'
 import { ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, type OnboardingNextAction, type RunKind } from '@canonry/canonry-contracts'
-import { ArrowRight, Bell, CalendarClock, Check, Copy, LineChart, MapPin, Search, Server } from 'lucide-react'
+import { ArrowRight, Bell, CalendarClock, LineChart, MapPin, Search, Server } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 import { heyClient, recordOnboardingEvent } from '../api.js'
 import { createOnboardingEventId, getOrCreateOnboardingSessionId } from '../lib/onboarding-telemetry.js'
-import { addToast } from '../lib/toast-store.js'
 import { OnboardingProgress, type OnboardingStage, type OnboardingStageOutcome } from '../components/shared/OnboardingProgress.js'
 import { Button } from '../components/ui/button.js'
-
-export const AGENT_MCP_INSTALL_COMMAND = 'canonry mcp install --client claude-code'
-const AGENT_DOCS_URL = 'https://github.com/Canonry/canonry/blob/main/docs/mcp.md'
 
 /**
  * Step 4: where every onboarding exit lands.
@@ -274,10 +270,8 @@ function prefersReducedMotion(): boolean {
 }
 
 function AgentTile({ projectName }: { projectName: string }) {
-  const trackNextAction = useContext(TrackNextAction)
   const [active, setActive] = useState(0)
   const [paused, setPaused] = useState(false)
-  const [copied, setCopied] = useState(false)
 
   // Auto-advance is a demo, not content, so it stops the moment someone
   // hovers, focuses, or picks a session, and never runs under reduced motion.
@@ -287,22 +281,6 @@ function AgentTile({ projectName }: { projectName: string }) {
     return () => window.clearTimeout(timer)
   }, [active, paused])
 
-  const copy = async () => {
-    try {
-      // `navigator.clipboard` is absent outside a secure context (plain http
-      // on a LAN or Tailscale address), so reaching it can throw too.
-      await navigator.clipboard.writeText(AGENT_MCP_INSTALL_COMMAND)
-      trackNextAction('copy_agent_command')
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1800)
-    } catch {
-      addToast({
-        tone: 'negative',
-        title: 'Could not copy the command',
-        detail: `Run ${AGENT_MCP_INSTALL_COMMAND} in your terminal.`,
-      })
-    }
-  }
   const session = AGENT_SESSIONS[active] ?? AGENT_SESSIONS[0]
 
   return (
@@ -352,16 +330,9 @@ function AgentTile({ projectName }: { projectName: string }) {
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <code className="min-w-0 flex-1 truncate rounded-lg border border-default bg-surface-inset px-3 py-2 font-mono text-[13px] text-heading">
-          {AGENT_MCP_INSTALL_COMMAND}
-        </code>
-        <Button type="button" variant="secondary" size="sm" className="h-9 md:h-9" onClick={() => { void copy() }}>
-          {copied ? <Check className="size-4" aria-hidden="true" /> : <Copy className="size-4" aria-hidden="true" />}
-          {copied ? 'Copied' : 'Copy'}
+        <Button asChild variant="secondary" size="sm">
+          <Link to="/agent-setup">Agent setup</Link>
         </Button>
-        <a href={AGENT_DOCS_URL} target="_blank" rel="noreferrer" className="text-sm font-medium text-link underline-offset-4 hover:underline">
-          Other clients
-        </a>
       </div>
     </>
   )

@@ -1,4 +1,5 @@
 export { registerAgentConversationRoutes } from './agent-conversations.js'
+export { blockedAddressReason, stripIpv6Brackets } from './egress-policy.js'
 import type { FastifyInstance, FastifyError } from 'fastify'
 import rateLimit from '@fastify/rate-limit'
 import type { DatabaseClient } from '@canonry/canonry-db'
@@ -112,7 +113,7 @@ import {
   VercelLogsApiError,
 } from '@canonry/canonry-integration-vercel'
 import { doctorRoutes, type DoctorRoutesOptions } from './doctor.js'
-import { statusRoutes } from './status.js'
+import { statusRoutes, type StatusRoutesOptions } from './status.js'
 import { discoveryRoutes } from './discovery/index.js'
 import type { DiscoveryRoutesOptions } from './discovery/index.js'
 import { technicalAeoRoutes } from './technical-aeo.js'
@@ -155,6 +156,8 @@ export * from './notifications/destinations.js'
 export { resolveVercelSyncDeadlineMs, VERCEL_MAX_SYNC_WINDOW_MS, DEFAULT_VERCEL_SYNC_DEADLINE_MS, TRAFFIC_SOURCE_MAX_CATCHUP_MS } from './traffic-limits.js'
 export interface ApiRoutesOptions {
   db: DatabaseClient
+  /** Host-reported MCP prerequisites; never starts a connection or provider probe. */
+  getMcpHealth?: StatusRoutesOptions['getMcpHealth']
   /** Consumes a host-owned scheduler claim at a sync run insert. */
   claimScheduledSync?: ScheduledSyncClaim
   /** Host-approved direct bearer IDs, never inferred from customer roles or scopes. */
@@ -933,6 +936,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     })
     await api.register(statusRoutes, {
       db: opts.db,
+      getMcpHealth: opts.getMcpHealth,
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
       ga4CredentialStore: opts.ga4CredentialStore,

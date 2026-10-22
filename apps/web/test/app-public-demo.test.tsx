@@ -75,6 +75,16 @@ test('the skip link is the first stop for a keyboard, ahead of the demo banner',
   expect(focusable[0]!.compareDocumentPosition(banner!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })
 
+test.each([false, true])('agent setup navigation is available only outside the public demo (demo=%s)', async (demo) => {
+  const document = await renderDemoApp(undefined, { config: demo ? { demo: DEMO } : {} })
+  for (const selector of ['.sidebar-link', '.mobile-nav-link']) {
+    const links = Array.from(document.querySelectorAll<HTMLAnchorElement>(selector))
+      .filter(link => link.textContent?.trim() === 'Agent setup')
+    expect(links).toHaveLength(demo ? 0 : 1)
+    if (!demo) expect(links[0]!.getAttribute('href')).toBe('/agent-setup')
+  }
+})
+
 test('the demo worker pill reads as disabled, not healthy', async () => {
   const document = await renderDemoApp(await demoHealth())
   const pill = Array.from(document.querySelectorAll('.health-pill')).find(element => element.textContent?.startsWith('Worker'))

@@ -370,6 +370,12 @@ function resolveDashboardShowResourceLinks(env: NodeJS.ProcessEnv, config: Canon
     ?? true;
 }
 
+function resolveDashboardShowLocalAgentSetup(env: NodeJS.ProcessEnv, config: CanonryConfig): boolean {
+  return parseBooleanEnv(env.CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP)
+    ?? config.dashboard?.showLocalAgentSetup
+    ?? true;
+}
+
 function resolveDashboardManagedRunKinds(env: NodeJS.ProcessEnv, config: CanonryConfig): SchedulableRunKind[] {
   const configured = dashboardManagedRunKindsSchema.safeParse(config.dashboard?.managedRunKinds);
   if (!configured.success) {
@@ -2283,7 +2289,7 @@ export async function createServer(opts: {
   // A value that normalises to bare '/' is treated as no base path to avoid
   // a duplicate-route error with fastify-static (which also registers '/').
   const rawBasePath = process.env.CANONRY_BASE_PATH ?? opts.config.basePath;
-  const normalizedBasePath = rawBasePath
+  const normalizedBasePath = rawBasePath && rawBasePath !== "/"
     ? "/" + rawBasePath.replace(/^\//, "").replace(/\/?$/, "/")
     : undefined;
   const basePath: string | undefined =
@@ -2308,6 +2314,7 @@ export async function createServer(opts: {
   }
   const dashboardRequirePassword = resolveDashboardRequirePassword(process.env, opts.config);
   const dashboardShowResourceLinks = resolveDashboardShowResourceLinks(process.env, opts.config);
+  const dashboardShowLocalAgentSetup = resolveDashboardShowLocalAgentSetup(process.env, opts.config);
   const dashboardShowUpdateNotification = resolveDashboardShowUpdateNotification(process.env, opts.config);
   const dashboardOnboardingMode = resolveDashboardOnboardingMode(process.env, opts.config);
   const researchAllowViewers = resolveResearchAllowViewers(process.env, opts.config);
@@ -2324,6 +2331,12 @@ export async function createServer(opts: {
   // If the proxy does strip the prefix, set CANONRY_BASE_PATH to empty/unset and
   // let the proxy handle path rewriting instead.
   const apiPrefix = basePath ? `${basePath}api/v1` : "/api/v1";
+  const authorizationPath = `${basePath ?? "/"}oauth/authorize`;
+  const getMcpHealth = () => mcpHttpHealth(app, apiPrefix, {
+    publicUrl: opts.config.publicUrl,
+    hasAccounts: anyUsersExist(opts.db),
+    authorizationPath,
+  });
   // One checker, shared by /auth/login and the OAuth consent page, so the two
   // sign-in doors carry the same brute-force and threadpool budgets.
   const credentialChecker = createCredentialChecker({
@@ -3083,6 +3096,7 @@ export async function createServer(opts: {
     // Local-only Aero agent routes. Registered here so they inherit api-routes'
     // auth plugin — bare `registerAgentRoutes(app, ...)` would skip auth.
     credentials: credentialChecker,
+    getMcpHealth,
     oauthResourceUrl: publicOrigin
       ? `${publicOrigin}${`${basePath ?? "/"}api/v1/mcp`.replace("//", "/")}`
       : undefined,
@@ -3797,6 +3811,9 @@ export async function createServer(opts: {
       if (!dashboardShowResourceLinks) {
         dashboardConfig.showResourceLinks = false;
       }
+      if (!dashboardShowLocalAgentSetup) {
+        dashboardConfig.showLocalAgentSetup = false;
+      }
       if (!dashboardShowUpdateNotification) {
         dashboardConfig.showUpdateNotification = false;
       }
@@ -4032,7 +4049,7 @@ export async function createServer(opts: {
       status: "ok",
       service: "canonry",
       version: PKG_VERSION,
-      mcp: mcpHttpHealth(app, apiPrefix),
+      mcp: getMcpHealth(),
       ...(buildCommit ? { commit: buildCommit } : {}),
       ...(instance ? { instance } : {}),
       ...(basePath ? { basePath: basePath.replace(/\/$/, "") } : {}),
@@ -4047,6 +4064,7 @@ export async function createServer(opts: {
     registerOAuthRoutes(app, {
       db: opts.db,
       issuer: publicOrigin,
+      authorizationPath,
       resourcePaths: mcpTransportPaths().map((suffix) =>
         `${basePath ?? "/"}api/v1${suffix}`.replace("//", "/"),
       ),
@@ -4070,7 +4088,7 @@ export async function createServer(opts: {
         return serializeUserSessionCookie({
           value: token,
           path: basePath ?? "/",
-          secure: opts.config.publicUrl?.startsWith("https://") ?? false,
+          secure: sessionCookieSecure,
         });
       },
     });

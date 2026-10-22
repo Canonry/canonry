@@ -651,6 +651,7 @@ Token migration guardrails:
 - Sidebar main nav items use Lucide icons (`LayoutDashboard`, `Globe`, `Play`, `Settings`).
 - The sidebar Projects section shows each project with a colored dot indicating visibility health tone.
 - The sidebar Resources section sits at the bottom, with the `Rocket` icon for Setup. Doc links sit in the sidebar footer.
+- `AgentSetupPage.tsx` owns `/agent-setup`, shared by desktop/mobile navigation and onboarding. Hosted setup leads with the canonical URL from `mcp.hosted` health, then client OAuth sign-in/consent and a stored-read verification prompt. Never infer hosted readiness or its URL from browser origin or transport availability. Readiness describes server prerequisites, not public reachability or a client connection; missing metadata stays unconfirmed. The explicit `dashboard.showLocalAgentSetup` setting (default true) controls local plugin, CLI, and stdio MCP instructions independently of readiness or account role. When false, omit the local disclosure, local-install CTA on `/setup`, and administrator CLI recovery instructions; use contact-administrator guidance. When true, local setup remains collapsed and targets the browser instance and base path. `showResourceLinks` also hides optional GitHub guides from visible links and copied prompts; client help articles remain available. Keep fresh-install setup separate, preserve existing credentials and scopes, and do not offer connection controls in public demos or embeds.
 
 ### Accessibility
 

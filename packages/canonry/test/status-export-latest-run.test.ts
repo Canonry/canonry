@@ -67,6 +67,7 @@ describe('latest-run command usage', () => {
   it('status --all json prints the stored status DTO unchanged', async () => {
     const status = {
       generatedAt: '2026-10-11T00:00:00.000Z',
+      mcp: { status: 'available', hosted: { status: 'ready', url: 'https://canonry.example/team/api/v1/mcp' } },
       summary: { projects: 1, ok: 1, failing: 0, stale: 0, neverSynced: 0 },
       projects: [{ project: 'demo', displayName: 'Demo', state: 'ok', health: null, integrations: [] }],
     }
@@ -101,23 +102,40 @@ describe('latest-run command usage', () => {
     expect(row.row).toBeUndefined()
   })
 
-  it('single-project jsonl is one compact record with stored health', async () => {
+  it.each(['json', 'jsonl'])('single-project %s preserves stored health and hosted MCP readiness', async format => {
     mockGetProject.mockResolvedValue({ name: 'demo' })
     mockGetLatestRun.mockResolvedValue({ run: null, totalRuns: 0 })
     mockListRuns.mockResolvedValue([])
-    mockGetStatus.mockResolvedValue({ projects: [{ health: { status: 'fail' }, integrations: [] }] })
+    const mcp = { status: 'available', hosted: { status: 'unavailable', reason: 'account-required' } }
+    mockGetStatus.mockResolvedValue({ mcp, projects: [{ health: { status: 'fail' }, integrations: [] }] })
     const output: string[] = []
     const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { output.push(args.join(' ') + '\n') })
     const write = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => { output.push(String(chunk)); return true }) as typeof process.stdout.write)
     try {
-      await showStatus('demo', 'jsonl', { problems: true })
+      await showStatus('demo', format, { problems: true })
     } finally {
       log.mockRestore()
       write.mockRestore()
     }
-    const lines = output.join('').trim().split('\n')
-    expect(lines).toHaveLength(1)
-    expect(JSON.parse(lines[0]!)).toMatchObject({ project: { name: 'demo' }, health: { status: 'fail' }, integrations: [] })
+    const text = output.join('').trim()
+    if (format === 'jsonl') expect(text.split('\n')).toHaveLength(1)
+    expect(JSON.parse(text)).toMatchObject({ project: { name: 'demo' }, health: { status: 'fail' }, integrations: [], mcp })
+  })
+
+  it.each([
+    { hosted: { status: 'ready', url: 'https://canonry.example/team/api/v1/mcp' }, expected: 'Hosted MCP: ready\n  URL: https://canonry.example/team/api/v1/mcp' },
+    { hosted: { status: 'unavailable', reason: 'account-required' }, expected: 'Hosted MCP: unavailable\n  Create a Canonry account to authorize your agent.' },
+  ])('status --all reports hosted readiness even before the first project: $hosted.status', async ({ hosted, expected }) => {
+    mockGetStatus.mockResolvedValue({ mcp: { status: 'available', hosted }, projects: [] })
+    const logs: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { logs.push(args.join(' ')) })
+    try {
+      await showStatus(undefined, undefined, { all: true })
+    } finally {
+      log.mockRestore()
+    }
+    expect(logs.join('\n')).toContain(expected)
+    expect(mockGetProject).not.toHaveBeenCalled()
   })
 
   it('status --all jsonl preserves a health problem with no integration rows', async () => {

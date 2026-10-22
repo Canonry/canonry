@@ -34,6 +34,7 @@ export const UI_PAGES = [
   '/history',
   '/settings',
   '/setup',
+  '/agent-setup',
   '/backlinks',
   '/traffic',
   '/traffic/:projectName/:sourceId',
@@ -102,6 +103,8 @@ export const UI_ACTIONS = [
   'report.download',
   'aero.open',
   'aero.send',
+  'agent_setup.copy',
+  'agent_setup.verify_copy',
   /** A shared filter settled on a new value (debounced; the value is never sent). */
   'filter.change',
   /** A table search settled on a non-empty query (debounced or Enter; the text is never sent). */

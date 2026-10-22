@@ -508,6 +508,7 @@ The snapshot rescore behind `canonry backfill answer-mentions`, the alias hooks 
 - `assets/`: `server.ts` default `assetsDir` is this dir; `createServer({assetsDir: '/tmp/my-dist'})` override lets tests/custom builds point elsewhere without forking the package.
 - `src/server.ts`: `createServer` opts take an optional `assetsDir` override (default = bundled `assets/`) so integration tests can point at a temp `index.html`.
 - The SPA document's embed config and headers are covered in "Embed mode (#716)".
+- `dashboard.showLocalAgentSetup` is a deployment presentation setting, defaulting to true. `CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP` overrides YAML; inject only false into the SPA config. Never infer it from public URL, hosted readiness, or user role, or use it to gate CLI/API/MCP authority. `showResourceLinks` also gates the Agent Setup page's repository documentation links. See `docs/deployment.md`.
 
 ### Provider registration
 
@@ -522,6 +523,8 @@ The snapshot rescore behind `canonry backfill answer-mentions`, the alias hooks 
 `src/provider-batch-config.ts` owns batch dispatch configuration (`docs/batch-mode.md`). `loadConfig` validates `providers.<name>.batch` / `.pricing` with the contracts schemas and refuses a malformed block. `providerConfigFromEntry` builds every registered `ProviderConfig`, carrying both blocks, and is used by boot and the provider-update path, so a dashboard key rotation keeps them. `batchEligibleProviderNames` (adapter capability AND `batch.enabled`) is the one rule behind `getBatchEligibleProviderNames`. `server.ts` passes it to the API routes and the scheduler. Boot logs `provider.batch.unsupported` once per provider whose config enables batch but whose adapter has none. Log a provider name as `provider`: it is the key the durable log store keeps as `context.provider`. `canonry run --dispatch-mode` and `canonry project create|update --dispatch-mode provider=sync|batch` / `--clear-dispatch-mode` are the CLI surfaces. `run show` prints batch state lines and the usage table from the run detail, and `--format json` prints the response verbatim.
 
 ### Health endpoint
+
+`mcp.status` reports transport registration. Optional `mcp.hosted` reports the configured HTTPS connector URL only when the public URL, OAuth routes and named accounts are ready; it never claims client authorization or external reachability. The same host callback supplies `/status` for CLI/MCP parity. Keep health free of DNS/provider probes or MCP session creation. Browser OAuth authorization follows the instance base path so named-account cookies retain their tenant scope; legacy root authorization URLs redirect with method/query preserved.
 
 `GET /health` (also served at `<basePath>health`) exposes `basePath` for auto-discovery and identifies the build and the deployment it is running as:
 ```json
