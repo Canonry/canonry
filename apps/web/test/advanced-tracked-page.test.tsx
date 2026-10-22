@@ -1244,7 +1244,8 @@ test('a closed row of the table is one line, cut short at its column, and the op
   }
   // The Subject's name gives way and its count does not.
   const name = compiledDeclarations(rules, '.tracked-subject-name')
-  expect([name['white-space'], name.overflow, name['text-overflow'], name['min-width']]).toEqual(['nowrap', 'hidden', 'ellipsis', 'calc(var(--spacing) * 0)'])
+  // Tailwind writes a zero min-width as 0px from 4.3, and as a spacing multiple before it.
+  expect([name['white-space'], name.overflow, name['text-overflow'], name['min-width']]).toEqual(['nowrap', 'hidden', 'ellipsis', expect.stringMatching(/^(?:0px|calc\(var\(--spacing\) \* 0\))$/)])
   expect(compiledDeclarations(rules, '.tracked-subject > :not(.tracked-subject-name)').flex).toBe('none')
   expect(compiledDeclarations(rules, '.tracked-row[data-open] .tracked-query > span')['-webkit-line-clamp']).toBe('unset')
   // An empty state whose action wraps under its label stays centred.

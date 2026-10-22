@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 
 import { SignalLegend, SignalPair, type EngineSignal } from '../src/components/shared/SignalCells.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../src/components/ui/sheet.js'
-import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss, type CompiledRule } from './compiled-app-css.js'
+import { compileAppStyles, compiledElementProperty, compiledStateStyle, cssLengthPx, parseCompiledCss, type CompiledRule } from './compiled-app-css.js'
 
 afterEach(() => {
   cleanup()
@@ -49,14 +49,9 @@ function drawn(rules: CompiledRule[], chip: Element): { letter: string; drawn: s
  * shared parser keeps a nested state rule but not the class it belongs to.
  */
 async function stateStyle(element: Element, variant: string): Promise<Record<string, string>> {
-  const classes = [...element.classList].filter(candidate => candidate.startsWith(`${variant}:`))
-  const css = await compileAppStyles(classes)
-  return Object.fromEntries(classes.flatMap(candidate => {
-    const start = css.indexOf(`.${candidate.replace(/([^\w-])/g, '\\$1')} {`)
-    const rule = css.slice(start, css.indexOf('}', start))
-    expect(start >= 0 && rule.includes(`&:${variant}`), candidate).toBe(true)
-    return [...rule.slice(rule.lastIndexOf('{') + 1).matchAll(/([\w-]+):([^;]+);/g)].map(([, property, value]) => [property!, value!.trim()])
-  }))
+  const { style, missing } = await compiledStateStyle(element, variant)
+  expect(missing, variant).toEqual([])
+  return style
 }
 /** Lay the page out by hand: jsdom gives every box a zero rect. `trigger` is read on each call, so a test can move it. */
 function layOut(trigger: () => { left: number; top: number; width: number; height: number }) {

@@ -4,7 +4,7 @@ import type { QueryTrackingViews, QueryTrackingWorkspaceResponse } from '@canonr
 
 import { TrackedPlaceList } from '../src/components/project/queries/advanced/TrackedPlaceList.js'
 import { TrackedSavedViews, trackedPlaceView } from '../src/components/project/queries/advanced/TrackedSavedViews.js'
-import { compileAppStyles, compiledElementProperty, parseCompiledCss } from './compiled-app-css.js'
+import { compileAppStyles, compiledElementProperty, compiledStateStyle, parseCompiledCss } from './compiled-app-css.js'
 import { expectNoSentence, noteButton } from './support/query-tracking-fixtures.js'
 
 // The Views row of the Tracked page and the list a view opens in place of the queries.
@@ -239,15 +239,19 @@ describe('TrackedPlaceList', () => {
     const name = within(table('Thin markets')).getByRole('button', { name: 'Open Uptown' })
     expect(compiledElementProperty(rules, name, 'color')).toBe('var(--color-text-heading)')
     expect(compiledElementProperty(rules, name, 'text-decoration-line')).toBeUndefined()
-    const states = await compileAppStyles([...name.classList].filter(candidate => /^(?:hover|focus-visible):/.test(candidate)))
-    expect(states).toMatch(/&:hover \{\s*@media \(hover: hover\) \{\s*text-decoration-line: underline/)
-    expect(states).toMatch(/&:focus-visible \{\s*text-decoration-line: underline/)
-    expect(states).toMatch(/&:focus-visible \{[^}]*--tw-ring-shadow:[^;]*calc\(2px \+ var\(--tw-ring-offset-width\)\)/)
+    const hover = await compiledStateStyle(name, 'hover')
+    const focus = await compiledStateStyle(name, 'focus-visible')
+    expect([hover.missing, focus.missing]).toEqual([[], []])
+    expect([hover.style['text-decoration-line'], focus.style['text-decoration-line']]).toEqual(['underline', 'underline'])
+    expect(focus.style['--tw-ring-shadow']).toMatch(/calc\(2px \+ var\(--tw-ring-offset-width\)\)/)
+    // A pointer that cannot hover draws no underline it would leave behind.
+    expect(await compileAppStyles(['hover:underline'])).toMatch(/@media \(hover: hover\) \{\s*(?:&|\.hover\\:underline):hover|&:hover \{\s*@media \(hover: hover\)/)
     for (const frame of [BELOW_MD, '@media (pointer: coarse)']) {
       expect([compiledElementProperty(rules, name, 'min-height', frame), compiledElementProperty(rules, name, 'min-width', frame)], frame).toEqual(['calc(var(--spacing) * 11)', 'calc(var(--spacing) * 11)'])
     }
     // The ring stands clear of the text, and the text stays on the column's edge.
-    expect([compiledElementProperty(rules, name, 'padding-inline'), compiledElementProperty(rules, name, 'margin-inline')]).toEqual(['calc(var(--spacing) * 1)', 'calc(var(--spacing) * -1)'])
+    // One spacing unit each way: Tailwind writes it var(--spacing) from 4.3, and as a multiple before it.
+    expect([compiledElementProperty(rules, name, 'padding-inline'), compiledElementProperty(rules, name, 'margin-inline')]).toEqual([expect.stringMatching(/^(?:var\(--spacing\)|calc\(var\(--spacing\) \* 1\))$/), 'calc(var(--spacing) * -1)'])
   })
 
   test('a viewer reads the same list with no action column and no dead button, and can open a place', () => {
@@ -415,15 +419,18 @@ describe('TrackedPlaceList', () => {
     // An empty box as wide as the row sits before the group, so the group starts the second line and the numbers follow on it.
     const breaker = [...row.classList].filter(candidate => candidate.includes(':before:'))
     const breakerCss = await compileAppStyles(breaker)
-    expect(breakerCss).toMatch(/@container \(width < 52rem\) \{\s*&::before \{\s*content: var\(--tw-content\);\s*order: 3;/)
-    expect(breakerCss).toMatch(/@container \(width < 52rem\) \{\s*&::before \{\s*content: var\(--tw-content\);\s*flex-basis: 100%;/)
+    // Tailwind writes the rule nested (&::before) or, from 4.3, flat (.class::before): either holds the box.
+    const breakerDeclarations = parseCompiledCss(breakerCss)
+      .filter(rule => rule.context.includes('@container (width < 52rem)') && rule.selector.endsWith('::before'))
+      .flatMap(rule => rule.declarations)
+    expect(breakerDeclarations).toEqual(expect.arrayContaining([['content', 'var(--tw-content)'], ['order', '3'], ['flex-basis', '100%']]))
     expect(compiledElementProperty(rules, row.cells[1]!, 'flex-basis', NARROW_FRAME)).toBeUndefined()
     // On a phone the group has a line of its own, and the numbers the next.
     expect(compiledElementProperty(rules, row.cells[1]!, 'flex-basis', PHONE_FRAME)).toBe('100%')
     // Each column's name is drawn before its value as generated text, so the page holds it once.
     const generated = [...row.cells[1]!.classList].filter(candidate => candidate.includes('attr(data-label)'))
     expect(generated).toHaveLength(1)
-    expect(await compileAppStyles(generated)).toMatch(/@container \(width < 52rem\) \{\s*&::before \{\s*--tw-content: attr\(data-label\);/)
+    expect(await compileAppStyles(generated)).toMatch(/@container \(width < 52rem\) \{\s*(?:&|\.[^{\s]*)::before \{\s*--tw-content: attr\(data-label\);/)
     // Where a finger is the pointer, and below md, the row's action is a 44px target.
     expect(compiledElementProperty(rules, within(row).getByRole('button', { name: 'Add market query for Downtown, Lakeshore' }), 'min-height', BELOW_MD)).toBe('calc(var(--spacing) * 11)')
   })

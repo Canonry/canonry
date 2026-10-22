@@ -7,7 +7,7 @@ import { TrackedBulkBar } from '../src/components/project/queries/advanced/Track
 import { TrackedToolbar } from '../src/components/project/queries/advanced/TrackedToolbar.js'
 import { DEFAULT_TRACKED_FILTERS } from '../src/components/project/queries/advanced/tracked-filters.js'
 import type { TrackedFilters } from '../src/components/project/queries/advanced/tracked-types.js'
-import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
+import { compileAppStyles, compiledElementProperty, compiledStateStyle, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
 
 afterEach(cleanup)
 
@@ -19,15 +19,10 @@ const rulesFor = async (container: HTMLElement) => parseCompiledCss(await compil
  * text: the shared parser keeps a nested state rule but not the class it belongs to.
  */
 async function stateStyle(element: Element, variant: string): Promise<Record<string, string>> {
-  const classes = [...element.classList].filter(candidate => candidate.startsWith(`${variant}:`))
-  const css = await compileAppStyles(classes)
-  expect(classes.length, variant).toBeGreaterThan(0)
-  return Object.fromEntries(classes.flatMap(candidate => {
-    const start = css.indexOf(`.${candidate.replace(/([^\w-])/g, '\\$1')} {`)
-    const rule = css.slice(start, css.indexOf('}', start))
-    expect(start >= 0 && rule.includes('&:'), candidate).toBe(true)
-    return [...rule.slice(rule.lastIndexOf('{') + 1).matchAll(/([\w-]+):([^;]+);/g)].map(([, property, value]) => [property!, value!.trim()])
-  }))
+  const { style, missing } = await compiledStateStyle(element, variant)
+  expect(Object.keys(style).length, variant).toBeGreaterThan(0)
+  expect(missing, variant).toEqual([])
+  return style
 }
 
 function renderToolbar(props: Partial<Parameters<typeof TrackedToolbar>[0]> = {}) {

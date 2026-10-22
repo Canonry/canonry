@@ -15,7 +15,7 @@ import {
 } from '../src/components/project/queries/advanced/tracked-view-model.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { visibleText } from './caution-note.js'
-import { compileAppStyles, compiledDeclarations, compiledElementProperty, parseCompiledCss } from './compiled-app-css.js'
+import { compileAppStyles, compiledDeclarations, compiledDeclarationValues, compiledElementProperty, parseCompiledCss } from './compiled-app-css.js'
 
 beforeEach(() => {
   // Dates print without their year only inside the current one.
@@ -1451,6 +1451,9 @@ describe('tracked table styles', () => {
 
   it('gives Status a line of its own in a phone-width frame', async () => {
     const rules = await compiled()
-    expect(compiledDeclarations(rules, '& .tracked-row > .tracked-cell-status', '@container tracked-table (max-width: 40rem)').flex).toBe('0 0 100%')
+    // Nested under the stacked table, or written flat from Tailwind 4.3: either form sets it.
+    const flex = ["& .tracked-row > .tracked-cell-status", ".tracked-table[data-layout='stacked'] .tracked-row > .tracked-cell-status"]
+      .flatMap(selector => compiledDeclarationValues(rules, selector, 'flex', '@container tracked-table (max-width: 40rem)'))
+    expect(flex).toEqual(['0 0 100%'])
   })
 })

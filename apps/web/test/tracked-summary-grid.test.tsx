@@ -8,7 +8,7 @@ import { TrackedToolbar } from '../src/components/project/queries/advanced/Track
 import { parseTrackedFilters, trackedFiltersPatch } from '../src/components/project/queries/advanced/tracked-filters.js'
 import { formatObservedInstantLabel, formatObservedInstantMonthDay, observedInstant } from '../src/components/shared/ChartPrimitives.js'
 import { visibleText } from './caution-note.js'
-import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
+import { compileAppStyles, compiledElementProperty, compiledStateStyle, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
 
 // The strip dates a sweep against today's year, so today is fixed. Only the clock is faked: nothing here waits on a timer.
 beforeEach(() => {
@@ -249,14 +249,9 @@ type Rules = Awaited<ReturnType<typeof rulesFor>>
  * shared parser keeps a nested state rule but not the class it belongs to.
  */
 async function stateStyle(element: Element, variant: string): Promise<Record<string, string>> {
-  const classes = [...element.classList].filter(candidate => candidate.startsWith(`${variant}:`))
-  const css = await compileAppStyles(classes)
-  return Object.fromEntries(classes.flatMap(candidate => {
-    const start = css.indexOf(`.${candidate.replace(/([^\w-])/g, '\\$1')} {`)
-    const rule = css.slice(start, css.indexOf('}', start))
-    expect(start >= 0 && rule.includes(`&:${variant}`), candidate).toBe(true)
-    return [...rule.slice(rule.lastIndexOf('{') + 1).matchAll(/([\w-]+):([^;]+);/g)].map(([, property, value]) => [property!, value!.trim()])
-  }))
+  const { style, missing } = await compiledStateStyle(element, variant)
+  expect(missing, variant).toEqual([])
+  return style
 }
 
 describe('TrackedSummaryGrid, layout', () => {
