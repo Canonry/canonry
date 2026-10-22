@@ -412,6 +412,13 @@ export interface DashboardConfigEntry {
   showResourceLinks?: boolean
 
   /**
+   * Whether agent onboarding includes local plugins, CLI, and canonry-mcp
+   * instructions. Defaults to true. Presentation only; does not change access
+   * or hosted connector readiness.
+   */
+  showLocalAgentSetup?: boolean
+
+  /**
    * Whether the dashboard sidebar shows the available-version notification.
    * Defaults to true. Disable without turning off the underlying update check
    * or CLI update notice.

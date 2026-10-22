@@ -18,6 +18,8 @@ import {
   getOnboardingMode,
   heyClient,
   recordOnboardingEvent,
+  shouldShowDashboardLocalAgentSetup,
+  shouldShowDashboardResourceLinks,
   type ApiProject,
   type OnboardingMode,
 } from '../api.js'
@@ -61,15 +63,16 @@ const CRAWL_CONSENT_HELP = `Public pages only, crawled from this computer and st
 
 export const SITE_HEALTH_DISPATCH_BOUNDARY_MS = 1_800
 export const AGENT_SETUP_GUIDE_URL = 'https://github.com/Canonry/canonry#or-use-any-shell-capable-coding-agent'
-export const AGENT_SETUP_REQUEST = `Help me set up Canonry for my public site.
-
-Use the official Canonry docs:
+const AGENT_SETUP_RESOURCES = `Use the official Canonry docs:
 - Agent quickstart: https://github.com/Canonry/canonry#or-use-any-shell-capable-coding-agent
 - CLI reference: https://github.com/Canonry/canonry/blob/main/skills/canonry/references/canonry-cli.md
 - Plugin setup: https://github.com/Canonry/canonry/blob/main/docs/plugins.md
 - MCP setup: https://github.com/Canonry/canonry/blob/main/docs/mcp.md
 
-Pick one path and stay on it. Use connected Canonry tools (plugin or MCP) only if you have them and I have not pointed you at a specific install. A connected tool runs in its own process and never sees \`CANONRY_CONFIG_DIR\`, \`CANONRY_PORT\`, or anything else you export in a shell, so it always acts on my default install. If I named a config directory, a port, or a sandbox, that is the shell path: use \`cnry\` and tell me which path you chose. Never mix the two in one run, and never create a duplicate project. The \`cnry\` and \`canonry\` commands are interchangeable.
+`
+export const AGENT_SETUP_REQUEST = `Help me set up Canonry for my public site.
+
+${AGENT_SETUP_RESOURCES}Pick one path and stay on it. Use connected Canonry tools (plugin or MCP) only if you have them and I have not pointed you at a specific install. A connected tool runs in its own process and never sees \`CANONRY_CONFIG_DIR\`, \`CANONRY_PORT\`, or anything else you export in a shell, so it always acts on my default install. If I named a config directory, a port, or a sandbox, that is the shell path: use \`cnry\` and tell me which path you chose. Never mix the two in one run, and never create a duplicate project. The \`cnry\` and \`canonry\` commands are interchangeable.
 
 1. Ask for my public domain, country, and language. Do not create or scan anything yet. Country and language are only applied when a project is created, so if you reuse an existing project, report its country and language instead of changing them.
 2. Shell path only: confirm \`cnry\` is on PATH, then run \`cnry --version\`. If Canonry is missing, propose \`npm install -g @canonry/canonry\` and wait for approval. Then run \`cnry doctor --format json\`, which is the command that says whether config, database, and server are in place. \`cnry --version\` does not read config and succeeds on a completely unconfigured install, so it cannot answer this. If config is missing, run \`cnry bootstrap\` yourself: it is not interactive, takes about a second, and is safe to rerun. Do not hand it to me and wait. The interactive command is \`cnry init\`, which is optional provider and OAuth setup that Page Health does not need. Bootstrap prints an API key, so do not repeat its output back to me, and never ask me to paste passwords, API keys, OAuth credentials, or command output.
@@ -797,6 +800,8 @@ function PlatformSetupPageBody({
   const [createConflict, setCreateConflict] = useState(false)
   const [dispatchError, setDispatchError] = useState<string | null>(null)
   const [agentRequestCopied, setAgentRequestCopied] = useState(false)
+  const showLocalAgentSetup = shouldShowDashboardLocalAgentSetup()
+  const showResourceLinks = shouldShowDashboardResourceLinks()
   // A denied refresh must not keep showing internal state from an older cache.
   const telemetryStatus = telemetryQuery.isError ? undefined : telemetryQuery.data
   const telemetryEnabled = typeof telemetryStatus?.enabled === 'boolean'
@@ -1017,13 +1022,13 @@ function PlatformSetupPageBody({
 
   const copyAgentSetupRequest = async () => {
     try {
-      await navigator.clipboard.writeText(AGENT_SETUP_REQUEST)
+      await navigator.clipboard.writeText(showResourceLinks ? AGENT_SETUP_REQUEST : AGENT_SETUP_REQUEST.replace(AGENT_SETUP_RESOURCES, ''))
       setAgentRequestCopied(true)
     } catch {
       addToast({
         tone: 'negative',
         title: 'Could not copy setup request',
-        detail: 'Open the agent quickstart to continue with the CLI instead.',
+        detail: showResourceLinks ? 'Open the agent quickstart to continue with the CLI instead.' : 'Check your browser’s clipboard permission and try again.',
       })
     }
   }
@@ -1245,26 +1250,26 @@ function PlatformSetupPageBody({
 
       <section className="mt-8 border-t border-default pt-6" aria-labelledby="agent-setup-title">
         <p id="agent-setup-title" className="text-sm font-medium text-heading">Use your agent instead</p>
-        <p className="mt-1 text-sm leading-5 text-secondary">Connect your agent to this instance, or copy a request for a new local installation.</p>
+        <p className="mt-1 text-sm leading-5 text-secondary">{showLocalAgentSetup ? 'Connect your agent to this instance, or copy a request for a new local installation.' : 'Connect ChatGPT or Claude Desktop to this instance.'}</p>
         <div className="mt-3 flex flex-wrap items-center gap-1">
           <Button asChild variant="secondary" size="sm">
             <Link to="/agent-setup">Agent setup</Link>
           </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={asyncHandler(copyAgentSetupRequest)}>
+          {showLocalAgentSetup ? <Button type="button" variant="ghost" size="sm" onClick={asyncHandler(copyAgentSetupRequest)}>
             {agentRequestCopied
               ? <Check className="size-3.5" aria-hidden="true" />
               : <Copy className="size-3.5" aria-hidden="true" />}
             <span aria-live="polite">
               {agentRequestCopied ? 'Copied new-install request' : 'Copy new-install request'}
             </span>
-          </Button>
-          <Button asChild variant="ghost" size="sm">
+          </Button> : null}
+          {showLocalAgentSetup && showResourceLinks ? <Button asChild variant="ghost" size="sm">
             <a href={AGENT_SETUP_GUIDE_URL} target="_blank" rel="noopener noreferrer">
               Agent quickstart
               <ExternalLink className="size-3.5" aria-hidden="true" />
               <span className="sr-only"> (opens in a new tab)</span>
             </a>
-          </Button>
+          </Button> : null}
         </div>
       </section>
 

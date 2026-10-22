@@ -2,7 +2,7 @@ import { useId, useState } from 'react'
 import { Check, Copy, ExternalLink } from 'lucide-react'
 import { HostedMcpStatuses, HostedMcpUnavailableReasons, McpTransportStatuses, type HostedMcpUnavailableReason, type UiAction } from '@canonry/canonry-contracts'
 
-import { getPublicBase, isEmbed, isPublicDemo } from '../api.js'
+import { getPublicBase, isEmbed, isPublicDemo, shouldShowDashboardLocalAgentSetup, shouldShowDashboardResourceLinks } from '../api.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { useAccount } from '../contexts/account-context.js'
 import { useHealth } from '../queries/use-health.js'
@@ -13,7 +13,7 @@ import { ToneBadge } from '../components/shared/ToneBadge.js'
 
 const MCP_GUIDE = 'https://github.com/Canonry/canonry/blob/main/docs/mcp.md'
 const PLUGIN_GUIDE = 'https://github.com/Canonry/canonry/blob/main/docs/plugins.md'
-const CHATGPT_GUIDE = 'https://developers.openai.com/api/docs/guides/custom-mcp-server'
+const CHATGPT_GUIDE = 'https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt'
 const CLAUDE_GUIDE = 'https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp'
 
 const HOSTED_REQUIREMENTS: Record<HostedMcpUnavailableReason, string> = {
@@ -84,7 +84,7 @@ export function AgentSetupPage() {
       <div className="page-container">
         <h1 className="page-title">Agent setup</h1>
         <p className="mt-3 text-sm text-secondary">Open Agent setup in your own Canonry instance to connect your agent.</p>
-        <a className="mt-4 inline-block text-sm underline" href={MCP_GUIDE} target="_blank" rel="noopener noreferrer">Read the connection guide</a>
+        {shouldShowDashboardResourceLinks() ? <a className="mt-4 inline-block text-sm underline" href={MCP_GUIDE} target="_blank" rel="noopener noreferrer">Read the connection guide</a> : null}
       </div>
     )
   }
@@ -94,6 +94,8 @@ export function AgentSetupPage() {
 function AgentConnectionSetup() {
   const initial = useInitialDashboard()
   const { isAdmin } = useAccount()
+  const showLocalAgentSetup = shouldShowDashboardLocalAgentSetup()
+  const showResourceLinks = shouldShowDashboardResourceLinks()
   const health = useHealth(!initial, initial?.health)
   const apiStatus = health.data?.apiStatus
   const mcp = apiStatus?.state === 'ok' ? apiStatus.mcp : undefined
@@ -104,7 +106,7 @@ function AgentConnectionSetup() {
   if (health.isPending) {
     requirementMessage = 'Checking the instance’s hosted connection settings.'
   } else if (requirement) {
-    requirementMessage = isAdmin ? HOSTED_REQUIREMENTS[requirement] : 'Ask your Canonry administrator to finish hosted connection setup for this instance.'
+    requirementMessage = isAdmin && showLocalAgentSetup ? HOSTED_REQUIREMENTS[requirement] : 'Ask your Canonry administrator to finish hosted connection setup for this instance.'
   } else if (apiStatus?.state === 'error') {
     requirementMessage = 'The instance’s connection settings could not be checked. Try again after the service is available.'
   } else if (mcp?.status === McpTransportStatuses['not-supported']) {
@@ -124,7 +126,7 @@ After authorization, enable the connection in this conversation. Call canonry_he
       <div className="page-header">
         <div className="page-header-left">
           <h1 className="page-title">Agent setup</h1>
-          <p className="page-subtitle">Connect ChatGPT, Claude Desktop, or another agent to this instance.</p>
+          <p className="page-subtitle">{showLocalAgentSetup ? 'Connect ChatGPT, Claude Desktop, or another agent to this instance.' : 'Connect ChatGPT or Claude Desktop to this instance.'}</p>
         </div>
       </div>
 
@@ -170,11 +172,11 @@ After authorization, enable the connection in this conversation. Call canonry_he
             <p className="mt-2 max-w-prose text-sm leading-6 text-secondary">
               {requirementMessage}
             </p>
-            <a href={MCP_GUIDE} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-11 items-center gap-2 text-sm underline">Read the connection guide <ExternalLink className="size-3.5" aria-hidden="true" /></a>
+            {showResourceLinks ? <a href={MCP_GUIDE} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-11 items-center gap-2 text-sm underline">Read the connection guide <ExternalLink className="size-3.5" aria-hidden="true" /></a> : null}
           </section>
         )}
 
-        <LocalConnectionSetup instanceUrl={instanceUrl} />
+        {showLocalAgentSetup ? <LocalConnectionSetup instanceUrl={instanceUrl} showResourceLinks={showResourceLinks} /> : null}
       </div>
     </div>
   )
@@ -185,16 +187,17 @@ function VerificationPrompt({ target, local = false }: { target: string; local?:
   return <CopyText key={target} label={local ? 'Copy local verification prompt' : 'Copy verification prompt'} value={prompt} secondary action="agent_setup.verify_copy" />
 }
 
-function LocalConnectionSetup({ instanceUrl }: { instanceUrl: string }) {
+function LocalConnectionSetup({ instanceUrl, showResourceLinks }: { instanceUrl: string; showResourceLinks: boolean }) {
   const [client, setClient] = useState<keyof typeof LOCAL_CLIENTS>('codex')
+  const resources = showResourceLinks ? `Official connection guide: ${MCP_GUIDE}
+Optional plugin guide for Codex or Claude Code: ${PLUGIN_GUIDE}
+
+` : ''
   const prompt = `Connect my local agent to this existing Canonry instance: ${instanceUrl}
 
 Use an installed Canonry runtime whose private configuration already points to this exact instance. A local plugin or canonry-mcp process does not inherit the browser connection, and shell environment changes do not retarget an already-connected tool. Check the saved API URL before using it.
 
-Official connection guide: ${MCP_GUIDE}
-Optional plugin guide for Codex or Claude Code: ${PLUGIN_GUIDE}
-
-Preserve existing client connections, credentials, and access. Do not create another Canonry instance, bootstrap a config, or create projects. Keep secrets and configuration contents out of chat. Ask before changing client configuration or installing software. Reload the client if needed, then verify with stored reads only. Do not run scans, sweeps, research, live provider checks, or other writes.`
+${resources}Preserve existing client connections, credentials, and access. Do not create another Canonry instance, bootstrap a config, or create projects. Keep secrets and configuration contents out of chat. Ask before changing client configuration or installing software. Reload the client if needed, then verify with stored reads only. Do not run scans, sweeps, research, live provider checks, or other writes.`
   return (
     <details className="border-t border-default py-3 text-sm">
       <summary className="min-h-11 w-fit cursor-pointer py-3 font-medium text-heading">Local plugins and other MCP clients</summary>
@@ -210,7 +213,7 @@ Preserve existing client connections, credentials, and access. Do not create ano
         </select>
         <CopyText key={client} label={client === 'other' ? 'Copy MCP command' : 'Copy install commands'} value={LOCAL_CLIENTS[client].command} showText secondary />
         <p className="leading-6 text-secondary">{client === 'other' ? 'Add this executable as a stdio MCP server in your client.' : 'Reload your client after installing the plugin.'} Keep one Canonry connection per instance.</p>
-        <a href={PLUGIN_GUIDE} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-2 underline">Runtime and plugin instructions <ExternalLink className="size-3.5" aria-hidden="true" /></a>
+        {showResourceLinks ? <a href={PLUGIN_GUIDE} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-2 underline">Runtime and plugin instructions <ExternalLink className="size-3.5" aria-hidden="true" /></a> : null}
         <VerificationPrompt target={instanceUrl} local />
       </div>
     </details>

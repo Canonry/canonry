@@ -367,6 +367,12 @@ function resolveDashboardShowResourceLinks(env: NodeJS.ProcessEnv, config: Canon
     ?? true;
 }
 
+function resolveDashboardShowLocalAgentSetup(env: NodeJS.ProcessEnv, config: CanonryConfig): boolean {
+  return parseBooleanEnv(env.CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP)
+    ?? config.dashboard?.showLocalAgentSetup
+    ?? true;
+}
+
 function resolveDashboardManagedRunKinds(env: NodeJS.ProcessEnv, config: CanonryConfig): SchedulableRunKind[] {
   const configured = dashboardManagedRunKindsSchema.safeParse(config.dashboard?.managedRunKinds);
   if (!configured.success) {
@@ -2304,6 +2310,7 @@ export async function createServer(opts: {
   }
   const dashboardRequirePassword = resolveDashboardRequirePassword(process.env, opts.config);
   const dashboardShowResourceLinks = resolveDashboardShowResourceLinks(process.env, opts.config);
+  const dashboardShowLocalAgentSetup = resolveDashboardShowLocalAgentSetup(process.env, opts.config);
   const dashboardShowUpdateNotification = resolveDashboardShowUpdateNotification(process.env, opts.config);
   const dashboardOnboardingMode = resolveDashboardOnboardingMode(process.env, opts.config);
   const researchAllowViewers = resolveResearchAllowViewers(process.env, opts.config);
@@ -3783,6 +3790,9 @@ export async function createServer(opts: {
       }
       if (!dashboardShowResourceLinks) {
         dashboardConfig.showResourceLinks = false;
+      }
+      if (!dashboardShowLocalAgentSetup) {
+        dashboardConfig.showLocalAgentSetup = false;
       }
       if (!dashboardShowUpdateNotification) {
         dashboardConfig.showUpdateNotification = false;

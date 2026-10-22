@@ -60,7 +60,7 @@ test.each(['', '/canonry/'])('copies the server’s hosted URL and preserves the
 
   await screen.findByText('Hosted setup configured')
   expect(screen.getByText('Local plugins and other MCP clients').closest('details')?.open).toBe(false)
-  expect(screen.getByRole('link', { name: 'ChatGPT setup guide' }).getAttribute('href')).toBe('https://developers.openai.com/api/docs/guides/custom-mcp-server')
+  expect(screen.getByRole('link', { name: 'ChatGPT setup guide' }).getAttribute('href')).toBe('https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt')
   expect(screen.getByRole('link', { name: 'Claude Desktop setup guide' }).getAttribute('href')).toBe('https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp')
   fireEvent.click(screen.getByRole('button', { name: 'Copy setup prompt' }))
   await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
@@ -133,6 +133,61 @@ test('asks a viewer to contact an administrator instead of offering account crea
   await screen.findByText('Ask your Canonry administrator to finish hosted connection setup for this instance.')
   expect(screen.queryByText(/canonry user create/)).toBeNull()
   expect(screen.queryByRole('button', { name: 'Copy MCP URL' })).toBeNull()
+})
+
+test.each([
+  { role: 'viewer', ready: true },
+  { role: 'admin', ready: true },
+  { role: 'viewer', ready: false },
+  { role: 'admin', ready: false },
+] as const)('keeps local instructions hidden for a $role when hosted readiness is $ready and local setup is disabled', async ({ role, ready }) => {
+  window.__CANONRY_CONFIG__ = { dashboard: { showLocalAgentSetup: false } }
+  mount({ mcp: { status: 'available', hosted: ready ? { status: 'ready', url: HOSTED_URL } : { status: 'unavailable', reason: 'account-required' } } }, 200, role)
+
+  await screen.findByText(ready ? 'Hosted setup configured' : 'Hosted setup needs attention')
+  expect(screen.getByText('Connect ChatGPT or Claude Desktop to this instance.')).toBeTruthy()
+  expect(screen.queryByText(/or another agent/)).toBeNull()
+  expect(screen.queryByText('Local plugins and other MCP clients')).toBeNull()
+  expect(screen.queryByRole('combobox', { name: 'Your client' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Copy local setup prompt' })).toBeNull()
+  expect(screen.queryByText(/canonry user create|codex plugin|claude plugin|canonry-mcp/)).toBeNull()
+  if (ready) {
+    expect(screen.getByRole('button', { name: 'Copy MCP URL' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '2. Sign in and approve access' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Copy verification prompt' })).toBeTruthy()
+  } else {
+    expect(screen.getByText('Ask your Canonry administrator to finish hosted connection setup for this instance.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Copy MCP URL' })).toBeNull()
+  }
+})
+
+test('hides optional resource links and copied references while keeping client help and local setup available', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { showLocalAgentSetup: true, showResourceLinks: false } }
+  const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
+  setClipboard({ writeText })
+  mount()
+  await screen.findByText('Hosted setup configured')
+  expect(screen.getByRole('link', { name: 'ChatGPT setup guide' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Claude Desktop setup guide' })).toBeTruthy()
+  fireEvent.click(screen.getByText('Local plugins and other MCP clients'))
+  expect(screen.queryByRole('link', { name: 'Runtime and plugin instructions' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Copy local setup prompt' }))
+  await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
+  expect(writeText.mock.calls[0]![0]).not.toContain('github.com')
+  expect(writeText.mock.calls[0]![0]).toContain('Check the saved API URL before using it.')
+  expect(screen.getByRole('button', { name: 'Copy install commands' })).toBeTruthy()
+})
+
+test.each(['unconfirmed', 'demo', 'embed'] as const)('hides connection documentation in the %s view when resource links are disabled', async mode => {
+  window.__CANONRY_CONFIG__ = {
+    dashboard: { showResourceLinks: false, showLocalAgentSetup: false },
+    ...(mode === 'demo' ? { demo: { enabled: true, readOnly: true, sampleData: true } } : {}),
+    ...(mode === 'embed' ? { embed: { enabled: true } } : {}),
+  }
+  mount({})
+  if (mode === 'unconfirmed') await screen.findByText('Hosted setup not confirmed')
+  expect(screen.queryByRole('link', { name: 'Read the connection guide' })).toBeNull()
+  expect(screen.queryByText('Local plugins and other MCP clients')).toBeNull()
 })
 
 test.each(['denied', 'missing'] as const)('keeps the hosted URL selectable when clipboard access is %s', async failure => {

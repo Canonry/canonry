@@ -134,6 +134,17 @@ test('defaults a fresh install to the domain-first Site Health flow', async () =
   expect(screen.getByRole('button', { name: 'Copy new-install request' })).toBeTruthy()
 })
 
+test('keeps new local installation instructions out of the launchpad when local agent setup is disabled', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform', showLocalAgentSetup: false } }
+  await renderSetup()
+
+  const agentOption = await screen.findByRole('region', { name: 'Use your agent instead' })
+  expect(within(agentOption).getByRole('link', { name: 'Agent setup' }).getAttribute('href')).toBe('/agent-setup')
+  expect(within(agentOption).getByText('Connect ChatGPT or Claude Desktop to this instance.')).toBeTruthy()
+  expect(within(agentOption).queryByRole('button', { name: 'Copy new-install request' })).toBeNull()
+  expect(within(agentOption).queryByRole('link', { name: /Agent quickstart/i })).toBeNull()
+})
+
 test('the legacy rescue query wins over an enabled platform flag', async () => {
   window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
   await renderSetup('/setup?experience=legacy')
@@ -1101,9 +1112,9 @@ test('the setup request cannot strand an agent or point it at the wrong install'
   expect(AGENT_SETUP_REQUEST).toContain('never present it as a full-site result')
 })
 
-test('gives an agent a copyable setup request', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
-  const writeText = vi.fn(async () => {})
+test.each([true, false])('gives an agent a copyable setup request with resource links set to %s', async showResourceLinks => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform', showResourceLinks } }
+  const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
   const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
@@ -1120,9 +1131,15 @@ test('gives an agent a copyable setup request', async () => {
   await renderSetup()
   fireEvent.click(await screen.findByRole('button', { name: 'Copy new-install request' }))
 
-  await waitFor(() => {
+  await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
+  if (showResourceLinks) {
     expect(writeText).toHaveBeenCalledWith(AGENT_SETUP_REQUEST)
-  })
+    expect(screen.getByRole('link', { name: /Agent quickstart/i })).toBeTruthy()
+  } else {
+    expect(writeText.mock.calls[0]![0]).not.toContain('github.com')
+    expect(writeText.mock.calls[0]![0]).toContain('wait for separate approval before scanning')
+    expect(screen.queryByRole('link', { name: /Agent quickstart/i })).toBeNull()
+  }
   expect(AGENT_SETUP_REQUEST).toContain('https://github.com/Canonry/canonry#or-use-any-shell-capable-coding-agent')
   expect(AGENT_SETUP_REQUEST).toContain('https://github.com/Canonry/canonry/blob/main/skills/canonry/references/canonry-cli.md')
   expect(AGENT_SETUP_REQUEST).toContain('https://github.com/Canonry/canonry/blob/main/docs/plugins.md')
@@ -1139,8 +1156,8 @@ test('gives an agent a copyable setup request', async () => {
   expect(screen.getByRole('button', { name: 'Copied new-install request' })).toBeTruthy()
 })
 
-test('offers the agent guide when the Clipboard API is unavailable', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
+test.each([true, false])('offers clipboard recovery with resource links set to %s', async showResourceLinks => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform', showResourceLinks } }
   const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
@@ -1161,11 +1178,11 @@ test('offers the agent guide when the Clipboard API is unavailable', async () =>
     expect(getToasts()).toContainEqual(expect.objectContaining({
       tone: 'negative',
       title: 'Could not copy setup request',
-      detail: 'Open the agent quickstart to continue with the CLI instead.',
+      detail: showResourceLinks ? 'Open the agent quickstart to continue with the CLI instead.' : 'Check your browser’s clipboard permission and try again.',
     }))
   })
   expect(screen.queryByRole('button', { name: 'Copied new-install request' })).toBeNull()
-  expect(screen.getByRole('link', { name: /Agent quickstart/i })).toBeTruthy()
+  expect(Boolean(screen.queryByRole('link', { name: /Agent quickstart/i }))).toBe(showResourceLinks)
 })
 
 test('auto confirms a cached empty project list after mount before showing the launchpad', async () => {

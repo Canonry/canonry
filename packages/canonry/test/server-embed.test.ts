@@ -19,6 +19,7 @@ const EMBED_ENV = [
   'CANONRY_EMBED_PROJECT_TABS',
   'CANONRY_DASHBOARD_REQUIRE_PASSWORD',
   'CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS',
+  'CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP',
   'CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION',
   'CANONRY_DASHBOARD_MANAGED_SWEEPS',
   'CANONRY_RESEARCH_ALLOW_VIEWERS',
@@ -285,6 +286,36 @@ describe('server embed mode (#716)', () => {
       expect(res.body).toContain(
         '<script>window.__CANONRY_CONFIG__={"dashboard":{"showResourceLinks":false}}</script>',
       )
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it.each([
+    [undefined, undefined, true],
+    [undefined, true, true],
+    [undefined, false, false],
+    ['0', true, false],
+    ['1', false, true],
+    ['invalid', false, false],
+    ['invalid', undefined, true],
+    [' ', false, false],
+  ] as const)('local agent setup env=%s config=%s injects only the opt-out', async (env, configured, expected) => {
+    if (env !== undefined) process.env.CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP = env
+    const { app, cleanup } = await buildServer(undefined, true, {
+      basePath: '/console',
+      dashboard: { ...(configured === undefined ? {} : { showLocalAgentSetup: configured }) },
+    })
+    try {
+      const expectedConfig = JSON.stringify({
+        basePath: '/console/',
+        ...(!expected ? { dashboard: { showLocalAgentSetup: false } } : {}),
+      })
+      for (const url of ['/console/', '/console/agent-setup']) {
+        const response = await app.inject({ method: 'GET', url })
+        expect(response.statusCode).toBe(200)
+        expect(response.body.match(/window\.__CANONRY_CONFIG__=(.*?)<\/script>/)?.[1]).toBe(expectedConfig)
+      }
     } finally {
       await cleanup()
     }
