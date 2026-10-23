@@ -32,6 +32,36 @@ describe('hotel editorial-only guard', () => {
     ).toBe(true)
     expect(fetch).toHaveBeenCalledTimes(1)
   })
+  it.each([
+    ['Hotel.Example', 'https://hotel.example/journal/guide/'],
+    ['https://Hotel.Example/', 'https://hotel.example/journal/guide/'],
+    ['https://www.Hotel.Example/about', 'https://hotel.example/journal/guide/'],
+    ['www.Hotel.Example', 'https://www.hotel.example/journal/guide/'],
+  ])('accepts the same editorial host stored as %s', async (domain, articleUrl) => {
+    const fetch = vi.fn(async (_url: string | URL | Request) =>
+      new Response('<article>A local guide.</article>', {
+        headers: { 'content-type': 'text/html' },
+      }),
+    )
+    expect(
+      await hotelEditorialDestination(domain, 'A local guide.', articleUrl, fetch),
+    ).toBe(true)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(fetch.mock.calls[0]?.[0]).toEqual(new URL(articleUrl))
+  })
+  it.each([
+    ['', 'https://hotel.example/journal/guide/'],
+    ['https://Hotel.Example/', 'https://hotel.example.evil.test/journal/guide/'],
+    ['https://Hotel.Example/', 'https://other.hotel.example/journal/guide/'],
+    ['https://Hotel.Example/', 'https://hotel.example@evil.test/journal/guide/'],
+    ['https://Hotel.Example/', 'http://hotel.example/journal/guide/'],
+  ])('retains destination confinement for %s and %s', async (domain, articleUrl) => {
+    const fetch = vi.fn()
+    expect(
+      await hotelEditorialDestination(domain, 'A local guide.', articleUrl, fetch),
+    ).toBe(false)
+    expect(fetch).not.toHaveBeenCalled()
+  })
   it('refuses promotions in the linked destination even when caption is editorial', async () => {
     expect(
       await hotelEditorialDestination(

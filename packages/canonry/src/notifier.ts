@@ -1,4 +1,4 @@
-import { deliverReviewEvent, reviewEventId } from './review-webhook-delivery.js'
+import { deliverReviewEvent, drainReviewDeliveries, reviewEventId } from './review-webhook-delivery.js'
 import { eq, desc, and, inArray, or, isNull } from 'drizzle-orm'
 import { deliverWebhook, measurementRunCompleteness, notProbeRun, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@canonry/canonry-api-routes'
 import type { DatabaseClient } from '@canonry/canonry-db'
@@ -1090,8 +1090,6 @@ export class Notifier {
     const pendingRatings = this.db.select().from(gbpReviewRatings)
       .where(and(eq(gbpReviewRatings.projectId, projectId), eq(gbpReviewRatings.alertState, 'pending')))
       .all()
-    if (pendingReviews.length === 0 && pendingRatings.length === 0) return { reviews: 0, ratingDrops: 0, delivered: 0 }
-
     const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) return { reviews: 0, ratingDrops: 0, delivered: 0 }
 
@@ -1208,6 +1206,10 @@ export class Notifier {
         }
       }
     }
+
+    // Durable delivery work belongs to immutable events, independently of the
+    // current review row (which a newer edit may already have acknowledged).
+    delivered += await drainReviewDeliveries({ db: this.db, projectId, allowLoopback: this.allowLoopbackWebhooks })
 
     if (ratingsToSend.length > 0) {
       const ids = ratingsToSend.map((r) => r.id)

@@ -227,7 +227,7 @@ export interface ReviewWebhookPayload {
 }
 
 export const ReviewDeliveryStates = Object.freeze({
-  Pending: 'pending', Attempting: 'attempting', Sent: 'sent', Uncertain: 'uncertain',
+  Pending: 'pending', Attempting: 'attempting', Sent: 'sent', Uncertain: 'uncertain', Canceled: 'canceled',
 } as const)
 export type ReviewDeliveryState = (typeof ReviewDeliveryStates)[keyof typeof ReviewDeliveryStates]
 

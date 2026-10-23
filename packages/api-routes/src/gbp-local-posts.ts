@@ -280,6 +280,15 @@ export async function gbpLocalPostsRoutes(
         return readResult()
       }
       const token = await options.token(project.canonicalDomain)
+      // Preflight and token refresh yield to selection/project edits. The claim
+      // and provider call must use eligibility read after the final await.
+      const currentProject = resolveProject(app.db, request.params.name)
+      if (
+        currentProject.id !== project.id ||
+        currentProject.canonicalDomain !== project.canonicalDomain
+      )
+        throw forbidden('GBP project changed during preflight; prepare a new request.')
+      selected(currentProject.id, body.accountName, body.locationName)
       const claim = claimAuditLog(app.db, key, {
         projectId: project.id,
         actor: 'api',

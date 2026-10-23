@@ -1,5 +1,6 @@
 /** Conservative hotel policy preflight, including the complete linked HTML and links. */
 import { decodeHTML } from 'entities'
+import { hostOf } from '@canonry/canonry-contracts'
 import { createGuardedFetch, type GuardedFetch } from './guarded-fetch.js'
 
 export function hotelEditorialText(value: string): boolean {
@@ -18,15 +19,17 @@ export async function hotelEditorialDestination(
   fetchImpl: GuardedFetch = createGuardedFetch(),
 ): Promise<boolean> {
   try {
+    const host = hostOf(domain)
     const target = new URL(articleUrl)
     if (
+      !host ||
       target.protocol !== 'https:' ||
       target.username ||
       target.password ||
       target.port ||
       target.hash ||
       target.search ||
-      ![domain, `www.${domain}`].includes(target.hostname) ||
+      ![host, `www.${host}`].includes(target.hostname) ||
       !hotelEditorialText(summary + ' ' + decodeURIComponent(target.pathname))
     )
       return false

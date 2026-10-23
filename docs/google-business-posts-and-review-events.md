@@ -62,6 +62,26 @@ empty on migration, has a unique project/destination/event key, and preserves
 per-destination debt across restarts. One accepted destination cannot acknowledge
 another failed destination. Acknowledgement compares the exact observed rating,
 comment and material revision, so an older send cannot hide a concurrent edit.
+Each sync also drains up to 100 due delivery records independently of the current
+review queue. Future retry deadlines do not consume that budget; never-attempted
+and oldest-due ready work goes first. Failed DNS/preflight reads receive a bounded
+retry deadline without incrementing provider attempts, so unavailable targets do
+not monopolize later batches. An older still-negative
+material event retains its original payload and can finish after a newer event
+succeeds, without repeating destinations that already accepted it.
+
+Before a retry and again after DNS resolution, the engine checks the current
+project, selected account/location, destination subscription and review rating.
+Pending debt is canceled when its review was removed, became nonnegative under
+the current threshold, expired outside the 30-day window, or lost its selected
+location/destination authority. A silent/suppressed review or Places review now
+covered by Business Profile is canceled too. Cancellation preserves the immutable
+event and records one `notification.review-canceled` audit entry with a bounded
+reason and exact event/destination identity. It never claims delivery or
+reactivates old debt when settings later change. Already attempting or uncertain
+outcomes retain their evidence and remain held when authority is revoked;
+cancellation cannot erase an ambiguous send. No historical baseline is replayed.
+
 Native Discord/Slack rendering reuses engine adapters, with bounded excerpts,
 validated Google review/profile links and disabled Discord mentions. No
 orchestrator dependency is involved.

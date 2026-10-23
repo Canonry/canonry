@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Fastify from 'fastify'
+import { eq } from 'drizzle-orm'
 import { describe, it, expect, vi, onTestFinished } from 'vitest'
 import {
   createClient,
@@ -9,6 +10,7 @@ import {
   projects,
   gbpLocations,
   apiKeys,
+  auditLog,
 } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hotelEditorialDestination } from '../src/gbp-hotel-policy.js'
@@ -43,7 +45,7 @@ const post = {
   updateTime: NOW,
   searchUrl: 'https://local.google.com/place?id=123&use=posts&lpsid=abc',
 }
-async function fixture() {
+async function fixture(options: { tokenExpiresAt?: string } = {}) {
   vi.mocked(hotelEditorialDestination).mockResolvedValue(true)
   const root = mkdtempSync(join(tmpdir(), 'cnry-gbp-posts-'))
   const db = createClient(join(root, 'test.db'))
@@ -115,7 +117,8 @@ async function fixture() {
         connectionType: 'gbp',
         accessToken: 'fixture-token',
         refreshToken: 'fixture-refresh',
-        tokenExpiresAt: new Date(Date.now() + 3600000).toISOString(),
+        tokenExpiresAt:
+          options.tokenExpiresAt ?? new Date(Date.now() + 3600000).toISOString(),
         createdAt: NOW,
         updatedAt: NOW,
       }),
@@ -200,6 +203,87 @@ describe('GBP API transport authorization and send-once claim', () => {
     })
     expect(response.statusCode).toBe(403)
     expect(fetch).not.toHaveBeenCalled()
+  })
+  it.each(
+    (['editorial preflight', 'OAuth refresh'] as const).flatMap((stage) =>
+      (['deselection', 'account', 'location', 'project domain', 'project identity'] as const)
+        .map((change) => [stage, change] as const),
+    ),
+  )('refuses a %s request after %s changes', async (stage, change) => {
+    const f = await fixture(
+      stage === 'OAuth refresh' ? { tokenExpiresAt: new Date(0).toISOString() } : {},
+    )
+    const entered = Promise.withResolvers<void>()
+    const resume = Promise.withResolvers<boolean>()
+    if (stage === 'editorial preflight') {
+      vi.mocked(hotelEditorialDestination).mockImplementationOnce(() => {
+        entered.resolve()
+        return resume.promise
+      })
+    }
+    const fetch = vi.fn(async (url: string | URL | Request) => {
+      if (String(url) === 'https://oauth2.googleapis.com/token') {
+        entered.resolve()
+        await resume.promise
+        return new Response(JSON.stringify({
+          access_token: 'fresh-fixture-token', expires_in: 3600, token_type: 'Bearer',
+        }))
+      }
+      return new Response(JSON.stringify(post))
+    })
+    vi.stubGlobal('fetch', fetch)
+    const pending = f.request('POST', 'local-posts', body)
+    await entered.promise
+    switch (change) {
+      case 'deselection':
+        f.db.update(gbpLocations).set({ selected: false }).where(eq(gbpLocations.id, 'loc')).run()
+        break
+      case 'account':
+        f.db.update(gbpLocations).set({ accountName: 'accounts/999' }).where(eq(gbpLocations.id, 'loc')).run()
+        break
+      case 'location':
+        f.db.update(gbpLocations).set({ locationName: 'locations/999' }).where(eq(gbpLocations.id, 'loc')).run()
+        break
+      case 'project domain':
+        f.db.update(projects).set({ canonicalDomain: 'changed.example' }).where(eq(projects.id, 'p1')).run()
+        break
+      case 'project identity':
+        f.db.update(projects).set({ name: 'retired-one' }).where(eq(projects.id, 'p1')).run()
+        f.db.update(projects).set({ name: 'one', canonicalDomain: 'one.example' }).where(eq(projects.id, 'p2')).run()
+        f.db.insert(gbpLocations).values({
+          id: 'new-loc', projectId: 'p2', accountName: body.accountName,
+          locationName: body.locationName, displayName: 'Replacement project',
+          selected: true, createdAt: NOW, updatedAt: NOW,
+        }).run()
+        break
+    }
+    resume.resolve(true)
+    const response = await pending
+    expect(response.statusCode).toBe(403)
+    expect(response.json().error.message).toContain(
+      change.startsWith('project') ? 'GBP project changed' : 'account/location is not selected',
+    )
+    expect(fetch).toHaveBeenCalledTimes(stage === 'OAuth refresh' ? 1 : 0)
+    expect(f.db.select().from(auditLog)
+      .where(eq(auditLog.action, 'gbp.local-post-claimed')).all()).toHaveLength(0)
+  })
+  it('allows unchanged eligibility after token refresh without an extra provider POST', async () => {
+    const f = await fixture({ tokenExpiresAt: new Date(0).toISOString() })
+    const fetch = vi.fn(async (url: string | URL | Request) =>
+      new Response(JSON.stringify(String(url) === 'https://oauth2.googleapis.com/token'
+        ? { access_token: 'fresh-fixture-token', expires_in: 3600, token_type: 'Bearer' }
+        : post)),
+    )
+    vi.stubGlobal('fetch', fetch)
+    const response = await f.request('POST', 'local-posts', body)
+    expect(response.statusCode).toBe(200)
+    expect(response.json().status).toBe('accepted')
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+      'https://oauth2.googleapis.com/token',
+      'https://mybusiness.googleapis.com/v4/accounts/111/locations/222/localPosts',
+    ])
+    expect(f.db.select().from(auditLog)
+      .where(eq(auditLog.action, 'gbp.local-post-claimed')).all()).toHaveLength(1)
   })
   it('replays the saved result without another provider POST and rejects changed content', async () => {
     const f = await fixture()
