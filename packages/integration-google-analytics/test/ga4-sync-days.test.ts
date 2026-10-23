@@ -79,6 +79,19 @@ describe('GA4 fetches honour the resolved window', () => {
     })
   }
 
+  /**
+   * A GA4 date as a day number: an ISO date, or a relative one (`today`,
+   * `yesterday`, `NdaysAgo`) that GA4 resolves itself. Only differences mean
+   * anything.
+   */
+  function dayNumber(value: string): number {
+    if (value === 'today') return 0
+    if (value === 'yesterday') return -1
+    const relative = /^(\d+)daysAgo$/.exec(value)
+    if (relative) return -Number(relative[1])
+    return Date.parse(`${value}T00:00:00Z`) / 86_400_000
+  }
+
   /** Span of the dateRange each `runReport` asked GA4 for, in whole days. */
   function capturedRangeSpans(): number[] {
     const spans: number[] = []
@@ -91,8 +104,7 @@ describe('GA4 fetches honour the resolved window', () => {
       for (const request of body.requests ?? [body]) {
         const range = request.dateRanges?.[0]
         if (!range) continue
-        const ms = Date.parse(`${range.endDate}T00:00:00Z`) - Date.parse(`${range.startDate}T00:00:00Z`)
-        spans.push(Math.round(ms / 86_400_000))
+        spans.push(Math.round(dayNumber(range.endDate) - dayNumber(range.startDate)))
       }
     }
     return spans

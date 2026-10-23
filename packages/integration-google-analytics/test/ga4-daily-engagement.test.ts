@@ -29,10 +29,12 @@ describe('fetchDailyTotals overview metrics', () => {
     fetchSpy.mockRestore()
   })
 
-  function mockBatch(totals: Row[], organic: Row[] = []) {
+  /** GA4 states the property's reporting time zone in every report's metadata. */
+  function mockBatch(totals: Row[], organic: Row[] = [], timeZone?: string) {
+    const metadata = timeZone ? { metadata: { currencyCode: 'USD', timeZone } } : {}
     fetchSpy.mockImplementation(async (_input: string | URL | Request, init?: RequestInit) => {
       bodies.push(JSON.parse(String(init?.body ?? '{}')) as BatchBody)
-      return new Response(JSON.stringify({ reports: [{ rows: totals, rowCount: totals.length }, { rows: organic, rowCount: organic.length }] }), {
+      return new Response(JSON.stringify({ reports: [{ rows: totals, rowCount: totals.length, ...metadata }, { rows: organic, rowCount: organic.length, ...metadata }] }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })
@@ -141,12 +143,18 @@ describe('fetchDailyTotals overview metrics', () => {
     expect(rows.map(row => [row.date, row.organicSessions])).toEqual([['2026-07-30', 0], ['2026-07-31', 22]])
   })
 
-  it('returns the range it asked for alongside the rows', async () => {
-    mockBatch([])
+  it('asks for days in the property\'s time zone and returns the dates GA4 resolved them to', async () => {
+    mockBatch([], [], 'America/New_York')
 
-    const result = await fetchDailyTotals('fake-token', '123456', 7)
+    const result = await fetchDailyTotals('fake-token', '123456', 7, { now: new Date('2026-10-23T02:00:00Z') })
 
-    const asked = bodies[0]!.requests![0]!.dateRanges![0]!
-    expect({ startDate: result.startDate, endDate: result.endDate }).toEqual(asked)
+    // Relative dates: GA4 resolves them in the property's reporting time zone.
+    expect(bodies[0]!.requests!.map(request => request.dateRanges)).toEqual([
+      [{ startDate: '7daysAgo', endDate: 'today' }],
+      [{ startDate: '7daysAgo', endDate: 'today' }],
+    ])
+    // 02:00 UTC on October 23 is still the 22nd in New York: the sync must
+    // replace the 15th through the 22nd, not the 16th through the 23rd.
+    expect({ startDate: result.startDate, endDate: result.endDate }).toEqual({ startDate: '2026-10-15', endDate: '2026-10-22' })
   })
 })

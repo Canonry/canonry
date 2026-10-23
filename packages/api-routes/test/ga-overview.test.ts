@@ -5,7 +5,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { createClient, gaDailyTotals, gaWindowMetrics, migrate } from '@canonry/canonry-db'
+import { createClient, gaDailyTotals, gaTrafficWindowSummaries, gaWindowMetrics, migrate } from '@canonry/canonry-db'
 import { gaOverviewResponseSchema, GaOverviewPeriods, type GaOverviewWindow } from '@canonry/canonry-contracts'
 import * as gaModule from '@canonry/canonry-integration-google-analytics'
 import { apiRoutes } from '../src/index.js'
@@ -270,6 +270,35 @@ describe('GET /projects/:name/ga/overview', () => {
     ctx.credentials.delete('overview')
     const response = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/overview/ga/overview' })
     expect(response.statusCode).toBe(400)
+  })
+
+  it('drops the window totals on disconnect, so the next property starts with none', async () => {
+    insertPeriod(ctx, '7d', GaOverviewPeriods.current, period(CURRENT, { sessions: 12345 }))
+    insertPeriod(ctx, '7d', GaOverviewPeriods.previous, period(PREVIOUS))
+    ctx.db.insert(gaTrafficWindowSummaries).values({
+      id: crypto.randomUUID(), projectId: ctx.projectId, windowKey: '7d', periodStart: CURRENT.startDate, periodEnd: CURRENT.endDate,
+      totalSessions: 12345, totalUsers: 9000, syncedAt: SYNCED_AT,
+    }).run()
+
+    const disconnected = await ctx.app.inject({ method: 'DELETE', url: '/api/v1/projects/overview/ga/disconnect' })
+    expect(disconnected.statusCode).toBe(204)
+    expect(ctx.db.select().from(gaWindowMetrics).where(eq(gaWindowMetrics.projectId, ctx.projectId)).all()).toEqual([])
+    expect(ctx.db.select().from(gaTrafficWindowSummaries).where(eq(gaTrafficWindowSummaries.projectId, ctx.projectId)).all()).toEqual([])
+
+    // Another property, before its first sync: nothing of the old one shows.
+    ctx.credentials.set('overview', {
+      projectName: 'overview',
+      propertyId: '654321',
+      clientEmail: 'other@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: SYNCED_AT,
+      updatedAt: SYNCED_AT,
+    })
+    const response = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/overview/ga/overview?window=7d' })
+    const overview = gaOverviewResponseSchema.parse(JSON.parse(response.body))
+    expect(overview.syncedAt).toBeNull()
+    expect(overview.totals.sessions).toBeNull()
+    expect(overview.days.every(entry => entry.values.sessions === null && entry.previousValues.sessions === null)).toBe(true)
   })
 })
 

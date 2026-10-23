@@ -4,7 +4,7 @@ import { gaMeasurementComponentStatusSchema } from './measurement.js'
 import { WINDOW_SETS } from './time-window.js'
 import { z } from 'zod'
 import { fraction, percent, RatioUnits } from './ratio-unit.js'
-import { formatDurationSeconds, formatNumber, formatPercent, shiftIsoCalendarDate } from './formatting.js'
+import { formatDurationSeconds, formatNumber, formatPercent, isoDateDaysBeforeInTimeZone } from './formatting.js'
 import { aiReferralTrafficClassSchema } from './traffic-class.js'
 import { aiReferralEngineSchema } from './ai-referral-engine.js'
 import { socialPlatformSchema } from './social-platform.js'
@@ -675,20 +675,39 @@ export function isGaOverviewWindow(value: unknown): value is GaOverviewWindow {
 export const GA_OVERVIEW_HISTORY_DAYS = 2 * GA_OVERVIEW_WINDOW_DAYS['90d']
 
 /**
- * A window and the period of the same length just before it, inclusive UTC
- * dates, as GA4 draws them: "Last 30 days" is the 30 complete days ending
+ * A window and the period of the same length just before it, as days before
+ * today, as GA4 draws them: "Last 30 days" is the 30 complete days ending
  * yesterday (today is still filling), and the previous period is the 30 days
- * before. The sync asks GA4 for exactly these ranges.
+ * before. Inclusive at both ends.
+ */
+export function gaOverviewComparisonDaysAgo(window: GaOverviewWindow): {
+  current: { start: number; end: number }
+  previous: { start: number; end: number }
+} {
+  const days = GA_OVERVIEW_WINDOW_DAYS[window]
+  return {
+    current: { start: days, end: 1 },
+    previous: { start: 2 * days, end: days + 1 },
+  }
+}
+
+/**
+ * The calendar dates of `gaOverviewComparisonDaysAgo` on the day `now` falls
+ * on in `timeZone`. GA4 counts days in the property's reporting time zone, so
+ * the sync passes the zone GA4 reports; at 02:00 UTC a New York property's
+ * yesterday is still two UTC dates back. Without a zone (an overview no sync
+ * has drawn yet) the UTC date stands in.
  */
 export function gaOverviewComparisonRanges(
   window: GaOverviewWindow,
   now: Date = new Date(),
+  timeZone = 'UTC',
 ): { current: { startDate: string; endDate: string }; previous: { startDate: string; endDate: string } } {
-  const days = GA_OVERVIEW_WINDOW_DAYS[window]
-  const today = now.toISOString().slice(0, 10)
+  const daysAgo = gaOverviewComparisonDaysAgo(window)
+  const date = (days: number) => isoDateDaysBeforeInTimeZone(now.toISOString(), days, timeZone)
   return {
-    current: { startDate: shiftIsoCalendarDate(today, -days), endDate: shiftIsoCalendarDate(today, -1) },
-    previous: { startDate: shiftIsoCalendarDate(today, -2 * days), endDate: shiftIsoCalendarDate(today, -days - 1) },
+    current: { startDate: date(daysAgo.current.start), endDate: date(daysAgo.current.end) },
+    previous: { startDate: date(daysAgo.previous.start), endDate: date(daysAgo.previous.end) },
   }
 }
 

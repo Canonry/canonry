@@ -726,12 +726,20 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       throw notFound('GA4 connection', project.name)
     }
 
-    // Delete traffic data, summaries, AI and social referral rows along with the connection.
+    // Delete traffic data, summaries, window totals, AI and social referral rows
+    // along with the connection. Window totals left behind would read as the
+    // next property's figures until its first sync.
     app.db.delete(gaTrafficSnapshots)
       .where(eq(gaTrafficSnapshots.projectId, project.id))
       .run()
     app.db.delete(gaTrafficSummaries)
       .where(eq(gaTrafficSummaries.projectId, project.id))
+      .run()
+    app.db.delete(gaTrafficWindowSummaries)
+      .where(eq(gaTrafficWindowSummaries.projectId, project.id))
+      .run()
+    app.db.delete(gaWindowMetrics)
+      .where(eq(gaWindowMetrics.projectId, project.id))
       .run()
     app.db.delete(gaDailyTotals)
       .where(eq(gaDailyTotals.projectId, project.id))
@@ -2073,7 +2081,6 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     return response
   })
 
-  // GET /projects/:name/ga/session-history
   // GET /projects/:name/ga/overview — GA4's overview for a window beside the
   // period before it: GA4's own totals, their change, and the days of both.
   // Stored rows only; a sync is what asks GA4.
@@ -2104,6 +2111,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     return buildGaOverview({ window, current, previous, daily, fallback })
   })
 
+  // GET /projects/:name/ga/session-history
   app.get<{
     Params: { name: string }
     Querystring: { window?: string; startDate?: string; endDate?: string }

@@ -45,6 +45,21 @@ describe('gaOverviewComparisonRanges', () => {
       previous: { startDate: '2026-12-20', endDate: '2026-12-26' },
     })
   })
+
+  it('counts days in the property\'s time zone, never ending on its unfinished today', () => {
+    // 02:00 UTC on October 23 is 22:00 on the 22nd in New York, so its last
+    // complete day is the 21st.
+    const lateEvening = new Date('2026-10-23T02:00:00Z')
+    expect(gaOverviewComparisonRanges('7d', lateEvening, 'America/New_York')).toEqual({
+      current: { startDate: '2026-10-15', endDate: '2026-10-21' },
+      previous: { startDate: '2026-10-08', endDate: '2026-10-14' },
+    })
+    // Tokyo is already on the 24th at 20:00 UTC on the 23rd.
+    expect(gaOverviewComparisonRanges('7d', new Date('2026-10-23T20:00:00Z'), 'Asia/Tokyo').current)
+      .toEqual({ startDate: '2026-10-17', endDate: '2026-10-23' })
+    // No zone known yet: the UTC date.
+    expect(gaOverviewComparisonRanges('7d', lateEvening).current).toEqual({ startDate: '2026-10-16', endDate: '2026-10-22' })
+  })
 })
 
 describe('isGaOverviewWindow', () => {

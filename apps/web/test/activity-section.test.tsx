@@ -947,6 +947,27 @@ test('picking a figure charts it, and a picker swaps a figure already shown', as
   expect(reopened.getAllByRole('tab').slice(0, 2).map(tab => tab.getAttribute('aria-label')?.split(' ')[0])).toEqual(['Users', 'Sessions'])
 })
 
+test('a picker keeps keyboard focus when a figure is picked, swaps included', async () => {
+  window.localStorage.clear()
+  onTestFinished(() => window.localStorage.clear())
+  onTestFinished(mockConnectedGa({}))
+
+  renderActivitySection()
+
+  await screen.findByRole('tablist', { name: 'Site traffic figures' })
+  const picker = screen.getByRole('combobox', { name: 'Figure 3' })
+  picker.focus()
+  fireEvent.change(picker, { target: { value: 'views' } })
+  // The same select, still mounted and focused: not handed back to the page.
+  expect(picker.isConnected).toBe(true)
+  expect(document.activeElement).toBe(picker)
+
+  // Sessions is in slot 1, so this swaps the two; focus still stays here.
+  fireEvent.change(picker, { target: { value: 'sessions' } })
+  expect(document.activeElement).toBe(picker)
+  expect(screen.getByRole('combobox', { name: 'Figure 1' })).toHaveProperty('value', 'views')
+})
+
 test('a project synced before the overview existed is told the figures come with the next sync', async () => {
   window.localStorage.clear()
   onTestFinished(() => window.localStorage.clear())

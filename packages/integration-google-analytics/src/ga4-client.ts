@@ -10,6 +10,7 @@ import {
   describeError,
   describeFetchError,
   escapeRegExp,
+  gaOverviewComparisonDaysAgo,
   gaOverviewComparisonRanges,
   isoDateDaysBeforeInTimeZone,
   parseBoundedRate,
@@ -417,6 +418,25 @@ async function batchRunReports(
 
 function formatDate(d: Date): string {
   return d.toISOString().slice(0, 10)
+}
+
+/**
+ * A GA4 relative date. GA4 resolves it in the property's reporting time zone,
+ * which is how its own "Last N days" ranges count days.
+ */
+function ga4RelativeDate(daysAgo: number): string {
+  if (daysAgo === 0) return 'today'
+  if (daysAgo === 1) return 'yesterday'
+  return `${daysAgo}daysAgo`
+}
+
+/** The property's reporting time zone, as GA4 states it on its responses. */
+function reportTimeZone(...responses: Array<GA4RunReportResponse | undefined>): string | null {
+  for (const res of responses) {
+    const zone = res?.metadata?.timeZone?.trim()
+    if (zone) return zone
+  }
+  return null
 }
 
 function measurementDateRange(days?: number) {
@@ -1075,7 +1095,7 @@ export interface GA4DailyTotalRow {
   bounceRate: number | null
 }
 
-/** The days `fetchDailyTotals` asked GA4 for, inclusive, and what came back. */
+/** The days `fetchDailyTotals` asked GA4 for, inclusive and in the property's time zone, and what came back. */
 export interface GA4DailyTotals {
   startDate: string
   endDate: string
@@ -1117,6 +1137,7 @@ export async function fetchDailyTotals(
   accessToken: string,
   propertyId: string,
   days: number = GA_OVERVIEW_HISTORY_DAYS,
+  options: { now?: Date } = {},
 ): Promise<GA4DailyTotals> {
   validateAccessToken(accessToken)
   validatePropertyId(propertyId)
@@ -1124,10 +1145,11 @@ export async function fetchDailyTotals(
   // Bounded by the overview history, not the sync cap: daily totals are the
   // foundation read every window and its previous period draw from.
   const historyDays = Math.min(Math.max(1, Number.isFinite(days) ? Math.trunc(days) : GA_OVERVIEW_HISTORY_DAYS), GA_OVERVIEW_HISTORY_DAYS)
-  const endDate = new Date()
-  const startDate = new Date()
-  startDate.setDate(startDate.getDate() - historyDays)
-  const dateRange = { startDate: formatDate(startDate), endDate: formatDate(endDate) }
+  // Relative dates, so GA4 counts days in the property's reporting time zone,
+  // as the overview's periods do. Today stays in while it fills: the session
+  // history reads each day's users from here.
+  const requestedAt = (options.now ?? new Date()).toISOString()
+  const dateRange = { startDate: ga4RelativeDate(historyDays), endDate: ga4RelativeDate(0) }
 
   ga4Log('info', 'fetch-daily-totals.start', { propertyId, days: historyDays })
 
@@ -1194,8 +1216,14 @@ export async function fetchDailyTotals(
     }
   }).filter((row) => row.date.length > 0)
 
-  ga4Log('info', 'fetch-daily-totals.done', { propertyId, days: historyDays, rows: rows.length })
-  return { ...dateRange, rows }
+  // The dates GA4 resolved the range to, so a sync replaces exactly those days.
+  const timeZone = reportTimeZone(totalsRes, organicRes) ?? 'UTC'
+  ga4Log('info', 'fetch-daily-totals.done', { propertyId, days: historyDays, timeZone, rows: rows.length })
+  return {
+    startDate: isoDateDaysBeforeInTimeZone(requestedAt, historyDays, timeZone),
+    endDate: isoDateDaysBeforeInTimeZone(requestedAt, 0, timeZone),
+    rows,
+  }
 }
 
 export interface GA4WindowSummary {
@@ -1319,19 +1347,25 @@ const COMPARISON_RANGE_NAMES = { current: 'current', previous: 'previous' } as c
  * Fetch GA4's own totals for a window and the period before it: one report
  * with both date ranges, so GA4 computes distinct users and every rate over
  * each whole period (no sum of days can), plus the Organic Search sessions.
+ * Both periods are complete days in the property's reporting time zone.
  */
 export async function fetchWindowMetrics(
   accessToken: string,
   propertyId: string,
   windowKey: GaOverviewWindow,
+  options: { now?: Date } = {},
 ): Promise<GA4WindowMetrics> {
   validateAccessToken(accessToken)
   validatePropertyId(propertyId)
 
-  const ranges = gaOverviewComparisonRanges(windowKey)
+  // Relative dates resolve in the property's time zone. UTC dates would end a
+  // New York window on its unfinished today each evening once UTC passes
+  // midnight.
+  const requestedAt = options.now ?? new Date()
+  const daysAgo = gaOverviewComparisonDaysAgo(windowKey)
   const dateRanges = [
-    { ...ranges.current, name: COMPARISON_RANGE_NAMES.current },
-    { ...ranges.previous, name: COMPARISON_RANGE_NAMES.previous },
+    { startDate: ga4RelativeDate(daysAgo.current.start), endDate: ga4RelativeDate(daysAgo.current.end), name: COMPARISON_RANGE_NAMES.current },
+    { startDate: ga4RelativeDate(daysAgo.previous.start), endDate: ga4RelativeDate(daysAgo.previous.end), name: COMPARISON_RANGE_NAMES.previous },
   ]
 
   ga4Log('info', 'fetch-window-metrics.start', { propertyId, windowKey })
@@ -1400,13 +1434,16 @@ export async function fetchWindowMetrics(
     }
   }
 
+  // The dates GA4 resolved the ranges to, in the zone it reports.
+  const timeZone = reportTimeZone(totalsRes, organicRes) ?? 'UTC'
+  const ranges = gaOverviewComparisonRanges(windowKey, requestedAt, timeZone)
   const result: GA4WindowMetrics = {
     windowKey,
     current: period(COMPARISON_RANGE_NAMES.current, ranges.current),
     previous: period(COMPARISON_RANGE_NAMES.previous, ranges.previous),
   }
 
-  ga4Log('info', 'fetch-window-metrics.done', { propertyId, windowKey })
+  ga4Log('info', 'fetch-window-metrics.done', { propertyId, windowKey, timeZone })
   return result
 }
 

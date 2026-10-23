@@ -1,5 +1,4 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { gaOverviewComparisonRanges } from '@canonry/canonry-contracts'
 import { fetchWindowMetrics } from '../src/ga4-client.js'
 
 /**
@@ -27,16 +26,17 @@ describe('fetchWindowMetrics', () => {
 
   afterEach(() => {
     fetchSpy.mockRestore()
-    vi.useRealTimers()
   })
 
-  function mockBatch(totals: Row[], organic: Row[]) {
+  /** GA4 states the property's reporting time zone in every report's metadata. */
+  function mockBatch(totals: Row[], organic: Row[], timeZone?: string) {
+    const metadata = timeZone ? { metadata: { currencyCode: 'USD', timeZone } } : {}
     fetchSpy.mockImplementation(async (_input: string | URL | Request, init?: RequestInit) => {
       requests.push(...((JSON.parse(String(init?.body ?? '{}')) as { requests?: ReportRequest[] }).requests ?? []))
       return new Response(JSON.stringify({
         reports: [
-          { dimensionHeaders: [{ name: 'dateRange' }], rows: totals, rowCount: totals.length },
-          { dimensionHeaders: [{ name: 'dateRange' }], rows: organic, rowCount: organic.length },
+          { dimensionHeaders: [{ name: 'dateRange' }], rows: totals, rowCount: totals.length, ...metadata },
+          { dimensionHeaders: [{ name: 'dateRange' }], rows: organic, rowCount: organic.length, ...metadata },
         ],
       }), { status: 200, headers: { 'Content-Type': 'application/json' } })
     })
@@ -48,25 +48,20 @@ describe('fetchWindowMetrics', () => {
   })
 
   it('asks for both periods as named ranges, with every window figure by its GA4 name', async () => {
-    vi.useFakeTimers({ now: new Date('2026-10-23T09:00:00Z'), toFake: ['Date'] })
     mockBatch([], [])
 
     await fetchWindowMetrics('fake-token', '123456', '30d')
 
     expect(requests).toHaveLength(2)
-    const expected = gaOverviewComparisonRanges('30d', new Date('2026-10-23T09:00:00Z'))
     for (const request of requests) {
+      // GA4's "Last 30 days": the 30 complete days ending yesterday, and the
+      // 30 before. Relative dates, so GA4 counts them in the property's zone.
       expect(request.dateRanges).toEqual([
-        { ...expected.current, name: 'current' },
-        { ...expected.previous, name: 'previous' },
+        { startDate: '30daysAgo', endDate: 'yesterday', name: 'current' },
+        { startDate: '60daysAgo', endDate: '31daysAgo', name: 'previous' },
       ])
       expect(request.dimensions).toEqual([])
     }
-    // GA4's "Last 30 days": the 30 complete days ending yesterday, and the 30 before.
-    expect(expected).toEqual({
-      current: { startDate: '2026-09-23', endDate: '2026-10-22' },
-      previous: { startDate: '2026-08-24', endDate: '2026-09-22' },
-    })
     expect((requests[0]!.metrics ?? []).map(metric => metric.name)).toEqual([
       'activeUsers',
       'newUsers',
@@ -81,6 +76,21 @@ describe('fetchWindowMetrics', () => {
     ])
     expect((requests[1]!.metrics ?? []).map(metric => metric.name)).toEqual(['sessions'])
     expect(JSON.stringify(requests[1]!.dimensionFilter)).toContain('Organic Search')
+  })
+
+  it('dates both periods in the time zone GA4 reports for the property', async () => {
+    // 02:00 UTC on October 23 is still the 22nd in New York: the property's
+    // last complete day is the 21st, and the stored dates must say so.
+    const lateEvening = new Date('2026-10-23T02:00:00Z')
+    mockBatch([], [], 'America/New_York')
+    const newYork = await fetchWindowMetrics('fake-token', '123456', '7d', { now: lateEvening })
+    expect(newYork.current).toMatchObject({ startDate: '2026-10-15', endDate: '2026-10-21' })
+    expect(newYork.previous).toMatchObject({ startDate: '2026-10-08', endDate: '2026-10-14' })
+
+    // A response with no zone falls back to the UTC date.
+    mockBatch([], [])
+    const unstated = await fetchWindowMetrics('fake-token', '123456', '7d', { now: lateEvening })
+    expect(unstated.current).toMatchObject({ startDate: '2026-10-16', endDate: '2026-10-22' })
   })
 
   it('reads each period from its own named row, whatever order GA4 sends them in', async () => {

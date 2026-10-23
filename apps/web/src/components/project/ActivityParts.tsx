@@ -560,8 +560,10 @@ export function SiteTrafficCard({ overview, refreshing = false }: { overview: Ga
         {slots.map((key, index) => {
           const active = index === selected
           const value = formatGaOverviewValue(key, overview.totals[key], { compact: true })
+          // Keyed by slot, not figure: picking a figure re-renders the slot in
+          // place, so its picker keeps keyboard focus.
           return (
-            <div key={`${index}:${key}`} className="relative min-w-0 px-4 pb-4 pt-4">
+            <div key={index} className="relative min-w-0 px-4 pb-4 pt-4">
               <span aria-hidden="true" className={`absolute inset-x-4 top-0 h-[3px] rounded-b-sm bg-link transition-opacity duration-200 ${active ? 'opacity-100' : 'opacity-0'}`} />
               <div className="relative inline-flex max-w-full items-center">
                 <select
