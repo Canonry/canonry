@@ -61,6 +61,7 @@ export const seoContextSchema = z.object({
     kind: seoScopeKindSchema, key: z.string().nullable(), label: z.string(),
     planRevision: z.number().int().nonnegative().optional(),
     supported: z.boolean(), reason: z.string().nullable(),
+    capabilities: z.array(seoCapabilitySchema).optional(),
   }).strict()),
   access: z.object({ canRun: z.boolean(), canWrite: z.boolean() }).strict(),
 }).strict()

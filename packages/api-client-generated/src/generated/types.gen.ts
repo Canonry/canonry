@@ -45,6 +45,7 @@ export type SeoContext = {
         planRevision?: number;
         supported: boolean;
         reason: string | null;
+        capabilities?: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
     }>;
     access: {
         canRun: boolean;

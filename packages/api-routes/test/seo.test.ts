@@ -1,12 +1,12 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { SeoRepository, emptySeoResults, measurementPlans, measurementPlanVersions, projects, runs, seoBudgets, seoJobs, seoTasks } from '@canonry/canonry-db'
-import { canonicalMeasurementPlanV2Json, SeoCapabilities, SeoRunStatuses, type SeoDomainIntelligence, type SeoQuote, type SeoRun } from '@canonry/canonry-contracts'
+import { SeoRepository, auditLog, emptySeoResults, measurementPlans, measurementPlanVersions, projects, runs, seoBudgets, seoJobs, seoTasks } from '@canonry/canonry-db'
+import { canonicalMeasurementPlanV2Json, SeoCapabilities, SeoRunStatuses, validationError, type MeasurementPlanV2, type SeoContext, type SeoDomainIntelligence, type SeoQuote, type SeoRun } from '@canonry/canonry-contracts'
 import { createSeoHarness, seedSeoKey, seoProfileFixture } from './seo-fixture.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
 const harnesses: ReturnType<typeof createSeoHarness>[] = []
-afterEach(async () => { await Promise.all(harnesses.splice(0).map(h => h.close())) })
+afterEach(async () => { await Promise.all(harnesses.splice(0).map(h => h.close())); vi.useRealTimers() })
 const harness = (options: Parameters<typeof createSeoHarness>[0] = {}) => { const h = createSeoHarness(options); harnesses.push(h); return h }
 const base = '/api/v1/projects/alpha/seo'
 async function save(h: ReturnType<typeof harness>, input = seoProfileFixture, headers = {}) {
@@ -22,14 +22,22 @@ async function sync(h: ReturnType<typeof harness>, key: string, headers = {}) {
   const intent = await quote(h, headers)
   return h.app.inject({ method: 'POST', url: `${base}/sync`, payload: { quoteToken: intent.token, idempotencyKey: key }, headers })
 }
+function seedPlan(h: ReturnType<typeof harness>, plan: MeasurementPlanV2) {
+  h.db.insert(measurementPlanVersions).values({ id: 'plan-1', projectId: 'alpha', revision: 1, canonicalJson: canonicalMeasurementPlanV2Json(plan), checksum: '1'.repeat(64), schemaVersion: 2, compiledChecksum: plan.compiledChecksum, createdAt: new Date().toISOString() }).run()
+  h.db.insert(measurementPlans).values({ projectId: 'alpha', activeVersionId: 'plan-1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }).run()
+}
 
 // Owning API boundary: mutations must reserve real durable capacity before any callback,
 // retries must not reserve twice, and stored reads must never dispatch or expose that ledger.
 describe('SEO durable API', () => {
   it('reserves all ceilings atomically, replays accepted receipts, and keeps financial details out of customer reads', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-22T12:00:00.000Z'))
     const h = harness(); h.state.policy.accountDailyLimitMicros = 150
     await save(h)
     const intent = await quote(h)
+    const fresh = await quote(h)
+    expect(fresh.expiresAt).toBe(intent.expiresAt)
+    expect(fresh.token).not.toBe(intent.token)
     const claims = Buffer.from(intent.token.split('.')[0]!, 'base64url').toString()
     expect(claims).not.toMatch(/cost|budget|price|Micros/i)
     const request = { quoteToken: intent.token, idempotencyKey: 'one' }
@@ -40,7 +48,10 @@ describe('SEO durable API', () => {
     h.state.policy.maxRunCostMicros = 1
     const replay = await h.app.inject({ method: 'POST', url: `${base}/sync`, payload: request })
     expect(replay.statusCode).toBe(200); expect(replay.json().id).toBe(run.id)
+    const changedKeyReplay = await h.app.inject({ method: 'POST', url: `${base}/sync`, payload: { ...request, idempotencyKey: 'different-key-same-intent' } })
+    expect(changedKeyReplay.statusCode).toBe(200); expect(changedKeyReplay.json().id).toBe(run.id)
     expect(h.requested).toEqual([run.id])
+    expect(h.db.select({ entityId: auditLog.entityId }).from(auditLog).where(eq(auditLog.action, 'seo.sync.requested')).all()).toEqual([{ entityId: run.id }])
     h.state.policy.maxRunCostMicros = 1000
     const refused = await sync(h, 'two')
     expect(refused.statusCode).toBe(400)
@@ -65,6 +76,21 @@ describe('SEO durable API', () => {
     expect((await h.app.inject({ url: `${base}/runs?profileId=main` })).json().runs).toEqual([])
     expect((await h.app.inject({ url: `${base}/overview?profileId=main` })).json()).toMatchObject({ latestRun: null, evidenceRunId: null })
     expect(h.db.select().from(seoJobs).where(eq(seoJobs.id, id)).get()?.runId).toBeNull()
+    const deletedReplay = await h.app.inject({ method: 'POST', url: `${base}/sync`, payload: { quoteToken: intent.token, idempotencyKey: 'different-key-after-delete' } })
+    expect(deletedReplay.statusCode).toBe(404)
+    expect(h.requested).toEqual([id])
+    expect(h.db.select().from(seoJobs).all()).toHaveLength(1)
+    expect(h.db.select().from(seoBudgets).all().map(row => row.reservedMicros)).toEqual([100, 100, 100])
+  })
+
+  it('rejects alternate signature encodings instead of admitting the same intent twice', async () => {
+    const h = harness(); await save(h); const intent = await quote(h)
+    const accepted = await h.app.inject({ method: 'POST', url: `${base}/sync`, payload: { quoteToken: intent.token, idempotencyKey: 'canonical' } })
+    expect(accepted.statusCode).toBe(202)
+    const replay = await h.app.inject({ method: 'POST', url: `${base}/sync`, payload: { quoteToken: `${intent.token}=`, idempotencyKey: 'padded-signature' } })
+    expect(replay.statusCode).toBe(400)
+    expect(h.requested).toEqual([accepted.json<SeoRun>().id])
+    expect(h.db.select().from(seoJobs).all()).toHaveLength(1)
     expect(h.db.select().from(seoBudgets).all().map(row => row.reservedMicros)).toEqual([100, 100, 100])
   })
 
@@ -80,6 +106,33 @@ describe('SEO durable API', () => {
     expect(overview.evidenceRunId).toBe(outcome === 'completed' ? next.id : first.id)
     expect(h.db.select().from(seoTasks).where(eq(seoTasks.id, nextTask.id)).get()?.status).toBe(outcome === 'completed' ? 'completed' : 'failed')
     expect(h.db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros])).toEqual([[0, 20], [0, 20], [0, 20]])
+  })
+
+  it('excludes operator-rejected task facts from partial evidence while preserving their private receipt', async () => {
+    const h = harness({ skipAuth: false, operatorApiKeyIds: ['operator'] })
+    const operator = { authorization: `Bearer ${seedSeoKey(h.db, 'operator', ['*'])}` }
+    const target = { kind: 'domain' as const, value: 'alpha.com', includeSubdomains: true }
+    await save(h, { ...seoProfileFixture, capabilities: ['domain-intelligence'], targets: [target, { ...target, value: 'beta.com' }] }, operator)
+    const id = (await sync(h, 'rejected-evidence', operator)).json<SeoRun>().id
+    const repo = new SeoRepository(h.db)
+    for (let task = repo.claim(id, { ...h.state.policy, accountKey: h.state.accountKey }); task; task = repo.claim(id, { ...h.state.policy, accountKey: h.state.accountKey })) {
+      const rejected = task.request.target!.value === 'alpha.com'
+      const domain: SeoDomainIntelligence = { target: task.request.target!, organicKeywords: rejected ? 43 : 900, estimatedOrganicTraffic: 1200, estimatedOrganicTrafficValueUsd: 77, top1: 2, top2To3: 5, top4To10: 10, top11To20: 4, provenance: { provider: 'dataforseo', dataset: 'google-labs', engine: 'google', locationCode: 2840, languageCode: 'en', device: 'unspecified', collectedAt: new Date().toISOString(), sourceUpdatedAt: null } }
+      repo.settle(task.id, { outcome: 'completed', tasks: [{ remoteTaskId: task.id, statusCode: 20000, costMicros: rejected ? null : 10 }], results: { ...emptySeoResults(), domainIntelligence: [domain] }, error: null, fetchedAt: new Date().toISOString() }, task.leaseOwner!)
+      if (rejected) {
+        const response = await h.app.inject({ method: 'POST', url: `/api/v1/seo/operator/tasks/${task.id}/reconcile`, headers: operator, payload: { actualCostMicros: 10, remoteTaskId: task.id, outcome: 'failed', note: 'Verified upstream task failed; reject its collected evidence.' } })
+        expect(response.statusCode, response.body).toBe(200)
+        expect(h.db.select().from(seoTasks).where(eq(seoTasks.id, task.id)).get()).toMatchObject({ status: 'failed', results: { domainIntelligence: [domain] } })
+      }
+    }
+    const overview = await h.app.inject({ url: `${base}/overview?profileId=main`, headers: operator })
+    expect(overview.json()).toMatchObject({ evidenceRunId: id, evidenceRun: { status: 'partial' }, domainIntelligenceCount: 1, summary: null })
+    const detail = (await h.app.inject({ url: `${base}/runs/${id}`, headers: operator })).json()
+    expect(detail.resultCounts.domainIntelligence).toBe(1)
+    expect(detail.results.domainIntelligence.map((row: SeoDomainIntelligence) => row.target.value)).toEqual(['beta.com'])
+    const evidence = (await h.app.inject({ url: `${base}/domain-intelligence?runId=${id}`, headers: operator })).json()
+    expect(evidence.total).toBe(1)
+    expect(evidence.items.map((row: SeoDomainIntelligence) => row.target.value)).toEqual(['beta.com'])
   })
 
   it.each(['account', 'policy', 'catalog', 'profile'] as const)('invalidates an unaccepted intent after %s changes', async change => {
@@ -136,8 +189,10 @@ describe('SEO durable API', () => {
   it('freezes Advanced market edges and rejects path-to-domain substitution and stale revisions', async () => {
     const h = harness()
     const plan = measurementPlanV2Fixture({ reportingScopes: [{ stableKey: 'north', label: 'North', kind: 'market', usageEdges: [{ executionNodeKey: 'exec-nearby', targetKey: 'harbor', queryId: 'q-nearby' }] }] })
-    h.db.insert(measurementPlanVersions).values({ id: 'plan-1', projectId: 'alpha', revision: 1, canonicalJson: canonicalMeasurementPlanV2Json(plan), checksum: '1'.repeat(64), schemaVersion: 2, compiledChecksum: plan.compiledChecksum, createdAt: new Date().toISOString() }).run()
-    h.db.insert(measurementPlans).values({ projectId: 'alpha', activeVersionId: 'plan-1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }).run()
+    seedPlan(h, plan)
+    const context = (await h.app.inject({ url: `${base}/context` })).json<SeoContext>()
+    expect(context.scopes.find(scope => scope.kind === 'market' && scope.key === 'north')).toMatchObject({ supported: true, capabilities: ['keyword-metrics'] })
+    expect(context.scopes.find(scope => scope.kind === 'group')).toMatchObject({ supported: true, capabilities: ['keyword-metrics'] })
     const scoped = { ...seoProfileFixture, scope: { kind: 'market' as const, key: 'north', expectedPlanRevision: 1 } }
     await save(h, scoped)
     const accepted = await sync(h, 'advanced'); expect(accepted.statusCode, accepted.body).toBe(202)
@@ -147,6 +202,87 @@ describe('SEO durable API', () => {
     expect(broad.statusCode).toBe(400)
     const stale = await h.app.inject({ method: 'PUT', url: `${base}/profiles/stale`, payload: { ...scoped, scope: { ...scoped.scope, expectedPlanRevision: 0 } } })
     expect(stale.statusCode).toBe(400)
+  })
+
+  it.each(['property', 'group', 'market'] as const)('matches canonical Advanced %s host identity while preserving the exact provider hostname', async kind => {
+    const h = harness()
+    const source = measurementPlanV2Fixture()
+    seedPlan(h, measurementPlanV2Fixture({
+      targets: source.targets.map(target => ({ ...target, urlMatchers: [{ kind: 'host', host: target.stableKey === 'harbor' ? 'northstar.com' : 'bay.northstar.com' }] })),
+      reportingScopes: [{ stableKey: 'north', label: 'North', kind: 'market', usageEdges: [{ executionNodeKey: 'exec-nearby', targetKey: 'harbor', queryId: 'q-nearby' }] }],
+    }))
+    const scope = { kind, key: kind === 'property' ? 'harbor' : kind === 'group' ? 'regional' : 'north', expectedPlanRevision: 1 }
+    const context = (await h.app.inject({ url: `${base}/context` })).json<SeoContext>()
+    const target = { kind: 'host' as const, value: 'www.northstar.com', includeSubdomains: false }
+    const input = { ...seoProfileFixture, scope, capabilities: [SeoCapabilities['ranked-keywords']], targets: [target] }
+    await save(h, input)
+    const accepted = await sync(h, `exact-${kind}`)
+    expect(accepted.statusCode, accepted.body).toBe(202)
+    expect(h.db.select().from(seoTasks).get()?.request.target).toEqual(target)
+    expect(context.scopes.find(option => option.kind === kind && option.key === scope.key)).toMatchObject({ supported: true, capabilities: ['keyword-metrics', 'ranked-keywords'] })
+    const foreign = await h.app.inject({ method: 'PUT', url: `${base}/profiles/foreign`, payload: { ...input, targets: [{ ...target, value: 'shop.northstar.com' }] } })
+    expect(foreign.statusCode).toBe(400)
+    expect(foreign.json().error.message).toContain('belonging to a selected Property')
+    const wholeDomain = await h.app.inject({ method: 'PUT', url: `${base}/profiles/whole-domain`, payload: { ...input, capabilities: ['domain-intelligence'], targets: [{ kind: 'domain', value: 'northstar.com', includeSubdomains: true }] } })
+    expect(wholeDomain.statusCode).toBe(400)
+    expect(wholeDomain.json().error.message).toContain('Domain intelligence requires project scope')
+  })
+
+  it('preserves actionable adapter validation while sanitizing unexpected preparation failures', async () => {
+    const h = harness()
+    h.adapter.estimate = () => { throw validationError('Keyword metrics require keywords that are distinct ignoring letter case.') }
+    const invalid = await h.app.inject({ method: 'PUT', url: `${base}/profiles/main`, payload: { ...seoProfileFixture, keywords: ['coffee', 'Coffee'] } })
+    expect(invalid.statusCode).toBe(400)
+    expect(invalid.json().error.message).toBe('Keyword metrics require keywords that are distinct ignoring letter case.')
+    h.adapter.estimate = () => { throw new Error('private-cost-cap=123456 password=example-secret') }
+    const unexpected = await h.app.inject({ method: 'PUT', url: `${base}/profiles/main`, payload: seoProfileFixture })
+    expect(unexpected.statusCode).toBe(400)
+    expect(unexpected.json().error.message).toContain('could not prepare this request')
+    expect(unexpected.body).not.toMatch(/123456|example-secret|unsupported scope/)
+  })
+
+  it('reports task status counts without decoding stored evidence in run summaries', async () => {
+    const h = harness()
+    await save(h, { ...seoProfileFixture, capabilities: ['domain-intelligence', 'ranked-keywords'], targets: [{ kind: 'domain', value: 'alpha.com', includeSubdomains: true }, { kind: 'domain', value: 'beta.com', includeSubdomains: true }] })
+    const accepted = await sync(h, 'summary'); const id = accepted.json<SeoRun>().id
+    const repo = new SeoRepository(h.db)
+    for (const outcome of ['completed', 'completed', 'partial', 'failed'] as const) {
+      const task = repo.claim(id, { ...h.state.policy, accountKey: h.state.accountKey })!
+      repo.settle(task.id, { outcome, tasks: [{ remoteTaskId: task.id, statusCode: 20000, costMicros: 10 }], results: emptySeoResults(), error: null, fetchedAt: new Date().toISOString() }, task.leaseOwner!)
+    }
+    // Status remains inspectable even if a historical evidence blob cannot be decoded.
+    h.db.$client.prepare('UPDATE seo_tasks SET results = ? WHERE job_id = ?').run('unreadable historical evidence', id)
+    const listed = await h.app.inject({ url: `${base}/runs?profileId=main` })
+    expect(listed.statusCode, listed.body).toBe(200)
+    expect(listed.json().runs).toMatchObject([{ id, status: 'partial', taskCount: 4, completedTasks: 3, failedTasks: 1 }])
+  })
+
+  it.each(['seo', 'activity'] as const)('audits %s cancellation only when the run changes and rejects terminal runs', async surface => {
+    const cancelUrl = (id: string) => surface === 'seo' ? `${base}/runs/${id}/cancel` : `/api/v1/runs/${id}/cancel`
+    const h = harness(); await save(h)
+    const cancelled = (await sync(h, 'cancel')).json<SeoRun>()
+    const response = await h.app.inject({ method: 'POST', url: cancelUrl(cancelled.id) })
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ id: cancelled.id, status: 'cancelled' })
+    const repeated = await h.app.inject({ method: 'POST', url: cancelUrl(cancelled.id) })
+    expect(repeated.statusCode).toBe(400)
+    expect(repeated.json().error.message).toBe('This SEO refresh has already finished.')
+    const completed = (await sync(h, 'completed')).json<SeoRun>()
+    const repo = new SeoRepository(h.db); const task = repo.claim(completed.id, { ...h.state.policy, accountKey: h.state.accountKey })!
+    repo.settle(task.id, { outcome: 'completed', tasks: [{ remoteTaskId: task.id, statusCode: 20000, costMicros: 10 }], results: emptySeoResults(), error: null, fetchedAt: new Date().toISOString() }, task.leaseOwner!)
+    const terminal = await h.app.inject({ method: 'POST', url: cancelUrl(completed.id) })
+    expect(terminal.statusCode).toBe(400)
+    expect(terminal.json().error.message).toBe('This SEO refresh has already finished.')
+    expect((await h.app.inject({ url: `${base}/runs/${completed.id}` })).json()).toMatchObject({ status: 'completed', cancelRequested: false })
+    const active = (await sync(h, 'active')).json<SeoRun>()
+    repo.claim(active.id, { ...h.state.policy, accountKey: h.state.accountKey })
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const inFlight = await h.app.inject({ method: 'POST', url: cancelUrl(active.id) })
+      expect(inFlight.statusCode).toBe(200)
+      expect(inFlight.json()).toMatchObject({ status: 'running' })
+      expect((await h.app.inject({ url: `${base}/runs/${active.id}` })).json()).toMatchObject({ cancelRequested: true })
+    }
+    expect(h.db.select({ entityId: auditLog.entityId }).from(auditLog).where(eq(auditLog.action, 'seo.sync.cancelled')).all()).toEqual([{ entityId: cancelled.id }, { entityId: active.id }])
   })
 
   it('permits safe intents for read keys while enforcing action grants and project boundaries', async () => {
@@ -159,6 +295,8 @@ describe('SEO durable API', () => {
     expect((await h.app.inject({ method: 'POST', url: `${base}/sync`, headers: reader, payload: { quoteToken: intent.token, idempotencyKey: 'denied' } })).statusCode).toBe(403)
     expect((await h.app.inject({ method: 'PUT', url: `${base}/profiles/main`, headers: runner, payload: seoProfileFixture })).statusCode).toBe(403)
     expect((await h.app.inject({ url: '/api/v1/projects/beta/seo/context', headers: runner })).statusCode).toBe(403)
-    expect((await sync(h, 'allowed', runner)).statusCode).toBe(202)
+    const runIntent = await quote(h, runner)
+    expect((await h.app.inject({ method: 'POST', url: `${base}/sync`, headers: runner, payload: { quoteToken: runIntent.token, idempotencyKey: 'allowed' } })).statusCode).toBe(202)
+    expect((await h.app.inject({ method: 'POST', url: `${base}/sync`, headers: admin, payload: { quoteToken: runIntent.token, idempotencyKey: 'other-principal' } })).statusCode).toBe(400)
   })
 })

@@ -132,6 +132,43 @@ describe('DataForSEO paid adapter boundary', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it.each([402, 404])('treats documented HTTP %i request refusal as unaccepted without retrying', async status => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('', { status }))
+    vi.stubGlobal('fetch', fetchMock)
+    const result = await createDataForSeoAdapter(credentials).execute(request)
+    expect(result.outcome).toBe(SeoAdapterOutcomes.failed)
+    expect(result.tasks).toEqual([{ remoteTaskId: null, statusCode: status, costMicros: 0 }])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    [40200, 0, SeoAdapterOutcomes.failed, 0],
+    [40501, 0, SeoAdapterOutcomes.failed, 0],
+    [40200, null, SeoAdapterOutcomes.unknown, null],
+    [40200, 0.01, SeoAdapterOutcomes.unknown, null],
+    [50401, 0, SeoAdapterOutcomes.unknown, null],
+  ])('requires explicit zero cost and a request refusal for no-task status %i with cost %s', async (statusCode, cost, outcome, costMicros) => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ status_code: statusCode, cost, tasks: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const result = await createDataForSeoAdapter(credentials).execute(request)
+    expect(result.outcome).toBe(outcome)
+    expect(result.tasks).toEqual([{ remoteTaskId: null, statusCode, costMicros }])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancels a rejected request during backoff without another POST or an unknown charge', async () => {
+    const controller = new AbortController()
+    const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 429, headers: { 'Retry-After': '3600' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const pending = createDataForSeoAdapter(credentials).execute(request, { signal: controller.signal })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    controller.abort()
+    const result = await pending
+    expect(result.outcome).toBe(SeoAdapterOutcomes.failed)
+    expect(result.tasks[0]?.costMicros).toBe(0)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps a known charge when a changed or wrong-market payload cannot be decoded', async () => {
     const fetchMock = vi.fn().mockResolvedValue(response([task([], { result: [{ location_code: 2826, language_code: 'en', items: [info] }] })]))
     vi.stubGlobal('fetch', fetchMock)

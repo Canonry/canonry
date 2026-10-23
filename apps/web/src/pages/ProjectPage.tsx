@@ -3085,7 +3085,7 @@ function ProjectPageContent({
 
           {!isEmbed() && (
             <div className="page-section-divider">
-              <PastSweeps runs={model.recentRuns} collapsed />
+              <PastSweeps runs={model.recentRuns} projectName={model.project.name} collapsed />
             </div>
           )}
 

@@ -26,7 +26,7 @@ export const seoJobs = sqliteTable('seo_jobs', {
   status: text('status').$type<SeoRunStatus>().notNull(),
   cancelRequested: integer('cancel_requested', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(), startedAt: text('started_at'), finishedAt: text('finished_at'), error: text('error'),
-}, t => [uniqueIndex('idx_seo_jobs_idempotency').on(t.projectKey, t.idempotencyKey), index('idx_seo_jobs_project').on(t.projectId, t.createdAt), index('idx_seo_jobs_run').on(t.runId), index('idx_seo_jobs_status').on(t.status)])
+}, t => [uniqueIndex('idx_seo_jobs_idempotency').on(t.projectKey, t.idempotencyKey), index('idx_seo_jobs_intent').on(t.projectKey, t.requestHash), index('idx_seo_jobs_project').on(t.projectId, t.createdAt), index('idx_seo_jobs_run').on(t.runId), index('idx_seo_jobs_status').on(t.status)])
 export const seoTasks = sqliteTable('seo_tasks', {
   id: text('id').primaryKey(), jobId: text('job_id').notNull().references(() => seoJobs.id),
   request: text('request', { mode: 'json' }).$type<SeoAdapterRequest>().notNull(),

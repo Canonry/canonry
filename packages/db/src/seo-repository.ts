@@ -33,6 +33,11 @@ export class SeoRepository {
         if (existing.requestHash !== input.requestHash || existing.principalId !== input.principalId) throw validationError('This idempotency key belongs to a different SEO refresh.')
         return existing.id
       }
+      const acceptedIntent = tx.select().from(seoJobs).where(and(eq(seoJobs.projectKey, input.projectId), eq(seoJobs.requestHash, input.requestHash))).get()
+      if (acceptedIntent) {
+        if (acceptedIntent.principalId !== input.principalId) throw validationError('This SEO refresh intent belongs to a different principal.')
+        return acceptedIntent.id
+      }
       const profile = tx.select().from(seoProfiles).where(and(eq(seoProfiles.projectId, input.projectId), eq(seoProfiles.id, input.profileId))).get()
       if (!profile || profile.revision !== input.profileRevision) throw validationError('The SEO profile changed. Create a new refresh intent.')
       const activePlan = tx.select().from(measurementPlans).where(eq(measurementPlans.projectId, input.projectId)).get()
@@ -103,10 +108,10 @@ export class SeoRepository {
     this.db.update(seoTasks).set({ leaseUntil: new Date(Date.now() + 120_000).toISOString() }).where(and(eq(seoTasks.id, taskId), eq(seoTasks.leaseOwner, owner), eq(seoTasks.status, SeoRunStatuses.running))).run()
   }
 
-  settle(taskId: string, result: SeoAdapterResult, owner: string): void {
-    this.db.transaction(tx => {
+  settle(taskId: string, result: SeoAdapterResult, owner: string): boolean {
+    return this.db.transaction(tx => {
       const task = tx.select().from(seoTasks).where(eq(seoTasks.id, taskId)).get()
-      if (!task || task.status !== SeoRunStatuses.running || task.leaseOwner !== owner) return
+      if (!task || task.leaseOwner !== owner || task.reconciliation || (task.status !== SeoRunStatuses.running && task.status !== SeoRunStatuses['reconciliation-required'])) return false
       const job = tx.select().from(seoJobs).where(eq(seoJobs.id, task.jobId)).get()!
       const costs = result.tasks.map(receipt => receipt.costMicros)
       const actual = costs.length > 0 && costs.every(cost => cost !== null && Number.isSafeInteger(cost) && cost >= 0) ? costs.reduce<number>((sum, cost) => sum + (cost ?? 0), 0) : null
@@ -116,13 +121,14 @@ export class SeoRepository {
       const error = status === SeoRunStatuses['reconciliation-required'] ? 'The upstream outcome needs operator reconciliation. This request will not be retried.' : status === SeoRunStatuses.failed ? 'The SEO provider could not complete this task.' : null
       tx.update(seoTasks).set({ status, collectionOutcome: result.outcome, actualMicros: known ? actual : null, receipts: result.tasks, results: result.results, error, leaseOwner: null, leaseUntil: null, finishedAt: new Date().toISOString() }).where(eq(seoTasks.id, taskId)).run()
       this.finish(job.id)
+      return true
     }, { behavior: 'immediate' })
   }
 
-  cancel(jobId: string): void {
-    this.db.transaction(tx => {
+  cancel(jobId: string): boolean {
+    return this.db.transaction(tx => {
       const job = tx.select().from(seoJobs).where(eq(seoJobs.id, jobId)).get()
-      if (!job || (job.status !== SeoRunStatuses.queued && job.status !== SeoRunStatuses.running && job.status !== SeoRunStatuses['reconciliation-required'])) return
+      if (!job || (job.status !== SeoRunStatuses.queued && job.status !== SeoRunStatuses.running && job.status !== SeoRunStatuses['reconciliation-required'])) return false
       tx.update(seoJobs).set({ cancelRequested: true }).where(eq(seoJobs.id, jobId)).run()
       for (const task of tx.select().from(seoTasks).where(and(eq(seoTasks.jobId, jobId), eq(seoTasks.status, SeoRunStatuses.queued))).all()) {
         for (const bucket of job.buckets) tx.update(seoBudgets).set({ reservedMicros: sql`${seoBudgets.reservedMicros} - ${task.reservedMicros}` }).where(and(eq(seoBudgets.scope, bucket.scope), eq(seoBudgets.period, bucket.period))).run()
@@ -130,6 +136,7 @@ export class SeoRepository {
       }
       // In-flight calls settle normally; cancellation never pretends they were free.
       this.finish(jobId)
+      return !job.cancelRequested
     }, { behavior: 'immediate' })
   }
 
@@ -147,8 +154,8 @@ export class SeoRepository {
       if (knownRemote && knownRemote !== input.remoteTaskId) throw validationError('Reconciliation must identify the recorded upstream task.')
       const job = tx.select().from(seoJobs).where(eq(seoJobs.id, task.jobId)).get()!
       if (task.actualMicros === null) for (const bucket of job.buckets) tx.update(seoBudgets).set({ reservedMicros: sql`${seoBudgets.reservedMicros} - ${task.reservedMicros}`, spentMicros: sql`${seoBudgets.spentMicros} + ${input.actualCostMicros}` }).where(and(eq(seoBudgets.scope, bucket.scope), eq(seoBudgets.period, bucket.period))).run()
-      const status = task.collectionOutcome === SeoAdapterOutcomes.completed ? SeoRunStatuses.completed : task.collectionOutcome === SeoAdapterOutcomes.partial ? SeoRunStatuses.partial : SeoRunStatuses.failed
-      const error = task.collectionOutcome === SeoAdapterOutcomes.unknown || task.collectionOutcome === null ? 'Upstream billing was reconciled, but results were not collected.' : null
+      const status = input.outcome === SeoAdapterOutcomes.failed ? SeoRunStatuses.failed : task.collectionOutcome === SeoAdapterOutcomes.completed ? SeoRunStatuses.completed : task.collectionOutcome === SeoAdapterOutcomes.partial ? SeoRunStatuses.partial : SeoRunStatuses.failed
+      const error = input.outcome === SeoAdapterOutcomes.failed ? 'The upstream task was reconciled as failed.' : status === SeoRunStatuses.failed ? 'Upstream billing was reconciled, but results were not collected.' : null
       tx.update(seoTasks).set({ status, actualMicros: input.actualCostMicros, reconciliation: input, error }).where(eq(seoTasks.id, taskId)).run()
       this.finish(job.id)
     }, { behavior: 'immediate' })

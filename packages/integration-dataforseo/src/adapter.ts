@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import {
   SeoAdapterOutcomes, SeoCapabilities, SeoProviders, SeoTargetKinds,
-  dollarsToMicros, emptySeoResults, normalizeHostname, registrableDomain, seoProfileInputSchema,
+  dollarsToMicros, emptySeoResults, normalizeHostname, registrableDomain, seoProfileInputSchema, validationError,
   type SeoAdapter, type SeoAdapterEstimate, type SeoAdapterRequest, type SeoAdapterResult,
   type SeoResults,
 } from '@canonry/canonry-contracts'
@@ -14,34 +14,40 @@ const ENDPOINTS = {
   [SeoCapabilities['ranked-keywords']]: 'ranked_keywords',
 } as const
 
+// https://docs.dataforseo.com/v3/appendix/errors/ documents these request refusals,
+// distinct from execution or timeout
+// failures. Without task receipts, even these require an explicit zero total cost.
+const REQUEST_REFUSALS = new Set([40000, 40006, 40100, 40104, 40200, 40203, 40205, 40206, 40207, 40210, 40501, 40502, 40503, 40506])
+
 function taskPayload(request: SeoAdapterRequest): Record<string, unknown> {
-  seoProfileInputSchema.pick({ keywords: true, locationCode: true, languageCode: true, limit: true }).parse({
+  const parsed = seoProfileInputSchema.pick({ keywords: true, locationCode: true, languageCode: true, limit: true }).safeParse({
     keywords: request.keywords, locationCode: request.locationCode,
     languageCode: request.languageCode, limit: request.limit,
   })
-  if (request.tag.length > 255) throw new Error('SEO task identifier is too long.')
+  if (!parsed.success) throw validationError('Check the SEO keywords, provider location, language, and row limit.')
+  if (request.tag.length > 255) throw validationError('SEO task identifier is too long.')
   const common = { location_code: request.locationCode, language_code: request.languageCode, tag: request.tag }
   if (request.capability === SeoCapabilities['keyword-metrics']) {
     if (request.keywords.length === 0 || new Set(request.keywords.map(keyword => keyword.toLowerCase())).size !== request.keywords.length) {
-      throw new Error('SEO keyword metrics require distinct keywords.')
+      throw validationError('SEO keyword metrics require distinct keywords, ignoring case.')
     }
     return { ...common, keywords: request.keywords, include_clickstream_data: false, include_serp_info: true }
   }
   const target = request.target
   const host = target ? normalizeHostname(target.value) : null
   if (!target || !host || !registrableDomain(host)) {
-    throw new Error('SEO requires a bare public domain or hostname.')
+    throw validationError('SEO requires a bare public domain or hostname.')
   }
   const domain = registrableDomain(host)
   if (target.kind === SeoTargetKinds.domain && (host !== domain || !target.includeSubdomains)) {
-    throw new Error('A domain scope must include its subdomains; exact host scope is separate.')
+    throw validationError('Use the root domain with subdomains included, or choose exact host scope.')
   }
   if (target.kind === SeoTargetKinds.host && target.includeSubdomains) {
-    throw new Error('Subdomain-tree scope is not supported by this SEO adapter.')
+    throw validationError('Exact host scope cannot include subdomains.')
   }
   switch (request.capability) {
     case SeoCapabilities['domain-intelligence']:
-      if (target.kind !== SeoTargetKinds.domain) throw new Error('Domain intelligence requires a whole-domain scope.')
+      if (target.kind !== SeoTargetKinds.domain) throw validationError('Domain intelligence requires a whole-domain scope.')
       return { ...common, target: host, limit: 1, ignore_synonyms: false }
     case SeoCapabilities['ranked-keywords']:
       return {
@@ -82,15 +88,17 @@ export function createDataForSeoAdapter(credentials: DataForSeoCredentials): Seo
     async execute(request, options): Promise<SeoAdapterResult> {
       const payload = taskPayload(request)
       const results = emptySeoResults()
+      if (options?.signal?.aborted) return { outcome: SeoAdapterOutcomes.failed, tasks: [{ remoteTaskId: null, statusCode: null, costMicros: 0 }], results, fetchedAt: new Date().toISOString(), error: 'SEO request was cancelled before submission.' }
       try {
         const envelope = await dataForSeoFetch(auth, ENDPOINTS[request.capability], payload, options?.signal)
         const fetchedAt = new Date().toISOString()
         const tasks = envelope.tasks ?? []
         if (tasks.length === 0) {
+          const refused = envelope.cost === 0 && REQUEST_REFUSALS.has(envelope.status_code)
           return {
-            outcome: SeoAdapterOutcomes.unknown, results, fetchedAt,
-            tasks: [{ remoteTaskId: null, statusCode: envelope.status_code, costMicros: null }],
-            error: 'SEO provider returned no task receipt; reconciliation is required.',
+            outcome: refused ? SeoAdapterOutcomes.failed : SeoAdapterOutcomes.unknown, results, fetchedAt,
+            tasks: [{ remoteTaskId: null, statusCode: envelope.status_code, costMicros: refused ? 0 : null }],
+            error: refused ? 'SEO provider rejected the request.' : 'SEO provider returned no task receipt; reconciliation is required.',
           }
         }
         const receipts = tasks.map(task => ({

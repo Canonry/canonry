@@ -4,7 +4,7 @@ Phase one adds stored keyword metrics, ranked keywords and domain intelligence t
 
 ## Host configuration
 
-Credentials and financial policy live in the host config file. Restart after changing them. Neither appears in customer API, CLI, MCP, browser or Aero responses. Hosted administrators cannot change this policy.
+Credentials and financial policy live in the host config file and reload when it changes. A temporary read or validation failure pauses dispatch without cancelling queued refreshes. Neither credentials nor financial policy appears in customer API, CLI, MCP, browser or Aero responses. Hosted administrators cannot change this policy.
 
 ```yaml
 seo:
@@ -53,7 +53,7 @@ canonry seo overview example --profile-id us-organic --format json
 canonry seo ranked-keywords example --profile-id us-organic --run-id '<evidence run id>' --limit 50 --offset 0 --format json
 ```
 
-Reuse the same intent and key when retrying a submission. Changed identity conflicts. An expired intent cannot start a new job; an accepted exact replay returns its saved receipt. Profile edits and evidence reads never start provider work.
+Reuse the same intent and key when retrying a submission. Each intent admits at most one refresh, even when retried with a different key. Changed identity conflicts. An expired intent cannot start a new job; an accepted exact replay returns its saved receipt. Deleted history cannot make an accepted intent reusable. Profile edits and evidence reads never start provider work.
 
 The `seo` MCP toolkit mirrors the CLI through the public API. Use `canonry_help` with intent `seo`. A narrow `seo.run` grant refreshes and cancels; `seo.write` manages profiles. Neither grants general writes. Read-only credentials can inspect data and prepare a local intent but cannot submit it.
 
@@ -71,7 +71,7 @@ Search volume, difficulty, CPC and traffic are vendor estimates. CPC and estimat
 
 Admission reserves the bounded task set atomically against account and project policy. Durable tasks record submission before HTTP work. Exact retries do not dispatch again. Partial results, failed tasks, cancellation and unknown outcomes remain distinct. A refresh keeps previous completed or partial evidence visible.
 
-Only documented rejection permits retry. Ambiguous paid responses retain the reservation and block that account until a host operator verifies the upstream receipt. Restart recovery does not resubmit accepted work. Deleting project or run history does not erase outstanding liability.
+Only documented rejection permits retry. Explicit zero-cost provider refusals release their reservations. Ambiguous paid responses retain the reservation and block that account until a host operator verifies the upstream receipt. If a received result cannot be saved temporarily, the runtime retains it and retries persistence without another provider call; losing that process before persistence still requires reconciliation. Restart recovery does not resubmit accepted work. Deleting project or run history does not erase outstanding liability.
 
 Operator receipt endpoints require a direct bearer key ID listed in host-only `CANONRY_OPERATOR_KEY_IDS`. Reconciliation also requires `seo.run`. Customer roles, wildcard scope alone, browser sessions, delegated tokens and project keys cannot grant operator authority. Operator tools are excluded from Aero; ordinary audit events contain safe identifiers only.
 

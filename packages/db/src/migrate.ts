@@ -4780,6 +4780,13 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE TABLE IF NOT EXISTS seo_budgets (scope TEXT NOT NULL, period TEXT NOT NULL, reserved_micros INTEGER NOT NULL DEFAULT 0, spent_micros INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(scope,period))`,
     ],
   },
+  {
+    version: 189,
+    name: 'seo-intent-replay-lookup',
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_seo_jobs_intent ON seo_jobs(project_key,request_hash)`,
+    ],
+  },
 ]
 
 /**

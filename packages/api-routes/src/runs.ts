@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { and, eq, ne, asc, desc, inArray, notInArray, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn, SeoRepository } from '@canonry/canonry-db'
+import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn } from '@canonry/canonry-db'
 import { compileCompetitiveSignalResolver } from '@canonry/canonry-intelligence'
 import type { CitationState, LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderAccountStreak, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery } from '@canonry/canonry-contracts'
 import {
@@ -45,6 +45,7 @@ import { gte } from 'drizzle-orm'
 import { activeRevisionProviders, assertMeasurementRunStampable, hasActiveMeasurementPlan, providerAccountAdmission, providersARunWouldCall, providersFailingError, queueRunIfProjectIdle, resolveRunnableProviderSelection, runAdmissionState } from './run-queue.js'
 import { queueRunFill, readRunCompleteness } from './run-fill.js'
 import { readRunProviderBatches } from './provider-batches.js'
+import { cancelSeoRefresh } from './seo.js'
 import { competitorIdentityColumns } from './competitor-writes.js'
 import { assertProviderRouteScope, invalidProviderSelections, providerRouteFamilies } from './provider-models.js'
 import type { ProviderAdapterInfo } from './settings.js'
@@ -725,10 +726,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     if (run.kind === RunKinds['seo-sync']) {
       requireScope(request, SEO_RUN_SCOPE)
       requireAdminSession(request)
-      app.db.transaction(tx => {
-        new SeoRepository(app.db).cancel(run.id)
-        writeAuditLog(tx, { projectId: run.projectId, actor: 'api', action: 'seo.sync.cancelled', entityType: 'run', entityId: run.id })
-      })
+      cancelSeoRefresh(app.db, run.projectId, run.id)
       return reply.send(formatRun(app.db.select().from(runs).where(eq(runs.id, run.id)).get()!))
     }
 

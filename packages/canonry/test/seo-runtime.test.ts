@@ -7,11 +7,11 @@ import { createSeoHarness, seoProfileFixture } from '../../api-routes/test/seo-f
 
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => { await Promise.all(cleanups.splice(0).map(close => close())); vi.unstubAllGlobals(); vi.useRealTimers() })
-async function setup(dailyLimit = 1_000_000) {
+async function setup(dailyLimit = 1_000_000, read?: (config: SeoInstallConfig) => SeoInstallConfig, fingerprint?: () => string) {
   const config: SeoInstallConfig = { enabled: true, fundingMode: 'hosted', policy: { maxRunCostMicros: 100_000, accountDailyLimitMicros: 1_000_000, accountMonthlyLimitMicros: 1_000_000, projectMonthlyLimitMicros: 1_000_000 }, connections: { primary: { provider: 'dataforseo', label: 'SEO data', enabled: true, login: 'operator@example.com', password: 'test-secret' } } }
   config.policy.accountDailyLimitMicros = dailyLimit
   const h = createSeoHarness({ getSeoRuntime: () => runtime.getRuntime(), onSeoRunRequested: () => runtime.wake() })
-  const runtime = new SeoRuntime(h.db, () => config)
+  const runtime = new SeoRuntime(h.db, () => read ? read(config) : config, fingerprint)
   cleanups.push(async () => { await runtime.stop(); await h.close() })
   const base = '/api/v1/projects/alpha/seo'
   const saved = await h.app.inject({ method: 'PUT', url: `${base}/profiles/main`, payload: seoProfileFixture })
@@ -24,6 +24,76 @@ async function setup(dailyLimit = 1_000_000) {
 const success = () => Response.json({ status_code: 20000, tasks: [{ id: 'remote-1', status_code: 20000, cost: 0.01212, result: [{ location_code: 2840, language_code: 'en', items: [{ keyword: 'solar installer', keyword_info: { search_volume: 0, cpc: null }, keyword_properties: { keyword_difficulty: 25 } }] }] }] })
 
 describe('durable SEO runtime with the real upstream adapter', () => {
+  it('reuses unchanged configuration and pauses accepted work across a failed reload until repair', async () => {
+    let revision = 'original'
+    let unreadable = false
+    const read = vi.fn((config: SeoInstallConfig) => {
+      if (unreadable) throw new SyntaxError('Configuration is temporarily unreadable')
+      return structuredClone(config)
+    })
+    const fetch = vi.fn().mockImplementation(success); vi.stubGlobal('fetch', fetch)
+    const h = await setup(1_000_000, read, () => revision)
+    await h.app.inject({ url: `${h.base}/context` })
+    await h.app.inject({ url: `${h.base}/status` })
+    const unchangedReads = read.mock.calls.length
+    revision = 'being-edited'; unreadable = true
+    h.runtime.start()
+    expect((await h.app.inject({ url: `${h.base}/context` })).json().available).toBe(false)
+    await h.runtime.stop()
+    expect(h.db.select().from(seoJobs).where(eq(seoJobs.id, h.id)).get()?.status).toBe('queued')
+    expect(h.db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros])).toEqual([[12120, 0], [12120, 0], [12120, 0]])
+    expect(fetch).not.toHaveBeenCalled()
+    expect(unchangedReads).toBe(1)
+    unreadable = false; revision = 'repaired'
+    h.runtime.start()
+    await vi.waitFor(() => expect(h.db.select().from(seoJobs).where(eq(seoJobs.id, h.id)).get()?.status).toBe('completed'))
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('retains the exact successful response across storage failure and shutdown without another paid call', async () => {
+    const fetch = vi.fn().mockImplementation(success); vi.stubGlobal('fetch', fetch)
+    const h = await setup()
+    h.db.$client.exec("CREATE TRIGGER refuse_seo_receipt BEFORE UPDATE OF actual_micros ON seo_tasks BEGIN SELECT RAISE(FAIL, 'Storage temporarily unavailable'); END")
+    h.runtime.start()
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+    await h.runtime.stop()
+    expect(h.db.select().from(seoJobs).where(eq(seoJobs.id, h.id)).get()?.status).toBe('running')
+    expect(h.db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros])).toEqual([[12120, 0], [12120, 0], [12120, 0]])
+    h.db.$client.exec('DROP TRIGGER refuse_seo_receipt')
+    h.runtime.start()
+    await vi.waitFor(() => expect(h.db.select().from(seoJobs).where(eq(seoJobs.id, h.id)).get()?.status).toBe('completed'))
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(h.db.select().from(seoTasks).get()).toMatchObject({ actualMicros: 12120, receipts: [{ remoteTaskId: 'remote-1', statusCode: 20000, costMicros: 12120 }], results: { keywordMetrics: [{ keyword: 'solar installer', searchVolume: 0, keywordDifficulty: 25 }] } })
+    expect(h.db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros])).toEqual([[0, 12120], [0, 12120], [0, 12120]])
+  })
+
+  it('settles an explicit free request refusal without blocking the next refresh', async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ status_code: 40200, cost: 0, tasks: [] })).mockImplementation(success)
+    vi.stubGlobal('fetch', fetch)
+    const h = await setup(); h.runtime.start()
+    await vi.waitFor(() => expect(h.db.select().from(seoJobs).where(eq(seoJobs.id, h.id)).get()?.status).toBe('failed'))
+    expect(h.db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros])).toEqual([[0, 0], [0, 0], [0, 0]])
+    const intent = (await h.app.inject({ method: 'POST', url: `${h.base}/refresh-intents`, payload: { profileId: 'main' } })).json()
+    const next = await h.app.inject({ method: 'POST', url: `${h.base}/sync`, payload: { quoteToken: intent.token, idempotencyKey: 'after-free-refusal' } })
+    expect(next.statusCode).toBe(202)
+    await vi.waitFor(() => expect(h.db.select().from(seoJobs).where(eq(seoJobs.id, next.json().id)).get()?.status).toBe('completed'))
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('bounds shutdown even when a transport ignores abort, retaining the unknown charge hold', async () => {
+    let signal: AbortSignal | undefined
+    const fetch = vi.fn((_url: string, options?: RequestInit) => { signal = options?.signal ?? undefined; return new Promise<Response>(() => {}) })
+    vi.stubGlobal('fetch', fetch)
+    const h = await setup(); h.runtime.start()
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+    await h.runtime.stop()
+    expect(signal?.aborted).toBe(true)
+    expect(h.db.select().from(seoJobs).where(eq(seoJobs.id, h.id)).get()?.status).toBe('reconciliation-required')
+    expect(h.db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros])).toEqual([[12120, 0], [12120, 0], [12120, 0]])
+    h.runtime.start(); await h.runtime.stop()
+    expect(fetch).toHaveBeenCalledTimes(1)
+  }, 2000)
+
   it('dispatches only after start, stores provider evidence, and settles each receipt once', async () => {
     const fetch = vi.fn().mockImplementation(success); vi.stubGlobal('fetch', fetch)
     const h = await setup()

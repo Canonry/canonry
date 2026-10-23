@@ -228,3 +228,7 @@ admission. Project/run deletion nulls their public links but retains financial
 liabilities. Prior-period unresolved holds count against current capacity, and
 queued holds move to the submission period before dispatch. Never cascade these
 private receipts or expose their amounts through customer projections.
+Migration 189 indexes accepted intent hashes. Admission consumes an intent once
+across idempotency keys, including after its public run is deleted. Settlement
+may accept a late receipt from the same lease owner after recovery, but never
+overwrite operator reconciliation.

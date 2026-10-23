@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { afterEach, expect, test, vi } from 'vitest'
-import type { SeoContext, SeoOverview, SeoProfile, SeoProvenance, SeoRankedKeyword, SeoRun } from '@canonry/canonry-contracts'
+import { SeoRunStatuses, type SeoContext, type SeoOverview, type SeoProfile, type SeoProvenance, type SeoRankedKeyword, type SeoRun } from '@canonry/canonry-contracts'
 import { SeoDataSection } from '../src/components/project/SeoDataSection.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 
@@ -108,6 +108,72 @@ test('profile selection pins SDK evidence and renders server values, zero, and m
   expect(router.state.location.search.seoProfileId).toBe('advanced')
   const advancedRead = reads.find(url => url.pathname.endsWith('/ranked-keywords') && url.searchParams.get('profileId') === 'advanced')!
   expect(advancedRead.searchParams.get('runId')).toBe('saved-advanced')
+})
+
+test.each([SeoRunStatuses.completed, SeoRunStatuses.partial, null])('selected profile freshness uses its %s evidence, never another profile completion', async status => {
+  const selectedFinishedAt = '2026-10-18T12:00:00Z'
+  const selectedOverview = overview(advanced)
+  selectedOverview.status.lastCompletedAt = '2026-10-22T12:00:00Z'
+  selectedOverview.evidenceRun = status ? { ...saved, id: 'saved-advanced', profileId: advanced.id, scope: advanced.scope, status, finishedAt: selectedFinishedAt } : null
+  selectedOverview.evidenceRunId = selectedOverview.evidenceRun?.id ?? null
+  selectedOverview.latestRun = selectedOverview.evidenceRun
+  selectedOverview.summary = null
+  vi.stubGlobal('fetch', async (request: Request) => {
+    const url = new URL(request.url)
+    if (url.pathname.endsWith('/context')) return json(context)
+    if (url.pathname.endsWith('/profiles')) return json({ profiles: [simple, advanced] })
+    if (url.pathname.endsWith('/overview')) return json(selectedOverview)
+    if (url.pathname.endsWith('/ranked-keywords')) return json({ runId: 'saved-advanced', total: 0, limit: 25, offset: 0, items: [] })
+    throw new Error(`Unexpected request ${url.pathname}`)
+  })
+  await mount('advanced')
+  await screen.findByRole('heading', { name: status ? 'No results returned' : 'No saved data yet' })
+  if (status) {
+    const freshness = screen.getByText(status === SeoRunStatuses.partial ? /^Partial refresh finished/ : /^Last completed/)
+    expect(freshness.textContent).toContain('Oct 18, 2026')
+    expect(freshness.querySelector('time')?.getAttribute('datetime')).toBe(selectedFinishedAt)
+  } else {
+    expect(screen.getByText('No completed refresh')).not.toBeNull()
+    expect(screen.queryByText(/^Last completed/)).toBeNull()
+  }
+})
+
+test('profile editing clears unsupported datasets when Advanced scope narrows and saves only the allowed selection', async () => {
+  const hostScope = { ...context.scopes[1]!, capabilities: ['keyword-metrics', 'ranked-keywords'] as SeoProfile['capabilities'] }
+  const pathScope = { ...hostScope, key: 'property-docs', label: 'Documentation path', capabilities: ['keyword-metrics'] as SeoProfile['capabilities'], reason: 'This scope supports explicit keyword metrics only.' }
+  let current = simple
+  const writes: unknown[] = []
+  vi.stubGlobal('fetch', async (request: Request) => {
+    const url = new URL(request.url)
+    if (request.method === 'PUT') {
+      const input: unknown = await request.json()
+      writes.push(input)
+      current = { ...simple, ...(input as Partial<SeoProfile>), revision: 2 }
+      return json(current)
+    }
+    if (url.pathname.endsWith('/context')) return json({ ...context, scopes: [context.scopes[0], hostScope, pathScope] })
+    if (url.pathname.endsWith('/profiles')) return json({ profiles: [current] })
+    if (url.pathname.endsWith('/overview')) return json({ ...overview(current), evidenceRun: saved })
+    if (url.pathname.endsWith('/ranked-keywords')) return json({ runId: saved.id, total: 1, limit: 25, offset: 0, items: [ranked] })
+    throw new Error(`Unexpected request ${url.pathname}`)
+  })
+  await mount()
+  await screen.findByText('saved keyword')
+  fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }))
+  const form = screen.getByRole('form', { name: 'Edit SEO profile' })
+  const dataset = (label: string) => within(form).getByRole<HTMLInputElement>('checkbox', { name: label })
+  fireEvent.change(within(form).getByRole('combobox', { name: 'Measurement scope' }), { target: { value: 'property:property-fr' } })
+  expect(dataset('Domain comparison').disabled).toBe(true)
+  expect(dataset('Domain comparison').checked).toBe(false)
+  expect(dataset('Ranked keywords').checked).toBe(true)
+  fireEvent.change(within(form).getByRole('combobox', { name: 'Measurement scope' }), { target: { value: 'property:property-docs' } })
+  expect(dataset('Ranked keywords').disabled).toBe(true)
+  expect(dataset('Ranked keywords').checked).toBe(false)
+  expect(dataset('Keyword metrics').checked).toBe(true)
+  expect(within(form).getByText('This scope supports explicit keyword metrics only.')).not.toBeNull()
+  fireEvent.click(within(form).getByRole('button', { name: 'Save profile' }))
+  await waitFor(() => expect(writes).toHaveLength(1))
+  expect(writes[0]).toMatchObject({ capabilities: ['keyword-metrics'], keywords: ['example keyword'], scope: { kind: 'property', key: 'property-docs', expectedPlanRevision: 7 } })
 })
 
 test('an ambiguous refresh retry reuses its intent and identity while saved evidence remains visible', async () => {

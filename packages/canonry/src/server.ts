@@ -1138,7 +1138,10 @@ export async function createServer(opts: {
     onFirstActivation: () => maybeShowActivationNotice(),
   });
   jobRunner.recoverStaleRuns();
-  const seoRuntime = new SeoRuntime(opts.db, () => fs.existsSync(runtimeConfigPath) ? loadConfig(runtimeConfigPath).seo : opts.config.seo);
+  const seoRuntime = new SeoRuntime(opts.db, () => loadConfig(runtimeConfigPath).seo, () => {
+    const stat = fs.statSync(runtimeConfigPath, { bigint: true });
+    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+  });
   // Local canonry serve runs on the operator's machine, where pointing a
   // webhook at localhost (Discord test container, Pipedream-mock dev server,
   // etc.) is a legitimate workflow. Default to allowing it for the local

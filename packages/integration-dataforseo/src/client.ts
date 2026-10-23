@@ -39,7 +39,7 @@ async function fetchOnce(
   if (!response.ok) {
     // Explicit gateway rejection is safe to repeat; a 5xx or lost response is not.
     const throttle = response.status === 429
-    const unaccepted = throttle || response.status === 401 || response.status === 403 || response.status === 400
+    const unaccepted = throttle || [400, 401, 402, 403, 404].includes(response.status)
     throw new DataForSeoTransportError(response.status, unaccepted, throttle, response.headers.get('Retry-After'))
   }
   const envelope = dataForSeoEnvelopeSchema.parse(await response.json())
@@ -59,10 +59,21 @@ async function fetchOnce(
 export async function dataForSeoFetch(
   credentials: DataForSeoCredentials, endpoint: string, task: Record<string, unknown>, signal?: AbortSignal,
 ): Promise<DataForSeoEnvelope> {
-  return withRetry(() => fetchOnce(credentials, endpoint, task, signal), {
+  let refusal: DataForSeoTransportError | null = null
+  return withRetry(() => {
+    if (signal?.aborted) throw refusal ?? new Error('SEO request was cancelled.')
+    return fetchOnce(credentials, endpoint, task, signal)
+  }, {
     maxRetries: 2, baseDelayMs: 2000, maxDelayMs: 30_000,
     isRetryable: error => !signal?.aborted && error instanceof DataForSeoTransportError
       && error.unaccepted && error.throttle && isRetryableHttpError(error),
     computeDelayMs: (_attempt, error, defaultMs) => retryAfterDelayMs(error) ?? defaultMs,
+    onRetry: ({ err }) => { if (err instanceof DataForSeoTransportError) refusal = err },
+    sleep: ms => new Promise<void>((resolve, reject) => {
+      if (signal?.aborted) { reject(refusal ?? new Error('SEO request was cancelled.')); return }
+      const cancelled = () => { clearTimeout(timer); reject(refusal ?? new Error('SEO request was cancelled.')) }
+      const timer = setTimeout(() => { signal?.removeEventListener('abort', cancelled); resolve() }, ms)
+      signal?.addEventListener('abort', cancelled, { once: true })
+    }),
   })
 }
