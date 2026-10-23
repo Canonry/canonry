@@ -14,7 +14,8 @@ import { buildGaOverview, parseGaOverviewWindow } from './ga-overview.js'
 import { findBiggestMover } from './ga-source-mover.js'
 import { buildAiReferralDailySeries, normalizeAiTrafficClass, pickWinningAttributionDimension, summarizeAiReferralCounts } from './ga-ai-referral-aggregation.js'
 import { groupAiEngines, groupSocialPlatforms, paidSocialSummary, socialPlatformDailySeries } from './ga-referral-groups.js'
-import { clearSearchLandingSnapshot, clearSearchLandingSnapshotOnPropertyChange, persistSearchLandingFailure, persistSearchLandingSnapshot, resolveCurrentGa4PropertyId } from './ga-search-landing-pages.js'
+import { clearGaDataOnPropertyChange, clearGaPropertyData, projectsSharingGa4Connection, readGa4Properties } from './ga-property-data.js'
+import { persistSearchLandingFailure, persistSearchLandingSnapshot } from './ga-search-landing-pages.js'
 import {
   getAccessToken,
   fetchTrafficByLandingPage,
@@ -617,7 +618,9 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       if (existing?.clientEmail === clientEmail && existing.privateKey === privateKey && existing.propertyId === propertyId) {
         return { connected: true, propertyId, authMethod: 'service-account', clientEmail }
       }
-      const previousPropertyId = resolveCurrentGa4PropertyId(opts, project.name, project.canonicalDomain)
+      // GA rows belong to the property they were read from, so a connect that
+      // points the project at another property drops them.
+      const before = readGa4Properties(opts, [project])
       opts.ga4CredentialStore.upsertConnection({
         projectName: project.name,
         propertyId,
@@ -626,19 +629,15 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       })
-      // The Search Console landing-page snapshot belongs to one property, so a
-      // connect that points the project at another one drops it.
-      clearSearchLandingSnapshotOnPropertyChange(app.db, project.id, {
-        previousPropertyId,
-        propertyId: resolveCurrentGa4PropertyId(opts, project.name, project.canonicalDomain),
-      }, now)
-
-      writeAuditLog(app.db, {
-        projectId: project.id,
-        actor: 'api',
-        action: 'ga4.connected',
-        entityType: 'ga_connection',
-        entityId: propertyId,
+      app.db.transaction((tx) => {
+        clearGaDataOnPropertyChange(tx, opts, before)
+        writeAuditLog(tx, {
+          projectId: project.id,
+          actor: 'api',
+          action: 'ga4.connected',
+          entityType: 'ga_connection',
+          entityId: propertyId,
+        })
       })
 
       return { connected: true, propertyId, authMethod: 'service-account', clientEmail }
@@ -688,27 +687,24 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       return { connected: true, propertyId, authMethod: 'oauth' }
     }
 
-    // Store the property ID on the OAuth connection record
-    const previousPropertyId = resolveCurrentGa4PropertyId(opts, project.name, project.canonicalDomain)
-    const connectedAt = new Date().toISOString()
+    // Store the property ID on the OAuth connection record. Same rule as the
+    // service-account path, for every project on this domain: they all
+    // resolve through this record, and a service-account connection still
+    // wins over it, so a project is cleared only when its property changed.
+    const before = readGa4Properties(opts, projectsSharingGa4Connection(app.db, project.canonicalDomain))
     googleStore.updateConnection(project.canonicalDomain, 'ga4', {
       propertyId,
-      updatedAt: connectedAt,
+      updatedAt: new Date().toISOString(),
     })
-    // Same rule as the service-account path. A service-account connection
-    // still wins over OAuth, so this clears only when the property the
-    // project resolves to actually changed.
-    clearSearchLandingSnapshotOnPropertyChange(app.db, project.id, {
-      previousPropertyId,
-      propertyId: resolveCurrentGa4PropertyId(opts, project.name, project.canonicalDomain),
-    }, connectedAt)
-
-    writeAuditLog(app.db, {
-      projectId: project.id,
-      actor: 'api',
-      action: 'ga4.connected',
-      entityType: 'ga_connection',
-      entityId: propertyId,
+    app.db.transaction((tx) => {
+      clearGaDataOnPropertyChange(tx, opts, before)
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'ga4.connected',
+        entityType: 'ga_connection',
+        entityId: propertyId,
+      })
     })
 
     return { connected: true, propertyId, authMethod: 'oauth' }
@@ -726,44 +722,27 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       throw notFound('GA4 connection', project.name)
     }
 
-    // Delete traffic data, summaries, window totals, AI and social referral rows
-    // along with the connection. Window totals left behind would read as the
-    // next property's figures until its first sync.
-    app.db.delete(gaTrafficSnapshots)
-      .where(eq(gaTrafficSnapshots.projectId, project.id))
-      .run()
-    app.db.delete(gaTrafficSummaries)
-      .where(eq(gaTrafficSummaries.projectId, project.id))
-      .run()
-    app.db.delete(gaTrafficWindowSummaries)
-      .where(eq(gaTrafficWindowSummaries.projectId, project.id))
-      .run()
-    app.db.delete(gaWindowMetrics)
-      .where(eq(gaWindowMetrics.projectId, project.id))
-      .run()
-    app.db.delete(gaDailyTotals)
-      .where(eq(gaDailyTotals.projectId, project.id))
-      .run()
-    app.db.delete(gaAiReferrals)
-      .where(eq(gaAiReferrals.projectId, project.id))
-      .run()
-    app.db.delete(gaSocialReferrals)
-      .where(eq(gaSocialReferrals.projectId, project.id))
-      .run()
-    // The Search Console landing-page snapshot belongs to the disconnected
-    // property, so it goes with it, and its state reads `never-synced` again.
-    clearSearchLandingSnapshot(app.db, project.id, new Date().toISOString())
-
     const propertyId = saConn?.propertyId ?? oauthConn?.propertyId ?? null
+    // The other projects on this domain lose the OAuth connection too.
+    const others = readGa4Properties(
+      opts,
+      projectsSharingGa4Connection(app.db, project.canonicalDomain).filter((other) => other.id !== project.id),
+    )
     opts.ga4CredentialStore?.deleteConnection(project.name)
     opts.googleConnectionStore?.deleteConnection(project.canonicalDomain, 'ga4')
 
-    writeAuditLog(app.db, {
-      projectId: project.id,
-      actor: 'api',
-      action: 'ga4.disconnected',
-      entityType: 'ga_connection',
-      entityId: propertyId,
+    app.db.transaction((tx) => {
+      // Every GA row came from the disconnected property, so all of them go,
+      // and every GA read shows the project as never synced.
+      clearGaPropertyData(tx, project.id)
+      clearGaDataOnPropertyChange(tx, opts, others)
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'ga4.disconnected',
+        entityType: 'ga_connection',
+        entityId: propertyId,
+      })
     })
 
     return reply.status(204).send()

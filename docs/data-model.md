@@ -317,6 +317,8 @@ configuration value into an observation. Treat NULL as unknown.
 
 ### Integrations — Google Analytics
 
+GA rows record no GA4 property (only `ga_search_landing_windows.property_id` does), so a project's rows always come from the one property it resolves to. `ga disconnect`, and every connection write that moves a project to another property or to none, deletes that project's rows from every table below except `ga_connections` (`packages/api-routes/src/ga-property-data.ts`). That includes `ga_measurement_sync_state`, so the next sync backfills acquisition and lead events in full, as a first sync does.
+
 | Table | Purpose |
 |-------|---------|
 | **ga_connections** | GA4 property connection (1:1 with project) |

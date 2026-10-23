@@ -458,77 +458,8 @@ describe('GA4 Search Console landing pages', () => {
     expect(JSON.parse((await read(ctx)).body)).toMatchObject({ status: 'never-synced', total: null, totalRows: 0, rows: [] })
   })
 
-  it('clears the snapshot when a service-account connect points the project at another property, and keeps it for the same one', async () => {
-    await mockGa(async () => readyReport())
-    const ga = await import('@canonry/canonry-integration-google-analytics')
-    const verify = vi.spyOn(ga, 'verifyConnection').mockResolvedValue(true)
-    expect((await sync(ctx)).statusCode).toBe(200)
-    const connect = (propertyId: string) => ctx.app.inject({
-      method: 'POST',
-      url: `/api/v1/projects/${PROJECT}/ga/connect`,
-      payload: { propertyId, keyJson: JSON.stringify({ client_email: 'ga@test.iam.gserviceaccount.com', private_key: 'fake-key' }) },
-    })
-
-    // A reconnect to the same property (a rotated key) keeps the snapshot.
-    expect((await connect('123456')).statusCode).toBe(200)
-    expect(ctx.db.select().from(gaSearchLandingWindows).all()).toHaveLength(3)
-    expect(stateOf(ctx)).toMatchObject({ searchLandingStatus: 'ready' })
-
-    expect((await connect('654321')).statusCode).toBe(200)
-
-    expect(verify).toHaveBeenLastCalledWith('ga@test.iam.gserviceaccount.com', 'fake-key', '654321')
-    expect(ctx.credentials.get(PROJECT)?.propertyId).toBe('654321')
-    expect(ctx.db.select().from(gaSearchLandingWindows).all()).toEqual([])
-    expect(ctx.db.select().from(gaSearchLandingPages).all()).toEqual([])
-    expect(stateOf(ctx)).toMatchObject({
-      searchLandingStatus: 'never-synced',
-      searchLandingError: null,
-      searchLandingSyncedAt: null,
-      searchLandingAttemptedAt: null,
-    })
-  })
-
-  it('clears the snapshot when an OAuth connect changes the property the project resolves to', async () => {
-    await mockGa(async () => readyReport())
-    const ga = await import('@canonry/canonry-integration-google-analytics')
-    const verify = vi.spyOn(ga, 'verifyConnectionWithToken').mockResolvedValue(true)
-    // OAuth only: no service account for this project.
-    ctx.credentials.delete(PROJECT)
-    ctx.googleConnections.set('example.com:ga4', oauthConnection('123456'))
-    expect((await sync(ctx)).statusCode).toBe(200)
-    expect(ctx.db.select().from(gaSearchLandingWindows).all().map(window => window.propertyId)).toEqual(['123456', '123456', '123456'])
-    const connect = (propertyId: string) => ctx.app.inject({
-      method: 'POST',
-      url: `/api/v1/projects/${PROJECT}/ga/connect`,
-      payload: { propertyId },
-    })
-
-    expect((await connect('123456')).statusCode).toBe(200)
-    expect(ctx.db.select().from(gaSearchLandingWindows).all()).toHaveLength(3)
-
-    expect((await connect('654321')).statusCode).toBe(200)
-
-    expect(verify).toHaveBeenLastCalledWith('fake-access-token', '654321')
-    expect(ctx.googleConnections.get('example.com:ga4')?.propertyId).toBe('654321')
-    expect(ctx.db.select().from(gaSearchLandingWindows).all()).toEqual([])
-    expect(ctx.db.select().from(gaSearchLandingPages).all()).toEqual([])
-    expect(stateOf(ctx)).toMatchObject({ searchLandingStatus: 'never-synced', searchLandingSyncedAt: null })
-  })
-
-  it('keeps the snapshot when an OAuth connect changes a property the service account overrides', async () => {
-    await mockGa(async () => readyReport())
-    const ga = await import('@canonry/canonry-integration-google-analytics')
-    vi.spyOn(ga, 'verifyConnectionWithToken').mockResolvedValue(true)
-    ctx.googleConnections.set('example.com:ga4', oauthConnection('777777'))
-    expect((await sync(ctx)).statusCode).toBe(200)
-
-    const response = await ctx.app.inject({ method: 'POST', url: `/api/v1/projects/${PROJECT}/ga/connect`, payload: { propertyId: '888888' } })
-
-    expect(response.statusCode).toBe(200)
-    // The project still resolves to the service account's property.
-    expect(ctx.db.select().from(gaSearchLandingWindows).all()).toHaveLength(3)
-    expect(JSON.parse((await read(ctx)).body)).toMatchObject({ status: 'ready', totalRows: 7 })
-  })
+  // Connect and disconnect clear the snapshot with the rest of the project's
+  // GA data: ga-property-data.test.ts.
 
   it('starts unavailable without a snapshot when the first attempt is refused', async () => {
     await mockGa(async () => ({ status: 'unavailable', reason: 'GA4 returned no Search Console rows (NO_LINK)' }))
@@ -635,24 +566,6 @@ describe('GA4 Search Console landing pages', () => {
 
   it('404s an unknown project', async () => {
     expect((await read(ctx, '', 'missing')).statusCode).toBe(404)
-  })
-
-  it('clears the snapshot and resets its state on disconnect', async () => {
-    await mockGa(async () => readyReport())
-    expect((await sync(ctx)).statusCode).toBe(200)
-
-    const response = await ctx.app.inject({ method: 'DELETE', url: `/api/v1/projects/${PROJECT}/ga/disconnect` })
-
-    expect(response.statusCode).toBe(204)
-    expect(ctx.db.select().from(gaSearchLandingWindows).all()).toEqual([])
-    expect(ctx.db.select().from(gaSearchLandingPages).all()).toEqual([])
-    expect(stateOf(ctx)).toMatchObject({
-      searchLandingStatus: 'never-synced',
-      searchLandingError: null,
-      searchLandingSyncedAt: null,
-      searchLandingAttemptedAt: null,
-    })
-    expect(JSON.parse((await read(ctx)).body)).toMatchObject({ status: 'never-synced', total: null, totalRows: 0 })
   })
 
   it('publishes the read with its typed response schema in the OpenAPI document', async () => {
