@@ -2,11 +2,15 @@ import type { RunListItemVm } from '../../view-models.js'
 import { Button } from '../ui/button.js'
 import { StatusBadge } from './StatusBadge.js'
 import { useDrawer } from '../../hooks/use-drawer.js'
+import { Link } from '@tanstack/react-router'
+import { RunKinds } from '@canonry/canonry-contracts'
 
 export function RunRow({
   run,
+  projectSlug,
 }: {
   run: RunListItemVm
+  projectSlug?: string
 }) {
   const { openRun } = useDrawer()
 
@@ -38,9 +42,9 @@ export function RunRow({
           <dd>{run.triggerLabel}</dd>
         </div>
       </dl>
-      <Button variant="outline" size="sm" type="button" onClick={() => openRun(run.id)}>
+      {run.kind === RunKinds['seo-sync'] && projectSlug ? <Button variant="outline" size="sm" asChild><Link to="/projects/$projectName/seo-data" params={{ projectName: projectSlug }} search={{ seoRunId: run.id }}>View refresh</Link></Button> : <Button variant="outline" size="sm" type="button" onClick={() => openRun(run.id)}>
         View run
-      </Button>
+      </Button>}
     </article>
   )
 }

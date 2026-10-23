@@ -658,6 +658,8 @@ export class JobRunner {
 
     const now = new Date().toISOString()
     for (const run of stale) {
+      // SEO receipts and uncertain billing are recovered by SeoRuntime.
+      if (run.kind === RunKinds['seo-sync']) continue
       // A run that reached a provider batch is not lost with the process: its
       // batches live at the provider, and the poller resumes them.
       if (run.status === RunStatuses.running && this.recoverBatchRun(run.id)) continue

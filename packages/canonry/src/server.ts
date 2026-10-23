@@ -8,6 +8,7 @@ import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { and, eq, isNotNull, isNull, lte, max, ne, or, sql } from "drizzle-orm";
 import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@canonry/canonry-config";
 import { CliError } from "./cli-error.js";
+import { SeoRuntime } from "./seo-runtime.js";
 import { isLoopbackBindHost } from "./serve-endpoint.js";
 import { buildJevSentimentRequest } from "@canonry/canonry-integration-typesafe";
 import { createConfiguredSentimentClassifier } from "./sentiment-openrouter.js";
@@ -1137,6 +1138,7 @@ export async function createServer(opts: {
     onFirstActivation: () => maybeShowActivationNotice(),
   });
   jobRunner.recoverStaleRuns();
+  const seoRuntime = new SeoRuntime(opts.db, () => fs.existsSync(runtimeConfigPath) ? loadConfig(runtimeConfigPath).seo : opts.config.seo);
   // Local canonry serve runs on the operator's machine, where pointing a
   // webhook at localhost (Discord test container, Pipedream-mock dev server,
   // etc.) is a legitimate workflow. Default to allowing it for the local
@@ -3003,6 +3005,7 @@ export async function createServer(opts: {
   });
   app.addHook("onReady", async () => { resumeAnswerFieldRecomputes(); });
   app.addHook("onReady", async () => { sentimentTimer = setInterval(pollSentiment, 5_000); sentimentTimer.unref(); pollSentiment(); });
+  app.addHook("onClose", async () => { await seoRuntime.stop(); });
   app.addHook("onClose", async () => { clearInterval(sentimentTimer); sentimentPoller.stop(); await sentimentPoller.settled(); });
 
   const providerModelCatalog = createProviderModelCatalog(registry);
@@ -3393,6 +3396,8 @@ export async function createServer(opts: {
           app.log.error({ runId: input.runId, err }, "Discovery run failed");
         });
     },
+    getSeoRuntime: seoRuntime.getRuntime,
+    onSeoRunRequested: () => seoRuntime.wake(),
     onResearchRunRequested: dispatchResearchRun,
     // Read issued search queries (fan-out) back out of a stored probe payload.
     // Discovery is Gemini-only today, so the Gemini extractor handles every
@@ -4157,6 +4162,7 @@ export async function createServer(opts: {
   app.addHook("onListen", () => {
     if (runtimeStartupSettled) return;
     try {
+      seoRuntime.start();
       scheduler.start();
       stopSiteLiveness = startSiteLivenessLoop({
         db: opts.db,

@@ -41,6 +41,7 @@ import { ActivitySection } from '../components/project/ActivitySection.js'
 import { GscSection } from '../components/project/GscSection.js'
 import { GbpSection } from '../components/project/GbpSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
+import { SeoDataSection } from '../components/project/SeoDataSection.js'
 import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
 import { PastSweeps } from '../components/project/PastSweeps.js'
 import { useVisibilityReportFirstPage, VisibilityOverview, VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
@@ -143,7 +144,7 @@ import {
 } from '../lib/ai-visibility-provider-readiness.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'queries' | 'discovery' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
+export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'queries' | 'discovery' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
 
 export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled, leftOut = [] }: {
   open: boolean
@@ -2576,6 +2577,7 @@ function ProjectPageContent({
     // and it appears in saved URLs, so it stays `overview` however the label reads.
     { key: 'overview', label: 'AI Visibility', href: projectTabBase },
     { key: 'search-console', label: 'Search Engines', href: `${projectTabBase}/search-console` },
+    { key: 'seo-data', label: 'SEO data', href: `${projectTabBase}/seo-data` },
     { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
     // `technical-aeo` is a stable route and embed token. Site Health is the product label.
     { key: 'technical-aeo', label: 'Site Health', href: `${projectTabBase}/technical-aeo` },
@@ -3265,6 +3267,8 @@ function ProjectPageContent({
         <ActivitySection projectName={model.project.name} />
       ) : tab === 'backlinks' ? (
         <BacklinksSection projectName={model.project.name} />
+      ) : tab === 'seo-data' ? (
+        <SeoDataSection key={model.project.id} projectName={model.project.name} />
       ) : tab === 'local' ? (
         // Local presence (Google Business Profile + Places). GbpSection
         // self-gates on the connection and renders its own empty state.

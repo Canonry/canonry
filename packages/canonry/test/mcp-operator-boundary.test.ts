@@ -2,7 +2,7 @@ import { expect, it, vi } from 'vitest'
 import { resolveEffectiveAuthorization } from '../src/mcp/cli.js'
 import { getCanonryMcpTools } from '../src/mcp/server.js'
 
-const internal = ['canonry_logs_list', 'canonry_telemetry_get', 'canonry_telemetry_update']
+const internal = ['canonry_logs_list', 'canonry_telemetry_get', 'canonry_telemetry_update', 'canonry_seo_operator_task', 'canonry_seo_operator_reconcile']
 
 it('hides internal tools from unknown and customer wildcard credentials', () => {
   for (const scopes of [undefined, ['*'], ['logs.read'], ['*', 'operator']]) {

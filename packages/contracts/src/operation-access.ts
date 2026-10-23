@@ -45,6 +45,7 @@ export const LIVE_READ_OPERATIONS: ReadonlySet<string> = new Set([
 
 /** POST previews that calculate from supplied or draft data without persistence. */
 export const READ_SEMANTIC_OPERATIONS: ReadonlySet<string> = new Set([
+  'POST /api/v1/projects/{name}/seo/refresh-intents',
   'POST /api/v1/projects/{name}/measurement-plan/compile-preview',
   'POST /api/v1/projects/{name}/measurement-plan/diff-preview',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-assignments',
@@ -67,6 +68,17 @@ export const WRITE_OPERATIONS: ReadonlySet<string> = new Set([
 
 /** Stored reads and pure previews that retain write-scope authorization. */
 export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
+  'GET /api/v1/seo/operator/tasks/{id}',
+  'GET /api/v1/projects/{name}/seo/context',
+  'GET /api/v1/projects/{name}/seo/status',
+  'GET /api/v1/projects/{name}/seo/profiles',
+  'GET /api/v1/projects/{name}/seo/profiles/{id}',
+  'GET /api/v1/projects/{name}/seo/runs',
+  'GET /api/v1/projects/{name}/seo/runs/{id}',
+  'GET /api/v1/projects/{name}/seo/overview',
+  'GET /api/v1/projects/{name}/seo/keyword-metrics',
+  'GET /api/v1/projects/{name}/seo/domain-intelligence',
+  'GET /api/v1/projects/{name}/seo/ranked-keywords',
   'GET /api/v1/openapi.json',
   'GET /api/v1/screenshots/{snapshotId}',
   'GET /api/v1/projects/{name}/technical-aeo/runs/{runId}/page-health-preview',
