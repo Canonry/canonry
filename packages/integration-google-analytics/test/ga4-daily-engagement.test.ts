@@ -3,21 +3,25 @@ import { fetchDailyTotals } from '../src/ga4-client.js'
 import { GA4_METRICS } from '../src/constants.js'
 
 /**
- * Engagement metrics on the property-level daily series.
+ * The property-level daily series behind the GA4 overview: every daily figure
+ * the overview shows, in one batch of two reports (GA4 takes at most ten
+ * metrics per report), the second being sessions in the Organic Search channel.
  *
  * No returning-users figure is derived. GA4 exposes no such metric, and
  * subtracting newUsers from totalUsers does not reconstruct one, because a
  * visitor can be first-seen AND return inside the same range.
  */
 
-type FetchArgs = { url: string; body: { metrics?: Array<{ name: string }> } }
+type Row = { dimensionValues: Array<{ value: string }>; metricValues: Array<{ value: string }> }
+type ReportRequest = { metrics?: Array<{ name: string }>; dimensionFilter?: unknown; dateRanges?: Array<{ startDate: string; endDate: string }> }
+type BatchBody = { requests?: ReportRequest[] }
 
-describe('fetchDailyTotals engagement metrics', () => {
+describe('fetchDailyTotals overview metrics', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>
-  let calls: FetchArgs[]
+  let bodies: BatchBody[]
 
   beforeEach(() => {
-    calls = []
+    bodies = []
     fetchSpy = vi.spyOn(globalThis, 'fetch')
   })
 
@@ -25,68 +29,124 @@ describe('fetchDailyTotals engagement metrics', () => {
     fetchSpy.mockRestore()
   })
 
-  function mockReport(rows: Array<{ dimensionValues: Array<{ value: string }>; metricValues: Array<{ value: string }> }>) {
-    fetchSpy.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url
-      calls.push({ url, body: JSON.parse(String(init?.body ?? '{}')) as FetchArgs['body'] })
-      return new Response(JSON.stringify({ rows, rowCount: rows.length }), {
+  function mockBatch(totals: Row[], organic: Row[] = []) {
+    fetchSpy.mockImplementation(async (_input: string | URL | Request, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body ?? '{}')) as BatchBody)
+      return new Response(JSON.stringify({ reports: [{ rows: totals, rowCount: totals.length }, { rows: organic, rowCount: organic.length }] }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })
     })
   }
 
-  it('requests engagementRate and newUsers alongside the existing metrics', async () => {
-    mockReport([])
+  const day = (date: string, ...values: string[]): Row => ({
+    dimensionValues: [{ value: date }],
+    metricValues: values.map(value => ({ value })),
+  })
+
+  it('requests every daily figure by its GA4 name, plus the Organic Search sessions', async () => {
+    mockBatch([])
 
     await fetchDailyTotals('fake-token', '123456', 7)
 
-    expect(calls).toHaveLength(1)
-    const requested = (calls[0]!.body.metrics ?? []).map(metric => metric.name)
+    expect(bodies).toHaveLength(1)
+    const [totals, organic] = bodies[0]!.requests ?? []
     // The literal names are the GA4 Data API contract, asserted here on purpose:
-    // a typo in the constant would otherwise pass a constant-only comparison.
-    expect(requested).toEqual(['sessions', 'totalUsers', 'engagementRate', 'newUsers'])
-    expect(GA4_METRICS.engagementRate).toBe('engagementRate')
-    expect(GA4_METRICS.newUsers).toBe('newUsers')
+    // a typo in a constant would otherwise pass a constant-only comparison.
+    expect((totals?.metrics ?? []).map(metric => metric.name)).toEqual([
+      'sessions',
+      'totalUsers',
+      'engagementRate',
+      'newUsers',
+      'activeUsers',
+      'screenPageViews',
+      'eventCount',
+      'keyEvents',
+      'userEngagementDuration',
+      'bounceRate',
+    ])
+    expect((organic?.metrics ?? []).map(metric => metric.name)).toEqual(['sessions'])
+    expect(JSON.stringify(organic?.dimensionFilter)).toContain('Organic Search')
+    expect(GA4_METRICS.screenPageViews).toBe('screenPageViews')
+    expect(GA4_METRICS.keyEvents).toBe('keyEvents')
+    expect(GA4_METRICS.userEngagementDuration).toBe('userEngagementDuration')
+    expect(GA4_METRICS.bounceRate).toBe('bounceRate')
   })
 
+  it('reads each figure from its own position, counts whole and rates bounded', async () => {
+    mockBatch(
+      [day('20260731', '90', '40', '0.61', '12.0', '38', '210', '640', '2.5', '3120.5', '0.39')],
+      [day('20260731', '51')],
+    )
 
+    const { rows } = await fetchDailyTotals('fake-token', '123456', 7)
 
-  it('parses newUsers as a whole number and rejects an empty metric value', async () => {
-    // Two contract details the DTO depends on. `newUsers` feeds an INTEGER
-    // column and an `int()` DTO field, so a decimal string must not survive as
-    // a float. And `Number('')` is 0, not NaN, so an empty value would
-    // otherwise land as a real zero reading instead of an absent one.
-    mockReport([
-      {
-        dimensionValues: [{ value: '20260731' }],
-        metricValues: [{ value: '90' }, { value: '40' }, { value: '' }, { value: '12.0' }],
-      },
-    ])
-
-    const rows = await fetchDailyTotals('fake-token', '123456', 7)
-
-    expect(rows[0]!.engagementRate).toBeNull()
-    expect(rows[0]!.newUsers).toBe(12)
+    expect(rows).toEqual([{
+      date: '2026-07-31',
+      sessions: 90,
+      users: 40,
+      engagementRate: 0.61,
+      newUsers: 12,
+      activeUsers: 38,
+      organicSessions: 51,
+      views: 210,
+      eventCount: 640,
+      keyEvents: 2.5,
+      engagementSeconds: 3120.5,
+      bounceRate: 0.39,
+    }])
     expect(Number.isInteger(rows[0]!.newUsers)).toBe(true)
   })
 
-  it('reports the new metrics as null, not zero, when GA4 omits them', async () => {
-    // A property whose response predates the widened metric list must not read
-    // as "0% engaged, 0 returning users" — that is a real value, and this is
-    // the absence of one.
-    mockReport([
-      {
-        dimensionValues: [{ value: '20260730' }],
-        metricValues: [{ value: '90' }, { value: '40' }],
-      },
-    ])
+  it('reports an empty value as null, never as a measured zero', async () => {
+    // `Number('')` is 0, not NaN, so without the guard an empty value would
+    // land as a real zero reading instead of an absent one.
+    mockBatch([day('20260731', '90', '40', '', '12', '', '210', '', '', '', '')])
 
-    const rows = await fetchDailyTotals('fake-token', '123456', 7)
+    const [row] = (await fetchDailyTotals('fake-token', '123456', 7)).rows
 
-    expect(rows[0]!.sessions).toBe(90)
-    expect(rows[0]!.users).toBe(40)
-    expect(rows[0]!.engagementRate).toBeNull()
-    expect(rows[0]!.newUsers).toBeNull()
+    expect(row!.engagementRate).toBeNull()
+    expect(row!.activeUsers).toBeNull()
+    expect(row!.eventCount).toBeNull()
+    expect(row!.keyEvents).toBeNull()
+    expect(row!.engagementSeconds).toBeNull()
+    expect(row!.bounceRate).toBeNull()
+    expect(row!.views).toBe(210)
+  })
+
+  it('reports the figures GA4 omitted as null, not zero', async () => {
+    // A response carrying only the first two figures must not read as "0%
+    // engaged, no views": that is a real value, and this is the absence of one.
+    mockBatch([day('20260730', '90', '40')])
+
+    const [row] = (await fetchDailyTotals('fake-token', '123456', 7)).rows
+
+    expect(row!.sessions).toBe(90)
+    expect(row!.users).toBe(40)
+    for (const key of ['engagementRate', 'newUsers', 'activeUsers', 'views', 'eventCount', 'keyEvents', 'engagementSeconds', 'bounceRate'] as const) {
+      expect(row![key]).toBeNull()
+    }
+  })
+
+  it('counts a day the Organic Search report omits as zero organic sessions', async () => {
+    // GA4 sends no row for a day with nothing to report. The organic report
+    // ran, so a day the totals carry and it omits had no organic session.
+    mockBatch(
+      [day('20260730', '90', '40'), day('20260731', '70', '30')],
+      [day('20260731', '22')],
+    )
+
+    const { rows } = await fetchDailyTotals('fake-token', '123456', 7)
+
+    expect(rows.map(row => [row.date, row.organicSessions])).toEqual([['2026-07-30', 0], ['2026-07-31', 22]])
+  })
+
+  it('returns the range it asked for alongside the rows', async () => {
+    mockBatch([])
+
+    const result = await fetchDailyTotals('fake-token', '123456', 7)
+
+    const asked = bodies[0]!.requests![0]!.dateRanges![0]!
+    expect({ startDate: result.startDate, endDate: result.endDate }).toEqual(asked)
   })
 })

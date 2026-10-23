@@ -443,6 +443,13 @@ const analyticsWindowParameter: OpenApiParameter = {
   schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] },
 }
 
+const gaOverviewWindowParameter: OpenApiParameter = {
+  name: 'window',
+  in: 'query',
+  description: 'Overview window: the complete days ending yesterday, as GA4 counts "Last 30 days". Defaults to 30d. Any other value is rejected with 400.',
+  schema: { type: 'string', enum: ['7d', '30d', '90d'] },
+}
+
 const competitorLandscapeGroupKeyParameter: OpenApiParameter = {
   name: 'groupKey',
   in: 'query',
@@ -6313,6 +6320,18 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Attribution trend returned.', 'GaAttributionTrendResponse'),
       400: errorResponse('GA4 is not connected.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ga/overview',
+    summary: 'Get the GA4 overview: totals, change against the previous period, and both periods by day',
+    tags: ['ga4'],
+    parameters: [nameParameter, gaOverviewWindowParameter],
+    responses: {
+      200: jsonResponse('GA4 overview returned.', 'GaOverviewResponse'),
+      400: errorResponse('GA4 is not connected, or the window is not 7d, 30d or 90d.'),
       404: errorResponse('Project not found.'),
     },
   },

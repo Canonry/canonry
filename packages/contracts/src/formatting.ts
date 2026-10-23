@@ -48,6 +48,19 @@ export function formatNumber(value: number): string {
   return value.toLocaleString('en-US')
 }
 
+/**
+ * A duration in seconds as GA4 shows engagement time: `45s`, `1m 05s`,
+ * `1h 02m`. Rounded to the second; anything non-finite or negative is `—`.
+ */
+export function formatDurationSeconds(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '—'
+  const total = Math.round(seconds)
+  if (total < 60) return `${total}s`
+  const minutes = Math.floor(total / 60)
+  if (minutes < 60) return `${minutes}m ${String(total % 60).padStart(2, '0')}s`
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`
+}
+
 export function formatDate(iso: string): string {
   if (!iso) return '—'
   try {

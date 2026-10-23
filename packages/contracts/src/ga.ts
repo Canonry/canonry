@@ -3,7 +3,8 @@ import { gaMeasurementComponentStatusSchema } from './measurement.js'
 
 import { WINDOW_SETS } from './time-window.js'
 import { z } from 'zod'
-import { fraction, percent } from './ratio-unit.js'
+import { fraction, percent, RatioUnits } from './ratio-unit.js'
+import { formatDurationSeconds, formatNumber, formatPercent, shiftIsoCalendarDate } from './formatting.js'
 import { aiReferralTrafficClassSchema } from './traffic-class.js'
 import { aiReferralEngineSchema } from './ai-referral-engine.js'
 import { socialPlatformSchema } from './social-platform.js'
@@ -611,6 +612,167 @@ export const gaAttributionTrendResponseSchema = z.object({
 export type GaAttributionTrendResponse = z.infer<typeof gaAttributionTrendResponseSchema>
 
 /**
+ * The figures of the GA4 overview (`GET /projects/:name/ga/overview`), for a
+ * whole window or for one day. Each is GA4's own metric of that name, except
+ * `organicSessions` (GA4 `sessions` in the Organic Search channel) and
+ * `averageEngagementTimeSeconds` (GA4's `userEngagementDuration / activeUsers`,
+ * which is how GA4 defines "Average engagement time").
+ *
+ * Window figures are GA4's totals for the window, so users are distinct over
+ * the whole window and the rates are GA4's own; they are never sums of days.
+ * Null means GA4 has not reported the figure for that span (never synced, or
+ * synced before the metric was added), never a measured zero.
+ */
+export const gaOverviewValuesSchema = z.object({
+  activeUsers: z.number().int().nonnegative().nullable(),
+  newUsers: z.number().int().nonnegative().nullable(),
+  totalUsers: z.number().int().nonnegative().nullable(),
+  sessions: z.number().int().nonnegative().nullable(),
+  organicSessions: z.number().int().nonnegative().nullable(),
+  views: z.number().int().nonnegative().nullable(),
+  eventCount: z.number().int().nonnegative().nullable(),
+  /** GA4 counts a key event once per session when the property says so, so this can be a decimal. */
+  keyEvents: z.number().nonnegative().nullable(),
+  engagementRate: fraction().nullable(),
+  bounceRate: fraction().nullable(),
+  averageEngagementTimeSeconds: z.number().nonnegative().nullable(),
+})
+export type GaOverviewValues = z.infer<typeof gaOverviewValuesSchema>
+
+export const gaOverviewMetricKeySchema = gaOverviewValuesSchema.keyof()
+export type GaOverviewMetricKey = z.infer<typeof gaOverviewMetricKeySchema>
+export const GaOverviewMetricKeys = gaOverviewMetricKeySchema.enum
+
+/** Signed percent change of each window figure against the previous period, as GA4 shows it. */
+export const gaOverviewChangeSchema = z.object({
+  activeUsers: percent().nullable(),
+  newUsers: percent().nullable(),
+  totalUsers: percent().nullable(),
+  sessions: percent().nullable(),
+  organicSessions: percent().nullable(),
+  views: percent().nullable(),
+  eventCount: percent().nullable(),
+  keyEvents: percent().nullable(),
+  engagementRate: percent().nullable(),
+  bounceRate: percent().nullable(),
+  averageEngagementTimeSeconds: percent().nullable(),
+})
+export type GaOverviewChange = z.infer<typeof gaOverviewChangeSchema>
+
+/** The overview windows, in days. */
+export const GA_OVERVIEW_WINDOW_DAYS = { '7d': 7, '30d': 30, '90d': 90 } as const
+export type GaOverviewWindow = keyof typeof GA_OVERVIEW_WINDOW_DAYS
+export const GA_OVERVIEW_WINDOWS: readonly GaOverviewWindow[] = WINDOW_SETS.gaOverview
+
+export function isGaOverviewWindow(value: unknown): value is GaOverviewWindow {
+  return GA_OVERVIEW_WINDOWS.some((window) => window === value)
+}
+
+/**
+ * Days of GA4 daily totals a sync keeps: the longest window and the period of
+ * the same length before it.
+ */
+export const GA_OVERVIEW_HISTORY_DAYS = 2 * GA_OVERVIEW_WINDOW_DAYS['90d']
+
+/**
+ * A window and the period of the same length just before it, inclusive UTC
+ * dates, as GA4 draws them: "Last 30 days" is the 30 complete days ending
+ * yesterday (today is still filling), and the previous period is the 30 days
+ * before. The sync asks GA4 for exactly these ranges.
+ */
+export function gaOverviewComparisonRanges(
+  window: GaOverviewWindow,
+  now: Date = new Date(),
+): { current: { startDate: string; endDate: string }; previous: { startDate: string; endDate: string } } {
+  const days = GA_OVERVIEW_WINDOW_DAYS[window]
+  const today = now.toISOString().slice(0, 10)
+  return {
+    current: { startDate: shiftIsoCalendarDate(today, -days), endDate: shiftIsoCalendarDate(today, -1) },
+    previous: { startDate: shiftIsoCalendarDate(today, -2 * days), endDate: shiftIsoCalendarDate(today, -days - 1) },
+  }
+}
+
+/** The two periods the overview compares, as stored in `ga_window_metrics.period`. */
+export const GaOverviewPeriods = { current: 'current', previous: 'previous' } as const
+export type GaOverviewPeriod = typeof GaOverviewPeriods[keyof typeof GaOverviewPeriods]
+
+const gaOverviewPeriodSchema = z.object({
+  /** Inclusive. Null when the window has never been synced with the overview metrics. */
+  startDate: z.string().nullable(),
+  endDate: z.string().nullable(),
+})
+
+export const gaOverviewDaySchema = z.object({
+  date: z.string(),
+  /** The day of the previous period in the same position: the window's first day lines up with its first. */
+  previousDate: z.string(),
+  values: gaOverviewValuesSchema,
+  previousValues: gaOverviewValuesSchema,
+})
+export type GaOverviewDay = z.infer<typeof gaOverviewDaySchema>
+
+export const gaOverviewResponseSchema = z.object({
+  window: metricsWindowSchema,
+  current: gaOverviewPeriodSchema,
+  /** The period just before `current`, of the same length. */
+  previous: gaOverviewPeriodSchema,
+  totals: gaOverviewValuesSchema,
+  previousTotals: gaOverviewValuesSchema,
+  /**
+   * `deltaPercent(totals[key], previousTotals[key])`: relative for rates too
+   * (55% to 60% engagement reads +9.1), as GA4 shows it. Null when either total
+   * is missing or the previous one is not positive.
+   */
+  changePct: gaOverviewChangeSchema,
+  /** One entry per day of `current`, oldest first. */
+  days: z.array(gaOverviewDaySchema),
+  /** When GA4 last reported this window's totals. Null when it never has. */
+  syncedAt: z.string().nullable(),
+})
+export type GaOverviewResponse = z.infer<typeof gaOverviewResponseSchema>
+
+export const GaOverviewUnits = { count: 'count', fraction: 'fraction', seconds: 'seconds' } as const
+export type GaOverviewUnit = typeof GaOverviewUnits[keyof typeof GaOverviewUnits]
+
+/** Which direction of change reads as an improvement. */
+export const GaOverviewBetter = { higher: 'higher', lower: 'lower' } as const
+export type GaOverviewBetter = typeof GaOverviewBetter[keyof typeof GaOverviewBetter]
+
+/**
+ * How each overview figure is named and read, shared by the dashboard and the
+ * CLI. `better` is the direction GA4 users read as an improvement: a falling
+ * bounce rate is good news, so its colour follows `better`, not the sign.
+ */
+export const GA_OVERVIEW_METRICS: Record<GaOverviewMetricKey, { label: string; unit: GaOverviewUnit; better: GaOverviewBetter }> = {
+  activeUsers: { label: 'Users', unit: GaOverviewUnits.count, better: GaOverviewBetter.higher },
+  newUsers: { label: 'New users', unit: GaOverviewUnits.count, better: GaOverviewBetter.higher },
+  sessions: { label: 'Sessions', unit: GaOverviewUnits.count, better: GaOverviewBetter.higher },
+  engagementRate: { label: 'Engagement rate', unit: GaOverviewUnits.fraction, better: GaOverviewBetter.higher },
+  averageEngagementTimeSeconds: { label: 'Average engagement time', unit: GaOverviewUnits.seconds, better: GaOverviewBetter.higher },
+  views: { label: 'Views', unit: GaOverviewUnits.count, better: GaOverviewBetter.higher },
+  bounceRate: { label: 'Bounce rate', unit: GaOverviewUnits.fraction, better: GaOverviewBetter.lower },
+  eventCount: { label: 'Event count', unit: GaOverviewUnits.count, better: GaOverviewBetter.higher },
+  keyEvents: { label: 'Key events', unit: GaOverviewUnits.count, better: GaOverviewBetter.higher },
+  organicSessions: { label: 'Organic sessions', unit: GaOverviewUnits.count, better: GaOverviewBetter.higher },
+  totalUsers: { label: 'Total users', unit: GaOverviewUnits.count, better: GaOverviewBetter.higher },
+}
+
+/** The order the figures are listed in, GA4's home card order first. */
+export const GA_OVERVIEW_METRIC_ORDER: readonly GaOverviewMetricKey[] = [
+  'activeUsers',
+  'newUsers',
+  'sessions',
+  'engagementRate',
+  'averageEngagementTimeSeconds',
+  'views',
+  'bounceRate',
+  'eventCount',
+  'keyEvents',
+  'organicSessions',
+  'totalUsers',
+]
+
+/**
  * Response of `GET /projects/:name/ga/traffic`: the traffic summary plus the
  * one window every figure in it was measured over.
  */
@@ -779,3 +941,32 @@ export const gaAcquisitionResponseSchema = z.object({
   totalSessions: z.number().int().nonnegative(), totalRows: z.number().int().nonnegative(), limit: z.number().int(), offset: z.number().int(), rows: z.array(gaAcquisitionRowSchema),
 })
 export type GaAcquisitionResponse = z.infer<typeof gaAcquisitionResponseSchema>
+
+/**
+ * One overview figure as the dashboard and the CLI print it: rates as
+ * percents, engagement time as `1m 05s`, counts in full or, with `compact`,
+ * as `3.4K`. A null figure reads `—`.
+ */
+export function formatGaOverviewValue(key: GaOverviewMetricKey, value: number | null, options: { compact?: boolean } = {}): string {
+  if (value === null) return '—'
+  const unit = GA_OVERVIEW_METRICS[key].unit
+  if (unit === GaOverviewUnits.fraction) return formatPercent(value, RatioUnits.fraction)
+  if (unit === GaOverviewUnits.seconds) return formatDurationSeconds(value)
+  if (options.compact) return formatNumber(value)
+  return value.toLocaleString('en-US', { maximumFractionDigits: 1 })
+}
+
+export const GaOverviewChangeTones = { better: 'better', worse: 'worse', flat: 'flat' } as const
+export type GaOverviewChangeTone = typeof GaOverviewChangeTones[keyof typeof GaOverviewChangeTones]
+
+/**
+ * Whether a change is good news for its figure, from `better`: a rise in
+ * sessions and a fall in bounce rate both read `better`. Null with no change
+ * to judge.
+ */
+export function gaOverviewChangeTone(key: GaOverviewMetricKey, changePct: number | null): GaOverviewChangeTone | null {
+  if (changePct === null) return null
+  if (changePct === 0) return GaOverviewChangeTones.flat
+  const rose = changePct > 0
+  return (GA_OVERVIEW_METRICS[key].better === GaOverviewBetter.higher) === rose ? GaOverviewChangeTones.better : GaOverviewChangeTones.worse
+}

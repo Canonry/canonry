@@ -1118,6 +1118,12 @@ cnry ga social-referral-summary <project> [--trend]
                                                   # socialSharePct, topSources[]; --trend adds 7d/30d direction
 cnry ga session-history <project> [--window 30d] [--start YYYY-MM-DD] [--end YYYY-MM-DD]
                                                   # daily totals: {date, sessions, organicSessions, users}
+cnry ga overview <project> [--window 7d|30d|90d]
+                                                  # GA4's overview for the complete days ending yesterday
+                                                  # (default 30d): users, new users, sessions, organic
+                                                  # sessions, views, event count, key events, engagement
+                                                  # rate, bounce rate, average engagement time, each against
+                                                  # the previous period; --format json adds both periods by day
 cnry ga coverage <project>                    # per-page overlay: {landingPage, sessions,
                                                   # organicSessions, users}
 ```

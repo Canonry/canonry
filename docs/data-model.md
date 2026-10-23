@@ -66,6 +66,7 @@ erDiagram
   projects ||--o| ga_connections : "has (1:1)"
   projects ||--o{ ga_traffic_snapshots : has
   projects ||--o{ ga_daily_totals : has
+  projects ||--o{ ga_window_metrics : has
   projects ||--o{ ga_traffic_summaries : has
   projects ||--o{ ga_ai_referrals : has
   projects ||--o{ ga_social_referrals : has
@@ -320,7 +321,8 @@ configuration value into an observation. Treat NULL as unknown.
 |-------|---------|
 | **ga_connections** | GA4 property connection (1:1 with project) |
 | **ga_traffic_snapshots** | Per-page daily traffic snapshots. Includes `sessions`, `organic_sessions`, and `direct_sessions` (nullable; populated by GA4 sync) — supports per-channel landing-page breakdowns. |
-| **ga_daily_totals** | GA4 property-level daily totals (no landing-page dimension), so `users` is deduplicated by GA and matches the GA UI. `SUM(users)` over `ga_traffic_snapshots` overcounts multi-page visitors and must not be used for a daily user count. Also holds `engagement_rate` (a real GA4 metric, requested directly) and `new_users`; returning users are DERIVED as `users - new_users` because GA4 exposes no `returningUsers` metric, and the subtraction is exact here since the date-only grain has GA deduplicate both counts inside the day. Both columns are nullable with no default — rows written before v116 have no reading, and a 0 would read as a real "nobody engaged, nobody returned" day. Unique: `(project_id, date)` |
+| **ga_daily_totals** | GA4 property-level daily totals (no landing-page dimension), so `users` is deduplicated by GA and matches the GA UI. `SUM(users)` over `ga_traffic_snapshots` overcounts multi-page visitors and must not be used for a daily user count. Also holds `engagement_rate` (a real GA4 metric, requested directly) and `new_users`; returning users are DERIVED as `users - new_users` because GA4 exposes no `returningUsers` metric, and the subtraction is exact here since the date-only grain has GA deduplicate both counts inside the day. Both columns are nullable with no default — rows written before v116 have no reading, and a 0 would read as a real "nobody engaged, nobody returned" day. v188 adds the rest of the GA4 overview's daily figures (`active_users`, `organic_sessions`, `views`, `event_count`, `key_events`, `engagement_seconds`, `bounce_rate`), nullable for the same reason; every sync rewrites the last `GA_OVERVIEW_HISTORY_DAYS` (180) days so each overview window has its previous period. Unique: `(project_id, date)` |
+| **ga_window_metrics** | GA4's own totals for each overview window (`7d` / `30d` / `90d` of complete days ending yesterday) and for the period of the same length before it: one row per `(project_id, window_key, period)` with `period` `current` or `previous`, replaced together on every sync (v188). Users are distinct over the whole period and the rates are GA4's, which no sum of daily rows reproduces. Every figure is nullable: GA4 sends no row for a period with no data. |
 | **ga_traffic_summaries** | Aggregated traffic summaries |
 | **ga_ai_referrals** | AI engine referral tracking. `traffic_class` splits `paid` AI traffic (paid/cpc/sponsored UTM values or GA4 paid channel groups, including tagged ChatGPT ads) from `organic`/non-paid AI referrals. Unique: `(projectId, date, source, medium, sourceDimension, channelGroup, landingPage)` |
 | **ga_social_referrals** | Social media referral tracking. Unique: `(projectId, date, source, medium, channelGroup)` |

@@ -32,6 +32,7 @@ Every API operation carries `x-canonry-access` metadata and responses expose the
 | `src/gsc-period-comparison.ts` / `src/gbp-summary.ts` | Pure calculations behind the GSC performance tiles and `/gbp/summary` |
 | `src/ga-acquisition.ts` | Stored grouped acquisition sessions, filters, and paging. |
 | `src/ga.ts` | Google Analytics 4 routes |
+| `src/ga-overview.ts` | Pure builder behind `/ga/overview`: GA4's stored totals for a window and the period before it, their change (`deltaPercent`, relative for rates too), and both periods by day, a day GA4 sent no row for inside a synced period read as zero counts and unknown rates |
 | `src/ga-source-mover.ts` | Pure biggest-mover calculation behind `/ga/social-referral-trend` and `/ga/attribution-trend` (see "GA4 trend movers") |
 | `src/ga-search-landing-pages.ts` | GA4's Search Console landing-page snapshot: the sync's persist / failure writers, the connect / disconnect clears, `resolveCurrentGa4PropertyId` and `GET /ga/search-landing-pages` (see "GA4 Search Console landing pages") |
 | `src/ads.ts` / `src/ads-live-delivery.ts` | OpenAI ads (ChatGPT ads) routes; pure live-vs-stored comparison engine |

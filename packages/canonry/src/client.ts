@@ -170,6 +170,8 @@ import type {
   GA4AiReferralHistoryEntry,
   GA4SocialReferralHistoryEntry,
   GA4SessionHistoryEntry,
+  GaOverviewResponse,
+  GaOverviewWindow,
   AuditLogEntry,
   GoogleConnectionDto,
   GoogleOAuthStartResponse,
@@ -553,6 +555,7 @@ import {
   getApiV1ProjectsByNameGaSocialReferralTrend,
   getApiV1ProjectsByNameGaAttributionTrend,
   getApiV1ProjectsByNameGaSessionHistory,
+  getApiV1ProjectsByNameGaOverview,
   // Traffic
   postApiV1ProjectsByNameTrafficConnectCloudRun,
   postApiV1ProjectsByNameTrafficConnectWordpress,
@@ -3950,6 +3953,16 @@ export class ApiClient {
   async gaAttributionTrend(project: string): Promise<GaAttributionTrendResponse> {
     return this.invoke<GaAttributionTrendResponse>(() =>
       getApiV1ProjectsByNameGaAttributionTrend({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async gaOverview(project: string, window?: GaOverviewWindow): Promise<GaOverviewResponse> {
+    return this.invoke<GaOverviewResponse>(() =>
+      getApiV1ProjectsByNameGaOverview({
+        client: this.heyClient,
+        path: { name: project },
+        query: window ? { window } : undefined,
+      }),
     )
   }
 

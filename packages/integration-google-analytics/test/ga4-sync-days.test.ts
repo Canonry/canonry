@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { fetchTrafficByLandingPage, fetchDailyTotals, fetchAiReferrals, fetchSocialReferrals } from '../src/ga4-client.js'
 import { resolveGa4SyncDays, GA4_DEFAULT_SYNC_DAYS, GA4_MAX_SYNC_DAYS } from '../src/constants.js'
+import { GA_OVERVIEW_HISTORY_DAYS } from '@canonry/canonry-contracts'
 
 describe('resolveGa4SyncDays', () => {
   it('passes a window inside the supported range through untouched', () => {
@@ -84,11 +85,15 @@ describe('GA4 fetches honour the resolved window', () => {
     for (const call of fetchSpy.mock.calls) {
       const init = call[1] as RequestInit | undefined
       if (!init?.body) continue
-      const body = JSON.parse(init.body as string) as { dateRanges?: Array<{ startDate: string; endDate: string }> }
-      const range = body.dateRanges?.[0]
-      if (!range) continue
-      const ms = Date.parse(`${range.endDate}T00:00:00Z`) - Date.parse(`${range.startDate}T00:00:00Z`)
-      spans.push(Math.round(ms / 86_400_000))
+      type Ranged = { dateRanges?: Array<{ startDate: string; endDate: string }> }
+      // A batch call carries its reports under `requests`; read every one.
+      const body = JSON.parse(init.body as string) as Ranged & { requests?: Ranged[] }
+      for (const request of body.requests ?? [body]) {
+        const range = request.dateRanges?.[0]
+        if (!range) continue
+        const ms = Date.parse(`${range.endDate}T00:00:00Z`) - Date.parse(`${range.startDate}T00:00:00Z`)
+        spans.push(Math.round(ms / 86_400_000))
+      }
     }
     return spans
   }
@@ -97,7 +102,6 @@ describe('GA4 fetches honour the resolved window', () => {
   // regression in one call site would otherwise hide behind the others.
   const fetches = [
     { name: 'fetchTrafficByLandingPage', run: () => fetchTrafficByLandingPage('fake-token', '123456', 500) },
-    { name: 'fetchDailyTotals', run: () => fetchDailyTotals('fake-token', '123456', 500) },
     { name: 'fetchAiReferrals', run: () => fetchAiReferrals('fake-token', '123456', 500) },
     { name: 'fetchSocialReferrals', run: () => fetchSocialReferrals('fake-token', '123456', 500) },
   ]
@@ -118,12 +122,24 @@ describe('GA4 fetches honour the resolved window', () => {
   }
 
   it('requests the exact window asked for when it is inside the range', async () => {
-    fetchSpy.mockImplementation(async () => mockFetchResponse({ rows: [], rowCount: 0 }))
+    fetchSpy.mockImplementation(async () => mockFetchResponse({ reports: [{ rows: [] }, { rows: [] }] }))
 
     await fetchDailyTotals('fake-token', '123456', 14)
 
-    for (const span of capturedRangeSpans()) {
-      expect(span).toBe(14)
-    }
+    // Both reports of the batch, the totals and the Organic Search one.
+    expect(capturedRangeSpans()).toEqual([14, 14])
+  })
+
+  // Daily totals are the overview's history, not a breakdown the sync window
+  // scopes: they keep the longest window and the period before it.
+  it(`fetchDailyTotals keeps ${GA_OVERVIEW_HISTORY_DAYS} days by default and never more`, async () => {
+    fetchSpy.mockImplementation(async () => mockFetchResponse({ reports: [{ rows: [] }, { rows: [] }] }))
+
+    const byDefault = await fetchDailyTotals('fake-token', '123456')
+    await fetchDailyTotals('fake-token', '123456', 500)
+
+    expect(capturedRangeSpans()).toEqual(Array(4).fill(GA_OVERVIEW_HISTORY_DAYS))
+    const ms = Date.parse(`${byDefault.endDate}T00:00:00Z`) - Date.parse(`${byDefault.startDate}T00:00:00Z`)
+    expect(Math.round(ms / 86_400_000)).toBe(GA_OVERVIEW_HISTORY_DAYS)
   })
 })
