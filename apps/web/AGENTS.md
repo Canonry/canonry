@@ -39,6 +39,31 @@ subtle borders, no visual noise.
 
 ## Patterns
 
+### SEO data
+
+`components/project/SeoDataSection.tsx` owns `/projects/:name/seo-data`.
+Saved profiles define Simple or Advanced scope; `seoProfileId` selects a profile,
+and `seoRunId` links Activity to a specific refresh. The project context row has
+no separate SEO scope picker. Reads use the generated SDK and pin evidence tables
+to `overview.evidenceRunId`; the newest job's status can change while the prior
+completed or partial snapshot stays visible. Freshness uses that selected
+`evidenceRun`, never the project-wide last-completed timestamp. Overview Activity,
+Past checks, and run history use `RunDetailLink` to open SEO refreshes through
+`seoRunId`, preserving Advanced context and clearing stale profile/drawer IDs.
+Summary values come from the API,
+including top-ten counts. Evidence pages use the server's total and pagination.
+Profile setup stores source, targets, explicit keywords, locale, capabilities,
+and plan revision; its dataset choices intersect source and scope capabilities
+when the API supplies them. Credentials and internal request accounting remain host-only;
+customer pages may show research metrics such as CPC and estimated traffic value.
+Access uses the context's `canRun` and `canWrite` independently, with embed/demo
+write gates. Refresh first obtains a bounded intent and reuses the same intent
+and idempotency key after an ambiguous transport failure. Definitive validation
+refusals release that pending request so the next explicit action can obtain a
+fresh intent. Only active jobs poll; terminal transitions refresh the SEO query
+domain. `seo-data-section.test.tsx` owns mounted SDK selection and lifecycle
+coverage; API tests own authorization, storage, provider dispatch, and arithmetic.
+
 ### OpenRouter sweep models
 
 Global Settings stores one OpenRouter key and quota. Project Answer engines and

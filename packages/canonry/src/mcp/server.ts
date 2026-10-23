@@ -10,6 +10,7 @@ import { DynamicToolCatalog, type DynamicCatalogEntry } from './dynamic-catalog.
 import { CANONRY_MCP_TOOLKIT_NAMES, type CanonryMcpTier } from './toolkits.js'
 import { operationsHelp, type GuideMode } from './operations-guide.js'
 import { OPERATIONS_GUIDE } from './operations-guide.generated.js'
+import { mcpOutputSchema } from './schema.js'
 
 export type CanonryMcpScope = 'all' | 'read-only' | 'stored-only'
 
@@ -114,7 +115,7 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
         title: tool.title,
         description: tool.description,
         inputSchema: tool.inputSchema,
-        outputSchema: tool.outputSchema,
+        outputSchema: tool.outputSchema ? mcpOutputSchema(tool.outputSchema) : undefined,
         annotations: tool.annotations,
       },
       async (input: unknown) => withToolErrors(async () => {

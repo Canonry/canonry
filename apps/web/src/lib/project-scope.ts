@@ -1,8 +1,8 @@
 /**
  * Where the project context row puts measurement scope, per tab.
  *
- * Scope filters only AI Visibility and tracked Queries. Every other tab covers
- * the whole project, so the row says so instead of offering a control that
+ * Scope filters AI Visibility and tracked Queries. SEO owns a saved profile's
+ * scope in its workspace. Other tabs cover the whole project, so the row says so instead of offering a control that
  * would change nothing on the page. Each tab keeps its own recovery for a saved
  * scope that no longer exists; the row only reports it.
  */
@@ -114,6 +114,7 @@ export function projectScopeSlot(input: ProjectScopeSlotInput): ProjectScopeSlot
       return input.scoped && input.surface === 'advanced-overview' ? { kind: 'project-wide' } : { kind: 'none' }
     case 'settings':
     case 'portfolio':
+    case 'seo-data':
       return { kind: 'none' }
     default: {
       const unhandled: never = tab

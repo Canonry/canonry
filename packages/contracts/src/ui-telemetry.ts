@@ -19,6 +19,7 @@ export const UI_PAGES = [
   '/projects/:projectName',
   '/projects/:projectName/portfolio',
   '/projects/:projectName/search-console',
+  '/projects/:projectName/seo-data',
   '/projects/:projectName/conversions',
   '/projects/:projectName/local',
   '/projects/:projectName/discovery',
@@ -49,6 +50,7 @@ export const UI_PROJECT_TABS = [
   'overview',
   'portfolio',
   'search-console',
+  'seo-data',
   'conversions',
   'local',
   'discovery',
@@ -91,6 +93,9 @@ export const UI_ACTIONS = [
   'integration.connect',
   'integration.disconnect',
   'traffic.sync',
+  'seo.refresh',
+  'seo.profile.save',
+  'seo.cancel',
   'notification.save',
   'notification.test',
   'measurement_plan.publish',
@@ -132,7 +137,7 @@ export const uiIntegrationSchema = z.enum(UI_INTEGRATIONS)
 export type UiIntegration = z.infer<typeof uiIntegrationSchema>
 
 /** Which shared filter a `filter.change` moved. Never the value itself. */
-export const UI_FILTERS = ['provider', 'model', 'location', 'window', 'query_class', 'other'] as const
+export const UI_FILTERS = ['provider', 'model', 'location', 'window', 'query_class', 'seoProfile', 'other'] as const
 export const uiFilterSchema = z.enum(UI_FILTERS)
 export type UiFilter = z.infer<typeof uiFilterSchema>
 

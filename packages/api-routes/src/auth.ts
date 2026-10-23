@@ -13,6 +13,8 @@ import {
   intersectScopes,
   normalizeIdTokens,
   READ_ONLY_SCOPE,
+  READ_SEMANTIC_OPERATIONS,
+  matchOperationTemplate,
   RESEARCH_RUN_SCOPE,
   restrictedWriteScopes,
   RunKinds,
@@ -137,8 +139,9 @@ declare module 'fastify' {
      *
      * Set this ONLY on a route that performs no writes at all. It is the entire
      * allowance; every other write method stays refused for a viewer. It also
-     * changes nothing for an API key — a read-only key is refused here exactly
-     * as it was before.
+     * alone grants nothing to an API key. A read-only key can reach a pure
+     * preview only when READ_SEMANTIC_OPERATIONS also classifies it; the
+     * handler's explicit scope checks still apply.
      */
     readSemantic?: boolean
 
@@ -184,6 +187,12 @@ function principalScopes(request: FastifyRequest): string[] | undefined {
 /** True when the route this request landed on declared itself a pure read. */
 function isReadSemanticRoute(request: FastifyRequest): boolean {
   return request.routeOptions.config.readSemantic === true
+}
+
+/** Key exemptions additionally require the shared catalog to prove a pure preview. */
+function isReadOnlyPreview(request: FastifyRequest): boolean {
+  return isReadSemanticRoute(request)
+    && READ_SEMANTIC_OPERATIONS.has(matchOperationTemplate(request.method, request.routeOptions.url ?? request.url))
 }
 
 /** True when the route has an explicit paid-read authorization gate. */
@@ -754,6 +763,7 @@ function applyRoleGates(request: FastifyRequest): void {
     isReadOnlyKey(principal.scopes)
     && WRITE_METHODS.has(request.method)
     && !request.readSemanticGrant
+    && !isReadOnlyPreview(request)
     && !isPaidReadRoute(request)
     && !isTransportEnvelopeRoute(request)
   ) {
@@ -763,7 +773,7 @@ function applyRoleGates(request: FastifyRequest): void {
 
 /** Named capabilities never become general write access, on either carrier. */
 function applyScopedWriteGates(request: FastifyRequest): void {
-  if (!WRITE_METHODS.has(request.method) || isTransportEnvelopeRoute(request) || request.readSemanticGrant) return
+  if (!WRITE_METHODS.has(request.method) || isTransportEnvelopeRoute(request) || request.readSemanticGrant || isReadOnlyPreview(request)) return
   // A signed-in person on a paid-read route meets that route's own gate
   // instead. Their role scopes are not a credential's narrowed grant: a viewer
   // on an install with viewer research holds `research.run`, and listing it
@@ -939,6 +949,7 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
       isReadOnlyKey(scopes) &&
       WRITE_METHODS.has(request.method) &&
       !request.readSemanticGrant &&
+      !isReadOnlyPreview(request) &&
       !isTransportEnvelopeRoute(request)
     ) {
       throw forbidden('This API key is read-only and cannot perform write operations.')

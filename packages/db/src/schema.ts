@@ -3734,3 +3734,5 @@ export const sentimentAttempts = sqliteTable('sentiment_attempts', {
   index('idx_sentiment_attempt_dispatch').on(table.dispatchedAt),
   foreignKey({ columns: [table.projectId, table.workItemId], foreignColumns: [sentimentWorkItems.projectId, sentimentWorkItems.id] }).onDelete('cascade'),
 ])
+
+export { seoProfiles, seoJobs, seoTasks, seoBudgets } from './seo-schema.js'

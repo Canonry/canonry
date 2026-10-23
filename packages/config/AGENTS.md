@@ -14,6 +14,7 @@ rewriting the dashboard block. The list uses `schedulableRunKindSchema`.
 | `src/index.ts` | `dashboardManagedRunKindsSchema`, `dashboardManagedSweepsSchema`, `getPlatformEnv()`, `getBootstrapEnv()` |
 | `src/classification.ts` | Independent generative domain-classification provider/model role |
 | `src/sentiment.ts` | Private enablement, direct/routed Jev evaluator and readiness |
+| `src/seo.ts` | Explicit host funding mode, integer-micro budget caps and discriminated SEO credentials. Stored only in config.yaml; never accepted as a project API argument. |
 
 ## Patterns
 

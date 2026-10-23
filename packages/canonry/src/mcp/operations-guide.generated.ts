@@ -12,6 +12,27 @@ export const OPERATIONS_GUIDE = {
   "approvalRule": "Get explicit approval for the exact target, action, and bounded provider work before crossing a boundary. Existing approval covers only its stated scope; stop on refusal or ambiguous results.",
   "authority": "Guidance and tool visibility are not permission grants. Server-side roles, scopes, project boundaries, quotas, and approval receipts remain authoritative. Never bypass a refusal with different credentials or endpoints.",
   "workflows": {
+    "seo": {
+      "keywords": [
+        "seo",
+        "dataforseo",
+        "rankings",
+        "ranked",
+        "keywords"
+      ],
+      "next": [
+        "canonry_projects_list",
+        "canonry_seo_context",
+        "canonry_seo_profiles",
+        "canonry_seo_overview"
+      ],
+      "actions": [
+        "canonry_seo_profile_set",
+        "canonry_seo_sync",
+        "canonry_seo_run_cancel"
+      ],
+      "guidance": "Read saved SEO evidence first. Preserve profile, exact domain or host, market, language, plan revision, dataset and collection date. SEO traffic and keyword metrics are third-party estimates, separate from Search Console observations and AI citation and mention coverage. Refresh requires explicit approval for the profile and work, a fresh refresh intent and an idempotency key. Hosted financial controls are internal; no credential or billing information belongs in the response."
+    },
     "operations": {
       "keywords": [
         "operations",

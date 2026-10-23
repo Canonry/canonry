@@ -545,6 +545,9 @@ importers:
       '@canonry/canonry-integration-commoncrawl':
         specifier: workspace:*
         version: link:../integration-commoncrawl
+      '@canonry/canonry-integration-dataforseo':
+        specifier: workspace:*
+        version: link:../integration-dataforseo
       '@canonry/canonry-integration-google':
         specifier: workspace:*
         version: link:../integration-google
@@ -693,6 +696,15 @@ importers:
       '@duckdb/node-api':
         specifier: 1.5.6-r.2
         version: 1.5.6-r.2
+
+  packages/integration-dataforseo:
+    dependencies:
+      '@canonry/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
 
   packages/integration-google:
     dependencies:

@@ -98,6 +98,19 @@ export function hostOf(value: string | null | undefined): string | null {
   return hostname ? hostname.replace(/^www\./i, '').toLowerCase() : null
 }
 
+/** A bare DNS hostname, preserving www and every other label for exact-host scope. */
+export function normalizeHostname(input: string): string | null {
+  const value = input.trim()
+  if (!value || /[\s/\\:@?#%]/.test(value) || value.endsWith('.')) return null
+  try {
+    const host = new URL(`https://${value}`).hostname.toLowerCase()
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.length > 253 || host.split('.').some(label => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) return null
+    return host
+  } catch {
+    return null
+  }
+}
+
 /**
  * Reduce a URL or hostname to its registrable domain (eTLD+1) using the
  * maintained Public Suffix List bundled by `tldts`. Private suffixes are

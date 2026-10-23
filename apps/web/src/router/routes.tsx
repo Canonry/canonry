@@ -74,6 +74,8 @@ type SearchParams = {
   runId?: string
   /** Exact Site Health onboarding handoff; separate from the global run drawer. */
   siteHealthRunId?: string
+  seoProfileId?: string
+  seoRunId?: string
   evidenceId?: string
   runStatus?: string
   runKind?: string
@@ -131,6 +133,8 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
     manageQueries: search.manageQueries === true || search.manageQueries === 'true' ? true : undefined,
     runId: typeof search.runId === 'string' ? search.runId : undefined,
     siteHealthRunId: typeof search.siteHealthRunId === 'string' ? search.siteHealthRunId : undefined,
+    seoProfileId: typeof search.seoProfileId === 'string' ? search.seoProfileId : undefined,
+    seoRunId: typeof search.seoRunId === 'string' ? search.seoRunId : undefined,
     evidenceId: typeof search.evidenceId === 'string' ? search.evidenceId : undefined,
     runStatus: typeof search.runStatus === 'string' ? search.runStatus : undefined,
     runKind: typeof search.runKind === 'string' ? search.runKind : undefined,
@@ -253,6 +257,12 @@ export const projectSearchConsoleRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/search-console',
   component: () => <LazyProjectPage tab="search-console" />,
+})
+
+export const projectSeoDataRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/seo-data',
+  component: () => <LazyProjectPage tab="seo-data" />,
 })
 
 export const projectConversionsRoute = createRoute({
@@ -390,6 +400,7 @@ export const routeTree = rootRoute.addChildren([
     projectOverviewRoute,
     projectPortfolioRoute,
     projectSearchConsoleRoute,
+    projectSeoDataRoute,
     projectConversionsRoute,
     projectLocalRoute,
     projectDiscoveryRoute,

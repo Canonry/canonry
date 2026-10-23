@@ -30,7 +30,7 @@ afterEach(() => {
 })
 
 const PROJECT_PAGE_TABS = [
-  'overview', 'portfolio', 'search-console', 'conversions', 'local', 'queries', 'discovery',
+  'overview', 'portfolio', 'search-console', 'seo-data', 'conversions', 'local', 'queries', 'discovery',
   'activity', 'backlinks', 'technical-aeo', 'history', 'settings',
 ] as const satisfies readonly ProjectPageTab[]
 
