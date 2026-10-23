@@ -1,4 +1,4 @@
-import type { McpHealth, MentionIdentity, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, ProjectOverviewProviderScoreDto, SuggestedQueriesSummaryDto, SentimentOverview } from '@canonry/canonry-contracts'
+import type { InsightActionGroup, McpHealth, MentionIdentity, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, ProjectOverviewProviderScoreDto, SuggestedQueriesSummaryDto, SentimentOverview } from '@canonry/canonry-contracts'
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 /** `disabled` is a service switched off on purpose, such as the public demo's worker. */
@@ -186,7 +186,7 @@ export interface AffectedPhrase {
  *  Opportunities panel as Write / Investigate / Monitor / Track cards. The
  *  `track` group is GSC-derived (suggested queries to add to the basket), not
  *  insight-derived — it doesn't actually appear on `ProjectInsightVm`. */
-export type InsightActionGroup = 'write' | 'investigate' | 'monitor'
+export type { InsightActionGroup }
 
 export interface ProjectInsightVm {
   id: string

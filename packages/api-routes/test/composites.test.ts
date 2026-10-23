@@ -204,6 +204,35 @@ describe('GET /api/v1/projects/:name/overview', () => {
     await app.close()
   })
 
+  it('fills topInsights with the newest analysis\'s insights that need action before its wins', async () => {
+    const { app, db, projectId, latestRunId } = seedProjectWithRuns()
+    // One analysis stamps all six with one createdAt, wins stored first.
+    const analysis = '2026-04-18T14:22:00.000Z'
+    const insight = (type: string, severity: string) => ({
+      id: crypto.randomUUID(), projectId, runId: latestRunId, type, severity, title: `${type} ${severity}`,
+      query: 'aeo monitoring', provider: 'gemini', recommendation: null, cause: null, dismissed: false, createdAt: analysis,
+    })
+    db.insert(insights).values([
+      insight('first-citation', 'medium'),
+      insight('provider-pickup', 'low'),
+      insight('gain', 'low'),
+      insight('regression', 'low'),
+      insight('persistent-gap', 'medium'),
+      insight('competitor-gained', 'high'),
+    ]).run()
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/overview' })
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+    expect(body.topInsights.map((i) => `${i.type}:${i.severity}`)).toEqual([
+      'competitor-gained:high',
+      'persistent-gap:medium',
+      'regression:low',
+      'first-citation:medium',
+      'provider-pickup:low',
+    ])
+  })
+
   it('populates the Phase 2 score gauges, movement, and provider scores', async () => {
     const { app } = seedProjectWithRuns()
     await app.ready()

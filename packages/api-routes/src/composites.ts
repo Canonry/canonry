@@ -83,6 +83,7 @@ import {
   type SuggestedQueryGscRow,
 } from '@canonry/canonry-intelligence'
 import { notProbeRun, resolveProject } from './helpers.js'
+import { compareInsightsForTriage } from './intelligence.js'
 import { runAdmissionState } from './run-queue.js'
 import {
   mergeGscQueryTotalsWithFallback, readGscQueryDailyFallbackRows, readGscQueryDailyRows,
@@ -199,8 +200,9 @@ export async function compositeRoutes(app: FastifyInstance, options: {
       .all()
     const topInsights: InsightDto[] = insightRows
       .filter(row => !row.dismissed)
-      .slice(0, TOP_INSIGHT_LIMIT)
       .map(mapInsightRow)
+      .sort(compareInsightsForTriage)
+      .slice(0, TOP_INSIGHT_LIMIT)
 
     // Load snapshots for the latest visibility run + previous, then a window
     // of recent visibility runs for the sparkline. One DB hit gathers them
