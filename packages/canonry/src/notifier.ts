@@ -1,4 +1,5 @@
-import { eq, desc, and, inArray, or } from 'drizzle-orm'
+import { deliverReviewEvent, reviewEventId } from './review-webhook-delivery.js'
+import { eq, desc, and, inArray, or, isNull } from 'drizzle-orm'
 import { deliverWebhook, measurementRunCompleteness, notProbeRun, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@canonry/canonry-api-routes'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { auditLog, doctorHealthState, siteLivenessState, gbpLocations, gbpReviewRatings, gbpReviews, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, readNegativeReviewMaxStars, runs } from '@canonry/canonry-db'
@@ -1165,27 +1166,46 @@ export class Notifier {
         setReviewState(ids, 'skipped')
       } else {
         reviewsToSend.sort((a, b) => a.updateTime.localeCompare(b.updateTime))
-        const payload: ReviewWebhookPayload = {
-          source: 'canonry',
-          event: 'review.negative',
-          project: projectRef,
-          reviews: reviewsToSend.map((r) => ({
-            location: locationRef(r.locationName),
-            origin: r.origin,
-            reviewName: r.reviewName,
-            starRating: r.starRating!,
-            comment: r.comment,
-            reviewerName: r.reviewerName,
-            createTime: r.createTime,
-            updateTime: r.updateTime,
-            replied: r.origin === 'places' ? null : r.replyComment !== null,
-            reviewUri: r.reviewUri,
-          })),
-          dashboardUrl,
+        // One immutable material revision per event. Delivery receipts are per
+        // destination, so one successful receiver cannot erase another's debt.
+        for (const review of reviewsToSend) {
+          const payload: ReviewWebhookPayload = {
+            source: 'canonry',
+            event: 'review.negative',
+            eventId: reviewEventId(projectId, review),
+            project: projectRef,
+            reviews: [{
+              location: locationRef(review.locationName), origin: review.origin,
+              reviewName: review.reviewName, starRating: review.starRating!,
+              comment: review.comment, reviewerName: review.reviewerName,
+              createTime: review.createTime, updateTime: review.updateTime,
+              replied: review.origin === 'places' ? null : review.replyComment !== null,
+              reviewUri: review.reviewUri,
+            }],
+            dashboardUrl,
+          }
+          let all = true
+          for (const notification of subscribedTo('review.negative')) {
+            const sent = await deliverReviewEvent({
+              db: this.db, projectId, notificationId: notification.id, payload,
+              allowLoopback: this.allowLoopbackWebhooks,
+              onDelivered: () => { delivered += 1 },
+            })
+            if (!sent) all = false
+          }
+          // Never mark a newer material edit sent because an older request finished.
+          if (all) {
+            this.db.update(gbpReviews).set({ alertState: 'sent', alertStateAt: nowIso })
+              .where(and(
+                eq(gbpReviews.id, review.id),
+                eq(gbpReviews.alertState, 'pending'),
+                eq(gbpReviews.updateTime, review.updateTime),
+                review.alertStateAt === null ? isNull(gbpReviews.alertStateAt) : eq(gbpReviews.alertStateAt, review.alertStateAt),
+                review.comment === null ? isNull(gbpReviews.comment) : eq(gbpReviews.comment, review.comment),
+                review.starRating === null ? isNull(gbpReviews.starRating) : eq(gbpReviews.starRating, review.starRating),
+              )).run()
+          }
         }
-        const accepted = await sendAll('review.negative', payload)
-        if (accepted > 0) setReviewState(ids, 'sent')
-        delivered += accepted
       }
     }
 

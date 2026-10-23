@@ -4765,6 +4765,27 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_research_run_queries_upstream_job ON research_run_queries(upstream_job_id) WHERE upstream_job_id IS NOT NULL`,
     ],
   },
+  {
+    version:188,
+    name:'durable-review-webhook-deliveries',
+    statements:[
+      `CREATE TABLE IF NOT EXISTS review_webhook_deliveries (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        notification_id TEXT NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+        event_id TEXT NOT NULL,
+        target_digest TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        attempted_at TEXT,
+        retry_at TEXT,
+        delivered_at TEXT,
+        created_at TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS uniq_review_webhook_delivery ON review_webhook_deliveries(project_id,notification_id,event_id)`,
+    ],
+  },
 ]
 
 /**

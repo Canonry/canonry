@@ -104,6 +104,17 @@ export async function deliverWebhook(
   if (webhookSecret) {
     headers['X-Canonry-Signature'] = 'sha256=' + crypto.createHmac('sha256', webhookSecret).update(body).digest('hex')
   }
+  const eventId=payload&&typeof payload==='object'?(payload as {eventId?:unknown}).eventId:undefined
+  if(typeof eventId==='string'&&/^evt_[a-f0-9]{64}$/u.test(eventId)) {
+    headers['X-Canonry-Event-Id']=eventId
+    headers['Idempotency-Key']=eventId
+    if(webhookSecret){
+      const timestamp=String(Math.floor(Date.now()/1000))
+      headers['X-Canonry-Timestamp']=timestamp
+      headers['X-Canonry-Signature-V2']='sha256='+crypto.createHmac('sha256',webhookSecret).update(timestamp+'.'+body).digest('hex')
+    }
+  }
+
 
   return await new Promise((resolve) => {
     // `autoSelectFamily` is a socket option: http.request hands it to net.connect.
@@ -218,4 +229,13 @@ async function resolveHostAddresses(
 
 function isBlockedAddress(address: string, options: ResolveWebhookTargetOptions): boolean {
   return blockedAddressReason(address, { allowLoopback: options.allowLoopback }) !== null
+}
+
+/** Verify before parsing/side effects, then atomically deduplicate the event ID at the receiver. */
+export function verifyCanonryWebhook(body:string,secret:string,headers:{timestamp?:string;signature?:string;eventId?:string},now=Date.now()):boolean {
+  if(!secret||Buffer.byteLength(body)>512*1024||!/^\d{10}$/u.test(headers.timestamp??'')||!/^sha256=[a-f0-9]{64}$/u.test(headers.signature??'')||!/^evt_[a-f0-9]{64}$/u.test(headers.eventId??''))return false
+  if(Math.abs(now-Number(headers.timestamp)*1000)>300_000)return false
+  const expected='sha256='+crypto.createHmac('sha256',secret).update(headers.timestamp+'.'+body).digest('hex')
+  if(!crypto.timingSafeEqual(Buffer.from(expected),Buffer.from(headers.signature!)))return false
+  try{return (JSON.parse(body) as {eventId?:unknown}).eventId===headers.eventId}catch{return false}
 }

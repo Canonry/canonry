@@ -245,6 +245,12 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/google/indexing/request': 'deferred',
   'POST /api/v1/projects/{name}/gbp/locations/discover': 'included',
   'GET /api/v1/projects/{name}/gbp/accounts': 'included',
+  'GET /api/v1/projects/{name}/gbp/local-posts': 'included',
+  'GET /api/v1/projects/{name}/gbp/local-post': 'included',
+  'GET /api/v1/projects/{name}/gbp/local-post-attempt': 'included',
+  'GET /api/v1/projects/{name}/gbp/reviews/live': 'included',
+  // Publishing is reserved for the durable, separately Discord-approved agency outbox.
+  'POST /api/v1/projects/{name}/gbp/local-posts': 'deferred',
   'GET /api/v1/projects/{name}/gbp/locations': 'included',
   'PUT /api/v1/projects/{name}/gbp/locations/{locationName}/selection': 'included',
   'DELETE /api/v1/projects/{name}/gbp/connection': 'included',

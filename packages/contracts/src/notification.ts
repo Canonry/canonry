@@ -201,6 +201,8 @@ export interface ReviewAlertLocation {
 export interface ReviewWebhookPayload {
   source: 'canonry'
   event: 'review.negative'
+  /** Stable material-review revision identity, shared across destination retries. */
+  eventId?: string
   project: { name: string; canonicalDomain: string }
   /** Oldest first, so a receiver that posts one message per review keeps the order they arrived in. */
   reviews: Array<{
@@ -224,6 +226,11 @@ export interface ReviewWebhookPayload {
   dashboardUrl: string
 }
 
+export const ReviewDeliveryStates = Object.freeze({
+  Pending: 'pending', Attempting: 'attempting', Sent: 'sent', Uncertain: 'uncertain',
+} as const)
+export type ReviewDeliveryState = (typeof ReviewDeliveryStates)[keyof typeof ReviewDeliveryStates]
+
 export interface RatingWebhookPayload {
   source: 'canonry'
   event: 'review.rating-dropped'
@@ -238,4 +245,16 @@ export interface RatingWebhookPayload {
     observedAt: string
   }>
   dashboardUrl: string
+}
+
+/** Only provider-owned Google review/profile links are suitable for review alerts. */
+export function googleBusinessReviewUrl(value: string | null): string | null {
+  try {
+    if (!value) return null
+    const url = new URL(value)
+    const providerPath = (['www.google.com', 'google.com'].includes(url.hostname) && url.pathname.startsWith('/maps'))
+      || url.hostname === 'maps.google.com'
+      || (url.hostname === 'local.google.com' && url.pathname === '/place')
+    return url.protocol === 'https:' && !url.username && !url.password && !url.port && providerPath ? url.href : null
+  } catch { return null }
 }
