@@ -30640,7 +30640,7 @@ export type GetApiV1ProjectsByNameInsightsData = {
          */
         severity?: string;
         /**
-         * Cap the number of (newest-first) insights returned.
+         * Keep the first N insights. Order: newest analysis first; within one analysis, insights that need action before wins, then most severe first.
          */
         limit?: string;
     };

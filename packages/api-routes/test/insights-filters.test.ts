@@ -12,9 +12,20 @@ import type { InsightDto } from '@canonry/canonry-contracts'
 const cleanups: Array<() => void> = []
 afterEach(() => { for (const fn of cleanups.splice(0)) fn() })
 
+type Seed = Array<[type: string, severity: string, createdAt: string, dismissed?: boolean]>
+
 // Five insights with distinct types/severities + ascending createdAt so the
 // newest-first ordering (and `limit`) is deterministic. One is dismissed.
-function buildApp() {
+const FILTER_SEED: Seed = [
+  ['regression', 'critical', '2026-06-10T00:00:01.000Z'],
+  ['gbp-keyword-drop', 'high', '2026-06-10T00:00:02.000Z'],
+  ['gbp-cta-gap', 'medium', '2026-06-10T00:00:03.000Z'],
+  ['gbp-description-missing', 'low', '2026-06-10T00:00:04.000Z'],
+  ['gain', 'low', '2026-06-10T00:00:05.000Z'],
+  ['gbp-metric-drop', 'medium', '2026-06-10T00:00:06.000Z', true],
+]
+
+function buildApp(seed: Seed = FILTER_SEED) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-insights-filters-'))
   const db = createClient(path.join(tmpDir, 'test.db'))
   migrate(db)
@@ -32,14 +43,7 @@ function buildApp() {
     title: `${type} title`, query: 'q', provider: 'test', recommendation: null, cause: null,
     dismissed, createdAt: t,
   })
-  db.insert(insights).values([
-    ins('regression', 'critical', '2026-06-10T00:00:01.000Z'),
-    ins('gbp-keyword-drop', 'high', '2026-06-10T00:00:02.000Z'),
-    ins('gbp-cta-gap', 'medium', '2026-06-10T00:00:03.000Z'),
-    ins('gbp-description-missing', 'low', '2026-06-10T00:00:04.000Z'),
-    ins('gain', 'low', '2026-06-10T00:00:05.000Z'),
-    ins('gbp-metric-drop', 'medium', '2026-06-10T00:00:06.000Z', true), // dismissed
-  ]).run()
+  db.insert(insights).values(seed.map(([type, severity, t, dismissed]) => ins(type, severity, t, dismissed))).run()
 
   cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
   return { app }
@@ -98,5 +102,35 @@ describe('GET /insights filters', () => {
     const { app } = buildApp()
     expect((await list(app, '?limit=0')).status).toBe(400)
     expect((await list(app, '?limit=abc')).status).toBe(400)
+  })
+})
+
+describe('GET /insights order', () => {
+  // One analysis stamps every insight it writes with the same createdAt, in the
+  // order the generator emitted them; a real sweep stored its wins first.
+  const SWEEP = '2026-10-07T09:30:00.697Z'
+  const EARLIER_SWEEP = '2026-09-23T09:30:00.000Z'
+  const SWEEP_SEED: Seed = [
+    ['first-citation', 'medium', SWEEP],
+    ['gain', 'low', SWEEP],
+    ['regression', 'low', SWEEP],
+    ['persistent-gap', 'medium', SWEEP],
+    ['competitor-gained', 'high', SWEEP],
+    ['regression', 'critical', EARLIER_SWEEP],
+  ]
+
+  it('lists the newest analysis first, insights that need action before wins, then most severe, before --limit', async () => {
+    const { app } = buildApp(SWEEP_SEED)
+    const { body } = await list(app, '')
+    expect(body.map((i) => `${i.type}:${i.severity}`)).toEqual([
+      'competitor-gained:high',
+      'persistent-gap:medium',
+      'regression:low',
+      'first-citation:medium',
+      'gain:low',
+      'regression:critical',
+    ])
+    const limited = await list(app, '?limit=2')
+    expect(limited.body.map((i) => i.type)).toEqual(['competitor-gained', 'persistent-gap'])
   })
 })

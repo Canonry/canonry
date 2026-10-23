@@ -8,6 +8,7 @@ import {
 } from '@canonry/canonry-contracts'
 import { agentConversationCreateSchema, reportedQueryClasses } from '@canonry/canonry-contracts'
 import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS } from '@canonry/canonry-contracts'
+import { insightSeveritySchema } from '@canonry/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
   AGENT_MEMORY_KEY_MAX_LENGTH,
@@ -423,6 +424,9 @@ const insightsListInputSchema = z.object({
   project: projectNameSchema,
   dismissed: z.boolean().optional(),
   runId: runIdSchema.optional(),
+  type: z.string().min(1).optional().describe('One insight type, or a family prefix such as gbp-*.'),
+  severity: insightSeveritySchema.optional().describe('Minimum severity: high returns high and critical.'),
+  limit: z.number().int().positive().max(500).optional().describe('Keep the first N in list order.'),
 })
 
 const insightInputSchema = z.object({
@@ -1730,13 +1734,13 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_insights_list',
     title: 'List insights',
-    description: 'List intelligence insights for a Canonry project.',
+    description: 'List a Canonry project\'s insights, newest analysis first. Within one analysis, insights that need action come before wins to monitor, then the most severe first, so the first rows are the ones to act on.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: insightsListInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/insights'],
-    handler: (client, input) => client.getInsights(input.project, { dismissed: input.dismissed, runId: input.runId }),
+    handler: (client, input) => client.getInsights(input.project, { dismissed: input.dismissed, runId: input.runId, type: input.type, severity: input.severity, limit: input.limit }),
   }),
   defineTool({
     name: 'canonry_insight_get',

@@ -5,6 +5,7 @@ import { citationStateSchema, latestProjectRunDtoSchema } from './run.js'
 import type { LatestProjectRunDto } from './run.js'
 import { projectDtoSchema } from './project.js'
 import type { ProjectDto } from './project.js'
+import { insightSeveritySchema } from './intelligence.js'
 import type { HealthSnapshotDto, InsightDto } from './intelligence.js'
 
 // One-call summary for "how is project X doing?". The shape stays stable so
@@ -420,7 +421,7 @@ const projectOverviewInsightSchema = z.object({
     'gbp-metric-drop',
     'gbp-keyword-drop',
   ]),
-  severity: z.enum(['critical', 'high', 'medium', 'low']),
+  severity: insightSeveritySchema,
   title: z.string(),
   query: z.string(),
   provider: z.string(),
@@ -596,7 +597,7 @@ export const projectSearchInsightHitSchema = z.object({
     'gbp-metric-drop',
     'gbp-keyword-drop',
   ]),
-  severity: z.enum(['critical', 'high', 'medium', 'low']),
+  severity: insightSeveritySchema,
   title: z.string(),
   query: z.string(),
   provider: z.string(),

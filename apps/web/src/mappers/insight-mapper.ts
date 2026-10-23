@@ -1,5 +1,5 @@
-import type { InsightDto } from '@canonry/canonry-contracts'
-import type { MetricTone, CitationState, InsightActionGroup, ProjectInsightVm } from '../view-models.js'
+import { insightActionGroupByType, type InsightDto } from '@canonry/canonry-contracts'
+import type { MetricTone, CitationState, ProjectInsightVm } from '../view-models.js'
 
 const TONE_MAP: Record<InsightDto['type'], MetricTone> = {
   regression: 'negative',
@@ -17,27 +17,6 @@ const TONE_MAP: Record<InsightDto['type'], MetricTone> = {
   'gbp-description-missing': 'caution',
   'gbp-metric-drop': 'negative',
   'gbp-keyword-drop': 'negative',
-}
-
-const ACTION_GROUP_MAP: Record<InsightDto['type'], InsightActionGroup> = {
-  // Content-required: a missing/competitive answer needs new or updated material.
-  opportunity: 'write',
-  'persistent-gap': 'write',
-  'competitor-gained': 'write',
-  'competitor-lost': 'write',
-  // Diagnostic: something previously cited dropped — figure out why first.
-  regression: 'investigate',
-  // Observational: positive movement; keep watching it doesn't reverse.
-  gain: 'monitor',
-  'first-citation': 'monitor',
-  'provider-pickup': 'monitor',
-  // GBP: profile gaps need content/profile work; metric & keyword drops need diagnosis.
-  'gbp-lodging-gap': 'write',
-  'gbp-listing-discrepancy': 'write',
-  'gbp-cta-gap': 'write',
-  'gbp-description-missing': 'write',
-  'gbp-metric-drop': 'investigate',
-  'gbp-keyword-drop': 'investigate',
 }
 
 const CITATION_STATE_MAP: Record<InsightDto['type'], CitationState> = {
@@ -104,7 +83,7 @@ export function mapInsightDtoToVm(dto: InsightDto): ProjectInsightVm {
     title: dto.title,
     detail: dto.cause?.details ?? dto.cause?.cause ?? '',
     actionLabel: dto.recommendation?.action ?? ACTION_LABEL_FALLBACK[dto.type],
-    actionGroup: ACTION_GROUP_MAP[dto.type],
+    actionGroup: insightActionGroupByType[dto.type],
     affectedPhrases: [{
       query: dto.query,
       evidenceId: '',
