@@ -67,6 +67,14 @@ Overview metrics describe the first target in the profile. They do not sum overl
 
 Search volume, difficulty, CPC and traffic are vendor estimates. CPC and estimated traffic value are SEO research metrics; their currency is unrelated to execution costs. Search Console observations, analytics and AI citation and mention coverage retain their own metrics and denominators.
 
+## Aero analysis
+
+Aero can prioritize keyword and ranking opportunities from saved evidence with the
+[SEO analysis playbook](../skills/aero/references/seo-analysis.md).
+It recommends page inspections, content research, or missing-data checks with supporting evidence and scope limits.
+Priorities are qualitative recommendations, not opportunity scores or traffic forecasts.
+Aero cannot edit SEO profiles or start paid SEO refreshes.
+
 ## Execution and recovery
 
 Admission reserves the bounded task set atomically against account and project policy. Durable tasks record submission before HTTP work. Exact retries do not dispatch again. Partial results, failed tasks, cancellation and unknown outcomes remain distinct. A refresh keeps previous completed or partial evidence visible.

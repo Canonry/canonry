@@ -129,7 +129,9 @@ Tool surface:
   Ride in every scope. `SKILL.md` stays lightweight; detailed playbooks
   (workflows, regression diagnosis, reporting templates, integrations) load
   on-demand via slug. `portfolio-analysis` and `site-health` cover Simple and
-  Advanced interpretation. `agent-operations` is generated from
+  Advanced interpretation. `seo-analysis` owns provider-neutral keyword and
+  ranking prioritization from stored evidence; its source is
+  `skills/aero/references/seo-analysis.md`. `agent-operations` is generated from
   `docs/agent-operations/v1.md` by `pnpm guide:sync` and ships through the same
   skill-doc reader; built-in Aero does not expose external MCP help/load tools.
   The Aero-only framing is a preface added by the generator, not guide text, so
