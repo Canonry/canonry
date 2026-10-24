@@ -98,13 +98,13 @@ export function OnboardingCompletePage({
           {sweep.hasEarlierResults ? <p className="mt-2 text-sm text-secondary">Earlier AI results remain available.</p> : null}
           {scan.hasEarlierResults ? <p className="mt-2 text-sm text-secondary">Earlier page health results remain available.</p> : null}
           <div className="mt-6 flex flex-wrap gap-3">
-            <Button asChild>
+            <Button asChild className={TOUCH_TARGET}>
               <Link to="/projects/$projectName" params={{ projectName }} replace aria-label={`Open project ${projectName}`} onClick={() => trackNextAction('open_project')}>
                 Open project <ArrowRight className="size-4" aria-hidden="true" />
               </Link>
             </Button>
             {sweepOutcome === 'not-started' ? (
-              <Button asChild variant="secondary">
+              <Button asChild variant="secondary" className={TOUCH_TARGET}>
                 <Link to="/setup" search={{ experience: 'legacy', onboarding: 'first-run', setupProject: projectName }}>{setupAction}</Link>
               </Button>
             ) : null}
@@ -180,6 +180,12 @@ export function runOutcome(query: {
   return 'unknown'
 }
 
+/** Compact for a mouse on a desktop; 44px tall for touch and narrow screens. */
+const TOUCH_TARGET = 'pointer-coarse:min-h-11 max-md:min-h-11'
+/** A summary keeps the browser's disclosure marker, so its text is centred by padding, not flex. */
+const SUMMARY_CLASS = `min-h-9 cursor-pointer py-2 text-sm font-medium text-heading pointer-coarse:py-3 max-md:py-3 ${TOUCH_TARGET}`
+const ROW_LINK_CLASS = `flex min-h-9 items-center justify-between gap-3 py-2 text-sm font-medium text-heading ${TOUCH_TARGET}`
+
 const DATA_SOURCES = [
   { label: 'Search Console', action: 'connect_search_console', to: '/projects/$projectName/search-console' },
   { label: 'Google Analytics', action: 'connect_analytics', to: '/projects/$projectName/activity' },
@@ -197,7 +203,7 @@ function OptionalSetup({ projectName, onAction }: { projectName: string; onActio
       addToast({ tone: 'negative', title: 'Could not copy the command', detail: `Run ${AGENT_MCP_INSTALL_COMMAND} in your terminal.` })
     }
   }
-  const linkClass = 'inline-flex min-h-9 items-center text-sm font-medium text-link underline-offset-4 hover:underline'
+  const linkClass = `inline-flex min-h-9 items-center text-sm font-medium text-link underline-offset-4 hover:underline ${TOUCH_TARGET}`
 
   return (
     <section aria-labelledby="onb-options-heading" className="mt-8">
@@ -205,7 +211,7 @@ function OptionalSetup({ projectName, onAction }: { projectName: string; onActio
       <ul className="divide-y divide-default border-y border-default">
         <li>
           <details>
-            <summary className="min-h-9 cursor-pointer py-2 text-sm font-medium text-heading">Connect your agent</summary>
+            <summary className={SUMMARY_CLASS}>Connect your agent</summary>
             <div className="flex flex-wrap items-center gap-3 pb-4">
               <code className="min-w-0 break-all text-[13px] text-secondary">{AGENT_MCP_INSTALL_COMMAND}</code>
               <Button type="button" variant="secondary" size="sm" onClick={() => { void copy() }}>
@@ -218,7 +224,7 @@ function OptionalSetup({ projectName, onAction }: { projectName: string; onActio
         </li>
         <li>
           <details>
-            <summary className="min-h-9 cursor-pointer py-2 text-sm font-medium text-heading">Connect data sources</summary>
+            <summary className={SUMMARY_CLASS}>Connect data sources</summary>
             <ul className="pb-3 pl-4">
               <li><Link to="/traffic" className={linkClass} onClick={() => onAction('connect_server_traffic')}>Connect server-side traffic</Link></li>
               {DATA_SOURCES.map(({ label, action, to }) => (
@@ -228,12 +234,12 @@ function OptionalSetup({ projectName, onAction }: { projectName: string; onActio
           </details>
         </li>
         <li>
-          <Link to="/projects/$projectName/settings" params={{ projectName }} className="flex min-h-9 items-center justify-between gap-3 py-2 text-sm font-medium text-heading" onClick={() => onAction('set_schedule')}>
+          <Link to="/projects/$projectName/settings" params={{ projectName }} className={ROW_LINK_CLASS} onClick={() => onAction('set_schedule')}>
             Set a schedule <ArrowRight className="size-4 text-muted" aria-hidden="true" />
           </Link>
         </li>
         <li>
-          <Link to="/projects/$projectName/settings" params={{ projectName }} className="flex min-h-9 items-center justify-between gap-3 py-2 text-sm font-medium text-heading" onClick={() => onAction('add_notification')}>
+          <Link to="/projects/$projectName/settings" params={{ projectName }} className={ROW_LINK_CLASS} onClick={() => onAction('add_notification')}>
             Add a notification <ArrowRight className="size-4 text-muted" aria-hidden="true" />
           </Link>
         </li>

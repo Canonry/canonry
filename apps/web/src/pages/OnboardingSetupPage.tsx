@@ -104,6 +104,8 @@ export function resolveOnboardingSurface(
   return 'loading'
 }
 
+/** Compact for a mouse on a desktop; 44px tall for touch and narrow screens. */
+const TOUCH_TARGET = 'pointer-coarse:min-h-11 max-md:min-h-11'
 /** Before any Canonry install could exist: the whole scan history. */
 const AUTO_RESUME_HISTORY_SINCE = '2000-01-01T00:00:00.000Z'
 /** The runs endpoint's own maximum. Newest-first, so older scans fall off last. */
@@ -1112,7 +1114,7 @@ function PlatformSetupPageBody({
           <label className="text-sm font-medium text-heading" htmlFor="launchpad-domain">Website URL</label>
           <input
             id="launchpad-domain"
-            className="h-10 w-full rounded-md border border-strong bg-bg-elevated/50 px-3 text-base text-heading outline-none transition placeholder:text-muted focus:border-mono-500 focus:ring-1 focus:ring-mono-500 md:h-9 md:text-sm"
+            className={`h-10 w-full rounded-md border border-strong bg-bg-elevated/50 px-3 text-base text-heading outline-none transition placeholder:text-muted focus:border-mono-500 focus:ring-1 focus:ring-mono-500 md:h-9 md:text-sm ${TOUCH_TARGET}`}
             type="text"
             inputMode="url"
             autoComplete="url"
@@ -1158,7 +1160,7 @@ function PlatformSetupPageBody({
         </div>
 
         <details className="group border-y border-default">
-          <summary className="flex min-h-9 cursor-pointer list-none items-center justify-between gap-4 py-2 text-sm [&::-webkit-details-marker]:hidden">
+          <summary className={`flex min-h-9 cursor-pointer list-none items-center justify-between gap-4 py-2 text-sm [&::-webkit-details-marker]:hidden ${TOUCH_TARGET}`}>
             {/* Nothing behind this is advanced: it is the project name Canonry
                 is about to create and the locale it will measure in. Both are
                 worth seeing before the scan starts. */}
@@ -1259,7 +1261,7 @@ function PlatformSetupPageBody({
 
         <div className="grid gap-2">
           <Button
-            className="w-full"
+            className={`w-full ${TOUCH_TARGET}`}
             type="submit"
             disabled={!identity || (!skipSiteScan && !crawlApproved) || !localeValid || busy}
           >

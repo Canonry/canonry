@@ -20,6 +20,7 @@ import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 import { AGENT_SETUP_GUIDE_URL, AGENT_SETUP_REQUEST, resolveAutoResumeTarget } from '../src/pages/OnboardingSetupPage.js'
 import { AGENT_MCP_INSTALL_COMMAND, runOutcome, visibilityOutcome } from '../src/pages/OnboardingCompletePage.js'
 import { isOnboardingHandoff, markOnboardingHandoff } from '../src/lib/onboarding-telemetry.js'
+import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
 
 vi.mock('../src/components/project/SiteHealthSection.js', () => ({
   SiteHealthSection: ({
@@ -332,6 +333,37 @@ test('the finish step keeps optional features in a visible list with details clo
   // Finishing setup does not need a score read or a synthetic results preview.
   expect(reads).not.toContain('/api/v1/projects/example-com/technical-aeo')
   expect(screen.queryByRole('tablist', { name: 'Example agent sessions' })).toBeNull()
+})
+
+const COARSE = '@media (pointer: coarse)'
+const BELOW_MD = '@media (width < 48rem)'
+/** Each element's compiled min-height in px beside a desktop mouse, on a narrow screen and under a finger; 0 where none is set. */
+async function minHeights(elements: Element[]) {
+  const rules = parseCompiledCss(await compileAppStyles(elements.flatMap(element => [...element.classList])))
+  return elements.map(element => [undefined, BELOW_MD, COARSE].map(context => {
+    const value = compiledElementProperty(rules, element, 'min-height', context)
+    return value === undefined ? 0 : cssLengthPx(value, rules)
+  }))
+}
+
+test('the finish step stays compact beside a mouse and gives each action a 44px target under a finger', async () => {
+  onTestFinished(mockFetch(() => jsonResponse([])))
+  await renderSetup('/setup?onboarding=complete&setupProject=example-com')
+  await screen.findByRole('heading', { level: 1, name: 'Project saved' })
+  const options = within(screen.getByRole('heading', { name: 'Optional setup' }).closest('section')!)
+  for (const summary of ['Connect your agent', 'Connect data sources']) fireEvent.click(options.getByText(summary))
+
+  const targets = [
+    screen.getByRole('link', { name: 'Open project example-com' }),
+    options.getByText('Connect your agent'),
+    options.getByText('Connect data sources'),
+    options.getByRole('link', { name: 'Other clients' }),
+    options.getByRole('link', { name: 'Connect Search Console' }),
+    options.getByRole('link', { name: 'Set a schedule' }),
+    options.getByRole('link', { name: 'Add a notification' }),
+  ]
+  // The button keeps the shared Button height beside a mouse; the list rows are 36px.
+  expect(await minHeights(targets)).toEqual([[0, 44, 44], [36, 44, 44], [36, 44, 44], [36, 44, 44], [36, 44, 44], [36, 44, 44], [36, 44, 44]])
 })
 
 test('the finish step marks skipped stages as skipped, never complete', async () => {
@@ -851,6 +883,19 @@ test('auto waits for a successful authoritative empty project list before showin
   expect(screen.queryByText(/Aero is enabled/i)).toBeNull()
   expect(screen.queryByText(/configured agent provider/i)).toBeNull()
   expect(screen.queryByText('Start with a publicly reachable site.')).toBeNull()
+})
+
+test('the launchpad form stays compact beside a mouse and gives each control a 44px target under a finger', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
+  onTestFinished(mockFetch(() => jsonResponse({})))
+  await renderSetup()
+
+  const targets = [
+    await screen.findByLabelText('Website URL'),
+    screen.getByText('Project name and locale').closest('summary')!,
+    screen.getByRole('button', { name: 'Scan site' }),
+  ]
+  expect(await minHeights(targets)).toEqual([[0, 44, 44], [36, 44, 44], [0, 44, 44]])
 })
 
 test('offers accessible supported locale selects with exact API codes', async () => {

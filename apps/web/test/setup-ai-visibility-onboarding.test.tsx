@@ -13,6 +13,7 @@ import { clearOnboardingRunLaunched } from '../src/lib/onboarding-telemetry.js'
 import { SetupPage } from '../src/pages/SetupPage.js'
 import { MANAGED_SWEEPS_COPY, MANAGED_SWEEPS_UNAVAILABLE_COPY } from '../src/components/project/ManagedSweepStatus.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
+import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
 
 const navigate = vi.hoisted(() => vi.fn())
 
@@ -155,6 +156,24 @@ test('marks AI Visibility as the optional final onboarding stage and can skip to
       replace: true,
     })
   })
+})
+
+test('setup actions stay compact beside a mouse and are 44px targets under a finger', async () => {
+  renderProjectSetup({ onboarding: true, providerReady: false })
+  await screen.findByRole('heading', { name: 'Connect a provider' })
+  const targets = [
+    screen.getByRole('button', { name: 'Skip AI Visibility' }),
+    screen.getByRole('button', { name: 'Check again' }),
+    screen.getByRole('button', { name: 'Copy research prompt' }),
+    screen.getByText('View agent prompt'),
+  ]
+  const rules = parseCompiledCss(await compileAppStyles(targets.flatMap(element => [...element.classList])))
+  // Beside a desktop mouse, on a narrow screen, and under a finger. Buttons keep the shared Button height beside a mouse.
+  const minHeights = targets.map(element => [undefined, '@media (width < 48rem)', '@media (pointer: coarse)'].map(context => {
+    const value = compiledElementProperty(rules, element, 'min-height', context)
+    return value === undefined ? 0 : cssLengthPx(value, rules)
+  }))
+  expect(minHeights).toEqual([[0, 44, 44], [0, 44, 44], [0, 44, 44], [36, 44, 44]])
 })
 
 test('allows a project-scoped write key to configure its exact project', async () => {

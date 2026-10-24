@@ -63,6 +63,9 @@ import {
 } from '../lib/onboarding-telemetry.js'
 import type { DashboardVm, HealthSnapshot, ProjectCommandCenterVm, RunListItemVm } from '../view-models.js'
 
+/** Compact for a mouse on a desktop; 44px tall for touch and narrow screens. */
+const TOUCH_TARGET = 'pointer-coarse:min-h-11 max-md:min-h-11'
+
 const SETUP_STEPS = [
   { label: 'System check', description: 'Verify your instance is ready' },
   { label: 'Create project', description: 'Name, domain, and locale' },
@@ -1073,7 +1076,7 @@ function ReadySetupPage({
 
   const StepSurface = isProjectScoped ? 'section' : Card
   const providerRefreshAction = providerReadiness !== true || cdpConfigured === true ? (
-    <Button type="button" variant="ghost" size="sm" onClick={() => {
+    <Button type="button" variant="ghost" size="sm" className={TOUCH_TARGET} onClick={() => {
       void refetch()
       if (selectionCanUseCdp) void cdpStatusQuery.refetch()
     }}>
@@ -1103,6 +1106,7 @@ function ReadySetupPage({
           type="button"
           variant="ghost"
           size="sm"
+          className={TOUCH_TARGET}
           disabled={projectProviderQuery.isFetching}
           onClick={() => { void projectProviderQuery.refetch() }}
         >
@@ -1398,12 +1402,12 @@ function ReadySetupPage({
                     Ask your agent to compare answers and available sources with Canonry Research, then recommend queries. Research does not change your tracked queries.
                   </p>
                 </div>
-                <Button type="button" variant="outline" size="sm" className="shrink-0 self-start" onClick={asyncHandler(copyResearchPrompt)}>
+                <Button type="button" variant="outline" size="sm" className={`shrink-0 self-start ${TOUCH_TARGET}`} onClick={asyncHandler(copyResearchPrompt)}>
                   {researchPromptCopied ? 'Research prompt copied' : 'Copy research prompt'}
                 </Button>
               </div>
               <details open={researchCopyError || undefined} className="text-sm text-secondary">
-                <summary className="min-h-9 cursor-pointer py-2 text-link">View agent prompt</summary>
+                <summary className={`min-h-9 cursor-pointer py-2 text-link pointer-coarse:py-3 max-md:py-3 ${TOUCH_TARGET}`}>View agent prompt</summary>
                 <textarea aria-label="Agent query research prompt" readOnly className="setup-textarea mt-2 w-full" rows={8} value={researchPrompt} />
               </details>
               {researchCopyError ? <p role="alert" className="text-sm text-negative">Could not copy. Select and copy the prompt above.</p> : null}
@@ -1789,7 +1793,7 @@ function ReadySetupPage({
         </div>
         {siteHealthOnboarding ? (
           <div className="page-header-right">
-            <Button type="button" variant="outline" onClick={skipToFinish}>
+            <Button type="button" variant="outline" className={TOUCH_TARGET} onClick={skipToFinish}>
               Skip AI Visibility
             </Button>
           </div>

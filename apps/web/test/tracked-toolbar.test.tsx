@@ -277,6 +277,12 @@ describe('TrackedToolbar', () => {
     }
   })
 
+  test('an active Result follows the count and Clear filters, so its changing width never moves them', () => {
+    renderToolbar({ filters: { ...DEFAULT_TRACKED_FILTERS, type: 'mixed', result: 'not-mentioned' }, shown: 5, total: 970 })
+    const line = screen.getByText('Result:', { exact: false, selector: 'p' }).parentElement!
+    expect([...line.querySelectorAll('p, button')].map(element => element.textContent)).toEqual(['5 of 970 queries', 'Clear filters', 'Result: Not mentioned · Any engine'])
+  })
+
   test('Clear filters is set into the count\'s line beside a mouse, and is a 44px target under a finger', async () => {
     const { container } = renderToolbar({ filters: { ...DEFAULT_TRACKED_FILTERS, type: 'mixed' }, shown: 5, total: 970 })
     const rules = await rulesFor(container)
