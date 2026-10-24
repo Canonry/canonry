@@ -7,7 +7,9 @@ Canonry is an **agent-first (CLI, MCP, API), open-source AEO operating platform 
 
 **Self-hosted, using SQLite, with your own (BYOK) provider keys.** The web UI and your agent see the same evidence.
 
-[Live UI Demo](https://custom-demo.canonry.ai/projects/summit-roofing) · [Quick start](#quick-start) · [Evidence](#explore-the-evidence) · [Actions](#act-on-the-evidence) · [Integrations](#integrations) · [Docs](#documentation) · [Support](#support)
+**[DataForSEO integration](#seo-data-with-dataforseo):** Explore Google keyword metrics, organic rankings, and domain estimates through the dashboard, CLI, MCP, and API.
+
+[Live UI Demo](https://custom-demo.canonry.ai/projects/summit-roofing) · [Quick start](#quick-start) · [DataForSEO SEO](#seo-data-with-dataforseo) · [Evidence](#explore-the-evidence) · [Actions](#act-on-the-evidence) · [Integrations](#integrations) · [Docs](#documentation) · [Support](#support)
 
 <p align="center">
   <a href="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/measure-act.svg">
@@ -190,32 +192,18 @@ Site audits show technical findings alongside that evidence.
 
 *Map crawlable pages and the internal links that connect them.*
 
-### SEO data
+<a id="seo-data"></a>
 
-The **SEO data** project section adds keyword research and organic search evidence for Simple and Advanced portfolios.
-DataForSEO Labs is the first adapter in a provider-neutral integration.
+### SEO data with DataForSEO
 
-- **Keyword metrics:** Search volume, keyword difficulty, CPC, and monthly demand estimates.
-- **Ranked keywords:** Observed positions, ranking URLs, search volume, and estimated traffic.
-- **Domain comparison:** Organic keyword totals, position buckets, and estimated traffic for the profile's domains.
+Use **DataForSEO Labs** for Google keyword research, organic rankings, and domain comparisons.
+Explore search volume, difficulty, CPC, ranking URLs, and estimated traffic through the dashboard, CLI, MCP, and API.
 
-Profiles select the source, supported datasets, targets, market, and language. A manual **Refresh data** action collects new evidence.
-Saved results and refresh activity are available through the dashboard, API, CLI, and MCP. Opening results never starts a paid request.
-Provider estimates stay separate from Search Console observations, analytics, and AI citation and mention coverage.
+[Configure DataForSEO](docs/seo-data.md).
 
-SEO is off by default. The host operator configures DataForSEO credentials and spending limits in `config.yaml`.
-Hosted budgets and receipts stay internal. The project section manages profiles, but the Settings page has no SEO credentials or budget form.
-Without a configured source, refresh is disabled and saved evidence remains readable.
+![Canonry DataForSEO integration showing domain metrics and ranked keywords](docs/images/seo-data-phase-one/desktop.jpg)
 
-See the [SEO setup and CLI guide](docs/seo-data.md) for configuration, scope limits, and refresh commands.
-This phase supports manual refreshes, without scheduled rank tracking, a crawler, or Lighthouse audits.
-
-<details>
-<summary>SEO dashboard preview (sample data)</summary>
-
-![Canonry SEO data dashboard with domain metrics and ranked keywords](docs/images/seo-data-phase-one/desktop.jpg)
-
-</details>
+*SEO dashboard with sample data: organic keyword totals, estimated traffic, and ranked keywords.*
 
 ### Portfolios and competitors
 
@@ -247,7 +235,7 @@ Connect the sources you use. Each integration adds evidence or tools to the same
 |---|---|
 | **AI answers** | ChatGPT · Claude · Gemini · Meta (Muse) · Perplexity · OpenAI-compatible local models |
 | **Search and local** | [Google Search Console](docs/google-search-console-setup.md) · [Bing Webmaster Tools](docs/bing-webmaster-setup.md) · [Google Business Profile](skills/canonry/references/google-business-profile.md) |
-| **SEO research** | [DataForSEO Labs](docs/seo-data.md): keyword metrics, ranked keywords, and domain comparison |
+| **SEO research** | **[DataForSEO Labs](docs/seo-data.md)**: keyword metrics, ranked keywords, and domain comparison |
 | **Analytics** | [Google Analytics 4](docs/google-analytics-setup.md) |
 | **Conversion measurement** | [Google Ads + Google Tag Manager](docs/google-marketing.md): read-only snapshots and declared conversion contracts |
 | **Server traffic** | [Cloudflare · Vercel · Cloud Run · WordPress](skills/canonry/references/server-side-traffic.md) |

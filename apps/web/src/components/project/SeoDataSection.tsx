@@ -113,6 +113,8 @@ export function SeoDataSection({ projectName }: { projectName: string }) {
   const profiles = useQuery(getApiV1ProjectsByNameSeoProfilesOptions({ client: heyClient, path: { name: projectName } }))
   const selectedRun = useQuery({ ...getApiV1ProjectsByNameSeoRunsByIdOptions({ client: heyClient, path: { name: projectName, id: search.seoRunId ?? '' } }), enabled: Boolean(search.seoRunId) })
   const [editor, setEditor] = useState<{ profile?: SeoProfile; id: string } | null>(null)
+  const editorOpener = useRef<HTMLButtonElement | null>(null)
+  const profileSelect = useRef<HTMLSelectElement | null>(null)
   const requestedProfileId = search.seoProfileId ?? selectedRun.data?.profileId
   const selected = requestedProfileId
     ? profiles.data?.profiles.find(profile => profile.id === requestedProfileId)
@@ -122,6 +124,10 @@ export function SeoDataSection({ projectName }: { projectName: string }) {
     void navigate({ to: '/projects/$projectName/seo-data', params: { projectName }, search: previous => ({ ...previous, seoProfileId: id, seoRunId: undefined }) })
   }
   const canWrite = context.data?.access.canWrite === true && !isEmbed() && !isPublicDemo()
+  const closeEditor = () => {
+    setEditor(null)
+    editorOpener.current?.focus()
+  }
   useEffect(() => {
     if (!search.seoProfileId && selected) {
       void navigate({ to: '/projects/$projectName/seo-data', params: { projectName }, search: previous => ({ ...previous, seoProfileId: selected.id }), replace: true })
@@ -130,32 +136,32 @@ export function SeoDataSection({ projectName }: { projectName: string }) {
 
   if (context.error) return <ReadError error={context.error} retry={() => { void context.refetch() }} />
   if (profiles.error) return <ReadError error={profiles.error} retry={() => { void profiles.refetch() }} />
-  if (search.seoRunId && selectedRun.error) return <ReadError error={selectedRun.error} retry={() => { void selectedRun.refetch() }} />
-  if (search.seoRunId && selectedRun.isPending) return <p role="status" className="py-10 text-sm text-secondary">Loading refresh…</p>
   if (!context.data || !profiles.data) return <p role="status" className="py-10 text-sm text-secondary">Loading SEO data…</p>
+  const sourceConfigured = context.data.available && context.data.connections.some(connection => connection.capabilities.length > 0)
+  const canConfigure = sourceConfigured && context.data.connections.some(connection => connection.capabilities.some(capability => context.data.scopes.some(scope => scope.capabilities?.includes(capability) ?? true)))
   const scope = selected && context.data.scopes.find(item => item.kind === selected.scope.kind && item.key === (selected.scope.key ?? null))
 
   return (
     <section aria-label="SEO data" className="min-w-0 space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><h2 className="text-xl font-semibold tracking-tight text-heading">SEO data</h2><p className="mt-1 text-sm text-secondary">Search demand and organic rankings.</p></div>
-        {canWrite && <div className="flex flex-wrap gap-2">
-          {selected && <Button variant="ghost" className="min-h-11" onClick={() => setEditor({ profile: selected, id: selected.id })}>Edit profile</Button>}
-          <Button variant="secondary" className="min-h-11" onClick={() => setEditor({ id: crypto.randomUUID() })}><Plus aria-hidden="true" className="size-4" />New profile</Button>
+        {canWrite && canConfigure && <div className="flex flex-wrap gap-2">
+          {selected && <Button variant="ghost" className="min-h-11" onClick={event => { editorOpener.current = event.currentTarget; setEditor({ profile: selected, id: selected.id }) }}>Edit profile</Button>}
+          <Button variant="secondary" className="min-h-11" onClick={event => { editorOpener.current = event.currentTarget; setEditor({ id: crypto.randomUUID() }) }}><Plus aria-hidden="true" className="size-4" />New profile</Button>
         </div>}
       </div>
 
       {profiles.data.profiles.length > 0 && <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-y border-subtle py-3">
-        <label className="flex min-w-0 flex-1 items-center gap-3 sm:flex-none"><span className="text-[13px] text-secondary">Profile</span><select aria-label="SEO profile" value={selected?.id ?? ''} onChange={event => selectProfile(event.target.value)} className={`${FIELD} min-w-0 sm:w-64`}>
+        <label className="flex min-w-0 flex-1 items-center gap-3 sm:flex-none"><span className="text-[13px] text-secondary">Profile</span><select ref={profileSelect} aria-label="SEO profile" value={selected?.id ?? ''} onChange={event => selectProfile(event.target.value)} className={`${FIELD} min-w-0 sm:w-64`}>
           {!selected && <option value="" disabled>Profile unavailable</option>}
           {profiles.data.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
         </select></label>
         {selected && <div className="min-w-0 text-[13px] text-secondary"><p className="break-words font-medium text-primary">{scope?.label ?? `${selected.scope.kind}${selected.scope.key ? `: ${selected.scope.key}` : ''}`}</p><p>Location {selected.locationCode} · {selected.languageCode}</p></div>}
       </div>}
 
-      {editor && <SeoProfileEditor key={editor.id} projectName={projectName} context={context.data} profile={editor.profile} id={editor.id} onClose={() => setEditor(null)} onSaved={selectProfile} />}
-      {!context.data.available && <p role="status" className="rounded-md border border-default px-4 py-3 text-sm text-secondary">{context.data.reason ?? 'SEO data is not configured. Ask your administrator to connect a source.'}</p>}
-      {selected && selectedRun.data && selectedRun.data.profileId !== selected.id ? <EmptyEvidence title="Refresh belongs to another profile">Choose the refresh’s profile, or return to the selected profile’s latest data.<Button variant="secondary" className="mt-4 min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button></EmptyEvidence> : selected ? <SeoProfileWorkspace key={`${selected.id}:${selected.revision}:${search.seoRunId ?? ''}`} projectName={projectName} profile={selected} context={context.data} selectedRunId={search.seoRunId} onLatest={() => selectProfile(selected.id)} /> : requestedProfileId ? (
+      {editor && <SeoProfileEditor key={editor.id} projectName={projectName} context={context.data} profile={editor.profile} id={editor.id} onClose={closeEditor} onSaved={id => { selectProfile(id); requestAnimationFrame(() => profileSelect.current?.focus()) }} />}
+      {!context.data.available && profiles.data.profiles.length > 0 && <p role="status" className="rounded-md border border-default px-4 py-3 text-sm text-secondary">{context.data.reason ?? 'SEO data is not configured. Ask your administrator to connect a source.'}</p>}
+      {search.seoRunId && selectedRun.error ? <div className="space-y-3"><ReadError error={selectedRun.error} retry={() => { void selectedRun.refetch() }} />{selected ? <Button variant="secondary" className="min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button> : <p className="text-sm text-secondary">Select a profile to view its latest data.</p>}</div> : search.seoRunId && selectedRun.isPending ? <p role="status" className="py-10 text-sm text-secondary">Loading refresh…</p> : selected && selectedRun.data && selectedRun.data.profileId !== selected.id ? <EmptyEvidence title="Refresh belongs to another profile">Choose the refresh’s profile, or return to the selected profile’s latest data.<Button variant="secondary" className="mt-4 min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button></EmptyEvidence> : selected ? <SeoProfileWorkspace key={`${selected.id}:${selected.revision}:${search.seoRunId ?? ''}`} projectName={projectName} profile={selected} context={context.data} selectedRunId={search.seoRunId} onLatest={() => selectProfile(selected.id)} /> : !canConfigure && profiles.data.profiles.length === 0 ? <EmptyEvidence title={sourceConfigured ? 'SEO scope unavailable' : 'Connect an SEO source'}>{sourceConfigured ? context.data.scopes.find(item => item.reason)?.reason ?? 'No datasets are available for this project’s measurement scopes.' : 'Ask your administrator to connect an SEO source before creating a profile.'}</EmptyEvidence> : requestedProfileId ? (
         <EmptyEvidence title="Profile unavailable">This saved profile is no longer available. Select another profile to view its data.</EmptyEvidence>
       ) : !editor && <EmptyEvidence title="No SEO data yet">{canWrite ? 'Create a profile to choose the scope, source, and keywords to measure.' : 'Ask a project administrator to create an SEO profile.'}</EmptyEvidence>}
     </section>
@@ -348,12 +354,14 @@ function SeoProfileEditor({ projectName, context, profile, id, onClose, onSaved 
   const scope = context.scopes.find(item => `${item.kind}:${item.key ?? ''}` === selectedScope)
   const availableCapabilities = source?.capabilities.filter(capability => scope?.capabilities?.includes(capability) ?? true) ?? []
   const selectedCapabilities = capabilities.filter(capability => availableCapabilities.includes(capability))
+  const needsTargets = selectedCapabilities.includes(SeoCapabilities['ranked-keywords']) || selectedCapabilities.includes(SeoCapabilities['domain-intelligence'])
+  const needsRankedLimit = selectedCapabilities.includes(SeoCapabilities['ranked-keywords'])
   const submit = async () => {
     if (!context.access.canWrite || isEmbed() || isPublicDemo() || save.isPending) return
     if (!scope) { setError('Choose a measurement scope.'); return }
     const input: SeoProfileInput = {
-      name, connectionId, capabilities: selectedCapabilities, targets, keywords: keywords.split('\n').map(keyword => keyword.trim()).filter(Boolean),
-      locationCode: Number(locationCode), languageCode, limit: Number(limit),
+      name, connectionId, capabilities: selectedCapabilities, targets: needsTargets ? targets : [], keywords: keywords.split('\n').map(keyword => keyword.trim()).filter(Boolean),
+      locationCode: Number(locationCode), languageCode, limit: needsRankedLimit ? Number(limit) : profile?.limit ?? 100,
       scope: { kind: scope.kind, ...(scope.key ? { key: scope.key } : {}), ...(scope.planRevision !== undefined ? { expectedPlanRevision: scope.planRevision } : {}) },
     }
     const parsed = seoProfileInputSchema.safeParse(input)
@@ -382,16 +390,16 @@ function SeoProfileEditor({ projectName, context, profile, id, onClose, onSaved 
       }}><option value="" disabled>Select a scope</option>{context.scopes.map(item => <option key={`${item.kind}:${item.key}`} value={`${item.kind}:${item.key ?? ''}`}>{item.label}</option>)}</select>{scope?.reason ? <span className="block text-[13px] text-secondary">{scope.reason}</span> : scope && !scope.supported && <span className="block text-[13px] text-secondary">Domain data is not supported for this scope.</span>}</label>
     </div>
     <fieldset><legend className="mb-2 text-sm">Collect</legend><div className="flex flex-wrap gap-x-6 gap-y-2">{Object.values(SeoCapabilities).map(capability => <label key={capability} className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={selectedCapabilities.includes(capability)} disabled={!availableCapabilities.includes(capability)} onChange={event => setCapabilities(previous => event.target.checked ? [...previous, capability] : previous.filter(item => item !== capability))} />{CAPABILITY_LABELS[capability]}</label>)}</div>{scope?.capabilities && <p className="mt-1 text-[13px] text-secondary">Available datasets follow this scope and source. Changing scope clears unsupported selections.</p>}</fieldset>
-    <fieldset className="space-y-3"><legend className="mb-2 text-sm">Targets</legend><p className="text-[13px] text-secondary">Domain comparison requires a domain including its subdomains. Exact hosts are supported only by compatible datasets.</p>
+    {needsTargets && <fieldset className="space-y-3"><legend className="mb-2 text-sm">Targets</legend><p className="text-[13px] text-secondary">Domain comparison requires a domain including its subdomains. Exact hosts are supported only by compatible datasets.</p>
       {targets.map((target, index) => <div key={index} className="grid items-end gap-3 sm:grid-cols-[1fr_13rem_auto]">
         <label className="space-y-1 text-sm"><span className="sr-only">Target {index + 1}</span><input className={FIELD} value={target.value} placeholder="example.com" aria-label={`Target ${index + 1}`} onChange={event => updateTarget(index, { value: event.target.value })} required maxLength={253} /></label>
         <label className="space-y-1 text-sm"><span className="sr-only">Target {index + 1} kind</span><select className={FIELD} aria-label={`Target ${index + 1} kind`} value={target.kind} onChange={event => updateTarget(index, { kind: event.target.value as SeoTarget['kind'], includeSubdomains: event.target.value === SeoTargetKinds.domain })}><option value={SeoTargetKinds.domain}>Domain + subdomains</option><option value={SeoTargetKinds.host}>Exact host</option></select></label>
         <Button type="button" variant="ghost" className="min-h-11" onClick={() => setTargets(previous => previous.filter((_, targetIndex) => targetIndex !== index))} aria-label={`Remove target ${index + 1}`}>Remove</Button>
       </div>)}
       <Button type="button" variant="secondary" className="min-h-11" disabled={targets.length >= 20} onClick={() => setTargets(previous => [...previous, { kind: SeoTargetKinds.domain, value: '', includeSubdomains: true }])}>Add target</Button>
-    </fieldset>
+    </fieldset>}
     {selectedCapabilities.includes(SeoCapabilities['keyword-metrics']) && <label className="block space-y-1.5 text-sm"><span>Keywords</span><textarea className={`${FIELD} min-h-28`} value={keywords} onChange={event => setKeywords(event.target.value)} placeholder="One keyword per line" /><span className="block text-[13px] text-secondary">Up to 700 keywords, 10 words and 80 characters each. These are explicit search terms for this profile.</span></label>}
-    <div className="grid gap-4 sm:grid-cols-3"><label className="space-y-1.5 text-sm"><span>Provider location code</span><input className={FIELD} type="number" min={1} step={1} required value={locationCode} onChange={event => setLocationCode(event.target.value)} /><span className="block text-[13px] text-secondary">The {source ? PROVIDER_LABELS[source.provider] : 'source'} location identifier.</span></label><label className="space-y-1.5 text-sm"><span>Language code</span><input className={FIELD} required minLength={2} maxLength={10} value={languageCode} onChange={event => setLanguageCode(event.target.value)} /></label><label className="space-y-1.5 text-sm"><span>Ranked rows per target</span><input className={FIELD} type="number" min={1} max={1000} step={1} required value={limit} onChange={event => setLimit(event.target.value)} /></label></div>
+    <div className={`grid gap-4 ${needsRankedLimit ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}><label className="space-y-1.5 text-sm"><span>Provider location code</span><input className={FIELD} type="number" min={1} step={1} required value={locationCode} onChange={event => setLocationCode(event.target.value)} /><span className="block text-[13px] text-secondary">The {source ? PROVIDER_LABELS[source.provider] : 'source'} location identifier.</span></label><label className="space-y-1.5 text-sm"><span>Language code</span><input className={FIELD} required minLength={2} maxLength={10} value={languageCode} onChange={event => setLanguageCode(event.target.value)} /></label>{needsRankedLimit && <label className="space-y-1.5 text-sm"><span>Ranked rows per target</span><input className={FIELD} type="number" min={1} max={1000} step={1} required value={limit} onChange={event => setLimit(event.target.value)} /></label>}</div>
     {error && <p role="alert" className="text-sm text-secondary">{error}</p>}
     <div className="flex flex-wrap gap-2"><Button type="submit" className="min-h-11" disabled={save.isPending || !source || !selectedCapabilities.length}>{save.isPending ? 'Saving…' : 'Save profile'}</Button><Button type="button" variant="ghost" className="min-h-11" onClick={onClose}>Cancel</Button></div>
   </form>
